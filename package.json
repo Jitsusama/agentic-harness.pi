@@ -1,0 +1,11 @@
+{
+  "name": "pi-setup",
+  "version": "0.1.0",
+  "description": "Collaborative coding workflows for pi: planning, TDD, git hygiene, and code investigation.",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./extensions"],
+    "skills": ["./skills"]
+  }
+}
