@@ -16,13 +16,8 @@ import {
 	type ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { Key } from "@mariozechner/pi-tui";
-// Dynamic import — static imports from sibling dirs crash
-// extension loading under pi's jiti module resolution.
-let _gate: typeof import("../shared/gate.js") | null = null;
-async function getGate() {
-	if (!_gate) _gate = await import("../shared/gate.js");
-	return _gate;
-}
+import { showGate, formatSteer } from "../shared/gate.js";
+import { getLastEntry, filterContext } from "../shared/state.js";
 
 type Phase =
 	| "red"
@@ -222,7 +217,6 @@ export default function tddMode(pi: ExtensionAPI) {
 
 		// Non-test file in RED phase — confirm it's a stub
 		if (!ctx.hasUI) return;
-		const { showGate, formatSteer } = await getGate();
 		const result = await showGate(ctx, {
 			content: (theme, _width) => [
 				theme.fg("warning", " Implementation file in RED phase"),
@@ -289,7 +283,6 @@ export default function tddMode(pi: ExtensionAPI) {
 	pi.on("agent_end", async (_event, ctx) => {
 		if (!enabled || !ctx.hasUI || phase !== "refactor") return;
 
-		const { showGate } = await getGate();
 		const result = await showGate(ctx, {
 			content: (theme, _width) => [
 				theme.fg("text", " Tests pass."),
@@ -380,45 +373,26 @@ export default function tddMode(pi: ExtensionAPI) {
 
 	// ---- Filter stale context ----
 
-	pi.on("context", async (event) => {
-		if (enabled) return;
-		return {
-			messages: event.messages.filter((m) => {
-				const msg = m as typeof m & { customType?: string };
-				return msg.customType !== "tdd-mode-context";
-			}),
-		};
-	});
+	pi.on("context", filterContext("tdd-mode-context", () => enabled));
 
 	// ---- Restore state ----
 
-	pi.on("session_start", async (_event, ctx) => {
-		const entries = ctx.sessionManager.getEntries();
-		const last = entries
-			.filter(
-				(e) =>
-					e.type === "custom" &&
-					(e as { customType?: string }).customType ===
-						"tdd-mode",
-			)
-			.pop() as
-			| {
-					data?: {
-						enabled: boolean;
-						phase: Phase;
-						cycle: number;
-						planFile: string | null;
-						totalSteps: number | null;
-					};
-			  }
-			| undefined;
+	interface TddState {
+		enabled: boolean;
+		phase: Phase;
+		cycle: number;
+		planFile: string | null;
+		totalSteps: number | null;
+	}
 
-		if (last?.data) {
-			enabled = last.data.enabled ?? false;
-			phase = last.data.phase ?? "red";
-			cycle = last.data.cycle ?? 1;
-			planFile = last.data.planFile ?? null;
-			totalSteps = last.data.totalSteps ?? null;
+	pi.on("session_start", async (_event, ctx) => {
+		const saved = getLastEntry<TddState>(ctx, "tdd-mode");
+		if (saved) {
+			enabled = saved.enabled ?? false;
+			phase = saved.phase ?? "red";
+			cycle = saved.cycle ?? 1;
+			planFile = saved.planFile ?? null;
+			totalSteps = saved.totalSteps ?? null;
 		}
 
 		updateStatus(ctx);

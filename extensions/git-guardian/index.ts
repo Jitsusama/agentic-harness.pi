@@ -18,14 +18,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-
-// Dynamic import — static imports from sibling files crash
-// extension loading under pi's jiti module resolution.
-let _gate: typeof import("./gate.js") | null = null;
-async function getGate() {
-	if (!_gate) _gate = await import("./gate.js");
-	return _gate;
-}
+import { showGate, formatSteer } from "../shared/gate.js";
 
 // ---- Destructive command patterns ----
 
@@ -239,7 +232,6 @@ async function reviewCommit(
 	const message = extractMessage(command);
 	if (!message) return;
 
-	const { showGate, formatSteer } = await getGate();
 
 	const isAmend = /--amend\b/.test(command);
 	const { prefix, commitPart } = splitAtCommit(command);
@@ -350,7 +342,6 @@ async function confirmDestructive(
 			? "Destructive Command"
 			: "Risky Command";
 
-	const { showGate, formatSteer } = await getGate();
 
 	const result = await showGate(ctx, {
 		content: (theme, _width) => [

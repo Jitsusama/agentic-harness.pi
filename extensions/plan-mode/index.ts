@@ -17,14 +17,8 @@ import {
 import { Key } from "@mariozechner/pi-tui";
 import * as fs from "node:fs";
 import * as path from "node:path";
-
-// Dynamic import — static imports from sibling dirs crash
-// extension loading under pi's jiti module resolution.
-let _gate: typeof import("../shared/gate.js") | null = null;
-async function getGate() {
-	if (!_gate) _gate = await import("../shared/gate.js");
-	return _gate;
-}
+import { showGate } from "../shared/gate.js";
+import { getLastEntry, filterContext } from "../shared/state.js";
 
 const DEFAULT_PLAN_DIR = ".pi/plans";
 
@@ -209,7 +203,6 @@ export default function planMode(pi: ExtensionAPI) {
 		if (!enabled || !ctx.hasUI || !wroteToPlanDir) return;
 		wroteToPlanDir = false;
 
-		const { showGate } = await getGate();
 		const result = await showGate(ctx, {
 			content: (theme, _width) => [
 				theme.fg("text", ` Plan written → ${planDir}`),
@@ -249,37 +242,19 @@ export default function planMode(pi: ExtensionAPI) {
 
 	// ---- Filter stale context when not active ----
 
-	pi.on("context", async (event) => {
-		if (enabled) return;
-		return {
-			messages: event.messages.filter((m) => {
-				const msg = m as typeof m & { customType?: string };
-				return msg.customType !== "plan-mode-context";
-			}),
-		};
-	});
+	pi.on("context", filterContext("plan-mode-context", () => enabled));
 
 	// ---- Restore state on session start ----
 
 	pi.on("session_start", async (_event, ctx) => {
 		planDir = loadPlanDir(ctx.cwd);
 
-		// Restore from persisted state
-		const entries = ctx.sessionManager.getEntries();
-		const last = entries
-			.filter(
-				(e) =>
-					e.type === "custom" &&
-					(e as { customType?: string }).customType ===
-						"plan-mode",
-			)
-			.pop() as
-			| { data?: { enabled: boolean; planDir?: string } }
-			| undefined;
-
-		if (last?.data) {
-			enabled = last.data.enabled ?? enabled;
-			if (last.data.planDir) planDir = last.data.planDir;
+		const saved = getLastEntry<{ enabled: boolean; planDir?: string }>(
+			ctx, "plan-mode",
+		);
+		if (saved) {
+			enabled = saved.enabled ?? enabled;
+			if (saved.planDir) planDir = saved.planDir;
 		}
 
 		// Flag overrides persisted state — explicit user intent
