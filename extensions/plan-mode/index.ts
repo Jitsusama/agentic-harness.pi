@@ -21,10 +21,7 @@ import { showGate } from "../shared/gate.js";
 import { getLastEntry, filterContext } from "../shared/state.js";
 
 const DEFAULT_PLAN_DIR = ".pi/plans";
-
-// Tool sets
 const PLAN_TOOLS = ["read", "write", "bash", "grep", "find", "ls", "ask"];
-const NORMAL_TOOLS = ["read", "bash", "edit", "write"];
 
 // Git-mutating bash commands — blocked in plan mode.
 // Context injection handles intent; this catches accidents.
@@ -34,6 +31,7 @@ export default function planMode(pi: ExtensionAPI) {
 	let enabled = false;
 	let planDir = DEFAULT_PLAN_DIR;
 	let wroteToPlanDir = false;
+	let savedTools: string[] | null = null;
 
 	// ---- Helpers ----
 
@@ -61,28 +59,35 @@ export default function planMode(pi: ExtensionAPI) {
 	function updateStatus(ctx: ExtensionContext): void {
 		ctx.ui.setStatus(
 			"plan-mode",
-			enabled
-				? ctx.ui.theme.fg("warning", "⏸ planning")
-				: undefined,
+			enabled ? ctx.ui.theme.fg("warning", "⏸ planning") : undefined,
 		);
 	}
 
-	function persistState(): void {
-		pi.appendEntry("plan-mode", { enabled, planDir });
-	}
-
 	function activate(ctx: ExtensionContext): void {
+		planDir = loadPlanDir(ctx.cwd);
+		savedTools = pi.getActiveTools();
 		enabled = true;
 		pi.setActiveTools(PLAN_TOOLS);
 		updateStatus(ctx);
-		persistState();
+		pi.appendEntry("plan-mode", { enabled, planDir });
 	}
 
 	function deactivate(ctx: ExtensionContext): void {
 		enabled = false;
-		pi.setActiveTools(NORMAL_TOOLS);
+		pi.setActiveTools(savedTools ?? pi.getActiveTools());
+		savedTools = null;
 		updateStatus(ctx);
-		persistState();
+		pi.appendEntry("plan-mode", { enabled, planDir });
+	}
+
+	function toggle(ctx: ExtensionContext): void {
+		if (enabled) {
+			deactivate(ctx);
+			ctx.ui.notify("Plan mode off.");
+		} else {
+			activate(ctx);
+			ctx.ui.notify(`Plan mode on. Writes → ${planDir}`);
+		}
 	}
 
 	// ---- Flag ----
@@ -97,18 +102,7 @@ export default function planMode(pi: ExtensionAPI) {
 
 	pi.registerCommand("plan", {
 		description: "Toggle plan mode (read-only investigation)",
-		handler: async (_args, ctx) => {
-			if (enabled) {
-				deactivate(ctx);
-				ctx.ui.notify("Plan mode off. Full access restored.");
-			} else {
-				planDir = loadPlanDir(ctx.cwd);
-				activate(ctx);
-				ctx.ui.notify(
-					`Plan mode on. Writes restricted to: ${planDir}`,
-				);
-			}
-		},
+		handler: async (_args, ctx) => toggle(ctx),
 	});
 
 	pi.registerCommand("plan-dir", {
@@ -119,7 +113,7 @@ export default function planMode(pi: ExtensionAPI) {
 				return;
 			}
 			planDir = args.trim();
-			persistState();
+			pi.appendEntry("plan-mode", { enabled, planDir });
 			ctx.ui.notify(`Plan directory: ${planDir}`, "info");
 		},
 	});
@@ -128,18 +122,7 @@ export default function planMode(pi: ExtensionAPI) {
 
 	pi.registerShortcut(Key.ctrlAlt("p"), {
 		description: "Toggle plan mode",
-		handler: async (ctx) => {
-			if (enabled) {
-				deactivate(ctx);
-				ctx.ui.notify("Plan mode off. Full access restored.");
-			} else {
-				planDir = loadPlanDir(ctx.cwd);
-				activate(ctx);
-				ctx.ui.notify(
-					`Plan mode on. Writes restricted to: ${planDir}`,
-				);
-			}
-		},
+		handler: async (ctx) => toggle(ctx),
 	});
 
 	// ---- Tool call interception ----
@@ -147,27 +130,25 @@ export default function planMode(pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (!enabled) return;
 
-		// write/edit: allow only to plan directory
 		if (event.toolName === "write" || event.toolName === "edit") {
 			const filePath = String(
 				(event.input as Record<string, unknown>).path ?? "",
 			);
 			if (isInPlanDir(filePath, ctx.cwd)) {
 				wroteToPlanDir = true;
-				return; // Allow
+				return;
 			}
 			return {
 				block: true,
-				reason: `Plan mode: writes restricted to ${planDir}/. Exit plan mode with /plan first.`,
+				reason: `Plan mode: writes restricted to ${planDir}/. Exit with /plan first.`,
 			};
 		}
 
-		// bash: block git-mutating commands
 		if (isToolCallEventType("bash", event)) {
 			if (GIT_MUTATING.test(event.input.command)) {
 				return {
 					block: true,
-					reason: "Plan mode: git-mutating command blocked. Exit plan mode with /plan first.",
+					reason: "Plan mode: git-mutating command blocked. Exit with /plan first.",
 				};
 			}
 		}
@@ -204,7 +185,7 @@ export default function planMode(pi: ExtensionAPI) {
 		wroteToPlanDir = false;
 
 		const result = await showGate(ctx, {
-			content: (theme, _width) => [
+			content: (theme) => [
 				theme.fg("text", ` Plan written → ${planDir}`),
 			],
 			options: [
@@ -217,27 +198,17 @@ export default function planMode(pi: ExtensionAPI) {
 
 		if (!result || result.value === "stay") return;
 
+		deactivate(ctx);
+
 		if (result.value === "steer") {
-			deactivate(ctx);
-			pi.sendUserMessage(result.feedback!, {
-				deliverAs: "followUp",
-			});
+			pi.sendUserMessage(result.feedback!, { deliverAs: "followUp" });
 			return;
 		}
 
-		deactivate(ctx);
-
-		if (result.value === "tdd") {
-			pi.sendUserMessage(
-				"Let's implement this plan with TDD. Start with step 1.",
-				{ deliverAs: "followUp" },
-			);
-		} else {
-			pi.sendUserMessage(
-				"Let's implement this plan. Start with step 1.",
-				{ deliverAs: "followUp" },
-			);
-		}
+		const msg = result.value === "tdd"
+			? "Let's implement this plan with TDD. Start with step 1."
+			: "Let's implement this plan. Start with step 1.";
+		pi.sendUserMessage(msg, { deliverAs: "followUp" });
 	});
 
 	// ---- Filter stale context when not active ----
@@ -247,17 +218,16 @@ export default function planMode(pi: ExtensionAPI) {
 	// ---- Restore state on session start ----
 
 	pi.on("session_start", async (_event, ctx) => {
-		planDir = loadPlanDir(ctx.cwd);
-
 		const saved = getLastEntry<{ enabled: boolean; planDir?: string }>(
 			ctx, "plan-mode",
 		);
 		if (saved) {
-			enabled = saved.enabled ?? enabled;
-			if (saved.planDir) planDir = saved.planDir;
+			enabled = saved.enabled ?? false;
+			planDir = saved.planDir ?? loadPlanDir(ctx.cwd);
+		} else {
+			planDir = loadPlanDir(ctx.cwd);
 		}
 
-		// Flag overrides persisted state — explicit user intent
 		if (pi.getFlag("plan") === true) {
 			enabled = true;
 		}
