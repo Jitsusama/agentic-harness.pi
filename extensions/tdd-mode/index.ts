@@ -7,30 +7,26 @@
  * proposal.
  *
  * Phases:
- *   RED → RUN_RED → GREEN → RUN_GREEN → REFACTOR → (commit) → RED
+ *   RED → GREEN → REFACTOR → (commit) → RED
  */
 
 import {
-	isToolCallEventType,
+	isBashToolResult,
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { Key } from "@mariozechner/pi-tui";
 import { showGate, formatSteer } from "../shared/gate.js";
 import { getLastEntry, filterContext } from "../shared/state.js";
+import { isTestFile, looksLikeTestRun } from "./patterns.js";
 
-type Phase =
-	| "red"
-	| "run_red"
-	| "green"
-	| "run_green"
-	| "refactor";
+// ---- Phase definitions ----
+
+type Phase = "red" | "green" | "refactor";
 
 const PHASE_LABELS: Record<Phase, string> = {
 	red: "🔴 RED",
-	run_red: "🔴 RUN RED",
 	green: "🟢 GREEN",
-	run_green: "🟢 RUN GREEN",
 	refactor: "🔄 REFACTOR",
 };
 
@@ -42,19 +38,9 @@ const PHASE_INSTRUCTIONS: Record<Phase, string> = {
 		"test to fail for the right reason.",
 		"When the test is written, run it to verify it fails.",
 	].join(" "),
-	run_red: [
-		"Run the test. It should fail. Verify the failure is",
-		"because the functionality doesn't exist yet — not a",
-		"syntax error, import error, or test infrastructure issue.",
-		"If the failure is wrong, stub just enough and re-run.",
-	].join(" "),
 	green: [
 		"Write the minimum code to make the test pass. No more.",
 		"Don't anticipate future needs. When done, run the tests.",
-	].join(" "),
-	run_green: [
-		"Run the tests. They should all pass. If not, fix the",
-		"implementation (not the test) and re-run.",
 	].join(" "),
 	refactor: [
 		"Tests pass. Present the current state to the user.",
@@ -64,21 +50,7 @@ const PHASE_INSTRUCTIONS: Record<Phase, string> = {
 	].join(" "),
 };
 
-// ---- Test file detection ----
-
-const TEST_PATTERNS = [
-	/[._-]test\./i,
-	/[._-]spec\./i,
-	/\.test\./i,
-	/\.spec\./i,
-	/\/__tests__\//,
-	/\/tests?\//,
-	/\/spec\//,
-];
-
-function isTestFile(filePath: string): boolean {
-	return TEST_PATTERNS.some((p) => p.test(filePath));
-}
+// ---- Extension ----
 
 export default function tddMode(pi: ExtensionAPI) {
 	let enabled = false;
@@ -86,139 +58,100 @@ export default function tddMode(pi: ExtensionAPI) {
 	let cycle = 1;
 	let planFile: string | null = null;
 	let totalSteps: number | null = null;
-	let ranTests = false;
 
 	// ---- Helpers ----
 
 	function statusText(ctx: ExtensionContext): string {
 		const label = PHASE_LABELS[phase];
-		const stepInfo = totalSteps
-			? `Step ${cycle}/${totalSteps}`
-			: `Cycle ${cycle}`;
-		return ctx.ui.theme.fg("accent", `${label} — ${stepInfo}`);
+		const step = totalSteps ? `Step ${cycle}/${totalSteps}` : `Cycle ${cycle}`;
+		return ctx.ui.theme.fg("accent", `${label} — ${step}`);
 	}
 
 	function updateStatus(ctx: ExtensionContext): void {
-		ctx.ui.setStatus(
-			"tdd-mode",
-			enabled ? statusText(ctx) : undefined,
-		);
+		ctx.ui.setStatus("tdd-mode", enabled ? statusText(ctx) : undefined);
 	}
 
-	function persistState(): void {
-		pi.appendEntry("tdd-mode", {
-			enabled,
-			phase,
-			cycle,
-			planFile,
-			totalSteps,
-		});
+	function persist(): void {
+		pi.appendEntry("tdd-mode", { enabled, phase, cycle, planFile, totalSteps });
+	}
+
+	function activate(ctx: ExtensionContext, plan?: string): void {
+		enabled = true;
+		phase = "red";
+		cycle = 1;
+		planFile = plan ?? null;
+		totalSteps = null;
+
+		if (planFile) {
+			try {
+				const content = require("node:fs").readFileSync(planFile, "utf-8");
+				const steps = content.match(/^\s*\d+\.\s+/gm);
+				totalSteps = steps?.length ?? null;
+			} catch {}
+		}
+
+		updateStatus(ctx);
+		persist();
+	}
+
+	function deactivate(ctx: ExtensionContext): void {
+		enabled = false;
+		updateStatus(ctx);
+		persist();
+	}
+
+	function toggle(ctx: ExtensionContext, plan?: string): void {
+		if (enabled) {
+			deactivate(ctx);
+			ctx.ui.notify("TDD mode off.");
+		} else {
+			activate(ctx, plan);
+			ctx.ui.notify(
+				planFile
+					? `TDD mode on. Plan: ${planFile} (${totalSteps ?? "?"} steps)`
+					: "TDD mode on.",
+			);
+		}
 	}
 
 	function advance(next: Phase, ctx: ExtensionContext): void {
 		phase = next;
-		ranTests = false;
 		updateStatus(ctx);
 	}
 
 	function nextCycle(ctx: ExtensionContext): void {
 		cycle++;
 		phase = "red";
-		ranTests = false;
 		updateStatus(ctx);
-		persistState();
-	}
-
-	function looksLikeTestRun(command: string): boolean {
-		return /\b(test|jest|vitest|pytest|cargo\s+test|go\s+test|rspec|mocha|ava|tap|phpunit|dotnet\s+test|gradle\s+test|mvn\s+test|mix\s+test|npm\s+t(est)?|yarn\s+test|pnpm\s+test|npx\s+(jest|vitest|mocha))\b/i.test(
-			command,
-		);
+		persist();
 	}
 
 	// ---- Commands ----
 
 	pi.registerCommand("tdd", {
 		description: "Toggle TDD mode, optionally with a plan file",
-		handler: async (args, ctx) => {
-			if (enabled) {
-				enabled = false;
-				updateStatus(ctx);
-				persistState();
-				ctx.ui.notify("TDD mode off.");
-				return;
-			}
-
-			enabled = true;
-			phase = "red";
-			cycle = 1;
-			ranTests = false;
-
-			if (args?.trim()) {
-				planFile = args.trim();
-				try {
-					const { readFileSync } = await import("node:fs");
-					const content = readFileSync(planFile, "utf-8");
-					const steps = content.match(/^\s*\d+\.\s+/gm);
-					totalSteps = steps?.length ?? null;
-				} catch {
-					totalSteps = null;
-				}
-			} else {
-				planFile = null;
-				totalSteps = null;
-			}
-
-			updateStatus(ctx);
-			persistState();
-			ctx.ui.notify(
-				planFile
-					? `TDD mode on. Plan: ${planFile} (${totalSteps ?? "?"} steps)`
-					: "TDD mode on.",
-			);
-		},
+		handler: async (args, ctx) => toggle(ctx, args?.trim() || undefined),
 	});
-
-	// ---- Keyboard shortcut ----
 
 	pi.registerShortcut(Key.ctrlAlt("t"), {
 		description: "Toggle TDD mode",
-		handler: async (ctx) => {
-			if (enabled) {
-				enabled = false;
-				updateStatus(ctx);
-				persistState();
-				ctx.ui.notify("TDD mode off.");
-			} else {
-				enabled = true;
-				phase = "red";
-				cycle = 1;
-				ranTests = false;
-				planFile = null;
-				totalSteps = null;
-				updateStatus(ctx);
-				persistState();
-				ctx.ui.notify("TDD mode on.");
-			}
-		},
+		handler: async (ctx) => toggle(ctx),
 	});
 
 	// ---- RED phase file restriction ----
 
 	pi.on("tool_call", async (event, ctx) => {
-		if (!enabled) return;
-		if (phase !== "red" && phase !== "run_red") return;
-		if (event.toolName !== "write" && event.toolName !== "edit")
-			return;
+		if (!enabled || phase !== "red") return;
+		if (event.toolName !== "write" && event.toolName !== "edit") return;
 
 		const filePath = String(
 			(event.input as Record<string, unknown>).path ?? "",
 		);
-		if (isTestFile(filePath)) return; // Allow test files
-
-		// Non-test file in RED phase — confirm it's a stub
+		if (isTestFile(filePath)) return;
 		if (!ctx.hasUI) return;
+
 		const result = await showGate(ctx, {
-			content: (theme, _width) => [
+			content: (theme) => [
 				theme.fg("warning", " Implementation file in RED phase"),
 				"",
 				` ${theme.fg("text", filePath)}`,
@@ -234,47 +167,34 @@ export default function tddMode(pi: ExtensionAPI) {
 		if (!result || result.value === "block") {
 			return {
 				block: true,
-				reason: `RED phase: write to implementation file blocked. Only test files and minimal stubs allowed. File: ${filePath}`,
+				reason: `RED phase: write to implementation file blocked. File: ${filePath}`,
 			};
 		}
 
 		if (result.value === "steer") {
-			return formatSteer(
-				result.feedback!,
-				`Blocked write to ${filePath} during RED phase.`,
-			);
+			return formatSteer(result.feedback!, `Blocked write to ${filePath} during RED phase.`);
 		}
-
-		// Allow — user confirmed it's a stub
-		return;
 	});
 
-	// ---- Phase transitions via tool observation ----
+	// ---- Phase transitions via test results ----
 
 	pi.on("tool_result", async (event, ctx) => {
 		if (!enabled) return;
-		if (!isToolCallEventType("bash", event as any)) return;
+		if (!isBashToolResult(event)) return;
 
-		const command = String(
-			(event.input as Record<string, unknown>)?.command ?? "",
-		);
+		const command = String(event.input?.command ?? "");
 		if (!looksLikeTestRun(command)) return;
 
-		ranTests = true;
 		const failed =
 			event.isError ||
 			(event.content?.[0] &&
 				"text" in event.content[0] &&
 				/fail|error|FAILED/i.test(event.content[0].text));
 
-		if (phase === "red" || phase === "run_red") {
-			if (failed) {
-				advance("green", ctx);
-			}
-		} else if (phase === "green" || phase === "run_green") {
-			if (!failed) {
-				advance("refactor", ctx);
-			}
+		if (phase === "red" && failed) {
+			advance("green", ctx);
+		} else if (phase === "green" && !failed) {
+			advance("refactor", ctx);
 		}
 	});
 
@@ -284,15 +204,10 @@ export default function tddMode(pi: ExtensionAPI) {
 		if (!enabled || !ctx.hasUI || phase !== "refactor") return;
 
 		const result = await showGate(ctx, {
-			content: (theme, _width) => [
-				theme.fg("text", " Tests pass."),
-			],
+			content: (theme) => [theme.fg("text", " Tests pass.")],
 			options: [
 				{ label: "Refactor the test", value: "refactor-test" },
-				{
-					label: "Refactor the implementation",
-					value: "refactor-impl",
-				},
+				{ label: "Refactor the implementation", value: "refactor-impl" },
 				{ label: "Commit and continue", value: "commit-continue" },
 				{ label: "Commit and stop TDD", value: "commit-stop" },
 			],
@@ -302,15 +217,13 @@ export default function tddMode(pi: ExtensionAPI) {
 		if (!result) return;
 
 		if (result.value === "steer") {
-			pi.sendUserMessage(result.feedback!, {
-				deliverAs: "followUp",
-			});
+			pi.sendUserMessage(result.feedback!, { deliverAs: "followUp" });
 			return;
 		}
 
 		if (result.value === "refactor-test") {
 			pi.sendUserMessage(
-				"Refactor the test. Run tests after changes to make sure they still pass.",
+				"Refactor the test. Run tests after changes.",
 				{ deliverAs: "followUp" },
 			);
 			return;
@@ -318,30 +231,26 @@ export default function tddMode(pi: ExtensionAPI) {
 
 		if (result.value === "refactor-impl") {
 			pi.sendUserMessage(
-				"Refactor the implementation. Run tests after changes to make sure they still pass.",
+				"Refactor the implementation. Run tests after changes.",
 				{ deliverAs: "followUp" },
 			);
 			return;
 		}
 
 		if (result.value === "commit-stop") {
+			deactivate(ctx);
 			pi.sendUserMessage(
 				"Commit this work with a well-crafted commit message.",
 				{ deliverAs: "followUp" },
 			);
-			enabled = false;
-			updateStatus(ctx);
-			persistState();
 			return;
 		}
 
 		// commit-continue
 		nextCycle(ctx);
-		const stepContext = totalSteps
-			? ` Move on to step ${cycle}.`
-			: "";
+		const step = totalSteps ? ` Move on to step ${cycle}.` : "";
 		pi.sendUserMessage(
-			`Commit this work with a well-crafted commit message.${stepContext}`,
+			`Commit this work with a well-crafted commit message.${step}`,
 			{ deliverAs: "followUp" },
 		);
 	});
@@ -351,7 +260,7 @@ export default function tddMode(pi: ExtensionAPI) {
 	pi.on("before_agent_start", async () => {
 		if (!enabled) return;
 
-		const planContext = planFile
+		const planNote = planFile
 			? `\nPlan file: ${planFile} — refer to it for the current step.`
 			: "";
 
@@ -362,16 +271,12 @@ export default function tddMode(pi: ExtensionAPI) {
 					`[TDD MODE — ${PHASE_LABELS[phase]}]`,
 					"",
 					PHASE_INSTRUCTIONS[phase],
-					planContext,
-				]
-					.filter(Boolean)
-					.join("\n"),
+					planNote,
+				].filter(Boolean).join("\n"),
 				display: false,
 			},
 		};
 	});
-
-	// ---- Filter stale context ----
 
 	pi.on("context", filterContext("tdd-mode-context", () => enabled));
 
@@ -394,7 +299,6 @@ export default function tddMode(pi: ExtensionAPI) {
 			planFile = saved.planFile ?? null;
 			totalSteps = saved.totalSteps ?? null;
 		}
-
 		updateStatus(ctx);
 	});
 }
