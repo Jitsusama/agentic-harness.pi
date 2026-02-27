@@ -2,9 +2,8 @@
  * Plan Mode Extension
  *
  * Read-only investigation mode for collaborative planning.
- * When active, code modifications are blocked — writes are only
- * allowed to the plan directory. Destructive bash commands are
- * blocked via a blocklist.
+ * When active, tools are restricted via setActiveTools() and
+ * writes are only allowed to the plan directory.
  *
  * The planning skill teaches the methodology. This extension
  * enforces the guardrails.
@@ -15,41 +14,32 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import { Key } from "@mariozechner/pi-tui";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+// Dynamic import — static imports from sibling dirs crash
+// extension loading under pi's jiti module resolution.
+let _gate: typeof import("../shared/gate.js") | null = null;
+async function getGate() {
+	if (!_gate) _gate = await import("../shared/gate.js");
+	return _gate;
+}
+
 const DEFAULT_PLAN_DIR = ".pi/plans";
 
-// Destructive bash patterns — blocked in plan mode.
-// Blocklist approach: block known destructive patterns, allow
-// everything else. Less surprising than an allowlist.
-const DESTRUCTIVE_BASH = [
-	/\brm\b/,
-	/\brmdir\b/,
-	/\bmv\b/,
-	/\bmkdir\b/,
-	/\btouch\b/,
-	/\bchmod\b/,
-	/\bchown\b/,
-	/\btruncate\b/,
-	/\bdd\b/,
-	/(?:^|[^<])>(?!>)/, // redirect (but not >>)
-	/>>/,
-	/\btee\b/,
-	/\bnpm\s+(install|uninstall|update|ci|link|publish)/i,
-	/\byarn\s+(add|remove|install|publish)/i,
-	/\bpnpm\s+(add|remove|install|publish)/i,
-	/\bpip\s+(install|uninstall)/i,
-	/\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|stash|cherry-pick|revert|tag)/i,
-	/\bsudo\b/,
-	/\bkill\b/,
-	/\b(vim?|nano|emacs|code|subl)\b/,
-];
+// Tool sets
+const PLAN_TOOLS = ["read", "write", "bash", "grep", "find", "ls", "ask"];
+const NORMAL_TOOLS = ["read", "bash", "edit", "write"];
+
+// Git-mutating bash commands — blocked in plan mode.
+// Context injection handles intent; this catches accidents.
+const GIT_MUTATING = /\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|stash|cherry-pick|revert|tag)\b/i;
 
 export default function planMode(pi: ExtensionAPI) {
 	let enabled = false;
 	let planDir = DEFAULT_PLAN_DIR;
-	let wroteToplanDir = false;
+	let wroteToPlanDir = false;
 
 	// ---- Helpers ----
 
@@ -68,8 +58,10 @@ export default function planMode(pi: ExtensionAPI) {
 	function isInPlanDir(filePath: string, cwd: string): boolean {
 		const resolved = path.resolve(cwd, filePath);
 		const resolvedPlanDir = path.resolve(cwd, planDir);
-		return resolved.startsWith(resolvedPlanDir + path.sep) ||
-			resolved === resolvedPlanDir;
+		return (
+			resolved.startsWith(resolvedPlanDir + path.sep) ||
+			resolved === resolvedPlanDir
+		);
 	}
 
 	function updateStatus(ctx: ExtensionContext): void {
@@ -83,6 +75,20 @@ export default function planMode(pi: ExtensionAPI) {
 
 	function persistState(): void {
 		pi.appendEntry("plan-mode", { enabled, planDir });
+	}
+
+	function activate(ctx: ExtensionContext): void {
+		enabled = true;
+		pi.setActiveTools(PLAN_TOOLS);
+		updateStatus(ctx);
+		persistState();
+	}
+
+	function deactivate(ctx: ExtensionContext): void {
+		enabled = false;
+		pi.setActiveTools(NORMAL_TOOLS);
+		updateStatus(ctx);
+		persistState();
 	}
 
 	// ---- Flag ----
@@ -99,15 +105,11 @@ export default function planMode(pi: ExtensionAPI) {
 		description: "Toggle plan mode (read-only investigation)",
 		handler: async (_args, ctx) => {
 			if (enabled) {
-				enabled = false;
-				updateStatus(ctx);
-				persistState();
+				deactivate(ctx);
 				ctx.ui.notify("Plan mode off. Full access restored.");
 			} else {
 				planDir = loadPlanDir(ctx.cwd);
-				enabled = true;
-				updateStatus(ctx);
-				persistState();
+				activate(ctx);
 				ctx.ui.notify(
 					`Plan mode on. Writes restricted to: ${planDir}`,
 				);
@@ -128,6 +130,24 @@ export default function planMode(pi: ExtensionAPI) {
 		},
 	});
 
+	// ---- Keyboard shortcut ----
+
+	pi.registerShortcut(Key.ctrlAlt("p"), {
+		description: "Toggle plan mode",
+		handler: async (ctx) => {
+			if (enabled) {
+				deactivate(ctx);
+				ctx.ui.notify("Plan mode off. Full access restored.");
+			} else {
+				planDir = loadPlanDir(ctx.cwd);
+				activate(ctx);
+				ctx.ui.notify(
+					`Plan mode on. Writes restricted to: ${planDir}`,
+				);
+			}
+		},
+	});
+
 	// ---- Tool call interception ----
 
 	pi.on("tool_call", async (event, ctx) => {
@@ -139,7 +159,7 @@ export default function planMode(pi: ExtensionAPI) {
 				(event.input as Record<string, unknown>).path ?? "",
 			);
 			if (isInPlanDir(filePath, ctx.cwd)) {
-				wroteToplanDir = true;
+				wroteToPlanDir = true;
 				return; // Allow
 			}
 			return {
@@ -148,13 +168,12 @@ export default function planMode(pi: ExtensionAPI) {
 			};
 		}
 
-		// bash: block destructive commands
+		// bash: block git-mutating commands
 		if (isToolCallEventType("bash", event)) {
-			const command = event.input.command;
-			if (DESTRUCTIVE_BASH.some((p) => p.test(command))) {
+			if (GIT_MUTATING.test(event.input.command)) {
 				return {
 					block: true,
-					reason: "Plan mode: destructive command blocked. Exit plan mode with /plan first.",
+					reason: "Plan mode: git-mutating command blocked. Exit plan mode with /plan first.",
 				};
 			}
 		}
@@ -187,22 +206,35 @@ export default function planMode(pi: ExtensionAPI) {
 	// ---- Transition after plan is written ----
 
 	pi.on("agent_end", async (_event, ctx) => {
-		if (!enabled || !ctx.hasUI || !wroteToplanDir) return;
-		wroteToplanDir = false;
+		if (!enabled || !ctx.hasUI || !wroteToPlanDir) return;
+		wroteToPlanDir = false;
 
-		const choice = await ctx.ui.select("Plan written. What next?", [
-			"Implement with TDD",
-			"Free-form implementation",
-			"Stay in planning",
-		]);
+		const { showGate } = await getGate();
+		const result = await showGate(ctx, {
+			content: (theme, _width) => [
+				theme.fg("text", ` Plan written → ${planDir}`),
+			],
+			options: [
+				{ label: "Implement with TDD", value: "tdd" },
+				{ label: "Implement free-form", value: "freeform" },
+				{ label: "Stay in planning", value: "stay" },
+			],
+			steerContext: "",
+		});
 
-		if (choice === "Stay in planning" || !choice) return;
+		if (!result || result.value === "stay") return;
 
-		enabled = false;
-		updateStatus(ctx);
-		persistState();
+		if (result.value === "steer") {
+			deactivate(ctx);
+			pi.sendUserMessage(result.feedback!, {
+				deliverAs: "followUp",
+			});
+			return;
+		}
 
-		if (choice === "Implement with TDD") {
+		deactivate(ctx);
+
+		if (result.value === "tdd") {
 			pi.sendUserMessage(
 				"Let's implement this plan with TDD. Start with step 1.",
 				{ deliverAs: "followUp" },
@@ -232,17 +264,14 @@ export default function planMode(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		planDir = loadPlanDir(ctx.cwd);
 
-		if (pi.getFlag("plan") === true) {
-			enabled = true;
-		}
-
 		// Restore from persisted state
 		const entries = ctx.sessionManager.getEntries();
 		const last = entries
 			.filter(
 				(e) =>
 					e.type === "custom" &&
-					(e as { customType?: string }).customType === "plan-mode",
+					(e as { customType?: string }).customType ===
+						"plan-mode",
 			)
 			.pop() as
 			| { data?: { enabled: boolean; planDir?: string } }
@@ -251,6 +280,15 @@ export default function planMode(pi: ExtensionAPI) {
 		if (last?.data) {
 			enabled = last.data.enabled ?? enabled;
 			if (last.data.planDir) planDir = last.data.planDir;
+		}
+
+		// Flag overrides persisted state — explicit user intent
+		if (pi.getFlag("plan") === true) {
+			enabled = true;
+		}
+
+		if (enabled) {
+			pi.setActiveTools(PLAN_TOOLS);
 		}
 
 		updateStatus(ctx);

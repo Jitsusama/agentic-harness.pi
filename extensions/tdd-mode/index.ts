@@ -8,12 +8,6 @@
  *
  * Phases:
  *   RED → RUN_RED → GREEN → RUN_GREEN → REFACTOR → (commit) → RED
- *
- * The VALIDATE_RED sub-phase (checking failure reasons) is handled
- * by context injection — the agent is told to verify the failure
- * reason and stub if needed, re-running until the failure is real.
- * This keeps the state machine simple while the skill provides
- * the nuance.
  */
 
 import {
@@ -21,6 +15,14 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import { Key } from "@mariozechner/pi-tui";
+// Dynamic import — static imports from sibling dirs crash
+// extension loading under pi's jiti module resolution.
+let _gate: typeof import("../shared/gate.js") | null = null;
+async function getGate() {
+	if (!_gate) _gate = await import("../shared/gate.js");
+	return _gate;
+}
 
 type Phase =
 	| "red"
@@ -66,6 +68,22 @@ const PHASE_INSTRUCTIONS: Record<Phase, string> = {
 		"refactor change.",
 	].join(" "),
 };
+
+// ---- Test file detection ----
+
+const TEST_PATTERNS = [
+	/[._-]test\./i,
+	/[._-]spec\./i,
+	/\.test\./i,
+	/\.spec\./i,
+	/\/__tests__\//,
+	/\/tests?\//,
+	/\/spec\//,
+];
+
+function isTestFile(filePath: string): boolean {
+	return TEST_PATTERNS.some((p) => p.test(filePath));
+}
 
 export default function tddMode(pi: ExtensionAPI) {
 	let enabled = false;
@@ -116,9 +134,10 @@ export default function tddMode(pi: ExtensionAPI) {
 		persistState();
 	}
 
-	// Detect test execution in bash commands
 	function looksLikeTestRun(command: string): boolean {
-		return /\b(test|jest|vitest|pytest|cargo\s+test|go\s+test|rspec|mocha|ava|tap|phpunit|dotnet\s+test|gradle\s+test|mvn\s+test|mix\s+test|npm\s+t(est)?|yarn\s+test|pnpm\s+test|npx\s+(jest|vitest|mocha))\b/i.test(command);
+		return /\b(test|jest|vitest|pytest|cargo\s+test|go\s+test|rspec|mocha|ava|tap|phpunit|dotnet\s+test|gradle\s+test|mvn\s+test|mix\s+test|npm\s+t(est)?|yarn\s+test|pnpm\s+test|npx\s+(jest|vitest|mocha))\b/i.test(
+			command,
+		);
 	}
 
 	// ---- Commands ----
@@ -141,7 +160,6 @@ export default function tddMode(pi: ExtensionAPI) {
 
 			if (args?.trim()) {
 				planFile = args.trim();
-				// Try to count steps from the plan
 				try {
 					const { readFileSync } = await import("node:fs");
 					const content = readFileSync(planFile, "utf-8");
@@ -165,6 +183,78 @@ export default function tddMode(pi: ExtensionAPI) {
 		},
 	});
 
+	// ---- Keyboard shortcut ----
+
+	pi.registerShortcut(Key.ctrlAlt("t"), {
+		description: "Toggle TDD mode",
+		handler: async (ctx) => {
+			if (enabled) {
+				enabled = false;
+				updateStatus(ctx);
+				persistState();
+				ctx.ui.notify("TDD mode off.");
+			} else {
+				enabled = true;
+				phase = "red";
+				cycle = 1;
+				ranTests = false;
+				planFile = null;
+				totalSteps = null;
+				updateStatus(ctx);
+				persistState();
+				ctx.ui.notify("TDD mode on.");
+			}
+		},
+	});
+
+	// ---- RED phase file restriction ----
+
+	pi.on("tool_call", async (event, ctx) => {
+		if (!enabled) return;
+		if (phase !== "red" && phase !== "run_red") return;
+		if (event.toolName !== "write" && event.toolName !== "edit")
+			return;
+
+		const filePath = String(
+			(event.input as Record<string, unknown>).path ?? "",
+		);
+		if (isTestFile(filePath)) return; // Allow test files
+
+		// Non-test file in RED phase — confirm it's a stub
+		if (!ctx.hasUI) return;
+		const { showGate, formatSteer } = await getGate();
+		const result = await showGate(ctx, {
+			content: (theme, _width) => [
+				theme.fg("warning", " Implementation file in RED phase"),
+				"",
+				` ${theme.fg("text", filePath)}`,
+				` ${theme.fg("muted", "RED phase is for tests and minimal stubs only.")}`,
+			],
+			options: [
+				{ label: "Allow — minimal stub", value: "allow" },
+				{ label: "Block", value: "block" },
+			],
+			steerContext: `File: ${filePath}\nPhase: RED — should only modify test files and minimal stubs.`,
+		});
+
+		if (!result || result.value === "block") {
+			return {
+				block: true,
+				reason: `RED phase: write to implementation file blocked. Only test files and minimal stubs allowed. File: ${filePath}`,
+			};
+		}
+
+		if (result.value === "steer") {
+			return formatSteer(
+				result.feedback!,
+				`Blocked write to ${filePath} during RED phase.`,
+			);
+		}
+
+		// Allow — user confirmed it's a stub
+		return;
+	});
+
 	// ---- Phase transitions via tool observation ----
 
 	pi.on("tool_result", async (event, ctx) => {
@@ -177,24 +267,20 @@ export default function tddMode(pi: ExtensionAPI) {
 		if (!looksLikeTestRun(command)) return;
 
 		ranTests = true;
-		const failed = event.isError ||
+		const failed =
+			event.isError ||
 			(event.content?.[0] &&
 				"text" in event.content[0] &&
 				/fail|error|FAILED/i.test(event.content[0].text));
 
 		if (phase === "red" || phase === "run_red") {
 			if (failed) {
-				// Tests failed — move to green
 				advance("green", ctx);
 			}
-			// Tests passed in red phase — unusual, context injection
-			// will tell the agent the test should be failing
 		} else if (phase === "green" || phase === "run_green") {
 			if (!failed) {
-				// Tests pass — move to refactor gate
 				advance("refactor", ctx);
 			}
-			// Tests still failing — stay in green, agent keeps working
 		}
 	});
 
@@ -203,17 +289,33 @@ export default function tddMode(pi: ExtensionAPI) {
 	pi.on("agent_end", async (_event, ctx) => {
 		if (!enabled || !ctx.hasUI || phase !== "refactor") return;
 
-		const choice = await ctx.ui.select(
-			"Tests pass. What next?",
-			[
-				"Refactor the test",
-				"Refactor the implementation",
-				"Commit and continue",
-				"Commit and stop TDD",
+		const { showGate } = await getGate();
+		const result = await showGate(ctx, {
+			content: (theme, _width) => [
+				theme.fg("text", " Tests pass."),
 			],
-		);
+			options: [
+				{ label: "Refactor the test", value: "refactor-test" },
+				{
+					label: "Refactor the implementation",
+					value: "refactor-impl",
+				},
+				{ label: "Commit and continue", value: "commit-continue" },
+				{ label: "Commit and stop TDD", value: "commit-stop" },
+			],
+			steerContext: "",
+		});
 
-		if (choice === "Refactor the test") {
+		if (!result) return;
+
+		if (result.value === "steer") {
+			pi.sendUserMessage(result.feedback!, {
+				deliverAs: "followUp",
+			});
+			return;
+		}
+
+		if (result.value === "refactor-test") {
 			pi.sendUserMessage(
 				"Refactor the test. Run tests after changes to make sure they still pass.",
 				{ deliverAs: "followUp" },
@@ -221,7 +323,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			return;
 		}
 
-		if (choice === "Refactor the implementation") {
+		if (result.value === "refactor-impl") {
 			pi.sendUserMessage(
 				"Refactor the implementation. Run tests after changes to make sure they still pass.",
 				{ deliverAs: "followUp" },
@@ -229,8 +331,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			return;
 		}
 
-		// Commit — the git-guardian will handle the review
-		if (choice === "Commit and stop TDD") {
+		if (result.value === "commit-stop") {
 			pi.sendUserMessage(
 				"Commit this work with a well-crafted commit message.",
 				{ deliverAs: "followUp" },
@@ -241,7 +342,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			return;
 		}
 
-		// Commit and continue
+		// commit-continue
 		nextCycle(ctx);
 		const stepContext = totalSteps
 			? ` Move on to step ${cycle}.`
@@ -297,7 +398,8 @@ export default function tddMode(pi: ExtensionAPI) {
 			.filter(
 				(e) =>
 					e.type === "custom" &&
-					(e as { customType?: string }).customType === "tdd-mode",
+					(e as { customType?: string }).customType ===
+						"tdd-mode",
 			)
 			.pop() as
 			| {

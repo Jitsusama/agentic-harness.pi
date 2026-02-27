@@ -5,9 +5,9 @@
  * teaches the agent to write good messages in heredoc format —
  * this extension just lets you review before anything lands.
  *
- * 1. Commit review — intercepts git commit, shows the message,
- *    and lets you approve, steer, edit, or reject.
- *    Normalizes all commits to heredoc format on execution.
+ * 1. Commit review — intercepts git commit, shows the message
+ *    with validation indicators, and lets you approve, edit,
+ *    steer, or reject. Normalizes all commits to heredoc format.
  *
  * 2. Destructive command protection — confirms before dangerous
  *    git operations with the same steer option.
@@ -19,8 +19,15 @@ import {
 	type ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 
+// Dynamic import — static imports from sibling files crash
+// extension loading under pi's jiti module resolution.
+let _gate: typeof import("./gate.js") | null = null;
+async function getGate() {
+	if (!_gate) _gate = await import("./gate.js");
+	return _gate;
+}
+
 // ---- Destructive command patterns ----
-// More specific first — first match wins.
 
 type Severity = "irrecoverable" | "risky";
 
@@ -76,26 +83,108 @@ const DESTRUCTIVE_PATTERNS: {
 	},
 ];
 
+// ---- Commit message validation ----
+
+interface CommitValidation {
+	subjectLength: number;
+	subjectOk: boolean;
+	bodyWrapOk: boolean;
+	bodyLongestLine: number;
+	bodyLongestLineNum: number;
+	conventionalOk: boolean;
+}
+
+function validateMessage(message: string): CommitValidation {
+	const lines = message.split("\n");
+	const subject = lines[0] || "";
+	const bodyLines = lines.length > 2 ? lines.slice(2) : [];
+
+	const subjectLength = subject.length;
+	const subjectOk = subjectLength <= 50;
+
+	let bodyLongestLine = 0;
+	let bodyLongestLineNum = 0;
+	for (let i = 0; i < bodyLines.length; i++) {
+		if (bodyLines[i].length > bodyLongestLine) {
+			bodyLongestLine = bodyLines[i].length;
+			bodyLongestLineNum = i + 3;
+		}
+	}
+	const bodyWrapOk = bodyLongestLine <= 72;
+
+	const conventionalOk = /^[a-z]+(\([a-z0-9/_-]+\))?!?:\s/.test(
+		subject,
+	);
+
+	return {
+		subjectLength,
+		subjectOk,
+		bodyWrapOk,
+		bodyLongestLine,
+		bodyLongestLineNum,
+		conventionalOk,
+	};
+}
+
+function renderValidation(
+	v: CommitValidation,
+	theme: { fg: (color: string, text: string) => string },
+): string {
+	const parts: string[] = [];
+	const dot = theme.fg("dim", " · ");
+
+	if (v.subjectOk) {
+		parts.push(theme.fg("success", `✓ ${v.subjectLength} chars`));
+	} else {
+		parts.push(
+			theme.fg(
+				"warning",
+				`⚠ ${v.subjectLength} chars (limit: 50)`,
+			),
+		);
+	}
+
+	if (v.bodyLongestLine > 0) {
+		if (v.bodyWrapOk) {
+			parts.push(theme.fg("success", "✓ wrap"));
+		} else {
+			parts.push(
+				theme.fg(
+					"warning",
+					`⚠ line ${v.bodyLongestLineNum}: ${v.bodyLongestLine} chars`,
+				),
+			);
+		}
+	}
+
+	if (v.conventionalOk) {
+		parts.push(theme.fg("success", "✓ conventional"));
+	} else {
+		parts.push(theme.fg("warning", "⚠ not conventional"));
+	}
+
+	return ` ${parts.join(dot)}`;
+}
+
 // ---- Message extraction ----
-// Heredoc is the expected format (taught by the conventional-commits
-// skill). The -m fallback handles the case where the agent doesn't
-// follow the skill.
 
 function extractMessage(command: string): string | null {
-	// Heredoc: <<'DELIM' or <<DELIM
 	const heredoc = command.match(
 		/<<-?\s*['"]?(\w+)['"]?\s*\n([\s\S]*?)\n\1\s*$/,
 	);
 	if (heredoc) return heredoc[2]!;
 
-	// Fallback: -m "..." (normalize -am first)
 	const normalized = command.replace(/-am\s+/g, "-a -m ");
 	const messages: string[] = [];
-	const re = /(?:^|\s)-m\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+))/g;
+	const re =
+		/(?:^|\s)-m\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+))/g;
 	let match;
 	while ((match = re.exec(normalized)) !== null) {
 		messages.push(
-			(match[1] ?? match[2] ?? match[3] ?? "").replace(/\\(.)/g, "$1"),
+			(match[1] ?? match[2] ?? match[3] ?? "").replace(
+				/\\(.)/g,
+				"$1",
+			),
 		);
 	}
 	return messages.length > 0 ? messages.join("\n\n") : null;
@@ -139,42 +228,18 @@ function buildHeredoc(message: string, flags: string[]): string {
 	].join("\n");
 }
 
-// ---- Shared steer flow ----
-// Both gates use: approve, steer (natural language feedback), reject.
-// Commit review adds edit (manual rewrite).
-
-async function steer(
-	ctx: ExtensionContext,
-	blockedCommand: string,
-	context: string,
-): Promise<{ block: true; reason: string }> {
-	const feedback = await ctx.ui.input("Feedback:");
-	if (!feedback?.trim()) {
-		return { block: true, reason: `User blocked: ${blockedCommand}` };
-	}
-	return {
-		block: true,
-		reason: [
-			"User wants a different approach.",
-			"",
-			`Feedback: ${feedback.trim()}`,
-			"",
-			context,
-			"",
-			"Adjust based on the feedback and try again.",
-		].join("\n"),
-	};
-}
-
 // ---- Commit review ----
 
 async function reviewCommit(
-	command: string,
+	event: { input: { command: string } },
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 ): Promise<{ block: true; reason: string } | undefined> {
+	const command = event.input.command;
 	const message = extractMessage(command);
-	if (!message) return; // No message extractable — let through
+	if (!message) return;
+
+	const { showGate, formatSteer } = await getGate();
 
 	const isAmend = /--amend\b/.test(command);
 	const { prefix, commitPart } = splitAtCommit(command);
@@ -182,51 +247,70 @@ async function reviewCommit(
 	let current = message;
 
 	while (true) {
-		const indented = current
-			.split("\n")
-			.map((l) => `  ${l}`)
-			.join("\n");
-		const amendNote = isAmend ? "\n⚠ Amends previous commit" : "";
+		const validation = validateMessage(current);
+		const subject = current.split("\n")[0] || "";
+		const bodyLines = current.split("\n").slice(2);
 
-		const title = `Commit Review\n\n${indented}${amendNote}`;
+		const result = await showGate(ctx, {
+			content: (theme, _width) => {
+				const lines: string[] = [];
 
-		const choice = await ctx.ui.select(title, [
-			"Approve",
-			"Steer",
-			"Edit",
-			"Reject",
-		]);
+				// Subject line
+				lines.push(theme.fg("text", ` ${subject}`));
 
-		if (choice === "Approve") {
-			if (prefix) {
-				const pre = await pi.exec("bash", ["-c", prefix]);
-				if (pre.code !== 0) {
-					return {
-						block: true,
-						reason: `Pre-commit command failed:\n${(pre.stdout + pre.stderr).trim()}`,
-					};
+				// Body
+				if (bodyLines.length > 0) {
+					lines.push("");
+					for (const line of bodyLines) {
+						lines.push(` ${theme.fg("text", line)}`);
+					}
 				}
-			}
-			const heredoc = buildHeredoc(current, flags);
-			const result = await pi.exec("bash", ["-c", heredoc]);
-			const output = [result.stdout, result.stderr]
-				.filter(Boolean)
-				.join("\n")
-				.trim();
-			if (result.code !== 0) {
-				return { block: true, reason: `Commit failed:\n${output}` };
-			}
+
+				// Amend note
+				if (isAmend) {
+					lines.push("");
+					lines.push(
+						theme.fg("warning", " ⚠ Amends previous commit"),
+					);
+				}
+
+				// Validation
+				lines.push("");
+				lines.push(renderValidation(validation, theme));
+
+				return lines;
+			},
+			options: [
+				{ label: "Approve", value: "approve" },
+				{ label: "Edit", value: "edit" },
+				{ label: "Reject", value: "reject" },
+			],
+			steerContext: current,
+		});
+
+		if (!result) {
 			return {
 				block: true,
-				reason: output || `Committed:\n\n${current}`,
+				reason: "User cancelled the commit review.",
 			};
 		}
 
-		if (choice === "Steer") {
-			return steer(ctx, command, `Original message:\n${current}`);
+		if (result.value === "approve") {
+			if (current !== message) {
+				// Message was edited — rewrite the original command
+				// so the bash tool executes with the updated message.
+				const heredoc = buildHeredoc(current, flags);
+				const fullCmd = prefix
+					? `${prefix} && ${heredoc}`
+					: heredoc;
+				(event.input as { command: string }).command = fullCmd;
+			}
+			// Let the (possibly rewritten) original command run
+			// normally — output renders in default color.
+			return;
 		}
 
-		if (choice === "Edit") {
+		if (result.value === "edit") {
 			const edited = await ctx.ui.editor(
 				"Edit commit message:",
 				current,
@@ -237,6 +321,14 @@ async function reviewCommit(
 			continue;
 		}
 
+		if (result.value === "steer") {
+			return formatSteer(
+				result.feedback!,
+				`Original message:\n${current}`,
+			);
+		}
+
+		// Reject
 		return {
 			block: true,
 			reason: "User rejected the commit. Ask for guidance on the commit message.",
@@ -258,19 +350,35 @@ async function confirmDestructive(
 			? "Destructive Command"
 			: "Risky Command";
 
-	const title = `${icon} ${label}\n\n  ${command}\n\n${description}`;
+	const { showGate, formatSteer } = await getGate();
 
-	const choice = await ctx.ui.select(title, [
-		"Allow",
-		"Steer",
-		"Block",
-	]);
+	const result = await showGate(ctx, {
+		content: (theme, _width) => [
+			theme.fg("text", ` ${icon} ${label}`),
+			"",
+			` ${theme.fg("text", command)}`,
+			` ${theme.fg("muted", description)}`,
+		],
+		options: [
+			{ label: "Allow", value: "allow" },
+			{ label: "Block", value: "block" },
+		],
+		steerContext: command,
+	});
 
-	if (choice === "Allow") return;
-	if (choice === "Steer") {
-		return steer(ctx, command, `Blocked command: ${command}`);
+	if (!result || result.value === "block") {
+		return { block: true, reason: `User blocked: ${command}` };
 	}
-	return { block: true, reason: `User blocked: ${command}` };
+
+	if (result.value === "steer") {
+		return formatSteer(
+			result.feedback!,
+			`Blocked command: ${command}`,
+		);
+	}
+
+	// Allow
+	return;
 }
 
 // ---- Extension entry point ----
@@ -283,12 +391,21 @@ export default function gitGuardian(pi: ExtensionAPI) {
 		const command = event.input.command;
 
 		if (/\bgit\s+commit\b/.test(command)) {
-			return reviewCommit(command, pi, ctx);
+			return reviewCommit(event, pi, ctx);
 		}
 
-		for (const { pattern, severity, description } of DESTRUCTIVE_PATTERNS) {
+		for (const {
+			pattern,
+			severity,
+			description,
+		} of DESTRUCTIVE_PATTERNS) {
 			if (pattern.test(command)) {
-				return confirmDestructive(command, severity, description, ctx);
+				return confirmDestructive(
+					command,
+					severity,
+					description,
+					ctx,
+				);
 			}
 		}
 	});

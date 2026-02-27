@@ -12,7 +12,7 @@ description: >
 
 1. **Understand the goal** — what are we trying to accomplish and why
 2. **Investigate** — read the relevant code, understand the current state
-3. **Ask questions** — use the questionnaire tool for structured input,
+3. **Ask questions** — use the ask tool for structured input,
    or ask through conversation for open-ended discussion
 4. **Summarize findings** — present what you learned, concisely
 5. **Propose an approach** — high-level strategy, invite feedback

@@ -1,5 +1,5 @@
 /**
- * Questionnaire — reusable structured question tool.
+ * Ask — reusable structured question tool.
  *
  * Single question: simple options list.
  * Multiple questions: tab bar navigation between questions.
@@ -7,8 +7,6 @@
  *
  * Standalone — any skill or extension can rely on this tool
  * being available (planning, TDD, general conversation).
- *
- * Based on pi's questionnaire example.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -40,7 +38,7 @@ interface Answer {
 	index?: number;
 }
 
-interface QuestionnaireResult {
+interface AskResult {
 	questions: Question[];
 	answers: Answer[];
 	cancelled: boolean;
@@ -65,27 +63,27 @@ const QuestionSchema = Type.Object({
 	allowOther: Type.Optional(Type.Boolean({ description: "Allow 'Type something' option (default: true)" })),
 });
 
-const QuestionnaireParams = Type.Object({
+const AskParams = Type.Object({
 	questions: Type.Array(QuestionSchema, { description: "Questions to ask the user" }),
 });
 
 function errorResult(
 	message: string,
 	questions: Question[] = [],
-): { content: { type: "text"; text: string }[]; details: QuestionnaireResult } {
+): { content: { type: "text"; text: string }[]; details: AskResult } {
 	return {
 		content: [{ type: "text", text: message }],
 		details: { questions, answers: [], cancelled: true },
 	};
 }
 
-export default function questionnaire(pi: ExtensionAPI) {
+export default function ask(pi: ExtensionAPI) {
 	pi.registerTool({
-		name: "questionnaire",
-		label: "Questionnaire",
+		name: "ask",
+		label: "Ask",
 		description:
 			"Ask the user one or more questions. Use for clarifying requirements, getting preferences, or confirming decisions. For single questions, shows a simple option list. For multiple questions, shows a tab-based interface.",
-		parameters: QuestionnaireParams,
+		parameters: AskParams,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (!ctx.hasUI) {
@@ -105,7 +103,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 			const isMulti = questions.length > 1;
 			const totalTabs = questions.length + 1; // questions + Submit
 
-			const result = await ctx.ui.custom<QuestionnaireResult>((tui, theme, _kb, done) => {
+			const result = await ctx.ui.custom<AskResult>((tui, theme, _kb, done) => {
 				// State
 				let currentTab = 0;
 				let optionIndex = 0;
@@ -146,7 +144,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 					if (!q) return [];
 					const opts: RenderOption[] = [...q.options];
 					if (q.allowOther) {
-						opts.push({ value: "__other__", label: "Type something.", isOther: true });
+						opts.push({ value: "__other__", label: "Type something", isOther: true });
 					}
 					return opts;
 				}
@@ -305,7 +303,6 @@ export default function questionnaire(pi: ExtensionAPI) {
 							const isOther = opt.isOther === true;
 							const prefix = selected ? theme.fg("accent", "> ") : "  ";
 							const color = selected ? "accent" : "text";
-							// Mark "Type something" differently when in input mode
 							if (isOther && inputMode) {
 								add(prefix + theme.fg("accent", `${i + 1}. ${opt.label} ✎`));
 							} else {
@@ -321,7 +318,6 @@ export default function questionnaire(pi: ExtensionAPI) {
 					if (inputMode && q) {
 						add(theme.fg("text", ` ${q.prompt}`));
 						lines.push("");
-						// Show options for reference
 						renderOptions();
 						lines.push("");
 						add(theme.fg("muted", " Your answer:"));
@@ -329,7 +325,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 							add(` ${line}`);
 						}
 						lines.push("");
-						add(theme.fg("dim", " Enter to submit • Esc to cancel"));
+						add(theme.fg("dim", " Enter submit · Esc cancel"));
 					} else if (currentTab === questions.length) {
 						add(theme.fg("accent", theme.bold(" Ready to submit")));
 						lines.push("");
@@ -359,8 +355,8 @@ export default function questionnaire(pi: ExtensionAPI) {
 					lines.push("");
 					if (!inputMode) {
 						const help = isMulti
-							? " Tab/←→ navigate • ↑↓ select • Enter confirm • Esc cancel"
-							: " ↑↓ navigate • Enter select • Esc cancel";
+							? " Tab/←→ navigate · ↑↓ select · Enter confirm · Esc cancel"
+							: " ↑↓ select · Enter confirm · Esc cancel";
 						add(theme.fg("dim", help));
 					}
 					add(theme.fg("accent", "─".repeat(width)));
@@ -380,7 +376,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 
 			if (result.cancelled) {
 				return {
-					content: [{ type: "text", text: "User cancelled the questionnaire" }],
+					content: [{ type: "text", text: "User cancelled" }],
 					details: result,
 				};
 			}
@@ -403,7 +399,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 			const qs = (args.questions as Question[]) || [];
 			const count = qs.length;
 			const labels = qs.map((q) => q.label || q.id).join(", ");
-			let text = theme.fg("toolTitle", theme.bold("questionnaire "));
+			let text = theme.fg("toolTitle", theme.bold("ask "));
 			text += theme.fg("muted", `${count} question${count !== 1 ? "s" : ""}`);
 			if (labels) {
 				text += theme.fg("dim", ` (${truncateToWidth(labels, 40)})`);
@@ -412,7 +408,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 		},
 
 		renderResult(result, _options, theme) {
-			const details = result.details as QuestionnaireResult | undefined;
+			const details = result.details as AskResult | undefined;
 			if (!details) {
 				const text = result.content[0];
 				return new Text(text?.type === "text" ? text.text : "", 0, 0);

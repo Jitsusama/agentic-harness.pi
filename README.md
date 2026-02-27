@@ -18,9 +18,9 @@ pi install git:github.com/your-user/pi-setup
 | Extension | Purpose | Always on? |
 |-----------|---------|------------|
 | **git-guardian** | Commit review + destructive command protection | Yes |
-| **questionnaire** | Reusable structured question tool | Yes (available to agent) |
-| **plan-mode** | Read-only investigation + plan writing | Toggle: `/plan` |
-| **tdd-mode** | Red-green-refactor state machine | Toggle: `/tdd` |
+| **ask** | Reusable structured question tool | Yes (available to agent) |
+| **plan-mode** | Read-only investigation + plan writing | Toggle: `/plan` or `Ctrl+Alt+P` |
+| **tdd-mode** | Red-green-refactor state machine | Toggle: `/tdd` or `Ctrl+Alt+T` |
 
 ### Skills
 
@@ -31,6 +31,9 @@ pi install git:github.com/your-user/pi-setup
 | **planning** | Designing or architecting before building |
 | **code-investigation** | Understanding existing code |
 | **git-hygiene** | Discussing commit strategy or history |
+| **branch-management** | Creating branches, switching, moving commits |
+| **pr-writing** | Creating pull requests, writing PR descriptions |
+| **rebase-resolution** | Rebasing, resolving merge conflicts |
 
 ### AGENTS.md
 
@@ -61,15 +64,19 @@ stay in planning.
 Say "let's TDD this" or use `/tdd` for phase enforcement.
 With a plan file: `/tdd .pi/plans/2026-02-27-my-plan.md`.
 
-The state machine tracks red → green → refactor phases. After
-each green, a refactor gate pauses for your input. After refactor,
-a commit is proposed (reviewed by git-guardian).
+The state machine tracks red → green → refactor phases. During
+red phase, writes to implementation files require confirmation
+(test files are unrestricted). After each green, a refactor gate
+pauses for your input. After refactor, a commit is proposed
+(reviewed by git-guardian).
 
 ### Committing
 
 The agent uses heredoc format for commits (taught by the
 conventional-commits skill). Git-guardian intercepts every commit
-for review: approve, steer (give feedback), edit, or reject.
+for review with validation indicators (subject length, body wrap,
+conventional format). Approve, steer (give feedback), edit, or
+reject.
 
 Destructive git commands (reset --hard, push --force, etc.) get
 a similar gate: allow, steer, or block.
@@ -113,3 +120,10 @@ Commit scopes for this project: api, cli, core, db
 | `/plan` | Toggle plan mode (read-only investigation) |
 | `/plan-dir [path]` | Show or set plan directory |
 | `/tdd [plan-file]` | Toggle TDD mode |
+
+## Keyboard Shortcuts
+
+| Shortcut | Description |
+|----------|-------------|
+| `Ctrl+Alt+P` | Toggle plan mode |
+| `Ctrl+Alt+T` | Toggle TDD mode |
