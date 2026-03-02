@@ -34,6 +34,8 @@ pi install git:github.com/your-user/pi-setup
 | **branch-management** | Creating branches, switching, moving commits |
 | **pr-writing** | Creating pull requests, writing PR descriptions |
 | **rebase-resolution** | Rebasing, resolving merge conflicts |
+| **github-sub-issues** | Managing sub-issues (query, reorder, create) |
+| **github-projects** | Managing GitHub Projects v2 items |
 
 ### AGENTS.md
 
@@ -69,6 +71,12 @@ red phase, writes to implementation files require confirmation
 (test files are unrestricted). After each green, a refactor gate
 pauses for your input. After refactor, a commit is proposed
 (reviewed by git-guardian).
+
+### GitHub Issue & Project Management
+
+Use the github-sub-issues and github-projects skills when working
+with parent/child issue relationships or GitHub Projects v2 boards.
+Both include helper scripts in their `scripts/` directories.
 
 ### Committing
 
