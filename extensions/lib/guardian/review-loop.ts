@@ -103,12 +103,6 @@ export interface ReviewLoopConfig {
 	content: (theme: Theme, width: number) => string[];
 	/** Editable field(s). Omit for no-edit flows (history-guardian). */
 	field?: EditableField;
-	/**
-	 * Called on approve to rewrite event.input.command.
-	 * Receives the (possibly edited) field. Omit for flows
-	 * that don't rewrite commands.
-	 */
-	onApprove?: (field?: EditableField) => void;
 	/** Entity name for messages ("PR", "Issue", "commit", "command"). */
 	entityName: string;
 	/** Text pre-filled in the steer editor. */
@@ -130,7 +124,7 @@ export async function reviewLoop(
 	ctx: ExtensionContext,
 	config: ReviewLoopConfig,
 ): Promise<ReviewResult> {
-	const { actions, content, field, onApprove, entityName } = config;
+	const { actions, content, field, entityName } = config;
 	let { steerContext } = config;
 
 	const hasEdit = actions.some((a) => a.value === "edit") && field;
@@ -151,10 +145,8 @@ export async function reviewLoop(
 
 		switch (result.value) {
 			case "approve":
-			case "allow": {
-				onApprove?.(field);
+			case "allow":
 				return;
-			}
 
 			case "edit": {
 				if (!hasEdit || !field) continue;
