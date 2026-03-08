@@ -1,36 +1,65 @@
 /**
- * Destructive command confirmation — delegates to the shared
- * review loop with allow/block actions and no editing.
+ * History guardian — detects destructive git commands and
+ * requires allow/block confirmation before execution.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { reviewLoop } from "../shared/review-loop.js";
-import type { Severity } from "./patterns.js";
+import { reviewLoop } from "../lib/guardian/review-loop.js";
+import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
+import {
+	DESTRUCTIVE_PATTERNS,
+	type DestructivePattern,
+	type Severity,
+} from "./patterns.js";
 
 const DESTRUCTIVE_ACTIONS = [
 	{ label: "Allow", value: "allow" },
 	{ label: "Block", value: "block" },
 ];
 
-export async function confirmDestructive(
-	command: string,
-	severity: Severity,
-	description: string,
-	ctx: ExtensionContext,
-): Promise<{ block: true; reason: string } | undefined> {
-	const icon = severity === "irrecoverable" ? "⛔" : "⚠";
-	const label =
-		severity === "irrecoverable" ? "Destructive Command" : "Risky Command";
-
-	return reviewLoop(ctx, {
-		actions: DESTRUCTIVE_ACTIONS,
-		content: (theme, _width) => [
-			theme.fg("text", ` ${icon} ${label}`),
-			"",
-			` ${theme.fg("text", command)}`,
-			` ${theme.fg("muted", description)}`,
-		],
-		entityName: "command",
-		steerContext: command,
-	});
+interface DestructiveMatch {
+	command: string;
+	severity: Severity;
+	description: string;
 }
+
+export const historyGuardian: CommandGuardian<DestructiveMatch> = {
+	detect(command) {
+		return DESTRUCTIVE_PATTERNS.some((p: DestructivePattern) =>
+			p.pattern.test(command),
+		);
+	},
+
+	parse(command) {
+		for (const { pattern, severity, description } of DESTRUCTIVE_PATTERNS) {
+			if (pattern.test(command)) {
+				return { command, severity, description };
+			}
+		}
+		return null;
+	},
+
+	async review(
+		parsed: DestructiveMatch,
+		_event: { input: { command: string } },
+		ctx: ExtensionContext,
+	): Promise<GuardianResult> {
+		const icon = parsed.severity === "irrecoverable" ? "⛔" : "⚠";
+		const label =
+			parsed.severity === "irrecoverable"
+				? "Destructive Command"
+				: "Risky Command";
+
+		return reviewLoop(ctx, {
+			actions: DESTRUCTIVE_ACTIONS,
+			content: (theme, _width) => [
+				theme.fg("text", ` ${icon} ${label}`),
+				"",
+				` ${theme.fg("text", parsed.command)}`,
+				` ${theme.fg("muted", parsed.description)}`,
+			],
+			entityName: "command",
+			steerContext: parsed.command,
+		});
+	},
+};

@@ -1,12 +1,19 @@
 /**
- * Issue review flow — delegates to the shared review loop
- * with a title+body config and markdown rendering.
+ * Issue guardian — detects gh issue create/edit commands, parses
+ * title and body, and presents them for review with markdown
+ * rendering.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { renderMarkdown } from "../shared/content-renderer.js";
-import { reviewLoop, type TitleBodyField } from "../shared/review-loop.js";
-import { type IssueCommand, rebuildCommand } from "./parse.js";
+import { reviewLoop, titleBodyField } from "../lib/guardian/review-loop.js";
+import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
+import { renderMarkdown } from "../lib/ui/content-renderer.js";
+import {
+	type IssueCommand,
+	isIssueCommand,
+	parseIssueCommand,
+	rebuildCommand,
+} from "./parse.js";
 
 const ISSUE_ACTIONS = [
 	{ label: "Approve", value: "approve" },
@@ -14,57 +21,61 @@ const ISSUE_ACTIONS = [
 	{ label: "Reject", value: "reject" },
 ];
 
-/**
- * Review a gh issue create/edit command before execution.
- */
-export async function reviewIssue(
-	event: { input: { command: string } },
-	parsed: IssueCommand,
-	ctx: ExtensionContext,
-): Promise<{ block: true; reason: string } | undefined> {
-	const field: TitleBodyField = {
-		kind: "title-body",
-		title: parsed.title,
-		body: parsed.body ?? "",
-		editorPrompt: "Edit issue description:",
-	};
+export const issueGuardian: CommandGuardian<IssueCommand> = {
+	detect(command) {
+		return isIssueCommand(command);
+	},
 
-	const originalBody = parsed.body;
-	const originalTitle = parsed.title;
+	parse(command) {
+		return parseIssueCommand(command);
+	},
 
-	return reviewLoop(ctx, {
-		actions: ISSUE_ACTIONS,
-		content: (theme, width) => {
-			const out: string[] = [];
-			const isEdit = parsed.action === "edit";
+	async review(
+		parsed: IssueCommand,
+		_event: { input: { command: string } },
+		ctx: ExtensionContext,
+	): Promise<GuardianResult> {
+		const field = titleBodyField(
+			parsed.title,
+			parsed.body ?? "",
+			"Edit issue description:",
+		);
 
-			out.push(theme.fg("dim", isEdit ? " Issue Edit" : " New Issue"));
-			out.push("");
+		const originalBody = parsed.body;
+		const originalTitle = parsed.title;
 
-			if (field.title) {
-				out.push(theme.fg("text", ` ${theme.bold(field.title)}`));
+		const result = await reviewLoop(ctx, {
+			actions: ISSUE_ACTIONS,
+			content: (theme, width) => {
+				const out: string[] = [];
+				const isEdit = parsed.action === "edit";
+
+				out.push(theme.fg("dim", isEdit ? " Issue Edit" : " New Issue"));
 				out.push("");
-			}
 
-			for (const line of renderMarkdown(field.body, theme, width)) {
-				out.push(line);
-			}
+				if (field.title) {
+					out.push(theme.fg("text", ` ${theme.bold(field.title)}`));
+					out.push("");
+				}
 
-			return out;
-		},
-		field,
-		onApprove: () => {
-			if (field.body !== originalBody || field.title !== originalTitle) {
-				(event.input as { command: string }).command = rebuildCommand(
-					parsed,
-					field.body,
-					field.title ?? undefined,
-				);
-			}
-		},
-		entityName: "issue",
-		steerContext: [field.title ? `Title: ${field.title}` : null, "", field.body]
-			.filter((l) => l !== null)
-			.join("\n"),
-	});
-}
+				for (const line of renderMarkdown(field.body, theme, width)) {
+					out.push(line);
+				}
+
+				return out;
+			},
+			field,
+			entityName: "issue",
+			steerContext: field.steerText(),
+		});
+
+		if (result) return result;
+
+		// Approve — check if title or body was edited
+		if (field.body !== originalBody || field.title !== originalTitle) {
+			return {
+				rewrite: rebuildCommand(parsed, field.body, field.title ?? undefined),
+			};
+		}
+	},
+};

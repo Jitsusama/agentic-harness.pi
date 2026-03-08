@@ -7,36 +7,16 @@
  * the header count but not re-vetted.
  */
 
+import * as fs from "node:fs";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { languageFromPath, renderCode } from "../shared/content-renderer.js";
+import { languageFromPath, renderCode } from "../lib/ui/content-renderer.js";
 import {
 	type PanelPage,
 	type SeriesSelection,
 	showPanelSeries,
-} from "../shared/panel.js";
+} from "../lib/ui/panel.js";
+import { wordWrap } from "../lib/ui/text.js";
 import type { ReviewComment, VetResult } from "./index.js";
-
-// ---- Helpers ----
-
-function wordWrap(text: string, maxWidth: number): string[] {
-	if (maxWidth <= 0 || text.length <= maxWidth) return [text];
-	const lines: string[] = [];
-	for (const paragraph of text.split("\n")) {
-		if (paragraph.length <= maxWidth) {
-			lines.push(paragraph);
-			continue;
-		}
-		let remaining = paragraph;
-		while (remaining.length > maxWidth) {
-			let breakAt = remaining.lastIndexOf(" ", maxWidth);
-			if (breakAt <= 0) breakAt = maxWidth;
-			lines.push(remaining.slice(0, breakAt));
-			remaining = remaining.slice(breakAt).trimStart();
-		}
-		if (remaining) lines.push(remaining);
-	}
-	return lines;
-}
 
 function readFileContent(
 	path: string,
@@ -44,11 +24,11 @@ function readFileContent(
 	endLine: number,
 ): string | null {
 	try {
-		const fs = require("node:fs");
 		const content = fs.readFileSync(path, "utf-8");
 		const allLines = content.split("\n");
 		return allLines.slice(startLine - 1, endLine).join("\n");
 	} catch {
+		/* File unreadable — skip code preview for this comment */
 		return null;
 	}
 }

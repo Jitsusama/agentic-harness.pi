@@ -5,6 +5,9 @@
 
 import { newPage } from "./browser.js";
 
+/** Timeout for search page navigation in milliseconds. */
+const SEARCH_PAGE_TIMEOUT = 15_000;
+
 export interface SearchResult {
 	title: string;
 	url: string;
@@ -34,7 +37,10 @@ export async function webSearch(
 		if (signal?.aborted) return [];
 
 		const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-		await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
+		await page.goto(url, {
+			waitUntil: "domcontentloaded",
+			timeout: SEARCH_PAGE_TIMEOUT,
+		});
 
 		if (signal?.aborted) return [];
 

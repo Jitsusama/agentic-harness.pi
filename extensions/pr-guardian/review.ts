@@ -1,12 +1,19 @@
 /**
- * PR review flow — delegates to the shared review loop
- * with a title+body config and markdown rendering.
+ * PR guardian — detects gh pr create/edit commands, parses
+ * title and body, and presents them for review with markdown
+ * rendering.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { renderMarkdown } from "../shared/content-renderer.js";
-import { reviewLoop, type TitleBodyField } from "../shared/review-loop.js";
-import { type PrCommand, rebuildCommand } from "./parse.js";
+import { reviewLoop, titleBodyField } from "../lib/guardian/review-loop.js";
+import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
+import { renderMarkdown } from "../lib/ui/content-renderer.js";
+import {
+	isPrCommand,
+	type PrCommand,
+	parsePrCommand,
+	rebuildCommand,
+} from "./parse.js";
 
 const PR_ACTIONS = [
 	{ label: "Approve", value: "approve" },
@@ -14,57 +21,61 @@ const PR_ACTIONS = [
 	{ label: "Reject", value: "reject" },
 ];
 
-/**
- * Review a gh pr create/edit command before execution.
- */
-export async function reviewPr(
-	event: { input: { command: string } },
-	parsed: PrCommand,
-	ctx: ExtensionContext,
-): Promise<{ block: true; reason: string } | undefined> {
-	const field: TitleBodyField = {
-		kind: "title-body",
-		title: parsed.title,
-		body: parsed.body ?? "",
-		editorPrompt: "Edit PR description:",
-	};
+export const prGuardian: CommandGuardian<PrCommand> = {
+	detect(command) {
+		return isPrCommand(command);
+	},
 
-	const originalBody = parsed.body;
-	const originalTitle = parsed.title;
+	parse(command) {
+		return parsePrCommand(command);
+	},
 
-	return reviewLoop(ctx, {
-		actions: PR_ACTIONS,
-		content: (theme, width) => {
-			const out: string[] = [];
-			const isEdit = parsed.action === "edit";
+	async review(
+		parsed: PrCommand,
+		_event: { input: { command: string } },
+		ctx: ExtensionContext,
+	): Promise<GuardianResult> {
+		const field = titleBodyField(
+			parsed.title,
+			parsed.body ?? "",
+			"Edit PR description:",
+		);
 
-			out.push(theme.fg("dim", isEdit ? " PR Edit" : " New PR"));
-			out.push("");
+		const originalBody = parsed.body;
+		const originalTitle = parsed.title;
 
-			if (field.title) {
-				out.push(theme.fg("text", ` ${theme.bold(field.title)}`));
+		const result = await reviewLoop(ctx, {
+			actions: PR_ACTIONS,
+			content: (theme, width) => {
+				const out: string[] = [];
+				const isEdit = parsed.action === "edit";
+
+				out.push(theme.fg("dim", isEdit ? " PR Edit" : " New PR"));
 				out.push("");
-			}
 
-			for (const line of renderMarkdown(field.body, theme, width)) {
-				out.push(line);
-			}
+				if (field.title) {
+					out.push(theme.fg("text", ` ${theme.bold(field.title)}`));
+					out.push("");
+				}
 
-			return out;
-		},
-		field,
-		onApprove: () => {
-			if (field.body !== originalBody || field.title !== originalTitle) {
-				(event.input as { command: string }).command = rebuildCommand(
-					parsed,
-					field.body,
-					field.title ?? undefined,
-				);
-			}
-		},
-		entityName: "PR",
-		steerContext: [field.title ? `Title: ${field.title}` : null, "", field.body]
-			.filter((l) => l !== null)
-			.join("\n"),
-	});
-}
+				for (const line of renderMarkdown(field.body, theme, width)) {
+					out.push(line);
+				}
+
+				return out;
+			},
+			field,
+			entityName: "PR",
+			steerContext: field.steerText(),
+		});
+
+		if (result) return result;
+
+		// Approve — check if title or body was edited
+		if (field.body !== originalBody || field.title !== originalTitle) {
+			return {
+				rewrite: rebuildCommand(parsed, field.body, field.title ?? undefined),
+			};
+		}
+	},
+};

@@ -46,8 +46,8 @@ Display components.
 |-----------|-------------|
 | [status-line](status-line/) | Responsive single-line footer with directory, model, context, and thinking level |
 
-## Shared Utilities
+## Library
 
-The [shared](shared/) directory contains common components used
-across extensions. See [shared/README.md](shared/README.md) for
+The [lib](lib/) directory contains common components used
+across extensions. See [lib/README.md](lib/README.md) for
 details.

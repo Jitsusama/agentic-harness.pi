@@ -2,19 +2,18 @@
  * Content renderer — themed rendering of markdown, diffs, and
  * code into display-ready lines.
  *
- * Building block for panels, gates, and the standalone
- * content viewer. Each function takes raw text, a theme,
- * and a width, returning themed string[] for display.
+ * Pure rendering module with no UI dependencies. Each function
+ * takes raw text, a theme, and a width, returning themed
+ * string[] for display.
  */
 
 import {
-	type ExtensionContext,
 	getLanguageFromPath,
 	highlightCode as piHighlightCode,
 	type Theme,
 } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
-import { showPanel } from "./panel.js";
+import { wordWrap } from "./text.js";
 
 // ---- Markdown ----
 
@@ -99,31 +98,17 @@ export function renderMarkdown(
 			continue;
 		}
 
-		// List items (- or *)
-		if (/^\s*[-*]\s/.test(line)) {
-			const indent = line.match(/^(\s*[-*]\s)/)?.[0] ?? "";
-			const wrapIndent = " ".repeat(indent.length);
+		// List items (- or * or 1.)
+		const listIndent =
+			line.match(/^(\s*[-*]\s)/)?.[0] ?? line.match(/^(\s*\d+\.\s)/)?.[0];
+		if (listIndent) {
+			const wrapIndent = " ".repeat(listIndent.length);
 			const wrapped = wordWrap(line, wrapW - 1);
 			for (let j = 0; j < wrapped.length; j++) {
 				const part = wrapped[j] ?? "";
-				const text = j === 0 ? part : wrapIndent + part;
+				const formatted = j === 0 ? part : wrapIndent + part;
 				lines.push(
-					truncateToWidth(` ${applyInlineFormatting(text, theme)}`, width),
-				);
-			}
-			continue;
-		}
-
-		// Numbered list items
-		if (/^\s*\d+\.\s/.test(line)) {
-			const indent = line.match(/^(\s*\d+\.\s)/)?.[0] ?? "";
-			const wrapIndent = " ".repeat(indent.length);
-			const wrapped = wordWrap(line, wrapW - 1);
-			for (let j = 0; j < wrapped.length; j++) {
-				const part = wrapped[j] ?? "";
-				const text = j === 0 ? part : wrapIndent + part;
-				lines.push(
-					truncateToWidth(` ${applyInlineFormatting(text, theme)}`, width),
+					truncateToWidth(` ${applyInlineFormatting(formatted, theme)}`, width),
 				);
 			}
 			continue;
@@ -269,24 +254,6 @@ function terminalWrapWidth(renderWidth: number): number {
 	return Math.min(renderWidth, padded > 0 ? padded : cols);
 }
 
-/** Word-wrap a line to maxWidth. */
-function wordWrap(text: string, maxWidth: number): string[] {
-	if (maxWidth <= 0 || text.length <= maxWidth) return [text];
-
-	const result: string[] = [];
-	let remaining = text;
-
-	while (remaining.length > maxWidth) {
-		let breakAt = remaining.lastIndexOf(" ", maxWidth);
-		if (breakAt <= 0) breakAt = maxWidth;
-		result.push(remaining.slice(0, breakAt));
-		remaining = remaining.slice(breakAt).trimStart();
-	}
-	if (remaining) result.push(remaining);
-
-	return result;
-}
-
 // ---- Content type detection ----
 
 /** Auto-detect content type from text. */
@@ -379,50 +346,4 @@ export function renderContent(
 		default:
 			return renderMarkdown(text, theme, width);
 	}
-}
-
-// ---- Standalone viewer ----
-
-/**
- * Show text in a scrollable read-only panel. Escape to dismiss.
- * Auto-detects content type or accepts an explicit type.
- */
-export async function showContent(
-	ctx: ExtensionContext,
-	text: string,
-	options?: {
-		type?: "markdown" | "diff" | "code";
-		language?: string;
-		title?: string;
-		startLine?: number;
-		highlightLines?: Set<number>;
-	},
-): Promise<void> {
-	const type = options?.type ?? detectContentType(text);
-	const title = options?.title;
-
-	await showPanel(ctx, {
-		page: {
-			label: title ?? "View",
-			content: (theme, width) => {
-				const lines: string[] = [];
-				if (title) {
-					lines.push(
-						truncateToWidth(theme.fg("accent", ` ${theme.bold(title)}`), width),
-					);
-					lines.push("");
-				}
-				for (const line of renderContent(text, theme, width, {
-					type,
-					language: options?.language,
-					startLine: options?.startLine,
-					highlightLines: options?.highlightLines,
-				})) {
-					lines.push(line);
-				}
-				return lines;
-			},
-			options: [{ label: "Close", value: "close" }],
-		},
-	});
 }

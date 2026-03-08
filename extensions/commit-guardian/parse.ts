@@ -2,12 +2,12 @@
  * Commit command parsing — extract messages, flags, and
  * prefixes from git commit commands in various formats.
  *
- * Uses splitAtCommand from shared/command-parse for prefix
+ * Uses splitAtCommand from lib/parse/command for prefix
  * splitting. The rest is git-commit-specific (message
  * extraction from -m/-am flags, heredoc format).
  */
 
-import { splitAtCommand } from "../shared/command-parse.js";
+import { splitAtCommand } from "../lib/parse/command.js";
 
 const HEREDOC_DELIM = "__COMMIT_MSG__";
 

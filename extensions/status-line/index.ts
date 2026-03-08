@@ -125,9 +125,17 @@ export default function statusLine(pi: ExtensionAPI) {
 				invalidate() {},
 				render(width: number): string[] {
 					// --- Gather raw data ---
+					// NOTE: This iterates the entire session branch on every
+					// render (every keypress, scroll, resize). For very long
+					// sessions this could become slow. Future optimization:
+					// cache a running total and compute incrementally.
 					let cost = 0;
 					for (const e of ctx.sessionManager.getBranch()) {
-						if (e.type === "message" && e.message.role === "assistant") {
+						if (
+							e.type === "message" &&
+							e.message.role === "assistant" &&
+							"usage" in e.message
+						) {
 							const m = e.message as AssistantMessage;
 							cost += m.usage.cost.total;
 						}

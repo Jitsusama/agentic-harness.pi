@@ -1,10 +1,11 @@
 /**
- * Commit review flow — delegates to the shared review loop
- * with a single-field config and commit-specific rendering.
+ * Commit guardian — detects git commit commands, parses the
+ * message, and presents it for review with validation indicators.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { reviewLoop, type SingleField } from "../shared/review-loop.js";
+import { reviewLoop, singleField } from "../lib/guardian/review-loop.js";
+import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
 import {
 	buildHeredoc,
 	extractFlags,
@@ -19,41 +20,54 @@ const COMMIT_ACTIONS = [
 	{ label: "Reject", value: "reject" },
 ];
 
-/**
- * Review a git commit command before execution.
- */
-export async function reviewCommit(
-	event: { input: { command: string } },
-	ctx: ExtensionContext,
-): Promise<{ block: true; reason: string } | undefined> {
-	const command = event.input.command;
-	const message = extractMessage(command);
-	if (!message) return;
-
-	const isAmend = /--amend\b/.test(command);
-	const { prefix, commitPart } = splitAtCommit(command);
-	const flags = extractFlags(commitPart);
-
-	const field: SingleField = {
-		kind: "single",
-		value: message,
-		editorPrompt: "Edit commit message:",
-	};
-
-	return reviewLoop(ctx, {
-		actions: COMMIT_ACTIONS,
-		content: (theme, width) =>
-			renderCommitContent(field.value, isAmend)(theme, width),
-		field,
-		onApprove: () => {
-			if (field.value !== message) {
-				const heredoc = buildHeredoc(field.value, flags);
-				(event.input as { command: string }).command = prefix
-					? `${prefix} && ${heredoc}`
-					: heredoc;
-			}
-		},
-		entityName: "commit",
-		steerContext: message,
-	});
+interface CommitParsed {
+	message: string;
+	isAmend: boolean;
+	prefix: string | null;
+	flags: string[];
 }
+
+export const commitGuardian: CommandGuardian<CommitParsed> = {
+	detect(command) {
+		return /\bgit\s+commit\b/.test(command);
+	},
+
+	parse(command) {
+		const message = extractMessage(command);
+		if (!message) return null;
+
+		const isAmend = /--amend\b/.test(command);
+		const { prefix, commitPart } = splitAtCommit(command);
+		const flags = extractFlags(commitPart);
+
+		return { message, isAmend, prefix, flags };
+	},
+
+	async review(
+		parsed: CommitParsed,
+		_event: { input: { command: string } },
+		ctx: ExtensionContext,
+	): Promise<GuardianResult> {
+		const field = singleField(parsed.message, "Edit commit message:");
+
+		const result = await reviewLoop(ctx, {
+			actions: COMMIT_ACTIONS,
+			content: (theme, width) =>
+				renderCommitContent(field.value, parsed.isAmend)(theme, width),
+			field,
+			entityName: "commit",
+			steerContext: parsed.message,
+		});
+
+		if (result) return result;
+
+		// Approve — check if the message was edited
+		if (field.value !== parsed.message) {
+			const heredoc = buildHeredoc(field.value, parsed.flags);
+			const rewrite = parsed.prefix
+				? `${parsed.prefix} && ${heredoc}`
+				: heredoc;
+			return { rewrite };
+		}
+	},
+};
