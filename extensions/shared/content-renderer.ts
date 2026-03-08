@@ -8,7 +8,8 @@
  */
 
 import { truncateToWidth } from "@mariozechner/pi-tui";
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import { showPanel } from "./panel.js";
 
 // ---- Markdown ----
 
@@ -286,4 +287,48 @@ export function renderContent(
 		default:
 			return renderMarkdown(text, theme, width);
 	}
+}
+
+// ---- Standalone viewer ----
+
+/**
+ * Show text in a scrollable read-only panel. Escape to dismiss.
+ * Auto-detects content type or accepts an explicit type.
+ */
+export async function showContent(
+	ctx: ExtensionContext,
+	text: string,
+	options?: {
+		type?: "markdown" | "diff" | "code";
+		title?: string;
+		startLine?: number;
+		highlightLines?: Set<number>;
+	},
+): Promise<void> {
+	const type = options?.type ?? detectContentType(text);
+	const title = options?.title;
+
+	await showPanel(ctx, {
+		page: {
+			label: title ?? "View",
+			content: (theme, width) => {
+				const lines: string[] = [];
+				if (title) {
+					lines.push(theme.fg("accent", ` ${theme.bold(title)}`));
+					lines.push("");
+				}
+				for (const line of renderContent(text, theme, width, {
+					type,
+					startLine: options?.startLine,
+					highlightLines: options?.highlightLines,
+				})) {
+					lines.push(line);
+				}
+				return lines;
+			},
+			options: [
+				{ label: "Close", value: "close" },
+			],
+		},
+	});
 }
