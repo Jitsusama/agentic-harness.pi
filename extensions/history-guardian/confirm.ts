@@ -1,12 +1,13 @@
 /**
- * Destructive command confirmation — gate for risky git operations.
+ * Destructive command confirmation — delegates to the shared
+ * review loop with allow/block actions and no editing.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { showGate, formatSteer } from "../shared/gate.js";
+import { reviewLoop } from "../shared/review-loop.js";
 import type { Severity } from "./patterns.js";
 
-const DESTRUCTIVE_OPTIONS = [
+const DESTRUCTIVE_ACTIONS = [
 	{ label: "Allow", value: "allow" },
 	{ label: "Block", value: "block" },
 ];
@@ -22,24 +23,15 @@ export async function confirmDestructive(
 		? "Destructive Command"
 		: "Risky Command";
 
-	const result = await showGate(ctx, {
+	return reviewLoop(ctx, {
+		actions: DESTRUCTIVE_ACTIONS,
 		content: (theme, _width) => [
 			theme.fg("text", ` ${icon} ${label}`),
 			"",
 			` ${theme.fg("text", command)}`,
 			` ${theme.fg("muted", description)}`,
 		],
-		options: DESTRUCTIVE_OPTIONS,
+		entityName: "command",
 		steerContext: command,
 	});
-
-	if (!result || result.value === "block") {
-		return { block: true, reason: `User blocked: ${command}` };
-	}
-
-	if (result.value === "steer") {
-		return formatSteer(result.feedback!, `Blocked command: ${command}`);
-	}
-
-	return;
 }

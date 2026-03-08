@@ -1,5 +1,5 @@
 ---
-name: rebase-resolution
+name: git-rebase-resolution
 description: >
   Resolving rebase conflicts with design intent preservation.
   Use when rebasing, resolving merge conflicts, or discussing

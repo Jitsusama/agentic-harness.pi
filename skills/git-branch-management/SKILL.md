@@ -1,5 +1,5 @@
 ---
-name: branch-management
+name: git-branch-management
 description: >
   Branch naming, creation, and safe transitions. Use when creating
   branches, switching between them, or moving commits.

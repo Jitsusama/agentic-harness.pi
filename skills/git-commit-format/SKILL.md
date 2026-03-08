@@ -1,5 +1,5 @@
 ---
-name: conventional-commits
+name: git-commit-format
 description: >
   Conventional commit message format, types, and line length rules.
   Use when writing commit messages, discussing commit conventions,
@@ -12,18 +12,8 @@ Follow the [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v
 
 ## Format
 
-Always use heredoc syntax for commits:
-
-```bash
-git commit -F- <<'EOF'
-type(scope): subject line
-
-Body explaining what and why, hard-wrapped at 72 characters.
-Any additional paragraphs separated by blank lines.
-
-BREAKING CHANGE: description if applicable
-EOF
-```
+See `git-cli-conventions` for the heredoc command syntax
+(`git commit -F- <<'EOF'`).
 
 ## Subject Line
 

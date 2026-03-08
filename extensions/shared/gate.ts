@@ -1,33 +1,23 @@
 /**
- * Gate — shared dialog component for user decisions.
+ * Gate — approval dialog for user decisions.
  *
- * Follows the ask tool's visual language: accent borders,
- * numbered options, arrow-key navigation. Every gate includes
- * a "Steer" option that opens an inline editor pre-filled
- * with context for free-form feedback.
- *
- * Content that exceeds the terminal height is scrollable via
- * Page Up / Page Down (or j/k when options aren't focused).
+ * Thin wrapper over showPanel that auto-appends a "Steer"
+ * option with an inline editor pre-filled with context.
+ * Maps PanelResult to the existing GateResult shape used
+ * by guardians, tdd-mode, and pr-review.
  */
 
-import {
-	Editor,
-	type EditorTheme,
-	Key,
-	matchesKey,
-	truncateToWidth,
-	visibleWidth,
-} from "@mariozechner/pi-tui";
-import {
-	type ExtensionContext,
-	type Theme,
-} from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { Theme } from "@mariozechner/pi-coding-agent";
+import { showPanel, type PanelOption } from "./panel.js";
 
 // ---- Types ----
 
 export interface GateOption {
 	label: string;
 	value: string;
+	/** Optional description shown below the label. */
+	description?: string;
 }
 
 export interface GateConfig {
@@ -46,273 +36,47 @@ export interface GateResult {
 	feedback?: string;
 }
 
-// ---- Constants ----
+// ---- Gate ----
 
 /**
- * Lines reserved for pi chrome (header, footer, status line,
- * input area). Conservative estimate to avoid overflow.
+ * Show an approval gate. Auto-appends a "Steer" option that
+ * opens an inline editor. Returns the selected option or
+ * null on cancel.
  */
-const PI_CHROME_LINES = 6;
-
-/**
- * Lines used by the gate's own frame: top border, bottom
- * border, options, hint line, and spacing.
- */
-const GATE_FRAME_LINES = 7;
-
-// ---- Helpers ----
-
-function selectOption(opt: GateOption, steerContext: string | undefined): GateResult | "enter-steer" {
-	if (opt.value === "steer") return "enter-steer";
-	return { value: opt.value };
-}
-
-function buildEditorTheme(theme: Theme): EditorTheme {
-	return {
-		borderColor: (s) => theme.fg("accent", s),
-		selectList: {
-			selectedPrefix: (t) => theme.fg("accent", t),
-			selectedText: (t) => theme.fg("accent", t),
-			description: (t) => theme.fg("muted", t),
-			scrollInfo: (t) => theme.fg("dim", t),
-			noMatch: (t) => theme.fg("warning", t),
-		},
-	};
-}
-
-function renderOptions(
-	options: GateOption[],
-	selected: number,
-	theme: Theme,
-): string[] {
-	return options.map((opt, i) => {
-		const active = i === selected;
-		const prefix = active ? theme.fg("accent", "> ") : "  ";
-		const color = active ? "accent" : "text";
-		return prefix + theme.fg(color, `${i + 1}. ${opt.label}`);
-	});
-}
-
-function renderSteer(
-	editor: Editor,
-	width: number,
-	theme: Theme,
-): string[] {
-	const lines: string[] = [""];
-	for (const line of editor.render(width - 4)) {
-		lines.push(` ┃ ${line}`);
-	}
-	lines.push("");
-	lines.push(theme.fg("dim", " Enter submit · Esc back"));
-	return lines;
-}
-
-/** Available terminal height for the gate's content area. */
-function contentBudget(): number {
-	const termRows = process.stdout.rows || 40;
-	return Math.max(5, termRows - PI_CHROME_LINES - GATE_FRAME_LINES);
-}
-
-/**
- * Build a scrollbar column for the viewport. Returns one character
- * per visible line: █ for the thumb, ░ for the track.
- */
-function buildScrollbar(
-	totalLines: number,
-	viewportSize: number,
-	offset: number,
-	theme: Theme,
-): string[] {
-	// Thumb size proportional to viewport/total, minimum 1
-	const thumbSize = Math.max(1, Math.round(
-		(viewportSize / totalLines) * viewportSize,
-	));
-
-	// Thumb position
-	const maxOffset = totalLines - viewportSize;
-	const scrollFraction = maxOffset > 0 ? offset / maxOffset : 0;
-	const thumbStart = Math.round(
-		scrollFraction * (viewportSize - thumbSize),
-	);
-
-	const bar: string[] = [];
-	for (let i = 0; i < viewportSize; i++) {
-		const isThumb = i >= thumbStart && i < thumbStart + thumbSize;
-		bar.push(
-			isThumb
-				? theme.fg("accent", "█")
-				: theme.fg("dim", "░"),
-		);
-	}
-	return bar;
-}
-
-// ---- Component ----
-
 export async function showGate(
 	ctx: ExtensionContext,
 	config: GateConfig,
 ): Promise<GateResult | null> {
-	if (!ctx.hasUI) return null;
+	// Build panel options from gate options + steer
+	const panelOptions: PanelOption[] = config.options.map((opt) => ({
+		label: opt.label,
+		value: opt.value,
+		description: opt.description,
+	}));
 
-	const options = [...config.options, { label: "Steer", value: "steer" }];
-
-	return ctx.ui.custom<GateResult | null>((tui, theme, _kb, done) => {
-		let selected = 0;
-		let steerMode = false;
-		let scrollOffset = 0;
-		const editor = new Editor(tui, buildEditorTheme(theme));
-
-		editor.onSubmit = (value) => {
-			const trimmed = value.trim();
-			if (!trimmed) {
-				steerMode = false;
-				editor.setText("");
-				tui.requestRender();
-				return;
-			}
-			done({ value: "steer", feedback: trimmed });
-		};
-
-		function clampScroll(contentLength: number) {
-			const budget = contentBudget();
-			const maxScroll = Math.max(0, contentLength - budget);
-			scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
-		}
-
-		function handleInput(data: string) {
-			if (steerMode) {
-				if (matchesKey(data, Key.escape)) {
-					steerMode = false;
-					editor.setText("");
-					tui.requestRender();
-					return;
-				}
-				editor.handleInput(data);
-				tui.requestRender();
-				return;
-			}
-
-			if (matchesKey(data, Key.escape)) {
-				done(null);
-				return;
-			}
-
-			// Scroll controls
-			if (matchesKey(data, "pageup") || matchesKey(data, "shift+up")) {
-				scrollOffset = Math.max(0, scrollOffset - contentBudget());
-				tui.requestRender();
-				return;
-			}
-			if (matchesKey(data, "pagedown") || matchesKey(data, "shift+down")) {
-				scrollOffset += contentBudget();
-				tui.requestRender();
-				return;
-			}
-
-			if (matchesKey(data, Key.up)) {
-				selected = Math.max(0, selected - 1);
-				tui.requestRender();
-				return;
-			}
-
-			if (matchesKey(data, Key.down)) {
-				selected = Math.min(options.length - 1, selected + 1);
-				tui.requestRender();
-				return;
-			}
-
-			// Number keys select directly
-			const num = parseInt(data, 10);
-			if (num >= 1 && num <= options.length) {
-				selected = num - 1;
-			} else if (!matchesKey(data, Key.enter)) {
-				return;
-			}
-
-			// Confirm selection
-			const result = selectOption(options[selected], config.steerContext);
-			if (result === "enter-steer") {
-				steerMode = true;
-				editor.setText(config.steerContext ?? "");
-				tui.requestRender();
-			} else {
-				done(result);
-			}
-		}
-
-		function render(width: number): string[] {
-			const lines: string[] = [];
-			const add = (s: string) => lines.push(truncateToWidth(s, width));
-
-			add(theme.fg("accent", "─".repeat(width)));
-
-			// Build content lines
-			const contentLines = config.content(theme, width);
-			const budget = contentBudget();
-			const needsScroll = contentLines.length > budget;
-
-			// Clamp scroll offset
-			clampScroll(contentLines.length);
-
-			if (needsScroll) {
-				// Viewport into content with scrollbar
-				const visible = contentLines.slice(
-					scrollOffset,
-					scrollOffset + budget,
-				);
-				const scrollbar = buildScrollbar(
-					contentLines.length,
-					budget,
-					scrollOffset,
-					theme,
-				);
-				const contentWidth = width - 2; // space + scrollbar
-				for (let i = 0; i < visible.length; i++) {
-					const truncated = truncateToWidth(visible[i]!, contentWidth);
-					// Move cursor to the scrollbar column absolutely
-					// to avoid misalignment from wide/emoji characters.
-					// CSI <col> G = move cursor to absolute column.
-					const scrollCol = width;
-					add(
-						truncated +
-							`\x1b[${scrollCol}G` +
-							scrollbar[i]!,
-					);
-				}
-			} else {
-				for (const line of contentLines) {
-					add(line);
-				}
-			}
-
-			if (steerMode) {
-				for (const line of renderSteer(editor, width, theme)) {
-					add(line);
-				}
-			} else {
-				lines.push("");
-				for (const line of renderOptions(options, selected, theme)) {
-					add(line);
-				}
-				lines.push("");
-				const scrollHint = needsScroll
-					? " · Shift+↑↓ scroll"
-					: "";
-				add(
-					theme.fg(
-						"dim",
-						` ↑↓ select · Enter confirm · Esc cancel${scrollHint}`,
-					),
-				);
-			}
-
-			add(theme.fg("accent", "─".repeat(width)));
-			return lines;
-		}
-
-		return { render, handleInput };
+	panelOptions.push({
+		label: "Steer",
+		value: "steer",
+		opensEditor: true,
+		editorPreFill: config.steerContext ?? "",
 	});
+
+	const result = await showPanel(ctx, {
+		page: {
+			label: "",
+			content: config.content,
+			options: panelOptions,
+		},
+	});
+
+	if (!result) return null;
+
+	// Map panel result to gate result
+	if (result.value === "steer" && result.editorText) {
+		return { value: "steer", feedback: result.editorText };
+	}
+
+	return { value: result.value };
 }
 
 // ---- Steer result helper ----

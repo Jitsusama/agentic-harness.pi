@@ -1,9 +1,9 @@
 ---
 name: pr-writing
 description: >
-  Pull request structure, narrative, and review guidance. Use when
-  creating pull requests, writing PR descriptions, or discussing
-  what makes a good PR.
+  Pull request structure, narrative, and review guidance. Use
+  when writing PR descriptions or discussing what makes a good
+  PR. Covers body structure, story types, and self-review.
 ---
 
 # Pull Request Writing
@@ -15,13 +15,11 @@ build bridges from the inner layer to the outer one.
 
 ## Title
 
-- Use Title Case — not `feat(auth): add refresh` style
 - Describe the value, not the implementation
-- 50–72 characters
-- Formula: `[Action] [What] [For What Purpose]`
+- Not conventional commit format — use descriptive titles
 
-Good: "Add Token Refresh to Prevent Session Timeouts"
-Bad: "feat(auth): implement refresh token logic"
+See `gh-cli-conventions` for title formatting rules
+(Title Case, length, formula).
 
 ## Issue and Stack Context
 
@@ -115,33 +113,16 @@ Before submitting:
 - Would a senior engineer understand the trade-offs?
 - Is every claim backed by real data, not assumptions?
 
-## Creating PRs via CLI
+## CLI Format
 
-Use `--body-file -` with a stdin heredoc to pass the body:
-
-```bash
-gh pr create --draft \
-  --title "Add Token Refresh to Prevent Session Timeouts" \
-  --body-file - <<'EOF'
-### 🔍 What We're Doing
-
-Body content here — em dashes, backticks, and special
-characters all work reliably.
-EOF
-```
-
-The single-quoted `'EOF'` delimiter prevents variable expansion
-in the body.
-
-After creation, assign and label the PR in separate commands:
-
-```bash
-gh pr edit NUMBER --add-assignee @me
-gh pr edit NUMBER --add-label "label1" --add-label "label2"
-```
+See `gh-cli-conventions` for command syntax — heredoc
+patterns, `--body-file -`, and metadata in separate commands.
 
 ## What Not to Do
 
+- Don't hard-wrap body paragraphs — GitHub reflows them,
+  and hard breaks make the text choppy. Write each
+  paragraph as a single continuous line.
 - Don't list what changed — that's visible in the diff
 - Don't use generic phrases like "improves performance"
 - Don't skip the "why" and jump to the "what"

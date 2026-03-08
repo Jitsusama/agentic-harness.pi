@@ -1,9 +1,10 @@
 /**
- * Git Guardian Extension
+ * History Guardian Extension
  *
- * Safety net for git operations:
- *   1. Commit review — approve, edit, steer, or reject
- *   2. Destructive command protection — confirm before danger
+ * Intercepts destructive or history-rewriting git commands
+ * and requires confirmation before execution. Protects
+ * against force-push, hard reset, rebase, clean, and other
+ * operations that can lose work.
  */
 
 import {
@@ -11,19 +12,14 @@ import {
 	type ExtensionAPI,
 } from "@mariozechner/pi-coding-agent";
 import { DESTRUCTIVE_PATTERNS } from "./patterns.js";
-import { reviewCommit } from "./review.js";
-import { confirmDestructive } from "./destructive.js";
+import { confirmDestructive } from "./confirm.js";
 
-export default function gitGuardian(pi: ExtensionAPI) {
+export default function historyGuardian(pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (!isToolCallEventType("bash", event)) return;
 		if (!ctx.hasUI) return;
 
 		const command = event.input.command;
-
-		if (/\bgit\s+commit\b/.test(command)) {
-			return reviewCommit(event, ctx);
-		}
 
 		for (const { pattern, severity, description } of DESTRUCTIVE_PATTERNS) {
 			if (pattern.test(command)) {

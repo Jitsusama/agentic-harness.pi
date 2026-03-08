@@ -4,7 +4,7 @@ Read-only investigation mode for collaborative planning. When
 active, tools are restricted so the agent can only read code
 and write to the plan directory.
 
-The [planning skill](../../skills/planning/) teaches the
+The [plan-workflow skill](../../skills/plan-workflow/) teaches the
 methodology. This extension enforces the guardrails.
 
 ## Commands
