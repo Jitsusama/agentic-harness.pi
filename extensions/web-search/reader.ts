@@ -12,7 +12,23 @@ import { JSDOM } from "jsdom";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { newPage } from "./browser.js";
+import { injectCookies, newPage } from "./browser.js";
+import { isSetUp } from "./cookies.js";
+
+/**
+ * Thrown when a page redirects to an auth provider and Chrome
+ * cookie injection hasn't been set up yet.
+ */
+export class AuthSetupNeeded extends Error {
+	constructor() {
+		super(
+			"This page requires authentication. Ask the user to type " +
+				"the pi slash command /setup-chrome-cookies to enable " +
+				"access using their Chrome browser sessions, then retry.",
+		);
+		this.name = "AuthSetupNeeded";
+	}
+}
 
 export interface PageContent {
 	title: string;
@@ -189,6 +205,7 @@ export async function readPage(
 	try {
 		if (signal?.aborted) throw new Error("Aborted");
 
+		await injectCookies(page, url);
 		await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
 
 		if (signal?.aborted) throw new Error("Aborted");
@@ -196,25 +213,45 @@ export async function readPage(
 		// Wait briefly for dynamic content
 		await page.evaluate(() => new Promise((r) => setTimeout(r, 1500)));
 
+		// Detect auth redirects (e.g. Google SSO, OAuth)
+		const finalUrl = page.url();
+		const authRedirect =
+			finalUrl.includes("accounts.google.com") ||
+			finalUrl.includes("/oauth") ||
+			finalUrl.includes("/login") ||
+			finalUrl.includes("/signin") ||
+			finalUrl.includes("/auth");
+
+		if (authRedirect && !isSetUp()) {
+			throw new AuthSetupNeeded();
+		}
+
 		const html = await page.content();
-		const dom = suppressCssWarnings(() => new JSDOM(html, { url }));
-
-		// Strip junk elements before Readability
-		stripJunk(dom.window.document);
-
-		const reader = new Readability(dom.window.document);
-		const article = reader.parse();
 
 		let rawText: string;
 		let title: string;
 		let excerpt: string;
 
-		if (article) {
-			rawText = article.textContent;
-			title = article.title;
-			excerpt = article.excerpt || rawText.slice(0, 200);
-		} else {
-			// Fallback: grab body text directly
+		try {
+			const dom = suppressCssWarnings(() => new JSDOM(html, { url }));
+
+			// Strip junk elements before Readability
+			stripJunk(dom.window.document);
+
+			const reader = new Readability(dom.window.document);
+			const article = reader.parse();
+
+			if (article) {
+				rawText = article.textContent;
+				title = article.title;
+				excerpt = article.excerpt || rawText.slice(0, 200);
+			} else {
+				// Readability couldn't parse — fall through to puppeteer
+				throw new Error("Readability returned null");
+			}
+		} catch {
+			// JSDOM/Readability failed (e.g. CSS parsing errors) —
+			// fall back to extracting text directly from the browser.
 			rawText = await page.evaluate(
 				() => document.body?.innerText || "",
 			);
