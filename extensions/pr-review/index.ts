@@ -1,0 +1,260 @@
+/**
+ * PR Self-Review Extension
+ *
+ * Tool for the LLM to propose review comments on a PR.
+ * The user vets each comment through the shared gate:
+ * approve, edit, reject, or steer. Only approved comments
+ * are posted as a single PR review via `gh api`.
+ *
+ * Supports multi-round flows: if the user adds comments
+ * via natural language, the tool returns them for the LLM
+ * to resolve. Previously approved comments are passed back
+ * with `preApproved: true` and skip vetting on the next call.
+ */
+
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
+import { Text } from "@mariozechner/pi-tui";
+import { vetComments } from "./vet.js";
+import { postReview } from "./post.js";
+
+const CommentSchema = Type.Object({
+	path: Type.String({ description: "File path relative to repo root" }),
+	line: Type.Number({ description: "End line number in the diff to comment on" }),
+	startLine: Type.Optional(Type.Number({ description: "Start line number for a multi-line comment range" })),
+	body: Type.String({ description: "The review comment text" }),
+	rationale: Type.String({ description: "Why this is worth flagging (shown to user only, not posted)" }),
+	side: Type.Optional(Type.String({ description: "Side of the diff: LEFT or RIGHT (default: RIGHT)" })),
+	preApproved: Type.Optional(Type.Boolean({ description: "If true, skip vetting — already approved in a prior round" })),
+});
+
+const PrReviewParams = Type.Object({
+	pr: Type.Number({ description: "Pull request number" }),
+	repo: Type.Optional(Type.String({ description: "Repository in owner/repo format. Defaults to current repo." })),
+	body: Type.Optional(Type.String({ description: "Summary body for the review. Brief context about what the review comments cover." })),
+	comments: Type.Array(CommentSchema, {
+		description: "Candidate review comments. May be empty if nothing warrants attention — the user can still add their own.",
+	}),
+});
+
+export interface ReviewComment {
+	path: string;
+	line: number;
+	startLine?: number;
+	body: string;
+	rationale: string;
+	side: string;
+}
+
+export interface VetResult {
+	approved: ReviewComment[];
+	rejected: number;
+	edited: number;
+	steerFeedback?: string;
+	userRequests: string[];
+}
+
+function formatCommentRef(c: ReviewComment): string {
+	const range = c.startLine ? `${c.startLine}-${c.line}` : `${c.line}`;
+	return `- ${c.path}:${range} — ${c.body}`;
+}
+
+export default function prReview(pi: ExtensionAPI) {
+	pi.registerTool({
+		name: "pr_review",
+		label: "PR Review",
+		description:
+			"Propose review comments on a pull request for the user to vet before posting. " +
+			"Call this as part of PR creation to flag areas of possible contention, deviations " +
+			"from what was originally asked, scope questions, or design decisions worth reviewer input. " +
+			"The comments array may be empty if nothing warrants attention — the user can still add their own.",
+		promptGuidelines: [
+			"Call `pr_review` after creating a PR to propose self-review comments.",
+			"Focus on: design decisions worth explaining, assumptions that need validation, " +
+				"scope boundaries reviewers should weigh in on, and deviations from the original plan.",
+			"Do NOT flag: style issues, obvious code, or things the diff already makes clear.",
+			"The rationale field is for the user only — explain why you think this is worth flagging.",
+			"It is fine to pass an empty comments array if nothing warrants reviewer attention.",
+			"The body field is a brief summary for the review itself — it appears as the review header in GitHub.",
+			"If the tool returns user requests, resolve each into a structured comment (path, line, body) " +
+				"and call pr_review again with the previously approved comments plus the new ones.",
+			"If posting fails, the approved comments are returned — fix the issue and retry with the same comments.",
+			"Be concise in your review comment body — explain why you think this is worth flagging.",
+			"Always use startLine + line to specify a line range so reviewers see exactly which code is being discussed. " +
+				"Omit startLine only when commenting on the file as a whole.",
+			"When calling again with previously approved comments, set preApproved: true on each to skip re-vetting.",
+		],
+		parameters: PrReviewParams,
+
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (!ctx.hasUI) {
+				return {
+					content: [{ type: "text", text: "Error: pr_review requires interactive mode" }],
+					details: { pr: params.pr, posted: 0 },
+				};
+			}
+
+			// Split into pre-approved and new comments
+			const preApproved: ReviewComment[] = [];
+			const toVet: ReviewComment[] = [];
+
+			for (const c of params.comments) {
+				const comment: ReviewComment = {
+					path: c.path,
+					line: c.line,
+					startLine: c.startLine,
+					body: c.body,
+					rationale: c.rationale,
+					side: c.side || "RIGHT",
+				};
+				if (c.preApproved) {
+					preApproved.push(comment);
+				} else {
+					toVet.push(comment);
+				}
+			}
+
+			const result = await vetComments(toVet, preApproved.length, ctx);
+
+			if (!result) {
+				return {
+					content: [{ type: "text", text: "Review cancelled." }],
+					details: { pr: params.pr, posted: 0, cancelled: true },
+				};
+			}
+
+			if (result.steerFeedback) {
+				return {
+					content: [{ type: "text", text: `User feedback on review comments:\n\n${result.steerFeedback}` }],
+					details: { pr: params.pr, posted: 0, steered: true },
+				};
+			}
+
+			// Combine pre-approved with newly approved
+			const allApproved = [...preApproved, ...result.approved];
+
+			// User requested additional comments — return for LLM resolution
+			if (result.userRequests.length > 0) {
+				const requests = result.userRequests.map((r, i) => `${i + 1}. ${r}`).join("\n");
+				const parts = [
+					`The user wants these additional review comments on PR #${params.pr}.`,
+					`Resolve each into a structured comment (path, startLine, line, body) and call pr_review again`,
+					`with both the previously approved comments (set preApproved: true) and the new ones.`,
+					"",
+					"Already approved (include with preApproved: true):",
+					...allApproved.map(formatCommentRef),
+					"",
+					"User requests (resolve these into new comments):",
+					requests,
+				];
+				return {
+					content: [{ type: "text", text: parts.join("\n") }],
+					details: {
+						pr: params.pr,
+						posted: 0,
+						approvedComments: allApproved,
+						userRequests: result.userRequests,
+					},
+				};
+			}
+
+			if (allApproved.length === 0) {
+				return {
+					content: [{ type: "text", text: "No comments approved for posting." }],
+					details: { pr: params.pr, posted: 0 },
+				};
+			}
+
+			const postResult = await postReview(pi, params.pr, allApproved, params.body, params.repo);
+
+			if (postResult.error) {
+				return {
+					content: [{
+						type: "text",
+						text: `Failed to post review: ${postResult.error}\n\n` +
+							`The following approved comments were not posted. ` +
+							`Fix the issue and call pr_review again with these comments (set preApproved: true):\n` +
+							allApproved.map(formatCommentRef).join("\n"),
+					}],
+					details: {
+						pr: params.pr,
+						posted: 0,
+						error: postResult.error,
+						approvedComments: allApproved,
+					},
+				};
+			}
+
+			const summary = [
+				`Posted ${allApproved.length} review comment(s) on PR #${params.pr}.`,
+				result.rejected > 0 ? ` ${result.rejected} rejected.` : "",
+				result.edited > 0 ? ` ${result.edited} edited.` : "",
+			].join("");
+
+			return {
+				content: [{ type: "text", text: summary }],
+				details: {
+					pr: params.pr,
+					posted: allApproved.length,
+					rejected: result.rejected,
+					edited: result.edited,
+				},
+			};
+		},
+
+		renderCall(args, theme) {
+			const comments = Array.isArray(args.comments) ? args.comments : [];
+			const newCount = comments.filter((c: any) => !c.preApproved).length;
+			const preCount = comments.filter((c: any) => c.preApproved).length;
+			let text = theme.fg("toolTitle", theme.bold("pr_review "));
+			text += theme.fg("muted", `PR #${args.pr}`);
+			if (preCount > 0) {
+				text += theme.fg("dim", ` · ${preCount} approved`);
+			}
+			if (newCount > 0) {
+				text += theme.fg("accent", ` · ${newCount} to review`);
+			}
+			return new Text(text, 0, 0);
+		},
+
+		renderResult(result, _options, theme) {
+			const details = result.details as Record<string, unknown> | undefined;
+			if (!details) {
+				const text = result.content[0];
+				return new Text(text?.type === "text" ? text.text : "", 0, 0);
+			}
+
+			if (details.error) {
+				return new Text(theme.fg("error", `✗ ${details.error}`), 0, 0);
+			}
+
+			if (details.cancelled) {
+				return new Text(theme.fg("warning", "Review cancelled"), 0, 0);
+			}
+
+			if (details.steered) {
+				return new Text(theme.fg("accent", "↩ Steered"), 0, 0);
+			}
+
+			if (details.userRequests) {
+				const count = (details.userRequests as string[]).length;
+				return new Text(
+					theme.fg("accent", `↩ ${count} user request${count !== 1 ? "s" : ""} to resolve`),
+					0,
+					0,
+				);
+			}
+
+			const posted = details.posted as number;
+			if (posted === 0) {
+				return new Text(theme.fg("dim", "No comments posted"), 0, 0);
+			}
+
+			return new Text(
+				theme.fg("success", "✓ ") + theme.fg("muted", `${posted} comment${posted !== 1 ? "s" : ""} posted`),
+				0,
+				0,
+			);
+		},
+	});
+}
