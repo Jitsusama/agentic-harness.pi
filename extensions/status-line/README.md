@@ -11,9 +11,9 @@ Responsive single-line footer that adapts to terminal width.
 
 **Right side** (right-justified):
 - Extension statuses (plan-mode, tdd-mode indicators)
-- Thinking level glyph (🧠¹ minimal → 🧠⁵ xhigh)
 - Context token usage (absolute or percentage)
 - Session cost
+- Thinking level glyph (🧠¹ minimal → 🧠⁵ xhigh)
 
 **Left side:**
 - Directory (with git branch)

@@ -98,16 +98,16 @@ function buildCandidate(
 
 	left.push(useShortModel ? d.shortModel : d.fullModel);
 
-	// --- Right side: statuses │ thinking │ context │ cost ---
+	// --- Right side: statuses │ context │ cost │ thinking ---
 	const right: string[] = [];
 
 	for (const s of d.statuses) right.push(s);
 
-	if (!hideThinking && d.thinkGlyph) right.push(d.thinkGlyph);
-
 	right.push(usePctContext ? d.contextPct : d.contextTokens);
 
 	if (!hideCost && d.cost) right.push(d.cost);
+
+	if (!hideThinking && d.thinkGlyph) right.push(d.thinkGlyph);
 
 	return { left, right };
 }
@@ -155,8 +155,8 @@ export default function statusLine(pi: ExtensionAPI) {
 						fullDir: homePath(cwd),
 						shortDir: path.basename(cwd),
 						branch,
-						fullModel: theme.fg("accent", modelId),
-						shortModel: theme.fg("accent", shortenModel(modelId)),
+						fullModel: theme.fg("dim", modelId),
+						shortModel: theme.fg("dim", shortenModel(modelId)),
 						contextTokens: theme.fg(
 							"dim",
 							`${fmtTokens(tokens)}/${fmtTokens(window)}`,
