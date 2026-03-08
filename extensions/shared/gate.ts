@@ -5,6 +5,9 @@
  * numbered options, arrow-key navigation. Every gate includes
  * a "Steer" option that opens an inline editor pre-filled
  * with context for free-form feedback.
+ *
+ * Content that exceeds the terminal height is scrollable via
+ * Page Up / Page Down (or j/k when options aren't focused).
  */
 
 import {
@@ -41,6 +44,20 @@ export interface GateResult {
 	/** Present only when value is "steer". */
 	feedback?: string;
 }
+
+// ---- Constants ----
+
+/**
+ * Lines reserved for pi chrome (header, footer, status line,
+ * input area). Conservative estimate to avoid overflow.
+ */
+const PI_CHROME_LINES = 6;
+
+/**
+ * Lines used by the gate's own frame: top border, bottom
+ * border, options, hint line, and spacing.
+ */
+const GATE_FRAME_LINES = 7;
 
 // ---- Helpers ----
 
@@ -89,6 +106,12 @@ function renderSteer(
 	return lines;
 }
 
+/** Available terminal height for the gate's content area. */
+function contentBudget(): number {
+	const termRows = process.stdout.rows || 40;
+	return Math.max(5, termRows - PI_CHROME_LINES - GATE_FRAME_LINES);
+}
+
 // ---- Component ----
 
 export async function showGate(
@@ -102,6 +125,7 @@ export async function showGate(
 	return ctx.ui.custom<GateResult | null>((tui, theme, _kb, done) => {
 		let selected = 0;
 		let steerMode = false;
+		let scrollOffset = 0;
 		const editor = new Editor(tui, buildEditorTheme(theme));
 
 		editor.onSubmit = (value) => {
@@ -114,6 +138,12 @@ export async function showGate(
 			}
 			done({ value: "steer", feedback: trimmed });
 		};
+
+		function clampScroll(contentLength: number) {
+			const budget = contentBudget();
+			const maxScroll = Math.max(0, contentLength - budget);
+			scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
+		}
 
 		function handleInput(data: string) {
 			if (steerMode) {
@@ -130,6 +160,18 @@ export async function showGate(
 
 			if (matchesKey(data, Key.escape)) {
 				done(null);
+				return;
+			}
+
+			// Scroll controls
+			if (matchesKey(data, "pageup") || matchesKey(data, "shift+up")) {
+				scrollOffset = Math.max(0, scrollOffset - contentBudget());
+				tui.requestRender();
+				return;
+			}
+			if (matchesKey(data, "pagedown") || matchesKey(data, "shift+down")) {
+				scrollOffset += contentBudget();
+				tui.requestRender();
 				return;
 			}
 
@@ -170,8 +212,41 @@ export async function showGate(
 
 			add(theme.fg("accent", "─".repeat(width)));
 
-			for (const line of config.content(theme, width)) {
-				add(line);
+			// Build content lines
+			const contentLines = config.content(theme, width);
+			const budget = contentBudget();
+			const needsScroll = contentLines.length > budget;
+
+			// Clamp scroll offset
+			clampScroll(contentLines.length);
+
+			if (needsScroll) {
+				// Viewport into content
+				const visible = contentLines.slice(
+					scrollOffset,
+					scrollOffset + budget,
+				);
+				for (const line of visible) {
+					add(line);
+				}
+
+				// Scroll indicator
+				const atTop = scrollOffset === 0;
+				const atBottom =
+					scrollOffset + budget >= contentLines.length;
+				const position = Math.round(
+					(scrollOffset / (contentLines.length - budget)) * 100,
+				);
+				const indicator = atTop
+					? "▼ Shift+↓ or PgDn to scroll"
+					: atBottom
+						? "▲ Shift+↑ or PgUp to scroll"
+						: `▲▼ ${position}% · Shift+↑↓ or PgUp/PgDn to scroll`;
+				add(theme.fg("dim", ` ${indicator}`));
+			} else {
+				for (const line of contentLines) {
+					add(line);
+				}
 			}
 
 			if (steerMode) {
@@ -184,7 +259,15 @@ export async function showGate(
 					add(line);
 				}
 				lines.push("");
-				add(theme.fg("dim", " ↑↓ select · Enter confirm · Esc cancel"));
+				const scrollHint = needsScroll
+					? " · Shift+↑↓ scroll"
+					: "";
+				add(
+					theme.fg(
+						"dim",
+						` ↑↓ select · Enter confirm · Esc cancel${scrollHint}`,
+					),
+				);
 			}
 
 			add(theme.fg("accent", "─".repeat(width)));
