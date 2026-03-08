@@ -16,6 +16,7 @@ import {
 	Key,
 	matchesKey,
 	truncateToWidth,
+	visibleWidth,
 } from "@mariozechner/pi-tui";
 import {
 	type ExtensionContext,
@@ -110,6 +111,40 @@ function renderSteer(
 function contentBudget(): number {
 	const termRows = process.stdout.rows || 40;
 	return Math.max(5, termRows - PI_CHROME_LINES - GATE_FRAME_LINES);
+}
+
+/**
+ * Build a scrollbar column for the viewport. Returns one character
+ * per visible line: █ for the thumb, ░ for the track.
+ */
+function buildScrollbar(
+	totalLines: number,
+	viewportSize: number,
+	offset: number,
+	theme: Theme,
+): string[] {
+	// Thumb size proportional to viewport/total, minimum 1
+	const thumbSize = Math.max(1, Math.round(
+		(viewportSize / totalLines) * viewportSize,
+	));
+
+	// Thumb position
+	const maxOffset = totalLines - viewportSize;
+	const scrollFraction = maxOffset > 0 ? offset / maxOffset : 0;
+	const thumbStart = Math.round(
+		scrollFraction * (viewportSize - thumbSize),
+	);
+
+	const bar: string[] = [];
+	for (let i = 0; i < viewportSize; i++) {
+		const isThumb = i >= thumbStart && i < thumbStart + thumbSize;
+		bar.push(
+			isThumb
+				? theme.fg("accent", "█")
+				: theme.fg("dim", "░"),
+		);
+	}
+	return bar;
 }
 
 // ---- Component ----
@@ -221,28 +256,30 @@ export async function showGate(
 			clampScroll(contentLines.length);
 
 			if (needsScroll) {
-				// Viewport into content
+				// Viewport into content with scrollbar
 				const visible = contentLines.slice(
 					scrollOffset,
 					scrollOffset + budget,
 				);
-				for (const line of visible) {
-					add(line);
-				}
-
-				// Scroll indicator
-				const atTop = scrollOffset === 0;
-				const atBottom =
-					scrollOffset + budget >= contentLines.length;
-				const position = Math.round(
-					(scrollOffset / (contentLines.length - budget)) * 100,
+				const scrollbar = buildScrollbar(
+					contentLines.length,
+					budget,
+					scrollOffset,
+					theme,
 				);
-				const indicator = atTop
-					? "▼ Shift+↓ or PgDn to scroll"
-					: atBottom
-						? "▲ Shift+↑ or PgUp to scroll"
-						: `▲▼ ${position}% · Shift+↑↓ or PgUp/PgDn to scroll`;
-				add(theme.fg("dim", ` ${indicator}`));
+				const contentWidth = width - 2; // space + scrollbar
+				for (let i = 0; i < visible.length; i++) {
+					const truncated = truncateToWidth(visible[i]!, contentWidth);
+					// Move cursor to the scrollbar column absolutely
+					// to avoid misalignment from wide/emoji characters.
+					// CSI <col> G = move cursor to absolute column.
+					const scrollCol = width;
+					add(
+						truncated +
+							`\x1b[${scrollCol}G` +
+							scrollbar[i]!,
+					);
+				}
 			} else {
 				for (const line of contentLines) {
 					add(line);
