@@ -1,5 +1,5 @@
 ---
-name: planning
+name: plan-workflow
 description: >
   Collaborative planning methodology. How to investigate a codebase,
   ask clarifying questions, and produce a structured implementation

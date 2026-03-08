@@ -1,5 +1,5 @@
 ---
-name: conventional-commits
+name: git-commit-format
 description: >
   Conventional commit message format, types, and line length rules.
   Use when writing commit messages, discussing commit conventions,
