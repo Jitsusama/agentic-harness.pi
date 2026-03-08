@@ -32,6 +32,8 @@ export interface PanelOption {
 	value: string;
 	/** Optional description shown below the label. */
 	description?: string;
+	/** Icon shown in the tab bar when this option is selected (defaults to ✓). */
+	icon?: string;
 	/** When true, selecting this option opens an inline editor. */
 	opensEditor?: boolean;
 	/** Pre-fill text for the inline editor. */
@@ -226,6 +228,15 @@ function renderScrollableContent(
 	return { lines, needsVScroll, needsHScroll };
 }
 
+function selectedIcon(
+	page: PanelPage,
+	selection: SeriesSelection | undefined,
+): string {
+	if (!selection) return "□";
+	const opt = page.options.find((o) => o.value === selection.value);
+	return opt?.icon ?? "✓";
+}
+
 function renderTabBar(
 	pages: PanelPage[],
 	currentTab: number,
@@ -235,11 +246,12 @@ function renderTabBar(
 	const tabs: string[] = [];
 	for (let i = 0; i < pages.length; i++) {
 		const isActive = i === currentTab;
-		const isAnswered = selections.has(i);
+		const selection = selections.get(i);
+		const isAnswered = !!selection;
 		const lbl = pages[i]!.label;
-		const box = isAnswered ? "■" : "□";
+		const icon = selectedIcon(pages[i]!, selection);
 		const color = isAnswered ? "success" : "muted";
-		const text = ` ${box} ${lbl} `;
+		const text = ` ${icon} ${lbl} `;
 		const styled = isActive
 			? theme.bg("selectedBg", theme.fg("text", text))
 			: theme.fg(color, text);
