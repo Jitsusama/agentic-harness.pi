@@ -12,8 +12,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
-import { injectCookies, newPage } from "./browser.js";
-import { isSetUp } from "./cookies.js";
+import { newPage } from "./browser.js";
+import { injectCookies, isSetUp } from "./cookies/index.js";
 
 /**
  * Thrown when a page redirects to an auth provider and Chrome
@@ -169,23 +169,22 @@ function cleanText(text: string): string {
 	);
 }
 
-/** Suppress jsdom CSS warnings during a callback. */
-function suppressCssWarnings<T>(fn: () => T): T {
-	const originalWrite = process.stderr.write;
-	process.stderr.write = ((...args: Parameters<typeof originalWrite>) => {
-		if (
-			typeof args[0] === "string" &&
-			args[0].includes("Could not parse CSS stylesheet")
-		) {
-			return true;
+/**
+ * Create a jsdom VirtualConsole that suppresses CSS parse warnings
+ * without affecting process.stderr globally.
+ */
+function quietVirtualConsole() {
+	const { VirtualConsole } = require("jsdom") as typeof import("jsdom");
+	const vc = new VirtualConsole();
+	// Forward everything except CSS parse errors
+	vc.on("error", (msg: string) => {
+		if (!msg.includes("Could not parse CSS stylesheet")) {
+			console.error(msg);
 		}
-		return originalWrite.apply(process.stderr, args);
-	}) as typeof originalWrite;
-	try {
-		return fn();
-	} finally {
-		process.stderr.write = originalWrite;
-	}
+	});
+	vc.on("warn", console.warn);
+	vc.on("info", console.info);
+	return vc;
 }
 
 /** Save content to a temp file and return the path. */
@@ -235,7 +234,10 @@ export async function readPage(
 		let excerpt: string;
 
 		try {
-			const dom = suppressCssWarnings(() => new JSDOM(html, { url }));
+			const dom = new JSDOM(html, {
+				url,
+				virtualConsole: quietVirtualConsole(),
+			});
 
 			// Strip junk elements before Readability
 			stripJunk(dom.window.document);

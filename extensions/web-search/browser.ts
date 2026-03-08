@@ -1,11 +1,10 @@
 /**
  * Browser lifecycle — launch Chrome once, reuse across tool calls.
- * Also handles injecting the user's Chrome session cookies into
- * headless pages so authenticated sites work transparently.
+ * Pure Chrome management — no cookie knowledge.
  */
 
+import * as fs from "node:fs";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
-import { getCookiesForUrl, StaleKeyError } from "./cookies.js";
 
 let browser: Browser | undefined;
 
@@ -20,9 +19,10 @@ const CHROME_PATHS = [
 function findChrome(): string {
 	for (const p of CHROME_PATHS) {
 		try {
-			const fs = require("node:fs");
 			if (fs.existsSync(p)) return p;
-		} catch {}
+		} catch {
+			// Chrome not installed at this path — try next
+		}
 	}
 	throw new Error(
 		"Chrome not found. Install Google Chrome or set CHROME_PATH.",
@@ -43,7 +43,6 @@ export async function getBrowser(): Promise<Browser> {
 			"--disable-logging",
 			"--log-level=3",
 		],
-		// Suppress Chrome's stderr noise
 		dumpio: false,
 	});
 	return browser;
@@ -58,25 +57,6 @@ export async function newPage(): Promise<Page> {
 			"Chrome/131.0.0.0 Safari/537.36",
 	);
 	return page;
-}
-
-/**
- * Inject the user's Chrome session cookies for a URL into a
- * puppeteer page. Best-effort — if cookies can't be read (no
- * Chrome profile, Keychain denied, etc.) we silently continue
- * without them.
- */
-export async function injectCookies(page: Page, url: string): Promise<void> {
-	try {
-		const cookies = await getCookiesForUrl(url);
-		if (cookies.length) {
-			await page.setCookie(...cookies);
-		}
-	} catch (err) {
-		// Let stale key errors propagate so the user gets guidance
-		if (err instanceof StaleKeyError) throw err;
-		// Silent fallback for everything else — cookies are optional
-	}
 }
 
 export async function closeBrowser(): Promise<void> {

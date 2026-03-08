@@ -13,7 +13,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { closeBrowser } from "./browser.js";
-import { isSetUp, StaleKeyError, setupChromeKey } from "./cookies.js";
+import { isSetUp, StaleKeyError, setupChromeKey } from "./cookies/index.js";
 import { AuthSetupNeeded, readPage } from "./reader.js";
 import { webSearch as doSearch } from "./search.js";
 
