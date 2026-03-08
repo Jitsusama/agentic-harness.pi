@@ -1,7 +1,13 @@
 /**
  * Commit command parsing — extract messages, flags, and
  * prefixes from git commit commands in various formats.
+ *
+ * Uses splitAtCommand from shared/command-parse for prefix
+ * splitting. The rest is git-commit-specific (message
+ * extraction from -m/-am flags, heredoc format).
  */
+
+import { splitAtCommand } from "../shared/command-parse.js";
 
 const HEREDOC_DELIM = "__COMMIT_MSG__";
 
@@ -39,21 +45,16 @@ export function extractMessage(command: string): string | null {
 /**
  * Split "cd /path && git add -A && git commit ..." into
  * the prefix (everything before git commit) and the commit part.
- *
- * Uses a greedy match so the split happens at the *last*
- * separator before "git commit", not the first.
  */
 export function splitAtCommit(command: string): {
 	prefix: string | null;
 	commitPart: string;
 } {
-	const match = command.match(
-		/^(.*)\s*(?:&&|;)\s*(git\s+commit\b[\s\S]*)$/,
+	const { prefix, target } = splitAtCommand(
+		command,
+		/git\s+commit\b/,
 	);
-	if (match?.[1]?.trim()) {
-		return { prefix: match[1].trim(), commitPart: match[2]! };
-	}
-	return { prefix: null, commitPart: command };
+	return { prefix, commitPart: target };
 }
 
 /** Extract commit flags from the commit portion of the command. */
