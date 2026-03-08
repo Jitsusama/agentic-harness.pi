@@ -320,13 +320,11 @@ function maxContentWidth(lines: string[]): number {
  */
 export async function showPanel(
 	ctx: ExtensionContext,
-	config: { page: PanelPage; overlay?: boolean },
+	config: { page: PanelPage },
 ): Promise<PanelResult | null> {
 	if (!ctx.hasUI) return null;
 
-	const { page, overlay } = config;
-	const uiOptions = overlay ? { overlay: true } : undefined;
-
+	const { page } = config;
 	return ctx.ui.custom<PanelResult | null>((tui, theme, _kb, done) => {
 		const H_SCROLL_STEP = 20;
 		let selected = 0;
@@ -459,7 +457,7 @@ export async function showPanel(
 		}
 
 		return { render, handleInput };
-	}, uiOptions);
+	});
 }
 
 // ---- showPanelSeries (multi-page) ----
@@ -473,13 +471,12 @@ export async function showPanel(
  */
 export async function showPanelSeries(
 	ctx: ExtensionContext,
-	config: PanelSeriesConfig & { overlay?: boolean },
+	config: PanelSeriesConfig,
 ): Promise<Map<number, SeriesSelection> | null> {
 	if (!ctx.hasUI) return null;
 
-	const { pages, onSelect, overlay } = config;
+	const { pages, onSelect } = config;
 	const isMulti = pages.length > 1;
-	const uiOptions = overlay ? { overlay: true } : undefined;
 
 	return ctx.ui.custom<Map<number, SeriesSelection> | null>(
 		(tui, theme, _kb, done) => {
@@ -739,6 +736,5 @@ export async function showPanelSeries(
 
 			return { render, handleInput };
 		},
-		uiOptions,
 	);
 }
