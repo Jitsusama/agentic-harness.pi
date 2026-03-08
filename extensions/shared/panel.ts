@@ -203,7 +203,10 @@ function renderScrollableContent(
 		);
 		const contentWidth = width - 2;
 		for (let i = 0; i < visible.length; i++) {
-			const sliced = horizontalSlice(visible[i]!, hScrollOffset, contentWidth);
+			const sliced = truncateToWidth(
+				horizontalSlice(visible[i]!, hScrollOffset, contentWidth),
+				contentWidth,
+			);
 			const scrollCol = width;
 			lines.push(
 				sliced + `\x1b[${scrollCol}G` + scrollbar[i]!,
@@ -211,7 +214,10 @@ function renderScrollableContent(
 		}
 	} else {
 		for (const line of contentLines) {
-			lines.push(horizontalSlice(line, hScrollOffset, width));
+			lines.push(truncateToWidth(
+				horizontalSlice(line, hScrollOffset, width),
+				width,
+			));
 		}
 	}
 

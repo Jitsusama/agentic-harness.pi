@@ -315,7 +315,10 @@ export async function showContent(
 			content: (theme, width) => {
 				const lines: string[] = [];
 				if (title) {
-					lines.push(theme.fg("accent", ` ${theme.bold(title)}`));
+					lines.push(truncateToWidth(
+						theme.fg("accent", ` ${theme.bold(title)}`),
+						width,
+					));
 					lines.push("");
 				}
 				for (const line of renderContent(text, theme, width, {
