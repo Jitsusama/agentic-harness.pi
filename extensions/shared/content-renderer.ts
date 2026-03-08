@@ -46,34 +46,53 @@ export function renderMarkdown(
 
 		// Headers
 		if (/^#{1,6}\s/.test(line)) {
-			lines.push(truncateToWidth(
-				theme.fg("accent", ` ${theme.bold(line)}`),
-				width,
-			));
+			for (const wrapped of wordWrap(line, width - 1)) {
+				lines.push(truncateToWidth(
+					theme.fg("accent", ` ${theme.bold(wrapped)}`),
+					width,
+				));
+			}
 			continue;
 		}
 
 		// Blockquotes
 		if (line.startsWith("> ")) {
-			lines.push(truncateToWidth(theme.fg("dim", ` ${line}`), width));
+			for (const wrapped of wordWrap(line, width - 1)) {
+				lines.push(truncateToWidth(
+					theme.fg("dim", ` ${wrapped}`),
+					width,
+				));
+			}
 			continue;
 		}
 
 		// List items (- or *)
 		if (/^\s*[-*]\s/.test(line)) {
-			lines.push(truncateToWidth(
-				` ${applyInlineFormatting(line, theme)}`,
-				width,
-			));
+			const indent = line.match(/^(\s*[-*]\s)/)![0];
+			const wrapIndent = " ".repeat(indent.length);
+			const wrapped = wordWrap(line, width - 1);
+			for (let j = 0; j < wrapped.length; j++) {
+				const text = j === 0 ? wrapped[j]! : wrapIndent + wrapped[j]!;
+				lines.push(truncateToWidth(
+					` ${applyInlineFormatting(text, theme)}`,
+					width,
+				));
+			}
 			continue;
 		}
 
 		// Numbered list items
 		if (/^\s*\d+\.\s/.test(line)) {
-			lines.push(truncateToWidth(
-				` ${applyInlineFormatting(line, theme)}`,
-				width,
-			));
+			const indent = line.match(/^(\s*\d+\.\s)/)![0];
+			const wrapIndent = " ".repeat(indent.length);
+			const wrapped = wordWrap(line, width - 1);
+			for (let j = 0; j < wrapped.length; j++) {
+				const text = j === 0 ? wrapped[j]! : wrapIndent + wrapped[j]!;
+				lines.push(truncateToWidth(
+					` ${applyInlineFormatting(text, theme)}`,
+					width,
+				));
+			}
 			continue;
 		}
 
