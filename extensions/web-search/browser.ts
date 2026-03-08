@@ -39,7 +39,11 @@ export async function getBrowser(): Promise<Browser> {
 			"--disable-setuid-sandbox",
 			"--disable-gpu",
 			"--disable-dev-shm-usage",
+			"--disable-logging",
+			"--log-level=3",
 		],
+		// Suppress Chrome's stderr noise
+		dumpio: false,
 	});
 	return browser;
 }

@@ -2,14 +2,15 @@
  * Web Search Extension
  *
  * Two tools for the LLM:
- *   - web_search: Google search via headless Chrome
+ *   - web_search: search the web via headless Chrome
  *   - web_read: fetch and extract readable content from a URL
  *
  * Uses puppeteer-core (existing Chrome install), @mozilla/readability,
- * and jsdom.
+ * and jsdom. Custom renderCall/renderResult keep TUI output compact.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { closeBrowser } from "./browser.js";
 import { readPage } from "./reader.js";
@@ -37,6 +38,36 @@ export default function webSearch(pi: ExtensionAPI) {
 				}),
 			),
 		}),
+
+		renderCall(args, theme) {
+			const label = theme.fg("toolTitle", theme.bold("web_search "));
+			const query = theme.fg("dim", `"${args.query}"`);
+			return new Text(label + query, 0, 0);
+		},
+
+		renderResult(result, { expanded }, theme) {
+			const text = result.content?.[0]?.text || "";
+			if (result.details?.error || text.startsWith("Search failed")) {
+				return new Text(theme.fg("error", text), 0, 0);
+			}
+			// Count results
+			const count = (text.match(/^\d+\./gm) || []).length;
+			const summary = theme.fg("success", `✓ ${count} results`);
+			if (!expanded) {
+				// Show just titles in compact view
+				const titles = text
+					.split("\n\n")
+					.map((block) => {
+						const match = block.match(/^\d+\.\s+\*\*(.+?)\*\*/);
+						return match ? match[1] : null;
+					})
+					.filter(Boolean)
+					.map((t) => "  " + theme.fg("dim", t!))
+					.join("\n");
+				return new Text(summary + "\n" + titles, 0, 0);
+			}
+			return new Text(summary + "\n" + text, 0, 0);
+		},
 
 		async execute(_toolCallId, params, signal) {
 			try {
@@ -89,29 +120,73 @@ export default function webSearch(pi: ExtensionAPI) {
 			"Fetch a URL and extract readable content (article text, docs, etc.).",
 		promptGuidelines: [
 			"Use web_read to get full content from URLs found via web_search.",
-			"Content is truncated to ~30k characters. For very long pages, note what you have and what might be missing.",
+			"Large pages are saved to a temp file — use the read tool with offset/limit or grep to explore specific sections rather than reading the entire file.",
 		],
 		parameters: Type.Object({
 			url: Type.String({ description: "URL to fetch and read" }),
 		}),
 
+		renderCall(args, theme) {
+			const label = theme.fg("toolTitle", theme.bold("web_read "));
+			// Show just the domain + path, truncated
+			let display = args.url;
+			try {
+				const u = new URL(args.url);
+				display = u.hostname + u.pathname;
+				if (display.length > 60)
+					display = display.slice(0, 57) + "...";
+			} catch {
+				// use raw url
+			}
+			return new Text(label + theme.fg("dim", display), 0, 0);
+		},
+
+		renderResult(result, { expanded }, theme) {
+			const text = result.content?.[0]?.text || "";
+			if (
+				result.details?.error ||
+				text.startsWith("Failed to read page")
+			) {
+				return new Text(theme.fg("error", text), 0, 0);
+			}
+			// Extract title from the "# Title" header
+			const titleMatch = text.match(/^# (.+)/);
+			const title = titleMatch ? titleMatch[1] : "Page loaded";
+			const filePath = result.details?.filePath as string | undefined;
+			const totalChars = (result.details?.length as number) || text.length;
+
+			let summary =
+				theme.fg("success", "✓ ") +
+				theme.fg("dim", title) +
+				theme.fg("muted", ` (${Math.round(totalChars / 1000)}k chars)`);
+			if (filePath) {
+				summary += theme.fg("muted", ` → ${filePath}`);
+			}
+
+			if (!expanded) {
+				return new Text(summary, 0, 0);
+			}
+			const preview = text.slice(0, 2000) + (text.length > 2000 ? "\n..." : "");
+			return new Text(summary + "\n" + preview, 0, 0);
+		},
+
 		async execute(_toolCallId, params, signal) {
 			try {
 				const result = await readPage(params.url, signal);
-
-				const header = `# ${result.title}\n\nSource: ${result.url}\n`;
-				const truncNote =
-					result.length > 30_000
-						? `\n*(Content truncated from ${result.length} to ~30,000 characters)*\n`
-						: "";
 
 				return {
 					content: [
 						{
 							type: "text",
-							text: header + truncNote + "\n" + result.content,
+							text: result.content,
 						},
 					],
+					details: {
+						title: result.title,
+						url: result.url,
+						length: result.length,
+						filePath: result.filePath,
+					},
 				};
 			} catch (err: unknown) {
 				const msg =
