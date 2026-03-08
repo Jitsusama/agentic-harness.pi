@@ -13,7 +13,7 @@ import {
 	type PanelPage,
 	type SeriesSelection,
 } from "../shared/panel.js";
-import { renderCode } from "../shared/content-renderer.js";
+import { renderCode, languageFromPath } from "../shared/content-renderer.js";
 import type { ReviewComment, VetResult } from "./index.js";
 
 // ---- Helpers ----
@@ -103,6 +103,7 @@ function buildCommentPage(
 				lines.push("");
 				for (const line of renderCode(codeContent, theme, width, {
 					startLine: start,
+					language: languageFromPath(comment.path),
 				})) {
 					lines.push(line);
 				}
