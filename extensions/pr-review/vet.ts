@@ -64,8 +64,8 @@ const STATUS_ICONS: Record<CommentStatus, string> = {
 	edited: "✎",
 };
 
-function statusLabel(index: number, status: CommentStatus): string {
-	return `${STATUS_ICONS[status]} C${index + 1}`;
+function statusLabel(index: number, _status: CommentStatus): string {
+	return `C${index + 1}`;
 }
 
 // ---- Page builders ----
