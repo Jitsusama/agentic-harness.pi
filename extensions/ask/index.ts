@@ -5,13 +5,22 @@
  * Multiple questions: tab bar navigation between questions.
  * Always includes a free-form "Type something" option.
  *
+ * Composes on showPanelSeries for the UI. Each question is a
+ * PanelPage; multi-question mode adds a Submit page.
+ *
  * Standalone — any skill or extension can rely on this tool
  * being available (planning, TDD, general conversation).
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Editor, type EditorTheme, Key, matchesKey, Text, truncateToWidth } from "@mariozechner/pi-tui";
+import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import {
+	showPanelSeries,
+	type PanelPage,
+	type PanelOption,
+	type SeriesSelection,
+} from "../shared/panel.js";
 
 // Types
 interface QuestionOption {
@@ -19,8 +28,6 @@ interface QuestionOption {
 	label: string;
 	description?: string;
 }
-
-type RenderOption = QuestionOption & { isOther?: boolean };
 
 interface Question {
 	id: string;
@@ -101,285 +108,145 @@ export default function ask(pi: ExtensionAPI) {
 			}));
 
 			const isMulti = questions.length > 1;
-			const totalTabs = questions.length + 1; // questions + Submit
+			const answers = new Map<string, Answer>();
 
-			const result = await ctx.ui.custom<AskResult>((tui, theme, _kb, done) => {
-				// State
-				let currentTab = 0;
-				let optionIndex = 0;
-				let inputMode = false;
-				let inputQuestionId: string | null = null;
-				let cachedLines: string[] | undefined;
-				const answers = new Map<string, Answer>();
+			// Build a PanelPage for each question
+			const questionPages: PanelPage[] = questions.map((q) => {
+				const opts: PanelOption[] = q.options.map((o) => ({
+					label: o.label,
+					value: o.value,
+					description: o.description,
+				}));
 
-				// Editor for "Type something" option
-				const editorTheme: EditorTheme = {
-					borderColor: (s) => theme.fg("accent", s),
-					selectList: {
-						selectedPrefix: (t) => theme.fg("accent", t),
-						selectedText: (t) => theme.fg("accent", t),
-						description: (t) => theme.fg("muted", t),
-						scrollInfo: (t) => theme.fg("dim", t),
-						noMatch: (t) => theme.fg("warning", t),
-					},
-				};
-				const editor = new Editor(tui, editorTheme);
-
-				// Helpers
-				function refresh() {
-					cachedLines = undefined;
-					tui.requestRender();
-				}
-
-				function submit(cancelled: boolean) {
-					done({ questions, answers: Array.from(answers.values()), cancelled });
-				}
-
-				function currentQuestion(): Question | undefined {
-					return questions[currentTab];
-				}
-
-				function currentOptions(): RenderOption[] {
-					const q = currentQuestion();
-					if (!q) return [];
-					const opts: RenderOption[] = [...q.options];
-					if (q.allowOther) {
-						opts.push({ value: "__other__", label: "Type something", isOther: true });
-					}
-					return opts;
-				}
-
-				function allAnswered(): boolean {
-					return questions.every((q) => answers.has(q.id));
-				}
-
-				function advanceAfterAnswer() {
-					if (!isMulti) {
-						submit(false);
-						return;
-					}
-					if (currentTab < questions.length - 1) {
-						currentTab++;
-					} else {
-						currentTab = questions.length; // Submit tab
-					}
-					optionIndex = 0;
-					refresh();
-				}
-
-				function saveAnswer(questionId: string, value: string, label: string, wasCustom: boolean, index?: number) {
-					answers.set(questionId, { id: questionId, value, label, wasCustom, index });
-				}
-
-				// Editor submit callback
-				editor.onSubmit = (value) => {
-					if (!inputQuestionId) return;
-					const trimmed = value.trim() || "(no response)";
-					saveAnswer(inputQuestionId, trimmed, trimmed, true);
-					inputMode = false;
-					inputQuestionId = null;
-					editor.setText("");
-					advanceAfterAnswer();
-				};
-
-				function handleInput(data: string) {
-					// Input mode: route to editor
-					if (inputMode) {
-						if (matchesKey(data, Key.escape)) {
-							inputMode = false;
-							inputQuestionId = null;
-							editor.setText("");
-							refresh();
-							return;
-						}
-						editor.handleInput(data);
-						refresh();
-						return;
-					}
-
-					const q = currentQuestion();
-					const opts = currentOptions();
-
-					// Tab navigation (multi-question only)
-					if (isMulti) {
-						if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
-							currentTab = (currentTab + 1) % totalTabs;
-							optionIndex = 0;
-							refresh();
-							return;
-						}
-						if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.left)) {
-							currentTab = (currentTab - 1 + totalTabs) % totalTabs;
-							optionIndex = 0;
-							refresh();
-							return;
-						}
-					}
-
-					// Submit tab
-					if (currentTab === questions.length) {
-						if (matchesKey(data, Key.enter) && allAnswered()) {
-							submit(false);
-						} else if (matchesKey(data, Key.escape)) {
-							submit(true);
-						}
-						return;
-					}
-
-					// Option navigation
-					if (matchesKey(data, Key.up)) {
-						optionIndex = Math.max(0, optionIndex - 1);
-						refresh();
-						return;
-					}
-					if (matchesKey(data, Key.down)) {
-						optionIndex = Math.min(opts.length - 1, optionIndex + 1);
-						refresh();
-						return;
-					}
-
-					// Select option
-					if (matchesKey(data, Key.enter) && q) {
-						const opt = opts[optionIndex];
-						if (opt.isOther) {
-							inputMode = true;
-							inputQuestionId = q.id;
-							editor.setText("");
-							refresh();
-							return;
-						}
-						saveAnswer(q.id, opt.value, opt.label, false, optionIndex + 1);
-						advanceAfterAnswer();
-						return;
-					}
-
-					// Cancel
-					if (matchesKey(data, Key.escape)) {
-						submit(true);
-					}
-				}
-
-				function render(width: number): string[] {
-					if (cachedLines) return cachedLines;
-
-					const lines: string[] = [];
-					const q = currentQuestion();
-					const opts = currentOptions();
-
-					// Helper to add truncated line
-					const add = (s: string) => lines.push(truncateToWidth(s, width));
-
-					add(theme.fg("accent", "─".repeat(width)));
-
-					// Tab bar (multi-question only)
-					if (isMulti) {
-						const tabs: string[] = ["← "];
-						for (let i = 0; i < questions.length; i++) {
-							const isActive = i === currentTab;
-							const isAnswered = answers.has(questions[i].id);
-							const lbl = questions[i].label;
-							const box = isAnswered ? "■" : "□";
-							const color = isAnswered ? "success" : "muted";
-							const text = ` ${box} ${lbl} `;
-							const styled = isActive ? theme.bg("selectedBg", theme.fg("text", text)) : theme.fg(color, text);
-							tabs.push(`${styled} `);
-						}
-						const canSubmit = allAnswered();
-						const isSubmitTab = currentTab === questions.length;
-						const submitText = " ✓ Submit ";
-						const submitStyled = isSubmitTab
-							? theme.bg("selectedBg", theme.fg("text", submitText))
-							: theme.fg(canSubmit ? "success" : "dim", submitText);
-						tabs.push(`${submitStyled} →`);
-						add(` ${tabs.join("")}`);
-						lines.push("");
-					}
-
-					// Helper to render options list
-					function renderOptions() {
-						for (let i = 0; i < opts.length; i++) {
-							const opt = opts[i];
-							const selected = i === optionIndex;
-							const isOther = opt.isOther === true;
-							const prefix = selected ? theme.fg("accent", "> ") : "  ";
-							const color = selected ? "accent" : "text";
-							if (isOther && inputMode) {
-								add(prefix + theme.fg("accent", `${i + 1}. ${opt.label} ✎`));
-							} else {
-								add(prefix + theme.fg(color, `${i + 1}. ${opt.label}`));
-							}
-							if (opt.description) {
-								add(`     ${theme.fg("muted", opt.description)}`);
-							}
-						}
-					}
-
-					// Content
-					if (inputMode && q) {
-						add(theme.fg("text", ` ${q.prompt}`));
-						lines.push("");
-						renderOptions();
-						lines.push("");
-						add(theme.fg("muted", " Your answer:"));
-						for (const line of editor.render(width - 2)) {
-							add(` ${line}`);
-						}
-						lines.push("");
-						add(theme.fg("dim", " Enter submit · Esc cancel"));
-					} else if (currentTab === questions.length) {
-						add(theme.fg("accent", theme.bold(" Ready to submit")));
-						lines.push("");
-						for (const question of questions) {
-							const answer = answers.get(question.id);
-							if (answer) {
-								const prefix = answer.wasCustom ? "(wrote) " : "";
-								add(`${theme.fg("muted", ` ${question.label}: `)}${theme.fg("text", prefix + answer.label)}`);
-							}
-						}
-						lines.push("");
-						if (allAnswered()) {
-							add(theme.fg("success", " Press Enter to submit"));
-						} else {
-							const missing = questions
-								.filter((q) => !answers.has(q.id))
-								.map((q) => q.label)
-								.join(", ");
-							add(theme.fg("warning", ` Unanswered: ${missing}`));
-						}
-					} else if (q) {
-						add(theme.fg("text", ` ${q.prompt}`));
-						lines.push("");
-						renderOptions();
-					}
-
-					lines.push("");
-					if (!inputMode) {
-						const help = isMulti
-							? " Tab/←→ navigate · ↑↓ select · Enter confirm · Esc cancel"
-							: " ↑↓ select · Enter confirm · Esc cancel";
-						add(theme.fg("dim", help));
-					}
-					add(theme.fg("accent", "─".repeat(width)));
-
-					cachedLines = lines;
-					return lines;
+				if (q.allowOther) {
+					opts.push({
+						label: "Type something",
+						value: "__other__",
+						opensEditor: true,
+						editorPreFill: "",
+					});
 				}
 
 				return {
-					render,
-					invalidate: () => {
-						cachedLines = undefined;
-					},
-					handleInput,
+					label: q.label,
+					content: (theme: any, _width: number) => [
+						theme.fg("text", ` ${q.prompt}`),
+					],
+					options: opts,
 				};
 			});
 
-			if (result.cancelled) {
+			// Submit page for multi-question mode
+			const submitPage: PanelPage = {
+				label: "✓ Submit",
+				content: (theme: any, _width: number) => {
+					const lines: string[] = [];
+					lines.push(theme.fg("accent", theme.bold(" Ready to submit")));
+					lines.push("");
+					for (const question of questions) {
+						const answer = answers.get(question.id);
+						if (answer) {
+							const prefix = answer.wasCustom ? "(wrote) " : "";
+							lines.push(
+								`${theme.fg("muted", ` ${question.label}: `)}` +
+								`${theme.fg("text", prefix + answer.label)}`,
+							);
+						}
+					}
+					lines.push("");
+					const allAnswered = questions.every((q) => answers.has(q.id));
+					if (allAnswered) {
+						lines.push(theme.fg("success", " Press Enter to submit"));
+					} else {
+						const missing = questions
+							.filter((q) => !answers.has(q.id))
+							.map((q) => q.label)
+							.join(", ");
+						lines.push(theme.fg("warning", ` Unanswered: ${missing}`));
+					}
+					return lines;
+				},
+				options: [
+					{ label: "Submit", value: "__submit__" },
+				],
+			};
+
+			const pages = isMulti
+				? [...questionPages, submitPage]
+				: questionPages;
+
+			// onSelect callback — track answers and decide when to resolve
+			function onSelect(
+				selection: SeriesSelection,
+				_all: Map<number, SeriesSelection>,
+			): boolean {
+				// Submit page
+				if (isMulti && selection.pageIndex === questionPages.length) {
+					if (selection.value === "__submit__") {
+						return questions.every((q) => answers.has(q.id));
+					}
+					return false;
+				}
+
+				// Question page — record the answer
+				const question = questions[selection.pageIndex];
+				if (!question) return false;
+
+				if (selection.value === "__other__" && selection.editorText) {
+					const text = selection.editorText;
+					answers.set(question.id, {
+						id: question.id,
+						value: text,
+						label: text,
+						wasCustom: true,
+					});
+				} else {
+					// Find the option index (1-based)
+					const optIdx = question.options.findIndex(
+						(o) => o.value === selection.value,
+					);
+					const opt = question.options[optIdx];
+					if (opt) {
+						answers.set(question.id, {
+							id: question.id,
+							value: opt.value,
+							label: opt.label,
+							wasCustom: false,
+							index: optIdx + 1,
+						});
+					}
+				}
+
+				// Single question — resolve immediately
+				if (!isMulti) return true;
+
+				return false;
+			}
+
+			const seriesResult = await showPanelSeries(ctx, {
+				pages,
+				onSelect,
+			});
+
+			// Cancelled
+			if (!seriesResult) {
+				const result: AskResult = {
+					questions,
+					answers: [],
+					cancelled: true,
+				};
 				return {
 					content: [{ type: "text", text: "User cancelled" }],
 					details: result,
 				};
 			}
+
+			// Build result from accumulated answers
+			const result: AskResult = {
+				questions,
+				answers: Array.from(answers.values()),
+				cancelled: false,
+			};
 
 			const answerLines = result.answers.map((a) => {
 				const qLabel = questions.find((q) => q.id === a.id)?.label || a.id;
