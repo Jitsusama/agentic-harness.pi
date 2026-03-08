@@ -1,117 +1,137 @@
-# pi-setup
+# agentic-harness.pi
 
-Collaborative coding workflows for pi: planning, TDD, git hygiene,
-and code investigation.
+A [pi](https://github.com/badlogic/pi-mono) package that adds
+collaborative coding workflows — planning, TDD, git hygiene,
+code investigation, and PR authoring.
 
 ## Install
 
 ```bash
-pi install /path/to/pi-setup
-# or
-pi install git:github.com/your-user/pi-setup
+pi install git:github.com/Jitsusama/agentic-harness.pi
 ```
 
-## What's Included
+Or try it without installing:
+
+```bash
+pi -e git:github.com/Jitsusama/agentic-harness.pi
+```
+
+## What's Inside
 
 ### Extensions
 
-| Extension | Purpose | Always on? |
-|-----------|---------|------------|
-| **git-guardian** | Commit review + destructive command protection | Yes |
-| **ask** | Reusable structured question tool | Yes (available to agent) |
-| **plan-mode** | Read-only investigation + plan writing | Toggle: `/plan` or `Ctrl+Alt+P` |
-| **tdd-mode** | Red-green-refactor state machine | Toggle: `/tdd` or `Ctrl+Alt+T` |
+| Extension | What it does |
+|-----------|-------------|
+| **git-guardian** | Reviews every commit and gates destructive git commands (force push, reset --hard, etc.) |
+| **ask** | Structured question tool the agent uses for clarifying requirements |
+| **pr-review** | Proposes inline PR review comments for you to vet before posting |
+| **plan-mode** | Read-only investigation mode — no code changes until you leave |
+| **tdd-mode** | Red → green → refactor state machine with phase enforcement |
 
 ### Skills
 
-| Skill | Loads when... |
-|-------|---------------|
-| **conventional-commits** | Writing commit messages, discussing conventions |
-| **tdd-workflow** | Implementing features with tests |
+| Skill | Activates when... |
+|-------|-------------------|
 | **planning** | Designing or architecting before building |
-| **code-investigation** | Understanding existing code |
+| **tdd-workflow** | Implementing features with tests |
+| **conventional-commits** | Writing commit messages |
 | **git-hygiene** | Discussing commit strategy or history |
 | **branch-management** | Creating branches, switching, moving commits |
-| **pr-writing** | Creating pull requests, writing PR descriptions |
-| **rebase-resolution** | Rebasing, resolving merge conflicts |
-| **github-sub-issues** | Managing sub-issues (query, reorder, create) |
-| **github-projects** | Managing GitHub Projects v2 items |
+| **pr-writing** | Creating pull requests or writing PR descriptions |
+| **code-investigation** | Understanding existing code |
+| **rebase-resolution** | Rebasing or resolving merge conflicts |
+| **github-sub-issues** | Managing parent/child issue relationships |
+| **github-projects** | Working with GitHub Projects v2 boards |
 
 ### AGENTS.md
 
-Minimal collaboration style — always in context, under 10 lines.
-Covers: explain findings, pause before big changes, research first,
-review all commits, ask when ambiguous.
+A minimal collaboration style guide that's always in context.
+Tells the agent to explain findings, pause before big changes,
+research before acting, get approval on all commits, and ask
+when requirements are ambiguous.
 
 ## Usage
 
-### Planning a Feature
+### Planning
 
-Say "let's plan this out" — the agent loads the planning skill and
-investigates before proposing. Use `/plan` if you want read-only
-enforcement (no code modifications until you transition out).
+Say "let's plan this out" and the agent investigates before
+proposing anything. Use `/plan` or `Ctrl+Alt+P` if you want
+read-only enforcement — no code modifications until you
+transition out.
 
 Plans are written to `.pi/plans/` by default. Override with
 `/plan-dir <path>` or in `.pi/settings.json`:
 
 ```json
-{ "planDir": "docs/architecture/plans" }
+{ "planDir": "docs/plans" }
 ```
 
-After the plan is written, you're offered: TDD, free-form, or
+After the plan is written, you choose: TDD, free-form, or
 stay in planning.
 
-### TDD Implementation
+### TDD
 
-Say "let's TDD this" or use `/tdd` for phase enforcement.
-With a plan file: `/tdd .pi/plans/2026-02-27-my-plan.md`.
+Say "let's TDD this" or use `/tdd` (`Ctrl+Alt+T`) for phase
+enforcement. Point it at a plan with `/tdd .pi/plans/my-plan.md`.
 
-The state machine tracks red → green → refactor phases. During
-red phase, writes to implementation files require confirmation
-(test files are unrestricted). After each green, a refactor gate
-pauses for your input. After refactor, a commit is proposed
-(reviewed by git-guardian).
-
-### GitHub Issue & Project Management
-
-Use the github-sub-issues and github-projects skills when working
-with parent/child issue relationships or GitHub Projects v2 boards.
-Both include helper scripts in their `scripts/` directories.
+The state machine tracks red → green → refactor. During the red
+phase, writes to implementation files require confirmation (test
+files are unrestricted). After each green, a refactor gate pauses
+for your input. After refactor, a commit is proposed and reviewed
+by git-guardian.
 
 ### Committing
 
-The agent uses heredoc format for commits (taught by the
-conventional-commits skill). Git-guardian intercepts every commit
-for review with validation indicators (subject length, body wrap,
-conventional format). Approve, steer (give feedback), edit, or
-reject.
+Git-guardian intercepts every commit for review, showing validation
+indicators (subject length, body wrap, conventional format). You
+approve, steer, edit, or reject.
 
-Destructive git commands (reset --hard, push --force, etc.) get
-a similar gate: allow, steer, or block.
+Destructive git commands get a similar gate: allow, steer, or block.
+
+### Pull Requests
+
+The agent writes PR descriptions following the pr-writing skill's
+structure, then uses pr-review to propose inline self-review
+comments. You vet each comment before it's posted to GitHub.
 
 ### Research
 
-Just ask — "help me understand how X works." The code-investigation
-skill guides the agent to investigate thoroughly and present
-focused summaries.
+Ask the agent to help you understand code. The code-investigation
+skill guides it to investigate thoroughly and present focused
+summaries rather than raw dumps.
 
 ## Composability
 
-Every piece works alone. Skills guide behavior without extensions.
-Extensions add enforcement. The matrix:
+Every piece works independently. Skills guide behavior, extensions
+enforce it. Mix and match:
 
-- **Skills only** — agent follows guidance voluntarily
-- **Git-guardian only** — commit review works without any skills
+- **Skills only** — the agent follows guidance voluntarily
+- **Git-guardian only** — commit review without any skills
 - **Plan-mode only** — read-only enforcement without TDD
 - **TDD-mode only** — phase enforcement without planning
-- **All together** — plan → TDD → commit flows seamlessly
+- **Everything** — plan → TDD → commit flows seamlessly
+
+Use [package filtering](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent#package-filtering)
+to load only what you want:
+
+```json
+{
+  "packages": [
+    {
+      "source": "git:github.com/Jitsusama/agentic-harness.pi",
+      "extensions": ["extensions/git-guardian", "extensions/tdd-mode"],
+      "skills": ["skills/tdd-workflow", "skills/conventional-commits"]
+    }
+  ]
+}
+```
 
 ## Project-Local Overrides
 
-Each project can customize via `.pi/`:
+Each project can layer on its own configuration via `.pi/`:
 
 ```markdown
-<!-- AGENTS.md or .pi/AGENTS.md -->
+<!-- .pi/AGENTS.md -->
 Test command: `cargo test`
 Commit scopes for this project: api, cli, core, db
 ```
@@ -121,17 +141,23 @@ Commit scopes for this project: api, cli, core, db
 { "planDir": "docs/plans" }
 ```
 
-## Commands
+## Quick Reference
+
+### Commands
 
 | Command | Description |
 |---------|-------------|
-| `/plan` | Toggle plan mode (read-only investigation) |
+| `/plan` | Toggle plan mode |
 | `/plan-dir [path]` | Show or set plan directory |
 | `/tdd [plan-file]` | Toggle TDD mode |
 
-## Keyboard Shortcuts
+### Keyboard Shortcuts
 
 | Shortcut | Description |
 |----------|-------------|
 | `Ctrl+Alt+P` | Toggle plan mode |
 | `Ctrl+Alt+T` | Toggle TDD mode |
+
+## License
+
+[MIT](LICENSE)
