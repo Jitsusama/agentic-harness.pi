@@ -13,8 +13,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { closeBrowser } from "./browser.js";
-import { isSetUp, setupChromeKey, StaleKeyError } from "./cookies.js";
-import { AuthSetupNeeded, readPage } from "./reader.js";
+import { readPage } from "./reader.js";
 import { webSearch as doSearch } from "./search.js";
 
 export default function webSearch(pi: ExtensionAPI) {
@@ -194,20 +193,6 @@ export default function webSearch(pi: ExtensionAPI) {
 					},
 				};
 			} catch (err: unknown) {
-				if (
-					err instanceof AuthSetupNeeded ||
-					err instanceof StaleKeyError
-				) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: err.message,
-							},
-						],
-						details: { error: true, authSetupNeeded: true },
-					};
-				}
 				const msg =
 					err instanceof Error ? err.message : String(err);
 				return {
@@ -217,47 +202,7 @@ export default function webSearch(pi: ExtensionAPI) {
 							text: `Failed to read page: ${msg}`,
 						},
 					],
-					details: { error: true },
 				};
-			}
-		},
-	});
-
-	// --- /setup-chrome-cookies command ---
-	pi.registerCommand("setup-chrome-cookies", {
-		description:
-			"Enable web_read access to authenticated pages by caching " +
-			"Chrome's cookie decryption key. Triggers a one-time macOS " +
-			"Keychain prompt.",
-		handler: async (args, ctx) => {
-			const force = args?.trim() === "--force";
-			if (isSetUp() && !force) {
-				ctx.ui.notify(
-					"Chrome cookie key is already set up. " +
-						"Run /setup-chrome-cookies --force to regenerate.",
-					"info",
-				);
-				return;
-			}
-
-			ctx.ui.notify(
-				(force ? "Regenerating" : "Requesting") +
-					" Chrome Safe Storage key from macOS Keychain.\n" +
-					'Click "Always Allow" on the system dialog to avoid future prompts.',
-				"info",
-			);
-
-			const success = setupChromeKey();
-			if (success) {
-				ctx.ui.notify(
-					"✓ Chrome cookie key cached. web_read can now access authenticated pages.",
-					"info",
-				);
-			} else {
-				ctx.ui.notify(
-					"Failed to set up Chrome cookie key. Was the Keychain prompt denied?",
-					"warn",
-				);
 			}
 		},
 	});
