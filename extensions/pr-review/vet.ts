@@ -1,28 +1,25 @@
 /**
- * Comment vetting flow — walk through each candidate comment
- * using the shared gate, then offer to add user comments.
+ * Comment vetting flow — tabbed panel where each comment is a
+ * page. Users can freely navigate, approve/edit/reject in any
+ * order, and submit when done.
  *
  * Pre-approved comments (from prior rounds) are tracked in
  * the header count but not re-vetted.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { showGate } from "../shared/gate.js";
+import {
+	showPanelSeries,
+	type PanelPage,
+	type SeriesSelection,
+} from "../shared/panel.js";
+import { renderCode } from "../shared/content-renderer.js";
 import type { ReviewComment, VetResult } from "./index.js";
 
-const COMMENT_OPTIONS = [
-	{ label: "Approve", value: "approve" },
-	{ label: "Edit", value: "edit" },
-	{ label: "Reject", value: "reject" },
-];
-
-const ADD_MORE_OPTIONS = [
-	{ label: "Add a comment", value: "add" },
-	{ label: "Done", value: "done" },
-];
+// ---- Helpers ----
 
 function wordWrap(text: string, maxWidth: number): string[] {
-	if (maxWidth <= 0) return [text];
+	if (maxWidth <= 0 || text.length <= maxWidth) return [text];
 	const lines: string[] = [];
 	for (const paragraph of text.split("\n")) {
 		if (paragraph.length <= maxWidth) {
@@ -41,152 +38,256 @@ function wordWrap(text: string, maxWidth: number): string[] {
 	return lines;
 }
 
-function readFileLines(
+function readFileContent(
 	path: string,
 	startLine: number,
 	endLine: number,
-): string[] {
+): string | null {
 	try {
 		const fs = require("node:fs");
 		const content = fs.readFileSync(path, "utf-8");
 		const allLines = content.split("\n");
-		return allLines.slice(startLine - 1, endLine);
+		return allLines.slice(startLine - 1, endLine).join("\n");
 	} catch {
-		return [];
+		return null;
 	}
 }
 
-function renderComment(
+// ---- Status indicators ----
+
+type CommentStatus = "pending" | "approved" | "rejected" | "edited";
+
+const STATUS_ICONS: Record<CommentStatus, string> = {
+	pending: "□",
+	approved: "✓",
+	rejected: "✗",
+	edited: "✎",
+};
+
+function statusLabel(index: number, status: CommentStatus): string {
+	return `${STATUS_ICONS[status]} C${index + 1}`;
+}
+
+// ---- Page builders ----
+
+function buildCommentPage(
 	comment: ReviewComment,
 	index: number,
 	total: number,
 	preApprovedCount: number,
-) {
-	return (theme: any, width: number): string[] => {
-		const indent = 2;
-		const wrapWidth = width - indent;
-		const pad = " ".repeat(indent);
-		const lines: string[] = [];
+	statuses: Map<number, CommentStatus>,
+): PanelPage {
+	const status = statuses.get(index) ?? "pending";
 
-		const totalAll = total + preApprovedCount;
-		const num = index + preApprovedCount + 1;
-		lines.push(theme.fg("text", ` Comment ${num} of ${totalAll}`));
+	return {
+		label: statusLabel(index, status),
+		content: (theme, width) => {
+			const indent = 2;
+			const wrapWidth = width - indent;
+			const pad = " ".repeat(indent);
+			const lines: string[] = [];
 
-		const range = comment.startLine
-			? theme.fg("dim", `:${comment.startLine}-${comment.line}`)
-			: theme.fg("dim", `:${comment.line}`);
-		lines.push(` ${theme.fg("accent", comment.path)}${range}`);
+			const totalAll = total + preApprovedCount;
+			const num = index + preApprovedCount + 1;
+			lines.push(theme.fg("text", ` Comment ${num} of ${totalAll}`));
 
-		// Show the actual code being commented on
-		const start = comment.startLine || comment.line;
-		const codeLines = readFileLines(comment.path, start, comment.line);
-		if (codeLines.length > 0) {
-			lines.push("");
-			for (let i = 0; i < codeLines.length; i++) {
-				const lineNum = String(start + i).padStart(4);
-				lines.push(theme.fg("dim", `${lineNum} │ `) + theme.fg("muted", codeLines[i]));
+			const range = comment.startLine
+				? theme.fg("dim", `:${comment.startLine}-${comment.line}`)
+				: theme.fg("dim", `:${comment.line}`);
+			lines.push(` ${theme.fg("accent", comment.path)}${range}`);
+
+			// Show the actual code being commented on
+			const start = comment.startLine || comment.line;
+			const codeContent = readFileContent(comment.path, start, comment.line);
+			if (codeContent) {
+				lines.push("");
+				for (const line of renderCode(codeContent, theme, width, {
+					startLine: start,
+				})) {
+					lines.push(line);
+				}
 			}
-		}
 
-		lines.push("");
-		for (const line of wordWrap(comment.body, wrapWidth)) {
-			lines.push(theme.fg("text", `${pad}${line}`));
-		}
-
-		if (comment.rationale) {
 			lines.push("");
-			lines.push(theme.fg("dim", `${pad}Rationale:`));
-			for (const line of wordWrap(comment.rationale, wrapWidth)) {
-				lines.push(theme.fg("dim", `${pad}${line}`));
+			for (const line of wordWrap(comment.body, wrapWidth)) {
+				lines.push(theme.fg("text", `${pad}${line}`));
 			}
-		}
 
-		return lines;
+			if (comment.rationale) {
+				lines.push("");
+				lines.push(theme.fg("dim", `${pad}Rationale:`));
+				for (const line of wordWrap(comment.rationale, wrapWidth)) {
+					lines.push(theme.fg("dim", `${pad}${line}`));
+				}
+			}
+
+			return lines;
+		},
+		options: [
+			{ label: "Approve", value: "approve" },
+			{ label: "Edit", value: "edit" },
+			{ label: "Reject", value: "reject" },
+			{
+				label: "Steer",
+				value: "steer",
+				opensEditor: true,
+				editorPreFill: comment.body,
+			},
+		],
 	};
 }
 
-function renderAddPrompt(approvedCount: number) {
-	return (theme: any, _width: number): string[] => {
-		const lines: string[] = [];
-		lines.push(theme.fg("text", " All comments reviewed."));
-		if (approvedCount > 0) {
-			lines.push(theme.fg("success", ` ${approvedCount} approved so far.`));
-		}
-		return lines;
+function buildAddDonePage(
+	approvedCount: number,
+	userRequestCount: number,
+): PanelPage {
+	return {
+		label: "Done",
+		content: (theme, _width) => {
+			const lines: string[] = [];
+			lines.push(theme.fg("text", " All comments reviewed."));
+			const total = approvedCount + userRequestCount;
+			if (total > 0) {
+				lines.push(theme.fg("success", ` ${total} approved/added so far.`));
+			}
+			return lines;
+		},
+		options: [
+			{
+				label: "Add a comment",
+				value: "add",
+				opensEditor: true,
+				editorPreFill: "",
+			},
+			{ label: "Done", value: "done" },
+		],
 	};
 }
+
+// ---- Main flow ----
 
 export async function vetComments(
 	comments: ReviewComment[],
 	preApprovedCount: number,
 	ctx: ExtensionContext,
 ): Promise<VetResult | null> {
-	const approved: ReviewComment[] = [];
+	// Mutable state closed over by pages and onSelect
+	const currentComments = comments.map((c) => ({ ...c }));
+	const statuses = new Map<number, CommentStatus>();
 	const userRequests: string[] = [];
-	let rejected = 0;
-	let edited = 0;
+	let editedCount = 0;
+	let steerFeedback: string | undefined;
 
-	// Walk through each new comment
-	for (let i = 0; i < comments.length; i++) {
-		let current = { ...comments[i] };
+	// Build pages — rebuilt when tab labels need updating
+	function buildPages(): PanelPage[] {
+		const commentPages = currentComments.map((comment, i) =>
+			buildCommentPage(
+				comment, i, comments.length, preApprovedCount, statuses,
+			),
+		);
+		const approvedCount = Array.from(statuses.values())
+			.filter((s) => s === "approved" || s === "edited").length;
+		const addDonePage = buildAddDonePage(
+			preApprovedCount + approvedCount,
+			userRequests.length,
+		);
+		return [...commentPages, addDonePage];
+	}
 
-		while (true) {
-			const result = await showGate(ctx, {
-				content: renderComment(current, i, comments.length, preApprovedCount),
-				options: COMMENT_OPTIONS,
-				steerContext: current.body,
-			});
+	// onSelect callback — handles all actions
+	async function onSelect(
+		selection: SeriesSelection,
+		_all: Map<number, SeriesSelection>,
+	): Promise<boolean> {
+		const { pageIndex, value, editorText } = selection;
 
-			// Escape cancels entire review
-			if (!result) return null;
+		// Add/Done page
+		if (pageIndex === currentComments.length) {
+			if (value === "done") return true;
+			if (value === "add" && editorText?.trim()) {
+				userRequests.push(editorText.trim());
+			}
+			if (value === "steer" && editorText?.trim()) {
+				steerFeedback = editorText.trim();
+				return true;
+			}
+			return false;
+		}
 
-			if (result.value === "approve") {
-				approved.push(current);
+		// Comment page actions
+		switch (value) {
+			case "approve":
+				statuses.set(pageIndex, "approved");
+				break;
+
+			case "edit": {
+				const comment = currentComments[pageIndex]!;
+				const editedBody = await ctx.ui.editor(
+					"Edit comment:",
+					comment.body,
+				);
+				if (editedBody !== undefined && editedBody.trim()) {
+					comment.body = editedBody.trim();
+					editedCount++;
+					statuses.set(pageIndex, "edited");
+				}
 				break;
 			}
 
-			if (result.value === "edit") {
-				const editedBody = await ctx.ui.editor("Edit comment:", current.body);
-				if (editedBody !== undefined && editedBody.trim()) {
-					current.body = editedBody.trim();
-					edited++;
+			case "reject":
+				statuses.set(pageIndex, "rejected");
+				break;
+
+			case "steer":
+				if (editorText?.trim()) {
+					steerFeedback = editorText.trim();
+					return true;
 				}
-				continue;
-			}
+				break;
+		}
 
-			if (result.value === "steer") {
-				return { approved: [], rejected, edited, steerFeedback: result.feedback, userRequests: [] };
-			}
+		return false;
+	}
 
-			// reject
+	const result = await showPanelSeries(ctx, {
+		pages: buildPages(),
+		onSelect,
+	});
+
+	// Cancelled
+	if (!result) return null;
+
+	// Steer aborts everything
+	if (steerFeedback) {
+		const rejected = Array.from(statuses.values())
+			.filter((s) => s === "rejected").length;
+		return {
+			approved: [],
+			rejected,
+			edited: editedCount,
+			steerFeedback,
+			userRequests: [],
+		};
+	}
+
+	// Collect results
+	const approved: ReviewComment[] = [];
+	let rejected = 0;
+
+	for (let i = 0; i < currentComments.length; i++) {
+		const status = statuses.get(i) ?? "pending";
+		if (status === "approved" || status === "edited") {
+			approved.push(currentComments[i]!);
+		} else if (status === "rejected") {
 			rejected++;
-			break;
 		}
+		// pending comments are neither approved nor rejected
 	}
 
-	// Offer to add user comments via natural language
-	const totalApproved = preApprovedCount + approved.length;
-	while (true) {
-		const result = await showGate(ctx, {
-			content: renderAddPrompt(totalApproved + userRequests.length),
-			options: ADD_MORE_OPTIONS,
-			steerContext: "",
-		});
-
-		if (!result || result.value === "done") break;
-
-		if (result.value === "add") {
-			const description = await ctx.ui.input("Describe the comment you want to add:");
-			if (description?.trim()) {
-				userRequests.push(description.trim());
-			}
-			continue;
-		}
-
-		if (result.value === "steer") {
-			return { approved, rejected, edited, steerFeedback: result.feedback, userRequests };
-		}
-	}
-
-	return { approved, rejected, edited, userRequests };
+	return {
+		approved,
+		rejected,
+		edited: editedCount,
+		userRequests,
+	};
 }
