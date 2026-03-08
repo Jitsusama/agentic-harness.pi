@@ -54,8 +54,22 @@ EOF
 - Blank line between subject and body
 - Hard-wrap at 72 characters
 - Explain **what** changed and **why**, not how
-  - Bad: "Update auth.ts to add a refreshToken function and call it
-    from the middleware"
+- **Be accurate about scope.** Only describe what this commit
+  actually does — not what the larger feature will do. If this
+  commit adds a service but doesn't wire it up, don't say it
+  "handles transitions" or "processes events." Describe the
+  concrete capability that exists after this commit.
+- **Don't reference future work.** The commit message is about
+  this commit, not what comes next. No "subsequent cycles will
+  add…" or "a follow-up will wire this up."
+- Don't parrot the implementation. If the diff shows a method
+  that calls `.to_date.iso8601.uniq.sort`, don't write "convert
+  timestamps to dates, deduplicate, and sort." Instead explain
+  why this code exists and what problem it solves.
+  - Bad: "Update auth.ts to add a refreshToken function and call
+    it from the middleware"
+  - Bad: "Convert timestamps to YYYY-MM-DD, deduplicate, sort,
+    and pass to chunk!"
   - Good: "Support token refresh for long-lived sessions. Without
     this, users with sessions longer than 1 hour are forced to
     re-authenticate."

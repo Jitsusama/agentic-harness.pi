@@ -48,6 +48,23 @@ With green tests as your safety net, improve the design:
 Run tests after each change. If anything breaks, undo and try a
 smaller refactor.
 
+## Test Ordering
+
+Within a test file, order tests from most expected to least
+expected behavior:
+
+1. **Happy path** — the primary success case
+2. **Alternate outcomes** — other valid paths through the code
+   (e.g., empty results, failed upstream query — these are
+   expected scenarios with different outcomes, not errors)
+3. **Edge cases** — boundary conditions, zero/one/many, nil
+4. **Error cases** — invalid inputs, unsupported types,
+   exceptions that indicate a bug or misconfiguration
+
+When adding a new test in a later TDD cycle, place it in the
+right position according to this ordering — not just appended
+to the end.
+
 ## After Refactor: Commit
 
 Each red-green-refactor cycle produces one atomic commit. The test
