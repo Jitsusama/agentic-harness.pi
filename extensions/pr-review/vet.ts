@@ -14,29 +14,8 @@ import {
 	type SeriesSelection,
 	showPanelSeries,
 } from "../lib/ui/panel.js";
+import { wordWrap } from "../lib/ui/text.js";
 import type { ReviewComment, VetResult } from "./index.js";
-
-// ---- Helpers ----
-
-function wordWrap(text: string, maxWidth: number): string[] {
-	if (maxWidth <= 0 || text.length <= maxWidth) return [text];
-	const lines: string[] = [];
-	for (const paragraph of text.split("\n")) {
-		if (paragraph.length <= maxWidth) {
-			lines.push(paragraph);
-			continue;
-		}
-		let remaining = paragraph;
-		while (remaining.length > maxWidth) {
-			let breakAt = remaining.lastIndexOf(" ", maxWidth);
-			if (breakAt <= 0) breakAt = maxWidth;
-			lines.push(remaining.slice(0, breakAt));
-			remaining = remaining.slice(breakAt).trimStart();
-		}
-		if (remaining) lines.push(remaining);
-	}
-	return lines;
-}
 
 function readFileContent(
 	path: string,

@@ -13,6 +13,7 @@ import {
 	type Theme,
 } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
+import { wordWrap } from "./text.js";
 
 // ---- Markdown ----
 
@@ -267,23 +268,7 @@ function terminalWrapWidth(renderWidth: number): number {
 	return Math.min(renderWidth, padded > 0 ? padded : cols);
 }
 
-/** Word-wrap a line to maxWidth. */
-function wordWrap(text: string, maxWidth: number): string[] {
-	if (maxWidth <= 0 || text.length <= maxWidth) return [text];
 
-	const result: string[] = [];
-	let remaining = text;
-
-	while (remaining.length > maxWidth) {
-		let breakAt = remaining.lastIndexOf(" ", maxWidth);
-		if (breakAt <= 0) breakAt = maxWidth;
-		result.push(remaining.slice(0, breakAt));
-		remaining = remaining.slice(breakAt).trimStart();
-	}
-	if (remaining) result.push(remaining);
-
-	return result;
-}
 
 // ---- Content type detection ----
 
