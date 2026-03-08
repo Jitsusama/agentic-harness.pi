@@ -12,6 +12,7 @@ and validate what actually happens.
 | [git-guardian](git-guardian/) | Commit review and destructive command protection |
 | [plan-mode](plan-mode/) | Read-only investigation mode for collaborative planning |
 | [pr-review](pr-review/) | Inline PR review comments with human vetting |
+| [status-line](status-line/) | Responsive single-line footer with directory, model, context, and thinking level |
 | [tdd-mode](tdd-mode/) | Red → green → refactor state machine with phase enforcement |
 
 ## Shared Utilities
