@@ -120,6 +120,9 @@ patterns, `--body-file -`, and metadata in separate commands.
 
 ## What Not to Do
 
+- Don't hard-wrap body paragraphs — GitHub reflows them,
+  and hard breaks make the text choppy. Write each
+  paragraph as a single continuous line.
 - Don't list what changed — that's visible in the diff
 - Don't use generic phrases like "improves performance"
 - Don't skip the "why" and jump to the "what"

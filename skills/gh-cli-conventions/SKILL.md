@@ -77,6 +77,18 @@ gh issue edit NUMBER --add-assignee @me
 
 This keeps the create command focused on title and body.
 
+## Line Wrapping in Bodies
+
+Do NOT hard-wrap PR or issue body paragraphs. Write each
+paragraph as a single continuous line. GitHub's markdown
+renderer handles the wrapping — hard line breaks within a
+paragraph render as visible breaks, making the text choppy.
+
+Hard-wrapping at 72 characters is for **commit messages only**
+(terminals don't reflow those). PR and issue bodies are
+rendered by GitHub's markdown engine, which reflows paragraphs
+automatically.
+
 ## Why --body-file Over --body
 
 The `--body` flag has quoting issues:

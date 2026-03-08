@@ -27,6 +27,9 @@ patterns, `--body-file -`, and metadata in separate commands.
 
 ## What Not to Do
 
+- Don't hard-wrap body paragraphs — GitHub reflows them,
+  and hard breaks make the text choppy. Write each
+  paragraph as a single continuous line.
 - Don't write implementation plans — that belongs in PRs
 - Don't use vague acceptance criteria like "works correctly"
 - Don't skip the problem statement and jump to the solution
