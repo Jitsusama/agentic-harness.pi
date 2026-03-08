@@ -22,8 +22,9 @@ export function validate(message: string): CommitValidation {
 	let bodyLongestLine = 0;
 	let bodyLongestLineNum = 0;
 	for (let i = 0; i < bodyLines.length; i++) {
-		if (bodyLines[i].length > bodyLongestLine) {
-			bodyLongestLine = bodyLines[i].length;
+		const lineLen = bodyLines[i]?.length ?? 0;
+		if (lineLen > bodyLongestLine) {
+			bodyLongestLine = lineLen;
 			bodyLongestLineNum = i + 3; // offset for subject + blank line
 		}
 	}

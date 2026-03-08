@@ -53,7 +53,9 @@ export function activate(
 			const content = fs.readFileSync(state.planFile, "utf-8");
 			const steps = content.match(/^\s*\d+\.\s+/gm);
 			state.totalSteps = steps?.length ?? null;
-		} catch {}
+		} catch {
+			/* Plan file unreadable — step count stays null */
+		}
 	}
 
 	updateStatus(state, ctx);

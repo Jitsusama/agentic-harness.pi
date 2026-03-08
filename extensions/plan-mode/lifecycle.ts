@@ -18,6 +18,7 @@ export function loadPlanDir(cwd: string): string {
 		const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
 		return settings.planDir ?? DEFAULT_PLAN_DIR;
 	} catch {
+		/* Settings file missing or malformed — use default */
 		return DEFAULT_PLAN_DIR;
 	}
 }

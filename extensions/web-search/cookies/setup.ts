@@ -58,6 +58,7 @@ export function getDecryptionKey(): Buffer | null {
 		if (!encoded) return null;
 		return Buffer.from(encoded, "base64");
 	} catch {
+		/* Cached key file missing or unreadable — not set up */
 		return null;
 	}
 }
@@ -88,6 +89,7 @@ export function setupChromeKey(): boolean {
 		});
 		return true;
 	} catch {
+		/* Keychain denied or write failed — report as failure */
 		return false;
 	}
 }

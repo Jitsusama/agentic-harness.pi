@@ -11,7 +11,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Readability } from "@mozilla/readability";
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
 import { newPage } from "./browser.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
 
@@ -41,6 +41,12 @@ export interface PageContent {
 	/** Path to full content file, if saved to disk */
 	filePath?: string;
 }
+
+/** Timeout for page navigation in milliseconds. */
+const PAGE_LOAD_TIMEOUT = 20_000;
+
+/** Wait time for dynamic content to render after load. */
+const DYNAMIC_CONTENT_WAIT = 1_500;
 
 /**
  * Content shorter than this is returned inline.
@@ -174,7 +180,6 @@ function cleanText(text: string): string {
  * without affecting process.stderr globally.
  */
 function quietVirtualConsole() {
-	const { VirtualConsole } = require("jsdom") as typeof import("jsdom");
 	const vc = new VirtualConsole();
 	// Forward everything except CSS parse errors
 	vc.on("error", (msg: string) => {
@@ -207,12 +212,18 @@ export async function readPage(
 		if (signal?.aborted) throw new Error("Aborted");
 
 		await injectCookies(page, url);
-		await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+		await page.goto(url, {
+			waitUntil: "domcontentloaded",
+			timeout: PAGE_LOAD_TIMEOUT,
+		});
 
 		if (signal?.aborted) throw new Error("Aborted");
 
 		// Wait briefly for dynamic content
-		await page.evaluate(() => new Promise((r) => setTimeout(r, 1500)));
+		await page.evaluate(
+			(ms) => new Promise((r) => setTimeout(r, ms)),
+			DYNAMIC_CONTENT_WAIT,
+		);
 
 		// Detect auth redirects (e.g. Google SSO, OAuth)
 		const finalUrl = page.url();

@@ -7,6 +7,7 @@
  * the header count but not re-vetted.
  */
 
+import * as fs from "node:fs";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { languageFromPath, renderCode } from "../lib/ui/content-renderer.js";
 import {
@@ -23,11 +24,11 @@ function readFileContent(
 	endLine: number,
 ): string | null {
 	try {
-		const fs = require("node:fs");
 		const content = fs.readFileSync(path, "utf-8");
 		const allLines = content.split("\n");
 		return allLines.slice(startLine - 1, endLine).join("\n");
 	} catch {
+		/* File unreadable — skip code preview for this comment */
 		return null;
 	}
 }

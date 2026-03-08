@@ -98,31 +98,17 @@ export function renderMarkdown(
 			continue;
 		}
 
-		// List items (- or *)
-		if (/^\s*[-*]\s/.test(line)) {
-			const indent = line.match(/^(\s*[-*]\s)/)?.[0] ?? "";
-			const wrapIndent = " ".repeat(indent.length);
+		// List items (- or * or 1.)
+		const listIndent =
+			line.match(/^(\s*[-*]\s)/)?.[0] ?? line.match(/^(\s*\d+\.\s)/)?.[0];
+		if (listIndent) {
+			const wrapIndent = " ".repeat(listIndent.length);
 			const wrapped = wordWrap(line, wrapW - 1);
 			for (let j = 0; j < wrapped.length; j++) {
 				const part = wrapped[j] ?? "";
-				const text = j === 0 ? part : wrapIndent + part;
+				const formatted = j === 0 ? part : wrapIndent + part;
 				lines.push(
-					truncateToWidth(` ${applyInlineFormatting(text, theme)}`, width),
-				);
-			}
-			continue;
-		}
-
-		// Numbered list items
-		if (/^\s*\d+\.\s/.test(line)) {
-			const indent = line.match(/^(\s*\d+\.\s)/)?.[0] ?? "";
-			const wrapIndent = " ".repeat(indent.length);
-			const wrapped = wordWrap(line, wrapW - 1);
-			for (let j = 0; j < wrapped.length; j++) {
-				const part = wrapped[j] ?? "";
-				const text = j === 0 ? part : wrapIndent + part;
-				lines.push(
-					truncateToWidth(` ${applyInlineFormatting(text, theme)}`, width),
+					truncateToWidth(` ${applyInlineFormatting(formatted, theme)}`, width),
 				);
 			}
 			continue;
