@@ -309,6 +309,7 @@ export async function showContent(
 	const title = options?.title;
 
 	await showPanel(ctx, {
+		overlay: true,
 		page: {
 			label: title ?? "View",
 			content: (theme, width) => {

@@ -181,14 +181,16 @@ function buildScrollbar(
 function renderScrollableContent(
 	contentLines: string[],
 	scrollOffset: number,
+	hScrollOffset: number,
 	budget: number,
 	width: number,
 	theme: Theme,
-): { lines: string[]; needsScroll: boolean } {
-	const needsScroll = contentLines.length > budget;
+): { lines: string[]; needsVScroll: boolean; needsHScroll: boolean } {
+	const needsVScroll = contentLines.length > budget;
+	const needsHScroll = maxContentWidth(contentLines) > width;
 	const lines: string[] = [];
 
-	if (needsScroll) {
+	if (needsVScroll) {
 		const visible = contentLines.slice(
 			scrollOffset,
 			scrollOffset + budget,
@@ -201,19 +203,19 @@ function renderScrollableContent(
 		);
 		const contentWidth = width - 2;
 		for (let i = 0; i < visible.length; i++) {
-			const truncated = truncateToWidth(visible[i]!, contentWidth);
+			const sliced = horizontalSlice(visible[i]!, hScrollOffset, contentWidth);
 			const scrollCol = width;
 			lines.push(
-				truncated + `\x1b[${scrollCol}G` + scrollbar[i]!,
+				sliced + `\x1b[${scrollCol}G` + scrollbar[i]!,
 			);
 		}
 	} else {
 		for (const line of contentLines) {
-			lines.push(line);
+			lines.push(horizontalSlice(line, hScrollOffset, width));
 		}
 	}
 
-	return { lines, needsScroll };
+	return { lines, needsVScroll, needsHScroll };
 }
 
 function renderTabBar(
@@ -247,6 +249,60 @@ function clampScroll(
 	return Math.max(0, Math.min(scrollOffset, maxScroll));
 }
 
+/**
+ * ANSI-aware horizontal slice. Skips `offset` visible characters
+ * from the start, then takes up to `width` visible characters.
+ * Preserves ANSI escape sequences that are active at the slice
+ * boundary.
+ */
+function horizontalSlice(
+	text: string,
+	offset: number,
+	width: number,
+): string {
+	if (offset === 0) return truncateToWidth(text, width);
+
+	// Walk through the string tracking visible character count
+	let visCount = 0;
+	let i = 0;
+	let activeEscapes = ""; // accumulate active ANSI sequences
+
+	// Phase 1: skip `offset` visible characters, collecting ANSI state
+	while (i < text.length && visCount < offset) {
+		if (text[i] === "\x1b" && text[i + 1] === "[") {
+			// ANSI escape sequence — consume it
+			const escStart = i;
+			i += 2;
+			while (i < text.length && !/[A-Za-z]/.test(text[i]!)) i++;
+			i++; // consume the terminator
+			const esc = text.slice(escStart, i);
+			// Track resets vs active sequences
+			if (esc === "\x1b[0m" || esc === "\x1b[m") {
+				activeEscapes = "";
+			} else {
+				activeEscapes += esc;
+			}
+		} else {
+			visCount++;
+			i++;
+		}
+	}
+
+	// Phase 2: extract the visible portion from offset
+	const remainder = activeEscapes + text.slice(i);
+	return truncateToWidth(remainder, width);
+}
+
+/** Find the maximum visible width across content lines. */
+function maxContentWidth(lines: string[]): number {
+	let max = 0;
+	for (const line of lines) {
+		const w = visibleWidth(line);
+		if (w > max) max = w;
+	}
+	return max;
+}
+
 // ---- showPanel (single-shot) ----
 
 /**
@@ -255,17 +311,20 @@ function clampScroll(
  */
 export async function showPanel(
 	ctx: ExtensionContext,
-	config: { page: PanelPage },
+	config: { page: PanelPage; overlay?: boolean },
 ): Promise<PanelResult | null> {
 	if (!ctx.hasUI) return null;
 
-	const { page } = config;
+	const { page, overlay } = config;
+	const uiOptions = overlay ? { overlay: true } : undefined;
 
 	return ctx.ui.custom<PanelResult | null>((tui, theme, _kb, done) => {
+		const H_SCROLL_STEP = 20;
 		let selected = 0;
 		let editorMode = false;
 		let editorOptionValue = "";
 		let scrollOffset = 0;
+		let hScrollOffset = 0;
 		const editor = new Editor(tui, buildEditorTheme(theme));
 
 		editor.onSubmit = (value) => {
@@ -297,7 +356,7 @@ export async function showPanel(
 				return;
 			}
 
-			// Scroll
+			// Vertical scroll
 			const budget = contentBudget(false);
 			if (matchesKey(data, "pageup") || matchesKey(data, "shift+up")) {
 				scrollOffset = Math.max(0, scrollOffset - budget);
@@ -306,6 +365,18 @@ export async function showPanel(
 			}
 			if (matchesKey(data, "pagedown") || matchesKey(data, "shift+down")) {
 				scrollOffset += budget;
+				tui.requestRender();
+				return;
+			}
+
+			// Horizontal scroll
+			if (matchesKey(data, "shift+left")) {
+				hScrollOffset = Math.max(0, hScrollOffset - H_SCROLL_STEP);
+				tui.requestRender();
+				return;
+			}
+			if (matchesKey(data, "shift+right")) {
+				hScrollOffset += H_SCROLL_STEP;
 				tui.requestRender();
 				return;
 			}
@@ -348,12 +419,14 @@ export async function showPanel(
 			add(theme.fg("accent", "─".repeat(width)));
 
 			const budget = contentBudget(false);
-			const contentLines = page.content(theme, width);
+			const contentLines = page.content(theme, width + hScrollOffset);
 			scrollOffset = clampScroll(scrollOffset, contentLines.length, budget);
 
-			const { lines: scrolled, needsScroll } = renderScrollableContent(
-				contentLines, scrollOffset, budget, width, theme,
-			);
+			const { lines: scrolled, needsVScroll, needsHScroll } =
+				renderScrollableContent(
+					contentLines, scrollOffset, hScrollOffset,
+					budget, width, theme,
+				);
 			for (const line of scrolled) add(line);
 
 			if (editorMode) {
@@ -366,8 +439,10 @@ export async function showPanel(
 					add(line);
 				}
 				lines.push("");
-				const scrollHint = needsScroll ? " · Shift+↑↓ scroll" : "";
-				add(theme.fg("dim", ` ↑↓ select · Enter confirm · Esc cancel${scrollHint}`));
+				const hints: string[] = ["↑↓ select", "Enter confirm", "Esc cancel"];
+				if (needsVScroll) hints.push("Shift+↑↓ scroll");
+				if (needsHScroll) hints.push("Shift+←→ pan");
+				add(theme.fg("dim", ` ${hints.join(" · ")}`));
 			}
 
 			add(theme.fg("accent", "─".repeat(width)));
@@ -375,7 +450,7 @@ export async function showPanel(
 		}
 
 		return { render, handleInput };
-	});
+	}, uiOptions);
 }
 
 // ---- showPanelSeries (multi-page) ----
@@ -389,20 +464,23 @@ export async function showPanel(
  */
 export async function showPanelSeries(
 	ctx: ExtensionContext,
-	config: PanelSeriesConfig,
+	config: PanelSeriesConfig & { overlay?: boolean },
 ): Promise<Map<number, SeriesSelection> | null> {
 	if (!ctx.hasUI) return null;
 
-	const { pages, onSelect } = config;
+	const { pages, onSelect, overlay } = config;
 	const isMulti = pages.length > 1;
+	const uiOptions = overlay ? { overlay: true } : undefined;
 
 	return ctx.ui.custom<Map<number, SeriesSelection> | null>(
 		(tui, theme, _kb, done) => {
+			const H_SCROLL_STEP = 20;
 			let currentTab = 0;
 			let optionIndex = 0;
 			let editorMode = false;
 			let editorOptionValue = "";
 			let scrollOffset = 0;
+			let hScrollOffset = 0;
 			let busy = false; // true while awaiting async onSelect
 			const selections = new Map<number, SeriesSelection>();
 			const editor = new Editor(tui, buildEditorTheme(theme));
@@ -500,6 +578,7 @@ export async function showPanelSeries(
 						currentTab = (currentTab + 1) % pages.length;
 						optionIndex = 0;
 						scrollOffset = 0;
+						hScrollOffset = 0;
 						tui.requestRender();
 						return;
 					}
@@ -511,12 +590,13 @@ export async function showPanelSeries(
 							(currentTab - 1 + pages.length) % pages.length;
 						optionIndex = 0;
 						scrollOffset = 0;
+						hScrollOffset = 0;
 						tui.requestRender();
 						return;
 					}
 				}
 
-				// Scroll
+				// Vertical scroll
 				const budget = contentBudget(isMulti);
 				if (
 					matchesKey(data, "pageup") ||
@@ -531,6 +611,18 @@ export async function showPanelSeries(
 					matchesKey(data, "shift+down")
 				) {
 					scrollOffset += budget;
+					tui.requestRender();
+					return;
+				}
+
+				// Horizontal scroll
+				if (matchesKey(data, "shift+left")) {
+					hScrollOffset = Math.max(0, hScrollOffset - H_SCROLL_STEP);
+					tui.requestRender();
+					return;
+				}
+				if (matchesKey(data, "shift+right")) {
+					hScrollOffset += H_SCROLL_STEP;
 					tui.requestRender();
 					return;
 				}
@@ -586,17 +678,18 @@ export async function showPanelSeries(
 				// Content
 				const page = pages[currentTab]!;
 				const budget = contentBudget(isMulti);
-				const contentLines = page.content(theme, width);
+				const contentLines = page.content(theme, width + hScrollOffset);
 				scrollOffset = clampScroll(
 					scrollOffset,
 					contentLines.length,
 					budget,
 				);
 
-				const { lines: scrolled, needsScroll } =
+				const { lines: scrolled, needsVScroll, needsHScroll } =
 					renderScrollableContent(
 						contentLines,
 						scrollOffset,
+						hScrollOffset,
 						budget,
 						width,
 						theme,
@@ -626,7 +719,8 @@ export async function showPanelSeries(
 					hints.push("↑↓ select");
 					hints.push("Enter confirm");
 					hints.push("Esc cancel");
-					if (needsScroll) hints.push("Shift+↑↓ scroll");
+					if (needsVScroll) hints.push("Shift+↑↓ scroll");
+					if (needsHScroll) hints.push("Shift+←→ pan");
 					add(theme.fg("dim", ` ${hints.join(" · ")}`));
 				}
 
@@ -636,5 +730,6 @@ export async function showPanelSeries(
 
 			return { render, handleInput };
 		},
+		uiOptions,
 	);
 }
