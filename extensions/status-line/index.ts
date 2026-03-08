@@ -16,10 +16,10 @@
  *   (basename is never removed)
  */
 
+import * as path from "node:path";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import * as path from "node:path";
 
 const THINKING_GLYPHS: Record<string, string> = {
 	off: "",
@@ -43,7 +43,7 @@ function fmtTokens(n: number): string {
 /** Home-relative path: /Users/joel/src/foo → ~/src/foo */
 function homePath(dir: string): string {
 	const home = process.env.HOME || "";
-	return home && dir.startsWith(home) ? "~" + dir.slice(home.length) : dir;
+	return home && dir.startsWith(home) ? `~${dir.slice(home.length)}` : dir;
 }
 
 const SEP = " │ ";
@@ -93,7 +93,7 @@ function buildCandidate(
 
 	const dir = useShortDir ? d.shortDir : d.fullDir;
 	const branchSuffix =
-		!hideBranch && d.branch ? " " + theme.fg("dim", `(${d.branch})`) : "";
+		!hideBranch && d.branch ? ` ${theme.fg("dim", `(${d.branch})`)}` : "";
 	left.push(theme.fg("dim", dir) + branchSuffix);
 
 	left.push(useShortModel ? d.shortModel : d.fullModel);
@@ -127,10 +127,7 @@ export default function statusLine(pi: ExtensionAPI) {
 					// --- Gather raw data ---
 					let cost = 0;
 					for (const e of ctx.sessionManager.getBranch()) {
-						if (
-							e.type === "message" &&
-							e.message.role === "assistant"
-						) {
+						if (e.type === "message" && e.message.role === "assistant") {
 							const m = e.message as AssistantMessage;
 							cost += m.usage.cost.total;
 						}
@@ -146,10 +143,7 @@ export default function statusLine(pi: ExtensionAPI) {
 					const cwd = process.cwd();
 					const tokens = usage?.tokens ?? 0;
 					const window = usage?.contextWindow ?? 0;
-					const pct =
-						window > 0
-							? Math.round((tokens / window) * 100)
-							: 0;
+					const pct = window > 0 ? Math.round((tokens / window) * 100) : 0;
 
 					const d: FooterData = {
 						fullDir: homePath(cwd),
@@ -162,10 +156,7 @@ export default function statusLine(pi: ExtensionAPI) {
 							`${fmtTokens(tokens)}/${fmtTokens(window)}`,
 						),
 						contextPct: theme.fg("dim", `${pct}%`),
-						cost:
-							cost > 0
-								? theme.fg("dim", `$${cost.toFixed(3)}`)
-								: null,
+						cost: cost > 0 ? theme.fg("dim", `$${cost.toFixed(3)}`) : null,
 						thinkGlyph: THINKING_GLYPHS[thinking] ?? "",
 						statuses: [],
 					};
@@ -176,17 +167,11 @@ export default function statusLine(pi: ExtensionAPI) {
 
 					// --- Try each degradation level until it fits ---
 					for (let level = 0; level <= MAX_LEVEL; level++) {
-						const { left, right } = buildCandidate(
-							d,
-							level,
-							theme,
-						);
+						const { left, right } = buildCandidate(d, level, theme);
 						const leftW = totalWidth(left);
 						const rightW = totalWidth(right);
 						const needed =
-							leftW +
-							rightW +
-							(leftW > 0 && rightW > 0 ? SEP_W : 0);
+							leftW + rightW + (leftW > 0 && rightW > 0 ? SEP_W : 0);
 
 						if (needed <= width) {
 							const leftText = left.join(sep);
@@ -194,14 +179,10 @@ export default function statusLine(pi: ExtensionAPI) {
 
 							let line: string;
 							if (leftText && rightText) {
-								const gap = " ".repeat(
-									Math.max(1, width - leftW - rightW),
-								);
+								const gap = " ".repeat(Math.max(1, width - leftW - rightW));
 								line = leftText + gap + rightText;
 							} else if (rightText) {
-								const pad = " ".repeat(
-									Math.max(0, width - rightW),
-								);
+								const pad = " ".repeat(Math.max(0, width - rightW));
 								line = pad + rightText;
 							} else {
 								line = leftText;
@@ -212,12 +193,7 @@ export default function statusLine(pi: ExtensionAPI) {
 					}
 
 					// Everything stripped — just show basename
-					return [
-						truncateToWidth(
-							theme.fg("dim", d.shortDir),
-							width,
-						),
-					];
+					return [truncateToWidth(theme.fg("dim", d.shortDir), width)];
 				},
 			};
 		});

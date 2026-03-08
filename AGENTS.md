@@ -29,6 +29,21 @@ plan-mode extension) but all work independently.
   `@mariozechner/pi-ai`, and `@mariozechner/pi-tui`. These are
   provided by pi at runtime — do not add them to package.json.
 
+## Linting
+
+This project uses [Biome](https://biomejs.dev/) for linting and
+formatting. **Run the linter after making code changes and before
+committing:**
+
+```sh
+npm run lint        # check for issues
+npm run lint:fix    # auto-fix what it can
+```
+
+All code in `extensions/` must pass `npm run lint` cleanly (no
+errors, no warnings) before being committed. Fix the code to
+satisfy the linter rather than suppressing rules.
+
 ## Testing Changes
 
 Use `/reload` in a running pi session to pick up changes without

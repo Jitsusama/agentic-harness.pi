@@ -20,7 +20,7 @@ function extractUrl(ddgHref: string): string {
 		// fall through
 	}
 	// Strip leading // if present
-	if (ddgHref.startsWith("//")) return "https:" + ddgHref;
+	if (ddgHref.startsWith("//")) return `https:${ddgHref}`;
 	return ddgHref;
 }
 
@@ -39,8 +39,7 @@ export async function webSearch(
 		if (signal?.aborted) return [];
 
 		const results = await page.evaluate(() => {
-			const entries: { title: string; url: string; snippet: string }[] =
-				[];
+			const entries: { title: string; url: string; snippet: string }[] = [];
 			const items = document.querySelectorAll(".result");
 			for (const item of items) {
 				const anchor = item.querySelector("a.result__a");

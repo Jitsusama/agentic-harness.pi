@@ -12,14 +12,14 @@
  * being available (planning, TDD, general conversation).
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
-	showPanelSeries,
-	type PanelPage,
 	type PanelOption,
+	type PanelPage,
 	type SeriesSelection,
+	showPanelSeries,
 } from "../shared/panel.js";
 
 // Types
@@ -55,23 +55,34 @@ interface AskResult {
 const QuestionOptionSchema = Type.Object({
 	value: Type.String({ description: "The value returned when selected" }),
 	label: Type.String({ description: "Display label for the option" }),
-	description: Type.Optional(Type.String({ description: "Optional description shown below label" })),
+	description: Type.Optional(
+		Type.String({ description: "Optional description shown below label" }),
+	),
 });
 
 const QuestionSchema = Type.Object({
 	id: Type.String({ description: "Unique identifier for this question" }),
 	label: Type.Optional(
 		Type.String({
-			description: "Short contextual label for tab bar, e.g. 'Scope', 'Priority' (defaults to Q1, Q2)",
+			description:
+				"Short contextual label for tab bar, e.g. 'Scope', 'Priority' (defaults to Q1, Q2)",
 		}),
 	),
 	prompt: Type.String({ description: "The full question text to display" }),
-	options: Type.Array(QuestionOptionSchema, { description: "Available options to choose from" }),
-	allowOther: Type.Optional(Type.Boolean({ description: "Allow 'Type something' option (default: true)" })),
+	options: Type.Array(QuestionOptionSchema, {
+		description: "Available options to choose from",
+	}),
+	allowOther: Type.Optional(
+		Type.Boolean({
+			description: "Allow 'Type something' option (default: true)",
+		}),
+	),
 });
 
 const AskParams = Type.Object({
-	questions: Type.Array(QuestionSchema, { description: "Questions to ask the user" }),
+	questions: Type.Array(QuestionSchema, {
+		description: "Questions to ask the user",
+	}),
 });
 
 function errorResult(
@@ -94,7 +105,9 @@ export default function ask(pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (!ctx.hasUI) {
-				return errorResult("Error: UI not available (running in non-interactive mode)");
+				return errorResult(
+					"Error: UI not available (running in non-interactive mode)",
+				);
 			}
 			if (params.questions.length === 0) {
 				return errorResult("Error: No questions provided");
@@ -130,7 +143,7 @@ export default function ask(pi: ExtensionAPI) {
 
 				return {
 					label: q.label,
-					content: (theme: any, _width: number) => [
+					content: (theme: Theme, _width: number) => [
 						theme.fg("text", ` ${q.prompt}`),
 					],
 					options: opts,
@@ -140,7 +153,7 @@ export default function ask(pi: ExtensionAPI) {
 			// Submit page for multi-question mode
 			const submitPage: PanelPage = {
 				label: "✓ Submit",
-				content: (theme: any, _width: number) => {
+				content: (theme: Theme, _width: number) => {
 					const lines: string[] = [];
 					lines.push(theme.fg("accent", theme.bold(" Ready to submit")));
 					lines.push("");
@@ -150,7 +163,7 @@ export default function ask(pi: ExtensionAPI) {
 							const prefix = answer.wasCustom ? "(wrote) " : "";
 							lines.push(
 								`${theme.fg("muted", ` ${question.label}: `)}` +
-								`${theme.fg("text", prefix + answer.label)}`,
+									`${theme.fg("text", prefix + answer.label)}`,
 							);
 						}
 					}
@@ -167,14 +180,10 @@ export default function ask(pi: ExtensionAPI) {
 					}
 					return lines;
 				},
-				options: [
-					{ label: "Submit", value: "__submit__", icon: "✓" },
-				],
+				options: [{ label: "Submit", value: "__submit__", icon: "✓" }],
 			};
 
-			const pages = isMulti
-				? [...questionPages, submitPage]
-				: questionPages;
+			const pages = isMulti ? [...questionPages, submitPage] : questionPages;
 
 			// onSelect callback — track answers and decide when to resolve
 			function onSelect(

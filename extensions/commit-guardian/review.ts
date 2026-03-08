@@ -4,15 +4,12 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { reviewLoop, type SingleField } from "../shared/review-loop.js";
 import {
-	reviewLoop,
-	type SingleField,
-} from "../shared/review-loop.js";
-import {
+	buildHeredoc,
+	extractFlags,
 	extractMessage,
 	splitAtCommit,
-	extractFlags,
-	buildHeredoc,
 } from "./parse.js";
 import { renderCommitContent } from "./validate.js";
 

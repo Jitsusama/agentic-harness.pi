@@ -6,6 +6,10 @@
     "pi-package"
   ],
   "license": "MIT",
+  "scripts": {
+    "lint": "biome check extensions/",
+    "lint:fix": "biome check --write extensions/"
+  },
   "pi": {
     "extensions": [
       "./extensions"
@@ -21,6 +25,7 @@
     "sqlite3": "^5.1.7"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.6",
     "@types/jsdom": "^28.0.0"
   }
 }

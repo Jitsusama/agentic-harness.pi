@@ -31,10 +31,7 @@ export function getLastEntry<T>(
  * Usage:
  *   pi.on("context", filterContext("my-context", () => enabled));
  */
-export function filterContext(
-	customType: string,
-	isActive: () => boolean,
-) {
+export function filterContext(customType: string, isActive: () => boolean) {
 	return async (event: { messages: unknown[] }) => {
 		if (isActive()) return;
 		return {

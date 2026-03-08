@@ -9,23 +9,24 @@
  * enforces the guardrails.
  */
 
-import {
-	isToolCallEventType,
-	type ExtensionAPI,
-	type ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
-import { Key } from "@mariozechner/pi-tui";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+	type ExtensionAPI,
+	type ExtensionContext,
+	isToolCallEventType,
+} from "@mariozechner/pi-coding-agent";
+import { Key } from "@mariozechner/pi-tui";
 import { showGate } from "../shared/gate.js";
-import { getLastEntry, filterContext } from "../shared/state.js";
+import { filterContext, getLastEntry } from "../shared/state.js";
 
 const DEFAULT_PLAN_DIR = ".pi/plans";
 const PLAN_TOOLS = ["read", "write", "bash", "grep", "find", "ls", "ask"];
 
 // Git-mutating bash commands — blocked in plan mode.
 // Context injection handles intent; this catches accidents.
-const GIT_MUTATING = /\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|stash|cherry-pick|revert|tag)\b/i;
+const GIT_MUTATING =
+	/\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|stash|cherry-pick|revert|tag)\b/i;
 
 export default function planMode(pi: ExtensionAPI) {
 	let enabled = false;
@@ -38,9 +39,7 @@ export default function planMode(pi: ExtensionAPI) {
 	function loadPlanDir(cwd: string): string {
 		try {
 			const settingsPath = path.join(cwd, ".pi", "settings.json");
-			const settings = JSON.parse(
-				fs.readFileSync(settingsPath, "utf-8"),
-			);
+			const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
 			return settings.planDir ?? DEFAULT_PLAN_DIR;
 		} catch {
 			return DEFAULT_PLAN_DIR;
@@ -148,7 +147,8 @@ export default function planMode(pi: ExtensionAPI) {
 			if (GIT_MUTATING.test(event.input.command)) {
 				return {
 					block: true,
-					reason: "Plan mode: git-mutating command blocked. Exit with /plan first.",
+					reason:
+						"Plan mode: git-mutating command blocked. Exit with /plan first.",
 				};
 			}
 		}
@@ -185,9 +185,7 @@ export default function planMode(pi: ExtensionAPI) {
 		wroteToPlanDir = false;
 
 		const result = await showGate(ctx, {
-			content: (theme) => [
-				theme.fg("text", ` Plan written → ${planDir}`),
-			],
+			content: (theme) => [theme.fg("text", ` Plan written → ${planDir}`)],
 			options: [
 				{ label: "Implement with TDD", value: "tdd" },
 				{ label: "Implement free-form", value: "freeform" },
@@ -201,25 +199,30 @@ export default function planMode(pi: ExtensionAPI) {
 		deactivate(ctx);
 
 		if (result.value === "steer") {
-			pi.sendUserMessage(result.feedback!, { deliverAs: "followUp" });
+			pi.sendUserMessage(result.feedback ?? "", { deliverAs: "followUp" });
 			return;
 		}
 
-		const msg = result.value === "tdd"
-			? "Let's implement this plan with TDD. Start with step 1."
-			: "Let's implement this plan. Start with step 1.";
+		const msg =
+			result.value === "tdd"
+				? "Let's implement this plan with TDD. Start with step 1."
+				: "Let's implement this plan. Start with step 1.";
 		pi.sendUserMessage(msg, { deliverAs: "followUp" });
 	});
 
 	// ---- Filter stale context when not active ----
 
-	pi.on("context", filterContext("plan-mode-context", () => enabled));
+	pi.on(
+		"context",
+		filterContext("plan-mode-context", () => enabled),
+	);
 
 	// ---- Restore state on session start ----
 
 	pi.on("session_start", async (_event, ctx) => {
 		const saved = getLastEntry<{ enabled: boolean; planDir?: string }>(
-			ctx, "plan-mode",
+			ctx,
+			"plan-mode",
 		);
 		if (saved) {
 			enabled = saved.enabled ?? false;

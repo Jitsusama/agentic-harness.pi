@@ -7,14 +7,14 @@
  */
 
 import {
-	extractFlag,
 	extractBody,
-	quote,
-	splitAtCommand,
 	extractEntityNumber,
-	isGhCommand,
-	rebuildGhCommand,
+	extractFlag,
 	extractMultiFlags,
+	isGhCommand,
+	quote,
+	rebuildGhCommand,
+	splitAtCommand,
 } from "../shared/command-parse.js";
 
 const HEREDOC_DELIM = "__ISSUE_BODY__";
@@ -56,9 +56,10 @@ export function parseIssueCommand(command: string): IssueCommand | null {
 
 	const title = extractFlag(issuePart, "title");
 	const body = extractBody(command, issuePart);
-	const issueNumber = action === "edit"
-		? extractEntityNumber(issuePart, /\bgh\s+issue\s+edit\s+(\d+)\b/)
-		: null;
+	const issueNumber =
+		action === "edit"
+			? extractEntityNumber(issuePart, /\bgh\s+issue\s+edit\s+(\d+)\b/)
+			: null;
 	const extraFlags = extractIssueExtraFlags(issuePart);
 
 	// Only gate if there's a body to review
@@ -78,7 +79,11 @@ function extractIssueExtraFlags(issuePart: string): string[] {
 	}
 
 	// Multi-value flags
-	for (const [name, value] of extractMultiFlags(issuePart, ["label", "assignee", "project"])) {
+	for (const [name, value] of extractMultiFlags(issuePart, [
+		"label",
+		"assignee",
+		"project",
+	])) {
 		// edit commands use --add-label, create uses --label
 		const prefix = issuePart.includes(`--add-${name}`) ? "add-" : "";
 		flags.push(`--${prefix}${name}`, quote(value));

@@ -7,13 +7,13 @@
  * and a width, returning themed string[] for display.
  */
 
-import { truncateToWidth } from "@mariozechner/pi-tui";
 import {
 	type ExtensionContext,
-	type Theme,
-	highlightCode as piHighlightCode,
 	getLanguageFromPath,
+	highlightCode as piHighlightCode,
+	type Theme,
 } from "@mariozechner/pi-coding-agent";
+import { truncateToWidth } from "@mariozechner/pi-tui";
 import { showPanel } from "./panel.js";
 
 // ---- Markdown ----
@@ -84,10 +84,9 @@ export function renderMarkdown(
 		// Headers
 		if (/^#{1,6}\s/.test(line)) {
 			for (const wrapped of wordWrap(line, wrapW - 1)) {
-				lines.push(truncateToWidth(
-					theme.fg("accent", ` ${theme.bold(wrapped)}`),
-					width,
-				));
+				lines.push(
+					truncateToWidth(theme.fg("accent", ` ${theme.bold(wrapped)}`), width),
+				);
 			}
 			continue;
 		}
@@ -95,40 +94,37 @@ export function renderMarkdown(
 		// Blockquotes
 		if (line.startsWith("> ")) {
 			for (const wrapped of wordWrap(line, wrapW - 1)) {
-				lines.push(truncateToWidth(
-					theme.fg("dim", ` ${wrapped}`),
-					width,
-				));
+				lines.push(truncateToWidth(theme.fg("dim", ` ${wrapped}`), width));
 			}
 			continue;
 		}
 
 		// List items (- or *)
 		if (/^\s*[-*]\s/.test(line)) {
-			const indent = line.match(/^(\s*[-*]\s)/)![0];
+			const indent = line.match(/^(\s*[-*]\s)/)?.[0] ?? "";
 			const wrapIndent = " ".repeat(indent.length);
 			const wrapped = wordWrap(line, wrapW - 1);
 			for (let j = 0; j < wrapped.length; j++) {
-				const text = j === 0 ? wrapped[j]! : wrapIndent + wrapped[j]!;
-				lines.push(truncateToWidth(
-					` ${applyInlineFormatting(text, theme)}`,
-					width,
-				));
+				const part = wrapped[j] ?? "";
+				const text = j === 0 ? part : wrapIndent + part;
+				lines.push(
+					truncateToWidth(` ${applyInlineFormatting(text, theme)}`, width),
+				);
 			}
 			continue;
 		}
 
 		// Numbered list items
 		if (/^\s*\d+\.\s/.test(line)) {
-			const indent = line.match(/^(\s*\d+\.\s)/)![0];
+			const indent = line.match(/^(\s*\d+\.\s)/)?.[0] ?? "";
 			const wrapIndent = " ".repeat(indent.length);
 			const wrapped = wordWrap(line, wrapW - 1);
 			for (let j = 0; j < wrapped.length; j++) {
-				const text = j === 0 ? wrapped[j]! : wrapIndent + wrapped[j]!;
-				lines.push(truncateToWidth(
-					` ${applyInlineFormatting(text, theme)}`,
-					width,
-				));
+				const part = wrapped[j] ?? "";
+				const text = j === 0 ? part : wrapIndent + part;
+				lines.push(
+					truncateToWidth(` ${applyInlineFormatting(text, theme)}`, width),
+				);
 			}
 			continue;
 		}
@@ -141,10 +137,9 @@ export function renderMarkdown(
 
 		// Regular text — wrap to width and apply inline formatting
 		for (const wrapped of wordWrap(line, wrapW - 1)) {
-			lines.push(truncateToWidth(
-				` ${applyInlineFormatting(wrapped, theme)}`,
-				width,
-			));
+			lines.push(
+				truncateToWidth(` ${applyInlineFormatting(wrapped, theme)}`, width),
+			);
 		}
 	}
 
@@ -250,9 +245,8 @@ export function renderCode(
 		const isHighlighted = highlights?.has(lineNum);
 
 		const gutter = theme.fg("dim", `${numStr} │ `);
-		const content = isHighlighted
-			? theme.fg("accent", codeLines[i]!)
-			: codeLines[i]!;
+		const codeLine = codeLines[i] ?? "";
+		const content = isHighlighted ? theme.fg("accent", codeLine) : codeLine;
 
 		lines.push(truncateToWidth(gutter + content, width));
 	}
@@ -296,9 +290,7 @@ function wordWrap(text: string, maxWidth: number): string[] {
 // ---- Content type detection ----
 
 /** Auto-detect content type from text. */
-export function detectContentType(
-	text: string,
-): "diff" | "code" | "markdown" {
+export function detectContentType(text: string): "diff" | "code" | "markdown" {
 	const firstLines = text.slice(0, 500);
 	if (
 		firstLines.startsWith("diff --git") ||
@@ -319,11 +311,35 @@ export function detectContentTypeFromPath(
 	if (ext === "diff" || ext === "patch") return "diff";
 
 	const codeExtensions = new Set([
-		"ts", "tsx", "js", "jsx", "mjs", "cjs",
-		"py", "rb", "rs", "go", "java", "c", "cpp", "h",
-		"cs", "swift", "kt", "sh", "bash", "zsh",
-		"yaml", "yml", "toml", "json", "xml",
-		"html", "css", "scss", "sql",
+		"ts",
+		"tsx",
+		"js",
+		"jsx",
+		"mjs",
+		"cjs",
+		"py",
+		"rb",
+		"rs",
+		"go",
+		"java",
+		"c",
+		"cpp",
+		"h",
+		"cs",
+		"swift",
+		"kt",
+		"sh",
+		"bash",
+		"zsh",
+		"yaml",
+		"yml",
+		"toml",
+		"json",
+		"xml",
+		"html",
+		"css",
+		"scss",
+		"sql",
 	]);
 	if (ext && codeExtensions.has(ext)) return "code";
 
@@ -360,7 +376,6 @@ export function renderContent(
 				startLine: options?.startLine,
 				highlightLines: options?.highlightLines,
 			});
-		case "markdown":
 		default:
 			return renderMarkdown(text, theme, width);
 	}
@@ -392,10 +407,9 @@ export async function showContent(
 			content: (theme, width) => {
 				const lines: string[] = [];
 				if (title) {
-					lines.push(truncateToWidth(
-						theme.fg("accent", ` ${theme.bold(title)}`),
-						width,
-					));
+					lines.push(
+						truncateToWidth(theme.fg("accent", ` ${theme.bold(title)}`), width),
+					);
 					lines.push("");
 				}
 				for (const line of renderContent(text, theme, width, {
@@ -408,9 +422,7 @@ export async function showContent(
 				}
 				return lines;
 			},
-			options: [
-				{ label: "Close", value: "close" },
-			],
+			options: [{ label: "Close", value: "close" }],
 		},
 	});
 }

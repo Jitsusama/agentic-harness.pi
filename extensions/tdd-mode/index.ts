@@ -11,13 +11,13 @@
  */
 
 import {
-	isBashToolResult,
 	type ExtensionAPI,
 	type ExtensionContext,
+	isBashToolResult,
 } from "@mariozechner/pi-coding-agent";
 import { Key } from "@mariozechner/pi-tui";
-import { showGate, formatSteer } from "../shared/gate.js";
-import { getLastEntry, filterContext } from "../shared/state.js";
+import { formatSteer, showGate } from "../shared/gate.js";
+import { filterContext, getLastEntry } from "../shared/state.js";
 import { isTestFile, looksLikeTestRun } from "./patterns.js";
 
 // ---- Phase definitions ----
@@ -172,7 +172,10 @@ export default function tddMode(pi: ExtensionAPI) {
 		}
 
 		if (result.value === "steer") {
-			return formatSteer(result.feedback!, `Blocked write to ${filePath} during RED phase.`);
+			return formatSteer(
+				result.feedback ?? "",
+				`Blocked write to ${filePath} during RED phase.`,
+			);
 		}
 	});
 
@@ -217,15 +220,14 @@ export default function tddMode(pi: ExtensionAPI) {
 		if (!result) return;
 
 		if (result.value === "steer") {
-			pi.sendUserMessage(result.feedback!, { deliverAs: "followUp" });
+			pi.sendUserMessage(result.feedback ?? "", { deliverAs: "followUp" });
 			return;
 		}
 
 		if (result.value === "refactor-test") {
-			pi.sendUserMessage(
-				"Refactor the test. Run tests after changes.",
-				{ deliverAs: "followUp" },
-			);
+			pi.sendUserMessage("Refactor the test. Run tests after changes.", {
+				deliverAs: "followUp",
+			});
 			return;
 		}
 
@@ -272,13 +274,18 @@ export default function tddMode(pi: ExtensionAPI) {
 					"",
 					PHASE_INSTRUCTIONS[phase],
 					planNote,
-				].filter(Boolean).join("\n"),
+				]
+					.filter(Boolean)
+					.join("\n"),
 				display: false,
 			},
 		};
 	});
 
-	pi.on("context", filterContext("tdd-mode-context", () => enabled));
+	pi.on(
+		"context",
+		filterContext("tdd-mode-context", () => enabled),
+	);
 
 	// ---- Restore state ----
 

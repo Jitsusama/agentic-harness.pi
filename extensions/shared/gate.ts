@@ -7,9 +7,8 @@
  * by guardians, tdd-mode, and pr-review.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { Theme } from "@mariozechner/pi-coding-agent";
-import { showPanel, type PanelOption } from "./panel.js";
+import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import { type PanelOption, showPanel } from "./panel.js";
 
 // ---- Types ----
 

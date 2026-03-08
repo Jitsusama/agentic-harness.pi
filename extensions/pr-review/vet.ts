@@ -8,12 +8,12 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { languageFromPath, renderCode } from "../shared/content-renderer.js";
 import {
-	showPanelSeries,
 	type PanelPage,
 	type SeriesSelection,
+	showPanelSeries,
 } from "../shared/panel.js";
-import { renderCode, languageFromPath } from "../shared/content-renderer.js";
 import type { ReviewComment, VetResult } from "./index.js";
 
 // ---- Helpers ----
@@ -56,13 +56,6 @@ function readFileContent(
 // ---- Status indicators ----
 
 type CommentStatus = "pending" | "approved" | "rejected" | "edited";
-
-const STATUS_ICONS: Record<CommentStatus, string> = {
-	pending: "□",
-	approved: "✓",
-	rejected: "✗",
-	edited: "✎",
-};
 
 function statusLabel(index: number, _status: CommentStatus): string {
 	return `C${index + 1}`;
@@ -187,12 +180,11 @@ export async function vetComments(
 	// Build pages — rebuilt when tab labels need updating
 	function buildPages(): PanelPage[] {
 		const commentPages = currentComments.map((comment, i) =>
-			buildCommentPage(
-				comment, i, comments.length, preApprovedCount, statuses,
-			),
+			buildCommentPage(comment, i, comments.length, preApprovedCount, statuses),
 		);
-		const approvedCount = Array.from(statuses.values())
-			.filter((s) => s === "approved" || s === "edited").length;
+		const approvedCount = Array.from(statuses.values()).filter(
+			(s) => s === "approved" || s === "edited",
+		).length;
 		const addDonePage = buildAddDonePage(
 			preApprovedCount + approvedCount,
 			userRequests.length,
@@ -227,12 +219,10 @@ export async function vetComments(
 				break;
 
 			case "edit": {
-				const comment = currentComments[pageIndex]!;
-				const editedBody = await ctx.ui.editor(
-					"Edit comment:",
-					comment.body,
-				);
-				if (editedBody !== undefined && editedBody.trim()) {
+				const comment = currentComments[pageIndex];
+				if (!comment) break;
+				const editedBody = await ctx.ui.editor("Edit comment:", comment.body);
+				if (editedBody?.trim()) {
 					comment.body = editedBody.trim();
 					editedCount++;
 					statuses.set(pageIndex, "edited");
@@ -265,8 +255,9 @@ export async function vetComments(
 
 	// Steer aborts everything
 	if (steerFeedback) {
-		const rejected = Array.from(statuses.values())
-			.filter((s) => s === "rejected").length;
+		const rejected = Array.from(statuses.values()).filter(
+			(s) => s === "rejected",
+		).length;
 		return {
 			approved: [],
 			rejected,
@@ -283,7 +274,8 @@ export async function vetComments(
 	for (let i = 0; i < currentComments.length; i++) {
 		const status = statuses.get(i) ?? "pending";
 		if (status === "approved" || status === "edited") {
-			approved.push(currentComments[i]!);
+			const comment = currentComments[i];
+			if (comment) approved.push(comment);
 		} else if (status === "rejected") {
 			rejected++;
 		}

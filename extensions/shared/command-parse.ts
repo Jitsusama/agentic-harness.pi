@@ -13,23 +13,26 @@ export function extractFlag(command: string, flag: string): string | null {
 	// Double-quoted
 	const dq = new RegExp(`--${flag}\\s+"((?:[^"\\\\]|\\\\.)*)"`);
 	const dqMatch = command.match(dq);
-	if (dqMatch) return dqMatch[1]!.replace(/\\(.)/g, "$1");
+	if (dqMatch) return dqMatch[1]?.replace(/\\(.)/g, "$1");
 
 	// Single-quoted
 	const sq = new RegExp(`--${flag}\\s+'([^']*)'`);
 	const sqMatch = command.match(sq);
-	if (sqMatch) return sqMatch[1]!;
+	if (sqMatch) return sqMatch[1] ?? null;
 
 	return null;
 }
 
 /** Extract the body from a command, supporting heredoc and --body flag. */
-export function extractBody(fullCommand: string, entityPart: string): string | null {
+export function extractBody(
+	fullCommand: string,
+	entityPart: string,
+): string | null {
 	// Heredoc: --body-file - <<'DELIM'\nbody\nDELIM
 	const heredoc = fullCommand.match(
 		/<<-?\s*['"]?(\w+)['"]?\s*\n([\s\S]*?)\n\1\s*$/,
 	);
-	if (heredoc) return heredoc[2]!;
+	if (heredoc) return heredoc[2] ?? null;
 
 	// --body flag
 	return extractFlag(entityPart, "body");
@@ -59,12 +62,10 @@ export function splitAtCommand(
 	// Build a regex that captures everything before the last separator
 	// before the target pattern
 	const source = targetPattern.source;
-	const re = new RegExp(
-		`^(.*)\\s*(?:&&|;)\\s*(${source}[\\s\\S]*)$`,
-	);
+	const re = new RegExp(`^(.*)\\s*(?:&&|;)\\s*(${source}[\\s\\S]*)$`);
 	const match = command.match(re);
 	if (match?.[1]?.trim()) {
-		return { prefix: match[1].trim(), target: match[2]! };
+		return { prefix: match[1].trim(), target: match[2] ?? command };
 	}
 	return { prefix: null, target: command };
 }
@@ -77,7 +78,7 @@ export function extractEntityNumber(
 	pattern: RegExp,
 ): string | null {
 	const match = commandPart.match(pattern);
-	return match ? match[1]! : null;
+	return match?.[1] ?? null;
 }
 
 // ---- gh command detection ----
@@ -128,7 +129,7 @@ export function rebuildGhCommand(config: GhRebuildConfig): string {
 	parts.push("--body-file", "-");
 
 	const heredoc = [
-		parts.join(" ") + ` <<'${config.heredocDelim}'`,
+		`${parts.join(" ")} <<'${config.heredocDelim}'`,
 		config.body,
 		config.heredocDelim,
 	].join("\n");
@@ -151,9 +152,8 @@ export function extractMultiFlags(
 		new RegExp(`--(?:add-)?${name}\\s+(?:"([^"]+)"|'([^']+)'|(\\S+))`, "g");
 
 	for (const name of names) {
-		let match;
 		const re = multiRe(name);
-		while ((match = re.exec(commandPart)) !== null) {
+		for (const match of commandPart.matchAll(re)) {
 			const value = match[1] ?? match[2] ?? match[3];
 			if (value) results.push([name, value]);
 		}

@@ -4,11 +4,8 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import {
-	reviewLoop,
-	type TitleBodyField,
-} from "../shared/review-loop.js";
 import { renderMarkdown } from "../shared/content-renderer.js";
+import { reviewLoop, type TitleBodyField } from "../shared/review-loop.js";
 import { type PrCommand, rebuildCommand } from "./parse.js";
 
 const PR_ACTIONS = [
@@ -28,7 +25,7 @@ export async function reviewPr(
 	const field: TitleBodyField = {
 		kind: "title-body",
 		title: parsed.title,
-		body: parsed.body!,
+		body: parsed.body ?? "",
 		editorPrompt: "Edit PR description:",
 	};
 
@@ -41,9 +38,7 @@ export async function reviewPr(
 			const out: string[] = [];
 			const isEdit = parsed.action === "edit";
 
-			out.push(
-				theme.fg("dim", isEdit ? " PR Edit" : " New PR"),
-			);
+			out.push(theme.fg("dim", isEdit ? " PR Edit" : " New PR"));
 			out.push("");
 
 			if (field.title) {
@@ -59,24 +54,16 @@ export async function reviewPr(
 		},
 		field,
 		onApprove: () => {
-			if (
-				field.body !== originalBody ||
-				field.title !== originalTitle
-			) {
-				(event.input as { command: string }).command =
-					rebuildCommand(
-						parsed,
-						field.body,
-						field.title ?? undefined,
-					);
+			if (field.body !== originalBody || field.title !== originalTitle) {
+				(event.input as { command: string }).command = rebuildCommand(
+					parsed,
+					field.body,
+					field.title ?? undefined,
+				);
 			}
 		},
 		entityName: "PR",
-		steerContext: [
-			field.title ? `Title: ${field.title}` : null,
-			"",
-			field.body,
-		]
+		steerContext: [field.title ? `Title: ${field.title}` : null, "", field.body]
 			.filter((l) => l !== null)
 			.join("\n"),
 	});

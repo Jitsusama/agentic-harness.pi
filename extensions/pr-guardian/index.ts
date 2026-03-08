@@ -8,8 +8,8 @@
  */
 
 import {
-	isToolCallEventType,
 	type ExtensionAPI,
+	isToolCallEventType,
 } from "@mariozechner/pi-coding-agent";
 import { isPrCommand, parsePrCommand } from "./parse.js";
 import { reviewPr } from "./review.js";

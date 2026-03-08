@@ -7,8 +7,8 @@
  */
 
 import {
-	isToolCallEventType,
 	type ExtensionAPI,
+	isToolCallEventType,
 } from "@mariozechner/pi-coding-agent";
 import { reviewCommit } from "./review.js";
 

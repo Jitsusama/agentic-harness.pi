@@ -4,11 +4,8 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import {
-	reviewLoop,
-	type TitleBodyField,
-} from "../shared/review-loop.js";
 import { renderMarkdown } from "../shared/content-renderer.js";
+import { reviewLoop, type TitleBodyField } from "../shared/review-loop.js";
 import { type IssueCommand, rebuildCommand } from "./parse.js";
 
 const ISSUE_ACTIONS = [
@@ -28,7 +25,7 @@ export async function reviewIssue(
 	const field: TitleBodyField = {
 		kind: "title-body",
 		title: parsed.title,
-		body: parsed.body!,
+		body: parsed.body ?? "",
 		editorPrompt: "Edit issue description:",
 	};
 
@@ -41,9 +38,7 @@ export async function reviewIssue(
 			const out: string[] = [];
 			const isEdit = parsed.action === "edit";
 
-			out.push(
-				theme.fg("dim", isEdit ? " Issue Edit" : " New Issue"),
-			);
+			out.push(theme.fg("dim", isEdit ? " Issue Edit" : " New Issue"));
 			out.push("");
 
 			if (field.title) {
@@ -59,24 +54,16 @@ export async function reviewIssue(
 		},
 		field,
 		onApprove: () => {
-			if (
-				field.body !== originalBody ||
-				field.title !== originalTitle
-			) {
-				(event.input as { command: string }).command =
-					rebuildCommand(
-						parsed,
-						field.body,
-						field.title ?? undefined,
-					);
+			if (field.body !== originalBody || field.title !== originalTitle) {
+				(event.input as { command: string }).command = rebuildCommand(
+					parsed,
+					field.body,
+					field.title ?? undefined,
+				);
 			}
 		},
 		entityName: "issue",
-		steerContext: [
-			field.title ? `Title: ${field.title}` : null,
-			"",
-			field.body,
-		]
+		steerContext: [field.title ? `Title: ${field.title}` : null, "", field.body]
 			.filter((l) => l !== null)
 			.join("\n"),
 	});

@@ -13,7 +13,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { closeBrowser } from "./browser.js";
-import { isSetUp, setupChromeKey, StaleKeyError } from "./cookies.js";
+import { isSetUp, StaleKeyError, setupChromeKey } from "./cookies.js";
 import { AuthSetupNeeded, readPage } from "./reader.js";
 import { webSearch as doSearch } from "./search.js";
 
@@ -60,14 +60,14 @@ export default function webSearch(pi: ExtensionAPI) {
 					.split("\n\n")
 					.map((block) => {
 						const match = block.match(/^\d+\.\s+\*\*(.+?)\*\*/);
-						return match ? match[1] : null;
+						return match?.[1];
 					})
-					.filter(Boolean)
-					.map((t) => "  " + theme.fg("dim", t!))
+					.filter((t): t is string => !!t)
+					.map((t) => `  ${theme.fg("dim", t)}`)
 					.join("\n");
-				return new Text(summary + "\n" + titles, 0, 0);
+				return new Text(`${summary}\n${titles}`, 0, 0);
 			}
-			return new Text(summary + "\n" + text, 0, 0);
+			return new Text(`${summary}\n${text}`, 0, 0);
 		},
 
 		async execute(_toolCallId, params, signal) {
@@ -88,8 +88,7 @@ export default function webSearch(pi: ExtensionAPI) {
 
 				const text = results
 					.map(
-						(r, i) =>
-							`${i + 1}. **${r.title}**\n   ${r.url}\n   ${r.snippet}`,
+						(r, i) => `${i + 1}. **${r.title}**\n   ${r.url}\n   ${r.snippet}`,
 					)
 					.join("\n\n");
 
@@ -97,8 +96,7 @@ export default function webSearch(pi: ExtensionAPI) {
 					content: [{ type: "text", text }],
 				};
 			} catch (err: unknown) {
-				const msg =
-					err instanceof Error ? err.message : String(err);
+				const msg = err instanceof Error ? err.message : String(err);
 				return {
 					content: [
 						{
@@ -134,8 +132,7 @@ export default function webSearch(pi: ExtensionAPI) {
 			try {
 				const u = new URL(args.url);
 				display = u.hostname + u.pathname;
-				if (display.length > 60)
-					display = display.slice(0, 57) + "...";
+				if (display.length > 60) display = `${display.slice(0, 57)}...`;
 			} catch {
 				// use raw url
 			}
@@ -144,10 +141,7 @@ export default function webSearch(pi: ExtensionAPI) {
 
 		renderResult(result, { expanded }, theme) {
 			const text = result.content?.[0]?.text || "";
-			if (
-				result.details?.error ||
-				text.startsWith("Failed to read page")
-			) {
+			if (result.details?.error || text.startsWith("Failed to read page")) {
 				return new Text(theme.fg("error", text), 0, 0);
 			}
 
@@ -164,14 +158,14 @@ export default function webSearch(pi: ExtensionAPI) {
 				summary += theme.fg("muted", ` → ${filePath}`);
 			}
 			if (excerpt) {
-				summary += "\n  " + theme.fg("dim", excerpt);
+				summary += `\n  ${theme.fg("dim", excerpt)}`;
 			}
 
 			if (!expanded) {
 				return new Text(summary, 0, 0);
 			}
 			const preview = text.slice(0, 2000) + (text.length > 2000 ? "\n..." : "");
-			return new Text(summary + "\n" + preview, 0, 0);
+			return new Text(`${summary}\n${preview}`, 0, 0);
 		},
 
 		async execute(_toolCallId, params, signal) {
@@ -194,10 +188,7 @@ export default function webSearch(pi: ExtensionAPI) {
 					},
 				};
 			} catch (err: unknown) {
-				if (
-					err instanceof AuthSetupNeeded ||
-					err instanceof StaleKeyError
-				) {
+				if (err instanceof AuthSetupNeeded || err instanceof StaleKeyError) {
 					return {
 						content: [
 							{
@@ -208,8 +199,7 @@ export default function webSearch(pi: ExtensionAPI) {
 						details: { error: true, authSetupNeeded: true },
 					};
 				}
-				const msg =
-					err instanceof Error ? err.message : String(err);
+				const msg = err instanceof Error ? err.message : String(err);
 				return {
 					content: [
 						{

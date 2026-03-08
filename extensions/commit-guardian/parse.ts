@@ -23,20 +23,15 @@ export function extractMessage(command: string): string | null {
 	const heredoc = command.match(
 		/<<-?\s*['"]?(\w+)['"]?\s*\n([\s\S]*?)\n\1\s*$/,
 	);
-	if (heredoc) return heredoc[2]!;
+	if (heredoc) return heredoc[2] ?? null;
 
 	// -m flags: -m "msg", -m 'msg', -m msg (also -am "msg")
 	const normalized = command.replace(/-am\s+/g, "-a -m ");
 	const messages: string[] = [];
-	const re =
-		/(?:^|\s)-m\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+))/g;
-	let match;
-	while ((match = re.exec(normalized)) !== null) {
+	const re = /(?:^|\s)-m\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+))/g;
+	for (const match of normalized.matchAll(re)) {
 		messages.push(
-			(match[1] ?? match[2] ?? match[3] ?? "").replace(
-				/\\(.)/g,
-				"$1",
-			),
+			(match[1] ?? match[2] ?? match[3] ?? "").replace(/\\(.)/g, "$1"),
 		);
 	}
 	return messages.length > 0 ? messages.join("\n\n") : null;
@@ -50,10 +45,7 @@ export function splitAtCommit(command: string): {
 	prefix: string | null;
 	commitPart: string;
 } {
-	const { prefix, target } = splitAtCommand(
-		command,
-		/git\s+commit\b/,
-	);
+	const { prefix, target } = splitAtCommand(command, /git\s+commit\b/);
 	return { prefix, commitPart: target };
 }
 
