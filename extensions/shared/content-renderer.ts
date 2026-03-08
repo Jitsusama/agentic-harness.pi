@@ -2,9 +2,9 @@
  * Content renderer — themed rendering of markdown, diffs, and
  * code into display-ready lines.
  *
- * Building block for panels, gates, and the standalone content
- * viewer. Each function takes raw text, a theme, and a width,
- * and returns themed string[] ready for display.
+ * Building block for panels, gates, and the standalone
+ * content viewer. Each function takes raw text, a theme,
+ * and a width, returning themed string[] for display.
  */
 
 import { truncateToWidth } from "@mariozechner/pi-tui";
