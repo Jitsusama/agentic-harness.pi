@@ -1,6 +1,6 @@
 /**
  * Panel — shared UI primitive for bordered, scrollable content
- * with options and an inline editor.
+ * with options and inline editor.
  *
  * Two public APIs:
  *   showPanel       — single-shot: one page, returns on selection
