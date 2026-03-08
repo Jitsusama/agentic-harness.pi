@@ -13,7 +13,7 @@ import {
 	type PanelPage,
 	type SeriesSelection,
 } from "../shared/panel.js";
-import { renderCode } from "../shared/content-renderer.js";
+import { renderCode, languageFromPath } from "../shared/content-renderer.js";
 import type { ReviewComment, VetResult } from "./index.js";
 
 // ---- Helpers ----
@@ -64,8 +64,8 @@ const STATUS_ICONS: Record<CommentStatus, string> = {
 	edited: "✎",
 };
 
-function statusLabel(index: number, status: CommentStatus): string {
-	return `${STATUS_ICONS[status]} C${index + 1}`;
+function statusLabel(index: number, _status: CommentStatus): string {
+	return `C${index + 1}`;
 }
 
 // ---- Page builders ----
@@ -83,7 +83,10 @@ function buildCommentPage(
 		label: statusLabel(index, status),
 		content: (theme, width) => {
 			const indent = 2;
-			const wrapWidth = width - indent;
+			const cols = process.stdout.columns;
+			const padded = cols && cols > 0 ? cols - 4 : 0;
+			const cappedWidth = padded > 0 ? Math.min(width, padded) : width;
+			const wrapWidth = cappedWidth - indent;
 			const pad = " ".repeat(indent);
 			const lines: string[] = [];
 
@@ -103,6 +106,7 @@ function buildCommentPage(
 				lines.push("");
 				for (const line of renderCode(codeContent, theme, width, {
 					startLine: start,
+					language: languageFromPath(comment.path),
 				})) {
 					lines.push(line);
 				}
