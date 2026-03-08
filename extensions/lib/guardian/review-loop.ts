@@ -10,7 +10,7 @@
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import { formatSteer, type GateOption, showGate } from "./gate.js";
+import { formatSteer, type GateOption, showGate } from "../ui/gate.js";
 
 // ---- Types ----
 

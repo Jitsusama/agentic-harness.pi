@@ -16,7 +16,7 @@ import {
 	isBashToolResult,
 } from "@mariozechner/pi-coding-agent";
 import { Key } from "@mariozechner/pi-tui";
-import { formatSteer, showGate } from "../lib/gate.js";
+import { formatSteer, showGate } from "../lib/ui/gate.js";
 import { filterContext, getLastEntry } from "../lib/state.js";
 import { isTestFile, looksLikeTestRun } from "./patterns.js";
 

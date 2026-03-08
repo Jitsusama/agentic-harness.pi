@@ -20,7 +20,7 @@ import {
 	type PanelPage,
 	type SeriesSelection,
 	showPanelSeries,
-} from "../lib/panel.js";
+} from "../lib/ui/panel.js";
 
 // Types
 interface QuestionOption {

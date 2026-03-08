@@ -2,20 +2,22 @@
  * Issue command parsing — extract title, body, and metadata from
  * gh issue create / gh issue edit commands.
  *
- * Delegates common parsing to lib/command-parse. Keeps only
+ * Delegates common parsing to lib/parse. Keeps only
  * issue-specific extra-flag extraction.
  */
 
 import {
 	extractBody,
-	extractEntityNumber,
 	extractFlag,
+	quote,
+	splitAtCommand,
+} from "../lib/parse/command.js";
+import {
+	extractEntityNumber,
 	extractMultiFlags,
 	isGhCommand,
-	quote,
 	rebuildGhCommand,
-	splitAtCommand,
-} from "../lib/command-parse.js";
+} from "../lib/parse/gh-command.js";
 
 const HEREDOC_DELIM = "__ISSUE_BODY__";
 

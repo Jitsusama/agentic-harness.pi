@@ -13,7 +13,7 @@ import {
 	detectContentTypeFromPath,
 	languageFromPath,
 	showContent,
-} from "../lib/content-renderer.js";
+} from "../lib/ui/content-renderer.js";
 
 export default function contentViewer(pi: ExtensionAPI) {
 	pi.registerCommand("view", {

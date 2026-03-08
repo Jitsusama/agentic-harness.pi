@@ -8,12 +8,12 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { languageFromPath, renderCode } from "../lib/content-renderer.js";
+import { languageFromPath, renderCode } from "../lib/ui/content-renderer.js";
 import {
 	type PanelPage,
 	type SeriesSelection,
 	showPanelSeries,
-} from "../lib/panel.js";
+} from "../lib/ui/panel.js";
 import type { ReviewComment, VetResult } from "./index.js";
 
 // ---- Helpers ----
