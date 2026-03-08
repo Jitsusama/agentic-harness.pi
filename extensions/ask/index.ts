@@ -122,6 +122,7 @@ export default function ask(pi: ExtensionAPI) {
 					opts.push({
 						label: "Type something",
 						value: "__other__",
+						icon: "✎",
 						opensEditor: true,
 						editorPreFill: "",
 					});
@@ -167,7 +168,7 @@ export default function ask(pi: ExtensionAPI) {
 					return lines;
 				},
 				options: [
-					{ label: "Submit", value: "__submit__" },
+					{ label: "Submit", value: "__submit__", icon: "✓" },
 				],
 			};
 

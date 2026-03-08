@@ -128,12 +128,13 @@ function buildCommentPage(
 			return lines;
 		},
 		options: [
-			{ label: "Approve", value: "approve" },
-			{ label: "Edit", value: "edit" },
-			{ label: "Reject", value: "reject" },
+			{ label: "Approve", value: "approve", icon: "✓" },
+			{ label: "Edit", value: "edit", icon: "✎" },
+			{ label: "Reject", value: "reject", icon: "✗" },
 			{
 				label: "Steer",
 				value: "steer",
+				icon: "⚡",
 				opensEditor: true,
 				editorPreFill: comment.body,
 			},
@@ -160,10 +161,11 @@ function buildAddDonePage(
 			{
 				label: "Add a comment",
 				value: "add",
+				icon: "✎",
 				opensEditor: true,
 				editorPreFill: "",
 			},
-			{ label: "Done", value: "done" },
+			{ label: "Done", value: "done", icon: "✓" },
 		],
 	};
 }
