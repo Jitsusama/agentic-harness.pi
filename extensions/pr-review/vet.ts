@@ -83,7 +83,10 @@ function buildCommentPage(
 		label: statusLabel(index, status),
 		content: (theme, width) => {
 			const indent = 2;
-			const wrapWidth = width - indent;
+			const cols = process.stdout.columns;
+			const padded = cols && cols > 0 ? cols - 4 : 0;
+			const cappedWidth = padded > 0 ? Math.min(width, padded) : width;
+			const wrapWidth = cappedWidth - indent;
 			const pad = " ".repeat(indent);
 			const lines: string[] = [];
 

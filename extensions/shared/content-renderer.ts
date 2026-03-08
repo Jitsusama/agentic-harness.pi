@@ -31,6 +31,7 @@ export function renderMarkdown(
 	theme: Theme,
 	width: number,
 ): string[] {
+	const wrapW = terminalWrapWidth(width);
 	const lines: string[] = [];
 	const raw = text.split("\n");
 	let inCodeFence = false;
@@ -82,7 +83,7 @@ export function renderMarkdown(
 
 		// Headers
 		if (/^#{1,6}\s/.test(line)) {
-			for (const wrapped of wordWrap(line, width - 1)) {
+			for (const wrapped of wordWrap(line, wrapW - 1)) {
 				lines.push(truncateToWidth(
 					theme.fg("accent", ` ${theme.bold(wrapped)}`),
 					width,
@@ -93,7 +94,7 @@ export function renderMarkdown(
 
 		// Blockquotes
 		if (line.startsWith("> ")) {
-			for (const wrapped of wordWrap(line, width - 1)) {
+			for (const wrapped of wordWrap(line, wrapW - 1)) {
 				lines.push(truncateToWidth(
 					theme.fg("dim", ` ${wrapped}`),
 					width,
@@ -106,7 +107,7 @@ export function renderMarkdown(
 		if (/^\s*[-*]\s/.test(line)) {
 			const indent = line.match(/^(\s*[-*]\s)/)![0];
 			const wrapIndent = " ".repeat(indent.length);
-			const wrapped = wordWrap(line, width - 1);
+			const wrapped = wordWrap(line, wrapW - 1);
 			for (let j = 0; j < wrapped.length; j++) {
 				const text = j === 0 ? wrapped[j]! : wrapIndent + wrapped[j]!;
 				lines.push(truncateToWidth(
@@ -121,7 +122,7 @@ export function renderMarkdown(
 		if (/^\s*\d+\.\s/.test(line)) {
 			const indent = line.match(/^(\s*\d+\.\s)/)![0];
 			const wrapIndent = " ".repeat(indent.length);
-			const wrapped = wordWrap(line, width - 1);
+			const wrapped = wordWrap(line, wrapW - 1);
 			for (let j = 0; j < wrapped.length; j++) {
 				const text = j === 0 ? wrapped[j]! : wrapIndent + wrapped[j]!;
 				lines.push(truncateToWidth(
@@ -139,7 +140,7 @@ export function renderMarkdown(
 		}
 
 		// Regular text — wrap to width and apply inline formatting
-		for (const wrapped of wordWrap(line, width - 1)) {
+		for (const wrapped of wordWrap(line, wrapW - 1)) {
 			lines.push(truncateToWidth(
 				` ${applyInlineFormatting(wrapped, theme)}`,
 				width,
@@ -260,6 +261,19 @@ export function renderCode(
 }
 
 // ---- Helpers ----
+
+/**
+ * Terminal-aware wrap width. Pi-tui may pass a render width
+ * far larger than the physical terminal (e.g. 398 on an
+ * 80-column terminal). For prose that should word-wrap, cap
+ * to the actual terminal columns.
+ */
+function terminalWrapWidth(renderWidth: number): number {
+	const cols = process.stdout.columns;
+	if (!cols || cols <= 0) return renderWidth;
+	const padded = cols - 4;
+	return Math.min(renderWidth, padded > 0 ? padded : cols);
+}
 
 /** Word-wrap a line to maxWidth. */
 function wordWrap(text: string, maxWidth: number): string[] {
