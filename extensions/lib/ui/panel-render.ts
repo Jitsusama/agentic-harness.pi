@@ -8,7 +8,7 @@
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import {
-	Editor,
+	type Editor,
 	type EditorTheme,
 	truncateToWidth,
 	visibleWidth,

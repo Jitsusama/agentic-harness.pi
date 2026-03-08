@@ -4,8 +4,8 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { reviewLoop, titleBodyField } from "../lib/guardian/review-loop.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { reviewLoop, type TitleBodyField } from "../lib/guardian/review-loop.js";
 import { type PrCommand, rebuildCommand } from "./parse.js";
 
 const PR_ACTIONS = [
@@ -22,12 +22,11 @@ export async function reviewPr(
 	parsed: PrCommand,
 	ctx: ExtensionContext,
 ): Promise<{ block: true; reason: string } | undefined> {
-	const field: TitleBodyField = {
-		kind: "title-body",
-		title: parsed.title,
-		body: parsed.body ?? "",
-		editorPrompt: "Edit PR description:",
-	};
+	const field = titleBodyField(
+		parsed.title,
+		parsed.body ?? "",
+		"Edit PR description:",
+	);
 
 	const originalBody = parsed.body;
 	const originalTitle = parsed.title;
@@ -63,8 +62,6 @@ export async function reviewPr(
 			}
 		},
 		entityName: "PR",
-		steerContext: [field.title ? `Title: ${field.title}` : null, "", field.body]
-			.filter((l) => l !== null)
-			.join("\n"),
+		steerContext: field.steerText(),
 	});
 }

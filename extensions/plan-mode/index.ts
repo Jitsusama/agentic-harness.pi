@@ -17,8 +17,8 @@ import {
 	isToolCallEventType,
 } from "@mariozechner/pi-coding-agent";
 import { Key } from "@mariozechner/pi-tui";
-import { showGate } from "../lib/ui/gate.js";
 import { filterContext, getLastEntry } from "../lib/state.js";
+import { showGate } from "../lib/ui/gate.js";
 
 const DEFAULT_PLAN_DIR = ".pi/plans";
 const PLAN_TOOLS = ["read", "write", "bash", "grep", "find", "ls", "ask"];

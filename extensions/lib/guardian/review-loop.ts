@@ -9,10 +9,10 @@
  *   - allow/block without editing (history-guardian)
  */
 
-import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { formatSteer, type GateOption, showGate } from "../ui/gate.js";
 
-// ---- Types ----
+// ---- Field types ----
 
 export interface ReviewAction {
 	label: string;
@@ -21,23 +21,80 @@ export interface ReviewAction {
 
 /** Single editable text field (e.g., commit message). */
 export interface SingleField {
-	kind: "single";
-	/** Current value. Mutated in-place on edit. */
 	value: string;
-	/** Prompt shown in the full-screen editor. */
-	editorPrompt: string;
+	edit(ctx: ExtensionContext): Promise<void>;
+	steerText(): string;
 }
 
 /** Title + body pair (e.g., PR or issue description). */
 export interface TitleBodyField {
-	kind: "title-body";
 	title: string | null;
 	body: string;
-	/** Prompt shown in the full-screen editor. */
-	editorPrompt: string;
+	edit(ctx: ExtensionContext): Promise<void>;
+	steerText(): string;
 }
 
 export type EditableField = SingleField | TitleBodyField;
+
+/** Create a single-value editable field. */
+export function singleField(value: string, editorPrompt: string): SingleField {
+	const field: SingleField = {
+		value,
+		async edit(ctx: ExtensionContext) {
+			const edited = await ctx.ui.editor(editorPrompt, field.value);
+			if (edited?.trim()) {
+				field.value = edited;
+			}
+		},
+		steerText() {
+			return field.value;
+		},
+	};
+	return field;
+}
+
+/** Create a title+body editable field. */
+export function titleBodyField(
+	title: string | null,
+	body: string,
+	editorPrompt: string,
+): TitleBodyField {
+	const field: TitleBodyField = {
+		title,
+		body,
+		async edit(ctx: ExtensionContext) {
+			const editContent = [
+				field.title ? `# ${field.title}` : null,
+				"",
+				field.body,
+			]
+				.filter((l) => l !== null)
+				.join("\n");
+
+			const edited = await ctx.ui.editor(editorPrompt, editContent);
+
+			if (edited?.trim()) {
+				const lines = edited.split("\n");
+				if (lines[0]?.startsWith("# ")) {
+					field.title = lines[0].replace(/^#\s+/, "");
+					field.body = lines.slice(1).join("\n").replace(/^\n+/, "");
+				} else {
+					field.body = edited;
+				}
+			}
+		},
+		steerText() {
+			return [field.title ? `Title: ${field.title}` : null, "", field.body]
+				.filter((l) => l !== null)
+				.join("\n");
+		},
+	};
+	return field;
+}
+
+// ---- Config ----
+
+import type { Theme } from "@mariozechner/pi-coding-agent";
 
 export interface ReviewLoopConfig {
 	/** Options to present. Steer is auto-appended by gate. */
@@ -65,13 +122,16 @@ export type ReviewResult = { block: true; reason: string } | undefined;
 /**
  * Run the review loop. Shows the gate repeatedly until the
  * user approves, rejects, steers, or cancels.
+ *
+ * The content function captures the mutable field by reference,
+ * so edits are reflected on the next render without reassignment.
  */
 export async function reviewLoop(
 	ctx: ExtensionContext,
 	config: ReviewLoopConfig,
 ): Promise<ReviewResult> {
-	const { actions, field, onApprove, entityName } = config;
-	let { content, steerContext } = config;
+	const { actions, content, field, onApprove, entityName } = config;
+	let { steerContext } = config;
 
 	const hasEdit = actions.some((a) => a.value === "edit") && field;
 
@@ -98,44 +158,8 @@ export async function reviewLoop(
 
 			case "edit": {
 				if (!hasEdit || !field) continue;
-
-				if (field.kind === "single") {
-					const edited = await ctx.ui.editor(field.editorPrompt, field.value);
-					if (edited?.trim()) {
-						field.value = edited;
-						// Rebuild content and steer context with new value
-						content = config.content;
-						steerContext = field.value;
-					}
-				} else if (field.kind === "title-body") {
-					const editContent = [
-						field.title ? `# ${field.title}` : null,
-						"",
-						field.body,
-					]
-						.filter((l) => l !== null)
-						.join("\n");
-
-					const edited = await ctx.ui.editor(field.editorPrompt, editContent);
-
-					if (edited?.trim()) {
-						const lines = edited.split("\n");
-						if (lines[0]?.startsWith("# ")) {
-							field.title = lines[0].replace(/^#\s+/, "");
-							field.body = lines.slice(1).join("\n").replace(/^\n+/, "");
-						} else {
-							field.body = edited;
-						}
-						// Rebuild steer context with new values
-						steerContext = [
-							field.title ? `Title: ${field.title}` : null,
-							"",
-							field.body,
-						]
-							.filter((l) => l !== null)
-							.join("\n");
-					}
-				}
+				await field.edit(ctx);
+				steerContext = field.steerText();
 				continue;
 			}
 

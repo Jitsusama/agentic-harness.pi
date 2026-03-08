@@ -11,12 +11,7 @@
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import {
-	Editor,
-	Key,
-	matchesKey,
-	truncateToWidth,
-} from "@mariozechner/pi-tui";
+import { Editor, Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import {
 	handleOptionNav,
 	handleScrollKeys,

@@ -268,8 +268,6 @@ function terminalWrapWidth(renderWidth: number): number {
 	return Math.min(renderWidth, padded > 0 ? padded : cols);
 }
 
-
-
 // ---- Content type detection ----
 
 /** Auto-detect content type from text. */
@@ -363,5 +361,3 @@ export function renderContent(
 			return renderMarkdown(text, theme, width);
 	}
 }
-
-
