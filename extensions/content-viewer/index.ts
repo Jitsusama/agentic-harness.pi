@@ -12,6 +12,7 @@ import * as path from "node:path";
 import {
 	showContent,
 	detectContentTypeFromPath,
+	languageFromPath,
 } from "../shared/content-renderer.js";
 
 export default function contentViewer(pi: ExtensionAPI) {
@@ -37,9 +38,10 @@ export default function contentViewer(pi: ExtensionAPI) {
 			}
 
 			const type = detectContentTypeFromPath(resolved);
+			const language = languageFromPath(resolved);
 			const title = path.relative(ctx.cwd, resolved) || filePath;
 
-			await showContent(ctx, content, { type, title });
+			await showContent(ctx, content, { type, language, title });
 		},
 	});
 }

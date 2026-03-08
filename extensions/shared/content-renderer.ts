@@ -8,7 +8,12 @@
  */
 
 import { truncateToWidth } from "@mariozechner/pi-tui";
-import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import {
+	type ExtensionContext,
+	type Theme,
+	highlightCode as piHighlightCode,
+	getLanguageFromPath,
+} from "@mariozechner/pi-coding-agent";
 import { showPanel } from "./panel.js";
 
 // ---- Markdown ----
@@ -29,18 +34,49 @@ export function renderMarkdown(
 	const lines: string[] = [];
 	const raw = text.split("\n");
 	let inCodeFence = false;
+	let codeFenceLang = "";
+	let codeFenceBuffer: string[] = [];
 
 	for (const line of raw) {
 		// Code fence toggle
 		if (line.trimStart().startsWith("```")) {
-			inCodeFence = !inCodeFence;
-			lines.push(truncateToWidth(theme.fg("dim", ` ${line}`), width));
+			if (!inCodeFence) {
+				// Opening fence — extract language
+				inCodeFence = true;
+				codeFenceLang = line.trimStart().slice(3).trim().toLowerCase();
+				codeFenceBuffer = [];
+				lines.push(truncateToWidth(theme.fg("dim", ` ${line}`), width));
+			} else {
+				// Closing fence — render the buffered block
+				inCodeFence = false;
+				const codeText = codeFenceBuffer.join("\n");
+
+				if (codeFenceLang === "diff") {
+					// Diff blocks get red/green/white coloring
+					for (const dl of renderDiff(codeText, theme, width)) {
+						lines.push(dl);
+					}
+				} else {
+					// Syntax highlight using pi's theme-aware highlighter
+					const highlighted = piHighlightCode(
+						codeText,
+						codeFenceLang || undefined,
+					);
+					for (const hl of highlighted) {
+						lines.push(truncateToWidth(` ${hl}`, width));
+					}
+				}
+
+				codeFenceBuffer = [];
+				codeFenceLang = "";
+				lines.push(truncateToWidth(theme.fg("dim", ` ${line}`), width));
+			}
 			continue;
 		}
 
-		// Inside a code fence — muted, no formatting
+		// Inside a code fence — buffer for batch highlighting
 		if (inCodeFence) {
-			lines.push(truncateToWidth(theme.fg("muted", ` ${line}`), width));
+			codeFenceBuffer.push(line);
 			continue;
 		}
 
@@ -163,11 +199,11 @@ export function renderDiff(
 		} else if (line.startsWith("@@")) {
 			themed = theme.fg("accent", ` ${line}`);
 		} else if (line.startsWith("+")) {
-			themed = theme.fg("success", ` ${line}`);
+			themed = theme.fg("toolDiffAdded", ` ${line}`);
 		} else if (line.startsWith("-")) {
-			themed = theme.fg("error", ` ${line}`);
+			themed = theme.fg("toolDiffRemoved", ` ${line}`);
 		} else {
-			themed = ` ${line}`;
+			themed = theme.fg("toolDiffContext", ` ${line}`);
 		}
 
 		lines.push(truncateToWidth(themed, width));
@@ -183,13 +219,16 @@ export interface CodeRenderOptions {
 	startLine?: number;
 	/** Set of line numbers to highlight with accent. */
 	highlightLines?: Set<number>;
+	/** Language for syntax highlighting (auto-detects if omitted). */
+	language?: string;
 }
 
 /**
- * Render code with line numbers.
+ * Render code with line numbers and syntax highlighting.
  *
  * Line numbers are dim and right-aligned. A │ separator
  * divides numbers from content. Highlighted lines use accent.
+ * Code is syntax-highlighted using cli-highlight when possible.
  */
 export function renderCode(
 	text: string,
@@ -199,7 +238,7 @@ export function renderCode(
 ): string[] {
 	const startLine = options?.startLine ?? 1;
 	const highlights = options?.highlightLines;
-	const codeLines = text.split("\n");
+	const codeLines = piHighlightCode(text, options?.language);
 	const lastLineNum = startLine + codeLines.length - 1;
 	const gutterWidth = String(lastLineNum).length;
 	const lines: string[] = [];
@@ -212,7 +251,7 @@ export function renderCode(
 		const gutter = theme.fg("dim", `${numStr} │ `);
 		const content = isHighlighted
 			? theme.fg("accent", codeLines[i]!)
-			: theme.fg("muted", codeLines[i]!);
+			: codeLines[i]!;
 
 		lines.push(truncateToWidth(gutter + content, width));
 	}
@@ -277,6 +316,9 @@ export function detectContentTypeFromPath(
 	return "markdown";
 }
 
+/** Derive a syntax highlighting language from a file path. */
+export const languageFromPath = getLanguageFromPath;
+
 /**
  * Render text with auto-detected or specified content type.
  * Convenience function that dispatches to renderMarkdown,
@@ -288,6 +330,7 @@ export function renderContent(
 	width: number,
 	options?: {
 		type?: "markdown" | "diff" | "code";
+		language?: string;
 		startLine?: number;
 		highlightLines?: Set<number>;
 	},
@@ -299,6 +342,7 @@ export function renderContent(
 			return renderDiff(text, theme, width);
 		case "code":
 			return renderCode(text, theme, width, {
+				language: options?.language,
 				startLine: options?.startLine,
 				highlightLines: options?.highlightLines,
 			});
@@ -319,6 +363,7 @@ export async function showContent(
 	text: string,
 	options?: {
 		type?: "markdown" | "diff" | "code";
+		language?: string;
 		title?: string;
 		startLine?: number;
 		highlightLines?: Set<number>;
@@ -341,6 +386,7 @@ export async function showContent(
 				}
 				for (const line of renderContent(text, theme, width, {
 					type,
+					language: options?.language,
 					startLine: options?.startLine,
 					highlightLines: options?.highlightLines,
 				})) {
