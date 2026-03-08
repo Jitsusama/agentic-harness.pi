@@ -53,7 +53,10 @@ export function renderValidation(v: CommitValidation, theme: Theme): string {
 		parts.push(
 			v.bodyWrapOk
 				? theme.fg("success", "✓ wrap")
-				: theme.fg("warning", `⚠ line ${v.bodyLongestLineNum}: ${v.bodyLongestLine} chars`),
+				: theme.fg(
+						"warning",
+						`⚠ line ${v.bodyLongestLineNum}: ${v.bodyLongestLine} chars`,
+					),
 		);
 	}
 

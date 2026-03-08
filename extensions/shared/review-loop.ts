@@ -10,7 +10,7 @@
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import { showGate, formatSteer, type GateOption } from "./gate.js";
+import { formatSteer, type GateOption, showGate } from "./gate.js";
 
 // ---- Types ----
 
@@ -100,11 +100,8 @@ export async function reviewLoop(
 				if (!hasEdit || !field) continue;
 
 				if (field.kind === "single") {
-					const edited = await ctx.ui.editor(
-						field.editorPrompt,
-						field.value,
-					);
-					if (edited !== undefined && edited.trim()) {
+					const edited = await ctx.ui.editor(field.editorPrompt, field.value);
+					if (edited?.trim()) {
 						field.value = edited;
 						// Rebuild content and steer context with new value
 						content = config.content;
@@ -119,19 +116,13 @@ export async function reviewLoop(
 						.filter((l) => l !== null)
 						.join("\n");
 
-					const edited = await ctx.ui.editor(
-						field.editorPrompt,
-						editContent,
-					);
+					const edited = await ctx.ui.editor(field.editorPrompt, editContent);
 
-					if (edited !== undefined && edited.trim()) {
+					if (edited?.trim()) {
 						const lines = edited.split("\n");
 						if (lines[0]?.startsWith("# ")) {
 							field.title = lines[0].replace(/^#\s+/, "");
-							field.body = lines
-								.slice(1)
-								.join("\n")
-								.replace(/^\n+/, "");
+							field.body = lines.slice(1).join("\n").replace(/^\n+/, "");
 						} else {
 							field.body = edited;
 						}
@@ -150,7 +141,7 @@ export async function reviewLoop(
 
 			case "steer":
 				return formatSteer(
-					result.feedback!,
+					result.feedback ?? "",
 					`Original ${entityName}:\n${steerContext}`,
 				);
 

@@ -14,11 +14,11 @@
  * RFC 6265.
  */
 
+import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execSync } from "node:child_process";
 
 /** Microseconds between 1601-01-01 and 1970-01-01. */
 const CHROME_EPOCH_OFFSET = 11644473600n * 1_000_000n;
@@ -99,13 +99,7 @@ function findCookiesDb(): string | null {
 // ── Key management ────────────────────────────────────────────────
 
 function deriveKey(password: string, iterations: number): Buffer {
-	return crypto.pbkdf2Sync(
-		password,
-		"saltysalt",
-		iterations,
-		16,
-		"sha1",
-	);
+	return crypto.pbkdf2Sync(password, "saltysalt", iterations, 16, "sha1");
 }
 
 /**
@@ -210,7 +204,7 @@ function cookieHostKeys(hostname: string): string[] {
 	// Walk up from full domain: a.b.c → .a.b.c, .b.c, .c
 	// (skip single-label TLDs)
 	for (let i = 0; i < parts.length - 1; i++) {
-		keys.push("." + parts.slice(i).join("."));
+		keys.push(`.${parts.slice(i).join(".")}`);
 	}
 	return keys;
 }
@@ -221,21 +215,21 @@ function cookieHostKeys(hostname: string): string[] {
  * Copy the Cookies DB to a temp location to avoid WAL lock conflicts
  * with a running Chrome, then query it.
  */
+interface CookieRow {
+	name: string;
+	encrypted_value: Buffer;
+	host_key: string;
+	path: string;
+	expires_utc: bigint;
+	is_secure: number;
+	is_httponly: number;
+	samesite: number;
+}
+
 function queryCookies(
 	dbPath: string,
 	hostKeys: string[],
-): Promise<
-	Array<{
-		name: string;
-		encrypted_value: Buffer;
-		host_key: string;
-		path: string;
-		expires_utc: bigint;
-		is_secure: number;
-		is_httponly: number;
-		samesite: number;
-	}>
-> {
+): Promise<CookieRow[]> {
 	const tmpDb = path.join(os.tmpdir(), `pi-chrome-cookies-${Date.now()}.db`);
 	fs.copyFileSync(dbPath, tmpDb);
 	// Also copy WAL and SHM if they exist
@@ -258,10 +252,10 @@ function queryCookies(
 	`;
 
 	return new Promise((resolve, reject) => {
-		db.all(sql, hostKeys, (err: Error | null, rows: any[]) => {
+		db.all(sql, hostKeys, (err: Error | null, rows: CookieRow[]) => {
 			db.close();
 			// Clean up temp files
-			for (const f of [tmpDb, tmpDb + "-wal", tmpDb + "-shm"]) {
+			for (const f of [tmpDb, `${tmpDb}-wal`, `${tmpDb}-shm`]) {
 				try {
 					fs.unlinkSync(f);
 				} catch {

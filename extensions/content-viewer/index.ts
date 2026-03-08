@@ -6,13 +6,13 @@
  * to showContent from shared/content-renderer.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
-	showContent,
 	detectContentTypeFromPath,
 	languageFromPath,
+	showContent,
 } from "../shared/content-renderer.js";
 
 export default function contentViewer(pi: ExtensionAPI) {

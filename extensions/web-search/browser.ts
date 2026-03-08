@@ -22,9 +22,7 @@ function findChrome(): string {
 		try {
 			const fs = require("node:fs");
 			if (fs.existsSync(p)) return p;
-		} catch {
-			continue;
-		}
+		} catch {}
 	}
 	throw new Error(
 		"Chrome not found. Install Google Chrome or set CHROME_PATH.",

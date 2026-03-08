@@ -8,11 +8,11 @@
  */
 
 import {
-	isToolCallEventType,
 	type ExtensionAPI,
+	isToolCallEventType,
 } from "@mariozechner/pi-coding-agent";
-import { DESTRUCTIVE_PATTERNS } from "./patterns.js";
 import { confirmDestructive } from "./confirm.js";
+import { DESTRUCTIVE_PATTERNS } from "./patterns.js";
 
 export default function historyGuardian(pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {

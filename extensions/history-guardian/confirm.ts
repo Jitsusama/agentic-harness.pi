@@ -19,9 +19,8 @@ export async function confirmDestructive(
 	ctx: ExtensionContext,
 ): Promise<{ block: true; reason: string } | undefined> {
 	const icon = severity === "irrecoverable" ? "⛔" : "⚠";
-	const label = severity === "irrecoverable"
-		? "Destructive Command"
-		: "Risky Command";
+	const label =
+		severity === "irrecoverable" ? "Destructive Command" : "Risky Command";
 
 	return reviewLoop(ctx, {
 		actions: DESTRUCTIVE_ACTIONS,

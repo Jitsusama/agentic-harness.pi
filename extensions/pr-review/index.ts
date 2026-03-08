@@ -13,27 +13,53 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
-import { vetComments } from "./vet.js";
+import { Type } from "@sinclair/typebox";
 import { postReview } from "./post.js";
+import { vetComments } from "./vet.js";
 
 const CommentSchema = Type.Object({
 	path: Type.String({ description: "File path relative to repo root" }),
-	line: Type.Number({ description: "End line number in the diff to comment on" }),
-	startLine: Type.Optional(Type.Number({ description: "Start line number for a multi-line comment range" })),
+	line: Type.Number({
+		description: "End line number in the diff to comment on",
+	}),
+	startLine: Type.Optional(
+		Type.Number({
+			description: "Start line number for a multi-line comment range",
+		}),
+	),
 	body: Type.String({ description: "The review comment text" }),
-	rationale: Type.String({ description: "Why this is worth flagging (shown to user only, not posted)" }),
-	side: Type.Optional(Type.String({ description: "Side of the diff: LEFT or RIGHT (default: RIGHT)" })),
-	preApproved: Type.Optional(Type.Boolean({ description: "If true, skip vetting — already approved in a prior round" })),
+	rationale: Type.String({
+		description: "Why this is worth flagging (shown to user only, not posted)",
+	}),
+	side: Type.Optional(
+		Type.String({
+			description: "Side of the diff: LEFT or RIGHT (default: RIGHT)",
+		}),
+	),
+	preApproved: Type.Optional(
+		Type.Boolean({
+			description: "If true, skip vetting — already approved in a prior round",
+		}),
+	),
 });
 
 const PrReviewParams = Type.Object({
 	pr: Type.Number({ description: "Pull request number" }),
-	repo: Type.Optional(Type.String({ description: "Repository in owner/repo format. Defaults to current repo." })),
-	body: Type.Optional(Type.String({ description: "Summary body for the review. Brief context about what the review comments cover." })),
+	repo: Type.Optional(
+		Type.String({
+			description: "Repository in owner/repo format. Defaults to current repo.",
+		}),
+	),
+	body: Type.Optional(
+		Type.String({
+			description:
+				"Summary body for the review. Brief context about what the review comments cover.",
+		}),
+	),
 	comments: Type.Array(CommentSchema, {
-		description: "Candidate review comments. May be empty if nothing warrants attention — the user can still add their own.",
+		description:
+			"Candidate review comments. May be empty if nothing warrants attention — the user can still add their own.",
 	}),
 });
 
@@ -89,7 +115,12 @@ export default function prReview(pi: ExtensionAPI) {
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (!ctx.hasUI) {
 				return {
-					content: [{ type: "text", text: "Error: pr_review requires interactive mode" }],
+					content: [
+						{
+							type: "text",
+							text: "Error: pr_review requires interactive mode",
+						},
+					],
 					details: { pr: params.pr, posted: 0 },
 				};
 			}
@@ -125,7 +156,12 @@ export default function prReview(pi: ExtensionAPI) {
 
 			if (result.steerFeedback) {
 				return {
-					content: [{ type: "text", text: `User feedback on review comments:\n\n${result.steerFeedback}` }],
+					content: [
+						{
+							type: "text",
+							text: `User feedback on review comments:\n\n${result.steerFeedback}`,
+						},
+					],
 					details: { pr: params.pr, posted: 0, steered: true },
 				};
 			}
@@ -135,7 +171,9 @@ export default function prReview(pi: ExtensionAPI) {
 
 			// User requested additional comments — return for LLM resolution
 			if (result.userRequests.length > 0) {
-				const requests = result.userRequests.map((r, i) => `${i + 1}. ${r}`).join("\n");
+				const requests = result.userRequests
+					.map((r, i) => `${i + 1}. ${r}`)
+					.join("\n");
 				const parts = [
 					`The user wants these additional review comments on PR #${params.pr}.`,
 					`Resolve each into a structured comment (path, startLine, line, body) and call pr_review again`,
@@ -160,22 +198,33 @@ export default function prReview(pi: ExtensionAPI) {
 
 			if (allApproved.length === 0) {
 				return {
-					content: [{ type: "text", text: "No comments approved for posting." }],
+					content: [
+						{ type: "text", text: "No comments approved for posting." },
+					],
 					details: { pr: params.pr, posted: 0 },
 				};
 			}
 
-			const postResult = await postReview(pi, params.pr, allApproved, params.body, params.repo);
+			const postResult = await postReview(
+				pi,
+				params.pr,
+				allApproved,
+				params.body,
+				params.repo,
+			);
 
 			if (postResult.error) {
 				return {
-					content: [{
-						type: "text",
-						text: `Failed to post review: ${postResult.error}\n\n` +
-							`The following approved comments were not posted. ` +
-							`Fix the issue and call pr_review again with these comments (set preApproved: true):\n` +
-							allApproved.map(formatCommentRef).join("\n"),
-					}],
+					content: [
+						{
+							type: "text",
+							text:
+								`Failed to post review: ${postResult.error}\n\n` +
+								`The following approved comments were not posted. ` +
+								`Fix the issue and call pr_review again with these comments (set preApproved: true):\n` +
+								allApproved.map(formatCommentRef).join("\n"),
+						},
+					],
 					details: {
 						pr: params.pr,
 						posted: 0,
@@ -204,8 +253,12 @@ export default function prReview(pi: ExtensionAPI) {
 
 		renderCall(args, theme) {
 			const comments = Array.isArray(args.comments) ? args.comments : [];
-			const newCount = comments.filter((c: any) => !c.preApproved).length;
-			const preCount = comments.filter((c: any) => c.preApproved).length;
+			const newCount = comments.filter(
+				(c: { preApproved?: boolean }) => !c.preApproved,
+			).length;
+			const preCount = comments.filter(
+				(c: { preApproved?: boolean }) => c.preApproved,
+			).length;
 			let text = theme.fg("toolTitle", theme.bold("pr_review "));
 			text += theme.fg("muted", `PR #${args.pr}`);
 			if (preCount > 0) {
@@ -239,7 +292,10 @@ export default function prReview(pi: ExtensionAPI) {
 			if (details.userRequests) {
 				const count = (details.userRequests as string[]).length;
 				return new Text(
-					theme.fg("accent", `↩ ${count} user request${count !== 1 ? "s" : ""} to resolve`),
+					theme.fg(
+						"accent",
+						`↩ ${count} user request${count !== 1 ? "s" : ""} to resolve`,
+					),
 					0,
 					0,
 				);
@@ -251,7 +307,11 @@ export default function prReview(pi: ExtensionAPI) {
 			}
 
 			return new Text(
-				theme.fg("success", "✓ ") + theme.fg("muted", `${posted} comment${posted !== 1 ? "s" : ""} posted`),
+				theme.fg("success", "✓ ") +
+					theme.fg(
+						"muted",
+						`${posted} comment${posted !== 1 ? "s" : ""} posted`,
+					),
 				0,
 				0,
 			);

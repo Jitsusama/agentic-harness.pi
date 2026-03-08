@@ -7,14 +7,14 @@
  */
 
 import {
-	extractFlag,
 	extractBody,
-	quote,
-	splitAtCommand,
 	extractEntityNumber,
-	isGhCommand,
-	rebuildGhCommand,
+	extractFlag,
 	extractMultiFlags,
+	isGhCommand,
+	quote,
+	rebuildGhCommand,
+	splitAtCommand,
 } from "../shared/command-parse.js";
 
 const HEREDOC_DELIM = "__PR_BODY__";
@@ -56,9 +56,10 @@ export function parsePrCommand(command: string): PrCommand | null {
 
 	const title = extractFlag(prPart, "title");
 	const body = extractBody(command, prPart);
-	const prNumber = action === "edit"
-		? extractEntityNumber(prPart, /\bgh\s+pr\s+edit\s+(\d+)\b/)
-		: null;
+	const prNumber =
+		action === "edit"
+			? extractEntityNumber(prPart, /\bgh\s+pr\s+edit\s+(\d+)\b/)
+			: null;
 	const extraFlags = extractPrExtraFlags(prPart);
 
 	// Only gate if there's a body to review
@@ -80,7 +81,11 @@ function extractPrExtraFlags(prPart: string): string[] {
 	}
 
 	// Multi-value flags
-	for (const [name, value] of extractMultiFlags(prPart, ["label", "assignee", "reviewer"])) {
+	for (const [name, value] of extractMultiFlags(prPart, [
+		"label",
+		"assignee",
+		"reviewer",
+	])) {
 		flags.push(`--add-${name}`, quote(value));
 	}
 

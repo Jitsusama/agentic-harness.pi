@@ -7,11 +7,11 @@
  * selectively explore them with read/grep.
  */
 
-import { Readability } from "@mozilla/readability";
-import { JSDOM } from "jsdom";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { Readability } from "@mozilla/readability";
+import { JSDOM } from "jsdom";
 import { injectCookies, newPage } from "./browser.js";
 import { isSetUp } from "./cookies.js";
 
@@ -153,18 +153,20 @@ function stripJunk(doc: Document): void {
 
 /** Clean extracted text: collapse whitespace, strip boilerplate lines. */
 function cleanText(text: string): string {
-	return text
-		.split("\n")
-		.map((line) => line.trimEnd())
-		.filter((line) => {
-			const trimmed = line.trim();
-			if (!trimmed) return true; // keep single blank lines (collapsed below)
-			return !BOILERPLATE_PATTERNS.some((p) => p.test(trimmed));
-		})
-		.join("\n")
-		// Collapse 3+ consecutive newlines to 2
-		.replace(/\n{3,}/g, "\n\n")
-		.trim();
+	return (
+		text
+			.split("\n")
+			.map((line) => line.trimEnd())
+			.filter((line) => {
+				const trimmed = line.trim();
+				if (!trimmed) return true; // keep single blank lines (collapsed below)
+				return !BOILERPLATE_PATTERNS.some((p) => p.test(trimmed));
+			})
+			.join("\n")
+			// Collapse 3+ consecutive newlines to 2
+			.replace(/\n{3,}/g, "\n\n")
+			.trim()
+	);
 }
 
 /** Suppress jsdom CSS warnings during a callback. */
@@ -252,9 +254,7 @@ export async function readPage(
 		} catch {
 			// JSDOM/Readability failed (e.g. CSS parsing errors) —
 			// fall back to extracting text directly from the browser.
-			rawText = await page.evaluate(
-				() => document.body?.innerText || "",
-			);
+			rawText = await page.evaluate(() => document.body?.innerText || "");
 			title = await page.title();
 			excerpt = rawText.slice(0, 200);
 		}

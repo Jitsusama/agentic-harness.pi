@@ -18,12 +18,14 @@ export const DESTRUCTIVE_PATTERNS: DestructivePattern[] = [
 	{
 		pattern: /\bgit\s+push\b[^|;]*--force-with-lease\b/,
 		severity: "risky",
-		description: "Force push with lease — safer than --force but still rewrites remote history.",
+		description:
+			"Force push with lease — safer than --force but still rewrites remote history.",
 	},
 	{
 		pattern: /\bgit\s+stash\s+drop\b/,
 		severity: "risky",
-		description: "Drops a stash entry. Recoverable via git reflog for ~30 days.",
+		description:
+			"Drops a stash entry. Recoverable via git reflog for ~30 days.",
 	},
 	{
 		pattern: /\bgit\s+rebase\b/,
@@ -45,7 +47,8 @@ export const DESTRUCTIVE_PATTERNS: DestructivePattern[] = [
 	{
 		pattern: /\bgit\s+push\b[^|;]*(?:--force\b|-f\b)/,
 		severity: "irrecoverable",
-		description: "Force push overwrites remote history — commits may be permanently lost.",
+		description:
+			"Force push overwrites remote history — commits may be permanently lost.",
 	},
 	{
 		pattern: /\bgit\s+branch\s+-D\b/,

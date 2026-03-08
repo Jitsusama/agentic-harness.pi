@@ -12,6 +12,7 @@
  * border chrome.
  */
 
+import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import {
 	Editor,
 	type EditorTheme,
@@ -20,10 +21,6 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@mariozechner/pi-tui";
-import {
-	type ExtensionContext,
-	type Theme,
-} from "@mariozechner/pi-coding-agent";
 
 // ---- Types ----
 
@@ -115,7 +112,8 @@ function renderOptionsList(
 ): string[] {
 	const lines: string[] = [];
 	for (let i = 0; i < options.length; i++) {
-		const opt = options[i]!;
+		const opt = options[i];
+		if (!opt) continue;
 		const active = i === selected;
 		const prefix = active ? theme.fg("accent", "> ") : "  ";
 		const color = active ? "accent" : "text";
@@ -158,23 +156,18 @@ function buildScrollbar(
 	offset: number,
 	theme: Theme,
 ): string[] {
-	const thumbSize = Math.max(1, Math.round(
-		(viewportSize / totalLines) * viewportSize,
-	));
+	const thumbSize = Math.max(
+		1,
+		Math.round((viewportSize / totalLines) * viewportSize),
+	);
 	const maxOffset = totalLines - viewportSize;
 	const scrollFraction = maxOffset > 0 ? offset / maxOffset : 0;
-	const thumbStart = Math.round(
-		scrollFraction * (viewportSize - thumbSize),
-	);
+	const thumbStart = Math.round(scrollFraction * (viewportSize - thumbSize));
 
 	const bar: string[] = [];
 	for (let i = 0; i < viewportSize; i++) {
 		const isThumb = i >= thumbStart && i < thumbStart + thumbSize;
-		bar.push(
-			isThumb
-				? theme.fg("accent", "█")
-				: theme.fg("dim", "░"),
-		);
+		bar.push(isThumb ? theme.fg("accent", "█") : theme.fg("dim", "░"));
 	}
 	return bar;
 }
@@ -193,10 +186,7 @@ function renderScrollableContent(
 	const lines: string[] = [];
 
 	if (needsVScroll) {
-		const visible = contentLines.slice(
-			scrollOffset,
-			scrollOffset + budget,
-		);
+		const visible = contentLines.slice(scrollOffset, scrollOffset + budget);
 		const scrollbar = buildScrollbar(
 			contentLines.length,
 			budget,
@@ -206,22 +196,19 @@ function renderScrollableContent(
 		const contentWidth = width - 2;
 		for (let i = 0; i < visible.length; i++) {
 			const sliced = truncateToWidth(
-				horizontalSlice(visible[i]!, hScrollOffset, contentWidth),
+				horizontalSlice(visible[i] ?? "", hScrollOffset, contentWidth),
 				contentWidth,
 			);
 			// CSI absolute column positioning for the scrollbar.
 			// Move cursor to the last column and draw the scrollbar char.
 			const scrollCol = width;
-			lines.push(
-				sliced + `\x1b[${scrollCol}G` + scrollbar[i]!,
-			);
+			lines.push(`${sliced}\x1b[${scrollCol}G${scrollbar[i] ?? ""}`);
 		}
 	} else {
 		for (const line of contentLines) {
-			lines.push(truncateToWidth(
-				horizontalSlice(line, hScrollOffset, width),
-				width,
-			));
+			lines.push(
+				truncateToWidth(horizontalSlice(line, hScrollOffset, width), width),
+			);
 		}
 	}
 
@@ -248,8 +235,10 @@ function renderTabBar(
 		const isActive = i === currentTab;
 		const selection = selections.get(i);
 		const isAnswered = !!selection;
-		const lbl = pages[i]!.label;
-		const icon = selectedIcon(pages[i]!, selection);
+		const page = pages[i];
+		if (!page) continue;
+		const lbl = page.label;
+		const icon = selectedIcon(page, selection);
 		const color = isAnswered ? "success" : "muted";
 		const text = ` ${icon} ${lbl} `;
 		const styled = isActive
@@ -275,11 +264,7 @@ function clampScroll(
  * Preserves ANSI escape sequences that are active at the slice
  * boundary.
  */
-function horizontalSlice(
-	text: string,
-	offset: number,
-	width: number,
-): string {
+function horizontalSlice(text: string, offset: number, width: number): string {
 	if (offset === 0) return truncateToWidth(text, width);
 
 	// Walk through the string tracking visible character count
@@ -293,7 +278,7 @@ function horizontalSlice(
 			// ANSI escape sequence — consume it
 			const escStart = i;
 			i += 2;
-			while (i < text.length && !/[A-Za-z]/.test(text[i]!)) i++;
+			while (i < text.length && !/[A-Za-z]/.test(text[i] ?? "")) i++;
 			i++; // consume the terminator
 			const esc = text.slice(escStart, i);
 			// Track resets vs active sequences
@@ -419,7 +404,8 @@ export async function showPanel(
 			}
 
 			// Confirm selection
-			const opt = page.options[selected]!;
+			const opt = page.options[selected];
+			if (!opt) return;
 			if (opt.opensEditor) {
 				editorMode = true;
 				editorOptionValue = opt.value;
@@ -440,11 +426,18 @@ export async function showPanel(
 			const contentLines = page.content(theme, width + hScrollOffset);
 			scrollOffset = clampScroll(scrollOffset, contentLines.length, budget);
 
-			const { lines: scrolled, needsVScroll, needsHScroll } =
-				renderScrollableContent(
-					contentLines, scrollOffset, hScrollOffset,
-					budget, width, theme,
-				);
+			const {
+				lines: scrolled,
+				needsVScroll,
+				needsHScroll,
+			} = renderScrollableContent(
+				contentLines,
+				scrollOffset,
+				hScrollOffset,
+				budget,
+				width,
+				theme,
+			);
 			for (const line of scrolled) add(line);
 
 			if (editorMode) {
@@ -513,10 +506,7 @@ export async function showPanelSeries(
 				handleSelection(editorOptionValue, trimmed);
 			};
 
-			async function handleSelection(
-				value: string,
-				editorText?: string,
-			) {
+			async function handleSelection(value: string, editorText?: string) {
 				const selection: SeriesSelection = {
 					pageIndex: currentTab,
 					value,
@@ -567,7 +557,8 @@ export async function showPanelSeries(
 			function handleInput(data: string) {
 				if (busy) return; // ignore input during async onSelect
 
-				const page = pages[currentTab]!;
+				const page = pages[currentTab];
+				if (!page) return;
 
 				if (editorMode) {
 					if (matchesKey(data, Key.escape)) {
@@ -588,10 +579,7 @@ export async function showPanelSeries(
 
 				// Tab navigation (multi-page only)
 				if (isMulti) {
-					if (
-						matchesKey(data, Key.tab) ||
-						matchesKey(data, Key.right)
-					) {
+					if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
 						currentTab = (currentTab + 1) % pages.length;
 						optionIndex = 0;
 						scrollOffset = 0;
@@ -603,8 +591,7 @@ export async function showPanelSeries(
 						matchesKey(data, Key.shift("tab")) ||
 						matchesKey(data, Key.left)
 					) {
-						currentTab =
-							(currentTab - 1 + pages.length) % pages.length;
+						currentTab = (currentTab - 1 + pages.length) % pages.length;
 						optionIndex = 0;
 						scrollOffset = 0;
 						hScrollOffset = 0;
@@ -615,18 +602,12 @@ export async function showPanelSeries(
 
 				// Vertical scroll
 				const budget = contentBudget(isMulti);
-				if (
-					matchesKey(data, "pageup") ||
-					matchesKey(data, "shift+up")
-				) {
+				if (matchesKey(data, "pageup") || matchesKey(data, "shift+up")) {
 					scrollOffset = Math.max(0, scrollOffset - budget);
 					tui.requestRender();
 					return;
 				}
-				if (
-					matchesKey(data, "pagedown") ||
-					matchesKey(data, "shift+down")
-				) {
+				if (matchesKey(data, "pagedown") || matchesKey(data, "shift+down")) {
 					scrollOffset += budget;
 					tui.requestRender();
 					return;
@@ -651,10 +632,7 @@ export async function showPanelSeries(
 					return;
 				}
 				if (matchesKey(data, Key.down)) {
-					optionIndex = Math.min(
-						page.options.length - 1,
-						optionIndex + 1,
-					);
+					optionIndex = Math.min(page.options.length - 1, optionIndex + 1);
 					tui.requestRender();
 					return;
 				}
@@ -668,7 +646,8 @@ export async function showPanelSeries(
 				}
 
 				// Confirm selection
-				const opt = page.options[optionIndex]!;
+				const opt = page.options[optionIndex];
+				if (!opt) return;
 				if (opt.opensEditor) {
 					editorMode = true;
 					editorOptionValue = opt.value;
@@ -681,8 +660,7 @@ export async function showPanelSeries(
 
 			function render(width: number): string[] {
 				const lines: string[] = [];
-				const add = (s: string) =>
-					lines.push(truncateToWidth(s, width));
+				const add = (s: string) => lines.push(truncateToWidth(s, width));
 
 				add(theme.fg("accent", "─".repeat(width)));
 
@@ -693,32 +671,28 @@ export async function showPanelSeries(
 				}
 
 				// Content
-				const page = pages[currentTab]!;
+				const page = pages[currentTab];
+				if (!page) return lines;
 				const budget = contentBudget(isMulti);
 				const contentLines = page.content(theme, width + hScrollOffset);
-				scrollOffset = clampScroll(
-					scrollOffset,
-					contentLines.length,
-					budget,
-				);
+				scrollOffset = clampScroll(scrollOffset, contentLines.length, budget);
 
-				const { lines: scrolled, needsVScroll, needsHScroll } =
-					renderScrollableContent(
-						contentLines,
-						scrollOffset,
-						hScrollOffset,
-						budget,
-						width,
-						theme,
-					);
+				const {
+					lines: scrolled,
+					needsVScroll,
+					needsHScroll,
+				} = renderScrollableContent(
+					contentLines,
+					scrollOffset,
+					hScrollOffset,
+					budget,
+					width,
+					theme,
+				);
 				for (const line of scrolled) add(line);
 
 				if (editorMode) {
-					for (const line of renderInlineEditor(
-						editor,
-						width,
-						theme,
-					)) {
+					for (const line of renderInlineEditor(editor, width, theme)) {
 						add(line);
 					}
 				} else {
