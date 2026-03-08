@@ -2,7 +2,7 @@
  * PR command parsing — extract title, body, and metadata from
  * gh pr create / gh pr edit commands.
  *
- * Delegates common parsing to shared/command-parse. Keeps only
+ * Delegates common parsing to lib/command-parse. Keeps only
  * PR-specific extra-flag extraction.
  */
 
@@ -15,7 +15,7 @@ import {
 	quote,
 	rebuildGhCommand,
 	splitAtCommand,
-} from "../shared/command-parse.js";
+} from "../lib/command-parse.js";
 
 const HEREDOC_DELIM = "__PR_BODY__";
 

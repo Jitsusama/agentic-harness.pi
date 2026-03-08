@@ -1,4 +1,4 @@
-# Shared Utilities
+# Library
 
 Common components used across extensions.
 

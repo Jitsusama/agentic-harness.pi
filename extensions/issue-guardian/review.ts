@@ -4,8 +4,8 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { renderMarkdown } from "../shared/content-renderer.js";
-import { reviewLoop, type TitleBodyField } from "../shared/review-loop.js";
+import { renderMarkdown } from "../lib/content-renderer.js";
+import { reviewLoop, type TitleBodyField } from "../lib/review-loop.js";
 import { type IssueCommand, rebuildCommand } from "./parse.js";
 
 const ISSUE_ACTIONS = [

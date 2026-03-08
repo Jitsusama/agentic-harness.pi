@@ -3,7 +3,7 @@
  *
  * Registers the /view command for viewing files, diffs, or
  * text in a scrollable, themed overlay. Delegates rendering
- * to showContent from shared/content-renderer.
+ * to showContent from lib/content-renderer.
  */
 
 import * as fs from "node:fs";
@@ -13,7 +13,7 @@ import {
 	detectContentTypeFromPath,
 	languageFromPath,
 	showContent,
-} from "../shared/content-renderer.js";
+} from "../lib/content-renderer.js";
 
 export default function contentViewer(pi: ExtensionAPI) {
 	pi.registerCommand("view", {

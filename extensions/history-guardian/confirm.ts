@@ -4,7 +4,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { reviewLoop } from "../shared/review-loop.js";
+import { reviewLoop } from "../lib/review-loop.js";
 import type { Severity } from "./patterns.js";
 
 const DESTRUCTIVE_ACTIONS = [

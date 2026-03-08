@@ -16,8 +16,8 @@ import {
 	isBashToolResult,
 } from "@mariozechner/pi-coding-agent";
 import { Key } from "@mariozechner/pi-tui";
-import { formatSteer, showGate } from "../shared/gate.js";
-import { filterContext, getLastEntry } from "../shared/state.js";
+import { formatSteer, showGate } from "../lib/gate.js";
+import { filterContext, getLastEntry } from "../lib/state.js";
 import { isTestFile, looksLikeTestRun } from "./patterns.js";
 
 // ---- Phase definitions ----

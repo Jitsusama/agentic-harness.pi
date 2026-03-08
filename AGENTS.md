@@ -9,7 +9,7 @@ at runtime.
 
 - `extensions/` — TypeScript modules that enforce guardrails
   (commit review, mode enforcement, UI components)
-- `extensions/shared/` — utilities used across multiple extensions
+- `extensions/lib/` — utilities used across multiple extensions
 - `skills/` — markdown instructions the agent loads on demand
   when a task matches their description
 
