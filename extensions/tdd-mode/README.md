@@ -10,7 +10,7 @@ methodology. This extension enforces the discipline.
 During the **red** phase, writes to implementation files require
 confirmation (test files are unrestricted). After each **green**,
 a refactor gate pauses for your input. After **refactor**, a
-commit is proposed and reviewed by git-guardian.
+commit is proposed and reviewed by commit-guardian.
 
 ## Commands
 

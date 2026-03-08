@@ -33,6 +33,27 @@ You can use skills without extensions (guidance only), extensions
 without skills (enforcement only), or both together for the full
 workflow.
 
+### Skill ↔ Extension Pairings
+
+Some skills and extensions are paired — the skill teaches the
+methodology, the extension enforces it:
+
+| Skill | Extension | Relationship |
+|-------|-----------|--------------|
+| `plan-workflow` | `plan-mode` | Planning methodology ↔ read-only enforcement |
+| `tdd-workflow` | `tdd-mode` | TDD methodology ↔ phase enforcement |
+| `git-commit-format` | `commit-guardian` | Commit format ↔ message review gate |
+| `pr-writing` | `pr-guardian` + `pr-review` | PR narrative ↔ description gate + review comments |
+| `issue-writing` | `issue-guardian` | Issue narrative ↔ description gate |
+| `git-rebase-resolution` | `history-guardian` | Rebase strategy ↔ destructive command protection |
+
+Unpaired skills (work standalone): `code-investigation`,
+`git-hygiene`, `git-branch-management`, `git-cli-conventions`,
+`gh-cli-conventions`, `github-projects`, `github-sub-issues`.
+
+Unpaired extensions (work standalone): `ask`, `web-search`,
+`content-viewer`, `status-line`.
+
 ### AGENTS.md
 
 A minimal collaboration style guide that's always in context.
@@ -45,7 +66,7 @@ when requirements are ambiguous.
 Every piece works independently. Mix and match:
 
 - **Skills only** — the agent follows guidance voluntarily
-- **Git-guardian only** — commit review without any skills
+- **Commit-guardian only** — commit review without any skills
 - **Plan-mode only** — read-only enforcement without TDD
 - **TDD-mode only** — phase enforcement without planning
 - **Everything** — plan → TDD → commit flows seamlessly
@@ -58,8 +79,8 @@ to load only what you want:
   "packages": [
     {
       "source": "git:github.com/Jitsusama/agentic-harness.pi",
-      "extensions": ["extensions/git-guardian", "extensions/tdd-mode"],
-      "skills": ["skills/tdd-workflow", "skills/conventional-commits"]
+      "extensions": ["extensions/commit-guardian", "extensions/tdd-mode"],
+      "skills": ["skills/tdd-workflow", "skills/git-commit-format"]
     }
   ]
 }
