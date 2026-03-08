@@ -149,9 +149,9 @@ export default function webSearch(pi: ExtensionAPI) {
 			) {
 				return new Text(theme.fg("error", text), 0, 0);
 			}
-			// Extract title from the "# Title" header
-			const titleMatch = text.match(/^# (.+)/);
-			const title = titleMatch ? titleMatch[1] : "Page loaded";
+
+			const title = (result.details?.title as string) || "Page loaded";
+			const excerpt = (result.details?.excerpt as string) || "";
 			const filePath = result.details?.filePath as string | undefined;
 			const totalChars = (result.details?.length as number) || text.length;
 
@@ -161,6 +161,9 @@ export default function webSearch(pi: ExtensionAPI) {
 				theme.fg("muted", ` (${Math.round(totalChars / 1000)}k chars)`);
 			if (filePath) {
 				summary += theme.fg("muted", ` → ${filePath}`);
+			}
+			if (excerpt) {
+				summary += "\n  " + theme.fg("dim", excerpt);
 			}
 
 			if (!expanded) {
@@ -184,6 +187,7 @@ export default function webSearch(pi: ExtensionAPI) {
 					details: {
 						title: result.title,
 						url: result.url,
+						excerpt: result.excerpt,
 						length: result.length,
 						filePath: result.filePath,
 					},
