@@ -207,9 +207,12 @@ function renderScrollableContent(
 				horizontalSlice(visible[i]!, hScrollOffset, contentWidth),
 				contentWidth,
 			);
-			const scrollCol = width;
+			// Pad to contentWidth then append scrollbar character.
+			// Avoid CSI absolute positioning — it breaks in overlay mode.
+			const slicedWidth = visibleWidth(sliced);
+			const padding = " ".repeat(Math.max(0, contentWidth - slicedWidth));
 			lines.push(
-				sliced + `\x1b[${scrollCol}G` + scrollbar[i]!,
+				sliced + padding + " " + scrollbar[i]!,
 			);
 		}
 	} else {
