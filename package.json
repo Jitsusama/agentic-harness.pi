@@ -2,10 +2,24 @@
   "name": "agentic-harness.pi",
   "version": "0.1.0",
   "description": "Collaborative coding workflows for pi: planning, TDD, git hygiene, and code investigation.",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "license": "MIT",
   "pi": {
-    "extensions": ["./extensions"],
-    "skills": ["./skills"]
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "jsdom": "^28.1.0",
+    "puppeteer-core": "^24.38.0"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^28.0.0"
   }
 }

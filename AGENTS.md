@@ -38,7 +38,9 @@ extension in isolation.
 ## What Not to Do
 
 - Do not add build tooling, bundlers, or transpilation steps.
-- Do not add runtime dependencies to package.json. Pi provides
-  all necessary imports.
+- Do not add pi's own packages to package.json. They are
+  provided at runtime (`@mariozechner/pi-coding-agent`,
+  `@mariozechner/pi-ai`, `@mariozechner/pi-tui`).
+  Third-party dependencies belong in `dependencies`.
 - Do not create `.md` files directly in the `skills/` root
   (other than inside subdirectories).
