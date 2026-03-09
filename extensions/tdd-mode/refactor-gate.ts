@@ -5,12 +5,13 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import {
 	type PanelPage,
 	type SeriesSelection,
 	showPanelSeries,
 } from "../lib/ui/panel.js";
-import { contentWrapWidth, wordWrap } from "../lib/ui/text.js";
+import { contentWrapWidth } from "../lib/ui/text.js";
 
 /** A single refactoring suggestion presented in the gate. */
 export interface RefactorSuggestion {
@@ -45,8 +46,12 @@ function buildSuggestionPage(
 			lines.push(theme.fg("text", ` Refactoring ${index + 1} of ${total}`));
 			lines.push(theme.fg("accent", ` ${suggestion.label}`));
 			lines.push("");
-			for (const line of wordWrap(suggestion.description, padded)) {
-				lines.push(theme.fg("muted", `  ${line}`));
+			for (const line of renderMarkdown(
+				suggestion.description,
+				theme,
+				padded,
+			)) {
+				lines.push(line);
 			}
 			return lines;
 		},

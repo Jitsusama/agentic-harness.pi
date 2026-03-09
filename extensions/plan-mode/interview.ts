@@ -5,6 +5,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import {
 	type PanelPage,
 	type SeriesSelection,
@@ -43,13 +44,13 @@ function buildQuestionPage(
 			const lines: string[] = [];
 			lines.push(theme.fg("text", ` Question ${index + 1} of ${total}`));
 			lines.push("");
-			for (const line of wordWrap(q.question, padded)) {
-				lines.push(theme.fg("accent", `  ${line}`));
+			for (const line of renderMarkdown(q.question, theme, padded)) {
+				lines.push(line);
 			}
 			if (q.context) {
 				lines.push("");
-				for (const line of wordWrap(q.context, padded)) {
-					lines.push(theme.fg("dim", `  ${line}`));
+				for (const line of renderMarkdown(q.context, theme, padded)) {
+					lines.push(line);
 				}
 			}
 			const existing = answers.get(q.id);

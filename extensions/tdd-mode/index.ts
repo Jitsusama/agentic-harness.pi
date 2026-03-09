@@ -78,7 +78,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			summary: Type.Optional(
 				Type.String({
 					description:
-						"What was accomplished in the current phase — shown to the user in the transition gate",
+						"What was accomplished in the current phase — shown to the user in the transition gate. Supports markdown.",
 				}),
 			),
 		}),
@@ -245,7 +245,7 @@ export default function tddMode(pi: ExtensionAPI) {
 	const RefactorSuggestionSchema = Type.Object({
 		label: Type.String({ description: "Short name for the refactoring" }),
 		description: Type.String({
-			description: "What would be changed and why",
+			description: "What would be changed and why. Supports markdown.",
 		}),
 	});
 
