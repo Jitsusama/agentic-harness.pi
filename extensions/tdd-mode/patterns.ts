@@ -10,6 +10,7 @@ const TEST_FILE_PATTERNS = [
 	/\/spec\//, // spec/foo.rb
 ];
 
+/** Whether the file path matches common test file conventions. */
 export function isTestFile(filePath: string): boolean {
 	return TEST_FILE_PATTERNS.some((p) => p.test(filePath));
 }

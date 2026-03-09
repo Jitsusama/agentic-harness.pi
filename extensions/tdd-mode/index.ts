@@ -399,6 +399,6 @@ export default function tddMode(pi: ExtensionAPI) {
 	// ---- Restore ----
 
 	pi.on("session_start", async (_event, ctx) => {
-		restore(state, pi, ctx);
+		restore(state, ctx);
 	});
 }

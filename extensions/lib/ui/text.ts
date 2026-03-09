@@ -10,6 +10,21 @@ export const CONTENT_INDENT = 2;
 export const FALLBACK_CONTENT_WIDTH = 72;
 
 /**
+ * Compute the word-wrap width for panel content. Caps to the
+ * visible terminal width so text stays stable during horizontal
+ * scrolling (the framework passes a wider value to allow
+ * pre-formatted content to extend beyond the viewport).
+ */
+export function contentWrapWidth(renderWidth: number): number {
+	const cols = process.stdout.columns;
+	const visible =
+		cols && cols > 0 ? cols - CONTENT_INDENT * 2 : FALLBACK_CONTENT_WIDTH;
+	const fromRender =
+		renderWidth > 0 ? renderWidth - CONTENT_INDENT * 2 : FALLBACK_CONTENT_WIDTH;
+	return Math.min(fromRender, visible);
+}
+
+/**
  * Word-wrap text to maxWidth, preserving paragraph breaks.
  * Splits on newlines first, then wraps each paragraph
  * independently at word boundaries.

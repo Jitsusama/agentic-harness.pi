@@ -10,11 +10,7 @@ import {
 	type SeriesSelection,
 	showPanelSeries,
 } from "../lib/ui/panel.js";
-import {
-	CONTENT_INDENT,
-	FALLBACK_CONTENT_WIDTH,
-	wordWrap,
-} from "../lib/ui/text.js";
+import { contentWrapWidth, wordWrap } from "../lib/ui/text.js";
 
 /** A single question presented during the plan interview. */
 export interface PlanQuestion {
@@ -43,8 +39,7 @@ function buildQuestionPage(
 	return {
 		label: tab,
 		content: (theme, width) => {
-			const padded =
-				width > 0 ? width - CONTENT_INDENT * 2 : FALLBACK_CONTENT_WIDTH;
+			const padded = contentWrapWidth(width);
 			const lines: string[] = [];
 			lines.push(theme.fg("text", ` Question ${index + 1} of ${total}`));
 			lines.push("");

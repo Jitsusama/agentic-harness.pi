@@ -35,6 +35,7 @@ function updateUI(state: TddState, ctx: ExtensionContext): void {
 	});
 }
 
+/** Save TDD state to the session history. */
 export function persist(state: TddState, pi: ExtensionAPI): void {
 	pi.appendEntry("tdd-mode", {
 		enabled: state.enabled,
@@ -45,6 +46,7 @@ export function persist(state: TddState, pi: ExtensionAPI): void {
 	});
 }
 
+/** Enter TDD mode — reset to RED phase, cycle 1. */
 export function activate(
 	state: TddState,
 	pi: ExtensionAPI,
@@ -60,6 +62,7 @@ export function activate(
 	persist(state, pi);
 }
 
+/** Exit TDD mode and clear state. */
 export function deactivate(
 	state: TddState,
 	pi: ExtensionAPI,
@@ -71,6 +74,7 @@ export function deactivate(
 	persist(state, pi);
 }
 
+/** Toggle TDD mode on or off with user notification. */
 export function toggle(
 	state: TddState,
 	pi: ExtensionAPI,
@@ -89,6 +93,7 @@ export function toggle(
 	}
 }
 
+/** Move to the given phase within the current cycle. */
 export function advance(
 	state: TddState,
 	next: Phase,
@@ -100,6 +105,7 @@ export function advance(
 	persist(state, pi);
 }
 
+/** Complete the current cycle and start the next one in RED. */
 export function nextCycle(
 	state: TddState,
 	pi: ExtensionAPI,
@@ -113,11 +119,8 @@ export function nextCycle(
 	persist(state, pi);
 }
 
-export function restore(
-	state: TddState,
-	_pi: ExtensionAPI,
-	ctx: ExtensionContext,
-): void {
+/** Restore TDD state from the session history. */
+export function restore(state: TddState, ctx: ExtensionContext): void {
 	const saved = getLastEntry<TddState>(ctx, "tdd-mode");
 	if (saved) {
 		state.enabled = saved.enabled ?? false;
