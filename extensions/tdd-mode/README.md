@@ -18,8 +18,8 @@ and whether to proceed or stay. The extension:
 - Tracks the current phase and displays it in the status line
 - Shows the current test description below the editor
 - Confirms phase transitions with the user via a gate panel
-- Blocks test file writes during GREEN and REFACTOR phases,
-  returning hints to the LLM (not UI gates for the user)
+- Blocks test file writes during GREEN phase, returning
+  hints to the LLM (not UI gates for the user)
 - Injects phase-appropriate context into the system prompt
 
 ### Enforcement
@@ -28,7 +28,7 @@ and whether to proceed or stay. The extension:
 |-------|-----------|---------------------|
 | RED | ✅ allowed | ✅ allowed (stubs expected) |
 | GREEN | ❌ blocked | ✅ allowed |
-| REFACTOR | ✅ allowed | ✅ allowed |
+| REFACTOR | ✅ allowed | ✅ allowed (cleanup expected) |
 
 Blocks go back to the LLM as error messages with phase hints.
 The agent self-corrects or calls `tdd_phase stop` if the user
