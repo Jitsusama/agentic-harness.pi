@@ -127,6 +127,7 @@ function buildAddDonePage(
 			return lines;
 		},
 		options: [
+			{ label: "Done", value: "done", icon: "✓" },
 			{
 				label: "Add a comment",
 				value: "add",
@@ -134,7 +135,6 @@ function buildAddDonePage(
 				opensEditor: true,
 				editorPreFill: "",
 			},
-			{ label: "Done", value: "done", icon: "✓" },
 		],
 	};
 }
