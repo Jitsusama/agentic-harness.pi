@@ -22,6 +22,8 @@ export const PLAN_TOOLS = [
 	"find",
 	"ls",
 	"ask",
+	"plan_mode",
+	"plan_interview",
 ];
 
 /** Git-mutating bash commands — blocked in plan mode. */
