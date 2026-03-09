@@ -6,6 +6,7 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { reviewLoop } from "../lib/guardian/review-loop.js";
 import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
+import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import {
 	DESTRUCTIVE_PATTERNS,
 	type DestructivePattern,
@@ -50,14 +51,19 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 				? "Destructive Command"
 				: "Risky Command";
 
+		const markdown = [
+			`${icon} **${label}**`,
+			"",
+			"```bash",
+			parsed.command,
+			"```",
+			"",
+			parsed.description,
+		].join("\n");
+
 		return reviewLoop(ctx, {
 			actions: DESTRUCTIVE_ACTIONS,
-			content: (theme, _width) => [
-				theme.fg("text", ` ${icon} ${label}`),
-				"",
-				` ${theme.fg("text", parsed.command)}`,
-				` ${theme.fg("muted", parsed.description)}`,
-			],
+			content: (theme, width) => renderMarkdown(markdown, theme, width),
 			entityName: "command",
 			steerContext: parsed.command,
 		});

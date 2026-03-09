@@ -128,7 +128,7 @@ export async function showPanel(
 				return;
 			}
 
-			const budget = contentBudget(false);
+			const budget = contentBudget(false, page.options.length);
 			const scroll = handleScrollKeys(
 				data,
 				scrollOffset,
@@ -175,7 +175,7 @@ export async function showPanel(
 
 			add(theme.fg("accent", "─".repeat(width)));
 
-			const budget = contentBudget(false);
+			const budget = contentBudget(false, page.options.length);
 			const contentLines = page.content(theme, width + hScrollOffset);
 			scrollOffset = clampScroll(scrollOffset, contentLines.length, budget);
 
@@ -213,7 +213,7 @@ export async function showPanel(
 			return lines;
 		}
 
-		return { render, handleInput };
+		return { render, handleInput, invalidate() {} };
 	});
 }
 
@@ -341,7 +341,7 @@ export async function showPanelSeries(
 					}
 				}
 
-				const budget = contentBudget(isMulti);
+				const budget = contentBudget(isMulti, page.options.length);
 				const scroll = handleScrollKeys(
 					data,
 					scrollOffset,
@@ -395,7 +395,7 @@ export async function showPanelSeries(
 
 				const page = pages[currentTab];
 				if (!page) return lines;
-				const budget = contentBudget(isMulti);
+				const budget = contentBudget(isMulti, page.options.length);
 				const contentLines = page.content(theme, width + hScrollOffset);
 				scrollOffset = clampScroll(scrollOffset, contentLines.length, budget);
 
@@ -441,7 +441,7 @@ export async function showPanelSeries(
 				return lines;
 			}
 
-			return { render, handleInput };
+			return { render, handleInput, invalidate() {} };
 		},
 	);
 }
