@@ -9,10 +9,13 @@
  * enforces the guardrails.
  */
 
+import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Key } from "@mariozechner/pi-tui";
+import { Key, Text } from "@mariozechner/pi-tui";
+import { Type } from "@sinclair/typebox";
 import { enforcePlanMode } from "./enforce.js";
-import { restore, toggle } from "./lifecycle.js";
+import { showPlanInterview } from "./interview.js";
+import { activate, deactivate, restore, toggle } from "./lifecycle.js";
 import { createPlanState } from "./state.js";
 import {
 	buildPlanContext,
@@ -29,6 +32,184 @@ export default function planMode(pi: ExtensionAPI) {
 		description: "Start in plan mode (read-only investigation)",
 		type: "boolean",
 		default: false,
+	});
+
+	// ---- Tool ----
+
+	pi.registerTool({
+		name: "plan_mode",
+		label: "Plan Mode",
+		description: "Activate or deactivate plan mode (read-only investigation)",
+		promptSnippet:
+			"Toggle plan mode for read-only investigation. Read the plan-workflow skill for methodology.",
+		parameters: Type.Object({
+			action: StringEnum(["activate", "deactivate"] as const, {
+				description: "Whether to activate or deactivate plan mode",
+			}),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (params.action === "activate") {
+				if (state.enabled) {
+					return {
+						content: [{ type: "text", text: "Plan mode is already active." }],
+					};
+				}
+				activate(state, pi, ctx);
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Plan mode activated. Writes restricted to ${state.planDir}/. Read-only investigation is now enforced.`,
+						},
+					],
+				};
+			}
+
+			if (!state.enabled) {
+				return {
+					content: [{ type: "text", text: "Plan mode is not active." }],
+				};
+			}
+			deactivate(state, pi, ctx);
+			return {
+				content: [
+					{
+						type: "text",
+						text: "Plan mode deactivated. All tools restored.",
+					},
+				],
+			};
+		},
+	});
+
+	// ---- Interview tool ----
+
+	const PlanQuestionSchema = Type.Object({
+		id: Type.String({ description: "Unique identifier for this question" }),
+		question: Type.String({ description: "The question to ask" }),
+		context: Type.Optional(
+			Type.String({ description: "Why this question matters for the plan" }),
+		),
+	});
+
+	pi.registerTool({
+		name: "plan_interview",
+		label: "Plan Interview",
+		description:
+			"Present planning questions as a tabbed interview. The user answers, skips, or adds their own. Loop until no questions remain.",
+		promptSnippet:
+			"Present planning questions as a tabbed interview during plan mode.",
+		promptGuidelines: [
+			"During planning, use plan_interview to ask clarifying questions instead of asking inline.",
+			"Loop: call plan_interview, process answers, call again with follow-up questions. Stop when you have no more questions and the user adds none.",
+			"Only include genuine questions — never include 'no questions' or 'skip' options. The tool has its own Done page.",
+		],
+		parameters: Type.Object({
+			questions: Type.Array(PlanQuestionSchema, {
+				description:
+					"Questions to ask. May be empty — the user can still add their own.",
+			}),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const result = await showPlanInterview(ctx, params.questions);
+
+			if (!result) {
+				return {
+					content: [{ type: "text", text: "Cancelled." }],
+					details: { cancelled: true },
+				};
+			}
+
+			if (result.allSkipped) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: "No questions answered and none added. Proceed with planning.",
+						},
+					],
+					details: { answers: [], satisfied: true },
+				};
+			}
+
+			const lines: string[] = [];
+
+			for (const a of result.answers) {
+				lines.push(`Q: ${a.question}`);
+				lines.push(`A: ${a.answer}`);
+				lines.push("");
+			}
+
+			for (const uq of result.userQuestions) {
+				lines.push(`User question: ${uq}`);
+				lines.push("");
+			}
+
+			if (result.userQuestions.length > 0) {
+				lines.push(
+					"Answer the user's questions, then call plan_interview again with any follow-up questions.",
+				);
+			} else {
+				lines.push(
+					"Process these answers. Call plan_interview again if you have follow-up questions, or proceed with the plan.",
+				);
+			}
+
+			return {
+				content: [{ type: "text", text: lines.join("\n") }],
+				details: {
+					answers: result.answers.map((a) => ({
+						id: a.id,
+						question: a.question,
+					})),
+					userQuestions: result.userQuestions,
+				},
+			};
+		},
+
+		renderCall(args, theme) {
+			const a = args as { questions?: { id: string }[] };
+			const count = a.questions?.length ?? 0;
+			let text = theme.fg("toolTitle", theme.bold("plan_interview "));
+			text += theme.fg(
+				"muted",
+				count > 0 ? `${count} question${count !== 1 ? "s" : ""}` : "open floor",
+			);
+			return new Text(text, 0, 0);
+		},
+
+		renderResult(result, _options, theme) {
+			const d = result.details as
+				| {
+						answers?: { id: string; question: string }[];
+						userQuestions?: string[];
+						satisfied?: boolean;
+						cancelled?: boolean;
+				  }
+				| undefined;
+			if (!d) {
+				const t = result.content?.[0];
+				return new Text(t && "text" in t ? t.text : "", 0, 0);
+			}
+			if (d.cancelled) {
+				return new Text(theme.fg("warning", "Cancelled"), 0, 0);
+			}
+			if (d.satisfied) {
+				return new Text(
+					theme.fg("success", "✓ No questions — proceeding"),
+					0,
+					0,
+				);
+			}
+			const lines: string[] = [];
+			for (const a of d.answers ?? []) {
+				lines.push(`${theme.fg("success", "✓")} ${a.question}`);
+			}
+			for (const uq of d.userQuestions ?? []) {
+				lines.push(`${theme.fg("accent", "?")} ${uq}`);
+			}
+			return new Text(lines.join("\n"), 0, 0);
+		},
 	});
 
 	// ---- Commands ----

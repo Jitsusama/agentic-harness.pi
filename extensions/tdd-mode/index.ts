@@ -1,32 +1,369 @@
 /**
  * TDD Mode Extension
  *
- * Red-green-refactor state machine with phase enforcement.
- * The TDD workflow skill teaches the methodology. This extension
- * enforces the discipline and adds the refactor gate + commit
- * proposal.
+ * Skill-driven red-green-refactor tracking with LLM-facing
+ * enforcement. The agent calls the tdd_phase tool to signal
+ * state transitions. Phase-inappropriate file writes are
+ * blocked with hints back to the LLM.
  *
  * Phases:
- *   RED → GREEN → REFACTOR → (commit) → RED
+ *   RED → GREEN → REFACTOR → (done) → RED
  */
 
+import { StringEnum } from "@mariozechner/pi-ai";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { Key, Text } from "@mariozechner/pi-tui";
+import { Type } from "@sinclair/typebox";
+import { enforceTddPhase } from "./enforce.js";
 import {
-	type ExtensionAPI,
-	isBashToolResult,
-} from "@mariozechner/pi-coding-agent";
-import { Key } from "@mariozechner/pi-tui";
-import { enforceRedPhase } from "./enforce.js";
-import { restore, toggle } from "./lifecycle.js";
-import { createTddState } from "./state.js";
+	activate,
+	advance,
+	deactivate,
+	nextCycle,
+	restore,
+	toggle,
+} from "./lifecycle.js";
+import { showRefactorGate } from "./refactor-gate.js";
+import {
+	createTddState,
+	PHASE_GLYPHS,
+	PHASE_STAY,
+	type Phase,
+} from "./state.js";
 import {
 	buildTddContext,
-	handleRefactorGate,
-	handleTestResult,
+	showTransitionGate,
 	tddContextFilter,
 } from "./transitions.js";
 
+/** Build a tool result when the user declines a phase transition. */
+function stayResult(phase: Phase, feedback?: string) {
+	const stay = PHASE_STAY[phase];
+	const hint = feedback
+		? `User feedback: ${feedback}\n\n${stay} Do not attempt to transition again unless the user asks.`
+		: `Staying in ${phase.toUpperCase()}. ${stay} Do not attempt to transition again unless the user asks.`;
+	return {
+		content: [{ type: "text" as const, text: hint }],
+		details: { action: phase, stayed: true },
+	};
+}
+
 export default function tddMode(pi: ExtensionAPI) {
 	const state = createTddState();
+
+	// ---- Tool ----
+
+	pi.registerTool({
+		name: "tdd_phase",
+		label: "TDD Phase",
+		description: "Signal TDD phase transitions",
+		promptSnippet:
+			"Signal TDD phase transitions. Read the tdd-workflow skill for methodology.",
+		promptGuidelines: [
+			"In REFACTOR phase, call tdd_refactor to propose refactorings. Apply what gets approved, run tests, then call tdd_refactor again. Keep looping until the user selects nothing. Only then signal done.",
+			"When signaling green, include test failure output in the summary. When signaling refactor, include test pass confirmation.",
+			"Always provide a summary parameter describing what was accomplished in the current phase.",
+		],
+		parameters: Type.Object({
+			action: StringEnum(
+				["start", "red", "green", "refactor", "done", "stop"] as const,
+				{ description: "The phase transition to signal" },
+			),
+			context: Type.Optional(
+				Type.String({
+					description:
+						"What is being tested — displayed to the user as a status indicator",
+				}),
+			),
+			summary: Type.Optional(
+				Type.String({
+					description:
+						"What was accomplished in the current phase — shown to the user in the transition gate",
+				}),
+			),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const { action, context, summary } = params;
+
+			if (action === "start") {
+				if (state.enabled) {
+					return {
+						content: [{ type: "text", text: "TDD mode is already active." }],
+					};
+				}
+				activate(state, pi, ctx, context ?? null);
+				return {
+					content: [{ type: "text", text: "TDD mode activated." }],
+					details: { action: "start", context },
+				};
+			}
+
+			if (!state.enabled) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: "TDD mode is not active. Call with action 'start' first.",
+						},
+					],
+				};
+			}
+
+			if (action === "stop") {
+				const gate = await showTransitionGate(state, ctx, {
+					summary: summary ?? "Ending TDD session.",
+					nextPhase: "stop",
+				});
+				if (!gate.approved) {
+					return stayResult(state.phase, gate.feedback);
+				}
+				deactivate(state, pi, ctx);
+				return {
+					content: [{ type: "text", text: "TDD mode deactivated." }],
+					details: { action: "stop", summary },
+				};
+			}
+
+			if (action === "red") {
+				// Skip gate when already in RED (e.g. after start, or updating context)
+				if (state.phase !== "red") {
+					const gate = await showTransitionGate(state, ctx, {
+						summary: summary ?? "Starting new test.",
+						nextPhase: "red",
+						nextContext: context,
+					});
+					if (!gate.approved) {
+						return stayResult(state.phase, gate.feedback);
+					}
+				}
+				if (context) state.testDescription = context;
+				advance(state, "red", pi, ctx);
+				return {
+					content: [{ type: "text", text: "RED." }],
+					details: { action: "red", context, summary },
+				};
+			}
+
+			if (action === "green") {
+				const gate = await showTransitionGate(state, ctx, {
+					summary: summary ?? "Test fails for the right reason.",
+					nextPhase: "green",
+					nextContext: context,
+				});
+				if (!gate.approved) {
+					return stayResult(state.phase, gate.feedback);
+				}
+				if (context) state.testDescription = context;
+				advance(state, "green", pi, ctx);
+				return {
+					content: [{ type: "text", text: "GREEN." }],
+					details: { action: "green", context, summary },
+				};
+			}
+
+			if (action === "refactor") {
+				const gate = await showTransitionGate(state, ctx, {
+					summary: summary ?? "Tests pass with minimum implementation.",
+					nextPhase: "refactor",
+				});
+				if (!gate.approved) {
+					return stayResult(state.phase, gate.feedback);
+				}
+				advance(state, "refactor", pi, ctx);
+				return {
+					content: [{ type: "text", text: "REFACTOR." }],
+					details: { action: "refactor", summary },
+				};
+			}
+
+			if (action === "done") {
+				const gate = await showTransitionGate(state, ctx, {
+					summary: summary ?? "Refactoring complete.",
+					nextPhase: "red",
+					nextContext: context,
+				});
+				if (!gate.approved) {
+					return stayResult(state.phase, gate.feedback);
+				}
+				nextCycle(state, pi, ctx, context ?? null);
+				return {
+					content: [{ type: "text", text: "Done." }],
+					details: { action: "done", context, summary },
+				};
+			}
+
+			return {
+				content: [{ type: "text", text: `Unknown action: ${action}` }],
+			};
+		},
+
+		renderCall(args, theme) {
+			const a = args as { action?: string; context?: string };
+			const action = a.action ?? "?";
+			const glyph =
+				PHASE_GLYPHS[action as Phase] ??
+				(action === "done" ? "✓" : action === "stop" ? "⏹" : "");
+			let text = theme.fg("toolTitle", theme.bold("tdd_phase "));
+			text += `${glyph} ${action}`;
+			if (a.context) text += theme.fg("dim", ` — ${a.context}`);
+			return new Text(text, 0, 0);
+		},
+
+		renderResult(result, _options, theme) {
+			const d = result.details as
+				| {
+						action?: string;
+						context?: string;
+						summary?: string;
+						stayed?: boolean;
+				  }
+				| undefined;
+			if (!d) {
+				const t = result.content?.[0];
+				return new Text(t && "text" in t ? t.text : "", 0, 0);
+			}
+
+			if (d.stayed) {
+				const action = d.action ?? "";
+				return new Text(
+					theme.fg("warning", `↩ Staying in ${action.toUpperCase()}`),
+					0,
+					0,
+				);
+			}
+
+			// Summary only — the call renderer already shows action + context
+			if (d.summary) {
+				return new Text(theme.fg("muted", d.summary), 0, 0);
+			}
+			return new Text(theme.fg("success", "✓"), 0, 0);
+		},
+	});
+
+	// ---- Refactor tool ----
+
+	const RefactorSuggestionSchema = Type.Object({
+		label: Type.String({ description: "Short name for the refactoring" }),
+		description: Type.String({
+			description: "What would be changed and why",
+		}),
+	});
+
+	pi.registerTool({
+		name: "tdd_refactor",
+		label: "TDD Refactor",
+		description:
+			"Present refactoring suggestions for user review during REFACTOR phase. Only include actual code changes as suggestions — never include 'skip', 'no changes', or 'done' options. The tool has its own Done page for exiting.",
+		promptSnippet:
+			"Present refactoring suggestions as a tabbed review. Use in REFACTOR phase. Never include skip/done suggestions — only real code changes.",
+		parameters: Type.Object({
+			suggestions: Type.Array(RefactorSuggestionSchema, {
+				description:
+					"Refactoring suggestions. May be empty — the user can still add their own.",
+			}),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (!state.enabled || state.phase !== "refactor") {
+				return {
+					content: [
+						{
+							type: "text",
+							text: "tdd_refactor can only be used during REFACTOR phase.",
+						},
+					],
+				};
+			}
+
+			const result = await showRefactorGate(ctx, params.suggestions);
+
+			if (!result) {
+				return {
+					content: [{ type: "text", text: "Cancelled." }],
+				};
+			}
+
+			if (result.approved.length === 0 && !result.userSuggestion) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: "User is satisfied. Signal done to complete the cycle.",
+						},
+					],
+					details: { approved: [], satisfied: true },
+				};
+			}
+
+			const lines: string[] = [];
+			const approved = result.approved.map((s) => s.label);
+
+			for (const s of result.approved) {
+				lines.push(`- ${s.label}: ${s.description}`);
+			}
+
+			if (result.userSuggestion) {
+				lines.push(`- User suggestion: ${result.userSuggestion}`);
+				approved.push(result.userSuggestion);
+			}
+
+			lines.push(
+				"",
+				"Apply these refactorings, run tests, then call tdd_refactor again for another round.",
+			);
+
+			return {
+				content: [{ type: "text", text: lines.join("\n") }],
+				details: {
+					approved,
+					rejected: result.rejected,
+					userSuggestion: result.userSuggestion,
+				},
+			};
+		},
+
+		renderCall(args, theme) {
+			const a = args as { suggestions?: { label: string }[] };
+			const count = a.suggestions?.length ?? 0;
+			let text = theme.fg("toolTitle", theme.bold("tdd_refactor "));
+			text += theme.fg(
+				"muted",
+				count > 0
+					? `${count} suggestion${count !== 1 ? "s" : ""}`
+					: "open floor",
+			);
+			return new Text(text, 0, 0);
+		},
+
+		renderResult(result, _options, theme) {
+			const d = result.details as
+				| {
+						approved?: string[];
+						rejected?: number;
+						satisfied?: boolean;
+						userSuggestion?: string;
+				  }
+				| undefined;
+			if (!d) {
+				const t = result.content?.[0];
+				return new Text(t && "text" in t ? t.text : "", 0, 0);
+			}
+			if (d.satisfied) {
+				return new Text(
+					theme.fg("success", "✓ No refactorings — moving on"),
+					0,
+					0,
+				);
+			}
+			const lines: string[] = [];
+			for (const label of d.approved ?? []) {
+				lines.push(`${theme.fg("success", "✓")} ${label}`);
+			}
+			if (d.rejected && d.rejected > 0) {
+				lines.push(theme.fg("dim", `✗ ${d.rejected} rejected`));
+			}
+			return new Text(lines.join("\n"), 0, 0);
+		},
+	});
 
 	// ---- Commands ----
 
@@ -43,35 +380,12 @@ export default function tddMode(pi: ExtensionAPI) {
 
 	// ---- Enforcement ----
 
-	pi.on("tool_call", async (event, ctx) => {
-		return enforceRedPhase(
+	pi.on("tool_call", async (event) => {
+		return enforceTddPhase(
 			state,
 			event.toolName,
 			event.input as Record<string, unknown>,
-			ctx,
 		);
-	});
-
-	// ---- Phase transitions ----
-
-	pi.on("tool_result", async (event, ctx) => {
-		if (!state.enabled) return;
-		if (!isBashToolResult(event)) return;
-
-		const command = String(event.input?.command ?? "");
-		const failed =
-			event.isError ||
-			(event.content?.[0] &&
-				"text" in event.content[0] &&
-				/fail|error|FAILED/i.test(event.content[0].text));
-
-		handleTestResult(state, command, !!failed, ctx);
-	});
-
-	// ---- Refactor gate ----
-
-	pi.on("agent_end", async (_event, ctx) => {
-		await handleRefactorGate(state, pi, ctx);
 	});
 
 	// ---- Context ----
@@ -85,6 +399,6 @@ export default function tddMode(pi: ExtensionAPI) {
 	// ---- Restore ----
 
 	pi.on("session_start", async (_event, ctx) => {
-		restore(state, ctx);
+		restore(state, pi, ctx);
 	});
 }
