@@ -7,7 +7,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { visibleWidth } from "@mariozechner/pi-tui";
+import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { getLastEntry } from "../lib/state.js";
 import { PHASE_GLYPHS, type Phase, type TddState } from "./state.js";
 
@@ -27,8 +27,10 @@ function updateUI(state: TddState, ctx: ExtensionContext): void {
 	ctx.ui.setWidget("tdd-test", (_tui, theme) => {
 		return {
 			render(width: number): string[] {
-				const text = theme.fg("dim", label);
-				const pad = Math.max(0, width - visibleWidth(label));
+				// Truncate label if it exceeds available width
+				const truncated = truncateToWidth(label, width);
+				const text = theme.fg("dim", truncated);
+				const pad = Math.max(0, width - visibleWidth(truncated));
 				return [`${" ".repeat(pad)}${text}`];
 			},
 		};

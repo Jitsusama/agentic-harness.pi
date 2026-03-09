@@ -14,7 +14,6 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Key, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { enforceTddPhase } from "./enforce.js";
 import {
 	activate,
 	advance,
@@ -197,7 +196,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(args, theme) {
+		renderCall(args, options, theme) {
 			const a = args as { action?: string; context?: string };
 			const action = a.action ?? "?";
 			const glyph =
@@ -205,11 +204,20 @@ export default function tddMode(pi: ExtensionAPI) {
 				(action === "done" ? "✓" : action === "stop" ? "⏹" : "");
 			let text = theme.fg("toolTitle", theme.bold("tdd_phase "));
 			text += `${glyph} ${action}`;
-			if (a.context) text += theme.fg("dim", ` — ${a.context}`);
+			if (a.context) {
+				const maxWidth = options.terminalWidth ?? 80;
+				const prefixLen = 15; // Approximate length of "tdd_phase 🔴 red — "
+				const availableWidth = maxWidth - prefixLen;
+				const contextText =
+					a.context.length > availableWidth
+						? `${a.context.slice(0, availableWidth - 3)}...`
+						: a.context;
+				text += theme.fg("dim", ` — ${contextText}`);
+			}
 			return new Text(text, 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result, options, theme) {
 			const d = result.details as
 				| {
 						action?: string;
@@ -233,8 +241,15 @@ export default function tddMode(pi: ExtensionAPI) {
 			}
 
 			// Summary only — the call renderer already shows action + context
+			// Take only the first line and truncate to terminal width
 			if (d.summary) {
-				return new Text(theme.fg("muted", d.summary), 0, 0);
+				const firstLine = d.summary.split("\n")[0] ?? "";
+				const maxWidth = options.terminalWidth ?? 80;
+				const truncated =
+					firstLine.length > maxWidth - 10
+						? `${firstLine.slice(0, maxWidth - 13)}...`
+						: firstLine;
+				return new Text(theme.fg("muted", truncated), 0, 0);
 			}
 			return new Text(theme.fg("success", "✓"), 0, 0);
 		},
@@ -282,7 +297,7 @@ export default function tddMode(pi: ExtensionAPI) {
 				};
 			}
 
-			if (result.approved.length === 0 && !result.userSuggestion) {
+			if (result.approved.length === 0 && result.userSuggestions.length === 0) {
 				return {
 					content: [
 						{
@@ -301,9 +316,12 @@ export default function tddMode(pi: ExtensionAPI) {
 				lines.push(`- ${s.label}: ${s.description}`);
 			}
 
-			if (result.userSuggestion) {
-				lines.push(`- User suggestion: ${result.userSuggestion}`);
-				approved.push(result.userSuggestion);
+			for (let i = 0; i < result.userSuggestions.length; i++) {
+				const userSuggestion = result.userSuggestions[i];
+				if (userSuggestion) {
+					lines.push(`- User suggestion ${i + 1}: ${userSuggestion}`);
+					approved.push(`User: ${userSuggestion}`);
+				}
 			}
 
 			lines.push(
@@ -316,7 +334,7 @@ export default function tddMode(pi: ExtensionAPI) {
 				details: {
 					approved,
 					rejected: result.rejected,
-					userSuggestion: result.userSuggestion,
+					userSuggestionsCount: result.userSuggestions.length,
 				},
 			};
 		},
@@ -340,7 +358,7 @@ export default function tddMode(pi: ExtensionAPI) {
 						approved?: string[];
 						rejected?: number;
 						satisfied?: boolean;
-						userSuggestion?: string;
+						userSuggestionsCount?: number;
 				  }
 				| undefined;
 			if (!d) {
@@ -361,6 +379,9 @@ export default function tddMode(pi: ExtensionAPI) {
 			if (d.rejected && d.rejected > 0) {
 				lines.push(theme.fg("dim", `✗ ${d.rejected} rejected`));
 			}
+			if (d.userSuggestionsCount && d.userSuggestionsCount > 0) {
+				lines.push(theme.fg("accent", `+ ${d.userSuggestionsCount} yours`));
+			}
 			return new Text(lines.join("\n"), 0, 0);
 		},
 	});
@@ -373,19 +394,79 @@ export default function tddMode(pi: ExtensionAPI) {
 			toggle(state, pi, ctx, args?.trim() || undefined),
 	});
 
+	pi.registerCommand("tdd-test-refactor", {
+		description: "Test refactor gate with scenarios: none, one, two",
+		handler: async (args, ctx) => {
+			const scenario = args?.trim() || "one";
+			let suggestions: { label: string; description: string }[] = [];
+
+			switch (scenario) {
+				case "none":
+					suggestions = [];
+					break;
+				case "one":
+					suggestions = [
+						{
+							label: "Extract method",
+							description:
+								"Extract the repeated query logic into a separate method `buildPartitionQuery` for better reusability.",
+						},
+					];
+					break;
+				case "two":
+					suggestions = [
+						{
+							label: "Extract method",
+							description:
+								"Extract the repeated query logic into a separate method `buildPartitionQuery`.",
+						},
+						{
+							label: "Add validation",
+							description:
+								"Add input validation to ensure partition_ids is not empty before executing the query.",
+						},
+					];
+					break;
+				default:
+					ctx.ui.notify(`Unknown scenario: ${scenario}`, "error");
+					ctx.ui.notify("Usage: tdd-test-refactor [none|one|two]", "info");
+					return;
+			}
+
+			ctx.ui.notify(
+				`Testing refactor gate with "${scenario}" scenario...`,
+				"info",
+			);
+			const result = await showRefactorGate(ctx, suggestions);
+
+			if (!result) {
+				ctx.ui.notify("Result: Cancelled", "info");
+				return;
+			}
+
+			const lines: string[] = [];
+			lines.push("Result:");
+			lines.push(`  Approved: ${result.approved.length}`);
+			for (const s of result.approved) {
+				lines.push(`    - ${s.label}`);
+			}
+			lines.push(`  Rejected: ${result.rejected}`);
+			lines.push(`  User suggestions: ${result.userSuggestions.length}`);
+			for (let i = 0; i < result.userSuggestions.length; i++) {
+				const s = result.userSuggestions[i];
+				if (s) {
+					// Show first 60 chars
+					const preview = s.length > 60 ? `${s.slice(0, 60)}...` : s;
+					lines.push(`    ${i + 1}. ${preview}`);
+				}
+			}
+			ctx.ui.notify(lines.join("\n"), "success");
+		},
+	});
+
 	pi.registerShortcut(Key.ctrlAlt("t"), {
 		description: "Toggle TDD mode",
 		handler: async (ctx) => toggle(state, pi, ctx),
-	});
-
-	// ---- Enforcement ----
-
-	pi.on("tool_call", async (event) => {
-		return enforceTddPhase(
-			state,
-			event.toolName,
-			event.input as Record<string, unknown>,
-		);
 	});
 
 	// ---- Context ----

@@ -20,6 +20,8 @@ description: >
 5. **Propose an approach** — high-level strategy, invite feedback
 6. **Iterate** — refine through conversation until aligned
 7. **Write the plan** — structured markdown file
+   - **If planning code work:** Load the `dev-planning` skill for
+     guidance on plan structure (interfaces, data flow, test scenarios)
 
 ## Plan File Format
 
