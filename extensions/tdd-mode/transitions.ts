@@ -9,6 +9,11 @@ import { filterContext } from "../lib/state.js";
 import { showGate } from "../lib/ui/gate.js";
 import { PHASE_GLYPHS, type Phase, type TddState } from "./state.js";
 
+/** Max length for the short summary shown in the gate header. */
+const SUMMARY_MAX_LENGTH = 50;
+/** Minimum word-boundary position for truncation. */
+const SUMMARY_MIN_TRUNCATE = 20;
+
 /** Human-readable phase names for gate display. */
 const PHASE_NAMES: Record<Phase, string> = {
 	red: "RED",
@@ -20,14 +25,15 @@ const PHASE_NAMES: Record<Phase, string> = {
 function shortSummary(text: string): string {
 	// Split on sentence end or em-dash
 	const cut = text.search(/\.\s|—|\n/);
-	if (cut > 0 && cut <= 50) return text.slice(0, cut);
+	if (cut > 0 && cut <= SUMMARY_MAX_LENGTH) return text.slice(0, cut);
 	// Truncate at word boundary
-	if (text.length <= 50) return text;
-	const truncated = text.slice(0, 50);
+	if (text.length <= SUMMARY_MAX_LENGTH) return text;
+	const truncated = text.slice(0, SUMMARY_MAX_LENGTH);
 	const lastSpace = truncated.lastIndexOf(" ");
-	return `${lastSpace > 20 ? truncated.slice(0, lastSpace) : truncated}…`;
+	return `${lastSpace > SUMMARY_MIN_TRUNCATE ? truncated.slice(0, lastSpace) : truncated}…`;
 }
 
+/** Result of a TDD phase transition confirmation gate. */
 export interface TransitionGateResult {
 	/** Whether the user approved the transition. */
 	approved: boolean;

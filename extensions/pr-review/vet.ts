@@ -15,7 +15,11 @@ import {
 	type SeriesSelection,
 	showPanelSeries,
 } from "../lib/ui/panel.js";
-import { wordWrap } from "../lib/ui/text.js";
+import {
+	CONTENT_INDENT,
+	FALLBACK_CONTENT_WIDTH,
+	wordWrap,
+} from "../lib/ui/text.js";
 import type { ReviewComment, VetResult } from "./index.js";
 
 function readFileContent(
@@ -55,12 +59,9 @@ function buildCommentPage(
 	return {
 		label: statusLabel(index, status),
 		content: (theme, width) => {
-			const indent = 2;
-			const cols = process.stdout.columns;
-			const padded = cols && cols > 0 ? cols - 4 : 0;
-			const cappedWidth = padded > 0 ? Math.min(width, padded) : width;
-			const wrapWidth = cappedWidth - indent;
-			const pad = " ".repeat(indent);
+			const wrapWidth =
+				width > 0 ? width - CONTENT_INDENT * 2 : FALLBACK_CONTENT_WIDTH;
+			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
 
 			const totalAll = total + preApprovedCount;

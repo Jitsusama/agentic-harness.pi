@@ -10,14 +10,20 @@ import {
 	type SeriesSelection,
 	showPanelSeries,
 } from "../lib/ui/panel.js";
-import { wordWrap } from "../lib/ui/text.js";
+import {
+	CONTENT_INDENT,
+	FALLBACK_CONTENT_WIDTH,
+	wordWrap,
+} from "../lib/ui/text.js";
 
+/** A single question presented during the plan interview. */
 export interface PlanQuestion {
 	id: string;
 	question: string;
 	context?: string;
 }
 
+/** Result of a completed plan interview session. */
 export interface PlanInterviewResult {
 	answers: { id: string; question: string; answer: string }[];
 	userQuestions: string[];
@@ -36,9 +42,9 @@ function buildQuestionPage(
 
 	return {
 		label: tab,
-		content: (theme, _width) => {
-			const cols = process.stdout.columns;
-			const padded = cols && cols > 0 ? cols - 6 : 72;
+		content: (theme, width) => {
+			const padded =
+				width > 0 ? width - CONTENT_INDENT * 2 : FALLBACK_CONTENT_WIDTH;
 			const lines: string[] = [];
 			lines.push(theme.fg("text", ` Question ${index + 1} of ${total}`));
 			lines.push("");

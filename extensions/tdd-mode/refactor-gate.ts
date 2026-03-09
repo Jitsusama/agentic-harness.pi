@@ -10,8 +10,13 @@ import {
 	type SeriesSelection,
 	showPanelSeries,
 } from "../lib/ui/panel.js";
-import { wordWrap } from "../lib/ui/text.js";
+import {
+	CONTENT_INDENT,
+	FALLBACK_CONTENT_WIDTH,
+	wordWrap,
+} from "../lib/ui/text.js";
 
+/** A single refactoring suggestion presented in the gate. */
 export interface RefactorSuggestion {
 	label: string;
 	description: string;
@@ -19,6 +24,7 @@ export interface RefactorSuggestion {
 
 type SuggestionStatus = "pending" | "approved" | "rejected";
 
+/** Result of a completed refactor gate session. */
 export interface RefactorGateResult {
 	approved: RefactorSuggestion[];
 	rejected: number;
@@ -37,9 +43,9 @@ function buildSuggestionPage(
 
 	return {
 		label: tab,
-		content: (theme, _width) => {
-			const cols = process.stdout.columns;
-			const padded = cols && cols > 0 ? cols - 6 : 72;
+		content: (theme, width) => {
+			const padded =
+				width > 0 ? width - CONTENT_INDENT * 2 : FALLBACK_CONTENT_WIDTH;
 			const lines: string[] = [];
 			lines.push(theme.fg("text", ` Refactoring ${index + 1} of ${total}`));
 			lines.push(theme.fg("accent", ` ${suggestion.label}`));

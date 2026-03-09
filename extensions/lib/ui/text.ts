@@ -3,6 +3,12 @@
  * for panel and content rendering.
  */
 
+/** Content indent used by panel content renderers (spaces per side). */
+export const CONTENT_INDENT = 2;
+
+/** Fallback content width when the panel width is unavailable. */
+export const FALLBACK_CONTENT_WIDTH = 72;
+
 /**
  * Word-wrap text to maxWidth, preserving paragraph breaks.
  * Splits on newlines first, then wraps each paragraph
