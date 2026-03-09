@@ -5,19 +5,22 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import {
 	type PanelPage,
 	type SeriesSelection,
 	showPanelSeries,
 } from "../lib/ui/panel.js";
-import { wordWrap } from "../lib/ui/text.js";
+import { contentWrapWidth, wordWrap } from "../lib/ui/text.js";
 
+/** A single question presented during the plan interview. */
 export interface PlanQuestion {
 	id: string;
 	question: string;
 	context?: string;
 }
 
+/** Result of a completed plan interview session. */
 export interface PlanInterviewResult {
 	answers: { id: string; question: string; answer: string }[];
 	userQuestions: string[];
@@ -36,19 +39,18 @@ function buildQuestionPage(
 
 	return {
 		label: tab,
-		content: (theme, _width) => {
-			const cols = process.stdout.columns;
-			const padded = cols && cols > 0 ? cols - 6 : 72;
+		content: (theme, width) => {
+			const padded = contentWrapWidth(width);
 			const lines: string[] = [];
 			lines.push(theme.fg("text", ` Question ${index + 1} of ${total}`));
 			lines.push("");
-			for (const line of wordWrap(q.question, padded)) {
-				lines.push(theme.fg("accent", `  ${line}`));
+			for (const line of renderMarkdown(q.question, theme, padded)) {
+				lines.push(line);
 			}
 			if (q.context) {
 				lines.push("");
-				for (const line of wordWrap(q.context, padded)) {
-					lines.push(theme.fg("dim", `  ${line}`));
+				for (const line of renderMarkdown(q.context, theme, padded)) {
+					lines.push(line);
 				}
 			}
 			const existing = answers.get(q.id);

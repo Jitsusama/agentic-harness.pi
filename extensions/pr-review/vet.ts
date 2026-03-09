@@ -15,7 +15,7 @@ import {
 	type SeriesSelection,
 	showPanelSeries,
 } from "../lib/ui/panel.js";
-import { wordWrap } from "../lib/ui/text.js";
+import { CONTENT_INDENT, contentWrapWidth, wordWrap } from "../lib/ui/text.js";
 import type { ReviewComment, VetResult } from "./index.js";
 
 function readFileContent(
@@ -55,12 +55,8 @@ function buildCommentPage(
 	return {
 		label: statusLabel(index, status),
 		content: (theme, width) => {
-			const indent = 2;
-			const cols = process.stdout.columns;
-			const padded = cols && cols > 0 ? cols - 4 : 0;
-			const cappedWidth = padded > 0 ? Math.min(width, padded) : width;
-			const wrapWidth = cappedWidth - indent;
-			const pad = " ".repeat(indent);
+			const wrapWidth = contentWrapWidth(width);
+			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
 
 			const totalAll = total + preApprovedCount;
@@ -131,6 +127,7 @@ function buildAddDonePage(
 			return lines;
 		},
 		options: [
+			{ label: "Done", value: "done", icon: "✓" },
 			{
 				label: "Add a comment",
 				value: "add",
@@ -138,7 +135,6 @@ function buildAddDonePage(
 				opensEditor: true,
 				editorPreFill: "",
 			},
-			{ label: "Done", value: "done", icon: "✓" },
 		],
 	};
 }

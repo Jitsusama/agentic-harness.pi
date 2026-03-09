@@ -7,7 +7,7 @@
  *
  * RED: no file blocking (stubs are expected)
  * GREEN: block test file writes
- * REFACTOR: block test file writes
+ * REFACTOR: no file blocking (test cleanup is expected)
  */
 
 import { isTestFile } from "./patterns.js";
@@ -32,7 +32,7 @@ export function enforceTddPhase(
 		return {
 			block: true,
 			reason: [
-				`Blocked: cannot modify test file in GREEN phase.`,
+				"Blocked: cannot modify test file in GREEN phase.",
 				"",
 				PHASE_HINTS.green,
 				"",

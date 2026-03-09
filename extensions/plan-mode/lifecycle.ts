@@ -12,6 +12,7 @@ import type {
 import { getLastEntry } from "../lib/state.js";
 import { DEFAULT_PLAN_DIR, PLAN_TOOLS, type PlanState } from "./state.js";
 
+/** Load the plan directory from project settings, falling back to the default. */
 export function loadPlanDir(cwd: string): string {
 	try {
 		const settingsPath = path.join(cwd, ".pi", "settings.json");
@@ -23,6 +24,7 @@ export function loadPlanDir(cwd: string): string {
 	}
 }
 
+/** Update the status line to reflect plan mode state. */
 export function updateStatus(state: PlanState, ctx: ExtensionContext): void {
 	ctx.ui.setStatus(
 		"plan-mode",
@@ -30,6 +32,7 @@ export function updateStatus(state: PlanState, ctx: ExtensionContext): void {
 	);
 }
 
+/** Enter plan mode — restrict tools and persist state. */
 export function activate(
 	state: PlanState,
 	pi: ExtensionAPI,
@@ -46,6 +49,7 @@ export function activate(
 	});
 }
 
+/** Exit plan mode — restore tools and persist state. */
 export function deactivate(
 	state: PlanState,
 	pi: ExtensionAPI,
@@ -61,6 +65,7 @@ export function deactivate(
 	});
 }
 
+/** Toggle plan mode on or off with user notification. */
 export function toggle(
 	state: PlanState,
 	pi: ExtensionAPI,
@@ -75,6 +80,7 @@ export function toggle(
 	}
 }
 
+/** Restore plan mode state from the session history. */
 export function restore(
 	state: PlanState,
 	pi: ExtensionAPI,

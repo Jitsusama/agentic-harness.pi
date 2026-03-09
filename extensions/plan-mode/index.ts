@@ -86,9 +86,14 @@ export default function planMode(pi: ExtensionAPI) {
 
 	const PlanQuestionSchema = Type.Object({
 		id: Type.String({ description: "Unique identifier for this question" }),
-		question: Type.String({ description: "The question to ask" }),
+		question: Type.String({
+			description: "The question to ask. Supports markdown.",
+		}),
 		context: Type.Optional(
-			Type.String({ description: "Why this question matters for the plan" }),
+			Type.String({
+				description:
+					"Why this question matters for the plan. Supports markdown.",
+			}),
 		),
 	});
 

@@ -2,8 +2,10 @@
  * TDD mode state — shape, defaults, phase definitions.
  */
 
+/** The three phases of the red-green-refactor cycle. */
 export type Phase = "red" | "green" | "refactor";
 
+/** Runtime state for TDD mode. */
 export interface TddState {
 	enabled: boolean;
 	phase: Phase;
@@ -12,12 +14,14 @@ export interface TddState {
 	testDescription: string | null;
 }
 
+/** Emoji glyphs for each phase, used in status display and gates. */
 export const PHASE_GLYPHS: Record<Phase, string> = {
 	red: "🔴",
 	green: "🟢",
 	refactor: "🔄",
 };
 
+/** LLM-facing phase descriptions used in enforcement block messages. */
 export const PHASE_HINTS: Record<Phase, string> = {
 	red: [
 		"You are in RED phase. Write a failing test that describes",
@@ -47,6 +51,7 @@ export const PHASE_STAY: Record<Phase, string> = {
 		"Keep refactoring. The user wants more cleanup before completing the cycle.",
 };
 
+/** Create the initial TDD mode state. */
 export function createTddState(): TddState {
 	return {
 		enabled: false,

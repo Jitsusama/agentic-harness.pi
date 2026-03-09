@@ -2,6 +2,7 @@
  * Plan mode state — shape, defaults, and constants.
  */
 
+/** Runtime state for plan mode. */
 export interface PlanState {
 	enabled: boolean;
 	planDir: string;
@@ -9,8 +10,10 @@ export interface PlanState {
 	savedTools: string[] | null;
 }
 
+/** Default directory for plan output files. */
 export const DEFAULT_PLAN_DIR = ".pi/plans";
 
+/** Tools available during plan mode (read-only + plan-dir writes). */
 export const PLAN_TOOLS = [
 	"read",
 	"write",
@@ -19,12 +22,15 @@ export const PLAN_TOOLS = [
 	"find",
 	"ls",
 	"ask",
+	"plan_mode",
+	"plan_interview",
 ];
 
 /** Git-mutating bash commands — blocked in plan mode. */
 export const GIT_MUTATING =
 	/\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|stash|cherry-pick|revert|tag)\b/i;
 
+/** Create the initial plan mode state. */
 export function createPlanState(): PlanState {
 	return {
 		enabled: false,
