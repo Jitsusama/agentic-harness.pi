@@ -6,6 +6,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { filterContext } from "../lib/state.js";
+import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { showGate } from "../lib/ui/gate.js";
 import { PHASE_GLYPHS, type Phase, type TddState } from "./state.js";
 
@@ -64,13 +65,15 @@ export async function showTransitionGate(
 	const nextName = isStop ? "STOP" : PHASE_NAMES[opts.nextPhase];
 
 	const result = await showGate(ctx, {
-		content: (theme) => {
+		content: (theme, width) => {
 			const short = shortSummary(opts.summary);
 			const lines = [
 				theme.fg("text", ` ${currentGlyph} → ${nextGlyph}  ${short}`),
 				"",
-				theme.fg("muted", ` ${opts.summary}`),
 			];
+			for (const line of renderMarkdown(opts.summary, theme, width)) {
+				lines.push(line);
+			}
 			if (opts.nextContext) {
 				lines.push("", theme.fg("dim", ` Next: ${opts.nextContext}`));
 			}
