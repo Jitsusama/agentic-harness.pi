@@ -31,56 +31,28 @@ phases, and vetting PR comments before they're posted.
 Skills and extensions complement each other but work independently.
 You can use skills without extensions (guidance only), extensions
 without skills (enforcement only), or both together for the full
-workflow.
-
-### Skill ↔ Extension Pairings
-
-Some skills and extensions are paired — the skill teaches the
-methodology, the extension enforces it:
-
-| Skill | Extension | Relationship |
-|-------|-----------|--------------|
-| `plan-workflow` | `plan-mode` | Planning methodology ↔ read-only enforcement |
-| `tdd-workflow` | `tdd-mode` | TDD methodology ↔ phase enforcement |
-| `git-commit-format` | `commit-guardian` | Commit format ↔ message review gate |
-| `pr-writing` | `pr-guardian` + `pr-review` | PR narrative ↔ description gate + review comments |
-| `issue-writing` | `issue-guardian` | Issue narrative ↔ description gate |
-| `git-rebase-resolution` | `history-guardian` | Rebase strategy ↔ destructive command protection |
-
-Unpaired skills (work standalone): `code-investigation`,
-`git-hygiene`, `git-branch-management`, `git-cli-conventions`,
-`gh-cli-conventions`, `github-projects`, `github-sub-issues`.
-
-Unpaired extensions (work standalone): `ask`, `web-search`,
-`content-viewer`, `status-line`.
-
-### AGENTS.md
-
-A minimal collaboration style guide that's always in context.
-Tells the agent to explain findings, pause before big changes,
-research before acting, get approval on all commits, and ask
-when requirements are ambiguous.
+workflow. Some are paired — the skill teaches the methodology and
+the extension enforces it. Each has its own README with details.
 
 ## Composability
 
 Every piece works independently. Mix and match:
 
 - **Skills only** — the agent follows guidance voluntarily
-- **Commit-guardian only** — commit review without any skills
-- **Plan-mode only** — read-only enforcement without TDD
-- **TDD-mode only** — phase enforcement without planning
-- **Everything** — plan → TDD → commit flows seamlessly
+- **Extensions only** — enforcement without any skills
+- **Both together** — plan → TDD → commit flows seamlessly
 
 Use [package filtering](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent#package-filtering)
-to load only what you want:
+to load only what you want. For example, to use just the TDD
+workflow:
 
 ```json
 {
   "packages": [
     {
       "source": "git:github.com/Jitsusama/agentic-harness.pi",
-      "extensions": ["extensions/commit-guardian", "extensions/tdd-mode"],
-      "skills": ["skills/tdd-workflow", "skills/git-commit-format"]
+      "extensions": ["extensions/tdd-mode"],
+      "skills": ["skills/tdd-workflow"]
     }
   ]
 }
