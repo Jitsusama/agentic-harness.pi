@@ -2,7 +2,7 @@
  * Gate — approval dialog for user decisions.
  *
  * Thin wrapper over showPanel that auto-appends a "Steer"
- * option with an inline editor pre-filled with context.
+ * option with a blank inline editor for user feedback.
  * Maps PanelResult to the existing GateResult shape used
  * by guardians, tdd-mode, and pr-review.
  */
@@ -24,7 +24,7 @@ export interface GateConfig {
 	content: (theme: Theme, width: number) => string[];
 	/** Selectable options. Steer is auto-appended. */
 	options: GateOption[];
-	/** Pre-fill text for the steer editor. */
+	/** Context passed back to the LLM when the user steers. */
 	steerContext?: string;
 }
 
@@ -57,7 +57,7 @@ export async function showGate(
 		label: "Steer",
 		value: "steer",
 		opensEditor: true,
-		editorPreFill: config.steerContext ?? "",
+		editorPreFill: "",
 	});
 
 	const result = await showPanel(ctx, {

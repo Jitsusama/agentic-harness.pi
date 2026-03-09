@@ -105,7 +105,7 @@ function buildCommentPage(
 				value: "steer",
 				icon: "⚡",
 				opensEditor: true,
-				editorPreFill: comment.body,
+				editorPreFill: "",
 			},
 		],
 	};
