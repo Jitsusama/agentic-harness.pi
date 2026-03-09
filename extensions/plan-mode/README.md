@@ -7,18 +7,26 @@ and write to the plan directory.
 The [plan-workflow skill](../../skills/plan-workflow/) teaches the
 methodology. This extension enforces the guardrails.
 
+## Activation
+
+The agent activates plan mode via the `plan_mode` tool when it
+detects planning intent, after confirming with the user. The
+skill guides when to activate and deactivate.
+
+Plan mode can also be toggled manually:
+
+| Method | Description |
+|--------|-------------|
+| `/plan` | Toggle plan mode |
+| `Ctrl+Alt+P` | Toggle plan mode |
+| `--plan` flag | Start session in plan mode |
+
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `/plan` | Toggle plan mode on/off |
 | `/plan-dir [path]` | Show or set the plan output directory |
-
-## Keyboard Shortcuts
-
-| Shortcut | Description |
-|----------|-------------|
-| `Ctrl+Alt+P` | Toggle plan mode |
 
 ## Configuration
 

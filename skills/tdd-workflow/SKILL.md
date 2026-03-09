@@ -37,16 +37,17 @@ Run the tests. They must pass.
 
 ### 3. Refactor
 
-With green tests as your safety net, improve the design:
+With green tests as your safety net, improve the design.
+Call `tdd_refactor` with your suggestions — only real
+refactoring opportunities, not "skip" or "no changes"
+options. The tool has its own Done page for that.
 
-- Rename for clarity
-- Extract functions or modules
-- Simplify logic
-- Remove duplication
-- Improve types
-
-Run tests after each change. If anything breaks, undo and try a
-smaller refactor.
+The tool presents a tabbed review where the user can
+approve, reject, or add their own. Apply what gets
+approved, run tests, then call `tdd_refactor` again
+with new suggestions (or empty if you see nothing more).
+Keep looping until the user selects nothing. Only then
+signal `done`.
 
 ## Test Ordering
 
@@ -89,12 +90,61 @@ Infer what counts as a test file from the project:
 
 If you can't determine the convention, ask.
 
-## Using TDD Mode
+## TDD Phase Tool
 
-The `/tdd` command activates phase enforcement — the extension
-tracks whether you're in red, green, or refactor phase and
-enforces the discipline. Includes an explicit refactor gate
-where the user decides when to move on.
+The `tdd_phase` tool tracks the red-green-refactor cycle. Call
+it to signal phase transitions so the status display and
+enforcement stay in sync with what you are doing.
 
-Without `/tdd`, this skill still guides behavior — follow the
-cycle voluntarily.
+### When to Signal
+
+- **start** — when the user wants TDD or a plan specifies it.
+  Confirm with the user before activating. Describe the first
+  test in the `context` parameter.
+- **red** — at the start of each new test within an active TDD
+  session. Describe what specific behavior is being tested in
+  the `context` parameter.
+- **green** — when the test fails for the right reason (an
+  assertion failure, not a syntax or import error). You are
+  now clear to write implementation.
+- **refactor** — when tests pass with minimum implementation.
+  Restructure for clarity without changing behavior.
+- **done** — when refactoring is complete. This advances to the
+  next cycle. If you know the next test, describe it in
+  `context`.
+- **stop** — when the user redirects away from TDD or when
+  all planned tests are complete.
+
+### Summary Parameter
+
+Every phase transition (except `start`) shows a confirmation
+gate to the user. Always provide a `summary` describing what
+was accomplished in the current phase. Be specific:
+
+- **red → green**: Include the test failure output — the
+  assertion message and what it expected vs. got. The user
+  needs to see that the test fails for the right reason.
+- **green → refactor**: Include the test pass confirmation
+  and a brief note on what implementation was added.
+- **refactor → done**: Describe what was cleaned up.
+- **stop**: Summarize where things stand.
+
+### One Test at a Time
+
+Focus on a single test per cycle. Even if you can see multiple
+tests that need writing, describe and implement one at a time.
+The `context` parameter should name the specific behavior under
+test — this is displayed to the user so they know what you are
+working on.
+
+### Leaving TDD
+
+If the user steers you toward something outside the TDD cycle
+(e.g., "fix that config file", "let's look at something else"),
+call `tdd_phase` with action `stop` before proceeding. Do not
+leave TDD mode silently.
+
+### Manual Override
+
+The `/tdd` command and `Ctrl+Alt+T` shortcut also toggle TDD
+mode directly.

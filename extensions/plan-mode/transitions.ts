@@ -14,7 +14,7 @@ import type { PlanState } from "./state.js";
 
 /**
  * After the agent writes to the plan directory, offer
- * transition options: implement with TDD, free-form, or stay.
+ * transition options: implement or stay in planning.
  */
 export async function handlePlanWritten(
 	state: PlanState,
@@ -27,8 +27,7 @@ export async function handlePlanWritten(
 	const result = await showGate(ctx, {
 		content: (theme) => [theme.fg("text", ` Plan written → ${state.planDir}`)],
 		options: [
-			{ label: "Implement with TDD", value: "tdd" },
-			{ label: "Implement free-form", value: "freeform" },
+			{ label: "Implement", value: "implement" },
 			{ label: "Stay in planning", value: "stay" },
 		],
 		steerContext: "",
@@ -43,11 +42,9 @@ export async function handlePlanWritten(
 		return;
 	}
 
-	const msg =
-		result.value === "tdd"
-			? "Let's implement this plan with TDD. Start with step 1."
-			: "Let's implement this plan. Start with step 1.";
-	pi.sendUserMessage(msg, { deliverAs: "followUp" });
+	pi.sendUserMessage("Let's implement this plan. Start with step 1.", {
+		deliverAs: "followUp",
+	});
 }
 
 /**
@@ -69,7 +66,7 @@ export function buildPlanContext(state: PlanState) {
 				`Write plan files to: ${state.planDir}/`,
 				"",
 				"When the plan is ready and the user is satisfied, offer",
-				"to transition to implementation (TDD or free-form).",
+				"to transition to implementation.",
 			].join("\n"),
 			display: false,
 		},
