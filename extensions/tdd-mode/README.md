@@ -28,7 +28,7 @@ and whether to proceed or stay. The extension:
 |-------|-----------|---------------------|
 | RED | ✅ allowed | ✅ allowed (stubs expected) |
 | GREEN | ❌ blocked | ✅ allowed |
-| REFACTOR | ❌ blocked | ✅ allowed |
+| REFACTOR | ✅ allowed | ✅ allowed |
 
 Blocks go back to the LLM as error messages with phase hints.
 The agent self-corrects or calls `tdd_phase stop` if the user

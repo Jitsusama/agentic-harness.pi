@@ -43,20 +43,4 @@ export function enforceTddPhase(
 			].join("\n"),
 		};
 	}
-
-	if (state.phase === "refactor" && isTestFile(filePath)) {
-		return {
-			block: true,
-			reason: [
-				`Blocked: cannot modify test file in REFACTOR phase.`,
-				"",
-				PHASE_HINTS.refactor,
-				"",
-				`File: ${filePath}`,
-				"",
-				"If the user has redirected you away from TDD, call",
-				"tdd_phase with action 'stop' first.",
-			].join("\n"),
-		};
-	}
 }
