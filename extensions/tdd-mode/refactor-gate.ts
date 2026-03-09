@@ -25,7 +25,7 @@ type SuggestionStatus = "pending" | "approved" | "rejected";
 export interface RefactorGateResult {
 	approved: RefactorSuggestion[];
 	rejected: number;
-	userSuggestion?: string;
+	userSuggestions: string[];
 }
 
 function buildSuggestionPage(
@@ -64,72 +64,64 @@ function buildSuggestionPage(
 
 function buildDonePage(
 	approvedCount: number,
-	hasUserSuggestion: boolean,
+	userSuggestions: string[],
 ): PanelPage {
 	return {
 		label: "Done",
-		content: (theme) => {
+		content: (theme, width) => {
+			const padded = contentWrapWidth(width);
 			const lines: string[] = [];
-			lines.push(theme.fg("text", " All suggestions reviewed."));
+			lines.push(theme.fg("text", " Review complete."));
 			if (approvedCount > 0) {
 				lines.push(theme.fg("success", ` ${approvedCount} approved.`));
 			}
-			if (hasUserSuggestion) {
-				lines.push(theme.fg("accent", " + your suggestion"));
+			if (userSuggestions.length > 0) {
+				lines.push("");
+				lines.push(theme.fg("accent", " Your suggestions:"));
+				for (let i = 0; i < userSuggestions.length; i++) {
+					const s = userSuggestions[i];
+					if (s) {
+						lines.push("");
+						const rendered = renderMarkdown(s, theme, padded - 4);
+						for (let j = 0; j < rendered.length; j++) {
+							const prefix = j === 0 ? theme.fg("text", ` ${i + 1}. `) : "    ";
+							lines.push(`${prefix}${rendered[j]}`);
+						}
+					}
+				}
 			}
 			return lines;
 		},
 		options: [
 			{ label: "Done", value: "done", icon: "✓" },
 			{
-				label: "Add my own",
+				label: "Add another",
 				value: "add",
 				icon: "✎",
 				opensEditor: true,
 				editorPreFill: "",
 			},
+			...(userSuggestions.length > 0
+				? [{ label: "Clear all", value: "clear", icon: "✗" }]
+				: []),
 		],
 	};
 }
 
 /**
  * Show the refactor gate. Returns approved suggestions and
- * optional user-provided suggestion, or null on cancel.
+ * user-provided suggestions, or null on cancel.
  */
 export async function showRefactorGate(
 	ctx: ExtensionContext,
 	suggestions: RefactorSuggestion[],
 ): Promise<RefactorGateResult | null> {
 	if (!ctx.hasUI) {
-		return { approved: suggestions, rejected: 0 };
-	}
-
-	// No suggestions — just offer the user a chance to add their own
-	if (suggestions.length === 0) {
-		const result = await showPanelSeries(ctx, {
-			pages: [buildDonePage(0, false)],
-			onSelect: (sel) => {
-				if (sel.value === "done") return true;
-				if (sel.value === "add" && sel.editorText?.trim()) return true;
-				return false;
-			},
-		});
-
-		if (!result) return null;
-
-		const sel = result.get(0);
-		if (sel?.value === "add" && sel.editorText?.trim()) {
-			return {
-				approved: [],
-				rejected: 0,
-				userSuggestion: sel.editorText.trim(),
-			};
-		}
-		return { approved: [], rejected: 0 };
+		return { approved: suggestions, rejected: 0, userSuggestions: [] };
 	}
 
 	const statuses = new Map<number, SuggestionStatus>();
-	let userSuggestion: string | undefined;
+	const userSuggestions: string[] = [];
 
 	function buildPages(): PanelPage[] {
 		const suggestionPages = suggestions.map((s, i) =>
@@ -138,7 +130,7 @@ export async function showRefactorGate(
 		const approvedCount = Array.from(statuses.values()).filter(
 			(s) => s === "approved",
 		).length;
-		return [...suggestionPages, buildDonePage(approvedCount, !!userSuggestion)];
+		return [...suggestionPages, buildDonePage(approvedCount, userSuggestions)];
 	}
 
 	async function onSelect(
@@ -147,23 +139,30 @@ export async function showRefactorGate(
 	): Promise<boolean> {
 		const { pageIndex, value, editorText } = selection;
 
+		const donePageIndex = suggestions.length;
+
 		// Done page
-		if (pageIndex === suggestions.length) {
+		if (pageIndex === donePageIndex) {
 			if (value === "done") return true;
 			if (value === "add" && editorText?.trim()) {
-				userSuggestion = editorText.trim();
+				userSuggestions.push(editorText.trim());
+				return false; // Stay on Done page to show updated list
+			}
+			if (value === "clear") {
+				userSuggestions.length = 0;
+				return false; // Stay on Done page to show cleared list
 			}
 			return false;
 		}
 
-		// Suggestion page
+		// Agent suggestion page
 		if (value === "approve") {
 			statuses.set(pageIndex, "approved");
 		} else if (value === "reject") {
 			statuses.set(pageIndex, "rejected");
 		}
 
-		return false;
+		return false; // Let panel series navigate naturally
 	}
 
 	const result = await showPanelSeries(ctx, {
@@ -171,8 +170,10 @@ export async function showRefactorGate(
 		onSelect,
 	});
 
+	// User cancelled
 	if (!result) return null;
 
+	// Collect results
 	const approved: RefactorSuggestion[] = [];
 	let rejected = 0;
 
@@ -186,5 +187,5 @@ export async function showRefactorGate(
 		}
 	}
 
-	return { approved, rejected, userSuggestion };
+	return { approved, rejected, userSuggestions };
 }

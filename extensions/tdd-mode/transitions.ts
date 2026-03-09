@@ -5,6 +5,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { truncateToWidth } from "@mariozechner/pi-tui";
 import { filterContext } from "../lib/state.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { showGate } from "../lib/ui/gate.js";
@@ -68,14 +69,20 @@ export async function showTransitionGate(
 		content: (theme, width) => {
 			const short = shortSummary(opts.summary);
 			const lines = [
-				theme.fg("text", ` ${currentGlyph} → ${nextGlyph}  ${short}`),
+				truncateToWidth(
+					theme.fg("text", ` ${currentGlyph} → ${nextGlyph}  ${short}`),
+					width,
+				),
 				"",
 			];
 			for (const line of renderMarkdown(opts.summary, theme, width)) {
 				lines.push(line);
 			}
 			if (opts.nextContext) {
-				lines.push("", theme.fg("dim", ` Next: ${opts.nextContext}`));
+				lines.push(
+					"",
+					truncateToWidth(theme.fg("dim", ` Next: ${opts.nextContext}`), width),
+				);
 			}
 			return lines;
 		},
