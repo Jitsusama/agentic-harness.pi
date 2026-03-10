@@ -11,34 +11,32 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import type { OAuth2Client } from "google-auth-library";
-
 import {
+	clearAllConfig,
 	getCredentials,
 	getDefaultAccount,
-	listAccounts,
-	saveAccount,
-	setDefaultAccount,
 	storeCredentials,
 } from "./auth/credentials.js";
 import {
 	createOAuth2Client,
-	exchangeCodeForTokens,
-	getAuthUrl,
 	refreshTokenIfNeeded,
 	setCredentials,
 } from "./auth/oauth.js";
-import { waitForOAuthCallback } from "./auth/server.js";
+import { handleGoogleAuthCommand } from "./auth-command.js";
+import { ensureAuthenticated, formatAuthError } from "./auth-flow.js";
+import { renderGoogleCall } from "./render-call.js";
+import { renderGoogleResult } from "./render-result.js";
 import { routeAction } from "./router.js";
+import { ensureOAuthApp } from "./setup-wizard.js";
 
 // OAuth2 configuration from environment variables
-const OAUTH_PORT = 8765;
-const OAUTH_CONFIG = {
+// These serve as fallback if not in session storage
+const ENV_OAUTH_CONFIG = {
 	clientId: process.env.GOOGLE_CLIENT_ID || "",
 	clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-	redirectUri: `http://localhost:${OAUTH_PORT}`,
+	redirectUri: "http://localhost:8765",
 };
 
 export default function googleWorkspace(pi: ExtensionAPI) {
@@ -72,7 +70,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		}
 
 		// Create new client and set credentials
-		client = createOAuth2Client(OAUTH_CONFIG);
+		client = createOAuth2Client(ENV_OAUTH_CONFIG);
 		setCredentials(client, credentials);
 
 		// Refresh if needed
@@ -224,220 +222,79 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			const { action, account: accountName } = params;
 
 			try {
-				// Determine which account to use
+				// Step 1: Ensure OAuth app credentials are configured
+				const oauthConfig = await ensureOAuthApp(pi, ctx, ENV_OAUTH_CONFIG);
+				if (!oauthConfig) {
+					throw new Error(
+						"OAuth credentials setup required but was cancelled.",
+					);
+				}
+
+				// Step 2: Determine which account to use
 				const account = accountName
 					? (accountName as string)
 					: getDefaultAccount(ctx)?.name || "work";
 
-				// Get authenticated client
-				const auth = await getAuthClient(ctx, account);
+				// Step 3: Ensure user is authenticated (auto-prompts if needed)
+				const auth = await ensureAuthenticated(
+					pi,
+					ctx,
+					account,
+					oauthConfig,
+					getAuthClient,
+				);
 
-				// Route to appropriate handler
+				// Step 4: Route to appropriate handler
 				return await routeAction(action as string, params, auth, ctx);
 			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
 				return {
 					content: [
 						{
 							type: "text" as const,
-							text: `Google Workspace API error: ${message}`,
+							text: formatAuthError(error),
 						},
 					],
 				};
 			}
 		},
+		renderCall: renderGoogleCall,
 
-		renderCall(args, _options, theme) {
-			const a = args as { action?: string; query?: string };
-			const action = a.action || "?";
-			let text = theme.fg("toolTitle", theme.bold("google "));
-			text += action;
-			if (a.query) {
-				const preview =
-					a.query.length > 40 ? `${a.query.slice(0, 40)}...` : a.query;
-				text += theme.fg("dim", ` "${preview}"`);
-			}
-			return new Text(text, 0, 0);
-		},
-
-		renderResult(result, _options, theme) {
-			const d = result.details as
-				| {
-						messages?: unknown[];
-						events?: unknown[];
-						files?: unknown[];
-						drives?: unknown[];
-						file?: { name?: string };
-				  }
-				| undefined;
-
-			if (d?.messages) {
-				const count = Array.isArray(d.messages) ? d.messages.length : 0;
-				return new Text(
-					theme.fg("success", `✓ ${count} message${count !== 1 ? "s" : ""}`),
-					0,
-					0,
-				);
-			}
-
-			if (d?.events) {
-				const count = Array.isArray(d.events) ? d.events.length : 0;
-				return new Text(
-					theme.fg("success", `✓ ${count} event${count !== 1 ? "s" : ""}`),
-					0,
-					0,
-				);
-			}
-
-			if (d?.files) {
-				const count = Array.isArray(d.files) ? d.files.length : 0;
-				return new Text(
-					theme.fg("success", `✓ ${count} file${count !== 1 ? "s" : ""}`),
-					0,
-					0,
-				);
-			}
-
-			if (d?.drives) {
-				const count = Array.isArray(d.drives) ? d.drives.length : 0;
-				return new Text(
-					theme.fg("success", `✓ ${count} drive${count !== 1 ? "s" : ""}`),
-					0,
-					0,
-				);
-			}
-
-			if (d?.file) {
-				const name =
-					typeof d.file === "object" && d.file !== null && "name" in d.file
-						? String(d.file.name)
-						: "file";
-				return new Text(theme.fg("success", `✓ ${name}`), 0, 0);
-			}
-
-			return new Text(theme.fg("success", "✓"), 0, 0);
-		},
+		renderResult: renderGoogleResult,
 	});
 
-	// ---- Authentication Command ----
+	// ---- Authentication Commands ----
+
+	pi.registerCommand("google-setup", {
+		description: "Set up Google OAuth credentials (interactive)",
+		handler: async (_args, ctx) => {
+			await ensureOAuthApp(pi, ctx, ENV_OAUTH_CONFIG);
+		},
+	});
 
 	pi.registerCommand("google-auth", {
 		description:
 			"Authenticate with Google Workspace. Usage: google-auth [--account name] [--list] [--default name]",
 		handler: async (args, ctx) => {
-			const parts = (args || "").trim().split(/\s+/);
-			const flags = parseFlags(parts);
-
-			// List accounts
-			if (flags.list) {
-				const accounts = listAccounts(ctx);
-				if (accounts.length === 0) {
-					ctx.ui.notify("No accounts configured.", "info");
-					return;
-				}
-				for (const acc of accounts) {
-					const marker = acc.isDefault ? " (default)" : "";
-					const email = acc.email ? ` - ${acc.email}` : "";
-					ctx.ui.notify(`${acc.name}${email}${marker}`, "info");
-				}
-				return;
+			// Get OAuth config from storage or env vars, prompting if needed
+			const oauthConfig = await ensureOAuthApp(pi, ctx, ENV_OAUTH_CONFIG);
+			if (!oauthConfig) {
+				return; // Setup was cancelled or failed
 			}
-
-			// Set default account
-			if (flags.default) {
-				setDefaultAccount(pi, ctx, flags.default);
-				ctx.ui.notify(`Default account set to: ${flags.default}`, "success");
-				return;
-			}
-
-			// Authenticate
-			const accountName = flags.account || "work";
-
-			if (!ctx.hasUI) {
-				ctx.ui.notify("Authentication requires UI.", "error");
-				return;
-			}
-
-			try {
-				// Validate OAuth config
-				if (!OAUTH_CONFIG.clientId || !OAUTH_CONFIG.clientSecret) {
-					ctx.ui.notify(
-						"OAuth credentials not configured.\n\n" +
-							"Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.\n" +
-							"See extensions/google-workspace/README.md for setup instructions.",
-						"error",
-					);
-					return;
-				}
-
-				// Create OAuth client
-				const client = createOAuth2Client(OAUTH_CONFIG);
-				const authUrl = getAuthUrl(client);
-
-				ctx.ui.notify(
-					`Opening browser for Google authentication...\n\nVisit: ${authUrl}\n\nWaiting for callback on http://localhost:${OAUTH_PORT}...`,
-					"info",
-				);
-
-				// TODO: Auto-open browser when Pi supports it
-				// For now, user must manually open the URL
-
-				// Start local server and wait for OAuth callback
-				const result = await waitForOAuthCallback(OAUTH_PORT);
-
-				if (result.error) {
-					ctx.ui.notify(`OAuth error: ${result.error}`, "error");
-					return;
-				}
-
-				if (!result.code) {
-					ctx.ui.notify("No authorization code received.", "error");
-					return;
-				}
-
-				// Exchange code for tokens
-				const credentials = await exchangeCodeForTokens(client, result.code);
-
-				// Store credentials
-				storeCredentials(pi, ctx, accountName, credentials);
-
-				// Save account info
-				saveAccount(pi, ctx, {
-					name: accountName,
-					email: undefined, // TODO: Extract from token
-					isDefault: listAccounts(ctx).length === 0, // First account is default
-				});
-
-				ctx.ui.notify(`✓ Authenticated as account '${accountName}'`, "success");
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`Authentication failed: ${message}`, "error");
-			}
+			await handleGoogleAuthCommand(args, ctx, pi, oauthConfig);
 		},
 	});
-}
 
-// Helper functions
-
-function parseFlags(parts: string[]): {
-	list?: boolean;
-	account?: string;
-	default?: string;
-} {
-	const flags: { list?: boolean; account?: string; default?: string } = {};
-
-	for (let i = 0; i < parts.length; i++) {
-		const part = parts[i];
-		if (part === "--list") {
-			flags.list = true;
-		} else if (part === "--account" && i + 1 < parts.length) {
-			flags.account = parts[i + 1];
-			i++;
-		} else if (part === "--default" && i + 1 < parts.length) {
-			flags.default = parts[i + 1];
-			i++;
-		}
-	}
-
-	return flags;
+	pi.registerCommand("google-reset", {
+		description:
+			"Clear all Google Workspace configuration (OAuth credentials, accounts, tokens). Used for testing or starting fresh.",
+		handler: async (_args, ctx) => {
+			clearAllConfig(pi);
+			ctx.ui.notify(
+				"✓ Cleared all Google Workspace configuration.\n\n" +
+					"OAuth credentials, accounts, and tokens have been removed.\n" +
+					"Run /google-setup to start fresh.",
+				"success",
+			);
+		},
+	});
 }

@@ -208,13 +208,28 @@ export async function createEvent(
 		attendees: options.attendees?.map((email) => ({ email })),
 	};
 
-	const response = await calendar.events.insert({
-		calendarId: options.calendarId || "primary",
-		requestBody: event,
-		sendUpdates: "all", // Send invites to attendees
-	});
+	try {
+		const response = await calendar.events.insert({
+			calendarId: options.calendarId || "primary",
+			requestBody: event,
+			sendUpdates: "all", // Send invites to attendees
+		});
 
-	return convertEvent(response.data);
+		return convertEvent(response.data);
+	} catch (error: unknown) {
+		// Enhance error message with details
+		if (error && typeof error === "object" && "message" in error) {
+			const apiError = error as { message?: string; errors?: unknown[] };
+			const details = apiError.errors
+				? JSON.stringify(apiError.errors, null, 2)
+				: "";
+			throw new Error(
+				`Calendar API error: ${apiError.message}\n${details}\n\n` +
+					`Event data: ${JSON.stringify(event, null, 2)}`,
+			);
+		}
+		throw error;
+	}
 }
 
 /**

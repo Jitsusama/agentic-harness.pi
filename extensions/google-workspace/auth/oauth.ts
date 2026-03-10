@@ -1,5 +1,6 @@
 /**
  * OAuth2 authentication for Google Workspace APIs.
+ * Uses OAuth 2.0 Device Flow for universal compatibility.
  */
 
 import type { Credentials } from "google-auth-library";
@@ -30,41 +31,150 @@ export const SCOPES = [
 export interface OAuth2Config {
 	clientId: string;
 	clientSecret: string;
-	redirectUri?: string;
+}
+
+/** Device flow response from Google. */
+export interface DeviceFlowResponse {
+	device_code: string;
+	user_code: string;
+	verification_url: string;
+	expires_in: number;
+	interval: number;
+}
+
+/** Device flow token response. */
+interface DeviceFlowTokenResponse {
+	access_token: string;
+	refresh_token: string;
+	expires_in: number;
+	token_type: string;
+	scope: string;
 }
 
 /**
- * Create an OAuth2 client.
+ * Create an OAuth2 client for device flow.
  */
 export function createOAuth2Client(config: OAuth2Config): OAuth2Client {
-	return new OAuth2Client(
-		config.clientId,
-		config.clientSecret,
-		config.redirectUri || "http://localhost",
-	);
+	return new OAuth2Client(config.clientId, config.clientSecret);
 }
 
 /**
- * Generate the authorization URL for the OAuth flow.
+ * Initiate device flow by requesting a device code.
  */
-export function getAuthUrl(client: OAuth2Client): string {
-	return client.generateAuthUrl({
-		access_type: "offline",
-		scope: SCOPES,
-		prompt: "consent", // Force consent to get refresh token
+export async function initiateDeviceFlow(
+	config: OAuth2Config,
+): Promise<DeviceFlowResponse> {
+	const response = await fetch("https://oauth2.googleapis.com/device/code", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/x-www-form-urlencoded",
+		},
+		body: new URLSearchParams({
+			client_id: config.clientId,
+			scope: SCOPES.join(" "),
+		}),
 	});
+
+	if (!response.ok) {
+		const error = await response.text();
+
+		// Check for invalid client type error (wrong OAuth app type)
+		if (error.includes("invalid_client")) {
+			throw new Error(
+				"Invalid OAuth client type. Your OAuth credentials must be created as " +
+					"'TVs and Limited Input devices' (NOT Desktop app).\n\n" +
+					"Please:\n" +
+					"1. Go to https://console.cloud.google.com/apis/credentials\n" +
+					"2. Delete your existing OAuth client\n" +
+					"3. Create new credentials with type 'TVs and Limited Input devices'\n" +
+					"4. Run /google-setup again with the new credentials",
+			);
+		}
+
+		throw new Error(`Device flow initiation failed: ${error}`);
+	}
+
+	return (await response.json()) as DeviceFlowResponse;
 }
 
 /**
- * Exchange authorization code for tokens.
+ * Poll for device flow authorization completion.
+ * Returns credentials when user completes authorization.
  */
-export async function exchangeCodeForTokens(
-	client: OAuth2Client,
-	code: string,
+export async function pollForDeviceAuthorization(
+	config: OAuth2Config,
+	deviceCode: string,
+	interval: number,
+	signal?: AbortSignal,
 ): Promise<Credentials> {
-	const { tokens } = await client.getToken(code);
-	client.setCredentials(tokens);
-	return tokens;
+	const pollInterval = (interval || 5) * 1000; // Convert to milliseconds
+
+	while (!signal?.aborted) {
+		// Wait before polling
+		await new Promise((resolve) => setTimeout(resolve, pollInterval));
+
+		if (signal?.aborted) {
+			throw new Error("Authorization cancelled");
+		}
+
+		try {
+			const response = await fetch("https://oauth2.googleapis.com/token", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/x-www-form-urlencoded",
+				},
+				body: new URLSearchParams({
+					client_id: config.clientId,
+					client_secret: config.clientSecret,
+					device_code: deviceCode,
+					grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+				}),
+			});
+
+			if (!response.ok) {
+				const error = await response.json();
+
+				// These errors mean we should keep polling
+				if (
+					error.error === "authorization_pending" ||
+					error.error === "slow_down"
+				) {
+					continue;
+				}
+
+				// These errors mean authorization failed
+				if (error.error === "expired_token") {
+					throw new Error("Authorization code expired. Please try again.");
+				}
+
+				if (error.error === "access_denied") {
+					throw new Error("Authorization denied by user.");
+				}
+
+				throw new Error(
+					`Token exchange failed: ${error.error_description || error.error}`,
+				);
+			}
+
+			// Success! Convert to Credentials format
+			const tokenResponse = (await response.json()) as DeviceFlowTokenResponse;
+
+			return {
+				access_token: tokenResponse.access_token,
+				refresh_token: tokenResponse.refresh_token,
+				expiry_date: Date.now() + tokenResponse.expires_in * 1000,
+				token_type: tokenResponse.token_type,
+				scope: tokenResponse.scope,
+			};
+		} catch (error) {
+			// If it's one of our thrown errors, re-throw
+			if (error instanceof Error && error.message.includes("Authorization")) {
+				throw error;
+			}
+		}
+	}
+
+	throw new Error("Authorization cancelled");
 }
 
 /**
