@@ -2,6 +2,9 @@
  * Shared types for Google Workspace extension.
  */
 
+/** Parameters passed to router actions. */
+export type ActionParams = Record<string, unknown>;
+
 /** Result of a tool execution. */
 export interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;

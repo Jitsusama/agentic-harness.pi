@@ -15,6 +15,7 @@ import type { GoogleAccount, StoredCredentials } from "../types.js";
 
 const STATE_KEY_PREFIX = "google-workspace-creds";
 const ACCOUNTS_KEY = "google-workspace-accounts";
+const OAUTH_APP_KEY = "google-workspace-oauth-app";
 
 /**
  * Store credentials for an account.
@@ -112,4 +113,53 @@ export function setDefaultAccount(
 	}
 
 	pi.appendEntry(ACCOUNTS_KEY, accounts);
+}
+
+/**
+ * OAuth app credentials.
+ */
+export interface OAuthAppCredentials {
+	clientId: string;
+	clientSecret: string;
+}
+
+/**
+ * Store OAuth app credentials.
+ */
+export function storeOAuthApp(
+	pi: ExtensionAPI,
+	credentials: OAuthAppCredentials,
+): void {
+	pi.appendEntry(OAUTH_APP_KEY, credentials);
+}
+
+/**
+ * Retrieve OAuth app credentials.
+ */
+export function getOAuthApp(ctx: ExtensionContext): OAuthAppCredentials | null {
+	return getLastEntry<OAuthAppCredentials>(ctx, OAUTH_APP_KEY);
+}
+
+/**
+ * Check if OAuth app credentials are configured.
+ */
+export function hasOAuthApp(ctx: ExtensionContext): boolean {
+	const creds = getOAuthApp(ctx);
+	return !!(creds?.clientId && creds?.clientSecret);
+}
+
+/**
+ * Clear all Google Workspace configuration (OAuth app, accounts, tokens).
+ * Used for testing or resetting to fresh state.
+ */
+export function clearAllConfig(pi: ExtensionAPI): void {
+	// Clear OAuth app credentials
+	pi.appendEntry(OAUTH_APP_KEY, null);
+
+	// Clear accounts list
+	pi.appendEntry(ACCOUNTS_KEY, []);
+
+	// Note: Individual account credentials (google-workspace-creds:accountname)
+	// will naturally become stale and be ignored. We could clear them explicitly
+	// but they're harmless once accounts list is empty.
 }
