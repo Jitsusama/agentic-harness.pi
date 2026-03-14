@@ -25,7 +25,7 @@ import {
 	renderScrollableContent,
 	renderTabBar,
 } from "./panel-render.js";
-import { clampScroll, contentBudget } from "./panel-state.js";
+import { clampScroll, contentBudget, PI_CHROME_LINES } from "./panel-state.js";
 
 // ---- Types ----
 
@@ -171,6 +171,7 @@ export async function showPanel(
 
 		function render(width: number): string[] {
 			const lines: string[] = [];
+			const maxLines = (process.stdout.rows || 40) - PI_CHROME_LINES;
 			const add = (s: string) => lines.push(truncateToWidth(s, width));
 
 			add(theme.fg("accent", "─".repeat(width)));
@@ -210,6 +211,11 @@ export async function showPanel(
 			}
 
 			add(theme.fg("accent", "─".repeat(width)));
+
+			// Hard cap: never return more lines than the terminal can hold
+			if (lines.length > maxLines) {
+				return lines.slice(lines.length - maxLines);
+			}
 			return lines;
 		}
 
@@ -234,6 +240,10 @@ export async function showPanelSeries(
 
 	const { pages, onSelect } = config;
 	const isMulti = pages.length > 1;
+
+	// Use the maximum option count across all pages so the panel
+	// height stays constant when switching tabs.
+	const maxOptionCount = Math.max(...pages.map((p) => p.options.length));
 
 	return ctx.ui.custom<Map<number, SeriesSelection> | null>(
 		(tui, theme, _kb, done) => {
@@ -341,7 +351,7 @@ export async function showPanelSeries(
 					}
 				}
 
-				const budget = contentBudget(isMulti, page.options.length);
+				const budget = contentBudget(isMulti, maxOptionCount);
 				const scroll = handleScrollKeys(
 					data,
 					scrollOffset,
@@ -354,6 +364,9 @@ export async function showPanelSeries(
 					tui.requestRender();
 					return;
 				}
+
+				// Skip option handling on read-only pages
+				if (page.options.length === 0) return;
 
 				const nav = handleOptionNav(data, optionIndex, page.options.length);
 				if (nav !== null) {
@@ -386,6 +399,15 @@ export async function showPanelSeries(
 				const lines: string[] = [];
 				const add = (s: string) => lines.push(truncateToWidth(s, width));
 
+				// Compute the fixed total height once. Every render must
+				// produce exactly this many lines regardless of tab.
+				// Layout: top border (1) + tab bar (2 if multi) + content (budget)
+				//       + footer (maxOptionCount + 3) + bottom border (1)
+				const budget = contentBudget(isMulti, maxOptionCount);
+				const tabBarLines = isMulti ? 2 : 0;
+				const footerLines = maxOptionCount + 3;
+				const targetTotal = 1 + tabBarLines + budget + footerLines + 1;
+
 				add(theme.fg("accent", "─".repeat(width)));
 
 				if (isMulti) {
@@ -395,7 +417,6 @@ export async function showPanelSeries(
 
 				const page = pages[currentTab];
 				if (!page) return lines;
-				const budget = contentBudget(isMulti, page.options.length);
 				const contentLines = page.content(theme, width + hScrollOffset);
 				scrollOffset = clampScroll(scrollOffset, contentLines.length, budget);
 
@@ -417,7 +438,7 @@ export async function showPanelSeries(
 					for (const line of renderInlineEditor(editor, width, theme)) {
 						add(line);
 					}
-				} else {
+				} else if (page.options.length > 0) {
 					lines.push("");
 					for (const line of renderOptionsList(
 						page.options,
@@ -435,6 +456,19 @@ export async function showPanelSeries(
 					if (needsVScroll) hints.push("Shift+↑↓ scroll");
 					if (needsHScroll) hints.push("Shift+←→ pan");
 					add(theme.fg("dim", ` ${hints.join(" · ")}`));
+				} else {
+					lines.push("");
+					const hints: string[] = [];
+					if (isMulti) hints.push("Tab/←→ navigate");
+					hints.push("Esc cancel");
+					if (needsVScroll) hints.push("Shift+↑↓ scroll");
+					if (needsHScroll) hints.push("Shift+←→ pan");
+					add(theme.fg("dim", ` ${hints.join(" · ")}`));
+				}
+
+				// Pad to fixed height (leave room for bottom border)
+				while (lines.length < targetTotal - 1) {
+					lines.push("");
 				}
 
 				add(theme.fg("accent", "─".repeat(width)));
