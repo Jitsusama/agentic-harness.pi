@@ -5,9 +5,10 @@
 
 /**
  * Lines reserved for pi chrome (header, footer, status line,
- * input area). Conservative estimate to avoid overflow.
+ * input area, extension widgets). Conservative estimate to
+ * avoid content overflowing past the top of the terminal.
  */
-export const PI_CHROME_LINES = 6;
+export const PI_CHROME_LINES = 8;
 
 /**
  * Fixed lines in the panel frame: top border (1), blank before
