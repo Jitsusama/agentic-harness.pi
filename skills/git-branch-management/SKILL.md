@@ -14,8 +14,9 @@ description: >
 - Lowercase, hyphens between words
 - Be specific: `joel/oauth-refresh` not `joel/fix`
 
-Infer the username prefix from existing branches in the repo.
-If there's no convention, ask.
+Get the username prefix via `gh api user --jq .login`. Do not
+infer from existing branches or ask — always use the
+authenticated GitHub user.
 
 ## Name Conflicts
 
