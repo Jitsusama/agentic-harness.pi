@@ -15,53 +15,116 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import {
-	detectContentType,
-	detectContentTypeFromPath,
 	languageFromPath,
-	renderContent,
+	renderCode,
+	renderDiff,
+	renderMarkdown,
 } from "../lib/ui/content-renderer.js";
-import { showPanel } from "../lib/ui/panel.js";
+import { view } from "../lib/ui/panel-new.js";
+
+/** Content type for explicit rendering. */
+type ContentType = "markdown" | "diff" | "code";
+
+/** Detect content type from a file path. */
+function contentTypeFromPath(filePath: string): ContentType {
+	const ext = filePath.split(".").pop()?.toLowerCase();
+	if (ext === "md" || ext === "markdown") return "markdown";
+	if (ext === "diff" || ext === "patch") return "diff";
+
+	const codeExtensions = new Set([
+		"ts",
+		"tsx",
+		"js",
+		"jsx",
+		"mjs",
+		"cjs",
+		"py",
+		"rb",
+		"rs",
+		"go",
+		"java",
+		"c",
+		"cpp",
+		"h",
+		"cs",
+		"swift",
+		"kt",
+		"sh",
+		"bash",
+		"zsh",
+		"yaml",
+		"yml",
+		"toml",
+		"json",
+		"xml",
+		"html",
+		"css",
+		"scss",
+		"sql",
+	]);
+	if (ext && codeExtensions.has(ext)) return "code";
+
+	return "markdown";
+}
+
+/** Select the appropriate render function for a content type. */
+function renderForType(
+	type: ContentType,
+	text: string,
+	language?: string,
+	options?: { startLine?: number; highlightLines?: Set<number> },
+): (theme: Theme, width: number) => string[] {
+	switch (type) {
+		case "diff":
+			return (theme, width) => renderDiff(text, theme, width);
+		case "code":
+			return (theme, width) =>
+				renderCode(text, theme, width, {
+					language,
+					startLine: options?.startLine,
+					highlightLines: options?.highlightLines,
+				});
+		default:
+			return (theme, width) => renderMarkdown(text, theme, width);
+	}
+}
 
 /**
  * Show text in a scrollable read-only panel. Escape to dismiss.
- * Auto-detects content type or accepts an explicit type.
+ * Caller specifies the content type explicitly.
  */
 export async function showContent(
 	ctx: ExtensionContext,
 	text: string,
 	options?: {
-		type?: "markdown" | "diff" | "code";
+		type?: ContentType;
 		language?: string;
 		title?: string;
 		startLine?: number;
 		highlightLines?: Set<number>;
 	},
 ): Promise<void> {
-	const type = options?.type ?? detectContentType(text);
+	const type = options?.type ?? "markdown";
 	const title = options?.title;
+	const renderFn = renderForType(type, text, options?.language, {
+		startLine: options?.startLine,
+		highlightLines: options?.highlightLines,
+	});
 
-	await showPanel(ctx, {
-		page: {
-			label: title ?? "View",
-			content: (theme: Theme, width: number) => {
-				const lines: string[] = [];
-				if (title) {
-					lines.push(
-						truncateToWidth(theme.fg("accent", ` ${theme.bold(title)}`), width),
-					);
-					lines.push("");
-				}
-				for (const line of renderContent(text, theme, width, {
-					type,
-					language: options?.language,
-					startLine: options?.startLine,
-					highlightLines: options?.highlightLines,
-				})) {
-					lines.push(line);
-				}
-				return lines;
-			},
-			options: [{ label: "Close", value: "close" }],
+	await view(ctx, {
+		title,
+		content: (theme: Theme, width: number) => {
+			const lines: string[] = [];
+			if (title) {
+				lines.push(
+					truncateToWidth(theme.fg("accent", ` ${theme.bold(title)}`), width),
+				);
+				lines.push("");
+			}
+			for (const line of renderFn(theme, width)) {
+				lines.push(line);
+			}
+			return lines;
 		},
 	});
 }
@@ -88,7 +151,7 @@ export default function contentViewer(pi: ExtensionAPI) {
 				return;
 			}
 
-			const type = detectContentTypeFromPath(resolved);
+			const type = contentTypeFromPath(resolved);
 			const language = languageFromPath(resolved);
 			const title = path.relative(ctx.cwd, resolved) || filePath;
 

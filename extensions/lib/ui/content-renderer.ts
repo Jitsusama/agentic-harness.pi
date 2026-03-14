@@ -2,6 +2,9 @@
  * Content renderer — themed rendering of markdown, diffs, and
  * code into display-ready lines.
  *
+ * Three explicit functions. The caller always knows what type
+ * of content they have. No auto-detection.
+ *
  * Pure rendering module with no UI dependencies. Each function
  * takes raw text, a theme, and a width, returning themed
  * string[] for display.
@@ -9,149 +12,30 @@
 
 import {
 	getLanguageFromPath,
+	getMarkdownTheme,
 	highlightCode as piHighlightCode,
 	type Theme,
 } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth } from "@mariozechner/pi-tui";
-import { wordWrap } from "./text.js";
+import { Markdown, truncateToWidth } from "@mariozechner/pi-tui";
 
 // ---- Markdown ----
 
 /**
- * Render markdown with theme-aware coloring.
+ * Render markdown text to themed display lines.
+ * Also handles plain text (markdown is a superset).
  *
- * Handles: headers, blockquotes, list items, code fences,
- * bold, italic, and inline code. Paragraphs are hard-wrapped
- * to width. This is a light renderer for TUI display — not a
- * full markdown parser.
+ * Delegates to Pi's Markdown component for full-featured
+ * parsing (tables, nested lists, code fences with syntax
+ * highlighting, blockquotes, etc.).
  */
 export function renderMarkdown(
 	text: string,
-	theme: Theme,
+	_theme: Theme,
 	width: number,
 ): string[] {
-	const wrapW = terminalWrapWidth(width);
-	const lines: string[] = [];
-	const raw = text.split("\n");
-	let inCodeFence = false;
-	let codeFenceLang = "";
-	let codeFenceBuffer: string[] = [];
-
-	for (const line of raw) {
-		// Code fence toggle
-		if (line.trimStart().startsWith("```")) {
-			if (!inCodeFence) {
-				// Opening fence — extract language
-				inCodeFence = true;
-				codeFenceLang = line.trimStart().slice(3).trim().toLowerCase();
-				codeFenceBuffer = [];
-				lines.push(truncateToWidth(theme.fg("dim", ` ${line}`), width));
-			} else {
-				// Closing fence — render the buffered block
-				inCodeFence = false;
-				const codeText = codeFenceBuffer.join("\n");
-
-				if (codeFenceLang === "diff") {
-					// Diff blocks get red/green/white coloring
-					for (const dl of renderDiff(codeText, theme, width)) {
-						lines.push(dl);
-					}
-				} else {
-					// Syntax highlight using pi's theme-aware highlighter
-					const highlighted = piHighlightCode(
-						codeText,
-						codeFenceLang || undefined,
-					);
-					for (const hl of highlighted) {
-						lines.push(truncateToWidth(` ${hl}`, width));
-					}
-				}
-
-				codeFenceBuffer = [];
-				codeFenceLang = "";
-				lines.push(truncateToWidth(theme.fg("dim", ` ${line}`), width));
-			}
-			continue;
-		}
-
-		// Inside a code fence — buffer for batch highlighting
-		if (inCodeFence) {
-			codeFenceBuffer.push(line);
-			continue;
-		}
-
-		// Headers
-		if (/^#{1,6}\s/.test(line)) {
-			for (const wrapped of wordWrap(line, wrapW - 1)) {
-				lines.push(
-					truncateToWidth(theme.fg("accent", ` ${theme.bold(wrapped)}`), width),
-				);
-			}
-			continue;
-		}
-
-		// Blockquotes
-		if (line.startsWith("> ")) {
-			for (const wrapped of wordWrap(line, wrapW - 1)) {
-				lines.push(truncateToWidth(theme.fg("dim", ` ${wrapped}`), width));
-			}
-			continue;
-		}
-
-		// List items (- or * or 1.)
-		const listIndent =
-			line.match(/^(\s*[-*]\s)/)?.[0] ?? line.match(/^(\s*\d+\.\s)/)?.[0];
-		if (listIndent) {
-			const wrapIndent = " ".repeat(listIndent.length);
-			const wrapped = wordWrap(line, wrapW - 1);
-			for (let j = 0; j < wrapped.length; j++) {
-				const part = wrapped[j] ?? "";
-				const formatted = j === 0 ? part : wrapIndent + part;
-				lines.push(
-					truncateToWidth(` ${applyInlineFormatting(formatted, theme)}`, width),
-				);
-			}
-			continue;
-		}
-
-		// Blank lines
-		if (line.trim() === "") {
-			lines.push("");
-			continue;
-		}
-
-		// Regular text — wrap to width and apply inline formatting
-		for (const wrapped of wordWrap(line, wrapW - 1)) {
-			lines.push(
-				truncateToWidth(` ${applyInlineFormatting(wrapped, theme)}`, width),
-			);
-		}
-	}
-
-	return lines;
-}
-
-/**
- * Apply inline formatting: **bold**, *italic*, `code`.
- * Processes left-to-right, handling the outermost delimiters.
- */
-function applyInlineFormatting(text: string, theme: Theme): string {
-	// Inline code: `text`
-	let result = text.replace(/`([^`]+)`/g, (_match, code) =>
-		theme.fg("dim", `\`${code}\``),
-	);
-
-	// Bold: **text**
-	result = result.replace(/\*\*([^*]+)\*\*/g, (_match, content) =>
-		theme.bold(content),
-	);
-
-	// Italic: *text* (but not inside **)
-	result = result.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, (_match, content) =>
-		theme.fg("muted", content),
-	);
-
-	return result;
+	const mdTheme = getMarkdownTheme();
+	const md = new Markdown(text, 1, 0, mdTheme);
+	return md.render(width);
 }
 
 // ---- Diff ----
@@ -239,111 +123,7 @@ export function renderCode(
 	return lines;
 }
 
-// ---- Helpers ----
-
-/**
- * Terminal-aware wrap width. Pi-tui may pass a render width
- * far larger than the physical terminal (e.g. 398 on an
- * 80-column terminal). For prose that should word-wrap, cap
- * to the actual terminal columns.
- */
-function terminalWrapWidth(renderWidth: number): number {
-	const cols = process.stdout.columns;
-	if (!cols || cols <= 0) return renderWidth;
-	const padded = cols - 4;
-	return Math.min(renderWidth, padded > 0 ? padded : cols);
-}
-
-// ---- Content type detection ----
-
-/** Auto-detect content type from text. */
-export function detectContentType(text: string): "diff" | "code" | "markdown" {
-	const firstLines = text.slice(0, 500);
-	if (
-		firstLines.startsWith("diff --git") ||
-		firstLines.startsWith("--- a/") ||
-		/^@@\s/.test(firstLines)
-	) {
-		return "diff";
-	}
-	return "markdown";
-}
-
-/** Auto-detect content type from a file path. */
-export function detectContentTypeFromPath(
-	filePath: string,
-): "diff" | "code" | "markdown" {
-	const ext = filePath.split(".").pop()?.toLowerCase();
-	if (ext === "md" || ext === "markdown") return "markdown";
-	if (ext === "diff" || ext === "patch") return "diff";
-
-	const codeExtensions = new Set([
-		"ts",
-		"tsx",
-		"js",
-		"jsx",
-		"mjs",
-		"cjs",
-		"py",
-		"rb",
-		"rs",
-		"go",
-		"java",
-		"c",
-		"cpp",
-		"h",
-		"cs",
-		"swift",
-		"kt",
-		"sh",
-		"bash",
-		"zsh",
-		"yaml",
-		"yml",
-		"toml",
-		"json",
-		"xml",
-		"html",
-		"css",
-		"scss",
-		"sql",
-	]);
-	if (ext && codeExtensions.has(ext)) return "code";
-
-	return "markdown";
-}
+// ---- Re-exports ----
 
 /** Derive a syntax highlighting language from a file path. */
 export const languageFromPath = getLanguageFromPath;
-
-/**
- * Render text with auto-detected or specified content type.
- * Convenience function that dispatches to renderMarkdown,
- * renderDiff, or renderCode.
- */
-export function renderContent(
-	text: string,
-	theme: Theme,
-	width: number,
-	options?: {
-		type?: "markdown" | "diff" | "code";
-		language?: string;
-		startLine?: number;
-		highlightLines?: Set<number>;
-	},
-): string[] {
-	const type = options?.type ?? detectContentType(text);
-
-	switch (type) {
-		case "diff":
-			return renderDiff(text, theme, width);
-		case "code":
-			return renderCode(text, theme, width, {
-				language: options?.language,
-				startLine: options?.startLine,
-				highlightLines: options?.highlightLines,
-			});
-		default:
-			return renderMarkdown(text, theme, width);
-	}
-}
