@@ -9,12 +9,7 @@
  */
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
-import {
-	Key,
-	matchesKey,
-	truncateToWidth,
-	visibleWidth,
-} from "@mariozechner/pi-tui";
+import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import type { Action } from "./types.js";
 
 // ---- Types ----
@@ -42,11 +37,8 @@ export function renderActionBar(
 
 	const left = `  ${parts.join("  ")}`;
 	const hint = theme.fg("dim", "⇧+key to annotate");
-	const leftWidth = visibleWidth(left);
-	const hintWidth = visibleWidth(hint);
-	const gap = Math.max(2, width - leftWidth - hintWidth);
 
-	return truncateToWidth(`${left}${" ".repeat(gap)}${hint}`, width);
+	return truncateToWidth(`${left}  ${hint}`, width);
 }
 
 /**
