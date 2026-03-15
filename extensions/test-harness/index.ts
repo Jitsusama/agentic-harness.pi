@@ -159,11 +159,13 @@ export default function testHarness(ctx: ExtensionContext) {
 		description: "Test action bar",
 		handler: async (_args, handlerCtx) => {
 			const result = await prompt(handlerCtx, {
-				content: staticContent([
-					"This tests the action bar.",
-					"Try each action key.",
-					"Shift+key to annotate.",
-				]),
+				content: (theme, _width) => [
+					` ${theme.fg("accent", theme.bold("Action Bar Test"))}`,
+					"",
+					"  This tests the action bar.",
+					"  Try each action key.",
+					"  Shift+key to annotate.",
+				],
 				actions: [
 					{ key: "a", label: "Approve" },
 					{ key: "r", label: "Reject" },
@@ -179,10 +181,12 @@ export default function testHarness(ctx: ExtensionContext) {
 		description: "Test option list",
 		handler: async (_args, handlerCtx) => {
 			const result = await prompt(handlerCtx, {
-				content: staticContent([
-					"Pick an option.",
-					"Descriptions show on the selected item only.",
-				]),
+				content: (theme, _width) => [
+					` ${theme.fg("accent", theme.bold("Option List Test"))}`,
+					"",
+					"  Pick an option.",
+					"  Descriptions show on the selected item only.",
+				],
 				options: [
 					{
 						label: "Quick fix",
@@ -260,7 +264,11 @@ export default function testHarness(ctx: ExtensionContext) {
 		description: "Test steer annotations",
 		handler: async (_args, handlerCtx) => {
 			const result = await prompt(handlerCtx, {
-				content: staticContent(["Test steer annotations on actions."]),
+				content: (theme, _width) => [
+					` ${theme.fg("accent", theme.bold("Steer Annotations Test"))}`,
+					"",
+					"  Test steer annotations on actions.",
+				],
 				actions: [
 					{ key: "a", label: "Approve" },
 					{ key: "r", label: "Reject" },
@@ -282,7 +290,11 @@ export default function testHarness(ctx: ExtensionContext) {
 		description: "Test inline editor",
 		handler: async (_args, handlerCtx) => {
 			const result = await prompt(handlerCtx, {
-				content: staticContent(["Test the inline editor."]),
+				content: (theme, _width) => [
+					` ${theme.fg("accent", theme.bold("Inline Editor Test"))}`,
+					"",
+					"  Test the inline editor.",
+				],
 				options: [
 					{ label: "Write something", value: "write", opensEditor: true },
 					{
