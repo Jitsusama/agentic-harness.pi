@@ -36,7 +36,7 @@ export function renderActionBar(
 	}
 
 	const left = ` ${parts.join("  ")}`;
-	const hint = theme.fg("dim", "⇧+key to annotate");
+	const hint = theme.fg("dim", "⇧+key annotate · ⇧+Enter feedback");
 
 	return truncateToWidth(`${left}  ${hint}`, width);
 }
@@ -49,16 +49,16 @@ export function handleActionInput(
 	data: string,
 	actions: Action[],
 ): ActionBarResult | null {
-	// Shift+S = pure steer (always available)
-	if (matchesKey(data, Key.shift("s"))) {
-		return { type: "pureSteer" };
-	}
-
 	// Shift+letter = steer variant of an action
 	for (const action of actions) {
 		if (matchesKey(data, Key.shift(action.key))) {
 			return { type: "steerAction", key: action.key };
 		}
+	}
+
+	// Shift+Enter = pure steer (feedback not tied to any action)
+	if (matchesKey(data, Key.shift("enter"))) {
+		return { type: "pureSteer" };
 	}
 
 	// Plain letter = immediate action
