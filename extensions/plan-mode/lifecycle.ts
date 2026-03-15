@@ -26,9 +26,12 @@ export function loadPlanDir(cwd: string): string {
 
 /** Update the status line to reflect plan mode state. */
 export function updateStatus(state: PlanState, ctx: ExtensionContext): void {
+	const theme = ctx.ui.theme;
 	ctx.ui.setStatus(
 		"plan-mode",
-		state.enabled ? ctx.ui.theme.fg("warning", "⏸ planning") : undefined,
+		state.enabled
+			? `${theme.fg("warning", "◈")} ${theme.fg("dim", "Plan")}`
+			: undefined,
 	);
 }
 

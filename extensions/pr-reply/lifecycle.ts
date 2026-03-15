@@ -17,8 +17,8 @@ import {
 	threadsForReview,
 } from "./state.js";
 
-/** Status display label for PR reply mode. */
-const STATUS_EMOJI = "💬";
+/** Status glyph for PR reply mode. */
+const STATUS_GLYPH = "◈";
 
 /** Persist key for session history entries. */
 const PERSIST_KEY = "pr-reply";
@@ -31,8 +31,12 @@ function updateUI(state: PRReplyState, ctx: ExtensionContext): void {
 		return;
 	}
 
+	const theme = ctx.ui.theme;
 	const prRef = state.prNumber ? `#${state.prNumber}` : "?";
-	ctx.ui.setStatus(PERSIST_KEY, `${STATUS_EMOJI} PR ${prRef}`);
+	ctx.ui.setStatus(
+		PERSIST_KEY,
+		`${theme.fg("accent", STATUS_GLYPH)} ${theme.fg("dim", `PR ${prRef}`)}`,
+	);
 
 	const review = state.reviews[state.reviewIndex];
 	if (!review) {
