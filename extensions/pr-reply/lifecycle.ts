@@ -35,7 +35,7 @@ function updateUI(state: PRReplyState, ctx: ExtensionContext): void {
 	const prRef = state.prNumber ? `#${state.prNumber}` : "?";
 	ctx.ui.setStatus(
 		PERSIST_KEY,
-		`${theme.fg("accent", STATUS_GLYPH)} ${theme.fg("dim", `PR ${prRef}`)}`,
+		`${theme.fg("accent", STATUS_GLYPH)} ${theme.fg("muted", `PR ${prRef}`)}`,
 	);
 
 	const review = state.reviews[state.reviewIndex];

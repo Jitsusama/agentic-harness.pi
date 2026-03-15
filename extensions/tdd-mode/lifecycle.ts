@@ -27,7 +27,7 @@ function updateUI(state: TddState, ctx: ExtensionContext): void {
 	const theme = ctx.ui.theme;
 	ctx.ui.setStatus(
 		"tdd-mode",
-		`${theme.fg(color, PHASE_GLYPH)} ${theme.fg("dim", "TDD")}`,
+		`${theme.fg(color, PHASE_GLYPH)} ${theme.fg("muted", "TDD")}`,
 	);
 
 	const desc = state.testDescription;

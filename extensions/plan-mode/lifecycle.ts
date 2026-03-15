@@ -30,7 +30,7 @@ export function updateStatus(state: PlanState, ctx: ExtensionContext): void {
 	ctx.ui.setStatus(
 		"plan-mode",
 		state.enabled
-			? `${theme.fg("warning", "◈")} ${theme.fg("dim", "Plan")}`
+			? `${theme.fg("warning", "◈")} ${theme.fg("muted", "Plan")}`
 			: undefined,
 	);
 }
