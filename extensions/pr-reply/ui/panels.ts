@@ -74,14 +74,14 @@ export async function showSummaryPanel(
 
 			return lines;
 		},
-		options: [
-			{ label: "Begin Review", value: "begin" },
-			{ label: "Cancel", value: "cancel" },
+		actions: [
+			{ key: "b", label: "Begin Review" },
+			{ key: "c", label: "Cancel" },
 		],
 	});
 
 	if (!result) return false;
-	return result.type === "action" && result.value === "begin";
+	return result.type === "action" && result.value === "b";
 }
 
 /**
@@ -137,14 +137,14 @@ export async function showReviewOverviewPanel(
 
 			return lines;
 		},
-		options: [
-			{ label: "Continue", value: "continue" },
-			{ label: "Skip Review", value: "skip" },
+		actions: [
+			{ key: "c", label: "Continue" },
+			{ key: "s", label: "Skip Review" },
 		],
 	});
 
 	if (!result) return false;
-	return result.type === "action" && result.value === "continue";
+	return result.type === "action" && result.value === "c";
 }
 
 /** Dependent PR info for rebase confirmation. */
@@ -182,12 +182,12 @@ export async function showRebasePanel(
 
 			return lines;
 		},
-		options: [
-			{ label: "Rebase All", value: "rebase" },
-			{ label: "Skip", value: "skip" },
+		actions: [
+			{ key: "r", label: "Rebase All" },
+			{ key: "s", label: "Skip" },
 		],
 	});
 
 	if (!result || result.type !== "action") return null;
-	return result.value as "rebase" | "skip";
+	return result.value === "r" ? "rebase" : "skip";
 }
