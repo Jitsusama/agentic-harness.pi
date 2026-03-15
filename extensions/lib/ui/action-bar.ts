@@ -63,7 +63,7 @@ export function handleActionInput(
 
 	// Plain letter = immediate action
 	for (const action of actions) {
-		if (data === action.key) {
+		if (matchesKey(data, action.key)) {
 			return { type: "action", key: action.key };
 		}
 	}
