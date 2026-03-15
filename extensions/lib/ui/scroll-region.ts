@@ -22,6 +22,7 @@ import {
 	MAX_CONTENT_WIDTH,
 	MAX_HEIGHT_FRACTION,
 	PI_CHROME_LINES,
+	SCROLLBAR_GUTTER,
 } from "./types.js";
 
 // ---- Types ----
@@ -44,7 +45,8 @@ export function renderScrollRegion(
 	theme: Theme,
 ): { lines: string[]; needsVScroll: boolean; needsHScroll: boolean } {
 	const needsVScroll = contentLines.length > budget;
-	const needsHScroll = maxContentWidth(contentLines) > width;
+	const effectiveWidth = needsVScroll ? width - SCROLLBAR_GUTTER : width;
+	const needsHScroll = maxContentWidth(contentLines) > effectiveWidth;
 	const lines: string[] = [];
 
 	const vOffset = clampVScroll(state.vOffset, contentLines.length, budget);
@@ -57,8 +59,7 @@ export function renderScrollRegion(
 			vOffset,
 			theme,
 		);
-		// Reserve 2 columns for scrollbar gutter
-		const contentWidth = width - 2;
+		const contentWidth = width - SCROLLBAR_GUTTER;
 		for (let i = 0; i < visible.length; i++) {
 			const sliced = horizontalSlice(
 				visible[i] ?? "",

@@ -193,3 +193,6 @@ export const PI_CHROME_LINES = 8;
 
 /** Horizontal scroll step in visible characters. */
 export const H_SCROLL_STEP = 20;
+
+/** Width reserved for the vertical scrollbar gutter. */
+export const SCROLLBAR_GUTTER = 2;

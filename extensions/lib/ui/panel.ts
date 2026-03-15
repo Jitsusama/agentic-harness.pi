@@ -53,6 +53,7 @@ import {
 	GLYPH,
 	type Option,
 	type PromptResult,
+	SCROLLBAR_GUTTER,
 	type SinglePromptConfig,
 	type TabbedPromptConfig,
 	type TabbedResult,
@@ -133,7 +134,7 @@ export async function view(
 
 			const chromeLines = 2 + (config.title ? 2 : 0) + 3;
 			const budget = contentBudget(chromeLines);
-			const contentLines = config.content(theme, width);
+			const contentLines = config.content(theme, width - SCROLLBAR_GUTTER);
 			const { lines: scrolled, needsVScroll } = renderScrollRegion(
 				contentLines,
 				scroll,
@@ -328,7 +329,7 @@ async function showSinglePrompt(
 			// Content
 			const chromeLines = computeChromeLines(false, actions, options);
 			const budget = contentBudget(chromeLines);
-			const contentLines = config.content(theme, width);
+			const contentLines = config.content(theme, width - SCROLLBAR_GUTTER);
 			const {
 				lines: scrolled,
 				needsVScroll,
@@ -661,7 +662,7 @@ async function showTabbedPrompt(
 			// Content
 			const chromeLines = computeChromeLines(true, actions, options);
 			const budget = contentBudget(chromeLines);
-			const contentLines = content(theme, width);
+			const contentLines = content(theme, width - SCROLLBAR_GUTTER);
 			const scrollState = scrollStates[currentTab] ?? {
 				vOffset: 0,
 				hOffset: 0,
