@@ -56,6 +56,7 @@ function renderTab(
 ): string {
 	const glyph = statusGlyph(status, theme);
 	const num = theme.fg("dim", `${index + 1}`);
+	if (!label) return `${glyph} ${num}`;
 	const text = isCurrent ? theme.underline(label) : label;
 	return `${glyph} ${num} ${text}`;
 }

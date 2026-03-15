@@ -220,30 +220,30 @@ export default function testHarness(ctx: ExtensionContext) {
 			const result = await prompt(handlerCtx, {
 				items: [
 					{
-						label: "T1",
-						content: staticContent(["First tab"]),
+						label: "Actions",
+						content: staticContent(["First tab — basic actions"]),
 						actions: sharedActions,
 					},
 					{
-						label: "T2",
-						content: staticContent(["Second tab"]),
+						label: "Also Actions",
+						content: staticContent(["Second tab — same actions"]),
 						actions: sharedActions,
 					},
 					{
-						label: "T3",
-						content: staticContent(["Third tab — options"]),
+						label: "Options",
+						content: staticContent(["Third tab — option list"]),
 						options: [
 							{ label: "Option A", value: "a" },
 							{ label: "Option B", value: "b" },
 						],
 					},
 					{
-						label: "T4",
-						content: staticContent(["Fourth tab"]),
+						label: "More Actions",
+						content: staticContent(["Fourth tab — more actions"]),
 						actions: sharedActions,
 					},
 					{
-						label: "T5",
+						label: "Scroll",
 						content: numberedLines(30),
 						actions: sharedActions,
 					},
