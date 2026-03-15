@@ -673,9 +673,9 @@ export default function prReply(pi: ExtensionAPI) {
 
 				// Code context
 				if (codeContext) {
-					lines.push("```");
-					lines.push(codeContext);
-					lines.push("```");
+					for (const codeLine of codeContext.split("\n")) {
+						lines.push(theme.fg("dim", codeLine));
+					}
 					lines.push("");
 				}
 
