@@ -86,6 +86,8 @@ export interface CodeRenderOptions {
 	highlightLines?: Set<number>;
 	/** Language for syntax highlighting (auto-detects if omitted). */
 	language?: string;
+	/** Pre-highlighted lines from preHighlightCode(). Skips highlighting when provided. */
+	preHighlighted?: string[];
 }
 
 /**
@@ -101,12 +103,37 @@ export function renderCode(
 	width: number,
 	options?: CodeRenderOptions,
 ): string[] {
+	const highlighted =
+		options?.preHighlighted ??
+		piHighlightCode(text.trimEnd(), options?.language);
+	return formatHighlightedCode(highlighted, theme, width, options);
+}
+
+/**
+ * Pre-highlight code text for later rendering.
+ * Call this once upfront, then pass the result via
+ * CodeRenderOptions.preHighlighted to avoid re-highlighting.
+ */
+export function preHighlightCode(text: string, language?: string): string[] {
+	return piHighlightCode(text.trimEnd(), language);
+}
+
+/** Format pre-highlighted code lines with gutter and truncation. */
+function formatHighlightedCode(
+	codeLines: string[],
+	theme: Theme,
+	width: number,
+	options?: CodeRenderOptions,
+): string[] {
 	const startLine = options?.startLine ?? 1;
 	const highlights = options?.highlightLines;
-	const codeLines = piHighlightCode(text.trimEnd(), options?.language);
 	const lastLineNum = startLine + codeLines.length - 1;
 	const gutterWidth = String(lastLineNum).length;
 	const lines: string[] = [];
+
+	// Track ANSI color state across lines so multi-line constructs
+	// (comments, strings) keep their color after the gutter resets it.
+	let activeEscapes = "";
 
 	for (let i = 0; i < codeLines.length; i++) {
 		const lineNum = startLine + i;
@@ -117,10 +144,41 @@ export function renderCode(
 		const gutter = `${marker}${theme.fg("dim", `${numStr} │ `)}`;
 		const codeLine = codeLines[i] ?? "";
 
-		lines.push(truncateToWidth(gutter + codeLine, width));
+		// Restore color state from previous line, then emit this line
+		lines.push(truncateToWidth(`${gutter}${activeEscapes}${codeLine}`, width));
+
+		// Update active escapes by scanning this line's ANSI sequences
+		activeEscapes = trackAnsiState(activeEscapes, codeLine);
 	}
 
 	return lines;
+}
+
+/**
+ * Track ANSI escape state through a line of text.
+ * Returns the active escape string to prepend to the next line.
+ * Resets on \x1b[0m or \x1b[39m (color reset).
+ */
+function trackAnsiState(current: string, line: string): string {
+	let state = current;
+	let i = 0;
+	while (i < line.length) {
+		if (line[i] === "\x1b" && line[i + 1] === "[") {
+			const start = i;
+			i += 2;
+			while (i < line.length && !/[A-Za-z]/.test(line[i] ?? "")) i++;
+			i++; // consume the final letter
+			const seq = line.slice(start, i);
+			if (seq === "\x1b[0m" || seq === "\x1b[m" || seq === "\x1b[39m") {
+				state = "";
+			} else {
+				state = seq;
+			}
+		} else {
+			i++;
+		}
+	}
+	return state;
 }
 
 // ---- Re-exports ----

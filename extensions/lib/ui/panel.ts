@@ -44,6 +44,7 @@ import {
 import {
 	contentBudget,
 	handleScrollInput,
+	maxContentWidth,
 	renderScrollRegion,
 	type ScrollState,
 } from "./scroll-region.js";
@@ -105,6 +106,17 @@ export async function view(
 
 	await ctx.ui.custom<void>((tui, theme, _kb, done) => {
 		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };
+		let cachedContent: string[] | null = null;
+		let cachedHScroll = false;
+		let cachedWidth = -1;
+
+		function getContent(width: number): string[] {
+			if (cachedContent && width === cachedWidth) return cachedContent;
+			cachedWidth = width;
+			cachedContent = config.content(theme, width - SCROLLBAR_GUTTER);
+			cachedHScroll = maxContentWidth(cachedContent) > width - SCROLLBAR_GUTTER;
+			return cachedContent;
+		}
 
 		function handleInput(data: string) {
 			if (matchesKey(data, Key.escape)) {
@@ -134,13 +146,14 @@ export async function view(
 
 			const chromeLines = 2 + (config.title ? 2 : 0) + 3;
 			const budget = contentBudget(chromeLines);
-			const contentLines = config.content(theme, width - SCROLLBAR_GUTTER);
+			const contentLines = getContent(width);
 			const { lines: scrolled, needsVScroll } = renderScrollRegion(
 				contentLines,
 				scroll,
 				budget,
 				width,
 				theme,
+				cachedHScroll,
 			);
 			for (const line of scrolled) add(line);
 
@@ -160,7 +173,13 @@ export async function view(
 			return lines;
 		}
 
-		return { render, handleInput, invalidate() {} };
+		return {
+			render,
+			handleInput,
+			invalidate() {
+				cachedContent = null;
+			},
+		};
 	});
 }
 
@@ -174,6 +193,9 @@ async function showSinglePrompt(
 		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };
 		let optionIndex = 0;
 		let editorMode = false;
+		let cachedContent: string[] | null = null;
+		let cachedHScroll = false;
+		let cachedWidth = -1;
 		let editorContext: {
 			type: "steerAction" | "pureSteer" | "editor";
 			actionKey?: string;
@@ -326,15 +348,28 @@ async function showSinglePrompt(
 			// Top border
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 
-			// Content
+			// Content (cached — only re-render on width change)
 			const chromeLines = computeChromeLines(false, actions, options);
 			const budget = contentBudget(chromeLines);
-			const contentLines = config.content(theme, width - SCROLLBAR_GUTTER);
+			if (!cachedContent || width !== cachedWidth) {
+				cachedContent = config.content(theme, width - SCROLLBAR_GUTTER);
+				cachedHScroll =
+					maxContentWidth(cachedContent) > width - SCROLLBAR_GUTTER;
+				cachedWidth = width;
+			}
+			const contentLines = cachedContent;
 			const {
 				lines: scrolled,
 				needsVScroll,
 				needsHScroll,
-			} = renderScrollRegion(contentLines, scroll, budget, width, theme);
+			} = renderScrollRegion(
+				contentLines,
+				scroll,
+				budget,
+				width,
+				theme,
+				cachedHScroll,
+			);
 			for (const line of scrolled) add(line);
 
 			// Pad to budget only when scrolling (keeps height stable during scroll)
@@ -380,7 +415,13 @@ async function showSinglePrompt(
 			return lines;
 		}
 
-		return { render, handleInput, invalidate() {} };
+		return {
+			render,
+			handleInput,
+			invalidate() {
+				cachedContent = null;
+			},
+		};
 	});
 }
 
@@ -394,6 +435,10 @@ async function showTabbedPrompt(
 		let currentTab = 0;
 		let optionIndex = 0;
 		let editorMode = false;
+		const contentCache = new Map<
+			number,
+			{ lines: string[]; width: number; hScroll: boolean }
+		>();
 		let editorContext: {
 			type: "steerAction" | "pureSteer" | "editor" | "addItem";
 			actionKey?: string;
@@ -659,10 +704,20 @@ async function showTabbedPrompt(
 				theme.fg("dim", ` ${GLYPH.separator.repeat(Math.max(0, width - 2))}`),
 			);
 
-			// Content
+			// Content (cached per tab — only re-render on width change)
 			const chromeLines = computeChromeLines(true, actions, options);
 			const budget = contentBudget(chromeLines);
-			const contentLines = content(theme, width - SCROLLBAR_GUTTER);
+			const cached = contentCache.get(currentTab);
+			if (!cached || cached.width !== width) {
+				const rendered = content(theme, width - SCROLLBAR_GUTTER);
+				contentCache.set(currentTab, {
+					lines: rendered,
+					width,
+					hScroll: maxContentWidth(rendered) > width - SCROLLBAR_GUTTER,
+				});
+			}
+			const entry = contentCache.get(currentTab);
+			const contentLines = entry?.lines ?? [];
 			const scrollState = scrollStates[currentTab] ?? {
 				vOffset: 0,
 				hOffset: 0,
@@ -671,7 +726,14 @@ async function showTabbedPrompt(
 				lines: scrolled,
 				needsVScroll,
 				needsHScroll,
-			} = renderScrollRegion(contentLines, scrollState, budget, width, theme);
+			} = renderScrollRegion(
+				contentLines,
+				scrollState,
+				budget,
+				width,
+				theme,
+				entry?.hScroll,
+			);
 			for (const line of scrolled) add(line);
 
 			// Pad to budget only when scrolling (keeps height stable during scroll)
@@ -717,7 +779,13 @@ async function showTabbedPrompt(
 			return lines;
 		}
 
-		return { render, handleInput, invalidate() {} };
+		return {
+			render,
+			handleInput,
+			invalidate() {
+				contentCache.clear();
+			},
+		};
 	});
 }
 

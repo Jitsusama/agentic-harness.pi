@@ -15,6 +15,7 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import {
 	languageFromPath,
+	preHighlightCode,
 	renderCode,
 	renderDiff,
 	renderMarkdown,
@@ -76,13 +77,16 @@ function renderForType(
 	switch (type) {
 		case "diff":
 			return (theme, width) => renderDiff(text, theme, width);
-		case "code":
+		case "code": {
+			// Pre-highlight once upfront so render cycles are instant
+			const highlighted = preHighlightCode(text, language);
 			return (theme, width) =>
 				renderCode(text, theme, width, {
-					language,
+					preHighlighted: highlighted,
 					startLine: options?.startLine,
 					highlightLines: options?.highlightLines,
 				});
+		}
 		default:
 			return (theme, width) => renderMarkdown(text, theme, width);
 	}
@@ -112,7 +116,10 @@ export async function showContent(
 
 	await view(ctx, {
 		title,
-		content: (theme: Theme, width: number) => renderFn(theme, width),
+		// Pass a caching wrapper — pre-render is width-dependent,
+		// so we cache by width and let the panel cache mechanism
+		// avoid re-calling on scroll/input.
+		content: renderFn,
 	});
 }
 

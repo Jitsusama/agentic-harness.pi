@@ -43,10 +43,9 @@ export function renderScrollRegion(
 	budget: number,
 	width: number,
 	theme: Theme,
+	needsHScroll = false,
 ): { lines: string[]; needsVScroll: boolean; needsHScroll: boolean } {
 	const needsVScroll = contentLines.length > budget;
-	const effectiveWidth = needsVScroll ? width - SCROLLBAR_GUTTER : width;
-	const needsHScroll = maxContentWidth(contentLines) > effectiveWidth;
 	const lines: string[] = [];
 
 	const vOffset = clampVScroll(state.vOffset, contentLines.length, budget);
@@ -134,7 +133,8 @@ export function contentWidth(termWidth: number): number {
 // ---- Internal helpers ----
 
 /** Find the maximum visible width across content lines. */
-function maxContentWidth(lines: string[]): number {
+/** Compute the maximum visible width across all lines. */
+export function maxContentWidth(lines: string[]): number {
 	let max = 0;
 	for (const line of lines) {
 		const w = visibleWidth(line);
