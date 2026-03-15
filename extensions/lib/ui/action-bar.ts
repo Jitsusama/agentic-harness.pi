@@ -1,14 +1,11 @@
 /**
- * ActionBar — key-hint action bar with hold-to-reveal steer layer.
+ * ActionBar — key-hint action bar with Shift+key steer annotations.
  *
- * Normal state shows actions with highlighted key shortcuts:
- *   [A]pprove  [R]eject                    hold ⇧ to annotate
+ * Shows actions with highlighted key shortcuts plus steer hint:
+ *   [A]pprove  [R]eject                    ⇧+key to annotate
  *
- * Shift held reveals the steer layer:
- *   [A]pprove + note  [R]eject + note  [S]teer      release ⇧
- *
- * Uses Kitty keyboard protocol (wantsKeyRelease) to detect
- * shift key down/up transitions.
+ * Shift+letter opens a NoteEditor for that action. Shift+S opens
+ * a pure steer annotation (no action attached).
  */
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
@@ -30,8 +27,7 @@ export type ActionBarResult =
 // ---- Rendering ----
 
 /**
- * Render the action bar in normal mode.
- * Highlights the key letter in accent color within each label.
+ * Render the action bar with key-hint labels and steer annotation hint.
  */
 export function renderActionBar(
 	actions: Action[],
@@ -45,7 +41,7 @@ export function renderActionBar(
 	}
 
 	const left = `  ${parts.join("  ")}`;
-	const hint = theme.fg("dim", "hold ⇧ to annotate");
+	const hint = theme.fg("dim", "⇧+key to annotate");
 	const leftWidth = visibleWidth(left);
 	const hintWidth = visibleWidth(hint);
 	const gap = Math.max(2, width - leftWidth - hintWidth);
@@ -54,38 +50,12 @@ export function renderActionBar(
 }
 
 /**
- * Render the action bar in steer mode (shift held).
- * Each action becomes annotatable, plus a pure Steer option.
- */
-export function renderSteerBar(
-	actions: Action[],
-	width: number,
-	theme: Theme,
-): string {
-	const parts: string[] = [];
-
-	for (const action of actions) {
-		parts.push(formatActionLabel(action, theme, " + note"));
-	}
-	parts.push(formatKeyLabel("s", "Steer", theme));
-
-	const left = `  ${parts.join("  ")}`;
-	const hint = theme.fg("dim", "release ⇧");
-	const leftWidth = visibleWidth(left);
-	const hintWidth = visibleWidth(hint);
-	const gap = Math.max(2, width - leftWidth - hintWidth);
-
-	return truncateToWidth(`${left}${" ".repeat(gap)}${hint}`, width);
-}
-
-/**
- * Handle action bar key input. Returns a result or null if
- * unhandled. The caller tracks shift state via key release events.
+ * Handle action bar key input. Returns a result or null if unhandled.
+ * Shift+key opens an annotation editor; plain key fires immediately.
  */
 export function handleActionInput(
 	data: string,
 	actions: Action[],
-	shiftHeld: boolean,
 ): ActionBarResult | null {
 	// Shift+S = pure steer (always available)
 	if (matchesKey(data, Key.shift("s"))) {
@@ -99,29 +69,13 @@ export function handleActionInput(
 		}
 	}
 
-	// Normal letter = immediate action (only when shift not held)
-	if (!shiftHeld) {
-		for (const action of actions) {
-			if (data === action.key) {
-				return { type: "action", key: action.key };
-			}
+	// Plain letter = immediate action
+	for (const action of actions) {
+		if (data === action.key) {
+			return { type: "action", key: action.key };
 		}
 	}
 
-	return null;
-}
-
-/**
- * Detect shift key press/release transitions for hold-to-reveal.
- * Returns the new shift state, or null if the key wasn't a
- * shift transition.
- */
-export function detectShiftTransition(data: string): boolean | null {
-	// Kitty protocol sends specific sequences for modifier-only keys.
-	// Shift press: CSI 1;2u (key 1, shift modifier)
-	// Shift release: CSI 1;2:3u (key 1, shift modifier, release event)
-	if (data === "\x1b[1;2u") return true;
-	if (data === "\x1b[1;2:3u") return false;
 	return null;
 }
 

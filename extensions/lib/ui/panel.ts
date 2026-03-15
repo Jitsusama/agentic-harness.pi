@@ -7,7 +7,7 @@
  *   - Height budget (60% max, grow-to-fit)
  *   - Keyboard routing (scroll ↔ actions/options ↔ editor)
  *   - Universal keys (Escape, Ctrl+Enter)
- *   - Steer state (Shift detection, NoteEditor activation)
+ *   - Steer state (Shift+key detection, NoteEditor activation)
  *   - Tab state (current tab, per-item results)
  *
  * Layout structure:
@@ -23,13 +23,17 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Editor, Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import {
+	Editor,
+	isKeyRelease,
+	Key,
+	matchesKey,
+	truncateToWidth,
+} from "@mariozechner/pi-tui";
 import {
 	type ActionBarResult,
-	detectShiftTransition,
 	handleActionInput,
 	renderActionBar,
-	renderSteerBar,
 } from "./action-bar.js";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
 import {
@@ -139,9 +143,11 @@ export async function view(
 			);
 			for (const line of scrolled) add(line);
 
-			// Pad to budget for stable height
-			while (lines.length < budget + (config.title ? 3 : 1)) {
-				lines.push("");
+			// Pad to budget only when scrolling (keeps height stable during scroll)
+			if (needsVScroll) {
+				while (lines.length < budget + (config.title ? 3 : 1)) {
+					lines.push("");
+				}
 			}
 
 			lines.push("");
@@ -216,6 +222,11 @@ async function showSinglePrompt(
 		}
 
 		function handleInput(data: string) {
+			// Drop release events — they duplicate press events under
+			// Kitty protocol flag 2 and would leak characters into
+			// the NoteEditor or double-fire actions.
+			if (isKeyRelease(data)) return;
+
 			// Editor mode
 			if (editorMode) {
 				if (matchesKey(data, Key.escape)) {
@@ -236,14 +247,6 @@ async function showSinglePrompt(
 				return;
 			}
 
-			// Shift hold-to-reveal detection
-			const shiftState = detectShiftTransition(data);
-			if (shiftState !== null) {
-				shiftHeld = shiftState;
-				tui.requestRender();
-				return;
-			}
-
 			// Scroll handling
 			const chromeLines = computeChromeLines(false, actions, options);
 			const budget = contentBudget(chromeLines);
@@ -257,7 +260,7 @@ async function showSinglePrompt(
 
 			// Action bar handling
 			if (actions) {
-				const result = handleActionInput(data, actions, shiftHeld);
+				const result = handleActionInput(data, actions);
 				if (result) {
 					handleActionResult(result);
 					return;
@@ -334,9 +337,11 @@ async function showSinglePrompt(
 			} = renderScrollRegion(contentLines, scroll, budget, width, theme);
 			for (const line of scrolled) add(line);
 
-			// Pad content to budget
-			while (lines.length < budget + 1) {
-				lines.push("");
+			// Pad to budget only when scrolling (keeps height stable during scroll)
+			if (needsVScroll) {
+				while (lines.length < budget + 1) {
+					lines.push("");
+				}
 			}
 
 			if (editorMode) {
@@ -379,12 +384,7 @@ async function showSinglePrompt(
 			return lines;
 		}
 
-		return {
-			render,
-			handleInput,
-			wantsKeyRelease: !!actions,
-			invalidate() {},
-		};
+		return { render, handleInput, invalidate() {} };
 	});
 }
 
@@ -397,7 +397,6 @@ async function showTabbedPrompt(
 	return ctx.ui.custom<TabbedResult | null>((tui, theme, _kb, done) => {
 		let currentTab = 0;
 		let optionIndex = 0;
-		let shiftHeld = false;
 		let editorMode = false;
 		let editorContext: {
 			type: "steerAction" | "pureSteer" | "editor" | "addItem";
@@ -485,6 +484,9 @@ async function showTabbedPrompt(
 		}
 
 		function handleInput(data: string) {
+			// Drop release events (see single prompt comment)
+			if (isKeyRelease(data)) return;
+
 			if (editorMode) {
 				if (matchesKey(data, Key.escape)) {
 					editorMode = false;
@@ -516,14 +518,6 @@ async function showTabbedPrompt(
 				return;
 			}
 
-			// Shift detection
-			const shiftState = detectShiftTransition(data);
-			if (shiftState !== null) {
-				shiftHeld = shiftState;
-				tui.requestRender();
-				return;
-			}
-
 			// Tab navigation
 			const tabResult = handleTabInput(data, currentTab, config.items.length);
 			if (tabResult !== null) {
@@ -551,7 +545,7 @@ async function showTabbedPrompt(
 
 			// Action bar
 			if (actions) {
-				const result = handleActionInput(data, actions, shiftHeld);
+				const result = handleActionInput(data, actions);
 				if (result) {
 					handleActionResult(result);
 					return;
@@ -698,11 +692,7 @@ async function showTabbedPrompt(
 			} else {
 				if (actions) {
 					lines.push("");
-					add(
-						shiftHeld
-							? renderSteerBar(actions, width, theme)
-							: renderActionBar(actions, width, theme),
-					);
+					add(renderActionBar(actions, width, theme));
 				}
 				if (options) {
 					lines.push("");
@@ -720,12 +710,7 @@ async function showTabbedPrompt(
 			return lines;
 		}
 
-		return {
-			render,
-			handleInput,
-			wantsKeyRelease: !!config.actions || config.items.some((i) => i.actions),
-			invalidate() {},
-		};
+		return { render, handleInput, invalidate() {} };
 	});
 }
 
@@ -769,6 +754,5 @@ function buildHints(
 	hints.push("Esc cancel");
 	if (needsVScroll) hints.push("Shift+↑↓ scroll");
 	if (needsHScroll) hints.push("Shift+←→ pan");
-	if (hasActions) hints.push("hold ⇧ annotate");
 	return hints;
 }
