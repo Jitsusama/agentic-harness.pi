@@ -13,7 +13,6 @@ import type {
 	ExtensionContext,
 	Theme,
 } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth } from "@mariozechner/pi-tui";
 import {
 	languageFromPath,
 	renderCode,
@@ -113,19 +112,7 @@ export async function showContent(
 
 	await view(ctx, {
 		title,
-		content: (theme: Theme, width: number) => {
-			const lines: string[] = [];
-			if (title) {
-				lines.push(
-					truncateToWidth(theme.fg("accent", ` ${theme.bold(title)}`), width),
-				);
-				lines.push("");
-			}
-			for (const line of renderFn(theme, width)) {
-				lines.push(line);
-			}
-			return lines;
-		},
+		content: (theme: Theme, width: number) => renderFn(theme, width),
 	});
 }
 
