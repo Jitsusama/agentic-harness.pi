@@ -1,10 +1,12 @@
 /**
  * Confirmation gates for sensitive Google Workspace operations.
  * Uses prompt() with actions for approve/cancel decisions.
+ * Steer annotations return feedback for the agent to adjust.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { prompt } from "../lib/ui/panel.js";
+import { formatSteer } from "../lib/ui/steer.js";
 
 export interface EmailData {
 	to: string[];
@@ -23,16 +25,41 @@ export interface EventData {
 	attendees?: string[];
 }
 
+/** Result from a confirmation gate — approved data, steer feedback, or null (cancelled). */
+export type ConfirmResult<T> =
+	| { approved: true; data: T }
+	| { approved: false; steer: string }
+	| null;
+
+// ---- Helpers ----
+
+/** Extract steer feedback from a prompt result, or null if not a steer. */
+function extractSteer(
+	result: { type: string; note?: string; value?: string } | null,
+	context: string,
+): { approved: false; steer: string } | null {
+	if (!result) return null;
+	if (result.type === "steer") {
+		return { approved: false, steer: formatSteer(result.note ?? "", context) };
+	}
+	if (result.note) {
+		return { approved: false, steer: formatSteer(result.note, context) };
+	}
+	return null;
+}
+
+// ---- Email ----
+
 /**
  * Confirm email before sending.
- * Returns email data if approved, or null if cancelled.
+ * Returns approved data, steer feedback, or null if cancelled.
  */
 export async function confirmSendEmail(
 	ctx: ExtensionContext,
 	email: EmailData,
 	isReply: boolean,
-): Promise<EmailData | null> {
-	if (!ctx.hasUI) return email;
+): Promise<ConfirmResult<EmailData>> {
+	if (!ctx.hasUI) return { approved: true, data: email };
 
 	const result = await prompt(ctx, {
 		content: (theme) => {
@@ -74,18 +101,24 @@ export async function confirmSendEmail(
 	if (!result || (result.type === "action" && result.value === "c")) {
 		return null;
 	}
-	return email;
+	const steer = extractSteer(
+		result,
+		`Original email to: ${email.to.join(", ")}\nSubject: ${email.subject}`,
+	);
+	if (steer) return steer;
+	return { approved: true, data: email };
 }
 
 /**
  * Confirm deleting an email.
+ * Returns approved true, steer feedback, or null if cancelled.
  */
 export async function confirmDeleteEmail(
 	ctx: ExtensionContext,
 	messageId: string,
 	subject?: string,
-): Promise<boolean> {
-	if (!ctx.hasUI) return true;
+): Promise<ConfirmResult<true>> {
+	if (!ctx.hasUI) return { approved: true, data: true };
 
 	const result = await prompt(ctx, {
 		content: (theme) => {
@@ -106,18 +139,31 @@ export async function confirmDeleteEmail(
 		],
 	});
 
-	return !!result && result.type === "action" && result.value === "d";
+	if (!result || (result.type === "action" && result.value === "c")) {
+		return null;
+	}
+	const steer = extractSteer(
+		result,
+		`Delete email ${subject ? `"${subject}"` : messageId}`,
+	);
+	if (steer) return steer;
+	return { approved: true, data: true };
 }
+
+// ---- Calendar ----
 
 /**
  * Confirm event before creating (only when attendees present).
+ * Returns approved data, steer feedback, or null if cancelled.
  */
 export async function confirmCreateEvent(
 	ctx: ExtensionContext,
 	event: EventData,
-): Promise<EventData | null> {
-	if (!ctx.hasUI) return event;
-	if (!event.attendees || event.attendees.length === 0) return event;
+): Promise<ConfirmResult<EventData>> {
+	if (!ctx.hasUI) return { approved: true, data: event };
+	if (!event.attendees || event.attendees.length === 0) {
+		return { approved: true, data: event };
+	}
 
 	const result = await prompt(ctx, {
 		content: (theme) => {
@@ -155,21 +201,28 @@ export async function confirmCreateEvent(
 	if (!result || (result.type === "action" && result.value === "x")) {
 		return null;
 	}
-	return event;
+	const steer = extractSteer(
+		result,
+		`Create event: ${event.summary}\nAttendees: ${event.attendees.join(", ")}`,
+	);
+	if (steer) return steer;
+	return { approved: true, data: event };
 }
 
 /**
  * Confirm updating an event with attendees.
+ * Returns approved true, steer feedback, or null if cancelled.
  */
 export async function confirmUpdateEvent(
 	ctx: ExtensionContext,
 	eventId: string,
 	existingEvent: EventData,
 	updates: Partial<EventData>,
-): Promise<boolean> {
-	if (!ctx.hasUI) return true;
-	if (!existingEvent.attendees || existingEvent.attendees.length === 0)
-		return true;
+): Promise<ConfirmResult<true>> {
+	if (!ctx.hasUI) return { approved: true, data: true };
+	if (!existingEvent.attendees || existingEvent.attendees.length === 0) {
+		return { approved: true, data: true };
+	}
 
 	const changes: string[] = [];
 	if (updates.summary) changes.push(`Title: ${updates.summary}`);
@@ -203,20 +256,29 @@ export async function confirmUpdateEvent(
 		],
 	});
 
-	return !!result && result.type === "action" && result.value === "u";
+	if (!result || (result.type === "action" && result.value === "c")) {
+		return null;
+	}
+	const steer = extractSteer(
+		result,
+		`Update event: ${existingEvent.summary}\nChanges: ${changes.join(", ")}`,
+	);
+	if (steer) return steer;
+	return { approved: true, data: true };
 }
 
 /**
  * Confirm deleting an event with attendees.
+ * Returns approved true, steer feedback, or null if cancelled.
  */
 export async function confirmDeleteEvent(
 	ctx: ExtensionContext,
 	eventId: string,
 	summary: string,
 	hasAttendees: boolean,
-): Promise<boolean> {
-	if (!ctx.hasUI) return true;
-	if (!hasAttendees) return true;
+): Promise<ConfirmResult<true>> {
+	if (!ctx.hasUI) return { approved: true, data: true };
+	if (!hasAttendees) return { approved: true, data: true };
 
 	const result = await prompt(ctx, {
 		content: (theme) => {
@@ -236,5 +298,10 @@ export async function confirmDeleteEvent(
 		],
 	});
 
-	return !!result && result.type === "action" && result.value === "d";
+	if (!result || (result.type === "action" && result.value === "c")) {
+		return null;
+	}
+	const steer = extractSteer(result, `Delete event: ${summary}`);
+	if (steer) return steer;
+	return { approved: true, data: true };
 }

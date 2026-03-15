@@ -118,18 +118,24 @@ export async function handleSendEmail(
 	}
 
 	// Confirm and potentially edit before sending
-	const emailData = await confirmSendEmail(
+	const confirmResult = await confirmSendEmail(
 		ctx,
 		{ to, cc, bcc, subject, body },
 		!!replyTo,
 	);
 
-	if (!emailData) {
+	if (!confirmResult) {
 		return {
 			content: [{ type: "text", text: "✗ Send email cancelled" }],
 		};
 	}
+	if (!confirmResult.approved) {
+		return {
+			content: [{ type: "text", text: confirmResult.steer }],
+		};
+	}
 
+	const emailData = confirmResult.data;
 	const result = await sendEmail(auth, {
 		to: emailData.to,
 		subject: emailData.subject,
@@ -209,10 +215,15 @@ export async function handleDeleteEmail(
 	}
 
 	// Confirm before deleting
-	const confirmed = await confirmDeleteEmail(ctx, id);
-	if (!confirmed) {
+	const confirmResult = await confirmDeleteEmail(ctx, id);
+	if (!confirmResult) {
 		return {
 			content: [{ type: "text", text: "✗ Delete cancelled" }],
+		};
+	}
+	if (!confirmResult.approved) {
+		return {
+			content: [{ type: "text", text: confirmResult.steer }],
 		};
 	}
 
