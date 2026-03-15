@@ -22,7 +22,7 @@
  *   DynamicBorder     ──── bottom accent rule
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import {
 	Editor,
 	isKeyRelease,
@@ -419,8 +419,15 @@ async function showSinglePrompt(
 
 				// Hint bar
 				lines.push("");
-				const hints = buildHints(false, needsVScroll, needsHScroll, !!actions);
-				add(theme.fg("dim", ` ${hints.join(" · ")}`));
+				add(
+					buildHintBar({
+						theme,
+						hasTabs: false,
+						needsVScroll,
+						needsHScroll,
+						hasActions: !!actions,
+					}),
+				);
 			}
 
 			// Bottom border
@@ -903,14 +910,17 @@ async function showTabbedPrompt(
 				}
 
 				lines.push("");
-				const hints = buildHints(
-					true,
-					needsVScroll,
-					needsHScroll,
-					!!actions && !onUserTab,
-					onUserTab,
+				add(
+					buildHintBar({
+						theme,
+						hasTabs: true,
+						needsVScroll,
+						needsHScroll,
+						hasActions: !!actions && !onUserTab,
+						isUserTab: onUserTab,
+						allComplete: results.size >= config.items.length,
+					}),
 				);
-				add(theme.fg("dim", ` ${hints.join(" · ")}`));
 			}
 
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
@@ -946,28 +956,34 @@ function computeChromeLines(
 	return lines;
 }
 
-/** Build the hint bar segments. */
-function buildHints(
-	hasTabs: boolean,
-	needsVScroll: boolean,
-	needsHScroll: boolean,
-	hasActions: boolean,
-	isUserTab = false,
-): string[] {
+/** Build the hint bar as a styled string. */
+function buildHintBar(opts: {
+	theme: Theme;
+	hasTabs: boolean;
+	needsVScroll: boolean;
+	needsHScroll: boolean;
+	hasActions: boolean;
+	isUserTab?: boolean;
+	allComplete?: boolean;
+}): string {
+	const { theme } = opts;
 	const hints: string[] = [];
-	if (hasTabs) {
-		hints.push("Tab navigate");
-		hints.push("Ctrl+# jump");
-		hints.push("Ctrl+Enter submit");
+	if (opts.hasTabs) {
+		hints.push(theme.fg("dim", "Tab navigate"));
+		hints.push(theme.fg("dim", "Ctrl+# jump"));
+		const submit = "Ctrl+Enter submit";
+		hints.push(
+			opts.allComplete ? theme.fg("accent", submit) : theme.fg("dim", submit),
+		);
 	}
-	if (isUserTab) {
-		hints.push("↑↓ select");
-	} else if (!hasActions) {
-		hints.push("↑↓ select");
-		hints.push("Enter confirm");
+	if (opts.isUserTab) {
+		hints.push(theme.fg("dim", "↑↓ select"));
+	} else if (!opts.hasActions) {
+		hints.push(theme.fg("dim", "↑↓ select"));
+		hints.push(theme.fg("dim", "Enter confirm"));
 	}
-	hints.push("Esc cancel");
-	if (needsVScroll) hints.push("Shift+↑↓ scroll");
-	if (needsHScroll) hints.push("Shift+←→ pan");
-	return hints;
+	hints.push(theme.fg("dim", "Esc cancel"));
+	if (opts.needsVScroll) hints.push(theme.fg("dim", "Shift+↑↓ scroll"));
+	if (opts.needsHScroll) hints.push(theme.fg("dim", "Shift+←→ pan"));
+	return ` ${hints.join(theme.fg("dim", " · "))}`;
 }
