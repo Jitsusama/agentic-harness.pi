@@ -86,12 +86,16 @@ export function handleScrollInput(
 	data: string,
 	state: ScrollState,
 	budget: number,
+	contentLength: number,
 ): ScrollState | null {
 	if (matchesKey(data, "pageup") || matchesKey(data, Key.shift("up"))) {
 		return { ...state, vOffset: Math.max(0, state.vOffset - budget) };
 	}
 	if (matchesKey(data, "pagedown") || matchesKey(data, Key.shift("down"))) {
-		return { ...state, vOffset: state.vOffset + budget };
+		return {
+			...state,
+			vOffset: clampVScroll(state.vOffset + budget, contentLength, budget),
+		};
 	}
 	if (matchesKey(data, Key.shift("left"))) {
 		return {

@@ -125,7 +125,12 @@ export async function view(
 			}
 			const chromeLines = 2 + (config.title ? 2 : 0) + 3;
 			const budget = contentBudget(chromeLines);
-			const scrollResult = handleScrollInput(data, scroll, budget);
+			const scrollResult = handleScrollInput(
+				data,
+				scroll,
+				budget,
+				cachedContent?.length ?? 0,
+			);
 			if (scrollResult) {
 				scroll.vOffset = scrollResult.vOffset;
 				scroll.hOffset = scrollResult.hOffset;
@@ -272,7 +277,12 @@ async function showSinglePrompt(
 			// Scroll handling
 			const chromeLines = computeChromeLines(false, actions, options);
 			const budget = contentBudget(chromeLines);
-			const scrollResult = handleScrollInput(data, scroll, budget);
+			const scrollResult = handleScrollInput(
+				data,
+				scroll,
+				budget,
+				cachedContent?.length ?? 0,
+			);
 			if (scrollResult) {
 				scroll.vOffset = scrollResult.vOffset;
 				scroll.hOffset = scrollResult.hOffset;
@@ -577,7 +587,13 @@ async function showTabbedPrompt(
 				vOffset: 0,
 				hOffset: 0,
 			};
-			const scrollResult = handleScrollInput(data, scrollState, budget);
+			const cachedEntry = contentCache.get(currentTab);
+			const scrollResult = handleScrollInput(
+				data,
+				scrollState,
+				budget,
+				cachedEntry?.lines.length ?? 0,
+			);
 			if (scrollResult) {
 				scrollStates[currentTab] = scrollResult;
 				tui.requestRender();
