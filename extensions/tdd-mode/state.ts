@@ -15,10 +15,17 @@ export interface TddState {
 }
 
 /** Emoji glyphs for each phase, used in status display and gates. */
-export const PHASE_GLYPHS: Record<Phase, string> = {
-	red: "🔴",
-	green: "🟢",
-	refactor: "🔄",
+/** Glyph used for all phase indicators — colored by the caller. */
+export const PHASE_GLYPH = "●";
+
+/** Theme color name for each phase. */
+export type PhaseColor = "error" | "success" | "accent";
+
+/** Theme color for each phase. */
+export const PHASE_COLORS: Record<Phase, PhaseColor> = {
+	red: "error",
+	green: "success",
+	refactor: "accent",
 };
 
 /** LLM-facing phase descriptions used in enforcement block messages. */

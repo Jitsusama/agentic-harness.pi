@@ -9,7 +9,13 @@ import { truncateToWidth } from "@mariozechner/pi-tui";
 import { filterContext } from "../lib/state.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { prompt } from "../lib/ui/panel.js";
-import { PHASE_GLYPHS, type Phase, type TddState } from "./state.js";
+import {
+	PHASE_COLORS,
+	PHASE_GLYPH,
+	type Phase,
+	type PhaseColor,
+	type TddState,
+} from "./state.js";
 
 /** Max length for the short summary shown in the gate header. */
 const SUMMARY_MAX_LENGTH = 50;
@@ -18,9 +24,9 @@ const SUMMARY_MIN_TRUNCATE = 20;
 
 /** Human-readable phase names for gate display. */
 const PHASE_NAMES: Record<Phase, string> = {
-	red: "RED",
-	green: "GREEN",
-	refactor: "REFACTOR",
+	red: "Red",
+	green: "Green",
+	refactor: "Refactor",
 };
 
 /** Extract first sentence or clause as a short title. */
@@ -56,19 +62,22 @@ export async function showTransitionGate(
 ): Promise<TransitionGateResult> {
 	if (!ctx.hasUI) return { approved: true };
 
-	const currentGlyph = PHASE_GLYPHS[state.phase];
+	const currentColor = PHASE_COLORS[state.phase];
 	const currentName = PHASE_NAMES[state.phase];
 
 	const isStop = opts.nextPhase === "stop";
-	const nextGlyph = isStop ? "⏹" : PHASE_GLYPHS[opts.nextPhase];
-	const nextName = isStop ? "STOP" : PHASE_NAMES[opts.nextPhase];
+	const nextColor: PhaseColor | "dim" = isStop
+		? "dim"
+		: PHASE_COLORS[opts.nextPhase];
+	const nextName = isStop ? "Stop" : PHASE_NAMES[opts.nextPhase];
 
 	const result = await prompt(ctx, {
+		title: `${currentName} → ${nextName}`,
 		content: (theme, width) => {
 			const short = shortSummary(opts.summary);
 			const lines = [
 				truncateToWidth(
-					theme.fg("text", ` ${currentGlyph} → ${nextGlyph}  ${short}`),
+					` ${theme.fg(currentColor, PHASE_GLYPH)} → ${theme.fg(nextColor, PHASE_GLYPH)}  ${theme.fg("text", short)}`,
 					width,
 				),
 				"",

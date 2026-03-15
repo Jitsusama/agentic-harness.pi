@@ -25,7 +25,8 @@ import {
 import { showRefactorGate } from "./refactor-gate.js";
 import {
 	createTddState,
-	PHASE_GLYPHS,
+	PHASE_COLORS,
+	PHASE_GLYPH,
 	PHASE_STAY,
 	type Phase,
 } from "./state.js";
@@ -199,9 +200,14 @@ export default function tddMode(pi: ExtensionAPI) {
 		renderCall(args, options, theme) {
 			const a = args as { action?: string; context?: string };
 			const action = a.action ?? "?";
-			const glyph =
-				PHASE_GLYPHS[action as Phase] ??
-				(action === "done" ? "✓" : action === "stop" ? "⏹" : "");
+			const color = PHASE_COLORS[action as Phase];
+			const glyph = color
+				? theme.fg(color, PHASE_GLYPH)
+				: action === "done"
+					? theme.fg("success", "✓")
+					: action === "stop"
+						? theme.fg("dim", "■")
+						: "";
 			let text = theme.fg("toolTitle", theme.bold("tdd_phase "));
 			text += `${glyph} ${action}`;
 			if (a.context) {

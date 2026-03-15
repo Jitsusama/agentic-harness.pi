@@ -9,7 +9,12 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { getLastEntry } from "../lib/state.js";
-import { PHASE_GLYPHS, type Phase, type TddState } from "./state.js";
+import {
+	PHASE_COLORS,
+	PHASE_GLYPH,
+	type Phase,
+	type TddState,
+} from "./state.js";
 
 function updateUI(state: TddState, ctx: ExtensionContext): void {
 	if (!state.enabled) {
@@ -20,18 +25,19 @@ function updateUI(state: TddState, ctx: ExtensionContext): void {
 
 	ctx.ui.setStatus("tdd-mode", "🧪 TDD");
 
-	const glyph = PHASE_GLYPHS[state.phase];
+	const color = PHASE_COLORS[state.phase];
 	const desc = state.testDescription;
-	const label = desc ? `${glyph} ${desc}` : glyph;
 
 	ctx.ui.setWidget("tdd-test", (_tui, theme) => {
+		const coloredGlyph = theme.fg(color, PHASE_GLYPH);
+		const label = desc
+			? `${coloredGlyph} ${theme.fg("dim", desc)}`
+			: coloredGlyph;
 		return {
 			render(width: number): string[] {
-				// Truncate label if it exceeds available width
 				const truncated = truncateToWidth(label, width);
-				const text = theme.fg("dim", truncated);
 				const pad = Math.max(0, width - visibleWidth(truncated));
-				return [`${" ".repeat(pad)}${text}`];
+				return [`${" ".repeat(pad)}${truncated}`];
 			},
 		};
 	});
