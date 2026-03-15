@@ -58,7 +58,8 @@ export function renderOptionList(
 
 		// Show description only for the selected item
 		if (isSelected && opt.description) {
-			const indent = " ".repeat(prefix.length + number.length);
+			// prefix has ANSI codes — use fixed visible width (4 chars) + number
+			const indent = " ".repeat(4 + number.length);
 			lines.push(
 				truncateToWidth(`${indent}${theme.fg("dim", opt.description)}`),
 			);
