@@ -106,7 +106,7 @@ export async function view(
 				done(undefined);
 				return;
 			}
-			const chromeLines = 2 + (config.title ? 2 : 0) + 2;
+			const chromeLines = 2 + (config.title ? 2 : 0) + 3;
 			const budget = contentBudget(chromeLines);
 			const scrollResult = handleScrollInput(data, scroll, budget);
 			if (scrollResult) {
@@ -127,7 +127,7 @@ export async function view(
 				add("");
 			}
 
-			const chromeLines = 2 + (config.title ? 2 : 0) + 2;
+			const chromeLines = 2 + (config.title ? 2 : 0) + 3;
 			const budget = contentBudget(chromeLines);
 			const contentLines = config.content(theme, width);
 			const { lines: scrolled, needsVScroll } = renderScrollRegion(
@@ -144,6 +144,7 @@ export async function view(
 				lines.push("");
 			}
 
+			lines.push("");
 			const hints: string[] = ["Esc close"];
 			if (needsVScroll) hints.push("Shift+↑↓ scroll");
 			add(theme.fg("dim", `  ${hints.join(" · ")}`));
