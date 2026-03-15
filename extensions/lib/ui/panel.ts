@@ -696,7 +696,7 @@ async function showTabbedPrompt(
 					currentTab,
 					width,
 					theme,
-					userItems.length,
+					userItems,
 				),
 			);
 			// Light separator
@@ -818,7 +818,7 @@ function buildHints(
 	const hints: string[] = [];
 	if (hasTabs) {
 		hints.push("Tab navigate");
-		hints.push("Ctrl+N jump");
+		hints.push("Ctrl+# jump");
 		hints.push("+ add");
 		hints.push("Ctrl+Enter submit");
 	}

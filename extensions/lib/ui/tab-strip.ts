@@ -48,14 +48,16 @@ function statusGlyph(status: TabStatus, theme: Theme): string {
 
 /** Render a single tab segment (glyph + label). */
 function renderTab(
+	index: number,
 	label: string,
 	status: TabStatus,
 	isCurrent: boolean,
 	theme: Theme,
 ): string {
 	const glyph = statusGlyph(status, theme);
+	const num = theme.fg("dim", `${index + 1}`);
 	const text = isCurrent ? theme.underline(label) : label;
-	return `${glyph} ${text}`;
+	return `${glyph} ${num} ${text}`;
 }
 
 /** Build the progress bar: [▓▓░░░] N/M */
@@ -82,22 +84,39 @@ function renderProgress(
  * Handles tab overflow by showing first tab, last tab, and
  * as many around the current tab as fit, with … for gaps.
  */
+/** Max visible characters for a user-added item label. */
+const USER_ITEM_LABEL_MAX = 12;
+
+/** Truncate text to a max length, adding ellipsis if needed. */
+function truncateLabel(text: string, max: number): string {
+	if (text.length <= max) return text;
+	return `${text.slice(0, max - 1)}${GLYPH.ellipsis}`;
+}
+
 export function renderTabStrip(
 	labels: string[],
 	statuses: TabStatus[],
 	currentIndex: number,
 	width: number,
 	theme: Theme,
-	userItemCount = 0,
+	userItems: string[] = [],
 ): string {
-	const total = labels.length;
-	const completed = statuses.filter(
+	// Append user-added items as extra completed tabs
+	const allLabels = [
+		...labels,
+		...userItems.map((text) => truncateLabel(text, USER_ITEM_LABEL_MAX)),
+	];
+	const allStatuses: TabStatus[] = [
+		...statuses,
+		...userItems.map((): TabStatus => "complete"),
+	];
+
+	const total = allLabels.length;
+	const completed = allStatuses.filter(
 		(s) => s === "complete" || s === "rejected",
 	).length;
 	const progress = renderProgress(completed, total, theme);
-	const added =
-		userItemCount > 0 ? `  ${theme.fg("dim", `+${userItemCount} added`)}` : "";
-	const suffix = `${progress}${added}`;
+	const suffix = progress;
 	const suffixWidth = visibleWidth(suffix);
 
 	// Available width for tabs (minus indent, progress, and spacing)
@@ -106,8 +125,8 @@ export function renderTabStrip(
 	const availableWidth = width - indent - suffixWidth - spacing;
 
 	// Build all tab segments
-	const segments = labels.map((label, i) =>
-		renderTab(label, statuses[i] ?? "pending", i === currentIndex, theme),
+	const segments = allLabels.map((label, i) =>
+		renderTab(i, label, allStatuses[i] ?? "pending", i === currentIndex, theme),
 	);
 	const segmentWidths = segments.map(
 		(s) => visibleWidth(s) + 2, // +2 for inter-tab spacing
