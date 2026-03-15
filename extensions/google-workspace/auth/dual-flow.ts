@@ -1,17 +1,21 @@
 /**
- * Dual OAuth flow support - tries device flow first, falls back to web redirect.
- * This allows both "TVs and Limited Input devices" and "Desktop app" credentials to work.
+ * Dual OAuth flow — tries device flow first, falls back to web redirect.
+ * Supports both "TVs and Limited Input devices" and "Desktop app" credentials.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { Credentials } from "google-auth-library";
+import { view } from "../../lib/ui/panel.js";
+import { openInBrowser } from "./browser.js";
 import type { OAuth2Config } from "./oauth.js";
-import { initiateDeviceFlow, pollForDeviceAuthorization } from "./oauth.js";
+import {
+	initiateDeviceFlow,
+	pollForDeviceAuthorization,
+	SCOPES,
+} from "./oauth.js";
 import { waitForOAuthCallback } from "./server.js";
 
-/**
- * Result of OAuth flow.
- */
+/** Result of an OAuth flow. */
 export interface OAuthFlowResult {
 	credentials: Credentials;
 	flowUsed: "device" | "web";
@@ -25,46 +29,49 @@ export async function authenticateWithFallback(
 	ctx: ExtensionContext,
 	signal?: AbortSignal,
 ): Promise<OAuthFlowResult> {
-	// Try device flow first (works everywhere)
 	try {
 		const deviceFlow = await initiateDeviceFlow(config);
+		const dismiss = new AbortController();
 
-		ctx.ui.notify(
-			`\n📱 Google Workspace Authentication (Device Flow)\n\n` +
-				`Visit this URL in any browser:\n` +
-				`  ${deviceFlow.verification_url}\n\n` +
-				`Enter this code:\n` +
-				`  ${deviceFlow.user_code}\n\n` +
-				`Waiting for authorization... ⏳`,
-			"info",
-		);
+		// Show device code — dismissed when auth completes or user presses Escape
+		view(ctx, {
+			signal: dismiss.signal,
+			content: (theme) => [
+				` ${theme.bold("📱 Device Flow Authentication")}`,
+				"",
+				" Visit this URL in any browser:",
+				` ${theme.fg("accent", deviceFlow.verification_url)}`,
+				"",
+				" Enter this code:",
+				` ${theme.fg("accent", theme.bold(deviceFlow.user_code))}`,
+				"",
+				` ${theme.fg("dim", "Waiting for authorization…")}`,
+			],
+		});
 
-		const credentials = await pollForDeviceAuthorization(
-			config,
-			deviceFlow.device_code,
-			deviceFlow.interval,
-			signal,
-		);
+		openInBrowser(deviceFlow.verification_url);
 
-		return { credentials, flowUsed: "device" };
+		try {
+			const credentials = await pollForDeviceAuthorization(
+				config,
+				deviceFlow.device_code,
+				deviceFlow.interval,
+				signal,
+			);
+			return { credentials, flowUsed: "device" };
+		} finally {
+			dismiss.abort();
+		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 
-		// If device flow failed due to invalid client type, fall back to web redirect
 		if (
 			message.includes("invalid_client") ||
 			message.includes("Invalid OAuth client type")
 		) {
-			ctx.ui.notify(
-				"\nℹ️  Device flow not supported by your OAuth credentials.\n" +
-					"Falling back to web redirect flow (requires localhost)...\n",
-				"info",
-			);
-
 			return await authenticateWithWebRedirect(config, ctx);
 		}
 
-		// Other errors, re-throw
 		throw error;
 	}
 }
@@ -87,38 +94,45 @@ async function authenticateWithWebRedirect(
 
 	const authUrl = client.generateAuthUrl({
 		access_type: "offline",
-		scope: [
-			"https://www.googleapis.com/auth/gmail.modify",
-			"https://www.googleapis.com/auth/calendar",
-			"https://www.googleapis.com/auth/drive.readonly",
-			"https://www.googleapis.com/auth/documents.readonly",
-			"https://www.googleapis.com/auth/spreadsheets.readonly",
-			"https://www.googleapis.com/auth/presentations.readonly",
-		],
+		scope: SCOPES,
 		prompt: "consent",
 	});
 
-	ctx.ui.notify(
-		`\n🌐 Google Workspace Authentication (Web Flow)\n\n` +
-			`Visit this URL:\n` +
-			`  ${authUrl}\n\n` +
-			`Waiting for callback on ${redirectUri}...\n`,
-		"info",
-	);
+	const dismiss = new AbortController();
 
-	const port = parseInt(redirectUri.split(":")[2] || "8765", 10);
-	const result = await waitForOAuthCallback(port);
+	// Show waiting panel — dismissed when callback arrives or user presses Escape
+	view(ctx, {
+		signal: dismiss.signal,
+		content: (theme) => [
+			` ${theme.bold("🌐 Web Flow Authentication")}`,
+			"",
+			" Your browser should open automatically.",
+			" If it doesn't, visit this URL:",
+			` ${theme.fg("accent", authUrl)}`,
+			"",
+			` ${theme.fg("dim", "Waiting for authorization…")}`,
+		],
+	});
 
-	if (result.error) {
-		throw new Error(`OAuth error: ${result.error}`);
+	openInBrowser(authUrl);
+
+	try {
+		const port = Number.parseInt(redirectUri.split(":")[2] || "8765", 10);
+		const result = await waitForOAuthCallback(port);
+
+		if (result.error) {
+			throw new Error(`OAuth error: ${result.error}`);
+		}
+
+		if (!result.code) {
+			throw new Error("No authorization code received.");
+		}
+
+		const { tokens } = await client.getToken(result.code);
+		client.setCredentials(tokens);
+
+		return { credentials: tokens, flowUsed: "web" };
+	} finally {
+		dismiss.abort();
 	}
-
-	if (!result.code) {
-		throw new Error("No authorization code received.");
-	}
-
-	const { tokens } = await client.getToken(result.code);
-	client.setCredentials(tokens);
-
-	return { credentials: tokens, flowUsed: "web" };
 }

@@ -183,6 +183,8 @@ export interface ViewConfig {
 	content: ContentFn;
 	/** Enable horizontal scrolling (Shift+←→) for code content. Default: false. */
 	allowHScroll?: boolean;
+	/** Signal to programmatically dismiss the view. */
+	signal?: AbortSignal;
 }
 
 // ---- Layout Constants ----

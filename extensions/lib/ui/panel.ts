@@ -85,6 +85,12 @@ export async function view(
 		let cachedWidth = -1;
 		const hScrollEnabled = config.allowHScroll === true;
 
+		if (config.signal) {
+			config.signal.addEventListener("abort", () => done(undefined), {
+				once: true,
+			});
+		}
+
 		function getContent(width: number): string[] {
 			if (cachedContent && width === cachedWidth) return cachedContent;
 			cachedWidth = width;

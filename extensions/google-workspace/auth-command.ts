@@ -1,17 +1,17 @@
 /**
  * Google Workspace authentication command handler.
- * Uses OAuth 2.0 Device Flow for universal compatibility.
+ * Uses OAuth 2.0 with automatic device/web flow fallback.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
+import { view } from "../lib/ui/panel.js";
 import {
 	listAccounts,
 	saveAccount,
 	setDefaultAccount,
 	storeCredentials,
 } from "./auth/credentials.js";
-
 import { authenticateWithFallback } from "./auth/dual-flow.js";
 import { createOAuth2Client, setCredentials } from "./auth/oauth.js";
 
@@ -22,7 +22,7 @@ interface OAuthConfig {
 }
 
 /**
- * Handle /google-auth command using OAuth Device Flow.
+ * Handle /google-auth command.
  */
 export async function handleGoogleAuthCommand(
 	args: string | undefined,
@@ -32,78 +32,56 @@ export async function handleGoogleAuthCommand(
 	const parts = (args || "").trim().split(/\s+/);
 	const flags = parseFlags(parts);
 
-	// List accounts
 	if (flags.list) {
-		const accounts = listAccounts();
-		if (accounts.length === 0) {
-			ctx.ui.notify("No accounts configured.", "info");
-			return;
-		}
-		for (const acc of accounts) {
-			const marker = acc.isDefault ? " (default)" : "";
-			const email = acc.email ? ` - ${acc.email}` : "";
-			ctx.ui.notify(`${acc.name}${email}${marker}`, "info");
-		}
+		await showAccountList(ctx);
 		return;
 	}
 
-	// Set default account
 	if (flags.default) {
 		setDefaultAccount(flags.default);
-		ctx.ui.notify(`Default account set to: ${flags.default}`, "success");
+		ctx.ui.notify(`Default account set to: ${flags.default}`, "info");
 		return;
 	}
-
-	// Authenticate with device flow
-	const accountName = flags.account || "work";
 
 	if (!ctx.hasUI) {
-		ctx.ui.notify("Authentication requires UI.", "error");
+		ctx.ui.notify("Authentication requires interactive mode.", "error");
 		return;
 	}
 
+	if (!oauthConfig.clientId || !oauthConfig.clientSecret) {
+		await view(ctx, {
+			content: (theme) => [
+				` ${theme.bold("⚠ OAuth Credentials Missing")}`,
+				"",
+				" Set these environment variables:",
+				` ${theme.fg("accent", "GOOGLE_CLIENT_ID")}`,
+				` ${theme.fg("accent", "GOOGLE_CLIENT_SECRET")}`,
+				"",
+				" Or run /google-setup for interactive configuration.",
+			],
+		});
+		return;
+	}
+
+	const accountName = flags.account || "work";
+
 	try {
-		// Validate OAuth config
-		if (!oauthConfig.clientId || !oauthConfig.clientSecret) {
-			ctx.ui.notify(
-				"OAuth credentials not configured.\n\n" +
-					"Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.\n" +
-					"See extensions/google-workspace/README.md for setup instructions.",
-				"error",
-			);
-			return;
-		}
-
-		ctx.ui.notify("Initiating Google Workspace authentication...", "info");
-
-		// Attempt authentication with automatic fallback
 		const abortController = new AbortController();
-		const cancelHandler = () => {
-			abortController.abort();
-		};
+		const cancelHandler = () => abortController.abort();
 		process.on("SIGINT", cancelHandler);
 
 		try {
 			const result = await authenticateWithFallback(
-				{
-					...oauthConfig,
-					redirectUri: "http://localhost:8765",
-				},
+				{ ...oauthConfig, redirectUri: "http://localhost:8765" },
 				ctx,
 				abortController.signal,
 			);
 
-			// Create OAuth client and set credentials
 			const client = createOAuth2Client(oauthConfig);
 			setCredentials(client, result.credentials);
-
-			// Extract email from token
 			const email = await extractEmailFromToken(client);
 
-			// Store credentials
 			storeCredentials(accountName, result.credentials);
-
-			// Save account info
 			saveAccount({
 				name: accountName,
 				email,
@@ -113,8 +91,8 @@ export async function handleGoogleAuthCommand(
 			const flowType =
 				result.flowUsed === "device" ? "device flow" : "web redirect";
 			ctx.ui.notify(
-				`✓ Authenticated as account '${accountName}'${email ? ` (${email})` : ""} using ${flowType}`,
-				"success",
+				`✓ Authenticated as '${accountName}'${email ? ` (${email})` : ""} via ${flowType}`,
+				"info",
 			);
 		} finally {
 			process.off("SIGINT", cancelHandler);
@@ -122,14 +100,10 @@ export async function handleGoogleAuthCommand(
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 
-		// User-friendly error messages
 		if (message.includes("cancelled") || message.includes("aborted")) {
-			ctx.ui.notify("Authentication cancelled.", "warn");
+			ctx.ui.notify("Authentication cancelled.", "info");
 		} else if (message.includes("expired")) {
-			ctx.ui.notify(
-				"Authorization code expired. Please run /google-auth again.",
-				"error",
-			);
+			ctx.ui.notify("Code expired. Run /google-auth to try again.", "error");
 		} else if (message.includes("denied")) {
 			ctx.ui.notify("Authorization denied by user.", "error");
 		} else {
@@ -138,9 +112,32 @@ export async function handleGoogleAuthCommand(
 	}
 }
 
-/**
- * Extract email address from OAuth2 token.
- */
+/** Show configured accounts in a view panel. */
+async function showAccountList(ctx: ExtensionContext): Promise<void> {
+	const accounts = listAccounts();
+
+	if (accounts.length === 0) {
+		ctx.ui.notify(
+			"No accounts configured. Run /google-auth to add one.",
+			"info",
+		);
+		return;
+	}
+
+	await view(ctx, {
+		content: (theme) => {
+			const lines = [` ${theme.bold("Google Workspace Accounts")}`, ""];
+			for (const acc of accounts) {
+				const marker = acc.isDefault ? theme.fg("accent", " (default)") : "";
+				const email = acc.email ? theme.fg("dim", ` ${acc.email}`) : "";
+				lines.push(` ${acc.name}${email}${marker}`);
+			}
+			return lines;
+		},
+	});
+}
+
+/** Extract email address from an OAuth2 token. */
 async function extractEmailFromToken(
 	client: OAuth2Client,
 ): Promise<string | undefined> {
@@ -150,14 +147,12 @@ async function extractEmailFromToken(
 		);
 		return tokenInfo.email;
 	} catch {
-		// Token info fetch failed - non-critical, return undefined
+		// Token info fetch failed — non-critical
 		return undefined;
 	}
 }
 
-/**
- * Parse command flags.
- */
+/** Parse command flags from arguments. */
 function parseFlags(parts: string[]): {
 	list?: boolean;
 	account?: string;

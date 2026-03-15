@@ -291,10 +291,8 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			clearAllConfig();
 			oauthClients.clear();
 			ctx.ui.notify(
-				"✓ Cleared all Google Workspace configuration.\n\n" +
-					"OAuth credentials, accounts, and tokens have been removed.\n" +
-					"Run /google-setup to start fresh.",
-				"success",
+				"✓ Cleared all Google Workspace configuration. Run /google-setup to start fresh.",
+				"info",
 			);
 		},
 	});
