@@ -202,5 +202,8 @@ export const PI_CHROME_LINES = 8;
 /** Horizontal scroll step in visible characters. */
 export const H_SCROLL_STEP = 20;
 
+/** Lines of overlap kept when paging up/down for visual continuity. */
+export const PAGE_SCROLL_OVERLAP = 3;
+
 /** Width reserved for the vertical scrollbar gutter. */
 export const SCROLLBAR_GUTTER = 2;

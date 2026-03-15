@@ -21,6 +21,7 @@ import {
 	H_SCROLL_STEP,
 	MAX_CONTENT_WIDTH,
 	MAX_HEIGHT_FRACTION,
+	PAGE_SCROLL_OVERLAP,
 	PI_CHROME_LINES,
 	SCROLLBAR_GUTTER,
 } from "./types.js";
@@ -90,12 +91,14 @@ export function handleScrollInput(
 	needsHScroll = false,
 ): ScrollState | null {
 	if (matchesKey(data, "pageup") || matchesKey(data, Key.shift("up"))) {
-		return { ...state, vOffset: Math.max(0, state.vOffset - budget) };
+		const step = Math.max(1, budget - PAGE_SCROLL_OVERLAP);
+		return { ...state, vOffset: Math.max(0, state.vOffset - step) };
 	}
 	if (matchesKey(data, "pagedown") || matchesKey(data, Key.shift("down"))) {
+		const step = Math.max(1, budget - PAGE_SCROLL_OVERLAP);
 		return {
 			...state,
-			vOffset: clampVScroll(state.vOffset + budget, contentLength, budget),
+			vOffset: clampVScroll(state.vOffset + step, contentLength, budget),
 		};
 	}
 	if (needsHScroll && matchesKey(data, Key.shift("left"))) {
