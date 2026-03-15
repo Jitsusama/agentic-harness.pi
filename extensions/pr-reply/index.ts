@@ -31,7 +31,7 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { Key, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { renderMarkdown } from "../lib/ui/content-renderer.js";
+import { renderCode, renderMarkdown } from "../lib/ui/content-renderer.js";
 import { prompt } from "../lib/ui/panel.js";
 import { formatSteer } from "../lib/ui/steer.js";
 import { buildAnalysisPrompt } from "./analysis.js";
@@ -520,7 +520,7 @@ export default function prReply(pi: ExtensionAPI) {
 			const analysisContext = buildAnalysisPrompt(
 				nextThread,
 				review,
-				codeContext,
+				codeContext?.source ?? null,
 				planContext,
 			);
 
@@ -649,7 +649,7 @@ export default function prReply(pi: ExtensionAPI) {
 		const steerContext = buildAnalysisPrompt(
 			thread,
 			review ?? state.reviews[0],
-			codeContext,
+			codeContext?.source ?? null,
 			null,
 		);
 
@@ -676,9 +676,13 @@ export default function prReply(pi: ExtensionAPI) {
 
 				// Code context
 				if (codeContext) {
-					for (const codeLine of codeContext.split("\n")) {
-						lines.push(theme.fg("dim", codeLine));
-					}
+					lines.push(
+						...renderCode(codeContext.source, theme, width, {
+							startLine: codeContext.startLine,
+							highlightLines: new Set([codeContext.highlightLine]),
+							language: codeContext.language,
+						}),
+					);
 					lines.push("");
 				}
 
@@ -1144,14 +1148,22 @@ export default function prReply(pi: ExtensionAPI) {
 		return null;
 	}
 
+	/** Code context returned by readCodeContext. */
+	interface CodeContext {
+		source: string;
+		startLine: number;
+		highlightLine: number;
+		language: string;
+	}
+
 	/**
 	 * Read code context from disk around the commented line.
-	 * Returns null if the file can't be read.
+	 * Returns raw source and metadata for rendering with renderCode.
 	 */
 	async function readCodeContext(
 		filePath: string,
 		line: number,
-	): Promise<string | null> {
+	): Promise<CodeContext | null> {
 		const contextLines = 5;
 		const startLine = Math.max(1, line - contextLines);
 		const endLine = line + contextLines;
@@ -1164,15 +1176,33 @@ export default function prReply(pi: ExtensionAPI) {
 
 		if (result.code !== 0 || !result.stdout) return null;
 
-		// Add line numbers
-		const lines = result.stdout.split("\n");
-		const numbered = lines.map((l, i) => {
-			const lineNum = startLine + i;
-			const marker = lineNum === line ? "→" : " ";
-			return `${marker}${String(lineNum).padStart(4)} │ ${l}`;
-		});
+		// Infer language from file extension
+		const ext = filePath.split(".").pop() ?? "";
+		const langMap: Record<string, string> = {
+			ts: "typescript",
+			tsx: "tsx",
+			js: "javascript",
+			jsx: "jsx",
+			py: "python",
+			rb: "ruby",
+			rs: "rust",
+			go: "go",
+			md: "markdown",
+			json: "json",
+			yaml: "yaml",
+			yml: "yaml",
+			toml: "toml",
+			sh: "bash",
+			css: "css",
+			html: "html",
+		};
 
-		return numbered.join("\n");
+		return {
+			source: result.stdout,
+			startLine,
+			highlightLine: line,
+			language: langMap[ext] ?? "",
+		};
 	}
 
 	/**
