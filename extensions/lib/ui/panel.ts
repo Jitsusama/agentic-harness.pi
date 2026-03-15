@@ -384,7 +384,7 @@ async function showSinglePrompt(
 				const editorLabel = editorContext?.label
 					? `${editorContext.label} with note:`
 					: editorContext?.type === "pureSteer"
-						? "Steer:"
+						? "Feedback:"
 						: "Note:";
 				for (const line of renderNoteEditor(editor, width, theme, {
 					label: editorLabel,
@@ -751,7 +751,7 @@ async function showTabbedPrompt(
 						: editorContext?.label
 							? `${editorContext.label} with note:`
 							: editorContext?.type === "pureSteer"
-								? "Steer:"
+								? "Feedback:"
 								: "Note:";
 				for (const line of renderNoteEditor(editor, width, theme, {
 					label: editorLabel,

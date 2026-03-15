@@ -94,7 +94,7 @@ export async function showTransitionGate(
 			return lines;
 		},
 		actions: [
-			{ key: "t", label: `Transition to ${nextName}` },
+			{ key: "m", label: `Move to ${nextName}` },
 			{ key: "s", label: `Stay in ${currentName}` },
 		],
 	});
@@ -107,7 +107,7 @@ export async function showTransitionGate(
 		return { approved: false, feedback: result.note };
 	}
 
-	if (result.type === "action" && result.value === "t") {
+	if (result.type === "action" && result.value === "m") {
 		if (result.note) {
 			return { approved: false, feedback: result.note };
 		}
