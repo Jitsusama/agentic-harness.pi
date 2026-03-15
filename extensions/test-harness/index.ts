@@ -119,6 +119,24 @@ export { loadConfig };
 export type { Config };
 `;
 
+const WIDE_CODE_SAMPLE = `// This file tests horizontal scrolling with lines that far exceed the terminal width
+import { createServer, type IncomingMessage, type ServerResponse } from "http";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
+import { join, resolve, relative, basename, extname, dirname, normalize, isAbsolute } from "path";
+
+interface VeryDetailedConfigurationWithAnExtremelyLongTypeName {
+  serverHostname: string;  serverPort: number;  enableDebugMode: boolean;  maxConcurrentConnections: number;  requestTimeoutMilliseconds: number;  corsAllowedOrigins: string[];
+}
+
+const DEFAULT_CONFIG: VeryDetailedConfigurationWithAnExtremelyLongTypeName = { serverHostname: "0.0.0.0", serverPort: 8080, enableDebugMode: false, maxConcurrentConnections: 100, requestTimeoutMilliseconds: 30000, corsAllowedOrigins: ["http://localhost:3000", "https://example.com", "https://staging.example.com"] };
+
+export function processIncomingRequestAndReturnFormattedResponseWithDetailedLogging(request: IncomingMessage, response: ServerResponse, config: VeryDetailedConfigurationWithAnExtremelyLongTypeName): Promise<void> {
+  const startTime = performance.now(); const method = request.method ?? "GET"; const url = request.url ?? "/"; const headers = JSON.stringify(request.headers);
+  console.log(\`[\${new Date().toISOString()}] \${method} \${url} headers=\${headers} config.debug=\${config.enableDebugMode} config.timeout=\${config.requestTimeoutMilliseconds}ms\`);
+  return new Promise((resolve) => { response.writeHead(200, { "Content-Type": "application/json" }); response.end(JSON.stringify({ status: "ok", elapsed: performance.now() - startTime })); resolve(); });
+}
+`;
+
 const DIFF_SAMPLE = `diff --git a/src/config.ts b/src/config.ts
 index abc1234..def5678 100644
 --- a/src/config.ts
@@ -349,6 +367,22 @@ export default function testHarness(ctx: ExtensionContext) {
 				content: (theme, width) => renderDiff(DIFF_SAMPLE, theme, width),
 			});
 			handlerCtx.ui.notify("diff test dismissed", "info");
+		},
+	});
+
+	// /test-hscroll — horizontal scrolling with wide code
+	ctx.registerCommand("test-hscroll", {
+		description: "Test horizontal scrolling",
+		handler: async (_args, handlerCtx) => {
+			await view(handlerCtx, {
+				title: "Horizontal Scroll Test",
+				content: (theme, width) =>
+					renderCode(WIDE_CODE_SAMPLE, theme, width, {
+						highlightLines: new Set([6, 10]),
+						language: "typescript",
+					}),
+			});
+			handlerCtx.ui.notify("hscroll test dismissed", "info");
 		},
 	});
 }
