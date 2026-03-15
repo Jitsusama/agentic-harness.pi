@@ -130,6 +130,7 @@ export async function view(
 				scroll,
 				budget,
 				cachedContent?.length ?? 0,
+				cachedHScroll,
 			);
 			if (scrollResult) {
 				scroll.vOffset = scrollResult.vOffset;
@@ -282,6 +283,7 @@ async function showSinglePrompt(
 				scroll,
 				budget,
 				cachedContent?.length ?? 0,
+				cachedHScroll,
 			);
 			if (scrollResult) {
 				scroll.vOffset = scrollResult.vOffset;
@@ -593,6 +595,7 @@ async function showTabbedPrompt(
 				scrollState,
 				budget,
 				cachedEntry?.lines.length ?? 0,
+				cachedEntry?.hScroll ?? false,
 			);
 			if (scrollResult) {
 				scrollStates[currentTab] = scrollResult;

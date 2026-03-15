@@ -87,6 +87,7 @@ export function handleScrollInput(
 	state: ScrollState,
 	budget: number,
 	contentLength: number,
+	needsHScroll = false,
 ): ScrollState | null {
 	if (matchesKey(data, "pageup") || matchesKey(data, Key.shift("up"))) {
 		return { ...state, vOffset: Math.max(0, state.vOffset - budget) };
@@ -97,13 +98,13 @@ export function handleScrollInput(
 			vOffset: clampVScroll(state.vOffset + budget, contentLength, budget),
 		};
 	}
-	if (matchesKey(data, Key.shift("left"))) {
+	if (needsHScroll && matchesKey(data, Key.shift("left"))) {
 		return {
 			...state,
 			hOffset: Math.max(0, state.hOffset - H_SCROLL_STEP),
 		};
 	}
-	if (matchesKey(data, Key.shift("right"))) {
+	if (needsHScroll && matchesKey(data, Key.shift("right"))) {
 		return { ...state, hOffset: state.hOffset + H_SCROLL_STEP };
 	}
 	return null;
