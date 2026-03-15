@@ -84,36 +84,28 @@ function renderProgress(
  *
  * Handles tab overflow by showing first tab, last tab, and
  * as many around the current tab as fit, with … for gaps.
+ * When `userItemCount` is provided, appends a `+N` tab that
+ * doesn't count toward the progress total.
  */
-/** Max visible characters for a user-added item label. */
-const USER_ITEM_LABEL_MAX = 12;
-
-/** Truncate text to a max length, adding ellipsis if needed. */
-function truncateLabel(text: string, max: number): string {
-	if (text.length <= max) return text;
-	return `${text.slice(0, max - 1)}${GLYPH.ellipsis}`;
-}
-
 export function renderTabStrip(
 	labels: string[],
 	statuses: TabStatus[],
 	currentIndex: number,
 	width: number,
 	theme: Theme,
-	userItems: string[] = [],
+	userItemCount = -1,
 ): string {
-	// Append user-added items as extra completed tabs
-	const allLabels = [
-		...labels,
-		...userItems.map((text) => truncateLabel(text, USER_ITEM_LABEL_MAX)),
-	];
-	const allStatuses: TabStatus[] = [
-		...statuses,
-		...userItems.map((): TabStatus => "complete"),
-	];
+	// Append the user tab when canAddItems is enabled (count >= 0)
+	const allLabels =
+		userItemCount >= 0 ? [...labels, `+${userItemCount}`] : [...labels];
+	const allStatuses: TabStatus[] =
+		userItemCount >= 0
+			? [...statuses, userItemCount > 0 ? "complete" : "pending"]
+			: [...statuses];
 
-	const total = allLabels.length;
-	const completed = allStatuses.filter(
+	// Progress excludes the user tab
+	const total = labels.length;
+	const completed = statuses.filter(
 		(s) => s === "complete" || s === "rejected",
 	).length;
 	const progress = renderProgress(completed, total, theme);

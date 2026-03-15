@@ -28,6 +28,7 @@ export function renderActionBar(
 	actions: Action[],
 	width: number,
 	theme: Theme,
+	showSteerHint = true,
 ): string {
 	const parts: string[] = [];
 
@@ -36,8 +37,9 @@ export function renderActionBar(
 	}
 
 	const left = ` ${parts.join("  ")}`;
-	const hint = theme.fg("dim", "⇧+key annotate · ⇧+Enter feedback");
+	if (!showSteerHint) return truncateToWidth(left, width);
 
+	const hint = theme.fg("dim", "⇧+key annotate · ⇧+Enter feedback");
 	return truncateToWidth(`${left}  ${hint}`, width);
 }
 
