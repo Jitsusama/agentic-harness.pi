@@ -5,6 +5,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
+import { prompt } from "../lib/ui/panel.js";
 import type { OAuthAppCredentials } from "./auth/credentials.js";
 import { handleGoogleAuthCommand } from "./auth-command.js";
 
@@ -12,13 +13,6 @@ import { handleGoogleAuthCommand } from "./auth-command.js";
  * Authentication prompts and messages.
  */
 const AUTH_MESSAGES = {
-	required:
-		"\n🔐 Authentication Required\n\n" +
-		"You need to authenticate with your Google account before using Google Workspace features.\n" +
-		"This is a one-time setup using device flow (works everywhere - SSH, containers, etc.).\n",
-
-	prompt: "Would you like to authenticate now?",
-
 	cancelled:
 		"⚠️ Authentication required but was cancelled.\n\n" +
 		"Run /google-auth to authenticate with your Google account.",
@@ -70,12 +64,23 @@ export async function ensureAuthenticated(
 			);
 		}
 
-		// Show authentication required message
-		ctx.ui.notify(AUTH_MESSAGES.required, "info");
-
 		// Confirm user wants to authenticate now
-		const proceed = await ctx.ui.confirm(AUTH_MESSAGES.prompt);
-		if (!proceed) {
+		const result = await prompt(ctx, {
+			content: (theme, _width) => [
+				` ${theme.bold("🔐 Authentication Required")}`,
+				"",
+				" You need to authenticate with your Google account",
+				" before using Google Workspace features.",
+				"",
+				" This is a one-time setup using device flow",
+				" (works everywhere — SSH, containers, etc.).",
+			],
+			options: [
+				{ label: "Authenticate now", value: "yes" },
+				{ label: "Cancel", value: "no" },
+			],
+		});
+		if (!result || result.type !== "action" || result.value !== "yes") {
 			throw new Error(AUTH_MESSAGES.cancelled);
 		}
 
