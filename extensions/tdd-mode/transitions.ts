@@ -94,7 +94,7 @@ export async function showTransitionGate(
 			return lines;
 		},
 		actions: [
-			{ key: "t", label: nextName },
+			{ key: "t", label: `Transition to ${nextName}` },
 			{ key: "s", label: `Stay in ${currentName}` },
 		],
 	});
