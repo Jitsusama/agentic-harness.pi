@@ -143,172 +143,200 @@ index abc1234..def5678 100644
 
 export default function testHarness(ctx: ExtensionContext) {
 	// /test-scroll — ScrollRegion + view()
-	ctx.registerCommand("/test-scroll", "Test scroll region", async () => {
-		await view(ctx, {
-			title: "Scroll Test",
-			content: numberedLines(50),
-		});
-		ctx.ui.notify("scroll test dismissed", "info");
+	ctx.registerCommand("test-scroll", {
+		description: "Test scroll region",
+		handler: async (_args, handlerCtx) => {
+			await view(handlerCtx, {
+				title: "Scroll Test",
+				content: numberedLines(50),
+			});
+			handlerCtx.ui.notify("scroll test dismissed", "info");
+		},
 	});
 
 	// /test-actions — ActionBar + prompt(single)
-	ctx.registerCommand("/test-actions", "Test action bar", async () => {
-		const result = await prompt(ctx, {
-			content: staticContent([
-				"This tests the action bar.",
-				"Try each action key.",
-				"Hold Shift for steer layer.",
-			]),
-			actions: [
-				{ key: "a", label: "Approve" },
-				{ key: "r", label: "Reject" },
-				{ key: "d", label: "Defer" },
-			],
-		});
-		ctx.ui.notify(formatResult(result), "info");
+	ctx.registerCommand("test-actions", {
+		description: "Test action bar",
+		handler: async (_args, handlerCtx) => {
+			const result = await prompt(handlerCtx, {
+				content: staticContent([
+					"This tests the action bar.",
+					"Try each action key.",
+					"Shift+key to annotate.",
+				]),
+				actions: [
+					{ key: "a", label: "Approve" },
+					{ key: "r", label: "Reject" },
+					{ key: "d", label: "Defer" },
+				],
+			});
+			handlerCtx.ui.notify(formatResult(result), "info");
+		},
 	});
 
 	// /test-options — OptionList + prompt(single)
-	ctx.registerCommand("/test-options", "Test option list", async () => {
-		const result = await prompt(ctx, {
-			content: staticContent([
-				"Pick an option.",
-				"Descriptions show on the selected item only.",
-			]),
-			options: [
-				{
-					label: "Quick fix",
-					value: "quick",
-					description: "Fast but incomplete",
-				},
-				{
-					label: "Full rewrite",
-					value: "full",
-					description: "Complete but slow",
-				},
-				{ label: "Partial refactor", value: "partial" },
-				{
-					label: "Custom approach",
-					value: "custom",
-					opensEditor: true,
-					editorPreFill: "describe your approach",
-				},
-				{ label: "Skip", value: "skip" },
-			],
-		});
-		ctx.ui.notify(formatResult(result), "info");
+	ctx.registerCommand("test-options", {
+		description: "Test option list",
+		handler: async (_args, handlerCtx) => {
+			const result = await prompt(handlerCtx, {
+				content: staticContent([
+					"Pick an option.",
+					"Descriptions show on the selected item only.",
+				]),
+				options: [
+					{
+						label: "Quick fix",
+						value: "quick",
+						description: "Fast but incomplete",
+					},
+					{
+						label: "Full rewrite",
+						value: "full",
+						description: "Complete but slow",
+					},
+					{ label: "Partial refactor", value: "partial" },
+					{
+						label: "Custom approach",
+						value: "custom",
+						opensEditor: true,
+						editorPreFill: "describe your approach",
+					},
+					{ label: "Skip", value: "skip" },
+				],
+			});
+			handlerCtx.ui.notify(formatResult(result), "info");
+		},
 	});
 
 	// /test-tabs — TabStrip + prompt(tabbed)
-	ctx.registerCommand("/test-tabs", "Test tabbed prompt", async () => {
-		const sharedActions = [
-			{ key: "a", label: "Approve" },
-			{ key: "r", label: "Reject" },
-		];
+	ctx.registerCommand("test-tabs", {
+		description: "Test tabbed prompt",
+		handler: async (_args, handlerCtx) => {
+			const sharedActions = [
+				{ key: "a", label: "Approve" },
+				{ key: "r", label: "Reject" },
+			];
 
-		const result = await prompt(ctx, {
-			items: [
-				{
-					label: "T1",
-					content: staticContent(["First tab"]),
-					actions: sharedActions,
-				},
-				{
-					label: "T2",
-					content: staticContent(["Second tab"]),
-					actions: sharedActions,
-				},
-				{
-					label: "T3",
-					content: staticContent(["Third tab — options"]),
-					options: [
-						{ label: "Option A", value: "a" },
-						{ label: "Option B", value: "b" },
-					],
-				},
-				{
-					label: "T4",
-					content: staticContent(["Fourth tab"]),
-					actions: sharedActions,
-				},
-				{
-					label: "T5",
-					content: numberedLines(30),
-					actions: sharedActions,
-				},
-			],
-			canAddItems: true,
-			autoResolve: false,
-		});
-		ctx.ui.notify(formatTabbedResult(result), "info");
+			const result = await prompt(handlerCtx, {
+				items: [
+					{
+						label: "T1",
+						content: staticContent(["First tab"]),
+						actions: sharedActions,
+					},
+					{
+						label: "T2",
+						content: staticContent(["Second tab"]),
+						actions: sharedActions,
+					},
+					{
+						label: "T3",
+						content: staticContent(["Third tab — options"]),
+						options: [
+							{ label: "Option A", value: "a" },
+							{ label: "Option B", value: "b" },
+						],
+					},
+					{
+						label: "T4",
+						content: staticContent(["Fourth tab"]),
+						actions: sharedActions,
+					},
+					{
+						label: "T5",
+						content: numberedLines(30),
+						actions: sharedActions,
+					},
+				],
+				canAddItems: true,
+				autoResolve: false,
+			});
+			handlerCtx.ui.notify(formatTabbedResult(result), "info");
+		},
 	});
 
 	// /test-steer — Steer annotations
-	ctx.registerCommand("/test-steer", "Test steer annotations", async () => {
-		const result = await prompt(ctx, {
-			content: staticContent(["Test steer annotations on actions."]),
-			actions: [
-				{ key: "a", label: "Approve" },
-				{ key: "r", label: "Reject" },
-			],
-		});
-		if (result === null) {
-			ctx.ui.notify("cancelled", "info");
-		} else {
-			ctx.ui.notify(
-				`type: ${result.type}, ${JSON.stringify(result, null, 2)}`,
-				"info",
-			);
-		}
+	ctx.registerCommand("test-steer", {
+		description: "Test steer annotations",
+		handler: async (_args, handlerCtx) => {
+			const result = await prompt(handlerCtx, {
+				content: staticContent(["Test steer annotations on actions."]),
+				actions: [
+					{ key: "a", label: "Approve" },
+					{ key: "r", label: "Reject" },
+				],
+			});
+			if (result === null) {
+				handlerCtx.ui.notify("cancelled", "info");
+			} else {
+				handlerCtx.ui.notify(
+					`type: ${result.type}, ${JSON.stringify(result, null, 2)}`,
+					"info",
+				);
+			}
+		},
 	});
 
 	// /test-editor — NoteEditor via opensEditor
-	ctx.registerCommand("/test-editor", "Test inline editor", async () => {
-		const result = await prompt(ctx, {
-			content: staticContent(["Test the inline editor."]),
-			options: [
-				{ label: "Write something", value: "write", opensEditor: true },
-				{
-					label: "Pre-filled",
-					value: "prefill",
-					opensEditor: true,
-					editorPreFill: "edit this text",
-				},
-				{ label: "Plain option", value: "plain" },
-			],
-		});
-		ctx.ui.notify(formatResult(result), "info");
+	ctx.registerCommand("test-editor", {
+		description: "Test inline editor",
+		handler: async (_args, handlerCtx) => {
+			const result = await prompt(handlerCtx, {
+				content: staticContent(["Test the inline editor."]),
+				options: [
+					{ label: "Write something", value: "write", opensEditor: true },
+					{
+						label: "Pre-filled",
+						value: "prefill",
+						opensEditor: true,
+						editorPreFill: "edit this text",
+					},
+					{ label: "Plain option", value: "plain" },
+				],
+			});
+			handlerCtx.ui.notify(formatResult(result), "info");
+		},
 	});
 
 	// /test-markdown — renderMarkdown via view()
-	ctx.registerCommand("/test-markdown", "Test markdown rendering", async () => {
-		await view(ctx, {
-			title: "Markdown Rendering",
-			content: (theme, width) => renderMarkdown(MARKDOWN_SAMPLE, theme, width),
-		});
-		ctx.ui.notify("markdown test dismissed", "info");
+	ctx.registerCommand("test-markdown", {
+		description: "Test markdown rendering",
+		handler: async (_args, handlerCtx) => {
+			await view(handlerCtx, {
+				title: "Markdown Rendering",
+				content: (theme, width) =>
+					renderMarkdown(MARKDOWN_SAMPLE, theme, width),
+			});
+			handlerCtx.ui.notify("markdown test dismissed", "info");
+		},
 	});
 
 	// /test-code — renderCode via view()
-	ctx.registerCommand("/test-code", "Test code rendering", async () => {
-		await view(ctx, {
-			title: "Code Rendering",
-			content: (theme, width) =>
-				renderCode(CODE_SAMPLE, theme, width, {
-					startLine: 10,
-					highlightLines: new Set([15, 18]),
-					language: "typescript",
-				}),
-		});
-		ctx.ui.notify("code test dismissed", "info");
+	ctx.registerCommand("test-code", {
+		description: "Test code rendering",
+		handler: async (_args, handlerCtx) => {
+			await view(handlerCtx, {
+				title: "Code Rendering",
+				content: (theme, width) =>
+					renderCode(CODE_SAMPLE, theme, width, {
+						startLine: 10,
+						highlightLines: new Set([15, 18]),
+						language: "typescript",
+					}),
+			});
+			handlerCtx.ui.notify("code test dismissed", "info");
+		},
 	});
 
 	// /test-diff — renderDiff via view()
-	ctx.registerCommand("/test-diff", "Test diff rendering", async () => {
-		await view(ctx, {
-			title: "Diff Rendering",
-			content: (theme, width) => renderDiff(DIFF_SAMPLE, theme, width),
-		});
-		ctx.ui.notify("diff test dismissed", "info");
+	ctx.registerCommand("test-diff", {
+		description: "Test diff rendering",
+		handler: async (_args, handlerCtx) => {
+			await view(handlerCtx, {
+				title: "Diff Rendering",
+				content: (theme, width) => renderDiff(DIFF_SAMPLE, theme, width),
+			});
+			handlerCtx.ui.notify("diff test dismissed", "info");
+		},
 	});
 }
