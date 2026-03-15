@@ -88,7 +88,12 @@ export interface CodeRenderOptions {
 	language?: string;
 	/** Pre-highlighted lines from preHighlightCode(). Skips highlighting when provided. */
 	preHighlighted?: string[];
+	/** Tab width in spaces (default: 4). */
+	tabWidth?: number;
 }
+
+/** Default number of spaces per tab character. */
+const DEFAULT_TAB_WIDTH = 3;
 
 /**
  * Render code with line numbers and syntax highlighting.
@@ -127,6 +132,7 @@ function formatHighlightedCode(
 ): string[] {
 	const startLine = options?.startLine ?? 1;
 	const highlights = options?.highlightLines;
+	const tabSpaces = " ".repeat(options?.tabWidth ?? DEFAULT_TAB_WIDTH);
 	const lastLineNum = startLine + codeLines.length - 1;
 	const gutterWidth = String(lastLineNum).length;
 	const lines: string[] = [];
@@ -142,7 +148,7 @@ function formatHighlightedCode(
 
 		const marker = isHighlighted ? theme.fg("accent", "▎") : " ";
 		const gutter = `${marker}${theme.fg("dim", `${numStr} │ `)}`;
-		const codeLine = codeLines[i] ?? "";
+		const codeLine = (codeLines[i] ?? "").replaceAll("\t", tabSpaces);
 
 		// Restore color state from previous line, then emit this line
 		lines.push(truncateToWidth(`${gutter}${activeEscapes}${codeLine}`, width));
