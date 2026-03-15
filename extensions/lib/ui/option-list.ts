@@ -42,9 +42,7 @@ export function renderOptionList(
 		if (!opt) continue;
 
 		const isSelected = i === selectedIndex;
-		const prefix = isSelected
-			? `  ${theme.fg("accent", GLYPH.cursor)} `
-			: "    ";
+		const prefix = isSelected ? ` ${theme.fg("accent", GLYPH.cursor)} ` : "   ";
 		const number = `${i + 1}. `;
 		const label = opt.label;
 
@@ -58,8 +56,8 @@ export function renderOptionList(
 
 		// Show description only for the selected item
 		if (isSelected && opt.description) {
-			// prefix has ANSI codes — use fixed visible width (4 chars) + number
-			const indent = " ".repeat(4 + number.length);
+			// prefix has ANSI codes — use fixed visible width (3 chars) + number
+			const indent = " ".repeat(3 + number.length);
 			lines.push(
 				truncateToWidth(`${indent}${theme.fg("dim", opt.description)}`),
 			);

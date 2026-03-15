@@ -35,7 +35,7 @@ export function renderActionBar(
 		parts.push(formatActionLabel(action, theme));
 	}
 
-	const left = `  ${parts.join("  ")}`;
+	const left = ` ${parts.join("  ")}`;
 	const hint = theme.fg("dim", "⇧+key to annotate");
 
 	return truncateToWidth(`${left}  ${hint}`, width);

@@ -97,7 +97,7 @@ export function renderTabStrip(
 	const suffixWidth = visibleWidth(suffix);
 
 	// Available width for tabs (minus indent, progress, and spacing)
-	const indent = 2;
+	const indent = 1;
 	const spacing = 4; // gap between tabs and progress
 	const availableWidth = width - indent - suffixWidth - spacing;
 
@@ -117,7 +117,7 @@ export function renderTabStrip(
 		const gap = " ".repeat(
 			Math.max(2, width - indent - tabWidth - suffixWidth),
 		);
-		return truncateToWidth(`${"  "}${tabLine}${gap}${suffix}`, width);
+		return truncateToWidth(`${" "}${tabLine}${gap}${suffix}`, width);
 	}
 
 	// Overflow — show first, current neighborhood, and last with ellipsis
@@ -140,7 +140,7 @@ export function renderTabStrip(
 	const tabLine = parts.join("  ");
 	const tabWidth = visibleWidth(tabLine);
 	const gap = " ".repeat(Math.max(2, width - indent - tabWidth - suffixWidth));
-	return truncateToWidth(`${"  "}${tabLine}${gap}${suffix}`, width);
+	return truncateToWidth(`${" "}${tabLine}${gap}${suffix}`, width);
 }
 
 /**

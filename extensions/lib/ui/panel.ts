@@ -128,7 +128,7 @@ export async function view(
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 
 			if (config.title) {
-				add(`  ${theme.fg("accent", theme.bold(config.title))}`);
+				add(` ${theme.fg("accent", theme.bold(config.title))}`);
 				add("");
 			}
 
@@ -154,7 +154,7 @@ export async function view(
 			lines.push("");
 			const hints: string[] = ["Esc close"];
 			if (needsVScroll) hints.push("Shift+↑↓ scroll");
-			add(theme.fg("dim", `  ${hints.join(" · ")}`));
+			add(theme.fg("dim", ` ${hints.join(" · ")}`));
 
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 			return lines;
@@ -372,7 +372,7 @@ async function showSinglePrompt(
 				// Hint bar
 				lines.push("");
 				const hints = buildHints(false, needsVScroll, needsHScroll, !!actions);
-				add(theme.fg("dim", `  ${hints.join(" · ")}`));
+				add(theme.fg("dim", ` ${hints.join(" · ")}`));
 			}
 
 			// Bottom border
@@ -656,7 +656,7 @@ async function showTabbedPrompt(
 			);
 			// Light separator
 			add(
-				theme.fg("dim", `  ${GLYPH.separator.repeat(Math.max(0, width - 4))}`),
+				theme.fg("dim", ` ${GLYPH.separator.repeat(Math.max(0, width - 2))}`),
 			);
 
 			// Content
@@ -710,7 +710,7 @@ async function showTabbedPrompt(
 
 				lines.push("");
 				const hints = buildHints(true, needsVScroll, needsHScroll, !!actions);
-				add(theme.fg("dim", `  ${hints.join(" · ")}`));
+				add(theme.fg("dim", ` ${hints.join(" · ")}`));
 			}
 
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
