@@ -40,10 +40,16 @@ function extractSteer(
 ): { approved: false; steer: string } | null {
 	if (!result) return null;
 	if (result.type === "steer") {
-		return { approved: false, steer: formatSteer(result.note ?? "", context) };
+		return {
+			approved: false,
+			steer: formatSteer(result.note ?? "", context).reason,
+		};
 	}
 	if (result.note) {
-		return { approved: false, steer: formatSteer(result.note, context) };
+		return {
+			approved: false,
+			steer: formatSteer(result.note, context).reason,
+		};
 	}
 	return null;
 }
