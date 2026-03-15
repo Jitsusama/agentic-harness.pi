@@ -49,6 +49,6 @@ TDD mode can also be toggled manually:
 
 ## Status Display
 
-When active, the status line shows `🧪: 🔴` (or 🟢 / 🔄).
+When active, the status line shows a phase-colored `●` with dim `TDD` label.
 The current test description appears right-justified above
 the editor.

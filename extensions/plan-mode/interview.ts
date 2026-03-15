@@ -1,17 +1,14 @@
 /**
- * Plan interview — tabbed panel for answering planning
- * questions. Each question is a tab with an answer editor.
- * Users can answer, skip, or add their own questions.
+ * Plan interview — tabbed prompt for answering planning
+ * questions. Each question is a tab with answer/skip actions.
+ * Users can add their own questions via '+' hotkey.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import {
-	type PanelPage,
-	type SeriesSelection,
-	showPanelSeries,
-} from "../lib/ui/panel.js";
-import { contentWrapWidth, wordWrap } from "../lib/ui/text.js";
+import { prompt } from "../lib/ui/panel.js";
+import { contentWrapWidth } from "../lib/ui/text.js";
+import type { PromptItem } from "../lib/ui/types.js";
 
 /** A single question presented during the plan interview. */
 export interface PlanQuestion {
@@ -27,18 +24,13 @@ export interface PlanInterviewResult {
 	allSkipped: boolean;
 }
 
-function buildQuestionPage(
+function buildQuestionItem(
 	q: PlanQuestion,
 	index: number,
 	total: number,
-	answers: Map<string, string>,
-): PanelPage {
-	const answered = answers.has(q.id);
-	const icon = answered ? "✓" : "";
-	const tab = icon ? `${icon} Q${index + 1}` : `Q${index + 1}`;
-
+): PromptItem {
 	return {
-		label: tab,
+		label: `Q${index + 1}`,
 		content: (theme, width) => {
 			const padded = contentWrapWidth(width);
 			const lines: string[] = [];
@@ -53,57 +45,15 @@ function buildQuestionPage(
 					lines.push(line);
 				}
 			}
-			const existing = answers.get(q.id);
-			if (existing) {
-				lines.push("");
-				lines.push(theme.fg("success", "  Current answer:"));
-				for (const line of wordWrap(existing, padded)) {
-					lines.push(theme.fg("muted", `  ${line}`));
-				}
-			}
 			return lines;
 		},
 		options: [
 			{
-				label: answered ? "Update answer" : "Answer",
+				label: "Answer",
 				value: "answer",
-				icon: "✎",
 				opensEditor: true,
-				editorPreFill: answers.get(q.id) ?? "",
 			},
 			{ label: "Skip", value: "skip" },
-		],
-	};
-}
-
-function buildDonePage(
-	answeredCount: number,
-	total: number,
-	userQuestionCount: number,
-): PanelPage {
-	return {
-		label: "Done",
-		content: (theme) => {
-			const lines: string[] = [];
-			if (answeredCount > 0) {
-				lines.push(theme.fg("success", ` ${answeredCount}/${total} answered.`));
-			} else {
-				lines.push(theme.fg("muted", " No questions answered yet."));
-			}
-			if (userQuestionCount > 0) {
-				lines.push(theme.fg("accent", ` + ${userQuestionCount} of your own`));
-			}
-			return lines;
-		},
-		options: [
-			{ label: "Done", value: "done", icon: "✓" },
-			{
-				label: "Ask my own question",
-				value: "add",
-				icon: "✎",
-				opensEditor: true,
-				editorPreFill: "",
-			},
 		],
 	};
 }
@@ -121,86 +71,66 @@ export async function showPlanInterview(
 	}
 
 	if (questions.length === 0) {
-		const result = await showPanelSeries(ctx, {
-			pages: [buildDonePage(0, 0, 0)],
-			onSelect: (sel) => {
-				if (sel.value === "done") return true;
-				if (sel.value === "add" && sel.editorText?.trim()) return true;
-				return false;
-			},
+		// No questions — just offer to add custom ones
+		const result = await prompt(ctx, {
+			content: (theme) => [
+				theme.fg("muted", " No questions to answer."),
+				"",
+				theme.fg("dim", " Press + to add your own question, or Esc to close."),
+			],
+			items: [],
+			canAddItems: true,
 		});
 
-		if (!result) return null;
+		if (!result || result.type !== "object") {
+			return null;
+		}
 
-		const sel = result.get(0);
-		if (sel?.value === "add" && sel.editorText?.trim()) {
+		// Result is TabbedResult
+		const tabbed = result as unknown as { userItems: string[] };
+		if (tabbed.userItems?.length > 0) {
 			return {
 				answers: [],
-				userQuestions: [sel.editorText.trim()],
+				userQuestions: tabbed.userItems,
 				allSkipped: false,
 			};
 		}
 		return { answers: [], userQuestions: [], allSkipped: true };
 	}
 
-	const answers = new Map<string, string>();
-	const userQuestions: string[] = [];
+	const items = questions.map((q, i) =>
+		buildQuestionItem(q, i, questions.length),
+	);
 
-	function buildPages(): PanelPage[] {
-		const questionPages = questions.map((q, i) =>
-			buildQuestionPage(q, i, questions.length, answers),
-		);
-		return [
-			...questionPages,
-			buildDonePage(answers.size, questions.length, userQuestions.length),
-		];
-	}
-
-	async function onSelect(
-		selection: SeriesSelection,
-		_all: Map<number, SeriesSelection>,
-	): Promise<boolean> {
-		const { pageIndex, value, editorText } = selection;
-
-		// Done page
-		if (pageIndex === questions.length) {
-			if (value === "done") return true;
-			if (value === "add" && editorText?.trim()) {
-				userQuestions.push(editorText.trim());
-			}
-			return false;
-		}
-
-		// Question page
-		const q = questions[pageIndex];
-		if (!q) return false;
-
-		if (value === "answer" && editorText?.trim()) {
-			answers.set(q.id, editorText.trim());
-		}
-		// skip = just move to next tab
-
-		return false;
-	}
-
-	const result = await showPanelSeries(ctx, {
-		pages: buildPages(),
-		onSelect,
+	const result = await prompt(ctx, {
+		items,
+		canAddItems: true,
+		autoResolve: false,
 	});
 
 	if (!result) return null;
 
-	const answeredList = questions
-		.filter((q) => answers.has(q.id))
-		.map((q) => ({
-			id: q.id,
-			question: q.question,
-			answer: answers.get(q.id) ?? "",
-		}));
+	// Extract answers from tabbed results
+	const answers: { id: string; question: string; answer: string }[] = [];
+	for (const [index, itemResult] of result.items) {
+		const q = questions[index];
+		if (!q) continue;
+		if (
+			itemResult.type === "action" &&
+			itemResult.value === "answer" &&
+			itemResult.editorText?.trim()
+		) {
+			answers.push({
+				id: q.id,
+				question: q.question,
+				answer: itemResult.editorText.trim(),
+			});
+		}
+	}
 
 	return {
-		answers: answeredList,
-		userQuestions,
-		allSkipped: answeredList.length === 0 && userQuestions.length === 0,
+		answers,
+		userQuestions: result.userItems,
+		allSkipped: answers.length === 0 && result.userItems.length === 0,
 	};
 }

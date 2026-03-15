@@ -31,9 +31,9 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { Key, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { reviewLoop, singleField } from "../lib/guardian/review-loop.js";
-import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { showGate } from "../lib/ui/gate.js";
+import { renderCode, renderMarkdown } from "../lib/ui/content-renderer.js";
+import { prompt } from "../lib/ui/panel.js";
+import { formatSteer } from "../lib/ui/steer.js";
 import { buildAnalysisPrompt } from "./analysis.js";
 import {
 	fetchReviews,
@@ -185,7 +185,7 @@ export default function prReply(pi: ExtensionAPI) {
 			}
 		},
 
-		renderCall(args, _options, theme) {
+		renderCall(args, theme) {
 			const a = args as { action?: string; pr?: string };
 			let text = theme.fg("toolTitle", theme.bold("pr_reply "));
 			text += theme.fg("muted", a.action ?? "?");
@@ -286,7 +286,7 @@ export default function prReply(pi: ExtensionAPI) {
 			);
 		}
 
-		const ref = await resolvePR(ctx, prInput);
+		const ref = await resolvePR(prInput);
 		if (!ref) {
 			return textResult(
 				"Could not determine which PR to review. " +
@@ -520,7 +520,7 @@ export default function prReply(pi: ExtensionAPI) {
 			const analysisContext = buildAnalysisPrompt(
 				nextThread,
 				review,
-				codeContext,
+				codeContext?.source ?? null,
 				planContext,
 			);
 
@@ -635,6 +635,9 @@ export default function prReply(pi: ExtensionAPI) {
 			return textResult("No current thread. Call 'next' first.");
 		}
 
+		// Hide widget while the prompt is active to avoid overlap
+		ctx.ui.setWidget("pr-reply-detail", undefined);
+
 		const review = state.reviews.find((r) => r.threadIds.includes(thread.id));
 		const contextLine = thread.line || thread.originalLine || 0;
 		const progress = buildProgressSummary();
@@ -646,11 +649,11 @@ export default function prReply(pi: ExtensionAPI) {
 		const steerContext = buildAnalysisPrompt(
 			thread,
 			review ?? state.reviews[0],
-			codeContext,
+			codeContext?.source ?? null,
 			null,
 		);
 
-		const gateResult = await showGate(ctx, {
+		const promptResult = await prompt(ctx, {
 			content: (theme, width) => {
 				const lines: string[] = [];
 
@@ -673,9 +676,13 @@ export default function prReply(pi: ExtensionAPI) {
 
 				// Code context
 				if (codeContext) {
-					lines.push("```");
-					lines.push(codeContext);
-					lines.push("```");
+					lines.push(
+						...renderCode(codeContext.source, theme, width, {
+							startLine: codeContext.startLine,
+							highlightLines: new Set([codeContext.highlightLine]),
+							language: codeContext.language,
+						}),
+					);
 					lines.push("");
 				}
 
@@ -708,15 +715,37 @@ export default function prReply(pi: ExtensionAPI) {
 
 				return lines;
 			},
-			options: [
-				{ label: "Implement Now", value: "implement" },
-				{ label: "Implement Later", value: "implement-later" },
-				{ label: "Reply", value: "reply" },
-				{ label: "Defer", value: "defer" },
-				{ label: "Skip", value: "skip" },
+			actions: [
+				{ key: "i", label: "Implement Now" },
+				{ key: "l", label: "Implement Later" },
+				{ key: "r", label: "Reply" },
+				{ key: "d", label: "Defer" },
+				{ key: "k", label: "sKip" },
 			],
-			steerContext,
+			allowHScroll: true,
 		});
+
+		// Restore widget after prompt closes
+		refreshUI(state, ctx);
+
+		// Map prompt result to gate-style result for handleThreadChoice
+		const gateResult = promptResult
+			? promptResult.type === "steer"
+				? { value: "steer", feedback: promptResult.note }
+				: {
+						value:
+							promptResult.value === "i"
+								? "implement"
+								: promptResult.value === "l"
+									? "implement-later"
+									: promptResult.value === "r"
+										? "reply"
+										: promptResult.value === "d"
+											? "defer"
+											: "skip",
+						feedback: promptResult.note,
+					}
+			: null;
 
 		return handleThreadChoice(gateResult, thread, contextLine, steerContext);
 	}
@@ -902,37 +931,53 @@ export default function prReply(pi: ExtensionAPI) {
 			return textResult("Cannot find original comment to reply to.");
 		}
 
-		const field = singleField(draftReply, "Edit reply:");
-
-		const renderReply = (theme: Theme, width: number) => {
-			const lines: string[] = [];
-			lines.push(
-				theme.fg(
-					"dim",
-					`Replying to ${topComment.author} on ${thread.file}:${thread.line}`,
-				),
-			);
-			lines.push("");
-			lines.push(...renderMarkdown(field.value, theme, width));
-			return lines;
-		};
-
-		const loopResult = await reviewLoop(ctx, {
+		const replyResult = await prompt(ctx, {
+			content: (theme: Theme, width: number) => {
+				const lines: string[] = [];
+				lines.push(
+					theme.fg(
+						"dim",
+						`Replying to ${topComment.author} on ${thread.file}:${thread.line}`,
+					),
+				);
+				lines.push("");
+				lines.push(...renderMarkdown(draftReply, theme, width));
+				return lines;
+			},
 			actions: [
-				{ label: "Approve", value: "approve" },
-				{ label: "Edit", value: "edit" },
-				{ label: "Reject", value: "reject" },
+				{ key: "a", label: "Approve" },
+				{ key: "r", label: "Reject" },
 			],
-			content: renderReply,
-			field,
-			entityName: "reply",
-			steerContext: field.value,
 		});
 
-		// If user rejected or steered, return that to the LLM
-		if (loopResult) {
+		// If user cancelled, rejected, or steered — return that to the LLM
+		if (!replyResult) {
 			return {
-				content: [{ type: "text" as const, text: loopResult.reason }],
+				content: [
+					{
+						type: "text" as const,
+						text: "User cancelled the reply review.",
+					},
+				],
+				details: { action: "reply-rejected" },
+			};
+		}
+		if (replyResult.type === "steer") {
+			const steerResult = formatSteer(
+				replyResult.note,
+				`Original reply:\n${draftReply}`,
+			);
+			return {
+				content: [{ type: "text" as const, text: steerResult.reason }],
+				details: { action: "reply-rejected" },
+			};
+		}
+		if (replyResult.type === "action" && replyResult.value === "r") {
+			const reason = replyResult.note
+				? `User rejected: ${replyResult.note}`
+				: "User rejected the reply. Ask for guidance on the reply.";
+			return {
+				content: [{ type: "text" as const, text: reason }],
 				details: { action: "reply-rejected" },
 			};
 		}
@@ -948,7 +993,7 @@ export default function prReply(pi: ExtensionAPI) {
 		};
 
 		try {
-			await postReply(pi, ref, topComment.databaseId, field.value);
+			await postReply(pi, ref, topComment.databaseId, draftReply);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			return textResult(`Failed to post reply: ${msg}`);
@@ -1069,7 +1114,6 @@ export default function prReply(pi: ExtensionAPI) {
 
 	/** Resolve a PR reference from user input or current branch. */
 	async function resolvePR(
-		ctx: ExtensionContext,
 		prInput: string | null,
 	): Promise<PRReference | null> {
 		if (prInput) {
@@ -1087,7 +1131,7 @@ export default function prReply(pi: ExtensionAPI) {
 
 		if (currentRepo && currentBranch) {
 			const prNumber = await findPRForBranch(
-				ctx,
+				pi,
 				currentRepo.owner,
 				currentRepo.repo,
 				currentBranch,
@@ -1105,14 +1149,22 @@ export default function prReply(pi: ExtensionAPI) {
 		return null;
 	}
 
+	/** Code context returned by readCodeContext. */
+	interface CodeContext {
+		source: string;
+		startLine: number;
+		highlightLine: number;
+		language: string;
+	}
+
 	/**
 	 * Read code context from disk around the commented line.
-	 * Returns null if the file can't be read.
+	 * Returns raw source and metadata for rendering with renderCode.
 	 */
 	async function readCodeContext(
 		filePath: string,
 		line: number,
-	): Promise<string | null> {
+	): Promise<CodeContext | null> {
 		const contextLines = 5;
 		const startLine = Math.max(1, line - contextLines);
 		const endLine = line + contextLines;
@@ -1125,15 +1177,33 @@ export default function prReply(pi: ExtensionAPI) {
 
 		if (result.code !== 0 || !result.stdout) return null;
 
-		// Add line numbers
-		const lines = result.stdout.split("\n");
-		const numbered = lines.map((l, i) => {
-			const lineNum = startLine + i;
-			const marker = lineNum === line ? "→" : " ";
-			return `${marker}${String(lineNum).padStart(4)} │ ${l}`;
-		});
+		// Infer language from file extension
+		const ext = filePath.split(".").pop() ?? "";
+		const langMap: Record<string, string> = {
+			ts: "typescript",
+			tsx: "tsx",
+			js: "javascript",
+			jsx: "jsx",
+			py: "python",
+			rb: "ruby",
+			rs: "rust",
+			go: "go",
+			md: "markdown",
+			json: "json",
+			yaml: "yaml",
+			yml: "yaml",
+			toml: "toml",
+			sh: "bash",
+			css: "css",
+			html: "html",
+		};
 
-		return numbered.join("\n");
+		return {
+			source: result.stdout,
+			startLine,
+			highlightLine: line,
+			language: langMap[ext] ?? "",
+		};
 	}
 
 	/**

@@ -8,8 +8,14 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import { filterContext } from "../lib/state.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { showGate } from "../lib/ui/gate.js";
-import { PHASE_GLYPHS, type Phase, type TddState } from "./state.js";
+import { prompt } from "../lib/ui/panel.js";
+import {
+	PHASE_COLORS,
+	PHASE_GLYPH,
+	type Phase,
+	type PhaseColor,
+	type TddState,
+} from "./state.js";
 
 /** Max length for the short summary shown in the gate header. */
 const SUMMARY_MAX_LENGTH = 50;
@@ -18,17 +24,15 @@ const SUMMARY_MIN_TRUNCATE = 20;
 
 /** Human-readable phase names for gate display. */
 const PHASE_NAMES: Record<Phase, string> = {
-	red: "RED",
-	green: "GREEN",
-	refactor: "REFACTOR",
+	red: "Red",
+	green: "Green",
+	refactor: "Refactor",
 };
 
 /** Extract first sentence or clause as a short title. */
 function shortSummary(text: string): string {
-	// Split on sentence end or em-dash
 	const cut = text.search(/\.\s|—|\n/);
 	if (cut > 0 && cut <= SUMMARY_MAX_LENGTH) return text.slice(0, cut);
-	// Truncate at word boundary
 	if (text.length <= SUMMARY_MAX_LENGTH) return text;
 	const truncated = text.slice(0, SUMMARY_MAX_LENGTH);
 	const lastSpace = truncated.lastIndexOf(" ");
@@ -58,19 +62,22 @@ export async function showTransitionGate(
 ): Promise<TransitionGateResult> {
 	if (!ctx.hasUI) return { approved: true };
 
-	const currentGlyph = PHASE_GLYPHS[state.phase];
+	const currentColor = PHASE_COLORS[state.phase];
 	const currentName = PHASE_NAMES[state.phase];
 
 	const isStop = opts.nextPhase === "stop";
-	const nextGlyph = isStop ? "⏹" : PHASE_GLYPHS[opts.nextPhase];
-	const nextName = isStop ? "STOP" : PHASE_NAMES[opts.nextPhase];
+	const nextColor: PhaseColor | "dim" = isStop
+		? "dim"
+		: PHASE_COLORS[opts.nextPhase];
+	const nextName = isStop ? "Stop" : PHASE_NAMES[opts.nextPhase];
 
-	const result = await showGate(ctx, {
+	const result = await prompt(ctx, {
+		title: `${currentName} → ${nextName}`,
 		content: (theme, width) => {
 			const short = shortSummary(opts.summary);
 			const lines = [
 				truncateToWidth(
-					theme.fg("text", ` ${currentGlyph} → ${nextGlyph}  ${short}`),
+					` ${theme.fg(currentColor, PHASE_GLYPH)} → ${theme.fg(nextColor, PHASE_GLYPH)}  ${theme.fg("text", short)}`,
 					width,
 				),
 				"",
@@ -86,22 +93,28 @@ export async function showTransitionGate(
 			}
 			return lines;
 		},
-		options: [
-			{ label: `${nextName}`, value: "transition" },
-			{ label: `Stay in ${currentName}`, value: "stay" },
+		actions: [
+			{ key: "m", label: `Move to ${nextName}` },
+			{ key: "s", label: `Stay in ${currentName}` },
 		],
-		steerContext: opts.summary,
 	});
 
-	if (!result || result.value === "stay") {
+	if (!result || (result.type === "action" && result.value === "s")) {
 		return { approved: false };
 	}
 
-	if (result.value === "steer") {
-		return { approved: false, feedback: result.feedback };
+	if (result.type === "steer") {
+		return { approved: false, feedback: result.note };
 	}
 
-	return { approved: true };
+	if (result.type === "action" && result.value === "m") {
+		if (result.note) {
+			return { approved: false, feedback: result.note };
+		}
+		return { approved: true };
+	}
+
+	return { approved: false };
 }
 
 /**

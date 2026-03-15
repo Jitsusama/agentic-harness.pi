@@ -1,26 +1,21 @@
 /**
  * Ask — reusable structured question tool.
  *
- * Single question: simple options list.
- * Multiple questions: tab bar navigation between questions.
- * Always includes a free-form "Type something" option.
+ * Single question: options list with cursor navigation.
+ * Multiple questions: tabbed prompt with per-question options.
+ * Always includes a free-form "Type something" option when
+ * allowOther is enabled.
  *
- * Composes on showPanelSeries for the UI. Each question is a
- * PanelPage; multi-question mode adds a Submit page.
- *
- * Standalone — any skill or extension can rely on this tool
- * being available (planning, TDD, general conversation).
+ * Composes on prompt() for the UI. Single questions use
+ * SinglePromptConfig with options. Multiple questions use
+ * TabbedPromptConfig with items.
  */
 
 import type { ExtensionAPI, Theme } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import {
-	type PanelOption,
-	type PanelPage,
-	type SeriesSelection,
-	showPanelSeries,
-} from "../lib/ui/panel.js";
+import { prompt } from "../lib/ui/panel.js";
+import type { Option, PromptItem } from "../lib/ui/types.js";
 
 // Types
 interface QuestionOption {
@@ -95,6 +90,25 @@ function errorResult(
 	};
 }
 
+/** Build options for a question, including the "Type something" option. */
+function buildOptions(q: Question): Option[] {
+	const opts: Option[] = q.options.map((o) => ({
+		label: o.label,
+		value: o.value,
+		description: o.description,
+	}));
+
+	if (q.allowOther) {
+		opts.push({
+			label: "Type something...",
+			value: "__other__",
+			opensEditor: true,
+		});
+	}
+
+	return opts;
+}
+
 export default function ask(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "ask",
@@ -123,142 +137,102 @@ export default function ask(pi: ExtensionAPI) {
 			const isMulti = questions.length > 1;
 			const answers = new Map<string, Answer>();
 
-			// Build a PanelPage for each question
-			const questionPages: PanelPage[] = questions.map((q) => {
-				const opts: PanelOption[] = q.options.map((o) => ({
-					label: o.label,
-					value: o.value,
-					description: o.description,
-				}));
+			if (!isMulti) {
+				// Single question — simple prompt with options
+				const q = questions[0];
+				if (!q) return errorResult("Error: Empty question");
 
-				if (q.allowOther) {
-					opts.push({
-						label: "Type something",
-						value: "__other__",
-						icon: "✎",
-						opensEditor: true,
-						editorPreFill: "",
-					});
+				const result = await prompt(ctx, {
+					content: (theme: Theme) => [theme.fg("text", ` ${q.prompt}`)],
+					options: buildOptions(q),
+				});
+
+				if (!result) {
+					return {
+						content: [{ type: "text", text: "User cancelled" }],
+						details: { questions, answers: [], cancelled: true },
+					};
 				}
 
-				return {
-					label: q.label,
-					content: (theme: Theme, _width: number) => [
-						theme.fg("text", ` ${q.prompt}`),
-					],
-					options: opts,
-				};
-			});
-
-			// Submit page for multi-question mode
-			const submitPage: PanelPage = {
-				label: "✓ Submit",
-				content: (theme: Theme, _width: number) => {
-					const lines: string[] = [];
-					lines.push(theme.fg("accent", theme.bold(" Ready to submit")));
-					lines.push("");
-					for (const question of questions) {
-						const answer = answers.get(question.id);
-						if (answer) {
-							const prefix = answer.wasCustom ? "(wrote) " : "";
-							lines.push(
-								`${theme.fg("muted", ` ${question.label}: `)}` +
-									`${theme.fg("text", prefix + answer.label)}`,
-							);
+				if (result.type === "action") {
+					if (result.value === "__other__" && result.editorText) {
+						answers.set(q.id, {
+							id: q.id,
+							value: result.editorText,
+							label: result.editorText,
+							wasCustom: true,
+						});
+					} else {
+						const optIdx = q.options.findIndex((o) => o.value === result.value);
+						const opt = q.options[optIdx];
+						if (opt) {
+							answers.set(q.id, {
+								id: q.id,
+								value: opt.value,
+								label: opt.label,
+								wasCustom: false,
+								index: optIdx + 1,
+							});
 						}
 					}
-					lines.push("");
-					const allAnswered = questions.every((q) => answers.has(q.id));
-					if (allAnswered) {
-						lines.push(theme.fg("success", " Press Enter to submit"));
-					} else {
-						const missing = questions
-							.filter((q) => !answers.has(q.id))
-							.map((q) => q.label)
-							.join(", ");
-						lines.push(theme.fg("warning", ` Unanswered: ${missing}`));
-					}
-					return lines;
-				},
-				options: [{ label: "Submit", value: "__submit__", icon: "✓" }],
-			};
+				}
+			} else {
+				// Multiple questions — tabbed prompt
+				const items: PromptItem[] = questions.map((q) => ({
+					label: q.label,
+					content: (theme: Theme) => [theme.fg("text", ` ${q.prompt}`)],
+					options: buildOptions(q),
+				}));
 
-			const pages = isMulti ? [...questionPages, submitPage] : questionPages;
+				const result = await prompt(ctx, {
+					items,
+					autoResolve: true,
+				});
 
-			// onSelect callback — track answers and decide when to resolve
-			function onSelect(
-				selection: SeriesSelection,
-				_all: Map<number, SeriesSelection>,
-			): boolean {
-				// Submit page
-				if (isMulti && selection.pageIndex === questionPages.length) {
-					if (selection.value === "__submit__") {
-						return questions.every((q) => answers.has(q.id));
-					}
-					return false;
+				if (!result) {
+					return {
+						content: [{ type: "text", text: "User cancelled" }],
+						details: { questions, answers: [], cancelled: true },
+					};
 				}
 
-				// Question page — record the answer
-				const question = questions[selection.pageIndex];
-				if (!question) return false;
+				for (const [index, itemResult] of result.items) {
+					const q = questions[index];
+					if (!q || itemResult.type !== "action") continue;
 
-				if (selection.value === "__other__" && selection.editorText) {
-					const text = selection.editorText;
-					answers.set(question.id, {
-						id: question.id,
-						value: text,
-						label: text,
-						wasCustom: true,
-					});
-				} else {
-					// Find the option index (1-based)
-					const optIdx = question.options.findIndex(
-						(o) => o.value === selection.value,
-					);
-					const opt = question.options[optIdx];
-					if (opt) {
-						answers.set(question.id, {
-							id: question.id,
-							value: opt.value,
-							label: opt.label,
-							wasCustom: false,
-							index: optIdx + 1,
+					if (itemResult.value === "__other__" && itemResult.editorText) {
+						answers.set(q.id, {
+							id: q.id,
+							value: itemResult.editorText,
+							label: itemResult.editorText,
+							wasCustom: true,
 						});
+					} else {
+						const optIdx = q.options.findIndex(
+							(o) => o.value === itemResult.value,
+						);
+						const opt = q.options[optIdx];
+						if (opt) {
+							answers.set(q.id, {
+								id: q.id,
+								value: opt.value,
+								label: opt.label,
+								wasCustom: false,
+								index: optIdx + 1,
+							});
+						}
 					}
 				}
-
-				// Single question — resolve immediately
-				if (!isMulti) return true;
-
-				return false;
-			}
-
-			const seriesResult = await showPanelSeries(ctx, {
-				pages,
-				onSelect,
-			});
-
-			// Cancelled
-			if (!seriesResult) {
-				const result: AskResult = {
-					questions,
-					answers: [],
-					cancelled: true,
-				};
-				return {
-					content: [{ type: "text", text: "User cancelled" }],
-					details: result,
-				};
 			}
 
 			// Build result from accumulated answers
-			const result: AskResult = {
+			const askResult: AskResult = {
 				questions,
 				answers: Array.from(answers.values()),
 				cancelled: false,
 			};
 
-			const answerLines = result.answers.map((a) => {
+			const answerLines = askResult.answers.map((a) => {
 				const qLabel = questions.find((q) => q.id === a.id)?.label || a.id;
 				if (a.wasCustom) {
 					return `${qLabel}: user wrote: ${a.label}`;
@@ -268,7 +242,7 @@ export default function ask(pi: ExtensionAPI) {
 
 			return {
 				content: [{ type: "text", text: answerLines.join("\n") }],
-				details: result,
+				details: askResult,
 			};
 		},
 

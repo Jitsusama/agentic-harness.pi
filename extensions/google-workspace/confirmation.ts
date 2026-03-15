@@ -1,10 +1,12 @@
 /**
  * Confirmation gates for sensitive Google Workspace operations.
- * Uses editable fields like PR/issue/commit guardians.
+ * Uses prompt() with actions for approve/cancel decisions.
+ * Steer annotations return feedback for the agent to adjust.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { reviewLoop, titleBodyField } from "../lib/guardian/review-loop.js";
+import { prompt } from "../lib/ui/panel.js";
+import { formatSteer } from "../lib/ui/steer.js";
 
 export interface EmailData {
 	to: string[];
@@ -23,30 +25,50 @@ export interface EventData {
 	attendees?: string[];
 }
 
+/** Result from a confirmation gate — approved data, steer feedback, or null (cancelled). */
+export type ConfirmResult<T> =
+	| { approved: true; data: T }
+	| { approved: false; steer: string }
+	| null;
+
+// ---- Helpers ----
+
+/** Extract steer feedback from a prompt result, or null if not a steer. */
+function extractSteer(
+	result: { type: string; note?: string; value?: string } | null,
+	context: string,
+): { approved: false; steer: string } | null {
+	if (!result) return null;
+	if (result.type === "steer") {
+		return {
+			approved: false,
+			steer: formatSteer(result.note ?? "", context).reason,
+		};
+	}
+	if (result.note) {
+		return {
+			approved: false,
+			steer: formatSteer(result.note, context).reason,
+		};
+	}
+	return null;
+}
+
+// ---- Email ----
+
 /**
- * Confirm and potentially edit email before sending.
- * Returns updated email data or null if cancelled.
+ * Confirm email before sending.
+ * Returns approved data, steer feedback, or null if cancelled.
  */
 export async function confirmSendEmail(
 	ctx: ExtensionContext,
 	email: EmailData,
 	isReply: boolean,
-): Promise<EmailData | null> {
-	if (!ctx.hasUI) return email;
+): Promise<ConfirmResult<EmailData>> {
+	if (!ctx.hasUI) return { approved: true, data: email };
 
-	const field = titleBodyField(
-		email.subject,
-		email.body,
-		isReply ? "Edit reply:" : "Edit email:",
-	);
-
-	const result = await reviewLoop(ctx, {
-		actions: [
-			{ label: "Send", value: "approve" },
-			{ label: "Edit", value: "edit" },
-			{ label: "Cancel", value: "reject" },
-		],
-		content: (theme, _width) => {
+	const result = await prompt(ctx, {
+		content: (theme) => {
 			const lines = [
 				theme.fg(
 					"accent",
@@ -62,11 +84,9 @@ export async function confirmSendEmail(
 				lines.push(` ${theme.fg("muted", "Bcc:")} ${email.bcc.join(", ")}`);
 			}
 			lines.push("");
-			lines.push(
-				` ${theme.fg("muted", "Subject:")} ${field.title || email.subject}`,
-			);
+			lines.push(` ${theme.fg("muted", "Subject:")} ${email.subject}`);
 			lines.push("");
-			const bodyLines = (field.body || email.body).split("\n");
+			const bodyLines = email.body.split("\n");
 			const preview = bodyLines.slice(0, 15);
 			for (const line of preview) {
 				lines.push(` ${line}`);
@@ -78,38 +98,36 @@ export async function confirmSendEmail(
 			}
 			return lines;
 		},
-		field,
-		entityName: "email",
-		steerContext: `To: ${email.to.join(", ")}\nSubject: ${email.subject}\n\n${email.body}`,
+		actions: [
+			{ key: "s", label: "Send" },
+			{ key: "c", label: "Cancel" },
+		],
 	});
 
-	// User cancelled or rejected
-	if (result) return null;
-
-	// Return potentially edited email
-	return {
-		...email,
-		subject: field.title || email.subject,
-		body: field.body,
-	};
+	if (!result || (result.type === "action" && result.value === "c")) {
+		return null;
+	}
+	const steer = extractSteer(
+		result,
+		`Original email to: ${email.to.join(", ")}\nSubject: ${email.subject}`,
+	);
+	if (steer) return steer;
+	return { approved: true, data: email };
 }
 
 /**
  * Confirm deleting an email.
+ * Returns approved true, steer feedback, or null if cancelled.
  */
 export async function confirmDeleteEmail(
 	ctx: ExtensionContext,
 	messageId: string,
 	subject?: string,
-): Promise<boolean> {
-	if (!ctx.hasUI) return true;
+): Promise<ConfirmResult<true>> {
+	if (!ctx.hasUI) return { approved: true, data: true };
 
-	const result = await reviewLoop(ctx, {
-		actions: [
-			{ label: "Delete", value: "approve" },
-			{ label: "Cancel", value: "reject" },
-		],
-		content: (theme, _width) => {
+	const result = await prompt(ctx, {
+		content: (theme) => {
 			const lines = [theme.fg("accent", theme.bold(" Delete Email")), ""];
 			if (subject) {
 				lines.push(` ${theme.fg("muted", "Subject:")} ${subject}`);
@@ -121,43 +139,45 @@ export async function confirmDeleteEmail(
 			);
 			return lines;
 		},
-		entityName: "email deletion",
-		steerContext: `Delete email: ${subject || messageId}`,
+		actions: [
+			{ key: "d", label: "Delete" },
+			{ key: "c", label: "Cancel" },
+		],
 	});
 
-	return !result; // null/undefined = approved, anything else = blocked
+	if (!result || (result.type === "action" && result.value === "c")) {
+		return null;
+	}
+	const steer = extractSteer(
+		result,
+		`Delete email ${subject ? `"${subject}"` : messageId}`,
+	);
+	if (steer) return steer;
+	return { approved: true, data: true };
 }
 
+// ---- Calendar ----
+
 /**
- * Confirm and potentially edit event before creating.
+ * Confirm event before creating (only when attendees present).
+ * Returns approved data, steer feedback, or null if cancelled.
  */
 export async function confirmCreateEvent(
 	ctx: ExtensionContext,
 	event: EventData,
-): Promise<EventData | null> {
-	if (!ctx.hasUI) return event;
-	if (!event.attendees || event.attendees.length === 0) return event; // No confirmation for personal events
+): Promise<ConfirmResult<EventData>> {
+	if (!ctx.hasUI) return { approved: true, data: event };
+	if (!event.attendees || event.attendees.length === 0) {
+		return { approved: true, data: event };
+	}
 
-	const field = titleBodyField(
-		event.summary,
-		event.description || "",
-		"Edit event:",
-	);
-
-	const result = await reviewLoop(ctx, {
-		actions: [
-			{ label: "Create", value: "approve" },
-			{ label: "Edit", value: "edit" },
-			{ label: "Cancel", value: "reject" },
-		],
-		content: (theme, _width) => {
+	const result = await prompt(ctx, {
+		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Create Calendar Event")),
 				"",
 			];
-			lines.push(
-				` ${theme.fg("muted", "Title:")} ${field.title || event.summary}`,
-			);
+			lines.push(` ${theme.fg("muted", "Title:")} ${event.summary}`);
 			lines.push(
 				` ${theme.fg("muted", "When:")} ${event.start} – ${event.end}`,
 			);
@@ -167,10 +187,10 @@ export async function confirmCreateEvent(
 			lines.push(
 				` ${theme.fg("muted", "Attendees:")} ${event.attendees.join(", ")}`,
 			);
-			if (field.body) {
+			if (event.description) {
 				lines.push("");
 				lines.push(` ${theme.fg("muted", "Description:")}`);
-				for (const line of field.body.split("\n").slice(0, 5)) {
+				for (const line of event.description.split("\n").slice(0, 5)) {
 					lines.push(` ${line}`);
 				}
 			}
@@ -178,32 +198,37 @@ export async function confirmCreateEvent(
 			lines.push(" Invitations will be sent to all attendees.");
 			return lines;
 		},
-		field,
-		entityName: "calendar event",
-		steerContext: `Event: ${event.summary}\nAttendees: ${event.attendees.join(", ")}`,
+		actions: [
+			{ key: "c", label: "Create" },
+			{ key: "x", label: "Cancel" },
+		],
 	});
 
-	if (result) return null;
-
-	return {
-		...event,
-		summary: field.title || event.summary,
-		description: field.body || event.description,
-	};
+	if (!result || (result.type === "action" && result.value === "x")) {
+		return null;
+	}
+	const steer = extractSteer(
+		result,
+		`Create event: ${event.summary}\nAttendees: ${event.attendees.join(", ")}`,
+	);
+	if (steer) return steer;
+	return { approved: true, data: event };
 }
 
 /**
  * Confirm updating an event with attendees.
+ * Returns approved true, steer feedback, or null if cancelled.
  */
 export async function confirmUpdateEvent(
 	ctx: ExtensionContext,
 	eventId: string,
 	existingEvent: EventData,
 	updates: Partial<EventData>,
-): Promise<boolean> {
-	if (!ctx.hasUI) return true;
-	if (!existingEvent.attendees || existingEvent.attendees.length === 0)
-		return true;
+): Promise<ConfirmResult<true>> {
+	if (!ctx.hasUI) return { approved: true, data: true };
+	if (!existingEvent.attendees || existingEvent.attendees.length === 0) {
+		return { approved: true, data: true };
+	}
 
 	const changes: string[] = [];
 	if (updates.summary) changes.push(`Title: ${updates.summary}`);
@@ -214,12 +239,8 @@ export async function confirmUpdateEvent(
 		changes.push(`Attendees: ${updates.attendees.join(", ")}`);
 	if (updates.description) changes.push("Description updated");
 
-	const result = await reviewLoop(ctx, {
-		actions: [
-			{ label: "Update", value: "approve" },
-			{ label: "Cancel", value: "reject" },
-		],
-		content: (theme, _width) => {
+	const result = await prompt(ctx, {
+		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Update Calendar Event")),
 				"",
@@ -235,31 +256,38 @@ export async function confirmUpdateEvent(
 			lines.push(" Attendees will be notified of the changes.");
 			return lines;
 		},
-		entityName: "calendar event update",
-		steerContext: `Update event: ${existingEvent.summary}\nChanges: ${changes.join(", ")}`,
+		actions: [
+			{ key: "u", label: "Update" },
+			{ key: "c", label: "Cancel" },
+		],
 	});
 
-	return !result;
+	if (!result || (result.type === "action" && result.value === "c")) {
+		return null;
+	}
+	const steer = extractSteer(
+		result,
+		`Update event: ${existingEvent.summary}\nChanges: ${changes.join(", ")}`,
+	);
+	if (steer) return steer;
+	return { approved: true, data: true };
 }
 
 /**
  * Confirm deleting an event with attendees.
+ * Returns approved true, steer feedback, or null if cancelled.
  */
 export async function confirmDeleteEvent(
 	ctx: ExtensionContext,
 	eventId: string,
 	summary: string,
 	hasAttendees: boolean,
-): Promise<boolean> {
-	if (!ctx.hasUI) return true;
-	if (!hasAttendees) return true;
+): Promise<ConfirmResult<true>> {
+	if (!ctx.hasUI) return { approved: true, data: true };
+	if (!hasAttendees) return { approved: true, data: true };
 
-	const result = await reviewLoop(ctx, {
-		actions: [
-			{ label: "Delete", value: "approve" },
-			{ label: "Cancel", value: "reject" },
-		],
-		content: (theme, _width) => {
+	const result = await prompt(ctx, {
+		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Delete Calendar Event")),
 				"",
@@ -270,9 +298,16 @@ export async function confirmDeleteEvent(
 			lines.push(" Attendees will be notified of the cancellation.");
 			return lines;
 		},
-		entityName: "calendar event deletion",
-		steerContext: `Delete event: ${summary}`,
+		actions: [
+			{ key: "d", label: "Delete" },
+			{ key: "c", label: "Cancel" },
+		],
 	});
 
-	return !result;
+	if (!result || (result.type === "action" && result.value === "c")) {
+		return null;
+	}
+	const steer = extractSteer(result, `Delete event: ${summary}`);
+	if (steer) return steer;
+	return { approved: true, data: true };
 }

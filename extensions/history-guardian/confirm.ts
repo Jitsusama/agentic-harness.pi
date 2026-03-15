@@ -4,9 +4,10 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { reviewLoop } from "../lib/guardian/review-loop.js";
 import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
+import { prompt } from "../lib/ui/panel.js";
+import { formatSteer } from "../lib/ui/steer.js";
 import {
 	DESTRUCTIVE_PATTERNS,
 	type DestructivePattern,
@@ -14,8 +15,8 @@ import {
 } from "./patterns.js";
 
 const DESTRUCTIVE_ACTIONS = [
-	{ label: "Allow", value: "allow" },
-	{ label: "Block", value: "block" },
+	{ key: "a", label: "Allow" },
+	{ key: "b", label: "Block" },
 ];
 
 interface DestructiveMatch {
@@ -46,13 +47,13 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
 		const icon = parsed.severity === "irrecoverable" ? "⛔" : "⚠";
-		const label =
+		const title =
 			parsed.severity === "irrecoverable"
 				? "Destructive Command"
 				: "Risky Command";
 
 		const markdown = [
-			`${icon} **${label}**`,
+			`${icon} **${title}**`,
 			"",
 			"```bash",
 			parsed.command,
@@ -61,11 +62,24 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 			parsed.description,
 		].join("\n");
 
-		return reviewLoop(ctx, {
-			actions: DESTRUCTIVE_ACTIONS,
+		const result = await prompt(ctx, {
+			title,
 			content: (theme, width) => renderMarkdown(markdown, theme, width),
-			entityName: "command",
-			steerContext: parsed.command,
+			actions: DESTRUCTIVE_ACTIONS,
 		});
+
+		if (!result) {
+			return { block: true, reason: "User cancelled the command review." };
+		}
+
+		if (result.type === "steer") {
+			return formatSteer(result.note, `Original command:\n${parsed.command}`);
+		}
+
+		if (result.type === "action" && result.value === "a") {
+			return undefined;
+		}
+
+		return { block: true, reason: `User blocked: ${parsed.command}` };
 	},
 };

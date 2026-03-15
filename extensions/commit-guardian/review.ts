@@ -1,23 +1,19 @@
 /**
- * Commit guardian — detects git commit commands, parses the
- * message, and presents it for review with validation indicators.
+ * Commit guardian review — presents the commit message for
+ * approval with validation indicators and hold-to-reveal
+ * steer annotations.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { reviewLoop, singleField } from "../lib/guardian/review-loop.js";
 import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
-import {
-	buildHeredoc,
-	extractFlags,
-	extractMessage,
-	splitAtCommit,
-} from "./parse.js";
+import { prompt } from "../lib/ui/panel.js";
+import { formatSteer } from "../lib/ui/steer.js";
+import { extractFlags, extractMessage, splitAtCommit } from "./parse.js";
 import { renderCommitContent } from "./validate.js";
 
 const COMMIT_ACTIONS = [
-	{ label: "Approve", value: "approve" },
-	{ label: "Edit", value: "edit" },
-	{ label: "Reject", value: "reject" },
+	{ key: "a", label: "Approve" },
+	{ key: "r", label: "Reject" },
 ];
 
 interface CommitParsed {
@@ -48,26 +44,44 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 		_event: { input: { command: string } },
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
-		const field = singleField(parsed.message, "Edit commit message:");
-
-		const result = await reviewLoop(ctx, {
+		const result = await prompt(ctx, {
+			title: parsed.isAmend ? "Amend Commit" : "Commit",
+			content: renderCommitContent(parsed.message, parsed.isAmend),
 			actions: COMMIT_ACTIONS,
-			content: (theme, width) =>
-				renderCommitContent(field.value, parsed.isAmend)(theme, width),
-			field,
-			entityName: "commit",
-			steerContext: parsed.message,
 		});
 
-		if (result) return result;
+		if (!result) {
+			return {
+				block: true,
+				reason: "User cancelled the commit review.",
+			};
+		}
 
-		// Approve — check if the message was edited
-		if (field.value !== parsed.message) {
-			const heredoc = buildHeredoc(field.value, parsed.flags);
-			const rewrite = parsed.prefix
-				? `${parsed.prefix} && ${heredoc}`
-				: heredoc;
-			return { rewrite };
+		if (result.type === "steer") {
+			return formatSteer(result.note, `Original commit:\n${parsed.message}`);
+		}
+
+		if (result.type === "action") {
+			if (result.value === "a") {
+				// Approve — if the user added a note, treat as steer
+				if (result.note) {
+					return formatSteer(
+						result.note,
+						`Original commit:\n${parsed.message}`,
+					);
+				}
+				return undefined;
+			}
+
+			// Reject — if there's a note, include it
+			if (result.note) {
+				return formatSteer(result.note, `Original commit:\n${parsed.message}`);
+			}
+			return {
+				block: true,
+				reason:
+					"User rejected the commit. Ask for guidance on the commit description.",
+			};
 		}
 	},
 };

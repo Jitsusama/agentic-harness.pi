@@ -30,6 +30,10 @@ const THINKING_GLYPHS: Record<string, string> = {
 	xhigh: "🧠⁵",
 };
 
+/** ANSI 256-color: muted blue-gray for the model name. */
+const MODEL_COLOR = "\x1b[38;5;103m";
+const ANSI_RESET = "\x1b[0m";
+
 /** Shorten a model ID: claude-sonnet-4-20250514 → sonnet-4 */
 function shortenModel(id: string): string {
 	return id.replace(/^claude-/, "").replace(/-\d{8}$/, "");
@@ -58,7 +62,9 @@ function totalWidth(parts: string[]): number {
 }
 
 interface FooterData {
+	/** Full path with last component highlighted. */
 	fullDir: string;
+	/** Basename only, highlighted. */
 	shortDir: string;
 	branch: string | null;
 	fullModel: string;
@@ -92,9 +98,11 @@ function buildCandidate(
 	const left: string[] = [];
 
 	const dir = useShortDir ? d.shortDir : d.fullDir;
-	const branchSuffix =
-		!hideBranch && d.branch ? ` ${theme.fg("dim", `(${d.branch})`)}` : "";
-	left.push(theme.fg("dim", dir) + branchSuffix);
+	if (!hideBranch && d.branch) {
+		left.push(`${dir} ${theme.fg("dim", "·")} ${theme.fg("dim", d.branch)}`);
+	} else {
+		left.push(dir);
+	}
 
 	left.push(useShortModel ? d.shortModel : d.fullModel);
 
@@ -153,19 +161,30 @@ export default function statusLine(pi: ExtensionAPI) {
 					const window = usage?.contextWindow ?? 0;
 					const pct = window > 0 ? Math.round((tokens / window) * 100) : 0;
 
+					// Context color: dim normally, warning when > 80%
+					const ctxColor = pct > 80 ? "warning" : "dim";
+
+					// Highlight last path component, dim the rest
+					const homeCwd = homePath(cwd);
+					const base = path.basename(cwd);
+					const parent = homeCwd.slice(0, homeCwd.length - base.length);
+					const fullDir = `${theme.fg("dim", parent)}${MODEL_COLOR}${base}${ANSI_RESET}`;
+
+					const thinkGlyph = THINKING_GLYPHS[thinking] ?? "";
+
 					const d: FooterData = {
-						fullDir: homePath(cwd),
-						shortDir: path.basename(cwd),
+						fullDir,
+						shortDir: `${MODEL_COLOR}${base}${ANSI_RESET}`,
 						branch,
 						fullModel: theme.fg("dim", modelId),
 						shortModel: theme.fg("dim", shortenModel(modelId)),
 						contextTokens: theme.fg(
-							"dim",
+							ctxColor,
 							`${fmtTokens(tokens)}/${fmtTokens(window)}`,
 						),
-						contextPct: theme.fg("dim", `${pct}%`),
+						contextPct: theme.fg(ctxColor, `${pct}%`),
 						cost: cost > 0 ? theme.fg("dim", `$${cost.toFixed(3)}`) : null,
-						thinkGlyph: THINKING_GLYPHS[thinking] ?? "",
+						thinkGlyph,
 						statuses: [],
 					};
 
@@ -200,8 +219,8 @@ export default function statusLine(pi: ExtensionAPI) {
 						}
 					}
 
-					// Everything stripped — just show basename
-					return [truncateToWidth(theme.fg("dim", d.shortDir), width)];
+					// Everything stripped — just show basename (already styled)
+					return [truncateToWidth(d.shortDir, width)];
 				},
 			};
 		});

@@ -1,481 +1,167 @@
 /**
- * Panel — shared UI primitive for bordered, scrollable content
- * with options and inline editor.
+ * Panel — public entry points for the component library.
  *
- * Two public APIs:
- *   showPanel       — single-shot: one page, returns on selection
- *   showPanelSeries — multi-page with tabs, returns when complete
+ * Two interaction patterns:
+ *   - prompt(): interactive decisions (single or tabbed)
+ *   - view(): read-only display
  *
- * Both compose the same building blocks from panel-state,
- * panel-render, and panel-keys.
+ * Delegates to prompt-single.ts and prompt-tabbed.ts for the
+ * interactive implementations. Shared layout helpers live in
+ * panel-layout.ts.
  */
 
-import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import { Editor, Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import { showSinglePrompt } from "./prompt-single.js";
+import { showTabbedPrompt } from "./prompt-tabbed.js";
 import {
-	handleOptionNav,
-	handleScrollKeys,
-	handleTabNav,
-	resolveConfirmation,
-} from "./panel-keys.js";
+	contentBudget,
+	handleScrollInput,
+	maxContentWidth,
+	renderScrollRegion,
+	type ScrollState,
+} from "./scroll-region.js";
 import {
-	buildEditorTheme,
-	renderInlineEditor,
-	renderOptionsList,
-	renderScrollableContent,
-	renderTabBar,
-} from "./panel-render.js";
-import { clampScroll, contentBudget, PI_CHROME_LINES } from "./panel-state.js";
+	GLYPH,
+	type PromptResult,
+	SCROLLBAR_GUTTER,
+	type SinglePromptConfig,
+	type TabbedPromptConfig,
+	type TabbedResult,
+	type ViewConfig,
+} from "./types.js";
 
-// ---- Types ----
+// Re-export layout helpers for backward compatibility
+export { buildHintBar, computeChromeLines } from "./panel-layout.js";
 
-export interface PanelOption {
-	label: string;
-	value: string;
-	/** Optional description shown below the label. */
-	description?: string;
-	/** Icon shown in the tab bar when this option is selected (defaults to ✓). */
-	icon?: string;
-	/** When true, selecting this option opens an inline editor. */
-	opensEditor?: boolean;
-	/** Pre-fill text for the inline editor. */
-	editorPreFill?: string;
-}
-
-export interface PanelPage {
-	/** Tab label (shown in tab bar for multi-page panels). */
-	label: string;
-	/** Renders the content section. */
-	content: (theme: Theme, width: number) => string[];
-	/** Selectable options. */
-	options: PanelOption[];
-}
-
-export interface PanelResult {
-	/** The selected option's value. */
-	value: string;
-	/** Present when an opensEditor option was selected and submitted. */
-	editorText?: string;
-}
-
-export interface SeriesSelection {
-	pageIndex: number;
-	value: string;
-	editorText?: string;
-}
-
-export interface PanelSeriesConfig {
-	pages: PanelPage[];
-	/**
-	 * Called on each selection. Return true to resolve the
-	 * series. Async — can open ctx.ui.editor() as an overlay
-	 * for full-screen editing while the panel stays underneath.
-	 * The panel pauses input handling until onSelect completes.
-	 */
-	onSelect?: (
-		selection: SeriesSelection,
-		all: Map<number, SeriesSelection>,
-	) => Promise<boolean> | boolean;
-}
-
-// ---- showPanel (single-shot) ----
+// ---- prompt ----
 
 /**
- * Show a single-page panel. Returns the selected option or
- * null on cancel (Escape).
+ * Show a single interactive prompt. Returns the user's decision
+ * or null on cancel (Escape).
  */
-export async function showPanel(
+export async function prompt(
 	ctx: ExtensionContext,
-	config: { page: PanelPage },
-): Promise<PanelResult | null> {
+	config: SinglePromptConfig,
+): Promise<PromptResult | null>;
+
+/**
+ * Show a tabbed interactive prompt. Returns all decisions
+ * or null on cancel (Escape).
+ */
+export async function prompt(
+	ctx: ExtensionContext,
+	config: TabbedPromptConfig,
+): Promise<TabbedResult | null>;
+
+/** Implementation of both prompt overloads. */
+export async function prompt(
+	ctx: ExtensionContext,
+	config: SinglePromptConfig | TabbedPromptConfig,
+): Promise<PromptResult | TabbedResult | null> {
 	if (!ctx.hasUI) return null;
 
-	const { page } = config;
-	return ctx.ui.custom<PanelResult | null>((tui, theme, _kb, done) => {
-		let selected = 0;
-		let editorMode = false;
-		let editorOptionValue = "";
-		let scrollOffset = 0;
-		let hScrollOffset = 0;
-		const editor = new Editor(tui, buildEditorTheme(theme));
+	if ("items" in config) {
+		return showTabbedPrompt(ctx, config);
+	}
+	return showSinglePrompt(ctx, config);
+}
 
-		editor.onSubmit = (value) => {
-			const trimmed = value.trim();
-			if (!trimmed) {
-				editorMode = false;
-				editor.setText("");
-				tui.requestRender();
-				return;
-			}
-			done({ value: editorOptionValue, editorText: trimmed });
-		};
+// ---- view ----
+
+/**
+ * Show read-only content. Returns when dismissed (Escape).
+ */
+export async function view(
+	ctx: ExtensionContext,
+	config: ViewConfig,
+): Promise<void> {
+	if (!ctx.hasUI) return;
+
+	await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };
+		let cachedContent: string[] | null = null;
+		let cachedHScroll = false;
+		let cachedWidth = -1;
+		const hScrollEnabled = config.allowHScroll === true;
+
+		function getContent(width: number): string[] {
+			if (cachedContent && width === cachedWidth) return cachedContent;
+			cachedWidth = width;
+			cachedContent = config.content(theme, width - SCROLLBAR_GUTTER);
+			cachedHScroll =
+				hScrollEnabled &&
+				maxContentWidth(cachedContent) > width - SCROLLBAR_GUTTER;
+			return cachedContent;
+		}
 
 		function handleInput(data: string) {
-			if (editorMode) {
-				if (matchesKey(data, Key.escape)) {
-					editorMode = false;
-					editor.setText("");
-					tui.requestRender();
-					return;
-				}
-				editor.handleInput(data);
-				tui.requestRender();
-				return;
-			}
-
 			if (matchesKey(data, Key.escape)) {
-				done(null);
+				done(undefined);
 				return;
 			}
-
-			const budget = contentBudget(false, page.options.length);
-			const scroll = handleScrollKeys(
+			const chromeLines = 2 + (config.title ? 2 : 0) + 3;
+			const budget = contentBudget(chromeLines);
+			const scrollResult = handleScrollInput(
 				data,
-				scrollOffset,
-				hScrollOffset,
+				scroll,
 				budget,
+				cachedContent?.length ?? 0,
+				cachedHScroll,
 			);
-			if (scroll) {
-				scrollOffset = scroll.vOffset;
-				hScrollOffset = scroll.hOffset;
+			if (scrollResult) {
+				scroll.vOffset = scrollResult.vOffset;
+				scroll.hOffset = scrollResult.hOffset;
 				tui.requestRender();
-				return;
-			}
-
-			const nav = handleOptionNav(data, selected, page.options.length);
-			if (nav !== null) {
-				selected = nav;
-				tui.requestRender();
-				return;
-			}
-
-			const confirmed = resolveConfirmation(
-				data,
-				selected,
-				page.options.length,
-			);
-			if (confirmed === null) return;
-
-			selected = confirmed;
-			const opt = page.options[selected];
-			if (!opt) return;
-			if (opt.opensEditor) {
-				editorMode = true;
-				editorOptionValue = opt.value;
-				editor.setText(opt.editorPreFill ?? "");
-				tui.requestRender();
-			} else {
-				done({ value: opt.value });
 			}
 		}
 
 		function render(width: number): string[] {
 			const lines: string[] = [];
-			const maxLines = (process.stdout.rows || 40) - PI_CHROME_LINES;
 			const add = (s: string) => lines.push(truncateToWidth(s, width));
 
-			add(theme.fg("accent", "─".repeat(width)));
+			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 
-			const budget = contentBudget(false, page.options.length);
-			const contentLines = page.content(theme, width + hScrollOffset);
-			scrollOffset = clampScroll(scrollOffset, contentLines.length, budget);
+			if (config.title) {
+				add(` ${theme.fg("accent", theme.bold(config.title))}`);
+				add("");
+			}
 
-			const {
-				lines: scrolled,
-				needsVScroll,
-				needsHScroll,
-			} = renderScrollableContent(
+			const chromeLines = 2 + (config.title ? 2 : 0) + 3;
+			const budget = contentBudget(chromeLines);
+			const contentLines = getContent(width);
+			const { lines: scrolled, needsVScroll } = renderScrollRegion(
 				contentLines,
-				scrollOffset,
-				hScrollOffset,
+				scroll,
 				budget,
 				width,
 				theme,
+				cachedHScroll,
 			);
 			for (const line of scrolled) add(line);
 
-			if (editorMode) {
-				for (const line of renderInlineEditor(editor, width, theme)) {
-					add(line);
+			// Pad to budget only when scrolling (keeps height stable during scroll)
+			if (needsVScroll) {
+				while (lines.length < budget + (config.title ? 3 : 1)) {
+					lines.push("");
 				}
-			} else {
-				lines.push("");
-				for (const line of renderOptionsList(page.options, selected, theme)) {
-					add(line);
-				}
-				lines.push("");
-				const hints: string[] = ["↑↓ select", "Enter confirm", "Esc cancel"];
-				if (needsVScroll) hints.push("Shift+↑↓ scroll");
-				if (needsHScroll) hints.push("Shift+←→ pan");
-				add(theme.fg("dim", ` ${hints.join(" · ")}`));
 			}
 
-			add(theme.fg("accent", "─".repeat(width)));
+			lines.push("");
+			const hints: string[] = ["Esc close"];
+			if (needsVScroll) hints.push("Shift+↑↓ scroll");
+			add(theme.fg("dim", ` ${hints.join(" · ")}`));
 
-			// Hard cap: never return more lines than the terminal can hold
-			if (lines.length > maxLines) {
-				return lines.slice(lines.length - maxLines);
-			}
+			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 			return lines;
 		}
 
-		return { render, handleInput, invalidate() {} };
+		return {
+			render,
+			handleInput,
+			invalidate() {
+				cachedContent = null;
+			},
+		};
 	});
-}
-
-// ---- showPanelSeries (multi-page) ----
-
-/**
- * Show a multi-page panel with tab navigation. Returns all
- * accumulated selections or null on cancel (Escape).
- *
- * For single-page usage, the tab bar is hidden and the panel
- * behaves like showPanel but routes through onSelect.
- */
-export async function showPanelSeries(
-	ctx: ExtensionContext,
-	config: PanelSeriesConfig,
-): Promise<Map<number, SeriesSelection> | null> {
-	if (!ctx.hasUI) return null;
-
-	const { pages, onSelect } = config;
-	const isMulti = pages.length > 1;
-
-	// Use the maximum option count across all pages so the panel
-	// height stays constant when switching tabs.
-	const maxOptionCount = Math.max(...pages.map((p) => p.options.length));
-
-	return ctx.ui.custom<Map<number, SeriesSelection> | null>(
-		(tui, theme, _kb, done) => {
-			let currentTab = 0;
-			let optionIndex = 0;
-			let editorMode = false;
-			let editorOptionValue = "";
-			let scrollOffset = 0;
-			let hScrollOffset = 0;
-			let busy = false;
-			const selections = new Map<number, SeriesSelection>();
-			const editor = new Editor(tui, buildEditorTheme(theme));
-
-			editor.onSubmit = (value) => {
-				const trimmed = value.trim();
-				if (!trimmed) {
-					editorMode = false;
-					editor.setText("");
-					tui.requestRender();
-					return;
-				}
-				handleSelection(editorOptionValue, trimmed);
-			};
-
-			async function handleSelection(value: string, editorText?: string) {
-				const selection: SeriesSelection = {
-					pageIndex: currentTab,
-					value,
-					editorText,
-				};
-
-				selections.set(currentTab, selection);
-
-				if (onSelect) {
-					busy = true;
-					tui.requestRender();
-					try {
-						const resolve = await onSelect(selection, selections);
-						if (resolve) {
-							done(selections);
-							return;
-						}
-					} finally {
-						busy = false;
-					}
-				} else if (!isMulti) {
-					done(selections);
-					return;
-				}
-
-				// Advance to next unanswered page
-				editorMode = false;
-				editor.setText("");
-				if (isMulti) {
-					for (let i = 1; i <= pages.length; i++) {
-						const next = (currentTab + i) % pages.length;
-						if (!selections.has(next)) {
-							currentTab = next;
-							optionIndex = 0;
-							scrollOffset = 0;
-							tui.requestRender();
-							return;
-						}
-					}
-				}
-
-				optionIndex = 0;
-				scrollOffset = 0;
-				tui.requestRender();
-			}
-
-			function handleInput(data: string) {
-				if (busy) return;
-
-				const page = pages[currentTab];
-				if (!page) return;
-
-				if (editorMode) {
-					if (matchesKey(data, Key.escape)) {
-						editorMode = false;
-						editor.setText("");
-						tui.requestRender();
-						return;
-					}
-					editor.handleInput(data);
-					tui.requestRender();
-					return;
-				}
-
-				if (matchesKey(data, Key.escape)) {
-					done(null);
-					return;
-				}
-
-				// Tab navigation (multi-page only)
-				if (isMulti) {
-					const tab = handleTabNav(data, currentTab, pages.length);
-					if (tab !== null) {
-						currentTab = tab;
-						optionIndex = 0;
-						scrollOffset = 0;
-						hScrollOffset = 0;
-						tui.requestRender();
-						return;
-					}
-				}
-
-				const budget = contentBudget(isMulti, maxOptionCount);
-				const scroll = handleScrollKeys(
-					data,
-					scrollOffset,
-					hScrollOffset,
-					budget,
-				);
-				if (scroll) {
-					scrollOffset = scroll.vOffset;
-					hScrollOffset = scroll.hOffset;
-					tui.requestRender();
-					return;
-				}
-
-				// Skip option handling on read-only pages
-				if (page.options.length === 0) return;
-
-				const nav = handleOptionNav(data, optionIndex, page.options.length);
-				if (nav !== null) {
-					optionIndex = nav;
-					tui.requestRender();
-					return;
-				}
-
-				const confirmed = resolveConfirmation(
-					data,
-					optionIndex,
-					page.options.length,
-				);
-				if (confirmed === null) return;
-
-				optionIndex = confirmed;
-				const opt = page.options[optionIndex];
-				if (!opt) return;
-				if (opt.opensEditor) {
-					editorMode = true;
-					editorOptionValue = opt.value;
-					editor.setText(opt.editorPreFill ?? "");
-					tui.requestRender();
-				} else {
-					handleSelection(opt.value);
-				}
-			}
-
-			function render(width: number): string[] {
-				const lines: string[] = [];
-				const add = (s: string) => lines.push(truncateToWidth(s, width));
-
-				// Compute the fixed total height once. Every render must
-				// produce exactly this many lines regardless of tab.
-				// Layout: top border (1) + tab bar (2 if multi) + content (budget)
-				//       + footer (maxOptionCount + 3) + bottom border (1)
-				const budget = contentBudget(isMulti, maxOptionCount);
-				const tabBarLines = isMulti ? 2 : 0;
-				const footerLines = maxOptionCount + 3;
-				const targetTotal = 1 + tabBarLines + budget + footerLines + 1;
-
-				add(theme.fg("accent", "─".repeat(width)));
-
-				if (isMulti) {
-					add(renderTabBar(pages, currentTab, selections, theme));
-					lines.push("");
-				}
-
-				const page = pages[currentTab];
-				if (!page) return lines;
-				const contentLines = page.content(theme, width + hScrollOffset);
-				scrollOffset = clampScroll(scrollOffset, contentLines.length, budget);
-
-				const {
-					lines: scrolled,
-					needsVScroll,
-					needsHScroll,
-				} = renderScrollableContent(
-					contentLines,
-					scrollOffset,
-					hScrollOffset,
-					budget,
-					width,
-					theme,
-				);
-				for (const line of scrolled) add(line);
-
-				if (editorMode) {
-					for (const line of renderInlineEditor(editor, width, theme)) {
-						add(line);
-					}
-				} else if (page.options.length > 0) {
-					lines.push("");
-					for (const line of renderOptionsList(
-						page.options,
-						optionIndex,
-						theme,
-					)) {
-						add(line);
-					}
-					lines.push("");
-					const hints: string[] = [];
-					if (isMulti) hints.push("Tab/←→ navigate");
-					hints.push("↑↓ select");
-					hints.push("Enter confirm");
-					hints.push("Esc cancel");
-					if (needsVScroll) hints.push("Shift+↑↓ scroll");
-					if (needsHScroll) hints.push("Shift+←→ pan");
-					add(theme.fg("dim", ` ${hints.join(" · ")}`));
-				} else {
-					lines.push("");
-					const hints: string[] = [];
-					if (isMulti) hints.push("Tab/←→ navigate");
-					hints.push("Esc cancel");
-					if (needsVScroll) hints.push("Shift+↑↓ scroll");
-					if (needsHScroll) hints.push("Shift+←→ pan");
-					add(theme.fg("dim", ` ${hints.join(" · ")}`));
-				}
-
-				// Pad to fixed height (leave room for bottom border)
-				while (lines.length < targetTotal - 1) {
-					lines.push("");
-				}
-
-				add(theme.fg("accent", "─".repeat(width)));
-				return lines;
-			}
-
-			return { render, handleInput, invalidate() {} };
-		},
-	);
 }

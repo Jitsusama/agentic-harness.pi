@@ -92,7 +92,7 @@ export async function handleCreateEvent(
 	}
 
 	// Confirm and potentially edit before creating
-	const eventData = await confirmCreateEvent(ctx, {
+	const confirmResult = await confirmCreateEvent(ctx, {
 		summary,
 		start,
 		end,
@@ -101,13 +101,19 @@ export async function handleCreateEvent(
 		attendees,
 	});
 
-	if (!eventData) {
+	if (!confirmResult) {
 		return {
 			content: [{ type: "text", text: "✗ Event creation cancelled" }],
 		};
 	}
+	if (!confirmResult.approved) {
+		return {
+			content: [{ type: "text", text: confirmResult.steer }],
+		};
+	}
 
 	try {
+		const eventData = confirmResult.data;
 		const event = await createEvent(auth, {
 			summary: eventData.summary,
 			start: eventData.start,
@@ -163,7 +169,7 @@ export async function handleUpdateEvent(
 
 	// Confirm if it has attendees
 	if (hasAttendees) {
-		const confirmed = await confirmUpdateEvent(ctx, eventId, existing, {
+		const confirmResult = await confirmUpdateEvent(ctx, eventId, existing, {
 			summary,
 			start,
 			end,
@@ -172,9 +178,14 @@ export async function handleUpdateEvent(
 			attendees,
 		});
 
-		if (!confirmed) {
+		if (!confirmResult) {
 			return {
 				content: [{ type: "text", text: "✗ Event update cancelled" }],
+			};
+		}
+		if (!confirmResult.approved) {
+			return {
+				content: [{ type: "text", text: confirmResult.steer }],
 			};
 		}
 	}
@@ -217,16 +228,21 @@ export async function handleDeleteEvent(
 
 	// Confirm if it has attendees
 	if (hasAttendees) {
-		const confirmed = await confirmDeleteEvent(
+		const confirmResult = await confirmDeleteEvent(
 			ctx,
 			eventId,
 			existing.summary,
 			true,
 		);
 
-		if (!confirmed) {
+		if (!confirmResult) {
 			return {
 				content: [{ type: "text", text: "✗ Event deletion cancelled" }],
+			};
+		}
+		if (!confirmResult.approved) {
+			return {
+				content: [{ type: "text", text: confirmResult.steer }],
 			};
 		}
 	}
