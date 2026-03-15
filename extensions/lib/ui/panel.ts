@@ -803,9 +803,7 @@ async function showTabbedPrompt(
 
 		/** Build content lines for the user tab. */
 		const userTabContent: ContentFn = () => {
-			if (userItems.length === 0) {
-				return ["  No items yet. Press [A]dd to create one."];
-			}
+			if (userItems.length === 0) return [];
 			return ["  Your additions:"];
 		};
 
