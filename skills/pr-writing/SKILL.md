@@ -96,6 +96,30 @@ Do NOT flag style issues, obvious code, or things the diff
 already makes clear. An empty comments array is fine when
 nothing warrants reviewer attention.
 
+### Getting Line Numbers Right
+
+GitHub's review API only accepts comments on lines that
+appear in the diff. Comments on lines outside diff hunks
+are rejected with a 422. **Always verify line numbers
+against the diff before calling `pr_review`.**
+
+Procedure:
+
+1. Fetch the diff patches:
+   ```
+   gh api repos/OWNER/REPO/pulls/NUMBER/files \
+     --jq '.[] | {filename, patch}'
+   ```
+2. For each comment, find the target file's patch and
+   confirm your `startLine`..`line` range falls within
+   a `@@` hunk on the RIGHT side (new file lines — the
+   `+N,M` in the hunk header).
+3. Only then call `pr_review` with those line numbers.
+
+Do NOT guess line numbers from the file contents. Do NOT
+retry with adjusted numbers after a 422 — get them right
+the first time.
+
 ## The Three Questions
 
 Every PR must answer:

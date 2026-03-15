@@ -3,10 +3,8 @@
  * Guides users through creating OAuth credentials and stores them persistently.
  */
 
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { prompt } from "../lib/ui/panel.js";
 import {
 	getOAuthApp,
 	hasOAuthApp,
@@ -17,7 +15,6 @@ import {
 	ERRORS,
 	isValidClientId,
 	isValidClientSecret,
-	SETUP_INSTRUCTIONS,
 } from "./setup-instructions.js";
 
 /**
@@ -27,92 +24,114 @@ import {
  * 1. Environment variables (highest priority, no prompts)
  * 2. Stored credentials (from previous setup)
  * 3. Interactive wizard (prompts user if UI available)
- *
- * @param pi - Extension API
- * @param ctx - Extension context
- * @param envConfig - OAuth config from environment variables
- * @returns OAuth credentials or null if setup cancelled/failed
  */
 export async function ensureOAuthApp(
-	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	envConfig: OAuthAppCredentials,
 ): Promise<OAuthAppCredentials | null> {
-	// 1. Check environment variables first (highest priority)
 	if (envConfig.clientId && envConfig.clientSecret) {
 		return envConfig;
 	}
 
-	// 2. Check stored credentials
-	if (hasOAuthApp(ctx)) {
-		const stored = getOAuthApp(ctx);
-		if (stored) {
-			return stored;
-		}
+	if (hasOAuthApp()) {
+		const stored = getOAuthApp();
+		if (stored) return stored;
 	}
 
-	// 3. Run interactive setup wizard
 	if (!ctx.hasUI) {
-		ctx.ui.notify(SETUP_INSTRUCTIONS.envVarHelp, "error");
+		ctx.ui.notify(
+			"OAuth credentials not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+			"error",
+		);
 		return null;
 	}
 
-	return await runSetupWizard(pi, ctx);
+	return await runSetupWizard(ctx);
 }
 
 /**
- * Run the interactive OAuth setup wizard.
- * Shows instructions and prompts for credentials using ctx.ui.editor().
+ * Run the interactive OAuth setup wizard using shared prompt panels.
  */
 async function runSetupWizard(
-	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 ): Promise<OAuthAppCredentials | null> {
-	// Show welcome and instructions
-	ctx.ui.notify(SETUP_INSTRUCTIONS.welcome, "info");
-	ctx.ui.notify(SETUP_INSTRUCTIONS.steps, "info");
+	// Step 1: Show instructions and ask to proceed
+	const proceed = await prompt(ctx, {
+		content: (theme) => [
+			` ${theme.bold("⚙️  Google Workspace Setup")}`,
+			"",
+			" To use Google Workspace features, you need OAuth credentials.",
+			" This is a one-time setup that takes about 5 minutes.",
+			"",
+			` ${theme.bold(" Steps:")}`,
+			"",
+			` 1. Create a Google Cloud project`,
+			`    ${theme.fg("accent", "https://console.cloud.google.com/projectcreate")}`,
+			"",
+			" 2. Enable Gmail, Calendar, Drive, Docs, Sheets, Slides APIs",
+			`    ${theme.fg("accent", "https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,calendar-json.googleapis.com,drive.googleapis.com,docs.googleapis.com,sheets.googleapis.com,slides.googleapis.com")}`,
+			"",
+			` 3. Create OAuth credentials (Desktop app or TV/Limited Input)`,
+			`    ${theme.fg("accent", "https://console.cloud.google.com/apis/credentials")}`,
+			"",
+			` ${theme.fg("dim", "This is completely free and requires no billing.")}`,
+		],
+		options: [
+			{ label: "I have my credentials ready", value: "continue" },
+			{ label: "Cancel", value: "cancel" },
+		],
+	});
 
-	// Prompt for Client ID
-	const clientId = await ctx.ui.editor("Enter your OAuth Client ID:", "");
+	if (!proceed || proceed.type !== "action" || proceed.value !== "continue") {
+		ctx.ui.notify("Setup cancelled. Run /google-setup when ready.", "info");
+		return null;
+	}
+
+	// Step 2: Prompt for Client ID
+	const clientId = await ctx.ui.editor(
+		"Enter your OAuth Client ID (ends with .apps.googleusercontent.com):",
+		"",
+	);
 
 	if (!clientId) {
-		ctx.ui.notify(SETUP_INSTRUCTIONS.cancelled, "warn");
+		ctx.ui.notify("Setup cancelled. Run /google-setup when ready.", "info");
 		return null;
 	}
 
 	const cleanClientId = clientId.trim();
-
 	if (!isValidClientId(cleanClientId)) {
 		ctx.ui.notify(ERRORS.invalidClientId, "error");
 		return null;
 	}
 
-	// Prompt for Client Secret
+	// Step 3: Prompt for Client Secret
 	const clientSecret = await ctx.ui.editor(
 		"Enter your OAuth Client Secret:",
 		"",
 	);
 
 	if (!clientSecret) {
-		ctx.ui.notify(SETUP_INSTRUCTIONS.cancelled, "warn");
+		ctx.ui.notify("Setup cancelled. Run /google-setup when ready.", "info");
 		return null;
 	}
 
 	const cleanClientSecret = clientSecret.trim();
-
 	if (!isValidClientSecret(cleanClientSecret)) {
 		ctx.ui.notify(ERRORS.missingClientSecret, "error");
 		return null;
 	}
 
-	// Store credentials
+	// Store and confirm
 	const credentials: OAuthAppCredentials = {
 		clientId: cleanClientId,
 		clientSecret: cleanClientSecret,
 	};
 
-	storeOAuthApp(pi, credentials);
-	ctx.ui.notify(SETUP_INSTRUCTIONS.success, "success");
+	storeOAuthApp(credentials);
+	ctx.ui.notify(
+		"✓ OAuth credentials saved. Run /google-auth to authenticate.",
+		"info",
+	);
 
 	return credentials;
 }
