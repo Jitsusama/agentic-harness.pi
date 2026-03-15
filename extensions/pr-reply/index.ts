@@ -31,9 +31,9 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { Key, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { reviewLoop, singleField } from "../lib/guardian/review-loop.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { showGate } from "../lib/ui/gate.js";
+import { prompt } from "../lib/ui/panel-new.js";
+import { formatSteer } from "../lib/ui/steer.js";
 import { buildAnalysisPrompt } from "./analysis.js";
 import {
 	fetchReviews,
@@ -650,7 +650,7 @@ export default function prReply(pi: ExtensionAPI) {
 			null,
 		);
 
-		const gateResult = await showGate(ctx, {
+		const promptResult = await prompt(ctx, {
 			content: (theme, width) => {
 				const lines: string[] = [];
 
@@ -708,15 +708,33 @@ export default function prReply(pi: ExtensionAPI) {
 
 				return lines;
 			},
-			options: [
-				{ label: "Implement Now", value: "implement" },
-				{ label: "Implement Later", value: "implement-later" },
-				{ label: "Reply", value: "reply" },
-				{ label: "Defer", value: "defer" },
-				{ label: "Skip", value: "skip" },
+			actions: [
+				{ key: "i", label: "Implement Now" },
+				{ key: "l", label: "Implement Later" },
+				{ key: "r", label: "Reply" },
+				{ key: "d", label: "Defer" },
+				{ key: "k", label: "sKip" },
 			],
-			steerContext,
 		});
+
+		// Map prompt result to gate-style result for handleThreadChoice
+		const gateResult = promptResult
+			? promptResult.type === "steer"
+				? { value: "steer", feedback: promptResult.note }
+				: {
+						value:
+							promptResult.value === "i"
+								? "implement"
+								: promptResult.value === "l"
+									? "implement-later"
+									: promptResult.value === "r"
+										? "reply"
+										: promptResult.value === "d"
+											? "defer"
+											: "skip",
+						feedback: promptResult.note,
+					}
+			: null;
 
 		return handleThreadChoice(gateResult, thread, contextLine, steerContext);
 	}
@@ -902,37 +920,53 @@ export default function prReply(pi: ExtensionAPI) {
 			return textResult("Cannot find original comment to reply to.");
 		}
 
-		const field = singleField(draftReply, "Edit reply:");
-
-		const renderReply = (theme: Theme, width: number) => {
-			const lines: string[] = [];
-			lines.push(
-				theme.fg(
-					"dim",
-					`Replying to ${topComment.author} on ${thread.file}:${thread.line}`,
-				),
-			);
-			lines.push("");
-			lines.push(...renderMarkdown(field.value, theme, width));
-			return lines;
-		};
-
-		const loopResult = await reviewLoop(ctx, {
+		const replyResult = await prompt(ctx, {
+			content: (theme: Theme, width: number) => {
+				const lines: string[] = [];
+				lines.push(
+					theme.fg(
+						"dim",
+						`Replying to ${topComment.author} on ${thread.file}:${thread.line}`,
+					),
+				);
+				lines.push("");
+				lines.push(...renderMarkdown(draftReply, theme, width));
+				return lines;
+			},
 			actions: [
-				{ label: "Approve", value: "approve" },
-				{ label: "Edit", value: "edit" },
-				{ label: "Reject", value: "reject" },
+				{ key: "a", label: "Approve" },
+				{ key: "r", label: "Reject" },
 			],
-			content: renderReply,
-			field,
-			entityName: "reply",
-			steerContext: field.value,
 		});
 
-		// If user rejected or steered, return that to the LLM
-		if (loopResult) {
+		// If user cancelled, rejected, or steered — return that to the LLM
+		if (!replyResult) {
 			return {
-				content: [{ type: "text" as const, text: loopResult.reason }],
+				content: [
+					{
+						type: "text" as const,
+						text: "User cancelled the reply review.",
+					},
+				],
+				details: { action: "reply-rejected" },
+			};
+		}
+		if (replyResult.type === "steer") {
+			const steerResult = formatSteer(
+				replyResult.note,
+				`Original reply:\n${draftReply}`,
+			);
+			return {
+				content: [{ type: "text" as const, text: steerResult.reason }],
+				details: { action: "reply-rejected" },
+			};
+		}
+		if (replyResult.type === "action" && replyResult.value === "r") {
+			const reason = replyResult.note
+				? `User rejected: ${replyResult.note}`
+				: "User rejected the reply. Ask for guidance on the reply.";
+			return {
+				content: [{ type: "text" as const, text: reason }],
 				details: { action: "reply-rejected" },
 			};
 		}
@@ -948,7 +982,7 @@ export default function prReply(pi: ExtensionAPI) {
 		};
 
 		try {
-			await postReply(pi, ref, topComment.databaseId, field.value);
+			await postReply(pi, ref, topComment.databaseId, draftReply);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			return textResult(`Failed to post reply: ${msg}`);

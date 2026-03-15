@@ -5,20 +5,15 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { reviewLoop, titleBodyField } from "../lib/guardian/review-loop.js";
 import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import {
-	isPrCommand,
-	type PrCommand,
-	parsePrCommand,
-	rebuildCommand,
-} from "./parse.js";
+import { prompt } from "../lib/ui/panel-new.js";
+import { formatSteer } from "../lib/ui/steer.js";
+import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.js";
 
 const PR_ACTIONS = [
-	{ label: "Approve", value: "approve" },
-	{ label: "Edit", value: "edit" },
-	{ label: "Reject", value: "reject" },
+	{ key: "a", label: "Approve" },
+	{ key: "r", label: "Reject" },
 ];
 
 export const prGuardian: CommandGuardian<PrCommand> = {
@@ -35,17 +30,7 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 		_event: { input: { command: string } },
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
-		const field = titleBodyField(
-			parsed.title,
-			parsed.body ?? "",
-			"Edit PR description:",
-		);
-
-		const originalBody = parsed.body;
-		const originalTitle = parsed.title;
-
-		const result = await reviewLoop(ctx, {
-			actions: PR_ACTIONS,
+		const result = await prompt(ctx, {
 			content: (theme, width) => {
 				const out: string[] = [];
 				const isEdit = parsed.action === "edit";
@@ -53,28 +38,51 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 				out.push(theme.fg("dim", isEdit ? " PR Edit" : " New PR"));
 				out.push("");
 
-				if (field.title) {
-					out.push(theme.fg("text", ` ${theme.bold(field.title)}`));
+				if (parsed.title) {
+					out.push(theme.fg("text", ` ${theme.bold(parsed.title)}`));
 					out.push("");
 				}
 
-				for (const line of renderMarkdown(field.body, theme, width)) {
-					out.push(line);
+				if (parsed.body) {
+					for (const line of renderMarkdown(parsed.body, theme, width)) {
+						out.push(line);
+					}
 				}
 
 				return out;
 			},
-			field,
-			entityName: "PR",
-			steerContext: field.steerText(),
+			actions: PR_ACTIONS,
 		});
 
-		if (result) return result;
+		if (!result) {
+			return { block: true, reason: "User cancelled the PR review." };
+		}
 
-		// Approve — check if title or body was edited
-		if (field.body !== originalBody || field.title !== originalTitle) {
+		const steerContext = [
+			parsed.title ? `Title: ${parsed.title}` : null,
+			"",
+			parsed.body ?? "",
+		]
+			.filter((l) => l !== null)
+			.join("\n");
+
+		if (result.type === "steer") {
+			return formatSteer(result.note, `Original PR:\n${steerContext}`);
+		}
+
+		if (result.type === "action") {
+			if (result.value === "a") {
+				if (result.note) {
+					return formatSteer(result.note, `Original PR:\n${steerContext}`);
+				}
+				return undefined;
+			}
+			if (result.note) {
+				return formatSteer(result.note, `Original PR:\n${steerContext}`);
+			}
 			return {
-				rewrite: rebuildCommand(parsed, field.body, field.title ?? undefined),
+				block: true,
+				reason: "User rejected the PR. Ask for guidance on the PR description.",
 			};
 		}
 	},

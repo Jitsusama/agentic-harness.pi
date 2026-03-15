@@ -8,7 +8,7 @@ import type {
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { filterContext } from "../lib/state.js";
-import { showGate } from "../lib/ui/gate.js";
+import { prompt } from "../lib/ui/panel-new.js";
 import { deactivate } from "./lifecycle.js";
 import type { PlanState } from "./state.js";
 
@@ -24,27 +24,34 @@ export async function handlePlanWritten(
 	if (!state.enabled || !ctx.hasUI || !state.wroteToPlanDir) return;
 	state.wroteToPlanDir = false;
 
-	const result = await showGate(ctx, {
+	const result = await prompt(ctx, {
 		content: (theme) => [theme.fg("text", ` Plan written → ${state.planDir}`)],
-		options: [
-			{ label: "Implement", value: "implement" },
-			{ label: "Stay in planning", value: "stay" },
+		actions: [
+			{ key: "i", label: "Implement" },
+			{ key: "s", label: "Stay in planning" },
 		],
-		steerContext: "",
 	});
 
-	if (!result || result.value === "stay") return;
+	if (!result || (result.type === "action" && result.value === "s")) return;
 
-	deactivate(state, pi, ctx);
-
-	if (result.value === "steer") {
-		pi.sendUserMessage(result.feedback ?? "", { deliverAs: "followUp" });
+	if (result.type === "steer") {
+		deactivate(state, pi, ctx);
+		pi.sendUserMessage(result.note, { deliverAs: "followUp" });
 		return;
 	}
 
-	pi.sendUserMessage("Let's implement this plan. Start with step 1.", {
-		deliverAs: "followUp",
-	});
+	if (result.type === "action" && result.value === "i") {
+		deactivate(state, pi, ctx);
+
+		if (result.note) {
+			pi.sendUserMessage(result.note, { deliverAs: "followUp" });
+			return;
+		}
+
+		pi.sendUserMessage("Let's implement this plan. Start with step 1.", {
+			deliverAs: "followUp",
+		});
+	}
 }
 
 /**

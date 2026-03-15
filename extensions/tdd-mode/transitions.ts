@@ -8,7 +8,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import { filterContext } from "../lib/state.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { showGate } from "../lib/ui/gate.js";
+import { prompt } from "../lib/ui/panel-new.js";
 import { PHASE_GLYPHS, type Phase, type TddState } from "./state.js";
 
 /** Max length for the short summary shown in the gate header. */
@@ -25,10 +25,8 @@ const PHASE_NAMES: Record<Phase, string> = {
 
 /** Extract first sentence or clause as a short title. */
 function shortSummary(text: string): string {
-	// Split on sentence end or em-dash
 	const cut = text.search(/\.\s|—|\n/);
 	if (cut > 0 && cut <= SUMMARY_MAX_LENGTH) return text.slice(0, cut);
-	// Truncate at word boundary
 	if (text.length <= SUMMARY_MAX_LENGTH) return text;
 	const truncated = text.slice(0, SUMMARY_MAX_LENGTH);
 	const lastSpace = truncated.lastIndexOf(" ");
@@ -65,7 +63,7 @@ export async function showTransitionGate(
 	const nextGlyph = isStop ? "⏹" : PHASE_GLYPHS[opts.nextPhase];
 	const nextName = isStop ? "STOP" : PHASE_NAMES[opts.nextPhase];
 
-	const result = await showGate(ctx, {
+	const result = await prompt(ctx, {
 		content: (theme, width) => {
 			const short = shortSummary(opts.summary);
 			const lines = [
@@ -86,22 +84,28 @@ export async function showTransitionGate(
 			}
 			return lines;
 		},
-		options: [
-			{ label: `${nextName}`, value: "transition" },
-			{ label: `Stay in ${currentName}`, value: "stay" },
+		actions: [
+			{ key: "t", label: nextName },
+			{ key: "s", label: `Stay in ${currentName}` },
 		],
-		steerContext: opts.summary,
 	});
 
-	if (!result || result.value === "stay") {
+	if (!result || (result.type === "action" && result.value === "s")) {
 		return { approved: false };
 	}
 
-	if (result.value === "steer") {
-		return { approved: false, feedback: result.feedback };
+	if (result.type === "steer") {
+		return { approved: false, feedback: result.note };
 	}
 
-	return { approved: true };
+	if (result.type === "action" && result.value === "t") {
+		if (result.note) {
+			return { approved: false, feedback: result.note };
+		}
+		return { approved: true };
+	}
+
+	return { approved: false };
 }
 
 /**

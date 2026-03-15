@@ -1,21 +1,15 @@
 /**
- * Comment vetting flow — tabbed panel where each comment is a
- * page. Users can freely navigate, approve/edit/reject in any
- * order, and submit when done.
- *
- * Pre-approved comments (from prior rounds) are tracked in
- * the header count but not re-vetted.
+ * Comment vetting flow — tabbed prompt where each comment is
+ * a tab. Users approve/reject with hold-to-reveal annotations,
+ * and add their own via '+' hotkey.
  */
 
 import * as fs from "node:fs";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { languageFromPath, renderCode } from "../lib/ui/content-renderer.js";
-import {
-	type PanelPage,
-	type SeriesSelection,
-	showPanelSeries,
-} from "../lib/ui/panel.js";
+import { prompt } from "../lib/ui/panel-new.js";
 import { CONTENT_INDENT, contentWrapWidth, wordWrap } from "../lib/ui/text.js";
+import type { PromptItem } from "../lib/ui/types.js";
 import type { ReviewComment, VetResult } from "./index.js";
 
 function readFileContent(
@@ -33,27 +27,16 @@ function readFileContent(
 	}
 }
 
-// ---- Status indicators ----
+// ---- Item builders ----
 
-type CommentStatus = "pending" | "approved" | "rejected" | "edited";
-
-function statusLabel(index: number, _status: CommentStatus): string {
-	return `C${index + 1}`;
-}
-
-// ---- Page builders ----
-
-function buildCommentPage(
+function buildCommentItem(
 	comment: ReviewComment,
 	index: number,
 	total: number,
 	preApprovedCount: number,
-	statuses: Map<number, CommentStatus>,
-): PanelPage {
-	const status = statuses.get(index) ?? "pending";
-
+): PromptItem {
 	return {
-		label: statusLabel(index, status),
+		label: `C${index + 1}`,
 		content: (theme, width) => {
 			const wrapWidth = contentWrapWidth(width);
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -96,45 +79,9 @@ function buildCommentPage(
 
 			return lines;
 		},
-		options: [
-			{ label: "Approve", value: "approve", icon: "✓" },
-			{ label: "Edit", value: "edit", icon: "✎" },
-			{ label: "Reject", value: "reject", icon: "✗" },
-			{
-				label: "Steer",
-				value: "steer",
-				icon: "⚡",
-				opensEditor: true,
-				editorPreFill: "",
-			},
-		],
-	};
-}
-
-function buildAddDonePage(
-	approvedCount: number,
-	userRequestCount: number,
-): PanelPage {
-	return {
-		label: "Done",
-		content: (theme, _width) => {
-			const lines: string[] = [];
-			lines.push(theme.fg("text", " All comments reviewed."));
-			const total = approvedCount + userRequestCount;
-			if (total > 0) {
-				lines.push(theme.fg("success", ` ${total} approved/added so far.`));
-			}
-			return lines;
-		},
-		options: [
-			{ label: "Done", value: "done", icon: "✓" },
-			{
-				label: "Add a comment",
-				value: "add",
-				icon: "✎",
-				opensEditor: true,
-				editorPreFill: "",
-			},
+		actions: [
+			{ key: "a", label: "Approve" },
+			{ key: "r", label: "Reject" },
 		],
 	};
 }
@@ -146,122 +93,52 @@ export async function vetComments(
 	preApprovedCount: number,
 	ctx: ExtensionContext,
 ): Promise<VetResult | null> {
-	// Mutable state closed over by pages and onSelect
-	const currentComments = comments.map((c) => ({ ...c }));
-	const statuses = new Map<number, CommentStatus>();
-	const userRequests: string[] = [];
-	let editedCount = 0;
-	let steerFeedback: string | undefined;
+	const items = comments.map((c, i) =>
+		buildCommentItem(c, i, comments.length, preApprovedCount),
+	);
 
-	// Build pages — rebuilt when tab labels need updating
-	function buildPages(): PanelPage[] {
-		const commentPages = currentComments.map((comment, i) =>
-			buildCommentPage(comment, i, comments.length, preApprovedCount, statuses),
-		);
-		const approvedCount = Array.from(statuses.values()).filter(
-			(s) => s === "approved" || s === "edited",
-		).length;
-		const addDonePage = buildAddDonePage(
-			preApprovedCount + approvedCount,
-			userRequests.length,
-		);
-		return [...commentPages, addDonePage];
-	}
-
-	// onSelect callback — handles all actions
-	async function onSelect(
-		selection: SeriesSelection,
-		_all: Map<number, SeriesSelection>,
-	): Promise<boolean> {
-		const { pageIndex, value, editorText } = selection;
-
-		// Add/Done page
-		if (pageIndex === currentComments.length) {
-			if (value === "done") return true;
-			if (value === "add" && editorText?.trim()) {
-				userRequests.push(editorText.trim());
-			}
-			if (value === "steer" && editorText?.trim()) {
-				steerFeedback = editorText.trim();
-				return true;
-			}
-			return false;
-		}
-
-		// Comment page actions
-		switch (value) {
-			case "approve":
-				statuses.set(pageIndex, "approved");
-				break;
-
-			case "edit": {
-				const comment = currentComments[pageIndex];
-				if (!comment) break;
-				const editedBody = await ctx.ui.editor("Edit comment:", comment.body);
-				if (editedBody?.trim()) {
-					comment.body = editedBody.trim();
-					editedCount++;
-					statuses.set(pageIndex, "edited");
-				}
-				break;
-			}
-
-			case "reject":
-				statuses.set(pageIndex, "rejected");
-				break;
-
-			case "steer":
-				if (editorText?.trim()) {
-					steerFeedback = editorText.trim();
-					return true;
-				}
-				break;
-		}
-
-		return false;
-	}
-
-	const result = await showPanelSeries(ctx, {
-		pages: buildPages(),
-		onSelect,
+	const result = await prompt(ctx, {
+		items,
+		canAddItems: true,
+		autoResolve: false,
 	});
 
-	// Cancelled
 	if (!result) return null;
 
-	// Steer aborts everything
-	if (steerFeedback) {
-		const rejected = Array.from(statuses.values()).filter(
-			(s) => s === "rejected",
-		).length;
-		return {
-			approved: [],
-			rejected,
-			edited: editedCount,
-			steerFeedback,
-			userRequests: [],
-		};
+	// Check for steer results
+	for (const [, itemResult] of result.items) {
+		if (itemResult.type === "steer") {
+			return {
+				approved: [],
+				rejected: 0,
+				edited: 0,
+				steerFeedback: itemResult.note,
+				userRequests: [],
+			};
+		}
 	}
 
 	// Collect results
 	const approved: ReviewComment[] = [];
 	let rejected = 0;
 
-	for (let i = 0; i < currentComments.length; i++) {
-		const status = statuses.get(i) ?? "pending";
-		if (status === "approved" || status === "edited") {
-			const comment = currentComments[i];
-			if (comment) approved.push(comment);
-		} else if (status === "rejected") {
+	for (let i = 0; i < comments.length; i++) {
+		const itemResult = result.items.get(i);
+		if (!itemResult) continue;
+		const comment = comments[i];
+		if (!comment) continue;
+
+		if (itemResult.type === "action" && itemResult.value === "a") {
+			approved.push(comment);
+		} else if (itemResult.type === "action" && itemResult.value === "r") {
 			rejected++;
 		}
-		// pending comments are neither approved nor rejected
 	}
 
 	return {
 		approved,
 		rejected,
-		edited: editedCount,
-		userRequests,
+		edited: 0,
+		userRequests: result.userItems,
 	};
 }

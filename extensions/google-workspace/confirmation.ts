@@ -1,10 +1,10 @@
 /**
  * Confirmation gates for sensitive Google Workspace operations.
- * Uses editable fields like PR/issue/commit guardians.
+ * Uses prompt() with actions for approve/cancel decisions.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { reviewLoop, titleBodyField } from "../lib/guardian/review-loop.js";
+import { prompt } from "../lib/ui/panel-new.js";
 
 export interface EmailData {
 	to: string[];
@@ -24,8 +24,8 @@ export interface EventData {
 }
 
 /**
- * Confirm and potentially edit email before sending.
- * Returns updated email data or null if cancelled.
+ * Confirm email before sending.
+ * Returns email data if approved, or null if cancelled.
  */
 export async function confirmSendEmail(
 	ctx: ExtensionContext,
@@ -34,19 +34,8 @@ export async function confirmSendEmail(
 ): Promise<EmailData | null> {
 	if (!ctx.hasUI) return email;
 
-	const field = titleBodyField(
-		email.subject,
-		email.body,
-		isReply ? "Edit reply:" : "Edit email:",
-	);
-
-	const result = await reviewLoop(ctx, {
-		actions: [
-			{ label: "Send", value: "approve" },
-			{ label: "Edit", value: "edit" },
-			{ label: "Cancel", value: "reject" },
-		],
-		content: (theme, _width) => {
+	const result = await prompt(ctx, {
+		content: (theme) => {
 			const lines = [
 				theme.fg(
 					"accent",
@@ -62,11 +51,9 @@ export async function confirmSendEmail(
 				lines.push(` ${theme.fg("muted", "Bcc:")} ${email.bcc.join(", ")}`);
 			}
 			lines.push("");
-			lines.push(
-				` ${theme.fg("muted", "Subject:")} ${field.title || email.subject}`,
-			);
+			lines.push(` ${theme.fg("muted", "Subject:")} ${email.subject}`);
 			lines.push("");
-			const bodyLines = (field.body || email.body).split("\n");
+			const bodyLines = email.body.split("\n");
 			const preview = bodyLines.slice(0, 15);
 			for (const line of preview) {
 				lines.push(` ${line}`);
@@ -78,20 +65,16 @@ export async function confirmSendEmail(
 			}
 			return lines;
 		},
-		field,
-		entityName: "email",
-		steerContext: `To: ${email.to.join(", ")}\nSubject: ${email.subject}\n\n${email.body}`,
+		actions: [
+			{ key: "s", label: "Send" },
+			{ key: "c", label: "Cancel" },
+		],
 	});
 
-	// User cancelled or rejected
-	if (result) return null;
-
-	// Return potentially edited email
-	return {
-		...email,
-		subject: field.title || email.subject,
-		body: field.body,
-	};
+	if (!result || (result.type === "action" && result.value === "c")) {
+		return null;
+	}
+	return email;
 }
 
 /**
@@ -104,12 +87,8 @@ export async function confirmDeleteEmail(
 ): Promise<boolean> {
 	if (!ctx.hasUI) return true;
 
-	const result = await reviewLoop(ctx, {
-		actions: [
-			{ label: "Delete", value: "approve" },
-			{ label: "Cancel", value: "reject" },
-		],
-		content: (theme, _width) => {
+	const result = await prompt(ctx, {
+		content: (theme) => {
 			const lines = [theme.fg("accent", theme.bold(" Delete Email")), ""];
 			if (subject) {
 				lines.push(` ${theme.fg("muted", "Subject:")} ${subject}`);
@@ -121,43 +100,32 @@ export async function confirmDeleteEmail(
 			);
 			return lines;
 		},
-		entityName: "email deletion",
-		steerContext: `Delete email: ${subject || messageId}`,
+		actions: [
+			{ key: "d", label: "Delete" },
+			{ key: "c", label: "Cancel" },
+		],
 	});
 
-	return !result; // null/undefined = approved, anything else = blocked
+	return !!result && result.type === "action" && result.value === "d";
 }
 
 /**
- * Confirm and potentially edit event before creating.
+ * Confirm event before creating (only when attendees present).
  */
 export async function confirmCreateEvent(
 	ctx: ExtensionContext,
 	event: EventData,
 ): Promise<EventData | null> {
 	if (!ctx.hasUI) return event;
-	if (!event.attendees || event.attendees.length === 0) return event; // No confirmation for personal events
+	if (!event.attendees || event.attendees.length === 0) return event;
 
-	const field = titleBodyField(
-		event.summary,
-		event.description || "",
-		"Edit event:",
-	);
-
-	const result = await reviewLoop(ctx, {
-		actions: [
-			{ label: "Create", value: "approve" },
-			{ label: "Edit", value: "edit" },
-			{ label: "Cancel", value: "reject" },
-		],
-		content: (theme, _width) => {
+	const result = await prompt(ctx, {
+		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Create Calendar Event")),
 				"",
 			];
-			lines.push(
-				` ${theme.fg("muted", "Title:")} ${field.title || event.summary}`,
-			);
+			lines.push(` ${theme.fg("muted", "Title:")} ${event.summary}`);
 			lines.push(
 				` ${theme.fg("muted", "When:")} ${event.start} – ${event.end}`,
 			);
@@ -167,10 +135,10 @@ export async function confirmCreateEvent(
 			lines.push(
 				` ${theme.fg("muted", "Attendees:")} ${event.attendees.join(", ")}`,
 			);
-			if (field.body) {
+			if (event.description) {
 				lines.push("");
 				lines.push(` ${theme.fg("muted", "Description:")}`);
-				for (const line of field.body.split("\n").slice(0, 5)) {
+				for (const line of event.description.split("\n").slice(0, 5)) {
 					lines.push(` ${line}`);
 				}
 			}
@@ -178,18 +146,16 @@ export async function confirmCreateEvent(
 			lines.push(" Invitations will be sent to all attendees.");
 			return lines;
 		},
-		field,
-		entityName: "calendar event",
-		steerContext: `Event: ${event.summary}\nAttendees: ${event.attendees.join(", ")}`,
+		actions: [
+			{ key: "c", label: "Create" },
+			{ key: "x", label: "Cancel" },
+		],
 	});
 
-	if (result) return null;
-
-	return {
-		...event,
-		summary: field.title || event.summary,
-		description: field.body || event.description,
-	};
+	if (!result || (result.type === "action" && result.value === "x")) {
+		return null;
+	}
+	return event;
 }
 
 /**
@@ -214,12 +180,8 @@ export async function confirmUpdateEvent(
 		changes.push(`Attendees: ${updates.attendees.join(", ")}`);
 	if (updates.description) changes.push("Description updated");
 
-	const result = await reviewLoop(ctx, {
-		actions: [
-			{ label: "Update", value: "approve" },
-			{ label: "Cancel", value: "reject" },
-		],
-		content: (theme, _width) => {
+	const result = await prompt(ctx, {
+		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Update Calendar Event")),
 				"",
@@ -235,11 +197,13 @@ export async function confirmUpdateEvent(
 			lines.push(" Attendees will be notified of the changes.");
 			return lines;
 		},
-		entityName: "calendar event update",
-		steerContext: `Update event: ${existingEvent.summary}\nChanges: ${changes.join(", ")}`,
+		actions: [
+			{ key: "u", label: "Update" },
+			{ key: "c", label: "Cancel" },
+		],
 	});
 
-	return !result;
+	return !!result && result.type === "action" && result.value === "u";
 }
 
 /**
@@ -254,12 +218,8 @@ export async function confirmDeleteEvent(
 	if (!ctx.hasUI) return true;
 	if (!hasAttendees) return true;
 
-	const result = await reviewLoop(ctx, {
-		actions: [
-			{ label: "Delete", value: "approve" },
-			{ label: "Cancel", value: "reject" },
-		],
-		content: (theme, _width) => {
+	const result = await prompt(ctx, {
+		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Delete Calendar Event")),
 				"",
@@ -270,9 +230,11 @@ export async function confirmDeleteEvent(
 			lines.push(" Attendees will be notified of the cancellation.");
 			return lines;
 		},
-		entityName: "calendar event deletion",
-		steerContext: `Delete event: ${summary}`,
+		actions: [
+			{ key: "d", label: "Delete" },
+			{ key: "c", label: "Cancel" },
+		],
 	});
 
-	return !result;
+	return !!result && result.type === "action" && result.value === "d";
 }
