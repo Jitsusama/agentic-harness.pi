@@ -30,13 +30,11 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 		_event: { input: { command: string } },
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
+		const isEdit = parsed.action === "edit";
 		const result = await prompt(ctx, {
+			title: isEdit ? "PR Edit" : "New PR",
 			content: (theme, width) => {
 				const out: string[] = [];
-				const isEdit = parsed.action === "edit";
-
-				out.push(theme.fg("dim", isEdit ? " PR Edit" : " New PR"));
-				out.push("");
 
 				if (parsed.title) {
 					out.push(theme.fg("text", ` ${theme.bold(parsed.title)}`));

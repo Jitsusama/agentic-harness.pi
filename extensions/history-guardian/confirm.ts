@@ -47,13 +47,13 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
 		const icon = parsed.severity === "irrecoverable" ? "⛔" : "⚠";
-		const label =
+		const title =
 			parsed.severity === "irrecoverable"
 				? "Destructive Command"
 				: "Risky Command";
 
 		const markdown = [
-			`${icon} **${label}**`,
+			`${icon} **${title}**`,
 			"",
 			"```bash",
 			parsed.command,
@@ -63,6 +63,7 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 		].join("\n");
 
 		const result = await prompt(ctx, {
+			title,
 			content: (theme, width) => renderMarkdown(markdown, theme, width),
 			actions: DESTRUCTIVE_ACTIONS,
 		});

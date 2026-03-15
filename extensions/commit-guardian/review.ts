@@ -45,6 +45,7 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
 		const result = await prompt(ctx, {
+			title: parsed.isAmend ? "Amend Commit" : "Commit",
 			content: renderCommitContent(parsed.message, parsed.isAmend),
 			actions: COMMIT_ACTIONS,
 		});

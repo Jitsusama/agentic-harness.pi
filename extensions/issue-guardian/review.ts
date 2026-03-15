@@ -34,13 +34,11 @@ export const issueGuardian: CommandGuardian<IssueCommand> = {
 		_event: { input: { command: string } },
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
+		const isEdit = parsed.action === "edit";
 		const result = await prompt(ctx, {
+			title: isEdit ? "Issue Edit" : "New Issue",
 			content: (theme, width) => {
 				const out: string[] = [];
-				const isEdit = parsed.action === "edit";
-
-				out.push(theme.fg("dim", isEdit ? " Issue Edit" : " New Issue"));
-				out.push("");
 
 				if (parsed.title) {
 					out.push(theme.fg("text", ` ${theme.bold(parsed.title)}`));
