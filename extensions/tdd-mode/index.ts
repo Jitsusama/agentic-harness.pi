@@ -197,7 +197,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(args, options, theme) {
+		renderCall(args, theme) {
 			const a = args as { action?: string; context?: string };
 			const action = a.action ?? "?";
 			const color = PHASE_COLORS[action as Phase];
@@ -211,7 +211,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			let text = theme.fg("toolTitle", theme.bold("tdd_phase "));
 			text += `${glyph} ${action}`;
 			if (a.context) {
-				const maxWidth = options.terminalWidth ?? 80;
+				const maxWidth = process.stdout.columns || 80;
 				const prefixLen = 15; // Approximate length of "tdd_phase 🔴 red — "
 				const availableWidth = maxWidth - prefixLen;
 				const contextText =

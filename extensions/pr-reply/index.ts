@@ -185,7 +185,7 @@ export default function prReply(pi: ExtensionAPI) {
 			}
 		},
 
-		renderCall(args, _options, theme) {
+		renderCall(args, theme) {
 			const a = args as { action?: string; pr?: string };
 			let text = theme.fg("toolTitle", theme.bold("pr_reply "));
 			text += theme.fg("muted", a.action ?? "?");
@@ -635,6 +635,9 @@ export default function prReply(pi: ExtensionAPI) {
 			return textResult("No current thread. Call 'next' first.");
 		}
 
+		// Hide widget while the prompt is active to avoid overlap
+		ctx.ui.setWidget("pr-reply-detail", undefined);
+
 		const review = state.reviews.find((r) => r.threadIds.includes(thread.id));
 		const contextLine = thread.line || thread.originalLine || 0;
 		const progress = buildProgressSummary();
@@ -716,6 +719,9 @@ export default function prReply(pi: ExtensionAPI) {
 				{ key: "k", label: "sKip" },
 			],
 		});
+
+		// Restore widget after prompt closes
+		refreshUI(state, ctx);
 
 		// Map prompt result to gate-style result for handleThreadChoice
 		const gateResult = promptResult
