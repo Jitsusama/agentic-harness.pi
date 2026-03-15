@@ -9,7 +9,7 @@
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import { prompt } from "../../lib/ui/panel-new.js";
+import { prompt } from "../../lib/ui/panel.js";
 import type { Review, Thread } from "../state.js";
 import { threadPriority } from "../state.js";
 import { formatFileSummary } from "./format.js";

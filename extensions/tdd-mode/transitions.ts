@@ -8,7 +8,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import { filterContext } from "../lib/state.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { prompt } from "../lib/ui/panel-new.js";
+import { prompt } from "../lib/ui/panel.js";
 import { PHASE_GLYPHS, type Phase, type TddState } from "./state.js";
 
 /** Max length for the short summary shown in the gate header. */

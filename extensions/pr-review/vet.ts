@@ -7,7 +7,7 @@
 import * as fs from "node:fs";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { languageFromPath, renderCode } from "../lib/ui/content-renderer.js";
-import { prompt } from "../lib/ui/panel-new.js";
+import { prompt } from "../lib/ui/panel.js";
 import { CONTENT_INDENT, contentWrapWidth, wordWrap } from "../lib/ui/text.js";
 import type { PromptItem } from "../lib/ui/types.js";
 import type { ReviewComment, VetResult } from "./index.js";

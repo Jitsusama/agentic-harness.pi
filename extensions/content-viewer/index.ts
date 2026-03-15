@@ -20,7 +20,7 @@ import {
 	renderDiff,
 	renderMarkdown,
 } from "../lib/ui/content-renderer.js";
-import { view } from "../lib/ui/panel-new.js";
+import { view } from "../lib/ui/panel.js";
 
 /** Content type for explicit rendering. */
 type ContentType = "markdown" | "diff" | "code";

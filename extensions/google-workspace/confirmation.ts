@@ -4,7 +4,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { prompt } from "../lib/ui/panel-new.js";
+import { prompt } from "../lib/ui/panel.js";
 
 export interface EmailData {
 	to: string[];

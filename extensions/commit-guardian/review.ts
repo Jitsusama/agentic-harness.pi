@@ -6,7 +6,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
-import { prompt } from "../lib/ui/panel-new.js";
+import { prompt } from "../lib/ui/panel.js";
 import { formatSteer } from "../lib/ui/steer.js";
 import { extractFlags, extractMessage, splitAtCommit } from "./parse.js";
 import { renderCommitContent } from "./validate.js";

@@ -6,7 +6,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { prompt } from "../lib/ui/panel-new.js";
+import { prompt } from "../lib/ui/panel.js";
 import { contentWrapWidth } from "../lib/ui/text.js";
 import type { PromptItem } from "../lib/ui/types.js";
 

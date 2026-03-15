@@ -14,7 +14,7 @@
 import type { ExtensionAPI, Theme } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { prompt } from "../lib/ui/panel-new.js";
+import { prompt } from "../lib/ui/panel.js";
 import type { Option, PromptItem } from "../lib/ui/types.js";
 
 // Types

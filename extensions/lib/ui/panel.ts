@@ -1,119 +1,225 @@
 /**
- * Panel — shared UI primitive for bordered, scrollable content
- * with options and inline editor.
+ * Panel — layout orchestrator that composes ActionBar, OptionList,
+ * ScrollRegion, TabStrip, and NoteEditor into a bordered,
+ * scrollable interactive panel.
  *
- * Two public APIs:
- *   showPanel       — single-shot: one page, returns on selection
- *   showPanelSeries — multi-page with tabs, returns when complete
+ * This is the root component passed to ctx.ui.custom(). It manages:
+ *   - Height budget (60% max, grow-to-fit)
+ *   - Keyboard routing (scroll ↔ actions/options ↔ editor)
+ *   - Universal keys (Escape, Ctrl+Enter)
+ *   - Steer state (Shift detection, NoteEditor activation)
+ *   - Tab state (current tab, per-item results)
  *
- * Both compose the same building blocks from panel-state,
- * panel-render, and panel-keys.
+ * Layout structure:
+ *   DynamicBorder     ──── top accent rule
+ *   TabStrip          ──── optional: when items > 1
+ *   separator         ──── optional: when tabs shown
+ *   ScrollRegion      ──── content viewport with scroll
+ *   ActionBar         ──── when actions provided
+ *     OR OptionList   ──── when options provided
+ *   NoteEditor        ──── shown on demand (steer/editor)
+ *   hints             ──── dim keyboard hints
+ *   DynamicBorder     ──── bottom accent rule
  */
 
-import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Editor, Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import {
-	handleOptionNav,
-	handleScrollKeys,
-	handleTabNav,
-	resolveConfirmation,
-} from "./panel-keys.js";
+	type ActionBarResult,
+	detectShiftTransition,
+	handleActionInput,
+	renderActionBar,
+	renderSteerBar,
+} from "./action-bar.js";
+import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
 import {
-	buildEditorTheme,
-	renderInlineEditor,
-	renderOptionsList,
-	renderScrollableContent,
-	renderTabBar,
-} from "./panel-render.js";
-import { clampScroll, contentBudget, PI_CHROME_LINES } from "./panel-state.js";
+	handleOptionInput,
+	optionValue,
+	renderOptionList,
+} from "./option-list.js";
+import {
+	contentBudget,
+	handleScrollInput,
+	renderScrollRegion,
+	type ScrollState,
+} from "./scroll-region.js";
+import { handleTabInput, renderTabStrip } from "./tab-strip.js";
+import {
+	type Action,
+	GLYPH,
+	type Option,
+	type PromptResult,
+	type SinglePromptConfig,
+	type TabbedPromptConfig,
+	type TabbedResult,
+	type TabStatus,
+	type ViewConfig,
+} from "./types.js";
 
-// ---- Types ----
-
-export interface PanelOption {
-	label: string;
-	value: string;
-	/** Optional description shown below the label. */
-	description?: string;
-	/** Icon shown in the tab bar when this option is selected (defaults to ✓). */
-	icon?: string;
-	/** When true, selecting this option opens an inline editor. */
-	opensEditor?: boolean;
-	/** Pre-fill text for the inline editor. */
-	editorPreFill?: string;
-}
-
-export interface PanelPage {
-	/** Tab label (shown in tab bar for multi-page panels). */
-	label: string;
-	/** Renders the content section. */
-	content: (theme: Theme, width: number) => string[];
-	/** Selectable options. */
-	options: PanelOption[];
-}
-
-export interface PanelResult {
-	/** The selected option's value. */
-	value: string;
-	/** Present when an opensEditor option was selected and submitted. */
-	editorText?: string;
-}
-
-export interface SeriesSelection {
-	pageIndex: number;
-	value: string;
-	editorText?: string;
-}
-
-export interface PanelSeriesConfig {
-	pages: PanelPage[];
-	/**
-	 * Called on each selection. Return true to resolve the
-	 * series. Async — can open ctx.ui.editor() as an overlay
-	 * for full-screen editing while the panel stays underneath.
-	 * The panel pauses input handling until onSelect completes.
-	 */
-	onSelect?: (
-		selection: SeriesSelection,
-		all: Map<number, SeriesSelection>,
-	) => Promise<boolean> | boolean;
-}
-
-// ---- showPanel (single-shot) ----
+// ---- prompt (single) ----
 
 /**
- * Show a single-page panel. Returns the selected option or
- * null on cancel (Escape).
+ * Show a single interactive prompt. Returns the user's decision
+ * or null on cancel (Escape).
  */
-export async function showPanel(
+export async function prompt(
 	ctx: ExtensionContext,
-	config: { page: PanelPage },
-): Promise<PanelResult | null> {
+	config: SinglePromptConfig,
+): Promise<PromptResult | null>;
+
+/**
+ * Show a tabbed interactive prompt. Returns all decisions
+ * or null on cancel (Escape).
+ */
+export async function prompt(
+	ctx: ExtensionContext,
+	config: TabbedPromptConfig,
+): Promise<TabbedResult | null>;
+
+/** Implementation of both prompt overloads. */
+export async function prompt(
+	ctx: ExtensionContext,
+	config: SinglePromptConfig | TabbedPromptConfig,
+): Promise<PromptResult | TabbedResult | null> {
 	if (!ctx.hasUI) return null;
 
-	const { page } = config;
-	return ctx.ui.custom<PanelResult | null>((tui, theme, _kb, done) => {
-		let selected = 0;
-		let editorMode = false;
-		let editorOptionValue = "";
-		let scrollOffset = 0;
-		let hScrollOffset = 0;
-		const editor = new Editor(tui, buildEditorTheme(theme));
+	if ("items" in config) {
+		return showTabbedPrompt(ctx, config);
+	}
+	return showSinglePrompt(ctx, config);
+}
 
-		editor.onSubmit = (value) => {
+/**
+ * Show read-only content. Returns when dismissed (Escape).
+ */
+export async function view(
+	ctx: ExtensionContext,
+	config: ViewConfig,
+): Promise<void> {
+	if (!ctx.hasUI) return;
+
+	await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };
+
+		function handleInput(data: string) {
+			if (matchesKey(data, Key.escape)) {
+				done(undefined);
+				return;
+			}
+			const chromeLines = 2 + (config.title ? 2 : 0) + 2;
+			const budget = contentBudget(chromeLines);
+			const scrollResult = handleScrollInput(data, scroll, budget);
+			if (scrollResult) {
+				scroll.vOffset = scrollResult.vOffset;
+				scroll.hOffset = scrollResult.hOffset;
+				tui.requestRender();
+			}
+		}
+
+		function render(width: number): string[] {
+			const lines: string[] = [];
+			const add = (s: string) => lines.push(truncateToWidth(s, width));
+
+			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+
+			if (config.title) {
+				add(`  ${theme.fg("accent", theme.bold(config.title))}`);
+				add("");
+			}
+
+			const chromeLines = 2 + (config.title ? 2 : 0) + 2;
+			const budget = contentBudget(chromeLines);
+			const contentLines = config.content(theme, width);
+			const { lines: scrolled, needsVScroll } = renderScrollRegion(
+				contentLines,
+				scroll,
+				budget,
+				width,
+				theme,
+			);
+			for (const line of scrolled) add(line);
+
+			// Pad to budget for stable height
+			while (lines.length < budget + (config.title ? 3 : 1)) {
+				lines.push("");
+			}
+
+			const hints: string[] = ["Esc close"];
+			if (needsVScroll) hints.push("Shift+↑↓ scroll");
+			add(theme.fg("dim", `  ${hints.join(" · ")}`));
+
+			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+			return lines;
+		}
+
+		return { render, handleInput, invalidate() {} };
+	});
+}
+
+// ---- Internal: Single prompt ----
+
+async function showSinglePrompt(
+	ctx: ExtensionContext,
+	config: SinglePromptConfig,
+): Promise<PromptResult | null> {
+	return ctx.ui.custom<PromptResult | null>((tui, theme, _kb, done) => {
+		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };
+		let optionIndex = 0;
+		let shiftHeld = false;
+		let editorMode = false;
+		let editorContext: {
+			type: "steerAction" | "pureSteer" | "editor";
+			actionKey?: string;
+			label?: string;
+		} | null = null;
+		const editor = new Editor(tui, buildNoteEditorTheme(theme));
+
+		const actions = config.actions;
+		const options = config.options;
+
+		editor.onSubmit = (value: string) => {
 			const trimmed = value.trim();
 			if (!trimmed) {
+				// Empty submit cancels editor
 				editorMode = false;
+				editorContext = null;
 				editor.setText("");
 				tui.requestRender();
 				return;
 			}
-			done({ value: editorOptionValue, editorText: trimmed });
+
+			if (!editorContext) return;
+
+			if (editorContext.type === "pureSteer") {
+				done({ type: "steer", note: trimmed });
+			} else if (editorContext.type === "steerAction") {
+				done({
+					type: "action",
+					value: editorContext.actionKey ?? "",
+					note: trimmed,
+				});
+			} else if (editorContext.type === "editor") {
+				done({
+					type: "action",
+					value: editorContext.actionKey ?? "",
+					editorText: trimmed,
+				});
+			}
 		};
 
+		function openEditor(context: typeof editorContext, preFill?: string) {
+			editorMode = true;
+			editorContext = context;
+			editor.setText(preFill ?? "");
+			tui.requestRender();
+		}
+
 		function handleInput(data: string) {
+			// Editor mode
 			if (editorMode) {
 				if (matchesKey(data, Key.escape)) {
 					editorMode = false;
+					editorContext = null;
 					editor.setText("");
 					tui.requestRender();
 					return;
@@ -123,359 +229,545 @@ export async function showPanel(
 				return;
 			}
 
+			// Universal: Escape cancels
 			if (matchesKey(data, Key.escape)) {
 				done(null);
 				return;
 			}
 
-			const budget = contentBudget(false, page.options.length);
-			const scroll = handleScrollKeys(
-				data,
-				scrollOffset,
-				hScrollOffset,
-				budget,
-			);
-			if (scroll) {
-				scrollOffset = scroll.vOffset;
-				hScrollOffset = scroll.hOffset;
+			// Shift hold-to-reveal detection
+			const shiftState = detectShiftTransition(data);
+			if (shiftState !== null) {
+				shiftHeld = shiftState;
 				tui.requestRender();
 				return;
 			}
 
-			const nav = handleOptionNav(data, selected, page.options.length);
-			if (nav !== null) {
-				selected = nav;
+			// Scroll handling
+			const chromeLines = computeChromeLines(false, actions, options);
+			const budget = contentBudget(chromeLines);
+			const scrollResult = handleScrollInput(data, scroll, budget);
+			if (scrollResult) {
+				scroll.vOffset = scrollResult.vOffset;
+				scroll.hOffset = scrollResult.hOffset;
 				tui.requestRender();
 				return;
 			}
 
-			const confirmed = resolveConfirmation(
-				data,
-				selected,
-				page.options.length,
-			);
-			if (confirmed === null) return;
+			// Action bar handling
+			if (actions) {
+				const result = handleActionInput(data, actions, shiftHeld);
+				if (result) {
+					handleActionResult(result);
+					return;
+				}
+			}
 
-			selected = confirmed;
-			const opt = page.options[selected];
-			if (!opt) return;
-			if (opt.opensEditor) {
-				editorMode = true;
-				editorOptionValue = opt.value;
-				editor.setText(opt.editorPreFill ?? "");
-				tui.requestRender();
-			} else {
-				done({ value: opt.value });
+			// Option list handling
+			if (options) {
+				const result = handleOptionInput(data, optionIndex, options.length);
+				if (result) {
+					if (result.type === "navigate") {
+						optionIndex = result.index;
+						tui.requestRender();
+					} else if (result.type === "select") {
+						const opt = options[result.index];
+						if (opt?.opensEditor) {
+							openEditor(
+								{ type: "editor", actionKey: optionValue(opt) },
+								opt.editorPreFill,
+							);
+						} else if (opt) {
+							done({ type: "action", value: optionValue(opt) });
+						}
+					} else if (result.type === "cancel") {
+						done(null);
+					}
+					return;
+				}
+
+				// Shift+Enter on options = confirm + note
+				if (matchesKey(data, Key.shift("enter")) && options.length > 0) {
+					const opt = options[optionIndex];
+					if (opt) {
+						openEditor({
+							type: "steerAction",
+							actionKey: optionValue(opt),
+						});
+					}
+					return;
+				}
+			}
+		}
+
+		function handleActionResult(result: ActionBarResult) {
+			if (result.type === "action") {
+				done({ type: "action", value: result.key });
+			} else if (result.type === "steerAction") {
+				const action = actions?.find((a) => a.key === result.key);
+				openEditor({
+					type: "steerAction",
+					actionKey: result.key,
+					label: action?.label,
+				});
+			} else if (result.type === "pureSteer") {
+				openEditor({ type: "pureSteer" });
 			}
 		}
 
 		function render(width: number): string[] {
 			const lines: string[] = [];
-			const maxLines = (process.stdout.rows || 40) - PI_CHROME_LINES;
 			const add = (s: string) => lines.push(truncateToWidth(s, width));
 
-			add(theme.fg("accent", "─".repeat(width)));
+			// Top border
+			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 
-			const budget = contentBudget(false, page.options.length);
-			const contentLines = page.content(theme, width + hScrollOffset);
-			scrollOffset = clampScroll(scrollOffset, contentLines.length, budget);
-
+			// Content
+			const chromeLines = computeChromeLines(false, actions, options);
+			const budget = contentBudget(chromeLines);
+			const contentLines = config.content(theme, width);
 			const {
 				lines: scrolled,
 				needsVScroll,
 				needsHScroll,
-			} = renderScrollableContent(
-				contentLines,
-				scrollOffset,
-				hScrollOffset,
-				budget,
-				width,
-				theme,
-			);
+			} = renderScrollRegion(contentLines, scroll, budget, width, theme);
 			for (const line of scrolled) add(line);
 
+			// Pad content to budget
+			while (lines.length < budget + 1) {
+				lines.push("");
+			}
+
 			if (editorMode) {
-				for (const line of renderInlineEditor(editor, width, theme)) {
+				// NoteEditor
+				const editorLabel = editorContext?.label
+					? `${editorContext.label} with note:`
+					: editorContext?.type === "pureSteer"
+						? "Steer:"
+						: "Note:";
+				for (const line of renderNoteEditor(editor, width, theme, {
+					label: editorLabel,
+				})) {
 					add(line);
 				}
 			} else {
-				lines.push("");
-				for (const line of renderOptionsList(page.options, selected, theme)) {
-					add(line);
+				// Action bar and/or option list
+				if (actions) {
+					lines.push("");
+					add(
+						shiftHeld
+							? renderSteerBar(actions, width, theme)
+							: renderActionBar(actions, width, theme),
+					);
 				}
+				if (options) {
+					lines.push("");
+					for (const line of renderOptionList(options, optionIndex, theme)) {
+						add(line);
+					}
+				}
+
+				// Hint bar
 				lines.push("");
-				const hints: string[] = ["↑↓ select", "Enter confirm", "Esc cancel"];
-				if (needsVScroll) hints.push("Shift+↑↓ scroll");
-				if (needsHScroll) hints.push("Shift+←→ pan");
-				add(theme.fg("dim", ` ${hints.join(" · ")}`));
+				const hints = buildHints(false, needsVScroll, needsHScroll, !!actions);
+				add(theme.fg("dim", `  ${hints.join(" · ")}`));
 			}
 
-			add(theme.fg("accent", "─".repeat(width)));
-
-			// Hard cap: never return more lines than the terminal can hold
-			if (lines.length > maxLines) {
-				return lines.slice(lines.length - maxLines);
-			}
+			// Bottom border
+			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 			return lines;
 		}
 
-		return { render, handleInput, invalidate() {} };
+		return {
+			render,
+			handleInput,
+			wantsKeyRelease: !!actions,
+			invalidate() {},
+		};
 	});
 }
 
-// ---- showPanelSeries (multi-page) ----
+// ---- Internal: Tabbed prompt ----
 
-/**
- * Show a multi-page panel with tab navigation. Returns all
- * accumulated selections or null on cancel (Escape).
- *
- * For single-page usage, the tab bar is hidden and the panel
- * behaves like showPanel but routes through onSelect.
- */
-export async function showPanelSeries(
+async function showTabbedPrompt(
 	ctx: ExtensionContext,
-	config: PanelSeriesConfig,
-): Promise<Map<number, SeriesSelection> | null> {
-	if (!ctx.hasUI) return null;
+	config: TabbedPromptConfig,
+): Promise<TabbedResult | null> {
+	return ctx.ui.custom<TabbedResult | null>((tui, theme, _kb, done) => {
+		let currentTab = 0;
+		let optionIndex = 0;
+		let shiftHeld = false;
+		let editorMode = false;
+		let editorContext: {
+			type: "steerAction" | "pureSteer" | "editor" | "addItem";
+			actionKey?: string;
+			label?: string;
+		} | null = null;
 
-	const { pages, onSelect } = config;
-	const isMulti = pages.length > 1;
+		const scrollStates: ScrollState[] = config.items.map(() => ({
+			vOffset: 0,
+			hOffset: 0,
+		}));
+		const results = new Map<number, PromptResult>();
+		const userItems: string[] = [];
+		const editor = new Editor(tui, buildNoteEditorTheme(theme));
 
-	// Use the maximum option count across all pages so the panel
-	// height stays constant when switching tabs.
-	const maxOptionCount = Math.max(...pages.map((p) => p.options.length));
+		editor.onSubmit = (value: string) => {
+			const trimmed = value.trim();
+			if (!trimmed) {
+				editorMode = false;
+				editorContext = null;
+				editor.setText("");
+				tui.requestRender();
+				return;
+			}
 
-	return ctx.ui.custom<Map<number, SeriesSelection> | null>(
-		(tui, theme, _kb, done) => {
-			let currentTab = 0;
-			let optionIndex = 0;
-			let editorMode = false;
-			let editorOptionValue = "";
-			let scrollOffset = 0;
-			let hScrollOffset = 0;
-			let busy = false;
-			const selections = new Map<number, SeriesSelection>();
-			const editor = new Editor(tui, buildEditorTheme(theme));
+			if (!editorContext) return;
 
-			editor.onSubmit = (value) => {
-				const trimmed = value.trim();
-				if (!trimmed) {
+			if (editorContext.type === "addItem") {
+				userItems.push(trimmed);
+				editorMode = false;
+				editorContext = null;
+				editor.setText("");
+				tui.requestRender();
+				return;
+			}
+
+			let result: PromptResult;
+			if (editorContext.type === "pureSteer") {
+				result = { type: "steer", note: trimmed };
+			} else if (editorContext.type === "steerAction") {
+				result = {
+					type: "action",
+					value: editorContext.actionKey ?? "",
+					note: trimmed,
+				};
+			} else {
+				result = {
+					type: "action",
+					value: editorContext.actionKey ?? "",
+					editorText: trimmed,
+				};
+			}
+
+			results.set(currentTab, result);
+			editorMode = false;
+			editorContext = null;
+			editor.setText("");
+
+			if (config.autoResolve && results.size === config.items.length) {
+				done({ items: results, userItems });
+				return;
+			}
+
+			advanceToNext();
+			tui.requestRender();
+		};
+
+		function advanceToNext() {
+			for (let i = 1; i <= config.items.length; i++) {
+				const next = (currentTab + i) % config.items.length;
+				if (!results.has(next)) {
+					currentTab = next;
+					optionIndex = 0;
+					return;
+				}
+			}
+		}
+
+		function currentActions(): Action[] | undefined {
+			return config.items[currentTab]?.actions ?? config.actions;
+		}
+
+		function currentOptions(): Option[] | undefined {
+			return config.items[currentTab]?.options ?? config.options;
+		}
+
+		function handleInput(data: string) {
+			if (editorMode) {
+				if (matchesKey(data, Key.escape)) {
 					editorMode = false;
+					editorContext = null;
 					editor.setText("");
 					tui.requestRender();
 					return;
 				}
-				handleSelection(editorOptionValue, trimmed);
-			};
-
-			async function handleSelection(value: string, editorText?: string) {
-				const selection: SeriesSelection = {
-					pageIndex: currentTab,
-					value,
-					editorText,
-				};
-
-				selections.set(currentTab, selection);
-
-				if (onSelect) {
-					busy = true;
-					tui.requestRender();
-					try {
-						const resolve = await onSelect(selection, selections);
-						if (resolve) {
-							done(selections);
-							return;
-						}
-					} finally {
-						busy = false;
-					}
-				} else if (!isMulti) {
-					done(selections);
-					return;
-				}
-
-				// Advance to next unanswered page
-				editorMode = false;
-				editor.setText("");
-				if (isMulti) {
-					for (let i = 1; i <= pages.length; i++) {
-						const next = (currentTab + i) % pages.length;
-						if (!selections.has(next)) {
-							currentTab = next;
-							optionIndex = 0;
-							scrollOffset = 0;
-							tui.requestRender();
-							return;
-						}
-					}
-				}
-
-				optionIndex = 0;
-				scrollOffset = 0;
+				editor.handleInput(data);
 				tui.requestRender();
+				return;
 			}
 
-			function handleInput(data: string) {
-				if (busy) return;
+			// Universal: Escape cancels everything
+			if (matchesKey(data, Key.escape)) {
+				done(null);
+				return;
+			}
 
-				const page = pages[currentTab];
-				if (!page) return;
+			// Ctrl+Enter submits
+			if (matchesKey(data, Key.ctrl("enter"))) {
+				done({ items: results, userItems });
+				return;
+			}
 
-				if (editorMode) {
-					if (matchesKey(data, Key.escape)) {
-						editorMode = false;
-						editor.setText("");
-						tui.requestRender();
-						return;
-					}
-					editor.handleInput(data);
-					tui.requestRender();
+			// '+' adds item
+			if (config.canAddItems && data === "+") {
+				openEditor({ type: "addItem" });
+				return;
+			}
+
+			// Shift detection
+			const shiftState = detectShiftTransition(data);
+			if (shiftState !== null) {
+				shiftHeld = shiftState;
+				tui.requestRender();
+				return;
+			}
+
+			// Tab navigation
+			const tabResult = handleTabInput(data, currentTab, config.items.length);
+			if (tabResult !== null) {
+				currentTab = tabResult;
+				optionIndex = 0;
+				tui.requestRender();
+				return;
+			}
+
+			// Scroll
+			const actions = currentActions();
+			const options = currentOptions();
+			const chromeLines = computeChromeLines(true, actions, options);
+			const budget = contentBudget(chromeLines);
+			const scrollState = scrollStates[currentTab] ?? {
+				vOffset: 0,
+				hOffset: 0,
+			};
+			const scrollResult = handleScrollInput(data, scrollState, budget);
+			if (scrollResult) {
+				scrollStates[currentTab] = scrollResult;
+				tui.requestRender();
+				return;
+			}
+
+			// Action bar
+			if (actions) {
+				const result = handleActionInput(data, actions, shiftHeld);
+				if (result) {
+					handleActionResult(result);
 					return;
-				}
-
-				if (matchesKey(data, Key.escape)) {
-					done(null);
-					return;
-				}
-
-				// Tab navigation (multi-page only)
-				if (isMulti) {
-					const tab = handleTabNav(data, currentTab, pages.length);
-					if (tab !== null) {
-						currentTab = tab;
-						optionIndex = 0;
-						scrollOffset = 0;
-						hScrollOffset = 0;
-						tui.requestRender();
-						return;
-					}
-				}
-
-				const budget = contentBudget(isMulti, maxOptionCount);
-				const scroll = handleScrollKeys(
-					data,
-					scrollOffset,
-					hScrollOffset,
-					budget,
-				);
-				if (scroll) {
-					scrollOffset = scroll.vOffset;
-					hScrollOffset = scroll.hOffset;
-					tui.requestRender();
-					return;
-				}
-
-				// Skip option handling on read-only pages
-				if (page.options.length === 0) return;
-
-				const nav = handleOptionNav(data, optionIndex, page.options.length);
-				if (nav !== null) {
-					optionIndex = nav;
-					tui.requestRender();
-					return;
-				}
-
-				const confirmed = resolveConfirmation(
-					data,
-					optionIndex,
-					page.options.length,
-				);
-				if (confirmed === null) return;
-
-				optionIndex = confirmed;
-				const opt = page.options[optionIndex];
-				if (!opt) return;
-				if (opt.opensEditor) {
-					editorMode = true;
-					editorOptionValue = opt.value;
-					editor.setText(opt.editorPreFill ?? "");
-					tui.requestRender();
-				} else {
-					handleSelection(opt.value);
 				}
 			}
 
-			function render(width: number): string[] {
-				const lines: string[] = [];
-				const add = (s: string) => lines.push(truncateToWidth(s, width));
+			// Option list
+			if (options) {
+				const result = handleOptionInput(data, optionIndex, options.length);
+				if (result) {
+					if (result.type === "navigate") {
+						optionIndex = result.index;
+						tui.requestRender();
+					} else if (result.type === "select") {
+						const opt = options[result.index];
+						if (opt?.opensEditor) {
+							openEditor(
+								{ type: "editor", actionKey: optionValue(opt) },
+								opt.editorPreFill,
+							);
+						} else if (opt) {
+							handleItemResult({
+								type: "action",
+								value: optionValue(opt),
+							});
+						}
+					}
+					return;
+				}
 
-				// Compute the fixed total height once. Every render must
-				// produce exactly this many lines regardless of tab.
-				// Layout: top border (1) + tab bar (2 if multi) + content (budget)
-				//       + footer (maxOptionCount + 3) + bottom border (1)
-				const budget = contentBudget(isMulti, maxOptionCount);
-				const tabBarLines = isMulti ? 2 : 0;
-				const footerLines = maxOptionCount + 3;
-				const targetTotal = 1 + tabBarLines + budget + footerLines + 1;
+				if (matchesKey(data, Key.shift("enter")) && options.length > 0) {
+					const opt = options[optionIndex];
+					if (opt) {
+						openEditor({
+							type: "steerAction",
+							actionKey: optionValue(opt),
+						});
+					}
+					return;
+				}
+			}
+		}
 
-				add(theme.fg("accent", "─".repeat(width)));
+		function openEditor(context: typeof editorContext, preFill?: string) {
+			editorMode = true;
+			editorContext = context;
+			editor.setText(preFill ?? "");
+			tui.requestRender();
+		}
 
-				if (isMulti) {
-					add(renderTabBar(pages, currentTab, selections, theme));
+		function handleActionResult(result: ActionBarResult) {
+			if (result.type === "action") {
+				handleItemResult({ type: "action", value: result.key });
+			} else if (result.type === "steerAction") {
+				const actions = currentActions();
+				const action = actions?.find((a) => a.key === result.key);
+				openEditor({
+					type: "steerAction",
+					actionKey: result.key,
+					label: action?.label,
+				});
+			} else if (result.type === "pureSteer") {
+				openEditor({ type: "pureSteer" });
+			}
+		}
+
+		function handleItemResult(result: PromptResult) {
+			results.set(currentTab, result);
+
+			if (config.autoResolve && results.size === config.items.length) {
+				done({ items: results, userItems });
+				return;
+			}
+
+			advanceToNext();
+			tui.requestRender();
+		}
+
+		function tabStatuses(): TabStatus[] {
+			return config.items.map((_, i) => {
+				if (i === currentTab) return "active";
+				const result = results.get(i);
+				if (!result) return "pending";
+				if (result.type === "steer") return "rejected";
+				return "complete";
+			});
+		}
+
+		function render(width: number): string[] {
+			const lines: string[] = [];
+			const add = (s: string) => lines.push(truncateToWidth(s, width));
+
+			const actions = currentActions();
+			const options = currentOptions();
+			const item = config.items[currentTab];
+			const content = item?.content ?? (() => []);
+
+			// Top border
+			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+
+			// Tab strip
+			const labels = config.items.map((it) => it.label);
+			add(renderTabStrip(labels, tabStatuses(), currentTab, width, theme));
+			// Light separator
+			add(
+				theme.fg("dim", `  ${GLYPH.separator.repeat(Math.max(0, width - 4))}`),
+			);
+
+			// Content
+			const chromeLines = computeChromeLines(true, actions, options);
+			const budget = contentBudget(chromeLines);
+			const contentLines = content(theme, width);
+			const scrollState = scrollStates[currentTab] ?? {
+				vOffset: 0,
+				hOffset: 0,
+			};
+			const {
+				lines: scrolled,
+				needsVScroll,
+				needsHScroll,
+			} = renderScrollRegion(contentLines, scrollState, budget, width, theme);
+			for (const line of scrolled) add(line);
+
+			// Pad to budget
+			const targetContentEnd = 1 + 2 + budget; // top border + tab lines + budget
+			while (lines.length < targetContentEnd) {
+				lines.push("");
+			}
+
+			if (editorMode) {
+				const editorLabel =
+					editorContext?.type === "addItem"
+						? "New item:"
+						: editorContext?.label
+							? `${editorContext.label} with note:`
+							: editorContext?.type === "pureSteer"
+								? "Steer:"
+								: "Note:";
+				for (const line of renderNoteEditor(editor, width, theme, {
+					label: editorLabel,
+				})) {
+					add(line);
+				}
+			} else {
+				if (actions) {
 					lines.push("");
+					add(
+						shiftHeld
+							? renderSteerBar(actions, width, theme)
+							: renderActionBar(actions, width, theme),
+					);
 				}
-
-				const page = pages[currentTab];
-				if (!page) return lines;
-				const contentLines = page.content(theme, width + hScrollOffset);
-				scrollOffset = clampScroll(scrollOffset, contentLines.length, budget);
-
-				const {
-					lines: scrolled,
-					needsVScroll,
-					needsHScroll,
-				} = renderScrollableContent(
-					contentLines,
-					scrollOffset,
-					hScrollOffset,
-					budget,
-					width,
-					theme,
-				);
-				for (const line of scrolled) add(line);
-
-				if (editorMode) {
-					for (const line of renderInlineEditor(editor, width, theme)) {
+				if (options) {
+					lines.push("");
+					for (const line of renderOptionList(options, optionIndex, theme)) {
 						add(line);
 					}
-				} else if (page.options.length > 0) {
-					lines.push("");
-					for (const line of renderOptionsList(
-						page.options,
-						optionIndex,
-						theme,
-					)) {
-						add(line);
-					}
-					lines.push("");
-					const hints: string[] = [];
-					if (isMulti) hints.push("Tab/←→ navigate");
-					hints.push("↑↓ select");
-					hints.push("Enter confirm");
-					hints.push("Esc cancel");
-					if (needsVScroll) hints.push("Shift+↑↓ scroll");
-					if (needsHScroll) hints.push("Shift+←→ pan");
-					add(theme.fg("dim", ` ${hints.join(" · ")}`));
-				} else {
-					lines.push("");
-					const hints: string[] = [];
-					if (isMulti) hints.push("Tab/←→ navigate");
-					hints.push("Esc cancel");
-					if (needsVScroll) hints.push("Shift+↑↓ scroll");
-					if (needsHScroll) hints.push("Shift+←→ pan");
-					add(theme.fg("dim", ` ${hints.join(" · ")}`));
 				}
 
-				// Pad to fixed height (leave room for bottom border)
-				while (lines.length < targetTotal - 1) {
-					lines.push("");
-				}
-
-				add(theme.fg("accent", "─".repeat(width)));
-				return lines;
+				lines.push("");
+				const hints = buildHints(true, needsVScroll, needsHScroll, !!actions);
+				add(theme.fg("dim", `  ${hints.join(" · ")}`));
 			}
 
-			return { render, handleInput, invalidate() {} };
-		},
-	);
+			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+			return lines;
+		}
+
+		return {
+			render,
+			handleInput,
+			wantsKeyRelease: !!config.actions || config.items.some((i) => i.actions),
+			invalidate() {},
+		};
+	});
+}
+
+// ---- Helpers ----
+
+/**
+ * Compute total chrome lines for the panel (borders, tabs,
+ * actions, options, hints) to calculate the content budget.
+ */
+function computeChromeLines(
+	hasTabs: boolean,
+	actions: Action[] | undefined,
+	options: Option[] | undefined,
+): number {
+	let lines = 2; // top + bottom border
+	if (hasTabs) lines += 2; // tab strip + separator
+	if (actions) lines += 2; // blank + action bar
+	if (options) lines += 2 + (options.length > 0 ? options.length : 0); // blank + options
+	lines += 2; // blank + hint bar
+	return lines;
+}
+
+/** Build the hint bar segments. */
+function buildHints(
+	hasTabs: boolean,
+	needsVScroll: boolean,
+	needsHScroll: boolean,
+	hasActions: boolean,
+): string[] {
+	const hints: string[] = [];
+	if (hasTabs) {
+		hints.push("Tab navigate");
+		hints.push("Ctrl+N jump");
+		hints.push("+ add");
+		hints.push("Ctrl+Enter submit");
+	}
+	if (!hasActions) {
+		hints.push("↑↓ select");
+		hints.push("Enter confirm");
+	}
+	hints.push("Esc cancel");
+	if (needsVScroll) hints.push("Shift+↑↓ scroll");
+	if (needsHScroll) hints.push("Shift+←→ pan");
+	if (hasActions) hints.push("hold ⇧ annotate");
+	return hints;
 }

@@ -32,7 +32,7 @@ import type {
 import { Key, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { prompt } from "../lib/ui/panel-new.js";
+import { prompt } from "../lib/ui/panel.js";
 import { formatSteer } from "../lib/ui/steer.js";
 import { buildAnalysisPrompt } from "./analysis.js";
 import {
