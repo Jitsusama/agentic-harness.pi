@@ -289,6 +289,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			"Clear all Google Workspace configuration (OAuth credentials, accounts, tokens). Used for testing or starting fresh.",
 		handler: async (_args, ctx) => {
 			clearAllConfig();
+			oauthClients.clear();
 			ctx.ui.notify(
 				"✓ Cleared all Google Workspace configuration.\n\n" +
 					"OAuth credentials, accounts, and tokens have been removed.\n" +
