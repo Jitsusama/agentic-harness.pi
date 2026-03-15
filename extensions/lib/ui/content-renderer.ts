@@ -103,7 +103,7 @@ export function renderCode(
 ): string[] {
 	const startLine = options?.startLine ?? 1;
 	const highlights = options?.highlightLines;
-	const codeLines = piHighlightCode(text, options?.language);
+	const codeLines = piHighlightCode(text.trimEnd(), options?.language);
 	const lastLineNum = startLine + codeLines.length - 1;
 	const gutterWidth = String(lastLineNum).length;
 	const lines: string[] = [];
@@ -113,11 +113,11 @@ export function renderCode(
 		const numStr = String(lineNum).padStart(gutterWidth);
 		const isHighlighted = highlights?.has(lineNum);
 
-		const gutter = theme.fg("dim", `${numStr} │ `);
+		const marker = isHighlighted ? theme.fg("accent", "▎") : " ";
+		const gutter = `${marker}${theme.fg("dim", `${numStr} │ `)}`;
 		const codeLine = codeLines[i] ?? "";
-		const content = isHighlighted ? theme.fg("accent", codeLine) : codeLine;
 
-		lines.push(truncateToWidth(gutter + content, width));
+		lines.push(truncateToWidth(gutter + codeLine, width));
 	}
 
 	return lines;
