@@ -64,8 +64,12 @@ function renderProgress(
 	total: number,
 	theme: Theme,
 ): string {
-	const filled = Math.min(completed, PROGRESS_BAR_WIDTH);
-	const empty = PROGRESS_BAR_WIDTH - filled;
+	const barWidth = Math.min(total, PROGRESS_BAR_WIDTH);
+	const filled =
+		total <= PROGRESS_BAR_WIDTH
+			? completed
+			: Math.round((completed / total) * barWidth);
+	const empty = barWidth - filled;
 	const bar =
 		theme.fg("accent", GLYPH.scrollFilled.repeat(filled)) +
 		theme.fg("dim", GLYPH.scrollEmpty.repeat(empty));
