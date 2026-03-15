@@ -172,7 +172,6 @@ async function showSinglePrompt(
 	return ctx.ui.custom<PromptResult | null>((tui, theme, _kb, done) => {
 		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };
 		let optionIndex = 0;
-		let shiftHeld = false;
 		let editorMode = false;
 		let editorContext: {
 			type: "steerAction" | "pureSteer" | "editor";
@@ -360,11 +359,7 @@ async function showSinglePrompt(
 				// Action bar and/or option list
 				if (actions) {
 					lines.push("");
-					add(
-						shiftHeld
-							? renderSteerBar(actions, width, theme)
-							: renderActionBar(actions, width, theme),
-					);
+					add(renderActionBar(actions, width, theme));
 				}
 				if (options) {
 					lines.push("");
@@ -669,10 +664,12 @@ async function showTabbedPrompt(
 			} = renderScrollRegion(contentLines, scrollState, budget, width, theme);
 			for (const line of scrolled) add(line);
 
-			// Pad to budget
-			const targetContentEnd = 1 + 2 + budget; // top border + tab lines + budget
-			while (lines.length < targetContentEnd) {
-				lines.push("");
+			// Pad to budget only when scrolling (keeps height stable during scroll)
+			if (needsVScroll) {
+				const targetContentEnd = 1 + 2 + budget; // top border + tab lines + budget
+				while (lines.length < targetContentEnd) {
+					lines.push("");
+				}
 			}
 
 			if (editorMode) {
