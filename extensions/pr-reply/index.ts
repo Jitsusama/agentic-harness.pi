@@ -286,7 +286,7 @@ export default function prReply(pi: ExtensionAPI) {
 			);
 		}
 
-		const ref = await resolvePR(ctx, prInput);
+		const ref = await resolvePR(prInput);
 		if (!ref) {
 			return textResult(
 				"Could not determine which PR to review. " +
@@ -1103,7 +1103,6 @@ export default function prReply(pi: ExtensionAPI) {
 
 	/** Resolve a PR reference from user input or current branch. */
 	async function resolvePR(
-		ctx: ExtensionContext,
 		prInput: string | null,
 	): Promise<PRReference | null> {
 		if (prInput) {
@@ -1121,7 +1120,7 @@ export default function prReply(pi: ExtensionAPI) {
 
 		if (currentRepo && currentBranch) {
 			const prNumber = await findPRForBranch(
-				ctx,
+				pi,
 				currentRepo.owner,
 				currentRepo.repo,
 				currentBranch,
