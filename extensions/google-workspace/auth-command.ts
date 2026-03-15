@@ -3,10 +3,7 @@
  * Uses OAuth 2.0 Device Flow for universal compatibility.
  */
 
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
 import {
 	listAccounts,
@@ -14,6 +11,7 @@ import {
 	setDefaultAccount,
 	storeCredentials,
 } from "./auth/credentials.js";
+
 import { authenticateWithFallback } from "./auth/dual-flow.js";
 import { createOAuth2Client, setCredentials } from "./auth/oauth.js";
 
@@ -29,7 +27,6 @@ interface OAuthConfig {
 export async function handleGoogleAuthCommand(
 	args: string | undefined,
 	ctx: ExtensionContext,
-	pi: ExtensionAPI,
 	oauthConfig: OAuthConfig,
 ): Promise<void> {
 	const parts = (args || "").trim().split(/\s+/);
@@ -37,7 +34,7 @@ export async function handleGoogleAuthCommand(
 
 	// List accounts
 	if (flags.list) {
-		const accounts = listAccounts(ctx);
+		const accounts = listAccounts();
 		if (accounts.length === 0) {
 			ctx.ui.notify("No accounts configured.", "info");
 			return;
@@ -52,7 +49,7 @@ export async function handleGoogleAuthCommand(
 
 	// Set default account
 	if (flags.default) {
-		setDefaultAccount(pi, ctx, flags.default);
+		setDefaultAccount(flags.default);
 		ctx.ui.notify(`Default account set to: ${flags.default}`, "success");
 		return;
 	}
@@ -104,13 +101,13 @@ export async function handleGoogleAuthCommand(
 			const email = await extractEmailFromToken(client);
 
 			// Store credentials
-			storeCredentials(pi, ctx, accountName, result.credentials);
+			storeCredentials(accountName, result.credentials);
 
 			// Save account info
-			saveAccount(pi, ctx, {
+			saveAccount({
 				name: accountName,
 				email,
-				isDefault: listAccounts(ctx).length === 0,
+				isDefault: listAccounts().length === 0,
 			});
 
 			const flowType =

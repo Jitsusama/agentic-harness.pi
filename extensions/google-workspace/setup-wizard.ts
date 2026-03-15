@@ -3,10 +3,7 @@
  * Guides users through creating OAuth credentials and stores them persistently.
  */
 
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
 	getOAuthApp,
 	hasOAuthApp,
@@ -34,7 +31,6 @@ import {
  * @returns OAuth credentials or null if setup cancelled/failed
  */
 export async function ensureOAuthApp(
-	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	envConfig: OAuthAppCredentials,
 ): Promise<OAuthAppCredentials | null> {
@@ -44,8 +40,8 @@ export async function ensureOAuthApp(
 	}
 
 	// 2. Check stored credentials
-	if (hasOAuthApp(ctx)) {
-		const stored = getOAuthApp(ctx);
+	if (hasOAuthApp()) {
+		const stored = getOAuthApp();
 		if (stored) {
 			return stored;
 		}
@@ -57,7 +53,7 @@ export async function ensureOAuthApp(
 		return null;
 	}
 
-	return await runSetupWizard(pi, ctx);
+	return await runSetupWizard(ctx);
 }
 
 /**
@@ -65,7 +61,6 @@ export async function ensureOAuthApp(
  * Shows instructions and prompts for credentials using ctx.ui.editor().
  */
 async function runSetupWizard(
-	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 ): Promise<OAuthAppCredentials | null> {
 	// Show welcome and instructions
@@ -111,7 +106,7 @@ async function runSetupWizard(
 		clientSecret: cleanClientSecret,
 	};
 
-	storeOAuthApp(pi, credentials);
+	storeOAuthApp(credentials);
 	ctx.ui.notify(SETUP_INSTRUCTIONS.success, "success");
 
 	return credentials;

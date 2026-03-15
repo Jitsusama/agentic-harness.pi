@@ -3,10 +3,7 @@
  * Ensures user is authenticated before executing requests.
  */
 
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
 import type { OAuthAppCredentials } from "./auth/credentials.js";
 import { handleGoogleAuthCommand } from "./auth-command.js";
@@ -40,7 +37,6 @@ const AUTH_MESSAGES = {
  * 3. Run device flow authentication
  * 4. Return authenticated client
  *
- * @param pi - Extension API
  * @param ctx - Extension context
  * @param account - Account name to authenticate
  * @param oauthConfig - OAuth app credentials
@@ -49,7 +45,6 @@ const AUTH_MESSAGES = {
  * @throws Error if authentication fails or is cancelled
  */
 export async function ensureAuthenticated(
-	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	account: string,
 	oauthConfig: OAuthAppCredentials,
@@ -85,7 +80,7 @@ export async function ensureAuthenticated(
 		}
 
 		// Run authentication flow
-		await handleGoogleAuthCommand(`--account ${account}`, ctx, pi, oauthConfig);
+		await handleGoogleAuthCommand(`--account ${account}`, ctx, oauthConfig);
 
 		// Get authenticated client (will throw if auth failed)
 		return await getAuthClient(ctx, account);

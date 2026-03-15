@@ -1,57 +1,75 @@
 /**
- * Credentials storage using Pi's session state.
+ * Credentials storage using file-based persistence.
  *
- * Credentials are stored in session state and lost on Pi restart.
- * Users will need to re-authenticate after restarting Pi.
+ * Credentials are stored in ~/.pi/agent/google-workspace.json and
+ * survive across Pi sessions and restarts. The file contains OAuth
+ * app credentials, account list, and per-account tokens.
  */
 
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { Credentials } from "google-auth-library";
-import { getLastEntry } from "../../lib/state.js";
 import type { GoogleAccount, StoredCredentials } from "../types.js";
 
-const STATE_KEY_PREFIX = "google-workspace-creds";
-const ACCOUNTS_KEY = "google-workspace-accounts";
-const OAUTH_APP_KEY = "google-workspace-oauth-app";
+/** Path to the credentials file in Pi's global config directory. */
+const CREDENTIALS_PATH = path.join(
+	os.homedir(),
+	".pi",
+	"agent",
+	"google-workspace.json",
+);
+
+/** Shape of the persisted credentials file. */
+interface CredentialsFile {
+	oauthApp?: OAuthAppCredentials | null;
+	accounts: GoogleAccount[];
+	tokens: Record<string, StoredCredentials>;
+}
+
+/** Read the credentials file, returning defaults if missing or corrupt. */
+function readFile(): CredentialsFile {
+	try {
+		const raw = fs.readFileSync(CREDENTIALS_PATH, "utf-8");
+		return JSON.parse(raw) as CredentialsFile;
+	} catch {
+		// File doesn't exist or is corrupt — start fresh
+		return { accounts: [], tokens: {} };
+	}
+}
+
+/** Write the credentials file atomically. */
+function writeFile(data: CredentialsFile): void {
+	const dir = path.dirname(CREDENTIALS_PATH);
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(data, null, "\t"), "utf-8");
+}
 
 /**
  * Store credentials for an account.
  */
 export function storeCredentials(
-	pi: ExtensionAPI,
-	_ctx: ExtensionContext,
 	account: string,
 	credentials: Credentials,
 ): void {
-	const stored: StoredCredentials = {
+	const data = readFile();
+	data.tokens[account] = {
 		access_token: credentials.access_token || "",
 		refresh_token: credentials.refresh_token || "",
 		expiry_date: credentials.expiry_date || 0,
 		token_type: credentials.token_type || "Bearer",
 		scope: credentials.scope || "",
 	};
-
-	pi.appendEntry(`${STATE_KEY_PREFIX}:${account}`, stored);
+	writeFile(data);
 }
 
 /**
  * Retrieve credentials for an account.
  */
-export function getCredentials(
-	ctx: ExtensionContext,
-	account: string,
-): Credentials | null {
-	const entry = getLastEntry<StoredCredentials>(
-		ctx,
-		`${STATE_KEY_PREFIX}:${account}`,
-	);
-
-	if (!entry) {
-		return null;
-	}
+export function getCredentials(account: string): Credentials | null {
+	const data = readFile();
+	const entry = data.tokens[account];
+	if (!entry) return null;
 
 	return {
 		access_token: entry.access_token,
@@ -65,54 +83,45 @@ export function getCredentials(
 /**
  * List all configured accounts.
  */
-export function listAccounts(ctx: ExtensionContext): GoogleAccount[] {
-	const entry = getLastEntry<GoogleAccount[]>(ctx, ACCOUNTS_KEY);
-	return entry || [];
+export function listAccounts(): GoogleAccount[] {
+	return readFile().accounts;
 }
 
 /**
  * Add or update an account.
  */
-export function saveAccount(
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-	account: GoogleAccount,
-): void {
-	const accounts = listAccounts(ctx);
-	const existing = accounts.findIndex((a) => a.name === account.name);
+export function saveAccount(account: GoogleAccount): void {
+	const data = readFile();
+	const existing = data.accounts.findIndex((a) => a.name === account.name);
 
 	if (existing >= 0) {
-		accounts[existing] = account;
+		data.accounts[existing] = account;
 	} else {
-		accounts.push(account);
+		data.accounts.push(account);
 	}
 
-	pi.appendEntry(ACCOUNTS_KEY, accounts);
+	writeFile(data);
 }
 
 /**
  * Get the default account.
  */
-export function getDefaultAccount(ctx: ExtensionContext): GoogleAccount | null {
-	const accounts = listAccounts(ctx);
+export function getDefaultAccount(): GoogleAccount | null {
+	const accounts = listAccounts();
 	return accounts.find((a) => a.isDefault) || accounts[0] || null;
 }
 
 /**
  * Set the default account.
  */
-export function setDefaultAccount(
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-	accountName: string,
-): void {
-	const accounts = listAccounts(ctx);
+export function setDefaultAccount(accountName: string): void {
+	const data = readFile();
 
-	for (const account of accounts) {
+	for (const account of data.accounts) {
 		account.isDefault = account.name === accountName;
 	}
 
-	pi.appendEntry(ACCOUNTS_KEY, accounts);
+	writeFile(data);
 }
 
 /**
@@ -126,25 +135,24 @@ export interface OAuthAppCredentials {
 /**
  * Store OAuth app credentials.
  */
-export function storeOAuthApp(
-	pi: ExtensionAPI,
-	credentials: OAuthAppCredentials,
-): void {
-	pi.appendEntry(OAUTH_APP_KEY, credentials);
+export function storeOAuthApp(credentials: OAuthAppCredentials): void {
+	const data = readFile();
+	data.oauthApp = credentials;
+	writeFile(data);
 }
 
 /**
  * Retrieve OAuth app credentials.
  */
-export function getOAuthApp(ctx: ExtensionContext): OAuthAppCredentials | null {
-	return getLastEntry<OAuthAppCredentials>(ctx, OAUTH_APP_KEY);
+export function getOAuthApp(): OAuthAppCredentials | null {
+	return readFile().oauthApp ?? null;
 }
 
 /**
  * Check if OAuth app credentials are configured.
  */
-export function hasOAuthApp(ctx: ExtensionContext): boolean {
-	const creds = getOAuthApp(ctx);
+export function hasOAuthApp(): boolean {
+	const creds = getOAuthApp();
 	return !!(creds?.clientId && creds?.clientSecret);
 }
 
@@ -152,14 +160,6 @@ export function hasOAuthApp(ctx: ExtensionContext): boolean {
  * Clear all Google Workspace configuration (OAuth app, accounts, tokens).
  * Used for testing or resetting to fresh state.
  */
-export function clearAllConfig(pi: ExtensionAPI): void {
-	// Clear OAuth app credentials
-	pi.appendEntry(OAUTH_APP_KEY, null);
-
-	// Clear accounts list
-	pi.appendEntry(ACCOUNTS_KEY, []);
-
-	// Note: Individual account credentials (google-workspace-creds:accountname)
-	// will naturally become stale and be ignored. We could clear them explicitly
-	// but they're harmless once accounts list is empty.
+export function clearAllConfig(): void {
+	writeFile({ oauthApp: null, accounts: [], tokens: {} });
 }

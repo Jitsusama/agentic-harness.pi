@@ -19,6 +19,7 @@ import {
 	getDefaultAccount,
 	storeCredentials,
 } from "./auth/credentials.js";
+
 import {
 	createOAuth2Client,
 	refreshTokenIfNeeded,
@@ -47,7 +48,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 	 * Get or create an authenticated OAuth2 client for an account.
 	 */
 	async function getAuthClient(
-		ctx: ExtensionContext,
+		_ctx: ExtensionContext,
 		accountName: string,
 	): Promise<OAuth2Client> {
 		// Check cache first
@@ -56,13 +57,13 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			// Refresh token if needed
 			const newCreds = await refreshTokenIfNeeded(client);
 			if (newCreds) {
-				storeCredentials(pi, ctx, accountName, newCreds);
+				storeCredentials(accountName, newCreds);
 			}
 			return client;
 		}
 
 		// Load stored credentials
-		const credentials = getCredentials(ctx, accountName);
+		const credentials = getCredentials(accountName);
 		if (!credentials) {
 			throw new Error(
 				`Not authenticated. Run: google-auth --account ${accountName}`,
@@ -76,7 +77,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		// Refresh if needed
 		const newCreds = await refreshTokenIfNeeded(client);
 		if (newCreds) {
-			storeCredentials(pi, ctx, accountName, newCreds);
+			storeCredentials(accountName, newCreds);
 		}
 
 		oauthClients.set(accountName, client);
@@ -223,7 +224,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 
 			try {
 				// Step 1: Ensure OAuth app credentials are configured
-				const oauthConfig = await ensureOAuthApp(pi, ctx, ENV_OAUTH_CONFIG);
+				const oauthConfig = await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
 				if (!oauthConfig) {
 					throw new Error(
 						"OAuth credentials setup required but was cancelled.",
@@ -233,11 +234,10 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 				// Step 2: Determine which account to use
 				const account = accountName
 					? (accountName as string)
-					: getDefaultAccount(ctx)?.name || "work";
+					: getDefaultAccount()?.name || "work";
 
 				// Step 3: Ensure user is authenticated (auto-prompts if needed)
 				const auth = await ensureAuthenticated(
-					pi,
 					ctx,
 					account,
 					oauthConfig,
@@ -267,7 +267,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 	pi.registerCommand("google-setup", {
 		description: "Set up Google OAuth credentials (interactive)",
 		handler: async (_args, ctx) => {
-			await ensureOAuthApp(pi, ctx, ENV_OAUTH_CONFIG);
+			await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
 		},
 	});
 
@@ -276,11 +276,11 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			"Authenticate with Google Workspace. Usage: google-auth [--account name] [--list] [--default name]",
 		handler: async (args, ctx) => {
 			// Get OAuth config from storage or env vars, prompting if needed
-			const oauthConfig = await ensureOAuthApp(pi, ctx, ENV_OAUTH_CONFIG);
+			const oauthConfig = await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
 			if (!oauthConfig) {
 				return; // Setup was cancelled or failed
 			}
-			await handleGoogleAuthCommand(args, ctx, pi, oauthConfig);
+			await handleGoogleAuthCommand(args, ctx, oauthConfig);
 		},
 	});
 
@@ -288,7 +288,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		description:
 			"Clear all Google Workspace configuration (OAuth credentials, accounts, tokens). Used for testing or starting fresh.",
 		handler: async (_args, ctx) => {
-			clearAllConfig(pi);
+			clearAllConfig();
 			ctx.ui.notify(
 				"✓ Cleared all Google Workspace configuration.\n\n" +
 					"OAuth credentials, accounts, and tokens have been removed.\n" +
