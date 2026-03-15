@@ -83,6 +83,7 @@ function buildCommentItem(
 			{ key: "a", label: "Approve" },
 			{ key: "r", label: "Reject" },
 		],
+		allowHScroll: true,
 	};
 }
 

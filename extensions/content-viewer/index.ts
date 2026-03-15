@@ -120,6 +120,7 @@ export async function showContent(
 		// so we cache by width and let the panel cache mechanism
 		// avoid re-calling on scroll/input.
 		content: renderFn,
+		allowHScroll: type === "code" || type === "diff",
 	});
 }
 

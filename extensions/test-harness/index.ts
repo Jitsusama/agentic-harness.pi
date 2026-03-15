@@ -353,6 +353,7 @@ export default function testHarness(ctx: ExtensionContext) {
 						highlightLines: new Set([15, 18]),
 						language: "typescript",
 					}),
+				allowHScroll: true,
 			});
 			handlerCtx.ui.notify("code test dismissed", "info");
 		},
@@ -365,6 +366,7 @@ export default function testHarness(ctx: ExtensionContext) {
 			await view(handlerCtx, {
 				title: "Diff Rendering",
 				content: (theme, width) => renderDiff(DIFF_SAMPLE, theme, width),
+				allowHScroll: true,
 			});
 			handlerCtx.ui.notify("diff test dismissed", "info");
 		},
@@ -381,6 +383,7 @@ export default function testHarness(ctx: ExtensionContext) {
 						highlightLines: new Set([6, 10]),
 						language: "typescript",
 					}),
+				allowHScroll: true,
 			});
 			handlerCtx.ui.notify("hscroll test dismissed", "info");
 		},

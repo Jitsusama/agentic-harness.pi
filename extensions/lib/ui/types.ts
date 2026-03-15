@@ -128,6 +128,8 @@ export interface PromptItem {
 	actions?: Action[];
 	/** Dynamic options for this item (Type B numbered list). Overrides shared options. */
 	options?: Option[];
+	/** Enable horizontal scrolling for this item's content. Default: false. */
+	allowHScroll?: boolean;
 }
 
 // ---- Prompt Config ----
@@ -145,6 +147,8 @@ export interface SinglePromptConfig {
 	options?: Option[];
 	/** Placeholder text shown in NoteEditor when steer is activated. */
 	steerHint?: string;
+	/** Enable horizontal scrolling (Shift+←→) for code content. Default: false. */
+	allowHScroll?: boolean;
 }
 
 /**
@@ -166,6 +170,8 @@ export interface TabbedPromptConfig {
 	autoResolve?: boolean;
 	/** Placeholder text for steer NoteEditor. */
 	steerHint?: string;
+	/** Enable horizontal scrolling (Shift+←→) for code content. Default: false. */
+	allowHScroll?: boolean;
 }
 
 // ---- View Config ----
@@ -175,6 +181,8 @@ export interface ViewConfig {
 	title?: string;
 	/** Renders the content. */
 	content: ContentFn;
+	/** Enable horizontal scrolling (Shift+←→) for code content. Default: false. */
+	allowHScroll?: boolean;
 }
 
 // ---- Layout Constants ----

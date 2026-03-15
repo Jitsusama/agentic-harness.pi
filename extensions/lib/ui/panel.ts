@@ -83,12 +83,15 @@ export async function view(
 		let cachedContent: string[] | null = null;
 		let cachedHScroll = false;
 		let cachedWidth = -1;
+		const hScrollEnabled = config.allowHScroll === true;
 
 		function getContent(width: number): string[] {
 			if (cachedContent && width === cachedWidth) return cachedContent;
 			cachedWidth = width;
 			cachedContent = config.content(theme, width - SCROLLBAR_GUTTER);
-			cachedHScroll = maxContentWidth(cachedContent) > width - SCROLLBAR_GUTTER;
+			cachedHScroll =
+				hScrollEnabled &&
+				maxContentWidth(cachedContent) > width - SCROLLBAR_GUTTER;
 			return cachedContent;
 		}
 

@@ -722,6 +722,7 @@ export default function prReply(pi: ExtensionAPI) {
 				{ key: "d", label: "Defer" },
 				{ key: "k", label: "sKip" },
 			],
+			allowHScroll: true,
 		});
 
 		// Restore widget after prompt closes

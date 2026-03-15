@@ -446,10 +446,12 @@ export async function showTabbedPrompt(
 			const cached = contentCache.get(currentTab);
 			if (!cached || cached.width !== width) {
 				const rendered = content(theme, width - SCROLLBAR_GUTTER);
+				const itemHScroll = item?.allowHScroll ?? config.allowHScroll ?? false;
 				contentCache.set(currentTab, {
 					lines: rendered,
 					width,
-					hScroll: maxContentWidth(rendered) > width - SCROLLBAR_GUTTER,
+					hScroll:
+						itemHScroll && maxContentWidth(rendered) > width - SCROLLBAR_GUTTER,
 				});
 			}
 			const entry = contentCache.get(currentTab);

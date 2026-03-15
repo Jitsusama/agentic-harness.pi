@@ -53,6 +53,7 @@ export async function showSinglePrompt(
 		let cachedContent: string[] | null = null;
 		let cachedHScroll = false;
 		let cachedWidth = -1;
+		const hScrollEnabled = config.allowHScroll === true;
 		let editorContext: {
 			type: "steerAction" | "pureSteer" | "editor";
 			actionKey?: string;
@@ -217,6 +218,7 @@ export async function showSinglePrompt(
 			if (!cachedContent || width !== cachedWidth) {
 				cachedContent = config.content(theme, width - SCROLLBAR_GUTTER);
 				cachedHScroll =
+					hScrollEnabled &&
 					maxContentWidth(cachedContent) > width - SCROLLBAR_GUTTER;
 				cachedWidth = width;
 			}
