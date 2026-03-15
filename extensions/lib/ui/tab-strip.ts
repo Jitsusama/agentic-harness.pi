@@ -84,18 +84,22 @@ export function renderTabStrip(
 	currentIndex: number,
 	width: number,
 	theme: Theme,
+	userItemCount = 0,
 ): string {
 	const total = labels.length;
 	const completed = statuses.filter(
 		(s) => s === "complete" || s === "rejected",
 	).length;
 	const progress = renderProgress(completed, total, theme);
-	const progressWidth = visibleWidth(progress);
+	const added =
+		userItemCount > 0 ? `  ${theme.fg("dim", `+${userItemCount} added`)}` : "";
+	const suffix = `${progress}${added}`;
+	const suffixWidth = visibleWidth(suffix);
 
 	// Available width for tabs (minus indent, progress, and spacing)
 	const indent = 2;
 	const spacing = 4; // gap between tabs and progress
-	const availableWidth = width - indent - progressWidth - spacing;
+	const availableWidth = width - indent - suffixWidth - spacing;
 
 	// Build all tab segments
 	const segments = labels.map((label, i) =>
@@ -111,9 +115,9 @@ export function renderTabStrip(
 		const tabLine = segments.join("  ");
 		const tabWidth = visibleWidth(tabLine);
 		const gap = " ".repeat(
-			Math.max(2, width - indent - tabWidth - progressWidth),
+			Math.max(2, width - indent - tabWidth - suffixWidth),
 		);
-		return truncateToWidth(`${"  "}${tabLine}${gap}${progress}`, width);
+		return truncateToWidth(`${"  "}${tabLine}${gap}${suffix}`, width);
 	}
 
 	// Overflow — show first, current neighborhood, and last with ellipsis
@@ -135,10 +139,8 @@ export function renderTabStrip(
 
 	const tabLine = parts.join("  ");
 	const tabWidth = visibleWidth(tabLine);
-	const gap = " ".repeat(
-		Math.max(2, width - indent - tabWidth - progressWidth),
-	);
-	return truncateToWidth(`${"  "}${tabLine}${gap}${progress}`, width);
+	const gap = " ".repeat(Math.max(2, width - indent - tabWidth - suffixWidth));
+	return truncateToWidth(`${"  "}${tabLine}${gap}${suffix}`, width);
 }
 
 /**

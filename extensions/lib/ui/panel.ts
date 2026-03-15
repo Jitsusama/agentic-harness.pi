@@ -621,11 +621,11 @@ async function showTabbedPrompt(
 
 		function tabStatuses(): TabStatus[] {
 			return config.items.map((_, i) => {
-				if (i === currentTab) return "active";
 				const result = results.get(i);
-				if (!result) return "pending";
-				if (result.type === "steer") return "rejected";
-				return "complete";
+				if (result) {
+					return result.type === "steer" ? "rejected" : "complete";
+				}
+				return i === currentTab ? "active" : "pending";
 			});
 		}
 
@@ -643,7 +643,16 @@ async function showTabbedPrompt(
 
 			// Tab strip
 			const labels = config.items.map((it) => it.label);
-			add(renderTabStrip(labels, tabStatuses(), currentTab, width, theme));
+			add(
+				renderTabStrip(
+					labels,
+					tabStatuses(),
+					currentTab,
+					width,
+					theme,
+					userItems.length,
+				),
+			);
 			// Light separator
 			add(
 				theme.fg("dim", `  ${GLYPH.separator.repeat(Math.max(0, width - 4))}`),
