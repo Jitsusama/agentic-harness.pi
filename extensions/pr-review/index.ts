@@ -26,7 +26,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import { Key, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
 	assembleContext,
@@ -194,6 +194,35 @@ export default function prReview(pi: ExtensionAPI) {
 			const truncated =
 				text.length > maxLen ? `${text.slice(0, maxLen)}…` : text;
 			return new Text(theme.fg("muted", truncated), 0, 0);
+		},
+	});
+
+	// ---- Commands ----
+
+	pi.registerCommand("pr-review", {
+		description: "Toggle PR review mode",
+		handler: async (_args, ctx) => {
+			if (state.enabled) {
+				deactivate(state, pi, ctx);
+				ctx.ui.notify("PR review mode off.");
+			} else {
+				ctx.ui.notify(
+					"PR review mode requires activation via the pr_review tool.",
+					"warning",
+				);
+			}
+		},
+	});
+
+	// ---- Keyboard shortcut ----
+
+	pi.registerShortcut(Key.ctrlAlt("v"), {
+		description: "Deactivate PR review mode",
+		handler: async (ctx) => {
+			if (state.enabled) {
+				deactivate(state, pi, ctx);
+				ctx.ui.notify("PR review mode off.");
+			}
 		},
 	});
 
@@ -690,6 +719,10 @@ export default function prReview(pi: ExtensionAPI) {
 	}
 
 	/** Start file-by-file review — show the first file's panel. */
+	/** Threshold for showing directory grouping in file review. */
+	const DIRECTORY_GROUP_THRESHOLD = 15;
+
+	/** Start file-by-file review — show the first file's panel. */
 	async function handleReviewFiles(ctx: ExtensionContext) {
 		if (!state.enabled || !state.context) {
 			return textResult("No PR review active. Call 'activate' first.");
@@ -697,6 +730,25 @@ export default function prReview(pi: ExtensionAPI) {
 
 		state.phase = "files";
 		state.fileIndex = 0;
+
+		// For large PRs, include a directory overview before the first file
+		const fileCount = state.context.diffFiles.length;
+		if (fileCount >= DIRECTORY_GROUP_THRESHOLD) {
+			const dirGroups = groupFilesByDirectory(state.context.diffFiles);
+			const overview = buildDirectoryOverview(dirGroups);
+			const fileResult = await showFileAndReturnContext(ctx, 0);
+			const content = fileResult.content?.[0];
+			const text = content && "text" in content ? content.text : "";
+			return {
+				...fileResult,
+				content: [
+					{
+						type: "text" as const,
+						text: `${overview}\n\n${text}`,
+					},
+				],
+			};
+		}
 
 		return showFileAndReturnContext(ctx, 0);
 	}
@@ -990,6 +1042,36 @@ export default function prReview(pi: ExtensionAPI) {
 			);
 		}
 
+		// Handle steer — user wants to edit a comment
+		if (vettingResult.steerFeedback) {
+			const editComment = vettingResult.steerCommentId
+				? state.comments.find((c) => c.id === vettingResult.steerCommentId)
+				: null;
+
+			const commentContext = editComment
+				? `Comment being edited:\n` +
+					`- File: ${editComment.file}:${editComment.startLine}-${editComment.endLine}\n` +
+					`- Label: ${editComment.label}\n` +
+					`- Subject: ${editComment.subject}\n` +
+					`- Discussion: ${editComment.discussion}\n`
+				: "No specific comment targeted.";
+
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text:
+							`User feedback during vetting:\n\n"${vettingResult.steerFeedback}"\n\n` +
+							`${commentContext}\n` +
+							"If the user wants to edit the comment, call 'add-comment' with the updated " +
+							"version (same file and line range, updated subject/discussion). " +
+							"Then call 'vet' again to re-show the vetting panel.",
+					},
+				],
+				details: { action: "vet", steered: true },
+			};
+		}
+
 		// Apply decisions
 		state.commentStates = vettingResult.decisions;
 		state.verdict = vettingResult.verdict;
@@ -1161,4 +1243,37 @@ async function getCurrentRepo(
 /** Build a simple text tool result. */
 function textResult(text: string) {
 	return { content: [{ type: "text" as const, text }] };
+}
+
+/** Group diff files by their parent directory. */
+function groupFilesByDirectory(files: DiffFile[]): Map<string, DiffFile[]> {
+	const groups = new Map<string, DiffFile[]>();
+	for (const file of files) {
+		const lastSlash = file.path.lastIndexOf("/");
+		const dir = lastSlash > 0 ? file.path.slice(0, lastSlash) : ".";
+		const existing = groups.get(dir) ?? [];
+		existing.push(file);
+		groups.set(dir, existing);
+	}
+	return groups;
+}
+
+/** Build a directory overview for large PRs. */
+function buildDirectoryOverview(groups: Map<string, DiffFile[]>): string {
+	const parts: string[] = [];
+	parts.push("### Directory Overview");
+	parts.push(
+		`This PR has changes across ${groups.size} directories. Files are reviewed in order:`,
+	);
+	parts.push("");
+
+	for (const [dir, files] of groups) {
+		const additions = files.reduce((sum, f) => sum + f.additions, 0);
+		const deletions = files.reduce((sum, f) => sum + f.deletions, 0);
+		parts.push(
+			`- **${dir}/** — ${files.length} file${files.length !== 1 ? "s" : ""} (+${additions} -${deletions})`,
+		);
+	}
+
+	return parts.join("\n");
 }
