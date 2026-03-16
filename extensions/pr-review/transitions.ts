@@ -1,0 +1,56 @@
+/**
+ * PR Review transitions — context injection and stale context
+ * filtering. Provides the agent with awareness of the current
+ * PR review session when active.
+ */
+
+import { filterContext } from "../lib/state.js";
+import { countCommentsByState, type PRReviewState } from "./state.js";
+
+/** Custom message type for PR review context. */
+const CONTEXT_TYPE = "pr-review-context";
+
+/**
+ * Build context for the agent's system prompt when PR review
+ * mode is active. Tells the agent which PR we're reviewing,
+ * what phase we're in, and the current comment stats.
+ */
+export function buildPRReviewContext(state: PRReviewState) {
+	if (!state.enabled) return;
+
+	const parts: string[] = [];
+	parts.push("[PR Review Active]");
+
+	if (state.prNumber && state.owner && state.repo) {
+		parts.push(`PR: ${state.owner}/${state.repo}#${state.prNumber}`);
+	}
+
+	parts.push(`Phase: ${state.phase}`);
+
+	const total = state.comments.length;
+	if (total > 0) {
+		const accepted = countCommentsByState(state, "accepted");
+		const draft = countCommentsByState(state, "draft");
+		parts.push(`Comments: ${total} (${accepted} accepted, ${draft} draft)`);
+	}
+
+	if (state.worktreePath) {
+		parts.push(`Worktree: ${state.worktreePath}`);
+	}
+
+	return {
+		message: {
+			customType: CONTEXT_TYPE,
+			content: parts.join(" | "),
+			display: false,
+		},
+	};
+}
+
+/**
+ * Create a context filter that removes stale PR review context
+ * when the mode is not active.
+ */
+export function prReviewContextFilter(state: PRReviewState) {
+	return filterContext(CONTEXT_TYPE, () => state.enabled);
+}
