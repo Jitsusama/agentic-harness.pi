@@ -940,10 +940,12 @@ export default function prReview(pi: ExtensionAPI) {
 			number: state.prNumber,
 		};
 
-		// Build comments in GitHub's expected format
-		const accepted = state.comments.filter(
-			(c) => state.commentStates.get(c.id) !== "rejected",
-		);
+		// Only post comments that were explicitly accepted during vetting.
+		// Draft comments that were never vetted are excluded.
+		const accepted = state.comments.filter((c) => {
+			const s = state.commentStates.get(c.id);
+			return s === "accepted" || s === "edited";
+		});
 
 		const ghComments = accepted.map((c) => {
 			const decorStr =
