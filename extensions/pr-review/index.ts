@@ -47,6 +47,8 @@ import {
 import type { LinkedIssue } from "./state.js";
 import { createPRReviewState, nextCommentId } from "./state.js";
 import { buildPRReviewContext, prReviewContextFilter } from "./transitions.js";
+import { showContextSummary } from "./ui/context-summary.js";
+import { showDescriptionReview } from "./ui/description.js";
 import { showProgress } from "./ui/progress.js";
 import { createWorktree, isOnPRBranch, removeWorktree } from "./worktree.js";
 
@@ -131,9 +133,9 @@ export default function prReview(pi: ExtensionAPI) {
 				case "activate":
 					return handleActivate(ctx, params.pr ?? null);
 				case "context":
-					return handleContext();
+					return handleContext(ctx);
 				case "description":
-					return handleDescription();
+					return handleDescription(ctx);
 				case "analyze":
 					return handleAnalyze();
 				case "review-files":
@@ -346,29 +348,43 @@ export default function prReview(pi: ExtensionAPI) {
 		};
 	}
 
-	/** Show the gathered context summary. */
-	function handleContext() {
+	/** Show the gathered context summary panel and return text. */
+	async function handleContext(ctx: ExtensionContext) {
 		if (!state.enabled || !state.context) {
 			return textResult("No PR review active. Call 'activate' first.");
 		}
 
-		const ctx = state.context;
-		const parts: string[] = [];
-
-		parts.push(`## PR #${ctx.pr.number}: ${ctx.pr.title}`);
-		parts.push(`**Author**: @${ctx.pr.author}`);
-		parts.push(`**Branch**: ${ctx.pr.headRefName} → ${ctx.pr.baseRefName}`);
-		parts.push(
-			`**Files**: ${ctx.pr.changedFiles} changed (+${ctx.pr.additions} -${ctx.pr.deletions})`,
+		const proceeded = await showContextSummary(
+			ctx,
+			state.context,
+			state.worktreePath,
 		);
 
-		if (ctx.pr.body) {
-			parts.push("", "### PR Description", ctx.pr.body);
+		if (!proceeded) {
+			return textResult(
+				"Context summary dismissed. Call 'context' to re-show, " +
+					"or 'description' to proceed.",
+			);
 		}
 
-		if (ctx.issues.length > 0) {
+		// Also return the context as text for the LLM
+		const prCtx = state.context;
+		const parts: string[] = [];
+
+		parts.push(`## PR #${prCtx.pr.number}: ${prCtx.pr.title}`);
+		parts.push(`**Author**: @${prCtx.pr.author}`);
+		parts.push(`**Branch**: ${prCtx.pr.headRefName} → ${prCtx.pr.baseRefName}`);
+		parts.push(
+			`**Files**: ${prCtx.pr.changedFiles} changed (+${prCtx.pr.additions} -${prCtx.pr.deletions})`,
+		);
+
+		if (prCtx.pr.body) {
+			parts.push("", "### PR Description", prCtx.pr.body);
+		}
+
+		if (prCtx.issues.length > 0) {
 			parts.push("", "### Linked Issues");
-			for (const issue of ctx.issues) {
+			for (const issue of prCtx.issues) {
 				parts.push(`- **#${issue.number}**: ${issue.title} (${issue.state})`);
 				if (issue.body) {
 					const preview = issue.body.slice(0, 200);
@@ -378,19 +394,10 @@ export default function prReview(pi: ExtensionAPI) {
 			}
 		}
 
-		if (ctx.siblingPRs.length > 0) {
+		if (prCtx.siblingPRs.length > 0) {
 			parts.push("", "### Related PRs");
-			for (const pr of ctx.siblingPRs) {
+			for (const pr of prCtx.siblingPRs) {
 				parts.push(`- **#${pr.number}**: ${pr.title} (${pr.state})`);
-			}
-		}
-
-		if (ctx.diffFiles.length > 0) {
-			parts.push("", "### Changed Files");
-			for (const file of ctx.diffFiles) {
-				parts.push(
-					`- ${file.path} (${file.status}, +${file.additions} -${file.deletions})`,
-				);
 			}
 		}
 
@@ -405,25 +412,28 @@ export default function prReview(pi: ExtensionAPI) {
 		};
 	}
 
-	/** Return PR description and scope for evaluation. */
-	function handleDescription() {
+	/** Show description review panel and return evaluation context. */
+	async function handleDescription(ctx: ExtensionContext) {
 		if (!state.enabled || !state.context) {
 			return textResult("No PR review active. Call 'activate' first.");
 		}
 
 		state.phase = "description";
 
-		const ctx = state.context;
+		await showDescriptionReview(ctx, state.context);
+
+		// Return the full description context for the LLM to evaluate
+		const prCtx = state.context;
 		const parts: string[] = [];
 
 		parts.push("## PR Description & Scope Review");
 		parts.push("");
-		parts.push(`**Title**: ${ctx.pr.title}`);
+		parts.push(`**Title**: ${prCtx.pr.title}`);
 		parts.push("");
 
-		if (ctx.pr.body) {
+		if (prCtx.pr.body) {
 			parts.push("**Description**:");
-			parts.push(ctx.pr.body);
+			parts.push(prCtx.pr.body);
 		} else {
 			parts.push("**Description**: _(empty)_");
 		}
@@ -431,10 +441,10 @@ export default function prReview(pi: ExtensionAPI) {
 		parts.push("");
 		parts.push("### Linked Issues Context");
 
-		if (ctx.issues.length === 0) {
+		if (prCtx.issues.length === 0) {
 			parts.push("No linked issues found.");
 		} else {
-			for (const issue of ctx.issues) {
+			for (const issue of prCtx.issues) {
 				parts.push(`\n#### Issue #${issue.number}: ${issue.title}`);
 				if (issue.body) parts.push(issue.body);
 			}
@@ -443,7 +453,7 @@ export default function prReview(pi: ExtensionAPI) {
 		parts.push("");
 		parts.push("### Changed Files Summary");
 		parts.push(
-			`${ctx.pr.changedFiles} files (+${ctx.pr.additions} -${ctx.pr.deletions})`,
+			`${prCtx.pr.changedFiles} files (+${prCtx.pr.additions} -${prCtx.pr.deletions})`,
 		);
 
 		parts.push("");
