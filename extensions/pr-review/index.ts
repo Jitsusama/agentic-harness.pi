@@ -1042,6 +1042,36 @@ export default function prReview(pi: ExtensionAPI) {
 			);
 		}
 
+		// Handle steer — user wants to edit a comment
+		if (vettingResult.steerFeedback) {
+			const editComment = vettingResult.steerCommentId
+				? state.comments.find((c) => c.id === vettingResult.steerCommentId)
+				: null;
+
+			const commentContext = editComment
+				? `Comment being edited:\n` +
+					`- File: ${editComment.file}:${editComment.startLine}-${editComment.endLine}\n` +
+					`- Label: ${editComment.label}\n` +
+					`- Subject: ${editComment.subject}\n` +
+					`- Discussion: ${editComment.discussion}\n`
+				: "No specific comment targeted.";
+
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text:
+							`User feedback during vetting:\n\n"${vettingResult.steerFeedback}"\n\n` +
+							`${commentContext}\n` +
+							"If the user wants to edit the comment, call 'add-comment' with the updated " +
+							"version (same file and line range, updated subject/discussion). " +
+							"Then call 'vet' again to re-show the vetting panel.",
+					},
+				],
+				details: { action: "vet", steered: true },
+			};
+		}
+
 		// Apply decisions
 		state.commentStates = vettingResult.decisions;
 		state.verdict = vettingResult.verdict;

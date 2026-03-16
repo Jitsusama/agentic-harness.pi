@@ -26,6 +26,10 @@ export interface VettingResult {
 	verdict: ReviewVerdict;
 	/** Review body text (may be edited by user). */
 	reviewBody: string;
+	/** User's steer feedback (if they broke out to edit a comment). */
+	steerFeedback?: string;
+	/** Comment ID the steer was on (if specific to a comment). */
+	steerCommentId?: string | null;
 }
 
 /**
@@ -59,6 +63,21 @@ export async function showVetting(
 	});
 
 	if (!result) return null;
+
+	// Check for steer results — user wants to edit a comment
+	for (const [itemIndex, itemResult] of result.items) {
+		if (itemResult.type === "steer") {
+			const commentIndex = itemIndex - 1;
+			const comment = commentIndex >= 0 ? comments[commentIndex] : null;
+			return {
+				decisions: commentStates,
+				verdict: suggestedVerdict,
+				reviewBody: draftBody,
+				steerFeedback: itemResult.note,
+				steerCommentId: comment?.id ?? null,
+			};
+		}
+	}
 
 	// Apply decisions from the tabbed prompt
 	const decisions = new Map(commentStates);
