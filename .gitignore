@@ -1,3 +1,4 @@
 .pi/
+.review/
 node_modules/
 extensions/*/package-lock.json
