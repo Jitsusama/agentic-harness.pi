@@ -90,6 +90,7 @@ export function renderGoogleResult(
 	// Email operations
 	if (
 		textContent.startsWith("✓ Email archived") ||
+		textContent.startsWith("✓ Email moved to inbox") ||
 		textContent.startsWith("✓ Email deleted") ||
 		textContent.startsWith("✓ Marked as")
 	) {
