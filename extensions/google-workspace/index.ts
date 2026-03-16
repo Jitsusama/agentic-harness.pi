@@ -50,6 +50,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 	async function getAuthClient(
 		_ctx: ExtensionContext,
 		accountName: string,
+		oauthConfig: { clientId: string; clientSecret: string },
 	): Promise<OAuth2Client> {
 		// Check cache first
 		let client = oauthClients.get(accountName);
@@ -71,7 +72,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		}
 
 		// Create new client and set credentials
-		client = createOAuth2Client(ENV_OAUTH_CONFIG);
+		client = createOAuth2Client(oauthConfig);
 		setCredentials(client, credentials);
 
 		// Refresh if needed
@@ -110,6 +111,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 					"send_email",
 					"create_draft",
 					"archive_email",
+					"unarchive_email",
 					"delete_email",
 					"mark_read",
 					"mark_unread",

@@ -14,6 +14,7 @@ import {
 	markUnread,
 	searchEmails,
 	sendEmail,
+	unarchiveEmail,
 } from "../apis/gmail.js";
 import { confirmDeleteEmail, confirmSendEmail } from "../confirmation.js";
 import {
@@ -266,5 +267,23 @@ export async function handleMarkUnread(
 	await markUnread(auth, id);
 	return {
 		content: [{ type: "text", text: "✓ Marked as unread" }],
+	};
+}
+
+export async function handleUnarchiveEmail(
+	params: ActionParams,
+	auth: OAuth2Client,
+): Promise<ToolResult> {
+	const id = getStringParam(params, "id");
+
+	if (!id) {
+		return {
+			content: [{ type: "text", text: "Missing required parameter: id" }],
+		};
+	}
+
+	await unarchiveEmail(auth, id);
+	return {
+		content: [{ type: "text", text: "✓ Email moved to inbox" }],
 	};
 }

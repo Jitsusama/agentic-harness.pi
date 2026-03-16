@@ -28,6 +28,7 @@ import {
 	handleMarkUnread,
 	handleSearchEmails,
 	handleSendEmail,
+	handleUnarchiveEmail,
 } from "./router/gmail-handlers.js";
 import type { ActionParams, ToolResult } from "./types.js";
 
@@ -58,6 +59,9 @@ export async function routeAction(
 
 		case "archive_email":
 			return handleArchiveEmail(params, auth);
+
+		case "unarchive_email":
+			return handleUnarchiveEmail(params, auth);
 
 		case "delete_email":
 			return handleDeleteEmail(params, auth, ctx);

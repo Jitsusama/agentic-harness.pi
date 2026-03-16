@@ -59,6 +59,9 @@ When the user makes a natural language request, extract the core intent and para
 ### "Delete that email" / "Archive this message"
 → `delete_email` or `archive_email` with `id` from context
 
+### "Move to inbox" / "Unarchive that email"
+→ `unarchive_email` with `id` from context
+
 ### "Mark as read/unread"
 → `mark_read` or `mark_unread` with `id` from context
 

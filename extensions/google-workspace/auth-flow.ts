@@ -45,11 +45,12 @@ export async function ensureAuthenticated(
 	getAuthClient: (
 		ctx: ExtensionContext,
 		account: string,
+		oauthConfig: OAuthAppCredentials,
 	) => Promise<OAuth2Client>,
 ): Promise<OAuth2Client> {
 	try {
 		// Try to get existing authenticated client
-		return await getAuthClient(ctx, account);
+		return await getAuthClient(ctx, account, oauthConfig);
 	} catch (error) {
 		// Check if this is an authentication error
 		const message = error instanceof Error ? error.message : String(error);
@@ -88,7 +89,7 @@ export async function ensureAuthenticated(
 		await handleGoogleAuthCommand(`--account ${account}`, ctx, oauthConfig);
 
 		// Get authenticated client (will throw if auth failed)
-		return await getAuthClient(ctx, account);
+		return await getAuthClient(ctx, account, oauthConfig);
 	}
 }
 

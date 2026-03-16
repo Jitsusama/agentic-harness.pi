@@ -448,6 +448,24 @@ export async function archiveEmail(
 }
 
 /**
+ * Unarchive an email (add INBOX label back).
+ */
+export async function unarchiveEmail(
+	auth: OAuth2Client,
+	messageId: string,
+): Promise<void> {
+	const gmail = google.gmail({ version: "v1", auth });
+
+	await gmail.users.messages.modify({
+		userId: "me",
+		id: messageId,
+		requestBody: {
+			addLabelIds: ["INBOX"],
+		},
+	});
+}
+
+/**
  * Delete an email (move to trash).
  */
 export async function deleteEmail(

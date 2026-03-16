@@ -95,6 +95,10 @@ export function renderGoogleCall(
 			text += "archive_email";
 			break;
 
+		case "unarchive_email":
+			text += "unarchive_email";
+			break;
+
 		case "delete_email":
 			text += "delete_email";
 			break;
