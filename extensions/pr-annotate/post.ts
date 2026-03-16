@@ -47,7 +47,7 @@ export async function postReview(
 
 	// Write payload to temp file to avoid shell escaping issues
 	// with single quotes, backticks, and newlines in comment bodies.
-	const tmpFile = path.join(os.tmpdir(), `pi-pr-review-${Date.now()}.json`);
+	const tmpFile = path.join(os.tmpdir(), `pi-pr-annotate-${Date.now()}.json`);
 	try {
 		fs.writeFileSync(tmpFile, payload, "utf-8");
 

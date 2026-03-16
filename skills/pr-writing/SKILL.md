@@ -83,8 +83,8 @@ Recognize what kind of story the changes tell:
 
 ## Self-Review Comments
 
-After creating the PR, use the `pr_review` tool to propose
-inline review comments that guide reviewers to areas that
+After creating the PR, use the `pr_annotate` tool to propose
+inline self-review comments that guide reviewers to areas that
 matter. Focus on:
 
 - Design decisions worth explaining
@@ -101,7 +101,7 @@ nothing warrants reviewer attention.
 GitHub's review API only accepts comments on lines that
 appear in the diff. Comments on lines outside diff hunks
 are rejected with a 422. **Always verify line numbers
-against the diff before calling `pr_review`.**
+against the diff before calling `pr_annotate`.**
 
 Procedure:
 
@@ -114,7 +114,7 @@ Procedure:
    confirm your `startLine`..`line` range falls within
    a `@@` hunk on the RIGHT side (new file lines — the
    `+N,M` in the hunk header).
-3. Only then call `pr_review` with those line numbers.
+3. Only then call `pr_annotate` with those line numbers.
 
 Do NOT guess line numbers from the file contents. Do NOT
 retry with adjusted numbers after a 422 — get them right
