@@ -32,7 +32,9 @@ import {
 	assembleContext,
 	fetchDiff,
 	fetchPRGraphQL,
+	fetchPreviousReviews,
 	fetchSiblingPRs,
+	getCurrentUser,
 	postReview,
 } from "./api/github.js";
 import type { PRReference } from "./api/parse.js";
@@ -268,6 +270,18 @@ export default function prReview(pi: ExtensionAPI) {
 						return fetchSiblingPRs(pi, ref, fetchedIssues);
 					},
 				},
+				{
+					label: "Previous reviews",
+					run: async () => {
+						try {
+							const username = await getCurrentUser(pi);
+							return fetchPreviousReviews(pi, ref, username);
+						} catch {
+							/* Previous reviews unavailable — not fatal */
+							return { reviews: [], threads: [] };
+						}
+					},
+				},
 			] as const,
 		);
 
@@ -276,7 +290,7 @@ export default function prReview(pi: ExtensionAPI) {
 			return textResult("PR review cancelled.");
 		}
 
-		const [graphqlData, diff, siblingPRs] = results;
+		const [graphqlData, diff, siblingPRs, previousData] = results;
 
 		if (!graphqlData || !diff) {
 			deactivate(state, pi, ctx);
@@ -297,6 +311,13 @@ export default function prReview(pi: ExtensionAPI) {
 		state.prBranch = context.pr.headRefName;
 		state.baseBranch = context.pr.baseRefName;
 		state.prAuthor = context.pr.author;
+
+		// Previous reviews (re-review support)
+		if (previousData && previousData.reviews.length > 0) {
+			state.isReReview = true;
+			state.previousReviews = previousData.reviews;
+			state.previousThreads = previousData.threads;
+		}
 
 		// Set up worktree after we know the PR's head branch
 		const onBranch = await isOnPRBranch(pi, context.pr.headRefName);
@@ -333,6 +354,21 @@ export default function prReview(pi: ExtensionAPI) {
 
 		if (siblingCount > 0) {
 			parts.push(`${siblingCount} sibling PR${siblingCount !== 1 ? "s" : ""}.`);
+		}
+
+		if (state.isReReview) {
+			const reviewCount = state.previousReviews.length;
+			const openThreads = state.previousThreads.filter(
+				(t) => !t.isResolved,
+			).length;
+			const resolvedThreads = state.previousThreads.filter(
+				(t) => t.isResolved,
+			).length;
+			parts.push(
+				`Re-review: ${reviewCount} previous review${reviewCount !== 1 ? "s" : ""}, ` +
+					`${openThreads} open thread${openThreads !== 1 ? "s" : ""}, ` +
+					`${resolvedThreads} resolved.`,
+			);
 		}
 
 		if (state.worktreePath) {
@@ -552,6 +588,49 @@ export default function prReview(pi: ExtensionAPI) {
 			parts.push("**Truncated files** (read from worktree for full diff):");
 			for (const file of prCtx.diffFiles) {
 				parts.push(`- \`${searchPath}/${file.path}\``);
+			}
+		}
+
+		// ---- Previous review threads (re-review) ----
+		if (state.isReReview && state.previousThreads.length > 0) {
+			parts.push("");
+			parts.push("### Previous Review Threads");
+			parts.push("");
+
+			const openThreads = state.previousThreads.filter((t) => !t.isResolved);
+			const resolvedByAuthor = state.previousThreads.filter(
+				(t) => t.resolvedBy === "author",
+			);
+			const resolvedBySelf = state.previousThreads.filter(
+				(t) => t.resolvedBy === "self",
+			);
+
+			if (resolvedBySelf.length > 0) {
+				parts.push(
+					`**${resolvedBySelf.length} thread${resolvedBySelf.length !== 1 ? "s" : ""} you resolved** — filtered out.`,
+				);
+			}
+
+			if (resolvedByAuthor.length > 0) {
+				parts.push(
+					`\n**${resolvedByAuthor.length} thread${resolvedByAuthor.length !== 1 ? "s" : ""} resolved by the author** — assess satisfaction:`,
+				);
+				for (const t of resolvedByAuthor) {
+					parts.push(
+						`- ${t.file}:${t.line} — ${t.body.slice(0, 100)}${t.body.length > 100 ? "…" : ""}`,
+					);
+				}
+			}
+
+			if (openThreads.length > 0) {
+				parts.push(
+					`\n**${openThreads.length} open thread${openThreads.length !== 1 ? "s" : ""}** — check if resolved by new changes:`,
+				);
+				for (const t of openThreads) {
+					parts.push(
+						`- ${t.file}:${t.line} — ${t.body.slice(0, 100)}${t.body.length > 100 ? "…" : ""}`,
+					);
+				}
 			}
 		}
 

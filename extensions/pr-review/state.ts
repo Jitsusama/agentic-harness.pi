@@ -138,6 +138,33 @@ export interface GatheredContext {
 /** GitHub review verdict. */
 export type ReviewVerdict = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
 
+/** A previous review thread from an earlier review by the user. */
+export interface PreviousThread {
+	id: string;
+	file: string;
+	line: number;
+	body: string;
+	isResolved: boolean;
+	resolvedBy: "self" | "author" | "other" | null;
+	comments: PreviousThreadComment[];
+}
+
+/** A comment within a previous review thread. */
+export interface PreviousThreadComment {
+	author: string;
+	body: string;
+	createdAt: string;
+}
+
+/** Summary of a previous review by the current user. */
+export interface PreviousReview {
+	id: string;
+	state: string;
+	submittedAt: string;
+	body: string;
+	threadCount: number;
+}
+
 /** Runtime state for PR review mode. */
 export interface PRReviewState {
 	enabled: boolean;
@@ -154,6 +181,11 @@ export interface PRReviewState {
 
 	// Gathered context
 	context: GatheredContext | null;
+
+	// Previous reviews (re-review support)
+	isReReview: boolean;
+	previousReviews: PreviousReview[];
+	previousThreads: PreviousThread[];
 
 	// Analysis
 	analysis: string | null;
@@ -187,6 +219,9 @@ export function createPRReviewState(): PRReviewState {
 		worktreePath: null,
 		usingWorktree: false,
 		context: null,
+		isReReview: false,
+		previousReviews: [],
+		previousThreads: [],
 		analysis: null,
 		researchNotes: [],
 		phase: "gathering",
