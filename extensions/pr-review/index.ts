@@ -147,7 +147,7 @@ export default function prReview(pi: ExtensionAPI) {
 				case "add-comment":
 					return handleAddComment(params.comment);
 				case "resume":
-					return handleResume();
+					return handleResume(ctx);
 				case "vet":
 					return handleVet(ctx);
 				case "post":
@@ -678,13 +678,22 @@ export default function prReview(pi: ExtensionAPI) {
 		}
 
 		if (panelResult.action === "steer") {
+			const searchPath = state.worktreePath ?? ".";
 			return {
 				content: [
 					{
 						type: "text" as const,
 						text:
-							`User feedback on ${file.path}:\n\n${panelResult.note}\n\n` +
-							buildFileTextContext(file, index, fileCount),
+							`User wants to add a comment on ${file.path}:\n\n` +
+							`"${panelResult.note}"\n\n` +
+							`File context:\n${buildFileTextContext(file, index, fileCount)}\n\n` +
+							`Worktree path for full file access: \`${searchPath}/${file.path}\`\n\n` +
+							"Draft a conventional comment. Choose the appropriate label, " +
+							"line range, subject, and discussion. Use the `conventional-comments` " +
+							"skill for format guidance. Then call pr_review with action 'add-comment' " +
+							"and the structured comment data.\n\n" +
+							"After adding the comment, call pr_review with action 'resume' " +
+							"to return to file review.",
 					},
 				],
 				details: {
@@ -802,15 +811,23 @@ export default function prReview(pi: ExtensionAPI) {
 
 		state.comments.push(reviewComment);
 		state.commentStates.set(id, "draft");
+		persist(state, pi);
+
+		const decorStr =
+			reviewComment.decorations.length > 0
+				? ` (${reviewComment.decorations.join(", ")})`
+				: "";
 
 		return {
 			content: [
 				{
 					type: "text" as const,
 					text:
-						`Comment added: ${reviewComment.label} on ${reviewComment.file}:` +
-						`${reviewComment.startLine}-${reviewComment.endLine}. ` +
-						`Total: ${state.comments.length} comments.`,
+						`Comment added: ${reviewComment.label}${decorStr} on ` +
+						`${reviewComment.file}:${reviewComment.startLine}-${reviewComment.endLine}\n` +
+						`Subject: ${reviewComment.subject}\n` +
+						`Total: ${state.comments.length} comments.\n\n` +
+						"Call pr_review with action 'resume' to return to file review.",
 				},
 			],
 			details: {
@@ -821,24 +838,24 @@ export default function prReview(pi: ExtensionAPI) {
 		};
 	}
 
-	/** Return to the current phase after a conversation breakout. */
-	function handleResume() {
+	/**
+	 * Return to the current phase after a conversation breakout.
+	 * When resuming during file review, re-shows the file panel
+	 * so the user sees the updated comment list.
+	 */
+	async function handleResume(ctx: ExtensionContext) {
 		if (!state.enabled) {
 			return textResult("No PR review active.");
+		}
+
+		// During file review, re-show the file panel with updated comments
+		if (state.phase === "files" && state.context) {
+			return showFileAndReturnContext(ctx, state.fileIndex);
 		}
 
 		const parts: string[] = [];
 		parts.push(`Resuming PR review at phase: ${state.phase}`);
 		parts.push(`Comments: ${state.comments.length}`);
-
-		if (state.phase === "files" && state.context) {
-			const file = state.context.diffFiles[state.fileIndex];
-			if (file) {
-				parts.push(
-					`Current file: ${file.path} (${state.fileIndex + 1}/${state.context.diffFiles.length})`,
-				);
-			}
-		}
 
 		if (state.researchNotes.length > 0) {
 			parts.push("");
