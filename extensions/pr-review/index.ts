@@ -141,7 +141,7 @@ export default function prReview(pi: ExtensionAPI) {
 				case "description":
 					return handleDescription(ctx);
 				case "analyze":
-					return handleAnalyze();
+					return handleAnalyze(ctx);
 				case "review-files":
 					return handleReviewFiles(ctx);
 				case "next-file":
@@ -417,8 +417,13 @@ export default function prReview(pi: ExtensionAPI) {
 
 	/** Show the gathered context summary panel and return text. */
 	async function handleContext(ctx: ExtensionContext) {
-		if (!state.enabled || !state.context) {
+		if (!state.enabled) {
 			return textResult("No PR review active. Call 'activate' first.");
+		}
+		if (!(await ensureContext(ctx))) {
+			return textResult(
+				"Failed to load PR context. Call 'activate' to restart.",
+			);
 		}
 
 		const proceeded = await showContextSummary(
@@ -481,8 +486,13 @@ export default function prReview(pi: ExtensionAPI) {
 
 	/** Show description review panel and return evaluation context. */
 	async function handleDescription(ctx: ExtensionContext) {
-		if (!state.enabled || !state.context) {
+		if (!state.enabled) {
 			return textResult("No PR review active. Call 'activate' first.");
+		}
+		if (!(await ensureContext(ctx))) {
+			return textResult(
+				"Failed to load PR context. Call 'activate' to restart.",
+			);
 		}
 
 		state.phase = "description";
@@ -555,9 +565,14 @@ export default function prReview(pi: ExtensionAPI) {
 	 * everything needed: diff, issue context, PR comments, and
 	 * instructions for thorough investigation.
 	 */
-	function handleAnalyze() {
-		if (!state.enabled || !state.context) {
+	async function handleAnalyze(ctx: ExtensionContext) {
+		if (!state.enabled) {
 			return textResult("No PR review active. Call 'activate' first.");
+		}
+		if (!(await ensureContext(ctx))) {
+			return textResult(
+				"Failed to load PR context. Call 'activate' to restart.",
+			);
 		}
 
 		state.phase = "analyzing";
@@ -724,8 +739,13 @@ export default function prReview(pi: ExtensionAPI) {
 
 	/** Start file-by-file review — show the first file's panel. */
 	async function handleReviewFiles(ctx: ExtensionContext) {
-		if (!state.enabled || !state.context) {
+		if (!state.enabled) {
 			return textResult("No PR review active. Call 'activate' first.");
+		}
+		if (!(await ensureContext(ctx))) {
+			return textResult(
+				"Failed to load PR context. Call 'activate' to restart.",
+			);
 		}
 
 		state.phase = "files";
@@ -755,8 +775,13 @@ export default function prReview(pi: ExtensionAPI) {
 
 	/** Advance to the next file. */
 	async function handleNextFile(ctx: ExtensionContext) {
-		if (!state.enabled || !state.context) {
+		if (!state.enabled) {
 			return textResult("No PR review active.");
+		}
+		if (!(await ensureContext(ctx))) {
+			return textResult(
+				"Failed to load PR context. Call 'activate' to restart.",
+			);
 		}
 
 		state.fileIndex++;
@@ -1211,6 +1236,43 @@ export default function prReview(pi: ExtensionAPI) {
 	}
 
 	// ---- Helpers ----
+
+	/**
+	 * Ensure gathered context is available. If the session was
+	 * restored but context was lost (it's too large for appendEntry),
+	 * re-fetch it from GitHub transparently.
+	 */
+	async function ensureContext(ctx: ExtensionContext): Promise<boolean> {
+		if (state.context) return true;
+		if (!state.owner || !state.repo || !state.prNumber) return false;
+
+		const ref: PRReference = {
+			owner: state.owner,
+			repo: state.repo,
+			number: state.prNumber,
+		};
+
+		ctx.ui.notify("Re-fetching PR context…", "info");
+
+		try {
+			const [graphqlData, diff] = await Promise.all([
+				fetchPRGraphQL(pi, ref),
+				fetchDiff(pi, ref),
+			]);
+
+			state.context = assembleContext(
+				graphqlData.pr,
+				diff,
+				graphqlData.prComments,
+				graphqlData.issues,
+				[],
+			);
+			return true;
+		} catch {
+			/* Re-fetch failed — context unavailable */
+			return false;
+		}
+	}
 
 	/** Resolve a PR reference from user input or current branch. */
 	async function resolvePR(
