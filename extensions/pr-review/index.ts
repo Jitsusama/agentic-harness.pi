@@ -44,11 +44,12 @@ import {
 	refreshUI,
 	restore,
 } from "./lifecycle.js";
-import type { LinkedIssue } from "./state.js";
+import type { DiffFile, LinkedIssue } from "./state.js";
 import { createPRReviewState, nextCommentId } from "./state.js";
 import { buildPRReviewContext, prReviewContextFilter } from "./transitions.js";
 import { showContextSummary } from "./ui/context-summary.js";
 import { showDescriptionReview } from "./ui/description.js";
+import { showFileReview } from "./ui/file-review.js";
 import { showProgress } from "./ui/progress.js";
 import { createWorktree, isOnPRBranch, removeWorktree } from "./worktree.js";
 
@@ -139,9 +140,9 @@ export default function prReview(pi: ExtensionAPI) {
 				case "analyze":
 					return handleAnalyze();
 				case "review-files":
-					return handleReviewFiles();
+					return handleReviewFiles(ctx);
 				case "next-file":
-					return handleNextFile();
+					return handleNextFile(ctx);
 				case "add-comment":
 					return handleAddComment(params.comment);
 				case "resume":
@@ -608,8 +609,8 @@ export default function prReview(pi: ExtensionAPI) {
 		};
 	}
 
-	/** Start file-by-file review — return the first file's diff. */
-	function handleReviewFiles() {
+	/** Start file-by-file review — show the first file's panel. */
+	async function handleReviewFiles(ctx: ExtensionContext) {
 		if (!state.enabled || !state.context) {
 			return textResult("No PR review active. Call 'activate' first.");
 		}
@@ -617,11 +618,11 @@ export default function prReview(pi: ExtensionAPI) {
 		state.phase = "files";
 		state.fileIndex = 0;
 
-		return buildFileContext(0);
+		return showFileAndReturnContext(ctx, 0);
 	}
 
 	/** Advance to the next file. */
-	function handleNextFile() {
+	async function handleNextFile(ctx: ExtensionContext) {
 		if (!state.enabled || !state.context) {
 			return textResult("No PR review active.");
 		}
@@ -637,18 +638,87 @@ export default function prReview(pi: ExtensionAPI) {
 			);
 		}
 
-		return buildFileContext(state.fileIndex);
+		return showFileAndReturnContext(ctx, state.fileIndex);
 	}
 
-	/** Build context for a specific file in the diff. */
-	function buildFileContext(index: number) {
-		const ctx = state.context;
-		if (!ctx) return textResult("No context available.");
+	/**
+	 * Show the file review panel, then return text context for
+	 * the LLM. If the user steers, return their feedback instead.
+	 */
+	async function showFileAndReturnContext(
+		ctx: ExtensionContext,
+		index: number,
+	) {
+		const prCtx = state.context;
+		if (!prCtx) return textResult("No context available.");
 
-		const file = ctx.diffFiles[index];
+		const file = prCtx.diffFiles[index];
 		if (!file) return textResult("File index out of range.");
 
-		const fileCount = ctx.diffFiles.length;
+		const fileCount = prCtx.diffFiles.length;
+
+		// Show the visual panel
+		const panelResult = await showFileReview(
+			ctx,
+			file,
+			index,
+			fileCount,
+			state.comments,
+			state.worktreePath,
+		);
+
+		refreshUI(state, ctx);
+
+		if (panelResult.action === "cancel") {
+			return textResult(
+				"File review paused. Call 'review-files' to resume, " +
+					"or 'vet' to proceed to vetting.",
+			);
+		}
+
+		if (panelResult.action === "steer") {
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text:
+							`User feedback on ${file.path}:\n\n${panelResult.note}\n\n` +
+							buildFileTextContext(file, index, fileCount),
+					},
+				],
+				details: {
+					action: "review-files",
+					phase: "files",
+					file: file.path,
+					steered: true,
+				},
+			};
+		}
+
+		// User pressed "next" — return text context for this file
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text: buildFileTextContext(file, index, fileCount),
+				},
+			],
+			details: {
+				action: "review-files",
+				phase: "files",
+				file: file.path,
+				fileIndex: index,
+				fileCount,
+			},
+		};
+	}
+
+	/** Build text context for a file (returned to the LLM). */
+	function buildFileTextContext(
+		file: DiffFile,
+		index: number,
+		fileCount: number,
+	): string {
 		const parts: string[] = [];
 
 		parts.push(`## File ${index + 1}/${fileCount}: ${file.path}`);
@@ -656,7 +726,6 @@ export default function prReview(pi: ExtensionAPI) {
 			`**Status**: ${file.status} (+${file.additions} -${file.deletions})`,
 		);
 
-		// Include the diff for this file
 		parts.push("");
 		parts.push("### Diff");
 		parts.push("```diff");
@@ -670,7 +739,6 @@ export default function prReview(pi: ExtensionAPI) {
 		}
 		parts.push("```");
 
-		// Show existing comments for this file
 		const fileComments = state.comments.filter((c) => c.file === file.path);
 		if (fileComments.length > 0) {
 			parts.push("");
@@ -698,16 +766,7 @@ export default function prReview(pi: ExtensionAPI) {
 				"Call 'next-file' when done.",
 		);
 
-		return {
-			content: [{ type: "text" as const, text: parts.join("\n") }],
-			details: {
-				action: "review-files",
-				phase: "files",
-				file: file.path,
-				fileIndex: index,
-				fileCount,
-			},
-		};
+		return parts.join("\n");
 	}
 
 	/** Add a structured review comment. */
