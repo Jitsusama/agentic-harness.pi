@@ -28,6 +28,7 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { Key, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { progress } from "../lib/ui/progress.js";
 import {
 	assembleContext,
 	fetchDiff,
@@ -52,7 +53,6 @@ import { buildPRReviewContext, prReviewContextFilter } from "./transitions.js";
 import { showContextSummary } from "./ui/context-summary.js";
 import { showDescriptionReview } from "./ui/description.js";
 import { showFileReview } from "./ui/file-review.js";
-import { showProgress } from "./ui/progress.js";
 import { showVetting } from "./ui/vetting.js";
 import { createWorktree, isOnPRBranch, removeWorktree } from "./worktree.js";
 
@@ -275,9 +275,9 @@ export default function prReview(pi: ExtensionAPI) {
 			graphqlDone = resolve;
 		});
 
-		const results = await showProgress(
+		const results = await progress(
 			ctx,
-			`Gathering context for PR #${ref.number}…`,
+			{ title: `Gathering context for PR #${ref.number}…` },
 			[
 				{
 					label: "PR metadata & issues",
