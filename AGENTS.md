@@ -21,7 +21,7 @@ at runtime.
 
 The codebase has four **guardians** (commit, PR, issue, history),
 two **modes** (plan, TDD), three **tools** (ask, web-search,
-pr-review), a content viewer, and a status line.
+pr-annotate), a content viewer, and a status line.
 
 Extensions and skills are complementary. Skills teach methodology,
 extensions enforce it. Some are paired (e.g. planning skill +
@@ -133,7 +133,7 @@ bundles `execute`, `renderCall`, and `renderResult` as part of
 the registration call. Extracting those to separate files would
 split one cohesive tool definition across modules. Keeping tool
 bodies in `index.ts` follows the same pattern as the existing
-tool extensions (`ask/`, `web-search/`, `pr-review/`). The
+tool extensions (`ask/`, `web-search/`, `pr-annotate/`). The
 execute body should still delegate to other modules for
 substantial work (showing gates, lifecycle changes) rather than
 inlining all logic.

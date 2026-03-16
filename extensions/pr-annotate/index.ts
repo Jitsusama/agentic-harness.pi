@@ -1,7 +1,7 @@
 /**
- * PR Self-Review Extension
+ * PR Annotate Extension
  *
- * Tool for the LLM to propose review comments on a PR.
+ * Tool for the LLM to propose self-review comments on a PR.
  * The user vets each comment through the shared gate:
  * approve, edit, reject, or steer. Only approved comments
  * are posted as a single PR review via `gh api`.
@@ -85,17 +85,17 @@ function formatCommentRef(c: ReviewComment): string {
 	return `- ${c.path}:${range} — ${c.body}`;
 }
 
-export default function prReview(pi: ExtensionAPI) {
+export default function prAnnotate(pi: ExtensionAPI) {
 	pi.registerTool({
-		name: "pr_review",
-		label: "PR Review",
+		name: "pr_annotate",
+		label: "PR Annotate",
 		description:
-			"Propose review comments on a pull request for the user to vet before posting. " +
+			"Propose self-review comments on a pull request for the user to vet before posting. " +
 			"Call this as part of PR creation to flag areas of possible contention, deviations " +
 			"from what was originally asked, scope questions, or design decisions worth reviewer input. " +
 			"The comments array may be empty if nothing warrants attention — the user can still add their own.",
 		promptGuidelines: [
-			"Call `pr_review` after creating a PR to propose self-review comments.",
+			"Call `pr_annotate` after creating a PR to propose self-review comments.",
 			"Focus on: design decisions worth explaining, assumptions that need validation, " +
 				"scope boundaries reviewers should weigh in on, and deviations from the original plan.",
 			"Do NOT flag: style issues, obvious code, or things the diff already makes clear.",
@@ -103,7 +103,7 @@ export default function prReview(pi: ExtensionAPI) {
 			"It is fine to pass an empty comments array if nothing warrants reviewer attention.",
 			"The body field is a brief summary for the review itself — it appears as the review header in GitHub.",
 			"If the tool returns user requests, resolve each into a structured comment (path, line, body) " +
-				"and call pr_review again with the previously approved comments plus the new ones.",
+				"and call pr_annotate again with the previously approved comments plus the new ones.",
 			"If posting fails, the approved comments are returned — fix the issue and retry with the same comments.",
 			"Be concise in your review comment body — explain why you think this is worth flagging.",
 			"Always use startLine + line to specify a line range so reviewers see exactly which code is being discussed. " +
@@ -118,7 +118,7 @@ export default function prReview(pi: ExtensionAPI) {
 					content: [
 						{
 							type: "text",
-							text: "Error: pr_review requires interactive mode",
+							text: "Error: pr_annotate requires interactive mode",
 						},
 					],
 					details: { pr: params.pr, posted: 0 },
@@ -176,7 +176,7 @@ export default function prReview(pi: ExtensionAPI) {
 					.join("\n");
 				const parts = [
 					`The user wants these additional review comments on PR #${params.pr}.`,
-					`Resolve each into a structured comment (path, startLine, line, body) and call pr_review again`,
+					`Resolve each into a structured comment (path, startLine, line, body) and call pr_annotate again`,
 					`with both the previously approved comments (set preApproved: true) and the new ones.`,
 					"",
 					"Already approved (include with preApproved: true):",
@@ -221,7 +221,7 @@ export default function prReview(pi: ExtensionAPI) {
 							text:
 								`Failed to post review: ${postResult.error}\n\n` +
 								`The following approved comments were not posted. ` +
-								`Fix the issue and call pr_review again with these comments (set preApproved: true):\n` +
+								`Fix the issue and call pr_annotate again with these comments (set preApproved: true):\n` +
 								allApproved.map(formatCommentRef).join("\n"),
 						},
 					],
@@ -259,7 +259,7 @@ export default function prReview(pi: ExtensionAPI) {
 			const preCount = comments.filter(
 				(c: { preApproved?: boolean }) => c.preApproved,
 			).length;
-			let text = theme.fg("toolTitle", theme.bold("pr_review "));
+			let text = theme.fg("toolTitle", theme.bold("pr_annotate "));
 			text += theme.fg("muted", `PR #${args.pr}`);
 			if (preCount > 0) {
 				text += theme.fg("dim", ` · ${preCount} approved`);
