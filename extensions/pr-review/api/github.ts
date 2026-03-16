@@ -52,30 +52,44 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 // ---- Public API ----
 
 /**
- * Fetch all PR context in parallel — metadata, diff, linked issues.
- * Returns a GatheredContext with everything needed for review.
+ * Fetch PR metadata and linked issues via GraphQL.
+ * Returns the raw data for further parsing.
  */
-export async function fetchPRContext(
+export async function fetchPRGraphQL(
 	pi: ExtensionAPI,
 	ref: PRReference,
-): Promise<GatheredContext> {
-	const [graphqlData, diff] = await Promise.all([
-		runGraphQL(pi, PR_CONTEXT_QUERY, ref),
-		fetchDiff(pi, ref),
-	]);
+): Promise<{
+	pr: PRMetadata;
+	prComments: IssueComment[];
+	issues: LinkedIssue[];
+}> {
+	const data = await runGraphQL(pi, PR_CONTEXT_QUERY, ref);
+	return {
+		pr: parsePRMetadata(data, ref.number),
+		prComments: parsePRComments(data),
+		issues: parseLinkedIssues(data, ref),
+	};
+}
 
-	const pr = parsePRMetadata(graphqlData, ref.number);
-	const prComments = parsePRComments(graphqlData);
-	const issues = parseLinkedIssues(graphqlData, ref);
-	const diffFiles = parseDiff(diff);
+/**
+ * Fetch sibling PRs for the given linked issues.
+ */
+export { fetchSiblingPRs };
 
-	// Fetch sibling PRs for each linked issue
-	const siblingPRs = await fetchSiblingPRs(pi, ref, issues);
-
+/**
+ * Assemble a GatheredContext from individually fetched parts.
+ */
+export function assembleContext(
+	pr: PRMetadata,
+	diff: string,
+	prComments: IssueComment[],
+	issues: LinkedIssue[],
+	siblingPRs: RelatedPR[],
+): GatheredContext {
 	return {
 		pr,
 		diff,
-		diffFiles,
+		diffFiles: parseDiff(diff),
 		issues,
 		parentIssues: [],
 		siblingPRs,
