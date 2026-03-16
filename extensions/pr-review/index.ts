@@ -28,7 +28,13 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { fetchPRContext, postReview } from "./api/github.js";
+import {
+	assembleContext,
+	fetchDiff,
+	fetchPRGraphQL,
+	fetchSiblingPRs,
+	postReview,
+} from "./api/github.js";
 import type { PRReference } from "./api/parse.js";
 import { extractOwnerRepo, parsePRReference } from "./api/parse.js";
 import {
@@ -38,8 +44,10 @@ import {
 	refreshUI,
 	restore,
 } from "./lifecycle.js";
+import type { LinkedIssue } from "./state.js";
 import { createPRReviewState, nextCommentId } from "./state.js";
 import { buildPRReviewContext, prReviewContextFilter } from "./transitions.js";
+import { showProgress } from "./ui/progress.js";
 import { createWorktree, isOnPRBranch, removeWorktree } from "./worktree.js";
 
 /** Actions the LLM can request. */
@@ -199,7 +207,7 @@ export default function prReview(pi: ExtensionAPI) {
 
 	// ---- Action handlers ----
 
-	/** Activate PR review — gather context and prepare workspace. */
+	/** Activate PR review — gather context with live progress. */
 	async function handleActivate(ctx: ExtensionContext, prInput: string | null) {
 		if (state.enabled) {
 			return textResult(
@@ -222,75 +230,120 @@ export default function prReview(pi: ExtensionAPI) {
 		state.phase = "gathering";
 
 		activate(state, pi, ctx);
-		ctx.ui.notify("Gathering PR context…", "info");
 
-		try {
-			const context = await fetchPRContext(pi, ref);
-			state.context = context;
-			state.prBranch = context.pr.headRefName;
-			state.baseBranch = context.pr.baseRefName;
-			state.prAuthor = context.pr.author;
+		// Shared state for tasks that depend on each other.
+		// The sibling PRs task waits for the GraphQL task to
+		// populate fetchedIssues before searching.
+		let fetchedIssues: LinkedIssue[] = [];
+		let graphqlDone: () => void;
+		const graphqlReady = new Promise<void>((resolve) => {
+			graphqlDone = resolve;
+		});
 
-			// Set up worktree if not on the PR branch
-			const onBranch = await isOnPRBranch(pi, context.pr.headRefName);
-			if (onBranch) {
+		const results = await showProgress(
+			ctx,
+			`Gathering context for PR #${ref.number}…`,
+			[
+				{
+					label: "PR metadata & issues",
+					run: async () => {
+						const data = await fetchPRGraphQL(pi, ref);
+						fetchedIssues = data.issues;
+						graphqlDone();
+						return data;
+					},
+				},
+				{
+					label: "Diff",
+					run: async () => fetchDiff(pi, ref),
+				},
+				{
+					label: "Sibling PRs",
+					run: async () => {
+						await graphqlReady;
+						return fetchSiblingPRs(pi, ref, fetchedIssues);
+					},
+				},
+			] as const,
+		);
+
+		if (!results) {
+			deactivate(state, pi, ctx);
+			return textResult("PR review cancelled.");
+		}
+
+		const [graphqlData, diff, siblingPRs] = results;
+
+		if (!graphqlData || !diff) {
+			deactivate(state, pi, ctx);
+			return textResult(
+				"Failed to gather PR context — metadata or diff unavailable.",
+			);
+		}
+
+		const context = assembleContext(
+			graphqlData.pr,
+			diff,
+			graphqlData.prComments,
+			graphqlData.issues,
+			siblingPRs ?? [],
+		);
+
+		state.context = context;
+		state.prBranch = context.pr.headRefName;
+		state.baseBranch = context.pr.baseRefName;
+		state.prAuthor = context.pr.author;
+
+		// Set up worktree after we know the PR's head branch
+		const onBranch = await isOnPRBranch(pi, context.pr.headRefName);
+		if (onBranch) {
+			state.worktreePath = null;
+			state.usingWorktree = false;
+		} else {
+			try {
+				const path = await createWorktree(pi, ref.number);
+				state.worktreePath = path;
+				state.usingWorktree = true;
+			} catch {
+				/* Worktree creation failed — review without it */
 				state.worktreePath = null;
 				state.usingWorktree = false;
-			} else {
-				try {
-					const path = await createWorktree(pi, ref.number);
-					state.worktreePath = path;
-					state.usingWorktree = true;
-				} catch {
-					/* Worktree creation failed — review without it */
-					state.worktreePath = null;
-					state.usingWorktree = false;
-				}
 			}
-
-			state.phase = "context";
-			persist(state, pi);
-			refreshUI(state, ctx);
-
-			const fileCount = context.diffFiles.length;
-			const issueCount = context.issues.length;
-			const siblingCount = context.siblingPRs.length;
-
-			const parts = [
-				`PR review activated for ${ref.owner}/${ref.repo}#${ref.number}.`,
-				`"${context.pr.title}" by @${context.pr.author}.`,
-				`${fileCount} files changed (+${context.pr.additions} -${context.pr.deletions}).`,
-				`${issueCount} linked issue${issueCount !== 1 ? "s" : ""}.`,
-			];
-
-			if (siblingCount > 0) {
-				parts.push(
-					`${siblingCount} sibling PR${siblingCount !== 1 ? "s" : ""}.`,
-				);
-			}
-
-			if (state.worktreePath) {
-				parts.push(`Worktree: ${state.worktreePath}`);
-			}
-
-			parts.push(
-				"",
-				"Call pr_review with action 'context' to show the context summary.",
-			);
-
-			return {
-				content: [{ type: "text" as const, text: parts.join("\n") }],
-				details: {
-					action: "activate",
-					fileCount,
-					issueCount,
-				},
-			};
-		} catch (err) {
-			deactivate(state, pi, ctx);
-			const msg = err instanceof Error ? err.message : String(err);
-			return textResult(`Failed to gather PR context: ${msg}`);
 		}
+
+		state.phase = "context";
+
+		persist(state, pi);
+		refreshUI(state, ctx);
+
+		const fileCount = context.diffFiles.length;
+		const issueCount = context.issues.length;
+		const siblingCount = context.siblingPRs.length;
+
+		const parts = [
+			`PR review activated for ${ref.owner}/${ref.repo}#${ref.number}.`,
+			`"${context.pr.title}" by @${context.pr.author}.`,
+			`${fileCount} files changed (+${context.pr.additions} -${context.pr.deletions}).`,
+			`${issueCount} linked issue${issueCount !== 1 ? "s" : ""}.`,
+		];
+
+		if (siblingCount > 0) {
+			parts.push(`${siblingCount} sibling PR${siblingCount !== 1 ? "s" : ""}.`);
+		}
+
+		if (state.worktreePath) {
+			parts.push(`Worktree: ${state.worktreePath}`);
+		}
+
+		parts.push(
+			"",
+			"Call pr_review with action 'context' to show the context summary.",
+		);
+
+		return {
+			content: [{ type: "text" as const, text: parts.join("\n") }],
+			details: { action: "activate", fileCount, issueCount },
+		};
 	}
 
 	/** Show the gathered context summary. */
