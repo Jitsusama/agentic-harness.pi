@@ -13,6 +13,8 @@ import {
 	type CommentState,
 	countCommentsByState,
 	type PRReviewState,
+	type PreviousReview,
+	type PreviousThread,
 	type ReviewComment,
 	type ReviewPhase,
 	type ReviewVerdict,
@@ -120,6 +122,9 @@ export function persist(state: PRReviewState, pi: ExtensionAPI): void {
 		prAuthor: state.prAuthor,
 		worktreePath: state.worktreePath,
 		usingWorktree: state.usingWorktree,
+		isReReview: state.isReReview,
+		previousReviews: state.previousReviews,
+		previousThreads: state.previousThreads,
 		phase: state.phase,
 		fileIndex: state.fileIndex,
 		commentIndex: state.commentIndex,
@@ -144,6 +149,9 @@ export function restore(state: PRReviewState, ctx: ExtensionContext): void {
 		prAuthor?: string;
 		worktreePath?: string;
 		usingWorktree?: boolean;
+		isReReview?: boolean;
+		previousReviews?: PreviousReview[];
+		previousThreads?: PreviousThread[];
 		phase?: ReviewPhase;
 		fileIndex?: number;
 		commentIndex?: number;
@@ -166,6 +174,9 @@ export function restore(state: PRReviewState, ctx: ExtensionContext): void {
 	state.prAuthor = saved.prAuthor ?? null;
 	state.worktreePath = saved.worktreePath ?? null;
 	state.usingWorktree = saved.usingWorktree ?? false;
+	state.isReReview = saved.isReReview ?? false;
+	state.previousReviews = saved.previousReviews ?? [];
+	state.previousThreads = saved.previousThreads ?? [];
 	state.phase = saved.phase ?? "gathering";
 	state.fileIndex = saved.fileIndex ?? 0;
 	state.commentIndex = saved.commentIndex ?? 0;

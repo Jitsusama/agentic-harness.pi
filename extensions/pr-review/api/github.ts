@@ -14,6 +14,8 @@ import type {
 	IssueComment,
 	LinkedIssue,
 	PRMetadata,
+	PreviousReview,
+	PreviousThread,
 	RelatedPR,
 } from "../state.js";
 import type { PRReference } from "./parse.js";
@@ -131,6 +133,152 @@ export async function getCurrentUser(pi: ExtensionAPI): Promise<string> {
 	}
 
 	return result.stdout.trim();
+}
+
+// ---- Previous reviews (re-review support) ----
+
+const REVIEWS_QUERY = `
+query($owner: String!, $repo: String!, $pr: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      reviews(first: 100) {
+        nodes {
+          id
+          state
+          submittedAt
+          body
+          author { login }
+        }
+      }
+      reviewThreads(first: 100) {
+        nodes {
+          id
+          isResolved
+          path
+          line
+          comments(first: 50) {
+            nodes {
+              body
+              createdAt
+              author { login }
+              pullRequestReview { id }
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+/**
+ * Fetch previous reviews by the given user on this PR.
+ * Returns reviews and their associated threads.
+ */
+export async function fetchPreviousReviews(
+	pi: ExtensionAPI,
+	ref: PRReference,
+	username: string,
+): Promise<{
+	reviews: PreviousReview[];
+	threads: PreviousThread[];
+}> {
+	const data = await runGraphQL(pi, REVIEWS_QUERY, ref);
+
+	const reviewNodes =
+		(nested(data, "data", "repository", "pullRequest", "reviews", "nodes") as
+			| Array<Record<string, unknown>>
+			| undefined) ?? [];
+	const threadNodes =
+		(nested(
+			data,
+			"data",
+			"repository",
+			"pullRequest",
+			"reviewThreads",
+			"nodes",
+		) as Array<Record<string, unknown>> | undefined) ?? [];
+
+	// Find reviews by this user
+	const userReviews = reviewNodes.filter(
+		(r) => nested(r, "author", "login") === username,
+	);
+
+	const userReviewIds = new Set(userReviews.map((r) => str(r, "id")));
+
+	const reviews: PreviousReview[] = userReviews.map((r) => {
+		const reviewId = str(r, "id");
+		const threadCount = threadNodes.filter((t) => {
+			const comments =
+				(nested(t, "comments", "nodes") as
+					| Array<Record<string, unknown>>
+					| undefined) ?? [];
+			return comments.some(
+				(c) => nested(c, "pullRequestReview", "id") === reviewId,
+			);
+		}).length;
+
+		return {
+			id: reviewId,
+			state: str(r, "state"),
+			submittedAt: str(r, "submittedAt"),
+			body: str(r, "body"),
+			threadCount,
+		};
+	});
+
+	// Find threads associated with this user's reviews
+	const threads: PreviousThread[] = [];
+	for (const t of threadNodes) {
+		const commentNodes =
+			(nested(t, "comments", "nodes") as
+				| Array<Record<string, unknown>>
+				| undefined) ?? [];
+
+		const belongsToUser = commentNodes.some((c) => {
+			const reviewId = nested(c, "pullRequestReview", "id");
+			return typeof reviewId === "string" && userReviewIds.has(reviewId);
+		});
+
+		if (!belongsToUser) continue;
+
+		const isResolved = t.isResolved === true;
+		const lastComment = commentNodes[commentNodes.length - 1];
+		const lastAuthor =
+			typeof lastComment === "object" && lastComment
+				? ((nested(lastComment, "author", "login") as string | undefined) ??
+					"unknown")
+				: "unknown";
+
+		let resolvedBy: PreviousThread["resolvedBy"] = null;
+		if (isResolved) {
+			if (lastAuthor === username) resolvedBy = "self";
+			else if (
+				lastAuthor ===
+				(nested(data, "data", "repository", "pullRequest", "author", "login") as
+					| string
+					| undefined)
+			)
+				resolvedBy = "author";
+			else resolvedBy = "other";
+		}
+
+		threads.push({
+			id: str(t, "id"),
+			file: str(t, "path"),
+			line: num(t, "line"),
+			body: str(commentNodes[0] ?? {}, "body"),
+			isResolved,
+			resolvedBy,
+			comments: commentNodes.map((c) => ({
+				author:
+					(nested(c, "author", "login") as string | undefined) ?? "unknown",
+				body: str(c, "body"),
+				createdAt: str(c, "createdAt"),
+			})),
+		});
+	}
+
+	return { reviews, threads };
 }
 
 /**

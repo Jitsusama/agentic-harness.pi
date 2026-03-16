@@ -38,6 +38,11 @@ export function buildPRReviewContext(state: PRReviewState) {
 		parts.push(`Worktree: ${state.worktreePath}`);
 	}
 
+	if (state.isReReview) {
+		const open = state.previousThreads.filter((t) => !t.isResolved).length;
+		parts.push(`Re-review: ${open} open previous threads`);
+	}
+
 	return {
 		message: {
 			customType: CONTEXT_TYPE,
