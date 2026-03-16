@@ -482,7 +482,12 @@ export default function prReview(pi: ExtensionAPI) {
 		};
 	}
 
-	/** Provide context for deep analysis — LLM does the actual work. */
+	/**
+	 * Provide rich context for deep analysis — the LLM does the
+	 * actual work using bash/read tools. This action returns
+	 * everything needed: diff, issue context, PR comments, and
+	 * instructions for thorough investigation.
+	 */
 	function handleAnalyze() {
 		if (!state.enabled || !state.context) {
 			return textResult("No PR review active. Call 'activate' first.");
@@ -490,55 +495,111 @@ export default function prReview(pi: ExtensionAPI) {
 
 		state.phase = "analyzing";
 
-		const ctx = state.context;
+		const prCtx = state.context;
+		const searchPath = state.worktreePath ?? ".";
 		const parts: string[] = [];
 
-		parts.push("## Deep Analysis");
+		parts.push("## Deep Analysis Context");
 		parts.push("");
-		parts.push(
-			"You now have full access to the PR context. Perform a thorough analysis:",
-		);
-		parts.push("");
-		parts.push("### 1. Test Coverage Assessment");
-		parts.push(
-			"- Are there tests for new behavior? Are they testing behavior vs implementation details?",
-		);
-		parts.push("- Are the tests idiomatic for the project's test framework?");
-		parts.push("");
-		parts.push("### 2. Implementation Analysis");
-		parts.push("- Readability, abstraction level, domain naming, composition");
-		parts.push("");
-		parts.push("### 3. Consistency Check");
-		parts.push(
-			"- Search the codebase for similar patterns. Are the new patterns consistent?",
-		);
 
-		if (state.worktreePath) {
-			parts.push(
-				`\nUse the worktree at \`${state.worktreePath}\` for file reads and \`rg\` searches.`,
-			);
+		// ---- Issue context (the "why") ----
+		if (prCtx.issues.length > 0) {
+			parts.push("### Linked Issues");
+			for (const issue of prCtx.issues) {
+				parts.push(`\n#### Issue #${issue.number}: ${issue.title}`);
+				if (issue.body) parts.push(issue.body);
+				if (issue.comments.length > 0) {
+					parts.push(
+						`\n_${issue.comments.length} comment${issue.comments.length !== 1 ? "s" : ""} on this issue._`,
+					);
+					for (const c of issue.comments.slice(0, 5)) {
+						parts.push(`> **@${c.author}**: ${c.body.slice(0, 300)}`);
+					}
+				}
+			}
+			parts.push("");
+		}
+
+		// ---- PR comments (non-review discussion) ----
+		if (prCtx.prComments.length > 0) {
+			parts.push("### PR Discussion");
+			for (const c of prCtx.prComments) {
+				parts.push(`> **@${c.author}**: ${c.body.slice(0, 300)}`);
+			}
+			parts.push("");
+		}
+
+		// ---- Full diff ----
+		parts.push("### Full Diff");
+		parts.push("");
+		// Include the raw diff — the LLM needs it for analysis.
+		// Cap at a reasonable size to avoid context overflow.
+		const maxDiffChars = 50000;
+		if (prCtx.diff.length <= maxDiffChars) {
+			parts.push("```diff");
+			parts.push(prCtx.diff);
+			parts.push("```");
 		} else {
 			parts.push(
-				"\nUse the current directory for file reads and `rg` searches.",
+				`_Diff is ${prCtx.diff.length} characters — showing first ${maxDiffChars} characters. Read individual files for full content._`,
 			);
+			parts.push("```diff");
+			parts.push(prCtx.diff.slice(0, maxDiffChars));
+			parts.push("```");
+			parts.push("");
+			parts.push("**Truncated files** (read from worktree for full diff):");
+			for (const file of prCtx.diffFiles) {
+				parts.push(`- \`${searchPath}/${file.path}\``);
+			}
 		}
 
-		parts.push("\n### Diff for Reference");
-		// Include a summary rather than the full diff (which could be huge)
-		parts.push(`${ctx.diffFiles.length} files changed. Key files:`);
-		for (const file of ctx.diffFiles.slice(0, 20)) {
-			parts.push(
-				`- ${file.path} (${file.status}, +${file.additions} -${file.deletions})`,
-			);
-		}
-		if (ctx.diffFiles.length > 20) {
-			parts.push(`- … and ${ctx.diffFiles.length - 20} more files`);
-		}
-
+		// ---- Investigation instructions ----
+		parts.push("");
+		parts.push("### Investigation Instructions");
 		parts.push("");
 		parts.push(
-			"After analysis, draft preliminary comments using 'add-comment', " +
-				"then call 'review-files' to start file-by-file review.",
+			"Perform a thorough analysis. Use `bash` for `rg` searches and " +
+				"`read` for file contents. Present findings in conversation.",
+		);
+		parts.push("");
+		parts.push("#### 1. Test Coverage Assessment");
+		parts.push("- Are there tests for new behavior?");
+		parts.push("- Behavior vs implementation detail testing?");
+		parts.push("- Are tests idiomatic for the project's test framework?");
+		parts.push(`- Search for test files: \`rg -l 'test|spec' ${searchPath}\``);
+		parts.push("");
+		parts.push("#### 2. Implementation Analysis");
+		parts.push("- Readability — can you understand intent without comments?");
+		parts.push("- Abstraction level — consistent within functions?");
+		parts.push("- Domain naming — names from the problem domain?");
+		parts.push("- Composition — clear separation of concerns?");
+		parts.push("");
+		parts.push("#### 3. Consistency Check");
+		parts.push("- Search for similar patterns in the codebase:");
+		for (const file of prCtx.diffFiles.slice(0, 5)) {
+			const funcMatch = file.hunks
+				.flatMap((h) => h.lines)
+				.filter((l) => l.type === "added")
+				.map((l) => l.content)
+				.find((c) => /(?:function|class|export)\s+\w+/.test(c));
+			if (funcMatch) {
+				const name = funcMatch.match(/(?:function|class|export)\s+(\w+)/)?.[1];
+				if (name) {
+					parts.push(`  - \`rg "${name}" ${searchPath}\``);
+				}
+			}
+		}
+		parts.push("- Are new patterns consistent with existing code?");
+		parts.push("- If a new pattern is introduced, is the old one deprecated?");
+		parts.push("");
+		parts.push("#### 4. Preliminary Comments");
+		parts.push(
+			"Draft conventional comments using `add-comment` for anything worth raising.",
+		);
+		parts.push("Use the `conventional-comments` skill for format guidance.");
+		parts.push("");
+		parts.push(
+			"After analysis, call 'review-files' to start file-by-file review.",
 		);
 
 		return {
