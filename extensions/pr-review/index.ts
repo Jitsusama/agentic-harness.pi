@@ -44,13 +44,14 @@ import {
 	refreshUI,
 	restore,
 } from "./lifecycle.js";
-import type { DiffFile, LinkedIssue } from "./state.js";
+import type { DiffFile, LinkedIssue, ReviewVerdict } from "./state.js";
 import { createPRReviewState, nextCommentId } from "./state.js";
 import { buildPRReviewContext, prReviewContextFilter } from "./transitions.js";
 import { showContextSummary } from "./ui/context-summary.js";
 import { showDescriptionReview } from "./ui/description.js";
 import { showFileReview } from "./ui/file-review.js";
 import { showProgress } from "./ui/progress.js";
+import { showVetting } from "./ui/vetting.js";
 import { createWorktree, isOnPRBranch, removeWorktree } from "./worktree.js";
 
 /** Actions the LLM can request. */
@@ -148,7 +149,7 @@ export default function prReview(pi: ExtensionAPI) {
 				case "resume":
 					return handleResume();
 				case "vet":
-					return handleVet();
+					return handleVet(ctx);
 				case "post":
 					return handlePost();
 				case "deactivate":
@@ -853,8 +854,8 @@ export default function prReview(pi: ExtensionAPI) {
 		};
 	}
 
-	/** Enter final vetting phase — list all comments for review. */
-	function handleVet() {
+	/** Show final vetting panel — user approves/rejects each comment. */
+	async function handleVet(ctx: ExtensionContext) {
 		if (!state.enabled) {
 			return textResult("No PR review active.");
 		}
@@ -868,48 +869,59 @@ export default function prReview(pi: ExtensionAPI) {
 			);
 		}
 
-		const parts: string[] = [];
-		parts.push("## Final Vetting");
-		parts.push("");
-		parts.push(`${state.comments.length} comment(s) to review:`);
-		parts.push("");
-
-		for (let i = 0; i < state.comments.length; i++) {
-			const c = state.comments[i];
-			if (!c) continue;
-			const vetState = state.commentStates.get(c.id) ?? "draft";
-			const decorStr =
-				c.decorations.length > 0 ? ` (${c.decorations.join(", ")})` : "";
-
-			parts.push(`### ${i + 1}. ${c.label}${decorStr} [${vetState}]`);
-			parts.push(`**${c.file}:${c.startLine}-${c.endLine}**`);
-			parts.push(`${c.subject}`);
-			if (c.discussion) {
-				parts.push("");
-				parts.push(c.discussion);
-			}
-			parts.push("");
-		}
-
-		// Suggest verdict based on comment labels
+		// Determine suggested verdict
 		const hasBlocking = state.comments.some((c) =>
 			c.decorations.includes("blocking"),
 		);
 		const suggestedVerdict = hasBlocking ? "REQUEST_CHANGES" : "COMMENT";
 
-		parts.push(`### Suggested Verdict: ${suggestedVerdict}`);
-		parts.push("");
-		parts.push(
-			"Present these comments to the user for vetting. " +
-				"Then call 'post' to submit the review.",
+		// Draft review body
+		const draftBody =
+			state.reviewBody ??
+			`Review of ${state.owner}/${state.repo}#${state.prNumber}.`;
+
+		const vettingResult = await showVetting(
+			ctx,
+			state.comments,
+			state.commentStates,
+			suggestedVerdict as ReviewVerdict,
+			draftBody,
 		);
 
+		if (!vettingResult) {
+			return textResult(
+				"Vetting cancelled. Call 'vet' to retry, or 'post' to submit as-is.",
+			);
+		}
+
+		// Apply decisions
+		state.commentStates = vettingResult.decisions;
+		state.verdict = vettingResult.verdict;
+		state.reviewBody = vettingResult.reviewBody;
+		persist(state, pi);
+
+		const accepted = [...vettingResult.decisions.values()].filter(
+			(s) => s === "accepted",
+		).length;
+		const rejected = [...vettingResult.decisions.values()].filter(
+			(s) => s === "rejected",
+		).length;
+
 		return {
-			content: [{ type: "text" as const, text: parts.join("\n") }],
+			content: [
+				{
+					type: "text" as const,
+					text:
+						`Vetting complete. ${accepted} accepted, ${rejected} rejected. ` +
+						`Verdict: ${state.verdict}. Call 'post' to submit the review.`,
+				},
+			],
 			details: {
 				action: "vet",
 				phase: "vetting",
-				count: state.comments.length,
+				accepted,
+				rejected,
+				verdict: state.verdict,
 			},
 		};
 	}
