@@ -173,6 +173,31 @@ export function briefDescription(context: GatheredContext): string {
 	return parts.join("\n");
 }
 
+/** Context returned when the user steers during description review. */
+export function briefDescriptionSteer(
+	context: GatheredContext,
+	note: string,
+): string {
+	return [
+		`User feedback on the PR description/scope:`,
+		"",
+		`"${note}"`,
+		"",
+		`**Title**: ${context.pr.title}`,
+		"",
+		context.pr.body
+			? `**Description**:\n${context.pr.body}`
+			: "**Description**: _(empty)_",
+		"",
+		`**Scope**: ${context.pr.changedFiles} files (+${context.pr.additions} -${context.pr.deletions})`,
+		"",
+		"Draft a conventional comment addressing the user's feedback. " +
+			"Use 'add-comment' with the appropriate label and details. " +
+			"Then call 'description' again to return to the panel, " +
+			"or 'analyze' to proceed to deep analysis.",
+	].join("\n");
+}
+
 // ---- Analysis ----
 
 /** Deep analysis context with diff, issues, and investigation guidance. */

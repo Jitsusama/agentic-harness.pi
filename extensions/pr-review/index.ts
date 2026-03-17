@@ -45,6 +45,7 @@ import {
 	briefAnalysis,
 	briefContext,
 	briefDescription,
+	briefDescriptionSteer,
 	briefFile,
 	briefFileSteer,
 } from "./briefing.js";
@@ -481,7 +482,26 @@ export default function prReview(pi: ExtensionAPI) {
 		const context = state.session.context;
 		if (!context) return textResult("Context unavailable.");
 
-		await showDescriptionReview(ctx, context);
+		const panelResult = await showDescriptionReview(ctx, context);
+
+		if (panelResult.action === "cancel") {
+			return textResult(
+				"Description review dismissed. Call 'description' to re-show, " +
+					"or 'analyze' to proceed.",
+			);
+		}
+
+		if (panelResult.action === "steer") {
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: briefDescriptionSteer(context, panelResult.note),
+					},
+				],
+				details: { action: "description", phase: "description", steered: true },
+			};
+		}
 
 		return {
 			content: [{ type: "text" as const, text: briefDescription(context) }],
