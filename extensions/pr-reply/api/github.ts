@@ -11,14 +11,10 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { PRReference } from "../../lib/parse/pr-reference.js";
 import type { Comment, Review, ReviewState, Thread } from "../state.js";
 
-/** PR reference parsed from user input. */
-export interface PRReference {
-	owner: string;
-	repo: string;
-	number: number;
-}
+export type { PRReference };
 
 // ---- GraphQL response shapes ----
 
