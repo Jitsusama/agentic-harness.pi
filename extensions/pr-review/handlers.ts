@@ -122,12 +122,13 @@ async function ensureContext(
 			fetchPRGraphQL(pi, ref),
 			fetchDiff(pi, ref),
 		]);
+		const siblingPRs = await fetchSiblingPRs(pi, ref, graphqlData.issues);
 		session.context = assembleContext(
 			graphqlData.pr,
 			diff,
 			graphqlData.prComments,
 			graphqlData.issues,
-			[],
+			siblingPRs,
 		);
 		return true;
 	} catch {
@@ -205,8 +206,10 @@ export async function handleActivate(
 	let fetchedIssues: LinkedIssue[] = [];
 	let fetchedAuthor = "";
 	let graphqlDone: () => void;
-	const graphqlReady = new Promise<void>((resolve) => {
+	let graphqlFailed: (err: unknown) => void;
+	const graphqlReady = new Promise<void>((resolve, reject) => {
 		graphqlDone = resolve;
+		graphqlFailed = reject;
 	});
 
 	const results = await progress(
@@ -216,11 +219,16 @@ export async function handleActivate(
 			{
 				label: "PR metadata & issues",
 				run: async () => {
-					const data = await fetchPRGraphQL(pi, ref);
-					fetchedIssues = data.issues;
-					fetchedAuthor = data.pr.author;
-					graphqlDone();
-					return data;
+					try {
+						const data = await fetchPRGraphQL(pi, ref);
+						fetchedIssues = data.issues;
+						fetchedAuthor = data.pr.author;
+						graphqlDone();
+						return data;
+					} catch (err) {
+						graphqlFailed(err);
+						throw err;
+					}
 				},
 			},
 			{
@@ -613,14 +621,21 @@ export async function handleResume(deps: HandlerDeps, ctx: ExtensionContext) {
 		return textResult("No PR review active.");
 	}
 
-	if (state.phase === "files") {
-		return handleReviewFiles(deps, ctx);
+	switch (state.phase) {
+		case "context":
+			return handleContext(deps, ctx);
+		case "description":
+			return handleDescription(deps, ctx);
+		case "files":
+			return handleReviewFiles(deps, ctx);
+		case "vetting":
+			return handleVet(deps, ctx);
+		default:
+			return textResult(
+				`Resuming PR review at phase: ${state.phase}. ` +
+					`Comments: ${state.session.comments.length}.`,
+			);
 	}
-
-	return textResult(
-		`Resuming PR review at phase: ${state.phase}. ` +
-			`Comments: ${state.session.comments.length}.`,
-	);
 }
 
 export async function handleVet(deps: HandlerDeps, ctx: ExtensionContext) {
@@ -733,8 +748,16 @@ export async function handlePost(deps: HandlerDeps) {
 		return textResult("No PR review active.");
 	}
 
-	state.phase = "posting";
 	const session = state.session;
+	const drafts = commentsByStatus(session, "draft");
+	if (drafts.length > 0) {
+		return textResult(
+			`${drafts.length} comment${drafts.length !== 1 ? "s are" : " is"} still draft — ` +
+				"call 'vet' first so the user can approve or reject each comment before posting.",
+		);
+	}
+
+	state.phase = "posting";
 	const ref: PRReference = {
 		owner: session.pr.owner,
 		repo: session.pr.repo,
