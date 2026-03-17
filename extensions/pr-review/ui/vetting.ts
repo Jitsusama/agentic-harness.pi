@@ -2,9 +2,11 @@
  * Final vetting panel — tabbed review of all collected comments
  * before posting. One tab per comment plus a summary tab.
  *
- * Users approve/reject each comment and set the review verdict.
- * Returns the vetting results: which comments survived and the
- * final verdict.
+ * Summary tab: review body, verdict, stats, post action.
+ * Comment tabs: approve/reject per comment, steer to edit.
+ *
+ * Returns the vetting result: comment decisions, verdict,
+ * review body, and whether to post immediately.
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
@@ -20,10 +22,17 @@ import type { ReviewComment, ReviewVerdict } from "../state.js";
 
 /** Result of the vetting flow. */
 export interface VettingResult {
+	/** Per-comment decisions (comment ID → accepted/rejected). */
 	decisions: Map<string, "accepted" | "rejected">;
+	/** Final review verdict. */
 	verdict: ReviewVerdict;
+	/** Review body text. */
 	reviewBody: string;
+	/** Whether the user chose to post immediately from the panel. */
+	postNow: boolean;
+	/** User's steer feedback (if they broke out to edit). */
 	steerFeedback?: string;
+	/** Comment ID the steer was on (if specific to a comment). */
 	steerCommentId?: string | null;
 }
 
@@ -56,6 +65,7 @@ export async function showVetting(
 
 	if (!result) return null;
 
+	// Check for steer on any tab
 	for (const [itemIndex, itemResult] of result.items) {
 		if (itemResult.type === "steer") {
 			const commentIndex = itemIndex - 1;
@@ -64,16 +74,23 @@ export async function showVetting(
 				decisions: new Map(),
 				verdict: suggestedVerdict,
 				reviewBody: draftBody,
+				postNow: false,
 				steerFeedback: itemResult.note,
 				steerCommentId: comment?.id ?? null,
 			};
 		}
 	}
 
+	// Check if the user chose to post from the summary tab
+	const summaryResult = result.items.get(0);
+	const postNow =
+		summaryResult?.type === "action" && summaryResult.value === "p";
+
+	// Collect per-comment decisions
 	const decisions = new Map<string, "accepted" | "rejected">();
 
 	for (const [itemIndex, itemResult] of result.items) {
-		if (itemIndex === 0) continue;
+		if (itemIndex === 0) continue; // Summary tab
 
 		const commentIndex = itemIndex - 1;
 		const comment = comments[commentIndex];
@@ -92,11 +109,13 @@ export async function showVetting(
 		decisions,
 		verdict: suggestedVerdict,
 		reviewBody: draftBody,
+		postNow,
 	};
 }
 
 // ---- Tab builders ----
 
+/** Summary tab — review body, verdict, stats, post action. */
 function buildSummaryTab(
 	comments: ReviewComment[],
 	verdict: ReviewVerdict,
@@ -115,6 +134,7 @@ function buildSummaryTab(
 					lines.push(` ${theme.fg("accent", theme.bold("Review Summary"))}`);
 					lines.push("");
 
+					// Review body
 					if (draftBody) {
 						for (const line of renderMarkdown(draftBody, theme, width)) {
 							lines.push(line);
@@ -122,6 +142,7 @@ function buildSummaryTab(
 						lines.push("");
 					}
 
+					// Verdict
 					const verdictColor =
 						verdict === "APPROVE"
 							? "success"
@@ -133,6 +154,7 @@ function buildSummaryTab(
 					);
 					lines.push("");
 
+					// Comment stats
 					const accepted = comments.filter(
 						(c) => c.status === "accepted",
 					).length;
@@ -147,6 +169,7 @@ function buildSummaryTab(
 					);
 					lines.push("");
 
+					// Label breakdown
 					const labelCounts = new Map<string, number>();
 					for (const c of comments) {
 						labelCounts.set(c.label, (labelCounts.get(c.label) ?? 0) + 1);
@@ -160,15 +183,22 @@ function buildSummaryTab(
 					lines.push(
 						`${pad}${theme.fg("dim", `Files: ${files.size} with comments`)}`,
 					);
+					lines.push("");
+
+					// Steer hint for editing
+					lines.push(
+						`${pad}${theme.fg("dim", "Use Shift+Enter to edit the verdict or review body.")}`,
+					);
 
 					return lines;
 				},
 			},
 		],
-		actions: [],
+		actions: [{ key: "p", label: "Post review" }],
 	};
 }
 
+/** Individual comment tab — approve/reject with full details. */
 function buildCommentTab(
 	comment: ReviewComment,
 	index: number,
@@ -192,10 +222,12 @@ function buildCommentTab(
 								? "error"
 								: "dim";
 
+					// Header
 					lines.push(
 						` ${theme.fg("text", `Comment ${index + 1} of ${total}`)} ${theme.fg(stateColor, `[${comment.status}]`)}`,
 					);
 
+					// Label and location
 					const decorStr =
 						comment.decorations.length > 0
 							? ` (${comment.decorations.join(", ")})`
@@ -208,10 +240,12 @@ function buildCommentTab(
 					);
 					lines.push("");
 
+					// Subject
 					for (const line of wordWrap(comment.subject, wrapWidth)) {
 						lines.push(`${pad}${theme.fg("text", theme.bold(line))}`);
 					}
 
+					// Discussion
 					if (comment.discussion) {
 						lines.push("");
 						for (const line of wordWrap(comment.discussion, wrapWidth)) {

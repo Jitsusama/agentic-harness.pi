@@ -62,12 +62,15 @@ import {
 	createSession,
 	createState,
 	type LinkedIssue,
+	type ReviewSession,
+	removeComment,
+	updateComment,
 } from "./state.js";
 import { buildPRReviewContext, prReviewContextFilter } from "./transitions.js";
 import { showContextSummary } from "./ui/context-summary.js";
 import { showDescriptionReview } from "./ui/description.js";
 import { showFileReview } from "./ui/file-review.js";
-import { showVetting } from "./ui/vetting.js";
+import { showVetting, type VettingResult } from "./ui/vetting.js";
 import { createWorktree, isOnPRBranch, removeWorktree } from "./worktree.js";
 
 /** Actions the LLM can request. */
@@ -79,6 +82,8 @@ const ACTIONS = [
 	"review-files",
 	"next-file",
 	"add-comment",
+	"update-comment",
+	"remove-comment",
 	"resume",
 	"vet",
 	"post",
@@ -102,13 +107,13 @@ export default function prReview(pi: ExtensionAPI) {
 			"Review a pull request. Read the pr-review skill for methodology.",
 		promptGuidelines: [
 			"Use when the user wants to review someone else's PR, do a code review, or provide PR feedback.",
-			"Workflow: activate → context → description → analyze → review-files → vet → post → deactivate.",
+			"Workflow: activate → context → description → analyze → review-files → vet → deactivate.",
 			"After activate, call 'context' to show the gathered context summary.",
 			"Call 'description' to review the PR title, description, and scope.",
 			"Call 'analyze' to get context for deep analysis — then investigate the codebase yourself.",
-			"Call 'review-files' to start file-by-file review. Use 'next-file' to advance.",
-			"Use 'add-comment' to add review comments with conventional comments format.",
-			"Call 'vet' to enter final vetting. Call 'post' to submit the review.",
+			"Call 'review-files' for tabbed file review. The user navigates files freely.",
+			"Use 'add-comment' to add review comments, 'update-comment' to edit, 'remove-comment' to delete.",
+			"Call 'vet' to enter final vetting. The user can post directly from the vetting panel.",
 			"The user can break out to conversation at any point. Call 'resume' to return.",
 		],
 		parameters: Type.Object({
@@ -116,8 +121,9 @@ export default function prReview(pi: ExtensionAPI) {
 				description:
 					"activate: start review | context: show context summary | " +
 					"description: review PR description | analyze: deep analysis | " +
-					"review-files: file-by-file review | next-file: next file | " +
-					"add-comment: add a comment | resume: return to current phase | " +
+					"review-files: tabbed file review | next-file: (deprecated) | " +
+					"add-comment: add a comment | update-comment: edit a comment | " +
+					"remove-comment: delete a comment | resume: return to current phase | " +
 					"vet: final vetting | post: submit review | deactivate: exit",
 			}),
 			pr: Type.Optional(
@@ -145,9 +151,15 @@ export default function prReview(pi: ExtensionAPI) {
 					},
 					{
 						description:
-							"Structured comment data. Used with 'add-comment' action.",
+							"Structured comment data. Used with 'add-comment' and 'update-comment'.",
 					},
 				),
+			),
+			comment_id: Type.Optional(
+				Type.String({
+					description:
+						"Comment ID. Used with 'update-comment' and 'remove-comment'.",
+				}),
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -166,6 +178,10 @@ export default function prReview(pi: ExtensionAPI) {
 					return handleNextFile(ctx);
 				case "add-comment":
 					return handleAddComment(params.comment);
+				case "update-comment":
+					return handleUpdateComment(params.comment_id ?? null, params.comment);
+				case "remove-comment":
+					return handleRemoveComment(params.comment_id ?? null);
 				case "resume":
 					return handleResume(ctx);
 				case "vet":
@@ -658,6 +674,80 @@ export default function prReview(pi: ExtensionAPI) {
 		};
 	}
 
+	function handleUpdateComment(commentId: string | null, comment: unknown) {
+		if (!state.session) {
+			return textResult("No PR review active.");
+		}
+
+		if (!commentId) {
+			return textResult(
+				"Provide comment_id to identify which comment to update.",
+			);
+		}
+
+		if (!comment || typeof comment !== "object") {
+			return textResult("Provide a comment object with the updated fields.");
+		}
+
+		const c = comment as Record<string, unknown>;
+		const updates: Record<string, unknown> = {};
+		if (c.file != null) updates.file = String(c.file);
+		if (c.startLine != null) updates.startLine = Number(c.startLine);
+		if (c.endLine != null) updates.endLine = Number(c.endLine);
+		if (c.label != null) updates.label = String(c.label);
+		if (c.decorations != null && Array.isArray(c.decorations)) {
+			updates.decorations = c.decorations.map(String);
+		}
+		if (c.subject != null) updates.subject = String(c.subject);
+		if (c.discussion != null) updates.discussion = String(c.discussion);
+
+		const found = updateComment(state.session, commentId, updates);
+		if (!found) {
+			return textResult(`Comment ${commentId} not found.`);
+		}
+
+		persist(state, pi);
+
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text: `Comment ${commentId} updated. Total: ${state.session.comments.length}.`,
+				},
+			],
+			details: { action: "update-comment", commentId },
+		};
+	}
+
+	function handleRemoveComment(commentId: string | null) {
+		if (!state.session) {
+			return textResult("No PR review active.");
+		}
+
+		if (!commentId) {
+			return textResult(
+				"Provide comment_id to identify which comment to remove.",
+			);
+		}
+
+		const found = removeComment(state.session, commentId);
+		if (!found) {
+			return textResult(`Comment ${commentId} not found.`);
+		}
+
+		persist(state, pi);
+
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text: `Comment ${commentId} removed. Total: ${state.session.comments.length}.`,
+				},
+			],
+			details: { action: "remove-comment", commentId },
+		};
+	}
+
 	async function handleResume(ctx: ExtensionContext) {
 		if (!state.session) {
 			return textResult("No PR review active.");
@@ -709,44 +799,52 @@ export default function prReview(pi: ExtensionAPI) {
 			return textResult("Vetting cancelled. Call 'vet' to retry.");
 		}
 
+		// Steer — user wants to edit verdict, body, or a comment
 		if (vettingResult.steerFeedback) {
 			const editComment = vettingResult.steerCommentId
 				? session.comments.find((c) => c.id === vettingResult.steerCommentId)
 				: null;
 
-			const commentContext = editComment
-				? `Comment being edited:\n` +
-					`- File: ${editComment.file}:${editComment.startLine}-${editComment.endLine}\n` +
-					`- Label: ${editComment.label}\n` +
-					`- Subject: ${editComment.subject}\n` +
-					`- Discussion: ${editComment.discussion}\n`
-				: "No specific comment targeted.";
+			const parts: string[] = [
+				`User feedback during vetting:\n\n"${vettingResult.steerFeedback}"`,
+				"",
+			];
+
+			if (editComment) {
+				parts.push(
+					"Comment being edited:",
+					`- File: ${editComment.file}:${editComment.startLine}-${editComment.endLine}`,
+					`- Label: ${editComment.label}`,
+					`- Subject: ${editComment.subject}`,
+					`- Discussion: ${editComment.discussion}`,
+					"",
+					"Use 'update-comment' to revise this comment, then call 'vet' again.",
+				);
+			} else {
+				parts.push(
+					`Current verdict: ${suggestedVerdict}`,
+					`Current body: ${draftBody}`,
+					"",
+					"If the user wants to change the verdict or review body, " +
+						"make the changes and call 'vet' again. " +
+						"If they want to edit a comment, use 'update-comment'.",
+				);
+			}
 
 			return {
-				content: [
-					{
-						type: "text" as const,
-						text:
-							`User feedback during vetting:\n\n"${vettingResult.steerFeedback}"\n\n` +
-							`${commentContext}\n` +
-							"If the user wants to edit the comment, call 'add-comment' with the updated " +
-							"version (same file and line range, updated subject/discussion). " +
-							"Then call 'vet' again to re-show the vetting panel.",
-					},
-				],
+				content: [{ type: "text" as const, text: parts.join("\n") }],
 				details: { action: "vet", steered: true },
 			};
 		}
 
-		for (const [commentId, decision] of vettingResult.decisions) {
-			const comment = session.comments.find((c) => c.id === commentId);
-			if (comment) {
-				comment.status = decision;
-			}
-		}
-		session.verdict = vettingResult.verdict;
-		session.body = vettingResult.reviewBody;
+		// Apply decisions
+		applyVettingDecisions(session, vettingResult);
 		persist(state, pi);
+
+		// Post immediately if user pressed 'p' from summary tab
+		if (vettingResult.postNow) {
+			return handlePost();
+		}
 
 		const accepted = commentsByStatus(session, "accepted").length;
 		const rejected = commentsByStatus(session, "rejected").length;
@@ -857,6 +955,21 @@ async function getCurrentRepo(
 /** Build a simple text tool result. */
 function textResult(text: string) {
 	return { content: [{ type: "text" as const, text }] };
+}
+
+/** Apply vetting decisions to the session's comments. */
+function applyVettingDecisions(
+	session: ReviewSession,
+	result: VettingResult,
+): void {
+	for (const [commentId, decision] of result.decisions) {
+		const comment = session.comments.find((c) => c.id === commentId);
+		if (comment) {
+			comment.status = decision;
+		}
+	}
+	session.verdict = result.verdict;
+	session.body = result.reviewBody;
 }
 
 /** Format a review comment for the GitHub API. */
