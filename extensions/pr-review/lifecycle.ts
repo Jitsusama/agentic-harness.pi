@@ -1,6 +1,8 @@
 /**
  * PR Review lifecycle — activate, deactivate, persist, restore,
  * and UI status display.
+ *
+ * Skeleton — full implementation in M14 (lifecycle).
  */
 
 import type {
@@ -10,9 +12,9 @@ import type {
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { getLastEntry } from "../lib/state.js";
 import {
+	commentStats,
 	type PRReviewState,
 	type PRTarget,
-	type PreviousReviewData,
 	type ReviewComment,
 	type ReviewPhase,
 	type ReviewVerdict,
@@ -30,29 +32,27 @@ const WIDGET_KEY = "pr-review-detail";
 
 /** Build the detail widget text for the current phase. */
 function buildDetailText(state: PRReviewState): string {
-	const prNum = state.session?.pr.number ?? "?";
-	const prRef = `PR #${prNum}`;
+	const session = state.session;
+	if (!session) return "";
 
-	switch (state.phase) {
+	const prRef = `PR #${session.pr.number}`;
+	const stats = commentStats(session);
+	const total = stats.pending + stats.approved + stats.rejected;
+
+	switch (session.phase) {
 		case "gathering":
 			return `${prRef} · Gathering context…`;
-		case "context":
-			return `${prRef} · Context summary`;
-		case "description":
-			return `${prRef} · Description & scope review`;
-		case "analyzing":
-			return `${prRef} · Deep analysis…`;
-		case "files": {
-			const fileCount = state.session?.context?.diffFiles.length ?? 0;
-			const total = state.session?.comments.length ?? 0;
-			return `${prRef} · file-review · ${fileCount} files · ${total} comments`;
+		case "overview":
+			return `${prRef} · Overview`;
+		case "reviewing": {
+			const handled = [...session.tabStates.values()].filter(
+				(t) => t.handled,
+			).length;
+			const tabCount = session.tabStates.size;
+			return `${prRef} · Review · ${handled}/${tabCount} tabs · ${total} comments (${stats.approved}✓ ${stats.rejected}✕ ${stats.pending}○)`;
 		}
-		case "vetting": {
-			const total = state.session?.comments.length ?? 0;
-			return `${prRef} · Final vetting · ${total} comments`;
-		}
-		case "posting":
-			return `${prRef} · Posting review…`;
+		case "submitting":
+			return `${prRef} · Submit review`;
 	}
 }
 
@@ -65,10 +65,9 @@ function updateUI(state: PRReviewState, ctx: ExtensionContext): void {
 	}
 
 	const theme = ctx.ui.theme;
-	const prRef = `#${state.session.pr.number}`;
 	ctx.ui.setStatus(
 		PERSIST_KEY,
-		`${theme.fg("accent", STATUS_GLYPH)} ${theme.fg("muted", `PR ${prRef} review`)}`,
+		`${theme.fg("accent", STATUS_GLYPH)} ${theme.fg("muted", "PR Review")}`,
 	);
 
 	const detail = buildDetailText(state);
@@ -113,19 +112,24 @@ export function refreshUI(state: PRReviewState, ctx: ExtensionContext): void {
 /** Shape of the persisted session data. */
 interface PersistedSession {
 	pr: PRTarget;
+	repoPath: string;
 	worktreePath: string | null;
-	usingWorktree: boolean;
-	previousReview: PreviousReviewData | null;
+	synopsis: string;
+	scopeAnalysis: string;
 	comments: ReviewComment[];
-	body: string;
+	tabStates: [
+		string,
+		{ handled: boolean; activeView: string; commentIndex: number },
+	][];
+	reviewBody: string;
 	verdict: ReviewVerdict;
+	phase: ReviewPhase;
 }
 
 /** Shape of the full persisted state. */
 interface PersistedState {
 	enabled: boolean;
 	session: PersistedSession | null;
-	phase: ReviewPhase;
 }
 
 /** Save state to session history. */
@@ -135,15 +139,26 @@ export function persist(state: PRReviewState, pi: ExtensionAPI): void {
 		session: state.session
 			? {
 					pr: state.session.pr,
+					repoPath: state.session.repoPath,
 					worktreePath: state.session.worktreePath,
-					usingWorktree: state.session.usingWorktree,
-					previousReview: state.session.previousReview,
+					synopsis: state.session.synopsis,
+					scopeAnalysis: state.session.scopeAnalysis,
 					comments: state.session.comments,
-					body: state.session.body,
+					tabStates: [...state.session.tabStates.entries()].map(
+						([key, val]) => [
+							key,
+							{
+								handled: val.handled,
+								activeView: val.activeView,
+								commentIndex: val.commentIndex,
+							},
+						],
+					),
+					reviewBody: state.session.reviewBody,
 					verdict: state.session.verdict,
+					phase: state.session.phase,
 				}
 			: null,
-		phase: state.phase,
 	};
 	pi.appendEntry(PERSIST_KEY, persisted);
 }
@@ -154,18 +169,38 @@ export function restore(state: PRReviewState, ctx: ExtensionContext): void {
 	if (!saved) return;
 
 	state.enabled = saved.enabled ?? false;
-	state.phase = saved.phase ?? "gathering";
 
 	if (saved.session) {
+		const tabStates = new Map<
+			string,
+			{
+				handled: boolean;
+				activeView: "overview" | "comments" | "raw";
+				commentIndex: number;
+			}
+		>();
+		if (saved.session.tabStates) {
+			for (const [key, val] of saved.session.tabStates) {
+				tabStates.set(key, {
+					handled: val.handled,
+					activeView: val.activeView as "overview" | "comments" | "raw",
+					commentIndex: val.commentIndex,
+				});
+			}
+		}
+
 		state.session = {
 			pr: saved.session.pr,
-			context: null, // Re-fetched on demand via ensureContext
-			worktreePath: saved.session.worktreePath,
-			usingWorktree: saved.session.usingWorktree,
-			previousReview: saved.session.previousReview,
+			context: null, // Re-crawled on demand
+			repoPath: saved.session.repoPath,
+			worktreePath: saved.session.worktreePath ?? null,
+			synopsis: saved.session.synopsis ?? "",
+			scopeAnalysis: saved.session.scopeAnalysis ?? "",
 			comments: saved.session.comments ?? [],
-			body: saved.session.body ?? "",
+			tabStates,
+			reviewBody: saved.session.reviewBody ?? "",
 			verdict: saved.session.verdict ?? "COMMENT",
+			phase: saved.session.phase ?? "gathering",
 		};
 	}
 

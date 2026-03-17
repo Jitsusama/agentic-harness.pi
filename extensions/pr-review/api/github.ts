@@ -15,21 +15,14 @@ import type {
 	DiffFile,
 	DiffHunk,
 	DiffLine,
-	GatheredContext,
 	IssueComment,
 	LinkedIssue,
 	PRMetadata,
-	PreviousReview,
-	PreviousThread,
 	RelatedPR,
+	Reviewer,
 } from "../state.js";
 import type { PRReference } from "./parse.js";
-import type {
-	GQLIssue,
-	GQLPullRequest,
-	PRContextResponse,
-	ReviewsResponse,
-} from "./types.js";
+import type { GQLIssue, GQLPullRequest, PRContextResponse } from "./types.js";
 
 // ---- GraphQL queries ----
 
@@ -58,37 +51,17 @@ query($owner: String!, $repo: String!, $pr: Int!) {
           }
         }
       }
-    }
-  }
-}`;
-
-const REVIEWS_QUERY = `
-query($owner: String!, $repo: String!, $pr: Int!) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $pr) {
-      reviews(first: 100) {
+      reviewRequests(first: 20) {
         nodes {
-          id
-          state
-          submittedAt
-          body
-          author { login }
+          requestedReviewer {
+            ... on User { login }
+          }
         }
       }
-      reviewThreads(first: 100) {
+      latestOpinionatedReviews(first: 20) {
         nodes {
-          id
-          isResolved
-          path
-          line
-          comments(first: 50) {
-            nodes {
-              body
-              createdAt
-              author { login }
-              pullRequestReview { id }
-            }
-          }
+          author { login }
+          state
         }
       }
     }
@@ -98,7 +71,7 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 // ---- Public API ----
 
 /**
- * Fetch PR metadata and linked issues via GraphQL.
+ * Fetch PR metadata, linked issues, and reviewers via GraphQL.
  */
 export async function fetchPRGraphQL(
 	pi: ExtensionAPI,
@@ -107,6 +80,7 @@ export async function fetchPRGraphQL(
 	pr: PRMetadata;
 	prComments: IssueComment[];
 	issues: LinkedIssue[];
+	reviewers: Reviewer[];
 }> {
 	const data = await runGraphQL<PRContextResponse>(pi, PR_CONTEXT_QUERY, ref);
 	const pr = data.data.repository.pullRequest;
@@ -115,24 +89,7 @@ export async function fetchPRGraphQL(
 		pr: parsePRMetadata(pr, ref.number),
 		prComments: parsePRComments(pr),
 		issues: parseLinkedIssues(pr, ref),
-	};
-}
-
-/** Assemble a GatheredContext from individually fetched parts. */
-export function assembleContext(
-	pr: PRMetadata,
-	diff: string,
-	prComments: IssueComment[],
-	issues: LinkedIssue[],
-	siblingPRs: RelatedPR[],
-): GatheredContext {
-	return {
-		pr,
-		diff,
-		diffFiles: parseDiff(diff),
-		issues,
-		siblingPRs,
-		prComments,
+		reviewers: parseReviewers(pr),
 	};
 }
 
@@ -213,85 +170,6 @@ export async function fetchSiblingPRs(
 	}
 
 	return siblings;
-}
-
-/**
- * Fetch previous reviews by the given user on this PR.
- * Returns reviews and their associated threads.
- */
-export async function fetchPreviousReviews(
-	pi: ExtensionAPI,
-	ref: PRReference,
-	username: string,
-	prAuthorLogin: string,
-): Promise<{
-	reviews: PreviousReview[];
-	threads: PreviousThread[];
-}> {
-	const data = await runGraphQL<ReviewsResponse>(pi, REVIEWS_QUERY, ref);
-	const { reviews: reviewsNode, reviewThreads } =
-		data.data.repository.pullRequest;
-
-	const reviewNodes = reviewsNode.nodes;
-	const threadNodes = reviewThreads.nodes;
-
-	// Find reviews by this user
-	const userReviews = reviewNodes.filter((r) => r.author?.login === username);
-	const userReviewIds = new Set(userReviews.map((r) => r.id));
-
-	const reviews: PreviousReview[] = userReviews.map((r) => {
-		const threadCount = threadNodes.filter((t) =>
-			t.comments.nodes.some((c) => c.pullRequestReview?.id === r.id),
-		).length;
-
-		return {
-			id: r.id,
-			state: r.state,
-			submittedAt: r.submittedAt,
-			body: r.body,
-			threadCount,
-		};
-	});
-
-	// Find threads associated with this user's reviews
-	const threads: PreviousThread[] = [];
-	for (const t of threadNodes) {
-		const comments = t.comments.nodes;
-
-		const belongsToUser = comments.some(
-			(c) =>
-				c.pullRequestReview?.id != null &&
-				userReviewIds.has(c.pullRequestReview.id),
-		);
-		if (!belongsToUser) continue;
-
-		const isResolved = t.isResolved;
-		const lastComment = comments[comments.length - 1];
-		const lastAuthor = lastComment?.author?.login ?? "unknown";
-
-		let resolvedBy: PreviousThread["resolvedBy"] = null;
-		if (isResolved) {
-			if (lastAuthor === username) resolvedBy = "self";
-			else if (lastAuthor === prAuthorLogin) resolvedBy = "author";
-			else resolvedBy = "other";
-		}
-
-		threads.push({
-			id: t.id,
-			file: t.path,
-			line: t.line ?? 0,
-			body: comments[0]?.body ?? "",
-			isResolved,
-			resolvedBy,
-			comments: comments.map((c) => ({
-				author: c.author?.login ?? "unknown",
-				body: c.body,
-				createdAt: c.createdAt,
-			})),
-		});
-	}
-
-	return { reviews, threads };
 }
 
 /** Post a review with comments and verdict to GitHub. */
@@ -383,6 +261,32 @@ function parseLinkedIssues(
 		subIssues: [],
 		url: `https://github.com/${ref.owner}/${ref.repo}/issues/${issue.number}`,
 	}));
+}
+
+/** Extract reviewers from review requests and latest reviews. */
+function parseReviewers(pr: GQLPullRequest): Reviewer[] {
+	const reviewers = new Map<string, Reviewer>();
+
+	// Pending review requests
+	for (const req of pr.reviewRequests.nodes) {
+		const login = req.requestedReviewer?.login;
+		if (login) {
+			reviewers.set(login, { login, verdict: "PENDING" });
+		}
+	}
+
+	// Latest opinionated reviews (overrides pending status)
+	for (const review of pr.latestOpinionatedReviews.nodes) {
+		const login = review.author?.login;
+		if (login) {
+			reviewers.set(login, {
+				login,
+				verdict: review.state as Reviewer["verdict"],
+			});
+		}
+	}
+
+	return [...reviewers.values()];
 }
 
 // ---- Diff parsing ----
@@ -484,7 +388,7 @@ export function parseDiff(diff: string): DiffFile[] {
 // ---- GraphQL runner ----
 
 /** Execute a typed GraphQL query via gh CLI. */
-async function runGraphQL<T>(
+export async function runGraphQL<T>(
 	pi: ExtensionAPI,
 	query: string,
 	ref: PRReference,

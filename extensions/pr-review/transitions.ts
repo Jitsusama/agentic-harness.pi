@@ -2,10 +2,12 @@
  * PR Review transitions — context injection and stale context
  * filtering. Provides the agent with awareness of the current
  * PR review session when active.
+ *
+ * Stubbed — populated in M14 (lifecycle).
  */
 
 import { filterContext } from "../lib/state.js";
-import { commentsByStatus, type PRReviewState } from "./state.js";
+import { commentStats, type PRReviewState } from "./state.js";
 
 /** Custom message type for PR review context. */
 const CONTEXT_TYPE = "pr-review-context";
@@ -18,28 +20,22 @@ const CONTEXT_TYPE = "pr-review-context";
 export function buildPRReviewContext(state: PRReviewState) {
 	if (!state.enabled || !state.session) return;
 
-	const { pr, worktreePath, previousReview } = state.session;
+	const { pr, phase, repoPath } = state.session;
 
 	const parts: string[] = [];
 	parts.push("[PR Review Active]");
 	parts.push(`PR: ${pr.owner}/${pr.repo}#${pr.number}`);
-	parts.push(`Phase: ${state.phase}`);
+	parts.push(`Phase: ${phase}`);
 
-	const total = state.session.comments.length;
+	const stats = commentStats(state.session);
+	const total = stats.pending + stats.approved + stats.rejected;
 	if (total > 0) {
-		const accepted = commentsByStatus(state.session, "accepted").length;
-		const draft = commentsByStatus(state.session, "draft").length;
-		parts.push(`Comments: ${total} (${accepted} accepted, ${draft} draft)`);
+		parts.push(
+			`Comments: ${total} (${stats.approved} approved, ${stats.pending} pending)`,
+		);
 	}
 
-	if (worktreePath) {
-		parts.push(`Worktree: ${worktreePath}`);
-	}
-
-	if (previousReview) {
-		const open = previousReview.threads.filter((t) => !t.isResolved).length;
-		parts.push(`Re-review: ${open} open previous threads`);
-	}
+	parts.push(`Repo: ${repoPath}`);
 
 	return {
 		message: {

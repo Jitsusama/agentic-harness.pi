@@ -1,10 +1,11 @@
 /**
  * PR Review state — domain model for a structured code review.
  *
- * Three levels:
- *   PRTarget      — identifies which PR is being reviewed
- *   ReviewSession — the active review with context and comments
- *   PRReviewState — runtime state (enabled, session, phase)
+ * Four levels:
+ *   PRTarget       — identifies which PR is being reviewed
+ *   CrawlResult    — deep context gathered by the crawler
+ *   ReviewSession  — the active review with comments and tab state
+ *   PRReviewState  — runtime state (enabled, session)
  */
 
 // ---- PR identity ----
@@ -19,7 +20,7 @@ export interface PRTarget {
 	author: string;
 }
 
-// ---- Gathered context ----
+// ---- Crawled context ----
 
 /** PR metadata fetched from GitHub. */
 export interface PRMetadata {
@@ -62,7 +63,7 @@ export interface DiffLine {
 	newLineNumber: number | null;
 }
 
-/** An issue linked to the PR. */
+/** An issue linked to the PR (deep — includes parent/sub-issues). */
 export interface LinkedIssue {
 	number: number;
 	title: string;
@@ -92,101 +93,105 @@ export interface RelatedPR {
 	url: string;
 }
 
-/** All context gathered about the PR. */
-export interface GatheredContext {
+/** A discovered reference from the crawl. */
+export interface Reference {
+	type: "issue" | "pr" | "commit" | "external" | "file";
+	url: string;
+	title: string;
+	description: string;
+	depth: number;
+	source: string;
+}
+
+/** A source file the PR interacts with. */
+export interface SourceFile {
+	path: string;
+	/** Filled by the agent during generate-comments phase. */
+	role: string;
+	url: string;
+}
+
+/** A reviewer and their current verdict. */
+export interface Reviewer {
+	login: string;
+	verdict: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "PENDING";
+	avatarUrl?: string;
+}
+
+/** Complete result from the deep context crawl. */
+export interface CrawlResult {
 	pr: PRMetadata;
 	diff: string;
 	diffFiles: DiffFile[];
 	issues: LinkedIssue[];
-	siblingPRs: RelatedPR[];
+	relatedPRs: RelatedPR[];
+	references: Reference[];
+	sourceFiles: SourceFile[];
+	reviewers: Reviewer[];
 	prComments: IssueComment[];
-}
-
-// ---- Previous reviews (re-review support) ----
-
-/** Summary of a previous review by the current user. */
-export interface PreviousReview {
-	id: string;
-	state: string;
-	submittedAt: string;
-	body: string;
-	threadCount: number;
-}
-
-/** A thread from a previous review. */
-export interface PreviousThread {
-	id: string;
-	file: string;
-	line: number;
-	body: string;
-	isResolved: boolean;
-	resolvedBy: "self" | "author" | "other" | null;
-	comments: PreviousThreadComment[];
-}
-
-/** A comment within a previous review thread. */
-export interface PreviousThreadComment {
-	author: string;
-	body: string;
-	createdAt: string;
-}
-
-/** Previous review data bundled for the session. */
-export interface PreviousReviewData {
-	reviews: PreviousReview[];
-	threads: PreviousThread[];
+	hitDepthLimit: boolean;
 }
 
 // ---- Review comments ----
 
-/** Conventional comment labels. */
-export type ConventionalLabel =
-	| "praise"
-	| "nitpick"
-	| "suggestion"
-	| "issue"
-	| "question"
-	| "thought"
-	| "todo"
-	| "note"
-	| "chore";
+/** Comment categories — determines which tab a comment appears in. */
+export type CommentCategory = "file" | "title" | "scope";
 
-/** A review comment with inline lifecycle status. */
+/** A review comment with lifecycle status. */
 export interface ReviewComment {
 	id: string;
-	file: string;
-	startLine: number;
-	endLine: number;
+	file: string | null;
+	startLine: number | null;
+	endLine: number | null;
 	label: string;
 	decorations: string[];
 	subject: string;
 	discussion: string;
-	status: "draft" | "accepted" | "rejected";
+	status: "pending" | "approved" | "rejected";
+	source: "ai" | "user";
+	category: CommentCategory;
 }
 
 /** GitHub review verdict. */
 export type ReviewVerdict = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
 
+// ---- Tab state ----
+
+/** Per-tab UI state. */
+export interface TabState {
+	handled: boolean;
+	activeView: "overview" | "comments" | "raw";
+	commentIndex: number;
+}
+
 // ---- Review session ----
+
+/** Review workflow phases. */
+export type ReviewPhase = "gathering" | "overview" | "reviewing" | "submitting";
 
 /** An active PR review — everything about the review in progress. */
 export interface ReviewSession {
-	/** The PR being reviewed. */
 	pr: PRTarget;
 	/** Gathered context (null until fetched, not persisted). */
-	context: GatheredContext | null;
-	/** Path to the git worktree, or null if using cwd. */
+	context: CrawlResult | null;
+	/** Path used for file reads (worktree or repo root). */
+	repoPath: string;
+	/** Path to the git worktree, or null if on the PR branch. */
 	worktreePath: string | null;
-	/** Whether we created the worktree (vs using cwd). */
-	usingWorktree: boolean;
-	/** Previous review data when re-reviewing. */
-	previousReview: PreviousReviewData | null;
+	/** AI-generated PR synopsis (from generate-comments). */
+	synopsis: string;
+	/** AI-generated scope analysis (from generate-comments). */
+	scopeAnalysis: string;
 	/** Comments collected during the review. */
 	comments: ReviewComment[];
+	/** Per-tab UI state. Key = tab id. */
+	tabStates: Map<string, TabState>;
 	/** The review body text. */
-	body: string;
+	reviewBody: string;
 	/** The verdict (approve, request changes, comment). */
 	verdict: ReviewVerdict;
+	/** Current workflow phase. */
+	phase: ReviewPhase;
 }
 
 // ---- Comment helpers ----
@@ -201,7 +206,7 @@ export function addComment(
 	session: ReviewSession,
 	data: Omit<ReviewComment, "id" | "status">,
 ): ReviewComment {
-	const comment: ReviewComment = { ...data, id: nextId(), status: "draft" };
+	const comment: ReviewComment = { ...data, id: nextId(), status: "pending" };
 	session.comments.push(comment);
 	return comment;
 }
@@ -226,12 +231,12 @@ export function removeComment(session: ReviewSession, id: string): boolean {
 	return true;
 }
 
-/** Get all comments with a given status. */
-export function commentsByStatus(
+/** Filter comments by category. */
+export function commentsByCategory(
 	session: ReviewSession,
-	status: ReviewComment["status"],
+	category: CommentCategory,
 ): ReviewComment[] {
-	return session.comments.filter((c) => c.status === status);
+	return session.comments.filter((c) => c.category === category);
 }
 
 /** Get comments for a specific file. */
@@ -242,23 +247,48 @@ export function commentsForFile(
 	return session.comments.filter((c) => c.file === path);
 }
 
-// ---- Runtime state ----
+/** Count comments by status. */
+export function commentStats(session: ReviewSession): {
+	pending: number;
+	approved: number;
+	rejected: number;
+} {
+	let pending = 0;
+	let approved = 0;
+	let rejected = 0;
+	for (const c of session.comments) {
+		if (c.status === "pending") pending++;
+		else if (c.status === "approved") approved++;
+		else rejected++;
+	}
+	return { pending, approved, rejected };
+}
 
-/** Review workflow phases. */
-export type ReviewPhase =
-	| "gathering"
-	| "context"
-	| "description"
-	| "analyzing"
-	| "files"
-	| "vetting"
-	| "posting";
+/** Check if a tab is handled (all comments resolved or explicit). */
+export function isTabHandled(session: ReviewSession, tabId: string): boolean {
+	return session.tabStates.get(tabId)?.handled ?? false;
+}
+
+/** Mark a tab as explicitly handled. */
+export function markTabHandled(session: ReviewSession, tabId: string): void {
+	const existing = session.tabStates.get(tabId);
+	if (existing) {
+		existing.handled = true;
+	} else {
+		session.tabStates.set(tabId, {
+			handled: true,
+			activeView: "overview",
+			commentIndex: 0,
+		});
+	}
+}
+
+// ---- Runtime state ----
 
 /** Runtime state for the PR review extension. */
 export interface PRReviewState {
 	enabled: boolean;
 	session: ReviewSession | null;
-	phase: ReviewPhase;
 }
 
 /** Create the initial state. */
@@ -266,7 +296,6 @@ export function createState(): PRReviewState {
 	return {
 		enabled: false,
 		session: null,
-		phase: "gathering",
 	};
 }
 
@@ -274,22 +303,21 @@ export function createState(): PRReviewState {
 export function resetState(state: PRReviewState): void {
 	state.enabled = false;
 	state.session = null;
-	state.phase = "gathering";
 }
 
 /** Create a new review session. */
-export function createSession(
-	pr: PRTarget,
-	context: GatheredContext,
-): ReviewSession {
+export function createSession(pr: PRTarget, repoPath: string): ReviewSession {
 	return {
 		pr,
-		context,
+		context: null,
+		repoPath,
 		worktreePath: null,
-		usingWorktree: false,
-		previousReview: null,
+		synopsis: "",
+		scopeAnalysis: "",
 		comments: [],
-		body: "",
+		tabStates: new Map(),
+		reviewBody: "",
 		verdict: "COMMENT",
+		phase: "gathering",
 	};
 }

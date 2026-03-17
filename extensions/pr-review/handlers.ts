@@ -2,8 +2,7 @@
  * PR Review action handlers — thin functions that guard,
  * operate, and return briefings.
  *
- * Each handler receives a HandlerDeps bundle with everything
- * it needs (state, pi, lifecycle, API, UI). The index.ts
+ * Each handler receives a HandlerDeps bundle. The index.ts
  * switch statement delegates to these.
  */
 
@@ -11,55 +10,45 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { progress } from "../lib/ui/progress.js";
-import {
-	assembleContext,
-	fetchDiff,
-	fetchPRGraphQL,
-	fetchPreviousReviews,
-	fetchSiblingPRs,
-	getCurrentUser,
-	postReview,
-} from "./api/github.js";
 import type { PRReference } from "./api/parse.js";
 import { extractOwnerRepo, parsePRReference } from "./api/parse.js";
-import {
-	briefActivation,
-	briefAnalysis,
-	briefContext,
-	briefDescription,
-	briefDescriptionSteer,
-	briefFileReview,
-	briefFileSteer,
-} from "./briefing.js";
+import { resolveRepo } from "./api/repo.js";
+import { briefActivation, briefGenerateComments } from "./briefing.js";
+import { crawl } from "./crawler.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
 import {
 	addComment,
-	commentsByStatus,
+	commentStats,
 	createSession,
-	type LinkedIssue,
 	type PRReviewState,
-	type ReviewSession,
 	removeComment,
 	updateComment,
 } from "./state.js";
-import { showContextSummary } from "./ui/context-summary.js";
-import { showDescriptionReview } from "./ui/description.js";
-import { showFileReview } from "./ui/file-review.js";
-import { showVetting, type VettingResult } from "./ui/vetting.js";
-import { createWorktree, isOnPRBranch, removeWorktree } from "./worktree.js";
 
 // ---- Types ----
 
-/** Structured comment data from the tool parameters. */
+/** Structured comment input from the tool parameters. */
 export interface CommentInput {
-	file: string;
-	startLine: number;
-	endLine: number;
+	file: string | null;
+	startLine: number | null;
+	endLine: number | null;
 	label: string;
 	decorations: string[];
 	subject: string;
 	discussion: string;
+	category: "file" | "title" | "scope";
+}
+
+/** Source file role description from generate-comments. */
+export interface SourceRoleInput {
+	path: string;
+	role: string;
+}
+
+/** Reference summary from generate-comments. */
+export interface ReferenceSummaryInput {
+	url: string;
+	summary: string;
 }
 
 /** Dependencies shared by all handlers. */
@@ -74,6 +63,166 @@ export interface HandlerDeps {
 function textResult(text: string) {
 	return { content: [{ type: "text" as const, text }] };
 }
+
+/**
+ * Ensure gathered context is available. If the session was
+ * restored but context was lost, re-crawl transparently.
+ */
+async function ensureContext(
+	deps: HandlerDeps,
+	ctx: ExtensionContext,
+): Promise<boolean> {
+	const session = deps.state.session;
+	if (!session) return false;
+	if (session.context) return true;
+
+	ctx.ui.notify("Re-fetching PR context…", "info");
+
+	try {
+		const ref: PRReference = {
+			owner: session.pr.owner,
+			repo: session.pr.repo,
+			number: session.pr.number,
+		};
+		const crawlResult = await crawl(deps.pi, ref, session.repoPath);
+		session.context = crawlResult;
+		return true;
+	} catch {
+		/* Re-crawl failed — context unavailable */
+		return false;
+	}
+}
+
+// ---- Diff line helpers ----
+
+/** A new-side line range covered by a diff hunk. */
+interface HunkRange {
+	start: number;
+	end: number;
+}
+
+/**
+ * Build a map of file path → hunk ranges (new-side line numbers).
+ * GitHub's review API accepts lines within these ranges.
+ */
+function buildDiffHunkRanges(session: ReviewSession): Map<string, HunkRange[]> {
+	const map = new Map<string, HunkRange[]>();
+	const context = session.context;
+	if (!context) return map;
+
+	for (const file of context.diffFiles) {
+		const ranges: HunkRange[] = [];
+		for (const hunk of file.hunks) {
+			ranges.push({
+				start: hunk.newStart,
+				end: hunk.newStart + hunk.newCount - 1,
+			});
+		}
+		map.set(file.path, ranges);
+	}
+
+	return map;
+}
+
+/**
+ * Clamp a line number to a valid diff hunk range.
+ * If the line falls within a hunk, return it as-is.
+ * If outside all hunks, clamp to the nearest hunk boundary.
+ */
+function clampToDiffRange(
+	line: number,
+	ranges: HunkRange[] | undefined,
+): number {
+	if (!ranges || ranges.length === 0) return line;
+
+	// Check if line is within any hunk
+	for (const r of ranges) {
+		if (line >= r.start && line <= r.end) return line;
+	}
+
+	// Find the nearest hunk boundary
+	let closest = line;
+	let minDist = Number.MAX_SAFE_INTEGER;
+	for (const r of ranges) {
+		for (const boundary of [r.start, r.end]) {
+			const dist = Math.abs(boundary - line);
+			if (dist < minDist) {
+				minDist = dist;
+				closest = boundary;
+			}
+		}
+	}
+	return closest;
+}
+
+// ---- Worktree helpers ----
+
+/** Directory where review worktrees are created. */
+const WORKTREE_DIR = ".review";
+
+/** Check if the current branch matches the PR's head branch. */
+async function isOnPRBranch(
+	pi: ExtensionAPI,
+	prBranch: string,
+): Promise<boolean> {
+	const result = await pi.exec("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
+	if (result.code !== 0) return false;
+	return result.stdout.trim() === prBranch;
+}
+
+/**
+ * Create a worktree for the PR branch. Fetches the PR head ref
+ * and creates a worktree at `.review/pr-<number>`.
+ */
+async function createWorktree(
+	pi: ExtensionAPI,
+	prNumber: number,
+): Promise<string | null> {
+	const branchName = `pr-review-${prNumber}`;
+	const relPath = `${WORKTREE_DIR}/${branchName}`;
+
+	const fetch = await pi.exec("git", [
+		"fetch",
+		"origin",
+		`pull/${prNumber}/head:${branchName}`,
+	]);
+	if (fetch.code !== 0) return null;
+
+	const add = await pi.exec("git", ["worktree", "add", relPath, branchName]);
+	if (add.code !== 0) return null;
+
+	// Return absolute path so fs.readFileSync works from any cwd
+	const abs = await pi.exec("git", ["worktree", "list", "--porcelain"]);
+	if (abs.code === 0) {
+		for (const line of abs.stdout.split("\n")) {
+			if (line.startsWith("worktree ") && line.includes(branchName)) {
+				return line.replace("worktree ", "");
+			}
+		}
+	}
+
+	// Fallback: resolve relative to repo root
+	const root = await pi.exec("git", ["rev-parse", "--show-toplevel"]);
+	if (root.code === 0) {
+		return `${root.stdout.trim()}/${relPath}`;
+	}
+
+	return relPath;
+}
+
+/** Remove a review worktree and its tracking branch. */
+async function removeWorktree(
+	pi: ExtensionAPI,
+	prNumber: number,
+): Promise<void> {
+	const branchName = `pr-review-${prNumber}`;
+	const worktreePath = `${WORKTREE_DIR}/${branchName}`;
+
+	await pi.exec("git", ["worktree", "remove", worktreePath, "--force"]);
+	await pi.exec("git", ["branch", "-D", branchName]);
+}
+
+// ---- Helpers ----
 
 /** Get current repo from git remote. */
 async function getCurrentRepo(
@@ -96,87 +245,9 @@ async function resolvePR(
 	return null;
 }
 
-/**
- * Ensure gathered context is available. If the session was
- * restored but context was lost, re-fetch transparently.
- */
-async function ensureContext(
-	{ state, pi }: HandlerDeps,
-	ctx: ExtensionContext,
-): Promise<boolean> {
-	const session = state.session;
-	if (!session) return false;
-	if (session.context) return true;
-
-	const { pr } = session;
-	const ref: PRReference = {
-		owner: pr.owner,
-		repo: pr.repo,
-		number: pr.number,
-	};
-
-	ctx.ui.notify("Re-fetching PR context…", "info");
-
-	try {
-		const [graphqlData, diff] = await Promise.all([
-			fetchPRGraphQL(pi, ref),
-			fetchDiff(pi, ref),
-		]);
-		const siblingPRs = await fetchSiblingPRs(pi, ref, graphqlData.issues);
-		session.context = assembleContext(
-			graphqlData.pr,
-			diff,
-			graphqlData.prComments,
-			graphqlData.issues,
-			siblingPRs,
-		);
-		return true;
-	} catch {
-		/* Re-fetch failed — context unavailable */
-		return false;
-	}
-}
-
-/** Apply vetting decisions to the session's comments. */
-function applyVettingDecisions(
-	session: ReviewSession,
-	result: VettingResult,
-): void {
-	for (const [commentId, decision] of result.decisions) {
-		const comment = session.comments.find((c) => c.id === commentId);
-		if (comment) {
-			comment.status = decision;
-		}
-	}
-	session.verdict = result.verdict;
-	session.body = result.reviewBody;
-}
-
-/** Format a review comment for the GitHub API. */
-function formatGitHubComment(c: ReviewSession["comments"][number]) {
-	const decorStr =
-		c.decorations.length > 0 ? ` (${c.decorations.join(", ")})` : "";
-	const body = `${c.label}${decorStr}: ${c.subject}\n\n${c.discussion}`;
-
-	const comment: {
-		path: string;
-		line: number;
-		start_line?: number;
-		side: string;
-		start_side?: string;
-		body: string;
-	} = { path: c.file, line: c.endLine, side: "RIGHT", body };
-
-	if (c.startLine !== c.endLine) {
-		comment.start_line = c.startLine;
-		comment.start_side = "RIGHT";
-	}
-
-	return comment;
-}
-
 // ---- Handlers ----
 
+/** Activate: parse PR ref, resolve repo, crawl deep context. */
 export async function handleActivate(
 	deps: HandlerDeps,
 	ctx: ExtensionContext,
@@ -199,294 +270,297 @@ export async function handleActivate(
 		);
 	}
 
-	state.phase = "gathering";
-	state.enabled = true;
-	activate(state, pi, ctx);
+	// Resolve repo on disk
+	const repoResult = await resolveRepo(pi, ref.owner, ref.repo, ref.number);
 
-	let fetchedIssues: LinkedIssue[] = [];
-	let fetchedAuthor = "";
-	let graphqlDone: () => void;
-	let graphqlFailed: (err: unknown) => void;
-	const graphqlReady = new Promise<void>((resolve, reject) => {
-		graphqlDone = resolve;
-		graphqlFailed = reject;
-	});
-
-	const results = await progress(
-		ctx,
-		{ title: `Gathering context for PR #${ref.number}…` },
-		[
-			{
-				label: "PR metadata & issues",
-				run: async () => {
-					try {
-						const data = await fetchPRGraphQL(pi, ref);
-						fetchedIssues = data.issues;
-						fetchedAuthor = data.pr.author;
-						graphqlDone();
-						return data;
-					} catch (err) {
-						graphqlFailed(err);
-						throw err;
-					}
-				},
-			},
-			{
-				label: "Diff",
-				run: async () => fetchDiff(pi, ref),
-			},
-			{
-				label: "Sibling PRs",
-				run: async () => {
-					await graphqlReady;
-					return fetchSiblingPRs(pi, ref, fetchedIssues);
-				},
-			},
-			{
-				label: "Previous reviews",
-				run: async () => {
-					try {
-						await graphqlReady;
-						const username = await getCurrentUser(pi);
-						return fetchPreviousReviews(pi, ref, username, fetchedAuthor);
-					} catch {
-						/* Previous reviews unavailable — not fatal */
-						return { reviews: [], threads: [] };
-					}
-				},
-			},
-		] as const,
-	);
-
-	if (!results) {
-		deactivate(state, pi, ctx);
-		return textResult("PR review cancelled.");
-	}
-
-	const [graphqlData, diff, siblingPRs, previousData] = results;
-
-	if (!graphqlData || !diff) {
-		deactivate(state, pi, ctx);
+	if (repoResult.status === "switched") {
 		return textResult(
-			"Failed to gather PR context — metadata or diff unavailable.",
+			`PR #${ref.number} belongs to ${ref.owner}/${ref.repo}. ` +
+				`Opened a new tab at ${repoResult.repoPath}. ` +
+				"Continue the review there.",
 		);
 	}
 
-	const context = assembleContext(
-		graphqlData.pr,
-		diff,
-		graphqlData.prComments,
-		graphqlData.issues,
-		siblingPRs ?? [],
-	);
+	if (repoResult.status === "switch-failed") {
+		return textResult(
+			`Found repo at ${repoResult.repoPath} but couldn't open a new tab. ` +
+				`cd to that directory and run the review there.`,
+		);
+	}
 
+	if (repoResult.status === "not-found") {
+		return textResult(
+			`Could not find ${ref.owner}/${ref.repo} on disk. ` +
+				"Clone the repo and try again.",
+		);
+	}
+
+	// Activate and crawl
+	state.enabled = true;
 	const session = createSession(
 		{
 			owner: ref.owner,
 			repo: ref.repo,
 			number: ref.number,
-			branch: context.pr.headRefName,
-			baseBranch: context.pr.baseRefName,
-			author: context.pr.author,
+			branch: "",
+			baseBranch: "",
+			author: "",
 		},
-		context,
+		repoResult.repoPath,
 	);
+	state.session = session;
+	session.phase = "gathering";
+	activate(state, pi, ctx);
 
-	if (previousData && previousData.reviews.length > 0) {
-		session.previousReview = previousData;
+	ctx.ui.notify(`Gathering context for PR #${ref.number}…`, "info");
+
+	try {
+		const crawlResult = await crawl(
+			pi,
+			ref,
+			repoResult.repoPath,
+			(_depth, label) => {
+				ctx.ui.notify(label, "info");
+			},
+		);
+
+		// Update session with crawl results
+		session.context = crawlResult;
+		session.pr.branch = crawlResult.pr.headRefName;
+		session.pr.baseBranch = crawlResult.pr.baseRefName;
+		session.pr.author = crawlResult.pr.author;
+
+		// Create worktree if not on the PR branch
+		const onBranch = await isOnPRBranch(pi, crawlResult.pr.headRefName);
+		if (!onBranch) {
+			ctx.ui.notify("Creating worktree for PR branch…", "info");
+			const wtPath = await createWorktree(pi, ref.number);
+			if (wtPath) {
+				session.worktreePath = wtPath;
+				session.repoPath = wtPath;
+			}
+		}
+
+		session.phase = "overview";
+
+		persist(state, pi);
+		refreshUI(state, ctx);
+
+		const briefing = briefActivation(session);
+
+		return {
+			content: [{ type: "text" as const, text: briefing }],
+			details: {
+				action: "activate",
+				fileCount: crawlResult.diffFiles.length,
+				issueCount: crawlResult.issues.length,
+				referenceCount: crawlResult.references.length,
+				reviewerCount: crawlResult.reviewers.length,
+			},
+		};
+	} catch (err) {
+		deactivate(state, pi, ctx);
+		const msg = err instanceof Error ? err.message : String(err);
+		return textResult(`Failed to gather PR context: ${msg}`);
+	}
+}
+
+/** Generate comments: agent provides analysis and structured comments. */
+export async function handleGenerateComments(
+	deps: HandlerDeps,
+	synopsis: string | null,
+	scopeAnalysis: string | null,
+	sourceRoles: SourceRoleInput[] | null,
+	referenceSummaries: ReferenceSummaryInput[] | null,
+	comments: CommentInput[] | null,
+) {
+	const { state, pi } = deps;
+
+	if (!state.session) {
+		return textResult("No PR review active. Call 'activate' first.");
 	}
 
-	const onBranch = await isOnPRBranch(pi, context.pr.headRefName);
-	if (!onBranch) {
-		try {
-			session.worktreePath = await createWorktree(pi, ref.number);
-			session.usingWorktree = true;
-		} catch {
-			/* Worktree creation failed — review without it */
+	const session = state.session;
+
+	// Store synopsis and scope analysis
+	if (synopsis) session.synopsis = synopsis;
+	if (scopeAnalysis) session.scopeAnalysis = scopeAnalysis;
+
+	// Fill in source file roles
+	if (sourceRoles && session.context) {
+		for (const sr of sourceRoles) {
+			const sourceFile = session.context.sourceFiles.find(
+				(f) => f.path === sr.path,
+			);
+			if (sourceFile) sourceFile.role = sr.role;
 		}
 	}
 
-	state.session = session;
-	state.phase = "context";
+	// Fill in reference summaries (replaces raw body preview with AI summary)
+	if (referenceSummaries && session.context) {
+		for (const rs of referenceSummaries) {
+			const ref = session.context.references.find((r) => r.url === rs.url);
+			if (ref) ref.description = rs.summary;
+		}
+	}
+
+	// Add comments
+	if (comments) {
+		for (const c of comments) {
+			addComment(session, {
+				file: c.file,
+				startLine: c.startLine,
+				endLine: c.endLine,
+				label: c.label,
+				decorations: c.decorations,
+				subject: c.subject,
+				discussion: c.discussion,
+				source: "ai",
+				category: c.category,
+			});
+		}
+	}
+
 	persist(state, pi);
-	refreshUI(state, ctx);
+
+	const summary = briefGenerateComments(session);
 
 	return {
-		content: [{ type: "text" as const, text: briefActivation(session) }],
+		content: [{ type: "text" as const, text: summary }],
 		details: {
-			action: "activate",
-			fileCount: context.diffFiles.length,
-			issueCount: context.issues.length,
+			action: "generate-comments",
+			commentCount: session.comments.length,
 		},
 	};
 }
 
-export async function handleContext(deps: HandlerDeps, ctx: ExtensionContext) {
+/** Overview: show Phase 1 overview panel. */
+export async function handleOverview(deps: HandlerDeps, ctx: ExtensionContext) {
 	const { state } = deps;
 
 	if (!state.session) {
 		return textResult("No PR review active. Call 'activate' first.");
-	}
-	if (!(await ensureContext(deps, ctx))) {
-		return textResult("Failed to load PR context.");
 	}
 
 	const session = state.session;
-	const context = session.context;
-	if (!context) return textResult("Context unavailable.");
-
-	await showContextSummary(ctx, context, session.worktreePath);
-
-	return {
-		content: [{ type: "text" as const, text: briefContext(context) }],
-		details: { action: "context", phase: state.phase },
-	};
-}
-
-export async function handleDescription(
-	deps: HandlerDeps,
-	ctx: ExtensionContext,
-) {
-	const { state } = deps;
-
-	if (!state.session) {
-		return textResult("No PR review active. Call 'activate' first.");
-	}
 	if (!(await ensureContext(deps, ctx))) {
 		return textResult("Failed to load PR context.");
 	}
 
-	state.phase = "description";
-	const context = state.session.context;
-	if (!context) return textResult("Context unavailable.");
+	session.phase = "overview";
+	refreshUI(state, ctx);
 
-	const panelResult = await showDescriptionReview(ctx, context);
-
-	if (panelResult.action === "cancel") {
-		return textResult(
-			"Description review dismissed. Call 'description' to re-show, " +
-				"or 'analyze' to proceed.",
-		);
-	}
-
-	if (panelResult.action === "steer") {
-		return {
-			content: [
-				{
-					type: "text" as const,
-					text: briefDescriptionSteer(context, panelResult.note),
-				},
-			],
-			details: { action: "description", phase: "description", steered: true },
-		};
-	}
-
-	return {
-		content: [{ type: "text" as const, text: briefDescription(context) }],
-		details: { action: "description", phase: "description" },
-	};
-}
-
-export async function handleAnalyze(deps: HandlerDeps, ctx: ExtensionContext) {
-	const { state } = deps;
-
-	if (!state.session) {
-		return textResult("No PR review active. Call 'activate' first.");
-	}
-	if (!(await ensureContext(deps, ctx))) {
-		return textResult("Failed to load PR context.");
-	}
-
-	state.phase = "analyzing";
-	const session = state.session;
-	const context = session.context;
-	if (!context) return textResult("Context unavailable.");
-
-	return {
-		content: [
-			{
-				type: "text" as const,
-				text: briefAnalysis(
-					context,
-					session.worktreePath ?? ".",
-					session.previousReview,
-				),
-			},
-		],
-		details: { action: "analyze", phase: "analyzing" },
-	};
-}
-
-export async function handleReviewFiles(
-	deps: HandlerDeps,
-	ctx: ExtensionContext,
-) {
-	const { state } = deps;
-
-	if (!state.session) {
-		return textResult("No PR review active. Call 'activate' first.");
-	}
-	if (!(await ensureContext(deps, ctx))) {
-		return textResult("Failed to load PR context.");
-	}
-
-	state.phase = "files";
-	const session = state.session;
-	const context = session.context;
-	if (!context) return textResult("Context unavailable.");
-
-	const panelResult = await showFileReview(
+	const { showOverviewPanel } = await import("./ui/overview-panel.js");
+	const result = await showOverviewPanel(
 		ctx,
-		context.diffFiles,
-		session.comments,
-		session.worktreePath,
+		session.context,
+		session.synopsis,
 	);
 
-	refreshUI(state, ctx);
-
-	if (panelResult.action === "cancel") {
+	if (!result) {
 		return textResult(
-			"File review dismissed. Call 'review-files' to re-show, " +
-				"or 'vet' to proceed to vetting.",
+			"Overview panel dismissed. Call 'overview' to re-show, " +
+				"or 'review' to proceed.",
 		);
 	}
 
-	if (panelResult.action === "steer") {
+	if (result.action === "review") {
+		return textResult(
+			"User chose to proceed to review. Call 'review' to show the review panel.",
+		);
+	}
+
+	if (result.action === "steer") {
 		return {
 			content: [
 				{
 					type: "text" as const,
-					text: briefFileSteer(
-						panelResult.file,
-						panelResult.note,
-						session.worktreePath,
-					),
+					text:
+						`User feedback from overview panel:\n\n"${result.note}"\n\n` +
+						"Process the feedback and call 'overview' to re-open the panel.",
 				},
 			],
-			details: {
-				action: "review-files",
-				phase: "files",
-				file: panelResult.file,
-				steered: true,
-			},
+			details: { action: "overview", steered: true },
 		};
 	}
 
-	return {
-		content: [
-			{
-				type: "text" as const,
-				text: briefFileReview(context.diffFiles, session.comments),
-			},
-		],
-		details: {
-			action: "review-files",
-			phase: "files",
-			fileCount: context.diffFiles.length,
-		},
-	};
+	return textResult("Overview complete.");
 }
 
+/** Review: show Phase 2 review panel. */
+export async function handleReview(deps: HandlerDeps, ctx: ExtensionContext) {
+	const { state } = deps;
+
+	if (!state.session) {
+		return textResult("No PR review active. Call 'activate' first.");
+	}
+
+	const session = state.session;
+	if (!(await ensureContext(deps, ctx))) {
+		return textResult("Failed to load PR context.");
+	}
+
+	session.phase = "reviewing";
+	refreshUI(state, ctx);
+
+	const { showReviewPanel } = await import("./ui/review-panel.js");
+	const result = await showReviewPanel(ctx, session);
+
+	persist(state, deps.pi);
+	refreshUI(state, ctx);
+
+	if (!result) {
+		return textResult(
+			"Review panel dismissed. Call 'review' to re-show, " +
+				"or 'submit' to proceed.",
+		);
+	}
+
+	if (result.action === "submit") {
+		return textResult(
+			"User submitted from review panel. Call 'submit' to show the submit panel.",
+		);
+	}
+
+	if (result.action === "steer") {
+		const parts: string[] = [];
+		parts.push(`User feedback from review panel:\n\n"${result.note}"`);
+
+		if (result.commentId) {
+			const comment = session.comments.find((c) => c.id === result.commentId);
+			if (comment) {
+				parts.push("");
+				parts.push("Comment being steered:");
+				parts.push(`- ID: ${comment.id}`);
+				parts.push(`- File: ${comment.file ?? "(PR-level)"}`);
+				if (comment.startLine !== null) {
+					parts.push(`- Lines: ${comment.startLine}-${comment.endLine}`);
+				}
+				parts.push(`- Label: ${comment.label}`);
+				parts.push(`- Subject: ${comment.subject}`);
+				parts.push(`- Discussion: ${comment.discussion}`);
+				parts.push("");
+				parts.push(
+					"Use 'update-comment' with this comment_id to revise it, " +
+						"then call 'review' to re-open the panel.",
+				);
+			}
+		} else {
+			parts.push(
+				"\n\nProcess the feedback and call 'review' to re-open the panel.",
+			);
+		}
+
+		return {
+			content: [{ type: "text" as const, text: parts.join("\n") }],
+			details: { action: "review", steered: true },
+		};
+	}
+
+	return textResult("Review complete.");
+}
+
+/** Add a review comment. */
 export function handleAddComment(
 	deps: HandlerDeps,
 	comment: CommentInput | undefined,
@@ -500,7 +574,7 @@ export function handleAddComment(
 	if (!comment) {
 		return textResult(
 			"Provide a comment object with: file, startLine, endLine, " +
-				"label, decorations, subject, discussion.",
+				"label, decorations, subject, discussion, category.",
 		);
 	}
 
@@ -512,6 +586,8 @@ export function handleAddComment(
 		decorations: comment.decorations,
 		subject: comment.subject,
 		discussion: comment.discussion,
+		source: "user",
+		category: comment.category,
 	});
 
 	persist(state, pi);
@@ -526,11 +602,9 @@ export function handleAddComment(
 			{
 				type: "text" as const,
 				text:
-					`Comment added: ${reviewComment.label}${decorStr} on ` +
-					`${reviewComment.file}:${reviewComment.startLine}-${reviewComment.endLine}\n` +
-					`Subject: ${reviewComment.subject}\n` +
-					`Total: ${state.session.comments.length} comments.\n\n` +
-					"Call pr_review with action 'resume' to return to file review.",
+					`Comment added: ${reviewComment.label}${decorStr} — ` +
+					`${reviewComment.subject}\n` +
+					`Total: ${state.session.comments.length} comments.`,
 			},
 		],
 		details: {
@@ -541,6 +615,7 @@ export function handleAddComment(
 	};
 }
 
+/** Update an existing comment. */
 export function handleUpdateComment(
 	deps: HandlerDeps,
 	commentId: string | null,
@@ -580,6 +655,7 @@ export function handleUpdateComment(
 	};
 }
 
+/** Remove a comment by ID. */
 export function handleRemoveComment(
 	deps: HandlerDeps,
 	commentId: string | null,
@@ -614,133 +690,66 @@ export function handleRemoveComment(
 	};
 }
 
-export async function handleResume(deps: HandlerDeps, ctx: ExtensionContext) {
-	const { state } = deps;
-
-	if (!state.session) {
-		return textResult("No PR review active.");
-	}
-
-	switch (state.phase) {
-		case "context":
-			return handleContext(deps, ctx);
-		case "description":
-			return handleDescription(deps, ctx);
-		case "files":
-			return handleReviewFiles(deps, ctx);
-		case "vetting":
-			return handleVet(deps, ctx);
-		default:
-			return textResult(
-				`Resuming PR review at phase: ${state.phase}. ` +
-					`Comments: ${state.session.comments.length}.`,
-			);
-	}
-}
-
-export async function handleVet(deps: HandlerDeps, ctx: ExtensionContext) {
+/** Submit: show final review summary panel. */
+export async function handleSubmit(
+	deps: HandlerDeps,
+	ctx: ExtensionContext,
+	reviewBody: string | null,
+	verdict: string | null,
+) {
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active.");
+		return textResult("No PR review active. Call 'activate' first.");
 	}
 
-	state.phase = "vetting";
 	const session = state.session;
 
-	if (session.comments.length === 0) {
+	// Update body/verdict if provided
+	if (reviewBody !== null) session.reviewBody = reviewBody;
+	if (verdict !== null) {
+		session.verdict = verdict as typeof session.verdict;
+	}
+
+	session.phase = "submitting";
+	refreshUI(state, ctx);
+
+	const { showSubmitPanel } = await import("./ui/submit-panel.js");
+	const result = await showSubmitPanel(ctx, session);
+
+	persist(state, pi);
+
+	if (!result) {
 		return textResult(
-			"No comments to vet. Add comments first, or call 'post' " +
-				"to submit a review with just a summary body.",
+			"Submit panel dismissed. Call 'submit' to re-show, " +
+				"or 'review' to go back.",
 		);
 	}
 
-	const hasBlocking = session.comments.some((c) =>
-		c.decorations.includes("blocking"),
-	);
-	const suggestedVerdict = hasBlocking ? "REQUEST_CHANGES" : "COMMENT";
-
-	const draftBody =
-		session.body ||
-		`Review of ${session.pr.owner}/${session.pr.repo}#${session.pr.number}.`;
-
-	const vettingResult = await showVetting(
-		ctx,
-		session.comments,
-		suggestedVerdict,
-		draftBody,
-	);
-
-	if (!vettingResult) {
-		return textResult("Vetting cancelled. Call 'vet' to retry.");
-	}
-
-	if (vettingResult.steerFeedback) {
-		const editComment = vettingResult.steerCommentId
-			? session.comments.find((c) => c.id === vettingResult.steerCommentId)
-			: null;
-
-		const parts: string[] = [
-			`User feedback during vetting:\n\n"${vettingResult.steerFeedback}"`,
-			"",
-		];
-
-		if (editComment) {
-			parts.push(
-				"Comment being edited:",
-				`- File: ${editComment.file}:${editComment.startLine}-${editComment.endLine}`,
-				`- Label: ${editComment.label}`,
-				`- Subject: ${editComment.subject}`,
-				`- Discussion: ${editComment.discussion}`,
-				"",
-				"Use 'update-comment' to revise this comment, then call 'vet' again.",
-			);
-		} else {
-			parts.push(
-				`Current verdict: ${suggestedVerdict}`,
-				`Current body: ${draftBody}`,
-				"",
-				"If the user wants to change the verdict or review body, " +
-					"make the changes and call 'vet' again. " +
-					"If they want to edit a comment, use 'update-comment'.",
-			);
-		}
-
-		return {
-			content: [{ type: "text" as const, text: parts.join("\n") }],
-			details: { action: "vet", steered: true },
-		};
-	}
-
-	applyVettingDecisions(session, vettingResult);
-	persist(state, pi);
-
-	if (vettingResult.postNow) {
+	if (result.action === "post") {
 		return handlePost(deps);
 	}
 
-	const accepted = commentsByStatus(session, "accepted").length;
-	const rejected = commentsByStatus(session, "rejected").length;
+	if (result.action === "steer") {
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text:
+						`User feedback from submit panel:\n\n"${result.note}"\n\n` +
+						`Current body: ${session.reviewBody || "(empty)"}\n` +
+						`Current verdict: ${session.verdict}\n\n` +
+						"Update the body/verdict as needed, then call 'submit' again.",
+				},
+			],
+			details: { action: "submit", steered: true },
+		};
+	}
 
-	return {
-		content: [
-			{
-				type: "text" as const,
-				text:
-					`Vetting complete. ${accepted} accepted, ${rejected} rejected. ` +
-					`Verdict: ${session.verdict}. Call 'post' to submit the review.`,
-			},
-		],
-		details: {
-			action: "vet",
-			phase: "vetting",
-			accepted,
-			rejected,
-			verdict: session.verdict,
-		},
-	};
+	return textResult("Submit flow complete.");
 }
 
+/** Post: submit review to GitHub. */
 export async function handlePost(deps: HandlerDeps) {
 	const { state, pi } = deps;
 
@@ -749,26 +758,70 @@ export async function handlePost(deps: HandlerDeps) {
 	}
 
 	const session = state.session;
-	const drafts = commentsByStatus(session, "draft");
-	if (drafts.length > 0) {
+	const stats = commentStats(session);
+
+	if (stats.pending > 0) {
 		return textResult(
-			`${drafts.length} comment${drafts.length !== 1 ? "s are" : " is"} still draft — ` +
-				"call 'vet' first so the user can approve or reject each comment before posting.",
+			`${stats.pending} comment${stats.pending !== 1 ? "s are" : " is"} still pending — ` +
+				"review all comments before posting.",
 		);
 	}
 
-	state.phase = "posting";
+	session.phase = "submitting";
+	const { postReview } = await import("./api/github.js");
+
 	const ref: PRReference = {
 		owner: session.pr.owner,
 		repo: session.pr.repo,
 		number: session.pr.number,
 	};
 
-	const accepted = commentsByStatus(session, "accepted");
-	const ghComments = accepted.map(formatGitHubComment);
+	const approved = session.comments.filter((c) => c.status === "approved");
+
+	// Build hunk ranges per file so we can clamp comment lines
+	const hunkRanges = buildDiffHunkRanges(session);
+
+	const ghComments = approved
+		.filter((c) => c.file !== null)
+		.map((c) => {
+			const decorStr =
+				c.decorations.length > 0 ? ` (${c.decorations.join(", ")})` : "";
+			const body = `${c.label}${decorStr}: ${c.subject}\n\n${c.discussion}`;
+
+			const ranges = hunkRanges.get(c.file as string);
+			const endLine = clampToDiffRange(c.endLine ?? 1, ranges);
+
+			const comment: {
+				path: string;
+				line: number;
+				start_line?: number;
+				side: string;
+				start_side?: string;
+				body: string;
+			} = {
+				path: c.file as string,
+				line: endLine,
+				side: "RIGHT",
+				body,
+			};
+
+			if (
+				c.startLine !== null &&
+				c.endLine !== null &&
+				c.startLine !== c.endLine
+			) {
+				const startLine = clampToDiffRange(c.startLine, ranges);
+				if (startLine < endLine) {
+					comment.start_line = startLine;
+					comment.start_side = "RIGHT";
+				}
+			}
+
+			return comment;
+		});
 
 	try {
-		await postReview(pi, ref, session.body, session.verdict, ghComments);
+		await postReview(pi, ref, session.reviewBody, session.verdict, ghComments);
 
 		return {
 			content: [
@@ -792,6 +845,7 @@ export async function handlePost(deps: HandlerDeps) {
 	}
 }
 
+/** Deactivate: clean up and exit review mode. */
 export async function handleDeactivate(
 	deps: HandlerDeps,
 	ctx: ExtensionContext,
@@ -802,18 +856,17 @@ export async function handleDeactivate(
 		return textResult("PR review is not active.");
 	}
 
-	const session = state.session;
+	const commentCount = state.session.comments.length;
+	const prNum = state.session.pr.number;
 
-	if (session.usingWorktree) {
+	// Clean up worktree if we created one
+	if (state.session.worktreePath) {
 		try {
-			await removeWorktree(pi, session.pr.number);
+			await removeWorktree(pi, prNum);
 		} catch {
 			/* Worktree cleanup failed — not fatal */
 		}
 	}
-
-	const commentCount = session.comments.length;
-	const prNum = session.pr.number;
 
 	deactivate(state, pi, ctx);
 
