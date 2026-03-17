@@ -16,12 +16,12 @@ import {
 	wordWrap,
 } from "../../lib/ui/text.js";
 import type { PromptItem } from "../../lib/ui/types.js";
-import type { CommentState, ReviewComment, ReviewVerdict } from "../state.js";
+import type { ReviewComment, ReviewVerdict } from "../state.js";
 
 /** Result of the vetting flow. */
 export interface VettingResult {
 	/** Per-comment decisions (comment ID → accepted/rejected). */
-	decisions: Map<string, CommentState>;
+	decisions: Map<string, "accepted" | "rejected">;
 	/** Final review verdict. */
 	verdict: ReviewVerdict;
 	/** Review body text (may be edited by user). */
@@ -39,17 +39,14 @@ export interface VettingResult {
 export async function showVetting(
 	ctx: ExtensionContext,
 	comments: ReviewComment[],
-	commentStates: Map<string, CommentState>,
 	suggestedVerdict: ReviewVerdict,
 	draftBody: string,
 ): Promise<VettingResult | null> {
 	if (comments.length === 0) return null;
 
 	const items: PromptItem[] = [
-		buildSummaryTab(comments, commentStates, suggestedVerdict, draftBody),
-		...comments.map((c, i) =>
-			buildCommentTab(c, i, comments.length, commentStates),
-		),
+		buildSummaryTab(comments, suggestedVerdict, draftBody),
+		...comments.map((c, i) => buildCommentTab(c, i, comments.length)),
 	];
 
 	const result = await prompt(ctx, {
@@ -70,7 +67,7 @@ export async function showVetting(
 			const commentIndex = itemIndex - 1;
 			const comment = commentIndex >= 0 ? comments[commentIndex] : null;
 			return {
-				decisions: commentStates,
+				decisions: new Map(),
 				verdict: suggestedVerdict,
 				reviewBody: draftBody,
 				steerFeedback: itemResult.note,
@@ -80,11 +77,10 @@ export async function showVetting(
 	}
 
 	// Apply decisions from the tabbed prompt
-	const decisions = new Map(commentStates);
+	const decisions = new Map<string, "accepted" | "rejected">();
 
 	for (const [itemIndex, itemResult] of result.items) {
-		// Item 0 is the summary tab — skip it
-		if (itemIndex === 0) continue;
+		if (itemIndex === 0) continue; // Summary tab
 
 		const commentIndex = itemIndex - 1;
 		const comment = comments[commentIndex];
@@ -111,7 +107,6 @@ export async function showVetting(
 /** Summary tab — overview of all comments and verdict. */
 function buildSummaryTab(
 	comments: ReviewComment[],
-	commentStates: Map<string, CommentState>,
 	verdict: ReviewVerdict,
 	draftBody: string,
 ): PromptItem {
@@ -124,7 +119,6 @@ function buildSummaryTab(
 			lines.push(` ${theme.fg("accent", theme.bold("Review Summary"))}`);
 			lines.push("");
 
-			// Review body
 			if (draftBody) {
 				for (const line of renderMarkdown(draftBody, theme, width)) {
 					lines.push(line);
@@ -132,7 +126,6 @@ function buildSummaryTab(
 				lines.push("");
 			}
 
-			// Verdict
 			const verdictColor =
 				verdict === "APPROVE"
 					? "success"
@@ -144,16 +137,9 @@ function buildSummaryTab(
 			);
 			lines.push("");
 
-			// Comment stats
-			const accepted = [...commentStates.values()].filter(
-				(s) => s === "accepted",
-			).length;
-			const rejected = [...commentStates.values()].filter(
-				(s) => s === "rejected",
-			).length;
-			const draft = [...commentStates.values()].filter(
-				(s) => s === "draft",
-			).length;
+			const accepted = comments.filter((c) => c.status === "accepted").length;
+			const rejected = comments.filter((c) => c.status === "rejected").length;
+			const draft = comments.filter((c) => c.status === "draft").length;
 
 			lines.push(`${pad}${theme.fg("text", "Comments:")}`);
 			lines.push(
@@ -161,7 +147,6 @@ function buildSummaryTab(
 			);
 			lines.push("");
 
-			// Label breakdown
 			const labelCounts = new Map<string, number>();
 			for (const c of comments) {
 				const count = labelCounts.get(c.label) ?? 0;
@@ -172,7 +157,6 @@ function buildSummaryTab(
 				.join(", ");
 			lines.push(`${pad}${theme.fg("dim", `Labels: ${labelSummary}`)}`);
 
-			// Files covered
 			const files = new Set(comments.map((c) => c.file));
 			lines.push(
 				`${pad}${theme.fg("dim", `Files: ${files.size} with comments`)}`,
@@ -180,7 +164,6 @@ function buildSummaryTab(
 
 			return lines;
 		},
-		// Summary tab has no per-item actions — just navigation
 		actions: [],
 	};
 }
@@ -190,7 +173,6 @@ function buildCommentTab(
 	comment: ReviewComment,
 	index: number,
 	total: number,
-	commentStates: Map<string, CommentState>,
 ): PromptItem {
 	return {
 		label: `C${index + 1}`,
@@ -199,20 +181,17 @@ function buildCommentTab(
 			const wrapWidth = contentWrapWidth(width);
 			const lines: string[] = [];
 
-			const vetState = commentStates.get(comment.id) ?? "draft";
 			const stateColor =
-				vetState === "accepted"
+				comment.status === "accepted"
 					? "success"
-					: vetState === "rejected"
+					: comment.status === "rejected"
 						? "error"
 						: "dim";
 
-			// Header
 			lines.push(
-				` ${theme.fg("text", `Comment ${index + 1} of ${total}`)} ${theme.fg(stateColor, `[${vetState}]`)}`,
+				` ${theme.fg("text", `Comment ${index + 1} of ${total}`)} ${theme.fg(stateColor, `[${comment.status}]`)}`,
 			);
 
-			// Label and file
 			const decorStr =
 				comment.decorations.length > 0
 					? ` (${comment.decorations.join(", ")})`
@@ -223,12 +202,10 @@ function buildCommentTab(
 			);
 			lines.push("");
 
-			// Subject
 			for (const line of wordWrap(comment.subject, wrapWidth)) {
 				lines.push(`${pad}${theme.fg("text", theme.bold(line))}`);
 			}
 
-			// Discussion
 			if (comment.discussion) {
 				lines.push("");
 				for (const line of wordWrap(comment.discussion, wrapWidth)) {

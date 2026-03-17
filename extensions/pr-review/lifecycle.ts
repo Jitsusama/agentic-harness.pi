@@ -10,11 +10,10 @@ import type {
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { getLastEntry } from "../lib/state.js";
 import {
-	type CommentState,
-	countCommentsByState,
+	commentsByStatus,
 	type PRReviewState,
-	type PreviousReview,
-	type PreviousThread,
+	type PRTarget,
+	type PreviousReviewData,
 	type ReviewComment,
 	type ReviewPhase,
 	type ReviewVerdict,
@@ -32,7 +31,8 @@ const WIDGET_KEY = "pr-review-detail";
 
 /** Build the detail widget text for the current phase. */
 function buildDetailText(state: PRReviewState): string {
-	const prRef = `PR #${state.prNumber ?? "?"}`;
+	const prNum = state.session?.pr.number ?? "?";
+	const prRef = `PR #${prNum}`;
 
 	switch (state.phase) {
 		case "gathering":
@@ -44,13 +44,15 @@ function buildDetailText(state: PRReviewState): string {
 		case "analyzing":
 			return `${prRef} · Deep analysis…`;
 		case "files": {
-			const fileCount = state.context?.diffFiles.length ?? 0;
-			const accepted = countCommentsByState(state, "accepted");
-			const total = state.comments.length;
+			const fileCount = state.session?.context?.diffFiles.length ?? 0;
+			const accepted = state.session
+				? commentsByStatus(state.session, "accepted").length
+				: 0;
+			const total = state.session?.comments.length ?? 0;
 			return `${prRef} · file-review · ${state.fileIndex + 1}/${fileCount} files · ${total} comments (${accepted} accepted)`;
 		}
 		case "vetting": {
-			const total = state.comments.length;
+			const total = state.session?.comments.length ?? 0;
 			return `${prRef} · Final vetting · ${total} comments`;
 		}
 		case "posting":
@@ -60,14 +62,14 @@ function buildDetailText(state: PRReviewState): string {
 
 /** Update status line and detail widget to reflect current state. */
 function updateUI(state: PRReviewState, ctx: ExtensionContext): void {
-	if (!state.enabled) {
+	if (!state.enabled || !state.session) {
 		ctx.ui.setStatus(PERSIST_KEY, undefined);
 		ctx.ui.setWidget(WIDGET_KEY, undefined);
 		return;
 	}
 
 	const theme = ctx.ui.theme;
-	const prRef = state.prNumber ? `#${state.prNumber}` : "?";
+	const prRef = `#${state.session.pr.number}`;
 	ctx.ui.setStatus(
 		PERSIST_KEY,
 		`${theme.fg("accent", STATUS_GLYPH)} ${theme.fg("muted", `PR ${prRef} review`)}`,
@@ -110,75 +112,68 @@ export function refreshUI(state: PRReviewState, ctx: ExtensionContext): void {
 	updateUI(state, ctx);
 }
 
+// ---- Persistence ----
+
+/** Shape of the persisted session data. */
+interface PersistedSession {
+	pr: PRTarget;
+	worktreePath: string | null;
+	usingWorktree: boolean;
+	previousReview: PreviousReviewData | null;
+	comments: ReviewComment[];
+	body: string;
+	verdict: ReviewVerdict;
+}
+
+/** Shape of the full persisted state. */
+interface PersistedState {
+	enabled: boolean;
+	session: PersistedSession | null;
+	phase: ReviewPhase;
+	fileIndex: number;
+}
+
 /** Save state to session history. */
 export function persist(state: PRReviewState, pi: ExtensionAPI): void {
-	pi.appendEntry(PERSIST_KEY, {
+	const persisted: PersistedState = {
 		enabled: state.enabled,
-		prNumber: state.prNumber,
-		owner: state.owner,
-		repo: state.repo,
-		prBranch: state.prBranch,
-		baseBranch: state.baseBranch,
-		prAuthor: state.prAuthor,
-		worktreePath: state.worktreePath,
-		usingWorktree: state.usingWorktree,
-		isReReview: state.isReReview,
-		previousReviews: state.previousReviews,
-		previousThreads: state.previousThreads,
+		session: state.session
+			? {
+					pr: state.session.pr,
+					worktreePath: state.session.worktreePath,
+					usingWorktree: state.session.usingWorktree,
+					previousReview: state.session.previousReview,
+					comments: state.session.comments,
+					body: state.session.body,
+					verdict: state.session.verdict,
+				}
+			: null,
 		phase: state.phase,
 		fileIndex: state.fileIndex,
-		comments: state.comments,
-		commentStates: Array.from(state.commentStates.entries()),
-		reviewBody: state.reviewBody,
-		verdict: state.verdict,
-	});
+	};
+	pi.appendEntry(PERSIST_KEY, persisted);
 }
 
 /** Restore state from session history on startup. */
 export function restore(state: PRReviewState, ctx: ExtensionContext): void {
-	const saved = getLastEntry<{
-		enabled?: boolean;
-		prNumber?: number;
-		owner?: string;
-		repo?: string;
-		prBranch?: string;
-		baseBranch?: string;
-		prAuthor?: string;
-		worktreePath?: string;
-		usingWorktree?: boolean;
-		isReReview?: boolean;
-		previousReviews?: PreviousReview[];
-		previousThreads?: PreviousThread[];
-		phase?: ReviewPhase;
-		fileIndex?: number;
-		comments?: ReviewComment[];
-		commentStates?: Array<[string, CommentState]>;
-		reviewBody?: string;
-		verdict?: ReviewVerdict;
-	}>(ctx, PERSIST_KEY);
-
+	const saved = getLastEntry<PersistedState>(ctx, PERSIST_KEY);
 	if (!saved) return;
 
 	state.enabled = saved.enabled ?? false;
-	state.prNumber = saved.prNumber ?? null;
-	state.owner = saved.owner ?? null;
-	state.repo = saved.repo ?? null;
-	state.prBranch = saved.prBranch ?? null;
-	state.baseBranch = saved.baseBranch ?? null;
-	state.prAuthor = saved.prAuthor ?? null;
-	state.worktreePath = saved.worktreePath ?? null;
-	state.usingWorktree = saved.usingWorktree ?? false;
-	state.isReReview = saved.isReReview ?? false;
-	state.previousReviews = saved.previousReviews ?? [];
-	state.previousThreads = saved.previousThreads ?? [];
 	state.phase = saved.phase ?? "gathering";
 	state.fileIndex = saved.fileIndex ?? 0;
-	state.comments = saved.comments ?? [];
-	state.reviewBody = saved.reviewBody ?? null;
-	state.verdict = saved.verdict ?? "COMMENT";
 
-	if (saved.commentStates) {
-		state.commentStates = new Map(saved.commentStates);
+	if (saved.session) {
+		state.session = {
+			pr: saved.session.pr,
+			context: null, // Re-fetched on demand via ensureContext
+			worktreePath: saved.session.worktreePath,
+			usingWorktree: saved.session.usingWorktree,
+			previousReview: saved.session.previousReview,
+			comments: saved.session.comments ?? [],
+			body: saved.session.body ?? "",
+			verdict: saved.session.verdict ?? "COMMENT",
+		};
 	}
 
 	updateUI(state, ctx);

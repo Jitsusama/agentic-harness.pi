@@ -5,7 +5,7 @@
  */
 
 import { filterContext } from "../lib/state.js";
-import { countCommentsByState, type PRReviewState } from "./state.js";
+import { commentsByStatus, type PRReviewState } from "./state.js";
 
 /** Custom message type for PR review context. */
 const CONTEXT_TYPE = "pr-review-context";
@@ -16,30 +16,28 @@ const CONTEXT_TYPE = "pr-review-context";
  * what phase we're in, and the current comment stats.
  */
 export function buildPRReviewContext(state: PRReviewState) {
-	if (!state.enabled) return;
+	if (!state.enabled || !state.session) return;
+
+	const { pr, worktreePath, previousReview } = state.session;
 
 	const parts: string[] = [];
 	parts.push("[PR Review Active]");
-
-	if (state.prNumber && state.owner && state.repo) {
-		parts.push(`PR: ${state.owner}/${state.repo}#${state.prNumber}`);
-	}
-
+	parts.push(`PR: ${pr.owner}/${pr.repo}#${pr.number}`);
 	parts.push(`Phase: ${state.phase}`);
 
-	const total = state.comments.length;
+	const total = state.session.comments.length;
 	if (total > 0) {
-		const accepted = countCommentsByState(state, "accepted");
-		const draft = countCommentsByState(state, "draft");
+		const accepted = commentsByStatus(state.session, "accepted").length;
+		const draft = commentsByStatus(state.session, "draft").length;
 		parts.push(`Comments: ${total} (${accepted} accepted, ${draft} draft)`);
 	}
 
-	if (state.worktreePath) {
-		parts.push(`Worktree: ${state.worktreePath}`);
+	if (worktreePath) {
+		parts.push(`Worktree: ${worktreePath}`);
 	}
 
-	if (state.isReReview) {
-		const open = state.previousThreads.filter((t) => !t.isResolved).length;
+	if (previousReview) {
+		const open = previousReview.threads.filter((t) => !t.isResolved).length;
 		parts.push(`Re-review: ${open} open previous threads`);
 	}
 
