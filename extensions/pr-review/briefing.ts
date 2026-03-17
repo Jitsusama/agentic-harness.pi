@@ -222,89 +222,59 @@ export function briefAnalysis(
 
 // ---- File review ----
 
-/** File diff and comments context for one file. */
-export function briefFile(
-	file: DiffFile,
-	index: number,
-	fileCount: number,
+/** Summary after completing the tabbed file review. */
+export function briefFileReview(
+	files: DiffFile[],
 	comments: ReviewComment[],
-	worktreePath: string | null,
 ): string {
 	const parts: string[] = [];
 
-	parts.push(`## File ${index + 1}/${fileCount}: ${file.path}`);
-	parts.push(
-		`**Status**: ${file.status} (+${file.additions} -${file.deletions})`,
-	);
-
+	parts.push("## File Review Complete");
+	parts.push(`${files.length} files reviewed. ${comments.length} comments.`);
 	parts.push("");
-	parts.push("### Diff");
-	parts.push("```diff");
-	for (const hunk of file.hunks) {
-		parts.push(hunk.header);
-		for (const line of hunk.lines) {
-			const prefix =
-				line.type === "added" ? "+" : line.type === "removed" ? "-" : " ";
-			parts.push(`${prefix}${line.content}`);
-		}
-	}
-	parts.push("```");
 
-	const fileComments = comments.filter((c) => c.file === file.path);
-	if (fileComments.length > 0) {
-		parts.push("");
-		parts.push(`### Existing Comments (${fileComments.length})`);
-		for (const comment of fileComments) {
+	if (comments.length > 0) {
+		parts.push("### Comments");
+		for (const comment of comments) {
 			const decorStr =
 				comment.decorations.length > 0
 					? ` (${comment.decorations.join(", ")})`
 					: "";
 			parts.push(
-				`- **${comment.label}${decorStr}** L${comment.startLine}-${comment.endLine}: ${comment.subject}`,
+				`- **${comment.label}${decorStr}** ${comment.file}:${comment.startLine}-${comment.endLine}: ${comment.subject}`,
 			);
 		}
+		parts.push("");
 	}
 
-	if (worktreePath) {
-		parts.push(`\nFull file available at: \`${worktreePath}/${file.path}\``);
-	}
-
-	parts.push("");
 	parts.push(
-		"Review this file. Add comments with 'add-comment'. " +
-			"Call 'next-file' when done.",
+		"Add more comments with 'add-comment', or call 'vet' to enter final vetting.",
 	);
 
 	return parts.join("\n");
 }
 
-/** Context returned when the user steers during file review. */
+/** Context returned when the user steers on a specific file. */
 export function briefFileSteer(
-	file: DiffFile,
-	index: number,
-	fileCount: number,
+	filePath: string,
 	note: string,
-	comments: ReviewComment[],
 	worktreePath: string | null,
 ): string {
 	const searchPath = worktreePath ?? ".";
-	const fileContext = briefFile(file, index, fileCount, comments, worktreePath);
 
 	return [
-		`User wants to add a comment on ${file.path}:`,
+		`User wants to add a comment on ${filePath}:`,
 		"",
 		`"${note}"`,
 		"",
-		`File context:\n${fileContext}`,
-		"",
-		`Worktree path for full file access: \`${searchPath}/${file.path}\``,
+		`Full file available at: \`${searchPath}/${filePath}\``,
 		"",
 		"Draft a conventional comment. Choose the appropriate label, " +
 			"line range, subject, and discussion. Use the `conventional-comments` " +
 			"skill for format guidance. Then call pr_review with action 'add-comment' " +
 			"and the structured comment data.",
 		"",
-		"After adding the comment, call pr_review with action 'resume' " +
+		"After adding the comment, call pr_review with action 'review-files' " +
 			"to return to file review.",
 	].join("\n");
 }

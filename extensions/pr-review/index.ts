@@ -46,7 +46,7 @@ import {
 	briefContext,
 	briefDescription,
 	briefDescriptionSteer,
-	briefFile,
+	briefFileReview,
 	briefFileSteer,
 } from "./briefing.js";
 import {
@@ -61,7 +61,6 @@ import {
 	commentsByStatus,
 	createSession,
 	createState,
-	type DiffFile,
 	type LinkedIssue,
 } from "./state.js";
 import { buildPRReviewContext, prReviewContextFilter } from "./transitions.js";
@@ -85,9 +84,6 @@ const ACTIONS = [
 	"post",
 	"deactivate",
 ] as const;
-
-/** Threshold for showing directory grouping in file review. */
-const DIRECTORY_GROUP_THRESHOLD = 15;
 
 export default function prReview(pi: ExtensionAPI) {
 	const state = createState();
@@ -546,60 +542,13 @@ export default function prReview(pi: ExtensionAPI) {
 		}
 
 		state.phase = "files";
-		state.fileIndex = 0;
-
-		const context = state.session.context;
-		if (!context) return textResult("Context unavailable.");
-
-		if (context.diffFiles.length >= DIRECTORY_GROUP_THRESHOLD) {
-			const overview = buildDirectoryOverview(context.diffFiles);
-			const fileResult = await showFileAndReturn(ctx, 0);
-			const content = fileResult.content?.[0];
-			const text = content && "text" in content ? content.text : "";
-			return {
-				...fileResult,
-				content: [{ type: "text" as const, text: `${overview}\n\n${text}` }],
-			};
-		}
-
-		return showFileAndReturn(ctx, 0);
-	}
-
-	async function handleNextFile(ctx: ExtensionContext) {
-		if (!state.session?.context) {
-			return textResult("No PR review active.");
-		}
-
-		state.fileIndex++;
-		const fileCount = state.session.context.diffFiles.length;
-
-		if (state.fileIndex >= fileCount) {
-			return textResult(
-				`All ${fileCount} files reviewed. ` +
-					`${state.session.comments.length} comments collected. ` +
-					"Call 'vet' to enter final vetting.",
-			);
-		}
-
-		return showFileAndReturn(ctx, state.fileIndex);
-	}
-
-	/** Show the file review panel, then return the briefing. */
-	async function showFileAndReturn(ctx: ExtensionContext, index: number) {
 		const session = state.session;
-		if (!session?.context) return textResult("No context available.");
-
 		const context = session.context;
-		const file = context.diffFiles[index];
-		if (!file) return textResult("File index out of range.");
-
-		const fileCount = context.diffFiles.length;
+		if (!context) return textResult("Context unavailable.");
 
 		const panelResult = await showFileReview(
 			ctx,
-			file,
-			index,
-			fileCount,
+			context.diffFiles,
 			session.comments,
 			session.worktreePath,
 		);
@@ -608,7 +557,7 @@ export default function prReview(pi: ExtensionAPI) {
 
 		if (panelResult.action === "cancel") {
 			return textResult(
-				"File review paused. Call 'review-files' to resume, " +
+				"File review dismissed. Call 'review-files' to re-show, " +
 					"or 'vet' to proceed to vetting.",
 			);
 		}
@@ -619,11 +568,8 @@ export default function prReview(pi: ExtensionAPI) {
 					{
 						type: "text" as const,
 						text: briefFileSteer(
-							file,
-							index,
-							fileCount,
+							panelResult.file,
 							panelResult.note,
-							session.comments,
 							session.worktreePath,
 						),
 					},
@@ -631,7 +577,7 @@ export default function prReview(pi: ExtensionAPI) {
 				details: {
 					action: "review-files",
 					phase: "files",
-					file: file.path,
+					file: panelResult.file,
 					steered: true,
 				},
 			};
@@ -641,23 +587,22 @@ export default function prReview(pi: ExtensionAPI) {
 			content: [
 				{
 					type: "text" as const,
-					text: briefFile(
-						file,
-						index,
-						fileCount,
-						session.comments,
-						session.worktreePath,
-					),
+					text: briefFileReview(context.diffFiles, session.comments),
 				},
 			],
 			details: {
 				action: "review-files",
 				phase: "files",
-				file: file.path,
-				fileIndex: index,
-				fileCount,
+				fileCount: context.diffFiles.length,
 			},
 		};
+	}
+
+	async function handleNextFile(_ctx: ExtensionContext) {
+		return textResult(
+			"File navigation is now handled within the review-files panel. " +
+				"Call 'review-files' to open the tabbed file review.",
+		);
 	}
 
 	function handleAddComment(comment: unknown) {
@@ -718,8 +663,9 @@ export default function prReview(pi: ExtensionAPI) {
 			return textResult("No PR review active.");
 		}
 
-		if (state.phase === "files" && state.session.context) {
-			return showFileAndReturn(ctx, state.fileIndex);
+		// During file review, re-open the tabbed file panel
+		if (state.phase === "files") {
+			return handleReviewFiles(ctx);
 		}
 
 		return textResult(
@@ -947,39 +893,4 @@ function formatGitHubComment(c: {
 	}
 
 	return comment;
-}
-
-/** Group diff files by parent directory. */
-function groupFilesByDirectory(files: DiffFile[]): Map<string, DiffFile[]> {
-	const groups = new Map<string, DiffFile[]>();
-	for (const file of files) {
-		const lastSlash = file.path.lastIndexOf("/");
-		const dir = lastSlash > 0 ? file.path.slice(0, lastSlash) : ".";
-		const existing = groups.get(dir) ?? [];
-		existing.push(file);
-		groups.set(dir, existing);
-	}
-	return groups;
-}
-
-/** Build a directory overview for large PRs. */
-function buildDirectoryOverview(files: DiffFile[]): string {
-	const groups = groupFilesByDirectory(files);
-	const parts: string[] = [];
-	parts.push("### Directory Overview");
-	parts.push(
-		`This PR has changes across ${groups.size} directories. Files are reviewed in order:`,
-	);
-	parts.push("");
-
-	for (const [dir, dirFiles] of groups) {
-		const additions = dirFiles.reduce((sum, f) => sum + f.additions, 0);
-		const deletions = dirFiles.reduce((sum, f) => sum + f.deletions, 0);
-		const n = dirFiles.length;
-		parts.push(
-			`- **${dir}/** — ${n} file${n !== 1 ? "s" : ""} (+${additions} -${deletions})`,
-		);
-	}
-
-	return parts.join("\n");
 }

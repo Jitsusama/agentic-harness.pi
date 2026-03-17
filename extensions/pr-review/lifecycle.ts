@@ -10,7 +10,6 @@ import type {
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { getLastEntry } from "../lib/state.js";
 import {
-	commentsByStatus,
 	type PRReviewState,
 	type PRTarget,
 	type PreviousReviewData,
@@ -45,11 +44,8 @@ function buildDetailText(state: PRReviewState): string {
 			return `${prRef} · Deep analysis…`;
 		case "files": {
 			const fileCount = state.session?.context?.diffFiles.length ?? 0;
-			const accepted = state.session
-				? commentsByStatus(state.session, "accepted").length
-				: 0;
 			const total = state.session?.comments.length ?? 0;
-			return `${prRef} · file-review · ${state.fileIndex + 1}/${fileCount} files · ${total} comments (${accepted} accepted)`;
+			return `${prRef} · file-review · ${fileCount} files · ${total} comments`;
 		}
 		case "vetting": {
 			const total = state.session?.comments.length ?? 0;
@@ -130,7 +126,6 @@ interface PersistedState {
 	enabled: boolean;
 	session: PersistedSession | null;
 	phase: ReviewPhase;
-	fileIndex: number;
 }
 
 /** Save state to session history. */
@@ -149,7 +144,6 @@ export function persist(state: PRReviewState, pi: ExtensionAPI): void {
 				}
 			: null,
 		phase: state.phase,
-		fileIndex: state.fileIndex,
 	};
 	pi.appendEntry(PERSIST_KEY, persisted);
 }
@@ -161,7 +155,6 @@ export function restore(state: PRReviewState, ctx: ExtensionContext): void {
 
 	state.enabled = saved.enabled ?? false;
 	state.phase = saved.phase ?? "gathering";
-	state.fileIndex = saved.fileIndex ?? 0;
 
 	if (saved.session) {
 		state.session = {

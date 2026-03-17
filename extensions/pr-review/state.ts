@@ -259,7 +259,6 @@ export interface PRReviewState {
 	enabled: boolean;
 	session: ReviewSession | null;
 	phase: ReviewPhase;
-	fileIndex: number;
 }
 
 /** Create the initial state. */
@@ -268,7 +267,6 @@ export function createState(): PRReviewState {
 		enabled: false,
 		session: null,
 		phase: "gathering",
-		fileIndex: 0,
 	};
 }
 
@@ -277,7 +275,6 @@ export function resetState(state: PRReviewState): void {
 	state.enabled = false;
 	state.session = null;
 	state.phase = "gathering";
-	state.fileIndex = 0;
 }
 
 /** Create a new review session. */
