@@ -253,11 +253,56 @@ export async function handleGenerateComments(
 }
 
 /** Overview: show Phase 1 overview panel. */
-export async function handleOverview(
-	_deps: HandlerDeps,
-	_ctx: ExtensionContext,
-) {
-	return notImplemented("overview");
+export async function handleOverview(deps: HandlerDeps, ctx: ExtensionContext) {
+	const { state } = deps;
+
+	if (!state.session) {
+		return textResult("No PR review active. Call 'activate' first.");
+	}
+
+	const session = state.session;
+	if (!session.context) {
+		return textResult("Context not available. Call 'activate' first.");
+	}
+
+	session.phase = "overview";
+	refreshUI(state, ctx);
+
+	const { showOverviewPanel } = await import("./ui/overview-panel.js");
+	const result = await showOverviewPanel(
+		ctx,
+		session.context,
+		session.synopsis,
+	);
+
+	if (!result) {
+		return textResult(
+			"Overview panel dismissed. Call 'overview' to re-show, " +
+				"or 'review' to proceed.",
+		);
+	}
+
+	if (result.action === "review") {
+		return textResult(
+			"User chose to proceed to review. Call 'review' to show the review panel.",
+		);
+	}
+
+	if (result.action === "steer") {
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text:
+						`User feedback from overview panel:\n\n"${result.note}"\n\n` +
+						"Process the feedback and call 'overview' to re-open the panel.",
+				},
+			],
+			details: { action: "overview", steered: true },
+		};
+	}
+
+	return textResult("Overview complete.");
 }
 
 /** Review: show Phase 2 review panel. */
