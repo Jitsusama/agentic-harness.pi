@@ -171,8 +171,9 @@ function buildReferencesTab(
 	const refView: WorkspaceView = {
 		key: "r",
 		label: "References",
-		content: (theme: Theme, _width: number) => {
+		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
+			const wrapWidth = contentWrapWidth(width);
 			const lines: string[] = [];
 
 			if (references.length === 0) {
@@ -192,12 +193,22 @@ function buildReferencesTab(
 					const isSel = flatIdx === selected;
 					const cursor = isSel ? "▸ " : "  ";
 					const icon = TYPE_ICON[ref.type];
-					const title = ref.title;
-					const source = theme.fg("dim", `from ${ref.source}`);
-					const depth = theme.fg("dim", `depth ${ref.depth}`);
+					const depthTag =
+						ref.depth > 0 ? theme.fg("dim", ` ᐩ${ref.depth}`) : "";
 
-					const line = `${pad}${cursor}${icon} ${title} ${source} ${depth}`;
+					const line = `${pad}${cursor}${icon} ${ref.title}${depthTag}`;
 					lines.push(isSel ? theme.fg("accent", line) : line);
+
+					// Show description below selected item
+					if (isSel) {
+						const desc = refDescription(ref);
+						if (desc) {
+							for (const wl of wordWrap(desc, wrapWidth - 6)) {
+								lines.push(`${pad}      ${theme.fg("dim", wl)}`);
+							}
+						}
+					}
+
 					flatIdx++;
 				}
 				lines.push("");
@@ -353,7 +364,7 @@ function flattenByType(refs: Reference[]): Reference[] {
 
 /**
  * Estimate the display line for a reference at the given flat index.
- * Accounts for group headers and blank separator lines.
+ * Accounts for group headers, expanded descriptions, and blank lines.
  */
 function estimateRefLine(refs: Reference[], flatIndex: number): number {
 	const groups = groupByType(refs);
@@ -362,15 +373,27 @@ function estimateRefLine(refs: Reference[], flatIndex: number): number {
 
 	for (const [_, items] of groups) {
 		line++; // group header
-		for (const _item of items) {
+		for (const item of items) {
 			if (idx === flatIndex) return line;
-			line++;
+			line++; // item line
+			// Selected item expands with description (~2 lines estimate)
+			if (idx === flatIndex && refDescription(item)) {
+				line += 2;
+			}
 			idx++;
 		}
 		line++; // blank line after group
 	}
 
 	return line;
+}
+
+/** Build a description string for a reference's expanded view. */
+function refDescription(ref: Reference): string {
+	const parts: string[] = [];
+	if (ref.description) parts.push(ref.description);
+	if (ref.source) parts.push(`from ${ref.source}`);
+	return parts.join(" · ");
 }
 
 /** Human-readable label for a reference type. */

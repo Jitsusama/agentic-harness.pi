@@ -182,6 +182,9 @@ export async function crawl(
 		}
 	}
 
+	// ---- Enrich references with known issue/PR titles ----
+	enrichReferences(references, issues, relatedPRs);
+
 	// ---- Source file discovery ----
 	onProgress?.(config.maxDepth, "Discovering source files");
 	const sourceFiles = await discoverSourceFiles(pi, ref, diffFiles, repoPath);
@@ -425,6 +428,64 @@ function extractReferences(
 	}
 
 	return refs;
+}
+
+/**
+ * Enrich references with titles and descriptions from already-fetched
+ * issues and related PRs. Fixes bare "#123" titles from text extraction.
+ */
+function enrichReferences(
+	references: Reference[],
+	issues: LinkedIssue[],
+	relatedPRs: RelatedPR[],
+): void {
+	const issueTitles = new Map<number, { title: string; body: string }>();
+	for (const issue of issues) {
+		issueTitles.set(issue.number, { title: issue.title, body: issue.body });
+		if (issue.parentIssue) {
+			issueTitles.set(issue.parentIssue.number, {
+				title: issue.parentIssue.title,
+				body: issue.parentIssue.body,
+			});
+		}
+		for (const sub of issue.subIssues) {
+			issueTitles.set(sub.number, { title: sub.title, body: "" });
+		}
+	}
+
+	const prTitles = new Map<number, string>();
+	for (const pr of relatedPRs) {
+		prTitles.set(pr.number, pr.title);
+	}
+
+	for (const ref of references) {
+		const num = extractRefNumber(ref.url);
+		if (num === null) continue;
+
+		if (ref.type === "issue" && issueTitles.has(num)) {
+			const data = issueTitles.get(num);
+			if (data && ref.title === `#${num}`) {
+				ref.title = `#${num}: ${data.title}`;
+			}
+			if (data && !ref.description && data.body) {
+				ref.description =
+					data.body.slice(0, 200) + (data.body.length > 200 ? "…" : "");
+			}
+		}
+
+		if (ref.type === "pr" && prTitles.has(num)) {
+			const title = prTitles.get(num);
+			if (title && ref.title === `#${num}`) {
+				ref.title = `#${num}: ${title}`;
+			}
+		}
+	}
+}
+
+/** Extract issue/PR number from a reference URL. */
+function extractRefNumber(url: string): number | null {
+	const match = url.match(/\/(\d+)\/?$/);
+	return match ? Number.parseInt(match[1], 10) : null;
 }
 
 /** Add new references, skipping those already visited. */
