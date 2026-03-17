@@ -34,9 +34,11 @@ export async function showSubmitPanel(
 			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
 
-			// Header
+			// Verdict banner — prominent at the top
+			const verdictColor = verdictThemeColor(session.verdict);
+			const verdictLabel = verdictDisplayLabel(session.verdict);
 			lines.push(
-				` ${theme.fg("accent", theme.bold(`Review Summary for ${session.pr.owner}/${session.pr.repo}#${session.pr.number}`))}`,
+				` ${theme.fg(verdictColor, theme.bold(`━━ ${verdictLabel} ━━`))}  ${theme.fg("dim", `${session.pr.owner}/${session.pr.repo}#${session.pr.number}`)}`,
 			);
 			lines.push("");
 
@@ -49,13 +51,6 @@ export async function showSubmitPanel(
 			} else {
 				lines.push(`${pad}${theme.fg("dim", "No review body yet")}`);
 			}
-			lines.push("");
-
-			// Verdict
-			const verdictColor = verdictThemeColor(session.verdict);
-			lines.push(
-				`${pad}${theme.fg("text", "Verdict:")} ${theme.fg(verdictColor, session.verdict)}`,
-			);
 			lines.push("");
 
 			// Comment summary
@@ -138,6 +133,18 @@ function formatCommentOneLiner(comment: ReviewComment, theme: Theme): string {
 			: "";
 
 	return `${theme.fg("dim", location)} ${theme.fg("accent", comment.label)}${theme.fg("dim", decorStr)}: ${comment.subject}`;
+}
+
+/** Human-readable verdict label. */
+function verdictDisplayLabel(verdict: ReviewVerdict): string {
+	switch (verdict) {
+		case "APPROVE":
+			return "APPROVE";
+		case "REQUEST_CHANGES":
+			return "REQUEST CHANGES";
+		default:
+			return "COMMENT";
+	}
 }
 
 /** Map verdict to theme color. */
