@@ -306,8 +306,55 @@ export async function handleOverview(deps: HandlerDeps, ctx: ExtensionContext) {
 }
 
 /** Review: show Phase 2 review panel. */
-export async function handleReview(_deps: HandlerDeps, _ctx: ExtensionContext) {
-	return notImplemented("review");
+export async function handleReview(deps: HandlerDeps, ctx: ExtensionContext) {
+	const { state } = deps;
+
+	if (!state.session) {
+		return textResult("No PR review active. Call 'activate' first.");
+	}
+
+	const session = state.session;
+	if (!session.context) {
+		return textResult("Context not available. Call 'activate' first.");
+	}
+
+	session.phase = "reviewing";
+	refreshUI(state, ctx);
+
+	const { showReviewPanel } = await import("./ui/review-panel.js");
+	const result = await showReviewPanel(ctx, session);
+
+	persist(state, deps.pi);
+	refreshUI(state, ctx);
+
+	if (!result) {
+		return textResult(
+			"Review panel dismissed. Call 'review' to re-show, " +
+				"or 'submit' to proceed.",
+		);
+	}
+
+	if (result.action === "submit") {
+		return textResult(
+			"User submitted from review panel. Call 'submit' to show the submit panel.",
+		);
+	}
+
+	if (result.action === "steer") {
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text:
+						`User feedback from review panel:\n\n"${result.note}"\n\n` +
+						"Process the feedback and call 'review' to re-open the panel.",
+				},
+			],
+			details: { action: "review", steered: true },
+		};
+	}
+
+	return textResult("Review complete.");
 }
 
 /** Add a review comment. */
