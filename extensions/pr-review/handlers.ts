@@ -93,6 +93,68 @@ async function ensureContext(
 	}
 }
 
+// ---- Diff line helpers ----
+
+/** A new-side line range covered by a diff hunk. */
+interface HunkRange {
+	start: number;
+	end: number;
+}
+
+/**
+ * Build a map of file path → hunk ranges (new-side line numbers).
+ * GitHub's review API accepts lines within these ranges.
+ */
+function buildDiffHunkRanges(session: ReviewSession): Map<string, HunkRange[]> {
+	const map = new Map<string, HunkRange[]>();
+	const context = session.context;
+	if (!context) return map;
+
+	for (const file of context.diffFiles) {
+		const ranges: HunkRange[] = [];
+		for (const hunk of file.hunks) {
+			ranges.push({
+				start: hunk.newStart,
+				end: hunk.newStart + hunk.newCount - 1,
+			});
+		}
+		map.set(file.path, ranges);
+	}
+
+	return map;
+}
+
+/**
+ * Clamp a line number to a valid diff hunk range.
+ * If the line falls within a hunk, return it as-is.
+ * If outside all hunks, clamp to the nearest hunk boundary.
+ */
+function clampToDiffRange(
+	line: number,
+	ranges: HunkRange[] | undefined,
+): number {
+	if (!ranges || ranges.length === 0) return line;
+
+	// Check if line is within any hunk
+	for (const r of ranges) {
+		if (line >= r.start && line <= r.end) return line;
+	}
+
+	// Find the nearest hunk boundary
+	let closest = line;
+	let minDist = Number.MAX_SAFE_INTEGER;
+	for (const r of ranges) {
+		for (const boundary of [r.start, r.end]) {
+			const dist = Math.abs(boundary - line);
+			if (dist < minDist) {
+				minDist = dist;
+				closest = boundary;
+			}
+		}
+	}
+	return closest;
+}
+
 // ---- Worktree helpers ----
 
 /** Directory where review worktrees are created. */
@@ -694,12 +756,19 @@ export async function handlePost(deps: HandlerDeps) {
 	};
 
 	const approved = session.comments.filter((c) => c.status === "approved");
+
+	// Build hunk ranges per file so we can clamp comment lines
+	const hunkRanges = buildDiffHunkRanges(session);
+
 	const ghComments = approved
 		.filter((c) => c.file !== null)
 		.map((c) => {
 			const decorStr =
 				c.decorations.length > 0 ? ` (${c.decorations.join(", ")})` : "";
 			const body = `${c.label}${decorStr}: ${c.subject}\n\n${c.discussion}`;
+
+			const ranges = hunkRanges.get(c.file as string);
+			const endLine = clampToDiffRange(c.endLine ?? 1, ranges);
 
 			const comment: {
 				path: string;
@@ -710,7 +779,7 @@ export async function handlePost(deps: HandlerDeps) {
 				body: string;
 			} = {
 				path: c.file as string,
-				line: c.endLine ?? 1,
+				line: endLine,
 				side: "RIGHT",
 				body,
 			};
@@ -720,8 +789,11 @@ export async function handlePost(deps: HandlerDeps) {
 				c.endLine !== null &&
 				c.startLine !== c.endLine
 			) {
-				comment.start_line = c.startLine;
-				comment.start_side = "RIGHT";
+				const startLine = clampToDiffRange(c.startLine, ranges);
+				if (startLine < endLine) {
+					comment.start_line = startLine;
+					comment.start_side = "RIGHT";
+				}
 			}
 
 			return comment;
