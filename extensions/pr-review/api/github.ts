@@ -2,7 +2,9 @@
  * GitHub API integration for PR review — fetch PR metadata,
  * diff, linked issues, and related context.
  *
- * Uses GraphQL for structured data and REST/CLI for diffs.
+ * Uses GraphQL for structured data and gh CLI for diffs.
+ * Response types are defined in types.ts — parsing functions
+ * receive typed data, no manual property navigation.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -19,6 +21,12 @@ import type {
 	RelatedPR,
 } from "../state.js";
 import type { PRReference } from "./parse.js";
+import type {
+	GQLIssue,
+	GQLPullRequest,
+	PRContextResponse,
+	ReviewsResponse,
+} from "./types.js";
 
 // ---- GraphQL queries ----
 
@@ -50,90 +58,6 @@ query($owner: String!, $repo: String!, $pr: Int!) {
     }
   }
 }`;
-
-// ---- Public API ----
-
-/**
- * Fetch PR metadata and linked issues via GraphQL.
- * Returns the raw data for further parsing.
- */
-export async function fetchPRGraphQL(
-	pi: ExtensionAPI,
-	ref: PRReference,
-): Promise<{
-	pr: PRMetadata;
-	prComments: IssueComment[];
-	issues: LinkedIssue[];
-}> {
-	const data = await runGraphQL(pi, PR_CONTEXT_QUERY, ref);
-	return {
-		pr: parsePRMetadata(data, ref.number),
-		prComments: parsePRComments(data),
-		issues: parseLinkedIssues(data, ref),
-	};
-}
-
-/**
- * Fetch sibling PRs for the given linked issues.
- */
-export { fetchSiblingPRs };
-
-/**
- * Assemble a GatheredContext from individually fetched parts.
- */
-export function assembleContext(
-	pr: PRMetadata,
-	diff: string,
-	prComments: IssueComment[],
-	issues: LinkedIssue[],
-	siblingPRs: RelatedPR[],
-): GatheredContext {
-	return {
-		pr,
-		diff,
-		diffFiles: parseDiff(diff),
-		issues,
-		siblingPRs,
-		prComments,
-	};
-}
-
-/**
- * Fetch the unified diff for a PR via gh CLI.
- */
-export async function fetchDiff(
-	pi: ExtensionAPI,
-	ref: PRReference,
-): Promise<string> {
-	const result = await pi.exec("gh", [
-		"pr",
-		"diff",
-		String(ref.number),
-		"--repo",
-		`${ref.owner}/${ref.repo}`,
-	]);
-
-	if (result.code !== 0) {
-		throw new Error(`Failed to fetch diff: ${result.stderr}`);
-	}
-
-	return result.stdout;
-}
-
-/**
- * Get the current GitHub username.
- */
-export async function getCurrentUser(pi: ExtensionAPI): Promise<string> {
-	const result = await pi.exec("gh", ["api", "user", "--jq", ".login"]);
-
-	if (result.code !== 0) {
-		throw new Error(`Failed to get current user: ${result.stderr}`);
-	}
-
-	return result.stdout.trim();
-}
-
-// ---- Previous reviews (re-review support) ----
 
 const REVIEWS_QUERY = `
 query($owner: String!, $repo: String!, $pr: Int!) {
@@ -168,250 +92,80 @@ query($owner: String!, $repo: String!, $pr: Int!) {
   }
 }`;
 
+// ---- Public API ----
+
 /**
- * Fetch previous reviews by the given user on this PR.
- * Returns reviews and their associated threads.
+ * Fetch PR metadata and linked issues via GraphQL.
  */
-export async function fetchPreviousReviews(
+export async function fetchPRGraphQL(
 	pi: ExtensionAPI,
 	ref: PRReference,
-	username: string,
 ): Promise<{
-	reviews: PreviousReview[];
-	threads: PreviousThread[];
+	pr: PRMetadata;
+	prComments: IssueComment[];
+	issues: LinkedIssue[];
 }> {
-	const data = await runGraphQL(pi, REVIEWS_QUERY, ref);
+	const data = await runGraphQL<PRContextResponse>(pi, PR_CONTEXT_QUERY, ref);
+	const pr = data.data.repository.pullRequest;
 
-	const reviewNodes =
-		(nested(data, "data", "repository", "pullRequest", "reviews", "nodes") as
-			| Array<Record<string, unknown>>
-			| undefined) ?? [];
-	const threadNodes =
-		(nested(
-			data,
-			"data",
-			"repository",
-			"pullRequest",
-			"reviewThreads",
-			"nodes",
-		) as Array<Record<string, unknown>> | undefined) ?? [];
-
-	// Find reviews by this user
-	const userReviews = reviewNodes.filter(
-		(r) => nested(r, "author", "login") === username,
-	);
-
-	const userReviewIds = new Set(userReviews.map((r) => str(r, "id")));
-
-	const reviews: PreviousReview[] = userReviews.map((r) => {
-		const reviewId = str(r, "id");
-		const threadCount = threadNodes.filter((t) => {
-			const comments =
-				(nested(t, "comments", "nodes") as
-					| Array<Record<string, unknown>>
-					| undefined) ?? [];
-			return comments.some(
-				(c) => nested(c, "pullRequestReview", "id") === reviewId,
-			);
-		}).length;
-
-		return {
-			id: reviewId,
-			state: str(r, "state"),
-			submittedAt: str(r, "submittedAt"),
-			body: str(r, "body"),
-			threadCount,
-		};
-	});
-
-	// Find threads associated with this user's reviews
-	const threads: PreviousThread[] = [];
-	for (const t of threadNodes) {
-		const commentNodes =
-			(nested(t, "comments", "nodes") as
-				| Array<Record<string, unknown>>
-				| undefined) ?? [];
-
-		const belongsToUser = commentNodes.some((c) => {
-			const reviewId = nested(c, "pullRequestReview", "id");
-			return typeof reviewId === "string" && userReviewIds.has(reviewId);
-		});
-
-		if (!belongsToUser) continue;
-
-		const isResolved = t.isResolved === true;
-		const lastComment = commentNodes[commentNodes.length - 1];
-		const lastAuthor =
-			typeof lastComment === "object" && lastComment
-				? ((nested(lastComment, "author", "login") as string | undefined) ??
-					"unknown")
-				: "unknown";
-
-		let resolvedBy: PreviousThread["resolvedBy"] = null;
-		if (isResolved) {
-			if (lastAuthor === username) resolvedBy = "self";
-			else if (
-				lastAuthor ===
-				(nested(data, "data", "repository", "pullRequest", "author", "login") as
-					| string
-					| undefined)
-			)
-				resolvedBy = "author";
-			else resolvedBy = "other";
-		}
-
-		threads.push({
-			id: str(t, "id"),
-			file: str(t, "path"),
-			line: num(t, "line"),
-			body: str(commentNodes[0] ?? {}, "body"),
-			isResolved,
-			resolvedBy,
-			comments: commentNodes.map((c) => ({
-				author:
-					(nested(c, "author", "login") as string | undefined) ?? "unknown",
-				body: str(c, "body"),
-				createdAt: str(c, "createdAt"),
-			})),
-		});
-	}
-
-	return { reviews, threads };
-}
-
-/**
- * Post a review with comments and verdict to GitHub.
- */
-export async function postReview(
-	pi: ExtensionAPI,
-	ref: PRReference,
-	body: string,
-	verdict: string,
-	comments: Array<{
-		path: string;
-		line: number;
-		start_line?: number;
-		side: string;
-		start_side?: string;
-		body: string;
-	}>,
-): Promise<void> {
-	const payload = JSON.stringify({
-		event: verdict,
-		body,
-		comments,
-	});
-
-	const { writeFileSync, unlinkSync } = await import("node:fs");
-	const { join } = await import("node:path");
-	const { tmpdir } = await import("node:os");
-
-	const tmpFile = join(tmpdir(), `pi-pr-review-${Date.now()}.json`);
-	try {
-		writeFileSync(tmpFile, payload, "utf-8");
-
-		const result = await pi.exec("gh", [
-			"api",
-			"--method",
-			"POST",
-			`repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`,
-			"--input",
-			tmpFile,
-		]);
-
-		if (result.code !== 0) {
-			throw new Error(`Failed to post review: ${result.stderr}`);
-		}
-	} finally {
-		try {
-			unlinkSync(tmpFile);
-		} catch {
-			/* Temp file cleanup — safe to ignore */
-		}
-	}
-}
-
-// ---- Parsing helpers ----
-
-/** Extract PR metadata from the GraphQL response. */
-function parsePRMetadata(
-	data: Record<string, unknown>,
-	prNumber: number,
-): PRMetadata {
-	const pr = nested(data, "data", "repository", "pullRequest") ?? {};
 	return {
-		number: prNumber,
-		title: str(pr, "title"),
-		body: str(pr, "body"),
-		author: nested(pr, "author", "login") ?? "unknown",
-		headRefName: str(pr, "headRefName"),
-		baseRefName: str(pr, "baseRefName"),
-		additions: num(pr, "additions"),
-		deletions: num(pr, "deletions"),
-		changedFiles: num(pr, "changedFiles"),
-		state: str(pr, "state"),
+		pr: parsePRMetadata(pr, ref.number),
+		prComments: parsePRComments(pr),
+		issues: parseLinkedIssues(pr, ref),
 	};
 }
 
-/** Extract PR comments from the GraphQL response. */
-function parsePRComments(data: Record<string, unknown>): IssueComment[] {
-	const nodes =
-		(nested(data, "data", "repository", "pullRequest", "comments", "nodes") as
-			| Array<Record<string, unknown>>
-			| undefined) ?? [];
-
-	return nodes.map((c) => ({
-		author: nested(c, "author", "login") ?? "unknown",
-		body: str(c, "body"),
-		createdAt: str(c, "createdAt"),
-	}));
+/** Assemble a GatheredContext from individually fetched parts. */
+export function assembleContext(
+	pr: PRMetadata,
+	diff: string,
+	prComments: IssueComment[],
+	issues: LinkedIssue[],
+	siblingPRs: RelatedPR[],
+): GatheredContext {
+	return {
+		pr,
+		diff,
+		diffFiles: parseDiff(diff),
+		issues,
+		siblingPRs,
+		prComments,
+	};
 }
 
-/** Extract linked issues from the GraphQL response. */
-function parseLinkedIssues(
-	data: Record<string, unknown>,
+/** Fetch the unified diff for a PR via gh CLI. */
+export async function fetchDiff(
+	pi: ExtensionAPI,
 	ref: PRReference,
-): LinkedIssue[] {
-	const nodes =
-		(nested(
-			data,
-			"data",
-			"repository",
-			"pullRequest",
-			"closingIssuesReferences",
-			"nodes",
-		) as Array<Record<string, unknown>> | undefined) ?? [];
+): Promise<string> {
+	const result = await pi.exec("gh", [
+		"pr",
+		"diff",
+		String(ref.number),
+		"--repo",
+		`${ref.owner}/${ref.repo}`,
+	]);
 
-	return nodes.map((issue) => {
-		const labelNodes =
-			(nested(issue, "labels", "nodes") as
-				| Array<Record<string, unknown>>
-				| undefined) ?? [];
-		const commentNodes =
-			(nested(issue, "comments", "nodes") as
-				| Array<Record<string, unknown>>
-				| undefined) ?? [];
+	if (result.code !== 0) {
+		throw new Error(`Failed to fetch diff: ${result.stderr}`);
+	}
 
-		return {
-			number: num(issue, "number"),
-			title: str(issue, "title"),
-			body: str(issue, "body"),
-			state: str(issue, "state"),
-			labels: labelNodes.map((l) => str(l, "name")),
-			comments: commentNodes.map((c) => ({
-				author: nested(c, "author", "login") ?? "unknown",
-				body: str(c, "body"),
-				createdAt: str(c, "createdAt"),
-			})),
-			parentIssue: null,
-			subIssues: [],
-			url: `https://github.com/${ref.owner}/${ref.repo}/issues/${num(issue, "number")}`,
-		};
-	});
+	return result.stdout;
 }
 
-/** Fetch PRs that reference the same issues (sibling PRs). */
-async function fetchSiblingPRs(
+/** Get the current GitHub username. */
+export async function getCurrentUser(pi: ExtensionAPI): Promise<string> {
+	const result = await pi.exec("gh", ["api", "user", "--jq", ".login"]);
+
+	if (result.code !== 0) {
+		throw new Error(`Failed to get current user: ${result.stderr}`);
+	}
+
+	return result.stdout.trim();
+}
+
+/** Fetch sibling PRs for the given linked issues. */
+export async function fetchSiblingPRs(
 	pi: ExtensionAPI,
 	ref: PRReference,
 	issues: LinkedIssue[],
@@ -455,6 +209,180 @@ async function fetchSiblingPRs(
 	return siblings;
 }
 
+/**
+ * Fetch previous reviews by the given user on this PR.
+ * Returns reviews and their associated threads.
+ */
+export async function fetchPreviousReviews(
+	pi: ExtensionAPI,
+	ref: PRReference,
+	username: string,
+	prAuthorLogin: string,
+): Promise<{
+	reviews: PreviousReview[];
+	threads: PreviousThread[];
+}> {
+	const data = await runGraphQL<ReviewsResponse>(pi, REVIEWS_QUERY, ref);
+	const { reviews: reviewsNode, reviewThreads } =
+		data.data.repository.pullRequest;
+
+	const reviewNodes = reviewsNode.nodes;
+	const threadNodes = reviewThreads.nodes;
+
+	// Find reviews by this user
+	const userReviews = reviewNodes.filter((r) => r.author?.login === username);
+	const userReviewIds = new Set(userReviews.map((r) => r.id));
+
+	const reviews: PreviousReview[] = userReviews.map((r) => {
+		const threadCount = threadNodes.filter((t) =>
+			t.comments.nodes.some((c) => c.pullRequestReview?.id === r.id),
+		).length;
+
+		return {
+			id: r.id,
+			state: r.state,
+			submittedAt: r.submittedAt,
+			body: r.body,
+			threadCount,
+		};
+	});
+
+	// Find threads associated with this user's reviews
+	const threads: PreviousThread[] = [];
+	for (const t of threadNodes) {
+		const comments = t.comments.nodes;
+
+		const belongsToUser = comments.some(
+			(c) =>
+				c.pullRequestReview?.id != null &&
+				userReviewIds.has(c.pullRequestReview.id),
+		);
+		if (!belongsToUser) continue;
+
+		const isResolved = t.isResolved;
+		const lastComment = comments[comments.length - 1];
+		const lastAuthor = lastComment?.author?.login ?? "unknown";
+
+		let resolvedBy: PreviousThread["resolvedBy"] = null;
+		if (isResolved) {
+			if (lastAuthor === username) resolvedBy = "self";
+			else if (lastAuthor === prAuthorLogin) resolvedBy = "author";
+			else resolvedBy = "other";
+		}
+
+		threads.push({
+			id: t.id,
+			file: t.path,
+			line: t.line ?? 0,
+			body: comments[0]?.body ?? "",
+			isResolved,
+			resolvedBy,
+			comments: comments.map((c) => ({
+				author: c.author?.login ?? "unknown",
+				body: c.body,
+				createdAt: c.createdAt,
+			})),
+		});
+	}
+
+	return { reviews, threads };
+}
+
+/** Post a review with comments and verdict to GitHub. */
+export async function postReview(
+	pi: ExtensionAPI,
+	ref: PRReference,
+	body: string,
+	verdict: string,
+	comments: Array<{
+		path: string;
+		line: number;
+		start_line?: number;
+		side: string;
+		start_side?: string;
+		body: string;
+	}>,
+): Promise<void> {
+	const payload = JSON.stringify({ event: verdict, body, comments });
+
+	const { writeFileSync, unlinkSync } = await import("node:fs");
+	const { join } = await import("node:path");
+	const { tmpdir } = await import("node:os");
+
+	const tmpFile = join(tmpdir(), `pi-pr-review-${Date.now()}.json`);
+	try {
+		writeFileSync(tmpFile, payload, "utf-8");
+
+		const result = await pi.exec("gh", [
+			"api",
+			"--method",
+			"POST",
+			`repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`,
+			"--input",
+			tmpFile,
+		]);
+
+		if (result.code !== 0) {
+			throw new Error(`Failed to post review: ${result.stderr}`);
+		}
+	} finally {
+		try {
+			unlinkSync(tmpFile);
+		} catch {
+			/* Temp file cleanup — safe to ignore */
+		}
+	}
+}
+
+// ---- Parsing helpers ----
+
+/** Extract PR metadata from the GraphQL PR node. */
+function parsePRMetadata(pr: GQLPullRequest, prNumber: number): PRMetadata {
+	return {
+		number: prNumber,
+		title: pr.title,
+		body: pr.body,
+		author: pr.author?.login ?? "unknown",
+		headRefName: pr.headRefName,
+		baseRefName: pr.baseRefName,
+		additions: pr.additions,
+		deletions: pr.deletions,
+		changedFiles: pr.changedFiles,
+		state: pr.state,
+	};
+}
+
+/** Extract PR comments from the GraphQL PR node. */
+function parsePRComments(pr: GQLPullRequest): IssueComment[] {
+	return pr.comments.nodes.map((c) => ({
+		author: c.author?.login ?? "unknown",
+		body: c.body,
+		createdAt: c.createdAt,
+	}));
+}
+
+/** Extract linked issues from the GraphQL PR node. */
+function parseLinkedIssues(
+	pr: GQLPullRequest,
+	ref: PRReference,
+): LinkedIssue[] {
+	return pr.closingIssuesReferences.nodes.map((issue: GQLIssue) => ({
+		number: issue.number,
+		title: issue.title,
+		body: issue.body,
+		state: issue.state,
+		labels: issue.labels.nodes.map((l) => l.name),
+		comments: issue.comments.nodes.map((c) => ({
+			author: c.author?.login ?? "unknown",
+			body: c.body,
+			createdAt: c.createdAt,
+		})),
+		parentIssue: null,
+		subIssues: [],
+		url: `https://github.com/${ref.owner}/${ref.repo}/issues/${issue.number}`,
+	}));
+}
+
 // ---- Diff parsing ----
 
 /** Parse unified diff output into per-file structures. */
@@ -472,7 +400,6 @@ export function parseDiff(diff: string): DiffFile[] {
 		let additions = 0;
 		let deletions = 0;
 
-		// Detect file status from diff headers
 		if (lines.some((l) => l.startsWith("new file"))) {
 			status = "added";
 		} else if (lines.some((l) => l.startsWith("deleted file"))) {
@@ -546,13 +473,7 @@ export function parseDiff(diff: string): DiffFile[] {
 
 		if (currentHunk) hunks.push(currentHunk);
 
-		files.push({
-			path: newPath,
-			status,
-			hunks,
-			additions,
-			deletions,
-		});
+		files.push({ path: newPath, status, hunks, additions, deletions });
 	}
 
 	return files;
@@ -560,12 +481,12 @@ export function parseDiff(diff: string): DiffFile[] {
 
 // ---- GraphQL runner ----
 
-/** Execute a GraphQL query via gh CLI. */
-async function runGraphQL(
+/** Execute a typed GraphQL query via gh CLI. */
+async function runGraphQL<T>(
 	pi: ExtensionAPI,
 	query: string,
 	ref: PRReference,
-): Promise<Record<string, unknown>> {
+): Promise<T> {
 	const result = await pi.exec("gh", [
 		"api",
 		"graphql",
@@ -584,30 +505,4 @@ async function runGraphQL(
 	}
 
 	return JSON.parse(result.stdout);
-}
-
-// ---- Safe property access ----
-
-/** Safely navigate nested objects. */
-function nested(obj: unknown, ...keys: string[]): unknown {
-	let current = obj;
-	for (const key of keys) {
-		if (current == null || typeof current !== "object") return undefined;
-		current = (current as Record<string, unknown>)[key];
-	}
-	return current;
-}
-
-/** Safely extract a string property. */
-function str(obj: unknown, key: string): string {
-	if (obj == null || typeof obj !== "object") return "";
-	const val = (obj as Record<string, unknown>)[key];
-	return typeof val === "string" ? val : "";
-}
-
-/** Safely extract a number property. */
-function num(obj: unknown, key: string): number {
-	if (obj == null || typeof obj !== "object") return 0;
-	const val = (obj as Record<string, unknown>)[key];
-	return typeof val === "number" ? val : 0;
 }

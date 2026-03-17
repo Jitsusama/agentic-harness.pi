@@ -331,10 +331,10 @@ export default function prReview(pi: ExtensionAPI) {
 		state.enabled = true;
 		activate(state, pi, ctx);
 
-		// Shared state for tasks that depend on each other.
-		// The sibling PRs task waits for the GraphQL task to
-		// populate fetchedIssues before searching.
+		// Shared state for tasks that depend on the GraphQL result.
+		// Sibling PRs and previous reviews both wait for it.
 		let fetchedIssues: LinkedIssue[] = [];
+		let fetchedAuthor = "";
 		let graphqlDone: () => void;
 		const graphqlReady = new Promise<void>((resolve) => {
 			graphqlDone = resolve;
@@ -349,6 +349,7 @@ export default function prReview(pi: ExtensionAPI) {
 					run: async () => {
 						const data = await fetchPRGraphQL(pi, ref);
 						fetchedIssues = data.issues;
+						fetchedAuthor = data.pr.author;
 						graphqlDone();
 						return data;
 					},
@@ -368,8 +369,9 @@ export default function prReview(pi: ExtensionAPI) {
 					label: "Previous reviews",
 					run: async () => {
 						try {
+							await graphqlReady;
 							const username = await getCurrentUser(pi);
-							return fetchPreviousReviews(pi, ref, username);
+							return fetchPreviousReviews(pi, ref, username, fetchedAuthor);
 						} catch {
 							/* Previous reviews unavailable — not fatal */
 							return { reviews: [], threads: [] };
