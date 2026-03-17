@@ -146,6 +146,21 @@ export async function showWorkspacePrompt(
 				requestRender() {
 					tui.requestRender();
 				},
+				scrollToLine(line: number) {
+					const tab = currentTab;
+					const view = getViewIndex(tab);
+					const scroll = getScrollState(tab, view);
+					const actions = currentActions();
+					const chromeLines = computeChromeLines(true, actions, undefined);
+					const budget = contentBudget(chromeLines);
+					const margin = Math.min(3, Math.floor(budget / 4));
+
+					if (line < scroll.vOffset + margin) {
+						scroll.vOffset = Math.max(0, line - margin);
+					} else if (line >= scroll.vOffset + budget - margin) {
+						scroll.vOffset = line - budget + margin + 1;
+					}
+				},
 				openEditor(label: string, preFill?: string) {
 					editorLabel = label;
 					editorMode = true;

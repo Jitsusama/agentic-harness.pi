@@ -213,11 +213,13 @@ function buildReferencesTab(
 			if (matchesKey(data, Key.up)) {
 				setIndex((getIndex() - 1 + total) % total);
 				inputCtx.invalidate();
+				inputCtx.scrollToLine(estimateRefLine(references, getIndex()));
 				return true;
 			}
 			if (matchesKey(data, Key.down)) {
 				setIndex((getIndex() + 1) % total);
 				inputCtx.invalidate();
+				inputCtx.scrollToLine(estimateRefLine(references, getIndex()));
 				return true;
 			}
 
@@ -287,11 +289,13 @@ function buildSourceTab(
 			if (matchesKey(data, Key.up)) {
 				setIndex((getIndex() - 1 + total) % total);
 				inputCtx.invalidate();
+				inputCtx.scrollToLine(getIndex());
 				return true;
 			}
 			if (matchesKey(data, Key.down)) {
 				setIndex((getIndex() + 1) % total);
 				inputCtx.invalidate();
+				inputCtx.scrollToLine(getIndex());
 				return true;
 			}
 
@@ -345,6 +349,28 @@ function groupByType(refs: Reference[]): [Reference["type"], Reference[]][] {
 /** Flatten references in display order (grouped by type). */
 function flattenByType(refs: Reference[]): Reference[] {
 	return groupByType(refs).flatMap(([_, items]) => items);
+}
+
+/**
+ * Estimate the display line for a reference at the given flat index.
+ * Accounts for group headers and blank separator lines.
+ */
+function estimateRefLine(refs: Reference[], flatIndex: number): number {
+	const groups = groupByType(refs);
+	let line = 0;
+	let idx = 0;
+
+	for (const [_, items] of groups) {
+		line++; // group header
+		for (const _item of items) {
+			if (idx === flatIndex) return line;
+			line++;
+			idx++;
+		}
+		line++; // blank line after group
+	}
+
+	return line;
 }
 
 /** Human-readable label for a reference type. */
