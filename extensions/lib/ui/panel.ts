@@ -14,6 +14,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import { showSinglePrompt } from "./prompt-single.js";
 import { showTabbedPrompt } from "./prompt-tabbed.js";
+import { showWorkspacePrompt } from "./prompt-workspace.js";
 import {
 	contentBudget,
 	handleScrollInput,
@@ -29,6 +30,8 @@ import {
 	type TabbedPromptConfig,
 	type TabbedResult,
 	type ViewConfig,
+	type WorkspaceConfig,
+	type WorkspaceResult,
 } from "./types.js";
 
 // Re-export layout helpers for backward compatibility
@@ -65,6 +68,21 @@ export async function prompt(
 		return showTabbedPrompt(ctx, config);
 	}
 	return showSinglePrompt(ctx, config);
+}
+
+// ---- workspace ----
+
+/**
+ * Show a workspace prompt — stateful tabbed interaction where
+ * tabs are workspaces with per-view actions and input handlers.
+ * Returns the workspace result or null on cancel (Escape).
+ */
+export async function workspace(
+	ctx: ExtensionContext,
+	config: WorkspaceConfig,
+): Promise<WorkspaceResult> {
+	if (!ctx.hasUI) return null;
+	return showWorkspacePrompt(ctx, config);
 }
 
 // ---- view ----

@@ -222,3 +222,75 @@ export const PAGE_SCROLL_OVERLAP = 3;
 
 /** Width reserved for the vertical scrollbar gutter. */
 export const SCROLLBAR_GUTTER = 2;
+
+// ---- Workspace Prompt ----
+
+/** Config for a workspace prompt (stateful tabs). */
+export interface WorkspaceConfig {
+	/** Tab definitions — each is a stateful workspace. */
+	items: WorkspaceItem[];
+	/** Global actions available on all tabs/views. */
+	globalActions?: Action[];
+	/** Compute tab status externally (called on render). */
+	tabStatus: (index: number) => TabStatus;
+	/** Whether all tabs are complete (highlights Ctrl+Enter). */
+	allComplete: () => boolean;
+	/** Enable horizontal scrolling globally. */
+	allowHScroll?: boolean;
+}
+
+/** A single workspace tab. */
+export interface WorkspaceItem {
+	/** Tab label. */
+	label: string;
+	/** Content views. */
+	views: WorkspaceView[];
+	/** Enable hScroll for this item. */
+	allowHScroll?: boolean;
+}
+
+/** A view within a workspace tab. */
+export interface WorkspaceView {
+	/** View switch key. */
+	key: string;
+	/** View label for hint bar. */
+	label: string;
+	/** Render content. May be async. */
+	content: ContentFn | AsyncContentFn;
+	/** Actions specific to this view. */
+	actions?: Action[];
+	/**
+	 * Handle input for this view. Called BEFORE default
+	 * handling (scroll, tabs). Return true if handled.
+	 * Use for selectable lists, per-view actions, etc.
+	 */
+	handleInput?: WorkspaceInputHandler;
+}
+
+/** Input handler for a workspace view. */
+export type WorkspaceInputHandler = (
+	data: string,
+	ctx: WorkspaceInputContext,
+) => boolean;
+
+/** Context passed to view input handlers. */
+export interface WorkspaceInputContext {
+	/** Clear content cache and re-render. Use after state mutation. */
+	invalidate: () => void;
+	/** Trigger a repaint without clearing cache (e.g., cursor moved). */
+	requestRender: () => void;
+	/** Open the note editor with a label. */
+	openEditor: (label: string, preFill?: string) => void;
+	/** Close the panel with a result. */
+	done: (result: WorkspaceResult) => void;
+}
+
+/**
+ * Result from a workspace prompt. Discriminated by type.
+ * null = cancelled (Escape).
+ */
+export type WorkspaceResult =
+	| { type: "submit" }
+	| { type: "steer"; note: string }
+	| { type: "action"; value: string; note?: string }
+	| null;
