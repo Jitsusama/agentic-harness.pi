@@ -7,6 +7,9 @@
  * receive typed data, no manual property navigation.
  */
 
+import { unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type {
 	DiffFile,
@@ -304,10 +307,6 @@ export async function postReview(
 	}>,
 ): Promise<void> {
 	const payload = JSON.stringify({ event: verdict, body, comments });
-
-	const { writeFileSync, unlinkSync } = await import("node:fs");
-	const { join } = await import("node:path");
-	const { tmpdir } = await import("node:os");
 
 	const tmpFile = join(tmpdir(), `pi-pr-review-${Date.now()}.json`);
 	try {
