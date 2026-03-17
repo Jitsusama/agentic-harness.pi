@@ -58,11 +58,6 @@ function textResult(text: string) {
 	return { content: [{ type: "text" as const, text }] };
 }
 
-/** Stub result for unimplemented handlers. */
-function notImplemented(action: string) {
-	return textResult(`Action '${action}' is not implemented yet.`);
-}
-
 /** Get current repo from git remote. */
 async function getCurrentRepo(
 	pi: ExtensionAPI,
@@ -489,12 +484,61 @@ export function handleRemoveComment(
 
 /** Submit: show final review summary panel. */
 export async function handleSubmit(
-	_deps: HandlerDeps,
-	_ctx: ExtensionContext,
-	_reviewBody: string | null,
-	_verdict: string | null,
+	deps: HandlerDeps,
+	ctx: ExtensionContext,
+	reviewBody: string | null,
+	verdict: string | null,
 ) {
-	return notImplemented("submit");
+	const { state, pi } = deps;
+
+	if (!state.session) {
+		return textResult("No PR review active. Call 'activate' first.");
+	}
+
+	const session = state.session;
+
+	// Update body/verdict if provided
+	if (reviewBody !== null) session.reviewBody = reviewBody;
+	if (verdict !== null) {
+		session.verdict = verdict as typeof session.verdict;
+	}
+
+	session.phase = "submitting";
+	refreshUI(state, ctx);
+
+	const { showSubmitPanel } = await import("./ui/submit-panel.js");
+	const result = await showSubmitPanel(ctx, session);
+
+	persist(state, pi);
+
+	if (!result) {
+		return textResult(
+			"Submit panel dismissed. Call 'submit' to re-show, " +
+				"or 'review' to go back.",
+		);
+	}
+
+	if (result.action === "post") {
+		return handlePost(deps);
+	}
+
+	if (result.action === "steer") {
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text:
+						`User feedback from submit panel:\n\n"${result.note}"\n\n` +
+						`Current body: ${session.reviewBody || "(empty)"}\n` +
+						`Current verdict: ${session.verdict}\n\n` +
+						"Update the body/verdict as needed, then call 'submit' again.",
+				},
+			],
+			details: { action: "submit", steered: true },
+		};
+	}
+
+	return textResult("Submit flow complete.");
 }
 
 /** Post: submit review to GitHub. */
