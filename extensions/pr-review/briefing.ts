@@ -169,6 +169,10 @@ export function briefActivation(session: ReviewSession): string {
 		"   - `title` comments: about title accuracy and description completeness",
 	);
 	parts.push("   - `file` comments: code quality, tests, implementation");
+	parts.push(
+		"   - Write comments as a human reviewer — never mention tools " +
+			"(rg, read, bash) or your investigation process in comment text",
+	);
 	parts.push("");
 	parts.push(
 		`Use the \`read\` tool to examine source files at \`${session.repoPath}/\` for deeper analysis.`,

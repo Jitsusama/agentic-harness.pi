@@ -117,7 +117,7 @@ async function createWorktree(
 	prNumber: number,
 ): Promise<string | null> {
 	const branchName = `pr-review-${prNumber}`;
-	const worktreePath = `${WORKTREE_DIR}/${branchName}`;
+	const relPath = `${WORKTREE_DIR}/${branchName}`;
 
 	const fetch = await pi.exec("git", [
 		"fetch",
@@ -126,15 +126,26 @@ async function createWorktree(
 	]);
 	if (fetch.code !== 0) return null;
 
-	const add = await pi.exec("git", [
-		"worktree",
-		"add",
-		worktreePath,
-		branchName,
-	]);
+	const add = await pi.exec("git", ["worktree", "add", relPath, branchName]);
 	if (add.code !== 0) return null;
 
-	return worktreePath;
+	// Return absolute path so fs.readFileSync works from any cwd
+	const abs = await pi.exec("git", ["worktree", "list", "--porcelain"]);
+	if (abs.code === 0) {
+		for (const line of abs.stdout.split("\n")) {
+			if (line.startsWith("worktree ") && line.includes(branchName)) {
+				return line.replace("worktree ", "");
+			}
+		}
+	}
+
+	// Fallback: resolve relative to repo root
+	const root = await pi.exec("git", ["rev-parse", "--show-toplevel"]);
+	if (root.code === 0) {
+		return `${root.stdout.trim()}/${relPath}`;
+	}
+
+	return relPath;
 }
 
 /** Remove a review worktree and its tracking branch. */
