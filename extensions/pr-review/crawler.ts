@@ -182,8 +182,9 @@ export async function crawl(
 		}
 	}
 
-	// ---- Enrich references with known issue/PR titles ----
+	// ---- Enrich references with titles ----
 	enrichReferences(references, issues, relatedPRs);
+	await fetchMissingTitles(pi, ref, references);
 
 	// ---- Source file discovery ----
 	onProgress?.(config.maxDepth, "Discovering source files");
@@ -478,6 +479,54 @@ function enrichReferences(
 			if (title && ref.title === `#${num}`) {
 				ref.title = `#${num}: ${title}`;
 			}
+		}
+	}
+}
+
+/**
+ * Fetch titles for references that still have bare "#123" titles.
+ * Uses gh CLI for lightweight lookups.
+ */
+async function fetchMissingTitles(
+	pi: ExtensionAPI,
+	defaultRef: { owner: string; repo: string },
+	references: Reference[],
+): Promise<void> {
+	const bareRefs = references.filter(
+		(r) => (r.type === "issue" || r.type === "pr") && /^#\d+$/.test(r.title),
+	);
+	if (bareRefs.length === 0) return;
+
+	// Batch fetch — limit to 10 to avoid excessive API calls
+	for (const ref of bareRefs.slice(0, 10)) {
+		const num = extractRefNumber(ref.url);
+		if (num === null) continue;
+
+		const parsed = parseRefUrl(ref.url, defaultRef);
+		const owner = parsed?.owner ?? defaultRef.owner;
+		const repo = parsed?.repo ?? defaultRef.repo;
+
+		try {
+			// gh issue/pr view works for both issues and PRs
+			const result = await pi.exec("gh", [
+				"api",
+				`repos/${owner}/${repo}/issues/${num}`,
+				"--jq",
+				"[.title, .body[:200]] | @tsv",
+			]);
+
+			if (result.code !== 0 || !result.stdout.trim()) continue;
+
+			const parts = result.stdout.trim().split("\t");
+			const title = parts[0];
+			const body = parts[1];
+
+			if (title) ref.title = `#${num}: ${title}`;
+			if (body && !ref.description) {
+				ref.description = body + (body.length >= 200 ? "…" : "");
+			}
+		} catch {
+			/* Lookup failed — keep bare title */
 		}
 	}
 }
