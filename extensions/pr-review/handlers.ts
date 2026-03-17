@@ -523,15 +523,36 @@ export async function handleReview(deps: HandlerDeps, ctx: ExtensionContext) {
 	}
 
 	if (result.action === "steer") {
+		const parts: string[] = [];
+		parts.push(`User feedback from review panel:\n\n"${result.note}"`);
+
+		if (result.commentId) {
+			const comment = session.comments.find((c) => c.id === result.commentId);
+			if (comment) {
+				parts.push("");
+				parts.push("Comment being steered:");
+				parts.push(`- ID: ${comment.id}`);
+				parts.push(`- File: ${comment.file ?? "(PR-level)"}`);
+				if (comment.startLine !== null) {
+					parts.push(`- Lines: ${comment.startLine}-${comment.endLine}`);
+				}
+				parts.push(`- Label: ${comment.label}`);
+				parts.push(`- Subject: ${comment.subject}`);
+				parts.push(`- Discussion: ${comment.discussion}`);
+				parts.push("");
+				parts.push(
+					"Use 'update-comment' with this comment_id to revise it, " +
+						"then call 'review' to re-open the panel.",
+				);
+			}
+		} else {
+			parts.push(
+				"\n\nProcess the feedback and call 'review' to re-open the panel.",
+			);
+		}
+
 		return {
-			content: [
-				{
-					type: "text" as const,
-					text:
-						`User feedback from review panel:\n\n"${result.note}"\n\n` +
-						"Process the feedback and call 'review' to re-open the panel.",
-				},
-			],
+			content: [{ type: "text" as const, text: parts.join("\n") }],
 			details: { action: "review", steered: true },
 		};
 	}

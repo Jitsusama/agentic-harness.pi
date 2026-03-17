@@ -65,7 +65,12 @@ const HANDLED_ACTION: Action = { key: "h", label: "Handled" };
 /** Result from the review panel. */
 export type ReviewPanelResult =
 	| { action: "submit" }
-	| { action: "steer"; note: string }
+	| {
+			action: "steer";
+			note: string;
+			commentId?: string;
+			commentSubject?: string;
+	  }
 	| null;
 
 // ---- Public API ----
@@ -87,9 +92,21 @@ export async function showReviewPanel(
 	// Mutable comment selection indices per tab
 	const commentIndices = new Map<string, number>();
 
+	// Shared stash for comment context when user steers on a specific comment.
+	// Set by comment input handlers, read when processing steer results.
+	const steerState = {
+		commentContext: null as { id: string; subject: string } | null,
+	};
+
 	const rawItems: WorkspaceItem[] = [
-		buildDescTab(ctx, session, tabIds[0] ?? "desc", commentIndices),
-		buildScopeTab(ctx, session, tabIds[1] ?? "scope", commentIndices),
+		buildDescTab(ctx, session, tabIds[0] ?? "desc", commentIndices, steerState),
+		buildScopeTab(
+			ctx,
+			session,
+			tabIds[1] ?? "scope",
+			commentIndices,
+			steerState,
+		),
 		...context.diffFiles.map((file, i) =>
 			buildFileTab(
 				ctx,
@@ -97,6 +114,7 @@ export async function showReviewPanel(
 				file,
 				tabIds[i + 2] ?? `file:${file.path}`,
 				commentIndices,
+				steerState,
 			),
 		),
 	];
@@ -140,7 +158,12 @@ export async function showReviewPanel(
 	}
 
 	if (result.type === "steer") {
-		return { action: "steer", note: result.note };
+		return {
+			action: "steer",
+			note: result.note,
+			commentId: steerState.commentContext?.id,
+			commentSubject: steerState.commentContext?.subject,
+		};
 	}
 
 	// Handle 'h' action — mark current tab handled
@@ -169,6 +192,7 @@ function buildDescTab(
 	session: ReviewSession,
 	tabId: string,
 	commentIndices: Map<string, number>,
+	steerState: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceItem {
 	const context = session.context;
 	if (!context) return { label: "Desc", views: [] };
@@ -177,7 +201,14 @@ function buildDescTab(
 		label: "Desc",
 		views: [
 			buildDescOverview(context, session),
-			buildCommentsView(ctx, session, tabId, "title", commentIndices),
+			buildCommentsView(
+				ctx,
+				session,
+				tabId,
+				"title",
+				commentIndices,
+				steerState,
+			),
 			buildDescRaw(context),
 		],
 	};
@@ -253,6 +284,7 @@ function buildScopeTab(
 	session: ReviewSession,
 	tabId: string,
 	commentIndices: Map<string, number>,
+	steerState: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceItem {
 	const context = session.context;
 	if (!context) return { label: "Scope", views: [] };
@@ -261,7 +293,14 @@ function buildScopeTab(
 		label: "Scope",
 		views: [
 			buildScopeOverview(session),
-			buildCommentsView(ctx, session, tabId, "scope", commentIndices),
+			buildCommentsView(
+				ctx,
+				session,
+				tabId,
+				"scope",
+				commentIndices,
+				steerState,
+			),
 			buildScopeRaw(context),
 		],
 	};
@@ -317,12 +356,20 @@ function buildFileTab(
 	file: DiffFile,
 	tabId: string,
 	commentIndices: Map<string, number>,
+	steerState: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceItem {
 	return {
 		label: shortPath(file.path),
 		views: [
 			buildFileOverview(session, file),
-			buildFileCommentsView(ctx, session, file, tabId, commentIndices),
+			buildFileCommentsView(
+				ctx,
+				session,
+				file,
+				tabId,
+				commentIndices,
+				steerState,
+			),
 			buildFileRaw(session, file),
 		],
 		allowHScroll: true,
@@ -407,6 +454,7 @@ function buildCommentsView(
 	tabId: string,
 	category: "title" | "scope",
 	commentIndices: Map<string, number>,
+	steerState: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceView {
 	const getIndex = () => commentIndices.get(tabId) ?? 0;
 	const setIndex = (i: number) => commentIndices.set(tabId, i);
@@ -429,6 +477,9 @@ function buildCommentsView(
 				session,
 				tabId,
 				inputCtx,
+				(c) => {
+					steerState.commentContext = c;
+				},
 			);
 		},
 	};
@@ -444,6 +495,7 @@ function buildFileCommentsView(
 	file: DiffFile,
 	tabId: string,
 	commentIndices: Map<string, number>,
+	steerState: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceView {
 	const getIndex = () => commentIndices.get(tabId) ?? 0;
 	const setIndex = (i: number) => commentIndices.set(tabId, i);
@@ -466,6 +518,9 @@ function buildFileCommentsView(
 				session,
 				tabId,
 				inputCtx,
+				(c) => {
+					steerState.commentContext = c;
+				},
 			);
 		},
 	};
@@ -551,6 +606,7 @@ function handleCommentInput(
 	session: ReviewSession,
 	tabId: string,
 	inputCtx: WorkspaceInputContext,
+	setSteerContext: (ctx: { id: string; subject: string } | null) => void,
 ): boolean {
 	if (comments.length === 0) {
 		// Allow '+' for new comment even when empty
@@ -598,8 +654,9 @@ function handleCommentInput(
 		return true;
 	}
 
-	// Steer — close panel with steer note about this comment
+	// Steer — stash comment context, then open editor
 	if (matchesKey(data, "s")) {
+		setSteerContext({ id: comment.id, subject: comment.subject });
 		inputCtx.openEditor(`Steer comment "${comment.subject}":`);
 		return true;
 	}
