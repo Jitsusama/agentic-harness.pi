@@ -14,7 +14,7 @@
  *   remove-comment — delete a comment by ID
  *   resume         — return to current phase after conversation
  *   vet            — final vetting with post option
- *   post           — submit review to GitHub (fallback)
+ *   post           — submit review to GitHub
  *   deactivate     — clean up and exit
  *
  * Handlers live in handlers.ts. This file is registration and
@@ -52,7 +52,6 @@ const ACTIONS = [
 	"description",
 	"analyze",
 	"review-files",
-	"next-file",
 	"add-comment",
 	"update-comment",
 	"remove-comment",
@@ -94,7 +93,7 @@ export default function prReview(pi: ExtensionAPI) {
 				description:
 					"activate: start review | context: show context summary | " +
 					"description: review PR description | analyze: deep analysis | " +
-					"review-files: tabbed file review | next-file: (deprecated) | " +
+					"review-files: tabbed file review | " +
 					"add-comment: add a comment | update-comment: edit a comment | " +
 					"remove-comment: delete a comment | resume: return to current phase | " +
 					"vet: final vetting | post: submit review | deactivate: exit",
@@ -149,17 +148,6 @@ export default function prReview(pi: ExtensionAPI) {
 					return handleAnalyze(deps, ctx);
 				case "review-files":
 					return handleReviewFiles(deps, ctx);
-				case "next-file":
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text:
-									"File navigation is now handled within the review-files panel. " +
-									"Call 'review-files' to open the tabbed file review.",
-							},
-						],
-					};
 				case "add-comment":
 					return handleAddComment(deps, comment);
 				case "update-comment":
