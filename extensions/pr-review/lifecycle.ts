@@ -65,10 +65,9 @@ function updateUI(state: PRReviewState, ctx: ExtensionContext): void {
 	}
 
 	const theme = ctx.ui.theme;
-	const prRef = `#${state.session.pr.number}`;
 	ctx.ui.setStatus(
 		PERSIST_KEY,
-		`${theme.fg("accent", STATUS_GLYPH)} ${theme.fg("muted", `PR ${prRef} review`)}`,
+		`${theme.fg("accent", STATUS_GLYPH)} ${theme.fg("muted", "PR Review")}`,
 	);
 
 	const detail = buildDetailText(state);
