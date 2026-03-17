@@ -30,6 +30,8 @@ export interface GQLPullRequest {
 	changedFiles: number;
 	comments: { nodes: GQLComment[] };
 	closingIssuesReferences: { nodes: GQLIssue[] };
+	reviewRequests: { nodes: GQLReviewRequest[] };
+	latestOpinionatedReviews: { nodes: GQLLatestReview[] };
 }
 
 /** Issue node from closingIssuesReferences. */
@@ -57,6 +59,17 @@ export interface GQLComment {
 /** Author node. */
 export interface GQLAuthor {
 	login: string;
+}
+
+/** Review request node — a pending reviewer. */
+export interface GQLReviewRequest {
+	requestedReviewer: GQLAuthor | null;
+}
+
+/** Latest opinionated review — the current verdict per reviewer. */
+export interface GQLLatestReview {
+	author: GQLAuthor | null;
+	state: string;
 }
 
 // ---- Reviews query response ----
@@ -97,4 +110,47 @@ export interface GQLThreadComment {
 	createdAt: string;
 	author: GQLAuthor | null;
 	pullRequestReview: { id: string } | null;
+}
+
+// ---- Deep issue query response ----
+
+/** Response from the ISSUE_DEEP_QUERY. */
+export interface IssueDeepResponse {
+	data: {
+		repository: {
+			issue: GQLDeepIssue;
+		};
+	};
+}
+
+/** Deep issue node with parent/sub-issue relationships. */
+export interface GQLDeepIssue {
+	number: number;
+	title: string;
+	body: string;
+	state: string;
+	labels: { nodes: GQLLabel[] };
+	comments: { nodes: GQLComment[] };
+	trackedInIssues: { nodes: GQLTrackedIssue[] };
+	trackedIssues: { nodes: GQLTrackedIssue[] };
+	timelineItems: { nodes: GQLCrossReference[] };
+}
+
+/** A parent or sub-issue reference. */
+export interface GQLTrackedIssue {
+	number: number;
+	title: string;
+	state: string;
+	body: string;
+}
+
+/** A cross-reference event from the timeline. */
+export interface GQLCrossReference {
+	source: {
+		__typename: string;
+		number?: number;
+		title?: string;
+		state?: string;
+		url?: string;
+	};
 }

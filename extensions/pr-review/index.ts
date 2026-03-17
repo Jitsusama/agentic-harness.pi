@@ -4,18 +4,16 @@
  * Mode for reviewing someone else's pull request. The LLM drives
  * the workflow by calling pr_review with different actions:
  *
- *   activate       — parse PR ref, create worktree, gather context
- *   context        — show context summary (re-showable any time)
- *   description    — review PR description & scope
- *   analyze        — deep analysis context for LLM investigation
- *   review-files   — tabbed file review (diff/file/comments)
- *   add-comment    — add a review comment
- *   update-comment — edit an existing comment by ID
- *   remove-comment — delete a comment by ID
- *   resume         — return to current phase after conversation
- *   vet            — final vetting with post option
- *   post           — submit review to GitHub
- *   deactivate     — clean up and exit
+ *   activate           — parse PR ref, resolve repo, crawl context
+ *   generate-comments  — agent provides analysis and structured comments
+ *   overview           — show Phase 1 overview panel
+ *   review             — show Phase 2 review panel
+ *   add-comment        — add a review comment
+ *   update-comment     — edit an existing comment by ID
+ *   remove-comment     — delete a comment by ID
+ *   submit             — show final review summary panel
+ *   post               — submit review to GitHub
+ *   deactivate         — clean up and exit
  *
  * Handlers live in handlers.ts. This file is registration and
  * wiring only.
@@ -30,16 +28,15 @@ import {
 	type HandlerDeps,
 	handleActivate,
 	handleAddComment,
-	handleAnalyze,
-	handleContext,
 	handleDeactivate,
-	handleDescription,
+	handleGenerateComments,
+	handleOverview,
 	handlePost,
 	handleRemoveComment,
-	handleResume,
-	handleReviewFiles,
+	handleReview,
+	handleSubmit,
 	handleUpdateComment,
-	handleVet,
+	type SourceRoleInput,
 } from "./handlers.js";
 import { deactivate, restore } from "./lifecycle.js";
 import { createState } from "./state.js";
@@ -48,15 +45,13 @@ import { buildPRReviewContext, prReviewContextFilter } from "./transitions.js";
 /** Actions the LLM can request. */
 const ACTIONS = [
 	"activate",
-	"context",
-	"description",
-	"analyze",
-	"review-files",
+	"generate-comments",
+	"overview",
+	"review",
 	"add-comment",
 	"update-comment",
 	"remove-comment",
-	"resume",
-	"vet",
+	"submit",
 	"post",
 	"deactivate",
 ] as const;
@@ -71,32 +66,29 @@ export default function prReview(pi: ExtensionAPI) {
 		name: "pr_review",
 		label: "PR Review",
 		description:
-			"Review someone else's pull request. Gathers context from the PR, " +
-			"linked issues, and codebase, then guides a structured review through " +
-			"description evaluation, deep analysis, and file-by-file comment collection. " +
+			"Review someone else's pull request. Gathers deep context from the PR, " +
+			"linked issues, and codebase, then guides a structured review with " +
+			"AI-generated comments and a polished submit flow. " +
 			"Call with 'activate' to start reviewing a PR.",
 		promptSnippet:
 			"Review a pull request. Read the pr-review skill for methodology.",
 		promptGuidelines: [
 			"Use when the user wants to review someone else's PR, do a code review, or provide PR feedback.",
-			"Workflow: activate → context → description → analyze → review-files → vet → deactivate.",
-			"After activate, call 'context' to show the gathered context summary.",
-			"Call 'description' to review the PR title, description, and scope.",
-			"Call 'analyze' to get context for deep analysis — then investigate the codebase yourself.",
-			"Call 'review-files' for tabbed file review. The user navigates files freely.",
-			"Use 'add-comment' to add review comments, 'update-comment' to edit, 'remove-comment' to delete.",
-			"Call 'vet' to enter final vetting. The user can post directly from the vetting panel.",
-			"The user can break out to conversation at any point. Call 'resume' to return.",
+			"Workflow: activate → generate-comments → overview → review → submit → post → deactivate.",
+			"After activate, analyze the context and call 'generate-comments' with structured comments.",
+			"Call 'overview' to show the Phase 1 overview panel.",
+			"Call 'review' to show the Phase 2 review panel with file tabs.",
+			"Use 'add-comment', 'update-comment', 'remove-comment' for comment management.",
+			"Call 'submit' to show the final review summary, then 'post' to submit.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(ACTIONS, {
 				description:
-					"activate: start review | context: show context summary | " +
-					"description: review PR description | analyze: deep analysis | " +
-					"review-files: tabbed file review | " +
+					"activate: start review | generate-comments: provide analysis and comments | " +
+					"overview: show overview panel | review: show review panel | " +
 					"add-comment: add a comment | update-comment: edit a comment | " +
-					"remove-comment: delete a comment | resume: return to current phase | " +
-					"vet: final vetting | post: submit review | deactivate: exit",
+					"remove-comment: delete a comment | " +
+					"submit: show submit panel | post: submit review | deactivate: exit",
 			}),
 			pr: Type.Optional(
 				Type.String({
@@ -104,21 +96,85 @@ export default function prReview(pi: ExtensionAPI) {
 						"PR reference (URL, #number, owner/repo#number). Only used with 'activate'.",
 				}),
 			),
-			comment: Type.Optional(
-				Type.Object(
+			synopsis: Type.Optional(
+				Type.String({
+					description:
+						"AI-generated PR synopsis. Used with 'generate-comments'.",
+				}),
+			),
+			scope_analysis: Type.Optional(
+				Type.String({
+					description:
+						"AI-generated scope analysis. Used with 'generate-comments'.",
+				}),
+			),
+			source_roles: Type.Optional(
+				Type.Array(
+					Type.Object({
+						path: Type.String({ description: "File path" }),
+						role: Type.String({ description: "Why this file is relevant" }),
+					}),
 					{
-						file: Type.String({ description: "File path" }),
-						startLine: Type.Number({ description: "Start line number" }),
-						endLine: Type.Number({ description: "End line number" }),
+						description:
+							"Source file role descriptions. Used with 'generate-comments'.",
+					},
+				),
+			),
+			comments: Type.Optional(
+				Type.Array(
+					Type.Object({
+						file: Type.Union([Type.String(), Type.Null()], {
+							description: "File path, or null for PR-level comment",
+						}),
+						startLine: Type.Union([Type.Number(), Type.Null()], {
+							description: "Start line number, or null for file-level",
+						}),
+						endLine: Type.Union([Type.Number(), Type.Null()], {
+							description: "End line number, or null for file-level",
+						}),
 						label: Type.String({
 							description: "Conventional comment label",
 						}),
 						decorations: Type.Array(Type.String(), {
-							description: "Comment decorations (blocking, non-blocking, etc.)",
+							description: "Comment decorations",
 						}),
 						subject: Type.String({ description: "Comment subject line" }),
 						discussion: Type.String({
 							description: "Comment discussion body",
+						}),
+						category: StringEnum(["file", "title", "scope"], {
+							description: "Which tab the comment belongs to",
+						}),
+					}),
+					{
+						description: "Structured comments. Used with 'generate-comments'.",
+					},
+				),
+			),
+			comment: Type.Optional(
+				Type.Object(
+					{
+						file: Type.Union([Type.String(), Type.Null()], {
+							description: "File path, or null for PR-level comment",
+						}),
+						startLine: Type.Union([Type.Number(), Type.Null()], {
+							description: "Start line number",
+						}),
+						endLine: Type.Union([Type.Number(), Type.Null()], {
+							description: "End line number",
+						}),
+						label: Type.String({
+							description: "Conventional comment label",
+						}),
+						decorations: Type.Array(Type.String(), {
+							description: "Comment decorations",
+						}),
+						subject: Type.String({ description: "Comment subject line" }),
+						discussion: Type.String({
+							description: "Comment discussion body",
+						}),
+						category: StringEnum(["file", "title", "scope"], {
+							description: "Which tab the comment belongs to",
 						}),
 					},
 					{
@@ -133,31 +189,51 @@ export default function prReview(pi: ExtensionAPI) {
 						"Comment ID. Used with 'update-comment' and 'remove-comment'.",
 				}),
 			),
+			review_body: Type.Optional(
+				Type.String({
+					description: "Review body text. Used with 'submit'.",
+				}),
+			),
+			verdict: Type.Optional(
+				Type.String({
+					description:
+						"Review verdict (APPROVE, REQUEST_CHANGES, COMMENT). Used with 'submit'.",
+				}),
+			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const comment = params.comment as CommentInput | undefined;
+			const comments = params.comments as CommentInput[] | undefined;
+			const sourceRoles = params.source_roles as SourceRoleInput[] | undefined;
 
 			switch (params.action) {
 				case "activate":
 					return handleActivate(deps, ctx, params.pr ?? null);
-				case "context":
-					return handleContext(deps, ctx);
-				case "description":
-					return handleDescription(deps, ctx);
-				case "analyze":
-					return handleAnalyze(deps, ctx);
-				case "review-files":
-					return handleReviewFiles(deps, ctx);
+				case "generate-comments":
+					return handleGenerateComments(
+						deps,
+						(params.synopsis as string) ?? null,
+						(params.scope_analysis as string) ?? null,
+						sourceRoles ?? null,
+						comments ?? null,
+					);
+				case "overview":
+					return handleOverview(deps, ctx);
+				case "review":
+					return handleReview(deps, ctx);
 				case "add-comment":
 					return handleAddComment(deps, comment);
 				case "update-comment":
 					return handleUpdateComment(deps, params.comment_id ?? null, comment);
 				case "remove-comment":
 					return handleRemoveComment(deps, params.comment_id ?? null);
-				case "resume":
-					return handleResume(deps, ctx);
-				case "vet":
-					return handleVet(deps, ctx);
+				case "submit":
+					return handleSubmit(
+						deps,
+						ctx,
+						(params.review_body as string) ?? null,
+						(params.verdict as string) ?? null,
+					);
 				case "post":
 					return handlePost(deps);
 				case "deactivate":
@@ -186,11 +262,18 @@ export default function prReview(pi: ExtensionAPI) {
 
 		renderResult(res, _options, theme) {
 			const d = res.details as
-				| { action?: string; fileCount?: number }
+				| { action?: string; fileCount?: number; commentCount?: number }
 				| undefined;
 			if (d?.action === "activate" && d.fileCount) {
 				return new Text(
 					theme.fg("success", `✓ ${d.fileCount} files, context gathered`),
+					0,
+					0,
+				);
+			}
+			if (d?.action === "generate-comments" && d.commentCount) {
+				return new Text(
+					theme.fg("success", `✓ ${d.commentCount} comments generated`),
 					0,
 					0,
 				);
