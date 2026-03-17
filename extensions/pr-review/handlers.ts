@@ -58,6 +58,35 @@ function textResult(text: string) {
 	return { content: [{ type: "text" as const, text }] };
 }
 
+/**
+ * Ensure gathered context is available. If the session was
+ * restored but context was lost, re-crawl transparently.
+ */
+async function ensureContext(
+	deps: HandlerDeps,
+	ctx: ExtensionContext,
+): Promise<boolean> {
+	const session = deps.state.session;
+	if (!session) return false;
+	if (session.context) return true;
+
+	ctx.ui.notify("Re-fetching PR context…", "info");
+
+	try {
+		const ref: PRReference = {
+			owner: session.pr.owner,
+			repo: session.pr.repo,
+			number: session.pr.number,
+		};
+		const crawlResult = await crawl(deps.pi, ref, session.repoPath);
+		session.context = crawlResult;
+		return true;
+	} catch {
+		/* Re-crawl failed — context unavailable */
+		return false;
+	}
+}
+
 /** Get current repo from git remote. */
 async function getCurrentRepo(
 	pi: ExtensionAPI,
@@ -256,8 +285,8 @@ export async function handleOverview(deps: HandlerDeps, ctx: ExtensionContext) {
 	}
 
 	const session = state.session;
-	if (!session.context) {
-		return textResult("Context not available. Call 'activate' first.");
+	if (!(await ensureContext(deps, ctx))) {
+		return textResult("Failed to load PR context.");
 	}
 
 	session.phase = "overview";
@@ -309,8 +338,8 @@ export async function handleReview(deps: HandlerDeps, ctx: ExtensionContext) {
 	}
 
 	const session = state.session;
-	if (!session.context) {
-		return textResult("Context not available. Call 'activate' first.");
+	if (!(await ensureContext(deps, ctx))) {
+		return textResult("Failed to load PR context.");
 	}
 
 	session.phase = "reviewing";
