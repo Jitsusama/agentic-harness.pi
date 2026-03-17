@@ -26,19 +26,20 @@ then you call back with the next action.
 | `context` | Show context summary (re-showable any time) |
 | `description` | Review PR title, description, and scope |
 | `analyze` | Get context for deep analysis |
-| `review-files` | Start file-by-file review |
-| `next-file` | Advance to next file |
+| `review-files` | Tabbed file review (diff/file/comments per file) |
 | `add-comment` | Add a structured review comment |
+| `update-comment` | Edit an existing comment by ID |
+| `remove-comment` | Delete a comment by ID |
 | `resume` | Return to current phase after breakout |
-| `vet` | Enter final vetting |
-| `post` | Submit the review to GitHub |
+| `vet` | Final vetting — user can post directly from panel |
+| `post` | Submit the review (fallback if not posted from vet) |
 | `deactivate` | Clean up and exit |
 
 ## Standard Sequence
 
 ```
 activate → context → description → analyze → review-files
-→ (next-file)* → vet → post → deactivate
+→ vet → deactivate
 ```
 
 ### 1. Activate and Gather Context
@@ -60,14 +61,13 @@ again.
 
 ### 3. Review Description and Scope
 
-Call `description` to evaluate the PR description. Consider:
+Call `description` to evaluate the PR description. The user
+sees the title, description, scope stats, and linked issues.
+They can steer to request comments on any of these.
 
-- Does the title accurately describe the change?
-- Is the description complete as a historic record?
-- Is the scope appropriate? Should this be split?
-- Does the description match the actual changes?
-
-Add any description-level comments with `add-comment`.
+If the user steers, draft a conventional comment addressing
+their feedback using `add-comment`, then call `description`
+again or `analyze` to proceed.
 
 ### 4. Deep Analysis
 
@@ -85,26 +85,55 @@ Use the `code-review-criteria` skill for evaluation guidance.
 Draft preliminary comments with `add-comment` as you find
 things worth raising.
 
-### 5. File-by-File Review
+### 5. Tabbed File Review
 
-Call `review-files` to start. The tool returns each file's
-diff one at a time. For each file:
+Call `review-files` to open a tabbed panel with one tab per
+changed file. The user navigates freely between files and
+switches between three views per file:
 
-1. Read the full file from the worktree for context
-2. Search for similar patterns in the codebase
-3. Draft comments with `add-comment`
-4. Call `next-file` when done
+- **Diff** (`d`) — unified diff with comment summary
+- **File** (`f`) — full file from worktree, syntax highlighted
+- **Comments** (`c`) — detailed list of comments on this file
 
-### 6. Final Vetting
+The user steers to request comments on specific files. When
+they steer, draft a conventional comment and call `add-comment`,
+then call `review-files` again to re-show the panel.
 
-Call `vet` to see all collected comments. Present them to the
-user for approval. The tool suggests a verdict based on
-whether any comments are blocking.
+When the user finishes (presses done), the tool returns a
+summary of all comments collected.
 
-### 7. Post
+### 6. Comment Management
 
-Call `post` to submit the review to GitHub with the chosen
-verdict (APPROVE, REQUEST_CHANGES, or COMMENT).
+Use these actions to manage the review comment collection:
+
+- `add-comment` — create a new comment with `file`, `startLine`,
+  `endLine`, `label`, `decorations`, `subject`, `discussion`
+- `update-comment` — edit an existing comment by `comment_id`
+  with a `comment` object containing the updated fields
+- `remove-comment` — delete a comment by `comment_id`
+
+### 7. Final Vetting
+
+Call `vet` to show all collected comments in a tabbed panel.
+The summary tab shows the review body, verdict, and stats.
+Each comment tab shows full details.
+
+The user can:
+- Approve or reject individual comments
+- Steer to edit the verdict or review body
+- Post the review directly from the summary tab
+
+If the user steers during vetting to change a comment, use
+`update-comment` with the comment ID and revised fields,
+then call `vet` again.
+
+If the user posts from the panel, the handler submits to
+GitHub automatically. Otherwise, call `post` as a fallback.
+
+### 8. Deactivate
+
+Call `deactivate` to clean up the worktree and exit review
+mode.
 
 ## Comment Format
 
@@ -122,8 +151,10 @@ When calling `add-comment`, provide:
 
 ## Conversation Breakout
 
-The user can break out to conversation at any point. When
-they return, call `resume` to pick up where you left off.
+The user can break out to conversation at any point using
+Shift+Enter in any panel. When they return, call `resume`
+to pick up where you left off. During file review, `resume`
+re-opens the tabbed file panel.
 
 ## What Not to Do
 
@@ -132,3 +163,4 @@ they return, call `resume` to pick up where you left off.
 - Don't just agree with the PR author — evaluate critically
 - Don't leave blocking feedback without constructive guidance
 - Don't comment on style when conventions aren't violated
+- Don't add duplicate comments — use `update-comment` to edit
