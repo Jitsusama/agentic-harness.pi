@@ -45,6 +45,12 @@ export interface SourceRoleInput {
 	role: string;
 }
 
+/** Reference summary from generate-comments. */
+export interface ReferenceSummaryInput {
+	url: string;
+	summary: string;
+}
+
 /** Dependencies shared by all handlers. */
 export interface HandlerDeps {
 	state: PRReviewState;
@@ -292,6 +298,7 @@ export async function handleGenerateComments(
 	synopsis: string | null,
 	scopeAnalysis: string | null,
 	sourceRoles: SourceRoleInput[] | null,
+	referenceSummaries: ReferenceSummaryInput[] | null,
 	comments: CommentInput[] | null,
 ) {
 	const { state, pi } = deps;
@@ -313,6 +320,14 @@ export async function handleGenerateComments(
 				(f) => f.path === sr.path,
 			);
 			if (sourceFile) sourceFile.role = sr.role;
+		}
+	}
+
+	// Fill in reference summaries (replaces raw body preview with AI summary)
+	if (referenceSummaries && session.context) {
+		for (const rs of referenceSummaries) {
+			const ref = session.context.references.find((r) => r.url === rs.url);
+			if (ref) ref.description = rs.summary;
 		}
 	}
 

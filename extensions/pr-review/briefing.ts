@@ -96,18 +96,14 @@ export function briefActivation(session: ReviewSession): string {
 		parts.push("");
 	}
 
-	// Reference summary
+	// References — include URLs so the agent can match them for summaries
 	if (context.references.length > 0) {
 		parts.push("### References");
-		const byType = groupBy(context.references, (r) => r.type);
-		for (const [type, refs] of Object.entries(byType)) {
-			parts.push(`**${type}**: ${refs.length} discovered`);
-			for (const r of refs.slice(0, 5)) {
-				parts.push(`  - ${r.title} (depth ${r.depth}, from ${r.source})`);
-			}
-			if (refs.length > 5) {
-				parts.push(`  - … and ${refs.length - 5} more`);
-			}
+		parts.push(
+			"Provide a `reference_summaries` entry for each with a one-sentence summary.",
+		);
+		for (const r of context.references) {
+			parts.push(`- ${r.title} — ${r.url}`);
 		}
 		parts.push("");
 	}
@@ -155,7 +151,11 @@ export function briefActivation(session: ReviewSession): string {
 		"3. **`source_roles`** — for each source file, one sentence explaining why it's relevant",
 	);
 	parts.push(
-		"4. **`comments`** — structured review comments using conventional-comments format:",
+		"4. **`reference_summaries`** — for each discovered reference, a one-sentence " +
+			"plain-language summary of what it is and why it matters to this PR",
+	);
+	parts.push(
+		"5. **`comments`** — structured review comments using conventional-comments format:",
 	);
 	parts.push("   - Categorize as `file`, `title`, or `scope`");
 	parts.push(
@@ -227,18 +227,4 @@ function appendDiff(parts: string[], context: CrawlResult): void {
 		}
 	}
 	parts.push("");
-}
-
-/** Group items by a key function. */
-function groupBy<T>(
-	items: T[],
-	keyFn: (item: T) => string,
-): Record<string, T[]> {
-	const groups: Record<string, T[]> = {};
-	for (const item of items) {
-		const key = keyFn(item);
-		if (!groups[key]) groups[key] = [];
-		groups[key].push(item);
-	}
-	return groups;
 }

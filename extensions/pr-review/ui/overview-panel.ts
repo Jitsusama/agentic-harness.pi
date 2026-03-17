@@ -22,15 +22,6 @@ import type {
 } from "../../lib/ui/types.js";
 import type { CrawlResult, Reference, SourceFile } from "../state.js";
 
-/** Type icons for references. */
-const TYPE_ICON: Record<Reference["type"], string> = {
-	issue: "📋",
-	pr: "🔀",
-	commit: "💾",
-	external: "🔗",
-	file: "📄",
-};
-
 /** Result type from the overview panel. */
 export type OverviewResult =
 	| { action: "review" }
@@ -192,11 +183,10 @@ function buildReferencesTab(
 				for (const ref of refs) {
 					const isSel = flatIdx === selected;
 					const cursor = isSel ? "▸ " : "  ";
-					const icon = TYPE_ICON[ref.type];
 					const depthTag =
 						ref.depth > 0 ? theme.fg("dim", ` ᐩ${ref.depth}`) : "";
 
-					const line = `${pad}${cursor}${icon} ${ref.title}${depthTag}`;
+					const line = `${pad}${cursor}${ref.title}${depthTag}`;
 					lines.push(isSel ? theme.fg("accent", line) : line);
 
 					// Show description below selected item

@@ -65,6 +65,9 @@ via `bash` to search for patterns. Then call
   (focused? too broad? well-organized?)
 - **`source_roles`** — for each discovered source file, one
   sentence explaining why it's relevant to the PR
+- **`reference_summaries`** — for each discovered reference,
+  a one-sentence plain-language summary of what it is and
+  why it matters to this PR (matched by URL)
 - **`comments`** — structured review comments, each with:
   - `file` (path or null for PR-level)
   - `startLine`, `endLine` (or null for file-level)

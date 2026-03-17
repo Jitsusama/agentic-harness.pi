@@ -36,6 +36,7 @@ import {
 	handleReview,
 	handleSubmit,
 	handleUpdateComment,
+	type ReferenceSummaryInput,
 	type SourceRoleInput,
 } from "./handlers.js";
 import { deactivate, restore } from "./lifecycle.js";
@@ -117,6 +118,19 @@ export default function prReview(pi: ExtensionAPI) {
 					{
 						description:
 							"Source file role descriptions. Used with 'generate-comments'.",
+					},
+				),
+			),
+			reference_summaries: Type.Optional(
+				Type.Array(
+					Type.Object({
+						url: Type.String({ description: "Reference URL" }),
+						summary: Type.String({
+							description: "One-sentence AI summary of this reference",
+						}),
+					}),
+					{
+						description: "Reference summaries. Used with 'generate-comments'.",
 					},
 				),
 			),
@@ -205,6 +219,9 @@ export default function prReview(pi: ExtensionAPI) {
 			const comment = params.comment as CommentInput | undefined;
 			const comments = params.comments as CommentInput[] | undefined;
 			const sourceRoles = params.source_roles as SourceRoleInput[] | undefined;
+			const refSummaries = params.reference_summaries as
+				| ReferenceSummaryInput[]
+				| undefined;
 
 			switch (params.action) {
 				case "activate":
@@ -215,6 +232,7 @@ export default function prReview(pi: ExtensionAPI) {
 						(params.synopsis as string) ?? null,
 						(params.scope_analysis as string) ?? null,
 						sourceRoles ?? null,
+						refSummaries ?? null,
 						comments ?? null,
 					);
 				case "overview":

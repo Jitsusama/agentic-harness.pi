@@ -75,7 +75,7 @@ export type ReviewPanelResult =
  * Returns the user's choice: submit, steer, or null (escape).
  */
 export async function showReviewPanel(
-	_ctx: ExtensionContext,
+	ctx: ExtensionContext,
 	session: ReviewSession,
 ): Promise<ReviewPanelResult> {
 	const context = session.context;
