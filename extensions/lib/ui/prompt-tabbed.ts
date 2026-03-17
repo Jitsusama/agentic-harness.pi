@@ -1,10 +1,11 @@
 /**
  * Tabbed prompt — a multi-item panel with tab navigation,
- * per-item results, and optional user-added items. Returns
- * all decisions or null on cancel.
+ * per-item views, per-item results, and optional user-added
+ * items. Returns all decisions or null on cancel.
  *
- * This is the tabbed variant. See prompt-single.ts for the
- * single-item variant.
+ * Each item has one or more views (content modes). Items with
+ * multiple views show view key-hints in the hint bar. Pressing
+ * a view's key switches the content area.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -41,11 +42,17 @@ import {
 	GLYPH,
 	type Option,
 	type PromptResult,
+	type PromptView,
 	SCROLLBAR_GUTTER,
 	type TabbedPromptConfig,
 	type TabbedResult,
 	type TabStatus,
 } from "./types.js";
+
+/** Cache key for content: "tabIndex-viewIndex". */
+function cacheKey(tab: number, view: number): string {
+	return `${tab}-${view}`;
+}
 
 /** Show a tabbed interactive prompt panel. */
 export async function showTabbedPrompt(
@@ -57,10 +64,19 @@ export async function showTabbedPrompt(
 		let optionIndex = 0;
 		let userOptionIndex = 0;
 		let editorMode = false;
+
+		/** Active view index per tab. */
+		const activeViewIndex = new Map<number, number>();
+
+		/** Content cache keyed by "tabIndex-viewIndex". */
 		const contentCache = new Map<
-			number,
+			string,
 			{ lines: string[]; width: number; hScroll: boolean }
 		>();
+
+		/** Tabs with an async view currently loading. */
+		const loadingViews = new Set<string>();
+
 		let editorContext: {
 			type: "steerAction" | "pureSteer" | "editor" | "addItem" | "editItem";
 			actionKey?: string;
@@ -68,29 +84,41 @@ export async function showTabbedPrompt(
 			index?: number;
 		} | null = null;
 
-		const scrollStates: ScrollState[] = config.items.map(() => ({
-			vOffset: 0,
-			hOffset: 0,
-		}));
+		const scrollStates = new Map<string, ScrollState>();
 		const userTabScroll: ScrollState = { vOffset: 0, hOffset: 0 };
 		const results = new Map<number, PromptResult>();
 		const userItems: string[] = [];
 		const editor = new Editor(tui, buildNoteEditorTheme(theme));
 
-		/** Index of the virtual user tab (after all real tabs). */
 		const userTabIndex = config.items.length;
 
-		/** Whether the user tab is currently selected. */
 		function isUserTab(): boolean {
 			return config.canAddItems === true && currentTab === userTabIndex;
 		}
 
-		/** Total navigable tab count (real tabs + user tab when enabled). */
 		function totalTabCount(): number {
 			return config.items.length + (config.canAddItems ? 1 : 0);
 		}
 
-		/** Actions shown on the user tab. */
+		function getViewIndex(tab: number): number {
+			return activeViewIndex.get(tab) ?? 0;
+		}
+
+		function getScrollState(tab: number, view: number): ScrollState {
+			const key = cacheKey(tab, view);
+			let s = scrollStates.get(key);
+			if (!s) {
+				s = { vOffset: 0, hOffset: 0 };
+				scrollStates.set(key, s);
+			}
+			return s;
+		}
+
+		/** Get the views for the current tab's item. */
+		function currentViews(): PromptView[] {
+			return config.items[currentTab]?.views ?? [];
+		}
+
 		const userTabActions: Action[] = [
 			{ key: "a", label: "Add" },
 			{ key: "e", label: "Edit" },
@@ -111,7 +139,7 @@ export async function showTabbedPrompt(
 
 			if (editorContext.type === "addItem") {
 				userItems.push(trimmed);
-				contentCache.delete(userTabIndex);
+				contentCache.delete(cacheKey(userTabIndex, 0));
 				editorMode = false;
 				editorContext = null;
 				editor.setText("");
@@ -122,7 +150,7 @@ export async function showTabbedPrompt(
 			if (editorContext.type === "editItem") {
 				const idx = editorContext.index ?? 0;
 				userItems[idx] = trimmed;
-				contentCache.delete(userTabIndex);
+				contentCache.delete(cacheKey(userTabIndex, 0));
 				editorMode = false;
 				editorContext = null;
 				editor.setText("");
@@ -189,7 +217,6 @@ export async function showTabbedPrompt(
 		}
 
 		function handleInput(data: string) {
-			// Drop release events (see single prompt comment)
 			if (isKeyRelease(data)) return;
 
 			if (editorMode) {
@@ -205,13 +232,11 @@ export async function showTabbedPrompt(
 				return;
 			}
 
-			// Universal: Escape cancels everything
 			if (matchesKey(data, Key.escape)) {
 				done(null);
 				return;
 			}
 
-			// Ctrl+Enter submits
 			if (matchesKey(data, Key.ctrl("enter"))) {
 				done({ items: results, userItems });
 				return;
@@ -226,10 +251,24 @@ export async function showTabbedPrompt(
 				return;
 			}
 
-			// User tab has its own input handling
 			if (isUserTab()) {
 				handleUserTabInput(data);
 				return;
+			}
+
+			// View switching — check before actions to avoid key conflicts
+			const views = currentViews();
+			if (views.length > 1) {
+				for (let i = 0; i < views.length; i++) {
+					const view = views[i];
+					if (view && matchesKey(data, view.key)) {
+						activeViewIndex.set(currentTab, i);
+						tui.requestRender();
+						// Trigger async load if needed
+						ensureViewContent(currentTab, i, 0);
+						return;
+					}
+				}
 			}
 
 			// Scroll
@@ -237,11 +276,10 @@ export async function showTabbedPrompt(
 			const options = currentOptions();
 			const chromeLines = computeChromeLines(true, actions, options);
 			const budget = contentBudget(chromeLines);
-			const scrollState = scrollStates[currentTab] ?? {
-				vOffset: 0,
-				hOffset: 0,
-			};
-			const cachedEntry = contentCache.get(currentTab);
+			const viewIdx = getViewIndex(currentTab);
+			const scrollState = getScrollState(currentTab, viewIdx);
+			const key = cacheKey(currentTab, viewIdx);
+			const cachedEntry = contentCache.get(key);
 			const scrollResult = handleScrollInput(
 				data,
 				scrollState,
@@ -250,7 +288,7 @@ export async function showTabbedPrompt(
 				cachedEntry?.hScroll ?? false,
 			);
 			if (scrollResult) {
-				scrollStates[currentTab] = scrollResult;
+				scrollStates.set(key, scrollResult);
 				tui.requestRender();
 				return;
 			}
@@ -305,10 +343,10 @@ export async function showTabbedPrompt(
 			const options = currentOptions();
 			const actions = currentActions();
 
-			// Scroll
 			const chromeLines = computeChromeLines(true, actions, options);
 			const budget = contentBudget(chromeLines);
-			const cachedEntry = contentCache.get(currentTab);
+			const key = cacheKey(currentTab, 0);
+			const cachedEntry = contentCache.get(key);
 			const scrollResult = handleScrollInput(
 				data,
 				userTabScroll,
@@ -323,7 +361,6 @@ export async function showTabbedPrompt(
 				return;
 			}
 
-			// Option navigation (↑↓ through user items)
 			if (options) {
 				const result = handleOptionInput(data, userOptionIndex, options.length);
 				if (result) {
@@ -331,12 +368,10 @@ export async function showTabbedPrompt(
 						userOptionIndex = result.index;
 						tui.requestRender();
 					}
-					// Select (Enter) does nothing — use Edit action
 					return;
 				}
 			}
 
-			// Action keys: Add, Edit, Delete
 			const actionResult = handleActionInput(data, userTabActions);
 			if (actionResult && actionResult.type === "action") {
 				if (actionResult.key === "a") {
@@ -351,7 +386,7 @@ export async function showTabbedPrompt(
 					if (userOptionIndex >= userItems.length && userItems.length > 0) {
 						userOptionIndex = userItems.length - 1;
 					}
-					contentCache.delete(userTabIndex);
+					contentCache.delete(cacheKey(userTabIndex, 0));
 					tui.requestRender();
 				}
 			}
@@ -402,11 +437,51 @@ export async function showTabbedPrompt(
 			});
 		}
 
-		/** Build content lines for the user tab. */
+		/** User tab content — static. */
 		const userTabContent: ContentFn = () => {
 			if (userItems.length === 0) return [];
 			return ["  Your additions:"];
 		};
+
+		/**
+		 * Ensure content is cached for a given tab and view.
+		 * If the view's content is async, starts loading and
+		 * triggers a re-render when done.
+		 */
+		function ensureViewContent(tab: number, view: number, width: number): void {
+			const key = cacheKey(tab, view);
+			if (contentCache.has(key) || loadingViews.has(key)) return;
+
+			const item = config.items[tab];
+			const viewDef = item?.views[view];
+			if (!viewDef) return;
+
+			const result = viewDef.content(theme, width - SCROLLBAR_GUTTER);
+
+			if (result instanceof Promise) {
+				loadingViews.add(key);
+				result.then((lines) => {
+					loadingViews.delete(key);
+					const itemHScroll =
+						item?.allowHScroll ?? config.allowHScroll ?? false;
+					contentCache.set(key, {
+						lines,
+						width,
+						hScroll:
+							itemHScroll && maxContentWidth(lines) > width - SCROLLBAR_GUTTER,
+					});
+					tui.requestRender();
+				});
+			} else {
+				const itemHScroll = item?.allowHScroll ?? config.allowHScroll ?? false;
+				contentCache.set(key, {
+					lines: result,
+					width,
+					hScroll:
+						itemHScroll && maxContentWidth(result) > width - SCROLLBAR_GUTTER,
+				});
+			}
+		}
 
 		function render(width: number): string[] {
 			const lines: string[] = [];
@@ -415,10 +490,8 @@ export async function showTabbedPrompt(
 			const actions = currentActions();
 			const options = currentOptions();
 			const onUserTab = isUserTab();
-			const item = onUserTab ? null : config.items[currentTab];
-			const content = onUserTab
-				? userTabContent
-				: (item?.content ?? (() => []));
+			const viewIdx = getViewIndex(currentTab);
+			const views = currentViews();
 
 			// Top border
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
@@ -435,30 +508,47 @@ export async function showTabbedPrompt(
 					config.canAddItems ? userItems.length : -1,
 				),
 			);
-			// Light separator
 			add(
 				theme.fg("dim", ` ${GLYPH.separator.repeat(Math.max(0, width - 2))}`),
 			);
 
-			// Content (cached per tab — only re-render on width change)
+			// Content
 			const chromeLines = computeChromeLines(true, actions, options);
 			const budget = contentBudget(chromeLines);
-			const cached = contentCache.get(currentTab);
-			if (!cached || cached.width !== width) {
-				const rendered = content(theme, width - SCROLLBAR_GUTTER);
-				const itemHScroll = item?.allowHScroll ?? config.allowHScroll ?? false;
-				contentCache.set(currentTab, {
-					lines: rendered,
-					width,
-					hScroll:
-						itemHScroll && maxContentWidth(rendered) > width - SCROLLBAR_GUTTER,
-				});
+			const key = cacheKey(currentTab, viewIdx);
+
+			if (onUserTab) {
+				// User tab content
+				const cached = contentCache.get(key);
+				if (!cached || cached.width !== width) {
+					const rendered = userTabContent(theme, width - SCROLLBAR_GUTTER);
+					contentCache.set(key, {
+						lines: rendered,
+						width,
+						hScroll: false,
+					});
+				}
+			} else {
+				// Item view content — may be async
+				const cached = contentCache.get(key);
+				if (!cached || cached.width !== width) {
+					ensureViewContent(currentTab, viewIdx, width);
+				}
 			}
-			const entry = contentCache.get(currentTab);
-			const contentLines = entry?.lines ?? [];
+
+			const entry = contentCache.get(key);
+			const isLoading = loadingViews.has(key);
+
+			let contentLines: string[];
+			if (isLoading || !entry) {
+				contentLines = [` ${theme.fg("dim", "Loading…")}`];
+			} else {
+				contentLines = entry.lines;
+			}
+
 			const scrollState = onUserTab
 				? userTabScroll
-				: (scrollStates[currentTab] ?? { vOffset: 0, hOffset: 0 });
+				: getScrollState(currentTab, viewIdx);
 			const {
 				lines: scrolled,
 				needsVScroll,
@@ -473,9 +563,8 @@ export async function showTabbedPrompt(
 			);
 			for (const line of scrolled) add(line);
 
-			// Pad to budget only when scrolling (keeps height stable during scroll)
 			if (needsVScroll) {
-				const targetContentEnd = 1 + 2 + budget; // top border + tab lines + budget
+				const targetContentEnd = 1 + 2 + budget;
 				while (lines.length < targetContentEnd) {
 					lines.push("");
 				}
@@ -520,6 +609,8 @@ export async function showTabbedPrompt(
 						hasActions: !!actions && !onUserTab,
 						isUserTab: onUserTab,
 						allComplete: results.size >= config.items.length,
+						views: !onUserTab && views.length > 1 ? views : undefined,
+						activeViewIndex: viewIdx,
 					}),
 				);
 			}

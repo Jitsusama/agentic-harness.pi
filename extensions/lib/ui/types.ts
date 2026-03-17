@@ -49,8 +49,11 @@ export const GLYPH = {
 
 // ---- Content ----
 
-/** Content rendering function. Receives theme and width, returns lines. */
+/** Synchronous content rendering function. */
 export type ContentFn = (theme: Theme, width: number) => string[];
+
+/** Async content rendering function (for lazy loading). */
+export type AsyncContentFn = (theme: Theme, width: number) => Promise<string[]>;
 
 // ---- Actions (Type A — key-hint bar) ----
 
@@ -118,12 +121,22 @@ export interface TabbedResult {
 /** Status of a tab item. */
 export type TabStatus = "pending" | "complete" | "rejected" | "active";
 
+/** A named content view within a tab. */
+export interface PromptView {
+	/** Single lowercase letter — the keyboard shortcut to activate this view. */
+	key: string;
+	/** Display label shown in the hint bar (e.g., "Diff", "File"). */
+	label: string;
+	/** Renders the content for this view. May be async for lazy loading. */
+	content: ContentFn | AsyncContentFn;
+}
+
 /** A single item in a tabbed prompt. */
 export interface PromptItem {
 	/** Tab label (e.g., "Q1", "R1", "C1"). */
 	label: string;
-	/** Renders the content for this item. */
-	content: ContentFn;
+	/** Content views. First is active by default. Items with one view show no view hints. */
+	views: PromptView[];
 	/** Fixed actions for this item (Type A key-hint bar). Overrides shared actions. */
 	actions?: Action[];
 	/** Dynamic options for this item (Type B numbered list). Overrides shared options. */

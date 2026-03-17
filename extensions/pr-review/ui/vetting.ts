@@ -20,15 +20,10 @@ import type { ReviewComment, ReviewVerdict } from "../state.js";
 
 /** Result of the vetting flow. */
 export interface VettingResult {
-	/** Per-comment decisions (comment ID → accepted/rejected). */
 	decisions: Map<string, "accepted" | "rejected">;
-	/** Final review verdict. */
 	verdict: ReviewVerdict;
-	/** Review body text (may be edited by user). */
 	reviewBody: string;
-	/** User's steer feedback (if they broke out to edit a comment). */
 	steerFeedback?: string;
-	/** Comment ID the steer was on (if specific to a comment). */
 	steerCommentId?: string | null;
 }
 
@@ -61,7 +56,6 @@ export async function showVetting(
 
 	if (!result) return null;
 
-	// Check for steer results — user wants to edit a comment
 	for (const [itemIndex, itemResult] of result.items) {
 		if (itemResult.type === "steer") {
 			const commentIndex = itemIndex - 1;
@@ -76,11 +70,10 @@ export async function showVetting(
 		}
 	}
 
-	// Apply decisions from the tabbed prompt
 	const decisions = new Map<string, "accepted" | "rejected">();
 
 	for (const [itemIndex, itemResult] of result.items) {
-		if (itemIndex === 0) continue; // Summary tab
+		if (itemIndex === 0) continue;
 
 		const commentIndex = itemIndex - 1;
 		const comment = comments[commentIndex];
@@ -104,7 +97,6 @@ export async function showVetting(
 
 // ---- Tab builders ----
 
-/** Summary tab — overview of all comments and verdict. */
 function buildSummaryTab(
 	comments: ReviewComment[],
 	verdict: ReviewVerdict,
@@ -112,63 +104,71 @@ function buildSummaryTab(
 ): PromptItem {
 	return {
 		label: "Summary",
-		content: (theme: Theme, width: number) => {
-			const pad = " ".repeat(CONTENT_INDENT);
-			const lines: string[] = [];
+		views: [
+			{
+				key: "s",
+				label: "Summary",
+				content: (theme: Theme, width: number) => {
+					const pad = " ".repeat(CONTENT_INDENT);
+					const lines: string[] = [];
 
-			lines.push(` ${theme.fg("accent", theme.bold("Review Summary"))}`);
-			lines.push("");
+					lines.push(` ${theme.fg("accent", theme.bold("Review Summary"))}`);
+					lines.push("");
 
-			if (draftBody) {
-				for (const line of renderMarkdown(draftBody, theme, width)) {
-					lines.push(line);
-				}
-				lines.push("");
-			}
+					if (draftBody) {
+						for (const line of renderMarkdown(draftBody, theme, width)) {
+							lines.push(line);
+						}
+						lines.push("");
+					}
 
-			const verdictColor =
-				verdict === "APPROVE"
-					? "success"
-					: verdict === "REQUEST_CHANGES"
-						? "error"
-						: "accent";
-			lines.push(
-				`${pad}${theme.fg("text", "Verdict:")} ${theme.fg(verdictColor, verdict)}`,
-			);
-			lines.push("");
+					const verdictColor =
+						verdict === "APPROVE"
+							? "success"
+							: verdict === "REQUEST_CHANGES"
+								? "error"
+								: "accent";
+					lines.push(
+						`${pad}${theme.fg("text", "Verdict:")} ${theme.fg(verdictColor, verdict)}`,
+					);
+					lines.push("");
 
-			const accepted = comments.filter((c) => c.status === "accepted").length;
-			const rejected = comments.filter((c) => c.status === "rejected").length;
-			const draft = comments.filter((c) => c.status === "draft").length;
+					const accepted = comments.filter(
+						(c) => c.status === "accepted",
+					).length;
+					const rejected = comments.filter(
+						(c) => c.status === "rejected",
+					).length;
+					const draft = comments.filter((c) => c.status === "draft").length;
 
-			lines.push(`${pad}${theme.fg("text", "Comments:")}`);
-			lines.push(
-				`${pad}  ${theme.fg("success", `${accepted} accepted`)} · ${theme.fg("error", `${rejected} rejected`)} · ${theme.fg("dim", `${draft} pending`)}`,
-			);
-			lines.push("");
+					lines.push(`${pad}${theme.fg("text", "Comments:")}`);
+					lines.push(
+						`${pad}  ${theme.fg("success", `${accepted} accepted`)} · ${theme.fg("error", `${rejected} rejected`)} · ${theme.fg("dim", `${draft} pending`)}`,
+					);
+					lines.push("");
 
-			const labelCounts = new Map<string, number>();
-			for (const c of comments) {
-				const count = labelCounts.get(c.label) ?? 0;
-				labelCounts.set(c.label, count + 1);
-			}
-			const labelSummary = [...labelCounts.entries()]
-				.map(([label, count]) => `${count} ${label}`)
-				.join(", ");
-			lines.push(`${pad}${theme.fg("dim", `Labels: ${labelSummary}`)}`);
+					const labelCounts = new Map<string, number>();
+					for (const c of comments) {
+						labelCounts.set(c.label, (labelCounts.get(c.label) ?? 0) + 1);
+					}
+					const labelSummary = [...labelCounts.entries()]
+						.map(([label, count]) => `${count} ${label}`)
+						.join(", ");
+					lines.push(`${pad}${theme.fg("dim", `Labels: ${labelSummary}`)}`);
 
-			const files = new Set(comments.map((c) => c.file));
-			lines.push(
-				`${pad}${theme.fg("dim", `Files: ${files.size} with comments`)}`,
-			);
+					const files = new Set(comments.map((c) => c.file));
+					lines.push(
+						`${pad}${theme.fg("dim", `Files: ${files.size} with comments`)}`,
+					);
 
-			return lines;
-		},
+					return lines;
+				},
+			},
+		],
 		actions: [],
 	};
 }
 
-/** Individual comment tab. */
 function buildCommentTab(
 	comment: ReviewComment,
 	index: number,
@@ -176,44 +176,52 @@ function buildCommentTab(
 ): PromptItem {
 	return {
 		label: `C${index + 1}`,
-		content: (theme: Theme, width: number) => {
-			const pad = " ".repeat(CONTENT_INDENT);
-			const wrapWidth = contentWrapWidth(width);
-			const lines: string[] = [];
+		views: [
+			{
+				key: "c",
+				label: "Comment",
+				content: (theme: Theme, width: number) => {
+					const pad = " ".repeat(CONTENT_INDENT);
+					const wrapWidth = contentWrapWidth(width);
+					const lines: string[] = [];
 
-			const stateColor =
-				comment.status === "accepted"
-					? "success"
-					: comment.status === "rejected"
-						? "error"
-						: "dim";
+					const stateColor =
+						comment.status === "accepted"
+							? "success"
+							: comment.status === "rejected"
+								? "error"
+								: "dim";
 
-			lines.push(
-				` ${theme.fg("text", `Comment ${index + 1} of ${total}`)} ${theme.fg(stateColor, `[${comment.status}]`)}`,
-			);
+					lines.push(
+						` ${theme.fg("text", `Comment ${index + 1} of ${total}`)} ${theme.fg(stateColor, `[${comment.status}]`)}`,
+					);
 
-			const decorStr =
-				comment.decorations.length > 0
-					? ` (${comment.decorations.join(", ")})`
-					: "";
-			lines.push(`${pad}${theme.fg("accent", `${comment.label}${decorStr}`)}`);
-			lines.push(
-				`${pad}${theme.fg("dim", `${comment.file}:${comment.startLine}-${comment.endLine}`)}`,
-			);
-			lines.push("");
+					const decorStr =
+						comment.decorations.length > 0
+							? ` (${comment.decorations.join(", ")})`
+							: "";
+					lines.push(
+						`${pad}${theme.fg("accent", `${comment.label}${decorStr}`)}`,
+					);
+					lines.push(
+						`${pad}${theme.fg("dim", `${comment.file}:${comment.startLine}-${comment.endLine}`)}`,
+					);
+					lines.push("");
 
-			for (const line of wordWrap(comment.subject, wrapWidth)) {
-				lines.push(`${pad}${theme.fg("text", theme.bold(line))}`);
-			}
+					for (const line of wordWrap(comment.subject, wrapWidth)) {
+						lines.push(`${pad}${theme.fg("text", theme.bold(line))}`);
+					}
 
-			if (comment.discussion) {
-				lines.push("");
-				for (const line of wordWrap(comment.discussion, wrapWidth)) {
-					lines.push(`${pad}${theme.fg("text", line)}`);
-				}
-			}
+					if (comment.discussion) {
+						lines.push("");
+						for (const line of wordWrap(comment.discussion, wrapWidth)) {
+							lines.push(`${pad}${theme.fg("text", line)}`);
+						}
+					}
 
-			return lines;
-		},
+					return lines;
+				},
+			},
+		],
 	};
 }
