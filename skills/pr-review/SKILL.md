@@ -10,157 +10,152 @@ description: >
 
 ## Philosophy
 
-Understand the **why** before evaluating the **what**. Build
-maximum context from the PR, its linked issues, and the
-codebase, then review through that lens.
+Understand the **why** before evaluating the **what**. The
+tool crawls deep context automatically — linked issues,
+parent/sub-issues, cross-references up to 5 levels. You
+analyze this context and generate structured comments that
+the user then reviews in an interactive panel.
 
 ## Tool Actions
 
-The `pr_review` tool drives the workflow through sequential
-actions. Each call returns context for you to reason about,
-then you call back with the next action.
+The `pr_review` tool drives the workflow. Each call returns
+context or shows a panel.
 
 | Action | Purpose |
 |--------|---------|
-| `activate` | Parse PR ref, create worktree, gather context |
-| `context` | Show context summary (re-showable any time) |
-| `description` | Review PR title, description, and scope |
-| `analyze` | Get context for deep analysis |
-| `review-files` | Tabbed file review (diff/file/comments per file) |
-| `add-comment` | Add a structured review comment |
+| `activate` | Parse PR ref, resolve repo, crawl deep context |
+| `generate-comments` | Provide analysis, synopsis, and comments |
+| `overview` | Show Phase 1 overview panel |
+| `review` | Show Phase 2 review panel |
+| `add-comment` | Add a review comment |
 | `update-comment` | Edit an existing comment by ID |
 | `remove-comment` | Delete a comment by ID |
-| `resume` | Return to current phase after breakout |
-| `vet` | Final vetting — user can post directly from panel |
-| `post` | Submit the review (fallback if not posted from vet) |
+| `submit` | Show final review summary panel |
+| `post` | Submit review to GitHub |
 | `deactivate` | Clean up and exit |
 
 ## Standard Sequence
 
 ```
-activate → context → description → analyze → review-files
-→ vet → deactivate
+activate → generate-comments → overview → review
+→ (steer cycles) → submit → post → deactivate
 ```
 
-### 1. Activate and Gather Context
+### 1. Activate and Gather
 
 Call `activate` with a PR reference (URL, `#123`, or
 `owner/repo#123`). The tool:
-- Fetches PR metadata, diff, linked issues, sibling PRs
-- Creates a git worktree if not on the PR branch
-- Shows a live progress panel during gathering
+- Resolves the repo on disk
+- Crawls deep context (PR, diff, issues, references, source files, reviewers)
+- Returns a comprehensive briefing with the full diff, issue
+  context, reviewer status, and source file list
 
-### 2. Review Context
+### 2. Generate Comments
 
-Call `context` to show the gathered context summary panel.
-Read the overview, linked issues, and related PRs. This
-gives you the full picture before commenting.
+After receiving the activation briefing, analyze the PR
+thoroughly. Use `read` to examine source files and `rg`
+via `bash` to search for patterns. Then call
+`generate-comments` with:
 
-You can re-show context at any time by calling `context`
-again.
+- **`synopsis`** — 1-2 paragraph summary of what the PR
+  does and why
+- **`scope_analysis`** — markdown assessment of scope quality
+  (focused? too broad? well-organized?)
+- **`source_roles`** — for each discovered source file, one
+  sentence explaining why it's relevant to the PR
+- **`comments`** — structured review comments, each with:
+  - `file` (path or null for PR-level)
+  - `startLine`, `endLine` (or null for file-level)
+  - `label` — conventional comment label
+  - `decorations` — `["blocking"]`, `["non-blocking"]`, etc.
+  - `subject` — one-line summary
+  - `discussion` — detailed explanation
+  - `category` — `"file"`, `"title"`, or `"scope"`
 
-### 3. Review Description and Scope
+Use the `conventional-comments` and `code-review-criteria`
+skills for format and quality guidance.
 
-Call `description` to evaluate the PR description. The user
-sees the title, description, scope stats, and linked issues.
-They can steer to request comments on any of these.
+**Category rules:**
+- `scope` — only about scope concerns (focus, organization)
+- `title` — about title accuracy and description completeness
+- `file` — code quality, tests, implementation
 
-If the user steers, draft a conventional comment addressing
-their feedback using `add-comment`, then call `description`
-again or `analyze` to proceed.
+### 3. Overview Phase
 
-### 4. Deep Analysis
+Call `overview` to show the overview panel. The user sees
+three tabs: Overview (PR metadata + synopsis), References
+(browsable list of all crawled references), and Source
+(browsable list of source files with roles).
 
-Call `analyze` to get the full context for deep analysis.
-Then actively investigate:
+The user presses 'r' to proceed to review, or steers for
+feedback. If they steer, process their feedback and call
+`overview` again.
 
-1. **Read files** from the worktree for surrounding context
-2. **Search the codebase** with `rg` for consistency patterns
-3. **Assess test coverage** — behavior vs implementation tests
-4. **Evaluate the implementation** — readability, abstraction,
-   naming, composition
+### 4. Review Phase
 
-Use the `code-review-criteria` skill for evaluation guidance.
+Call `review` to show the review panel. One tab per changed
+file plus Desc and Scope tabs. Each tab has three views:
 
-Draft preliminary comments with `add-comment` as you find
-things worth raising.
+- **Overview** (`o`) — diff with comment indicators
+- **Comments** (`c`) — selectable comment list with
+  approve/reject/steer actions
+- **raW** (`w`) — full file content
 
-### 5. Tabbed File Review
+The user reviews comments, approves/rejects them, and can
+steer for changes. Tabs auto-complete when all comments
+are resolved. 'h' manually marks a tab handled.
 
-Call `review-files` to open a tabbed panel with one tab per
-changed file. The user navigates freely between files and
-switches between three views per file:
+If the user steers:
+- On a comment: they want it edited — use `update-comment`
+  then call `review`
+- For a new comment: they want one added — use `add-comment`
+  then call `review`
+- General feedback: process and call `review`
 
-- **Diff** (`d`) — unified diff with comment summary
-- **File** (`f`) — full file from worktree, syntax highlighted
-- **Comments** (`c`) — detailed list of comments on this file
+### 5. Submit Phase
 
-The user steers to request comments on specific files. When
-they steer, draft a conventional comment and call `add-comment`,
-then call `review-files` again to re-show the panel.
+Call `submit` to show the submit panel. You can optionally
+provide `review_body` and `verdict` to pre-fill.
 
-When the user finishes (presses done), the tool returns a
-summary of all comments collected.
+The user sees the review summary with verdict, comment
+counts, and approved comments. They can post directly or
+steer to edit the body/verdict.
 
-### 6. Comment Management
+If they steer, update `review_body`/`verdict` and call
+`submit` again.
 
-Use these actions to manage the review comment collection:
+### 6. Post and Deactivate
 
-- `add-comment` — create a new comment with `file`, `startLine`,
-  `endLine`, `label`, `decorations`, `subject`, `discussion`
-- `update-comment` — edit an existing comment by `comment_id`
-  with a `comment` object containing the updated fields
-- `remove-comment` — delete a comment by `comment_id`
+The submit panel's post action calls `post` automatically.
+If needed, call `post` directly. Then call `deactivate`
+to exit review mode.
 
-### 7. Final Vetting
+## Complexity Adaptation
 
-Call `vet` to show all collected comments in a tabbed panel.
-The summary tab shows the review body, verdict, and stats.
-Each comment tab shows full details.
+For small PRs (1-3 files, few changes): generate fewer
+comments. Don't force the user through every phase if the
+PR is straightforward. A simple review might skip straight
+from `generate-comments` to `submit`.
 
-The user can:
-- Approve or reject individual comments
-- Steer to edit the verdict or review body
-- Post the review directly from the summary tab
+For large PRs: be thorough. Use the source file discovery
+to understand the full impact. Generate comments across
+multiple categories.
 
-If the user steers during vetting to change a comment, use
-`update-comment` with the comment ID and revised fields,
-then call `vet` again.
+## Steer Handling
 
-If the user posts from the panel, the handler submits to
-GitHub automatically. Otherwise, call `post` as a fallback.
+When a panel returns steer feedback:
+1. Read the user's note
+2. Take the appropriate action (update comment, add comment,
+   change verdict, investigate further)
+3. Re-open the same panel by calling the same action
 
-### 8. Deactivate
-
-Call `deactivate` to clean up the worktree and exit review
-mode.
-
-## Comment Format
-
-Use the `conventional-comments` skill for formatting. All
-comments use structured conventional comments with labels,
-decorations, and a teaching-oriented tone.
-
-When calling `add-comment`, provide:
-- `file` — file path
-- `startLine` / `endLine` — line range
-- `label` — conventional comment label
-- `decorations` — `["blocking"]` or `["non-blocking"]`
-- `subject` — one-line summary
-- `discussion` — detailed explanation
-
-## Conversation Breakout
-
-The user can break out to conversation at any point using
-Shift+Enter in any panel. When they return, call `resume`
-to pick up where you left off. During file review, `resume`
-re-opens the tabbed file panel.
+The steer note includes context about what was being viewed.
 
 ## What Not to Do
 
-- Don't skip the context and description review steps
-- Don't rush to file review without understanding the why
-- Don't just agree with the PR author — evaluate critically
-- Don't leave blocking feedback without constructive guidance
+- Don't skip the analysis — read source files, search patterns
+- Don't generate low-quality placeholder comments
+- Don't ignore steer feedback — the user is directing you
 - Don't comment on style when conventions aren't violated
+- Don't leave blocking feedback without constructive guidance
 - Don't add duplicate comments — use `update-comment` to edit
