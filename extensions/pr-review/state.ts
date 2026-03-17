@@ -18,7 +18,7 @@ export type ConventionalLabel =
 	| "chore";
 
 /** Comment vetting states. */
-export type CommentState = "draft" | "accepted" | "rejected" | "edited";
+export type CommentState = "draft" | "accepted" | "rejected";
 
 /** Review workflow phases. */
 export type ReviewPhase =
@@ -40,7 +40,6 @@ export interface ReviewComment {
 	decorations: string[];
 	subject: string;
 	discussion: string;
-	source: "llm" | "user";
 }
 
 /** PR metadata fetched from GitHub. */
@@ -114,24 +113,13 @@ export interface RelatedPR {
 	url: string;
 }
 
-/** An external link found in PR/issue bodies. */
-export interface ExternalLink {
-	url: string;
-	title: string;
-	summary: string | null;
-	source: string;
-	domain: string;
-}
-
 /** All context gathered during the gathering phase. */
 export interface GatheredContext {
 	pr: PRMetadata;
 	diff: string;
 	diffFiles: DiffFile[];
 	issues: LinkedIssue[];
-	parentIssues: LinkedIssue[];
 	siblingPRs: RelatedPR[];
-	externalLinks: ExternalLink[];
 	prComments: IssueComment[];
 }
 
@@ -187,19 +175,13 @@ export interface PRReviewState {
 	previousReviews: PreviousReview[];
 	previousThreads: PreviousThread[];
 
-	// Analysis
-	analysis: string | null;
-	researchNotes: string[];
-
 	// Phase tracking
 	phase: ReviewPhase;
 	fileIndex: number;
-	commentIndex: number;
 
 	// Comments
 	comments: ReviewComment[];
 	commentStates: Map<string, CommentState>;
-	descriptionComments: ReviewComment[];
 
 	// Review
 	reviewBody: string | null;
@@ -222,14 +204,10 @@ export function createPRReviewState(): PRReviewState {
 		isReReview: false,
 		previousReviews: [],
 		previousThreads: [],
-		analysis: null,
-		researchNotes: [],
 		phase: "gathering",
 		fileIndex: 0,
-		commentIndex: 0,
 		comments: [],
 		commentStates: new Map(),
-		descriptionComments: [],
 		reviewBody: null,
 		verdict: "COMMENT",
 	};

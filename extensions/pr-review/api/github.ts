@@ -93,9 +93,7 @@ export function assembleContext(
 		diff,
 		diffFiles: parseDiff(diff),
 		issues,
-		parentIssues: [],
 		siblingPRs,
-		externalLinks: [],
 		prComments,
 	};
 }

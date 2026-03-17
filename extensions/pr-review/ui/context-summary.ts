@@ -1,11 +1,10 @@
 /**
  * Multi-tab context summary panel.
  *
- * Shows gathered PR context across four tabs:
+ * Shows gathered PR context across three tabs:
  *   Overview — PR metadata, branch info, file summary
  *   Issues — linked issues with bodies and acceptance criteria
  *   PRs — related/sibling PRs
- *   Links — external resources (future)
  *
  * Read-only display with 'c' to continue and Escape to cancel.
  */
@@ -36,26 +35,12 @@ export async function showContextSummary(
 		buildPRsTab(context),
 	];
 
-	// Only show Links tab if there are external links
-	if (context.externalLinks.length > 0) {
-		items.push(buildLinksTab(context));
-	}
-
 	const result = await prompt(ctx, {
 		items,
 		actions: [{ key: "c", label: "Continue" }],
 	});
 
-	if (!result) return false;
-
-	// Check if any item had a "continue" action
-	for (const [, itemResult] of result.items) {
-		if (itemResult.type === "action" && itemResult.value === "c") {
-			return true;
-		}
-	}
-
-	return true;
+	return result != null;
 }
 
 // ---- Tab builders ----
@@ -180,31 +165,6 @@ function buildPRsTab(context: GatheredContext): PromptItem {
 				lines.push(
 					`${pad}${theme.fg(stateColor, pr.state)} · ${theme.fg("dim", pr.relationship)}`,
 				);
-				lines.push("");
-			}
-
-			return lines;
-		},
-	};
-}
-
-/** Links tab — external resources found in PR/issue bodies. */
-function buildLinksTab(context: GatheredContext): PromptItem {
-	return {
-		label: "Links",
-		content: (theme: Theme, _width: number) => {
-			const pad = " ".repeat(CONTENT_INDENT);
-			const lines: string[] = [];
-
-			for (const link of context.externalLinks) {
-				lines.push(` ${theme.fg("accent", link.title || link.url)}`);
-				lines.push(`${pad}${theme.fg("dim", link.url)}`);
-				if (link.source) {
-					lines.push(`${pad}${theme.fg("dim", `Found in: ${link.source}`)}`);
-				}
-				if (link.summary) {
-					lines.push(`${pad}${theme.fg("text", link.summary)}`);
-				}
 				lines.push("");
 			}
 

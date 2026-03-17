@@ -733,7 +733,6 @@ export default function prReview(pi: ExtensionAPI) {
 		};
 	}
 
-	/** Start file-by-file review — show the first file's panel. */
 	/** Threshold for showing directory grouping in file review. */
 	const DIRECTORY_GROUP_THRESHOLD = 15;
 
@@ -962,7 +961,6 @@ export default function prReview(pi: ExtensionAPI) {
 				: [],
 			subject: String(c.subject ?? ""),
 			discussion: String(c.discussion ?? ""),
-			source: "llm" as const,
 		};
 
 		state.comments.push(reviewComment);
@@ -1012,14 +1010,6 @@ export default function prReview(pi: ExtensionAPI) {
 		const parts: string[] = [];
 		parts.push(`Resuming PR review at phase: ${state.phase}`);
 		parts.push(`Comments: ${state.comments.length}`);
-
-		if (state.researchNotes.length > 0) {
-			parts.push("");
-			parts.push("### Research Notes");
-			for (const note of state.researchNotes) {
-				parts.push(`- ${note}`);
-			}
-		}
 
 		return {
 			content: [{ type: "text" as const, text: parts.join("\n") }],
@@ -1145,10 +1135,9 @@ export default function prReview(pi: ExtensionAPI) {
 
 		// Only post comments that were explicitly accepted during vetting.
 		// Draft comments that were never vetted are excluded.
-		const accepted = state.comments.filter((c) => {
-			const s = state.commentStates.get(c.id);
-			return s === "accepted" || s === "edited";
-		});
+		const accepted = state.comments.filter(
+			(c) => state.commentStates.get(c.id) === "accepted",
+		);
 
 		const ghComments = accepted.map((c) => {
 			const decorStr =

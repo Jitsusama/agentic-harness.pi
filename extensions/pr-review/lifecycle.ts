@@ -127,13 +127,10 @@ export function persist(state: PRReviewState, pi: ExtensionAPI): void {
 		previousThreads: state.previousThreads,
 		phase: state.phase,
 		fileIndex: state.fileIndex,
-		commentIndex: state.commentIndex,
 		comments: state.comments,
 		commentStates: Array.from(state.commentStates.entries()),
-		descriptionComments: state.descriptionComments,
 		reviewBody: state.reviewBody,
 		verdict: state.verdict,
-		researchNotes: state.researchNotes,
 	});
 }
 
@@ -154,13 +151,10 @@ export function restore(state: PRReviewState, ctx: ExtensionContext): void {
 		previousThreads?: PreviousThread[];
 		phase?: ReviewPhase;
 		fileIndex?: number;
-		commentIndex?: number;
 		comments?: ReviewComment[];
 		commentStates?: Array<[string, CommentState]>;
-		descriptionComments?: ReviewComment[];
 		reviewBody?: string;
 		verdict?: ReviewVerdict;
-		researchNotes?: string[];
 	}>(ctx, PERSIST_KEY);
 
 	if (!saved) return;
@@ -179,12 +173,9 @@ export function restore(state: PRReviewState, ctx: ExtensionContext): void {
 	state.previousThreads = saved.previousThreads ?? [];
 	state.phase = saved.phase ?? "gathering";
 	state.fileIndex = saved.fileIndex ?? 0;
-	state.commentIndex = saved.commentIndex ?? 0;
 	state.comments = saved.comments ?? [];
-	state.descriptionComments = saved.descriptionComments ?? [];
 	state.reviewBody = saved.reviewBody ?? null;
 	state.verdict = saved.verdict ?? "COMMENT";
-	state.researchNotes = saved.researchNotes ?? [];
 
 	if (saved.commentStates) {
 		state.commentStates = new Map(saved.commentStates);
