@@ -143,7 +143,10 @@ export function briefActivation(session: ReviewSession): string {
 	);
 	parts.push("");
 	parts.push(
-		"1. **`synopsis`** — 1-2 paragraph summary of what the PR does and why",
+		"1. **`synopsis`** — a conversational, approachable summary for a human reviewer. " +
+			"Lead with the motivation (what problem or need), then explain the approach. " +
+			"Write like you're catching up a teammate — not a commit message or changelog entry. " +
+			"Avoid listing every file or change mechanically.",
 	);
 	parts.push(
 		"2. **`scope_analysis`** — markdown assessment of scope quality (focused? too broad? well-organized?)",

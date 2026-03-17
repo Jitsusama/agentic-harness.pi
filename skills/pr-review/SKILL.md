@@ -57,8 +57,10 @@ thoroughly. Use `read` to examine source files and `rg`
 via `bash` to search for patterns. Then call
 `generate-comments` with:
 
-- **`synopsis`** — 1-2 paragraph summary of what the PR
-  does and why
+- **`synopsis`** — a conversational, approachable summary
+  for a human reviewer. Lead with the motivation, then
+  explain the approach. Write like you're catching up a
+  teammate — not a commit message or changelog entry.
 - **`scope_analysis`** — markdown assessment of scope quality
   (focused? too broad? well-organized?)
 - **`source_roles`** — for each discovered source file, one
