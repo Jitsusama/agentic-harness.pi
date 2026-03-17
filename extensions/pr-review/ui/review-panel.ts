@@ -87,7 +87,7 @@ export async function showReviewPanel(
 	// Mutable comment selection indices per tab
 	const commentIndices = new Map<string, number>();
 
-	const items: WorkspaceItem[] = [
+	const rawItems: WorkspaceItem[] = [
 		buildDescTab(ctx, session, tabIds[0] ?? "desc", commentIndices),
 		buildScopeTab(ctx, session, tabIds[1] ?? "scope", commentIndices),
 		...context.diffFiles.map((file, i) =>
@@ -100,6 +100,26 @@ export async function showReviewPanel(
 			),
 		),
 	];
+
+	// Inject 'h' handling into every view so it marks the tab handled
+	// without closing the panel
+	const items = rawItems.map((item, itemIdx) => ({
+		...item,
+		views: item.views.map((v) => ({
+			...v,
+			handleInput: (data: string, inputCtx: WorkspaceInputContext) => {
+				if (matchesKey(data, "h")) {
+					const tabId = tabIds[itemIdx];
+					if (tabId) {
+						markTabHandled(session, tabId);
+						inputCtx.invalidate();
+					}
+					return true;
+				}
+				return v.handleInput ? v.handleInput(data, inputCtx) : false;
+			},
+		})),
+	}));
 
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
