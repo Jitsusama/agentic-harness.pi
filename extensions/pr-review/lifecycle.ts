@@ -113,6 +113,7 @@ export function refreshUI(state: PRReviewState, ctx: ExtensionContext): void {
 interface PersistedSession {
 	pr: PRTarget;
 	repoPath: string;
+	worktreePath: string | null;
 	synopsis: string;
 	scopeAnalysis: string;
 	comments: ReviewComment[];
@@ -139,6 +140,7 @@ export function persist(state: PRReviewState, pi: ExtensionAPI): void {
 			? {
 					pr: state.session.pr,
 					repoPath: state.session.repoPath,
+					worktreePath: state.session.worktreePath,
 					synopsis: state.session.synopsis,
 					scopeAnalysis: state.session.scopeAnalysis,
 					comments: state.session.comments,
@@ -191,6 +193,7 @@ export function restore(state: PRReviewState, ctx: ExtensionContext): void {
 			pr: saved.session.pr,
 			context: null, // Re-crawled on demand
 			repoPath: saved.session.repoPath,
+			worktreePath: saved.session.worktreePath ?? null,
 			synopsis: saved.session.synopsis ?? "",
 			scopeAnalysis: saved.session.scopeAnalysis ?? "",
 			comments: saved.session.comments ?? [],

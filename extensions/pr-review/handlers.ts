@@ -87,6 +87,64 @@ async function ensureContext(
 	}
 }
 
+// ---- Worktree helpers ----
+
+/** Directory where review worktrees are created. */
+const WORKTREE_DIR = ".review";
+
+/** Check if the current branch matches the PR's head branch. */
+async function isOnPRBranch(
+	pi: ExtensionAPI,
+	prBranch: string,
+): Promise<boolean> {
+	const result = await pi.exec("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
+	if (result.code !== 0) return false;
+	return result.stdout.trim() === prBranch;
+}
+
+/**
+ * Create a worktree for the PR branch. Fetches the PR head ref
+ * and creates a worktree at `.review/pr-<number>`.
+ */
+async function createWorktree(
+	pi: ExtensionAPI,
+	prNumber: number,
+): Promise<string | null> {
+	const branchName = `pr-review-${prNumber}`;
+	const worktreePath = `${WORKTREE_DIR}/${branchName}`;
+
+	const fetch = await pi.exec("git", [
+		"fetch",
+		"origin",
+		`pull/${prNumber}/head:${branchName}`,
+	]);
+	if (fetch.code !== 0) return null;
+
+	const add = await pi.exec("git", [
+		"worktree",
+		"add",
+		worktreePath,
+		branchName,
+	]);
+	if (add.code !== 0) return null;
+
+	return worktreePath;
+}
+
+/** Remove a review worktree and its tracking branch. */
+async function removeWorktree(
+	pi: ExtensionAPI,
+	prNumber: number,
+): Promise<void> {
+	const branchName = `pr-review-${prNumber}`;
+	const worktreePath = `${WORKTREE_DIR}/${branchName}`;
+
+	await pi.exec("git", ["worktree", "remove", worktreePath, "--force"]);
+	await pi.exec("git", ["branch", "-D", branchName]);
+}
+
+// ---- Helpers ----
+
 /** Get current repo from git remote. */
 async function getCurrentRepo(
 	pi: ExtensionAPI,
@@ -192,6 +250,18 @@ export async function handleActivate(
 		session.pr.branch = crawlResult.pr.headRefName;
 		session.pr.baseBranch = crawlResult.pr.baseRefName;
 		session.pr.author = crawlResult.pr.author;
+
+		// Create worktree if not on the PR branch
+		const onBranch = await isOnPRBranch(pi, crawlResult.pr.headRefName);
+		if (!onBranch) {
+			ctx.ui.notify("Creating worktree for PR branch…", "info");
+			const wtPath = await createWorktree(pi, ref.number);
+			if (wtPath) {
+				session.worktreePath = wtPath;
+				session.repoPath = wtPath;
+			}
+		}
+
 		session.phase = "overview";
 
 		persist(state, pi);
@@ -669,6 +739,15 @@ export async function handleDeactivate(
 
 	const commentCount = state.session.comments.length;
 	const prNum = state.session.pr.number;
+
+	// Clean up worktree if we created one
+	if (state.session.worktreePath) {
+		try {
+			await removeWorktree(pi, prNum);
+		} catch {
+			/* Worktree cleanup failed — not fatal */
+		}
+	}
 
 	deactivate(state, pi, ctx);
 

@@ -37,7 +37,11 @@ export function briefActivation(session: ReviewSession): string {
 	parts.push(
 		`**Files**: ${context.pr.changedFiles} changed (+${context.pr.additions} -${context.pr.deletions})`,
 	);
-	parts.push(`**Repo**: ${session.repoPath}`);
+	if (session.worktreePath) {
+		parts.push(`**Worktree**: ${session.repoPath} (PR branch checkout)`);
+	} else {
+		parts.push(`**Repo**: ${session.repoPath}`);
+	}
 	parts.push("");
 
 	// Reviewers
@@ -164,9 +168,11 @@ export function briefActivation(session: ReviewSession): string {
 	parts.push("   - `file` comments: code quality, tests, implementation");
 	parts.push("");
 	parts.push(
-		"Use the `read` tool to examine source files for deeper analysis.",
+		`Use the \`read\` tool to examine source files at \`${session.repoPath}/\` for deeper analysis.`,
 	);
-	parts.push("Use `rg` in `bash` to search for patterns in the repo.");
+	parts.push(
+		`Use \`rg\` in \`bash\` to search for patterns in \`${session.repoPath}/\`.`,
+	);
 
 	return parts.join("\n");
 }

@@ -174,8 +174,10 @@ export interface ReviewSession {
 	pr: PRTarget;
 	/** Gathered context (null until fetched, not persisted). */
 	context: CrawlResult | null;
-	/** Resolved local repo path. */
+	/** Path used for file reads (worktree or repo root). */
 	repoPath: string;
+	/** Path to the git worktree, or null if on the PR branch. */
+	worktreePath: string | null;
 	/** AI-generated PR synopsis (from generate-comments). */
 	synopsis: string;
 	/** AI-generated scope analysis (from generate-comments). */
@@ -309,6 +311,7 @@ export function createSession(pr: PRTarget, repoPath: string): ReviewSession {
 		pr,
 		context: null,
 		repoPath,
+		worktreePath: null,
 		synopsis: "",
 		scopeAnalysis: "",
 		comments: [],
