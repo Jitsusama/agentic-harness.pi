@@ -37,48 +37,58 @@ function buildCommentItem(
 ): PromptItem {
 	return {
 		label: `C${index + 1}`,
-		content: (theme, width) => {
-			const wrapWidth = contentWrapWidth(width);
-			const pad = " ".repeat(CONTENT_INDENT);
-			const lines: string[] = [];
+		views: [
+			{
+				key: "c",
+				label: "Comment",
+				content: (theme, width) => {
+					const wrapWidth = contentWrapWidth(width);
+					const pad = " ".repeat(CONTENT_INDENT);
+					const lines: string[] = [];
 
-			const totalAll = total + preApprovedCount;
-			const num = index + preApprovedCount + 1;
-			lines.push(theme.fg("text", ` Comment ${num} of ${totalAll}`));
+					const totalAll = total + preApprovedCount;
+					const num = index + preApprovedCount + 1;
+					lines.push(theme.fg("text", ` Comment ${num} of ${totalAll}`));
 
-			const range = comment.startLine
-				? theme.fg("dim", `:${comment.startLine}-${comment.line}`)
-				: theme.fg("dim", `:${comment.line}`);
-			lines.push(` ${theme.fg("accent", comment.path)}${range}`);
+					const range = comment.startLine
+						? theme.fg("dim", `:${comment.startLine}-${comment.line}`)
+						: theme.fg("dim", `:${comment.line}`);
+					lines.push(` ${theme.fg("accent", comment.path)}${range}`);
 
-			// Show the actual code being commented on
-			const start = comment.startLine || comment.line;
-			const codeContent = readFileContent(comment.path, start, comment.line);
-			if (codeContent) {
-				lines.push("");
-				for (const line of renderCode(codeContent, theme, width, {
-					startLine: start,
-					language: languageFromPath(comment.path),
-				})) {
-					lines.push(line);
-				}
-			}
+					// Show the actual code being commented on
+					const start = comment.startLine || comment.line;
+					const codeContent = readFileContent(
+						comment.path,
+						start,
+						comment.line,
+					);
+					if (codeContent) {
+						lines.push("");
+						for (const line of renderCode(codeContent, theme, width, {
+							startLine: start,
+							language: languageFromPath(comment.path),
+						})) {
+							lines.push(line);
+						}
+					}
 
-			lines.push("");
-			for (const line of wordWrap(comment.body, wrapWidth)) {
-				lines.push(theme.fg("text", `${pad}${line}`));
-			}
+					lines.push("");
+					for (const line of wordWrap(comment.body, wrapWidth)) {
+						lines.push(theme.fg("text", `${pad}${line}`));
+					}
 
-			if (comment.rationale) {
-				lines.push("");
-				lines.push(theme.fg("dim", `${pad}Rationale:`));
-				for (const line of wordWrap(comment.rationale, wrapWidth)) {
-					lines.push(theme.fg("dim", `${pad}${line}`));
-				}
-			}
+					if (comment.rationale) {
+						lines.push("");
+						lines.push(theme.fg("dim", `${pad}Rationale:`));
+						for (const line of wordWrap(comment.rationale, wrapWidth)) {
+							lines.push(theme.fg("dim", `${pad}${line}`));
+						}
+					}
 
-			return lines;
-		},
+					return lines;
+				},
+			},
+		],
 		actions: [
 			{ key: "a", label: "Approve" },
 			{ key: "r", label: "Reject" },

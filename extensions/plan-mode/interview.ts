@@ -31,22 +31,28 @@ function buildQuestionItem(
 ): PromptItem {
 	return {
 		label: `Q${index + 1}`,
-		content: (theme, width) => {
-			const padded = contentWrapWidth(width);
-			const lines: string[] = [];
-			lines.push(theme.fg("text", ` Question ${index + 1} of ${total}`));
-			lines.push("");
-			for (const line of renderMarkdown(q.question, theme, padded)) {
-				lines.push(line);
-			}
-			if (q.context) {
-				lines.push("");
-				for (const line of renderMarkdown(q.context, theme, padded)) {
-					lines.push(line);
-				}
-			}
-			return lines;
-		},
+		views: [
+			{
+				key: "q",
+				label: "Question",
+				content: (theme, width) => {
+					const padded = contentWrapWidth(width);
+					const lines: string[] = [];
+					lines.push(theme.fg("text", ` Question ${index + 1} of ${total}`));
+					lines.push("");
+					for (const line of renderMarkdown(q.question, theme, padded)) {
+						lines.push(line);
+					}
+					if (q.context) {
+						lines.push("");
+						for (const line of renderMarkdown(q.context, theme, padded)) {
+							lines.push(line);
+						}
+					}
+					return lines;
+				},
+			},
+		],
 		options: [
 			{
 				label: "Answer",

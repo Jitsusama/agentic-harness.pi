@@ -180,7 +180,13 @@ export default function ask(pi: ExtensionAPI) {
 				// Multiple questions — tabbed prompt
 				const items: PromptItem[] = questions.map((q) => ({
 					label: q.label,
-					content: (theme: Theme) => [theme.fg("text", ` ${q.prompt}`)],
+					views: [
+						{
+							key: "q",
+							label: "Question",
+							content: (theme: Theme) => [theme.fg("text", ` ${q.prompt}`)],
+						},
+					],
 					options: buildOptions(q),
 				}));
 

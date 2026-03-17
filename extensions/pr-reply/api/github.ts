@@ -11,14 +11,10 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { PRReference } from "../../lib/parse/pr-reference.js";
 import type { Comment, Review, ReviewState, Thread } from "../state.js";
 
-/** PR reference parsed from user input. */
-export interface PRReference {
-	owner: string;
-	repo: string;
-	number: number;
-}
+export type { PRReference };
 
 // ---- GraphQL response shapes ----
 
@@ -50,6 +46,47 @@ interface GQLReview {
 	submittedAt: string;
 	body: string;
 	author: { login: string } | null;
+}
+
+// ---- GraphQL response shapes ----
+
+/** Response from the THREADS_QUERY. */
+interface ThreadsResponse {
+	data: {
+		repository: {
+			pullRequest: {
+				reviewThreads: { nodes: GQLThread[] };
+			};
+		};
+	};
+}
+
+/** Response from the REVIEWS_QUERY. */
+interface ReviewsResponse {
+	data: {
+		repository: {
+			pullRequest: {
+				reviews: { nodes: GQLReview[] };
+			};
+		};
+	};
+}
+
+/** Response from the refresh thread comments query. */
+interface RefreshThreadsResponse {
+	data: {
+		repository: {
+			pullRequest: {
+				reviewThreads: {
+					nodes: Array<{
+						id: string;
+						isResolved: boolean;
+						comments: { nodes: GQLComment[] };
+					}>;
+				};
+			};
+		};
+	};
 }
 
 // ---- Queries ----
@@ -116,14 +153,13 @@ export async function fetchReviews(
 	ref: PRReference,
 ): Promise<{ reviews: Review[]; threads: Thread[] }> {
 	const [threadsData, reviewsData] = await Promise.all([
-		runGraphQL(pi, THREADS_QUERY, ref),
-		runGraphQL(pi, REVIEWS_QUERY, ref),
+		runGraphQL<ThreadsResponse>(pi, THREADS_QUERY, ref),
+		runGraphQL<ReviewsResponse>(pi, REVIEWS_QUERY, ref),
 	]);
 
-	const gqlThreads: GQLThread[] =
-		threadsData?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
-	const gqlReviews: GQLReview[] =
-		reviewsData?.data?.repository?.pullRequest?.reviews?.nodes ?? [];
+	const gqlThreads =
+		threadsData.data.repository.pullRequest.reviewThreads.nodes;
+	const gqlReviews = reviewsData.data.repository.pullRequest.reviews.nodes;
 
 	const reviews = parseReviews(gqlReviews);
 	const threads = parseThreads(gqlThreads, reviews);
@@ -277,16 +313,10 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 }`;
 
 	try {
-		const data = await runGraphQL(pi, query, ref);
-		const threads: {
-			id: string;
-			isResolved: boolean;
-			comments: { nodes: GQLComment[] };
-		}[] =
-			(data as Record<string, unknown>)?.data?.repository?.pullRequest
-				?.reviewThreads?.nodes ?? [];
+		const data = await runGraphQL<RefreshThreadsResponse>(pi, query, ref);
+		const threads = data.data.repository.pullRequest.reviewThreads.nodes;
 
-		const match = threads.find((t: { id: string }) => t.id === thread.id);
+		const match = threads.find((t) => t.id === thread.id);
 		if (match) {
 			thread.comments = parseComments(match.comments.nodes);
 			thread.isResolved = match.isResolved;
@@ -298,12 +328,12 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 
 // ---- GraphQL runner ----
 
-/** Execute a GraphQL query via gh cli. */
-async function runGraphQL(
+/** Execute a typed GraphQL query via gh CLI. */
+async function runGraphQL<T>(
 	pi: ExtensionAPI,
 	query: string,
 	ref: PRReference,
-): Promise<Record<string, unknown>> {
+): Promise<T> {
 	const result = await pi.exec("gh", [
 		"api",
 		"graphql",

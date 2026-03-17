@@ -2,8 +2,8 @@
  * PR description & scope review panel.
  *
  * Shows the PR title, description, linked issue context, and
- * diff stats for the LLM and user to evaluate together.
- * Returns true to continue, false if cancelled.
+ * diff stats. The user can continue to analysis, steer to
+ * request comments on title/description/scope, or cancel.
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
@@ -12,14 +12,20 @@ import { prompt } from "../../lib/ui/panel.js";
 import { CONTENT_INDENT } from "../../lib/ui/text.js";
 import type { GatheredContext } from "../state.js";
 
+/** Result of the description review panel. */
+export type DescriptionResult =
+	| { action: "continue" }
+	| { action: "steer"; note: string }
+	| { action: "cancel" };
+
 /**
  * Show the PR description & scope review panel.
- * Returns true to continue to analysis, false if cancelled.
+ * Returns the user's choice: continue, steer, or cancel.
  */
 export async function showDescriptionReview(
 	ctx: ExtensionContext,
 	context: GatheredContext,
-): Promise<boolean> {
+): Promise<DescriptionResult> {
 	const result = await prompt(ctx, {
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -47,7 +53,7 @@ export async function showDescriptionReview(
 			}
 			lines.push("");
 
-			// Diff stats
+			// Scope stats
 			lines.push(` ${theme.fg("text", theme.bold("Scope:"))}`);
 			lines.push(
 				`${pad}${theme.fg("text", `${context.pr.changedFiles} files changed`)} ${theme.fg("success", `+${context.pr.additions}`)} ${theme.fg("error", `-${context.pr.deletions}`)}`,
@@ -70,5 +76,11 @@ export async function showDescriptionReview(
 		allowHScroll: true,
 	});
 
-	return result != null;
+	if (!result) return { action: "cancel" };
+
+	if (result.type === "steer") {
+		return { action: "steer", note: result.note };
+	}
+
+	return { action: "continue" };
 }

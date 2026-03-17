@@ -1,0 +1,929 @@
+/**
+ * PR Reply action handlers — each function handles one tool
+ * action and returns a tool result for the LLM.
+ *
+ * Pure orchestration: read state, call domain functions,
+ * show UI panels, update state, return briefings.
+ */
+
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
+import { buildAnalysisPrompt } from "./analysis.js";
+import {
+	fetchReviews,
+	type PRReference,
+	postReply,
+	refreshThreadComments,
+} from "./api/github.js";
+import {
+	findDependentPRs,
+	getCurrentBranch,
+	type SwitchResult,
+	switchToRepo,
+} from "./api/repo.js";
+import {
+	briefActivation,
+	briefCompletion,
+	briefDeferred,
+	briefImplementChoice,
+	briefProgress,
+	briefRebaseApproved,
+	briefReplyChoice,
+	briefReviewSummary,
+	briefSteer,
+	briefThread,
+} from "./briefing.js";
+import {
+	beginTDDImplementation,
+	buildImplementationContext,
+	collectImplementationCommits,
+	linkCommitsToThread,
+	recordImplementationStart,
+	shortSHAs,
+} from "./implementation.js";
+import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
+import {
+	getPRBranch,
+	pushIfNeeded,
+	readCodeContext,
+	resolvePR,
+} from "./navigation.js";
+import { findPlanContext } from "./plans.js";
+import { buildReplyGuidance } from "./replies.js";
+import {
+	type PRReplyState,
+	sortReviewsByPriority,
+	type Thread,
+	threadsForReview,
+} from "./state.js";
+import {
+	type DependentPR,
+	showRebasePanel,
+	showReviewOverviewPanel,
+	showSummaryPanel,
+} from "./ui/panels.js";
+import { showReplyReview } from "./ui/reply-review.js";
+import { showThreadGate, type ThreadGateChoice } from "./ui/thread-gate.js";
+
+// ---- Shared helpers ----
+
+/** Build a simple text tool result. */
+function textResult(text: string) {
+	return { content: [{ type: "text" as const, text }] };
+}
+
+/** Count threads in a given state. */
+function countByState(state: PRReplyState, threadState: string): number {
+	let count = 0;
+	for (const [, value] of state.threadStates) {
+		if (value === threadState) count++;
+	}
+	return count;
+}
+
+/** Get the current thread based on review-centric navigation. */
+function currentThread(state: PRReplyState): Thread | null {
+	const review = state.reviews[state.reviewIndex];
+	if (!review) return null;
+	const reviewThreads = threadsForReview(review, state.threads);
+	return reviewThreads[state.threadIndexInReview] ?? null;
+}
+
+/** Find the next pending thread within a review's threads. */
+function findNextPendingInReview(
+	state: PRReplyState,
+	reviewThreads: Thread[],
+): Thread | null {
+	for (const thread of reviewThreads) {
+		if (state.threadStates.get(thread.id) === "pending") {
+			return thread;
+		}
+	}
+	return null;
+}
+
+// ---- Handlers ----
+
+/** Activate PR reply mode — load reviews and show summary. */
+export async function handleActivate(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	prInput: string | null,
+) {
+	if (state.enabled) {
+		return textResult(
+			`PR reply mode is already active for PR #${state.prNumber}.`,
+		);
+	}
+
+	const ref = await resolvePR(pi, prInput);
+	if (!ref) {
+		return textResult(
+			"Could not determine which PR to review. " +
+				"Provide a PR URL, number, or navigate to the branch.",
+		);
+	}
+
+	const switchResult = await switchToRepo(pi, ref);
+	if (switchResult.status !== "already-here") {
+		return handleSwitchResult(ctx, switchResult, ref);
+	}
+
+	// Ensure we're on the PR's branch
+	const prBranch = await getPRBranch(pi, ref);
+	if (prBranch) {
+		const currentBranch = await getCurrentBranch(pi);
+		if (currentBranch !== prBranch) {
+			const checkout = await pi.exec("git", ["checkout", prBranch]);
+			if (checkout.code !== 0) {
+				return textResult(
+					`Failed to switch to branch '${prBranch}': ${checkout.stderr}\n` +
+						`You're on '${currentBranch}'. Switch manually and retry.`,
+				);
+			}
+			ctx.ui.notify(`Switched to branch ${prBranch}`, "info");
+		}
+	}
+
+	ctx.ui.notify("Fetching reviews…", "info");
+	const data = await fetchReviews(pi, ref);
+
+	const dismissedCount = data.reviews.filter(
+		(r) => r.state === "DISMISSED",
+	).length;
+	const activeReviews = data.reviews.filter((r) => r.state !== "DISMISSED");
+	const unresolvedThreads = data.threads.filter((t) => !t.isResolved);
+
+	if (unresolvedThreads.length === 0) {
+		return textResult("No unresolved review threads to address.");
+	}
+
+	// Populate state
+	state.prNumber = ref.number;
+	state.owner = ref.owner;
+	state.repo = ref.repo;
+	state.branch = prBranch ?? (await getCurrentBranch(pi)) ?? `pr-${ref.number}`;
+
+	const reviewsWithThreads = activeReviews.filter((r) =>
+		r.threadIds.some((id) => unresolvedThreads.some((t) => t.id === id)),
+	);
+
+	sortReviewsByPriority(reviewsWithThreads);
+	state.reviews = reviewsWithThreads;
+	state.threads = unresolvedThreads;
+	state.reviewIndex = 0;
+	state.reviewIntroduced = false;
+	state.threadIndexInReview = 0;
+
+	for (const thread of unresolvedThreads) {
+		state.threadStates.set(thread.id, "pending");
+	}
+
+	activate(state, pi, ctx);
+
+	const proceed = await showSummaryPanel(
+		ctx,
+		ref.number,
+		ref.owner,
+		ref.repo,
+		state.branch,
+		activeReviews,
+		unresolvedThreads,
+		dismissedCount,
+	);
+
+	if (!proceed) {
+		deactivate(state, pi, ctx);
+		return textResult("PR reply cancelled.");
+	}
+
+	return {
+		content: [
+			{
+				type: "text" as const,
+				text: briefActivation(
+					ref,
+					activeReviews.length,
+					unresolvedThreads.length,
+					dismissedCount,
+				),
+			},
+		],
+		details: {
+			action: "activate",
+			threadCount: unresolvedThreads.length,
+			reviewCount: activeReviews.length,
+		},
+	};
+}
+
+/** Deactivate PR reply mode. */
+export async function handleDeactivate(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active.");
+	}
+
+	const rebaseInfo = await checkDependentPRs(state, pi, ctx);
+
+	deactivate(state, pi, ctx);
+
+	const summary = briefCompletion(state);
+	const text = rebaseInfo ? `${summary}\n\n${rebaseInfo}` : summary;
+
+	return textResult(text);
+}
+
+/**
+ * Advance to the next item in the review → thread cascade.
+ *
+ * Navigation order:
+ *   1. Reviews sorted by priority (CHANGES_REQUESTED → COMMENTED → APPROVED)
+ *   2. Within each review, threads sorted by file then line
+ *   3. When entering a new review, return review summary
+ *   4. When within a review, return next thread data
+ */
+export async function handleNext(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active.");
+	}
+
+	while (state.reviewIndex < state.reviews.length) {
+		const review = state.reviews[state.reviewIndex];
+		if (!review) break;
+
+		// New review — return its summary for analysis
+		if (!state.reviewIntroduced) {
+			const reviewThreads = threadsForReview(review, state.threads);
+			const pendingThreads = reviewThreads.filter(
+				(t) => state.threadStates.get(t.id) === "pending",
+			);
+
+			if (pendingThreads.length === 0) {
+				state.reviewIndex++;
+				continue;
+			}
+
+			state.reviewIntroduced = true;
+			state.threadIndexInReview = 0;
+			refreshUI(state, ctx);
+			persist(state, pi);
+
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: briefReviewSummary(review, pendingThreads),
+					},
+				],
+				details: {
+					action: "review-summary",
+					reviewId: review.id,
+					reviewer: review.author,
+				},
+			};
+		}
+
+		// Within a review — find next pending thread
+		const reviewThreads = threadsForReview(review, state.threads);
+		const nextThread = findNextPendingInReview(state, reviewThreads);
+
+		if (!nextThread) {
+			state.reviewIndex++;
+			state.reviewIntroduced = false;
+			state.threadIndexInReview = 0;
+			continue;
+		}
+
+		state.threadIndexInReview = reviewThreads.indexOf(nextThread);
+		refreshUI(state, ctx);
+		persist(state, pi);
+
+		// Re-fetch comments for freshness
+		if (state.owner && state.repo && state.prNumber) {
+			await refreshThreadComments(
+				pi,
+				{ owner: state.owner, repo: state.repo, number: state.prNumber },
+				nextThread,
+			);
+			if (nextThread.isResolved) {
+				state.threadStates.set(nextThread.id, "skipped");
+				persist(state, pi);
+				return handleNext(state, pi, ctx);
+			}
+		}
+
+		const contextLine = nextThread.line || nextThread.originalLine || 0;
+		const codeContext =
+			contextLine > 0
+				? await readCodeContext(pi, nextThread.file, contextLine)
+				: null;
+		const planContext = findPlanContext(ctx.cwd, nextThread.file);
+
+		const analysisContext = buildAnalysisPrompt(
+			nextThread,
+			review,
+			codeContext?.source ?? null,
+			planContext,
+		);
+
+		const progressLine = briefProgress(state);
+
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text: briefThread(progressLine, analysisContext),
+				},
+			],
+			details: {
+				action: "next",
+				threadId: nextThread.id,
+				file: nextThread.file,
+				line: contextLine,
+			},
+		};
+	}
+
+	// All reviews exhausted
+	const deferredCount = countByState(state, "deferred");
+	if (deferredCount > 0) {
+		return textResult(briefDeferred(deferredCount));
+	}
+	return textResult(
+		"All reviews and threads addressed. Call pr_reply with action 'deactivate' to finish.",
+	);
+}
+
+/** Show the review overview panel with the LLM's analysis. */
+export async function handleReview(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	analysis: string,
+) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active.");
+	}
+
+	const review = state.reviews[state.reviewIndex];
+	if (!review) {
+		return textResult("No active review. Call 'next' first.");
+	}
+
+	const pendingThreads = threadsForReview(review, state.threads).filter(
+		(t) => state.threadStates.get(t.id) === "pending",
+	);
+
+	const proceed = await showReviewOverviewPanel(
+		ctx,
+		review,
+		pendingThreads,
+		analysis,
+	);
+
+	if (!proceed) {
+		for (const t of pendingThreads) {
+			state.threadStates.set(t.id, "skipped");
+		}
+		persist(state, pi);
+		return textResult(
+			`Skipped review from ${review.author} (${pendingThreads.length} threads). ` +
+				"Call 'next' to continue.",
+		);
+	}
+
+	return textResult(
+		`Review from ${review.author} acknowledged. ` +
+			`${pendingThreads.length} thread${pendingThreads.length !== 1 ? "s" : ""} to review. ` +
+			"Call 'next' to start.",
+	);
+}
+
+/** Show the thread decision gate with the LLM's recommendation. */
+export async function handleShow(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	recommendation: string,
+) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active.");
+	}
+
+	const thread = currentThread(state);
+	if (!thread) {
+		return textResult("No current thread. Call 'next' first.");
+	}
+
+	// Hide widget while the prompt is active to avoid overlap
+	ctx.ui.setWidget("pr-reply-detail", undefined);
+
+	const review = state.reviews.find((r) => r.threadIds.includes(thread.id));
+	const contextLine = thread.line || thread.originalLine || 0;
+	const progressLine = briefProgress(state);
+
+	const codeContext =
+		contextLine > 0
+			? await readCodeContext(pi, thread.file, contextLine)
+			: null;
+
+	const steerContext = buildAnalysisPrompt(
+		thread,
+		review ?? state.reviews[0],
+		codeContext?.source ?? null,
+		null,
+	);
+
+	const choice = await showThreadGate(
+		ctx,
+		thread,
+		review,
+		codeContext,
+		recommendation,
+		progressLine,
+	);
+
+	// Restore widget after prompt closes
+	refreshUI(state, ctx);
+
+	return applyThreadChoice(
+		state,
+		pi,
+		choice,
+		thread,
+		contextLine,
+		steerContext,
+	);
+}
+
+/** Mark current thread for implementation and provide context. */
+export async function handleImplement(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	useTDD?: boolean,
+) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active.");
+	}
+
+	const thread = currentThread(state);
+	if (!thread) {
+		return textResult("No current thread. Call 'next' first.");
+	}
+
+	await recordImplementationStart(state, pi);
+	state.threadStates.set(thread.id, "implementing");
+
+	if (useTDD) {
+		beginTDDImplementation(state, thread);
+		persist(state, pi);
+
+		return textResult(
+			"Thread marked for TDD implementation.\n\n" +
+				`${buildImplementationContext(thread)}\n\n` +
+				"Start TDD mode with tdd_phase action 'start'. " +
+				"When TDD is done, call pr_reply with action 'done' " +
+				"and a reply_body to post.",
+		);
+	}
+
+	persist(state, pi);
+
+	return textResult(
+		"Thread marked for direct implementation.\n\n" +
+			`${buildImplementationContext(thread)}\n\n` +
+			"Make the necessary changes, run tests, and commit. " +
+			"Then call pr_reply with action 'done' and a reply_body to post.",
+	);
+}
+
+/** Post a reply to the current thread (no code changes). */
+export async function handleReplyAction(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	replyBody: string | null,
+) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active.");
+	}
+
+	const thread = currentThread(state);
+	if (!thread) {
+		return textResult("No current thread. Call 'next' first.");
+	}
+
+	if (!replyBody) {
+		return textResult("Provide reply_body with the text to post as a reply.");
+	}
+
+	return reviewAndPostReply(state, pi, ctx, thread, replyBody);
+}
+
+/**
+ * Mark implementation as done — collect commits, post reply.
+ * Called after the LLM has made changes and committed.
+ */
+export async function handleDone(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	replyBody: string | null,
+) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active.");
+	}
+
+	const thread = currentThread(state);
+	if (!thread) {
+		return textResult("No current thread.");
+	}
+
+	const commits = await collectImplementationCommits(state, pi);
+	linkCommitsToThread(state, thread.id, commits);
+
+	if (!replyBody && commits.length > 0) {
+		const guidance = buildReplyGuidance(thread, commits);
+		return textResult(
+			`Found ${commits.length} commit${commits.length !== 1 ? "s" : ""}.\n\n` +
+				`${guidance}\n\n` +
+				"Call pr_reply with action 'done' again, this time with a reply_body.",
+		);
+	}
+
+	if (replyBody) {
+		const replyResult = await reviewAndPostReply(
+			state,
+			pi,
+			ctx,
+			thread,
+			replyBody,
+		);
+
+		const replyDetails = replyResult.details as { action?: string } | undefined;
+		if (replyDetails?.action !== "replied") {
+			state.threadStates.set(thread.id, "addressed");
+			persist(state, pi);
+			return replyResult;
+		}
+	} else {
+		state.threadStates.set(thread.id, "addressed");
+	}
+
+	state.awaitingTDDCompletion = false;
+	state.tddThreadId = null;
+	state.implementationStartSHA = null;
+	persist(state, pi);
+
+	const commitInfo =
+		commits.length > 0
+			? `${commits.length} commit${commits.length !== 1 ? "s" : ""} linked.`
+			: "No new commits detected.";
+
+	return {
+		content: [
+			{
+				type: "text" as const,
+				text: `Thread done. ${commitInfo} Call 'next' to continue.`,
+			},
+		],
+		details: {
+			action: "done",
+			threadId: thread.id,
+			commits: shortSHAs(commits),
+		},
+	};
+}
+
+/** Skip the current thread. */
+export function handleSkip(state: PRReplyState, pi: ExtensionAPI) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active.");
+	}
+
+	const thread = currentThread(state);
+	if (!thread) {
+		return textResult("No current thread. Call 'next' first.");
+	}
+
+	state.threadStates.set(thread.id, "skipped");
+	persist(state, pi);
+
+	return textResult("Thread skipped. Call 'next' to continue.");
+}
+
+/** Defer the current thread for later. */
+export function handleDefer(state: PRReplyState, pi: ExtensionAPI) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active.");
+	}
+
+	const thread = currentThread(state);
+	if (!thread) {
+		return textResult("No current thread. Call 'next' first.");
+	}
+
+	state.threadStates.set(thread.id, "deferred");
+	persist(state, pi);
+
+	return textResult("Thread deferred. Call 'next' to continue.");
+}
+
+// ---- Internal helpers ----
+
+/** Map the user's gate choice to a tool result for the LLM. */
+function applyThreadChoice(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	choice: ThreadGateChoice,
+	thread: Thread,
+	contextLine: number,
+	analysisContext: string,
+) {
+	if (!choice) {
+		state.threadStates.set(thread.id, "deferred");
+		persist(state, pi);
+		return textResult(
+			"Thread deferred (cancelled). Call pr_reply with action 'next' to continue.",
+		);
+	}
+
+	switch (choice.action) {
+		case "steer":
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: briefSteer(
+							thread.file,
+							contextLine,
+							choice.feedback,
+							analysisContext,
+						),
+					},
+				],
+				details: { action: "next", steered: true, threadId: thread.id },
+			};
+
+		case "skip": {
+			state.threadStates.set(thread.id, "skipped");
+			persist(state, pi);
+			return textResult(
+				"Thread skipped. Call pr_reply with action 'next' to continue.",
+			);
+		}
+
+		case "defer":
+		case "implement-later": {
+			state.threadStates.set(thread.id, "deferred");
+			persist(state, pi);
+			const label =
+				choice.action === "implement-later"
+					? "deferred for later implementation"
+					: "deferred";
+			return textResult(
+				`Thread ${label}. Call pr_reply with action 'next' to continue.`,
+			);
+		}
+
+		case "reply":
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: briefReplyChoice(thread.file, contextLine, analysisContext),
+					},
+				],
+				details: { action: "next", chosen: "reply", threadId: thread.id },
+			};
+
+		case "implement":
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: briefImplementChoice(
+							thread.file,
+							contextLine,
+							analysisContext,
+						),
+					},
+				],
+				details: {
+					action: "next",
+					chosen: "implement",
+					threadId: thread.id,
+				},
+			};
+	}
+}
+
+/**
+ * Review a reply via approve/reject/steer, then post to GitHub.
+ */
+async function reviewAndPostReply(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	thread: Thread,
+	draftReply: string,
+) {
+	if (!state.owner || !state.repo || !state.prNumber) {
+		return textResult("Missing PR context.");
+	}
+
+	const topComment = thread.comments.find((c) => c.inReplyTo === null);
+	if (!topComment) {
+		return textResult("Cannot find original comment to reply to.");
+	}
+
+	const reviewResult = await showReplyReview(ctx, thread, draftReply);
+
+	if (!reviewResult.approved) {
+		return {
+			content: [{ type: "text" as const, text: reviewResult.reason }],
+			details: { action: "reply-rejected" },
+		};
+	}
+
+	// Push any unpushed commits before posting (SHAs must resolve on GitHub)
+	await pushIfNeeded(pi);
+
+	const ref: PRReference = {
+		owner: state.owner,
+		repo: state.repo,
+		number: state.prNumber,
+	};
+
+	try {
+		await postReply(pi, ref, topComment.databaseId, draftReply);
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		return textResult(`Failed to post reply: ${msg}`);
+	}
+
+	state.threadStates.set(thread.id, "replied");
+	persist(state, pi);
+
+	return {
+		content: [
+			{
+				type: "text" as const,
+				text: "Reply posted. Call 'next' to continue.",
+			},
+		],
+		details: { action: "replied", threadId: thread.id },
+	};
+}
+
+/**
+ * Handle the result of attempting to switch repositories.
+ */
+function handleSwitchResult(
+	ctx: ExtensionContext,
+	result: SwitchResult,
+	ref: PRReference,
+) {
+	switch (result.status) {
+		case "opened-tab":
+			ctx.ui.notify(
+				`Opened new tab in ${result.repoPath} for PR #${ref.number}.`,
+				"success",
+			);
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text:
+							`This session is not in the ${ref.owner}/${ref.repo} repository. ` +
+							`A new terminal tab has been opened in ${result.repoPath} with pi ` +
+							`already starting the PR reply workflow for #${ref.number}. ` +
+							"Do NOT call pr_reply again in this session — the new tab is handling it. " +
+							"Tell the user to switch to the new tab.",
+					},
+				],
+				details: { openedTab: true, repoPath: result.repoPath },
+			};
+
+		case "not-found-opened-tab-failed":
+			return textResult(
+				`Found ${ref.owner}/${ref.repo} at ${result.repoPath} but could not open a new tab. ` +
+					`The user should run: cd ${result.repoPath} && pi "respond to reviews on ${ref.owner}/${ref.repo}#${ref.number}"`,
+			);
+
+		case "not-found":
+			return textResult(
+				`Repository ${ref.owner}/${ref.repo} was not found on disk. ` +
+					"Ask the user where the repository is located.",
+			);
+
+		default:
+			return textResult("Unexpected state.");
+	}
+}
+
+/**
+ * Walk the dependency chain and offer to rebase dependent PRs.
+ * Returns rebase instructions for the LLM, or null if nothing to do.
+ */
+async function checkDependentPRs(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+): Promise<string | null> {
+	if (!state.owner || !state.repo || !state.branch) return null;
+
+	const chain = await walkDependencyChain(
+		pi,
+		state.owner,
+		state.repo,
+		state.branch,
+	);
+	if (chain.length === 0) return null;
+
+	const choice = await showRebasePanel(ctx, chain);
+
+	if (choice === "rebase") {
+		return briefRebaseApproved(chain);
+	}
+
+	return null;
+}
+
+/**
+ * Recursively find all PRs in the dependency chain.
+ * Returns them in rebase order (closest dependent first).
+ */
+async function walkDependencyChain(
+	pi: ExtensionAPI,
+	owner: string,
+	repo: string,
+	branch: string,
+): Promise<DependentPR[]> {
+	const chain: DependentPR[] = [];
+	const visited = new Set<string>();
+	let currentBranch = branch;
+
+	while (true) {
+		if (visited.has(currentBranch)) break;
+		visited.add(currentBranch);
+
+		const dependentNumbers = await findDependentPRs(
+			pi,
+			owner,
+			repo,
+			currentBranch,
+		);
+		if (dependentNumbers.length === 0) break;
+
+		const info = await fetchPRInfo(pi, owner, repo, dependentNumbers[0]);
+		chain.push(info);
+		currentBranch = info.branch;
+	}
+
+	return chain;
+}
+
+/** Fetch basic info about a PR for the dependency chain. */
+async function fetchPRInfo(
+	pi: ExtensionAPI,
+	owner: string,
+	repo: string,
+	prNumber: number,
+): Promise<DependentPR> {
+	const result = await pi.exec("gh", [
+		"pr",
+		"view",
+		String(prNumber),
+		"--repo",
+		`${owner}/${repo}`,
+		"--json",
+		"number,title,headRefName",
+	]);
+
+	if (result.code === 0) {
+		try {
+			const data = JSON.parse(result.stdout);
+			return {
+				number: data.number ?? prNumber,
+				title: data.title ?? `PR #${prNumber}`,
+				branch: data.headRefName ?? "unknown",
+			};
+		} catch {
+			/* Parse failure — fall through to default */
+		}
+	}
+
+	return { number: prNumber, title: `PR #${prNumber}`, branch: "unknown" };
+}

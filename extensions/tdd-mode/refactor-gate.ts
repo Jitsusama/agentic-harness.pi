@@ -30,21 +30,27 @@ function buildSuggestionItem(
 ): PromptItem {
 	return {
 		label: `R${index + 1}`,
-		content: (theme, width) => {
-			const padded = contentWrapWidth(width);
-			const lines: string[] = [];
-			lines.push(theme.fg("text", ` Refactoring ${index + 1} of ${total}`));
-			lines.push(theme.fg("accent", ` ${suggestion.label}`));
-			lines.push("");
-			for (const line of renderMarkdown(
-				suggestion.description,
-				theme,
-				padded,
-			)) {
-				lines.push(line);
-			}
-			return lines;
-		},
+		views: [
+			{
+				key: "r",
+				label: "Refactoring",
+				content: (theme, width) => {
+					const padded = contentWrapWidth(width);
+					const lines: string[] = [];
+					lines.push(theme.fg("text", ` Refactoring ${index + 1} of ${total}`));
+					lines.push(theme.fg("accent", ` ${suggestion.label}`));
+					lines.push("");
+					for (const line of renderMarkdown(
+						suggestion.description,
+						theme,
+						padded,
+					)) {
+						lines.push(line);
+					}
+					return lines;
+				},
+			},
+		],
 		actions: [
 			{ key: "a", label: "Approve" },
 			{ key: "r", label: "Reject" },

@@ -6,7 +6,7 @@
  */
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
-import type { Action, Option } from "./types.js";
+import type { Action, Option, PromptView } from "./types.js";
 
 /**
  * Compute total chrome lines for the panel (borders, tabs,
@@ -25,8 +25,8 @@ export function computeChromeLines(
 	return lines;
 }
 
-/** Build the hint bar as a styled string. */
-export function buildHintBar(opts: {
+/** Options for building the hint bar. */
+export interface HintBarOptions {
 	theme: Theme;
 	hasTabs: boolean;
 	needsVScroll: boolean;
@@ -34,9 +34,30 @@ export function buildHintBar(opts: {
 	hasActions: boolean;
 	isUserTab?: boolean;
 	allComplete?: boolean;
-}): string {
+	/** Views for the current tab. Omit or empty for no view hints. */
+	views?: PromptView[];
+	/** Index of the currently active view. */
+	activeViewIndex?: number;
+}
+
+/** Build the hint bar as a styled string. */
+export function buildHintBar(opts: HintBarOptions): string {
 	const { theme } = opts;
 	const hints: string[] = [];
+
+	// View hints — [K]eyword format, active view highlighted
+	const views = opts.views ?? [];
+	if (views.length > 1) {
+		const activeIdx = opts.activeViewIndex ?? 0;
+		for (let i = 0; i < views.length; i++) {
+			const view = views[i];
+			if (!view) continue;
+			const isActive = i === activeIdx;
+			hints.push(formatViewHint(view.key, view.label, theme, isActive));
+		}
+	}
+
+	// Navigation hints
 	if (opts.hasTabs) {
 		hints.push(theme.fg("dim", "Tab navigate"));
 		hints.push(theme.fg("dim", "Ctrl+# jump"));
@@ -55,4 +76,28 @@ export function buildHintBar(opts: {
 	if (opts.needsVScroll) hints.push(theme.fg("dim", "Shift+↑↓ scroll"));
 	if (opts.needsHScroll) hints.push(theme.fg("dim", "Shift+←→ pan"));
 	return ` ${hints.join(theme.fg("dim", " · "))}`;
+}
+
+/**
+ * Format a view key-hint: [K]eyword with the key letter highlighted.
+ * Active view uses accent for the full label; inactive uses dim.
+ */
+function formatViewHint(
+	key: string,
+	label: string,
+	theme: Theme,
+	isActive: boolean,
+): string {
+	const upperKey = key.toUpperCase();
+	const idx = label.toUpperCase().indexOf(upperKey);
+	const color = isActive ? "accent" : "dim";
+
+	if (idx >= 0) {
+		const before = label.slice(0, idx);
+		const keyChar = label.slice(idx, idx + 1);
+		const after = label.slice(idx + 1);
+		return `${theme.fg(color, before)}[${theme.fg("accent", keyChar)}]${theme.fg(color, after)}`;
+	}
+
+	return `[${theme.fg("accent", upperKey)}] ${theme.fg(color, label)}`;
 }

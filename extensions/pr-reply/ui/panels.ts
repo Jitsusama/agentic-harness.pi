@@ -9,6 +9,7 @@
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { prompt } from "../../lib/ui/panel.js";
 import type { Review, Thread } from "../state.js";
 import { threadPriority } from "../state.js";
@@ -114,7 +115,7 @@ export async function showReviewOverviewPanel(
 			if (review.body) {
 				lines.push(theme.fg("dim", "─".repeat(Math.min(width, 40))));
 				lines.push("");
-				lines.push(review.body);
+				lines.push(...renderMarkdown(review.body, theme, width));
 				lines.push("");
 			}
 
@@ -132,7 +133,7 @@ export async function showReviewOverviewPanel(
 			if (analysis) {
 				lines.push(theme.fg("dim", "─".repeat(Math.min(width, 40))));
 				lines.push("");
-				lines.push(analysis);
+				lines.push(...renderMarkdown(analysis, theme, width));
 			}
 
 			return lines;

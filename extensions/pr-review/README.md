@@ -26,3 +26,12 @@ drive the workflow:
 All comments use [Conventional Comments](https://conventionalcomments.org/)
 format with labels (praise, suggestion, issue, question, etc.),
 decorations (blocking, non-blocking), and a teaching-oriented tone.
+
+## Design Notes
+
+**No `enforce.ts`**: Unlike TDD mode which blocks writes during
+RED phase, pr-review mode has no tool enforcement. The review
+workflow is inherently read-only — the reviewer reads diffs and
+writes comments, but doesn't need protection against accidental
+writes. The mode tracks workflow phase for UI display and context
+injection, not for constraint enforcement.
