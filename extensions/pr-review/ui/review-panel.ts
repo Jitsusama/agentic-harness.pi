@@ -145,7 +145,7 @@ function buildTabIds(context: CrawlResult): string[] {
 
 /** Build the Desc tab with overview/comments/raw views. */
 function buildDescTab(
-	_ctx: ExtensionContext,
+	ctx: ExtensionContext,
 	session: ReviewSession,
 	tabId: string,
 	commentIndices: Map<string, number>,
@@ -229,7 +229,7 @@ function buildDescRaw(context: CrawlResult): WorkspaceView {
 
 /** Build the Scope tab with overview/comments/raw views. */
 function buildScopeTab(
-	_ctx: ExtensionContext,
+	ctx: ExtensionContext,
 	session: ReviewSession,
 	tabId: string,
 	commentIndices: Map<string, number>,
@@ -292,7 +292,7 @@ function buildScopeRaw(context: CrawlResult): WorkspaceView {
 
 /** Build a file tab with overview/comments/raw views. */
 function buildFileTab(
-	_ctx: ExtensionContext,
+	ctx: ExtensionContext,
 	session: ReviewSession,
 	file: DiffFile,
 	tabId: string,
