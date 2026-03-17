@@ -167,46 +167,49 @@ export async function getCurrentUser(pi: ExtensionAPI): Promise<string> {
 	return result.stdout.trim();
 }
 
-/** Fetch sibling PRs for the given linked issues. */
+/**
+ * Fetch sibling PRs for the given linked issues.
+ * Batches all issue numbers into a single search query.
+ */
 export async function fetchSiblingPRs(
 	pi: ExtensionAPI,
 	ref: PRReference,
 	issues: LinkedIssue[],
 ): Promise<RelatedPR[]> {
+	if (issues.length === 0) return [];
+
+	const issueTerms = issues.map((i) => String(i.number)).join(" OR ");
+	const result = await pi.exec("gh", [
+		"api",
+		"search/issues",
+		"--method",
+		"GET",
+		"-f",
+		`q=repo:${ref.owner}/${ref.repo} is:pr (${issueTerms}) in:body`,
+		"--jq",
+		".items[] | [.number, .title, .state, .pull_request.html_url] | @tsv",
+	]);
+
+	if (result.code !== 0 || !result.stdout.trim()) return [];
+
 	const siblings: RelatedPR[] = [];
 	const seen = new Set<number>([ref.number]);
 
-	for (const issue of issues) {
-		const result = await pi.exec("gh", [
-			"api",
-			"search/issues",
-			"--method",
-			"GET",
-			"-f",
-			`q=repo:${ref.owner}/${ref.repo} is:pr ${issue.number} in:body`,
-			"--jq",
-			".items[] | [.number, .title, .state, .pull_request.html_url] | @tsv",
-		]);
+	for (const line of result.stdout.trim().split("\n")) {
+		const parts = line.split("\t");
+		const prNum = Number.parseInt(parts[0] ?? "", 10);
+		if (Number.isNaN(prNum) || seen.has(prNum)) continue;
+		seen.add(prNum);
 
-		if (result.code !== 0 || !result.stdout.trim()) continue;
-
-		for (const line of result.stdout.trim().split("\n")) {
-			const parts = line.split("\t");
-			const prNum = Number.parseInt(parts[0] ?? "", 10);
-			if (Number.isNaN(prNum) || seen.has(prNum)) continue;
-			seen.add(prNum);
-
-			siblings.push({
-				number: prNum,
-				title: parts[1] ?? "",
-				state: parts[2] ?? "",
-				branch: "",
-				relationship: "sibling",
-				url:
-					parts[3] ??
-					`https://github.com/${ref.owner}/${ref.repo}/pull/${prNum}`,
-			});
-		}
+		siblings.push({
+			number: prNum,
+			title: parts[1] ?? "",
+			state: parts[2] ?? "",
+			branch: "",
+			relationship: "sibling",
+			url:
+				parts[3] ?? `https://github.com/${ref.owner}/${ref.repo}/pull/${prNum}`,
+		});
 	}
 
 	return siblings;
