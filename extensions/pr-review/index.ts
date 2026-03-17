@@ -261,27 +261,55 @@ export default function prReview(pi: ExtensionAPI) {
 		},
 
 		renderResult(res, _options, theme) {
-			const d = res.details as
-				| { action?: string; fileCount?: number; commentCount?: number }
-				| undefined;
-			if (d?.action === "activate" && d.fileCount) {
+			const d = res.details as Record<string, unknown> | undefined;
+			const action = d?.action as string | undefined;
+
+			if (action === "activate") {
+				const files = d?.fileCount ?? 0;
+				const refs = d?.referenceCount ?? 0;
+				const reviewers = d?.reviewerCount ?? 0;
 				return new Text(
-					theme.fg("success", `✓ ${d.fileCount} files, context gathered`),
+					theme.fg(
+						"success",
+						`✓ ${files} files, ${refs} references, ${reviewers} reviewers`,
+					),
 					0,
 					0,
 				);
 			}
-			if (d?.action === "generate-comments" && d.commentCount) {
+			if (action === "generate-comments") {
+				const count = d?.commentCount ?? 0;
 				return new Text(
-					theme.fg("success", `✓ ${d.commentCount} comments generated`),
+					theme.fg("success", `✓ ${count} comments generated`),
 					0,
 					0,
 				);
 			}
-			if (d?.action === "posted") {
-				return new Text(theme.fg("success", "✓ Review posted"), 0, 0);
+			if (action === "overview") {
+				const steered = d?.steered ? " (steered)" : "";
+				return new Text(theme.fg("muted", `Overview panel${steered}`), 0, 0);
 			}
-			if (d?.action === "deactivated") {
+			if (action === "review") {
+				const steered = d?.steered ? " (steered)" : "";
+				return new Text(theme.fg("muted", `Review panel${steered}`), 0, 0);
+			}
+			if (action === "submit") {
+				const steered = d?.steered ? " (steered)" : "";
+				return new Text(theme.fg("muted", `Submit panel${steered}`), 0, 0);
+			}
+			if (action === "posted") {
+				const comments = d?.comments ?? 0;
+				const verdict = d?.verdict ?? "COMMENT";
+				return new Text(
+					theme.fg(
+						"success",
+						`✓ Review posted (${verdict}, ${comments} comments)`,
+					),
+					0,
+					0,
+				);
+			}
+			if (action === "deactivated") {
 				return new Text(theme.fg("muted", "Review complete"), 0, 0);
 			}
 			const t = res.content?.[0];
