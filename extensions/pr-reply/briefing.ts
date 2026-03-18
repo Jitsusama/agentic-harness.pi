@@ -237,6 +237,40 @@ export function briefDeferred(deferredCount: number): string {
 	);
 }
 
+/**
+ * Re-analysis prompt — tells the LLM to re-evaluate all pending
+ * threads after a state change (implementation, reply, skip).
+ */
+export function briefReAnalyze(state: PRReplyState): string {
+	const pending = state.threads.filter(
+		(t) => state.threadStates.get(t.id) === "pending",
+	);
+
+	if (pending.length === 0) {
+		return "All threads addressed. Call pr_reply with action 'deactivate' to finish.";
+	}
+
+	const parts: string[] = [];
+	parts.push(
+		`${pending.length} thread${pending.length !== 1 ? "s" : ""} still pending. ` +
+			"Code has changed — re-analyze all pending threads with fresh context.",
+	);
+	parts.push("");
+	parts.push("Pending threads:");
+	for (const t of pending) {
+		const snippet = t.comments[0]?.body.slice(0, 50).replace(/\n/g, " ") ?? "";
+		parts.push(`  • ${t.id} — ${t.file}:${t.line} — ${snippet}`);
+	}
+	parts.push("");
+	parts.push(
+		"Read the relevant files to check current state, then call " +
+			"pr_reply with action 'generate-analysis' with updated analyses. " +
+			"Then call 'review' to reopen the workspace.",
+	);
+
+	return parts.join("\n");
+}
+
 /** Rebase instructions after deactivation. */
 export function briefRebaseApproved(
 	chain: Array<{ number: number; branch: string }>,

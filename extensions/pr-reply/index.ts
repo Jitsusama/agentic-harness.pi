@@ -78,12 +78,13 @@ export default function prReply(pi: ExtensionAPI) {
 			"Read the pr-reply skill for methodology.",
 		promptGuidelines: [
 			"Use when the user wants to respond to PR reviews, address review feedback, or handle PR comments.",
-			"Workflow: activate → generate-analysis → review → (implement|reply|skip|defer) → review → ... → deactivate.",
+			"Workflow: activate → generate-analysis → review → (implement|reply) → done/reply → generate-analysis → review → ... → deactivate.",
 			"After activate, analyze all threads and call 'generate-analysis' with analyses and reviewer_analyses.",
 			"Call 'review' to show the workspace. The user navigates reviewer tabs, selects threads, and chooses actions.",
 			"When the workspace returns 'implement': make changes, run tests, commit. Then call 'done' with a reply_body.",
 			"When the workspace returns 'reply': call 'reply' with the reply_body text.",
-			"After any action, call 'review' to reopen the workspace.",
+			"After 'done' or 'reply', RE-ANALYZE all remaining pending threads with fresh code context, " +
+				"then call 'generate-analysis' again before calling 'review'. This ensures recommendations stay current after code changes.",
 			"The reply_body should be conversational, acknowledge feedback, and include commit SHAs inline if changes were made.",
 		],
 		parameters: Type.Object({

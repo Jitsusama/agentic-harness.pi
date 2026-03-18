@@ -30,6 +30,7 @@ import {
 	briefDeferred,
 	briefImplementChoice,
 	briefProgress,
+	briefReAnalyze,
 	briefRebaseApproved,
 	briefReplyChoice,
 	briefReviewSummary,
@@ -377,7 +378,7 @@ export async function handleReviewWorkspace(
 						(analysis ? `Analysis: ${analysis.analysis}\n\n` : "") +
 						"Call pr_reply with action 'implement' (and use_tdd if appropriate). " +
 						"After making changes and committing, call pr_reply with action 'done' and a reply_body. " +
-						"Then call 'review' to reopen the workspace.",
+						"The 'done' response will prompt you to re-analyze remaining threads before reopening the workspace.",
 				},
 			],
 			details: {
@@ -399,7 +400,7 @@ export async function handleReviewWorkspace(
 					text:
 						`User chose to reply to thread on ${location}.\n\n` +
 						"Compose a reply and call pr_reply with action 'reply' " +
-						"and a reply_body. Then call 'review' to reopen the workspace.",
+						"and a reply_body. After posting, you'll re-analyze remaining threads before reopening the workspace.",
 				},
 			],
 			details: {
@@ -768,11 +769,13 @@ export async function handleDone(
 			? `${commits.length} commit${commits.length !== 1 ? "s" : ""} linked.`
 			: "No new commits detected.";
 
+	const reAnalyze = briefReAnalyze(state);
+
 	return {
 		content: [
 			{
 				type: "text" as const,
-				text: `Thread done. ${commitInfo} Call 'next' to continue.`,
+				text: `Thread done. ${commitInfo}\n\n${reAnalyze}`,
 			},
 		],
 		details: {
@@ -953,11 +956,13 @@ async function reviewAndPostReply(
 	state.threadStates.set(thread.id, "replied");
 	persist(state, pi);
 
+	const reAnalyze = briefReAnalyze(state);
+
 	return {
 		content: [
 			{
 				type: "text" as const,
-				text: "Reply posted. Call 'next' to continue.",
+				text: `Reply posted.\n\n${reAnalyze}`,
 			},
 		],
 		details: { action: "replied", threadId: thread.id },
