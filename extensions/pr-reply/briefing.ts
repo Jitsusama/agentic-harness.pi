@@ -8,6 +8,7 @@
 
 import type { PRReference } from "./api/github.js";
 import type { PRReplyState, Review, Thread } from "./state.js";
+import { threadsForReview } from "./state.js";
 
 /** Count threads in a given state. */
 function countByState(state: PRReplyState, threadState: string): number {
@@ -36,9 +37,69 @@ export function briefActivation(
 		);
 	}
 
-	parts.push("Call pr_reply with action 'next' to start reviewing threads.");
+	parts.push(
+		"Call pr_reply with action 'generate-analysis' providing your analysis of all threads.",
+	);
 
 	return parts.join(" ");
+}
+
+/**
+ * Batch analysis briefing — comprehensive thread context for
+ * the LLM to analyze all threads at once.
+ */
+export function briefBatchAnalysis(state: PRReplyState): string {
+	const parts: string[] = [];
+
+	parts.push("## Review Threads for Batch Analysis");
+	parts.push("");
+
+	for (const review of state.reviews) {
+		const reviewThreads = threadsForReview(review, state.threads);
+		if (reviewThreads.length === 0) continue;
+
+		parts.push(`### Review from ${review.author} (${review.state})`);
+		if (review.body) {
+			parts.push(review.body);
+			parts.push("");
+		}
+
+		for (const thread of reviewThreads) {
+			parts.push(`#### Thread: ${thread.file}:${thread.line}`);
+			if (thread.isOutdated) {
+				parts.push("⚠️ **Outdated** — the code has changed since this comment.");
+			}
+
+			for (const comment of thread.comments) {
+				const role = comment.inReplyTo === null ? "[Original]" : "[Reply]";
+				parts.push(`**${role}** ${comment.author}:`);
+				parts.push(comment.body);
+				parts.push("");
+			}
+		}
+	}
+
+	parts.push("### Instructions");
+	parts.push("");
+	parts.push(
+		"Analyze all threads, then call pr_reply with action 'generate-analysis' providing:",
+	);
+	parts.push("");
+	parts.push(
+		"1. **`analyses`** — for each thread, a recommendation (implement/reply/skip/defer) " +
+			"and analysis text explaining your reasoning",
+	);
+	parts.push(
+		"2. **`reviewer_analyses`** — for each reviewer, a brief character assessment " +
+			"(thorough, nitpicky, collaborative, blocking, etc.)",
+	);
+	parts.push("");
+	parts.push(
+		"Be critical — don't just agree with every reviewer. Evaluate whether each " +
+			"suggestion actually improves the code.",
+	);
+
+	return parts.join("\n");
 }
 
 /** Progress indicator for thread navigation headers. */

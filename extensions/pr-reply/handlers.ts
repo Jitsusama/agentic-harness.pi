@@ -25,6 +25,7 @@ import {
 } from "./api/repo.js";
 import {
 	briefActivation,
+	briefBatchAnalysis,
 	briefCompletion,
 	briefDeferred,
 	briefImplementChoice,
@@ -66,6 +67,7 @@ import {
 } from "./ui/panels.js";
 import { showReplyReview } from "./ui/reply-review.js";
 import { showThreadGate, type ThreadGateChoice } from "./ui/thread-gate.js";
+import { showReplyWorkspace } from "./ui/workspace.js";
 
 // ---- Shared helpers ----
 
@@ -84,7 +86,13 @@ function countByState(state: PRReplyState, threadState: string): number {
 }
 
 /** Get the current thread based on review-centric navigation. */
+/** Get the current thread — from workspace selection or legacy navigation. */
 function currentThread(state: PRReplyState): Thread | null {
+	// Workspace flow: currentThreadId is set by the workspace
+	if (state.currentThreadId) {
+		return state.threads.find((t) => t.id === state.currentThreadId) ?? null;
+	}
+	// Legacy flow: review-centric navigation
 	const review = state.reviews[state.reviewIndex];
 	if (!review) return null;
 	const reviewThreads = threadsForReview(review, state.threads);
@@ -200,16 +208,20 @@ export async function handleActivate(
 		return textResult("PR reply cancelled.");
 	}
 
+	const activationText = briefActivation(
+		ref,
+		activeReviews.length,
+		unresolvedThreads.length,
+		dismissedCount,
+	);
+
+	const analysisContext = briefBatchAnalysis(state);
+
 	return {
 		content: [
 			{
 				type: "text" as const,
-				text: briefActivation(
-					ref,
-					activeReviews.length,
-					unresolvedThreads.length,
-					dismissedCount,
-				),
+				text: `${activationText}\n\n${analysisContext}`,
 			},
 		],
 		details: {
@@ -239,6 +251,171 @@ export async function handleDeactivate(
 
 	return textResult(text);
 }
+
+// ---- New workspace-based handlers ----
+
+/** Generate analysis: LLM provides batch analysis of all threads. */
+export async function handleGenerateAnalysis(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	analyses: Array<{
+		thread_id: string;
+		recommendation: string;
+		analysis: string;
+	}> | null,
+	reviewerAnalyses: Array<{ reviewer: string; assessment: string }> | null,
+) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active. Call 'activate' first.");
+	}
+
+	if (analyses) {
+		for (const a of analyses) {
+			state.threadAnalyses.set(a.thread_id, {
+				recommendation: a.recommendation as
+					| "implement"
+					| "reply"
+					| "skip"
+					| "defer",
+				analysis: a.analysis,
+			});
+		}
+	}
+
+	if (reviewerAnalyses) {
+		for (const ra of reviewerAnalyses) {
+			state.reviewerAnalyses.set(ra.reviewer, {
+				assessment: ra.assessment,
+			});
+		}
+	}
+
+	persist(state, pi);
+
+	const analyzed = state.threadAnalyses.size;
+	const total = state.threads.length;
+
+	return {
+		content: [
+			{
+				type: "text" as const,
+				text:
+					`Analysis received for ${analyzed}/${total} threads. ` +
+					"Call pr_reply with action 'review' to show the workspace.",
+			},
+		],
+		details: {
+			action: "generate-analysis",
+			analyzed,
+			total,
+		},
+	};
+}
+
+/** Review workspace: show the reviewer-tab workspace panel. */
+export async function handleReviewWorkspace(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active. Call 'activate' first.");
+	}
+
+	if (state.threads.length === 0) {
+		return textResult("No threads to review.");
+	}
+
+	refreshUI(state, ctx);
+
+	const result = await showReplyWorkspace(ctx, state);
+
+	persist(state, pi);
+	refreshUI(state, ctx);
+
+	if (!result) {
+		return textResult(
+			"Workspace dismissed. Call 'review' to reopen, or 'deactivate' to finish.",
+		);
+	}
+
+	if (result.action === "steer") {
+		const thread = result.threadId
+			? state.threads.find((t) => t.id === result.threadId)
+			: null;
+		const location = thread ? `${thread.file}:${thread.line}` : "general";
+
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text:
+						`User feedback on ${location}:\n\n${result.note}\n\n` +
+						"Interpret the feedback and call the appropriate action " +
+						"(implement, reply, skip, or defer with the thread_id), " +
+						"then call 'review' to reopen the workspace.",
+				},
+			],
+			details: { action: "review", steered: true },
+		};
+	}
+
+	// Workspace returned an action on a specific thread
+	state.currentThreadId = result.threadId;
+
+	if (result.action === "implement") {
+		const thread = state.threads.find((t) => t.id === result.threadId);
+		const location = thread ? `${thread.file}:${thread.line}` : "unknown";
+		const analysis = state.threadAnalyses.get(result.threadId);
+
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text:
+						`User chose to implement changes for thread on ${location}.\n\n` +
+						(analysis ? `Analysis: ${analysis.analysis}\n\n` : "") +
+						"Call pr_reply with action 'implement' (and use_tdd if appropriate). " +
+						"After making changes and committing, call pr_reply with action 'done' and a reply_body. " +
+						"Then call 'review' to reopen the workspace.",
+				},
+			],
+			details: {
+				action: "review",
+				chosen: "implement",
+				threadId: result.threadId,
+			},
+		};
+	}
+
+	if (result.action === "reply") {
+		const thread = state.threads.find((t) => t.id === result.threadId);
+		const location = thread ? `${thread.file}:${thread.line}` : "unknown";
+
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text:
+						`User chose to reply to thread on ${location}.\n\n` +
+						"Compose a reply and call pr_reply with action 'reply' " +
+						"and a reply_body. Then call 'review' to reopen the workspace.",
+				},
+			],
+			details: {
+				action: "review",
+				chosen: "reply",
+				threadId: result.threadId,
+			},
+		};
+	}
+
+	// Defer and skip are handled inline in the workspace — the workspace
+	// only returns these if something went wrong. Handle gracefully.
+	return textResult("Action applied. Call 'review' to reopen the workspace.");
+}
+
+// ---- Legacy handlers (kept for backward compatibility) ----
 
 /**
  * Advance to the next item in the review → thread cascade.

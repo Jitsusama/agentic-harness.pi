@@ -28,10 +28,11 @@ import {
 	handleDeactivate,
 	handleDefer,
 	handleDone,
+	handleGenerateAnalysis,
 	handleImplement,
 	handleNext,
 	handleReplyAction,
-	handleReview,
+	handleReviewWorkspace,
 	handleShow,
 	handleSkip,
 } from "./handlers.js";
@@ -48,8 +49,9 @@ import { buildPRReplyContext, prReplyContextFilter } from "./transitions.js";
 const ACTIONS = [
 	"activate",
 	"deactivate",
-	"next",
+	"generate-analysis",
 	"review",
+	"next",
 	"show",
 	"implement",
 	"reply",
@@ -68,28 +70,28 @@ export default function prReply(pi: ExtensionAPI) {
 		label: "PR Reply",
 		description:
 			"Manage PR reply mode — respond to review feedback on a pull request. " +
-			"Call with 'activate' to start, then 'next' to iterate threads. " +
-			"For each thread, choose 'implement', 'reply', 'skip', or 'defer'. " +
+			"Call with 'activate' to start, then 'generate-analysis' to pre-analyze all threads, " +
+			"then 'review' to show the workspace. " +
 			"After implementing changes, call 'done' to link commits and post a reply.",
 		promptSnippet:
 			"Respond to PR review feedback. " +
 			"Read the pr-reply skill for methodology.",
 		promptGuidelines: [
 			"Use when the user wants to respond to PR reviews, address review feedback, or handle PR comments.",
-			"Workflow: activate → next → review → next → show → (action) → next → ... → deactivate.",
-			"'next' returns either a review summary (new reviewer) or thread data (same reviewer).",
-			"When you get a review summary: analyze the review's character, then call 'review' with your analysis.",
-			"When you get thread data: analyze the thread, then call 'show' with your recommendation.",
-			"After the user approves 'implement': make changes, run tests, commit. Then call 'done' with a reply_body.",
-			"After the user approves 'reply': call 'reply' with the reply_body text.",
+			"Workflow: activate → generate-analysis → review → (implement|reply|skip|defer) → review → ... → deactivate.",
+			"After activate, analyze all threads and call 'generate-analysis' with analyses and reviewer_analyses.",
+			"Call 'review' to show the workspace. The user navigates reviewer tabs, selects threads, and chooses actions.",
+			"When the workspace returns 'implement': make changes, run tests, commit. Then call 'done' with a reply_body.",
+			"When the workspace returns 'reply': call 'reply' with the reply_body text.",
+			"After any action, call 'review' to reopen the workspace.",
 			"The reply_body should be conversational, acknowledge feedback, and include commit SHAs inline if changes were made.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(ACTIONS, {
 				description:
-					"activate: start mode | next: load next thread or review | " +
-					"review: show review overview with analysis | " +
-					"show: present thread gate with recommendation | " +
+					"activate: start mode | generate-analysis: provide batch thread analysis | " +
+					"review: show/reopen workspace | " +
+					"next: (legacy) load next thread | show: (legacy) present thread gate | " +
 					"implement: begin implementing current thread | " +
 					"reply: post a reply | done: finish implementation | " +
 					"skip: skip thread | defer: defer thread | deactivate: exit mode",
@@ -103,9 +105,39 @@ export default function prReply(pi: ExtensionAPI) {
 			analysis: Type.Optional(
 				Type.String({
 					description:
-						"Your analysis text. For 'review': overall review character. " +
-						"For 'show': thread recommendation. Supports markdown.",
+						"Your analysis text. For legacy 'review'/'show' actions. Supports markdown.",
 				}),
+			),
+			analyses: Type.Optional(
+				Type.Array(
+					Type.Object({
+						thread_id: Type.String({ description: "Thread ID" }),
+						recommendation: Type.String({
+							description:
+								"Recommended action: implement, reply, skip, or defer",
+						}),
+						analysis: Type.String({
+							description: "Analysis text explaining your reasoning",
+						}),
+					}),
+					{
+						description: "Per-thread analyses. Used with 'generate-analysis'.",
+					},
+				),
+			),
+			reviewer_analyses: Type.Optional(
+				Type.Array(
+					Type.Object({
+						reviewer: Type.String({ description: "Reviewer username" }),
+						assessment: Type.String({
+							description: "Brief character assessment of this reviewer",
+						}),
+					}),
+					{
+						description:
+							"Per-reviewer assessments. Used with 'generate-analysis'.",
+					},
+				),
 			),
 			reply_body: Type.Optional(
 				Type.String({
@@ -126,10 +158,24 @@ export default function prReply(pi: ExtensionAPI) {
 					return handleActivate(state, pi, ctx, params.pr ?? null);
 				case "deactivate":
 					return handleDeactivate(state, pi, ctx);
+				case "generate-analysis":
+					return handleGenerateAnalysis(
+						state,
+						pi,
+						(params.analyses as Array<{
+							thread_id: string;
+							recommendation: string;
+							analysis: string;
+						}>) ?? null,
+						(params.reviewer_analyses as Array<{
+							reviewer: string;
+							assessment: string;
+						}>) ?? null,
+					);
+				case "review":
+					return handleReviewWorkspace(state, pi, ctx);
 				case "next":
 					return handleNext(state, pi, ctx);
-				case "review":
-					return handleReview(state, pi, ctx, params.analysis ?? "");
 				case "show":
 					return handleShow(state, pi, ctx, params.analysis ?? "");
 				case "implement":
