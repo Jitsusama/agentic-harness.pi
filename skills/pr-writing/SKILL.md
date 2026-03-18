@@ -96,7 +96,41 @@ Do NOT flag style issues, obvious code, or things the diff
 already makes clear. An empty comments array is fine when
 nothing warrants reviewer attention.
 
-### Getting Line Numbers Right
+### Choosing Line Ranges
+
+The line range is the first thing a reviewer sees — it
+frames the comment before they read a word. A mismatched
+range makes the comment confusing; a well-chosen range
+makes the comment self-evident.
+
+**The range must contain the code the comment is about.**
+Read your comment body, identify the specific code it
+discusses, and select exactly those lines. If the comment
+says "this validation assumes X", the range must show the
+validation code, not the function signature three lines
+above it.
+
+**Scope the range to the relevant construct:**
+- A naming concern → the single line with the declaration
+- A logic concern → the conditional block or expression
+- A design decision → the function or type that embodies it
+- A missing edge case → the lines where handling should be
+
+**Don't over-select.** A 20-line range that includes
+imports, blank lines, and unrelated code dilutes the
+signal. If your comment is about a 3-line conditional,
+select those 3 lines — not the entire function.
+
+**Don't under-select.** If the comment discusses how two
+things interact (e.g., "this parse step feeds into the
+validation below"), include both parts so the reviewer
+sees the relationship without scrolling.
+
+**Use a single line only when the comment is about one
+line** — a variable name, a magic number, a specific
+return value. For anything structural, use a range.
+
+### Validating Line Numbers Against the Diff
 
 GitHub's review API only accepts comments on lines that
 appear in the diff. Comments on lines outside diff hunks
@@ -115,6 +149,11 @@ Procedure:
    a `@@` hunk on the RIGHT side (new file lines — the
    `+N,M` in the hunk header).
 3. Only then call `pr_annotate` with those line numbers.
+
+If the code you want to comment on isn't in the diff,
+the comment doesn't belong on that line. Either find
+diff lines that are relevant to the same point, or
+make it a PR-level comment instead.
 
 Do NOT guess line numbers from the file contents. Do NOT
 retry with adjusted numbers after a 422 — get them right
