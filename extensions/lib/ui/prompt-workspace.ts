@@ -143,10 +143,10 @@ export async function showWorkspacePrompt(
 					const tab = currentTab;
 					const view = getViewIndex(tab);
 					contentCache.delete(cacheKey(tab, view));
-					tui.requestRender();
+					tui.requestRender(true);
 				},
 				requestRender() {
-					tui.requestRender();
+					tui.requestRender(true);
 				},
 				scrollToLine(line: number) {
 					const tab = currentTab;

@@ -1,20 +1,18 @@
 /**
- * PR Reply workspace — reviewer-tab workspace with three views
- * per tab: Overview, Threads, Source.
+ * PR Reply workspace — navigation surface for reviewer tabs.
  *
- * Mirrors pr-review's review panel structure. Each reviewer is
- * a tab. Threads within a review are a selectable list. Actions
- * (implement/reply/defer/skip) apply to the selected thread.
+ * The workspace is for BROWSING threads — seeing the big picture,
+ * checking status, picking what to work on next. When the user
+ * selects a thread (Enter), the workspace dismisses and returns
+ * the thread ID so the handler can open a full-context gate.
+ *
+ * Skip and defer are inline (no context needed). Implement and
+ * reply go through the gate for full code context + LLM analysis.
  */
 
-import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
-import {
-	languageFromPath,
-	renderCode,
-	renderMarkdown,
-} from "../../lib/ui/content-renderer.js";
+import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { workspace } from "../../lib/ui/panel.js";
 import {
 	CONTENT_INDENT,
@@ -62,10 +60,9 @@ const THREAD_GLYPH_COLOR: Record<ThreadState, string> = {
 
 /** Result from the workspace — which action the user chose. */
 export type WorkspaceAction =
-	| { action: "implement"; threadId: string }
-	| { action: "reply"; threadId: string }
-	| { action: "defer"; threadId: string }
+	| { action: "open"; threadId: string }
 	| { action: "skip"; threadId: string }
+	| { action: "defer"; threadId: string }
 	| { action: "steer"; threadId: string | null; note: string }
 	| null;
 
@@ -75,7 +72,8 @@ export type WorkspaceAction =
  * Show the PR reply workspace. Returns the user's chosen action,
  * or null on cancel (Escape).
  *
- * Restores workspace position from state if available.
+ * The workspace is a navigation surface — Enter on a thread
+ * opens the full-context gate. Skip/defer are inline.
  */
 export async function showReplyWorkspace(
 	ctx: ExtensionContext,
@@ -130,12 +128,7 @@ export async function showReplyWorkspace(
 
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
-		globalActions: [
-			{ key: "i", label: "Implement" },
-			{ key: "r", label: "Reply" },
-			{ key: "d", label: "Defer" },
-			{ key: "k", label: "sKip" },
-		],
+		globalActions: [{ key: "e", label: "Enter thread" }],
 		tabStatus: (index) => {
 			const tabId = tabIds[index];
 			if (!tabId || tabId === "summary") return "pending";
@@ -147,7 +140,7 @@ export async function showReplyWorkspace(
 
 	// Save workspace position
 	state.workspacePosition = {
-		tabIndex: 0, // Will be updated by the workspace if we had access
+		tabIndex: 0,
 		threadIndices: new Map(threadIndices),
 	};
 
@@ -157,17 +150,8 @@ export async function showReplyWorkspace(
 		return { action: "steer", threadId: actionThreadId, note: result.note };
 	}
 
-	if (result.type === "action" && actionThreadId) {
-		const actionMap: Record<string, WorkspaceAction["action" & string]> = {
-			i: "implement",
-			r: "reply",
-			d: "defer",
-			k: "skip",
-		};
-		const action = actionMap[result.value];
-		if (action) {
-			return { action, threadId: actionThreadId };
-		}
+	if (result.type === "action" && result.value === "e" && actionThreadId) {
+		return { action: "open", threadId: actionThreadId };
 	}
 
 	return null;
@@ -194,7 +178,6 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 			lines.push("");
 
 			// Progress
-			const total = state.threads.length;
 			let replied = 0;
 			let addressed = 0;
 			let implementing = 0;
@@ -209,6 +192,7 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 				else if (st === "deferred") deferred++;
 				else if (st === "skipped") skipped++;
 			}
+			const total = state.threads.length;
 			const done = replied + addressed + skipped;
 
 			lines.push(` ${theme.fg("text", theme.bold("Progress:"))}`);
@@ -255,7 +239,7 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 
 // ---- Reviewer tabs ----
 
-/** Build a reviewer tab with Overview/Threads/Source views. */
+/** Build a reviewer tab with Overview and Threads views. */
 function buildReviewerTab(
 	review: Review,
 	allThreads: Thread[],
@@ -284,9 +268,7 @@ function buildReviewerTab(
 				tabHandled,
 				setActionThread,
 			),
-			buildSourceView(reviewThreads, getIndex),
 		],
-		allowHScroll: true,
 	};
 }
 
@@ -302,6 +284,7 @@ function buildReviewOverview(
 		label: "Overview",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
+			const wrapWidth = contentWrapWidth(width);
 			const lines: string[] = [];
 
 			// Reviewer header
@@ -325,23 +308,25 @@ function buildReviewOverview(
 				lines.push("");
 			}
 
-			// Thread summary list
+			// Thread summary list with recommendations
 			lines.push(` ${theme.fg("text", theme.bold("Threads:"))}`);
 			for (const thread of reviewThreads) {
 				const st = threadStates.get(thread.id) ?? "pending";
 				const glyph = THREAD_GLYPH[st];
 				const color = THREAD_GLYPH_COLOR[st];
 				const analysis = threadAnalyses.get(thread.id);
-				const rec = analysis?.recommendation ?? "";
+				const rec = analysis ? ` → ${analysis.recommendation}` : "";
 
 				const snippet =
-					thread.comments[0]?.body.slice(0, 50).replace(/\n/g, " ") ?? "";
-				const ellipsis = (thread.comments[0]?.body.length ?? 0) > 50 ? "…" : "";
+					thread.comments[0]?.body.slice(0, 60).replace(/\n/g, " ") ?? "";
+				const ellipsis = (thread.comments[0]?.body.length ?? 0) > 60 ? "…" : "";
 
 				lines.push(
-					`${pad}${theme.fg(color, glyph)} ${thread.file}:${thread.line} ${theme.fg("dim", rec)}`,
+					`${pad}${theme.fg(color, glyph)} ${theme.fg("text", `${thread.file}:${thread.line}`)}${theme.fg("dim", rec)}`,
 				);
-				lines.push(`${pad}    ${theme.fg("dim", `${snippet}${ellipsis}`)}`);
+				for (const wl of wordWrap(`${snippet}${ellipsis}`, wrapWidth - 6)) {
+					lines.push(`${pad}    ${theme.fg("dim", wl)}`);
+				}
 			}
 
 			return lines;
@@ -349,7 +334,10 @@ function buildReviewOverview(
 	};
 }
 
-/** Threads view — selectable list with conversation + recommendation. */
+/**
+ * Threads view — compact selectable list for navigation.
+ * Enter opens the full-context gate. Skip/defer are inline.
+ */
 function buildThreadsView(
 	review: Review,
 	reviewThreads: Thread[],
@@ -364,8 +352,7 @@ function buildThreadsView(
 		key: "t",
 		label: "Threads",
 		actions: [
-			{ key: "i", label: "Implement" },
-			{ key: "r", label: "Reply" },
+			{ key: "e", label: "Enter" },
 			{ key: "d", label: "Defer" },
 			{ key: "k", label: "sKip" },
 		],
@@ -388,14 +375,12 @@ function buildThreadsView(
 					(getIndex() - 1 + reviewThreads.length) % reviewThreads.length,
 				);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(getIndex());
 				updateActionThread(reviewThreads, getIndex, setActionThread);
 				return true;
 			}
 			if (matchesKey(data, Key.down)) {
 				setIndex((getIndex() + 1) % reviewThreads.length);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(getIndex());
 				updateActionThread(reviewThreads, getIndex, setActionThread);
 				return true;
 			}
@@ -403,20 +388,16 @@ function buildThreadsView(
 			const thread = reviewThreads[getIndex()];
 			if (!thread) return false;
 
-			// Set action thread for any action key
 			setActionThread(thread.id);
 
-			// Actions — these close the workspace via done()
-			if (matchesKey(data, "i")) {
-				inputCtx.done({ type: "action", value: "i" });
+			// Enter — open the full-context gate
+			if (matchesKey(data, Key.enter) || matchesKey(data, "e")) {
+				inputCtx.done({ type: "action", value: "e" });
 				return true;
 			}
-			if (matchesKey(data, "r")) {
-				inputCtx.done({ type: "action", value: "r" });
-				return true;
-			}
+
+			// Defer inline
 			if (matchesKey(data, "d")) {
-				// Defer inline — mark and advance
 				const st = threadStates.get(thread.id);
 				if (st === "pending") {
 					threadStates.set(thread.id, "deferred");
@@ -428,12 +409,12 @@ function buildThreadsView(
 					);
 					advanceToNextPending(reviewThreads, threadStates, getIndex, setIndex);
 					inputCtx.invalidate();
-					inputCtx.scrollToLine(getIndex());
 				}
 				return true;
 			}
+
+			// Skip inline
 			if (matchesKey(data, "k")) {
-				// Skip inline — mark and advance
 				const st = threadStates.get(thread.id);
 				if (st === "pending") {
 					threadStates.set(thread.id, "skipped");
@@ -445,15 +426,7 @@ function buildThreadsView(
 					);
 					advanceToNextPending(reviewThreads, threadStates, getIndex, setIndex);
 					inputCtx.invalidate();
-					inputCtx.scrollToLine(getIndex());
 				}
-				return true;
-			}
-
-			// Steer on current thread
-			if (matchesKey(data, "s")) {
-				setActionThread(thread.id);
-				inputCtx.openEditor(`Feedback on ${thread.file}:${thread.line}:`);
 				return true;
 			}
 
@@ -462,43 +435,13 @@ function buildThreadsView(
 	};
 }
 
-/** Source view — code context around the selected thread's location. */
-function buildSourceView(
-	reviewThreads: Thread[],
-	getIndex: () => number,
-): WorkspaceView {
-	return {
-		key: "s",
-		label: "Source",
-		content: (theme: Theme, width: number) => {
-			const pad = " ".repeat(CONTENT_INDENT);
-			const thread = reviewThreads[getIndex()];
-			if (!thread) {
-				return [`${pad}${theme.fg("dim", "No thread selected.")}`];
-			}
-
-			const filePath = thread.file;
-			const contextLine = thread.line || thread.originalLine || 0;
-
-			let source: string;
-			try {
-				source = fs.readFileSync(filePath, "utf-8");
-			} catch {
-				return [`${pad}${theme.fg("dim", `(${filePath} not available)`)}`];
-			}
-
-			return renderCode(source, theme, width, {
-				startLine: 1,
-				highlightLines: contextLine > 0 ? new Set([contextLine]) : undefined,
-				language: languageFromPath(filePath),
-			});
-		},
-	};
-}
-
 // ---- Thread list rendering ----
 
-/** Render a selectable thread list with expanded conversation. */
+/**
+ * Render a compact thread list for navigation.
+ * Shows file:line, status, and recommendation — no expanded views.
+ * The full context is shown in the gate when the user enters a thread.
+ */
 function renderThreadList(
 	threads: Thread[],
 	threadStates: Map<string, ThreadState>,
@@ -525,53 +468,23 @@ function renderThreadList(
 		const glyph = THREAD_GLYPH[st];
 		const glyphColor = THREAD_GLYPH_COLOR[st];
 
+		const analysis = threadAnalyses.get(thread.id);
+		const rec = analysis ? ` → ${analysis.recommendation}` : "";
+
 		const location = `${thread.file}:${thread.line}`;
-		const line = `${pad}${cursor}${theme.fg(glyphColor, glyph)} ${location} ${theme.fg("dim", `[${st}]`)}`;
+		const summary = `${location}${rec}`;
+		const line = `${pad}${cursor}${theme.fg(glyphColor, glyph)} ${summary} ${theme.fg("dim", `[${st}]`)}`;
 		lines.push(isSel ? theme.fg("accent", line) : line);
 
-		// Expanded view for selected thread
-		if (isSel) {
-			lines.push("");
-
-			// Original comment
-			const original = thread.comments.find((c) => c.inReplyTo === null);
-			if (original) {
-				lines.push(`${pad}    ${theme.fg("dim", `${original.author}:`)}`);
-				for (const wl of wordWrap(original.body, wrapWidth - 6)) {
-					lines.push(`${pad}      ${theme.fg("text", wl)}`);
-				}
-				lines.push("");
-			}
-
-			// LLM recommendation
-			const analysis = threadAnalyses.get(thread.id);
-			if (analysis) {
+		// Show snippet on second line
+		const snippet =
+			thread.comments[0]?.body.slice(0, 70).replace(/\n/g, " ") ?? "";
+		const ellipsis = (thread.comments[0]?.body.length ?? 0) > 70 ? "…" : "";
+		if (snippet) {
+			for (const wl of wordWrap(`${snippet}${ellipsis}`, wrapWidth - 8)) {
 				lines.push(
-					`${pad}    ${theme.fg("dim", "─".repeat(Math.min(30, wrapWidth - 6)))}`,
+					`${pad}      ${isSel ? theme.fg("accent", theme.fg("dim", wl)) : theme.fg("dim", wl)}`,
 				);
-				lines.push(
-					`${pad}    ${theme.fg("accent", `Recommendation: ${analysis.recommendation}`)}`,
-				);
-				for (const wl of wordWrap(analysis.analysis, wrapWidth - 6)) {
-					lines.push(`${pad}      ${theme.fg("dim", wl)}`);
-				}
-				lines.push("");
-			}
-
-			// Full conversation (if more than original)
-			if (thread.comments.length > 1) {
-				lines.push(`${pad}    ${theme.fg("dim", "Thread History:")}`);
-				for (const comment of thread.comments) {
-					const isOrig = comment.inReplyTo === null;
-					const tag = isOrig ? "▸" : "  ↳";
-					lines.push(
-						`${pad}    ${theme.fg(isOrig ? "accent" : "muted", `${tag} ${comment.author}:`)}`,
-					);
-					for (const wl of wordWrap(comment.body, wrapWidth - 8)) {
-						lines.push(`${pad}        ${theme.fg("dim", wl)}`);
-					}
-				}
-				lines.push("");
 			}
 		}
 	}

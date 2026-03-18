@@ -361,58 +361,57 @@ export async function handleReviewWorkspace(
 		};
 	}
 
-	// Workspace returned an action on a specific thread
-	state.currentThreadId = result.threadId;
-
-	if (result.action === "implement") {
+	// User selected a thread — show the full-context gate
+	if (result.action === "open") {
 		const thread = state.threads.find((t) => t.id === result.threadId);
-		const location = thread ? `${thread.file}:${thread.line}` : "unknown";
-		const analysis = state.threadAnalyses.get(result.threadId);
+		if (!thread) {
+			return textResult("Thread not found. Call 'review' to reopen.");
+		}
 
-		return {
-			content: [
-				{
-					type: "text" as const,
-					text:
-						`User chose to implement changes for thread on ${location}.\n\n` +
-						(analysis ? `Analysis: ${analysis.analysis}\n\n` : "") +
-						"Call pr_reply with action 'implement' (and use_tdd if appropriate). " +
-						"After making changes and committing, call pr_reply with action 'done' and a reply_body. " +
-						"The 'done' response will prompt you to re-analyze remaining threads before reopening the workspace.",
-				},
-			],
-			details: {
-				action: "review",
-				chosen: "implement",
-				threadId: result.threadId,
-			},
-		};
+		state.currentThreadId = result.threadId;
+		const review = state.reviews.find((r) => r.threadIds.includes(thread.id));
+		const contextLine = thread.line || thread.originalLine || 0;
+		const codeContext =
+			contextLine > 0
+				? await readCodeContext(pi, thread.file, contextLine)
+				: null;
+
+		// Build recommendation from batch analysis
+		const analysis = state.threadAnalyses.get(thread.id);
+		const recommendation = analysis?.analysis ?? "";
+
+		const progressLine = briefProgress(state);
+
+		// Show the full-context thread gate
+		const choice = await showThreadGate(
+			ctx,
+			thread,
+			review,
+			codeContext,
+			recommendation,
+			progressLine,
+		);
+
+		refreshUI(state, ctx);
+
+		const steerContext = buildAnalysisPrompt(
+			thread,
+			review ?? state.reviews[0],
+			codeContext?.source ?? null,
+			null,
+		);
+
+		return applyThreadChoice(
+			state,
+			pi,
+			choice,
+			thread,
+			contextLine,
+			steerContext,
+		);
 	}
 
-	if (result.action === "reply") {
-		const thread = state.threads.find((t) => t.id === result.threadId);
-		const location = thread ? `${thread.file}:${thread.line}` : "unknown";
-
-		return {
-			content: [
-				{
-					type: "text" as const,
-					text:
-						`User chose to reply to thread on ${location}.\n\n` +
-						"Compose a reply and call pr_reply with action 'reply' " +
-						"and a reply_body. After posting, you'll re-analyze remaining threads before reopening the workspace.",
-				},
-			],
-			details: {
-				action: "review",
-				chosen: "reply",
-				threadId: result.threadId,
-			},
-		};
-	}
-
-	// Defer and skip are handled inline in the workspace — the workspace
-	// only returns these if something went wrong. Handle gracefully.
+	// Defer and skip are handled inline in the workspace
 	return textResult("Action applied. Call 'review' to reopen the workspace.");
 }
 
