@@ -54,6 +54,28 @@ export interface Review {
 	threadIds: string[]; // References to threads in this review
 }
 
+/** Per-thread analysis from the LLM's batch pre-analysis. */
+export interface ThreadAnalysis {
+	/** LLM's recommended action. */
+	recommendation: "implement" | "reply" | "skip" | "defer";
+	/** LLM's analysis text (markdown). */
+	analysis: string;
+}
+
+/** Per-reviewer character assessment from the LLM. */
+export interface ReviewerAnalysis {
+	/** Overall character of this review. */
+	assessment: string;
+}
+
+/** Saved workspace position for dismiss/restore. */
+export interface WorkspacePosition {
+	/** Index of the active tab (0 = summary, 1+ = reviewer tabs). */
+	tabIndex: number;
+	/** Thread selection index per reviewer tab. */
+	threadIndices: Map<string, number>;
+}
+
 /** Runtime state for PR reply mode. */
 export interface PRReplyState {
 	enabled: boolean;
@@ -69,12 +91,22 @@ export interface PRReplyState {
 	threads: Thread[];
 	threadStates: Map<string, ThreadState>;
 
-	// Navigation — review-first, then thread within review
-	/** Index into the sorted reviews array. */
+	// Batch analysis from the LLM
+	threadAnalyses: Map<string, ThreadAnalysis>;
+	reviewerAnalyses: Map<string, ReviewerAnalysis>;
+
+	// Workspace position — preserved across dismiss/restore
+	workspacePosition: WorkspacePosition | null;
+
+	// Currently selected thread ID — set by workspace actions
+	currentThreadId: string | null;
+
+	// Legacy navigation — kept for backward compat during transition
+	/** @deprecated Use workspacePosition instead. */
 	reviewIndex: number;
-	/** Whether the current review's overview has been shown. */
+	/** @deprecated Use workspacePosition instead. */
 	reviewIntroduced: boolean;
-	/** Index of the current thread within the current review's threads. */
+	/** @deprecated Use workspacePosition instead. */
 	threadIndexInReview: number;
 
 	// Implementation tracking
@@ -141,6 +173,10 @@ export function createPRReplyState(): PRReplyState {
 		reviews: [],
 		threads: [],
 		threadStates: new Map(),
+		threadAnalyses: new Map(),
+		reviewerAnalyses: new Map(),
+		workspacePosition: null,
+		currentThreadId: null,
 		reviewIndex: 0,
 		reviewIntroduced: false,
 		threadIndexInReview: 0,

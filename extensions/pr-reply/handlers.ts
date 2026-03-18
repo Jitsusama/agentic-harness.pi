@@ -25,10 +25,12 @@ import {
 } from "./api/repo.js";
 import {
 	briefActivation,
+	briefBatchAnalysis,
 	briefCompletion,
 	briefDeferred,
 	briefImplementChoice,
 	briefProgress,
+	briefReAnalyze,
 	briefRebaseApproved,
 	briefReplyChoice,
 	briefReviewSummary,
@@ -66,6 +68,7 @@ import {
 } from "./ui/panels.js";
 import { showReplyReview } from "./ui/reply-review.js";
 import { showThreadGate, type ThreadGateChoice } from "./ui/thread-gate.js";
+import { showReplyWorkspace } from "./ui/workspace.js";
 
 // ---- Shared helpers ----
 
@@ -84,7 +87,13 @@ function countByState(state: PRReplyState, threadState: string): number {
 }
 
 /** Get the current thread based on review-centric navigation. */
+/** Get the current thread — from workspace selection or legacy navigation. */
 function currentThread(state: PRReplyState): Thread | null {
+	// Workspace flow: currentThreadId is set by the workspace
+	if (state.currentThreadId) {
+		return state.threads.find((t) => t.id === state.currentThreadId) ?? null;
+	}
+	// Legacy flow: review-centric navigation
 	const review = state.reviews[state.reviewIndex];
 	if (!review) return null;
 	const reviewThreads = threadsForReview(review, state.threads);
@@ -200,16 +209,20 @@ export async function handleActivate(
 		return textResult("PR reply cancelled.");
 	}
 
+	const activationText = briefActivation(
+		ref,
+		activeReviews.length,
+		unresolvedThreads.length,
+		dismissedCount,
+	);
+
+	const analysisContext = briefBatchAnalysis(state);
+
 	return {
 		content: [
 			{
 				type: "text" as const,
-				text: briefActivation(
-					ref,
-					activeReviews.length,
-					unresolvedThreads.length,
-					dismissedCount,
-				),
+				text: `${activationText}\n\n${analysisContext}`,
 			},
 		],
 		details: {
@@ -239,6 +252,170 @@ export async function handleDeactivate(
 
 	return textResult(text);
 }
+
+// ---- New workspace-based handlers ----
+
+/** Generate analysis: LLM provides batch analysis of all threads. */
+export async function handleGenerateAnalysis(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	analyses: Array<{
+		thread_id: string;
+		recommendation: string;
+		analysis: string;
+	}> | null,
+	reviewerAnalyses: Array<{ reviewer: string; assessment: string }> | null,
+) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active. Call 'activate' first.");
+	}
+
+	if (analyses) {
+		for (const a of analyses) {
+			state.threadAnalyses.set(a.thread_id, {
+				recommendation: a.recommendation as
+					| "implement"
+					| "reply"
+					| "skip"
+					| "defer",
+				analysis: a.analysis,
+			});
+		}
+	}
+
+	if (reviewerAnalyses) {
+		for (const ra of reviewerAnalyses) {
+			state.reviewerAnalyses.set(ra.reviewer, {
+				assessment: ra.assessment,
+			});
+		}
+	}
+
+	persist(state, pi);
+
+	const analyzed = state.threadAnalyses.size;
+	const total = state.threads.length;
+
+	return {
+		content: [
+			{
+				type: "text" as const,
+				text:
+					`Analysis received for ${analyzed}/${total} threads. ` +
+					"Call pr_reply with action 'review' to show the workspace.",
+			},
+		],
+		details: {
+			action: "generate-analysis",
+			analyzed,
+			total,
+		},
+	};
+}
+
+/** Review workspace: show the reviewer-tab workspace panel. */
+export async function handleReviewWorkspace(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+) {
+	if (!state.enabled) {
+		return textResult("PR reply mode is not active. Call 'activate' first.");
+	}
+
+	if (state.threads.length === 0) {
+		return textResult("No threads to review.");
+	}
+
+	refreshUI(state, ctx);
+
+	const result = await showReplyWorkspace(ctx, state);
+
+	persist(state, pi);
+	refreshUI(state, ctx);
+
+	if (!result) {
+		return textResult(
+			"Workspace dismissed. Call 'review' to reopen, or 'deactivate' to finish.",
+		);
+	}
+
+	if (result.action === "steer") {
+		const thread = result.threadId
+			? state.threads.find((t) => t.id === result.threadId)
+			: null;
+		const location = thread ? `${thread.file}:${thread.line}` : "general";
+
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text:
+						`User feedback on ${location}:\n\n${result.note}\n\n` +
+						"Interpret the feedback and call the appropriate action " +
+						"(implement, reply, skip, or defer with the thread_id), " +
+						"then call 'review' to reopen the workspace.",
+				},
+			],
+			details: { action: "review", steered: true },
+		};
+	}
+
+	// User selected a thread — show the full-context gate
+	if (result.action === "open") {
+		const thread = state.threads.find((t) => t.id === result.threadId);
+		if (!thread) {
+			return textResult("Thread not found. Call 'review' to reopen.");
+		}
+
+		state.currentThreadId = result.threadId;
+		const review = state.reviews.find((r) => r.threadIds.includes(thread.id));
+		const contextLine = thread.line || thread.originalLine || 0;
+		const codeContext =
+			contextLine > 0
+				? await readCodeContext(pi, thread.file, contextLine)
+				: null;
+
+		// Build recommendation from batch analysis
+		const analysis = state.threadAnalyses.get(thread.id);
+		const recommendation = analysis?.analysis ?? "";
+
+		const progressLine = briefProgress(state);
+
+		// Show the full-context thread gate
+		const choice = await showThreadGate(
+			ctx,
+			thread,
+			review,
+			codeContext,
+			recommendation,
+			progressLine,
+		);
+
+		refreshUI(state, ctx);
+
+		const steerContext = buildAnalysisPrompt(
+			thread,
+			review ?? state.reviews[0],
+			codeContext?.source ?? null,
+			null,
+		);
+
+		return applyThreadChoice(
+			state,
+			pi,
+			choice,
+			thread,
+			contextLine,
+			steerContext,
+		);
+	}
+
+	// Defer and skip are handled inline in the workspace
+	return textResult("Action applied. Call 'review' to reopen the workspace.");
+}
+
+// ---- Legacy handlers (kept for backward compatibility) ----
 
 /**
  * Advance to the next item in the review → thread cascade.
@@ -591,11 +768,13 @@ export async function handleDone(
 			? `${commits.length} commit${commits.length !== 1 ? "s" : ""} linked.`
 			: "No new commits detected.";
 
+	const reAnalyze = briefReAnalyze(state);
+
 	return {
 		content: [
 			{
 				type: "text" as const,
-				text: `Thread done. ${commitInfo} Call 'next' to continue.`,
+				text: `Thread done. ${commitInfo}\n\n${reAnalyze}`,
 			},
 		],
 		details: {
@@ -776,11 +955,13 @@ async function reviewAndPostReply(
 	state.threadStates.set(thread.id, "replied");
 	persist(state, pi);
 
+	const reAnalyze = briefReAnalyze(state);
+
 	return {
 		content: [
 			{
 				type: "text" as const,
-				text: "Reply posted. Call 'next' to continue.",
+				text: `Reply posted.\n\n${reAnalyze}`,
 			},
 		],
 		details: { action: "replied", threadId: thread.id },

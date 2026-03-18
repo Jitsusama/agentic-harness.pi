@@ -252,8 +252,8 @@ function buildDescOverview(
 /** Desc raw — raw markdown source. */
 function buildDescRaw(context: CrawlResult): WorkspaceView {
 	return {
-		key: "w",
-		label: "raW",
+		key: "s",
+		label: "Source",
 		content: (theme: Theme, _width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
@@ -326,8 +326,8 @@ function buildScopeOverview(session: ReviewSession): WorkspaceView {
 /** Scope raw — file list with per-file stats. */
 function buildScopeRaw(context: CrawlResult): WorkspaceView {
 	return {
-		key: "w",
-		label: "raW",
+		key: "s",
+		label: "Source",
 		content: (theme: Theme, _width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
@@ -423,8 +423,8 @@ function buildFileRaw(session: ReviewSession, file: DiffFile): WorkspaceView {
 	const filePath = `${session.repoPath}/${file.path}`;
 
 	return {
-		key: "w",
-		label: "raW",
+		key: "s",
+		label: "Source",
 		content: async (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 

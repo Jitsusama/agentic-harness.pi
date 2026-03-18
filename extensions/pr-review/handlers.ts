@@ -10,8 +10,9 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import { getCurrentRepo } from "../lib/github/repo-discovery.js";
 import type { PRReference } from "./api/parse.js";
-import { extractOwnerRepo, parsePRReference } from "./api/parse.js";
+import { parsePRReference } from "./api/parse.js";
 import { resolveRepo } from "./api/repo.js";
 import { briefActivation, briefGenerateComments } from "./briefing.js";
 import { crawl } from "./crawler.js";
@@ -223,15 +224,6 @@ async function removeWorktree(
 }
 
 // ---- Helpers ----
-
-/** Get current repo from git remote. */
-async function getCurrentRepo(
-	pi: ExtensionAPI,
-): Promise<{ owner: string; repo: string } | null> {
-	const result = await pi.exec("git", ["config", "--get", "remote.origin.url"]);
-	if (result.code !== 0) return null;
-	return extractOwnerRepo(result.stdout.trim());
-}
 
 /** Resolve a PR reference from user input. */
 async function resolvePR(
@@ -821,7 +813,7 @@ export async function handlePost(deps: HandlerDeps) {
 		});
 
 	try {
-		await postReview(pi, ref, session.reviewBody, session.verdict, ghComments);
+		await postReview(pi, ref, session.verdict, session.reviewBody, ghComments);
 
 		return {
 			content: [

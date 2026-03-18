@@ -8,6 +8,7 @@
 
 import type { PRReference } from "./api/github.js";
 import type { PRReplyState, Review, Thread } from "./state.js";
+import { threadsForReview } from "./state.js";
 
 /** Count threads in a given state. */
 function countByState(state: PRReplyState, threadState: string): number {
@@ -36,9 +37,71 @@ export function briefActivation(
 		);
 	}
 
-	parts.push("Call pr_reply with action 'next' to start reviewing threads.");
+	parts.push(
+		"Call pr_reply with action 'generate-analysis' providing your analysis of all threads.",
+	);
 
 	return parts.join(" ");
+}
+
+/**
+ * Batch analysis briefing — comprehensive thread context for
+ * the LLM to analyze all threads at once.
+ */
+export function briefBatchAnalysis(state: PRReplyState): string {
+	const parts: string[] = [];
+
+	parts.push("## Review Threads for Batch Analysis");
+	parts.push("");
+
+	for (const review of state.reviews) {
+		const reviewThreads = threadsForReview(review, state.threads);
+		if (reviewThreads.length === 0) continue;
+
+		parts.push(`### Review from ${review.author} (${review.state})`);
+		if (review.body) {
+			parts.push(review.body);
+			parts.push("");
+		}
+
+		for (const thread of reviewThreads) {
+			parts.push(
+				`#### Thread: ${thread.file}:${thread.line} (id: ${thread.id})`,
+			);
+			if (thread.isOutdated) {
+				parts.push("⚠️ **Outdated** — the code has changed since this comment.");
+			}
+
+			for (const comment of thread.comments) {
+				const role = comment.inReplyTo === null ? "[Original]" : "[Reply]";
+				parts.push(`**${role}** ${comment.author}:`);
+				parts.push(comment.body);
+				parts.push("");
+			}
+		}
+	}
+
+	parts.push("### Instructions");
+	parts.push("");
+	parts.push(
+		"Analyze all threads, then call pr_reply with action 'generate-analysis' providing:",
+	);
+	parts.push("");
+	parts.push(
+		"1. **`analyses`** — for each thread, a recommendation (implement/reply/skip/defer) " +
+			"and analysis text explaining your reasoning",
+	);
+	parts.push(
+		"2. **`reviewer_analyses`** — for each reviewer, a brief character assessment " +
+			"(thorough, nitpicky, collaborative, blocking, etc.)",
+	);
+	parts.push("");
+	parts.push(
+		"Be critical — don't just agree with every reviewer. Evaluate whether each " +
+			"suggestion actually improves the code.",
+	);
+
+	return parts.join("\n");
 }
 
 /** Progress indicator for thread navigation headers. */
@@ -174,6 +237,40 @@ export function briefDeferred(deferredCount: number): string {
 		"and you should reset them to pending.\n\n" +
 		"Otherwise, call pr_reply with action 'deactivate' to finish."
 	);
+}
+
+/**
+ * Re-analysis prompt — tells the LLM to re-evaluate all pending
+ * threads after a state change (implementation, reply, skip).
+ */
+export function briefReAnalyze(state: PRReplyState): string {
+	const pending = state.threads.filter(
+		(t) => state.threadStates.get(t.id) === "pending",
+	);
+
+	if (pending.length === 0) {
+		return "All threads addressed. Call pr_reply with action 'deactivate' to finish.";
+	}
+
+	const parts: string[] = [];
+	parts.push(
+		`${pending.length} thread${pending.length !== 1 ? "s" : ""} still pending. ` +
+			"Code has changed — re-analyze all pending threads with fresh context.",
+	);
+	parts.push("");
+	parts.push("Pending threads:");
+	for (const t of pending) {
+		const snippet = t.comments[0]?.body.slice(0, 50).replace(/\n/g, " ") ?? "";
+		parts.push(`  • ${t.id} — ${t.file}:${t.line} — ${snippet}`);
+	}
+	parts.push("");
+	parts.push(
+		"Read the relevant files to check current state, then call " +
+			"pr_reply with action 'generate-analysis' with updated analyses. " +
+			"Then call 'review' to reopen the workspace.",
+	);
+
+	return parts.join("\n");
 }
 
 /** Rebase instructions after deactivation. */

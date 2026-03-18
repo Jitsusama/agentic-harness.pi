@@ -104,7 +104,7 @@ file plus Desc and Scope tabs. Each tab has three views:
 - **Overview** (`o`) — diff with comment indicators
 - **Comments** (`c`) — selectable comment list with
   approve/reject/steer actions
-- **raW** (`w`) — full file content
+- **Source** (`s`) — full file content
 
 The user reviews comments, approves/rejects them, and can
 steer for changes. Tabs auto-complete when all comments

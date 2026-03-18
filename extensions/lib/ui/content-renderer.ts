@@ -17,6 +17,7 @@ import {
 	type Theme,
 } from "@mariozechner/pi-coding-agent";
 import { Markdown, truncateToWidth } from "@mariozechner/pi-tui";
+import { SCROLLBAR_GUTTER } from "./types.js";
 
 // ---- Markdown ----
 
@@ -33,9 +34,17 @@ export function renderMarkdown(
 	_theme: Theme,
 	width: number,
 ): string[] {
+	// Markdown is prose — always cap to terminal width for
+	// readability. When horizontal scrolling is enabled, content
+	// functions receive a huge width (10,000) so code and diffs
+	// can extend beyond the viewport. Prose must still wrap.
+	const cols = process.stdout.columns;
+	const cappedWidth =
+		cols && cols > 0 ? Math.min(width, cols - SCROLLBAR_GUTTER) : width;
+
 	const mdTheme = getMarkdownTheme();
 	const md = new Markdown(text, 1, 0, mdTheme);
-	return md.render(width);
+	return md.render(cappedWidth);
 }
 
 // ---- Diff ----

@@ -142,6 +142,17 @@ export function persist(state: PRReplyState, pi: ExtensionAPI): void {
 		reviewIntroduced: state.reviewIntroduced,
 		threadIndexInReview: state.threadIndexInReview,
 		threadStates: Array.from(state.threadStates.entries()),
+		threadAnalyses: Array.from(state.threadAnalyses.entries()),
+		reviewerAnalyses: Array.from(state.reviewerAnalyses.entries()),
+		currentThreadId: state.currentThreadId,
+		workspacePosition: state.workspacePosition
+			? {
+					tabIndex: state.workspacePosition.tabIndex,
+					threadIndices: Array.from(
+						state.workspacePosition.threadIndices.entries(),
+					),
+				}
+			: null,
 		threadCommits: Array.from(state.threadCommits.entries()),
 		awaitingTDDCompletion: state.awaitingTDDCompletion,
 		tddThreadId: state.tddThreadId,
@@ -163,6 +174,15 @@ export function restore(state: PRReplyState, ctx: ExtensionContext): void {
 		reviewIntroduced?: boolean;
 		threadIndexInReview?: number;
 		threadStates?: Array<[string, ThreadState]>;
+		threadAnalyses?: Array<
+			[string, { recommendation: string; analysis: string }]
+		>;
+		reviewerAnalyses?: Array<[string, { assessment: string }]>;
+		currentThreadId?: string | null;
+		workspacePosition?: {
+			tabIndex: number;
+			threadIndices: Array<[string, number]>;
+		} | null;
 		threadCommits?: Array<[string, string[]]>;
 		awaitingTDDCompletion?: boolean;
 		tddThreadId?: string | null;
@@ -187,6 +207,19 @@ export function restore(state: PRReplyState, ctx: ExtensionContext): void {
 
 	if (saved.threadStates) {
 		state.threadStates = new Map(saved.threadStates);
+	}
+	if (saved.threadAnalyses) {
+		state.threadAnalyses = new Map(saved.threadAnalyses);
+	}
+	if (saved.reviewerAnalyses) {
+		state.reviewerAnalyses = new Map(saved.reviewerAnalyses);
+	}
+	state.currentThreadId = saved.currentThreadId ?? null;
+	if (saved.workspacePosition) {
+		state.workspacePosition = {
+			tabIndex: saved.workspacePosition.tabIndex,
+			threadIndices: new Map(saved.workspacePosition.threadIndices ?? []),
+		};
 	}
 	if (saved.threadCommits) {
 		state.threadCommits = new Map(saved.threadCommits);

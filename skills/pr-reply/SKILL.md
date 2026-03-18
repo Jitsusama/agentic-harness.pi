@@ -29,97 +29,76 @@ and tracks state.
 Call `pr_reply` with action `activate` and a PR reference.
 
 ```
-pr_reply(action: "activate", pr: "https://github.com/owner/repo/pull/123")
+pr_reply(action: "activate", pr: "#123")
 ```
 
-The tool fetches all reviews and threads, filters out resolved
-and dismissed ones, and returns a summary. It also shows the
-user a summary panel.
+The tool fetches all reviews and threads, shows the user a
+summary panel, and returns all thread data for batch analysis.
 
-### Step 2: Review Overview
+### Step 2: Analyze All Threads
 
-Call `pr_reply` with action `next`. When you encounter a new
-reviewer, the tool returns review-level data (author, state,
-body, thread list).
-
-Analyze the review's character — is it thorough, nitpicky,
-collaborative, blocking? Then present it:
+Analyze all threads at once, then provide your analysis:
 
 ```
-pr_reply(action: "review", analysis: "Collaborative review with one structural suggestion and several style observations. No blockers.")
+pr_reply(action: "generate-analysis", analyses: [...], reviewer_analyses: [...])
 ```
 
-The tool shows the review overview to the user. They can
-continue or skip the entire review.
+For each thread, provide:
+- `thread_id` — the thread ID from the activation data
+- `recommendation` — implement, reply, skip, or defer
+- `analysis` — your reasoning (shown to the user in the
+  workspace)
 
-### Step 3: Iterate Threads
+For each reviewer, provide:
+- `reviewer` — their username
+- `assessment` — brief character assessment (thorough,
+  nitpicky, collaborative, blocking, etc.)
 
-After the review is acknowledged, call `next` again. Now it
-returns thread data (conversation, code context, metadata).
+### Step 3: Show Workspace
 
-Analyze the thread, then present it:
+Call `pr_reply` with action `review` to show the workspace.
+The user navigates reviewer tabs, browses threads, and
+chooses actions directly in the workspace.
 
-```
-pr_reply(action: "show", analysis: "The reviewer wants guard clauses. You already agreed and implemented this. **Recommend: Skip** — already handled.")
-```
+The workspace has:
+- **Summary tab** — PR overview, progress tracker
+- **Reviewer tabs** — one per reviewer with:
+  - `[o] Overview` — reviewer comment, thread summary list
+  - `[t] Threads` — selectable list with your recommendation
+  - `[s] Source` — code around the selected thread
 
-The `show` action presents two tabs:
-- **Action** — original comment, code context, your analysis, action options
-- **Thread** — full conversation history (read-only)
+### Step 4: Handle Actions
 
-Your analysis should include:
-- Summary of the feedback
-- Assessment of the conversation state
-- Your recommendation (implement, reply, skip, defer)
-- Why you recommend that
-
-### Step 3: Take Action
-
-Based on the user's decision:
+The workspace returns the user's chosen action:
 
 **Implement** (code changes needed):
 ```
 pr_reply(action: "implement", use_tdd: true)
 ```
-The tool records the current HEAD and marks the thread as
-implementing. Then:
-- If `use_tdd: true` — start TDD mode with `tdd_phase`
-- If `use_tdd: false` — make changes directly
-
-After changes are committed, call `done`:
+Make changes, run tests, commit. Then:
 ```
-pr_reply(action: "done", reply_body: "Extracted the validation logic as suggested. abc1234")
+pr_reply(action: "done", reply_body: "Extracted validation as suggested. abc1234")
 ```
 
 **Reply** (no code changes):
 ```
-pr_reply(action: "reply", reply_body: "Good point — I'll address this in a follow-up PR.")
+pr_reply(action: "reply", reply_body: "Good point — I'll address this in a follow-up.")
 ```
 
-**Skip** (ignore this thread):
-```
-pr_reply(action: "skip")
-```
+**Skip and Defer** are handled inline in the workspace —
+the user presses `k` or `d` directly.
 
-**Defer** (handle later this session):
+After any action, call `review` to reopen the workspace:
 ```
-pr_reply(action: "defer")
+pr_reply(action: "review")
 ```
-
-### Step 4: Continue
-
-After each action, call `next` again to get the next thread.
-Repeat until all threads are addressed.
 
 ### Step 5: Deactivate
 
-When all threads are done (or you want to stop):
+When all threads are done:
 ```
 pr_reply(action: "deactivate")
 ```
-
-The tool reports what was accomplished and checks for
-dependent PRs that may need rebasing.
 
 ## Analyzing Threads
 
@@ -127,58 +106,34 @@ Your job is to think critically, not to agree with the
 reviewer by default. The user trusts your judgment — give
 them a real opinion, not a summary of what happened.
 
-When you receive thread data from `next`, analyze:
-
 **What they're actually asking**: Read the original comment
 and the full conversation. Is the suggestion sound? Does it
-improve the code, or is it a style preference? Would the
-change introduce complexity for marginal benefit?
+improve the code, or is it a style preference?
 
-**Evaluate the suggestion on its merits**: Don't just accept
-feedback because a reviewer said it. Consider:
-- Does the rename/refactor actually improve clarity?
-- Is the concern valid for this code, or theoretical?
-- Does the user's existing reply already address it?
-- Is this worth changing, or is the current code fine?
+**Evaluate on merits**: Don't accept feedback just because
+a reviewer said it. Consider whether the change actually
+improves the code or adds complexity for marginal benefit.
 
 **Check conversation state**: If the user already replied
-with their reasoning — and the reviewer accepted it or
-dropped it — recommend skipping. Don't re-open settled
-conversations. If the user pushed back and the reviewer
-insisted, that's different.
-
-**Code context**: Look at the surrounding code. Does the
-suggestion make sense in context? Sometimes a reviewer
-comments on one line without seeing the bigger picture.
-
-**Plan context**: If there's a plan in `.pi/plans/` related
-to this PR's issue, consider whether the feedback aligns
-with or contradicts the planned direction.
+with good reasoning and the reviewer dropped it, recommend
+skipping. Don't re-open settled conversations.
 
 **Priority**: CHANGES_REQUESTED threads are required.
-COMMENTED and APPROVED threads are optional — be more
-selective about which optional threads are worth acting on.
+COMMENTED and APPROVED threads are optional — be selective.
 
-**Outdated**: If the comment is marked outdated, the code
-has changed since the comment was made. It may still be
-relevant — or it may have been addressed by other changes.
-
-**Already addressed**: If the conversation shows the user
-already agreed and made the change (check for replies
-mentioning commits, or "done", "fixed", etc.), recommend
-skipping — it's already handled.
+**Outdated**: Code has changed since the comment. May still
+be relevant, or may have been addressed by other changes.
 
 ## Recommending TDD vs Direct
 
 Recommend TDD when:
-- The change involves new behavior that can be tested
+- The change involves new testable behavior
 - Refactoring existing logic (tests as safety net)
-- The reviewer is asking for a design change
+- The reviewer asks for a design change
 
 Recommend direct implementation when:
 - Simple fixes (typos, naming, formatting)
 - Adding documentation or comments
-- Configuration changes
 - One-line fixes
 
 ## Writing Replies
@@ -189,26 +144,8 @@ Reply text should be:
 - Briefly explain what was done
 - Include commit SHAs inline (not as a list)
 
-Good:
-```
-Extracted the validation logic to a separate module as
-suggested. Also added async support per your follow-up
-comment. abc1234 def5678
-```
-
-Bad:
-```
-Done.
-
-Commits:
-- abc1234
-- def5678
-```
-
-If replying without code changes:
-- Ask clarifying questions if needed
-- Explain your reasoning if deferring or disagreeing
-- Acknowledge informational comments
+Good: "Extracted the validation logic as suggested. abc1234"
+Bad: "Done.\n\nCommits:\n- abc1234"
 
 ## TDD Coordination
 
@@ -218,36 +155,10 @@ When implementing with TDD:
 2. Start TDD with `tdd_phase(action: "start")`
 3. Go through red-green-refactor cycles
 4. When TDD signals done, commits are automatically tracked
-5. Call `pr_reply(action: "done", reply_body: "...")` to
-   post the reply
-
-The pr-reply extension listens for TDD completion events
-and links commits automatically.
-
-## Deferred Threads
-
-When all threads have been reviewed, if some were deferred,
-the `next` action will tell you. Options:
-
-- Reset deferred threads to pending and iterate again
-- Deactivate and handle them later
-- Skip them all
-
-Deferred state persists within the pi session.
-
-## Stack Rebasing
-
-When deactivating, if changes were made and other PRs depend
-on this branch, the tool reports them. Suggest rebasing
-using git operations.
+5. Call `pr_reply(action: "done", reply_body: "...")`
 
 ## Error Recovery
 
-If a reply fails to post, the tool returns the error.
-Retry by calling `reply` again with the same text.
-
-If tests fail during implementation, fix the issue before
-calling `done`. The thread stays in "implementing" state.
-
-If TDD exits unexpectedly, the thread stays in "implementing".
-Call `done` when ready, or `skip` to move on.
+If a reply fails to post, retry with the same text.
+If tests fail during implementation, fix before calling
+`done`. The thread stays in "implementing" state.

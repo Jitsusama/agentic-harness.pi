@@ -2,54 +2,51 @@
 
 Mode for responding to GitHub PR review feedback. The LLM
 drives the workflow by calling `pr_reply` with different
-actions, iterating through threads, analyzing feedback,
-and posting replies.
+actions, analyzing threads in batch, and presenting a
+workspace for the user to navigate and act on threads.
 
 ### Architecture
 
-**Pattern**: Multi-step tool + mode (like TDD's `tdd_phase`).
-The LLM calls the tool repeatedly, advancing through the
-review workflow one step at a time.
-
-**Key insight**: The extension doesn't call the LLM — the LLM
-calls the extension. Each tool call returns rich context
-(thread data, code, conversation) for the LLM to reason about.
-The LLM presents analysis to the user, then calls back with
-the chosen action.
+**Pattern**: Multi-step tool + mode + workspace. The LLM
+calls the tool repeatedly, advancing through the review
+workflow. The workspace provides a tabbed interface for
+browsing reviewer feedback.
 
 ### Workflow
 
 ```
-activate → next → (implement|reply|skip|defer) → next → ... → deactivate
+activate → generate-analysis → review → (implement|reply) → done → generate-analysis → review → ... → deactivate
 ```
 
-Each `next` returns the full thread conversation, code context,
-and metadata. The LLM reads this, analyzes the feedback, and
-recommends an action to the user.
+After activation, the LLM analyzes all threads at once and
+provides per-thread recommendations via `generate-analysis`.
+The workspace shows reviewer tabs where the user browses
+threads and chooses actions. After each implementation or
+reply, the LLM re-analyzes remaining threads with fresh
+code context before reopening the workspace.
 
-### Files
+### Workspace
 
-- `state.ts` — Domain types, thread lifecycle, defaults
-- `lifecycle.ts` — Mode activation, status line, widget, persist/restore
-- `transitions.ts` — Context injection for LLM awareness
-- `analysis.ts` — Build analysis prompt for the LLM
-- `implementation.ts` — Commit tracking, TDD coordination
-- `replies.ts` — Reply composition guidance for the LLM
-- `api/github.ts` — GraphQL fetch, REST reply posting
-- `api/parse.ts` — PR link parsing
-- `api/repo.ts` — Repository discovery, dependent PR detection
-- `ui/format.ts` — File summary formatting for panels
-- `ui/panels.ts` — Summary panel
-- `index.ts` — Tool registration, action handlers, event wiring
+- **Summary tab** — PR overview, progress tracker
+- **Reviewer tabs** (one per reviewer) with three views:
+  - `[o] Overview` — reviewer comment, thread summary list
+  - `[t] Threads` — selectable list with recommendations
+  - `[s] Source` — code context around selected thread
+
+Thread actions (implement/reply/defer/skip) are available
+in the Threads view. Defer and skip are handled inline.
+Implement and reply dismiss the workspace for the LLM to
+work, then reopen after re-analysis.
 
 ### Tool Actions
 
 | Action | Purpose |
 |--------|---------|
 | `activate` | Load PR, show summary, enter mode |
-| `next` | Present next pending thread with context |
-| `implement` | Mark thread for implementation |
-| `reply` | Post a reply (no code changes) |
+| `generate-analysis` | Batch pre-analyze all threads |
+| `review` | Show/reopen the workspace |
+| `implement` | Begin implementing current thread |
+| `reply` | Post a reply to current thread |
 | `done` | Mark implementation complete, post reply |
 | `skip` | Skip thread |
 | `defer` | Defer thread for later |
@@ -59,21 +56,17 @@ recommends an action to the user.
 
 - **TDD mode** — Listens for `tdd_phase` done/stop events.
   Automatically collects commits and links them to threads.
-- **Plan mode** — Shares plan directory for context-aware analysis.
-- **Commit guardian** — Uses `ctx.ui.editor` for reply editing.
+- **Plan mode** — Shares plan directory for context-aware
+  analysis.
 
 ### Design Notes
 
-**Why multi-step instead of a loop?**
-The extension can't call the LLM — it runs inside a tool call.
-Each step returns context, the LLM reasons about it, and calls
-back. This lets the LLM provide genuine analysis rather than
-canned recommendations.
+**Re-analysis after state changes**: After each `done` or
+`reply`, the LLM re-analyzes all remaining pending threads
+with fresh code context. This prevents stale recommendations
+when implementation of one thread changes code that other
+threads comment on.
 
-**Why session-only state?**
-Reviews take minutes to hours. In-memory state is simpler and
-follows the TDD mode pattern.
-
-**Thread ordering?**
-By file path, then line position, then timestamp. Matches how
-developers read diffs.
+**Workspace dismiss/restore**: The workspace saves its
+position (which tab, which thread selected) so that after
+implementation the user returns to where they left off.
