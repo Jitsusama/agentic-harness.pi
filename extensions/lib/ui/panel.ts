@@ -24,6 +24,7 @@ import {
 } from "./scroll-region.js";
 import {
 	GLYPH,
+	HSCROLL_CONTENT_WIDTH,
 	type PromptResult,
 	SCROLLBAR_GUTTER,
 	type SinglePromptConfig,
@@ -112,7 +113,10 @@ export async function view(
 		function getContent(width: number): string[] {
 			if (cachedContent && width === cachedWidth) return cachedContent;
 			cachedWidth = width;
-			cachedContent = config.content(theme, width - SCROLLBAR_GUTTER);
+			const contentWidth = hScrollEnabled
+				? HSCROLL_CONTENT_WIDTH
+				: width - SCROLLBAR_GUTTER;
+			cachedContent = config.content(theme, contentWidth);
 			cachedHScroll =
 				hScrollEnabled &&
 				maxContentWidth(cachedContent) > width - SCROLLBAR_GUTTER;
@@ -126,12 +130,17 @@ export async function view(
 			}
 			const chromeLines = 2 + (config.title ? 2 : 0) + 3;
 			const budget = contentBudget(chromeLines);
+			const maxH = Math.max(
+				0,
+				maxContentWidth(cachedContent ?? []) - (cachedWidth - SCROLLBAR_GUTTER),
+			);
 			const scrollResult = handleScrollInput(
 				data,
 				scroll,
 				budget,
 				cachedContent?.length ?? 0,
 				cachedHScroll,
+				maxH,
 			);
 			if (scrollResult) {
 				scroll.vOffset = scrollResult.vOffset;
@@ -154,7 +163,11 @@ export async function view(
 			const chromeLines = 2 + (config.title ? 2 : 0) + 3;
 			const budget = contentBudget(chromeLines);
 			const contentLines = getContent(width);
-			const { lines: scrolled, needsVScroll } = renderScrollRegion(
+			const {
+				lines: scrolled,
+				needsVScroll,
+				needsHScroll,
+			} = renderScrollRegion(
 				contentLines,
 				scroll,
 				budget,
@@ -174,6 +187,7 @@ export async function view(
 			lines.push("");
 			const hints: string[] = ["Esc close"];
 			if (needsVScroll) hints.push("Shift+↑↓ scroll");
+			if (needsHScroll) hints.push("Shift+←→ pan");
 			add(theme.fg("dim", ` ${hints.join(" · ")}`));
 
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));

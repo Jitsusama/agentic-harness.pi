@@ -88,6 +88,7 @@ export function handleScrollInput(
 	budget: number,
 	contentLength: number,
 	needsHScroll = false,
+	maxHOffset = Number.MAX_SAFE_INTEGER,
 ): ScrollState | null {
 	if (matchesKey(data, "pageup") || matchesKey(data, Key.shift("up"))) {
 		const step = Math.max(1, budget - PAGE_SCROLL_OVERLAP);
@@ -107,7 +108,10 @@ export function handleScrollInput(
 		};
 	}
 	if (needsHScroll && matchesKey(data, Key.shift("right"))) {
-		return { ...state, hOffset: state.hOffset + H_SCROLL_STEP };
+		return {
+			...state,
+			hOffset: Math.min(state.hOffset + H_SCROLL_STEP, maxHOffset),
+		};
 	}
 	return null;
 }

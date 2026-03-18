@@ -36,6 +36,7 @@ import {
 } from "./scroll-region.js";
 import {
 	GLYPH,
+	HSCROLL_CONTENT_WIDTH,
 	type PromptResult,
 	SCROLLBAR_GUTTER,
 	type SinglePromptConfig,
@@ -130,12 +131,17 @@ export async function showSinglePrompt(
 			// Scroll handling
 			const chromeLines = computeChromeLines(false, actions, options);
 			const budget = contentBudget(chromeLines);
+			const maxH = Math.max(
+				0,
+				maxContentWidth(cachedContent ?? []) - (cachedWidth - SCROLLBAR_GUTTER),
+			);
 			const scrollResult = handleScrollInput(
 				data,
 				scroll,
 				budget,
 				cachedContent?.length ?? 0,
 				cachedHScroll,
+				maxH,
 			);
 			if (scrollResult) {
 				scroll.vOffset = scrollResult.vOffset;
@@ -216,7 +222,10 @@ export async function showSinglePrompt(
 			const chromeLines = computeChromeLines(false, actions, options);
 			const budget = contentBudget(chromeLines);
 			if (!cachedContent || width !== cachedWidth) {
-				cachedContent = config.content(theme, width - SCROLLBAR_GUTTER);
+				const contentWidth = hScrollEnabled
+					? HSCROLL_CONTENT_WIDTH
+					: width - SCROLLBAR_GUTTER;
+				cachedContent = config.content(theme, contentWidth);
 				cachedHScroll =
 					hScrollEnabled &&
 					maxContentWidth(cachedContent) > width - SCROLLBAR_GUTTER;
