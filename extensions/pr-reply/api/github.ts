@@ -11,6 +11,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { runGraphQL } from "../../lib/github/graphql.js";
 import type { PRReference } from "../../lib/parse/pr-reference.js";
 import type { Comment, Review, ReviewState, Thread } from "../state.js";
 
@@ -324,32 +325,4 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 	} catch {
 		/* Refresh failed — use stale data rather than blocking */
 	}
-}
-
-// ---- GraphQL runner ----
-
-/** Execute a typed GraphQL query via gh CLI. */
-async function runGraphQL<T>(
-	pi: ExtensionAPI,
-	query: string,
-	ref: PRReference,
-): Promise<T> {
-	const result = await pi.exec("gh", [
-		"api",
-		"graphql",
-		"-f",
-		`query=${query}`,
-		"-F",
-		`owner=${ref.owner}`,
-		"-F",
-		`repo=${ref.repo}`,
-		"-F",
-		`pr=${ref.number}`,
-	]);
-
-	if (result.code !== 0) {
-		throw new Error(`GitHub GraphQL error: ${result.stderr}`);
-	}
-
-	return JSON.parse(result.stdout);
 }

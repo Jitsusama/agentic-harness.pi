@@ -11,6 +11,7 @@ import { unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { runGraphQL } from "../../lib/github/graphql.js";
 import type {
 	DiffFile,
 	DiffHunk,
@@ -383,32 +384,4 @@ export function parseDiff(diff: string): DiffFile[] {
 	}
 
 	return files;
-}
-
-// ---- GraphQL runner ----
-
-/** Execute a typed GraphQL query via gh CLI. */
-export async function runGraphQL<T>(
-	pi: ExtensionAPI,
-	query: string,
-	ref: PRReference,
-): Promise<T> {
-	const result = await pi.exec("gh", [
-		"api",
-		"graphql",
-		"-f",
-		`query=${query}`,
-		"-F",
-		`owner=${ref.owner}`,
-		"-F",
-		`repo=${ref.repo}`,
-		"-F",
-		`pr=${ref.number}`,
-	]);
-
-	if (result.code !== 0) {
-		throw new Error(`GitHub GraphQL error: ${result.stderr}`);
-	}
-
-	return JSON.parse(result.stdout);
 }
