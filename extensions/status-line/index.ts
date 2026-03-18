@@ -20,6 +20,7 @@ import * as path from "node:path";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { getPanelHeightGlyph } from "../lib/ui/panel-height.js";
 
 const THINKING_GLYPHS: Record<string, string> = {
 	off: "",
@@ -73,6 +74,7 @@ interface FooterData {
 	contextPct: string;
 	cost: string | null;
 	thinkGlyph: string;
+	panelGlyph: string;
 	statuses: string[];
 }
 
@@ -106,10 +108,12 @@ function buildCandidate(
 
 	left.push(useShortModel ? d.shortModel : d.fullModel);
 
-	// --- Right side: statuses │ context │ cost │ thinking ---
+	// --- Right side: statuses │ panel-height │ context │ cost │ thinking ---
 	const right: string[] = [];
 
 	for (const s of d.statuses) right.push(s);
+
+	if (d.panelGlyph) right.push(d.panelGlyph);
 
 	right.push(usePctContext ? d.contextPct : d.contextTokens);
 
@@ -185,6 +189,7 @@ export default function statusLine(pi: ExtensionAPI) {
 						contextPct: theme.fg(ctxColor, `${pct}%`),
 						cost: cost > 0 ? theme.fg("dim", `$${cost.toFixed(3)}`) : null,
 						thinkGlyph,
+						panelGlyph: theme.fg("dim", getPanelHeightGlyph()),
 						statuses: [],
 					};
 
@@ -219,7 +224,7 @@ export default function statusLine(pi: ExtensionAPI) {
 						}
 					}
 
-					// Everything stripped — just show basename (already styled)
+					// Everything stripped — just show basename
 					return [truncateToWidth(d.shortDir, width)];
 				},
 			};
