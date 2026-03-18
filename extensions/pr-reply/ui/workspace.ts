@@ -14,11 +14,7 @@ import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { workspace } from "../../lib/ui/panel.js";
-import {
-	CONTENT_INDENT,
-	contentWrapWidth,
-	wordWrap,
-} from "../../lib/ui/text.js";
+import { contentWrapWidth, wordWrap } from "../../lib/ui/text.js";
 import type {
 	WorkspaceInputContext,
 	WorkspaceItem,
@@ -71,9 +67,6 @@ export type WorkspaceAction =
 /**
  * Show the PR reply workspace. Returns the user's chosen action,
  * or null on cancel (Escape).
- *
- * The workspace is a navigation surface — Enter on a thread
- * opens the full-context gate. Skip/defer are inline.
  */
 export async function showReplyWorkspace(
 	ctx: ExtensionContext,
@@ -164,7 +157,6 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 		key: "o",
 		label: "Overview",
 		content: (theme: Theme) => {
-			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
 
 			lines.push(` ${theme.fg("accent", theme.bold(`PR #${state.prNumber}`))}`);
@@ -238,7 +230,11 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 
 // ---- Reviewer tabs ----
 
-/** Build a reviewer tab with Overview and Threads views. */
+/**
+ * Build a reviewer tab — single view with reviewer header,
+ * review body, and navigable thread list. Enter on a thread
+ * opens the full-context gate.
+ */
 function buildReviewerTab(
 	review: Review,
 	allThreads: Thread[],
@@ -253,37 +249,15 @@ function buildReviewerTab(
 	const getIndex = () => threadIndices.get(review.id) ?? 0;
 	const setIndex = (i: number) => threadIndices.set(review.id, i);
 
-	return {
-		label: review.author,
-		views: [
-			buildThreadsView(
-				review,
-				reviewThreads,
-				threadStates,
-				threadAnalyses,
-				getIndex,
-				setIndex,
-				tabHandled,
-				setActionThread,
-			),
-			buildReviewOverview(review, reviewThreads, threadStates, threadAnalyses),
+	const view: WorkspaceView = {
+		key: "t",
+		label: "Threads",
+		actions: [
+			{ key: "e", label: "Enter" },
+			{ key: "d", label: "Defer" },
+			{ key: "k", label: "sKip" },
 		],
-	};
-}
-
-/** Overview view — reviewer comment, state, thread summary list. */
-function buildReviewOverview(
-	review: Review,
-	reviewThreads: Thread[],
-	threadStates: Map<string, ThreadState>,
-	threadAnalyses: Map<string, ThreadAnalysis>,
-): WorkspaceView {
-	return {
-		key: "o",
-		label: "Overview",
 		content: (theme: Theme, width: number) => {
-			const pad = " ".repeat(CONTENT_INDENT);
-			const wrapWidth = contentWrapWidth(width);
 			const lines: string[] = [];
 
 			// Reviewer header
@@ -296,74 +270,27 @@ function buildReviewOverview(
 			lines.push(
 				` ${theme.fg("accent", theme.bold(review.author))} ${theme.fg(stateColor, review.state)}`,
 			);
-			lines.push(
-				`${pad}${theme.fg("dim", `${reviewThreads.length} thread${reviewThreads.length !== 1 ? "s" : ""}`)}`,
-			);
 			lines.push("");
 
-			// Review body
+			// Review body (if any)
 			if (review.body) {
 				lines.push(...renderMarkdown(review.body, theme, width));
 				lines.push("");
 			}
 
-			// Thread summary list with recommendations
-			lines.push(` ${theme.fg("text", theme.bold("Threads:"))}`);
-			for (const thread of reviewThreads) {
-				const st = threadStates.get(thread.id) ?? "pending";
-				const glyph = THREAD_GLYPH[st];
-				const color = THREAD_GLYPH_COLOR[st];
-				const analysis = threadAnalyses.get(thread.id);
-				const rec = analysis ? ` → ${analysis.recommendation}` : "";
-
-				const snippet =
-					thread.comments[0]?.body.slice(0, 60).replace(/\n/g, " ") ?? "";
-				const ellipsis = (thread.comments[0]?.body.length ?? 0) > 60 ? "…" : "";
-
-				lines.push(
-					`${pad}${theme.fg(color, glyph)} ${theme.fg("text", `${thread.file}:${thread.line}`)}${theme.fg("dim", rec)}`,
-				);
-				for (const wl of wordWrap(`${snippet}${ellipsis}`, wrapWidth - 6)) {
-					lines.push(`${pad}    ${theme.fg("dim", wl)}`);
-				}
-			}
+			// Navigable thread list
+			lines.push(
+				...renderThreadList(
+					reviewThreads,
+					threadStates,
+					threadAnalyses,
+					getIndex(),
+					theme,
+					width,
+				),
+			);
 
 			return lines;
-		},
-	};
-}
-
-/**
- * Threads view — compact selectable list for navigation.
- * Enter opens the full-context gate. Skip/defer are inline.
- */
-function buildThreadsView(
-	review: Review,
-	reviewThreads: Thread[],
-	threadStates: Map<string, ThreadState>,
-	threadAnalyses: Map<string, ThreadAnalysis>,
-	getIndex: () => number,
-	setIndex: (i: number) => void,
-	tabHandled: Set<string>,
-	setActionThread: (id: string) => void,
-): WorkspaceView {
-	return {
-		key: "t",
-		label: "Threads",
-		actions: [
-			{ key: "e", label: "Enter" },
-			{ key: "d", label: "Defer" },
-			{ key: "k", label: "sKip" },
-		],
-		content: (theme: Theme, width: number) => {
-			return renderThreadList(
-				reviewThreads,
-				threadStates,
-				threadAnalyses,
-				getIndex(),
-				theme,
-				width,
-			);
 		},
 		handleInput: (data: string, inputCtx: WorkspaceInputContext) => {
 			if (reviewThreads.length === 0) return false;
@@ -432,6 +359,8 @@ function buildThreadsView(
 			return false;
 		},
 	};
+
+	return { label: review.author, views: [view] };
 }
 
 // ---- Thread list rendering ----
@@ -449,7 +378,6 @@ function renderThreadList(
 	theme: Theme,
 	width: number,
 ): string[] {
-	const pad = " ".repeat(CONTENT_INDENT);
 	const wrapWidth = contentWrapWidth(width);
 	const lines: string[] = [];
 
