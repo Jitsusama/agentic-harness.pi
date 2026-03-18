@@ -6,7 +6,7 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { prompt } from "../../lib/ui/panel.js";
-import { formatSteer } from "../../lib/ui/steer.js";
+
 import type { Thread } from "../state.js";
 
 /** Result of the reply review: approved text, or a reason for rejection. */
@@ -56,11 +56,14 @@ export async function showReplyReview(
 	}
 
 	if (result.type === "steer") {
-		const steerResult = formatSteer(
-			result.note,
-			`Original reply:\n${draftReply}`,
-		);
-		return { approved: false, reason: steerResult.reason };
+		return {
+			approved: false,
+			reason:
+				`User steered the reply. Their exact feedback:\n\n"${result.note}"\n\n` +
+				`Original draft reply:\n${draftReply}\n\n` +
+				"Rewrite the reply incorporating the user's feedback above, " +
+				"then call pr_reply with action 'reply' again.",
+		};
 	}
 
 	if (result.type === "action" && result.value === "r") {
