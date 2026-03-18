@@ -106,8 +106,15 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				"and call pr_annotate again with the previously approved comments plus the new ones.",
 			"If posting fails, the approved comments are returned — fix the issue and retry with the same comments.",
 			"Be concise in your review comment body — explain why you think this is worth flagging.",
-			"Always use startLine + line to specify a line range so reviewers see exactly which code is being discussed. " +
-				"Omit startLine only when commenting on the file as a whole.",
+			"The line range is the most important part of a review comment — it frames what the reviewer " +
+				"sees before they read a word. Read your comment body, identify the specific code it " +
+				"discusses, and select exactly those lines. A comment about validation logic must highlight " +
+				"the validation code, not the function signature above it.",
+			"Scope the range tightly: a naming concern → single declaration line; a logic concern → the " +
+				"conditional block; a design decision → the function or type embodying it. Don't select " +
+				"20 lines when the comment is about 3.",
+			"Use a single line (no startLine) only when the comment is about one line. " +
+				"For anything structural, use startLine + line to show the full relevant construct.",
 			"When calling again with previously approved comments, set preApproved: true on each to skip re-vetting.",
 		],
 		parameters: PrReviewParams,
