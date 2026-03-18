@@ -40,6 +40,7 @@ import {
 	type Action,
 	type ContentFn,
 	GLYPH,
+	HSCROLL_CONTENT_WIDTH,
 	type Option,
 	type PromptResult,
 	type PromptView,
@@ -64,6 +65,7 @@ export async function showTabbedPrompt(
 		let optionIndex = 0;
 		let userOptionIndex = 0;
 		let editorMode = false;
+		let lastWidth = process.stdout.columns || 80;
 
 		/** Active view index per tab. */
 		const activeViewIndex = new Map<number, number>();
@@ -280,12 +282,18 @@ export async function showTabbedPrompt(
 			const scrollState = getScrollState(currentTab, viewIdx);
 			const key = cacheKey(currentTab, viewIdx);
 			const cachedEntry = contentCache.get(key);
+			const maxH = Math.max(
+				0,
+				maxContentWidth(cachedEntry?.lines ?? []) -
+					(lastWidth - SCROLLBAR_GUTTER),
+			);
 			const scrollResult = handleScrollInput(
 				data,
 				scrollState,
 				budget,
 				cachedEntry?.lines.length ?? 0,
 				cachedEntry?.hScroll ?? false,
+				maxH,
 			);
 			if (scrollResult) {
 				scrollStates.set(key, scrollResult);
@@ -347,12 +355,18 @@ export async function showTabbedPrompt(
 			const budget = contentBudget(chromeLines);
 			const key = cacheKey(currentTab, 0);
 			const cachedEntry = contentCache.get(key);
+			const userMaxH = Math.max(
+				0,
+				maxContentWidth(cachedEntry?.lines ?? []) -
+					(lastWidth - SCROLLBAR_GUTTER),
+			);
 			const scrollResult = handleScrollInput(
 				data,
 				userTabScroll,
 				budget,
 				cachedEntry?.lines.length ?? 0,
 				cachedEntry?.hScroll ?? false,
+				userMaxH,
 			);
 			if (scrollResult) {
 				userTabScroll.vOffset = scrollResult.vOffset;
@@ -456,14 +470,16 @@ export async function showTabbedPrompt(
 			const viewDef = item?.views[view];
 			if (!viewDef) return;
 
-			const result = viewDef.content(theme, width - SCROLLBAR_GUTTER);
+			const itemHScroll = item?.allowHScroll ?? config.allowHScroll ?? false;
+			const contentWidth = itemHScroll
+				? HSCROLL_CONTENT_WIDTH
+				: width - SCROLLBAR_GUTTER;
+			const result = viewDef.content(theme, contentWidth);
 
 			if (result instanceof Promise) {
 				loadingViews.add(key);
 				result.then((lines) => {
 					loadingViews.delete(key);
-					const itemHScroll =
-						item?.allowHScroll ?? config.allowHScroll ?? false;
 					contentCache.set(key, {
 						lines,
 						width,
@@ -473,7 +489,6 @@ export async function showTabbedPrompt(
 					tui.requestRender();
 				});
 			} else {
-				const itemHScroll = item?.allowHScroll ?? config.allowHScroll ?? false;
 				contentCache.set(key, {
 					lines: result,
 					width,
@@ -484,6 +499,7 @@ export async function showTabbedPrompt(
 		}
 
 		function render(width: number): string[] {
+			lastWidth = width;
 			const lines: string[] = [];
 			const add = (s: string) => lines.push(truncateToWidth(s, width));
 

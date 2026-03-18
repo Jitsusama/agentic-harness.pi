@@ -220,6 +220,13 @@ export const MAX_CONTENT_WIDTH = 100;
 /** Content indent (spaces per side). */
 export const CONTENT_INDENT = 2;
 
+/**
+ * Width passed to content functions when horizontal scrolling
+ * is enabled. Large enough that content renderers won't truncate,
+ * letting the scroll region handle the horizontal viewport.
+ */
+export const HSCROLL_CONTENT_WIDTH = 10_000;
+
 /** Horizontal scroll step in visible characters. */
 export const H_SCROLL_STEP = 20;
 

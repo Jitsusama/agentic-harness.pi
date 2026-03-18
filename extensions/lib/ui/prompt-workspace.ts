@@ -36,6 +36,7 @@ import { handleTabInput, renderTabStrip } from "./tab-strip.js";
 import {
 	type Action,
 	GLYPH,
+	HSCROLL_CONTENT_WIDTH,
 	SCROLLBAR_GUTTER,
 	type TabStatus,
 	type WorkspaceConfig,
@@ -57,6 +58,7 @@ export async function showWorkspacePrompt(
 	return ctx.ui.custom<WorkspaceResult>((tui, theme, _kb, done) => {
 		let currentTab = 0;
 		let editorMode = false;
+		let lastWidth = process.stdout.columns || 80;
 
 		/** Active view index per tab. */
 		const activeViewIndex = new Map<number, number>();
@@ -183,14 +185,16 @@ export async function showWorkspacePrompt(
 			const viewDef = item?.views[view];
 			if (!viewDef) return;
 
-			const result = viewDef.content(theme, width - SCROLLBAR_GUTTER);
+			const itemHScroll = item?.allowHScroll ?? config.allowHScroll ?? false;
+			const contentWidth = itemHScroll
+				? HSCROLL_CONTENT_WIDTH
+				: width - SCROLLBAR_GUTTER;
+			const result = viewDef.content(theme, contentWidth);
 
 			if (result instanceof Promise) {
 				loadingViews.add(key);
 				result.then((lines) => {
 					loadingViews.delete(key);
-					const itemHScroll =
-						item?.allowHScroll ?? config.allowHScroll ?? false;
 					contentCache.set(key, {
 						lines,
 						width,
@@ -200,7 +204,6 @@ export async function showWorkspacePrompt(
 					tui.requestRender();
 				});
 			} else {
-				const itemHScroll = item?.allowHScroll ?? config.allowHScroll ?? false;
 				contentCache.set(key, {
 					lines: result,
 					width,
@@ -255,12 +258,18 @@ export async function showWorkspacePrompt(
 			const scrollState = getScrollState(currentTab, viewIdx);
 			const key = cacheKey(currentTab, viewIdx);
 			const cachedEntry = contentCache.get(key);
+			const maxH = Math.max(
+				0,
+				maxContentWidth(cachedEntry?.lines ?? []) -
+					(lastWidth - SCROLLBAR_GUTTER),
+			);
 			const scrollResult = handleScrollInput(
 				data,
 				scrollState,
 				budget,
 				cachedEntry?.lines.length ?? 0,
 				cachedEntry?.hScroll ?? false,
+				maxH,
 			);
 			if (scrollResult) {
 				scrollStates.set(key, scrollResult);
@@ -324,6 +333,7 @@ export async function showWorkspacePrompt(
 		// ---- Rendering ----
 
 		function render(width: number): string[] {
+			lastWidth = width;
 			const lines: string[] = [];
 			const add = (s: string) => lines.push(truncateToWidth(s, width));
 
