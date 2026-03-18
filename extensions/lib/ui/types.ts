@@ -202,17 +202,23 @@ export interface ViewConfig {
 
 // ---- Layout Constants ----
 
-/** Maximum panel height as a fraction of terminal rows. */
-export const MAX_HEIGHT_FRACTION = 0.6;
+/** Panel height mode — controls what fraction of the terminal panels can occupy. */
+export type PanelHeightMode = "minimized" | "normal" | "fullscreen";
+
+/** Panel height fraction when minimized. */
+export const HEIGHT_FRACTION_MINIMIZED = 0.25;
+
+/** Panel height fraction at normal size. */
+export const HEIGHT_FRACTION_NORMAL = 0.6;
+
+/** Panel height fraction when fullscreen. */
+export const HEIGHT_FRACTION_FULLSCREEN = 0.9;
 
 /** Maximum content width in columns (readability cap). */
 export const MAX_CONTENT_WIDTH = 100;
 
 /** Content indent (spaces per side). */
 export const CONTENT_INDENT = 2;
-
-/** Lines reserved for pi chrome above the panel. */
-export const PI_CHROME_LINES = 8;
 
 /** Horizontal scroll step in visible characters. */
 export const H_SCROLL_STEP = 20;

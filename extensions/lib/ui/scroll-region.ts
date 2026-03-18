@@ -15,14 +15,13 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@mariozechner/pi-tui";
+import { getPanelHeightFraction } from "./panel-height.js";
 import {
 	CONTENT_INDENT,
 	GLYPH,
 	H_SCROLL_STEP,
 	MAX_CONTENT_WIDTH,
-	MAX_HEIGHT_FRACTION,
 	PAGE_SCROLL_OVERLAP,
-	PI_CHROME_LINES,
 	SCROLLBAR_GUTTER,
 } from "./types.js";
 
@@ -126,8 +125,8 @@ export function clampVScroll(
 /** Compute the content area height budget. */
 export function contentBudget(chromeLines: number): number {
 	const termRows = process.stdout.rows || 40;
-	const maxHeight = Math.floor(termRows * MAX_HEIGHT_FRACTION);
-	return Math.max(3, maxHeight - PI_CHROME_LINES - chromeLines);
+	const maxHeight = Math.floor(termRows * getPanelHeightFraction());
+	return Math.max(3, maxHeight - chromeLines);
 }
 
 /**
