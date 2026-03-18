@@ -15,6 +15,9 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { fetchDiff, parseDiff } from "../lib/github/diff.js";
+import { getCurrentRepo } from "../lib/github/repo-discovery.js";
+import type { PRReference } from "../lib/parse/pr-reference.js";
 import { postReview } from "./post.js";
 import { vetComments } from "./vet.js";
 
@@ -85,6 +88,27 @@ function formatCommentRef(c: ReviewComment): string {
 	return `- ${c.path}:${range} — ${c.body}`;
 }
 
+/** Fetch and parse the PR diff for workspace context. */
+async function fetchPRDiff(pi: ExtensionAPI, pr: number, repo?: string) {
+	try {
+		let ref: PRReference;
+		if (repo) {
+			const parts = repo.split("/");
+			ref = { owner: parts[0] ?? "", repo: parts[1] ?? "", number: pr };
+		} else {
+			const current = await getCurrentRepo(pi);
+			if (!current) return [];
+			ref = { owner: current.owner, repo: current.repo, number: pr };
+		}
+
+		const diff = await fetchDiff(pi, ref);
+		return parseDiff(diff);
+	} catch {
+		/* Diff fetch failed — workspace will show without diff context */
+		return [];
+	}
+}
+
 export default function prAnnotate(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "pr_annotate",
@@ -152,7 +176,15 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				}
 			}
 
-			const result = await vetComments(toVet, preApproved.length, ctx);
+			// Fetch diff for workspace context
+			const diffFiles = await fetchPRDiff(pi, params.pr, params.repo);
+
+			const result = await vetComments(
+				toVet,
+				preApproved.length,
+				ctx,
+				diffFiles,
+			);
 
 			if (!result) {
 				return {
@@ -161,20 +193,25 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				};
 			}
 
+			// Combine pre-approved with newly approved
+			const allApproved = [...preApproved, ...result.approved];
+
 			if (result.steerFeedback) {
+				const parts = [
+					`User feedback on review comments:\n\n${result.steerFeedback}`,
+				];
+				if (allApproved.length > 0) {
+					parts.push("");
+					parts.push(
+						"Already approved (include with preApproved: true on next call):",
+					);
+					parts.push(...allApproved.map(formatCommentRef));
+				}
 				return {
-					content: [
-						{
-							type: "text",
-							text: `User feedback on review comments:\n\n${result.steerFeedback}`,
-						},
-					],
+					content: [{ type: "text", text: parts.join("\n") }],
 					details: { pr: params.pr, posted: 0, steered: true },
 				};
 			}
-
-			// Combine pre-approved with newly approved
-			const allApproved = [...preApproved, ...result.approved];
 
 			// User requested additional comments — return for LLM resolution
 			if (result.userRequests.length > 0) {
