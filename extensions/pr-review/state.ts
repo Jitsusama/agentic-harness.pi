@@ -8,6 +8,10 @@
  *   PRReviewState  — runtime state (enabled, session)
  */
 
+// Re-export diff types from the shared module so existing
+// imports from state.ts continue to work.
+export type { DiffFile, DiffHunk, DiffLine } from "../lib/github/diff.js";
+
 // ---- PR identity ----
 
 /** Identifies the PR under review. */
@@ -34,33 +38,6 @@ export interface PRMetadata {
 	deletions: number;
 	changedFiles: number;
 	state: string;
-}
-
-/** A parsed diff file with hunks. */
-export interface DiffFile {
-	path: string;
-	status: "added" | "modified" | "deleted" | "renamed";
-	hunks: DiffHunk[];
-	additions: number;
-	deletions: number;
-}
-
-/** A single hunk in a diff file. */
-export interface DiffHunk {
-	header: string;
-	oldStart: number;
-	oldCount: number;
-	newStart: number;
-	newCount: number;
-	lines: DiffLine[];
-}
-
-/** A single line in a diff hunk. */
-export interface DiffLine {
-	type: "context" | "added" | "removed";
-	content: string;
-	oldLineNumber: number | null;
-	newLineNumber: number | null;
 }
 
 /** An issue linked to the PR (deep — includes parent/sub-issues). */
