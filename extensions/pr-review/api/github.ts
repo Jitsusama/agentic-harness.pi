@@ -7,9 +7,6 @@
  * receive typed data, no manual property navigation.
  */
 
-import { unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { runGraphQL } from "../../lib/github/graphql.js";
 import type {
@@ -154,47 +151,8 @@ export async function fetchSiblingPRs(
 	return siblings;
 }
 
-/** Post a review with comments and verdict to GitHub. */
-export async function postReview(
-	pi: ExtensionAPI,
-	ref: PRReference,
-	body: string,
-	verdict: string,
-	comments: Array<{
-		path: string;
-		line: number;
-		start_line?: number;
-		side: string;
-		start_side?: string;
-		body: string;
-	}>,
-): Promise<void> {
-	const payload = JSON.stringify({ event: verdict, body, comments });
-
-	const tmpFile = join(tmpdir(), `pi-pr-review-${Date.now()}.json`);
-	try {
-		writeFileSync(tmpFile, payload, "utf-8");
-
-		const result = await pi.exec("gh", [
-			"api",
-			"--method",
-			"POST",
-			`repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`,
-			"--input",
-			tmpFile,
-		]);
-
-		if (result.code !== 0) {
-			throw new Error(`Failed to post review: ${result.stderr}`);
-		}
-	} finally {
-		try {
-			unlinkSync(tmpFile);
-		} catch {
-			/* Temp file cleanup — safe to ignore */
-		}
-	}
-}
+// Re-export shared review posting.
+export { postReview } from "../../lib/github/review-post.js";
 
 // ---- Parsing helpers ----
 

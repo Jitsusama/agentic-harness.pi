@@ -1,23 +1,28 @@
 /**
- * Post review comments to GitHub via `gh api`.
- *
- * Uses start_line + line for multi-line ranges when
- * startLine is provided on the comment.
- *
- * The JSON payload is written to a temp file to avoid shell
- * escaping issues with special characters in comment bodies.
+ * Post review comments to GitHub — transforms pr-annotate's
+ * ReviewComment format into GitHub API format and delegates
+ * to the shared review posting module.
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { getCurrentRepo } from "../lib/github/repo-discovery.js";
+import {
+	postReview as postReviewAPI,
+	type ReviewAPIComment,
+} from "../lib/github/review-post.js";
+import type { PRReference } from "../lib/parse/pr-reference.js";
 import type { ReviewComment } from "./index.js";
 
 interface PostResult {
 	error?: string;
 }
 
+/**
+ * Post review comments for a PR.
+ *
+ * Transforms ReviewComment objects into GitHub API format
+ * and posts them as a single COMMENT review.
+ */
 export async function postReview(
 	pi: ExtensionAPI,
 	pr: number,
@@ -25,8 +30,8 @@ export async function postReview(
 	body?: string,
 	repo?: string,
 ): Promise<PostResult> {
-	const reviewComments = comments.map((c) => {
-		const comment: Record<string, unknown> = {
+	const reviewComments: ReviewAPIComment[] = comments.map((c) => {
+		const comment: ReviewAPIComment = {
 			path: c.path,
 			line: c.line,
 			side: c.side,
@@ -39,35 +44,42 @@ export async function postReview(
 		return comment;
 	});
 
-	const payload = JSON.stringify({
-		event: "COMMENT",
-		body: body || "",
-		comments: reviewComments,
-	});
+	const ref = await buildRef(pi, pr, repo);
+	if (!ref) {
+		return {
+			error: "Could not determine repository. Provide a repo parameter.",
+		};
+	}
 
-	// Write payload to temp file to avoid shell escaping issues
-	// with single quotes, backticks, and newlines in comment bodies.
-	const tmpFile = path.join(os.tmpdir(), `pi-pr-annotate-${Date.now()}.json`);
 	try {
-		fs.writeFileSync(tmpFile, payload, "utf-8");
-
-		const repoFlag = repo ? ` -R ${repo}` : "";
-		const command = `gh api --method POST${repoFlag} repos/{owner}/{repo}/pulls/${pr}/reviews --input ${tmpFile}`;
-
-		const result = await pi.exec("bash", ["-c", command], {
-			timeout: 15000,
-		});
-
-		if (result.code !== 0) {
-			return { error: result.stderr || "gh api failed" };
-		}
-
+		await postReviewAPI(pi, ref, "COMMENT", body || "", reviewComments);
 		return {};
-	} finally {
-		try {
-			fs.unlinkSync(tmpFile);
-		} catch {
-			/* Temp file cleanup — safe to ignore */
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		return { error: msg };
+	}
+}
+
+/**
+ * Build a PRReference from a PR number and optional repo string.
+ * Falls back to the current git remote when repo is omitted.
+ */
+async function buildRef(
+	pi: ExtensionAPI,
+	pr: number,
+	repo?: string,
+): Promise<PRReference | null> {
+	if (repo) {
+		const parts = repo.split("/");
+		if (parts.length === 2) {
+			return { owner: parts[0], repo: parts[1], number: pr };
 		}
 	}
+
+	const current = await getCurrentRepo(pi);
+	if (current) {
+		return { owner: current.owner, repo: current.repo, number: pr };
+	}
+
+	return null;
 }

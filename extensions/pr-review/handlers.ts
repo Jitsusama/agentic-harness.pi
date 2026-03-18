@@ -813,7 +813,7 @@ export async function handlePost(deps: HandlerDeps) {
 		});
 
 	try {
-		await postReview(pi, ref, session.reviewBody, session.verdict, ghComments);
+		await postReview(pi, ref, session.verdict, session.reviewBody, ghComments);
 
 		return {
 			content: [
