@@ -128,7 +128,6 @@ export async function showReplyWorkspace(
 
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
-		globalActions: [{ key: "e", label: "Enter thread" }],
 		tabStatus: (index) => {
 			const tabId = tabIds[index];
 			if (!tabId || tabId === "summary") return "pending";
@@ -257,7 +256,6 @@ function buildReviewerTab(
 	return {
 		label: review.author,
 		views: [
-			buildReviewOverview(review, reviewThreads, threadStates, threadAnalyses),
 			buildThreadsView(
 				review,
 				reviewThreads,
@@ -268,6 +266,7 @@ function buildReviewerTab(
 				tabHandled,
 				setActionThread,
 			),
+			buildReviewOverview(review, reviewThreads, threadStates, threadAnalyses),
 		],
 	};
 }

@@ -65,7 +65,9 @@ export function briefBatchAnalysis(state: PRReplyState): string {
 		}
 
 		for (const thread of reviewThreads) {
-			parts.push(`#### Thread: ${thread.file}:${thread.line}`);
+			parts.push(
+				`#### Thread: ${thread.file}:${thread.line} (id: ${thread.id})`,
+			);
 			if (thread.isOutdated) {
 				parts.push("⚠️ **Outdated** — the code has changed since this comment.");
 			}
