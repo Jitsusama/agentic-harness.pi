@@ -20,6 +20,16 @@ why it matters, and how to know when it's done.
 See `gh-cli-conventions` for title formatting rules
 (Title Case, length, formula).
 
+## After Creating
+
+Immediately after `gh issue create`, always run:
+
+```bash
+gh issue edit NUMBER --add-assignee @me
+```
+
+This is not optional. Every issue must have an assignee.
+
 ## CLI Format
 
 See `gh-cli-conventions` for command syntax — heredoc

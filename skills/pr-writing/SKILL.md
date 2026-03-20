@@ -176,6 +176,16 @@ Before submitting:
 - Would a senior engineer understand the trade-offs?
 - Is every claim backed by real data, not assumptions?
 
+## After Creating
+
+Immediately after `gh pr create`, always run:
+
+```bash
+gh pr edit NUMBER --add-assignee @me
+```
+
+This is not optional. Every PR must have an assignee.
+
 ## CLI Format
 
 See `gh-cli-conventions` for command syntax — heredoc
