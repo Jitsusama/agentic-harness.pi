@@ -62,8 +62,7 @@ function ghFooter(modelId: string | null): string {
 	const modelPart = modelId ? ` (${formatModelName(modelId)})` : "";
 	// Double newline before --- prevents GitHub from treating
 	// the preceding paragraph as a setext h2 heading.
-	// <sub> renders the attribution line as small muted text.
-	return `\n\n---\n<sub>Co-Authored-By AI${modelPart} via [Pi](https://github.com/badlogic/pi-mono)</sub>`;
+	return `\n\n---\n*Co-Authored-By AI${modelPart} via [Pi](https://github.com/badlogic/pi-mono)*`;
 }
 
 /**
