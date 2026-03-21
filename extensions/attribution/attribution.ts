@@ -60,8 +60,8 @@ function commitTrailer(modelId: string | null): string {
 /** Build the markdown footer for PRs and issues. */
 function ghFooter(modelId: string | null): string {
 	const modelPart = modelId ? ` (${formatModelName(modelId)})` : "";
-	// Double newline before --- prevents GitHub from treating
-	// the preceding paragraph as a setext h2 heading.
+	// We need the double newline before --- so GitHub doesn't
+	// treat the preceding paragraph as a setext h2 heading.
 	return `\n\n---\n*Co-Authored-By AI${modelPart} via [Pi](https://github.com/badlogic/pi-mono)*`;
 }
 
@@ -82,8 +82,8 @@ export function injectCommitAttribution(
 	const { prefix, commitPart } = splitAtCommit(command);
 	const flags = extractFlags(commitPart);
 
-	// Git trailers need a blank line before them if the message
-	// doesn't already end with one
+	// Git trailers need a blank line before them, so we add one
+	// if the message doesn't already end with a newline.
 	const separator = message.endsWith("\n") ? "\n" : "\n\n";
 	const attributed = `${message}${separator}${commitTrailer(modelId)}`;
 

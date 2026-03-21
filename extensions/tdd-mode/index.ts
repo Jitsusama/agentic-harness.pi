@@ -125,7 +125,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			}
 
 			if (action === "red") {
-				// Skip gate when already in RED (e.g. after start, or updating context)
+				// No gate needed when we're already in RED (e.g., right after start or when updating context)
 				if (state.phase !== "red") {
 					const gate = await showTransitionGate(state, ctx, {
 						summary: summary ?? "Starting new test.",
@@ -246,8 +246,9 @@ export default function tddMode(pi: ExtensionAPI) {
 				);
 			}
 
-			// Summary only: the call renderer already shows action + context
-			// Take only the first line and truncate to terminal width
+			// Just show the summary since the call renderer already
+			// shows the action + context. We take only the first line
+			// and truncate it to terminal width.
 			if (d.summary) {
 				const firstLine = d.summary.split("\n")[0] ?? "";
 				const maxWidth = options.terminalWidth ?? 80;

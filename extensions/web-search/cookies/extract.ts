@@ -131,8 +131,9 @@ function queryCookies(
 		}
 	}
 
-	// Lazy require: sqlite3 is a native module, only loaded when
-	// cookies are actually needed (not on every extension load).
+	// We lazy-require sqlite3 because it's a native module and
+	// we only want to load it when cookies are actually needed,
+	// not on every extension load.
 	const sqlite3 = require("sqlite3");
 	const db = new sqlite3.Database(tmpDb, sqlite3.OPEN_READONLY);
 

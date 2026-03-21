@@ -21,7 +21,7 @@ export async function injectCookies(page: Page, url: string): Promise<void> {
 			await page.setCookie(...cookies);
 		}
 	} catch (err) {
-		// Let stale key errors propagate so the user gets guidance
+		// Stale key errors need to propagate so the user gets guidance
 		if (err instanceof StaleKeyError) throw err;
 		// Silent fallback for everything else: cookies are optional
 	}

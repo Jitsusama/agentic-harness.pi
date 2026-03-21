@@ -604,7 +604,7 @@ export async function handleShow(
 		return textResult("No current thread. Call 'next' first.");
 	}
 
-	// Hide widget while the prompt is active to avoid overlap
+	// Hide the widget while the prompt is up so they don't overlap
 	ctx.ui.setWidget("pr-reply-detail", undefined);
 
 	const review = state.reviews.find((r) => r.threadIds.includes(thread.id));
@@ -937,7 +937,7 @@ async function reviewAndPostReply(
 		};
 	}
 
-	// Push any unpushed commits before posting (SHAs must resolve on GitHub)
+	// Push any unpushed commits before posting so the SHAs resolve on GitHub
 	await pushIfNeeded(pi);
 
 	const ref: PRReference = {

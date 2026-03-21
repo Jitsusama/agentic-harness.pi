@@ -181,7 +181,8 @@ function cleanText(text: string): string {
  */
 function quietVirtualConsole() {
 	const vc = new VirtualConsole();
-	// Forward everything except CSS parse errors
+	// Forward everything except CSS parse errors, which are noisy
+	// and harmless on most pages.
 	vc.on("error", (msg: string) => {
 		if (!msg.includes("Could not parse CSS stylesheet")) {
 			console.error(msg);

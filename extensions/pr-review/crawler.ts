@@ -497,7 +497,7 @@ async function fetchMissingTitles(
 	);
 	if (bareRefs.length === 0) return;
 
-	// Batch fetch: limit to 10 to avoid excessive API calls
+	// Cap at 10 to keep the API calls reasonable
 	for (const ref of bareRefs.slice(0, 10)) {
 		const num = extractRefNumber(ref.url);
 		if (num === null) continue;

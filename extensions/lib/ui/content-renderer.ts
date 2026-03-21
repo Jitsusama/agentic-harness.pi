@@ -34,10 +34,11 @@ export function renderMarkdown(
 	_theme: Theme,
 	width: number,
 ): string[] {
-	// Markdown is prose: always cap to terminal width for
-	// readability. When horizontal scrolling is enabled, content
-	// functions receive a huge width (10,000) so code and diffs
-	// can extend beyond the viewport. Prose must still wrap.
+	// Markdown is prose, so we cap it to terminal width to keep
+	// things readable. When horizontal scrolling is enabled, the
+	// content functions get a huge width (10,000) so code and
+	// diffs can extend beyond the viewport, but prose still
+	// needs to wrap.
 	const cols = process.stdout.columns;
 	const cappedWidth =
 		cols && cols > 0 ? Math.min(width, cols - SCROLLBAR_GUTTER) : width;
