@@ -13,8 +13,8 @@ any prose it produces feels authentic and consistent.
 - Complete sentences required (no fragments)
 - Bulleted list formatting conventions (noun phrases vs
   imperative items)
-- Code comment rules (complete sentences for "why" comments,
-  no category dividers)
+- Conversational tone for doc comments (formatting and
+  placement covered by `code-style`)
 - Title Case for all headings
 - Kind, bridge-building language when addressing people
 - Audience-specific strategies for human-facing and
