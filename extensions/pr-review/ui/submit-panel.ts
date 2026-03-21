@@ -115,8 +115,6 @@ export async function showSubmitPanel(
 	return null;
 }
 
-// ---- Helpers ----
-
 /** Format a comment as a one-line summary. */
 function formatCommentOneLiner(comment: ReviewComment, theme: Theme): string {
 	const filePart = comment.file ? `${comment.file}:` : "";

@@ -1,6 +1,6 @@
 /**
- * Commit message validation: checks conventional commit format,
- * subject length, and body line wrap.
+ * Validates commit messages against conventional commit format,
+ * subject length limits and body line wrap rules.
  */
 
 import type { Theme } from "@mariozechner/pi-coding-agent";

@@ -1,8 +1,10 @@
 /**
- * Plan mode enforcement: tool_call interception logic.
+ * Plan mode enforcement: intercepts tool calls to keep the
+ * agent read-only.
  *
  * Blocks writes outside the plan directory and git-mutating
- * commands. Allows reads, searches and plan-dir writes.
+ * commands. Reads, searches and plan-dir writes are allowed
+ * through.
  */
 
 import * as path from "node:path";

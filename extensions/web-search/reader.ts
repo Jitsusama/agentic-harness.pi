@@ -152,7 +152,7 @@ function stripJunk(doc: Document): void {
 			const els = doc.querySelectorAll(selector);
 			for (const el of els) el.remove();
 		} catch {
-			// Invalid selector on this page: skip
+			// The selector is invalid on this page, so we skip it.
 		}
 	}
 }
@@ -169,7 +169,7 @@ function cleanText(text: string): string {
 				return !BOILERPLATE_PATTERNS.some((p) => p.test(trimmed));
 			})
 			.join("\n")
-			// Collapse 3+ consecutive newlines to 2
+			// We collapse 3+ consecutive newlines down to 2.
 			.replace(/\n{3,}/g, "\n\n")
 			.trim()
 	);
@@ -181,7 +181,8 @@ function cleanText(text: string): string {
  */
 function quietVirtualConsole() {
 	const vc = new VirtualConsole();
-	// Forward everything except CSS parse errors
+	// Forward everything except CSS parse errors, which are noisy
+	// and harmless on most pages.
 	vc.on("error", (msg: string) => {
 		if (!msg.includes("Could not parse CSS stylesheet")) {
 			console.error(msg);
@@ -219,13 +220,13 @@ export async function readPage(
 
 		if (signal?.aborted) throw new Error("Aborted");
 
-		// Wait briefly for dynamic content
+		// We wait briefly for dynamic content to load.
 		await page.evaluate(
 			(ms) => new Promise((r) => setTimeout(r, ms)),
 			DYNAMIC_CONTENT_WAIT,
 		);
 
-		// Detect auth redirects (e.g. Google SSO, OAuth)
+		// We detect auth redirects (e.g., Google SSO, OAuth).
 		const finalUrl = page.url();
 		const authRedirect =
 			finalUrl.includes("accounts.google.com") ||
@@ -250,7 +251,7 @@ export async function readPage(
 				virtualConsole: quietVirtualConsole(),
 			});
 
-			// Strip junk elements before Readability
+			// We strip junk elements before Readability processes the page.
 			stripJunk(dom.window.document);
 
 			const reader = new Readability(dom.window.document);
@@ -261,18 +262,18 @@ export async function readPage(
 				title = article.title;
 				excerpt = article.excerpt || rawText.slice(0, 200);
 			} else {
-				// Readability couldn't parse: fall through to puppeteer
+				// Readability couldn't parse, so we fall through to puppeteer.
 				throw new Error("Readability returned null");
 			}
 		} catch {
-			// JSDOM/Readability failed (e.g. CSS parsing errors);
+			// JSDOM/Readability failed (e.g., CSS parsing errors), so we
 			// fall back to extracting text directly from the browser.
 			rawText = await page.evaluate(() => document.body?.innerText || "");
 			title = await page.title();
 			excerpt = rawText.slice(0, 200);
 		}
 
-		// Clean and cap
+		// We clean and cap the content.
 		const cleaned = cleanText(rawText).slice(0, MAX_CONTENT_LENGTH);
 		const totalLength = cleaned.length;
 

@@ -13,8 +13,6 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import { GLYPH } from "./types.js";
 
-// ---- Public types ----
-
 /** A task to run with live progress reporting. */
 export interface ProgressTask<T> {
 	/** Display label shown in the panel. */
@@ -28,8 +26,6 @@ export interface ProgressConfig {
 	/** Title shown at the top of the panel. */
 	title: string;
 }
-
-// ---- Public API ----
 
 /**
  * Run parallel tasks with a live progress panel.
@@ -49,8 +45,6 @@ export async function progress<T extends unknown[]>(
 	return runWithPanel(ctx, config, tasks);
 }
 
-// ---- Sequential fallback ----
-
 /** Run tasks one at a time when no UI is available. */
 async function runSequentially<T extends unknown[]>(
 	tasks: { [K in keyof T]: ProgressTask<T[K]> },
@@ -62,8 +56,6 @@ async function runSequentially<T extends unknown[]>(
 	}
 	return results as T;
 }
-
-// ---- Live panel ----
 
 /** Status of a single task in the panel. */
 type TaskStatus = "pending" | "running" | "done" | "error";

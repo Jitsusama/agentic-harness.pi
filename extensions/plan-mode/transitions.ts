@@ -1,6 +1,7 @@
 /**
- * Plan mode transitions: agent_end gate, context injection,
- * and stale context filtering.
+ * Handles plan mode transitions: the confirmation gate shown
+ * when the agent finishes a turn, context injection into the
+ * system prompt, and filtering out stale context messages.
  */
 
 import type {

@@ -12,8 +12,6 @@ import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import type { Action } from "./types.js";
 
-// ---- Shifted symbol support ----
-
 /**
  * US keyboard mapping from shifted symbols to their base key.
  *
@@ -64,20 +62,16 @@ export function matchesActionKey(data: string, key: string): boolean {
 	const baseKey = SHIFTED_SYMBOL_BASE[key];
 	if (baseKey) {
 		if (matchesKey(data, Key.shift(baseKey))) return true;
-		// Legacy fallback: terminal sends raw character (e.g. "+" for Shift+=)
+		// This is a legacy fallback: some terminals send the raw character (e.g., "+" for Shift+=).
 		if (data === key) return true;
 	}
 	return false;
 }
 
-// ---- Types ----
-
 export type ActionBarResult =
 	| { type: "action"; key: string }
 	| { type: "steerAction"; key: string }
 	| { type: "pureSteer" };
-
-// ---- Rendering ----
 
 /**
  * Render the action bar with key-hint labels and steer annotation hint.
@@ -131,8 +125,6 @@ export function handleActionInput(
 	return null;
 }
 
-// ---- Internal helpers ----
-
 /** Format an action label with the key letter highlighted in accent. */
 function formatActionLabel(
 	action: Action,
@@ -155,6 +147,6 @@ function formatKeyLabel(key: string, label: string, theme: Theme): string {
 		return `${before}[${theme.fg("accent", keyChar)}]${after}`;
 	}
 
-	// Key not found in label: prefix it
+	// If the key isn't found in the label, we prefix it.
 	return `[${theme.fg("accent", upperKey)}] ${label}`;
 }

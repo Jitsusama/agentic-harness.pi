@@ -11,8 +11,10 @@ with file-based tabs matching pr-review's layout:
 
 - **Summary tab**: comment counts, progress, file breakdown.
 - **Per-file tabs** with three views:
-  - `[o] Overview`: diff with comment indicators on annotated lines.
-  - `[c] Comments`: selectable list, approve/reject per comment.
+  - `[o] Overview`: diff with comment indicators on annotated
+    lines.
+  - `[c] Comments`: selectable list, approve/reject per
+    comment.
   - `[s] Source`: full file, syntax highlighted.
 
 Tabs auto-complete when all their comments are resolved.

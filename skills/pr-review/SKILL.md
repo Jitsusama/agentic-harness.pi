@@ -11,10 +11,10 @@ description: >
 ## Philosophy
 
 Understand the **why** before evaluating the **what**. The
-tool crawls deep context automatically: linked issues,
-parent/sub-issues, cross-references up to 5 levels. You
-analyze this context and generate structured comments that
-the user then reviews in an interactive panel.
+tool crawls deep context automatically (linked issues,
+parent/sub-issues, cross-references up to 5 levels). You
+analyze that context and generate structured comments, then
+the user reviews them in an interactive panel.
 
 ## Tool Actions
 
@@ -92,7 +92,7 @@ three tabs: Overview (PR metadata + synopsis), References
 (browsable list of all crawled references) and Source
 (browsable list of source files with roles).
 
-The user presses 'r' to proceed to review, or steers for
+The user presses 'r' to move on to review, or steers for
 feedback. If they steer, process their feedback and call
 `overview` again.
 
@@ -137,13 +137,13 @@ to exit review mode.
 
 ## Complexity Adaptation
 
-For small PRs (1-3 files, few changes): generate fewer
+For small PRs (1-3 files, few changes), generate fewer
 comments. Don't force the user through every phase if the
-PR is straightforward. A simple review might skip straight
+PR is straightforward; a simple review might skip straight
 from `generate-comments` to `submit`.
 
-For large PRs: be thorough. Use the source file discovery
-to understand the full impact. Generate comments across
+For large PRs, be thorough. Use the source file discovery
+to understand the full impact and generate comments across
 multiple categories.
 
 ## Steer Handling

@@ -13,8 +13,6 @@ import {
 import { prompt, view } from "../lib/ui/panel.js";
 import type { ContentFn, PromptResult, TabbedResult } from "../lib/ui/types.js";
 
-// ---- Result formatting ----
-
 /** Format a single PromptResult for notify output. */
 function formatResult(result: PromptResult | null): string {
 	if (result === null) return "cancelled";
@@ -41,8 +39,6 @@ function formatTabbedResult(result: TabbedResult | null): string {
 	return `tabbed result:\n${parts.join("\n")}`;
 }
 
-// ---- Content helpers ----
-
 /** Generate numbered lines for scroll testing. */
 function numberedLines(count: number): ContentFn {
 	return (_theme, _width) => {
@@ -58,8 +54,6 @@ function numberedLines(count: number): ContentFn {
 function staticContent(text: string[]): ContentFn {
 	return (_theme, _width) => text.map((line) => `  ${line}`);
 }
-
-// ---- Test data ----
 
 const MARKDOWN_SAMPLE = `# Heading 1
 
@@ -156,8 +150,6 @@ index abc1234..def5678 100644
 +
 +export { getPort };
 `;
-
-// ---- Commands ----
 
 export default function testHarness(ctx: ExtensionContext) {
 	// /test-scroll: ScrollRegion + view()

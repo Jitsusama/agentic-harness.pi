@@ -1,6 +1,7 @@
 /**
- * TDD mode lifecycle: activate, deactivate, toggle, phase
- * advancement, persist and restore.
+ * Manages the TDD mode lifecycle: activation, deactivation,
+ * toggling, advancing through phases, and persisting state
+ * across sessions.
  */
 
 import type {

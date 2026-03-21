@@ -64,7 +64,7 @@ export function parsePrCommand(command: string): PrCommand | null {
 			: null;
 	const extraFlags = extractPrExtraFlags(prPart);
 
-	// Only gate if there's a body to review
+	// We only gate if there's a body to review.
 	if (!body) return null;
 
 	return { action, title, body, prefix, prPart, prNumber, extraFlags };

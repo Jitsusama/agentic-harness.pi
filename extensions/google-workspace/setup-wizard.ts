@@ -1,6 +1,6 @@
 /**
- * Interactive OAuth app setup wizard.
- * Guides users through creating OAuth credentials and stores them persistently.
+ * Interactive setup wizard that walks users through creating
+ * OAuth credentials and stores them persistently.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -121,7 +121,7 @@ async function runSetupWizard(
 		return null;
 	}
 
-	// Store and confirm
+	// We store the credentials and confirm.
 	const credentials: OAuthAppCredentials = {
 		clientId: cleanClientId,
 		clientSecret: cleanClientSecret,

@@ -14,8 +14,8 @@ description: >
 **Plans provide context and direction, not implementation.**
 
 Plans explain WHAT to build and WHY. Implementation (via TDD)
-determines HOW. The plan should give enough context that
-implementation can make intelligent decisions.
+determines HOW. The plan should give enough context that the
+person implementing can make intelligent decisions.
 
 ## Essential Plan Sections
 
@@ -146,7 +146,7 @@ Mark unknowns to resolve during implementation:
 - Do we need to handle partition_id format variations?
 ```
 
-Don't guess answers - flag them for implementation to discover.
+Don't guess answers; flag them for implementation to discover.
 
 ## Separation of Concerns Pattern
 
@@ -277,13 +277,13 @@ Error handling:
 
 ## Reference TDD Workflow
 
-Don't rewrite TDD process in plans. Just reference it:
+Don't rewrite the TDD process in plans. Just reference it:
 
 ```markdown
 Follow TDD workflow (see tdd-workflow skill) for implementation.
 ```
 
-Implementation knows to do RED → GREEN → REFACTOR cycles.
+The implementer knows to do RED → GREEN → REFACTOR cycles.
 
 ## When to Use This Skill
 

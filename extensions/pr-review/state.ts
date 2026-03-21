@@ -1,7 +1,7 @@
 /**
- * PR Review state: domain model for a structured code review.
+ * Domain model for a structured code review, organized in
+ * four levels:
  *
- * Four levels:
  *   PRTarget      : identifies which PR is being reviewed
  *   CrawlResult   : deep context gathered by the crawler
  *   ReviewSession : the active review with comments and tab state
@@ -12,8 +12,6 @@
 // imports from state.ts continue to work.
 export type { DiffFile, DiffHunk, DiffLine } from "../lib/github/diff.js";
 
-// ---- PR identity ----
-
 /** Identifies the PR under review. */
 export interface PRTarget {
 	owner: string;
@@ -23,8 +21,6 @@ export interface PRTarget {
 	baseBranch: string;
 	author: string;
 }
-
-// ---- Crawled context ----
 
 /** PR metadata fetched from GitHub. */
 export interface PRMetadata {
@@ -109,8 +105,6 @@ export interface CrawlResult {
 	hitDepthLimit: boolean;
 }
 
-// ---- Review comments ----
-
 /** Comment categories: determines which tab a comment appears in. */
 export type CommentCategory = "file" | "title" | "scope";
 
@@ -132,16 +126,12 @@ export interface ReviewComment {
 /** GitHub review verdict. */
 export type ReviewVerdict = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
 
-// ---- Tab state ----
-
 /** Per-tab UI state. */
 export interface TabState {
 	handled: boolean;
 	activeView: "overview" | "comments" | "raw";
 	commentIndex: number;
 }
-
-// ---- Review session ----
 
 /** Review workflow phases. */
 export type ReviewPhase = "gathering" | "overview" | "reviewing" | "submitting";
@@ -170,8 +160,6 @@ export interface ReviewSession {
 	/** Current workflow phase. */
 	phase: ReviewPhase;
 }
-
-// ---- Comment helpers ----
 
 /** Generate a unique comment ID. */
 function nextId(): string {
@@ -259,8 +247,6 @@ export function markTabHandled(session: ReviewSession, tabId: string): void {
 		});
 	}
 }
-
-// ---- Runtime state ----
 
 /** Runtime state for the PR review extension. */
 export interface PRReviewState {

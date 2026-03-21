@@ -18,7 +18,6 @@ import { AuthSetupNeeded, readPage } from "./reader.js";
 import { webSearch as doSearch } from "./search.js";
 
 export default function webSearch(pi: ExtensionAPI) {
-	// --- web_search tool ---
 	pi.registerTool({
 		name: "web_search",
 		label: "Web Search",
@@ -109,7 +108,6 @@ export default function webSearch(pi: ExtensionAPI) {
 		},
 	});
 
-	// --- web_read tool ---
 	pi.registerTool({
 		name: "web_read",
 		label: "Web Read",
@@ -134,7 +132,7 @@ export default function webSearch(pi: ExtensionAPI) {
 				display = u.hostname + u.pathname;
 				if (display.length > 60) display = `${display.slice(0, 57)}...`;
 			} catch {
-				// use raw url
+				// We use the raw URL as-is.
 			}
 			return new Text(label + theme.fg("dim", display), 0, 0);
 		},
@@ -213,7 +211,6 @@ export default function webSearch(pi: ExtensionAPI) {
 		},
 	});
 
-	// --- /setup-chrome-cookies command ---
 	pi.registerCommand("setup-chrome-cookies", {
 		description:
 			"Enable web_read access to authenticated pages by caching " +
@@ -252,7 +249,7 @@ export default function webSearch(pi: ExtensionAPI) {
 		},
 	});
 
-	// Clean up browser on session end
+	// We clean up the browser when the session ends.
 	pi.on("session_end", async () => {
 		await closeBrowser();
 	});

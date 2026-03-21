@@ -26,8 +26,6 @@ import {
 	updateComment,
 } from "./state.js";
 
-// ---- Types ----
-
 /** Structured comment input from the tool parameters. */
 export interface CommentInput {
 	file: string | null;
@@ -57,8 +55,6 @@ export interface HandlerDeps {
 	state: PRReviewState;
 	pi: ExtensionAPI;
 }
-
-// ---- Helpers ----
 
 /** Build a simple text tool result. */
 function textResult(text: string) {
@@ -93,8 +89,6 @@ async function ensureContext(
 		return false;
 	}
 }
-
-// ---- Diff line helpers ----
 
 /** A new-side line range covered by a diff hunk. */
 interface HunkRange {
@@ -136,12 +130,12 @@ function clampToDiffRange(
 ): number {
 	if (!ranges || ranges.length === 0) return line;
 
-	// Check if line is within any hunk
+	// We check if the line is within any hunk.
 	for (const r of ranges) {
 		if (line >= r.start && line <= r.end) return line;
 	}
 
-	// Find the nearest hunk boundary
+	// We find the nearest hunk boundary.
 	let closest = line;
 	let minDist = Number.MAX_SAFE_INTEGER;
 	for (const r of ranges) {
@@ -155,8 +149,6 @@ function clampToDiffRange(
 	}
 	return closest;
 }
-
-// ---- Worktree helpers ----
 
 /** Directory where review worktrees are created. */
 const WORKTREE_DIR = ".review";
@@ -192,7 +184,7 @@ async function createWorktree(
 	const add = await pi.exec("git", ["worktree", "add", relPath, branchName]);
 	if (add.code !== 0) return null;
 
-	// Return absolute path so fs.readFileSync works from any cwd
+	// We return an absolute path so fs.readFileSync works from any cwd.
 	const abs = await pi.exec("git", ["worktree", "list", "--porcelain"]);
 	if (abs.code === 0) {
 		for (const line of abs.stdout.split("\n")) {
@@ -202,7 +194,7 @@ async function createWorktree(
 		}
 	}
 
-	// Fallback: resolve relative to repo root
+	// As a fallback, we resolve relative to the repo root.
 	const root = await pi.exec("git", ["rev-parse", "--show-toplevel"]);
 	if (root.code === 0) {
 		return `${root.stdout.trim()}/${relPath}`;
@@ -223,8 +215,6 @@ async function removeWorktree(
 	await pi.exec("git", ["branch", "-D", branchName]);
 }
 
-// ---- Helpers ----
-
 /** Resolve a PR reference from user input. */
 async function resolvePR(
 	pi: ExtensionAPI,
@@ -236,8 +226,6 @@ async function resolvePR(
 	}
 	return null;
 }
-
-// ---- Handlers ----
 
 /** Activate: parse PR ref, resolve repo, crawl deep context. */
 export async function handleActivate(
@@ -263,7 +251,7 @@ export async function handleActivate(
 		);
 	}
 
-	// Resolve repo on disk
+	// We resolve the repo on disk.
 	const repoResult = await resolveRepo(
 		pi,
 		ref.owner,
@@ -295,7 +283,7 @@ export async function handleActivate(
 		);
 	}
 
-	// Activate and crawl
+	// We activate and crawl.
 	state.enabled = true;
 	const session = createSession(
 		{
@@ -324,13 +312,13 @@ export async function handleActivate(
 			},
 		);
 
-		// Update session with crawl results
+		// We update the session with crawl results.
 		session.context = crawlResult;
 		session.pr.branch = crawlResult.pr.headRefName;
 		session.pr.baseBranch = crawlResult.pr.baseRefName;
 		session.pr.author = crawlResult.pr.author;
 
-		// Create worktree if not on the PR branch
+		// We create a worktree if we're not on the PR branch.
 		const onBranch = await isOnPRBranch(pi, crawlResult.pr.headRefName);
 		if (!onBranch) {
 			ctx.ui.notify("Creating worktree for PR branch…", "info");
@@ -382,11 +370,11 @@ export async function handleGenerateComments(
 
 	const session = state.session;
 
-	// Store synopsis and scope analysis
+	// We store the synopsis and scope analysis.
 	if (synopsis) session.synopsis = synopsis;
 	if (scopeAnalysis) session.scopeAnalysis = scopeAnalysis;
 
-	// Fill in source file roles
+	// We fill in the source file roles.
 	if (sourceRoles && session.context) {
 		for (const sr of sourceRoles) {
 			const sourceFile = session.context.sourceFiles.find(
@@ -396,7 +384,7 @@ export async function handleGenerateComments(
 		}
 	}
 
-	// Fill in reference summaries (replaces raw body preview with AI summary)
+	// We fill in reference summaries (replacing raw body previews with AI summaries).
 	if (referenceSummaries && session.context) {
 		for (const rs of referenceSummaries) {
 			const ref = session.context.references.find((r) => r.url === rs.url);
@@ -404,7 +392,7 @@ export async function handleGenerateComments(
 		}
 	}
 
-	// Add comments
+	// We add the comments.
 	if (comments) {
 		for (const c of comments) {
 			addComment(session, {
@@ -705,7 +693,7 @@ export async function handleSubmit(
 
 	const session = state.session;
 
-	// Update body/verdict if provided
+	// We update body/verdict if they were provided.
 	if (reviewBody !== null) session.reviewBody = reviewBody;
 	if (verdict !== null) {
 		session.verdict = verdict as typeof session.verdict;
@@ -778,7 +766,7 @@ export async function handlePost(deps: HandlerDeps) {
 
 	const approved = session.comments.filter((c) => c.status === "approved");
 
-	// Build hunk ranges per file so we can clamp comment lines
+	// We build hunk ranges per file so we can clamp comment lines.
 	const hunkRanges = buildDiffHunkRanges(session);
 
 	const ghComments = approved
@@ -859,7 +847,7 @@ export async function handleDeactivate(
 	const commentCount = state.session.comments.length;
 	const prNum = state.session.pr.number;
 
-	// Clean up worktree if we created one
+	// We clean up the worktree if we created one.
 	if (state.session.worktreePath) {
 		try {
 			await removeWorktree(pi, prNum);

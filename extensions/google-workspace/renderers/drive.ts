@@ -100,7 +100,7 @@ export function renderSheet(
 			continue;
 		}
 
-		// Render as markdown table
+		// We render the sheet as a markdown table.
 		const header = sheet.rows[0] || [];
 		const dataRows = sheet.rows.slice(1);
 
@@ -108,7 +108,7 @@ export function renderSheet(
 		lines.push(`| ${header.map(() => "---").join(" | ")} |`);
 
 		for (const row of dataRows) {
-			// Pad row to match header length
+			// We pad the row to match the header length.
 			const paddedRow = [...row];
 			while (paddedRow.length < header.length) {
 				paddedRow.push("");
@@ -198,8 +198,6 @@ export function renderComments(comments: DocumentComment[]): string {
 
 	return lines.join("\n");
 }
-
-// Helper functions
 
 function getMimeIcon(mimeType: string): string {
 	const icons: Record<string, string> = {

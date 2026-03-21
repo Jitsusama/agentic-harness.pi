@@ -1,7 +1,7 @@
 # Extension Development
 
 Guidance for developing Pi extensions. Currently covers TUI
-component discovery and usage; will grow to cover other
+component discovery and usage; it'll grow to cover other
 extension development concerns.
 
 Rather than duplicating Pi's API docs (which go stale on every
@@ -12,6 +12,6 @@ available by reading the live source of truth:
 - Type declarations (`.d.ts`) for exact APIs
 - This project's `lib/ui/` for existing abstractions
 
-It includes orientation tables (what component for what job) and
-a gotchas section covering the non-obvious mistakes that cause
-real bugs.
+It includes orientation tables (what component for what job)
+and a gotchas section covering the non-obvious mistakes that
+cause real bugs.

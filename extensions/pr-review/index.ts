@@ -61,8 +61,6 @@ export default function prReview(pi: ExtensionAPI) {
 	const state = createState();
 	const deps: HandlerDeps = { state, pi };
 
-	// ---- Tool ----
-
 	pi.registerTool({
 		name: "pr_review",
 		label: "PR Review",
@@ -353,8 +351,6 @@ export default function prReview(pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- Commands ----
-
 	pi.registerCommand("pr-review", {
 		description: "Toggle PR review mode",
 		handler: async (_args, ctx) => {
@@ -370,8 +366,6 @@ export default function prReview(pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- Keyboard shortcut ----
-
 	pi.registerShortcut(Key.ctrlAlt("v"), {
 		description: "Deactivate PR review mode",
 		handler: async (ctx) => {
@@ -382,15 +376,11 @@ export default function prReview(pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- Context injection ----
-
 	pi.on("before_agent_start", async () => {
 		return buildPRReviewContext(state);
 	});
 
 	pi.on("context", prReviewContextFilter(state));
-
-	// ---- Session restore ----
 
 	pi.on("session_start", async (_event, ctx) => {
 		restore(state, ctx);

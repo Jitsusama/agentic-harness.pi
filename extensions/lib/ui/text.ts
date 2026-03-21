@@ -1,6 +1,6 @@
 /**
- * Text utilities: word wrapping and text formatting helpers
- * for panel and content rendering.
+ * Word wrapping and text formatting helpers used by the panel
+ * and content rendering systems.
  */
 
 /** Content indent used by panel content renderers (spaces per side). */

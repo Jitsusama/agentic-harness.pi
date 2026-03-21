@@ -19,8 +19,6 @@ import {
 import { Markdown, truncateToWidth } from "@mariozechner/pi-tui";
 import { SCROLLBAR_GUTTER } from "./types.js";
 
-// ---- Markdown ----
-
 /**
  * Render markdown text to themed display lines.
  * Also handles plain text (markdown is a superset).
@@ -34,10 +32,11 @@ export function renderMarkdown(
 	_theme: Theme,
 	width: number,
 ): string[] {
-	// Markdown is prose: always cap to terminal width for
-	// readability. When horizontal scrolling is enabled, content
-	// functions receive a huge width (10,000) so code and diffs
-	// can extend beyond the viewport. Prose must still wrap.
+	// Markdown is prose, so we cap it to terminal width to keep
+	// things readable. When horizontal scrolling is enabled, the
+	// content functions get a huge width (10,000) so code and
+	// diffs can extend beyond the viewport, but prose still
+	// needs to wrap.
 	const cols = process.stdout.columns;
 	const cappedWidth =
 		cols && cols > 0 ? Math.min(width, cols - SCROLLBAR_GUTTER) : width;
@@ -46,8 +45,6 @@ export function renderMarkdown(
 	const md = new Markdown(text, 1, 0, mdTheme);
 	return md.render(cappedWidth);
 }
-
-// ---- Diff ----
 
 /**
  * Render unified diff output with colouring.
@@ -85,8 +82,6 @@ export function renderDiff(
 
 	return lines;
 }
-
-// ---- Code ----
 
 export interface CodeRenderOptions {
 	/** First line number (default: 1). */
@@ -146,7 +141,7 @@ function formatHighlightedCode(
 	const gutterWidth = String(lastLineNum).length;
 	const lines: string[] = [];
 
-	// Track ANSI color state across lines so multi-line constructs
+	// We track ANSI colour state across lines so multi-line constructs
 	// (comments, strings) keep their colour after the gutter resets it.
 	let activeEscapes = "";
 
@@ -159,10 +154,10 @@ function formatHighlightedCode(
 		const gutter = `${marker}${theme.fg("dim", `${numStr} │ `)}`;
 		const codeLine = (codeLines[i] ?? "").replaceAll("\t", tabSpaces);
 
-		// Restore colour state from previous line, then emit this line
+		// We restore the colour state from the previous line, then emit this one.
 		lines.push(truncateToWidth(`${gutter}${activeEscapes}${codeLine}`, width));
 
-		// Update active escapes by scanning this line's ANSI sequences
+		// We update the active escapes by scanning this line's ANSI sequences.
 		activeEscapes = trackAnsiState(activeEscapes, codeLine);
 	}
 
@@ -195,8 +190,6 @@ function trackAnsiState(current: string, line: string): string {
 	}
 	return state;
 }
-
-// ---- Re-exports ----
 
 /** Derive a syntax highlighting language from a file path. */
 export const languageFromPath = getLanguageFromPath;

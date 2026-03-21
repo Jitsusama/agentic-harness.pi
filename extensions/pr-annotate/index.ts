@@ -156,7 +156,7 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				};
 			}
 
-			// Split into pre-approved and new comments
+			// We split the comments into pre-approved and new ones.
 			const preApproved: ReviewComment[] = [];
 			const toVet: ReviewComment[] = [];
 
@@ -176,7 +176,7 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				}
 			}
 
-			// Fetch diff for workspace context
+			// We fetch the diff for workspace context.
 			const diffFiles = await fetchPRDiff(pi, params.pr, params.repo);
 
 			const result = await vetComments(
@@ -193,7 +193,7 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				};
 			}
 
-			// Combine pre-approved with newly approved
+			// We combine pre-approved with newly approved comments.
 			const allApproved = [...preApproved, ...result.approved];
 
 			if (result.steerFeedback) {
@@ -213,7 +213,7 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				};
 			}
 
-			// User requested additional comments: return for LLM resolution
+			// The user requested additional comments, so we return them for the LLM to resolve.
 			if (result.userRequests.length > 0) {
 				const requests = result.userRequests
 					.map((r, i) => `${i + 1}. ${r}`)

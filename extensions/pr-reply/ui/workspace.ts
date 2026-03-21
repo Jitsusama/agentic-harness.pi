@@ -30,8 +30,6 @@ import type {
 } from "../state.js";
 import { threadsForReview } from "../state.js";
 
-// ---- Constants ----
-
 /** Status glyphs for threads. */
 const THREAD_GLYPH: Record<ThreadState, string> = {
 	pending: "●",
@@ -52,8 +50,6 @@ const THREAD_GLYPH_COLOR: Record<ThreadState, string> = {
 	skipped: "error",
 };
 
-// ---- Result types ----
-
 /** Result from the workspace: which action the user chose. */
 export type WorkspaceAction =
 	| { action: "open"; threadId: string }
@@ -61,8 +57,6 @@ export type WorkspaceAction =
 	| { action: "defer"; threadId: string }
 	| { action: "steer"; threadId: string | null; note: string }
 	| null;
-
-// ---- Public API ----
 
 /**
  * Show the PR reply workspace. Returns the user's chosen action,
@@ -74,10 +68,10 @@ export async function showReplyWorkspace(
 ): Promise<WorkspaceAction> {
 	const { reviews, threads, threadStates, threadAnalyses } = state;
 
-	// Mutable selection state per reviewer tab
+	// This is mutable selection state, tracked per reviewer tab.
 	const threadIndices = new Map<string, number>();
 
-	// Restore position from state
+	// We restore the position from state.
 	const savedPos = state.workspacePosition;
 	if (savedPos?.threadIndices) {
 		for (const [key, val] of savedPos.threadIndices) {
@@ -85,7 +79,7 @@ export async function showReplyWorkspace(
 		}
 	}
 
-	// Track which reviewer tabs are complete
+	// We track which reviewer tabs are complete.
 	const tabHandled = new Set<string>();
 	for (const review of reviews) {
 		const reviewThreads = threadsForReview(review, threads);
@@ -96,10 +90,10 @@ export async function showReplyWorkspace(
 		if (allDone) tabHandled.add(review.id);
 	}
 
-	// Track the thread the user is acting on
+	// We track the thread the user is acting on.
 	let actionThreadId: string | null = null;
 
-	// Build workspace items
+	// We build the workspace items.
 	const items: WorkspaceItem[] = [
 		buildSummaryTab(state),
 		...reviews.map((review) =>
@@ -130,7 +124,7 @@ export async function showReplyWorkspace(
 		allowHScroll: true,
 	});
 
-	// Save workspace position
+	// We save the workspace position.
 	state.workspacePosition = {
 		tabIndex: 0,
 		threadIndices: new Map(threadIndices),
@@ -148,8 +142,6 @@ export async function showReplyWorkspace(
 
 	return null;
 }
-
-// ---- Summary tab ----
 
 /** Build the Summary tab showing PR overview and progress. */
 function buildSummaryTab(state: PRReplyState): WorkspaceItem {
@@ -227,8 +219,6 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 
 	return { label: "Summary", views: [summaryView] };
 }
-
-// ---- Reviewer tabs ----
 
 /**
  * Build a reviewer tab: single view with reviewer header,
@@ -363,8 +353,6 @@ function buildReviewerTab(
 	return { label: review.author, views: [view] };
 }
 
-// ---- Thread list rendering ----
-
 /**
  * Render a compact thread list for navigation.
  * Shows file:line, status, and recommendation: no expanded views.
@@ -403,7 +391,7 @@ function renderThreadList(
 		const line = `${pad}${cursor}${theme.fg(glyphColor, glyph)} ${summary} ${theme.fg("dim", `[${st}]`)}`;
 		lines.push(isSel ? theme.fg("accent", line) : line);
 
-		// Show snippet on second line
+		// We show the snippet on the second line.
 		const snippet =
 			thread.comments[0]?.body.slice(0, 70).replace(/\n/g, " ") ?? "";
 		const ellipsis = (thread.comments[0]?.body.length ?? 0) > 70 ? "…" : "";
@@ -418,8 +406,6 @@ function renderThreadList(
 
 	return lines;
 }
-
-// ---- Helpers ----
 
 /** Update the action thread to the currently selected thread. */
 function updateActionThread(

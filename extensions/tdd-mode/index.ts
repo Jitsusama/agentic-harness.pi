@@ -51,8 +51,6 @@ function stayResult(phase: Phase, feedback?: string) {
 export default function tddMode(pi: ExtensionAPI) {
 	const state = createTddState();
 
-	// ---- Tool ----
-
 	pi.registerTool({
 		name: "tdd_phase",
 		label: "TDD Phase",
@@ -125,7 +123,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			}
 
 			if (action === "red") {
-				// Skip gate when already in RED (e.g. after start, or updating context)
+				// No gate needed when we're already in RED (e.g., right after start or when updating context)
 				if (state.phase !== "red") {
 					const gate = await showTransitionGate(state, ctx, {
 						summary: summary ?? "Starting new test.",
@@ -246,8 +244,9 @@ export default function tddMode(pi: ExtensionAPI) {
 				);
 			}
 
-			// Summary only: the call renderer already shows action + context
-			// Take only the first line and truncate to terminal width
+			// Just show the summary since the call renderer already
+			// shows the action + context. We take only the first line
+			// and truncate it to terminal width.
 			if (d.summary) {
 				const firstLine = d.summary.split("\n")[0] ?? "";
 				const maxWidth = options.terminalWidth ?? 80;
@@ -260,8 +259,6 @@ export default function tddMode(pi: ExtensionAPI) {
 			return new Text(theme.fg("success", "✓"), 0, 0);
 		},
 	});
-
-	// ---- Refactor tool ----
 
 	const RefactorSuggestionSchema = Type.Object({
 		label: Type.String({ description: "Short name for the refactoring" }),
@@ -392,8 +389,6 @@ export default function tddMode(pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- Commands ----
-
 	pi.registerCommand("tdd", {
 		description: "Toggle TDD mode, optionally with a plan file",
 		handler: async (args, ctx) =>
@@ -461,7 +456,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			for (let i = 0; i < result.userSuggestions.length; i++) {
 				const s = result.userSuggestions[i];
 				if (s) {
-					// Show first 60 chars
+					// We show the first 60 chars.
 					const preview = s.length > 60 ? `${s.slice(0, 60)}...` : s;
 					lines.push(`    ${i + 1}. ${preview}`);
 				}
@@ -475,15 +470,11 @@ export default function tddMode(pi: ExtensionAPI) {
 		handler: async (ctx) => toggle(state, pi, ctx),
 	});
 
-	// ---- Context ----
-
 	pi.on("before_agent_start", async () => {
 		return buildTddContext(state);
 	});
 
 	pi.on("context", tddContextFilter(state));
-
-	// ---- Restore ----
 
 	pi.on("session_start", async (_event, ctx) => {
 		restore(state, ctx);

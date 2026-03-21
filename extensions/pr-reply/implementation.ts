@@ -82,7 +82,7 @@ export function beginTDDImplementation(
  */
 export function handleTDDCompletion(state: PRReplyState): void {
 	state.awaitingTDDCompletion = false;
-	// tddThreadId is preserved so we can link commits to it
+	// The tddThreadId is preserved so we can link commits to it.
 }
 
 /**
@@ -96,7 +96,7 @@ export function buildImplementationContext(thread: Thread): string {
 	parts.push(`Addressing review feedback on ${thread.file}:${thread.line}`);
 	parts.push("");
 
-	// Include the original comment and any discussion
+	// We include the original comment and any discussion.
 	for (const comment of thread.comments) {
 		parts.push(`${comment.author}: ${comment.body}`);
 	}

@@ -25,16 +25,12 @@ import {
 	SCROLLBAR_GUTTER,
 } from "./types.js";
 
-// ---- Types ----
-
 export interface ScrollState {
 	/** Vertical scroll offset (lines from top). */
 	vOffset: number;
 	/** Horizontal scroll offset (visible characters from left). */
 	hOffset: number;
 }
-
-// ---- ScrollRegion Component ----
 
 /** Render the content viewport with optional scrollbar. */
 export function renderScrollRegion(
@@ -66,7 +62,7 @@ export function renderScrollRegion(
 				contentWidth,
 			);
 			const truncated = truncateToWidth(sliced, contentWidth);
-			// CSI absolute column positioning for the scrollbar
+			// We use CSI absolute column positioning for the scrollbar.
 			const scrollCol = width;
 			lines.push(`${truncated}\x1b[${scrollCol}G${scrollbar[i] ?? ""}`);
 		}
@@ -141,8 +137,6 @@ export function contentWidth(termWidth: number): number {
 	return Math.min(termWidth - CONTENT_INDENT * 2, MAX_CONTENT_WIDTH);
 }
 
-// ---- Internal helpers ----
-
 /** Find the maximum visible width across content lines. */
 /** Compute the maximum visible width across all lines. */
 export function maxContentWidth(lines: string[]): number {
@@ -197,7 +191,7 @@ function horizontalSlice(text: string, offset: number, width: number): string {
 	let i = 0;
 	let activeEscapes = "";
 
-	// Skip `offset` visible characters, collecting ANSI state
+	// We skip `offset` visible characters, collecting ANSI state along the way.
 	while (i < text.length && visCount < offset) {
 		if (text[i] === "\x1b" && text[i + 1] === "[") {
 			const escStart = i;

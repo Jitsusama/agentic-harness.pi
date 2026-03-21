@@ -1,5 +1,7 @@
 /**
- * Test file detection patterns.
+ * Patterns for identifying test files by their path, so the
+ * enforcement logic knows which writes to block during the
+ * GREEN phase.
  */
 
 /** File paths that indicate a test file. */

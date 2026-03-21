@@ -1,6 +1,7 @@
 # Google Workspace Extension
 
-AI-friendly access to Gmail, Calendar, Drive, Docs, Sheets and Slides through a single `google` tool.
+AI-friendly access to Gmail, Calendar, Drive, Docs, Sheets
+and Slides through a single `google` tool.
 
 ## Features
 
@@ -11,7 +12,9 @@ AI-friendly access to Gmail, Calendar, Drive, Docs, Sheets and Slides through a 
 
 ## Quick Start
 
-**Just use it!** The extension will automatically guide you through setup when you first try to use Google Workspace features.
+**Just use it!** The extension automatically guides you
+through setup when you first try to use Google Workspace
+features.
 
 ```typescript
 // Try to search emails - extension detects setup needed
@@ -78,7 +81,8 @@ export GOOGLE_CLIENT_SECRET="your-secret"
 
 ## Tool Usage
 
-The LLM calls the `google` tool with structured actions. See the `google-workspace` skill for detailed usage patterns.
+The LLM calls the `google` tool with structured actions. See
+the `google-workspace` skill for detailed usage patterns.
 
 **Examples:**
 ```typescript
@@ -164,5 +168,7 @@ google-workspace/
 
 ## Current Limitations
 
-- Credentials stored in Pi session (lost on restart - re-auth needed)
-- Requires OAuth client setup (see Option 2 above for future improvement)
+- Credentials are stored in the Pi session (lost on restart,
+  so you'll need to re-auth)
+- Requires OAuth client setup (see Option 2 above for a
+  future improvement)

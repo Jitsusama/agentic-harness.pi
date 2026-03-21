@@ -20,9 +20,9 @@ Use pr-reply mode when a PR has review feedback to address:
 
 ## How It Works
 
-The `pr_reply` tool manages the workflow through a series of
-actions. You drive the conversation; the tool provides data
-and tracks state.
+The `pr_reply` tool manages the workflow through a series
+of actions. You drive the conversation; the tool provides
+data and tracks state.
 
 ### Step 1: Activate
 
@@ -103,16 +103,16 @@ pr_reply(action: "deactivate")
 ## Analyzing Threads
 
 Your job is to think critically, not to agree with the
-reviewer by default. The user trusts your judgement; give
-them a real opinion, not a summary of what happened.
+reviewer by default. The user trusts your judgement, so give
+them a real opinion rather than a summary of what happened.
 
 **What they're actually asking**: Read the original comment
 and the full conversation. Is the suggestion sound? Does it
-improve the code, or is it a style preference?
+genuinely improve the code, or is it just a style preference?
 
-**Evaluate on merits**: Don't accept feedback just because
-a reviewer said it. Consider whether the change actually
-improves the code or adds complexity for marginal benefit.
+**Evaluate on merits**: Don't accept feedback just because a
+reviewer said it. Think about whether the change actually
+improves things or just adds complexity for marginal benefit.
 
 **Check conversation state**: If the user already replied
 with good reasoning and the reviewer dropped it, recommend
@@ -121,8 +121,9 @@ skipping. Don't re-open settled conversations.
 **Priority**: CHANGES_REQUESTED threads are required.
 COMMENTED and APPROVED threads are optional; be selective.
 
-**Outdated**: Code has changed since the comment. May still
-be relevant, or may have been addressed by other changes.
+**Outdated**: The code has changed since the comment. It may
+still be relevant, or it may have been addressed already by
+other changes.
 
 ## Recommending TDD vs Direct
 

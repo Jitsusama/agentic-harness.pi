@@ -3,24 +3,25 @@
 Skill-driven red-green-refactor tracking with LLM-facing
 enforcement.
 
-The [TDD workflow skill](../../skills/tdd-workflow/) teaches the
-methodology and tells the agent when to signal phase transitions.
-This extension tracks the state, displays it and blocks
-phase-inappropriate file writes with hints back to the LLM.
+The [TDD workflow skill](../../skills/tdd-workflow/) teaches
+the methodology and tells the agent when to signal phase
+transitions. This extension tracks the state, displays it
+and blocks phase-inappropriate file writes with hints back
+to the LLM.
 
 ## How It Works
 
 The agent calls the `tdd_phase` tool to signal transitions
 through the red-green-refactor cycle. Each transition shows a
-confirmation gate displaying what was done, what happens next,
+confirmation gate displaying what was done, what happens next
 and whether to proceed or stay. The extension:
 
-- Tracks the current phase and displays it in the status line
-- Shows the current test description below the editor
-- Confirms phase transitions with the user via a gate panel
-- Blocks test file writes during GREEN phase, returning
-  hints to the LLM (not UI gates for the user)
-- Injects phase-appropriate context into the system prompt
+- Tracks the current phase and displays it in the status line.
+- Shows the current test description below the editor.
+- Confirms phase transitions with you via a gate panel.
+- Blocks test file writes during the GREEN phase, returning
+  hints to the LLM (not UI gates for you).
+- Injects phase-appropriate context into the system prompt.
 
 ### Enforcement
 
@@ -31,16 +32,16 @@ and whether to proceed or stay. The extension:
 | REFACTOR | ✅ allowed | ✅ allowed (cleanup expected) |
 
 Blocks go back to the LLM as error messages with phase hints.
-The agent self-corrects or calls `tdd_phase stop` if the user
-has redirected away from TDD.
+The agent self-corrects or calls `tdd_phase stop` if you've
+redirected away from TDD.
 
 ## Activation
 
-The agent activates TDD mode via the `tdd_phase` tool when TDD
-intent is detected (from user request or plan instructions),
-after confirming with the user.
+The agent activates TDD mode via the `tdd_phase` tool when it
+detects TDD intent (from your request or plan instructions),
+after confirming with you.
 
-TDD mode can also be toggled manually:
+You can also toggle TDD mode manually:
 
 | Method | Description |
 |--------|-------------|
@@ -49,6 +50,6 @@ TDD mode can also be toggled manually:
 
 ## Status Display
 
-When active, the status line shows a phase-coloured `●` with dim `TDD` label.
-The current test description appears right-justified above
-the editor.
+When active, the status line shows a phase-coloured `●` with a
+dim `TDD` label. The current test description appears
+right-justified above the editor.

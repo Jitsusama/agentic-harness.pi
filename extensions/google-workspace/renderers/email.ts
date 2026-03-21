@@ -116,8 +116,6 @@ export function renderThread(messages: EmailMessageFull[]): string {
 	return lines.join("\n");
 }
 
-// Helper functions
-
 function formatEmailAddress(addr: { name: string; email: string }): string {
 	if (addr.name) {
 		return `${addr.name} <${addr.email}>`;
@@ -136,7 +134,7 @@ function formatDate(dateStr: string): string {
 			minute: "2-digit",
 		});
 	} catch (_error) {
-		// Date parsing failed - return truncated raw string as fallback
+		// Date parsing failed, so we return a truncated raw string as a fallback.
 		return dateStr.slice(0, 16);
 	}
 }

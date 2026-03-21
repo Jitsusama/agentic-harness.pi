@@ -31,8 +31,6 @@ export type ConfirmResult<T> =
 	| { approved: false; steer: string }
 	| null;
 
-// ---- Helpers ----
-
 /** Extract steer feedback from a prompt result, or null if not a steer. */
 function extractSteer(
 	result: { type: string; note?: string; value?: string } | null,
@@ -53,8 +51,6 @@ function extractSteer(
 	}
 	return null;
 }
-
-// ---- Email ----
 
 /**
  * Confirm email before sending.
@@ -155,8 +151,6 @@ export async function confirmDeleteEmail(
 	if (steer) return steer;
 	return { approved: true, data: true };
 }
-
-// ---- Calendar ----
 
 /**
  * Confirm event before creating (only when attendees present).

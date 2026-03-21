@@ -96,7 +96,6 @@ function buildCandidate(
 	const hideThinking = level >= 5;
 	const hideBranch = level >= 6;
 
-	// --- Left side: dir (branch) │ model ---
 	const left: string[] = [];
 
 	const dir = useShortDir ? d.shortDir : d.fullDir;
@@ -108,7 +107,6 @@ function buildCandidate(
 
 	left.push(useShortModel ? d.shortModel : d.fullModel);
 
-	// --- Right side: statuses │ panel-height │ context │ cost │ thinking ---
 	const right: string[] = [];
 
 	for (const s of d.statuses) right.push(s);
@@ -136,7 +134,6 @@ export default function statusLine(pi: ExtensionAPI) {
 				dispose: unsub,
 				invalidate() {},
 				render(width: number): string[] {
-					// --- Gather raw data ---
 					// NOTE: This iterates the entire session branch on every
 					// render (every keypress, scroll, resize). For very long
 					// sessions this could become slow. Future optimization:
@@ -159,16 +156,15 @@ export default function statusLine(pi: ExtensionAPI) {
 					const thinking = pi.getThinkingLevel();
 					const extStatuses = footerData.getExtensionStatuses();
 
-					// --- Pre-format segments ---
 					const cwd = process.cwd();
 					const tokens = usage?.tokens ?? 0;
 					const window = usage?.contextWindow ?? 0;
 					const pct = window > 0 ? Math.round((tokens / window) * 100) : 0;
 
-					// Context colour: dim normally, warning when > 80%
+					// The context colour is dim normally but turns to warning when > 80%.
 					const ctxColor = pct > 80 ? "warning" : "dim";
 
-					// Highlight last path component, dim the rest
+					// We highlight the last path component and dim the rest.
 					const homeCwd = homePath(cwd);
 					const base = path.basename(cwd);
 					const parent = homeCwd.slice(0, homeCwd.length - base.length);
@@ -197,7 +193,6 @@ export default function statusLine(pi: ExtensionAPI) {
 						if (text) d.statuses.push(text);
 					}
 
-					// --- Try each degradation level until it fits ---
 					for (let level = 0; level <= MAX_LEVEL; level++) {
 						const { left, right } = buildCandidate(d, level, theme);
 						const leftW = totalWidth(left);
@@ -224,7 +219,7 @@ export default function statusLine(pi: ExtensionAPI) {
 						}
 					}
 
-					// Everything stripped: just show basename
+					// If everything else is stripped, we just show the basename.
 					return [truncateToWidth(d.shortDir, width)];
 				},
 			};

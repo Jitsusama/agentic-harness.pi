@@ -1,7 +1,8 @@
 /**
- * TDD mode transitions: confirmation gates, context injection,
- * and stale context filtering. Phase advancement is driven by
- * the agent calling the tdd_phase tool.
+ * Handles TDD mode transitions: confirmation gates shown
+ * between phases, context injection into the system prompt,
+ * and filtering out stale context messages. Phase advancement
+ * is driven by the agent calling the tdd_phase tool.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";

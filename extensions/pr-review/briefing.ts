@@ -17,8 +17,6 @@ const MAX_ISSUE_BODY = 500;
 /** Maximum comments to show per issue. */
 const MAX_ISSUE_COMMENTS = 5;
 
-// ---- Activation briefing ----
-
 /**
  * Build the activation briefing: comprehensive context for
  * the agent to analyze and generate comments.
@@ -96,7 +94,7 @@ export function briefActivation(session: ReviewSession): string {
 		parts.push("");
 	}
 
-	// References: include URLs so the agent can match them for summaries
+	// We include URLs so the agent can match them for summaries.
 	if (context.references.length > 0) {
 		parts.push("### References");
 		parts.push(
@@ -184,8 +182,6 @@ export function briefActivation(session: ReviewSession): string {
 	return parts.join("\n");
 }
 
-// ---- Generate-comments summary ----
-
 /** Summary returned after comments are generated. */
 export function briefGenerateComments(session: ReviewSession): string {
 	const fileComments = session.comments.filter((c) => c.category === "file");
@@ -204,8 +200,6 @@ export function briefGenerateComments(session: ReviewSession): string {
 
 	return parts.join("\n");
 }
-
-// ---- Helpers ----
 
 /** Append the full diff (or truncated) to parts. */
 function appendDiff(parts: string[], context: CrawlResult): void {

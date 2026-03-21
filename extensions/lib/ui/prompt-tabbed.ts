@@ -258,7 +258,7 @@ export async function showTabbedPrompt(
 				return;
 			}
 
-			// View switching: check before actions to avoid key conflicts
+			// Check view switching before actions so their keys don't conflict
 			const views = currentViews();
 			if (views.length > 1) {
 				for (let i = 0; i < views.length; i++) {
@@ -266,7 +266,7 @@ export async function showTabbedPrompt(
 					if (view && matchesKey(data, view.key)) {
 						activeViewIndex.set(currentTab, i);
 						tui.requestRender();
-						// Trigger async load if needed
+						// We trigger an async load if needed.
 						ensureViewContent(currentTab, i, 0);
 						return;
 					}

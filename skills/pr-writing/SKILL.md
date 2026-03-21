@@ -9,9 +9,10 @@ description: >
 # Pull Request Writing
 
 A PR has three layers: the code changes (reviewers can see
-these), the technical decisions (you must explain these) and
-the business impact (you must connect to this). Your job is to
-build bridges from the inner layer to the outer one.
+those for themselves), the technical decisions (you need to
+explain those) and the business impact (you need to connect
+to that). The job is to build bridges from the inner layer
+to the outer one.
 
 ## Title
 
@@ -29,7 +30,7 @@ Always start the body with a line linking to the issue:
 Part of #ISSUE_NUMBER
 ```
 
-Do not repeat the issue reference in the rest of the
+Don't repeat the issue reference in the rest of the
 description; the link at the top is sufficient.
 
 When a PR is part of a stack (based on another PR or has
@@ -74,7 +75,7 @@ matters more than D for this use case."
 
 ## Story Types
 
-Recognize what kind of story the changes tell:
+Think about what kind of story the changes tell:
 
 - **Performance**: lead with the metrics that were bad.
 - **Reliability**: lead with the failure scenarios.
@@ -87,10 +88,10 @@ After creating the PR, use the `pr_annotate` tool to propose
 inline self-review comments that guide reviewers to areas that
 matter. Focus on:
 
-- Design decisions worth explaining.
-- Assumptions that need validation.
-- Scope boundaries reviewers should weigh in on.
-- Deviations from the original plan or issue.
+- Design decisions worth explaining
+- Assumptions that need validation
+- Scope boundaries reviewers should weigh in on
+- Deviations from the original plan or issue
 
 Do NOT flag style issues, obvious code or things the diff
 already makes clear. An empty comments array is fine when
@@ -99,9 +100,9 @@ nothing warrants reviewer attention.
 ### Choosing Line Ranges
 
 The line range is the first thing a reviewer sees; it
-frames the comment before they read a word. A mismatched
-range makes the comment confusing; a well-chosen range
-makes the comment self-evident.
+frames the comment before they've read a word. A mismatched
+range makes the comment confusing, while a well-chosen one
+makes it self-evident.
 
 **The range must contain the code the comment is about.**
 Read your comment body, identify the specific code it
@@ -111,10 +112,10 @@ validation code, not the function signature three lines
 above it.
 
 **Scope the range to the relevant construct:**
-- A naming concern → the single line with the declaration.
-- A logic concern → the conditional block or expression.
-- A design decision → the function or type that embodies it.
-- A missing edge case → the lines where handling should be.
+- A naming concern → the single line with the declaration
+- A logic concern → the conditional block or expression
+- A design decision → the function or type that embodies it
+- A missing edge case → the lines where handling should be
 
 **Don't over-select.** A 20-line range that includes
 imports, blank lines and unrelated code dilutes the
@@ -133,9 +134,10 @@ return value. For anything structural, use a range.
 ### Validating Line Numbers Against the Diff
 
 GitHub's review API only accepts comments on lines that
-appear in the diff. Comments on lines outside diff hunks
-are rejected with a 422. **Always verify line numbers
-against the diff before calling `pr_annotate`.**
+appear in the diff. If you try to comment on lines outside
+a diff hunk, you'll get a 422 rejection. **Always verify
+line numbers against the diff before calling
+`pr_annotate`.**
 
 Procedure:
 

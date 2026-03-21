@@ -1,5 +1,5 @@
 /**
- * Shared types for Google Workspace extension.
+ * Shared types used across the Google Workspace extension.
  */
 
 /** Parameters passed to router actions. */

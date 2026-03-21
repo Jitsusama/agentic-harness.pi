@@ -64,7 +64,7 @@ export function parseIssueCommand(command: string): IssueCommand | null {
 			: null;
 	const extraFlags = extractIssueExtraFlags(issuePart);
 
-	// Only gate if there's a body to review
+	// We only gate if there's a body to review.
 	if (!body) return null;
 
 	return { action, title, body, prefix, issuePart, issueNumber, extraFlags };
@@ -86,7 +86,7 @@ function extractIssueExtraFlags(issuePart: string): string[] {
 		"assignee",
 		"project",
 	])) {
-		// edit commands use --add-label, create uses --label
+		// Edit commands use --add-label while create uses --label.
 		const prefix = issuePart.includes(`--add-${name}`) ? "add-" : "";
 		flags.push(`--${prefix}${name}`, quote(value));
 	}

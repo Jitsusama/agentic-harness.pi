@@ -1,6 +1,7 @@
 /**
- * PR resolution and code context: find which PR we're working
- * on and read surrounding source code for thread display.
+ * Figures out which PR we're working on and reads the
+ * surrounding source code so thread displays can show
+ * relevant context.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -153,5 +154,5 @@ export async function pushIfNeeded(pi: ExtensionAPI): Promise<void> {
 	if (Number.isNaN(ahead) || ahead === 0) return;
 
 	await pi.exec("git", ["push"]);
-	// Non-fatal: the reply will still be posted
+	// This is non-fatal; the reply will still be posted.
 }

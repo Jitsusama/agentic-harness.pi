@@ -35,11 +35,11 @@ export async function getSheetContent(
 		sheets: [],
 	};
 
-	// Get data from each sheet
+	// We get the data from each sheet.
 	for (const sheetName of sheetNames) {
 		if (!sheetName) continue;
 
-		// Escape single quotes in sheet name by doubling them
+		// We escape single quotes in the sheet name by doubling them.
 		const escapedName = sheetName.replace(/'/g, "''");
 
 		try {
@@ -55,10 +55,10 @@ export async function getSheetContent(
 				rows,
 			});
 		} catch (error) {
-			// If a sheet fails, continue with other sheets
+			// If a sheet fails, we continue with the others.
 			const errorMsg = error instanceof Error ? error.message : String(error);
 
-			// Special case for connected sheets or unsupported sheet types
+			// This is a special case for connected sheets or unsupported sheet types.
 			let friendlyMessage = `Error loading sheet: ${errorMsg}`;
 			if (errorMsg.includes("Invalid range")) {
 				friendlyMessage =

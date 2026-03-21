@@ -16,13 +16,9 @@ import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import { GLYPH, type Option } from "./types.js";
 
-// ---- Types ----
-
 export type OptionListResult =
 	| { type: "select"; index: number }
 	| { type: "cancel" };
-
-// ---- Rendering ----
 
 /** Resolve the value for an option (defaults to lowercase label). */
 export function optionValue(option: Option): string {
@@ -54,9 +50,9 @@ export function renderOptionList(
 			lines.push(truncateToWidth(`${prefix}${number}${label}`));
 		}
 
-		// Show description only for the selected item
+		// We only show the description for the currently selected item.
 		if (isSelected && opt.description) {
-			// prefix has ANSI codes: use fixed visible width (3 chars) + number
+			// The prefix has ANSI codes, so we use a fixed visible width (3 chars) + the number.
 			const indent = " ".repeat(3 + number.length);
 			lines.push(
 				truncateToWidth(`${indent}${theme.fg("dim", opt.description)}`),

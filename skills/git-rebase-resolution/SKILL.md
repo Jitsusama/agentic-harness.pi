@@ -8,9 +8,9 @@ description: >
 
 # Rebase Resolution
 
-Think of rebasing as archaeology meets architecture: understand
-why each change was made, then design a result that incorporates
-both visions.
+Think of rebasing as archaeology meets architecture: you need
+to understand why each change was made, then design a result
+that incorporates both visions.
 
 ## The Three Questions
 
@@ -26,23 +26,26 @@ For every conflict, ask:
 same thing differently. Combine the best aspects of each.
 
 **Parallel features**: both sides added different capabilities
-to the same area. Accommodate both.
+to the same area. Find a way to accommodate both.
 
 **Architectural divergence**: one side refactored while the
-other added features. Adapt the features to the new structure.
+other added features. Adapt the features to fit the new
+structure.
 
 **Performance vs capability**: one side optimized, the other
-extended. Preserve the features within the performance gains.
+extended. Preserve the features within the performance
+improvements.
 
 ## Resolution Principles
 
 - **Architecture wins over implementation**: if the target
   branch has better structure, adapt to it. Don't preserve
-  bad patterns just because they work.
+  bad patterns just because they happen to work.
 - **Features are sacred**: never silently lose functionality.
   Find a new home for features in the evolved architecture.
 - **Consistency trumps cleverness**: follow the patterns
-  already established. Don't introduce new ones mid-rebase.
+  that are already established. Don't introduce new ones
+  mid-rebase.
 - **Quality over speed**: choose the better design, not the
   easier merge.
 

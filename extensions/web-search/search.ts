@@ -22,7 +22,7 @@ function extractUrl(ddgHref: string): string {
 	} catch {
 		// fall through
 	}
-	// Strip leading // if present
+	// We strip the leading // if present.
 	if (ddgHref.startsWith("//")) return `https:${ddgHref}`;
 	return ddgHref;
 }
@@ -60,7 +60,7 @@ export async function webSearch(
 			return entries;
 		});
 
-		// Clean up DDG redirect URLs
+		// We clean up DDG redirect URLs.
 		return results.slice(0, numResults).map((r) => ({
 			...r,
 			url: extractUrl(r.url),

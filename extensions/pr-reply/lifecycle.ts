@@ -1,6 +1,7 @@
 /**
- * PR Reply lifecycle: activate, deactivate, persist, restore,
- * and UI status display.
+ * Manages the PR reply lifecycle: activation, deactivation,
+ * persisting state across sessions, restoring it on return,
+ * and keeping the status line up to date.
  */
 
 import type {

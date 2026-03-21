@@ -70,8 +70,6 @@ import { showReplyReview } from "./ui/reply-review.js";
 import { showThreadGate, type ThreadGateChoice } from "./ui/thread-gate.js";
 import { showReplyWorkspace } from "./ui/workspace.js";
 
-// ---- Shared helpers ----
-
 /** Build a simple text tool result. */
 function textResult(text: string) {
 	return { content: [{ type: "text" as const, text }] };
@@ -113,8 +111,6 @@ function findNextPendingInReview(
 	return null;
 }
 
-// ---- Handlers ----
-
 /** Activate PR reply mode: load reviews and show summary. */
 export async function handleActivate(
 	state: PRReplyState,
@@ -142,7 +138,7 @@ export async function handleActivate(
 		return handleSwitchResult(ctx, switchResult, ref);
 	}
 
-	// Ensure we're on the PR's branch
+	// We ensure we're on the PR's branch.
 	const prBranch = await getPRBranch(pi, ref);
 	if (prBranch) {
 		const currentBranch = await getCurrentBranch(pi);
@@ -171,7 +167,7 @@ export async function handleActivate(
 		return textResult("No unresolved review threads to address.");
 	}
 
-	// Populate state
+	// We populate the state.
 	state.prNumber = ref.number;
 	state.owner = ref.owner;
 	state.repo = ref.repo;
@@ -253,8 +249,6 @@ export async function handleDeactivate(
 
 	return textResult(text);
 }
-
-// ---- New workspace-based handlers ----
 
 /** Generate analysis: LLM provides batch analysis of all threads. */
 export async function handleGenerateAnalysis(
@@ -362,7 +356,7 @@ export async function handleReviewWorkspace(
 		};
 	}
 
-	// User selected a thread: show the full-context gate
+	// The user selected a thread, so we show the full-context gate.
 	if (result.action === "open") {
 		const thread = state.threads.find((t) => t.id === result.threadId);
 		if (!thread) {
@@ -377,13 +371,13 @@ export async function handleReviewWorkspace(
 				? await readCodeContext(pi, thread.file, contextLine)
 				: null;
 
-		// Build recommendation from batch analysis
+		// We build the recommendation from the batch analysis.
 		const analysis = state.threadAnalyses.get(thread.id);
 		const recommendation = analysis?.analysis ?? "";
 
 		const progressLine = briefProgress(state);
 
-		// Show the full-context thread gate
+		// We show the full-context thread gate.
 		const choice = await showThreadGate(
 			ctx,
 			thread,
@@ -412,11 +406,9 @@ export async function handleReviewWorkspace(
 		);
 	}
 
-	// Defer and skip are handled inline in the workspace
+	// Defer and skip are handled inline in the workspace.
 	return textResult("Action applied. Call 'review' to reopen the workspace.");
 }
-
-// ---- Legacy handlers (kept for backward compatibility) ----
 
 /**
  * Advance to the next item in the review → thread cascade.
@@ -604,7 +596,7 @@ export async function handleShow(
 		return textResult("No current thread. Call 'next' first.");
 	}
 
-	// Hide widget while the prompt is active to avoid overlap
+	// Hide the widget while the prompt is up so they don't overlap
 	ctx.ui.setWidget("pr-reply-detail", undefined);
 
 	const review = state.reviews.find((r) => r.threadIds.includes(thread.id));
@@ -632,7 +624,7 @@ export async function handleShow(
 		progressLine,
 	);
 
-	// Restore widget after prompt closes
+	// We restore the widget after the prompt closes.
 	refreshUI(state, ctx);
 
 	return applyThreadChoice(
@@ -820,8 +812,6 @@ export function handleDefer(state: PRReplyState, pi: ExtensionAPI) {
 	return textResult("Thread deferred. Call 'next' to continue.");
 }
 
-// ---- Internal helpers ----
-
 /** Map the user's gate choice to a tool result for the LLM. */
 function applyThreadChoice(
 	state: PRReplyState,
@@ -937,7 +927,7 @@ async function reviewAndPostReply(
 		};
 	}
 
-	// Push any unpushed commits before posting (SHAs must resolve on GitHub)
+	// Push any unpushed commits before posting so the SHAs resolve on GitHub
 	await pushIfNeeded(pi);
 
 	const ref: PRReference = {

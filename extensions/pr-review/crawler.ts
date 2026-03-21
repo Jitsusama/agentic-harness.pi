@@ -33,8 +33,6 @@ const DEFAULT_MAX_DEPTH = 5;
 /** Maximum characters to scan for link extraction per body. */
 const MAX_BODY_SCAN = 10000;
 
-// ---- GraphQL ----
-
 const ISSUE_DEEP_QUERY = `
 query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -64,8 +62,6 @@ query($owner: String!, $repo: String!, $number: Int!) {
     }
   }
 }`;
-
-// ---- Public API ----
 
 /** Crawl configuration. */
 export interface CrawlConfig {
@@ -97,7 +93,6 @@ export async function crawl(
 	const relatedPRs: RelatedPR[] = [];
 	let hitDepthLimit = false;
 
-	// ---- Level 0: PR itself ----
 	onProgress?.(0, "Fetching PR metadata & issues");
 	config.visited.add(`pr:${ref.owner}/${ref.repo}#${ref.number}`);
 
@@ -114,14 +109,13 @@ export async function crawl(
 		config.visited.add(`issue:${ref.owner}/${ref.repo}#${issue.number}`);
 	}
 
-	// Extract references from PR body and comments
+	// We extract references from the PR body and comments.
 	const prBodyRefs = extractReferences(pr.body, ref, "PR body", 0);
 	const prCommentRefs = prComments.flatMap((c) =>
 		extractReferences(c.body, ref, `PR comment by @${c.author}`, 0),
 	);
 	addNewReferences(references, [...prBodyRefs, ...prCommentRefs], config);
 
-	// ---- Level 1: Linked issues ----
 	onProgress?.(1, "Crawling linked issues");
 
 	const siblingPRs = await fetchSiblingPRs(pi, ref, linkedIssues);
@@ -142,7 +136,6 @@ export async function crawl(
 		await crawlIssueDeeply(pi, ref, issue, config, references, issues, 1);
 	}
 
-	// ---- Levels 2–maxDepth: Follow discovered references ----
 	for (let depth = 2; depth <= config.maxDepth; depth++) {
 		const pendingRefs = references.filter(
 			(r) =>
@@ -177,16 +170,14 @@ export async function crawl(
 					depth,
 				);
 			}
-			// PR references at depth 2+: just record them, don't deep-crawl
+			// PR references at depth 2+ are just recorded without deep-crawling.
 			config.visited.add(refKey(pendingRef));
 		}
 	}
 
-	// ---- Enrich references with titles ----
 	enrichReferences(references, issues, relatedPRs);
 	await fetchMissingTitles(pi, ref, references);
 
-	// ---- Source file discovery ----
 	onProgress?.(config.maxDepth, "Discovering source files");
 	const sourceFiles = await discoverSourceFiles(pi, ref, diffFiles, repoPath);
 
@@ -203,8 +194,6 @@ export async function crawl(
 		hitDepthLimit,
 	};
 }
-
-// ---- Deep issue crawling ----
 
 /**
  * Crawl a linked issue deeply: fetch parent/sub-issues and
@@ -286,7 +275,7 @@ async function crawlIssueDeeply(
 			});
 		}
 
-		// Extract references from issue body and comments
+		// We extract references from the issue body and comments.
 		const bodyRefs = extractReferences(
 			data.body,
 			ref,
@@ -320,12 +309,12 @@ async function crawlIssueReference(
 		const data = await fetchDeepIssue(pi, parsed, parsed.number);
 		if (!data) return;
 
-		// Update the reference with real title
+		// We update the reference with its real title.
 		pendingRef.title = `#${data.number}: ${data.title}`;
 		pendingRef.description =
 			data.body.slice(0, 200) + (data.body.length > 200 ? "…" : "");
 
-		// Extract references from body
+		// We extract references from the body.
 		const bodyRefs = extractReferences(
 			data.body,
 			parsed,
@@ -337,8 +326,6 @@ async function crawlIssueReference(
 		/* Reference fetch failed: not fatal */
 	}
 }
-
-// ---- Link extraction ----
 
 /** GitHub reference patterns in markdown text. */
 const HASH_REF_PATTERN = /(?:^|[^/\w])(?:(\w[\w.-]*\/\w[\w.-]*))?#(\d+)/g;
@@ -415,7 +402,7 @@ function extractReferences(
 		if (seen.has(url)) continue;
 		seen.add(url);
 
-		// Skip GitHub URLs already captured above
+		// We skip GitHub URLs that were already captured above.
 		if (GITHUB_URL_PATTERN.test(url)) continue;
 
 		refs.push({
@@ -497,7 +484,7 @@ async function fetchMissingTitles(
 	);
 	if (bareRefs.length === 0) return;
 
-	// Batch fetch: limit to 10 to avoid excessive API calls
+	// Cap at 10 to keep the API calls reasonable
 	for (const ref of bareRefs.slice(0, 10)) {
 		const num = extractRefNumber(ref.url);
 		if (num === null) continue;
@@ -592,8 +579,6 @@ function truncateUrl(url: string): string {
 	return `${url.slice(0, maxLen)}…`;
 }
 
-// ---- Source file discovery ----
-
 /**
  * Discover key source files the PR interacts with.
  *
@@ -617,8 +602,6 @@ async function discoverSourceFiles(
 		url: `${baseUrl}/${file.path}`,
 	}));
 }
-
-// ---- Issue fetching ----
 
 /** Fetch a deep issue via GraphQL. */
 async function fetchDeepIssue(

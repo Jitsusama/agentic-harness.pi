@@ -1,6 +1,7 @@
 /**
- * Shared state helpers for extensions that persist and restore
- * state across sessions, and inject/filter context messages.
+ * Shared helpers for extensions that need to persist state
+ * across sessions, restore it on startup, and manage context
+ * message injection and filtering.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";

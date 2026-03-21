@@ -29,7 +29,7 @@ const ATTRIBUTION_PATTERN = /co-authored-by[:\s]+ai/i;
  * (e.g. "claude-opus-4-6" → "Claude Opus 4.6").
  */
 function formatModelName(modelId: string): string {
-	// Strip trailing date suffix (8+ digits, optionally preceded by hyphen)
+	// We strip the trailing date suffix (8+ digits, optionally preceded by a hyphen).
 	const stripped = modelId.replace(/-?\d{8,}$/, "");
 	const parts = stripped.split("-");
 
@@ -40,7 +40,7 @@ function formatModelName(modelId: string): string {
 			result.length > 0 && /^\d/.test(result[result.length - 1]);
 
 		if (isDigit && prevIsDigit) {
-			// Join consecutive digit segments with a dot (version number)
+			// We join consecutive digit segments with a dot to form a version number.
 			result[result.length - 1] += `.${part}`;
 		} else {
 			result.push(part.charAt(0).toUpperCase() + part.slice(1));
@@ -60,8 +60,8 @@ function commitTrailer(modelId: string | null): string {
 /** Build the markdown footer for PRs and issues. */
 function ghFooter(modelId: string | null): string {
 	const modelPart = modelId ? ` (${formatModelName(modelId)})` : "";
-	// Double newline before --- prevents GitHub from treating
-	// the preceding paragraph as a setext h2 heading.
+	// We need the double newline before --- so GitHub doesn't
+	// treat the preceding paragraph as a setext h2 heading.
 	return `\n\n---\n*Co-Authored-By AI${modelPart} via [Pi](https://github.com/badlogic/pi-mono)*`;
 }
 
@@ -82,8 +82,8 @@ export function injectCommitAttribution(
 	const { prefix, commitPart } = splitAtCommit(command);
 	const flags = extractFlags(commitPart);
 
-	// Git trailers need a blank line before them if the message
-	// doesn't already end with one
+	// Git trailers need a blank line before them, so we add one
+	// if the message doesn't already end with a newline.
 	const separator = message.endsWith("\n") ? "\n" : "\n\n";
 	const attributed = `${message}${separator}${commitTrailer(modelId)}`;
 

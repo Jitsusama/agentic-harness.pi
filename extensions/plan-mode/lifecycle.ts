@@ -1,6 +1,7 @@
 /**
- * Plan mode lifecycle: activate, deactivate, toggle, persist,
- * and restore.
+ * Manages the full lifecycle of plan mode: turning it on and
+ * off, toggling between states, and persisting settings across
+ * sessions so nothing gets lost.
  */
 
 import * as fs from "node:fs";

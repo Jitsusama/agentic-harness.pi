@@ -1,6 +1,6 @@
 /**
- * Type-safe parameter extraction helpers.
- * Eliminates unsafe type casts by using proper type guards.
+ * Type-safe parameter extraction helpers that use proper type
+ * guards instead of unsafe casts.
  */
 
 import type { ActionParams } from "./router.js";
@@ -47,7 +47,7 @@ export function getStringArrayParam(
 ): string[] | undefined {
 	const value = params[key];
 	if (!Array.isArray(value)) return undefined;
-	// Validate all elements are strings
+	// We validate that all elements are strings.
 	return value.every((v) => typeof v === "string")
 		? (value as string[])
 		: undefined;

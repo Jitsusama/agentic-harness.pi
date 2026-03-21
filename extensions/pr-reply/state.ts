@@ -1,5 +1,6 @@
 /**
- * PR Reply state: shape, defaults, thread lifecycle.
+ * Defines the runtime state shape for PR reply mode, including
+ * thread lifecycle states and their transitions.
  */
 
 /** Review thread workflow states. */

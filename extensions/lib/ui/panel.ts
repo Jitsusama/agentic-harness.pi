@@ -38,8 +38,6 @@ import {
 // Re-export layout helpers for backward compatibility
 export { buildHintBar, computeChromeLines } from "./panel-layout.js";
 
-// ---- prompt ----
-
 /**
  * Show a single interactive prompt. Returns the user's decision
  * or null on cancel (Escape).
@@ -71,8 +69,6 @@ export async function prompt(
 	return showSinglePrompt(ctx, config);
 }
 
-// ---- workspace ----
-
 /**
  * Show a workspace prompt: stateful tabbed interaction where
  * tabs are workspaces with per-view actions and input handlers.
@@ -85,8 +81,6 @@ export async function workspace(
 	if (!ctx.hasUI) return null;
 	return showWorkspacePrompt(ctx, config);
 }
-
-// ---- view ----
 
 /**
  * Show read-only content. Returns when dismissed (Escape).
@@ -177,7 +171,7 @@ export async function view(
 			);
 			for (const line of scrolled) add(line);
 
-			// Pad to budget only when scrolling (keeps height stable during scroll)
+			// We pad to budget only when scrolling to keep height stable.
 			if (needsVScroll) {
 				while (lines.length < budget + (config.title ? 3 : 1)) {
 					lines.push("");

@@ -19,8 +19,8 @@ description: >
 
 Every review comment follows this structure. The label
 classifies the intent, decorations indicate severity, the
-subject is a one-line summary and the discussion explains
-reasoning.
+subject is a one-line summary and the discussion is where
+you explain your reasoning.
 
 ## Labels
 
@@ -66,9 +66,10 @@ nitpick (non-blocking): Prefer const over let here...
 
 ### Canadian-Polite and Instructional
 
-The tone should be warm, instructional and teaching-oriented.
-Not just "what's wrong" but "what I think and why." Explain
-reasoning, suggest alternatives, teach.
+The tone should be warm, instructional and
+teaching-oriented. Not just "what's wrong" but "what I
+think and why." Explain your reasoning, suggest
+alternatives and teach.
 
 ### Good Examples
 
@@ -133,15 +134,15 @@ Cite concrete evidence in your comments:
 ## Formatting in `add-comment`
 
 When calling `pr_review` with `add-comment`, map the
-conventional comment format to the structured fields:
+conventional comment format to the tool's structured fields:
 
 - `label`: the conventional comment label.
 - `decorations`: array of decorations, e.g. `["non-blocking"]`.
 - `subject`: the subject line after the colon.
 - `discussion`: the body paragraphs explaining reasoning.
 
-The extension formats these into the conventional comment
-syntax when posting to GitHub.
+The extension takes care of formatting these into the
+conventional comment syntax when posting to GitHub.
 
 ## What Not to Do
 

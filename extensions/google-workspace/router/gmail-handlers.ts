@@ -118,7 +118,7 @@ export async function handleSendEmail(
 		};
 	}
 
-	// Confirm and potentially edit before sending
+	// We confirm and potentially let the user edit before sending.
 	const confirmResult = await confirmSendEmail(
 		ctx,
 		{ to, cc, bcc, subject, body },
@@ -215,7 +215,7 @@ export async function handleDeleteEmail(
 		};
 	}
 
-	// Confirm before deleting
+	// We confirm before deleting.
 	const confirmResult = await confirmDeleteEmail(ctx, id);
 	if (!confirmResult) {
 		return {

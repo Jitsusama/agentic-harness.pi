@@ -1,6 +1,6 @@
 /**
- * Plan context loading: find and read plan files relevant
- * to the current PR, using the same plan directory as plan-mode.
+ * Finds and reads plan files that are relevant to the current
+ * PR, using the same plan directory that plan-mode uses.
  */
 
 import * as fs from "node:fs";
@@ -73,9 +73,9 @@ function findFilesMatching(dir: string, keyword: string): string[] {
 			const fullPath = path.join(currentDir, entry.name);
 
 			if (entry.isDirectory()) {
-				// Recurse into subdirectories
+				// We recurse into subdirectories.
 				if (entry.name.toLowerCase().includes(lowerKeyword)) {
-					// Directory name matches: include all files in it
+					// The directory name matches, so we include all files in it.
 					collectAllFiles(fullPath, results);
 				} else {
 					walk(fullPath);

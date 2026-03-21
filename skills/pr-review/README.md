@@ -1,10 +1,11 @@
 # PR Review Skill
 
 Teaches the agent the PR review workflow: how to gather context,
-analyze code, collect review comments and post structured reviews.
+analyze code, collect review comments and post structured
+reviews.
 
-Activates when the user asks to review someone else's PR, do a
-code review or provide PR feedback.
+Activates when you ask to review someone else's PR, do a code
+review or provide PR feedback.
 
 Pairs with the [pr-review extension](../../extensions/pr-review/)
 which provides the `pr_review` tool, the

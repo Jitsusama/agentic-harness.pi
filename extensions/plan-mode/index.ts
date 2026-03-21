@@ -29,15 +29,11 @@ import {
 export default function planMode(pi: ExtensionAPI) {
 	const state = createPlanState();
 
-	// ---- Flag ----
-
 	pi.registerFlag("plan", {
 		description: "Start in plan mode (read-only investigation)",
 		type: "boolean",
 		default: false,
 	});
-
-	// ---- Tool ----
 
 	pi.registerTool({
 		name: "plan_mode",
@@ -84,8 +80,6 @@ export default function planMode(pi: ExtensionAPI) {
 			};
 		},
 	});
-
-	// ---- Interview tool ----
 
 	const PlanQuestionSchema = Type.Object({
 		id: Type.String({ description: "Unique identifier for this question" }),
@@ -220,8 +214,6 @@ export default function planMode(pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- Commands ----
-
 	pi.registerCommand("plan", {
 		description: "Toggle plan mode (read-only investigation)",
 		handler: async (_args, ctx) => toggle(state, pi, ctx),
@@ -243,14 +235,10 @@ export default function planMode(pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- Keyboard shortcut ----
-
 	pi.registerShortcut(Key.ctrlAlt("p"), {
 		description: "Toggle plan mode",
 		handler: async (ctx) => toggle(state, pi, ctx),
 	});
-
-	// ---- Enforcement ----
 
 	pi.on(
 		"tool_call",
@@ -264,8 +252,6 @@ export default function planMode(pi: ExtensionAPI) {
 		},
 	);
 
-	// ---- Transitions ----
-
 	pi.on("agent_end", async (_event, ctx) => {
 		await handlePlanWritten(state, pi, ctx);
 	});
@@ -275,8 +261,6 @@ export default function planMode(pi: ExtensionAPI) {
 	});
 
 	pi.on("context", planContextFilter(state));
-
-	// ---- Restore ----
 
 	pi.on("session_start", async (_event, ctx) => {
 		restore(state, pi, ctx);

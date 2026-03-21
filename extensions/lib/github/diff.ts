@@ -9,8 +9,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { PRReference } from "../parse/pr-reference.js";
 
-// ---- Types ----
-
 /** A parsed diff file with hunks. */
 export interface DiffFile {
 	path: string;
@@ -37,8 +35,6 @@ export interface DiffLine {
 	oldLineNumber: number | null;
 	newLineNumber: number | null;
 }
-
-// ---- Public API ----
 
 /** Fetch the unified diff for a PR via gh CLI. */
 export async function fetchDiff(

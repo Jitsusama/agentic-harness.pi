@@ -1,5 +1,6 @@
 /**
- * Thread formatting for UI display and LLM context.
+ * Formats review threads for both UI display (panels and
+ * workspace) and LLM context (briefings and analysis).
  */
 
 import type { Thread } from "../state.js";

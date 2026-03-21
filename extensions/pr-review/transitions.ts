@@ -1,9 +1,7 @@
 /**
- * PR Review transitions: context injection and stale context
- * filtering. Provides the agent with awareness of the current
- * PR review session when active.
- *
- * Stubbed: populated in M14 (lifecycle).
+ * Handles PR review transitions: injects context into the
+ * system prompt so the agent knows about the active review
+ * session, and filters out stale context messages.
  */
 
 import { filterContext } from "../lib/state.js";
