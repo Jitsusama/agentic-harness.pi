@@ -244,6 +244,7 @@ export async function handleActivate(
 	deps: HandlerDeps,
 	ctx: ExtensionContext,
 	prInput: string | null,
+	userRequest: string | null = null,
 ) {
 	const { state, pi } = deps;
 
@@ -263,13 +264,20 @@ export async function handleActivate(
 	}
 
 	// Resolve repo on disk
-	const repoResult = await resolveRepo(pi, ref.owner, ref.repo, ref.number);
+	const repoResult = await resolveRepo(
+		pi,
+		ref.owner,
+		ref.repo,
+		ref.number,
+		userRequest,
+	);
 
 	if (repoResult.status === "switched") {
 		return textResult(
-			`PR #${ref.number} belongs to ${ref.owner}/${ref.repo}. ` +
-				`Opened a new tab at ${repoResult.repoPath}. ` +
-				"Continue the review there.",
+			`PR #${ref.number} belongs to ${ref.owner}/${ref.repo}, which is a different repository. ` +
+				`A new terminal tab has been opened at ${repoResult.repoPath} with a pi session ` +
+				"handling the review. Do NOT call pr_review again in this session — " +
+				"the new tab has all the context it needs. This task is complete.",
 		);
 	}
 

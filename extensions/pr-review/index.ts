@@ -81,6 +81,7 @@ export default function prReview(pi: ExtensionAPI) {
 			"Call 'review' to show the Phase 2 review panel with file tabs.",
 			"Use 'add-comment', 'update-comment', 'remove-comment' for comment management.",
 			"Call 'submit' to show the final review summary, then 'post' to submit.",
+			"When calling 'activate', include the user's original request in user_request so cross-repo handoffs preserve context.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(ACTIONS, {
@@ -95,6 +96,14 @@ export default function prReview(pi: ExtensionAPI) {
 				Type.String({
 					description:
 						"PR reference (URL, #number, owner/repo#number). Only used with 'activate'.",
+				}),
+			),
+			user_request: Type.Optional(
+				Type.String({
+					description:
+						"The user's original request text. Included in the prompt when " +
+						"the review is handed off to a new terminal tab for a cross-repo PR. " +
+						"Only used with 'activate'.",
 				}),
 			),
 			synopsis: Type.Optional(
@@ -225,7 +234,12 @@ export default function prReview(pi: ExtensionAPI) {
 
 			switch (params.action) {
 				case "activate":
-					return handleActivate(deps, ctx, params.pr ?? null);
+					return handleActivate(
+						deps,
+						ctx,
+						params.pr ?? null,
+						(params.user_request as string) ?? null,
+					);
 				case "generate-comments":
 					return handleGenerateComments(
 						deps,

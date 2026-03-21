@@ -90,12 +90,15 @@ export type SwitchResult =
 /**
  * Ensure we're in the correct repository for the PR.
  *
- * Returns a structured result so the caller can give the LLM
- * a clear message about what happened.
+ * When a user request is provided, it becomes the new tab's
+ * initial prompt so the agent there can replicate the user's
+ * intent. Returns a structured result so the caller can give
+ * the LLM a clear message about what happened.
  */
 export async function switchToRepo(
 	pi: ExtensionAPI,
 	ref: PRReference,
+	userRequest: string | null = null,
 ): Promise<SwitchResult> {
 	const current = await getCurrentRepo(pi);
 	if (current?.owner === ref.owner && current?.repo === ref.repo) {
@@ -107,7 +110,9 @@ export async function switchToRepo(
 		return { status: "not-found" };
 	}
 
-	const prompt = `respond to reviews on ${ref.owner}/${ref.repo}#${ref.number}`;
+	const prompt =
+		userRequest ??
+		`respond to reviews on ${ref.owner}/${ref.repo}#${ref.number}`;
 	const opened = await openInNewTab(pi, repoPath, prompt);
 	if (opened) {
 		return { status: "opened-tab", repoPath };
