@@ -1,5 +1,5 @@
 /**
- * Repository resolution for PR review — wraps the shared
+ * Repository resolution for PR review: wraps the shared
  * repo-discovery primitives with pr-review-specific logic
  * for resolving where a PR should be reviewed.
  */

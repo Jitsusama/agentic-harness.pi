@@ -1,5 +1,5 @@
 /**
- * Thread analysis — build structured context for the LLM
+ * Thread analysis: build structured context for the LLM
  * to evaluate each review thread.
  *
  * The LLM receives this context as part of the 'next' action

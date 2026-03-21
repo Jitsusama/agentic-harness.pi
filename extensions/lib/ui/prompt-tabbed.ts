@@ -1,6 +1,6 @@
 /**
- * Tabbed prompt — a multi-item panel with tab navigation,
- * per-item views, per-item results, and optional user-added
+ * Tabbed prompt: a multi-item panel with tab navigation,
+ * per-item views, per-item results and optional user-added
  * items. Returns all decisions or null on cancel.
  *
  * Each item has one or more views (content modes). Items with
@@ -258,7 +258,7 @@ export async function showTabbedPrompt(
 				return;
 			}
 
-			// View switching — check before actions to avoid key conflicts
+			// View switching: check before actions to avoid key conflicts
 			const views = currentViews();
 			if (views.length > 1) {
 				for (let i = 0; i < views.length; i++) {
@@ -451,7 +451,7 @@ export async function showTabbedPrompt(
 			});
 		}
 
-		/** User tab content — static. */
+		/** User tab content: static. */
 		const userTabContent: ContentFn = () => {
 			if (userItems.length === 0) return [];
 			return ["  Your additions:"];
@@ -545,7 +545,7 @@ export async function showTabbedPrompt(
 					});
 				}
 			} else {
-				// Item view content — may be async
+				// Item view content: may be async
 				const cached = contentCache.get(key);
 				if (!cached || cached.width !== width) {
 					ensureViewContent(currentTab, viewIdx, width);

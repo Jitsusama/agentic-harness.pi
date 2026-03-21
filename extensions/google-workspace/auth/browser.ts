@@ -18,12 +18,12 @@ export function openInBrowser(url: string): void {
 	}
 }
 
-/** Silently ignore errors — the URL is also displayed as a fallback. */
+/** Silently ignore errors: the URL is also displayed as a fallback. */
 function ignoreErrors(error: Error | null) {
 	// Browser launch is best-effort. If it fails (e.g. headless
 	// server, missing xdg-open), the user can still copy the URL
 	// shown in the terminal.
 	if (error) {
-		// Intentionally ignored — URL is displayed as fallback
+		// Intentionally ignored: URL is displayed as fallback
 	}
 }

@@ -5,7 +5,7 @@ enforcement.
 
 The [TDD workflow skill](../../skills/tdd-workflow/) teaches the
 methodology and tells the agent when to signal phase transitions.
-This extension tracks the state, displays it, and blocks
+This extension tracks the state, displays it and blocks
 phase-inappropriate file writes with hints back to the LLM.
 
 ## How It Works
@@ -49,6 +49,6 @@ TDD mode can also be toggled manually:
 
 ## Status Display
 
-When active, the status line shows a phase-colored `●` with dim `TDD` label.
+When active, the status line shows a phase-coloured `●` with dim `TDD` label.
 The current test description appears right-justified above
 the editor.

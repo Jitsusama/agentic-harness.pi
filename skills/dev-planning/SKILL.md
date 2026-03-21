@@ -3,7 +3,7 @@ name: dev-planning
 description: >
   Development work planning methodology. How to structure plans for
   code implementation without writing the implementation itself.
-  Focus on context, interfaces, data flow, and behaviors. Use during
+  Focus on context, interfaces, data flow and behaviours. Use during
   plan_mode when code work is involved.
 ---
 

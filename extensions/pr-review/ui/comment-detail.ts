@@ -1,5 +1,5 @@
 /**
- * Comment detail view — expanded single-comment display.
+ * Comment detail view: expanded single-comment display.
  *
  * Read-only view showing the full comment with file path,
  * line range, label, decorations, subject, and discussion.

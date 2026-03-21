@@ -1,7 +1,7 @@
 ---
 name: git-cli-conventions
 description: >
-  Git command formatting. Heredoc syntax, shell quoting, and
+  Git command formatting. Heredoc syntax, shell quoting and
   commit command patterns. Use when formatting git commands
   or writing heredocs.
 ---
@@ -22,16 +22,16 @@ EOF
 ```
 
 The single-quoted `'EOF'` delimiter prevents shell variable
-expansion — backticks, dollar signs, and special characters
+expansion; backticks, dollar signs and special characters
 all pass through literally.
 
 ## Why Heredoc Over -m
 
 The `-m` flag has limitations:
 
-- Multi-line messages require multiple `-m` flags
-- Special characters need escaping
-- Quoting gets fragile with nested quotes
+- Multi-line messages require multiple `-m` flags.
+- Special characters need escaping.
+- Quoting gets fragile with nested quotes.
 
 Heredoc avoids all of these. Always prefer `-F-` with heredoc
 for commits with a body.

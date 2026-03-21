@@ -1,5 +1,5 @@
 /**
- * Progress panel — live-updating view for parallel async tasks.
+ * Progress panel: live-updating view for parallel async tasks.
  *
  * Shows a bordered panel with one line per task. Each task
  * updates independently as its promise resolves, triggering

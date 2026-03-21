@@ -6,8 +6,8 @@ and validate what actually happens.
 
 Extensions fall into four categories:
 
-- **Guardians** intercept and gate actions before execution —
-  approve, edit, steer, or reject.
+- **Guardians** intercept and gate actions before execution:
+  approve, edit, steer or reject.
 - **Modes** enforce stateful workflows, toggled on/off.
 - **Tools** register new agent capabilities.
 - **UI** components display information.

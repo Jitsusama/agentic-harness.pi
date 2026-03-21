@@ -116,7 +116,7 @@ export async function showContent(
 
 	await view(ctx, {
 		title,
-		// Pass a caching wrapper — pre-render is width-dependent,
+		// Pass a caching wrapper: pre-render is width-dependent,
 		// so we cache by width and let the panel cache mechanism
 		// avoid re-calling on scroll/input.
 		content: renderFn,

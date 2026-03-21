@@ -11,18 +11,18 @@ description: >
 
 ## Test Evaluation
 
-### Behavior vs Implementation
+### Behaviour vs Implementation
 
 Tests should verify **what the code does**, not **how it
 does it**. Red flags:
 
-- Asserting on internal state or private methods
-- Mocking every dependency instead of testing integration
+- Asserting on internal state or private methods.
+- Mocking every dependency instead of testing integration.
 - Tests that break when implementation changes without
-  behavior change
-- Test names that describe implementation steps
+  behaviour change.
+- Test names that describe implementation steps.
 
-Good tests describe a behavior: "returns error when input
+Good tests describe a behaviour: "returns error when input
 is empty", "retries on transient failure", "caches result
 for subsequent calls."
 
@@ -31,14 +31,14 @@ for subsequent calls."
 Tests should follow the project's existing test patterns.
 Look for:
 
-- Consistent test framework usage (describe/it, test, etc.)
-- Shared setup patterns (fixtures, factories, beforeEach)
-- Assertion style consistency
-- Naming conventions for test files and descriptions
+- Consistent test framework usage (describe/it, test, etc.).
+- Shared setup patterns (fixtures, factories, beforeEach).
+- Assertion style consistency.
+- Naming conventions for test files and descriptions.
 
 ### Structure
 
-- Is each test focused on one behavior?
+- Is each test focused on one behaviour?
 - Are test descriptions readable as documentation?
 - Is setup proportional to what's being tested?
 - Are edge cases covered (null, empty, boundary values)?
@@ -107,11 +107,11 @@ rg "export function" path/to/similar/module.ts
 ### Convention Compliance
 
 Check project-specific conventions:
-- File naming and organization
-- Export patterns (default vs named)
-- Error handling patterns
-- Logging and observability patterns
-- Configuration patterns
+- File naming and organization.
+- Export patterns (default vs named).
+- Error handling patterns.
+- Logging and observability patterns.
+- Configuration patterns.
 
 ## Scope Evaluation
 
@@ -126,11 +126,11 @@ Check project-specific conventions:
 
 Large PRs are harder to review well. Guidelines:
 
-- Under 200 lines: easy to review thoroughly
-- 200–500 lines: needs careful attention
-- Over 500 lines: consider whether it should be split
+- Under 200 lines: easy to review thoroughly.
+- 200–500 lines: needs careful attention.
+- Over 500 lines: consider whether it should be split.
 
-Size alone doesn't determine quality — a 400-line PR adding
+Size alone doesn't determine quality; a 400-line PR adding
 a new feature with tests may be appropriate, while a 100-line
 PR touching 15 files may be too scattered.
 
@@ -155,17 +155,17 @@ The description should answer for future readers:
 
 Not all feedback is equally important. Prioritize:
 
-1. **Correctness** — does it work? Are there bugs?
-2. **Security** — are there vulnerabilities?
-3. **Architecture** — does the design make sense?
-4. **Testing** — is behavior adequately tested?
-5. **Readability** — can others understand this?
-6. **Style** — minor preferences (lowest priority)
+1. **Correctness**: does it work? Are there bugs?
+2. **Security**: are there vulnerabilities?
+3. **Architecture**: does the design make sense?
+4. **Testing**: is behaviour adequately tested?
+5. **Readability**: can others understand this?
+6. **Style**: minor preferences (lowest priority).
 
 ## What Not to Do
 
-- Don't review for style when the project has a linter
-- Don't request changes for personal preference
-- Don't leave vague feedback ("this feels wrong")
-- Don't ignore the why and only critique the what
-- Don't forget to praise things done well
+- Don't review for style when the project has a linter.
+- Don't request changes for personal preference.
+- Don't leave vague feedback ("this feels wrong").
+- Don't ignore the why and only critique the what.
+- Don't forget to praise things done well.

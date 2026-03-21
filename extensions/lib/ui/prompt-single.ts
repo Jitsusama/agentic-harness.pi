@@ -1,6 +1,6 @@
 /**
- * Single prompt — an interactive panel with content, optional
- * actions, and optional options. Returns the user's decision
+ * Single prompt: an interactive panel with content, optional
+ * actions and optional options. Returns the user's decision
  * or null on cancel.
  *
  * This is the non-tabbed variant. See prompt-tabbed.ts for
@@ -103,7 +103,7 @@ export async function showSinglePrompt(
 		}
 
 		function handleInput(data: string) {
-			// Drop release events — they duplicate press events under
+			// Drop release events: they duplicate press events under
 			// Kitty protocol flag 2 and would leak characters into
 			// the NoteEditor or double-fire actions.
 			if (isKeyRelease(data)) return;
@@ -218,7 +218,7 @@ export async function showSinglePrompt(
 			// Top border
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 
-			// Content (cached — only re-render on width change)
+			// Content (cached: only re-render on width change)
 			const chromeLines = computeChromeLines(false, actions, options);
 			const budget = contentBudget(chromeLines);
 			if (!cachedContent || width !== cachedWidth) {

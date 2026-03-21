@@ -1,5 +1,5 @@
 /**
- * Phase 2: Review panel — Desc + Scope + file tabs with three
+ * Phase 2: Review panel: Desc + Scope + file tabs with three
  * views per tab (overview/comments/raw).
  *
  * Uses the workspace prompt for stateful tabbed interaction.
@@ -167,7 +167,7 @@ export async function showReviewPanel(
 		};
 	}
 
-	// Handle 'h' action — mark current tab handled
+	// Handle 'h' action: mark current tab handled
 	// This is handled inline via handleInput, but if it reaches here
 	// it means the workspace returned an action result
 	if (result.type === "action" && result.value === "h") {
@@ -215,7 +215,7 @@ function buildDescTab(
 	};
 }
 
-/** Desc overview — PR title and description rendered as markdown. */
+/** Desc overview: PR title and description rendered as markdown. */
 function buildDescOverview(
 	context: CrawlResult,
 	session: ReviewSession,
@@ -250,7 +250,7 @@ function buildDescOverview(
 	};
 }
 
-/** Desc raw — raw markdown source. */
+/** Desc raw: raw markdown source. */
 function buildDescRaw(context: CrawlResult): WorkspaceView {
 	return {
 		key: "s",
@@ -307,7 +307,7 @@ function buildScopeTab(
 	};
 }
 
-/** Scope overview — AI-generated scope analysis. */
+/** Scope overview: AI-generated scope analysis. */
 function buildScopeOverview(session: ReviewSession): WorkspaceView {
 	return {
 		key: "o",
@@ -324,7 +324,7 @@ function buildScopeOverview(session: ReviewSession): WorkspaceView {
 	};
 }
 
-/** Scope raw — file list with per-file stats. */
+/** Scope raw: file list with per-file stats. */
 function buildScopeRaw(context: CrawlResult): WorkspaceView {
 	return {
 		key: "s",
@@ -377,7 +377,7 @@ function buildFileTab(
 	};
 }
 
-/** File overview — unified diff with comment indicators. */
+/** File overview: unified diff with comment indicators. */
 function buildFileOverview(
 	session: ReviewSession,
 	file: DiffFile,
@@ -419,7 +419,7 @@ function buildFileOverview(
 	};
 }
 
-/** File raw — full file content, syntax highlighted. */
+/** File raw: full file content, syntax highlighted. */
 function buildFileRaw(session: ReviewSession, file: DiffFile): WorkspaceView {
 	const filePath = `${session.repoPath}/${file.path}`;
 
@@ -598,7 +598,7 @@ function renderCommentList(
 
 // ---- Comment input handling ----
 
-/** Handle comment mode input — navigation and actions. */
+/** Handle comment mode input: navigation and actions. */
 function handleCommentInput(
 	data: string,
 	comments: ReviewComment[],
@@ -655,7 +655,7 @@ function handleCommentInput(
 		return true;
 	}
 
-	// Steer — stash comment context, then open editor
+	// Steer: stash comment context, then open editor
 	if (matchesKey(data, "s")) {
 		setSteerContext({ id: comment.id, subject: comment.subject });
 		inputCtx.openEditor(`Steer comment "${comment.subject}":`);
@@ -685,7 +685,7 @@ function advanceToNextPending(
 			return;
 		}
 	}
-	// No pending left — stay at current
+	// No pending left: stay at current
 }
 
 /** Check if a tab should be auto-handled. */

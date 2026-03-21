@@ -1,8 +1,8 @@
 /**
- * PR Review lifecycle — activate, deactivate, persist, restore,
+ * PR Review lifecycle: activate, deactivate, persist, restore,
  * and UI status display.
  *
- * Skeleton — full implementation in M14 (lifecycle).
+ * Skeleton: full implementation in M14 (lifecycle).
  */
 
 import type {

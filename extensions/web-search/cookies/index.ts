@@ -1,5 +1,5 @@
 /**
- * Cookie module — Chrome cookie extraction, key management,
+ * Cookie module: Chrome cookie extraction, key management,
  * and puppeteer injection.
  */
 

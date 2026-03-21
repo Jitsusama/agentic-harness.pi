@@ -1,5 +1,5 @@
 /**
- * LLM briefings — pure functions that build text summaries
+ * LLM briefings: pure functions that build text summaries
  * for the agent to reason about.
  *
  * Each function takes review/thread data and returns a string.
@@ -45,7 +45,7 @@ export function briefActivation(
 }
 
 /**
- * Batch analysis briefing — comprehensive thread context for
+ * Batch analysis briefing: comprehensive thread context for
  * the LLM to analyze all threads at once.
  */
 export function briefBatchAnalysis(state: PRReplyState): string {
@@ -69,7 +69,7 @@ export function briefBatchAnalysis(state: PRReplyState): string {
 				`#### Thread: ${thread.file}:${thread.line} (id: ${thread.id})`,
 			);
 			if (thread.isOutdated) {
-				parts.push("⚠️ **Outdated** — the code has changed since this comment.");
+				parts.push("⚠️ **Outdated**: the code has changed since this comment.");
 			}
 
 			for (const comment of thread.comments) {
@@ -88,16 +88,16 @@ export function briefBatchAnalysis(state: PRReplyState): string {
 	);
 	parts.push("");
 	parts.push(
-		"1. **`analyses`** — for each thread, a recommendation (implement/reply/skip/defer) " +
+		"1. **`analyses`**: for each thread, a recommendation (implement/reply/skip/defer) " +
 			"and analysis text explaining your reasoning",
 	);
 	parts.push(
-		"2. **`reviewer_analyses`** — for each reviewer, a brief character assessment " +
+		"2. **`reviewer_analyses`**: for each reviewer, a brief character assessment " +
 			"(thorough, nitpicky, collaborative, blocking, etc.)",
 	);
 	parts.push("");
 	parts.push(
-		"Be critical — don't just agree with every reviewer. Evaluate whether each " +
+		"Be critical: don't just agree with every reviewer. Evaluate whether each " +
 			"suggestion actually improves the code.",
 	);
 
@@ -140,11 +140,11 @@ export function briefReviewSummary(
 	for (const t of pendingThreads) {
 		const snippet = t.comments[0]?.body.slice(0, 60).replace(/\n/g, " ") ?? "";
 		const ellipsis = (t.comments[0]?.body.length ?? 0) > 60 ? "…" : "";
-		parts.push(`  • ${t.file}:${t.line} — ${snippet}${ellipsis}`);
+		parts.push(`  • ${t.file}:${t.line}: ${snippet}${ellipsis}`);
 	}
 	parts.push("");
 	parts.push(
-		"Analyze the character of this review — is it thorough, nitpicky, " +
+		"Analyze the character of this review: is it thorough, nitpicky, " +
 			"collaborative, blocking? Then call pr_reply with action 'review' " +
 			"and your analysis as the 'analysis' parameter.",
 	);
@@ -159,7 +159,7 @@ export function briefThread(
 ): string {
 	return (
 		`${progressLine}\n\n${analysisContext}\n\n` +
-		"Analyze this thread critically. Don't just agree with the reviewer — evaluate " +
+		"Analyze this thread critically. Don't just agree with the reviewer: evaluate " +
 		"whether their suggestion actually improves the code. If the user already " +
 		"addressed the feedback or pushed back with good reasoning, say so. " +
 		"Then call pr_reply with action 'show' and your recommendation " +
@@ -183,7 +183,7 @@ export function briefCompletion(state: PRReplyState): string {
 	);
 }
 
-/** Thread choice result — user steered with feedback. */
+/** Thread choice result: user steered with feedback. */
 export function briefSteer(
 	file: string,
 	contextLine: number,
@@ -200,7 +200,7 @@ export function briefSteer(
 	);
 }
 
-/** Thread choice result — user chose to reply. */
+/** Thread choice result: user chose to reply. */
 export function briefReplyChoice(
 	file: string,
 	contextLine: number,
@@ -214,7 +214,7 @@ export function briefReplyChoice(
 	);
 }
 
-/** Thread choice result — user chose to implement. */
+/** Thread choice result: user chose to implement. */
 export function briefImplementChoice(
 	file: string,
 	contextLine: number,
@@ -240,7 +240,7 @@ export function briefDeferred(deferredCount: number): string {
 }
 
 /**
- * Re-analysis prompt — tells the LLM to re-evaluate all pending
+ * Re-analysis prompt: tells the LLM to re-evaluate all pending
  * threads after a state change (implementation, reply, skip).
  */
 export function briefReAnalyze(state: PRReplyState): string {
@@ -255,13 +255,13 @@ export function briefReAnalyze(state: PRReplyState): string {
 	const parts: string[] = [];
 	parts.push(
 		`${pending.length} thread${pending.length !== 1 ? "s" : ""} still pending. ` +
-			"Code has changed — re-analyze all pending threads with fresh context.",
+			"Code has changed: re-analyze all pending threads with fresh context.",
 	);
 	parts.push("");
 	parts.push("Pending threads:");
 	for (const t of pending) {
 		const snippet = t.comments[0]?.body.slice(0, 50).replace(/\n/g, " ") ?? "";
-		parts.push(`  • ${t.id} — ${t.file}:${t.line} — ${snippet}`);
+		parts.push(`  • ${t.id}: ${t.file}:${t.line}: ${snippet}`);
 	}
 	parts.push("");
 	parts.push(

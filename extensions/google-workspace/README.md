@@ -1,6 +1,6 @@
 # Google Workspace Extension
 
-AI-friendly access to Gmail, Calendar, Drive, Docs, Sheets, and Slides through a single `google` tool.
+AI-friendly access to Gmail, Calendar, Drive, Docs, Sheets and Slides through a single `google` tool.
 
 ## Features
 

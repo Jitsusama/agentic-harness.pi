@@ -1,5 +1,5 @@
 /**
- * Plan interview — tabbed prompt for answering planning
+ * Plan interview: tabbed prompt for answering planning
  * questions. Each question is a tab with answer/skip actions.
  * Users can add their own questions via '+' hotkey.
  */
@@ -77,7 +77,7 @@ export async function showPlanInterview(
 	}
 
 	if (questions.length === 0) {
-		// No questions — just offer to add custom ones
+		// No questions: just offer to add custom ones
 		const result = await prompt(ctx, {
 			content: (theme) => [
 				theme.fg("muted", " No questions to answer."),

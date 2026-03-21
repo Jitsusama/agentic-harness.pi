@@ -1,5 +1,5 @@
 /**
- * Issue guardian — detects gh issue create/edit commands, parses
+ * Issue guardian: detects gh issue create/edit commands, parses
  * title and body, and presents them for review with markdown
  * rendering.
  */

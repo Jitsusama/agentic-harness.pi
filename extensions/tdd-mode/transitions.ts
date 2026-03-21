@@ -1,5 +1,5 @@
 /**
- * TDD mode transitions — confirmation gates, context injection,
+ * TDD mode transitions: confirmation gates, context injection,
  * and stale context filtering. Phase advancement is driven by
  * the agent calling the tdd_phase tool.
  */
@@ -123,7 +123,7 @@ export async function showTransitionGate(
 export function buildTddContext(state: TddState) {
 	if (!state.enabled) return;
 
-	const parts = [`[TDD — ${state.phase.toUpperCase()}]`];
+	const parts = [`[TDD: ${state.phase.toUpperCase()}]`];
 
 	if (state.testDescription) {
 		parts.push(`Testing: ${state.testDescription}`);

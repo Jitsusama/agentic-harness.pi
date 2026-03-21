@@ -1,10 +1,10 @@
 /**
- * GitHub API integration — fetch reviews and threads, post replies.
+ * GitHub API integration: fetch reviews and threads, post replies.
  *
  * Uses two separate queries:
- *   1. reviewThreads — thread-level data (isResolved, isOutdated,
+ *   1. reviewThreads: thread-level data (isResolved, isOutdated,
  *      line numbers) with nested comments
- *   2. reviews — review-level data (state, body, author)
+ *   2. reviews: review-level data (state, body, author)
  *
  * This approach gives us accurate resolved/outdated status that
  * isn't available when parsing threads from review comments alone.
@@ -323,6 +323,6 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 			thread.isResolved = match.isResolved;
 		}
 	} catch {
-		/* Refresh failed — use stale data rather than blocking */
+		/* Refresh failed: use stale data rather than blocking */
 	}
 }

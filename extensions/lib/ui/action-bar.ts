@@ -1,5 +1,5 @@
 /**
- * ActionBar — key-hint action bar with Shift+key steer annotations.
+ * ActionBar: key-hint action bar with Shift+key steer annotations.
  *
  * Shows actions with highlighted key shortcuts plus steer hint:
  *   [A]pprove  [R]eject                    ⇧+key to annotate
@@ -18,7 +18,7 @@ import type { Action } from "./types.js";
  * US keyboard mapping from shifted symbols to their base key.
  *
  * pi-tui's `parseKeyId` uses `+` as the modifier separator
- * (e.g. `"ctrl+c"`), so `matchesKey(data, "+")` always fails —
+ * (e.g. `"ctrl+c"`), so `matchesKey(data, "+")` always fails;
  * `"+".split("+")` yields an empty key. This map lets us express
  * `+` as `Key.shift("=")` instead, routing around the parser.
  */
@@ -50,13 +50,13 @@ const SHIFTED_SYMBOL_BASE: Record<string, string> = {
  * Match a key that may be a shifted symbol.
  *
  * pi-tui's `parseKeyId` splits on `+` as the modifier separator,
- * so `matchesKey(data, "+")` always returns false — the `+` char
+ * so `matchesKey(data, "+")` always returns false: the `+` char
  * parses to an empty key. This helper works around the limitation:
  *
  * 1. Try `matchesKey` directly (works for non-`+` keys).
- * 2. For shifted symbols, try `Key.shift(baseKey)` — catches
+ * 2. For shifted symbols, try `Key.shift(baseKey)`: catches
  *    Kitty CSI-u sequences where the terminal encodes Shift+=.
- * 3. Fall back to raw character comparison — catches legacy
+ * 3. Fall back to raw character comparison: catches legacy
  *    terminals that send the literal `+` byte.
  */
 export function matchesActionKey(data: string, key: string): boolean {
@@ -155,6 +155,6 @@ function formatKeyLabel(key: string, label: string, theme: Theme): string {
 		return `${before}[${theme.fg("accent", keyChar)}]${after}`;
 	}
 
-	// Key not found in label — prefix it
+	// Key not found in label: prefix it
 	return `[${theme.fg("accent", upperKey)}] ${label}`;
 }

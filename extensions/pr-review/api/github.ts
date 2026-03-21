@@ -1,9 +1,9 @@
 /**
- * GitHub API integration for PR review — fetch PR metadata,
+ * GitHub API integration for PR review: fetch PR metadata,
  * diff, linked issues, and related context.
  *
  * Uses GraphQL for structured data and gh CLI for diffs.
- * Response types are defined in types.ts — parsing functions
+ * Response types are defined in types.ts: parsing functions
  * receive typed data, no manual property navigation.
  */
 

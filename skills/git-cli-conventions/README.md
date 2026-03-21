@@ -1,7 +1,7 @@
 # Git CLI Conventions
 
-Command formatting patterns for git — heredoc syntax,
-shell quoting, and commit command construction.
+Command formatting patterns for git: heredoc syntax,
+shell quoting and commit command construction.
 
 Covers the *mechanics* of formatting git commands. The
 [git-commit-format](../git-commit-format/) skill covers

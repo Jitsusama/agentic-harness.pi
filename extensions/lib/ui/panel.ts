@@ -1,5 +1,5 @@
 /**
- * Panel — public entry points for the component library.
+ * Panel: public entry points for the component library.
  *
  * Two interaction patterns:
  *   - prompt(): interactive decisions (single or tabbed)
@@ -74,7 +74,7 @@ export async function prompt(
 // ---- workspace ----
 
 /**
- * Show a workspace prompt — stateful tabbed interaction where
+ * Show a workspace prompt: stateful tabbed interaction where
  * tabs are workspaces with per-view actions and input handlers.
  * Returns the workspace result or null on cancel (Escape).
  */

@@ -1,7 +1,7 @@
 # Planning Skill
 
-Teaches the agent a collaborative planning methodology — how to
-investigate a codebase, ask clarifying questions, and produce a
+Teaches the agent a collaborative planning methodology: how to
+investigate a codebase, ask clarifying questions and produce a
 structured implementation plan.
 
 Activates when designing or architecting before building.

@@ -1,5 +1,5 @@
 /**
- * Phase 1: Overview panel — Overview/References/Source tabs.
+ * Phase 1: Overview panel: Overview/References/Source tabs.
  *
  * Uses the workspace prompt for stateful tabbed interaction.
  * References and Source tabs have selectable lists with ↑↓
@@ -138,7 +138,7 @@ function buildOverviewTab(
 			// Depth limit warning
 			if (context.hitDepthLimit) {
 				lines.push(
-					` ${theme.fg("error", "⚠ Crawl depth limit reached — some references were not followed.")}`,
+					` ${theme.fg("error", "⚠ Crawl depth limit reached: some references were not followed.")}`,
 				);
 				lines.push("");
 			}
@@ -319,7 +319,7 @@ function buildSourceTab(
 
 /** Open a URL in the system browser. */
 function openUrl(ctx: ExtensionContext, url: string): void {
-	// macOS — per plan, not cross-platform
+	// macOS: per plan, not cross-platform
 	ctx.ui.notify(`Opening ${url}…`, "info");
 	import("node:child_process").then(({ exec }) => {
 		exec(`open ${JSON.stringify(url)}`);

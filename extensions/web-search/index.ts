@@ -23,11 +23,11 @@ export default function webSearch(pi: ExtensionAPI) {
 		name: "web_search",
 		label: "Web Search",
 		description:
-			"Search the web and return a list of results with titles, URLs, and snippets.",
+			"Search the web and return a list of results with titles, URLs and snippets.",
 		promptSnippet:
-			"Search the web for information. Returns titles, URLs, and snippets.",
+			"Search the web for information. Returns titles, URLs and snippets.",
 		promptGuidelines: [
-			"Use web_search to find current information, best practices, documentation, and API references.",
+			"Use web_search to find current information, best practices, documentation and API references.",
 			"After searching, use web_read to load promising results for full content.",
 			"Prefer specific, targeted queries over broad ones.",
 		],
@@ -119,7 +119,7 @@ export default function webSearch(pi: ExtensionAPI) {
 			"Fetch a URL and extract readable content (article text, docs, etc.).",
 		promptGuidelines: [
 			"Use web_read to get full content from URLs found via web_search.",
-			"Large pages are saved to a temp file — use the read tool with offset/limit or grep to explore specific sections rather than reading the entire file.",
+			"Large pages are saved to a temp file: use the read tool with offset/limit or grep to explore specific sections rather than reading the entire file.",
 		],
 		parameters: Type.Object({
 			url: Type.String({ description: "URL to fetch and read" }),

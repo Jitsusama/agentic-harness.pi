@@ -78,7 +78,7 @@ export function renderGoogleCall(
 					a.subject.length > availableWidth
 						? `${a.subject.slice(0, availableWidth - 3)}...`
 						: a.subject;
-				text += theme.fg("dim", ` — ${subjectPreview}`);
+				text += theme.fg("dim", `: ${subjectPreview}`);
 			}
 			break;
 

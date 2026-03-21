@@ -4,16 +4,16 @@
  * Mode for responding to GitHub PR review feedback. The LLM
  * drives the workflow by calling pr_reply with different actions:
  *
- *   activate   — load PR, show summary, enter mode
- *   next       — present the next pending thread
- *   review     — show review overview with analysis
- *   show       — present thread gate with recommendation
- *   implement  — mark current thread for implementation
- *   reply      — draft and post a reply to the current thread
- *   done       — mark implementation complete, link commits
- *   skip       — skip the current thread
- *   defer      — defer the current thread
- *   deactivate — exit PR reply mode
+ *   activate  : load PR, show summary, enter mode
+ *   next      : present the next pending thread
+ *   review    : show review overview with analysis
+ *   show      : present thread gate with recommendation
+ *   implement : mark current thread for implementation
+ *   reply     : draft and post a reply to the current thread
+ *   done      : mark implementation complete, link commits
+ *   skip      : skip the current thread
+ *   defer     : defer the current thread
+ *   deactivate: exit PR reply mode
  *
  * Handlers live in handlers.ts. This file is registration and
  * wiring only.
@@ -69,7 +69,7 @@ export default function prReply(pi: ExtensionAPI) {
 		name: "pr_reply",
 		label: "PR Reply",
 		description:
-			"Manage PR reply mode — respond to review feedback on a pull request. " +
+			"Manage PR reply mode: respond to review feedback on a pull request. " +
 			"Call with 'activate' to start, then 'generate-analysis' to pre-analyze all threads, " +
 			"then 'review' to show the workspace. " +
 			"After implementing changes, call 'done' to link commits and post a reply.",
@@ -232,7 +232,7 @@ export default function prReply(pi: ExtensionAPI) {
 				| undefined;
 			if (d?.openedTab) {
 				return new Text(
-					theme.fg("success", "↗ Opened new tab — this session is done"),
+					theme.fg("success", "↗ Opened new tab: this session is done"),
 					0,
 					0,
 				);

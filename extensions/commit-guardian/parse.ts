@@ -1,5 +1,5 @@
 /**
- * Commit command parsing — extract messages, flags, and
+ * Commit command parsing: extract messages, flags, and
  * prefixes from git commit commands in various formats.
  *
  * Uses splitAtCommand from lib/parse/command for prefix

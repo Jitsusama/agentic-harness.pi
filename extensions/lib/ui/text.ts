@@ -1,5 +1,5 @@
 /**
- * Text utilities — word wrapping and text formatting helpers
+ * Text utilities: word wrapping and text formatting helpers
  * for panel and content rendering.
  */
 

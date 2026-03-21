@@ -1,5 +1,5 @@
 /**
- * Reply utilities — prompt building for LLM-driven reply
+ * Reply utilities: prompt building for LLM-driven reply
  * composition. The LLM generates reply text as part of its
  * natural reasoning, guided by these prompt fragments.
  */

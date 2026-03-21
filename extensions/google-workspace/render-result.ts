@@ -240,7 +240,7 @@ function renderEventList(
 							minute: "2-digit",
 						})
 					: "";
-				return `  ${theme.fg("dim", `${time ? `${time} — ` : ""}${title}`)}`;
+				return `  ${theme.fg("dim", `${time ? `${time}: ` : ""}${title}`)}`;
 			})
 			.join("\n");
 		if (count > 3) {

@@ -1,5 +1,5 @@
 /**
- * Comment vetting flow — workspace prompt where each file is
+ * Comment vetting flow: workspace prompt where each file is
  * a tab with Overview (diff), Comments (selectable list), and
  * Source (full file) views. Mirrors pr-review's review panel.
  */
@@ -112,7 +112,7 @@ export async function vetComments(
 	if (result.type === "steer") {
 		// Steer could be feedback on a comment or a request for a new
 		// comment (from the '+' action). Either way, return it as steer
-		// feedback — the LLM can interpret the intent.
+		// feedback: the LLM can interpret the intent.
 		// Include any already-approved comments so they aren't lost.
 		const approved: ReviewComment[] = [];
 		for (const vc of vetComments) {
@@ -231,7 +231,7 @@ function buildSummaryTab(
 
 // ---- File tabs ----
 
-/** Build a file tab with Overview (diff), Comments, and Source views. */
+/** Build a file tab with Overview (diff), Comments and Source views. */
 function buildFileTab(
 	filePath: string,
 	fileComments: VetComment[],
@@ -253,7 +253,7 @@ function buildFileTab(
 	};
 }
 
-/** Overview view — diff with comment indicators on annotated lines. */
+/** Overview view: diff with comment indicators on annotated lines. */
 function buildOverviewView(
 	filePath: string,
 	fileComments: VetComment[],
@@ -306,7 +306,7 @@ function buildOverviewView(
 	};
 }
 
-/** Comments view — selectable list with approve/reject actions. */
+/** Comments view: selectable list with approve/reject actions. */
 function buildCommentsView(
 	filePath: string,
 	fileComments: VetComment[],
@@ -395,7 +395,7 @@ function buildCommentsView(
 	};
 }
 
-/** Source view — full file content, syntax highlighted. */
+/** Source view: full file content, syntax highlighted. */
 function buildSourceView(filePath: string): WorkspaceView {
 	return {
 		key: "s",
@@ -451,7 +451,7 @@ function renderCommentList(
 
 		const lineRange = c.startLine ? `L${c.startLine}-${c.line}` : `L${c.line}`;
 
-		const summary = `${lineRange} — ${c.body.split("\n")[0]}`;
+		const summary = `${lineRange}: ${c.body.split("\n")[0]}`;
 		const line = `${pad}${cursor}${theme.fg(glyphColor, glyph)} ${summary}`;
 		lines.push(isSel ? theme.fg("accent", line) : line);
 

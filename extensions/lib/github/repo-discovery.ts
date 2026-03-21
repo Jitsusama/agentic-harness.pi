@@ -1,5 +1,5 @@
 /**
- * Repository discovery and terminal tab spawning — find repos
+ * Repository discovery and terminal tab spawning: find repos
  * on disk and open new terminal tabs for cross-repo workflows.
  *
  * Used by pr-review and pr-reply when the target PR belongs
@@ -14,7 +14,7 @@ import { extractOwnerRepo } from "../parse/pr-reference.js";
 
 /**
  * Common locations where repos live, relative to home.
- * Searched in order — first match wins.
+ * Searched in order: first match wins.
  */
 const REPO_SEARCH_PATHS = [
 	"src/github.com/{owner}/{repo}",
@@ -144,7 +144,7 @@ async function spawnWezterm(
 
 /**
  * Open a new window in Ghostty. Ghostty doesn't have a CLI
- * for opening tabs in an existing instance — we launch a new
+ * for opening tabs in an existing instance: we launch a new
  * Ghostty window with the command.
  */
 async function spawnGhostty(

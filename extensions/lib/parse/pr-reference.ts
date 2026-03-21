@@ -1,5 +1,5 @@
 /**
- * PR reference parsing — extract owner/repo/number from URLs,
+ * PR reference parsing: extract owner/repo/number from URLs,
  * short forms, and bare numbers. Also extracts owner/repo from
  * git remote URLs.
  *

@@ -1,5 +1,5 @@
 /**
- * TDD mode state — shape, defaults, phase definitions.
+ * TDD mode state: shape, defaults, phase definitions.
  */
 
 /** The three phases of the red-green-refactor cycle. */
@@ -15,7 +15,7 @@ export interface TddState {
 }
 
 /** Emoji glyphs for each phase, used in status display and gates. */
-/** Glyph used for all phase indicators — colored by the caller. */
+/** Glyph used for all phase indicators: coloured by the caller. */
 export const PHASE_GLYPH = "●";
 
 /** Theme color name for each phase. */
@@ -32,7 +32,7 @@ export const PHASE_COLORS: Record<Phase, PhaseColor> = {
 export const PHASE_HINTS: Record<Phase, string> = {
 	red: [
 		"You are in RED phase. Write a failing test that describes",
-		"the desired behavior. Minimal stubs in implementation files",
+		"the desired behaviour. Minimal stubs in implementation files",
 		"are fine to get a clean assertion failure. When the test",
 		"fails for the right reason, signal the green phase.",
 	].join(" "),
@@ -43,7 +43,7 @@ export const PHASE_HINTS: Record<Phase, string> = {
 	].join(" "),
 	refactor: [
 		"You are in REFACTOR phase. Restructure existing code for",
-		"clarity without changing behavior. Do not add new tests or",
+		"clarity without changing behaviour. Do not add new tests or",
 		"new functionality. Run tests after each change. When done,",
 		"signal done to complete the cycle.",
 	].join(" "),

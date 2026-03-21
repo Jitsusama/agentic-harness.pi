@@ -2,7 +2,7 @@
 
 View files in a scrollable, themed overlay. Auto-detects
 content type (markdown, diff, code) and applies appropriate
-coloring.
+colouring.
 
 ## Commands
 
@@ -18,9 +18,9 @@ from the shared content renderer. Scroll with Shift+↑↓ or
 PageUp/PageDown, dismiss with Escape or Enter on Close.
 
 Content types:
-- **Markdown** (`.md`) — headers, lists, blockquotes, code
-  fences with themed coloring
-- **Diff** (`.diff`, `.patch`) — +/- line coloring, hunk
-  headers
-- **Code** (`.ts`, `.py`, `.rs`, etc.) — line numbers with
-  gutter
+- **Markdown** (`.md`): headers, lists, blockquotes, code
+  fences with themed colouring.
+- **Diff** (`.diff`, `.patch`): +/- line colouring, hunk
+  headers.
+- **Code** (`.ts`, `.py`, `.rs`, etc.): line numbers with
+  gutter.

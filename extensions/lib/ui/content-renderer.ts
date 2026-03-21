@@ -1,12 +1,12 @@
 /**
- * Content renderer — themed rendering of markdown, diffs, and
+ * Content renderer: themed rendering of markdown, diffs, and
  * code into display-ready lines.
  *
  * Three explicit functions. The caller always knows what type
  * of content they have. No auto-detection.
  *
  * Pure rendering module with no UI dependencies. Each function
- * takes raw text, a theme, and a width, returning themed
+ * takes raw text, a theme and a width, returning themed
  * string[] for display.
  */
 
@@ -34,7 +34,7 @@ export function renderMarkdown(
 	_theme: Theme,
 	width: number,
 ): string[] {
-	// Markdown is prose — always cap to terminal width for
+	// Markdown is prose: always cap to terminal width for
 	// readability. When horizontal scrolling is enabled, content
 	// functions receive a huge width (10,000) so code and diffs
 	// can extend beyond the viewport. Prose must still wrap.
@@ -50,7 +50,7 @@ export function renderMarkdown(
 // ---- Diff ----
 
 /**
- * Render unified diff output with coloring.
+ * Render unified diff output with colouring.
  *
  * + lines → success (green), - lines → error (red),
  * @@ headers → accent, file headers → bold,
@@ -147,7 +147,7 @@ function formatHighlightedCode(
 	const lines: string[] = [];
 
 	// Track ANSI color state across lines so multi-line constructs
-	// (comments, strings) keep their color after the gutter resets it.
+	// (comments, strings) keep their colour after the gutter resets it.
 	let activeEscapes = "";
 
 	for (let i = 0; i < codeLines.length; i++) {
@@ -159,7 +159,7 @@ function formatHighlightedCode(
 		const gutter = `${marker}${theme.fg("dim", `${numStr} │ `)}`;
 		const codeLine = (codeLines[i] ?? "").replaceAll("\t", tabSpaces);
 
-		// Restore color state from previous line, then emit this line
+		// Restore colour state from previous line, then emit this line
 		lines.push(truncateToWidth(`${gutter}${activeEscapes}${codeLine}`, width));
 
 		// Update active escapes by scanning this line's ANSI sequences
@@ -172,7 +172,7 @@ function formatHighlightedCode(
 /**
  * Track ANSI escape state through a line of text.
  * Returns the active escape string to prepend to the next line.
- * Resets on \x1b[0m or \x1b[39m (color reset).
+ * Resets on \x1b[0m or \x1b[39m (colour reset).
  */
 function trackAnsiState(current: string, line: string): string {
 	let state = current;

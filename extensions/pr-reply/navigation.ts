@@ -1,5 +1,5 @@
 /**
- * PR resolution and code context — find which PR we're working
+ * PR resolution and code context: find which PR we're working
  * on and read surrounding source code for thread display.
  */
 
@@ -139,7 +139,7 @@ export async function readCodeContext(
 
 /**
  * Push to the remote if there are unpushed commits.
- * Non-fatal — replies still post if push fails, but SHAs
+ * Non-fatal: replies still post if push fails, but SHAs
  * won't be clickable on GitHub until the next push.
  */
 export async function pushIfNeeded(pi: ExtensionAPI): Promise<void> {
@@ -153,5 +153,5 @@ export async function pushIfNeeded(pi: ExtensionAPI): Promise<void> {
 	if (Number.isNaN(ahead) || ahead === 0) return;
 
 	await pi.exec("git", ["push"]);
-	// Non-fatal — the reply will still be posted
+	// Non-fatal: the reply will still be posted
 }

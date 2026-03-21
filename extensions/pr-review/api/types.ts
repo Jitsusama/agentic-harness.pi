@@ -61,12 +61,12 @@ export interface GQLAuthor {
 	login: string;
 }
 
-/** Review request node — a pending reviewer. */
+/** Review request node: a pending reviewer. */
 export interface GQLReviewRequest {
 	requestedReviewer: GQLAuthor | null;
 }
 
-/** Latest opinionated review — the current verdict per reviewer. */
+/** Latest opinionated review: the current verdict per reviewer. */
 export interface GQLLatestReview {
 	author: GQLAuthor | null;
 	state: string;

@@ -1,5 +1,5 @@
 /**
- * TDD mode enforcement — LLM-facing phase restrictions.
+ * TDD mode enforcement: LLM-facing phase restrictions.
  *
  * Returns block results with hints that go back to the LLM,
  * not UI gates for the user. The agent self-corrects or

@@ -1,5 +1,5 @@
 /**
- * Post PR reviews to GitHub — shared temp-file posting pattern.
+ * Post PR reviews to GitHub: shared temp-file posting pattern.
  *
  * Both pr-annotate and pr-review need to post review comments
  * via `gh api`. The JSON payload is written to a temp file to
@@ -61,7 +61,7 @@ export async function postReview(
 		try {
 			unlinkSync(tmpFile);
 		} catch {
-			/* Temp file cleanup — safe to ignore */
+			/* Temp file cleanup: safe to ignore */
 		}
 	}
 }

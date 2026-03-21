@@ -1,5 +1,5 @@
 /**
- * PR Reply state — shape, defaults, thread lifecycle.
+ * PR Reply state: shape, defaults, thread lifecycle.
  */
 
 /** Review thread workflow states. */
@@ -29,7 +29,7 @@ export interface Comment {
 	inReplyTo: string | null;
 }
 
-/** Review thread — a code comment and its replies. */
+/** Review thread: a code comment and its replies. */
 export interface Thread {
 	id: string; // Top-level comment ID
 	reviewId: string;
@@ -44,7 +44,7 @@ export interface Thread {
 	isResolved: boolean;
 }
 
-/** GitHub review — a reviewer's overall feedback. */
+/** GitHub review: a reviewer's overall feedback. */
 export interface Review {
 	id: string;
 	author: string;
@@ -95,13 +95,13 @@ export interface PRReplyState {
 	threadAnalyses: Map<string, ThreadAnalysis>;
 	reviewerAnalyses: Map<string, ReviewerAnalysis>;
 
-	// Workspace position — preserved across dismiss/restore
+	// Workspace position: preserved across dismiss/restore
 	workspacePosition: WorkspacePosition | null;
 
-	// Currently selected thread ID — set by workspace actions
+	// Currently selected thread ID: set by workspace actions
 	currentThreadId: string | null;
 
-	// Legacy navigation — kept for backward compat during transition
+	// Legacy navigation: kept for backward compat during transition
 	/** @deprecated Use workspacePosition instead. */
 	reviewIndex: number;
 	/** @deprecated Use workspacePosition instead. */

@@ -1,5 +1,5 @@
 /**
- * Dual OAuth flow — tries device flow first, falls back to web redirect.
+ * Dual OAuth flow: tries device flow first, falls back to web redirect.
  * Supports both "TVs and Limited Input devices" and "Desktop app" credentials.
  */
 
@@ -33,7 +33,7 @@ export async function authenticateWithFallback(
 		const deviceFlow = await initiateDeviceFlow(config);
 		const dismiss = new AbortController();
 
-		// Show device code — dismissed when auth completes or user presses Escape
+		// Show device code: dismissed when auth completes or user presses Escape
 		view(ctx, {
 			signal: dismiss.signal,
 			content: (theme) => [
@@ -100,7 +100,7 @@ async function authenticateWithWebRedirect(
 
 	const dismiss = new AbortController();
 
-	// Show waiting panel — dismissed when callback arrives or user presses Escape
+	// Show waiting panel: dismissed when callback arrives or user presses Escape
 	view(ctx, {
 		signal: dismiss.signal,
 		content: (theme) => [

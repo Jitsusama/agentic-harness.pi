@@ -1,5 +1,5 @@
 /**
- * Attribution injection — appends AI co-authorship metadata to
+ * Attribution injection: appends AI co-authorship metadata to
  * git commit messages, PR bodies, and issue bodies.
  *
  * Each function detects the relevant command, checks for existing

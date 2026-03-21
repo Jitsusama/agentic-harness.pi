@@ -1,5 +1,5 @@
 /**
- * Ask — reusable structured question tool.
+ * Ask: reusable structured question tool.
  *
  * Single question: options list with cursor navigation.
  * Multiple questions: tabbed prompt with per-question options.
@@ -138,7 +138,7 @@ export default function ask(pi: ExtensionAPI) {
 			const answers = new Map<string, Answer>();
 
 			if (!isMulti) {
-				// Single question — simple prompt with options
+				// Single question: simple prompt with options
 				const q = questions[0];
 				if (!q) return errorResult("Error: Empty question");
 
@@ -177,7 +177,7 @@ export default function ask(pi: ExtensionAPI) {
 					}
 				}
 			} else {
-				// Multiple questions — tabbed prompt
+				// Multiple questions: tabbed prompt
 				const items: PromptItem[] = questions.map((q) => ({
 					label: q.label,
 					views: [

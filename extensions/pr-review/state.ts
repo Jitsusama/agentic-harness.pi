@@ -1,11 +1,11 @@
 /**
- * PR Review state — domain model for a structured code review.
+ * PR Review state: domain model for a structured code review.
  *
  * Four levels:
- *   PRTarget       — identifies which PR is being reviewed
- *   CrawlResult    — deep context gathered by the crawler
- *   ReviewSession  — the active review with comments and tab state
- *   PRReviewState  — runtime state (enabled, session)
+ *   PRTarget      : identifies which PR is being reviewed
+ *   CrawlResult   : deep context gathered by the crawler
+ *   ReviewSession : the active review with comments and tab state
+ *   PRReviewState : runtime state (enabled, session)
  */
 
 // Re-export diff types from the shared module so existing
@@ -40,7 +40,7 @@ export interface PRMetadata {
 	state: string;
 }
 
-/** An issue linked to the PR (deep — includes parent/sub-issues). */
+/** An issue linked to the PR (deep: includes parent/sub-issues). */
 export interface LinkedIssue {
 	number: number;
 	title: string;
@@ -111,7 +111,7 @@ export interface CrawlResult {
 
 // ---- Review comments ----
 
-/** Comment categories — determines which tab a comment appears in. */
+/** Comment categories: determines which tab a comment appears in. */
 export type CommentCategory = "file" | "title" | "scope";
 
 /** A review comment with lifecycle status. */
@@ -146,7 +146,7 @@ export interface TabState {
 /** Review workflow phases. */
 export type ReviewPhase = "gathering" | "overview" | "reviewing" | "submitting";
 
-/** An active PR review — everything about the review in progress. */
+/** An active PR review: everything about the review in progress. */
 export interface ReviewSession {
 	pr: PRTarget;
 	/** Gathered context (null until fetched, not persisted). */

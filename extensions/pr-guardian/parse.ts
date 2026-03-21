@@ -1,5 +1,5 @@
 /**
- * PR command parsing — extract title, body, and metadata from
+ * PR command parsing: extract title, body, and metadata from
  * gh pr create / gh pr edit commands.
  *
  * Delegates common parsing to lib/parse. Keeps only

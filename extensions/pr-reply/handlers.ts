@@ -1,5 +1,5 @@
 /**
- * PR Reply action handlers — each function handles one tool
+ * PR Reply action handlers: each function handles one tool
  * action and returns a tool result for the LLM.
  *
  * Pure orchestration: read state, call domain functions,
@@ -87,7 +87,7 @@ function countByState(state: PRReplyState, threadState: string): number {
 }
 
 /** Get the current thread based on review-centric navigation. */
-/** Get the current thread — from workspace selection or legacy navigation. */
+/** Get the current thread: from workspace selection or legacy navigation. */
 function currentThread(state: PRReplyState): Thread | null {
 	// Workspace flow: currentThreadId is set by the workspace
 	if (state.currentThreadId) {
@@ -115,7 +115,7 @@ function findNextPendingInReview(
 
 // ---- Handlers ----
 
-/** Activate PR reply mode — load reviews and show summary. */
+/** Activate PR reply mode: load reviews and show summary. */
 export async function handleActivate(
 	state: PRReplyState,
 	pi: ExtensionAPI,
@@ -362,7 +362,7 @@ export async function handleReviewWorkspace(
 		};
 	}
 
-	// User selected a thread — show the full-context gate
+	// User selected a thread: show the full-context gate
 	if (result.action === "open") {
 		const thread = state.threads.find((t) => t.id === result.threadId);
 		if (!thread) {
@@ -440,7 +440,7 @@ export async function handleNext(
 		const review = state.reviews[state.reviewIndex];
 		if (!review) break;
 
-		// New review — return its summary for analysis
+		// New review: return its summary for analysis
 		if (!state.reviewIntroduced) {
 			const reviewThreads = threadsForReview(review, state.threads);
 			const pendingThreads = reviewThreads.filter(
@@ -472,7 +472,7 @@ export async function handleNext(
 			};
 		}
 
-		// Within a review — find next pending thread
+		// Within a review: find next pending thread
 		const reviewThreads = threadsForReview(review, state.threads);
 		const nextThread = findNextPendingInReview(state, reviewThreads);
 
@@ -710,7 +710,7 @@ export async function handleReplyAction(
 }
 
 /**
- * Mark implementation as done — collect commits, post reply.
+ * Mark implementation as done: collect commits, post reply.
  * Called after the LLM has made changes and committed.
  */
 export async function handleDone(
@@ -991,7 +991,7 @@ function handleSwitchResult(
 							`PR #${ref.number} belongs to ${ref.owner}/${ref.repo}, which is a different repository. ` +
 							`A new terminal tab has been opened at ${result.repoPath} with a pi session ` +
 							`handling the PR reply workflow for #${ref.number}. ` +
-							"Do NOT call pr_reply again in this session — " +
+							"Do NOT call pr_reply again in this session: " +
 							"the new tab has all the context it needs. This task is complete.",
 					},
 				],
@@ -1103,7 +1103,7 @@ async function fetchPRInfo(
 				branch: data.headRefName ?? "unknown",
 			};
 		} catch {
-			/* Parse failure — fall through to default */
+			/* Parse failure: fall through to default */
 		}
 	}
 

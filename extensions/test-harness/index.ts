@@ -1,5 +1,5 @@
 /**
- * Test harness — registers /test-* commands that exercise
+ * Test harness: registers /test-* commands that exercise
  * every component in the UI library. Used for manual
  * validation passes after migrations.
  */
@@ -160,7 +160,7 @@ index abc1234..def5678 100644
 // ---- Commands ----
 
 export default function testHarness(ctx: ExtensionContext) {
-	// /test-scroll — ScrollRegion + view()
+	// /test-scroll: ScrollRegion + view()
 	ctx.registerCommand("test-scroll", {
 		description: "Test scroll region",
 		handler: async (_args, handlerCtx) => {
@@ -172,7 +172,7 @@ export default function testHarness(ctx: ExtensionContext) {
 		},
 	});
 
-	// /test-actions — ActionBar + prompt(single)
+	// /test-actions: ActionBar + prompt(single)
 	ctx.registerCommand("test-actions", {
 		description: "Test action bar",
 		handler: async (_args, handlerCtx) => {
@@ -194,7 +194,7 @@ export default function testHarness(ctx: ExtensionContext) {
 		},
 	});
 
-	// /test-options — OptionList + prompt(single)
+	// /test-options: OptionList + prompt(single)
 	ctx.registerCommand("test-options", {
 		description: "Test option list",
 		handler: async (_args, handlerCtx) => {
@@ -230,7 +230,7 @@ export default function testHarness(ctx: ExtensionContext) {
 		},
 	});
 
-	// /test-tabs — TabStrip + prompt(tabbed)
+	// /test-tabs: TabStrip + prompt(tabbed)
 	ctx.registerCommand("test-tabs", {
 		description: "Test tabbed prompt",
 		handler: async (_args, handlerCtx) => {
@@ -243,17 +243,17 @@ export default function testHarness(ctx: ExtensionContext) {
 				items: [
 					{
 						label: "Actions",
-						content: staticContent(["First tab — basic actions"]),
+						content: staticContent(["First tab: basic actions"]),
 						actions: sharedActions,
 					},
 					{
 						label: "Also Actions",
-						content: staticContent(["Second tab — same actions"]),
+						content: staticContent(["Second tab: same actions"]),
 						actions: sharedActions,
 					},
 					{
 						label: "Options",
-						content: staticContent(["Third tab — option list"]),
+						content: staticContent(["Third tab: option list"]),
 						options: [
 							{ label: "Option A", value: "a" },
 							{ label: "Option B", value: "b" },
@@ -261,7 +261,7 @@ export default function testHarness(ctx: ExtensionContext) {
 					},
 					{
 						label: "More Actions",
-						content: staticContent(["Fourth tab — more actions"]),
+						content: staticContent(["Fourth tab: more actions"]),
 						actions: sharedActions,
 					},
 					{
@@ -277,7 +277,7 @@ export default function testHarness(ctx: ExtensionContext) {
 		},
 	});
 
-	// /test-steer — Steer annotations
+	// /test-steer: Steer annotations
 	ctx.registerCommand("test-steer", {
 		description: "Test steer annotations",
 		handler: async (_args, handlerCtx) => {
@@ -303,7 +303,7 @@ export default function testHarness(ctx: ExtensionContext) {
 		},
 	});
 
-	// /test-editor — NoteEditor via opensEditor
+	// /test-editor: NoteEditor via opensEditor
 	ctx.registerCommand("test-editor", {
 		description: "Test inline editor",
 		handler: async (_args, handlerCtx) => {
@@ -328,7 +328,7 @@ export default function testHarness(ctx: ExtensionContext) {
 		},
 	});
 
-	// /test-markdown — renderMarkdown via view()
+	// /test-markdown: renderMarkdown via view()
 	ctx.registerCommand("test-markdown", {
 		description: "Test markdown rendering",
 		handler: async (_args, handlerCtx) => {
@@ -341,7 +341,7 @@ export default function testHarness(ctx: ExtensionContext) {
 		},
 	});
 
-	// /test-code — renderCode via view()
+	// /test-code: renderCode via view()
 	ctx.registerCommand("test-code", {
 		description: "Test code rendering",
 		handler: async (_args, handlerCtx) => {
@@ -359,7 +359,7 @@ export default function testHarness(ctx: ExtensionContext) {
 		},
 	});
 
-	// /test-diff — renderDiff via view()
+	// /test-diff: renderDiff via view()
 	ctx.registerCommand("test-diff", {
 		description: "Test diff rendering",
 		handler: async (_args, handlerCtx) => {
@@ -372,7 +372,7 @@ export default function testHarness(ctx: ExtensionContext) {
 		},
 	});
 
-	// /test-hscroll — horizontal scrolling with wide code
+	// /test-hscroll: horizontal scrolling with wide code
 	ctx.registerCommand("test-hscroll", {
 		description: "Test horizontal scrolling",
 		handler: async (_args, handlerCtx) => {

@@ -1,5 +1,5 @@
 /**
- * Submit panel — final review summary and confirmation.
+ * Submit panel: final review summary and confirmation.
  *
  * Single-panel showing review body, verdict, comment summary,
  * and approved comment list. User can post or steer to edit.
@@ -34,7 +34,7 @@ export async function showSubmitPanel(
 			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
 
-			// Verdict banner — prominent at the top
+			// Verdict banner: prominent at the top
 			const verdictColor = verdictThemeColor(session.verdict);
 			const verdictLabel = verdictDisplayLabel(session.verdict);
 			lines.push(

@@ -25,7 +25,7 @@ export interface EventData {
 	attendees?: string[];
 }
 
-/** Result from a confirmation gate — approved data, steer feedback, or null (cancelled). */
+/** Result from a confirmation gate: approved data, steer feedback, or null (cancelled). */
 export type ConfirmResult<T> =
 	| { approved: true; data: T }
 	| { approved: false; steer: string }

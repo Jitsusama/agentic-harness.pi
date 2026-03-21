@@ -1,5 +1,5 @@
 /**
- * Commit message validation — checks conventional commit format,
+ * Commit message validation: checks conventional commit format,
  * subject length, and body line wrap.
  */
 

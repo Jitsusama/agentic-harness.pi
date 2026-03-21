@@ -4,16 +4,16 @@
  * Mode for reviewing someone else's pull request. The LLM drives
  * the workflow by calling pr_review with different actions:
  *
- *   activate           — parse PR ref, resolve repo, crawl context
- *   generate-comments  — agent provides analysis and structured comments
- *   overview           — show Phase 1 overview panel
- *   review             — show Phase 2 review panel
- *   add-comment        — add a review comment
- *   update-comment     — edit an existing comment by ID
- *   remove-comment     — delete a comment by ID
- *   submit             — show final review summary panel
- *   post               — submit review to GitHub
- *   deactivate         — clean up and exit
+ *   activate          : parse PR ref, resolve repo, crawl context
+ *   generate-comments : agent provides analysis and structured comments
+ *   overview          : show Phase 1 overview panel
+ *   review            : show Phase 2 review panel
+ *   add-comment       : add a review comment
+ *   update-comment    : edit an existing comment by ID
+ *   remove-comment    : delete a comment by ID
+ *   submit            : show final review summary panel
+ *   post              : submit review to GitHub
+ *   deactivate        : clean up and exit
  *
  * Handlers live in handlers.ts. This file is registration and
  * wiring only.

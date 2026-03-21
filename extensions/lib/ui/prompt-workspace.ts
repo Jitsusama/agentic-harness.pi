@@ -1,5 +1,5 @@
 /**
- * Workspace prompt — a stateful tabbed interaction panel.
+ * Workspace prompt: a stateful tabbed interaction panel.
  *
  * Unlike the tabbed prompt (where each tab produces one result),
  * workspace tabs are stateful workspaces where the user acts
@@ -9,7 +9,7 @@
  * Key differences from prompt-tabbed:
  *   - Per-view input handlers (get first crack at input)
  *   - External tab status via callback
- *   - No per-tab results — Ctrl+Enter submits, Escape cancels
+ *   - No per-tab results: Ctrl+Enter submits, Escape cancels
  *   - Content invalidation for in-place state mutation
  *   - View-specific actions
  */

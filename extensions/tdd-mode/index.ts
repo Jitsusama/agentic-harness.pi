@@ -72,13 +72,13 @@ export default function tddMode(pi: ExtensionAPI) {
 			context: Type.Optional(
 				Type.String({
 					description:
-						"What is being tested — displayed to the user as a status indicator",
+						"What is being tested: displayed to the user as a status indicator",
 				}),
 			),
 			summary: Type.Optional(
 				Type.String({
 					description:
-						"What was accomplished in the current phase — shown to the user in the transition gate. Supports markdown.",
+						"What was accomplished in the current phase: shown to the user in the transition gate. Supports markdown.",
 				}),
 			),
 		}),
@@ -212,13 +212,13 @@ export default function tddMode(pi: ExtensionAPI) {
 			text += `${glyph} ${action}`;
 			if (a.context) {
 				const maxWidth = process.stdout.columns || 80;
-				const prefixLen = 15; // Approximate length of "tdd_phase 🔴 red — "
+				const prefixLen = 15; // Approximate length of "tdd_phase 🔴 red: "
 				const availableWidth = maxWidth - prefixLen;
 				const contextText =
 					a.context.length > availableWidth
 						? `${a.context.slice(0, availableWidth - 3)}...`
 						: a.context;
-				text += theme.fg("dim", ` — ${contextText}`);
+				text += theme.fg("dim", `: ${contextText}`);
 			}
 			return new Text(text, 0, 0);
 		},
@@ -246,7 +246,7 @@ export default function tddMode(pi: ExtensionAPI) {
 				);
 			}
 
-			// Summary only — the call renderer already shows action + context
+			// Summary only: the call renderer already shows action + context
 			// Take only the first line and truncate to terminal width
 			if (d.summary) {
 				const firstLine = d.summary.split("\n")[0] ?? "";
@@ -274,13 +274,13 @@ export default function tddMode(pi: ExtensionAPI) {
 		name: "tdd_refactor",
 		label: "TDD Refactor",
 		description:
-			"Present refactoring suggestions for user review during REFACTOR phase. Only include actual code changes as suggestions — never include 'skip', 'no changes', or 'done' options. The tool has its own Done page for exiting.",
+			"Present refactoring suggestions for user review during REFACTOR phase. Only include actual code changes as suggestions: never include 'skip', 'no changes', or 'done' options. The tool has its own Done page for exiting.",
 		promptSnippet:
-			"Present refactoring suggestions as a tabbed review. Use in REFACTOR phase. Never include skip/done suggestions — only real code changes.",
+			"Present refactoring suggestions as a tabbed review. Use in REFACTOR phase. Never include skip/done suggestions: only real code changes.",
 		parameters: Type.Object({
 			suggestions: Type.Array(RefactorSuggestionSchema, {
 				description:
-					"Refactoring suggestions. May be empty — the user can still add their own.",
+					"Refactoring suggestions. May be empty: the user can still add their own.",
 			}),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -373,7 +373,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			}
 			if (d.satisfied) {
 				return new Text(
-					theme.fg("success", "✓ No refactorings — moving on"),
+					theme.fg("success", "✓ No refactorings: moving on"),
 					0,
 					0,
 				);

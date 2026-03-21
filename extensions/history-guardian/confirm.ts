@@ -1,5 +1,5 @@
 /**
- * History guardian — detects destructive git commands and
+ * History guardian: detects destructive git commands and
  * requires allow/block confirmation before execution.
  */
 

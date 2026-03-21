@@ -56,7 +56,7 @@ Or use the helper script:
 ./scripts/reorder-project-item.sh <project-id> <item-id> [after-id]
 ```
 
-- `afterId` is optional — omit it to move the item to the top
+- `afterId` is optional; omit it to move the item to the top
 - Position items sequentially using `afterId` for bulk reordering
 - Add 0.2–0.5 second delays between calls to avoid rate limiting
 

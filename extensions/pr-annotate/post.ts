@@ -1,5 +1,5 @@
 /**
- * Post review comments to GitHub — transforms pr-annotate's
+ * Post review comments to GitHub: transforms pr-annotate's
  * ReviewComment format into GitHub API format and delegates
  * to the shared review posting module.
  */

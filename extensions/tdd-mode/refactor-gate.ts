@@ -1,5 +1,5 @@
 /**
- * Refactor gate — tabbed prompt for reviewing refactoring
+ * Refactor gate: tabbed prompt for reviewing refactoring
  * suggestions. Each suggestion is a tab with approve/reject
  * actions. Users can add their own via '+' hotkey.
  */

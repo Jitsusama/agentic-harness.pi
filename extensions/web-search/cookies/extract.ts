@@ -1,5 +1,5 @@
 /**
- * Cookie extraction — reads encrypted cookies from the local
+ * Cookie extraction: reads encrypted cookies from the local
  * Chrome profile, decrypts them, and returns puppeteer-compatible
  * cookie objects.
  *
@@ -60,7 +60,7 @@ function findCookiesDb(): string | null {
 			}
 		}
 	} catch {
-		/* Chrome data dir unreadable — no profile found */
+		/* Chrome data dir unreadable: no profile found */
 	}
 	return null;
 }
@@ -89,7 +89,7 @@ function decrypt(encryptedValue: Buffer, key: Buffer): string | null {
 		}
 		return decrypted.toString("utf-8");
 	} catch {
-		/* Decryption failed — wrong key or corrupted value */
+		/* Decryption failed: wrong key or corrupted value */
 		return null;
 	}
 }
@@ -131,7 +131,7 @@ function queryCookies(
 		}
 	}
 
-	// Lazy require — sqlite3 is a native module, only loaded when
+	// Lazy require: sqlite3 is a native module, only loaded when
 	// cookies are actually needed (not on every extension load).
 	const sqlite3 = require("sqlite3");
 	const db = new sqlite3.Database(tmpDb, sqlite3.OPEN_READONLY);
@@ -151,7 +151,7 @@ function queryCookies(
 				try {
 					fs.unlinkSync(f);
 				} catch {
-					/* temp file cleanup — safe to ignore */
+					/* temp file cleanup: safe to ignore */
 				}
 			}
 			if (err) reject(err);

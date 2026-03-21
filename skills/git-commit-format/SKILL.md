@@ -1,8 +1,8 @@
 ---
 name: git-commit-format
 description: >
-  Conventional commit message format, types, and line length rules.
-  Use when writing commit messages, discussing commit conventions,
+  Conventional commit message format, types and line length rules.
+  Use when writing commit messages, discussing commit conventions
   or preparing to commit changes.
 ---
 
@@ -20,7 +20,7 @@ See `git-cli-conventions` for the heredoc command syntax
 - Format: `type(scope): description`
 - Maximum 50 characters
 - Scope is optional but encouraged
-- Use imperative mood: "add", "fix", "change" — not "added", "fixes"
+- Use imperative mood: "add", "fix", "change" (not "added", "fixes")
 - No period at the end
 
 ## Types
@@ -30,7 +30,7 @@ See `git-cli-conventions` for the heredoc command syntax
 | `feat` | New feature or capability |
 | `fix` | Bug fix |
 | `docs` | Documentation only |
-| `style` | Formatting, whitespace — no logic change |
+| `style` | Formatting, whitespace (no logic change) |
 | `refactor` | Code change that neither fixes nor adds |
 | `perf` | Performance improvement |
 | `test` | Adding or correcting tests |
@@ -45,7 +45,7 @@ See `git-cli-conventions` for the heredoc command syntax
 - Hard-wrap at 72 characters
 - Explain **what** changed and **why**, not how
 - **Be accurate about scope.** Only describe what this commit
-  actually does — not what the larger feature will do. If this
+  actually does, not what the larger feature will do. If this
   commit adds a service but doesn't wire it up, don't say it
   "handles transitions" or "processes events." Describe the
   concrete capability that exists after this commit.
@@ -54,11 +54,11 @@ See `git-cli-conventions` for the heredoc command syntax
   add…" or "a follow-up will wire this up."
 - Don't parrot the implementation. If the diff shows a method
   that calls `.to_date.iso8601.uniq.sort`, don't write "convert
-  timestamps to dates, deduplicate, and sort." Instead explain
+  timestamps to dates, deduplicate and sort." Instead explain
   why this code exists and what problem it solves.
   - Bad: "Update auth.ts to add a refreshToken function and call
     it from the middleware"
-  - Bad: "Convert timestamps to YYYY-MM-DD, deduplicate, sort,
+  - Bad: "Convert timestamps to YYYY-MM-DD, deduplicate, sort
     and pass to chunk!"
   - Good: "Support token refresh for long-lived sessions. Without
     this, users with sessions longer than 1 hour are forced to

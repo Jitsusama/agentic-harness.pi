@@ -1,5 +1,5 @@
 /**
- * Shared GraphQL runner — execute typed GraphQL queries via
+ * Shared GraphQL runner: execute typed GraphQL queries via
  * the `gh` CLI.
  *
  * Used by pr-review and pr-reply for all GitHub GraphQL
@@ -15,7 +15,7 @@ import type { PRReference } from "../parse/pr-reference.js";
  *
  * Passes owner, repo, and PR number as variables. The query
  * must declare `$owner: String!`, `$repo: String!`, and
- * `$pr: Int!` (or `$number: Int!` — use the appropriate
+ * `$pr: Int!` (or `$number: Int!`: use the appropriate
  * variable name in your query).
  */
 export async function runGraphQL<T>(

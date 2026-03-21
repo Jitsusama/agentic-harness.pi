@@ -1,6 +1,6 @@
 # Google Workspace Skill
 
-Teaches the LLM how to use the `google` tool to access Gmail, Calendar, Drive, Docs, Sheets, and Slides.
+Teaches the LLM how to use the `google` tool to access Gmail, Calendar, Drive, Docs, Sheets and Slides.
 
 ## For Users
 

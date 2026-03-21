@@ -1,5 +1,5 @@
 /**
- * TabStrip — scrolling tab bar with status glyphs, progress bar,
+ * TabStrip: scrolling tab bar with status glyphs, progress bar,
  * and Ctrl+number jump.
  *
  * Renders:  ◆ R1  ✕ R2  ◇ R3  …  ◇ R7     [▓▓░░░] 2/7
@@ -112,7 +112,7 @@ export function renderTabStrip(
 	const suffix = progress;
 	const suffixWidth = visibleWidth(suffix);
 
-	// Available width for tabs (minus indent, progress, and spacing)
+	// Available width for tabs (minus indent, progress and spacing)
 	const indent = 1;
 	const spacing = 4; // gap between tabs and progress
 	const availableWidth = width - indent - suffixWidth - spacing;
@@ -136,7 +136,7 @@ export function renderTabStrip(
 		return truncateToWidth(`${" "}${tabLine}${gap}${suffix}`, width);
 	}
 
-	// Overflow — show first, current neighborhood, and last with ellipsis
+	// Overflow: show first, current neighborhood, and last with ellipsis
 	const visible = selectVisibleTabs(
 		segmentWidths,
 		currentIndex,
@@ -171,7 +171,7 @@ function selectVisibleTabs(
 	const total = widths.length;
 	if (total <= 2) return Array.from({ length: total }, (_, i) => i);
 
-	// Reserve space for first, last, and ellipsis
+	// Reserve space for first, last and ellipsis
 	const firstW = widths[0] ?? 0;
 	const lastW = widths[total - 1] ?? 0;
 	let used = firstW + lastW + ELLIPSIS_WIDTH * 2;

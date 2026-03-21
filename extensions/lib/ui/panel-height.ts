@@ -1,5 +1,5 @@
 /**
- * Panel height mode — mutable state controlling which height
+ * Panel height mode: mutable state controlling which height
  * fraction panels use. Extensions toggle the mode via shortcuts;
  * scroll-region reads the current fraction when computing the
  * content budget.
@@ -43,7 +43,7 @@ export function getPanelHeightFraction(): number {
 	}
 }
 
-/** Glyph per mode — geometric indicators for the status bar. */
+/** Glyph per mode: geometric indicators for the status bar. */
 const MODE_GLYPH: Record<PanelHeightMode, string> = {
 	minimized: "━",
 	normal: "□",

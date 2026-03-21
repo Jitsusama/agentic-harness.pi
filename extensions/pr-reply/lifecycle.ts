@@ -1,5 +1,5 @@
 /**
- * PR Reply lifecycle — activate, deactivate, persist, restore,
+ * PR Reply lifecycle: activate, deactivate, persist, restore,
  * and UI status display.
  */
 

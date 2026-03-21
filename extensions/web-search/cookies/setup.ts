@@ -1,5 +1,5 @@
 /**
- * Cookie key management — derive, cache, and validate the Chrome
+ * Cookie key management: derive, cache, and validate the Chrome
  * cookie decryption key.
  *
  * On macOS, requires a one-time setupChromeKey() call that reads
@@ -58,7 +58,7 @@ export function getDecryptionKey(): Buffer | null {
 		if (!encoded) return null;
 		return Buffer.from(encoded, "base64");
 	} catch {
-		/* Cached key file missing or unreadable — not set up */
+		/* Cached key file missing or unreadable: not set up */
 		return null;
 	}
 }
@@ -89,7 +89,7 @@ export function setupChromeKey(): boolean {
 		});
 		return true;
 	} catch {
-		/* Keychain denied or write failed — report as failure */
+		/* Keychain denied or write failed: report as failure */
 		return false;
 	}
 }

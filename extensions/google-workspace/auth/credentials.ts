@@ -3,7 +3,7 @@
  *
  * Credentials are stored in ~/.pi/agent/google-workspace.json and
  * survive across Pi sessions and restarts. The file contains OAuth
- * app credentials, account list, and per-account tokens.
+ * app credentials, account list and per-account tokens.
  */
 
 import * as fs from "node:fs";
@@ -33,7 +33,7 @@ function readFile(): CredentialsFile {
 		const raw = fs.readFileSync(CREDENTIALS_PATH, "utf-8");
 		return JSON.parse(raw) as CredentialsFile;
 	} catch {
-		// File doesn't exist or is corrupt — start fresh
+		// File doesn't exist or is corrupt: start fresh
 		return { accounts: [], tokens: {} };
 	}
 }

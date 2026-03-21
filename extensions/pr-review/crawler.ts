@@ -1,12 +1,12 @@
 /**
- * Deep context crawler — recursive link crawler that follows
+ * Deep context crawler: recursive link crawler that follows
  * references up to 5 levels deep with loop detection.
  *
  * Crawl levels:
  *   0: PR itself (metadata, diff, comments, reviewers, linked issues)
  *   1: Linked issues (body, comments, parent/sub-issues, sibling PRs)
  *   2–4: References discovered at previous levels
- *   5: Stop — set hitDepthLimit if references remain unfollowed
+ *   5: Stop: set hitDepthLimit if references remain unfollowed
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -73,7 +73,7 @@ export interface CrawlConfig {
 	visited: Set<string>;
 }
 
-/** Progress callback — called as crawl depth advances. */
+/** Progress callback: called as crawl depth advances. */
 export type CrawlProgress = (depth: number, label: string) => void;
 
 /**
@@ -177,7 +177,7 @@ export async function crawl(
 					depth,
 				);
 			}
-			// PR references at depth 2+ — just record them, don't deep-crawl
+			// PR references at depth 2+: just record them, don't deep-crawl
 			config.visited.add(refKey(pendingRef));
 		}
 	}
@@ -207,7 +207,7 @@ export async function crawl(
 // ---- Deep issue crawling ----
 
 /**
- * Crawl a linked issue deeply — fetch parent/sub-issues and
+ * Crawl a linked issue deeply: fetch parent/sub-issues and
  * extract references from its body and comments.
  */
 async function crawlIssueDeeply(
@@ -298,13 +298,13 @@ async function crawlIssueDeeply(
 		);
 		addNewReferences(references, [...bodyRefs, ...commentRefs], config);
 	} catch {
-		/* Issue fetch failed — not fatal, continue crawling */
+		/* Issue fetch failed: not fatal, continue crawling */
 	}
 }
 
 /**
  * Crawl an issue reference discovered at depth 2+.
- * Lighter than deep crawling — just fetches metadata and extracts refs.
+ * Lighter than deep crawling: just fetches metadata and extracts refs.
  */
 async function crawlIssueReference(
 	pi: ExtensionAPI,
@@ -334,7 +334,7 @@ async function crawlIssueReference(
 		);
 		addNewReferences(references, bodyRefs, config);
 	} catch {
-		/* Reference fetch failed — not fatal */
+		/* Reference fetch failed: not fatal */
 	}
 }
 
@@ -408,7 +408,7 @@ function extractReferences(
 		});
 	}
 
-	// Other URLs — stored as external references
+	// Other URLs: stored as external references
 	for (const match of scanText.matchAll(EXTERNAL_URL_PATTERN)) {
 		const url = match[0];
 		if (url.includes("github.com") && seen.has(url)) continue;
@@ -497,7 +497,7 @@ async function fetchMissingTitles(
 	);
 	if (bareRefs.length === 0) return;
 
-	// Batch fetch — limit to 10 to avoid excessive API calls
+	// Batch fetch: limit to 10 to avoid excessive API calls
 	for (const ref of bareRefs.slice(0, 10)) {
 		const num = extractRefNumber(ref.url);
 		if (num === null) continue;
@@ -526,7 +526,7 @@ async function fetchMissingTitles(
 				ref.description = body + (body.length >= 200 ? "…" : "");
 			}
 		} catch {
-			/* Lookup failed — keep bare title */
+			/* Lookup failed: keep bare title */
 		}
 	}
 }
@@ -645,7 +645,7 @@ async function fetchDeepIssue(
 		const data = JSON.parse(result.stdout) as IssueDeepResponse;
 		return data.data.repository.issue;
 	} catch {
-		/* Issue fetch failed — not fatal */
+		/* Issue fetch failed: not fatal */
 		return null;
 	}
 }

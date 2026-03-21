@@ -1,5 +1,5 @@
 /**
- * UI panels — summary panel for PR overview,
+ * UI panels: summary panel for PR overview,
  * deferred threads summary.
  *
  * Thread-level analysis and recommendations are handled by
@@ -86,7 +86,7 @@ export async function showSummaryPanel(
 }
 
 /**
- * Show a review overview panel — reviewer, state, body, thread list.
+ * Show a review overview panel: reviewer, state, body, thread list.
  * Shown once before iterating that review's threads.
  * Returns true if user wants to proceed, false if cancelled.
  */
@@ -126,7 +126,7 @@ export async function showReviewOverviewPanel(
 					? firstComment.body.slice(0, 60).replace(/\n/g, " ")
 					: "";
 				const ellipsis = (firstComment?.body.length ?? 0) > 60 ? "…" : "";
-				lines.push(`  • ${t.file}:${t.line} — ${snippet}${ellipsis}`);
+				lines.push(`  • ${t.file}:${t.line}: ${snippet}${ellipsis}`);
 			}
 			lines.push("");
 

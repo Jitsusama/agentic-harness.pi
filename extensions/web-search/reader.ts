@@ -1,5 +1,5 @@
 /**
- * Page reader — fetches a URL with headless Chrome and extracts
+ * Page reader: fetches a URL with headless Chrome and extracts
  * readable content using Mozilla Readability.
  *
  * Cleans junk DOM elements before extraction, collapses whitespace
@@ -152,7 +152,7 @@ function stripJunk(doc: Document): void {
 			const els = doc.querySelectorAll(selector);
 			for (const el of els) el.remove();
 		} catch {
-			// Invalid selector on this page — skip
+			// Invalid selector on this page: skip
 		}
 	}
 }
@@ -261,11 +261,11 @@ export async function readPage(
 				title = article.title;
 				excerpt = article.excerpt || rawText.slice(0, 200);
 			} else {
-				// Readability couldn't parse — fall through to puppeteer
+				// Readability couldn't parse: fall through to puppeteer
 				throw new Error("Readability returned null");
 			}
 		} catch {
-			// JSDOM/Readability failed (e.g. CSS parsing errors) —
+			// JSDOM/Readability failed (e.g. CSS parsing errors);
 			// fall back to extracting text directly from the browser.
 			rawText = await page.evaluate(() => document.body?.innerText || "");
 			title = await page.title();
@@ -285,7 +285,7 @@ export async function readPage(
 		const filePath = saveToTemp(title, url, cleaned);
 		const inlineSummary =
 			cleaned.slice(0, INLINE_THRESHOLD) +
-			`\n\n[... ${totalLength - INLINE_THRESHOLD} more characters in ${filePath} — use read tool to explore]`;
+			`\n\n[... ${totalLength - INLINE_THRESHOLD} more characters in ${filePath}: use read tool to explore]`;
 
 		return {
 			title,

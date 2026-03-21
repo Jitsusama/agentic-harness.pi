@@ -1,5 +1,5 @@
 /**
- * PR Reply transitions — context injection and stale context
+ * PR Reply transitions: context injection and stale context
  * filtering. Provides the agent with awareness of the current
  * PR reply session when active.
  */

@@ -1,5 +1,5 @@
 /**
- * Implementation coordination — manage code changes that
+ * Implementation coordination: manage code changes that
  * address review feedback, with or without TDD.
  *
  * Tracks HEAD before implementation starts so we can find

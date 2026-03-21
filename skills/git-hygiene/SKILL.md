@@ -32,7 +32,7 @@ probably two commits.
 - Interactive rebase is fine for cleaning local history before push
 - Never force-push shared branches without discussion
 - Prefer `--force-with-lease` over `--force` when rewriting remote
-- Avoid WIP commits on shared branches — squash or amend locally
+- Avoid WIP commits on shared branches; squash or amend locally
 
 ## When Not to Commit
 

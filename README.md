@@ -1,8 +1,8 @@
 # agentic-harness.pi
 
 A [pi](https://github.com/badlogic/pi-mono) package that adds
-collaborative coding workflows — planning, TDD, git hygiene,
-code investigation, and PR authoring.
+collaborative coding workflows: planning, TDD, git hygiene,
+code investigation and PR authoring.
 
 ## Install
 
@@ -20,27 +20,27 @@ pi -e git:github.com/Jitsusama/agentic-harness.pi
 
 This package has two layers:
 
-**[Skills](skills/)** teach the agent *how* to work — planning
-methodology, TDD discipline, commit conventions, and so on. They're
+**[Skills](skills/)** teach the agent *how* to work: planning
+methodology, TDD discipline, commit conventions and so on. They're
 guidance the agent follows voluntarily when a task matches.
 
-**[Extensions](extensions/)** enforce *guardrails* — gating commits
+**[Extensions](extensions/)** enforce *guardrails*: gating commits
 for review, restricting tools in read-only mode, enforcing TDD
-phases, and vetting PR comments before they're posted.
+phases and vetting PR comments before they're posted.
 
 Skills and extensions complement each other but work independently.
 You can use skills without extensions (guidance only), extensions
 without skills (enforcement only), or both together for the full
-workflow. Some are paired — the skill teaches the methodology and
+workflow. Some are paired; the skill teaches the methodology and
 the extension enforces it. Each has its own README with details.
 
 ## Composability
 
 Every piece works independently. Mix and match:
 
-- **Skills only** — the agent follows guidance voluntarily
-- **Extensions only** — enforcement without any skills
-- **Both together** — plan → TDD → commit flows seamlessly
+- **Skills only**: the agent follows guidance voluntarily.
+- **Extensions only**: enforcement without any skills.
+- **Both together**: plan → TDD → commit flows seamlessly.
 
 Use [package filtering](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent#package-filtering)
 to load only what you want. For example, to use just the TDD
@@ -73,6 +73,6 @@ Commit scopes for this project: api, cli, core, db
 { "planDir": "docs/plans" }
 ```
 
-## License
+## Licence
 
 [MIT](LICENSE)

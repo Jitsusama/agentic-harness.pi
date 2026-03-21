@@ -1,5 +1,5 @@
 /**
- * Cookie injection — sets Chrome session cookies on a puppeteer
+ * Cookie injection: sets Chrome session cookies on a puppeteer
  * page before navigation. Bridges the cookie extraction and
  * browser domains.
  */
@@ -10,7 +10,7 @@ import { StaleKeyError } from "./setup.js";
 
 /**
  * Inject the user's Chrome session cookies for a URL into a
- * puppeteer page. Best-effort — if cookies can't be read (no
+ * puppeteer page. Best-effort: if cookies can't be read (no
  * Chrome profile, Keychain denied, etc.) we silently continue
  * without them.
  */
@@ -23,6 +23,6 @@ export async function injectCookies(page: Page, url: string): Promise<void> {
 	} catch (err) {
 		// Let stale key errors propagate so the user gets guidance
 		if (err instanceof StaleKeyError) throw err;
-		// Silent fallback for everything else — cookies are optional
+		// Silent fallback for everything else: cookies are optional
 	}
 }

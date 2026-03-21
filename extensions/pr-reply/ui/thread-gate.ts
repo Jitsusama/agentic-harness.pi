@@ -1,5 +1,5 @@
 /**
- * Thread gate — decision panel for a single review thread.
+ * Thread gate: decision panel for a single review thread.
  *
  * Shows the original comment, code context, LLM recommendation,
  * and full thread history. The user picks an action: implement,

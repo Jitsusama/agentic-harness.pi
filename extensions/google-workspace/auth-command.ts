@@ -147,7 +147,7 @@ async function extractEmailFromToken(
 		);
 		return tokenInfo.email;
 	} catch {
-		// Token info fetch failed — non-critical
+		// Token info fetch failed: non-critical
 		return undefined;
 	}
 }

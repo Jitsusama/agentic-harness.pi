@@ -45,7 +45,7 @@ export function buildHintBar(opts: HintBarOptions): string {
 	const { theme } = opts;
 	const hints: string[] = [];
 
-	// View hints — [K]eyword format, active view highlighted
+	// View hints: [K]eyword format, active view highlighted
 	const views = opts.views ?? [];
 	if (views.length > 1) {
 		const activeIdx = opts.activeViewIndex ?? 0;

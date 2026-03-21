@@ -1,5 +1,5 @@
 /**
- * Guardian domain types — the contract that all command guardians
+ * Guardian domain types: the contract that all command guardians
  * implement.
  *
  * A CommandGuardian detects, parses, and reviews bash commands.

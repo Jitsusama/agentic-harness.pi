@@ -1,5 +1,5 @@
 /**
- * Reply review panel — approve, reject, or steer a draft reply
+ * Reply review panel: approve, reject, or steer a draft reply
  * before posting it to GitHub.
  */
 

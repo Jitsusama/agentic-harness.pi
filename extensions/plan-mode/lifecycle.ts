@@ -1,5 +1,5 @@
 /**
- * Plan mode lifecycle — activate, deactivate, toggle, persist,
+ * Plan mode lifecycle: activate, deactivate, toggle, persist,
  * and restore.
  */
 
@@ -19,7 +19,7 @@ export function loadPlanDir(cwd: string): string {
 		const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
 		return settings.planDir ?? DEFAULT_PLAN_DIR;
 	} catch {
-		/* Settings file missing or malformed — use default */
+		/* Settings file missing or malformed: use default */
 		return DEFAULT_PLAN_DIR;
 	}
 }
@@ -35,7 +35,7 @@ export function updateStatus(state: PlanState, ctx: ExtensionContext): void {
 	);
 }
 
-/** Enter plan mode — restrict tools and persist state. */
+/** Enter plan mode: restrict tools and persist state. */
 export function activate(
 	state: PlanState,
 	pi: ExtensionAPI,
@@ -52,7 +52,7 @@ export function activate(
 	});
 }
 
-/** Exit plan mode — restore tools and persist state. */
+/** Exit plan mode: restore tools and persist state. */
 export function deactivate(
 	state: PlanState,
 	pi: ExtensionAPI,

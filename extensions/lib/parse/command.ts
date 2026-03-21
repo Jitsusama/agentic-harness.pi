@@ -1,6 +1,6 @@
 /**
- * Shell-level command parsing — flag extraction, heredoc parsing,
- * quoting, and compound command splitting.
+ * Shell-level command parsing: flag extraction, heredoc parsing,
+ * quoting and compound command splitting.
  *
  * These utilities work on raw bash command strings. They know
  * about shell syntax (quoting, heredocs, separators) but nothing

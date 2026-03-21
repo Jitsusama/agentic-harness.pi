@@ -1,5 +1,5 @@
 /**
- * Issue command parsing — extract title, body, and metadata from
+ * Issue command parsing: extract title, body, and metadata from
  * gh issue create / gh issue edit commands.
  *
  * Delegates common parsing to lib/parse. Keeps only

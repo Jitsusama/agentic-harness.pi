@@ -1,5 +1,5 @@
 /**
- * Plan mode transitions — agent_end gate, context injection,
+ * Plan mode transitions: agent_end gate, context injection,
  * and stale context filtering.
  */
 
@@ -64,7 +64,7 @@ export function buildPlanContext(state: PlanState) {
 		message: {
 			customType: "plan-mode-context",
 			content: [
-				"[PLAN MODE — read-only investigation]",
+				"[PLAN MODE: read-only investigation]",
 				"",
 				"Investigate the codebase, ask clarifying questions, and",
 				"collaborate toward an implementation plan. Do not modify",

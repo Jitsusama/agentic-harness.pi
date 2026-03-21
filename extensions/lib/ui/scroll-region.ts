@@ -1,6 +1,6 @@
 /**
- * ScrollRegion — content viewport with vertical and horizontal
- * scrolling, scrollbar rendering, and height budget management.
+ * ScrollRegion: content viewport with vertical and horizontal
+ * scrolling, scrollbar rendering and height budget management.
  *
  * Manages a viewport into content that may exceed the available
  * height. Shows a scrollbar column when content overflows.
@@ -134,7 +134,7 @@ export function contentBudget(chromeLines: number): number {
 }
 
 /**
- * Compute the content width — capped at MAX_CONTENT_WIDTH for
+ * Compute the content width: capped at MAX_CONTENT_WIDTH for
  * readability, with CONTENT_INDENT per side.
  */
 export function contentWidth(termWidth: number): number {

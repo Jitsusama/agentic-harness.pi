@@ -1,5 +1,5 @@
 /**
- * Plan context loading — find and read plan files relevant
+ * Plan context loading: find and read plan files relevant
  * to the current PR, using the same plan directory as plan-mode.
  */
 
@@ -17,7 +17,7 @@ export function loadPlanDir(cwd: string): string {
 		const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
 		return settings.planDir ?? DEFAULT_PLAN_DIR;
 	} catch {
-		/* Settings file missing or malformed — use default */
+		/* Settings file missing or malformed: use default */
 		return DEFAULT_PLAN_DIR;
 	}
 }
@@ -45,7 +45,7 @@ export function findPlanContext(cwd: string, keyword: string): string | null {
 			parts.push(content);
 			parts.push("");
 		} catch {
-			/* File not readable — skip */
+			/* File not readable: skip */
 		}
 	}
 
@@ -65,7 +65,7 @@ function findFilesMatching(dir: string, keyword: string): string[] {
 		try {
 			entries = fs.readdirSync(currentDir, { withFileTypes: true });
 		} catch {
-			/* Directory not readable — skip */
+			/* Directory not readable: skip */
 			return;
 		}
 
@@ -75,7 +75,7 @@ function findFilesMatching(dir: string, keyword: string): string[] {
 			if (entry.isDirectory()) {
 				// Recurse into subdirectories
 				if (entry.name.toLowerCase().includes(lowerKeyword)) {
-					// Directory name matches — include all files in it
+					// Directory name matches: include all files in it
 					collectAllFiles(fullPath, results);
 				} else {
 					walk(fullPath);
@@ -98,7 +98,7 @@ function collectAllFiles(dir: string, results: string[]) {
 	try {
 		entries = fs.readdirSync(dir, { withFileTypes: true });
 	} catch {
-		/* Directory not readable — skip */
+		/* Directory not readable: skip */
 		return;
 	}
 

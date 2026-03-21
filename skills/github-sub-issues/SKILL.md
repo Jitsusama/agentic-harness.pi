@@ -79,7 +79,7 @@ Or use the helper script:
 ./scripts/reorder-sub-issues.sh <parent-id> <sub-issue-id> [after-id]
 ```
 
-- `afterId` is optional — omit it to move the sub-issue to the top
+- `afterId` is optional; omit it to move the sub-issue to the top
 - For bulk reordering, iterate through the list and position each
   after the previous
 - Add 0.2–0.5 second delays between calls to avoid rate limiting

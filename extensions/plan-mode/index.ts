@@ -110,12 +110,12 @@ export default function planMode(pi: ExtensionAPI) {
 		promptGuidelines: [
 			"During planning, use plan_interview to ask clarifying questions instead of asking inline.",
 			"Loop: call plan_interview, process answers, call again with follow-up questions. Stop when you have no more questions and the user adds none.",
-			"Only include genuine questions — never include 'no questions' or 'skip' options. The tool has its own Done page.",
+			"Only include genuine questions: never include 'no questions' or 'skip' options. The tool has its own Done page.",
 		],
 		parameters: Type.Object({
 			questions: Type.Array(PlanQuestionSchema, {
 				description:
-					"Questions to ask. May be empty — the user can still add their own.",
+					"Questions to ask. May be empty: the user can still add their own.",
 			}),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -204,7 +204,7 @@ export default function planMode(pi: ExtensionAPI) {
 			}
 			if (d.satisfied) {
 				return new Text(
-					theme.fg("success", "✓ No questions — proceeding"),
+					theme.fg("success", "✓ No questions: proceeding"),
 					0,
 					0,
 				);

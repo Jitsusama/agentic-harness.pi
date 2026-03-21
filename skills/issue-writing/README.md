@@ -14,4 +14,4 @@ CLI heredoc format that avoids character escaping problems.
 
 The **issue-guardian** extension enforces a review gate on
 `gh issue create` and `gh issue edit` commands, letting you
-approve, edit, steer, or reject before execution.
+approve, edit, steer or reject before execution.

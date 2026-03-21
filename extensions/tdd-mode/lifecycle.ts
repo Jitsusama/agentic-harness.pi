@@ -1,6 +1,6 @@
 /**
- * TDD mode lifecycle — activate, deactivate, toggle, phase
- * advancement, persist, and restore.
+ * TDD mode lifecycle: activate, deactivate, toggle, phase
+ * advancement, persist and restore.
  */
 
 import type {
@@ -58,7 +58,7 @@ export function persist(state: TddState, pi: ExtensionAPI): void {
 	});
 }
 
-/** Enter TDD mode — reset to RED phase, cycle 1. */
+/** Enter TDD mode: reset to RED phase, cycle 1. */
 export function activate(
 	state: TddState,
 	pi: ExtensionAPI,

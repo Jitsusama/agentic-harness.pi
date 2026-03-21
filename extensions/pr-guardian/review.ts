@@ -1,5 +1,5 @@
 /**
- * PR guardian — detects gh pr create/edit commands, parses
+ * PR guardian: detects gh pr create/edit commands, parses
  * title and body, and presents them for review with markdown
  * rendering.
  */

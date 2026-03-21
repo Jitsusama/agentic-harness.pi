@@ -1,5 +1,5 @@
 /**
- * Commit guardian review — presents the commit message for
+ * Commit guardian review: presents the commit message for
  * approval with validation indicators and hold-to-reveal
  * steer annotations.
  */
@@ -63,7 +63,7 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 
 		if (result.type === "action") {
 			if (result.value === "a") {
-				// Approve — if the user added a note, treat as steer
+				// Approve: if the user added a note, treat as steer
 				if (result.note) {
 					return formatSteer(
 						result.note,
@@ -73,7 +73,7 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 				return undefined;
 			}
 
-			// Reject — if there's a note, include it
+			// Reject: if there's a note, include it
 			if (result.note) {
 				return formatSteer(result.note, `Original commit:\n${parsed.message}`);
 			}

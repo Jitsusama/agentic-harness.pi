@@ -1,7 +1,7 @@
 /**
- * PR Reply workspace — navigation surface for reviewer tabs.
+ * PR Reply workspace: navigation surface for reviewer tabs.
  *
- * The workspace is for BROWSING threads — seeing the big picture,
+ * The workspace is for BROWSING threads: seeing the big picture,
  * checking status, picking what to work on next. When the user
  * selects a thread (Enter), the workspace dismisses and returns
  * the thread ID so the handler can open a full-context gate.
@@ -54,7 +54,7 @@ const THREAD_GLYPH_COLOR: Record<ThreadState, string> = {
 
 // ---- Result types ----
 
-/** Result from the workspace — which action the user chose. */
+/** Result from the workspace: which action the user chose. */
 export type WorkspaceAction =
 	| { action: "open"; threadId: string }
 	| { action: "skip"; threadId: string }
@@ -217,7 +217,7 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 							? "success"
 							: "accent";
 				lines.push(
-					`${pad}${theme.fg(stateColor, review.state)} ${review.author} — ${reviewThreads.length} thread${reviewThreads.length !== 1 ? "s" : ""} (${reviewPending} pending)`,
+					`${pad}${theme.fg(stateColor, review.state)} ${review.author}: ${reviewThreads.length} thread${reviewThreads.length !== 1 ? "s" : ""} (${reviewPending} pending)`,
 				);
 			}
 
@@ -231,7 +231,7 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 // ---- Reviewer tabs ----
 
 /**
- * Build a reviewer tab — single view with reviewer header,
+ * Build a reviewer tab: single view with reviewer header,
  * review body, and navigable thread list. Enter on a thread
  * opens the full-context gate.
  */
@@ -316,7 +316,7 @@ function buildReviewerTab(
 
 			setActionThread(thread.id);
 
-			// Enter — open the full-context gate
+			// Enter: open the full-context gate
 			if (matchesKey(data, Key.enter) || matchesKey(data, "e")) {
 				inputCtx.done({ type: "action", value: "e" });
 				return true;
@@ -367,7 +367,7 @@ function buildReviewerTab(
 
 /**
  * Render a compact thread list for navigation.
- * Shows file:line, status, and recommendation — no expanded views.
+ * Shows file:line, status, and recommendation: no expanded views.
  * The full context is shown in the gate when the user enters a thread.
  */
 function renderThreadList(

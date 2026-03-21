@@ -1,5 +1,5 @@
 /**
- * PR Review action handlers — thin functions that guard,
+ * PR Review action handlers: thin functions that guard,
  * operate, and return briefings.
  *
  * Each handler receives a HandlerDeps bundle. The index.ts
@@ -89,7 +89,7 @@ async function ensureContext(
 		session.context = crawlResult;
 		return true;
 	} catch {
-		/* Re-crawl failed — context unavailable */
+		/* Re-crawl failed: context unavailable */
 		return false;
 	}
 }
@@ -276,7 +276,7 @@ export async function handleActivate(
 		return textResult(
 			`PR #${ref.number} belongs to ${ref.owner}/${ref.repo}, which is a different repository. ` +
 				`A new terminal tab has been opened at ${repoResult.repoPath} with a pi session ` +
-				"handling the review. Do NOT call pr_review again in this session — " +
+				"handling the review. Do NOT call pr_review again in this session: " +
 				"the new tab has all the context it needs. This task is complete.",
 		);
 	}
@@ -602,7 +602,7 @@ export function handleAddComment(
 			{
 				type: "text" as const,
 				text:
-					`Comment added: ${reviewComment.label}${decorStr} — ` +
+					`Comment added: ${reviewComment.label}${decorStr}: ` +
 					`${reviewComment.subject}\n` +
 					`Total: ${state.session.comments.length} comments.`,
 			},
@@ -762,7 +762,7 @@ export async function handlePost(deps: HandlerDeps) {
 
 	if (stats.pending > 0) {
 		return textResult(
-			`${stats.pending} comment${stats.pending !== 1 ? "s are" : " is"} still pending — ` +
+			`${stats.pending} comment${stats.pending !== 1 ? "s are" : " is"} still pending: ` +
 				"review all comments before posting.",
 		);
 	}
@@ -864,7 +864,7 @@ export async function handleDeactivate(
 		try {
 			await removeWorktree(pi, prNum);
 		} catch {
-			/* Worktree cleanup failed — not fatal */
+			/* Worktree cleanup failed: not fatal */
 		}
 	}
 

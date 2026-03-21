@@ -1,5 +1,5 @@
 /**
- * LLM briefings — pure functions that build markdown text
+ * LLM briefings: pure functions that build markdown text
  * for the agent to reason about.
  *
  * Each function takes review data and returns a string.
@@ -20,7 +20,7 @@ const MAX_ISSUE_COMMENTS = 5;
 // ---- Activation briefing ----
 
 /**
- * Build the activation briefing — comprehensive context for
+ * Build the activation briefing: comprehensive context for
  * the agent to analyze and generate comments.
  */
 export function briefActivation(session: ReviewSession): string {
@@ -76,7 +76,7 @@ export function briefActivation(session: ReviewSession): string {
 			}
 			if (issue.parentIssue) {
 				parts.push(
-					`Parent: #${issue.parentIssue.number} — ${issue.parentIssue.title}`,
+					`Parent: #${issue.parentIssue.number}: ${issue.parentIssue.title}`,
 				);
 			}
 			if (issue.subIssues.length > 0) {
@@ -96,21 +96,21 @@ export function briefActivation(session: ReviewSession): string {
 		parts.push("");
 	}
 
-	// References — include URLs so the agent can match them for summaries
+	// References: include URLs so the agent can match them for summaries
 	if (context.references.length > 0) {
 		parts.push("### References");
 		parts.push(
 			"Provide a `reference_summaries` entry for each with a one-sentence summary.",
 		);
 		for (const r of context.references) {
-			parts.push(`- ${r.title} — ${r.url}`);
+			parts.push(`- ${r.title}: ${r.url}`);
 		}
 		parts.push("");
 	}
 
 	if (context.hitDepthLimit) {
 		parts.push(
-			"⚠️ **Crawl depth limit reached** — some references were not followed.",
+			"⚠️ **Crawl depth limit reached**: some references were not followed.",
 		);
 		parts.push("");
 	}
@@ -139,23 +139,23 @@ export function briefActivation(session: ReviewSession): string {
 	);
 	parts.push("");
 	parts.push(
-		"1. **`synopsis`** — a conversational, approachable summary for a human reviewer. " +
+		"1. **`synopsis`**: a conversational, approachable summary for a human reviewer. " +
 			"Lead with the motivation (what problem or need), then explain the approach. " +
-			"Write like you're catching up a teammate — not a commit message or changelog entry. " +
+			"Write like you're catching up a teammate: not a commit message or changelog entry. " +
 			"Avoid listing every file or change mechanically.",
 	);
 	parts.push(
-		"2. **`scope_analysis`** — markdown assessment of scope quality (focused? too broad? well-organized?)",
+		"2. **`scope_analysis`**: markdown assessment of scope quality (focused? too broad? well-organized?)",
 	);
 	parts.push(
-		"3. **`source_roles`** — for each source file, one sentence explaining why it's relevant",
+		"3. **`source_roles`**: for each source file, one sentence explaining why it's relevant",
 	);
 	parts.push(
-		"4. **`reference_summaries`** — for each discovered reference, a one-sentence " +
+		"4. **`reference_summaries`**: for each discovered reference, a one-sentence " +
 			"plain-language summary of what it is and why it matters to this PR",
 	);
 	parts.push(
-		"5. **`comments`** — structured review comments using conventional-comments format:",
+		"5. **`comments`**: structured review comments using conventional-comments format:",
 	);
 	parts.push("   - Categorize as `file`, `title`, or `scope`");
 	parts.push(
@@ -170,7 +170,7 @@ export function briefActivation(session: ReviewSession): string {
 	);
 	parts.push("   - `file` comments: code quality, tests, implementation");
 	parts.push(
-		"   - Write comments as a human reviewer — never mention tools " +
+		"   - Write comments as a human reviewer: never mention tools " +
 			"(rg, read, bash) or your investigation process in comment text",
 	);
 	parts.push("");
@@ -218,7 +218,7 @@ function appendDiff(parts: string[], context: CrawlResult): void {
 		parts.push("```");
 	} else {
 		parts.push(
-			`_Diff is ${context.diff.length} characters — showing first ${MAX_DIFF_CHARS}. ` +
+			`_Diff is ${context.diff.length} characters: showing first ${MAX_DIFF_CHARS}. ` +
 				"Read individual files for full content._",
 		);
 		parts.push("```diff");

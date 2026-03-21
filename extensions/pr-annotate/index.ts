@@ -42,7 +42,7 @@ const CommentSchema = Type.Object({
 	),
 	preApproved: Type.Optional(
 		Type.Boolean({
-			description: "If true, skip vetting — already approved in a prior round",
+			description: "If true, skip vetting: already approved in a prior round",
 		}),
 	),
 });
@@ -62,7 +62,7 @@ const PrReviewParams = Type.Object({
 	),
 	comments: Type.Array(CommentSchema, {
 		description:
-			"Candidate review comments. May be empty if nothing warrants attention — the user can still add their own.",
+			"Candidate review comments. May be empty if nothing warrants attention: the user can still add their own.",
 	}),
 });
 
@@ -85,7 +85,7 @@ export interface VetResult {
 
 function formatCommentRef(c: ReviewComment): string {
 	const range = c.startLine ? `${c.startLine}-${c.line}` : `${c.line}`;
-	return `- ${c.path}:${range} — ${c.body}`;
+	return `- ${c.path}:${range}: ${c.body}`;
 }
 
 /** Fetch and parse the PR diff for workspace context. */
@@ -104,7 +104,7 @@ async function fetchPRDiff(pi: ExtensionAPI, pr: number, repo?: string) {
 		const diff = await fetchDiff(pi, ref);
 		return parseDiff(diff);
 	} catch {
-		/* Diff fetch failed — workspace will show without diff context */
+		/* Diff fetch failed: workspace will show without diff context */
 		return [];
 	}
 }
@@ -117,22 +117,22 @@ export default function prAnnotate(pi: ExtensionAPI) {
 			"Propose self-review comments on a pull request for the user to vet before posting. " +
 			"Call this as part of PR creation to flag areas of possible contention, deviations " +
 			"from what was originally asked, scope questions, or design decisions worth reviewer input. " +
-			"The comments array may be empty if nothing warrants attention — the user can still add their own.",
+			"The comments array may be empty if nothing warrants attention: the user can still add their own.",
 		promptGuidelines: [
 			"Call `pr_annotate` after creating a PR to propose self-review comments.",
 			"Focus on: design decisions worth explaining, assumptions that need validation, " +
 				"scope boundaries reviewers should weigh in on, and deviations from the original plan.",
 			"Do NOT flag: style issues, obvious code, or things the diff already makes clear.",
-			"The rationale field is for the user only — explain why you think this is worth flagging.",
+			"The rationale field is for the user only: explain why you think this is worth flagging.",
 			"It is fine to pass an empty comments array if nothing warrants reviewer attention.",
-			"The body field is a brief summary for the review itself — it appears as the review header in GitHub.",
+			"The body field is a brief summary for the review itself: it appears as the review header in GitHub.",
 			"If the tool returns user requests, resolve each into a structured comment (path, line, body) " +
 				"and call pr_annotate again with the previously approved comments plus the new ones.",
-			"If posting fails, the approved comments are returned — fix the issue and retry with the same comments.",
-			"Be concise in your review comment body — explain why you think this is worth flagging.",
-			"The line range is the most important part of a review comment — it frames what the reviewer " +
+			"If posting fails, the approved comments are returned: fix the issue and retry with the same comments.",
+			"Be concise in your review comment body: explain why you think this is worth flagging.",
+			"The line range is the most important part of a review comment: it frames what the reviewer " +
 				"sees before they read a word. Read your comment body, identify the specific code it " +
-				"discusses, and select exactly those lines. A comment about validation logic must highlight " +
+				"discusses and select exactly those lines. A comment about validation logic must highlight " +
 				"the validation code, not the function signature above it.",
 			"Scope the range tightly: a naming concern → single declaration line; a logic concern → the " +
 				"conditional block; a design decision → the function or type embodying it. Don't select " +
@@ -213,7 +213,7 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				};
 			}
 
-			// User requested additional comments — return for LLM resolution
+			// User requested additional comments: return for LLM resolution
 			if (result.userRequests.length > 0) {
 				const requests = result.userRequests
 					.map((r, i) => `${i + 1}. ${r}`)

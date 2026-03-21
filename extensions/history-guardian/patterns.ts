@@ -14,12 +14,12 @@ export interface DestructivePattern {
 }
 
 export const DESTRUCTIVE_PATTERNS: DestructivePattern[] = [
-	// Risky — recoverable via reflog or other means
+	// Risky: recoverable via reflog or other means
 	{
 		pattern: /\bgit\s+push\b[^|;]*--force-with-lease\b/,
 		severity: "risky",
 		description:
-			"Force push with lease — safer than --force but still rewrites remote history.",
+			"Force push with lease: safer than --force but still rewrites remote history.",
 	},
 	{
 		pattern: /\bgit\s+stash\s+drop\b/,
@@ -33,7 +33,7 @@ export const DESTRUCTIVE_PATTERNS: DestructivePattern[] = [
 		description: "Rewrites commit history. Recoverable via git reflog.",
 	},
 
-	// Irrecoverable — data loss likely
+	// Irrecoverable: data loss likely
 	{
 		pattern: /\bgit\s+reset\s+--hard\b/,
 		severity: "irrecoverable",
@@ -48,7 +48,7 @@ export const DESTRUCTIVE_PATTERNS: DestructivePattern[] = [
 		pattern: /\bgit\s+push\b[^|;]*(?:--force\b|-f\b)/,
 		severity: "irrecoverable",
 		description:
-			"Force push overwrites remote history — commits may be permanently lost.",
+			"Force push overwrites remote history: commits may be permanently lost.",
 	},
 	{
 		pattern: /\bgit\s+branch\s+-D\b/,

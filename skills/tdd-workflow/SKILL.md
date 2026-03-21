@@ -10,40 +10,40 @@ description: >
 
 ## The Cycle
 
-### 1. Red — Write a Failing Test
+### 1. Red: Write a Failing Test
 
-Write a test that describes the desired behavior. Run it. It must
+Write a test that describes the desired behaviour. Run it. It must
 fail. The failure must be because the functionality doesn't exist
-yet — not because of a syntax error, missing import, or broken
+yet, not because of a syntax error, missing import or broken
 test infrastructure.
 
 **Validate the failure reason.** If the test fails for the wrong
 reason (e.g., `TypeError: X is not a function`), stub out just
 enough skeleton code to get a "real" failure:
 
-- Create the class/module/function with an empty or minimal body
-- Return null, undefined, or a zero value
-- Re-run — the test should now fail on an assertion, not an error
+- Create the class/module/function with an empty or minimal body.
+- Return null, undefined or a zero value.
+- Re-run; the test should now fail on an assertion, not an error.
 
-### 2. Green — Make It Pass
+### 2. Green: Make It Pass
 
 Write the minimum code to make the test pass. No more.
 
-- Don't anticipate future needs
-- Don't add code for cases that aren't tested yet
-- Don't optimize — just make it work
+- Don't anticipate future needs.
+- Don't add code for cases that aren't tested yet.
+- Don't optimize; just make it work.
 
 Run the tests. They must pass.
 
 ### 3. Refactor
 
 With green tests as your safety net, improve the design.
-Call `tdd_refactor` with your suggestions — only real
+Call `tdd_refactor` with your suggestions: only real
 refactoring opportunities, not "skip" or "no changes"
 options. The tool has its own Done page for that.
 
 The tool presents a tabbed review where the user can
-approve, reject, or add their own. Apply what gets
+approve, reject or add their own. Apply what gets
 approved, run tests, then call `tdd_refactor` again
 with new suggestions (or empty if you see nothing more).
 Keep looping until the user selects nothing. Only then
@@ -52,33 +52,33 @@ signal `done`.
 ## Test Ordering
 
 Within a test file, order tests from most expected to least
-expected behavior:
+expected behaviour:
 
-1. **Happy path** — the primary success case
-2. **Alternate outcomes** — other valid paths through the code
-   (e.g., empty results, failed upstream query — these are
-   expected scenarios with different outcomes, not errors)
-3. **Edge cases** — boundary conditions, zero/one/many, nil
-4. **Error cases** — invalid inputs, unsupported types,
-   exceptions that indicate a bug or misconfiguration
+1. **Happy path**: the primary success case.
+2. **Alternate outcomes**: other valid paths through the code
+   (e.g., empty results, failed upstream query; these are
+   expected scenarios with different outcomes, not errors).
+3. **Edge cases**: boundary conditions, zero/one/many, nil.
+4. **Error cases**: invalid inputs, unsupported types,
+   exceptions that indicate a bug or misconfiguration.
 
 When adding a new test in a later TDD cycle, place it in the
-right position according to this ordering — not just appended
+right position according to this ordering, not just appended
 to the end.
 
 ## After Refactor: Commit
 
 Each red-green-refactor cycle produces one atomic commit. The test
-and implementation go together — they're one unit of work.
+and implementation go together; they're one unit of work.
 
 ## Test Discovery
 
 Figure out how to run tests from project context:
 
-- Check AGENTS.md or project documentation
+- Check AGENTS.md or project documentation.
 - Look at package.json scripts, Makefile, Cargo.toml, etc.
-- Look at existing test files for patterns and conventions
-- If unclear, ask the user
+- Look at existing test files for patterns and conventions.
+- If unclear, ask the user.
 
 ## Test File Conventions
 
@@ -86,7 +86,7 @@ Infer what counts as a test file from the project:
 
 - Files matching `*test*`, `*spec*`, `*_test.*`
 - Directories named `__tests__/`, `tests/`, `test/`, `spec/`
-- Follow whatever convention the project already uses
+- Follow whatever convention the project already uses.
 
 If you can't determine the convention, ask.
 
@@ -98,21 +98,21 @@ enforcement stay in sync with what you are doing.
 
 ### When to Signal
 
-- **start** — when the user wants TDD or a plan specifies it.
+- **start**: when the user wants TDD or a plan specifies it.
   Confirm with the user before activating. Describe the first
   test in the `context` parameter.
-- **red** — at the start of each new test within an active TDD
-  session. Describe what specific behavior is being tested in
+- **red**: at the start of each new test within an active TDD
+  session. Describe what specific behaviour is being tested in
   the `context` parameter.
-- **green** — when the test fails for the right reason (an
+- **green**: when the test fails for the right reason (an
   assertion failure, not a syntax or import error). You are
   now clear to write implementation.
-- **refactor** — when tests pass with minimum implementation.
-  Restructure for clarity without changing behavior.
-- **done** — when refactoring is complete. This advances to the
+- **refactor**: when tests pass with minimum implementation.
+  Restructure for clarity without changing behaviour.
+- **done**: when refactoring is complete. This advances to the
   next cycle. If you know the next test, describe it in
   `context`.
-- **stop** — when the user redirects away from TDD or when
+- **stop**: when the user redirects away from TDD or when
   all planned tests are complete.
 
 ### Summary Parameter
@@ -121,7 +121,7 @@ Every phase transition (except `start`) shows a confirmation
 gate to the user. Always provide a `summary` describing what
 was accomplished in the current phase. Be specific:
 
-- **red → green**: Include the test failure output — the
+- **red → green**: Include the test failure output: the
   assertion message and what it expected vs. got. The user
   needs to see that the test fails for the right reason.
 - **green → refactor**: Include the test pass confirmation
@@ -133,8 +133,8 @@ was accomplished in the current phase. Be specific:
 
 Focus on a single test per cycle. Even if you can see multiple
 tests that need writing, describe and implement one at a time.
-The `context` parameter should name the specific behavior under
-test — this is displayed to the user so they know what you are
+The `context` parameter should name the specific behaviour under
+test; this is displayed to the user so they know what you are
 working on.
 
 ### Leaving TDD

@@ -2,7 +2,7 @@
 name: extension-development
 description: >
   How to develop Pi extensions. Discovery workflow for TUI
-  components, available APIs, composition patterns, and common
+  components, available APIs, composition patterns and common
   mistakes. Use when building or modifying extensions.
 ---
 
@@ -33,7 +33,7 @@ Before building any UI, follow this sequence:
 5. **Browse Pi's examples** for working implementations:
    `/nix/store/hzcf5vfkr9cln378lzy5dfy39jin26p6-pi-coding-agent-0.58.1/lib/node_modules/pi-monorepo/examples/extensions/`
 
-## What's Available (orientation only — verify against source)
+## What's Available (Orientation Only; Verify Against Source)
 
 **From `@mariozechner/pi-tui`:**
 
@@ -63,7 +63,7 @@ Before building any UI, follow this sequence:
 | Full-width border line | `DynamicBorder` |
 | Bordered spinner with cancel | `BorderedLoader` |
 | Custom editor with app keybindings | `CustomEditor` |
-| Colored diff output | `renderDiff` |
+| Coloured diff output | `renderDiff` |
 | Syntax highlighting | `highlightCode`, `getLanguageFromPath` |
 | Pre-built themes for components | `getMarkdownTheme`, `getSelectListTheme`, `getEditorTheme`, `getSettingsListTheme` |
 | Keybinding hint formatting | `keyHint`, `appKeyHint`, `rawKeyHint` |
@@ -106,14 +106,14 @@ Before building any UI, follow this sequence:
 These are design decisions in Pi that aren't obvious from the
 type signatures. They cause real bugs when missed.
 
-### Each render line must be ≤ width
+### Each Render Line Must Be ≤ Width
 
 `render(width)` must return lines no wider than `width` visible
 characters. Use `truncateToWidth()` on every line. ANSI escape
 codes don't count toward width, but wide characters (CJK, emoji)
 count as 2.
 
-### Always use theme from the callback
+### Always Use Theme from the Callback
 
 Never import `theme` directly. Pi's module caching means the
 global `theme` may be undefined in extension code loaded via
@@ -122,48 +122,48 @@ jiti. Always use the `theme` parameter from:
 - `renderCall(args, theme)`
 - `renderResult(result, options, theme)`
 
-### Type the DynamicBorder color parameter
+### Type the DynamicBorder Colour Parameter
 
 ```typescript
-// Correct — explicit type annotation
+// Correct: explicit type annotation
 new DynamicBorder((s: string) => theme.fg("accent", s))
 
-// Wrong — jiti inference fails
+// Wrong: jiti inference fails
 new DynamicBorder((s) => theme.fg("accent", s))
 ```
 
-### Call tui.requestRender() after state changes
+### Call tui.requestRender() After State Changes
 
 The TUI does not auto-render. After modifying state in
 `handleInput`, call `tui.requestRender()` to trigger a redraw.
 
-### Implement invalidate() for theme changes
+### Implement invalidate() for Theme Changes
 
 When the theme changes, TUI calls `invalidate()` on all
-components. If you bake theme colors into cached strings
+components. If you bake theme colours into cached strings
 (via `theme.fg()`, `theme.bg()`), you must rebuild them in
 `invalidate()`. See the "Rebuild on Invalidate" pattern in
 Pi's `tui.md`.
 
-### Overlay components are disposable
+### Overlay Components Are Disposable
 
-Create fresh instances each time — never reuse a reference
+Create fresh instances each time; never reuse a reference
 after the overlay closes. The component is disposed on close.
 
-### Propagate Focusable for IME support
+### Propagate Focusable for IME Support
 
 Container components that embed `Input` or `Editor` must
 implement the `Focusable` interface and propagate the `focused`
 property to the child. Otherwise IME candidate windows (CJK
 input) appear in the wrong position.
 
-### Text(content, 0, 0) inside Box
+### Text(content, 0, 0) Inside Box
 
 When placing `Text` inside a `Box`, use 0,0 padding on the
 `Text`. The `Box` handles padding. Double-padding is a common
 mistake.
 
-### Dialogs support timeout and signal
+### Dialogs Support Timeout and Signal
 
 All dialog methods (`select`, `confirm`, `input`) accept an
 options object with `timeout` (auto-dismiss with countdown)

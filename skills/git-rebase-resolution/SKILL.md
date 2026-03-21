@@ -2,7 +2,7 @@
 name: git-rebase-resolution
 description: >
   Resolving rebase conflicts with design intent preservation.
-  Use when rebasing, resolving merge conflicts, or discussing
+  Use when rebasing, resolving merge conflicts or discussing
   conflict resolution strategy.
 ---
 
@@ -22,28 +22,28 @@ For every conflict, ask:
 
 ## Conflict Types
 
-**Same problem, different solutions** — both sides fixed the
+**Same problem, different solutions**: both sides fixed the
 same thing differently. Combine the best aspects of each.
 
-**Parallel features** — both sides added different capabilities
+**Parallel features**: both sides added different capabilities
 to the same area. Accommodate both.
 
-**Architectural divergence** — one side refactored while the
+**Architectural divergence**: one side refactored while the
 other added features. Adapt the features to the new structure.
 
-**Performance vs capability** — one side optimized, the other
+**Performance vs capability**: one side optimized, the other
 extended. Preserve the features within the performance gains.
 
 ## Resolution Principles
 
-- **Architecture wins over implementation** — if the target
+- **Architecture wins over implementation**: if the target
   branch has better structure, adapt to it. Don't preserve
   bad patterns just because they work.
-- **Features are sacred** — never silently lose functionality.
+- **Features are sacred**: never silently lose functionality.
   Find a new home for features in the evolved architecture.
-- **Consistency trumps cleverness** — follow the patterns
+- **Consistency trumps cleverness**: follow the patterns
   already established. Don't introduce new ones mid-rebase.
-- **Quality over speed** — choose the better design, not the
+- **Quality over speed**: choose the better design, not the
   easier merge.
 
 ## Verification
@@ -59,14 +59,14 @@ until everything passes.
 
 ## Pushing
 
-- Always use `--force-with-lease`, never `--force`
-- Show the final state before pushing — the user confirms
+- Always use `--force-with-lease`, never `--force`.
+- Show the final state before pushing; the user confirms.
 - If tests fail after rebase, abort and reassess rather than
-  pushing broken code
+  pushing broken code.
 
 ## When to Abort
 
-- The same conflict keeps recurring after resolution
-- Test failures indicate fundamental incompatibility
-- The commits need reordering (requires a different approach)
-- A conflict is too complex to resolve cleanly — discuss first
+- The same conflict keeps recurring after resolution.
+- Test failures indicate fundamental incompatibility.
+- The commits need reordering (requires a different approach).
+- A conflict is too complex to resolve cleanly; discuss first.

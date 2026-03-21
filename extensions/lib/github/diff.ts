@@ -1,5 +1,5 @@
 /**
- * Diff fetching and parsing — fetch unified diffs from GitHub
+ * Diff fetching and parsing: fetch unified diffs from GitHub
  * and parse them into structured per-file data.
  *
  * Used by pr-review for its workspace diff views and by

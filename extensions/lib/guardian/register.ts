@@ -1,5 +1,5 @@
 /**
- * Guardian registration — wires a CommandGuardian into Pi's
+ * Guardian registration: wires a CommandGuardian into Pi's
  * tool_call event system.
  *
  * This is the single place in the codebase where command

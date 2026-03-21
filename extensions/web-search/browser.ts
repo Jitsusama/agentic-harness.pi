@@ -1,6 +1,6 @@
 /**
- * Browser lifecycle — launch Chrome once, reuse across tool calls.
- * Pure Chrome management — no cookie knowledge.
+ * Browser lifecycle: launch Chrome once, reuse across tool calls.
+ * Pure Chrome management: no cookie knowledge.
  */
 
 import * as fs from "node:fs";
@@ -21,7 +21,7 @@ function findChrome(): string {
 		try {
 			if (fs.existsSync(p)) return p;
 		} catch {
-			// Chrome not installed at this path — try next
+			// Chrome not installed at this path: try next
 		}
 	}
 	throw new Error(

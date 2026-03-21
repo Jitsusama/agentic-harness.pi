@@ -1,6 +1,6 @@
 # PR Writing Skill
 
-Teaches the agent pull request structure, narrative, and review
+Teaches the agent pull request structure, narrative and review
 guidance.
 
 Activates when creating pull requests, writing PR descriptions,

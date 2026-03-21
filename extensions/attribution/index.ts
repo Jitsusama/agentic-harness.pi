@@ -22,7 +22,7 @@ import { injectCommitAttribution, injectGhAttribution } from "./attribution.js";
 export default function attributionExtension(pi: ExtensionAPI) {
 	pi.registerFlag("no-attribution", {
 		description:
-			"Disable AI co-authorship attribution on commits, PRs, and issues",
+			"Disable AI co-authorship attribution on commits, PRs and issues",
 		type: "boolean",
 		default: false,
 	});

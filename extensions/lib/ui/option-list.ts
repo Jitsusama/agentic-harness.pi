@@ -1,15 +1,15 @@
 /**
- * OptionList — numbered vertical option list with cursor and
+ * OptionList: numbered vertical option list with cursor and
  * on-select descriptions.
  *
  * Descriptions are shown only for the currently selected item
- * (in dim color) — progressive disclosure to save vertical space.
+ * (in dim colour): progressive disclosure to save vertical space.
  * Number keys provide direct selection.
  *
- *     1. Big bang — rewrite all extensions
- *   ▸ 2. Incremental — replace layers gradually
+ *     1. Big bang: rewrite all extensions
+ *   ▸ 2. Incremental: replace layers gradually
  *        Start with lowest layer, work up.        ← dim
- *     3. By extension — port one at a time
+ *     3. By extension: port one at a time
  */
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
@@ -56,7 +56,7 @@ export function renderOptionList(
 
 		// Show description only for the selected item
 		if (isSelected && opt.description) {
-			// prefix has ANSI codes — use fixed visible width (3 chars) + number
+			// prefix has ANSI codes: use fixed visible width (3 chars) + number
 			const indent = " ".repeat(3 + number.length);
 			lines.push(
 				truncateToWidth(`${indent}${theme.fg("dim", opt.description)}`),

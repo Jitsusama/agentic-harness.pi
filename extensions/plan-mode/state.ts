@@ -1,5 +1,5 @@
 /**
- * Plan mode state — shape, defaults, and constants.
+ * Plan mode state: shape, defaults, and constants.
  */
 
 /** Runtime state for plan mode. */
@@ -26,7 +26,7 @@ export const PLAN_TOOLS = [
 	"plan_interview",
 ];
 
-/** Git-mutating bash commands — blocked in plan mode. */
+/** Git-mutating bash commands: blocked in plan mode. */
 export const GIT_MUTATING =
 	/\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|stash|cherry-pick|revert|tag)\b/i;
 

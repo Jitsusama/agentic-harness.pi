@@ -1,6 +1,6 @@
 /**
- * GitHub CLI command parsing — detection, entity number extraction,
- * multi-value flag extraction, and command rebuilding for gh
+ * GitHub CLI command parsing: detection, entity number extraction,
+ * multi-value flag extraction and command rebuilding for gh
  * pr/issue create/edit commands.
  *
  * Depends on shell-level primitives from ./command.ts for quoting.

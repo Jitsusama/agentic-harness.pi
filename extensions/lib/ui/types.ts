@@ -1,5 +1,5 @@
 /**
- * Component library types — the public API surface for the
+ * Component library types: the public API surface for the
  * prompt/view system.
  *
  * Two interaction patterns:
@@ -15,7 +15,7 @@ import type { Theme } from "@mariozechner/pi-coding-agent";
 
 // ---- Glyphs ----
 
-/** Semantic glyphs — roguelike-inspired geometric set. */
+/** Semantic glyphs: roguelike-inspired geometric set. */
 export const GLYPH = {
 	/** Active cursor / current selection. */
 	cursor: "▸",
@@ -55,17 +55,17 @@ export type ContentFn = (theme: Theme, width: number) => string[];
 /** Async content rendering function (for lazy loading). */
 export type AsyncContentFn = (theme: Theme, width: number) => Promise<string[]>;
 
-// ---- Actions (Type A — key-hint bar) ----
+// ---- Actions (Type A: key-hint bar) ----
 
 /** A fixed action shown in the action bar. */
 export interface Action {
-	/** Single lowercase letter — the keyboard shortcut AND the return value. */
+	/** Single lowercase letter: the keyboard shortcut AND the return value. */
 	key: string;
-	/** Display label. The key letter is highlighted in accent color. */
+	/** Display label. The key letter is highlighted in accent colour. */
 	label: string;
 }
 
-// ---- Options (Type B — numbered list) ----
+// ---- Options (Type B: numbered list) ----
 
 /** A dynamic option shown in a numbered list. */
 export interface Option {
@@ -101,7 +101,7 @@ export type PromptResult =
 	  }
 	| {
 			type: "steer";
-			/** The steer note — always present. */
+			/** The steer note: always present. */
 			note: string;
 	  };
 
@@ -123,7 +123,7 @@ export type TabStatus = "pending" | "complete" | "rejected" | "active";
 
 /** A named content view within a tab. */
 export interface PromptView {
-	/** Single lowercase letter — the keyboard shortcut to activate this view. */
+	/** Single lowercase letter: the keyboard shortcut to activate this view. */
 	key: string;
 	/** Display label shown in the hint bar (e.g., "Diff", "File"). */
 	label: string;
@@ -202,7 +202,7 @@ export interface ViewConfig {
 
 // ---- Layout Constants ----
 
-/** Panel height mode — controls what fraction of the terminal panels can occupy. */
+/** Panel height mode: controls what fraction of the terminal panels can occupy. */
 export type PanelHeightMode = "minimized" | "normal" | "fullscreen";
 
 /** Panel height fraction when minimized. */
@@ -240,7 +240,7 @@ export const SCROLLBAR_GUTTER = 2;
 
 /** Config for a workspace prompt (stateful tabs). */
 export interface WorkspaceConfig {
-	/** Tab definitions — each is a stateful workspace. */
+	/** Tab definitions: each is a stateful workspace. */
 	items: WorkspaceItem[];
 	/** Global actions available on all tabs/views. */
 	globalActions?: Action[];

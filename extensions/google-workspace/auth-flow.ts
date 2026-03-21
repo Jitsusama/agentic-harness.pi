@@ -74,7 +74,7 @@ export async function ensureAuthenticated(
 				" before using Google Workspace features.",
 				"",
 				" This is a one-time setup using device flow",
-				" (works everywhere — SSH, containers, etc.).",
+				" (works everywhere: SSH, containers, etc.).",
 			],
 			options: [
 				{ label: "Authenticate now", value: "yes" },

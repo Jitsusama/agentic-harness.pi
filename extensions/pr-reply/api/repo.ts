@@ -1,5 +1,5 @@
 /**
- * Repository resolution for PR reply — wraps the shared
+ * Repository resolution for PR reply: wraps the shared
  * repo-discovery primitives with pr-reply-specific logic
  * for switching repos and finding dependent PRs.
  */

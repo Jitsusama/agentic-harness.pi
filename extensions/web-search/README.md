@@ -5,11 +5,11 @@ using a headless Chrome browser.
 
 ## Tools
 
-**`web_search`** — Search the web (via DuckDuckGo) and get back
-titles, URLs, and snippets. The agent uses this to research best
+**`web_search`**: Search the web (via DuckDuckGo) and get back
+titles, URLs and snippets. The agent uses this to research best
 practices, look up APIs, understand problem domains, etc.
 
-**`web_read`** — Fetch a URL and extract readable text content
+**`web_read`**: Fetch a URL and extract readable text content
 using Mozilla Readability. Junk elements (ads, nav, cookies,
 comments, social buttons, related articles) are stripped before
 extraction. Boilerplate lines are removed after.
