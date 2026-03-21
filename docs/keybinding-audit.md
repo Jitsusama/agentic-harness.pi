@@ -562,16 +562,12 @@ are active.
 
 ### 4.1 Global Shortcuts (`pi.registerShortcut`)
 
-These are always active and use the `Ctrl+Alt` modifier
-namespace to avoid conflicts with Pi's own `Ctrl` and `Alt`
-bindings.
+Only panel height toggles remain as global shortcuts. All
+other features are accessed via slash commands (`/plan`,
+`/tdd`, `/pr-review`, `/pr-reply`).
 
 | Shortcut | Extension | Action |
 |---|---|---|
-| `Ctrl+Alt+P` | plan-mode | Toggle plan mode |
-| `Ctrl+Alt+T` | tdd-mode | Toggle TDD mode |
-| `Ctrl+Alt+V` | pr-review | Toggle PR review visibility |
-| `Ctrl+Alt+R` | pr-reply | Toggle PR reply visibility |
 | `Ctrl+Alt+F` | panel-height | Toggle fullscreen panel height |
 | `Ctrl+Alt+M` | panel-height | Toggle minimised panel height |
 
@@ -591,7 +587,7 @@ and apply across all panels and workspaces that use them.
 | Key | Component | Action |
 |---|---|---|
 | `Ctrl+Enter` | prompt-workspace | Submit workspace |
-| `Shift+Enter` | prompt-workspace, prompt-single, action-bar | Confirm / submit |
+| `Shift+Escape` | prompt-workspace, prompt-single, action-bar | Redirect (open editor) |
 
 #### Tab Navigation (tab-strip)
 
@@ -637,8 +633,8 @@ confirmation gates.
 | pr-guardian | `r` | Reject |
 | issue-guardian | `a` | Approve |
 | issue-guardian | `r` | Reject |
-| history-guardian | `a` | Allow |
-| history-guardian | `b` | Block |
+| history-guardian | `a` | Approve |
+| history-guardian | `r` | Reject |
 
 #### Plan Mode
 
@@ -646,7 +642,7 @@ confirmation gates.
 |---|---|---|
 | Plan completion gate | `i` | Implement (leave plan mode) |
 | Plan completion gate | `s` | Stay in planning |
-| Plan interview | `q` | Quit / done with questions |
+| Plan interview | `1` | Switch to Question view |
 
 #### TDD Mode
 
@@ -663,9 +659,9 @@ Tab-level views:
 
 | Key | Action |
 |---|---|
-| `o` | Switch to Overview view |
-| `c` | Switch to Comments view |
-| `s` | Switch to Source view |
+| `1` | Switch to Overview view |
+| `2` | Switch to Comments view |
+| `3` | Switch to Source view |
 
 Comment actions (within Comments view):
 
@@ -673,8 +669,7 @@ Comment actions (within Comments view):
 |---|---|
 | `a` | Approve comment |
 | `r` | Reject comment |
-| `s` | Steer comment |
-| `+` | New comment |
+| `n` | New comment |
 | `Up` | Previous comment |
 | `Down` | Next comment |
 
@@ -682,7 +677,7 @@ Global workspace action:
 
 | Key | Action |
 |---|---|
-| `h` | Mark current tab as handled |
+| `p` | Mark current tab as passed |
 
 #### PR Review
 
@@ -691,6 +686,9 @@ Overview panel:
 | Key | Action |
 |---|---|
 | `r` | Proceed to review |
+| `1` | Switch to Overview view |
+| `2` | Switch to References view |
+| `3` | Switch to Source view |
 | `Up` | Navigate up |
 | `Down` | Navigate down |
 | `Enter` | Select |
@@ -699,9 +697,9 @@ Review panel views:
 
 | Key | Action |
 |---|---|
-| `o` | Switch to Overview view |
-| `s` | Switch to Source view |
-| `c` | Switch to Comments view |
+| `1` | Switch to Overview view |
+| `2` | Switch to Comments view |
+| `3` | Switch to Source view |
 
 Review panel comment actions:
 
@@ -709,9 +707,8 @@ Review panel comment actions:
 |---|---|
 | `a` | Approve comment |
 | `r` | Reject comment |
-| `s` | Steer comment |
-| `+` | New comment |
-| `h` | Mark tab as handled (global) |
+| `n` | New comment |
+| `p` | Mark tab as passed (global) |
 | `Up` | Previous item |
 | `Down` | Next item |
 
@@ -727,16 +724,15 @@ Summary panel:
 
 | Key | Action |
 |---|---|
-| `o` | Switch to Overview view |
+| `1` | Switch to Overview view |
 
 Workspace (reviewer tabs):
 
 | Key | Action |
 |---|---|
-| `t` | Switch to Threads view |
-| `e` / `Enter` | Enter selected thread |
-| `d` | Defer thread |
-| `k` | Skip thread |
+| `1` | Switch to Threads view |
+| `p` | Pass thread |
+| `Enter` | Enter selected thread |
 | `Up` | Previous thread |
 | `Down` | Next thread |
 
@@ -744,11 +740,9 @@ Thread gate:
 
 | Key | Action |
 |---|---|
-| `i` | Implement now |
-| `l` | Implement later |
 | `r` | Reply |
-| `d` | Defer |
-| `k` | Skip |
+| `p` | Pass |
+| `Enter` | Implement |
 
 Reply review:
 
@@ -762,9 +756,10 @@ Bookend panels:
 | Key | Action |
 |---|---|
 | `b` | Begin review |
-| `c` | Continue / Cancel |
-| `s` | Skip review / Send |
+| `c` | Continue |
+| `p` | Pass review |
 | `r` | Rebase all |
+| `s` | Skip (rebase panel only) |
 
 #### Google Workspace
 
@@ -800,7 +795,7 @@ Event update confirmation:
 
 | Key | Action |
 |---|---|
-| `q` | Quit / done |
+| `1` | Switch to Question view |
 
 ---
 
@@ -857,16 +852,20 @@ Pi contexts (session picker vs main editor, etc.):
 - `Ctrl+D`: delete session (picker) vs exit (main, editor empty)
 - `Ctrl+C`: copy selection vs clear editor (context-dependent)
 
+**Resolved conflicts:** The PR review overview panel previously
+had `r` as both the References view key and the Review action
+key. Moving views to numbers (`1`, `2`, `3`) eliminated this
+class of collision entirely.
+
 ### 5.4 Available Key Space
 
 **`Ctrl+Alt+<letter>`** is the namespace used by this repo's
-extensions for global shortcuts. No conflicts exist with Pi,
-WezTerm or macOS in this space.
+extensions for global shortcuts. After the keybinding overhaul,
+only panel height toggles remain in this space.
 
-Currently used: `F`, `M`, `P`, `R`, `T`, `V`.
+Currently used: `F`, `M`.
 
-Available: `A`, `B`, `C`, `D`, `E`, `G`, `H`, `I`, `J`, `K`,
-`L`, `N`, `O`, `Q`, `S`, `U`, `W`, `X`, `Y`, `Z`.
+Available: all other letters.
 
 **`Ctrl+Shift+Alt+<letter>`** is also fully available. WezTerm
 only uses `Ctrl+Shift+Alt` with `"`, `%`, `'`, `5` and arrow
