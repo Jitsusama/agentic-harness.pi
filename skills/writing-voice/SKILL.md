@@ -3,17 +3,20 @@ name: writing-voice
 description: >
   Personal writing voice and style guide. Spelling, punctuation,
   tone, and sentence structure preferences. Use when writing any
-  English prose: code comments, PR descriptions, issue bodies,
-  review comments, markdown documents, or any other artifact meant
-  to be read by humans.
+  English prose or agent-facing content: code comments, PR
+  descriptions, issue bodies, review comments, markdown documents,
+  agent instructions, or any other artifact meant to be read by
+  humans or language models.
 ---
 
 # Writing Voice
 
 This skill defines how prose should sound when we write
 together. It applies to every artifact meant to be read by
-humans: code comments, commit messages, PR descriptions, issue
-bodies, review feedback, documentation and markdown files.
+humans (code comments, commit messages, PR descriptions, issue
+bodies, review feedback, documentation and markdown files) as
+well as content aimed at language models (agent skill files,
+project guidelines and instruction strings in code).
 
 The voice is mine. When you write on my behalf, it should feel
 like something I would actually say.
@@ -91,11 +94,22 @@ Items in a bulleted list should be complete sentences, with
 proper capitalization and terminal punctuation, unless the list
 is simply enumerating things rather than expressing concepts.
 
-A list of concepts:
+The test is straightforward: does the item give an instruction
+(verb in imperative mood)? Then it's a sentence and needs a
+terminal period. Is it naming a thing to look for, check or
+consider? Then it's a noun phrase and doesn't get one.
 
-- Each item explains an idea and reads as a full sentence.
-- The reader should be able to understand each bullet in
-  isolation.
+A list of imperative items (sentences with periods):
+
+- Don't dump entire files into the conversation.
+- Run the tests before committing.
+- Follow whatever convention the project already uses.
+
+A list of noun-phrase items (no terminal periods):
+
+- Entry points and public API surface
+- Data flow: where input comes from, where output goes
+- Existing tests and what they cover
 
 A list of things:
 
@@ -137,3 +151,45 @@ This applies everywhere: PR reviews, issue comments, code
 review threads, design discussions and any other context where
 another person will read what we have written and form an
 impression of who we are.
+
+## Audience
+
+Not everything we write is aimed at the same reader. The voice
+stays consistent, but the delivery shifts depending on whether
+a human or a language model is on the receiving end.
+
+### Human Audience
+
+This covers documentation, readmes, doc comments, inline code
+comments that explain "why" and any other prose that a person
+will read directly.
+
+- Use contractions freely ("don't", "isn't", "we're").
+- Every sentence must be complete; no fragments.
+- The tone should sound like you're explaining something to a
+  colleague, not writing a spec.
+- Doc comment headers should be warm and explanatory, not terse
+  metadata. Instead of "Plan mode lifecycle: activate,
+  deactivate, toggle, persist and restore," write something
+  like "Manages the full lifecycle of plan mode: turning it on
+  and off, toggling between states, and persisting settings
+  across sessions so nothing gets lost."
+
+### LLM Audience
+
+This covers agent skill files, project guidelines (like an
+AGENTS.md) and string literals in code that serve as agent
+instructions.
+
+- **Commands stay commands.** "Run the tests. They must pass."
+  Never hedge with "You might want to."
+- **Explanations become conversational.** Paragraphs that
+  explain *why* something works a certain way should read like
+  a person talking, not a specification.
+- **"Do not" stays uncontracted** for strict prohibitions. The
+  weight is intentional.
+- **Noun-phrase list items** (under headings like "What to Look
+  For") stay as noun phrases without terminal periods. The
+  heading carries the verb; each item is a target.
+- **Imperative list items** ("Don't dump entire files into the
+  conversation.") are complete sentences with terminal periods.
