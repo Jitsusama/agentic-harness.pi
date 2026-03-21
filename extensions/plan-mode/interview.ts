@@ -33,7 +33,7 @@ function buildQuestionItem(
 		label: `Q${index + 1}`,
 		views: [
 			{
-				key: "q",
+				key: "1",
 				label: "Question",
 				content: (theme, width) => {
 					const padded = contentWrapWidth(width);

@@ -151,7 +151,7 @@ function buildSummaryTab(
 	preApprovedCount: number,
 ): WorkspaceItem {
 	const summaryView: WorkspaceView = {
-		key: "o",
+		key: "1",
 		label: "Overview",
 		content: (theme: Theme) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -252,7 +252,7 @@ function buildOverviewView(
 	diffFile: DiffFile | null,
 ): WorkspaceView {
 	return {
-		key: "o",
+		key: "1",
 		label: "Overview",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -307,7 +307,7 @@ function buildCommentsView(
 	tabHandled: Set<string>,
 ): WorkspaceView {
 	return {
-		key: "c",
+		key: "2",
 		label: "Comments",
 		actions: [
 			{ key: "a", label: "Approve" },
@@ -392,7 +392,7 @@ function buildCommentsView(
 /** Source view: full file content, syntax highlighted. */
 function buildSourceView(filePath: string): WorkspaceView {
 	return {
-		key: "s",
+		key: "3",
 		label: "Source",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);

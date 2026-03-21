@@ -146,7 +146,7 @@ export async function showReplyWorkspace(
 /** Build the Summary tab showing PR overview and progress. */
 function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 	const summaryView: WorkspaceView = {
-		key: "o",
+		key: "1",
 		label: "Overview",
 		content: (theme: Theme) => {
 			const lines: string[] = [];
@@ -240,7 +240,7 @@ function buildReviewerTab(
 	const setIndex = (i: number) => threadIndices.set(review.id, i);
 
 	const view: WorkspaceView = {
-		key: "t",
+		key: "1",
 		label: "Threads",
 		actions: [
 			{ key: "e", label: "Enter" },

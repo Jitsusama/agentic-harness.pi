@@ -217,7 +217,7 @@ function buildDescOverview(
 	session: ReviewSession,
 ): WorkspaceView {
 	return {
-		key: "o",
+		key: "1",
 		label: "Overview",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -249,7 +249,7 @@ function buildDescOverview(
 /** Desc raw: raw markdown source. */
 function buildDescRaw(context: CrawlResult): WorkspaceView {
 	return {
-		key: "s",
+		key: "3",
 		label: "Source",
 		content: (theme: Theme, _width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -304,7 +304,7 @@ function buildScopeTab(
 /** Scope overview: AI-generated scope analysis. */
 function buildScopeOverview(session: ReviewSession): WorkspaceView {
 	return {
-		key: "o",
+		key: "1",
 		label: "Overview",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -321,7 +321,7 @@ function buildScopeOverview(session: ReviewSession): WorkspaceView {
 /** Scope raw: file list with per-file stats. */
 function buildScopeRaw(context: CrawlResult): WorkspaceView {
 	return {
-		key: "s",
+		key: "3",
 		label: "Source",
 		content: (theme: Theme, _width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -375,7 +375,7 @@ function buildFileOverview(
 	file: DiffFile,
 ): WorkspaceView {
 	return {
-		key: "o",
+		key: "1",
 		label: "Overview",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -416,7 +416,7 @@ function buildFileRaw(session: ReviewSession, file: DiffFile): WorkspaceView {
 	const filePath = `${session.repoPath}/${file.path}`;
 
 	return {
-		key: "s",
+		key: "3",
 		label: "Source",
 		content: async (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -451,7 +451,7 @@ function buildCommentsView(
 	const setIndex = (i: number) => commentIndices.set(tabId, i);
 
 	return {
-		key: "c",
+		key: "2",
 		label: "Comments",
 		actions: COMMENT_ACTIONS,
 		content: (theme: Theme, width: number) => {
@@ -492,7 +492,7 @@ function buildFileCommentsView(
 	const setIndex = (i: number) => commentIndices.set(tabId, i);
 
 	return {
-		key: "c",
+		key: "2",
 		label: "Comments",
 		actions: COMMENT_ACTIONS,
 		content: (theme: Theme, width: number) => {

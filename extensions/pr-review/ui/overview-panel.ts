@@ -87,7 +87,7 @@ function buildOverviewTab(
 	synopsis: string,
 ): WorkspaceItem {
 	const overviewView: WorkspaceView = {
-		key: "o",
+		key: "1",
 		label: "Overview",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -156,7 +156,7 @@ function buildReferencesTab(
 	setIndex: (i: number) => void,
 ): WorkspaceItem {
 	const refView: WorkspaceView = {
-		key: "r",
+		key: "2",
 		label: "References",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -245,7 +245,7 @@ function buildSourceTab(
 	setIndex: (i: number) => void,
 ): WorkspaceItem {
 	const sourceView: WorkspaceView = {
-		key: "s",
+		key: "3",
 		label: "Source",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
