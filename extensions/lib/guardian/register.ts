@@ -10,6 +10,7 @@
 import {
 	type ExtensionAPI,
 	isToolCallEventType,
+	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
 import type { CommandGuardian } from "./types.js";
 
@@ -24,24 +25,27 @@ export function registerGuardian<T>(
 	pi: ExtensionAPI,
 	guardian: CommandGuardian<T>,
 ): void {
-	pi.on("tool_call", async (event, ctx) => {
-		if (!isToolCallEventType("bash", event)) return;
-		if (!ctx.hasUI) return;
+	pi.on(
+		"tool_call",
+		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
+			if (!isToolCallEventType("bash", event)) return;
+			if (!ctx.hasUI) return;
 
-		const command = event.input.command;
-		if (!guardian.detect(command)) return;
+			const command = event.input.command;
+			if (!guardian.detect(command)) return;
 
-		const parsed = guardian.parse(command);
-		if (!parsed) return;
+			const parsed = guardian.parse(command);
+			if (!parsed) return;
 
-		const result = await guardian.review(parsed, event, ctx);
-		if (!result) return;
+			const result = await guardian.review(parsed, event, ctx);
+			if (!result) return;
 
-		if ("rewrite" in result) {
-			(event.input as { command: string }).command = result.rewrite;
-			return;
-		}
+			if ("rewrite" in result) {
+				(event.input as { command: string }).command = result.rewrite;
+				return;
+			}
 
-		return result;
-	});
+			return result;
+		},
+	);
 }

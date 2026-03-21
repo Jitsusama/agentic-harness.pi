@@ -6,6 +6,7 @@
  */
 
 import * as path from "node:path";
+import type { ToolCallEventResult } from "@mariozechner/pi-coding-agent";
 import type { PlanState } from "./state.js";
 import { GIT_MUTATING } from "./state.js";
 
@@ -18,7 +19,7 @@ export function enforcePlanMode(
 	toolName: string,
 	input: Record<string, unknown>,
 	cwd: string,
-): { block: true; reason: string } | undefined {
+): ToolCallEventResult | undefined {
 	if (!state.enabled) return;
 
 	if (toolName === "write" || toolName === "edit") {

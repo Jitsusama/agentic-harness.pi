@@ -15,6 +15,7 @@
 import {
 	type ExtensionAPI,
 	isToolCallEventType,
+	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
 import { injectCommitAttribution, injectGhAttribution } from "./attribution.js";
 
@@ -26,21 +27,24 @@ export default function attributionExtension(pi: ExtensionAPI) {
 		default: false,
 	});
 
-	pi.on("tool_call", async (event, ctx) => {
-		if (!isToolCallEventType("bash", event)) return;
-		if (!ctx.hasUI) return;
-		if (pi.getFlag("no-attribution") === true) return;
+	pi.on(
+		"tool_call",
+		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
+			if (!isToolCallEventType("bash", event)) return;
+			if (!ctx.hasUI) return;
+			if (pi.getFlag("no-attribution") === true) return;
 
-		const command = event.input.command;
-		const modelId = ctx.model?.id ?? null;
+			const command = event.input.command;
+			const modelId = ctx.model?.id ?? null;
 
-		const rewritten =
-			injectCommitAttribution(command, modelId) ??
-			injectGhAttribution(command, "pr", modelId) ??
-			injectGhAttribution(command, "issue", modelId);
+			const rewritten =
+				injectCommitAttribution(command, modelId) ??
+				injectGhAttribution(command, "pr", modelId) ??
+				injectGhAttribution(command, "issue", modelId);
 
-		if (rewritten) {
-			(event.input as { command: string }).command = rewritten;
-		}
-	});
+			if (rewritten) {
+				(event.input as { command: string }).command = rewritten;
+			}
+		},
+	);
 }
