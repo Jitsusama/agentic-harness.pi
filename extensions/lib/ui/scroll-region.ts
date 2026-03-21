@@ -105,15 +105,17 @@ export function handleScrollInput(
 		};
 	}
 
-	// Coarse scroll: PageUp/Down and Ctrl+U/D move half a page.
+	// Coarse scroll: PageUp/Down moves half a page.
+	// Ctrl+U/D would be the natural vi bindings here, but pi
+	// claims them globally (deleteToLineStart and app.exit).
 	const coarseStep = Math.max(
 		1,
 		Math.floor(budget * (1 - COARSE_SCROLL_OVERLAP_FRACTION)),
 	);
-	if (matchesKey(data, "pageup") || matchesKey(data, Key.ctrl("u"))) {
+	if (matchesKey(data, "pageup")) {
 		return { ...state, vOffset: Math.max(0, state.vOffset - coarseStep) };
 	}
-	if (matchesKey(data, "pagedown") || matchesKey(data, Key.ctrl("d"))) {
+	if (matchesKey(data, "pagedown")) {
 		return {
 			...state,
 			vOffset: clampVScroll(state.vOffset + coarseStep, contentLength, budget),
