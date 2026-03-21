@@ -75,7 +75,7 @@ export function buildHintBar(opts: HintBarOptions): string {
 	hints.push(theme.fg("dim", "Esc cancel"));
 	if (opts.needsVScroll) {
 		hints.push(theme.fg("dim", "Shift+↑↓ scroll"));
-		hints.push(theme.fg("dim", "PgUp/Dn half-page"));
+		hints.push(theme.fg("dim", "Fn+↑↓ half-page"));
 	}
 	if (opts.needsHScroll) hints.push(theme.fg("dim", "Shift+←→ pan"));
 	return ` ${hints.join(theme.fg("dim", " · "))}`;

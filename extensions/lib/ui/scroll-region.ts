@@ -105,9 +105,7 @@ export function handleScrollInput(
 		};
 	}
 
-	// Coarse scroll: PageUp/Down moves half a page.
-	// Ctrl+U/D would be the natural vi bindings here, but pi
-	// claims them globally (deleteToLineStart and app.exit).
+	// Coarse scroll: PageUp/Down (Fn+↑↓ on Mac) moves half a page.
 	const coarseStep = Math.max(
 		1,
 		Math.floor(budget * (1 - COARSE_SCROLL_OVERLAP_FRACTION)),
