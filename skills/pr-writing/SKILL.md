@@ -9,9 +9,10 @@ description: >
 # Pull Request Writing
 
 A PR has three layers: the code changes (reviewers can see
-these), the technical decisions (you must explain these) and
-the business impact (you must connect to this). Your job is to
-build bridges from the inner layer to the outer one.
+those for themselves), the technical decisions (you need to
+explain those) and the business impact (you need to connect
+to that). The job is to build bridges from the inner layer
+to the outer one.
 
 ## Title
 
@@ -29,7 +30,7 @@ Always start the body with a line linking to the issue:
 Part of #ISSUE_NUMBER
 ```
 
-Do not repeat the issue reference in the rest of the
+Don't repeat the issue reference in the rest of the
 description; the link at the top is sufficient.
 
 When a PR is part of a stack (based on another PR or has
@@ -74,7 +75,7 @@ matters more than D for this use case."
 
 ## Story Types
 
-Recognize what kind of story the changes tell:
+Think about what kind of story the changes tell:
 
 - **Performance**: lead with the metrics that were bad.
 - **Reliability**: lead with the failure scenarios.
@@ -99,9 +100,9 @@ nothing warrants reviewer attention.
 ### Choosing Line Ranges
 
 The line range is the first thing a reviewer sees; it
-frames the comment before they read a word. A mismatched
-range makes the comment confusing; a well-chosen range
-makes the comment self-evident.
+frames the comment before they've read a word. A mismatched
+range makes the comment confusing, while a well-chosen one
+makes it self-evident.
 
 **The range must contain the code the comment is about.**
 Read your comment body, identify the specific code it
@@ -133,9 +134,10 @@ return value. For anything structural, use a range.
 ### Validating Line Numbers Against the Diff
 
 GitHub's review API only accepts comments on lines that
-appear in the diff. Comments on lines outside diff hunks
-are rejected with a 422. **Always verify line numbers
-against the diff before calling `pr_annotate`.**
+appear in the diff. If you try to comment on lines outside
+a diff hunk, you'll get a 422 rejection. **Always verify
+line numbers against the diff before calling
+`pr_annotate`.**
 
 Procedure:
 

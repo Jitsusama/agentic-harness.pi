@@ -14,7 +14,7 @@ description: >
 ### Behaviour vs Implementation
 
 Tests should verify **what the code does**, not **how it
-does it**. Red flags:
+does it**. Some red flags to watch for:
 
 - Asserting on internal state or private methods
 - Mocking every dependency instead of testing integration
@@ -22,14 +22,14 @@ does it**. Red flags:
   behaviour change
 - Test names that describe implementation steps
 
-Good tests describe a behaviour: "returns error when input
-is empty", "retries on transient failure", "caches result
-for subsequent calls."
+Good tests describe a behaviour: "returns error when input is
+empty", "retries on transient failure", "caches result for
+subsequent calls."
 
 ### Idiom
 
-Tests should follow the project's existing test patterns.
-Look for:
+Tests should follow the project's existing patterns. Look
+for:
 
 - Consistent test framework usage (describe/it, test, etc.)
 - Shared setup patterns (fixtures, factories, beforeEach)
@@ -55,7 +55,7 @@ For new code:
 
 ### Readability
 
-Code is read far more than it's written. Check:
+Code is read far more often than it's written. Check:
 
 - Can you understand the intent without reading comments?
 - Are functions short enough to hold in your head?
@@ -72,7 +72,7 @@ Code is read far more than it's written. Check:
 
 ### Domain Naming
 
-Names should come from the problem domain, not the
+Names should come from the problem domain rather than the
 implementation domain:
 
 - Bad: `processData`, `handleStuff`, `doThing`
@@ -90,7 +90,7 @@ implementation domain:
 
 ### Pattern Matching
 
-Search the codebase for similar patterns. Ask:
+Search the codebase for similar patterns and ask:
 
 - Does this new code follow existing conventions?
 - If it introduces a new pattern, is the old one deprecated?
@@ -124,21 +124,22 @@ Check project-specific conventions:
 
 ### Size
 
-Large PRs are harder to review well. Guidelines:
+Large PRs are harder to review well. Some guidelines:
 
 - Under 200 lines: easy to review thoroughly.
 - 200–500 lines: needs careful attention.
 - Over 500 lines: consider whether it should be split.
 
-Size alone doesn't determine quality; a 400-line PR adding
-a new feature with tests may be appropriate, while a 100-line
-PR touching 15 files may be too scattered.
+Size alone doesn't determine quality though; a 400-line PR
+adding a new feature with tests may be perfectly appropriate,
+while a 100-line PR touching 15 files may be too scattered.
 
 ## PR Description Evaluation
 
 ### As a Historic Record
 
-The description should answer for future readers:
+The description should answer these questions for future
+readers:
 
 1. **What problem does this solve?** (not what it changes)
 2. **Why this approach?** (trade-offs considered)
@@ -153,7 +154,8 @@ The description should answer for future readers:
 
 ## Review Priorities
 
-Not all feedback is equally important. Prioritize:
+Not all feedback is equally important. Here's the priority
+order:
 
 1. **Correctness**: does it work? Are there bugs?
 2. **Security**: are there vulnerabilities?

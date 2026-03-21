@@ -65,7 +65,7 @@ Each step should be:
 ## Plan Mode Tool
 
 The `plan_mode` tool activates read-only enforcement: you
-cannot modify files outside the plan directory until plan mode
+can't modify files outside the plan directory until plan mode
 is deactivated.
 
 When the user's intent suggests investigation or planning

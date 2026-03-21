@@ -9,9 +9,9 @@ description: >
 # Issue Writing
 
 An issue is a contract between the person requesting work and
-the person doing it. It must be clear enough that someone
-unfamiliar with the context can understand what needs to happen,
-why it matters and how to know when it's done.
+the person doing it. It needs to be clear enough that someone
+unfamiliar with the context can understand what needs to
+happen, why it matters and how to know when it's done.
 
 ## Title
 

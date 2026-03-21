@@ -104,20 +104,20 @@ Before building any UI, follow this sequence:
 ## Gotchas
 
 These are design decisions in Pi that aren't obvious from the
-type signatures. They cause real bugs when missed.
+type signatures. They'll cause real bugs when you miss them.
 
 ### Each Render Line Must Be ≤ Width
 
 `render(width)` must return lines no wider than `width` visible
 characters. Use `truncateToWidth()` on every line. ANSI escape
-codes don't count toward width, but wide characters (CJK, emoji)
-count as 2.
+codes don't count toward width, but wide characters (CJK,
+emoji) count as 2.
 
 ### Always Use Theme from the Callback
 
 Never import `theme` directly. Pi's module caching means the
 global `theme` may be undefined in extension code loaded via
-jiti. Always use the `theme` parameter from:
+jiti. Always grab the `theme` parameter from:
 - `ctx.ui.custom((tui, theme, kb, done) => ...)`
 - `renderCall(args, theme)`
 - `renderResult(result, options, theme)`
@@ -134,28 +134,30 @@ new DynamicBorder((s) => theme.fg("accent", s))
 
 ### Call tui.requestRender() After State Changes
 
-The TUI does not auto-render. After modifying state in
-`handleInput`, call `tui.requestRender()` to trigger a redraw.
+The TUI doesn't auto-render. After modifying state in
+`handleInput`, call `tui.requestRender()` to trigger a
+redraw.
 
 ### Implement invalidate() for Theme Changes
 
-When the theme changes, TUI calls `invalidate()` on all
-components. If you bake theme colours into cached strings
-(via `theme.fg()`, `theme.bg()`), you must rebuild them in
+When the theme changes, the TUI calls `invalidate()` on all
+components. If you've baked theme colours into cached strings
+(via `theme.fg()`, `theme.bg()`), you need to rebuild them in
 `invalidate()`. See the "Rebuild on Invalidate" pattern in
 Pi's `tui.md`.
 
 ### Overlay Components Are Disposable
 
 Create fresh instances each time; never reuse a reference
-after the overlay closes. The component is disposed on close.
+after the overlay closes because the component is disposed
+when it closes.
 
 ### Propagate Focusable for IME Support
 
 Container components that embed `Input` or `Editor` must
 implement the `Focusable` interface and propagate the `focused`
-property to the child. Otherwise IME candidate windows (CJK
-input) appear in the wrong position.
+property to the child. Without this, IME candidate windows
+(CJK input) show up in the wrong position.
 
 ### Text(content, 0, 0) Inside Box
 
