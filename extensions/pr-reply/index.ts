@@ -86,6 +86,7 @@ export default function prReply(pi: ExtensionAPI) {
 			"After 'done' or 'reply', RE-ANALYZE all remaining pending threads with fresh code context, " +
 				"then call 'generate-analysis' again before calling 'review'. This ensures recommendations stay current after code changes.",
 			"The reply_body should be conversational, acknowledge feedback, and include commit SHAs inline if changes were made.",
+			"When calling 'activate', include the user's original request in user_request so cross-repo handoffs preserve context.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(ACTIONS, {
@@ -101,6 +102,14 @@ export default function prReply(pi: ExtensionAPI) {
 				Type.String({
 					description:
 						"PR reference (URL, #number, owner/repo#number). Only used with 'activate'.",
+				}),
+			),
+			user_request: Type.Optional(
+				Type.String({
+					description:
+						"The user's original request text. Included in the prompt when " +
+						"the reply workflow is handed off to a new terminal tab for a cross-repo PR. " +
+						"Only used with 'activate'.",
 				}),
 			),
 			analysis: Type.Optional(
@@ -156,7 +165,13 @@ export default function prReply(pi: ExtensionAPI) {
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			switch (params.action) {
 				case "activate":
-					return handleActivate(state, pi, ctx, params.pr ?? null);
+					return handleActivate(
+						state,
+						pi,
+						ctx,
+						params.pr ?? null,
+						(params.user_request as string) ?? null,
+					);
 				case "deactivate":
 					return handleDeactivate(state, pi, ctx);
 				case "generate-analysis":

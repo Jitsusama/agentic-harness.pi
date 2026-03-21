@@ -24,13 +24,16 @@ export type RepoResult =
  *
  * Checks if the current directory is the target repo. If not,
  * searches common locations on disk. If found elsewhere, opens
- * a new terminal tab with pi pre-loaded.
+ * a new terminal tab with pi pre-loaded. When a user request
+ * is provided, it becomes the new tab's initial prompt so the
+ * agent there can replicate the user's intent.
  */
 export async function resolveRepo(
 	pi: ExtensionAPI,
 	owner: string,
 	repo: string,
 	prNumber: number,
+	userRequest: string | null = null,
 ): Promise<RepoResult> {
 	const current = await getCurrentRepo(pi);
 	if (current?.owner === owner && current?.repo === repo) {
@@ -43,7 +46,7 @@ export async function resolveRepo(
 		return { status: "not-found" };
 	}
 
-	const prompt = `review ${owner}/${repo}#${prNumber}`;
+	const prompt = userRequest ?? `review ${owner}/${repo}#${prNumber}`;
 	const opened = await openInNewTab(pi, repoPath, prompt);
 	if (opened) {
 		return { status: "switched", repoPath };

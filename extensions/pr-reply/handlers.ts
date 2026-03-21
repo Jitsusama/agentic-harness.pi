@@ -121,6 +121,7 @@ export async function handleActivate(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	prInput: string | null,
+	userRequest: string | null = null,
 ) {
 	if (state.enabled) {
 		return textResult(
@@ -136,7 +137,7 @@ export async function handleActivate(
 		);
 	}
 
-	const switchResult = await switchToRepo(pi, ref);
+	const switchResult = await switchToRepo(pi, ref, userRequest);
 	if (switchResult.status !== "already-here") {
 		return handleSwitchResult(ctx, switchResult, ref);
 	}
@@ -987,11 +988,11 @@ function handleSwitchResult(
 					{
 						type: "text" as const,
 						text:
-							`This session is not in the ${ref.owner}/${ref.repo} repository. ` +
-							`A new terminal tab has been opened in ${result.repoPath} with pi ` +
-							`already starting the PR reply workflow for #${ref.number}. ` +
-							"Do NOT call pr_reply again in this session — the new tab is handling it. " +
-							"Tell the user to switch to the new tab.",
+							`PR #${ref.number} belongs to ${ref.owner}/${ref.repo}, which is a different repository. ` +
+							`A new terminal tab has been opened at ${result.repoPath} with a pi session ` +
+							`handling the PR reply workflow for #${ref.number}. ` +
+							"Do NOT call pr_reply again in this session — " +
+							"the new tab has all the context it needs. This task is complete.",
 					},
 				],
 				details: { openedTab: true, repoPath: result.repoPath },
