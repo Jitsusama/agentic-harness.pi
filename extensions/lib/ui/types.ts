@@ -217,8 +217,8 @@ export const FINE_SCROLL_LINES = 3;
 
 /**
  * Fraction of the viewport kept visible when coarse-scrolling
- * (PageUp/Down, Ctrl+U/D). 0.5 means half the viewport stays
- * from the previous view, so the reader never loses context.
+ * (PageUp/Down). 0.5 means half the viewport stays from the
+ * previous view, so the reader never loses context.
  */
 export const COARSE_SCROLL_OVERLAP_FRACTION = 0.5;
 
