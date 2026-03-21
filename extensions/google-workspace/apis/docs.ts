@@ -49,7 +49,7 @@ export async function getDocComments(
 
 	let comments = (response.data.comments || []).map(convertComment);
 
-	// Filter by resolved status
+	// We filter by resolved status.
 	if (filter === "resolved") {
 		comments = comments.filter((c) => c.resolved);
 	} else if (filter === "unresolved") {

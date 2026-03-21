@@ -52,10 +52,10 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		accountName: string,
 		oauthConfig: { clientId: string; clientSecret: string },
 	): Promise<OAuth2Client> {
-		// Check cache first
+		// We check the cache first.
 		let client = oauthClients.get(accountName);
 		if (client) {
-			// Refresh token if needed
+			// We refresh the token if needed.
 			const newCreds = await refreshTokenIfNeeded(client);
 			if (newCreds) {
 				storeCredentials(accountName, newCreds);
@@ -63,7 +63,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			return client;
 		}
 
-		// Load stored credentials
+		// We load stored credentials.
 		const credentials = getCredentials(accountName);
 		if (!credentials) {
 			throw new Error(
@@ -71,11 +71,11 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			);
 		}
 
-		// Create new client and set credentials
+		// We create a new client and set its credentials.
 		client = createOAuth2Client(oauthConfig);
 		setCredentials(client, credentials);
 
-		// Refresh if needed
+		// We refresh the token if it's needed.
 		const newCreds = await refreshTokenIfNeeded(client);
 		if (newCreds) {
 			storeCredentials(accountName, newCreds);
@@ -273,7 +273,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		description:
 			"Authenticate with Google Workspace. Usage: google-auth [--account name] [--list] [--default name]",
 		handler: async (args, ctx) => {
-			// Get OAuth config from storage or env vars, prompting if needed
+			// We get the OAuth config from storage or env vars, prompting if needed.
 			const oauthConfig = await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
 			if (!oauthConfig) {
 				return; // Setup was cancelled or failed

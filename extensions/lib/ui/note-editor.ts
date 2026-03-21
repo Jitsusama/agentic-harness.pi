@@ -56,7 +56,7 @@ export function renderNoteEditor(
 		lines.push(truncateToWidth(`  ${theme.fg("dim", config.label)}`, width));
 	}
 
-	// Editor content with ┃ border bars
+	// We render the editor content with ┃ border bars.
 	for (const line of editor.render(width - 4)) {
 		lines.push(`  ┃ ${line}`);
 	}

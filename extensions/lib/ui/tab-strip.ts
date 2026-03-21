@@ -91,7 +91,7 @@ export function renderTabStrip(
 	theme: Theme,
 	userItemCount = -1,
 ): string {
-	// Append the user tab when canAddItems is enabled (count >= 0)
+	// We append the user tab when canAddItems is enabled (count >= 0).
 	const allLabels =
 		userItemCount >= 0 ? [...labels, `+${userItemCount}`] : [...labels];
 	const allStatuses: TabStatus[] =
@@ -99,7 +99,7 @@ export function renderTabStrip(
 			? [...statuses, userItemCount > 0 ? "complete" : "pending"]
 			: [...statuses];
 
-	// Progress excludes the user tab
+	// Progress tracking excludes the user tab.
 	const total = labels.length;
 	const completed = statuses.filter(
 		(s) => s === "complete" || s === "rejected",
@@ -108,12 +108,12 @@ export function renderTabStrip(
 	const suffix = progress;
 	const suffixWidth = visibleWidth(suffix);
 
-	// Available width for tabs (minus indent, progress and spacing)
+	// This is the available width for tabs (minus indent, progress and spacing).
 	const indent = 1;
 	const spacing = 4; // gap between tabs and progress
 	const availableWidth = width - indent - suffixWidth - spacing;
 
-	// Build all tab segments
+	// We build all the tab segments.
 	const segments = allLabels.map((label, i) =>
 		renderTab(i, label, allStatuses[i] ?? "pending", i === currentIndex, theme),
 	);
@@ -121,7 +121,7 @@ export function renderTabStrip(
 		(s) => visibleWidth(s) + 2, // +2 for inter-tab spacing
 	);
 
-	// Try to fit all tabs
+	// We try to fit all tabs on one line.
 	const totalTabWidth = segmentWidths.reduce((a, b) => a + b, 0);
 	if (totalTabWidth <= availableWidth) {
 		const tabLine = segments.join("  ");
@@ -167,21 +167,21 @@ function selectVisibleTabs(
 	const total = widths.length;
 	if (total <= 2) return Array.from({ length: total }, (_, i) => i);
 
-	// Reserve space for first, last and ellipsis
+	// We reserve space for the first tab, last tab and ellipsis.
 	const firstW = widths[0] ?? 0;
 	const lastW = widths[total - 1] ?? 0;
 	let used = firstW + lastW + ELLIPSIS_WIDTH * 2;
 
 	const result = new Set<number>([0, total - 1]);
 
-	// Add current tab
+	// We add the current tab first.
 	const currentW = widths[currentIndex] ?? 0;
 	if (!result.has(currentIndex) && used + currentW <= available) {
 		result.add(currentIndex);
 		used += currentW;
 	}
 
-	// Expand outward from current
+	// We expand outward from the current tab.
 	let lo = currentIndex - 1;
 	let hi = currentIndex + 1;
 	while (lo > 0 || hi < total - 1) {

@@ -94,7 +94,7 @@ export function briefActivation(session: ReviewSession): string {
 		parts.push("");
 	}
 
-	// References: include URLs so the agent can match them for summaries
+	// We include URLs so the agent can match them for summaries.
 	if (context.references.length > 0) {
 		parts.push("### References");
 		parts.push(

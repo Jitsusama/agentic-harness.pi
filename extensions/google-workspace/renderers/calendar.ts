@@ -14,7 +14,7 @@ export function renderEventList(events: CalendarEvent[]): string {
 
 	const lines: string[] = ["# Calendar Events\n"];
 
-	// Group by date
+	// We group the events by date.
 	let currentDate = "";
 	for (const event of events) {
 		const eventDate = extractDate(event.start);
@@ -109,7 +109,7 @@ function formatDateHeader(isoDateTime: string): string {
 			day: "numeric",
 		});
 	} catch (_error) {
-		// Date parsing failed - return date portion of ISO string as fallback
+		// Date parsing failed, so we return the date portion of the ISO string as a fallback.
 		return isoDateTime.split("T")[0] || "";
 	}
 }
@@ -156,7 +156,7 @@ function formatTimeRange(start: string, end: string): string {
 		});
 		return `${startStr} → ${endStr}`;
 	} catch (_error) {
-		// Date parsing failed - return raw ISO strings as fallback
+		// Date parsing failed, so we return the raw ISO strings as a fallback.
 		return `${start} – ${end}`;
 	}
 }

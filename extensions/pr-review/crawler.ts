@@ -109,7 +109,7 @@ export async function crawl(
 		config.visited.add(`issue:${ref.owner}/${ref.repo}#${issue.number}`);
 	}
 
-	// Extract references from PR body and comments
+	// We extract references from the PR body and comments.
 	const prBodyRefs = extractReferences(pr.body, ref, "PR body", 0);
 	const prCommentRefs = prComments.flatMap((c) =>
 		extractReferences(c.body, ref, `PR comment by @${c.author}`, 0),
@@ -170,7 +170,7 @@ export async function crawl(
 					depth,
 				);
 			}
-			// PR references at depth 2+: just record them, don't deep-crawl
+			// PR references at depth 2+ are just recorded without deep-crawling.
 			config.visited.add(refKey(pendingRef));
 		}
 	}
@@ -275,7 +275,7 @@ async function crawlIssueDeeply(
 			});
 		}
 
-		// Extract references from issue body and comments
+		// We extract references from the issue body and comments.
 		const bodyRefs = extractReferences(
 			data.body,
 			ref,
@@ -309,12 +309,12 @@ async function crawlIssueReference(
 		const data = await fetchDeepIssue(pi, parsed, parsed.number);
 		if (!data) return;
 
-		// Update the reference with real title
+		// We update the reference with its real title.
 		pendingRef.title = `#${data.number}: ${data.title}`;
 		pendingRef.description =
 			data.body.slice(0, 200) + (data.body.length > 200 ? "…" : "");
 
-		// Extract references from body
+		// We extract references from the body.
 		const bodyRefs = extractReferences(
 			data.body,
 			parsed,
@@ -402,7 +402,7 @@ function extractReferences(
 		if (seen.has(url)) continue;
 		seen.add(url);
 
-		// Skip GitHub URLs already captured above
+		// We skip GitHub URLs that were already captured above.
 		if (GITHUB_URL_PATTERN.test(url)) continue;
 
 		refs.push({

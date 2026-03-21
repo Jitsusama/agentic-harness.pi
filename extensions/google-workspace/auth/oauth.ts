@@ -78,7 +78,7 @@ export async function initiateDeviceFlow(
 	if (!response.ok) {
 		const error = await response.text();
 
-		// Check for invalid client type error (wrong OAuth app type)
+		// We check for an invalid client type error (wrong OAuth app type).
 		if (error.includes("invalid_client")) {
 			throw new Error(
 				"Invalid OAuth client type. Your OAuth credentials must be created as " +
@@ -110,7 +110,7 @@ export async function pollForDeviceAuthorization(
 	const pollInterval = (interval || 5) * 1000; // Convert to milliseconds
 
 	while (!signal?.aborted) {
-		// Wait before polling
+		// We wait before polling.
 		await new Promise((resolve) => setTimeout(resolve, pollInterval));
 
 		if (signal?.aborted) {

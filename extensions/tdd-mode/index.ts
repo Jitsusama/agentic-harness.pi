@@ -456,7 +456,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			for (let i = 0; i < result.userSuggestions.length; i++) {
 				const s = result.userSuggestions[i];
 				if (s) {
-					// Show first 60 chars
+					// We show the first 60 chars.
 					const preview = s.length > 60 ? `${s.slice(0, 60)}...` : s;
 					lines.push(`    ${i + 1}. ${preview}`);
 				}

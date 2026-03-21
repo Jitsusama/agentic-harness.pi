@@ -62,7 +62,7 @@ export function matchesActionKey(data: string, key: string): boolean {
 	const baseKey = SHIFTED_SYMBOL_BASE[key];
 	if (baseKey) {
 		if (matchesKey(data, Key.shift(baseKey))) return true;
-		// Legacy fallback: terminal sends raw character (e.g. "+" for Shift+=)
+		// This is a legacy fallback: some terminals send the raw character (e.g., "+" for Shift+=).
 		if (data === key) return true;
 	}
 	return false;
@@ -147,6 +147,6 @@ function formatKeyLabel(key: string, label: string, theme: Theme): string {
 		return `${before}[${theme.fg("accent", keyChar)}]${after}`;
 	}
 
-	// Key not found in label: prefix it
+	// If the key isn't found in the label, we prefix it.
 	return `[${theme.fg("accent", upperKey)}] ${label}`;
 }

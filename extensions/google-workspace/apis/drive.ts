@@ -25,7 +25,7 @@ export async function listFiles(
 ): Promise<{ files: DriveFile[]; nextPageToken?: string }> {
 	const drive = google.drive({ version: "v3", auth });
 
-	// Build query parts
+	// We build the query parts.
 	const queryParts: string[] = ["trashed = false"];
 
 	if (options.folderId) {
@@ -154,7 +154,7 @@ export async function listSharedDrives(
 export function parseGoogleUrl(
 	url: string,
 ): { id: string; type: string } | null {
-	// Match various Google URL patterns
+	// We match against various Google URL patterns.
 	const patterns = [
 		// docs.google.com/document/d/FILE_ID/...
 		/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/,

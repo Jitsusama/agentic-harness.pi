@@ -78,7 +78,7 @@ function renderForType(
 		case "diff":
 			return (theme, width) => renderDiff(text, theme, width);
 		case "code": {
-			// Pre-highlight once upfront so render cycles are instant
+			// We pre-highlight once upfront so render cycles are instant.
 			const highlighted = preHighlightCode(text, language);
 			return (theme, width) =>
 				renderCode(text, theme, width, {
@@ -116,9 +116,9 @@ export async function showContent(
 
 	await view(ctx, {
 		title,
-		// Pass a caching wrapper: pre-render is width-dependent,
-		// so we cache by width and let the panel cache mechanism
-		// avoid re-calling on scroll/input.
+		// We pass a caching wrapper because pre-render is
+		// width-dependent: we cache by width and let the panel's
+		// cache mechanism avoid re-calling on scroll/input.
 		content: renderFn,
 		allowHScroll: type === "code" || type === "diff",
 	});

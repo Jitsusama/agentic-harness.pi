@@ -67,7 +67,7 @@ export async function handleGetFile(
 	const includeComments = getBooleanParam(params, "include_comments");
 	const commentsFilter = getStringParam(params, "comments_filter");
 
-	// Parse URL if provided
+	// We parse the URL if one was provided.
 	let fileId = id;
 	if (url && !fileId) {
 		const parsed = parseGoogleUrl(url);
@@ -87,11 +87,11 @@ export async function handleGetFile(
 		};
 	}
 
-	// Get file metadata
+	// We get the file metadata.
 	const file = await getFileMetadata(auth, fileId);
 	const mime = file.mimeType;
 
-	// Get comments if requested
+	// We get the comments if requested.
 	const comments = includeComments
 		? await getDocComments(
 				auth,
@@ -100,7 +100,7 @@ export async function handleGetFile(
 			)
 		: undefined;
 
-	// Route based on MIME type
+	// We route based on the MIME type.
 	if (mime === "application/vnd.google-apps.document") {
 		const content = await getDocContent(auth, fileId);
 		return {
@@ -125,7 +125,7 @@ export async function handleGetFile(
 		};
 	}
 
-	// For other file types, just return metadata
+	// For other file types, we just return the metadata.
 	return {
 		content: [
 			{

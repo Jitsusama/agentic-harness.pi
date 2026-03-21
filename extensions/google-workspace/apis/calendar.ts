@@ -20,7 +20,7 @@ export async function listEvents(
 ): Promise<CalendarEvent[]> {
 	const calendar = google.calendar({ version: "v3", auth });
 
-	// Parse date strings
+	// We parse the date strings.
 	const timeMin = parseDate(options.start || "today");
 	const timeMax = parseDate(options.end);
 
@@ -61,7 +61,7 @@ export async function getEvent(
 
 function parseDate(dateStr?: string): Date {
 	if (!dateStr) {
-		// Default to end of today
+		// We default to the end of today.
 		const date = new Date();
 		date.setHours(23, 59, 59, 999);
 		return date;
@@ -80,11 +80,11 @@ function parseDate(dateStr?: string): Date {
 		return date;
 	}
 
-	// Try to parse as ISO date
+	// We try to parse it as an ISO date.
 	try {
 		return new Date(dateStr);
 	} catch (_error) {
-		// Date constructor threw - re-throw with context
+		// The Date constructor threw, so we re-throw with context.
 		throw new Error(`Invalid date: ${dateStr}`);
 	}
 }
@@ -213,7 +213,7 @@ export async function createEvent(
 
 		return convertEvent(response.data);
 	} catch (error: unknown) {
-		// Enhance error message with details
+		// We enhance the error message with details.
 		if (error && typeof error === "object" && "message" in error) {
 			const apiError = error as { message?: string; errors?: unknown[] };
 			const details = apiError.errors
@@ -246,13 +246,13 @@ export async function updateEvent(
 ): Promise<CalendarEvent> {
 	const calendar = google.calendar({ version: "v3", auth });
 
-	// Get existing event first
+	// We get the existing event first.
 	const existing = await calendar.events.get({
 		calendarId: options.calendarId || "primary",
 		eventId,
 	});
 
-	// Merge updates with existing data
+	// We merge the updates with the existing data.
 	const event = {
 		...existing.data,
 		summary: options.summary ?? existing.data.summary,
@@ -313,13 +313,13 @@ export async function respondToEvent(
 ): Promise<CalendarEvent> {
 	const calendar = google.calendar({ version: "v3", auth });
 
-	// Get existing event
+	// We get the existing event.
 	const existing = await calendar.events.get({
 		calendarId,
 		eventId,
 	});
 
-	// Find our attendance and update response
+	// We find our attendance entry and update the response.
 	const attendees = existing.data.attendees || [];
 	for (const attendee of attendees) {
 		if (attendee.self) {

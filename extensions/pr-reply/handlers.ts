@@ -138,7 +138,7 @@ export async function handleActivate(
 		return handleSwitchResult(ctx, switchResult, ref);
 	}
 
-	// Ensure we're on the PR's branch
+	// We ensure we're on the PR's branch.
 	const prBranch = await getPRBranch(pi, ref);
 	if (prBranch) {
 		const currentBranch = await getCurrentBranch(pi);
@@ -167,7 +167,7 @@ export async function handleActivate(
 		return textResult("No unresolved review threads to address.");
 	}
 
-	// Populate state
+	// We populate the state.
 	state.prNumber = ref.number;
 	state.owner = ref.owner;
 	state.repo = ref.repo;
@@ -356,7 +356,7 @@ export async function handleReviewWorkspace(
 		};
 	}
 
-	// User selected a thread: show the full-context gate
+	// The user selected a thread, so we show the full-context gate.
 	if (result.action === "open") {
 		const thread = state.threads.find((t) => t.id === result.threadId);
 		if (!thread) {
@@ -371,13 +371,13 @@ export async function handleReviewWorkspace(
 				? await readCodeContext(pi, thread.file, contextLine)
 				: null;
 
-		// Build recommendation from batch analysis
+		// We build the recommendation from the batch analysis.
 		const analysis = state.threadAnalyses.get(thread.id);
 		const recommendation = analysis?.analysis ?? "";
 
 		const progressLine = briefProgress(state);
 
-		// Show the full-context thread gate
+		// We show the full-context thread gate.
 		const choice = await showThreadGate(
 			ctx,
 			thread,
@@ -406,7 +406,7 @@ export async function handleReviewWorkspace(
 		);
 	}
 
-	// Defer and skip are handled inline in the workspace
+	// Defer and skip are handled inline in the workspace.
 	return textResult("Action applied. Call 'review' to reopen the workspace.");
 }
 
@@ -624,7 +624,7 @@ export async function handleShow(
 		progressLine,
 	);
 
-	// Restore widget after prompt closes
+	// We restore the widget after the prompt closes.
 	refreshUI(state, ctx);
 
 	return applyThreadChoice(

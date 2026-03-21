@@ -23,6 +23,6 @@ export async function injectCookies(page: Page, url: string): Promise<void> {
 	} catch (err) {
 		// Stale key errors need to propagate so the user gets guidance
 		if (err instanceof StaleKeyError) throw err;
-		// Silent fallback for everything else: cookies are optional
+		// Everything else gets a silent fallback because cookies are optional.
 	}
 }

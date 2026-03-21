@@ -154,5 +154,5 @@ export async function pushIfNeeded(pi: ExtensionAPI): Promise<void> {
 	if (Number.isNaN(ahead) || ahead === 0) return;
 
 	await pi.exec("git", ["push"]);
-	// Non-fatal: the reply will still be posted
+	// This is non-fatal; the reply will still be posted.
 }

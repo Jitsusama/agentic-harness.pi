@@ -141,7 +141,7 @@ function formatHighlightedCode(
 	const gutterWidth = String(lastLineNum).length;
 	const lines: string[] = [];
 
-	// Track ANSI color state across lines so multi-line constructs
+	// We track ANSI colour state across lines so multi-line constructs
 	// (comments, strings) keep their colour after the gutter resets it.
 	let activeEscapes = "";
 
@@ -154,10 +154,10 @@ function formatHighlightedCode(
 		const gutter = `${marker}${theme.fg("dim", `${numStr} │ `)}`;
 		const codeLine = (codeLines[i] ?? "").replaceAll("\t", tabSpaces);
 
-		// Restore colour state from previous line, then emit this line
+		// We restore the colour state from the previous line, then emit this one.
 		lines.push(truncateToWidth(`${gutter}${activeEscapes}${codeLine}`, width));
 
-		// Update active escapes by scanning this line's ANSI sequences
+		// We update the active escapes by scanning this line's ANSI sequences.
 		activeEscapes = trackAnsiState(activeEscapes, codeLine);
 	}
 

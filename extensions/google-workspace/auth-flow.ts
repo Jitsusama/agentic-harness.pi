@@ -49,23 +49,23 @@ export async function ensureAuthenticated(
 	) => Promise<OAuth2Client>,
 ): Promise<OAuth2Client> {
 	try {
-		// Try to get existing authenticated client
+		// We try to get an existing authenticated client.
 		return await getAuthClient(ctx, account, oauthConfig);
 	} catch (error) {
-		// Check if this is an authentication error
+		// We check if this is an authentication error.
 		const message = error instanceof Error ? error.message : String(error);
 		if (!message.includes("Not authenticated")) {
 			throw error; // Some other error, re-throw
 		}
 
-		// Not authenticated - guide user through auth flow
+		// The user isn't authenticated, so we guide them through the auth flow.
 		if (!ctx.hasUI) {
 			throw new Error(
 				"Not authenticated and no UI available for interactive authentication.",
 			);
 		}
 
-		// Confirm user wants to authenticate now
+		// We confirm the user wants to authenticate now.
 		const result = await prompt(ctx, {
 			content: (theme, _width) => [
 				` ${theme.bold("🔐 Authentication Required")}`,
@@ -85,10 +85,10 @@ export async function ensureAuthenticated(
 			throw new Error(AUTH_MESSAGES.cancelled);
 		}
 
-		// Run authentication flow
+		// We run the authentication flow.
 		await handleGoogleAuthCommand(`--account ${account}`, ctx, oauthConfig);
 
-		// Get authenticated client (will throw if auth failed)
+		// We get the authenticated client (this will throw if auth failed).
 		return await getAuthClient(ctx, account, oauthConfig);
 	}
 }
@@ -99,7 +99,7 @@ export async function ensureAuthenticated(
 export function formatAuthError(error: unknown): string {
 	const message = error instanceof Error ? error.message : String(error);
 
-	// Check for specific error types
+	// We check for specific error types.
 	if (message.includes("cancelled")) {
 		return AUTH_MESSAGES.cancelled;
 	}

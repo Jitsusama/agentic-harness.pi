@@ -29,7 +29,7 @@ const ATTRIBUTION_PATTERN = /co-authored-by[:\s]+ai/i;
  * (e.g. "claude-opus-4-6" → "Claude Opus 4.6").
  */
 function formatModelName(modelId: string): string {
-	// Strip trailing date suffix (8+ digits, optionally preceded by hyphen)
+	// We strip the trailing date suffix (8+ digits, optionally preceded by a hyphen).
 	const stripped = modelId.replace(/-?\d{8,}$/, "");
 	const parts = stripped.split("-");
 
@@ -40,7 +40,7 @@ function formatModelName(modelId: string): string {
 			result.length > 0 && /^\d/.test(result[result.length - 1]);
 
 		if (isDigit && prevIsDigit) {
-			// Join consecutive digit segments with a dot (version number)
+			// We join consecutive digit segments with a dot to form a version number.
 			result[result.length - 1] += `.${part}`;
 		} else {
 			result.push(part.charAt(0).toUpperCase() + part.slice(1));

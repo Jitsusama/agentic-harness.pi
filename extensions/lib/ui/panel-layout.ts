@@ -45,7 +45,7 @@ export function buildHintBar(opts: HintBarOptions): string {
 	const { theme } = opts;
 	const hints: string[] = [];
 
-	// View hints: [K]eyword format, active view highlighted
+	// These are the view hints in [K]eyword format, with the active view highlighted.
 	const views = opts.views ?? [];
 	if (views.length > 1) {
 		const activeIdx = opts.activeViewIndex ?? 0;
@@ -57,7 +57,7 @@ export function buildHintBar(opts: HintBarOptions): string {
 		}
 	}
 
-	// Navigation hints
+	// These are the navigation hints.
 	if (opts.hasTabs) {
 		hints.push(theme.fg("dim", "Tab navigate"));
 		hints.push(theme.fg("dim", "Ctrl+# jump"));

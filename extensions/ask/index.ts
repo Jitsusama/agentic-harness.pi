@@ -127,7 +127,7 @@ export default function ask(pi: ExtensionAPI) {
 				return errorResult("Error: No questions provided");
 			}
 
-			// Normalize questions with defaults
+			// We normalize the questions with their defaults.
 			const questions: Question[] = params.questions.map((q, i) => ({
 				...q,
 				label: q.label || `Q${i + 1}`,
@@ -231,7 +231,7 @@ export default function ask(pi: ExtensionAPI) {
 				}
 			}
 
-			// Build result from accumulated answers
+			// We build the result from the accumulated answers.
 			const askResult: AskResult = {
 				questions,
 				answers: Array.from(answers.values()),

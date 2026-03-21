@@ -171,7 +171,7 @@ export async function view(
 			);
 			for (const line of scrolled) add(line);
 
-			// Pad to budget only when scrolling (keeps height stable during scroll)
+			// We pad to budget only when scrolling to keep height stable.
 			if (needsVScroll) {
 				while (lines.length < budget + (config.title ? 3 : 1)) {
 					lines.push("");

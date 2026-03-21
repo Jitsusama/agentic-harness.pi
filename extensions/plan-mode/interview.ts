@@ -77,7 +77,7 @@ export async function showPlanInterview(
 	}
 
 	if (questions.length === 0) {
-		// No questions: just offer to add custom ones
+		// If there are no questions, we just offer to add custom ones.
 		const result = await prompt(ctx, {
 			content: (theme) => [
 				theme.fg("muted", " No questions to answer."),
@@ -92,7 +92,7 @@ export async function showPlanInterview(
 			return null;
 		}
 
-		// Result is TabbedResult
+		// The result is a TabbedResult.
 		const tabbed = result as unknown as { userItems: string[] };
 		if (tabbed.userItems?.length > 0) {
 			return {
@@ -116,7 +116,7 @@ export async function showPlanInterview(
 
 	if (!result) return null;
 
-	// Extract answers from tabbed results
+	// We extract answers from the tabbed results.
 	const answers: { id: string; question: string; answer: string }[] = [];
 	for (const [index, itemResult] of result.items) {
 		const q = questions[index];

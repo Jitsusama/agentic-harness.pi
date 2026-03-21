@@ -62,7 +62,7 @@ export function renderScrollRegion(
 				contentWidth,
 			);
 			const truncated = truncateToWidth(sliced, contentWidth);
-			// CSI absolute column positioning for the scrollbar
+			// We use CSI absolute column positioning for the scrollbar.
 			const scrollCol = width;
 			lines.push(`${truncated}\x1b[${scrollCol}G${scrollbar[i] ?? ""}`);
 		}
@@ -191,7 +191,7 @@ function horizontalSlice(text: string, offset: number, width: number): string {
 	let i = 0;
 	let activeEscapes = "";
 
-	// Skip `offset` visible characters, collecting ANSI state
+	// We skip `offset` visible characters, collecting ANSI state along the way.
 	while (i < text.length && visCount < offset) {
 		if (text[i] === "\x1b" && text[i + 1] === "[") {
 			const escStart = i;

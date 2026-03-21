@@ -63,7 +63,7 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 
 		if (result.type === "action") {
 			if (result.value === "a") {
-				// Approve: if the user added a note, treat as steer
+				// If the user added a note on approve, we treat it as steer.
 				if (result.note) {
 					return formatSteer(
 						result.note,
@@ -73,7 +73,7 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 				return undefined;
 			}
 
-			// Reject: if there's a note, include it
+			// If there's a note on reject, we include it as steer feedback.
 			if (result.note) {
 				return formatSteer(result.note, `Original commit:\n${parsed.message}`);
 			}

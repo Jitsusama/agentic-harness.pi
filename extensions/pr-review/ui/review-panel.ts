@@ -81,14 +81,14 @@ export async function showReviewPanel(
 	const context = session.context;
 	if (!context) return null;
 
-	// Build tab IDs for all tabs
+	// We build the tab IDs for all tabs.
 	const tabIds = buildTabIds(context);
 
-	// Mutable comment selection indices per tab
+	// These are mutable comment selection indices, tracked per tab.
 	const commentIndices = new Map<string, number>();
 
-	// Shared stash for comment context when user steers on a specific comment.
-	// Set by comment input handlers, read when processing steer results.
+	// This is a shared stash for comment context when the user steers on a specific comment.
+	// It's set by comment input handlers and read when processing steer results.
 	const steerState = {
 		commentContext: null as { id: string; subject: string } | null,
 	};
@@ -114,8 +114,8 @@ export async function showReviewPanel(
 		),
 	];
 
-	// Inject 'h' handling into every view so it marks the tab handled
-	// without closing the panel
+	// We inject 'h' handling into every view so it marks the tab
+	// handled without closing the panel.
 	const items = rawItems.map((item, itemIdx) => ({
 		...item,
 		views: item.views.map((v) => ({
@@ -161,11 +161,11 @@ export async function showReviewPanel(
 		};
 	}
 
-	// Handle 'h' action: mark current tab handled
-	// This is handled inline via handleInput, but if it reaches here
-	// it means the workspace returned an action result
+	// This handles the 'h' action to mark the current tab handled.
+	// It's handled inline via handleInput, but if it reaches here
+	// it means the workspace returned an action result.
 	if (result.type === "action" && result.value === "h") {
-		// Tab marking is done inline via handleInput
+		// Tab marking is done inline via handleInput.
 		return null;
 	}
 
@@ -590,7 +590,7 @@ function handleCommentInput(
 	setSteerContext: (ctx: { id: string; subject: string } | null) => void,
 ): boolean {
 	if (comments.length === 0) {
-		// Allow '+' for new comment even when empty
+		// We allow '+' for a new comment even when the list is empty.
 		if (matchesActionKey(data, "+")) {
 			inputCtx.openEditor("New comment observation:");
 			return true;
@@ -665,7 +665,7 @@ function advanceToNextPending(
 			return;
 		}
 	}
-	// No pending left: stay at current
+	// There are no pending comments left, so we stay at the current one.
 }
 
 /** Check if a tab should be auto-handled. */
@@ -712,7 +712,7 @@ function buildIndicatorMap(comments: ReviewComment[]): Map<number, string> {
 
 		const glyph = COMMENT_GLYPH[c.status];
 		for (let line = c.startLine; line <= c.endLine; line++) {
-			// Only set if not already set (first comment wins)
+			// We only set this if it isn't already set (first comment wins).
 			if (!map.has(line)) {
 				map.set(line, glyph);
 			}

@@ -54,27 +54,27 @@ export async function vetComments(
 		return { approved: [], rejected: 0, edited: 0, userRequests: [] };
 	}
 
-	// Wrap comments with mutable status
+	// We wrap each comment with mutable status tracking.
 	const vetComments: VetComment[] = comments.map((c) => ({
 		comment: c,
 		status: "pending" as CommentStatus,
 	}));
 
-	// Group comments by file path
+	// We group comments by file path.
 	const fileGroups = groupByFile(vetComments);
 	const filePaths = [...fileGroups.keys()].sort();
 
-	// Build diff lookup
+	// We build a diff lookup by path.
 	const diffByPath = new Map<string, DiffFile>();
 	for (const df of diffFiles) {
 		diffByPath.set(df.path, df);
 	}
 
-	// Mutable selection state per tab
+	// This is mutable selection state, tracked per tab.
 	const commentIndices = new Map<string, number>();
 	const tabHandled = new Set<string>();
 
-	// Build workspace items
+	// We build the workspace items from the summary and file tabs.
 	const items: WorkspaceItem[] = [
 		buildSummaryTab(vetComments, preApprovedCount),
 		...filePaths.map((path) =>
@@ -106,10 +106,10 @@ export async function vetComments(
 	if (!result) return null;
 
 	if (result.type === "steer") {
-		// Steer could be feedback on a comment or a request for a new
-		// comment (from the '+' action). Either way, return it as steer
-		// feedback: the LLM can interpret the intent.
-		// Include any already-approved comments so they aren't lost.
+		// A steer could be feedback on a comment or a request for a
+		// new one (from the '+' action). Either way, we return it as
+		// steer feedback and let the LLM interpret the intent. We
+		// include any already-approved comments so they aren't lost.
 		const approved: ReviewComment[] = [];
 		for (const vc of vetComments) {
 			if (vc.status === "approved") {
@@ -125,7 +125,7 @@ export async function vetComments(
 		};
 	}
 
-	// Collect results (submit via Ctrl+Enter)
+	// We collect the results when the user submits via Ctrl+Enter.
 	const approved: ReviewComment[] = [];
 	let rejected = 0;
 
@@ -273,7 +273,7 @@ function buildOverviewView(
 				lines.push("");
 			}
 
-			// Render diff if available
+			// We render the diff if one is available.
 			const diffText = diffFile ? buildFileDiff(diffFile) : null;
 			if (diffText) {
 				const diffLines = renderDiff(diffText, theme, width);
@@ -318,7 +318,7 @@ function buildCommentsView(
 			return renderCommentList(fileComments, getIndex(), theme, width);
 		},
 		handleInput: (data: string, inputCtx: WorkspaceInputContext) => {
-			// Handle 'h' for tab handled
+			// We handle 'h' to mark the tab as handled.
 			if (matchesKey(data, "h")) {
 				tabHandled.add(filePath);
 				inputCtx.invalidate();

@@ -68,7 +68,7 @@ export async function showSinglePrompt(
 		editor.onSubmit = (value: string) => {
 			const trimmed = value.trim();
 			if (!trimmed) {
-				// Empty submit cancels editor
+				// An empty submit cancels the editor.
 				editorMode = false;
 				editorContext = null;
 				editor.setText("");
@@ -103,9 +103,9 @@ export async function showSinglePrompt(
 		}
 
 		function handleInput(data: string) {
-			// Drop release events: they duplicate press events under
-			// Kitty protocol flag 2 and would leak characters into
-			// the NoteEditor or double-fire actions.
+			// We drop release events because they duplicate press events
+			// under Kitty protocol flag 2 and would leak characters
+			// into the NoteEditor or double-fire actions.
 			if (isKeyRelease(data)) return;
 
 			// Editor mode
@@ -246,7 +246,7 @@ export async function showSinglePrompt(
 			);
 			for (const line of scrolled) add(line);
 
-			// Pad to budget only when scrolling (keeps height stable during scroll)
+			// We pad to budget only when scrolling to keep height stable.
 			if (needsVScroll) {
 				while (lines.length < budget + 1) {
 					lines.push("");

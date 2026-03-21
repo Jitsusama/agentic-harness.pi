@@ -48,7 +48,7 @@ export function renderGoogleResult(
 	const d = result.details as ResultDetails | undefined;
 	const textContent = result.content?.[0]?.text || "";
 
-	// Check for errors
+	// We check for errors.
 	if (
 		textContent.startsWith("Google Workspace API error:") ||
 		textContent.startsWith("Missing required parameter")
@@ -60,7 +60,7 @@ export function renderGoogleResult(
 		return new Text(theme.fg("error", errorMsg), 0, 0);
 	}
 
-	// Check for cancellations
+	// We check for cancellations.
 	if (
 		textContent.startsWith("✗") ||
 		textContent.includes("cancelled") ||
@@ -209,7 +209,7 @@ function formatSender(
 ): string {
 	if (!from) return "Unknown";
 	if (typeof from === "string") return from;
-	// from is an object - prefer name, fall back to email
+	// The from field is an object, so we prefer the name and fall back to email.
 	return from.name || from.email || "Unknown";
 }
 

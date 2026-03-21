@@ -91,7 +91,7 @@ export async function handleCreateEvent(
 		};
 	}
 
-	// Confirm and potentially edit before creating
+	// We confirm and potentially let the user edit before creating.
 	const confirmResult = await confirmCreateEvent(ctx, {
 		summary,
 		start,
@@ -163,11 +163,11 @@ export async function handleUpdateEvent(
 		};
 	}
 
-	// Get existing event to check if it has attendees
+	// We get the existing event. to check if it has attendees
 	const existing = await getEvent(auth, eventId, calendarId);
 	const hasAttendees = existing.attendees && existing.attendees.length > 0;
 
-	// Confirm if it has attendees
+	// We confirm if it has attendees.
 	if (hasAttendees) {
 		const confirmResult = await confirmUpdateEvent(ctx, eventId, existing, {
 			summary,
@@ -222,11 +222,11 @@ export async function handleDeleteEvent(
 		};
 	}
 
-	// Get existing event to check if it has attendees
+	// We get the existing event. to check if it has attendees
 	const existing = await getEvent(auth, eventId, calendarId);
 	const hasAttendees = existing.attendees && existing.attendees.length > 0;
 
-	// Confirm if it has attendees
+	// We confirm if it has attendees.
 	if (hasAttendees) {
 		const confirmResult = await confirmDeleteEvent(
 			ctx,

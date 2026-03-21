@@ -266,7 +266,7 @@ export async function showTabbedPrompt(
 					if (view && matchesKey(data, view.key)) {
 						activeViewIndex.set(currentTab, i);
 						tui.requestRender();
-						// Trigger async load if needed
+						// We trigger an async load if needed.
 						ensureViewContent(currentTab, i, 0);
 						return;
 					}

@@ -161,10 +161,10 @@ export default function statusLine(pi: ExtensionAPI) {
 					const window = usage?.contextWindow ?? 0;
 					const pct = window > 0 ? Math.round((tokens / window) * 100) : 0;
 
-					// Context colour: dim normally, warning when > 80%
+					// The context colour is dim normally but turns to warning when > 80%.
 					const ctxColor = pct > 80 ? "warning" : "dim";
 
-					// Highlight last path component, dim the rest
+					// We highlight the last path component and dim the rest.
 					const homeCwd = homePath(cwd);
 					const base = path.basename(cwd);
 					const parent = homeCwd.slice(0, homeCwd.length - base.length);
@@ -219,7 +219,7 @@ export default function statusLine(pi: ExtensionAPI) {
 						}
 					}
 
-					// Everything stripped: just show basename
+					// If everything else is stripped, we just show the basename.
 					return [truncateToWidth(d.shortDir, width)];
 				},
 			};

@@ -29,7 +29,7 @@ export async function searchEmails(
 		return { messages: [] };
 	}
 
-	// Fetch metadata for each message
+	// We fetch metadata for each message.
 	const messages: EmailMessage[] = [];
 	for (const { id } of messageIds) {
 		if (!id) continue;
@@ -114,7 +114,7 @@ export async function getThread(
 ): Promise<EmailMessageFull[]> {
 	const gmail = google.gmail({ version: "v1", auth });
 
-	// First get the message to find its thread ID
+	// We first get the message to find its thread ID.
 	const msg = await gmail.users.messages.get({
 		userId: "me",
 		id: messageId,
@@ -126,7 +126,7 @@ export async function getThread(
 		throw new Error("Message has no thread ID");
 	}
 
-	// Get the full thread
+	// We get the full thread.
 	const thread = await gmail.users.threads.get({
 		userId: "me",
 		id: threadId,
@@ -204,12 +204,12 @@ function extractBody(payload: unknown): string {
 		parts?: unknown[];
 	};
 
-	// If there's a body.data, decode it
+	// If there's a body.data, we decode it.
 	if (p.body?.data) {
 		return decodeBase64(p.body.data);
 	}
 
-	// If there are parts, recursively search for text/plain or text/html
+	// If there are parts, we recursively search for text/plain or text/html.
 	if (p.parts) {
 		for (const part of p.parts) {
 			if (typeof part !== "object" || part === null) continue;
@@ -224,7 +224,7 @@ function extractBody(payload: unknown): string {
 			}
 		}
 
-		// Fall back to HTML if no plain text
+		// We fall back to HTML if there's no plain text.
 		for (const part of p.parts) {
 			if (typeof part !== "object" || part === null) continue;
 			const partObj = part as {
@@ -238,7 +238,7 @@ function extractBody(payload: unknown): string {
 			}
 		}
 
-		// Recurse into multipart parts
+		// We recurse into multipart parts.
 		for (const part of p.parts) {
 			const body = extractBody(part);
 			if (body) return body;
@@ -284,17 +284,17 @@ function extractAttachments(
 
 function decodeBase64(data: string): string {
 	try {
-		// Gmail uses URL-safe base64
+		// Gmail uses URL-safe base64.
 		const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
 		return Buffer.from(base64, "base64").toString("utf-8");
 	} catch (_error) {
-		// Base64 decoding failed (malformed data) - return empty string
+		// Base64 decoding failed (malformed data), so we return an empty string.
 		return "";
 	}
 }
 
 function stripHtml(html: string): string {
-	// Very basic HTML stripping - just remove tags
+	// This is very basic HTML stripping: we just remove the tags.
 	return html
 		.replace(/<br\s*\/?>/gi, "\n")
 		.replace(/<[^>]+>/g, "")
@@ -322,7 +322,7 @@ export async function sendEmail(
 ): Promise<{ id: string; threadId: string }> {
 	const gmail = google.gmail({ version: "v1", auth });
 
-	// Build email message
+	// We build the email message.
 	const headers = [
 		`To: ${options.to.join(", ")}`,
 		...(options.cc ? [`Cc: ${options.cc.join(", ")}`] : []),
@@ -330,7 +330,7 @@ export async function sendEmail(
 		`Subject: ${options.subject}`,
 	];
 
-	// If replying, add headers and fetch original message
+	// If replying, we add headers and fetch the original message.
 	let threadId: string | undefined;
 	if (options.replyTo) {
 		const original = await gmail.users.messages.get({
@@ -359,7 +359,7 @@ export async function sendEmail(
 
 	const message = [...headers, "", options.body].join("\n");
 
-	// Encode message
+	// We encode the message.
 	const encodedMessage = Buffer.from(message)
 		.toString("base64")
 		.replace(/\+/g, "-")

@@ -121,7 +121,7 @@ async function runSetupWizard(
 		return null;
 	}
 
-	// Store and confirm
+	// We store the credentials and confirm.
 	const credentials: OAuthAppCredentials = {
 		clientId: cleanClientId,
 		clientSecret: cleanClientSecret,

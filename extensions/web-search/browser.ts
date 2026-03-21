@@ -21,7 +21,7 @@ function findChrome(): string {
 		try {
 			if (fs.existsSync(p)) return p;
 		} catch {
-			// Chrome not installed at this path: try next
+			// Chrome isn't installed at this path, so we try the next one.
 		}
 	}
 	throw new Error(

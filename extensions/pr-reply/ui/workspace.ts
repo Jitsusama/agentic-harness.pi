@@ -68,10 +68,10 @@ export async function showReplyWorkspace(
 ): Promise<WorkspaceAction> {
 	const { reviews, threads, threadStates, threadAnalyses } = state;
 
-	// Mutable selection state per reviewer tab
+	// This is mutable selection state, tracked per reviewer tab.
 	const threadIndices = new Map<string, number>();
 
-	// Restore position from state
+	// We restore the position from state.
 	const savedPos = state.workspacePosition;
 	if (savedPos?.threadIndices) {
 		for (const [key, val] of savedPos.threadIndices) {
@@ -79,7 +79,7 @@ export async function showReplyWorkspace(
 		}
 	}
 
-	// Track which reviewer tabs are complete
+	// We track which reviewer tabs are complete.
 	const tabHandled = new Set<string>();
 	for (const review of reviews) {
 		const reviewThreads = threadsForReview(review, threads);
@@ -90,10 +90,10 @@ export async function showReplyWorkspace(
 		if (allDone) tabHandled.add(review.id);
 	}
 
-	// Track the thread the user is acting on
+	// We track the thread the user is acting on.
 	let actionThreadId: string | null = null;
 
-	// Build workspace items
+	// We build the workspace items.
 	const items: WorkspaceItem[] = [
 		buildSummaryTab(state),
 		...reviews.map((review) =>
@@ -124,7 +124,7 @@ export async function showReplyWorkspace(
 		allowHScroll: true,
 	});
 
-	// Save workspace position
+	// We save the workspace position.
 	state.workspacePosition = {
 		tabIndex: 0,
 		threadIndices: new Map(threadIndices),
@@ -391,7 +391,7 @@ function renderThreadList(
 		const line = `${pad}${cursor}${theme.fg(glyphColor, glyph)} ${summary} ${theme.fg("dim", `[${st}]`)}`;
 		lines.push(isSel ? theme.fg("accent", line) : line);
 
-		// Show snippet on second line
+		// We show the snippet on the second line.
 		const snippet =
 			thread.comments[0]?.body.slice(0, 70).replace(/\n/g, " ") ?? "";
 		const ellipsis = (thread.comments[0]?.body.length ?? 0) > 70 ? "…" : "";

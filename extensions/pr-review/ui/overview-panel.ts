@@ -37,7 +37,7 @@ export async function showOverviewPanel(
 	context: CrawlResult,
 	synopsis: string,
 ): Promise<OverviewResult> {
-	// Mutable selection state for lists
+	// This is mutable selection state for the lists.
 	let refIndex = 0;
 	let sourceIndex = 0;
 
@@ -170,7 +170,7 @@ function buildReferencesTab(
 
 			const selected = getIndex();
 
-			// Group by type
+			// We group references by type.
 			const groups = groupByType(references);
 			let flatIdx = 0;
 
@@ -185,7 +185,7 @@ function buildReferencesTab(
 					const line = `${pad}${cursor}${ref.title}${depthTag}`;
 					lines.push(isSel ? theme.fg("accent", line) : line);
 
-					// Show description below selected item
+					// We show the description below the selected item.
 					if (isSel) {
 						const desc = refDescription(ref);
 						if (desc) {
@@ -267,7 +267,7 @@ function buildSourceTab(
 				const line = `${pad}${cursor}${file.path}`;
 				lines.push(isSel ? theme.fg("accent", line) : line);
 
-				// Show role description for selected item
+				// We show the role description for the selected item.
 				if (isSel && file.role) {
 					for (const wl of wordWrap(file.role, wrapWidth - 4)) {
 						lines.push(`${pad}    ${theme.fg("dim", wl)}`);
@@ -311,7 +311,7 @@ function buildSourceTab(
 
 /** Open a URL in the system browser. */
 function openUrl(ctx: ExtensionContext, url: string): void {
-	// macOS: per plan, not cross-platform
+	// This is macOS-specific, per plan; it's not cross-platform.
 	ctx.ui.notify(`Opening ${url}…`, "info");
 	import("node:child_process").then(({ exec }) => {
 		exec(`open ${JSON.stringify(url)}`);
@@ -358,7 +358,7 @@ function estimateRefLine(refs: Reference[], flatIndex: number): number {
 		for (const item of items) {
 			if (idx === flatIndex) return line;
 			line++; // item line
-			// Selected item expands with description (~2 lines estimate)
+			// The selected item expands with a description (~2 lines estimate).
 			if (idx === flatIndex && refDescription(item)) {
 				line += 2;
 			}

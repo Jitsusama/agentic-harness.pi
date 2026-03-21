@@ -134,7 +134,7 @@ function formatDate(dateStr: string): string {
 			minute: "2-digit",
 		});
 	} catch (_error) {
-		// Date parsing failed - return truncated raw string as fallback
+		// Date parsing failed, so we return a truncated raw string as a fallback.
 		return dateStr.slice(0, 16);
 	}
 }

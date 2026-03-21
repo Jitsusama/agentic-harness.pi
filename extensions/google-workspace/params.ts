@@ -47,7 +47,7 @@ export function getStringArrayParam(
 ): string[] | undefined {
 	const value = params[key];
 	if (!Array.isArray(value)) return undefined;
-	// Validate all elements are strings
+	// We validate that all elements are strings.
 	return value.every((v) => typeof v === "string")
 		? (value as string[])
 		: undefined;

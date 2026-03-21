@@ -33,7 +33,7 @@ function readFile(): CredentialsFile {
 		const raw = fs.readFileSync(CREDENTIALS_PATH, "utf-8");
 		return JSON.parse(raw) as CredentialsFile;
 	} catch {
-		// File doesn't exist or is corrupt: start fresh
+		// The file doesn't exist or is corrupt, so we start fresh.
 		return { accounts: [], tokens: {} };
 	}
 }
