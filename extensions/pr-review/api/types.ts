@@ -6,8 +6,6 @@
  * navigating unknown objects with casts.
  */
 
-// ---- PR context query response ----
-
 /** Response from the PR_CONTEXT_QUERY. */
 export interface PRContextResponse {
 	data: {
@@ -72,8 +70,6 @@ export interface GQLLatestReview {
 	state: string;
 }
 
-// ---- Reviews query response ----
-
 /** Response from the REVIEWS_QUERY. */
 export interface ReviewsResponse {
 	data: {
@@ -111,8 +107,6 @@ export interface GQLThreadComment {
 	author: GQLAuthor | null;
 	pullRequestReview: { id: string } | null;
 }
-
-// ---- Deep issue query response ----
 
 /** Response from the ISSUE_DEEP_QUERY. */
 export interface IssueDeepResponse {

@@ -22,15 +22,11 @@ import {
 } from "@mariozechner/pi-tui";
 import { GLYPH, type TabStatus } from "./types.js";
 
-// ---- Constants ----
-
 /** Width of ellipsis segment including spacing. */
 const ELLIPSIS_WIDTH = 3;
 
 /** Width of a single progress bar character. */
 const PROGRESS_BAR_WIDTH = 5;
-
-// ---- Rendering ----
 
 /** Map a tab status to its glyph and theme color. */
 function statusGlyph(status: TabStatus, theme: Theme): string {

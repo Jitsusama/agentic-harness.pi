@@ -59,8 +59,6 @@ export async function getDocComments(
 	return comments;
 }
 
-// Helper functions
-
 function extractDocBody(doc: unknown): string {
 	const d = doc as {
 		body?: {

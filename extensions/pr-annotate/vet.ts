@@ -24,8 +24,6 @@ import type {
 } from "../lib/ui/types.js";
 import type { ReviewComment, VetResult } from "./index.js";
 
-// ---- Constants ----
-
 /** Status glyphs for comments. */
 const COMMENT_GLYPH = {
 	pending: "●",
@@ -41,8 +39,6 @@ interface VetComment {
 	comment: ReviewComment;
 	status: CommentStatus;
 }
-
-// ---- Public API ----
 
 /**
  * Show the vetting workspace. Returns approved/rejected counts,
@@ -149,8 +145,6 @@ export async function vetComments(
 	};
 }
 
-// ---- Summary tab ----
-
 /** Build the Summary tab showing overall progress and post action. */
 function buildSummaryTab(
 	vetComments: VetComment[],
@@ -228,8 +222,6 @@ function buildSummaryTab(
 
 	return { label: "Summary", views: [summaryView] };
 }
-
-// ---- File tabs ----
 
 /** Build a file tab with Overview (diff), Comments and Source views. */
 function buildFileTab(
@@ -417,8 +409,6 @@ function buildSourceView(filePath: string): WorkspaceView {
 	};
 }
 
-// ---- Comment rendering ----
-
 /** Render a selectable comment list. */
 function renderCommentList(
 	comments: VetComment[],
@@ -483,8 +473,6 @@ function renderCommentList(
 
 	return lines;
 }
-
-// ---- Helpers ----
 
 /** Group comments by file path, preserving order. */
 function groupByFile(comments: VetComment[]): Map<string, VetComment[]> {

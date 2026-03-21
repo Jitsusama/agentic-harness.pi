@@ -33,8 +33,6 @@ const DEFAULT_MAX_DEPTH = 5;
 /** Maximum characters to scan for link extraction per body. */
 const MAX_BODY_SCAN = 10000;
 
-// ---- GraphQL ----
-
 const ISSUE_DEEP_QUERY = `
 query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -64,8 +62,6 @@ query($owner: String!, $repo: String!, $number: Int!) {
     }
   }
 }`;
-
-// ---- Public API ----
 
 /** Crawl configuration. */
 export interface CrawlConfig {
@@ -97,7 +93,6 @@ export async function crawl(
 	const relatedPRs: RelatedPR[] = [];
 	let hitDepthLimit = false;
 
-	// ---- Level 0: PR itself ----
 	onProgress?.(0, "Fetching PR metadata & issues");
 	config.visited.add(`pr:${ref.owner}/${ref.repo}#${ref.number}`);
 
@@ -121,7 +116,6 @@ export async function crawl(
 	);
 	addNewReferences(references, [...prBodyRefs, ...prCommentRefs], config);
 
-	// ---- Level 1: Linked issues ----
 	onProgress?.(1, "Crawling linked issues");
 
 	const siblingPRs = await fetchSiblingPRs(pi, ref, linkedIssues);
@@ -142,7 +136,6 @@ export async function crawl(
 		await crawlIssueDeeply(pi, ref, issue, config, references, issues, 1);
 	}
 
-	// ---- Levels 2–maxDepth: Follow discovered references ----
 	for (let depth = 2; depth <= config.maxDepth; depth++) {
 		const pendingRefs = references.filter(
 			(r) =>
@@ -182,11 +175,9 @@ export async function crawl(
 		}
 	}
 
-	// ---- Enrich references with titles ----
 	enrichReferences(references, issues, relatedPRs);
 	await fetchMissingTitles(pi, ref, references);
 
-	// ---- Source file discovery ----
 	onProgress?.(config.maxDepth, "Discovering source files");
 	const sourceFiles = await discoverSourceFiles(pi, ref, diffFiles, repoPath);
 
@@ -203,8 +194,6 @@ export async function crawl(
 		hitDepthLimit,
 	};
 }
-
-// ---- Deep issue crawling ----
 
 /**
  * Crawl a linked issue deeply: fetch parent/sub-issues and
@@ -337,8 +326,6 @@ async function crawlIssueReference(
 		/* Reference fetch failed: not fatal */
 	}
 }
-
-// ---- Link extraction ----
 
 /** GitHub reference patterns in markdown text. */
 const HASH_REF_PATTERN = /(?:^|[^/\w])(?:(\w[\w.-]*\/\w[\w.-]*))?#(\d+)/g;
@@ -592,8 +579,6 @@ function truncateUrl(url: string): string {
 	return `${url.slice(0, maxLen)}…`;
 }
 
-// ---- Source file discovery ----
-
 /**
  * Discover key source files the PR interacts with.
  *
@@ -617,8 +602,6 @@ async function discoverSourceFiles(
 		url: `${baseUrl}/${file.path}`,
 	}));
 }
-
-// ---- Issue fetching ----
 
 /** Fetch a deep issue via GraphQL. */
 async function fetchDeepIssue(

@@ -17,16 +17,12 @@ import {
 	truncateToWidth,
 } from "@mariozechner/pi-tui";
 
-// ---- Types ----
-
 export interface NoteEditorConfig {
 	/** Label shown above the editor (e.g., "Approving with note:"). */
 	label?: string;
 	/** Pre-fill text for the editor. */
 	preFill?: string;
 }
-
-// ---- Editor Theme ----
 
 /** Build a Pi Editor theme with accent borders. */
 export function buildNoteEditorTheme(theme: Theme): EditorTheme {
@@ -41,8 +37,6 @@ export function buildNoteEditorTheme(theme: Theme): EditorTheme {
 		},
 	};
 }
-
-// ---- Rendering ----
 
 /**
  * Render the inline note editor with bordered styling.

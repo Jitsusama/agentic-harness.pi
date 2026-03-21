@@ -79,8 +79,6 @@ export async function showWorkspacePrompt(
 
 		let editorLabel = "Feedback:";
 
-		// ---- Helpers ----
-
 		function getViewIndex(tab: number): number {
 			return activeViewIndex.get(tab) ?? 0;
 		}
@@ -121,8 +119,6 @@ export async function showWorkspacePrompt(
 			});
 		}
 
-		// ---- Editor ----
-
 		editor.onSubmit = (value: string) => {
 			const trimmed = value.trim();
 			editorMode = false;
@@ -134,8 +130,6 @@ export async function showWorkspacePrompt(
 				tui.requestRender();
 			}
 		};
-
-		// ---- Input context for view handlers ----
 
 		function buildInputContext(): WorkspaceInputContext {
 			return {
@@ -175,8 +169,6 @@ export async function showWorkspacePrompt(
 			};
 		}
 
-		// ---- Content loading ----
-
 		function ensureViewContent(tab: number, view: number, width: number): void {
 			const key = cacheKey(tab, view);
 			if (contentCache.has(key) || loadingViews.has(key)) return;
@@ -212,8 +204,6 @@ export async function showWorkspacePrompt(
 				});
 			}
 		}
-
-		// ---- Input handling ----
 
 		function handleInput(data: string) {
 			if (isKeyRelease(data)) return;
@@ -329,8 +319,6 @@ export async function showWorkspacePrompt(
 				tui.requestRender();
 			}
 		}
-
-		// ---- Rendering ----
 
 		function render(width: number): string[] {
 			lastWidth = width;

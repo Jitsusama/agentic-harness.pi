@@ -81,8 +81,6 @@ export async function showOverviewPanel(
 	return null;
 }
 
-// ---- Overview tab ----
-
 /** Build the Overview tab content. */
 function buildOverviewTab(
 	context: CrawlResult,
@@ -149,8 +147,6 @@ function buildOverviewTab(
 
 	return { label: "Overview", views: [overviewView] };
 }
-
-// ---- References tab ----
 
 /** Build the References tab with a selectable list. */
 function buildReferencesTab(
@@ -241,8 +237,6 @@ function buildReferencesTab(
 	return { label: "Refs", views: [refView] };
 }
 
-// ---- Source tab ----
-
 /** Build the Source tab with a selectable file list. */
 function buildSourceTab(
 	ctx: ExtensionContext,
@@ -314,8 +308,6 @@ function buildSourceTab(
 
 	return { label: "Source", views: [sourceView] };
 }
-
-// ---- Helpers ----
 
 /** Open a URL in the system browser. */
 function openUrl(ctx: ExtensionContext, url: string): void {

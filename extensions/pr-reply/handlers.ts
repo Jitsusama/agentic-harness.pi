@@ -70,8 +70,6 @@ import { showReplyReview } from "./ui/reply-review.js";
 import { showThreadGate, type ThreadGateChoice } from "./ui/thread-gate.js";
 import { showReplyWorkspace } from "./ui/workspace.js";
 
-// ---- Shared helpers ----
-
 /** Build a simple text tool result. */
 function textResult(text: string) {
 	return { content: [{ type: "text" as const, text }] };
@@ -112,8 +110,6 @@ function findNextPendingInReview(
 	}
 	return null;
 }
-
-// ---- Handlers ----
 
 /** Activate PR reply mode: load reviews and show summary. */
 export async function handleActivate(
@@ -253,8 +249,6 @@ export async function handleDeactivate(
 
 	return textResult(text);
 }
-
-// ---- New workspace-based handlers ----
 
 /** Generate analysis: LLM provides batch analysis of all threads. */
 export async function handleGenerateAnalysis(
@@ -415,8 +409,6 @@ export async function handleReviewWorkspace(
 	// Defer and skip are handled inline in the workspace
 	return textResult("Action applied. Call 'review' to reopen the workspace.");
 }
-
-// ---- Legacy handlers (kept for backward compatibility) ----
 
 /**
  * Advance to the next item in the review → thread cascade.
@@ -819,8 +811,6 @@ export function handleDefer(state: PRReplyState, pi: ExtensionAPI) {
 
 	return textResult("Thread deferred. Call 'next' to continue.");
 }
-
-// ---- Internal helpers ----
 
 /** Map the user's gate choice to a tool result for the LLM. */
 function applyThreadChoice(

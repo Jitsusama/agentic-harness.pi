@@ -106,8 +106,6 @@ export function refreshUI(state: PRReviewState, ctx: ExtensionContext): void {
 	updateUI(state, ctx);
 }
 
-// ---- Persistence ----
-
 /** Shape of the persisted session data. */
 interface PersistedSession {
 	pr: PRTarget;

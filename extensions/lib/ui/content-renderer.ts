@@ -19,8 +19,6 @@ import {
 import { Markdown, truncateToWidth } from "@mariozechner/pi-tui";
 import { SCROLLBAR_GUTTER } from "./types.js";
 
-// ---- Markdown ----
-
 /**
  * Render markdown text to themed display lines.
  * Also handles plain text (markdown is a superset).
@@ -47,8 +45,6 @@ export function renderMarkdown(
 	const md = new Markdown(text, 1, 0, mdTheme);
 	return md.render(cappedWidth);
 }
-
-// ---- Diff ----
 
 /**
  * Render unified diff output with colouring.
@@ -86,8 +82,6 @@ export function renderDiff(
 
 	return lines;
 }
-
-// ---- Code ----
 
 export interface CodeRenderOptions {
 	/** First line number (default: 1). */
@@ -196,8 +190,6 @@ function trackAnsiState(current: string, line: string): string {
 	}
 	return state;
 }
-
-// ---- Re-exports ----
 
 /** Derive a syntax highlighting language from a file path. */
 export const languageFromPath = getLanguageFromPath;

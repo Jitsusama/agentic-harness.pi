@@ -25,16 +25,12 @@ import {
 	SCROLLBAR_GUTTER,
 } from "./types.js";
 
-// ---- Types ----
-
 export interface ScrollState {
 	/** Vertical scroll offset (lines from top). */
 	vOffset: number;
 	/** Horizontal scroll offset (visible characters from left). */
 	hOffset: number;
 }
-
-// ---- ScrollRegion Component ----
 
 /** Render the content viewport with optional scrollbar. */
 export function renderScrollRegion(
@@ -140,8 +136,6 @@ export function contentBudget(chromeLines: number): number {
 export function contentWidth(termWidth: number): number {
 	return Math.min(termWidth - CONTENT_INDENT * 2, MAX_CONTENT_WIDTH);
 }
-
-// ---- Internal helpers ----
 
 /** Find the maximum visible width across content lines. */
 /** Compute the maximum visible width across all lines. */

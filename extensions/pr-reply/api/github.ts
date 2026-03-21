@@ -17,8 +17,6 @@ import type { Comment, Review, ReviewState, Thread } from "../state.js";
 
 export type { PRReference };
 
-// ---- GraphQL response shapes ----
-
 interface GQLComment {
 	id: string;
 	databaseId: number;
@@ -48,8 +46,6 @@ interface GQLReview {
 	body: string;
 	author: { login: string } | null;
 }
-
-// ---- GraphQL response shapes ----
 
 /** Response from the THREADS_QUERY. */
 interface ThreadsResponse {
@@ -89,8 +85,6 @@ interface RefreshThreadsResponse {
 		};
 	};
 }
-
-// ---- Queries ----
 
 const THREADS_QUERY = `
 query($owner: String!, $repo: String!, $pr: Int!) {
@@ -143,8 +137,6 @@ query($owner: String!, $repo: String!, $pr: Int!) {
   }
 }`;
 
-// ---- Public API ----
-
 /**
  * Fetch reviews and comment threads for a PR.
  * Uses reviewThreads for accurate resolved/outdated status.
@@ -193,8 +185,6 @@ export async function postReply(
 		throw new Error(`Failed to post reply: ${result.stderr}`);
 	}
 }
-
-// ---- Parsing ----
 
 /** Parse raw GraphQL reviews into Review objects. */
 function parseReviews(gqlReviews: GQLReview[]): Review[] {

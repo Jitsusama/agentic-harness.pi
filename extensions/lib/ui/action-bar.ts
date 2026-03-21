@@ -12,8 +12,6 @@ import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import type { Action } from "./types.js";
 
-// ---- Shifted symbol support ----
-
 /**
  * US keyboard mapping from shifted symbols to their base key.
  *
@@ -70,14 +68,10 @@ export function matchesActionKey(data: string, key: string): boolean {
 	return false;
 }
 
-// ---- Types ----
-
 export type ActionBarResult =
 	| { type: "action"; key: string }
 	| { type: "steerAction"; key: string }
 	| { type: "pureSteer" };
-
-// ---- Rendering ----
 
 /**
  * Render the action bar with key-hint labels and steer annotation hint.
@@ -130,8 +124,6 @@ export function handleActionInput(
 
 	return null;
 }
-
-// ---- Internal helpers ----
 
 /** Format an action label with the key letter highlighted in accent. */
 function formatActionLabel(

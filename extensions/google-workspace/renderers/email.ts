@@ -116,8 +116,6 @@ export function renderThread(messages: EmailMessageFull[]): string {
 	return lines.join("\n");
 }
 
-// Helper functions
-
 function formatEmailAddress(addr: { name: string; email: string }): string {
 	if (addr.name) {
 		return `${addr.name} <${addr.email}>`;

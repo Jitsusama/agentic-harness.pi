@@ -30,8 +30,6 @@ import type {
 } from "../state.js";
 import { threadsForReview } from "../state.js";
 
-// ---- Constants ----
-
 /** Status glyphs for threads. */
 const THREAD_GLYPH: Record<ThreadState, string> = {
 	pending: "●",
@@ -52,8 +50,6 @@ const THREAD_GLYPH_COLOR: Record<ThreadState, string> = {
 	skipped: "error",
 };
 
-// ---- Result types ----
-
 /** Result from the workspace: which action the user chose. */
 export type WorkspaceAction =
 	| { action: "open"; threadId: string }
@@ -61,8 +57,6 @@ export type WorkspaceAction =
 	| { action: "defer"; threadId: string }
 	| { action: "steer"; threadId: string | null; note: string }
 	| null;
-
-// ---- Public API ----
 
 /**
  * Show the PR reply workspace. Returns the user's chosen action,
@@ -149,8 +143,6 @@ export async function showReplyWorkspace(
 	return null;
 }
 
-// ---- Summary tab ----
-
 /** Build the Summary tab showing PR overview and progress. */
 function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 	const summaryView: WorkspaceView = {
@@ -227,8 +219,6 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 
 	return { label: "Summary", views: [summaryView] };
 }
-
-// ---- Reviewer tabs ----
 
 /**
  * Build a reviewer tab: single view with reviewer header,
@@ -363,8 +353,6 @@ function buildReviewerTab(
 	return { label: review.author, views: [view] };
 }
 
-// ---- Thread list rendering ----
-
 /**
  * Render a compact thread list for navigation.
  * Shows file:line, status, and recommendation: no expanded views.
@@ -418,8 +406,6 @@ function renderThreadList(
 
 	return lines;
 }
-
-// ---- Helpers ----
 
 /** Update the action thread to the currently selected thread. */
 function updateActionThread(

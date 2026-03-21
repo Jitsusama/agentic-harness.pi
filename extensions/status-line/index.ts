@@ -96,7 +96,6 @@ function buildCandidate(
 	const hideThinking = level >= 5;
 	const hideBranch = level >= 6;
 
-	// --- Left side: dir (branch) │ model ---
 	const left: string[] = [];
 
 	const dir = useShortDir ? d.shortDir : d.fullDir;
@@ -108,7 +107,6 @@ function buildCandidate(
 
 	left.push(useShortModel ? d.shortModel : d.fullModel);
 
-	// --- Right side: statuses │ panel-height │ context │ cost │ thinking ---
 	const right: string[] = [];
 
 	for (const s of d.statuses) right.push(s);
@@ -136,7 +134,6 @@ export default function statusLine(pi: ExtensionAPI) {
 				dispose: unsub,
 				invalidate() {},
 				render(width: number): string[] {
-					// --- Gather raw data ---
 					// NOTE: This iterates the entire session branch on every
 					// render (every keypress, scroll, resize). For very long
 					// sessions this could become slow. Future optimization:
@@ -159,7 +156,6 @@ export default function statusLine(pi: ExtensionAPI) {
 					const thinking = pi.getThinkingLevel();
 					const extStatuses = footerData.getExtensionStatuses();
 
-					// --- Pre-format segments ---
 					const cwd = process.cwd();
 					const tokens = usage?.tokens ?? 0;
 					const window = usage?.contextWindow ?? 0;
@@ -197,7 +193,6 @@ export default function statusLine(pi: ExtensionAPI) {
 						if (text) d.statuses.push(text);
 					}
 
-					// --- Try each degradation level until it fits ---
 					for (let level = 0; level <= MAX_LEVEL; level++) {
 						const { left, right } = buildCandidate(d, level, theme);
 						const leftW = totalWidth(left);

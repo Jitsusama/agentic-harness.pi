@@ -59,8 +59,6 @@ export async function getEvent(
 	return convertEvent(response.data);
 }
 
-// Helper functions
-
 function parseDate(dateStr?: string): Date {
 	if (!dateStr) {
 		// Default to end of today
@@ -173,8 +171,6 @@ function convertConferenceData(data: unknown): CalendarEvent["conferenceData"] {
 		}),
 	};
 }
-
-// ---- Write Operations ----
 
 /**
  * Create a calendar event.

@@ -51,8 +51,6 @@ function stayResult(phase: Phase, feedback?: string) {
 export default function tddMode(pi: ExtensionAPI) {
 	const state = createTddState();
 
-	// ---- Tool ----
-
 	pi.registerTool({
 		name: "tdd_phase",
 		label: "TDD Phase",
@@ -262,8 +260,6 @@ export default function tddMode(pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- Refactor tool ----
-
 	const RefactorSuggestionSchema = Type.Object({
 		label: Type.String({ description: "Short name for the refactoring" }),
 		description: Type.String({
@@ -393,8 +389,6 @@ export default function tddMode(pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- Commands ----
-
 	pi.registerCommand("tdd", {
 		description: "Toggle TDD mode, optionally with a plan file",
 		handler: async (args, ctx) =>
@@ -476,15 +470,11 @@ export default function tddMode(pi: ExtensionAPI) {
 		handler: async (ctx) => toggle(state, pi, ctx),
 	});
 
-	// ---- Context ----
-
 	pi.on("before_agent_start", async () => {
 		return buildTddContext(state);
 	});
 
 	pi.on("context", tddContextFilter(state));
-
-	// ---- Restore ----
 
 	pi.on("session_start", async (_event, ctx) => {
 		restore(state, ctx);

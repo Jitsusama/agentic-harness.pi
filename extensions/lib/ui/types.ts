@@ -13,8 +13,6 @@
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
 
-// ---- Glyphs ----
-
 /** Semantic glyphs: roguelike-inspired geometric set. */
 export const GLYPH = {
 	/** Active cursor / current selection. */
@@ -47,15 +45,11 @@ export const GLYPH = {
 	modeStopped: "■",
 } as const;
 
-// ---- Content ----
-
 /** Synchronous content rendering function. */
 export type ContentFn = (theme: Theme, width: number) => string[];
 
 /** Async content rendering function (for lazy loading). */
 export type AsyncContentFn = (theme: Theme, width: number) => Promise<string[]>;
-
-// ---- Actions (Type A: key-hint bar) ----
 
 /** A fixed action shown in the action bar. */
 export interface Action {
@@ -64,8 +58,6 @@ export interface Action {
 	/** Display label. The key letter is highlighted in accent colour. */
 	label: string;
 }
-
-// ---- Options (Type B: numbered list) ----
 
 /** A dynamic option shown in a numbered list. */
 export interface Option {
@@ -80,8 +72,6 @@ export interface Option {
 	/** Pre-fill text for NoteEditor. */
 	editorPreFill?: string;
 }
-
-// ---- Results ----
 
 /**
  * Result from a single prompt. Discriminated union:
@@ -116,8 +106,6 @@ export interface TabbedResult {
 	userItems: string[];
 }
 
-// ---- Tab Items ----
-
 /** Status of a tab item. */
 export type TabStatus = "pending" | "complete" | "rejected" | "active";
 
@@ -144,8 +132,6 @@ export interface PromptItem {
 	/** Enable horizontal scrolling for this item's content. Default: false. */
 	allowHScroll?: boolean;
 }
-
-// ---- Prompt Config ----
 
 /**
  * Config for a single prompt (no tabs).
@@ -187,8 +173,6 @@ export interface TabbedPromptConfig {
 	allowHScroll?: boolean;
 }
 
-// ---- View Config ----
-
 export interface ViewConfig {
 	/** Optional title shown at the top. */
 	title?: string;
@@ -199,8 +183,6 @@ export interface ViewConfig {
 	/** Signal to programmatically dismiss the view. */
 	signal?: AbortSignal;
 }
-
-// ---- Layout Constants ----
 
 /** Panel height mode: controls what fraction of the terminal panels can occupy. */
 export type PanelHeightMode = "minimized" | "normal" | "fullscreen";
@@ -235,8 +217,6 @@ export const PAGE_SCROLL_OVERLAP = 3;
 
 /** Width reserved for the vertical scrollbar gutter. */
 export const SCROLLBAR_GUTTER = 2;
-
-// ---- Workspace Prompt ----
 
 /** Config for a workspace prompt (stateful tabs). */
 export interface WorkspaceConfig {

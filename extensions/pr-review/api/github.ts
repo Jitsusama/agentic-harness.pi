@@ -19,8 +19,6 @@ import type {
 import type { PRReference } from "./parse.js";
 import type { GQLIssue, GQLPullRequest, PRContextResponse } from "./types.js";
 
-// ---- GraphQL queries ----
-
 const PR_CONTEXT_QUERY = `
 query($owner: String!, $repo: String!, $pr: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -62,8 +60,6 @@ query($owner: String!, $repo: String!, $pr: Int!) {
     }
   }
 }`;
-
-// ---- Public API ----
 
 /**
  * Fetch PR metadata, linked issues, and reviewers via GraphQL.
@@ -153,8 +149,6 @@ export async function fetchSiblingPRs(
 
 // Re-export shared review posting.
 export { postReview } from "../../lib/github/review-post.js";
-
-// ---- Parsing helpers ----
 
 /** Extract PR metadata from the GraphQL PR node. */
 function parsePRMetadata(pr: GQLPullRequest, prNumber: number): PRMetadata {

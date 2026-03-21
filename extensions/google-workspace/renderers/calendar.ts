@@ -96,8 +96,6 @@ export function renderEvent(event: CalendarEvent): string {
 	return lines.join("\n");
 }
 
-// Helper functions
-
 function extractDate(isoDateTime: string): string {
 	return isoDateTime.split("T")[0] || "";
 }

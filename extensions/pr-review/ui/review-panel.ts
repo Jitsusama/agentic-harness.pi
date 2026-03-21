@@ -41,8 +41,6 @@ import {
 	type ReviewSession,
 } from "../state.js";
 
-// ---- Constants ----
-
 /** Status glyphs for comments. */
 const COMMENT_GLYPH = {
 	pending: "●",
@@ -61,8 +59,6 @@ const COMMENT_ACTIONS: Action[] = [
 /** Tab handled action. */
 const HANDLED_ACTION: Action = { key: "h", label: "Handled" };
 
-// ---- Result type ----
-
 /** Result from the review panel. */
 export type ReviewPanelResult =
 	| { action: "submit" }
@@ -73,8 +69,6 @@ export type ReviewPanelResult =
 			commentSubject?: string;
 	  }
 	| null;
-
-// ---- Public API ----
 
 /**
  * Show the Phase 2 review panel.
@@ -178,14 +172,10 @@ export async function showReviewPanel(
 	return null;
 }
 
-// ---- Tab ID helpers ----
-
 /** Build stable tab IDs for all tabs. */
 function buildTabIds(context: CrawlResult): string[] {
 	return ["desc", "scope", ...context.diffFiles.map((f) => `file:${f.path}`)];
 }
-
-// ---- Description tab ----
 
 /** Build the Desc tab with overview/comments/raw views. */
 function buildDescTab(
@@ -277,8 +267,6 @@ function buildDescRaw(context: CrawlResult): WorkspaceView {
 	};
 }
 
-// ---- Scope tab ----
-
 /** Build the Scope tab with overview/comments/raw views. */
 function buildScopeTab(
 	ctx: ExtensionContext,
@@ -347,8 +335,6 @@ function buildScopeRaw(context: CrawlResult): WorkspaceView {
 		},
 	};
 }
-
-// ---- File tabs ----
 
 /** Build a file tab with overview/comments/raw views. */
 function buildFileTab(
@@ -443,8 +429,6 @@ function buildFileRaw(session: ReviewSession, file: DiffFile): WorkspaceView {
 	};
 }
 
-// ---- Shared comments view ----
-
 /**
  * Build a comments view for category-based tabs (title/scope).
  * Uses comment category to filter.
@@ -527,8 +511,6 @@ function buildFileCommentsView(
 	};
 }
 
-// ---- Comment rendering ----
-
 /** Render a selectable comment list. */
 function renderCommentList(
 	comments: ReviewComment[],
@@ -595,8 +577,6 @@ function renderCommentList(
 
 	return lines;
 }
-
-// ---- Comment input handling ----
 
 /** Handle comment mode input: navigation and actions. */
 function handleCommentInput(
@@ -701,8 +681,6 @@ function checkTabAutoHandled(
 	}
 }
 
-// ---- Comment indicators ----
-
 /** Render inline comment indicators for overview mode. */
 function renderCommentIndicators(
 	comments: ReviewComment[],
@@ -761,8 +739,6 @@ function extractLineNumber(
 	}
 	return null;
 }
-
-// ---- Diff helpers ----
 
 /** Build a unified diff string from a DiffFile's hunks. */
 function buildFileDiff(file: DiffFile): string | null {

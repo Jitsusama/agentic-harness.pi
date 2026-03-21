@@ -159,8 +159,6 @@ export async function getThread(
 	return messages;
 }
 
-// Helper functions
-
 function parseEmailAddress(header: string): { name: string; email: string } {
 	const match = header.match(/^(.*?)\s*<(.+?)>$/);
 	if (match) {
@@ -307,8 +305,6 @@ function stripHtml(html: string): string {
 		.replace(/&quot;/g, '"')
 		.trim();
 }
-
-// ---- Write Operations ----
 
 /**
  * Send an email.

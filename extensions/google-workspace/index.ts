@@ -85,8 +85,6 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		return client;
 	}
 
-	// ---- Tool Registration ----
-
 	pi.registerTool({
 		name: "google",
 		label: "Google Workspace",
@@ -263,8 +261,6 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 
 		renderResult: renderGoogleResult,
 	});
-
-	// ---- Authentication Commands ----
 
 	pi.registerCommand("google-setup", {
 		description: "Set up Google OAuth credentials (interactive)",

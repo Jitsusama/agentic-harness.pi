@@ -199,8 +199,6 @@ export function renderComments(comments: DocumentComment[]): string {
 	return lines.join("\n");
 }
 
-// Helper functions
-
 function getMimeIcon(mimeType: string): string {
 	const icons: Record<string, string> = {
 		"application/vnd.google-apps.folder": "📁",

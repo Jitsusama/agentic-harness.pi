@@ -63,8 +63,6 @@ const ACTIONS = [
 export default function prReply(pi: ExtensionAPI) {
 	const state = createPRReplyState();
 
-	// ---- Tool ----
-
 	pi.registerTool({
 		name: "pr_reply",
 		label: "PR Reply",
@@ -259,21 +257,15 @@ export default function prReply(pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- Commands ----
-
 	pi.registerCommand("pr-reply", {
 		description: "Toggle PR reply mode",
 		handler: async (_args, ctx) => toggle(state, pi, ctx),
 	});
 
-	// ---- Keyboard shortcut ----
-
 	pi.registerShortcut(Key.ctrlAlt("r"), {
 		description: "Toggle PR reply mode",
 		handler: async (ctx) => toggle(state, pi, ctx),
 	});
-
-	// ---- TDD coordination ----
 
 	pi.on("tool_result", async (event) => {
 		if (!state.enabled || !state.awaitingTDDCompletion) return;
@@ -292,15 +284,11 @@ export default function prReply(pi: ExtensionAPI) {
 		persist(state, pi);
 	});
 
-	// ---- Context injection ----
-
 	pi.on("before_agent_start", async () => {
 		return buildPRReplyContext(state);
 	});
 
 	pi.on("context", prReplyContextFilter(state));
-
-	// ---- Session restore ----
 
 	pi.on("session_start", async (_event, ctx) => {
 		restore(state, ctx);

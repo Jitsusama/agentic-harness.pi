@@ -26,8 +26,6 @@ import {
 	updateComment,
 } from "./state.js";
 
-// ---- Types ----
-
 /** Structured comment input from the tool parameters. */
 export interface CommentInput {
 	file: string | null;
@@ -57,8 +55,6 @@ export interface HandlerDeps {
 	state: PRReviewState;
 	pi: ExtensionAPI;
 }
-
-// ---- Helpers ----
 
 /** Build a simple text tool result. */
 function textResult(text: string) {
@@ -93,8 +89,6 @@ async function ensureContext(
 		return false;
 	}
 }
-
-// ---- Diff line helpers ----
 
 /** A new-side line range covered by a diff hunk. */
 interface HunkRange {
@@ -155,8 +149,6 @@ function clampToDiffRange(
 	}
 	return closest;
 }
-
-// ---- Worktree helpers ----
 
 /** Directory where review worktrees are created. */
 const WORKTREE_DIR = ".review";
@@ -223,8 +215,6 @@ async function removeWorktree(
 	await pi.exec("git", ["branch", "-D", branchName]);
 }
 
-// ---- Helpers ----
-
 /** Resolve a PR reference from user input. */
 async function resolvePR(
 	pi: ExtensionAPI,
@@ -236,8 +226,6 @@ async function resolvePR(
 	}
 	return null;
 }
-
-// ---- Handlers ----
 
 /** Activate: parse PR ref, resolve repo, crawl deep context. */
 export async function handleActivate(

@@ -144,8 +144,6 @@ export function renderGoogleResult(
 	return new Text(theme.fg("success", "✓"), 0, 0);
 }
 
-// ---- Helper Renderers ----
-
 function renderEmailList(
 	messages: Array<{
 		subject?: string;

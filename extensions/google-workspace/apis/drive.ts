@@ -183,8 +183,6 @@ export function parseGoogleUrl(
 	return null;
 }
 
-// Helper functions
-
 function getMimeType(type: string): string {
 	const mimeTypes: Record<string, string> = {
 		doc: "application/vnd.google-apps.document",

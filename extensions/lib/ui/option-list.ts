@@ -16,13 +16,9 @@ import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import { GLYPH, type Option } from "./types.js";
 
-// ---- Types ----
-
 export type OptionListResult =
 	| { type: "select"; index: number }
 	| { type: "cancel" };
-
-// ---- Rendering ----
 
 /** Resolve the value for an option (defaults to lowercase label). */
 export function optionValue(option: Option): string {

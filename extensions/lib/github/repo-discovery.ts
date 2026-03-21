@@ -27,8 +27,6 @@ const REPO_SEARCH_PATHS = [
 /** Terminal types we can open new tabs in. */
 type Terminal = "wezterm" | "ghostty" | "unknown";
 
-// ---- Public API ----
-
 /**
  * Get the current repository's owner and repo from git remote.
  * Returns null if not in a git repo or remote isn't GitHub.
@@ -96,8 +94,6 @@ export async function openInNewTab(
 			return false;
 	}
 }
-
-// ---- Internal helpers ----
 
 /** Check if a directory is a git repository. */
 function isGitRepo(dir: string): boolean {

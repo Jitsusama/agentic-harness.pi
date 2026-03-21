@@ -31,8 +31,6 @@ export interface PuppeteerCookie {
 	sameSite?: "Strict" | "Lax" | "None";
 }
 
-// ── Chrome profile detection ──────────────────────────────────────
-
 function chromeDataDir(): string {
 	if (process.platform === "darwin") {
 		return path.join(
@@ -65,8 +63,6 @@ function findCookiesDb(): string | null {
 	return null;
 }
 
-// ── Decryption ────────────────────────────────────────────────────
-
 function decrypt(encryptedValue: Buffer, key: Buffer): string | null {
 	if (encryptedValue.length < 4) return null;
 
@@ -94,8 +90,6 @@ function decrypt(encryptedValue: Buffer, key: Buffer): string | null {
 	}
 }
 
-// ── Domain matching (RFC 6265) ────────────────────────────────────
-
 function cookieHostKeys(hostname: string): string[] {
 	const keys = [hostname];
 	const parts = hostname.split(".");
@@ -104,8 +98,6 @@ function cookieHostKeys(hostname: string): string[] {
 	}
 	return keys;
 }
-
-// ── SQLite query ──────────────────────────────────────────────────
 
 interface CookieRow {
 	name: string;
@@ -161,16 +153,12 @@ function queryCookies(
 	});
 }
 
-// ── samesite mapping ──────────────────────────────────────────────
-
 const SAMESITE_MAP: Record<number, "Strict" | "Lax" | "None" | undefined> = {
 	[-1]: undefined,
 	0: "None",
 	1: "Lax",
 	2: "Strict",
 };
-
-// ── Public API ────────────────────────────────────────────────────
 
 /**
  * Read Chrome cookies for a URL, decrypt them, and return in

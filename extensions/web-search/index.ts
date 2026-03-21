@@ -18,7 +18,6 @@ import { AuthSetupNeeded, readPage } from "./reader.js";
 import { webSearch as doSearch } from "./search.js";
 
 export default function webSearch(pi: ExtensionAPI) {
-	// --- web_search tool ---
 	pi.registerTool({
 		name: "web_search",
 		label: "Web Search",
@@ -109,7 +108,6 @@ export default function webSearch(pi: ExtensionAPI) {
 		},
 	});
 
-	// --- web_read tool ---
 	pi.registerTool({
 		name: "web_read",
 		label: "Web Read",
@@ -213,7 +211,6 @@ export default function webSearch(pi: ExtensionAPI) {
 		},
 	});
 
-	// --- /setup-chrome-cookies command ---
 	pi.registerCommand("setup-chrome-cookies", {
 		description:
 			"Enable web_read access to authenticated pages by caching " +
