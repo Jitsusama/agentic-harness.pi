@@ -10,7 +10,10 @@
  */
 
 import { StringEnum } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ToolCallEventResult,
+} from "@mariozechner/pi-coding-agent";
 import { Key, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { enforcePlanMode } from "./enforce.js";
@@ -249,14 +252,17 @@ export default function planMode(pi: ExtensionAPI) {
 
 	// ---- Enforcement ----
 
-	pi.on("tool_call", async (event, ctx) => {
-		return enforcePlanMode(
-			state,
-			event.toolName,
-			event.input as Record<string, unknown>,
-			ctx.cwd,
-		);
-	});
+	pi.on(
+		"tool_call",
+		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
+			return enforcePlanMode(
+				state,
+				event.toolName,
+				event.input as Record<string, unknown>,
+				ctx.cwd,
+			);
+		},
+	);
 
 	// ---- Transitions ----
 
