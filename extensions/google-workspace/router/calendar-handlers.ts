@@ -163,7 +163,7 @@ export async function handleUpdateEvent(
 		};
 	}
 
-	// We get the existing event. to check if it has attendees
+	// We get the existing event to check if it has attendees
 	const existing = await getEvent(auth, eventId, calendarId);
 	const hasAttendees = existing.attendees && existing.attendees.length > 0;
 
@@ -222,7 +222,7 @@ export async function handleDeleteEvent(
 		};
 	}
 
-	// We get the existing event. to check if it has attendees
+	// We get the existing event to check if it has attendees
 	const existing = await getEvent(auth, eventId, calendarId);
 	const hasAttendees = existing.attendees && existing.attendees.length > 0;
 
