@@ -1,7 +1,7 @@
 /**
- * PR Review state: domain model for a structured code review.
+ * Domain model for a structured code review, organized in
+ * four levels:
  *
- * Four levels:
  *   PRTarget      : identifies which PR is being reviewed
  *   CrawlResult   : deep context gathered by the crawler
  *   ReviewSession : the active review with comments and tab state

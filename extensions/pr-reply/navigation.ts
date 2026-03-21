@@ -1,6 +1,7 @@
 /**
- * PR resolution and code context: find which PR we're working
- * on and read surrounding source code for thread display.
+ * Figures out which PR we're working on and reads the
+ * surrounding source code so thread displays can show
+ * relevant context.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";

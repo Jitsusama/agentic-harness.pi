@@ -1,8 +1,7 @@
 /**
- * PR Review lifecycle: activate, deactivate, persist, restore,
- * and UI status display.
- *
- * Skeleton: full implementation in M14 (lifecycle).
+ * Manages the PR review lifecycle: activation, deactivation,
+ * persisting state, restoring it on return, and keeping the
+ * status line up to date.
  */
 
 import type {

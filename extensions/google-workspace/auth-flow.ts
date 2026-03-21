@@ -1,6 +1,6 @@
 /**
- * Authentication flow orchestration.
- * Ensures user is authenticated before executing requests.
+ * Orchestrates the authentication flow, making sure the user
+ * is authenticated before any requests go out.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";

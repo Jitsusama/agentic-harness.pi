@@ -1,6 +1,6 @@
 /**
- * Type-safe parameter extraction helpers.
- * Eliminates unsafe type casts by using proper type guards.
+ * Type-safe parameter extraction helpers that use proper type
+ * guards instead of unsafe casts.
  */
 
 import type { ActionParams } from "./router.js";

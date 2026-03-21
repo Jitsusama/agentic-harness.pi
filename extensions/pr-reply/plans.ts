@@ -1,6 +1,6 @@
 /**
- * Plan context loading: find and read plan files relevant
- * to the current PR, using the same plan directory as plan-mode.
+ * Finds and reads plan files that are relevant to the current
+ * PR, using the same plan directory that plan-mode uses.
  */
 
 import * as fs from "node:fs";

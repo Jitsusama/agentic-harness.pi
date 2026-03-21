@@ -1,6 +1,6 @@
 /**
- * Action router for Google Workspace tool.
- * Routes tool actions to appropriate API handlers.
+ * Routes incoming Google Workspace tool actions to the
+ * appropriate API handlers (Gmail, Calendar, Drive).
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";

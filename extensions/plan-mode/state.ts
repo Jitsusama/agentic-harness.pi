@@ -1,5 +1,6 @@
 /**
- * Plan mode state: shape, defaults, and constants.
+ * Defines the runtime state shape for plan mode, along with
+ * sensible defaults and constants used throughout the extension.
  */
 
 /** Runtime state for plan mode. */

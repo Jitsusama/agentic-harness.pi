@@ -1,5 +1,6 @@
 /**
- * TDD mode state: shape, defaults, phase definitions.
+ * Defines the runtime state shape for TDD mode, including
+ * the phase definitions and sensible defaults.
  */
 
 /** The three phases of the red-green-refactor cycle. */

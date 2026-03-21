@@ -1,5 +1,6 @@
 /**
- * Validation helpers and error messages for OAuth credential setup.
+ * Validation helpers and error messages used during the OAuth
+ * credential setup flow.
  */
 
 /** Error messages for invalid credentials. */

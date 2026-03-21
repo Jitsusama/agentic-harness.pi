@@ -1,6 +1,6 @@
 /**
- * Steer result formatting: converts a steer note and context
- * into a block reason for guardians and mode enforcement.
+ * Converts a steer note and its surrounding context into a
+ * block reason that guardians and mode enforcement can use.
  */
 
 /**
