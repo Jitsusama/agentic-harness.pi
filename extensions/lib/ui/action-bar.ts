@@ -12,6 +12,64 @@ import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import type { Action } from "./types.js";
 
+// ---- Shifted symbol support ----
+
+/**
+ * US keyboard mapping from shifted symbols to their base key.
+ *
+ * pi-tui's `parseKeyId` uses `+` as the modifier separator
+ * (e.g. `"ctrl+c"`), so `matchesKey(data, "+")` always fails —
+ * `"+".split("+")` yields an empty key. This map lets us express
+ * `+` as `Key.shift("=")` instead, routing around the parser.
+ */
+const SHIFTED_SYMBOL_BASE: Record<string, string> = {
+	"+": "=",
+	"!": "1",
+	"@": "2",
+	"#": "3",
+	$: "4",
+	"%": "5",
+	"^": "6",
+	"&": "7",
+	"*": "8",
+	"(": "9",
+	")": "0",
+	_: "-",
+	"{": "[",
+	"}": "]",
+	"|": "\\",
+	":": ";",
+	'"': "'",
+	"<": ",",
+	">": ".",
+	"?": "/",
+	"~": "`",
+};
+
+/**
+ * Match a key that may be a shifted symbol.
+ *
+ * pi-tui's `parseKeyId` splits on `+` as the modifier separator,
+ * so `matchesKey(data, "+")` always returns false — the `+` char
+ * parses to an empty key. This helper works around the limitation:
+ *
+ * 1. Try `matchesKey` directly (works for non-`+` keys).
+ * 2. For shifted symbols, try `Key.shift(baseKey)` — catches
+ *    Kitty CSI-u sequences where the terminal encodes Shift+=.
+ * 3. Fall back to raw character comparison — catches legacy
+ *    terminals that send the literal `+` byte.
+ */
+export function matchesActionKey(data: string, key: string): boolean {
+	if (matchesKey(data, key)) return true;
+	const baseKey = SHIFTED_SYMBOL_BASE[key];
+	if (baseKey) {
+		if (matchesKey(data, Key.shift(baseKey))) return true;
+		// Legacy fallback: terminal sends raw character (e.g. "+" for Shift+=)
+		if (data === key) return true;
+	}
+	return false;
+}
+
 // ---- Types ----
 
 export type ActionBarResult =
@@ -65,7 +123,7 @@ export function handleActionInput(
 
 	// Plain letter = immediate action
 	for (const action of actions) {
-		if (matchesKey(data, action.key)) {
+		if (matchesActionKey(data, action.key)) {
 			return { type: "action", key: action.key };
 		}
 	}
