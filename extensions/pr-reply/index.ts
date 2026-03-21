@@ -11,8 +11,7 @@
  *   implement : mark current thread for implementation
  *   reply     : draft and post a reply to the current thread
  *   done      : mark implementation complete, link commits
- *   skip      : skip the current thread
- *   defer     : defer the current thread
+ *   pass      : pass the current thread (reviewed, moving on)
  *   deactivate: exit PR reply mode
  *
  * Handlers live in handlers.ts. This file is registration and
@@ -26,15 +25,14 @@ import { Type } from "@sinclair/typebox";
 import {
 	handleActivate,
 	handleDeactivate,
-	handleDefer,
 	handleDone,
 	handleGenerateAnalysis,
 	handleImplement,
 	handleNext,
+	handlePass,
 	handleReplyAction,
 	handleReviewWorkspace,
 	handleShow,
-	handleSkip,
 } from "./handlers.js";
 import {
 	collectImplementationCommits,
@@ -56,8 +54,7 @@ const ACTIONS = [
 	"implement",
 	"reply",
 	"done",
-	"skip",
-	"defer",
+	"pass",
 ] as const;
 
 export default function prReply(pi: ExtensionAPI) {
@@ -94,7 +91,7 @@ export default function prReply(pi: ExtensionAPI) {
 					"next: (legacy) load next thread | show: (legacy) present thread gate | " +
 					"implement: begin implementing current thread | " +
 					"reply: post a reply | done: finish implementation | " +
-					"skip: skip thread | defer: defer thread | deactivate: exit mode",
+					"pass: pass thread | deactivate: exit mode",
 			}),
 			pr: Type.Optional(
 				Type.String({
@@ -121,8 +118,7 @@ export default function prReply(pi: ExtensionAPI) {
 					Type.Object({
 						thread_id: Type.String({ description: "Thread ID" }),
 						recommendation: Type.String({
-							description:
-								"Recommended action: implement, reply, skip, or defer",
+							description: "Recommended action: implement, reply, or pass",
 						}),
 						analysis: Type.String({
 							description: "Analysis text explaining your reasoning",
@@ -198,10 +194,8 @@ export default function prReply(pi: ExtensionAPI) {
 					return handleReplyAction(state, pi, ctx, params.reply_body ?? null);
 				case "done":
 					return handleDone(state, pi, ctx, params.reply_body ?? null);
-				case "skip":
-					return handleSkip(state, pi);
-				case "defer":
-					return handleDefer(state, pi);
+				case "pass":
+					return handlePass(state, pi);
 				default:
 					return {
 						content: [

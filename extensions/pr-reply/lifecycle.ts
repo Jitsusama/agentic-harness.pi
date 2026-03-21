@@ -71,11 +71,11 @@ function updateUI(state: PRReplyState, ctx: ExtensionContext): void {
 	}));
 }
 
-/** Count threads that are replied, addressed, or skipped. */
+/** Count threads that are replied, addressed, or passed. */
 function countDone(state: PRReplyState): number {
 	let count = 0;
 	for (const [, value] of state.threadStates) {
-		if (value === "replied" || value === "addressed" || value === "skipped") {
+		if (value === "replied" || value === "addressed" || value === "passed") {
 			count++;
 		}
 	}

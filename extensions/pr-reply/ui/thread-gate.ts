@@ -2,8 +2,8 @@
  * Thread gate: decision panel for a single review thread.
  *
  * Shows the original comment, code context, LLM recommendation,
- * and full thread history. The user picks an action: implement,
- * implement later, reply, defer, or skip.
+ * and full thread history. Enter = implement. Letter keys for
+ * reply and pass.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -15,20 +15,15 @@ import type { Review, Thread } from "../state.js";
 /** User's decision from the thread gate. */
 export type ThreadGateChoice =
 	| { action: "implement" }
-	| { action: "implement-later" }
 	| { action: "reply" }
-	| { action: "defer" }
-	| { action: "skip" }
+	| { action: "pass" }
 	| { action: "redirect"; feedback: string }
 	| null;
 
 /** Map from prompt action keys to domain actions. */
 const ACTION_BY_KEY: Record<string, ThreadGateChoice["action" & string]> = {
-	i: "implement",
-	l: "implement-later",
 	r: "reply",
-	d: "defer",
-	k: "skip",
+	p: "pass",
 };
 
 /**
@@ -110,11 +105,8 @@ export async function showThreadGate(
 			return lines;
 		},
 		actions: [
-			{ key: "i", label: "Implement Now" },
-			{ key: "l", label: "Implement Later" },
 			{ key: "r", label: "Reply" },
-			{ key: "d", label: "Defer" },
-			{ key: "k", label: "sKip" },
+			{ key: "p", label: "Pass" },
 		],
 		allowHScroll: true,
 	});
@@ -125,6 +117,6 @@ export async function showThreadGate(
 		return { action: "redirect", feedback: result.note };
 	}
 
-	const action = ACTION_BY_KEY[result.value] ?? "skip";
+	const action = ACTION_BY_KEY[result.value] ?? "pass";
 	return { action };
 }

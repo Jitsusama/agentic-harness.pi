@@ -1,6 +1,6 @@
 /**
- * UI panels: summary panel for PR overview,
- * deferred threads summary.
+ * UI panels: summary panel for PR overview
+ * and review overview.
  *
  * Thread-level analysis and recommendations are handled by
  * the LLM directly (via the 'next' action returning context).
@@ -140,7 +140,7 @@ export async function showReviewOverviewPanel(
 		},
 		actions: [
 			{ key: "c", label: "Continue" },
-			{ key: "s", label: "Skip Review" },
+			{ key: "p", label: "Pass Review" },
 		],
 	});
 

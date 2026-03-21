@@ -128,7 +128,7 @@ export type ReviewVerdict = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
 
 /** Per-tab UI state. */
 export interface TabState {
-	handled: boolean;
+	passed: boolean;
 	activeView: "overview" | "comments" | "raw";
 	commentIndex: number;
 }
@@ -229,19 +229,19 @@ export function commentStats(session: ReviewSession): {
 	return { pending, approved, rejected };
 }
 
-/** Check if a tab is handled (all comments resolved or explicit). */
-export function isTabHandled(session: ReviewSession, tabId: string): boolean {
-	return session.tabStates.get(tabId)?.handled ?? false;
+/** Check if a tab is passed (all comments resolved or explicit). */
+export function isTabPassed(session: ReviewSession, tabId: string): boolean {
+	return session.tabStates.get(tabId)?.passed ?? false;
 }
 
-/** Mark a tab as explicitly handled. */
-export function markTabHandled(session: ReviewSession, tabId: string): void {
+/** Mark a tab as explicitly passed. */
+export function markTabPassed(session: ReviewSession, tabId: string): void {
 	const existing = session.tabStates.get(tabId);
 	if (existing) {
-		existing.handled = true;
+		existing.passed = true;
 	} else {
 		session.tabStates.set(tabId, {
-			handled: true,
+			passed: true,
 			activeView: "overview",
 			commentIndex: 0,
 		});

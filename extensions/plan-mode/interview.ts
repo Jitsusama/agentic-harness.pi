@@ -1,6 +1,6 @@
 /**
  * Plan interview: tabbed prompt for answering planning
- * questions. Each question is a tab with answer/skip actions.
+ * questions. Each question is a tab with answer/pass options.
  * Users can add their own questions via '+' hotkey.
  */
 
@@ -21,7 +21,7 @@ export interface PlanQuestion {
 export interface PlanInterviewResult {
 	answers: { id: string; question: string; answer: string }[];
 	userQuestions: string[];
-	allSkipped: boolean;
+	allPassed: boolean;
 }
 
 function buildQuestionItem(
@@ -59,7 +59,7 @@ function buildQuestionItem(
 				value: "answer",
 				opensEditor: true,
 			},
-			{ label: "Skip", value: "skip" },
+			{ label: "Pass", value: "pass" },
 		],
 	};
 }
@@ -73,7 +73,7 @@ export async function showPlanInterview(
 	questions: PlanQuestion[],
 ): Promise<PlanInterviewResult | null> {
 	if (!ctx.hasUI) {
-		return { answers: [], userQuestions: [], allSkipped: true };
+		return { answers: [], userQuestions: [], allPassed: true };
 	}
 
 	if (questions.length === 0) {
@@ -98,10 +98,10 @@ export async function showPlanInterview(
 			return {
 				answers: [],
 				userQuestions: tabbed.userItems,
-				allSkipped: false,
+				allPassed: false,
 			};
 		}
-		return { answers: [], userQuestions: [], allSkipped: true };
+		return { answers: [], userQuestions: [], allPassed: true };
 	}
 
 	const items = questions.map((q, i) =>
@@ -137,6 +137,6 @@ export async function showPlanInterview(
 	return {
 		answers,
 		userQuestions: result.userItems,
-		allSkipped: answers.length === 0 && result.userItems.length === 0,
+		allPassed: answers.length === 0 && result.userItems.length === 0,
 	};
 }

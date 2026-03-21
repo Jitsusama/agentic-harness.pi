@@ -15,8 +15,8 @@ import {
 } from "./patterns.js";
 
 const DESTRUCTIVE_ACTIONS = [
-	{ key: "a", label: "Allow" },
-	{ key: "b", label: "Block" },
+	{ key: "a", label: "Approve" },
+	{ key: "r", label: "Reject" },
 ];
 
 interface DestructiveMatch {

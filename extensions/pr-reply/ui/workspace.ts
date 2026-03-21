@@ -6,8 +6,8 @@
  * selects a thread (Enter), the workspace dismisses and returns
  * the thread ID so the handler can open a full-context gate.
  *
- * Skip and defer are inline (no context needed). Implement and
- * reply go through the gate for full code context + LLM analysis.
+ * Pass is inline (no context needed). Implement and reply go
+ * through the gate for full code context + LLM analysis.
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
@@ -36,8 +36,7 @@ const THREAD_GLYPH: Record<ThreadState, string> = {
 	implementing: "◈",
 	addressed: "◆",
 	replied: "◆",
-	deferred: "◇",
-	skipped: "✕",
+	passed: "◆",
 };
 
 /** Glyph colors by thread state. */
@@ -46,15 +45,13 @@ const THREAD_GLYPH_COLOR: Record<ThreadState, string> = {
 	implementing: "accent",
 	addressed: "success",
 	replied: "success",
-	deferred: "dim",
-	skipped: "error",
+	passed: "success",
 };
 
 /** Result from the workspace: which action the user chose. */
 export type WorkspaceAction =
 	| { action: "open"; threadId: string }
-	| { action: "skip"; threadId: string }
-	| { action: "defer"; threadId: string }
+	| { action: "pass"; threadId: string }
 	| { action: "redirect"; threadId: string | null; note: string }
 	| null;
 
@@ -80,14 +77,14 @@ export async function showReplyWorkspace(
 	}
 
 	// We track which reviewer tabs are complete.
-	const tabHandled = new Set<string>();
+	const tabComplete = new Set<string>();
 	for (const review of reviews) {
 		const reviewThreads = threadsForReview(review, threads);
 		const allDone = reviewThreads.every((t) => {
 			const st = threadStates.get(t.id);
 			return st && st !== "pending";
 		});
-		if (allDone) tabHandled.add(review.id);
+		if (allDone) tabComplete.add(review.id);
 	}
 
 	// We track the thread the user is acting on.
@@ -103,7 +100,7 @@ export async function showReplyWorkspace(
 				threadStates,
 				threadAnalyses,
 				threadIndices,
-				tabHandled,
+				tabComplete,
 				(id) => {
 					actionThreadId = id;
 				},
@@ -118,9 +115,9 @@ export async function showReplyWorkspace(
 		tabStatus: (index) => {
 			const tabId = tabIds[index];
 			if (!tabId || tabId === "summary") return "pending";
-			return tabHandled.has(tabId) ? "complete" : "pending";
+			return tabComplete.has(tabId) ? "complete" : "pending";
 		},
-		allComplete: () => reviews.every((r) => tabHandled.has(r.id)),
+		allComplete: () => reviews.every((r) => tabComplete.has(r.id)),
 		allowHScroll: true,
 	});
 
@@ -136,7 +133,11 @@ export async function showReplyWorkspace(
 		return { action: "redirect", threadId: actionThreadId, note: result.note };
 	}
 
-	if (result.type === "action" && result.value === "e" && actionThreadId) {
+	if (result.type === "action" && result.value === "p" && actionThreadId) {
+		return { action: "pass", threadId: actionThreadId };
+	}
+
+	if (result.type === "submit" && actionThreadId) {
 		return { action: "open", threadId: actionThreadId };
 	}
 
@@ -165,18 +166,16 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 			let addressed = 0;
 			let implementing = 0;
 			let pending = 0;
-			let deferred = 0;
-			let skipped = 0;
+			let passed = 0;
 			for (const [, st] of state.threadStates) {
 				if (st === "replied") replied++;
 				else if (st === "addressed") addressed++;
 				else if (st === "implementing") implementing++;
 				else if (st === "pending") pending++;
-				else if (st === "deferred") deferred++;
-				else if (st === "skipped") skipped++;
+				else if (st === "passed") passed++;
 			}
 			const total = state.threads.length;
-			const done = replied + addressed + skipped;
+			const done = replied + addressed + passed;
 
 			lines.push(` ${theme.fg("text", theme.bold("Progress:"))}`);
 			lines.push(
@@ -189,9 +188,6 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 				lines.push(
 					`${pad}${theme.fg("accent", `${implementing} implementing`)}`,
 				);
-			}
-			if (deferred > 0) {
-				lines.push(`${pad}${theme.fg("dim", `${deferred} deferred`)}`);
 			}
 			lines.push("");
 
@@ -231,7 +227,7 @@ function buildReviewerTab(
 	threadStates: Map<string, ThreadState>,
 	threadAnalyses: Map<string, ThreadAnalysis>,
 	threadIndices: Map<string, number>,
-	tabHandled: Set<string>,
+	tabComplete: Set<string>,
 	setActionThread: (id: string) => void,
 ): WorkspaceItem {
 	const reviewThreads = threadsForReview(review, allThreads);
@@ -242,11 +238,7 @@ function buildReviewerTab(
 	const view: WorkspaceView = {
 		key: "1",
 		label: "Threads",
-		actions: [
-			{ key: "e", label: "Enter" },
-			{ key: "d", label: "Defer" },
-			{ key: "k", label: "sKip" },
-		],
+		actions: [{ key: "p", label: "Pass" }],
 		content: (theme: Theme, width: number) => {
 			const lines: string[] = [];
 
@@ -307,38 +299,21 @@ function buildReviewerTab(
 			setActionThread(thread.id);
 
 			// Enter: open the full-context gate
-			if (matchesKey(data, Key.enter) || matchesKey(data, "e")) {
-				inputCtx.done({ type: "action", value: "e" });
+			if (matchesKey(data, Key.enter)) {
+				inputCtx.done({ type: "submit" });
 				return true;
 			}
 
-			// Defer inline
-			if (matchesKey(data, "d")) {
+			// Pass inline
+			if (matchesKey(data, "p")) {
 				const st = threadStates.get(thread.id);
 				if (st === "pending") {
-					threadStates.set(thread.id, "deferred");
-					checkTabAutoHandled(
+					threadStates.set(thread.id, "passed");
+					checkTabAutoComplete(
 						review.id,
 						reviewThreads,
 						threadStates,
-						tabHandled,
-					);
-					advanceToNextPending(reviewThreads, threadStates, getIndex, setIndex);
-					inputCtx.invalidate();
-				}
-				return true;
-			}
-
-			// Skip inline
-			if (matchesKey(data, "k")) {
-				const st = threadStates.get(thread.id);
-				if (st === "pending") {
-					threadStates.set(thread.id, "skipped");
-					checkTabAutoHandled(
-						review.id,
-						reviewThreads,
-						threadStates,
-						tabHandled,
+						tabComplete,
 					);
 					advanceToNextPending(reviewThreads, threadStates, getIndex, setIndex);
 					inputCtx.invalidate();
@@ -436,17 +411,17 @@ function advanceToNextPending(
 }
 
 /** Auto-mark reviewer tab as handled when all threads are resolved. */
-function checkTabAutoHandled(
+function checkTabAutoComplete(
 	reviewId: string,
 	threads: Thread[],
 	threadStates: Map<string, ThreadState>,
-	tabHandled: Set<string>,
+	tabComplete: Set<string>,
 ): void {
 	const allResolved = threads.every((t) => {
 		const st = threadStates.get(t.id);
 		return st && st !== "pending";
 	});
 	if (allResolved) {
-		tabHandled.add(reviewId);
+		tabComplete.add(reviewId);
 	}
 }

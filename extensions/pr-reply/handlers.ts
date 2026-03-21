@@ -27,7 +27,6 @@ import {
 	briefActivation,
 	briefBatchAnalysis,
 	briefCompletion,
-	briefDeferred,
 	briefImplementChoice,
 	briefProgress,
 	briefReAnalyze,
@@ -73,15 +72,6 @@ import { showReplyWorkspace } from "./ui/workspace.js";
 /** Build a simple text tool result. */
 function textResult(text: string) {
 	return { content: [{ type: "text" as const, text }] };
-}
-
-/** Count threads in a given state. */
-function countByState(state: PRReplyState, threadState: string): number {
-	let count = 0;
-	for (const [, value] of state.threadStates) {
-		if (value === threadState) count++;
-	}
-	return count;
 }
 
 /** Get the current thread based on review-centric navigation. */
@@ -268,11 +258,7 @@ export async function handleGenerateAnalysis(
 	if (analyses) {
 		for (const a of analyses) {
 			state.threadAnalyses.set(a.thread_id, {
-				recommendation: a.recommendation as
-					| "implement"
-					| "reply"
-					| "skip"
-					| "defer",
+				recommendation: a.recommendation as "implement" | "reply" | "pass",
 				analysis: a.analysis,
 			});
 		}
@@ -348,7 +334,7 @@ export async function handleReviewWorkspace(
 					text:
 						`User feedback on ${location}:\n\n${result.note}\n\n` +
 						"Interpret the feedback and call the appropriate action " +
-						"(implement, reply, skip, or defer with the thread_id), " +
+						"(implement, reply, or pass with the thread_id), " +
 						"then call 'review' to reopen the workspace.",
 				},
 			],
@@ -406,7 +392,16 @@ export async function handleReviewWorkspace(
 		);
 	}
 
-	// Defer and skip are handled inline in the workspace.
+	// Pass is handled inline in the workspace.
+	if (result.action === "pass") {
+		const thread = state.threads.find((t) => t.id === result.threadId);
+		if (thread) {
+			state.threadStates.set(thread.id, "passed");
+			persist(state, pi);
+		}
+		return textResult("Thread passed. Call 'review' to reopen the workspace.");
+	}
+
 	return textResult("Action applied. Call 'review' to reopen the workspace.");
 }
 
@@ -487,7 +482,7 @@ export async function handleNext(
 				nextThread,
 			);
 			if (nextThread.isResolved) {
-				state.threadStates.set(nextThread.id, "skipped");
+				state.threadStates.set(nextThread.id, "passed");
 				persist(state, pi);
 				return handleNext(state, pi, ctx);
 			}
@@ -526,10 +521,6 @@ export async function handleNext(
 	}
 
 	// All reviews exhausted
-	const deferredCount = countByState(state, "deferred");
-	if (deferredCount > 0) {
-		return textResult(briefDeferred(deferredCount));
-	}
 	return textResult(
 		"All reviews and threads addressed. Call pr_reply with action 'deactivate' to finish.",
 	);
@@ -564,11 +555,11 @@ export async function handleReview(
 
 	if (!proceed) {
 		for (const t of pendingThreads) {
-			state.threadStates.set(t.id, "skipped");
+			state.threadStates.set(t.id, "passed");
 		}
 		persist(state, pi);
 		return textResult(
-			`Skipped review from ${review.author} (${pendingThreads.length} threads). ` +
+			`Passed review from ${review.author} (${pendingThreads.length} threads). ` +
 				"Call 'next' to continue.",
 		);
 	}
@@ -778,8 +769,8 @@ export async function handleDone(
 	};
 }
 
-/** Skip the current thread. */
-export function handleSkip(state: PRReplyState, pi: ExtensionAPI) {
+/** Pass the current thread (reviewed, moving on). */
+export function handlePass(state: PRReplyState, pi: ExtensionAPI) {
 	if (!state.enabled) {
 		return textResult("PR reply mode is not active.");
 	}
@@ -789,27 +780,10 @@ export function handleSkip(state: PRReplyState, pi: ExtensionAPI) {
 		return textResult("No current thread. Call 'next' first.");
 	}
 
-	state.threadStates.set(thread.id, "skipped");
+	state.threadStates.set(thread.id, "passed");
 	persist(state, pi);
 
-	return textResult("Thread skipped. Call 'next' to continue.");
-}
-
-/** Defer the current thread for later. */
-export function handleDefer(state: PRReplyState, pi: ExtensionAPI) {
-	if (!state.enabled) {
-		return textResult("PR reply mode is not active.");
-	}
-
-	const thread = currentThread(state);
-	if (!thread) {
-		return textResult("No current thread. Call 'next' first.");
-	}
-
-	state.threadStates.set(thread.id, "deferred");
-	persist(state, pi);
-
-	return textResult("Thread deferred. Call 'next' to continue.");
+	return textResult("Thread passed. Call 'next' to continue.");
 }
 
 /** Map the user's gate choice to a tool result for the LLM. */
@@ -822,10 +796,8 @@ function applyThreadChoice(
 	analysisContext: string,
 ) {
 	if (!choice) {
-		state.threadStates.set(thread.id, "deferred");
-		persist(state, pi);
 		return textResult(
-			"Thread deferred (cancelled). Call pr_reply with action 'next' to continue.",
+			"Thread gate cancelled. Call pr_reply with action 'next' to continue.",
 		);
 	}
 
@@ -846,24 +818,11 @@ function applyThreadChoice(
 				details: { action: "next", redirected: true, threadId: thread.id },
 			};
 
-		case "skip": {
-			state.threadStates.set(thread.id, "skipped");
+		case "pass": {
+			state.threadStates.set(thread.id, "passed");
 			persist(state, pi);
 			return textResult(
-				"Thread skipped. Call pr_reply with action 'next' to continue.",
-			);
-		}
-
-		case "defer":
-		case "implement-later": {
-			state.threadStates.set(thread.id, "deferred");
-			persist(state, pi);
-			const label =
-				choice.action === "implement-later"
-					? "deferred for later implementation"
-					: "deferred";
-			return textResult(
-				`Thread ${label}. Call pr_reply with action 'next' to continue.`,
+				"Thread passed. Call pr_reply with action 'next' to continue.",
 			);
 		}
 

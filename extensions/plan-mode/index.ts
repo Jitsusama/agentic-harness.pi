@@ -122,7 +122,7 @@ export default function planMode(pi: ExtensionAPI) {
 				};
 			}
 
-			if (result.allSkipped) {
+			if (result.allPassed) {
 				return {
 					content: [
 						{

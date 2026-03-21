@@ -10,7 +10,6 @@
 import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
-import { matchesActionKey } from "../../lib/ui/action-bar.js";
 import {
 	languageFromPath,
 	renderCode,
@@ -35,8 +34,8 @@ import {
 	commentsByCategory,
 	commentsForFile,
 	type DiffFile,
-	isTabHandled,
-	markTabHandled,
+	isTabPassed,
+	markTabPassed,
 	type ReviewComment,
 	type ReviewSession,
 } from "../state.js";
@@ -52,12 +51,11 @@ const COMMENT_GLYPH = {
 const COMMENT_ACTIONS: Action[] = [
 	{ key: "a", label: "Approve" },
 	{ key: "r", label: "Reject" },
-	{ key: "s", label: "Redirect" },
-	{ key: "+", label: "New" },
+	{ key: "n", label: "New" },
 ];
 
-/** Tab handled action. */
-const HANDLED_ACTION: Action = { key: "h", label: "Handled" };
+/** Tab pass action. */
+const PASS_ACTION: Action = { key: "p", label: "Pass" };
 
 /** Result from the review panel. */
 export type ReviewPanelResult =
@@ -87,27 +85,9 @@ export async function showReviewPanel(
 	// These are mutable comment selection indices, tracked per tab.
 	const commentIndices = new Map<string, number>();
 
-	// This is a shared stash for comment context when the user redirects on a specific comment.
-	// It's set by comment input handlers and read when processing redirect results.
-	const annotationContext = {
-		commentContext: null as { id: string; subject: string } | null,
-	};
-
 	const rawItems: WorkspaceItem[] = [
-		buildDescTab(
-			ctx,
-			session,
-			tabIds[0] ?? "desc",
-			commentIndices,
-			annotationContext,
-		),
-		buildScopeTab(
-			ctx,
-			session,
-			tabIds[1] ?? "scope",
-			commentIndices,
-			annotationContext,
-		),
+		buildDescTab(ctx, session, tabIds[0] ?? "desc", commentIndices),
+		buildScopeTab(ctx, session, tabIds[1] ?? "scope", commentIndices),
 		...context.diffFiles.map((file, i) =>
 			buildFileTab(
 				ctx,
@@ -115,22 +95,21 @@ export async function showReviewPanel(
 				file,
 				tabIds[i + 2] ?? `file:${file.path}`,
 				commentIndices,
-				annotationContext,
 			),
 		),
 	];
 
-	// We inject 'h' handling into every view so it marks the tab
-	// handled without closing the panel.
+	// We inject 'p' handling into every view so it marks the tab
+	// passed without closing the panel.
 	const items = rawItems.map((item, itemIdx) => ({
 		...item,
 		views: item.views.map((v) => ({
 			...v,
 			handleInput: (data: string, inputCtx: WorkspaceInputContext) => {
-				if (matchesKey(data, "h")) {
+				if (matchesKey(data, "p")) {
 					const tabId = tabIds[itemIdx];
 					if (tabId) {
-						markTabHandled(session, tabId);
+						markTabPassed(session, tabId);
 						inputCtx.invalidate();
 					}
 					return true;
@@ -142,13 +121,13 @@ export async function showReviewPanel(
 
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
-		globalActions: [HANDLED_ACTION],
+		globalActions: [PASS_ACTION],
 		tabStatus: (index) => {
 			const tabId = tabIds[index];
 			if (!tabId) return "pending";
-			return isTabHandled(session, tabId) ? "complete" : "pending";
+			return isTabPassed(session, tabId) ? "complete" : "pending";
 		},
-		allComplete: () => tabIds.every((id) => isTabHandled(session, id)),
+		allComplete: () => tabIds.every((id) => isTabPassed(session, id)),
 		allowHScroll: true,
 	});
 
@@ -162,15 +141,13 @@ export async function showReviewPanel(
 		return {
 			action: "redirect",
 			note: result.note,
-			commentId: annotationContext.commentContext?.id,
-			commentSubject: annotationContext.commentContext?.subject,
 		};
 	}
 
-	// This handles the 'h' action to mark the current tab handled.
-	// It's handled inline via handleInput, but if it reaches here
+	// This handles the 'p' action to mark the current tab passed.
+	// It's passed inline via handleInput, but if it reaches here
 	// it means the workspace returned an action result.
-	if (result.type === "action" && result.value === "h") {
+	if (result.type === "action" && result.value === "p") {
 		// Tab marking is done inline via handleInput.
 		return null;
 	}
@@ -189,7 +166,6 @@ function buildDescTab(
 	session: ReviewSession,
 	tabId: string,
 	commentIndices: Map<string, number>,
-	annotationContext: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceItem {
 	const context = session.context;
 	if (!context) return { label: "Desc", views: [] };
@@ -198,14 +174,7 @@ function buildDescTab(
 		label: "Desc",
 		views: [
 			buildDescOverview(context, session),
-			buildCommentsView(
-				ctx,
-				session,
-				tabId,
-				"title",
-				commentIndices,
-				annotationContext,
-			),
+			buildCommentsView(ctx, session, tabId, "title", commentIndices),
 			buildDescRaw(context),
 		],
 	};
@@ -279,7 +248,6 @@ function buildScopeTab(
 	session: ReviewSession,
 	tabId: string,
 	commentIndices: Map<string, number>,
-	annotationContext: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceItem {
 	const context = session.context;
 	if (!context) return { label: "Scope", views: [] };
@@ -288,14 +256,7 @@ function buildScopeTab(
 		label: "Scope",
 		views: [
 			buildScopeOverview(session),
-			buildCommentsView(
-				ctx,
-				session,
-				tabId,
-				"scope",
-				commentIndices,
-				annotationContext,
-			),
+			buildCommentsView(ctx, session, tabId, "scope", commentIndices),
 			buildScopeRaw(context),
 		],
 	};
@@ -349,20 +310,12 @@ function buildFileTab(
 	file: DiffFile,
 	tabId: string,
 	commentIndices: Map<string, number>,
-	annotationContext: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceItem {
 	return {
 		label: shortPath(file.path),
 		views: [
 			buildFileOverview(session, file),
-			buildFileCommentsView(
-				ctx,
-				session,
-				file,
-				tabId,
-				commentIndices,
-				annotationContext,
-			),
+			buildFileCommentsView(ctx, session, file, tabId, commentIndices),
 			buildFileRaw(session, file),
 		],
 		allowHScroll: true,
@@ -445,7 +398,6 @@ function buildCommentsView(
 	tabId: string,
 	category: "title" | "scope",
 	commentIndices: Map<string, number>,
-	annotationContext: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceView {
 	const getIndex = () => commentIndices.get(tabId) ?? 0;
 	const setIndex = (i: number) => commentIndices.set(tabId, i);
@@ -468,9 +420,6 @@ function buildCommentsView(
 				session,
 				tabId,
 				inputCtx,
-				(c) => {
-					annotationContext.commentContext = c;
-				},
 			);
 		},
 	};
@@ -486,7 +435,6 @@ function buildFileCommentsView(
 	file: DiffFile,
 	tabId: string,
 	commentIndices: Map<string, number>,
-	annotationContext: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceView {
 	const getIndex = () => commentIndices.get(tabId) ?? 0;
 	const setIndex = (i: number) => commentIndices.set(tabId, i);
@@ -509,9 +457,6 @@ function buildFileCommentsView(
 				session,
 				tabId,
 				inputCtx,
-				(c) => {
-					annotationContext.commentContext = c;
-				},
 			);
 		},
 	};
@@ -593,11 +538,9 @@ function handleCommentInput(
 	session: ReviewSession,
 	tabId: string,
 	inputCtx: WorkspaceInputContext,
-	setAnnotationContext: (ctx: { id: string; subject: string } | null) => void,
 ): boolean {
 	if (comments.length === 0) {
-		// We allow '+' for a new comment even when the list is empty.
-		if (matchesActionKey(data, "+")) {
+		if (matchesKey(data, "n")) {
 			inputCtx.openEditor("New comment observation:");
 			return true;
 		}
@@ -624,7 +567,7 @@ function handleCommentInput(
 	// Approve
 	if (matchesKey(data, "a")) {
 		comment.status = "approved";
-		checkTabAutoHandled(session, tabId, comments);
+		checkTabAutoPassed(session, tabId, comments);
 		advanceToNextPending(comments, getIndex, setIndex);
 		inputCtx.invalidate();
 		inputCtx.scrollToLine(getIndex());
@@ -634,22 +577,15 @@ function handleCommentInput(
 	// Reject
 	if (matchesKey(data, "r")) {
 		comment.status = "rejected";
-		checkTabAutoHandled(session, tabId, comments);
+		checkTabAutoPassed(session, tabId, comments);
 		advanceToNextPending(comments, getIndex, setIndex);
 		inputCtx.invalidate();
 		inputCtx.scrollToLine(getIndex());
 		return true;
 	}
 
-	// Redirect: stash comment context, then open editor
-	if (matchesKey(data, "s")) {
-		setAnnotationContext({ id: comment.id, subject: comment.subject });
-		inputCtx.openEditor(`Redirect comment "${comment.subject}":`);
-		return true;
-	}
-
 	// New comment
-	if (matchesActionKey(data, "+")) {
+	if (matchesKey(data, "n")) {
 		inputCtx.openEditor("New comment observation:");
 		return true;
 	}
@@ -674,8 +610,8 @@ function advanceToNextPending(
 	// There are no pending comments left, so we stay at the current one.
 }
 
-/** Check if a tab should be auto-handled. */
-function checkTabAutoHandled(
+/** Check if a tab should be auto-passed. */
+function checkTabAutoPassed(
 	session: ReviewSession,
 	tabId: string,
 	comments: ReviewComment[],
@@ -683,7 +619,7 @@ function checkTabAutoHandled(
 	if (comments.length === 0) return;
 	const allResolved = comments.every((c) => c.status !== "pending");
 	if (allResolved) {
-		markTabHandled(session, tabId);
+		markTabPassed(session, tabId);
 	}
 }
 
