@@ -8,6 +8,7 @@ import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import type { DiffFile } from "../lib/github/diff.js";
+import { matchesActionKey } from "../lib/ui/action-bar.js";
 import {
 	languageFromPath,
 	renderCode,
@@ -333,7 +334,7 @@ function buildCommentsView(
 			}
 
 			if (fileComments.length === 0) {
-				if (matchesKey(data, "+")) {
+				if (matchesActionKey(data, "+")) {
 					inputCtx.openEditor("New comment for this file:");
 					return true;
 				}
@@ -384,7 +385,7 @@ function buildCommentsView(
 			}
 
 			// New comment
-			if (matchesKey(data, "+")) {
+			if (matchesActionKey(data, "+")) {
 				inputCtx.openEditor("New comment for this file:");
 				return true;
 			}

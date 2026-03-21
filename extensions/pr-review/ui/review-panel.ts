@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
+import { matchesActionKey } from "../../lib/ui/action-bar.js";
 import {
 	languageFromPath,
 	renderCode,
@@ -610,7 +611,7 @@ function handleCommentInput(
 ): boolean {
 	if (comments.length === 0) {
 		// Allow '+' for new comment even when empty
-		if (matchesKey(data, "+")) {
+		if (matchesActionKey(data, "+")) {
 			inputCtx.openEditor("New comment observation:");
 			return true;
 		}
@@ -662,7 +663,7 @@ function handleCommentInput(
 	}
 
 	// New comment
-	if (matchesKey(data, "+")) {
+	if (matchesActionKey(data, "+")) {
 		inputCtx.openEditor("New comment observation:");
 		return true;
 	}
