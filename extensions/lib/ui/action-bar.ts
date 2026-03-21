@@ -1,15 +1,13 @@
 /**
- * ActionBar: key-hint action bar with Shift+key annotations.
+ * ActionBar input handling: Shift+key annotations and
+ * Shift+Escape redirect.
  *
- * Shows actions with highlighted key shortcuts plus annotation hint:
- *   [A]pprove  [R]eject                    ⇧+key to annotate
- *
- * Shift+letter opens a NoteEditor for that action. Shift+Escape
- * opens a redirect annotation (no action attached).
+ * Rendering is handled by renderFooter in panel-layout.ts.
+ * This module handles only the input side: detecting action
+ * keys and their Shift variants.
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import { Key, matchesKey } from "@mariozechner/pi-tui";
 import type { Action } from "./types.js";
 
 /**
@@ -74,28 +72,6 @@ export type ActionBarResult =
 	| { type: "redirect" };
 
 /**
- * Render the action bar with key-hint labels and annotation hint.
- */
-export function renderActionBar(
-	actions: Action[],
-	width: number,
-	theme: Theme,
-	showRedirectHint = true,
-): string {
-	const parts: string[] = [];
-
-	for (const action of actions) {
-		parts.push(formatActionLabel(action, theme));
-	}
-
-	const left = ` ${parts.join("  ")}`;
-	if (!showRedirectHint) return truncateToWidth(left, width);
-
-	const hint = theme.fg("dim", "⇧+key annotate · ⇧+Esc redirect");
-	return truncateToWidth(`${left}  ${hint}`, width);
-}
-
-/**
  * Handle action bar key input. Returns a result or null if unhandled.
  * Shift+key opens an annotation editor; plain key fires immediately.
  */
@@ -123,30 +99,4 @@ export function handleActionInput(
 	}
 
 	return null;
-}
-
-/** Format an action label with the key letter highlighted in accent. */
-function formatActionLabel(
-	action: Action,
-	theme: Theme,
-	suffix?: string,
-): string {
-	const label = action.label + (suffix ?? "");
-	return formatKeyLabel(action.key, label, theme);
-}
-
-/** Format a key-hint label: [K]eyword where K is in accent. */
-function formatKeyLabel(key: string, label: string, theme: Theme): string {
-	const upperKey = key.toUpperCase();
-	const idx = label.toUpperCase().indexOf(upperKey);
-
-	if (idx >= 0) {
-		const before = label.slice(0, idx);
-		const keyChar = label.slice(idx, idx + 1);
-		const after = label.slice(idx + 1);
-		return `${before}[${theme.fg("accent", keyChar)}]${after}`;
-	}
-
-	// If the key isn't found in the label, we prefix it.
-	return `[${theme.fg("accent", upperKey)}] ${label}`;
 }

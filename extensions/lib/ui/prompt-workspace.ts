@@ -22,9 +22,9 @@ import {
 	matchesKey,
 	truncateToWidth,
 } from "@mariozechner/pi-tui";
-import { handleActionInput, renderActionBar } from "./action-bar.js";
+import { handleActionInput } from "./action-bar.js";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
-import { buildHintBar, computeChromeLines } from "./panel-layout.js";
+import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
 	handleScrollInput,
@@ -382,7 +382,7 @@ export async function showWorkspacePrompt(
 				}
 			}
 
-			// Editor or action bar + hints
+			// Editor or footer
 			if (editorMode) {
 				for (const line of renderNoteEditor(editor, width, theme, {
 					label: editorLabel,
@@ -390,24 +390,20 @@ export async function showWorkspacePrompt(
 					add(line);
 				}
 			} else {
-				if (actions) {
-					lines.push("");
-					add(renderActionBar(actions, width, theme, true));
-				}
-
 				lines.push("");
-				add(
-					buildHintBar({
-						theme,
-						hasTabs: true,
-						needsVScroll,
-						needsHScroll,
-						hasActions: !!actions,
-						allComplete: config.allComplete(),
-						views: views.length > 1 ? views : undefined,
-						activeViewIndex: viewIdx,
-					}),
-				);
+				for (const line of renderFooter({
+					theme,
+					width,
+					actions,
+					hasTabs: true,
+					allComplete: config.allComplete(),
+					views: views.length > 1 ? views : undefined,
+					activeViewIndex: viewIdx,
+					needsVScroll,
+					needsHScroll,
+				})) {
+					add(line);
+				}
 			}
 
 			// Bottom border

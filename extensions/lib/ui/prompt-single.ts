@@ -15,18 +15,14 @@ import {
 	matchesKey,
 	truncateToWidth,
 } from "@mariozechner/pi-tui";
-import {
-	type ActionBarResult,
-	handleActionInput,
-	renderActionBar,
-} from "./action-bar.js";
+import { type ActionBarResult, handleActionInput } from "./action-bar.js";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
 import {
 	handleOptionInput,
 	optionValue,
 	renderOptionList,
 } from "./option-list.js";
-import { buildHintBar, computeChromeLines } from "./panel-layout.js";
+import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
 	handleScrollInput,
@@ -266,11 +262,6 @@ export async function showSinglePrompt(
 					add(line);
 				}
 			} else {
-				// Action bar and/or option list
-				if (actions) {
-					lines.push("");
-					add(renderActionBar(actions, width, theme));
-				}
 				if (options) {
 					lines.push("");
 					for (const line of renderOptionList(options, optionIndex, theme)) {
@@ -278,17 +269,17 @@ export async function showSinglePrompt(
 					}
 				}
 
-				// Hint bar
+				// Footer
 				lines.push("");
-				add(
-					buildHintBar({
-						theme,
-						hasTabs: false,
-						needsVScroll,
-						needsHScroll,
-						hasActions: !!actions,
-					}),
-				);
+				for (const line of renderFooter({
+					theme,
+					width,
+					actions,
+					needsVScroll,
+					needsHScroll,
+				})) {
+					add(line);
+				}
 			}
 
 			// Bottom border

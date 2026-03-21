@@ -36,7 +36,7 @@ import {
 } from "./types.js";
 
 // Re-export layout helpers for backward compatibility
-export { buildHintBar, computeChromeLines } from "./panel-layout.js";
+export { computeChromeLines, renderFooter } from "./panel-layout.js";
 
 /**
  * Show a single interactive prompt. Returns the user's decision

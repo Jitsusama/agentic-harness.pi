@@ -16,18 +16,14 @@ import {
 	matchesKey,
 	truncateToWidth,
 } from "@mariozechner/pi-tui";
-import {
-	type ActionBarResult,
-	handleActionInput,
-	renderActionBar,
-} from "./action-bar.js";
+import { type ActionBarResult, handleActionInput } from "./action-bar.js";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
 import {
 	handleOptionInput,
 	optionValue,
 	renderOptionList,
 } from "./option-list.js";
-import { buildHintBar, computeChromeLines } from "./panel-layout.js";
+import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
 	handleScrollInput,
@@ -610,25 +606,23 @@ export async function showTabbedPrompt(
 						add(line);
 					}
 				}
-				if (actions) {
-					lines.push("");
-					add(renderActionBar(actions, width, theme, !onUserTab));
-				}
 
 				lines.push("");
-				add(
-					buildHintBar({
-						theme,
-						hasTabs: true,
-						needsVScroll,
-						needsHScroll,
-						hasActions: !!actions && !onUserTab,
-						isUserTab: onUserTab,
-						allComplete: results.size >= config.items.length,
-						views: !onUserTab && views.length > 1 ? views : undefined,
-						activeViewIndex: viewIdx,
-					}),
-				);
+				for (const line of renderFooter({
+					theme,
+					width,
+					actions: !onUserTab ? actions : undefined,
+					hasTabs: true,
+					isUserTab: onUserTab,
+					allComplete: results.size >= config.items.length,
+					views: !onUserTab && views.length > 1 ? views : undefined,
+					activeViewIndex: viewIdx,
+					showRedirectHint: !onUserTab,
+					needsVScroll,
+					needsHScroll,
+				})) {
+					add(line);
+				}
 			}
 
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
