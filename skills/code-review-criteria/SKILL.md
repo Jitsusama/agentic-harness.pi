@@ -16,11 +16,11 @@ description: >
 Tests should verify **what the code does**, not **how it
 does it**. Red flags:
 
-- Asserting on internal state or private methods.
-- Mocking every dependency instead of testing integration.
+- Asserting on internal state or private methods
+- Mocking every dependency instead of testing integration
 - Tests that break when implementation changes without
-  behaviour change.
-- Test names that describe implementation steps.
+  behaviour change
+- Test names that describe implementation steps
 
 Good tests describe a behaviour: "returns error when input
 is empty", "retries on transient failure", "caches result
@@ -31,10 +31,10 @@ for subsequent calls."
 Tests should follow the project's existing test patterns.
 Look for:
 
-- Consistent test framework usage (describe/it, test, etc.).
-- Shared setup patterns (fixtures, factories, beforeEach).
-- Assertion style consistency.
-- Naming conventions for test files and descriptions.
+- Consistent test framework usage (describe/it, test, etc.)
+- Shared setup patterns (fixtures, factories, beforeEach)
+- Assertion style consistency
+- Naming conventions for test files and descriptions
 
 ### Structure
 
@@ -107,11 +107,11 @@ rg "export function" path/to/similar/module.ts
 ### Convention Compliance
 
 Check project-specific conventions:
-- File naming and organization.
-- Export patterns (default vs named).
-- Error handling patterns.
-- Logging and observability patterns.
-- Configuration patterns.
+- File naming and organization
+- Export patterns (default vs named)
+- Error handling patterns
+- Logging and observability patterns
+- Configuration patterns
 
 ## Scope Evaluation
 

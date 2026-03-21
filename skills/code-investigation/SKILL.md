@@ -18,13 +18,13 @@ description: >
 
 ## What to Look For
 
-- Entry points and public API surface.
-- Data flow: where does input come from, where does output go.
-- Existing tests and what they cover.
-- Configuration and environment dependencies.
-- Patterns and conventions the codebase follows.
-- Error handling approach.
-- Dependencies and what they provide.
+- Entry points and public API surface
+- Data flow: where does input come from, where does output go
+- Existing tests and what they cover
+- Configuration and environment dependencies
+- Patterns and conventions the codebase follows
+- Error handling approach
+- Dependencies and what they provide
 
 ## Presenting Findings
 

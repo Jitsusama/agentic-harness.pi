@@ -87,10 +87,10 @@ After creating the PR, use the `pr_annotate` tool to propose
 inline self-review comments that guide reviewers to areas that
 matter. Focus on:
 
-- Design decisions worth explaining.
-- Assumptions that need validation.
-- Scope boundaries reviewers should weigh in on.
-- Deviations from the original plan or issue.
+- Design decisions worth explaining
+- Assumptions that need validation
+- Scope boundaries reviewers should weigh in on
+- Deviations from the original plan or issue
 
 Do NOT flag style issues, obvious code or things the diff
 already makes clear. An empty comments array is fine when
@@ -111,10 +111,10 @@ validation code, not the function signature three lines
 above it.
 
 **Scope the range to the relevant construct:**
-- A naming concern → the single line with the declaration.
-- A logic concern → the conditional block or expression.
-- A design decision → the function or type that embodies it.
-- A missing edge case → the lines where handling should be.
+- A naming concern → the single line with the declaration
+- A logic concern → the conditional block or expression
+- A design decision → the function or type that embodies it
+- A missing edge case → the lines where handling should be
 
 **Don't over-select.** A 20-line range that includes
 imports, blank lines and unrelated code dilutes the

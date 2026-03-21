@@ -54,13 +54,13 @@ signal `done`.
 Within a test file, order tests from most expected to least
 expected behaviour:
 
-1. **Happy path**: the primary success case.
+1. **Happy path**: the primary success case
 2. **Alternate outcomes**: other valid paths through the code
    (e.g., empty results, failed upstream query; these are
-   expected scenarios with different outcomes, not errors).
-3. **Edge cases**: boundary conditions, zero/one/many, nil.
+   expected scenarios with different outcomes, not errors)
+3. **Edge cases**: boundary conditions, zero/one/many, nil
 4. **Error cases**: invalid inputs, unsupported types,
-   exceptions that indicate a bug or misconfiguration.
+   exceptions that indicate a bug or misconfiguration
 
 When adding a new test in a later TDD cycle, place it in the
 right position according to this ordering, not just appended
