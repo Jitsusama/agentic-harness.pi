@@ -56,7 +56,7 @@ export async function showSinglePrompt(
 		let cachedWidth = -1;
 		const hScrollEnabled = config.allowHScroll === true;
 		let editorContext: {
-			type: "steerAction" | "pureSteer" | "editor";
+			type: "annotatedAction" | "redirect" | "editor";
 			actionKey?: string;
 			label?: string;
 		} | null = null;
@@ -78,9 +78,9 @@ export async function showSinglePrompt(
 
 			if (!editorContext) return;
 
-			if (editorContext.type === "pureSteer") {
-				done({ type: "steer", note: trimmed });
-			} else if (editorContext.type === "steerAction") {
+			if (editorContext.type === "redirect") {
+				done({ type: "redirect", note: trimmed });
+			} else if (editorContext.type === "annotatedAction") {
 				done({
 					type: "action",
 					value: editorContext.actionKey ?? "",
@@ -187,7 +187,7 @@ export async function showSinglePrompt(
 					const opt = options[optionIndex];
 					if (opt) {
 						openEditor({
-							type: "steerAction",
+							type: "annotatedAction",
 							actionKey: optionValue(opt),
 						});
 					}
@@ -199,15 +199,15 @@ export async function showSinglePrompt(
 		function handleActionResult(result: ActionBarResult) {
 			if (result.type === "action") {
 				done({ type: "action", value: result.key });
-			} else if (result.type === "steerAction") {
+			} else if (result.type === "annotatedAction") {
 				const action = actions?.find((a) => a.key === result.key);
 				openEditor({
-					type: "steerAction",
+					type: "annotatedAction",
 					actionKey: result.key,
 					label: action?.label,
 				});
-			} else if (result.type === "pureSteer") {
-				openEditor({ type: "pureSteer" });
+			} else if (result.type === "redirect") {
+				openEditor({ type: "redirect" });
 			}
 		}
 
@@ -257,7 +257,7 @@ export async function showSinglePrompt(
 				// NoteEditor
 				const editorLabel = editorContext?.label
 					? `${editorContext.label} with note:`
-					: editorContext?.type === "pureSteer"
+					: editorContext?.type === "redirect"
 						? "Feedback:"
 						: "Note:";
 				for (const line of renderNoteEditor(editor, width, theme, {

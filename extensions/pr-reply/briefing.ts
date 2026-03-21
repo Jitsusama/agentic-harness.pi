@@ -183,8 +183,8 @@ export function briefCompletion(state: PRReplyState): string {
 	);
 }
 
-/** Thread choice result: user steered with feedback. */
-export function briefSteer(
+/** Thread choice result: user redirected with feedback. */
+export function briefRedirect(
 	file: string,
 	contextLine: number,
 	feedback: string,

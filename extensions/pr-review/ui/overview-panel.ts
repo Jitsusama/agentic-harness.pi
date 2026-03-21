@@ -25,12 +25,12 @@ import type { CrawlResult, Reference, SourceFile } from "../state.js";
 /** Result type from the overview panel. */
 export type OverviewResult =
 	| { action: "review" }
-	| { action: "steer"; note: string }
+	| { action: "redirect"; note: string }
 	| null;
 
 /**
  * Show the Phase 1 overview panel.
- * Returns the user's choice: review, steer, or null (escape).
+ * Returns the user's choice: review, redirect, or null (escape).
  */
 export async function showOverviewPanel(
 	ctx: ExtensionContext,
@@ -74,8 +74,8 @@ export async function showOverviewPanel(
 		return { action: "review" };
 	}
 
-	if (result.type === "steer") {
-		return { action: "steer", note: result.note };
+	if (result.type === "redirect") {
+		return { action: "redirect", note: result.note };
 	}
 
 	return null;

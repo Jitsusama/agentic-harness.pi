@@ -316,16 +316,16 @@ export default function prReview(pi: ExtensionAPI) {
 				);
 			}
 			if (action === "overview") {
-				const steered = d?.steered ? " (steered)" : "";
-				return new Text(theme.fg("muted", `Overview panel${steered}`), 0, 0);
+				const redirected = d?.redirected ? " (redirected)" : "";
+				return new Text(theme.fg("muted", `Overview panel${redirected}`), 0, 0);
 			}
 			if (action === "review") {
-				const steered = d?.steered ? " (steered)" : "";
-				return new Text(theme.fg("muted", `Review panel${steered}`), 0, 0);
+				const redirected = d?.redirected ? " (redirected)" : "";
+				return new Text(theme.fg("muted", `Review panel${redirected}`), 0, 0);
 			}
 			if (action === "submit") {
-				const steered = d?.steered ? " (steered)" : "";
-				return new Text(theme.fg("muted", `Submit panel${steered}`), 0, 0);
+				const redirected = d?.redirected ? " (redirected)" : "";
+				return new Text(theme.fg("muted", `Submit panel${redirected}`), 0, 0);
 			}
 			if (action === "posted") {
 				const comments = d?.comments ?? 0;

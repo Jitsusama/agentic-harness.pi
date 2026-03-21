@@ -55,7 +55,7 @@ export type WorkspaceAction =
 	| { action: "open"; threadId: string }
 	| { action: "skip"; threadId: string }
 	| { action: "defer"; threadId: string }
-	| { action: "steer"; threadId: string | null; note: string }
+	| { action: "redirect"; threadId: string | null; note: string }
 	| null;
 
 /**
@@ -132,8 +132,8 @@ export async function showReplyWorkspace(
 
 	if (!result) return null;
 
-	if (result.type === "steer") {
-		return { action: "steer", threadId: actionThreadId, note: result.note };
+	if (result.type === "redirect") {
+		return { action: "redirect", threadId: actionThreadId, note: result.note };
 	}
 
 	if (result.type === "action" && result.value === "e" && actionThreadId) {

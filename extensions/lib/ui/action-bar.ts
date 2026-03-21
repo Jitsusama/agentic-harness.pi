@@ -1,11 +1,11 @@
 /**
- * ActionBar: key-hint action bar with Shift+key steer annotations.
+ * ActionBar: key-hint action bar with Shift+key annotations.
  *
- * Shows actions with highlighted key shortcuts plus steer hint:
+ * Shows actions with highlighted key shortcuts plus annotation hint:
  *   [A]pprove  [R]eject                    ⇧+key to annotate
  *
- * Shift+letter opens a NoteEditor for that action. Shift+S opens
- * a pure steer annotation (no action attached).
+ * Shift+letter opens a NoteEditor for that action. Shift+Escape
+ * opens a redirect annotation (no action attached).
  */
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
@@ -70,17 +70,17 @@ export function matchesActionKey(data: string, key: string): boolean {
 
 export type ActionBarResult =
 	| { type: "action"; key: string }
-	| { type: "steerAction"; key: string }
-	| { type: "pureSteer" };
+	| { type: "annotatedAction"; key: string }
+	| { type: "redirect" };
 
 /**
- * Render the action bar with key-hint labels and steer annotation hint.
+ * Render the action bar with key-hint labels and annotation hint.
  */
 export function renderActionBar(
 	actions: Action[],
 	width: number,
 	theme: Theme,
-	showSteerHint = true,
+	showRedirectHint = true,
 ): string {
 	const parts: string[] = [];
 
@@ -89,9 +89,9 @@ export function renderActionBar(
 	}
 
 	const left = ` ${parts.join("  ")}`;
-	if (!showSteerHint) return truncateToWidth(left, width);
+	if (!showRedirectHint) return truncateToWidth(left, width);
 
-	const hint = theme.fg("dim", "⇧+key annotate · ⇧+Enter feedback");
+	const hint = theme.fg("dim", "⇧+key annotate · ⇧+Esc redirect");
 	return truncateToWidth(`${left}  ${hint}`, width);
 }
 
@@ -103,16 +103,16 @@ export function handleActionInput(
 	data: string,
 	actions: Action[],
 ): ActionBarResult | null {
-	// Shift+letter = steer variant of an action
+	// Shift+letter = annotated variant of an action
 	for (const action of actions) {
 		if (matchesKey(data, Key.shift(action.key))) {
-			return { type: "steerAction", key: action.key };
+			return { type: "annotatedAction", key: action.key };
 		}
 	}
 
-	// Shift+Enter = pure steer (feedback not tied to any action)
-	if (matchesKey(data, Key.shift("enter"))) {
-		return { type: "pureSteer" };
+	// Shift+Escape = redirect (feedback not tied to any action)
+	if (matchesKey(data, Key.shift("escape"))) {
+		return { type: "redirect" };
 	}
 
 	// Plain letter = immediate action

@@ -19,7 +19,7 @@ export type ThreadGateChoice =
 	| { action: "reply" }
 	| { action: "defer" }
 	| { action: "skip" }
-	| { action: "steer"; feedback: string }
+	| { action: "redirect"; feedback: string }
 	| null;
 
 /** Map from prompt action keys to domain actions. */
@@ -121,8 +121,8 @@ export async function showThreadGate(
 
 	if (!result) return null;
 
-	if (result.type === "steer") {
-		return { action: "steer", feedback: result.note };
+	if (result.type === "redirect") {
+		return { action: "redirect", feedback: result.note };
 	}
 
 	const action = ACTION_BY_KEY[result.value] ?? "skip";

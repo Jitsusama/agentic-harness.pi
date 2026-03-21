@@ -1,12 +1,12 @@
 /**
  * Confirmation gates for sensitive Google Workspace operations.
  * Uses prompt() with actions for approve/cancel decisions.
- * Steer annotations return feedback for the agent to adjust.
+ * Redirect annotations return feedback for the agent to adjust.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { prompt } from "../lib/ui/panel.js";
-import { formatSteer } from "../lib/ui/steer.js";
+import { formatRedirect } from "../lib/ui/redirect.js";
 
 export interface EmailData {
 	to: string[];
@@ -25,28 +25,28 @@ export interface EventData {
 	attendees?: string[];
 }
 
-/** Result from a confirmation gate: approved data, steer feedback, or null (cancelled). */
+/** Result from a confirmation gate: approved data, redirect feedback, or null (cancelled). */
 export type ConfirmResult<T> =
 	| { approved: true; data: T }
-	| { approved: false; steer: string }
+	| { approved: false; redirect: string }
 	| null;
 
-/** Extract steer feedback from a prompt result, or null if not a steer. */
-function extractSteer(
+/** Extract redirect feedback from a prompt result, or null if not a redirect. */
+function extractRedirect(
 	result: { type: string; note?: string; value?: string } | null,
 	context: string,
-): { approved: false; steer: string } | null {
+): { approved: false; redirect: string } | null {
 	if (!result) return null;
-	if (result.type === "steer") {
+	if (result.type === "redirect") {
 		return {
 			approved: false,
-			steer: formatSteer(result.note ?? "", context).reason,
+			redirect: formatRedirect(result.note ?? "", context).reason,
 		};
 	}
 	if (result.note) {
 		return {
 			approved: false,
-			steer: formatSteer(result.note, context).reason,
+			redirect: formatRedirect(result.note, context).reason,
 		};
 	}
 	return null;
@@ -54,7 +54,7 @@ function extractSteer(
 
 /**
  * Confirm email before sending.
- * Returns approved data, steer feedback, or null if cancelled.
+ * Returns approved data, redirect feedback, or null if cancelled.
  */
 export async function confirmSendEmail(
 	ctx: ExtensionContext,
@@ -103,17 +103,17 @@ export async function confirmSendEmail(
 	if (!result || (result.type === "action" && result.value === "c")) {
 		return null;
 	}
-	const steer = extractSteer(
+	const redirect = extractRedirect(
 		result,
 		`Original email to: ${email.to.join(", ")}\nSubject: ${email.subject}`,
 	);
-	if (steer) return steer;
+	if (redirect) return redirect;
 	return { approved: true, data: email };
 }
 
 /**
  * Confirm deleting an email.
- * Returns approved true, steer feedback, or null if cancelled.
+ * Returns approved true, redirect feedback, or null if cancelled.
  */
 export async function confirmDeleteEmail(
 	ctx: ExtensionContext,
@@ -144,17 +144,17 @@ export async function confirmDeleteEmail(
 	if (!result || (result.type === "action" && result.value === "c")) {
 		return null;
 	}
-	const steer = extractSteer(
+	const redirect = extractRedirect(
 		result,
 		`Delete email ${subject ? `"${subject}"` : messageId}`,
 	);
-	if (steer) return steer;
+	if (redirect) return redirect;
 	return { approved: true, data: true };
 }
 
 /**
  * Confirm event before creating (only when attendees present).
- * Returns approved data, steer feedback, or null if cancelled.
+ * Returns approved data, redirect feedback, or null if cancelled.
  */
 export async function confirmCreateEvent(
 	ctx: ExtensionContext,
@@ -201,17 +201,17 @@ export async function confirmCreateEvent(
 	if (!result || (result.type === "action" && result.value === "x")) {
 		return null;
 	}
-	const steer = extractSteer(
+	const redirect = extractRedirect(
 		result,
 		`Create event: ${event.summary}\nAttendees: ${event.attendees.join(", ")}`,
 	);
-	if (steer) return steer;
+	if (redirect) return redirect;
 	return { approved: true, data: event };
 }
 
 /**
  * Confirm updating an event with attendees.
- * Returns approved true, steer feedback, or null if cancelled.
+ * Returns approved true, redirect feedback, or null if cancelled.
  */
 export async function confirmUpdateEvent(
 	ctx: ExtensionContext,
@@ -259,17 +259,17 @@ export async function confirmUpdateEvent(
 	if (!result || (result.type === "action" && result.value === "c")) {
 		return null;
 	}
-	const steer = extractSteer(
+	const redirect = extractRedirect(
 		result,
 		`Update event: ${existingEvent.summary}\nChanges: ${changes.join(", ")}`,
 	);
-	if (steer) return steer;
+	if (redirect) return redirect;
 	return { approved: true, data: true };
 }
 
 /**
  * Confirm deleting an event with attendees.
- * Returns approved true, steer feedback, or null if cancelled.
+ * Returns approved true, redirect feedback, or null if cancelled.
  */
 export async function confirmDeleteEvent(
 	ctx: ExtensionContext,
@@ -301,7 +301,7 @@ export async function confirmDeleteEvent(
 	if (!result || (result.type === "action" && result.value === "c")) {
 		return null;
 	}
-	const steer = extractSteer(result, `Delete event: ${summary}`);
-	if (steer) return steer;
+	const redirect = extractRedirect(result, `Delete event: ${summary}`);
+	if (redirect) return redirect;
 	return { approved: true, data: true };
 }

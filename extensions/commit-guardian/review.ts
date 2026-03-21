@@ -1,13 +1,13 @@
 /**
  * Commit guardian review: presents the commit message for
  * approval with validation indicators and hold-to-reveal
- * steer annotations.
+ * annotations.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
 import { prompt } from "../lib/ui/panel.js";
-import { formatSteer } from "../lib/ui/steer.js";
+import { formatRedirect } from "../lib/ui/redirect.js";
 import { extractFlags, extractMessage, splitAtCommit } from "./parse.js";
 import { renderCommitContent } from "./validate.js";
 
@@ -57,15 +57,15 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 			};
 		}
 
-		if (result.type === "steer") {
-			return formatSteer(result.note, `Original commit:\n${parsed.message}`);
+		if (result.type === "redirect") {
+			return formatRedirect(result.note, `Original commit:\n${parsed.message}`);
 		}
 
 		if (result.type === "action") {
 			if (result.value === "a") {
-				// If the user added a note on approve, we treat it as steer.
+				// If the user added a note on approve, we treat it as a redirect.
 				if (result.note) {
-					return formatSteer(
+					return formatRedirect(
 						result.note,
 						`Original commit:\n${parsed.message}`,
 					);
@@ -73,9 +73,12 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 				return undefined;
 			}
 
-			// If there's a note on reject, we include it as steer feedback.
+			// If there's a note on reject, we include it as redirect feedback.
 			if (result.note) {
-				return formatSteer(result.note, `Original commit:\n${parsed.message}`);
+				return formatRedirect(
+					result.note,
+					`Original commit:\n${parsed.message}`,
+				);
 			}
 			return {
 				block: true,

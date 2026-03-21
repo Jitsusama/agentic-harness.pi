@@ -3,7 +3,7 @@
  * views per tab (overview/comments/raw).
  *
  * Uses the workspace prompt for stateful tabbed interaction.
- * Comment actions (approve/reject/steer/new) are handled via
+ * Comment actions (approve/reject/new) are handled via
  * view-specific input handlers in comments mode.
  */
 
@@ -52,7 +52,7 @@ const COMMENT_GLYPH = {
 const COMMENT_ACTIONS: Action[] = [
 	{ key: "a", label: "Approve" },
 	{ key: "r", label: "Reject" },
-	{ key: "s", label: "Steer" },
+	{ key: "s", label: "Redirect" },
 	{ key: "+", label: "New" },
 ];
 
@@ -63,7 +63,7 @@ const HANDLED_ACTION: Action = { key: "h", label: "Handled" };
 export type ReviewPanelResult =
 	| { action: "submit" }
 	| {
-			action: "steer";
+			action: "redirect";
 			note: string;
 			commentId?: string;
 			commentSubject?: string;
@@ -72,7 +72,7 @@ export type ReviewPanelResult =
 
 /**
  * Show the Phase 2 review panel.
- * Returns the user's choice: submit, steer, or null (escape).
+ * Returns the user's choice: submit, redirect, or null (escape).
  */
 export async function showReviewPanel(
 	ctx: ExtensionContext,
@@ -87,20 +87,26 @@ export async function showReviewPanel(
 	// These are mutable comment selection indices, tracked per tab.
 	const commentIndices = new Map<string, number>();
 
-	// This is a shared stash for comment context when the user steers on a specific comment.
-	// It's set by comment input handlers and read when processing steer results.
-	const steerState = {
+	// This is a shared stash for comment context when the user redirects on a specific comment.
+	// It's set by comment input handlers and read when processing redirect results.
+	const annotationContext = {
 		commentContext: null as { id: string; subject: string } | null,
 	};
 
 	const rawItems: WorkspaceItem[] = [
-		buildDescTab(ctx, session, tabIds[0] ?? "desc", commentIndices, steerState),
+		buildDescTab(
+			ctx,
+			session,
+			tabIds[0] ?? "desc",
+			commentIndices,
+			annotationContext,
+		),
 		buildScopeTab(
 			ctx,
 			session,
 			tabIds[1] ?? "scope",
 			commentIndices,
-			steerState,
+			annotationContext,
 		),
 		...context.diffFiles.map((file, i) =>
 			buildFileTab(
@@ -109,7 +115,7 @@ export async function showReviewPanel(
 				file,
 				tabIds[i + 2] ?? `file:${file.path}`,
 				commentIndices,
-				steerState,
+				annotationContext,
 			),
 		),
 	];
@@ -152,12 +158,12 @@ export async function showReviewPanel(
 		return { action: "submit" };
 	}
 
-	if (result.type === "steer") {
+	if (result.type === "redirect") {
 		return {
-			action: "steer",
+			action: "redirect",
 			note: result.note,
-			commentId: steerState.commentContext?.id,
-			commentSubject: steerState.commentContext?.subject,
+			commentId: annotationContext.commentContext?.id,
+			commentSubject: annotationContext.commentContext?.subject,
 		};
 	}
 
@@ -183,7 +189,7 @@ function buildDescTab(
 	session: ReviewSession,
 	tabId: string,
 	commentIndices: Map<string, number>,
-	steerState: { commentContext: { id: string; subject: string } | null },
+	annotationContext: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceItem {
 	const context = session.context;
 	if (!context) return { label: "Desc", views: [] };
@@ -198,7 +204,7 @@ function buildDescTab(
 				tabId,
 				"title",
 				commentIndices,
-				steerState,
+				annotationContext,
 			),
 			buildDescRaw(context),
 		],
@@ -273,7 +279,7 @@ function buildScopeTab(
 	session: ReviewSession,
 	tabId: string,
 	commentIndices: Map<string, number>,
-	steerState: { commentContext: { id: string; subject: string } | null },
+	annotationContext: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceItem {
 	const context = session.context;
 	if (!context) return { label: "Scope", views: [] };
@@ -288,7 +294,7 @@ function buildScopeTab(
 				tabId,
 				"scope",
 				commentIndices,
-				steerState,
+				annotationContext,
 			),
 			buildScopeRaw(context),
 		],
@@ -343,7 +349,7 @@ function buildFileTab(
 	file: DiffFile,
 	tabId: string,
 	commentIndices: Map<string, number>,
-	steerState: { commentContext: { id: string; subject: string } | null },
+	annotationContext: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceItem {
 	return {
 		label: shortPath(file.path),
@@ -355,7 +361,7 @@ function buildFileTab(
 				file,
 				tabId,
 				commentIndices,
-				steerState,
+				annotationContext,
 			),
 			buildFileRaw(session, file),
 		],
@@ -439,7 +445,7 @@ function buildCommentsView(
 	tabId: string,
 	category: "title" | "scope",
 	commentIndices: Map<string, number>,
-	steerState: { commentContext: { id: string; subject: string } | null },
+	annotationContext: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceView {
 	const getIndex = () => commentIndices.get(tabId) ?? 0;
 	const setIndex = (i: number) => commentIndices.set(tabId, i);
@@ -463,7 +469,7 @@ function buildCommentsView(
 				tabId,
 				inputCtx,
 				(c) => {
-					steerState.commentContext = c;
+					annotationContext.commentContext = c;
 				},
 			);
 		},
@@ -480,7 +486,7 @@ function buildFileCommentsView(
 	file: DiffFile,
 	tabId: string,
 	commentIndices: Map<string, number>,
-	steerState: { commentContext: { id: string; subject: string } | null },
+	annotationContext: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceView {
 	const getIndex = () => commentIndices.get(tabId) ?? 0;
 	const setIndex = (i: number) => commentIndices.set(tabId, i);
@@ -504,7 +510,7 @@ function buildFileCommentsView(
 				tabId,
 				inputCtx,
 				(c) => {
-					steerState.commentContext = c;
+					annotationContext.commentContext = c;
 				},
 			);
 		},
@@ -587,7 +593,7 @@ function handleCommentInput(
 	session: ReviewSession,
 	tabId: string,
 	inputCtx: WorkspaceInputContext,
-	setSteerContext: (ctx: { id: string; subject: string } | null) => void,
+	setAnnotationContext: (ctx: { id: string; subject: string } | null) => void,
 ): boolean {
 	if (comments.length === 0) {
 		// We allow '+' for a new comment even when the list is empty.
@@ -635,10 +641,10 @@ function handleCommentInput(
 		return true;
 	}
 
-	// Steer: stash comment context, then open editor
+	// Redirect: stash comment context, then open editor
 	if (matchesKey(data, "s")) {
-		setSteerContext({ id: comment.id, subject: comment.subject });
-		inputCtx.openEditor(`Steer comment "${comment.subject}":`);
+		setAnnotationContext({ id: comment.id, subject: comment.subject });
+		inputCtx.openEditor(`Redirect comment "${comment.subject}":`);
 		return true;
 	}
 

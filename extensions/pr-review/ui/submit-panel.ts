@@ -2,7 +2,7 @@
  * Submit panel: final review summary and confirmation.
  *
  * Single-panel showing review body, verdict, comment summary,
- * and approved comment list. User can post or steer to edit.
+ * and approved comment list. User can post or redirect to edit.
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
@@ -14,12 +14,12 @@ import type { ReviewComment, ReviewSession, ReviewVerdict } from "../state.js";
 /** Result from the submit panel. */
 export type SubmitResult =
 	| { action: "post" }
-	| { action: "steer"; note: string }
+	| { action: "redirect"; note: string }
 	| null;
 
 /**
  * Show the submit panel. Returns the user's choice:
- * post, steer, or null (escape).
+ * post, redirect, or null (escape).
  */
 export async function showSubmitPanel(
 	ctx: ExtensionContext,
@@ -104,8 +104,8 @@ export async function showSubmitPanel(
 
 	if (!result) return null;
 
-	if (result.type === "steer") {
-		return { action: "steer", note: result.note };
+	if (result.type === "redirect") {
+		return { action: "redirect", note: result.note };
 	}
 
 	if (result.type === "action" && result.value === "p") {

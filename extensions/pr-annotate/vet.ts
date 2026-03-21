@@ -42,7 +42,7 @@ interface VetComment {
 
 /**
  * Show the vetting workspace. Returns approved/rejected counts,
- * user requests, and steer feedback. Returns null on cancel.
+ * user requests, and redirect feedback. Returns null on cancel.
  */
 export async function vetComments(
 	comments: ReviewComment[],
@@ -105,11 +105,11 @@ export async function vetComments(
 
 	if (!result) return null;
 
-	if (result.type === "steer") {
-		// A steer could be feedback on a comment or a request for a
-		// new one (from the '+' action). Either way, we return it as
-		// steer feedback and let the LLM interpret the intent. We
-		// include any already-approved comments so they aren't lost.
+	if (result.type === "redirect") {
+		// A redirect could be feedback on a comment or a request for
+		// a new one. Either way, we return it as redirect feedback
+		// and let the LLM interpret the intent. We include any
+		// already-approved comments so they aren't lost.
 		const approved: ReviewComment[] = [];
 		for (const vc of vetComments) {
 			if (vc.status === "approved") {
@@ -120,7 +120,7 @@ export async function vetComments(
 			approved,
 			rejected: 0,
 			edited: 0,
-			steerFeedback: result.note,
+			redirectFeedback: result.note,
 			userRequests: [],
 		};
 	}
@@ -370,9 +370,11 @@ function buildCommentsView(
 				return true;
 			}
 
-			// Steer
+			// Redirect
 			if (matchesKey(data, "s")) {
-				inputCtx.openEditor(`Steer comment "${vc.comment.body.slice(0, 40)}":`);
+				inputCtx.openEditor(
+					`Redirect comment "${vc.comment.body.slice(0, 40)}":`,
+				);
 				return true;
 			}
 

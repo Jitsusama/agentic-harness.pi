@@ -7,7 +7,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { prompt } from "../lib/ui/panel.js";
-import { formatSteer } from "../lib/ui/steer.js";
+import { formatRedirect } from "../lib/ui/redirect.js";
 import {
 	DESTRUCTIVE_PATTERNS,
 	type DestructivePattern,
@@ -72,8 +72,11 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 			return { block: true, reason: "User cancelled the command review." };
 		}
 
-		if (result.type === "steer") {
-			return formatSteer(result.note, `Original command:\n${parsed.command}`);
+		if (result.type === "redirect") {
+			return formatRedirect(
+				result.note,
+				`Original command:\n${parsed.command}`,
+			);
 		}
 
 		if (result.type === "action" && result.value === "a") {

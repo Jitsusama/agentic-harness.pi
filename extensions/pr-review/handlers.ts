@@ -458,7 +458,7 @@ export async function handleOverview(deps: HandlerDeps, ctx: ExtensionContext) {
 		);
 	}
 
-	if (result.action === "steer") {
+	if (result.action === "redirect") {
 		return {
 			content: [
 				{
@@ -468,7 +468,7 @@ export async function handleOverview(deps: HandlerDeps, ctx: ExtensionContext) {
 						"Process the feedback and call 'overview' to re-open the panel.",
 				},
 			],
-			details: { action: "overview", steered: true },
+			details: { action: "overview", redirected: true },
 		};
 	}
 
@@ -510,7 +510,7 @@ export async function handleReview(deps: HandlerDeps, ctx: ExtensionContext) {
 		);
 	}
 
-	if (result.action === "steer") {
+	if (result.action === "redirect") {
 		const parts: string[] = [];
 		parts.push(`User feedback from review panel:\n\n"${result.note}"`);
 
@@ -518,7 +518,7 @@ export async function handleReview(deps: HandlerDeps, ctx: ExtensionContext) {
 			const comment = session.comments.find((c) => c.id === result.commentId);
 			if (comment) {
 				parts.push("");
-				parts.push("Comment being steered:");
+				parts.push("Comment being redirected:");
 				parts.push(`- ID: ${comment.id}`);
 				parts.push(`- File: ${comment.file ?? "(PR-level)"}`);
 				if (comment.startLine !== null) {
@@ -541,7 +541,7 @@ export async function handleReview(deps: HandlerDeps, ctx: ExtensionContext) {
 
 		return {
 			content: [{ type: "text" as const, text: parts.join("\n") }],
-			details: { action: "review", steered: true },
+			details: { action: "review", redirected: true },
 		};
 	}
 
@@ -718,7 +718,7 @@ export async function handleSubmit(
 		return handlePost(deps);
 	}
 
-	if (result.action === "steer") {
+	if (result.action === "redirect") {
 		return {
 			content: [
 				{
@@ -730,7 +730,7 @@ export async function handleSubmit(
 						"Update the body/verdict as needed, then call 'submit' again.",
 				},
 			],
-			details: { action: "submit", steered: true },
+			details: { action: "submit", redirected: true },
 		};
 	}
 

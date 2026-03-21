@@ -3,7 +3,7 @@
  *
  * Tool for the LLM to propose self-review comments on a PR.
  * The user vets each comment through the shared gate:
- * approve, edit, reject, or steer. Only approved comments
+ * approve, edit, reject, or redirect. Only approved comments
  * are posted as a single PR review via `gh api`.
  *
  * Supports multi-round flows: if the user adds comments
@@ -79,7 +79,7 @@ export interface VetResult {
 	approved: ReviewComment[];
 	rejected: number;
 	edited: number;
-	steerFeedback?: string;
+	redirectFeedback?: string;
 	userRequests: string[];
 }
 
@@ -196,9 +196,9 @@ export default function prAnnotate(pi: ExtensionAPI) {
 			// We combine pre-approved with newly approved comments.
 			const allApproved = [...preApproved, ...result.approved];
 
-			if (result.steerFeedback) {
+			if (result.redirectFeedback) {
 				const parts = [
-					`User feedback on review comments:\n\n${result.steerFeedback}`,
+					`User feedback on review comments:\n\n${result.redirectFeedback}`,
 				];
 				if (allApproved.length > 0) {
 					parts.push("");
@@ -209,7 +209,7 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				}
 				return {
 					content: [{ type: "text", text: parts.join("\n") }],
-					details: { pr: params.pr, posted: 0, steered: true },
+					details: { pr: params.pr, posted: 0, redirected: true },
 				};
 			}
 
@@ -329,8 +329,8 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				return new Text(theme.fg("warning", "Review cancelled"), 0, 0);
 			}
 
-			if (details.steered) {
-				return new Text(theme.fg("accent", "↩ Steered"), 0, 0);
+			if (details.redirected) {
+				return new Text(theme.fg("accent", "↩ Redirected"), 0, 0);
 			}
 
 			if (details.userRequests) {

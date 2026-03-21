@@ -32,9 +32,9 @@ import {
 	briefProgress,
 	briefReAnalyze,
 	briefRebaseApproved,
+	briefRedirect,
 	briefReplyChoice,
 	briefReviewSummary,
-	briefSteer,
 	briefThread,
 } from "./briefing.js";
 import {
@@ -335,7 +335,7 @@ export async function handleReviewWorkspace(
 		);
 	}
 
-	if (result.action === "steer") {
+	if (result.action === "redirect") {
 		const thread = result.threadId
 			? state.threads.find((t) => t.id === result.threadId)
 			: null;
@@ -352,7 +352,7 @@ export async function handleReviewWorkspace(
 						"then call 'review' to reopen the workspace.",
 				},
 			],
-			details: { action: "review", steered: true },
+			details: { action: "review", redirected: true },
 		};
 	}
 
@@ -389,7 +389,7 @@ export async function handleReviewWorkspace(
 
 		refreshUI(state, ctx);
 
-		const steerContext = buildAnalysisPrompt(
+		const redirectContext = buildAnalysisPrompt(
 			thread,
 			review ?? state.reviews[0],
 			codeContext?.source ?? null,
@@ -402,7 +402,7 @@ export async function handleReviewWorkspace(
 			choice,
 			thread,
 			contextLine,
-			steerContext,
+			redirectContext,
 		);
 	}
 
@@ -608,7 +608,7 @@ export async function handleShow(
 			? await readCodeContext(pi, thread.file, contextLine)
 			: null;
 
-	const steerContext = buildAnalysisPrompt(
+	const redirectContext = buildAnalysisPrompt(
 		thread,
 		review ?? state.reviews[0],
 		codeContext?.source ?? null,
@@ -633,7 +633,7 @@ export async function handleShow(
 		choice,
 		thread,
 		contextLine,
-		steerContext,
+		redirectContext,
 	);
 }
 
@@ -830,12 +830,12 @@ function applyThreadChoice(
 	}
 
 	switch (choice.action) {
-		case "steer":
+		case "redirect":
 			return {
 				content: [
 					{
 						type: "text" as const,
-						text: briefSteer(
+						text: briefRedirect(
 							thread.file,
 							contextLine,
 							choice.feedback,
@@ -843,7 +843,7 @@ function applyThreadChoice(
 						),
 					},
 				],
-				details: { action: "next", steered: true, threadId: thread.id },
+				details: { action: "next", redirected: true, threadId: thread.id },
 			};
 
 		case "skip": {
@@ -900,7 +900,7 @@ function applyThreadChoice(
 }
 
 /**
- * Review a reply via approve/reject/steer, then post to GitHub.
+ * Review a reply via approve/reject/redirect, then post to GitHub.
  */
 async function reviewAndPostReply(
 	state: PRReplyState,

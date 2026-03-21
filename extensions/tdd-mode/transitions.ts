@@ -50,7 +50,7 @@ export interface TransitionGateResult {
 
 /**
  * Show a confirmation gate before a TDD phase transition.
- * Returns whether the user approved or wants to stay/steer.
+ * Returns whether the user approved or wants to stay/redirect.
  */
 export async function showTransitionGate(
 	state: TddState,
@@ -104,7 +104,7 @@ export async function showTransitionGate(
 		return { approved: false };
 	}
 
-	if (result.type === "steer") {
+	if (result.type === "redirect") {
 		return { approved: false, feedback: result.note };
 	}
 

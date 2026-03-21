@@ -1,5 +1,5 @@
 /**
- * NoteEditor: inline editor for steer annotations and free-form
+ * NoteEditor: inline editor for redirect annotations and free-form
  * input.
  *
  * Wraps Pi's Editor with specific styling (┃ border bars) and

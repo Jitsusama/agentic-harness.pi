@@ -125,7 +125,7 @@ export async function showWorkspacePrompt(
 			editor.setText("");
 
 			if (trimmed) {
-				done({ type: "steer", note: trimmed });
+				done({ type: "redirect", note: trimmed });
 			} else {
 				tui.requestRender();
 			}
@@ -296,12 +296,12 @@ export async function showWorkspacePrompt(
 				if (result) {
 					if (result.type === "action") {
 						done({ type: "action", value: result.key });
-					} else if (result.type === "pureSteer") {
+					} else if (result.type === "redirect") {
 						editorLabel = "Feedback:";
 						editorMode = true;
 						editor.setText("");
 						tui.requestRender();
-					} else if (result.type === "steerAction") {
+					} else if (result.type === "annotatedAction") {
 						const action = actions.find((a) => a.key === result.key);
 						editorLabel = action?.label ? `${action.label} note:` : "Note:";
 						editorMode = true;
@@ -312,8 +312,8 @@ export async function showWorkspacePrompt(
 				}
 			}
 
-			// 6. Global steer (Shift+Enter)
-			if (matchesKey(data, Key.shift("enter"))) {
+			// 6. Global redirect (Shift+Escape)
+			if (matchesKey(data, Key.shift("escape"))) {
 				editorLabel = "Feedback:";
 				editorMode = true;
 				editor.setText("");

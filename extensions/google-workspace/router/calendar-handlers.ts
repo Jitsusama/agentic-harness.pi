@@ -108,7 +108,7 @@ export async function handleCreateEvent(
 	}
 	if (!confirmResult.approved) {
 		return {
-			content: [{ type: "text", text: confirmResult.steer }],
+			content: [{ type: "text", text: confirmResult.redirect }],
 		};
 	}
 
@@ -185,7 +185,7 @@ export async function handleUpdateEvent(
 		}
 		if (!confirmResult.approved) {
 			return {
-				content: [{ type: "text", text: confirmResult.steer }],
+				content: [{ type: "text", text: confirmResult.redirect }],
 			};
 		}
 	}
@@ -242,7 +242,7 @@ export async function handleDeleteEvent(
 		}
 		if (!confirmResult.approved) {
 			return {
-				content: [{ type: "text", text: confirmResult.steer }],
+				content: [{ type: "text", text: confirmResult.redirect }],
 			};
 		}
 	}

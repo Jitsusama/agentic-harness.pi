@@ -16,7 +16,7 @@ import type { ContentFn, PromptResult, TabbedResult } from "../lib/ui/types.js";
 /** Format a single PromptResult for notify output. */
 function formatResult(result: PromptResult | null): string {
 	if (result === null) return "cancelled";
-	if (result.type === "steer") return `steer: ${result.note}`;
+	if (result.type === "redirect") return `redirect: ${result.note}`;
 	let msg = `action: ${result.value}`;
 	if (result.note) msg += ` note: ${result.note}`;
 	if (result.editorText) msg += ` editor: ${result.editorText}`;
@@ -269,15 +269,15 @@ export default function testHarness(ctx: ExtensionContext) {
 		},
 	});
 
-	// /test-steer: Steer annotations
-	ctx.registerCommand("test-steer", {
-		description: "Test steer annotations",
+	// /test-redirect: Redirect annotations
+	ctx.registerCommand("test-redirect", {
+		description: "Test redirect annotations",
 		handler: async (_args, handlerCtx) => {
 			const result = await prompt(handlerCtx, {
 				content: (theme, _width) => [
-					` ${theme.fg("accent", theme.bold("Steer Annotations Test"))}`,
+					` ${theme.fg("accent", theme.bold("Redirect Annotations Test"))}`,
 					"",
-					"  Test steer annotations on actions.",
+					"  Test redirect annotations on actions.",
 				],
 				actions: [
 					{ key: "a", label: "Approve" },
