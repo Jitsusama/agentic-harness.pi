@@ -275,15 +275,16 @@ export async function showWorkspacePrompt(
 				return;
 			}
 
-			// 4. View switching
+			// 4. View switching (pressing the active view's key toggles back to the first view)
 			const views = currentViews();
 			if (views.length > 1) {
 				for (let i = 0; i < views.length; i++) {
 					const v = views[i];
 					if (v && matchesKey(data, v.key)) {
-						activeViewIndex.set(currentTab, i);
+						const target = i === getViewIndex(currentTab) ? 0 : i;
+						activeViewIndex.set(currentTab, target);
 						tui.requestRender();
-						ensureViewContent(currentTab, i, 0);
+						ensureViewContent(currentTab, target, 0);
 						return;
 					}
 				}

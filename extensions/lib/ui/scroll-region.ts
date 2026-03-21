@@ -17,11 +17,12 @@ import {
 } from "@mariozechner/pi-tui";
 import { getPanelHeightFraction } from "./panel-height.js";
 import {
+	COARSE_SCROLL_OVERLAP_FRACTION,
 	CONTENT_INDENT,
+	FINE_SCROLL_LINES,
 	GLYPH,
 	H_SCROLL_STEP,
 	MAX_CONTENT_WIDTH,
-	PAGE_SCROLL_OVERLAP,
 	SCROLLBAR_GUTTER,
 } from "./types.js";
 
@@ -86,17 +87,40 @@ export function handleScrollInput(
 	needsHScroll = false,
 	maxHOffset = Number.MAX_SAFE_INTEGER,
 ): ScrollState | null {
-	if (matchesKey(data, "pageup") || matchesKey(data, Key.shift("up"))) {
-		const step = Math.max(1, budget - PAGE_SCROLL_OVERLAP);
-		return { ...state, vOffset: Math.max(0, state.vOffset - step) };
-	}
-	if (matchesKey(data, "pagedown") || matchesKey(data, Key.shift("down"))) {
-		const step = Math.max(1, budget - PAGE_SCROLL_OVERLAP);
+	// Fine scroll: Shift+↑↓ moves a few lines at a time.
+	if (matchesKey(data, Key.shift("up"))) {
 		return {
 			...state,
-			vOffset: clampVScroll(state.vOffset + step, contentLength, budget),
+			vOffset: Math.max(0, state.vOffset - FINE_SCROLL_LINES),
 		};
 	}
+	if (matchesKey(data, Key.shift("down"))) {
+		return {
+			...state,
+			vOffset: clampVScroll(
+				state.vOffset + FINE_SCROLL_LINES,
+				contentLength,
+				budget,
+			),
+		};
+	}
+
+	// Coarse scroll: PageUp/Down and Ctrl+U/D move half a page.
+	const coarseStep = Math.max(
+		1,
+		Math.floor(budget * (1 - COARSE_SCROLL_OVERLAP_FRACTION)),
+	);
+	if (matchesKey(data, "pageup") || matchesKey(data, Key.ctrl("u"))) {
+		return { ...state, vOffset: Math.max(0, state.vOffset - coarseStep) };
+	}
+	if (matchesKey(data, "pagedown") || matchesKey(data, Key.ctrl("d"))) {
+		return {
+			...state,
+			vOffset: clampVScroll(state.vOffset + coarseStep, contentLength, budget),
+		};
+	}
+
+	// Horizontal scroll: Shift+←→.
 	if (needsHScroll && matchesKey(data, Key.shift("left"))) {
 		return {
 			...state,
