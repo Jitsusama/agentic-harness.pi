@@ -11,7 +11,10 @@ any prose it produces feels authentic and consistent.
   unless ambiguity demands it)
 - Conversational tone with contractions encouraged
 - Complete sentences required (no fragments)
-- Bulleted list formatting conventions
+- Bulleted list formatting conventions (noun phrases vs
+  imperative items)
 - Title Case for all headings
 - Kind, bridge-building language when addressing people
+- Audience-specific strategies for human-facing and
+  LLM-facing content
 - Applies to commit message bodies alongside `git-commit-format`

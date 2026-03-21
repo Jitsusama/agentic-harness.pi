@@ -1,6 +1,6 @@
 # Content Viewer Extension
 
-View files in a scrollable, themed overlay. Auto-detects
+View files in a scrollable, themed overlay. It auto-detects the
 content type (markdown, diff, code) and applies appropriate
 colouring.
 
@@ -13,9 +13,9 @@ colouring.
 ## How It Works
 
 The `/view` command reads the file, detects its content type
-from the file extension, and presents it using `showContent`
+from the file extension and presents it using `showContent`
 from the shared content renderer. Scroll with Shift+↑↓ or
-PageUp/PageDown, dismiss with Escape or Enter on Close.
+PageUp/PageDown; dismiss with Escape or Enter on Close.
 
 Content types:
 - **Markdown** (`.md`): headers, lists, blockquotes, code

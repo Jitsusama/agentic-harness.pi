@@ -1,6 +1,6 @@
 # Status Line Extension
 
-Responsive single-line footer that adapts to terminal width.
+A responsive single-line footer that adapts to terminal width.
 
 ## Layout
 
@@ -21,12 +21,13 @@ Responsive single-line footer that adapts to terminal width.
 
 ## Degradation Order
 
-As the terminal narrows, detail is removed in this order:
+As the terminal gets narrower, detail is removed in this order:
 
 1. Shrink directory (full path → basename)
 2. Remove cost
-3. Context tokens → percentage (e.g. `45.2k/200k` → `23%`)
-4. Shrink model name (e.g. `claude-sonnet-4-20250514` → `sonnet-4`)
+3. Context tokens → percentage (e.g., `45.2k/200k` → `23%`)
+4. Shrink model name (e.g., `claude-sonnet-4-20250514` →
+   `sonnet-4`)
 5. Remove thinking glyph
 6. Remove branch
 

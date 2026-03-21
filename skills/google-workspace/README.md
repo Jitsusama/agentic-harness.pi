@@ -1,19 +1,22 @@
 # Google Workspace Skill
 
-Teaches the LLM how to use the `google` tool to access Gmail, Calendar, Drive, Docs, Sheets and Slides.
+Teaches the LLM how to use the `google` tool to access Gmail,
+Calendar, Drive, Docs, Sheets and Slides.
 
 ## For Users
 
-This skill enables natural language access to your Google Workspace:
+This skill enables natural language access to your Google
+Workspace:
 
 - "Find emails from Alice about the budget"
 - "What's on my calendar tomorrow?"
-- "Open that Google Doc" (coming soon)
-- "Search Drive for quarterly reports" (coming soon)
+- "Open that Google Doc"
+- "Search Drive for quarterly reports"
 
 ## Authentication
 
-Run `google-auth` once to authenticate. Supports multiple accounts.
+Run `google-auth` once to authenticate. It supports multiple
+accounts.
 
 ## What the LLM Learns
 

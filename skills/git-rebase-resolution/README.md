@@ -1,7 +1,7 @@
 # Rebase Resolution Skill
 
-Teaches the agent to resolve rebase conflicts with design intent
-preservation.
+Teaches the agent to resolve rebase conflicts while preserving
+design intent.
 
-Activates when rebasing, resolving merge conflicts, or discussing
-conflict resolution strategy.
+Activates when rebasing, resolving merge conflicts or
+discussing conflict resolution strategy.
