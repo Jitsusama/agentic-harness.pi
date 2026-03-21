@@ -20,7 +20,7 @@
 
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Key, Text } from "@mariozechner/pi-tui";
+import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
 	handleActivate,
@@ -254,11 +254,6 @@ export default function prReply(pi: ExtensionAPI) {
 	pi.registerCommand("pr-reply", {
 		description: "Toggle PR reply mode",
 		handler: async (_args, ctx) => toggle(state, pi, ctx),
-	});
-
-	pi.registerShortcut(Key.ctrlAlt("r"), {
-		description: "Toggle PR reply mode",
-		handler: async (ctx) => toggle(state, pi, ctx),
 	});
 
 	pi.on("tool_result", async (event) => {

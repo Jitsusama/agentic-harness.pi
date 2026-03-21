@@ -21,7 +21,7 @@
 
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Key, Text } from "@mariozechner/pi-tui";
+import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
 	type CommentInput,
@@ -362,16 +362,6 @@ export default function prReview(pi: ExtensionAPI) {
 					"PR review mode requires activation via the pr_review tool.",
 					"warning",
 				);
-			}
-		},
-	});
-
-	pi.registerShortcut(Key.ctrlAlt("v"), {
-		description: "Deactivate PR review mode",
-		handler: async (ctx) => {
-			if (state.enabled) {
-				deactivate(state, pi, ctx);
-				ctx.ui.notify("PR review mode off.");
 			}
 		},
 	});

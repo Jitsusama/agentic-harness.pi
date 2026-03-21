@@ -14,7 +14,7 @@ import type {
 	ExtensionAPI,
 	ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
-import { Key, Text } from "@mariozechner/pi-tui";
+import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { enforcePlanMode } from "./enforce.js";
 import { showPlanInterview } from "./interview.js";
@@ -233,11 +233,6 @@ export default function planMode(pi: ExtensionAPI) {
 			});
 			ctx.ui.notify(`Plan directory: ${state.planDir}`, "info");
 		},
-	});
-
-	pi.registerShortcut(Key.ctrlAlt("p"), {
-		description: "Toggle plan mode",
-		handler: async (ctx) => toggle(state, pi, ctx),
 	});
 
 	pi.on(
