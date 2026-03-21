@@ -21,7 +21,7 @@
 
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Key, Text } from "@mariozechner/pi-tui";
+import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
 	type CommentInput,
@@ -316,16 +316,16 @@ export default function prReview(pi: ExtensionAPI) {
 				);
 			}
 			if (action === "overview") {
-				const steered = d?.steered ? " (steered)" : "";
-				return new Text(theme.fg("muted", `Overview panel${steered}`), 0, 0);
+				const redirected = d?.redirected ? " (redirected)" : "";
+				return new Text(theme.fg("muted", `Overview panel${redirected}`), 0, 0);
 			}
 			if (action === "review") {
-				const steered = d?.steered ? " (steered)" : "";
-				return new Text(theme.fg("muted", `Review panel${steered}`), 0, 0);
+				const redirected = d?.redirected ? " (redirected)" : "";
+				return new Text(theme.fg("muted", `Review panel${redirected}`), 0, 0);
 			}
 			if (action === "submit") {
-				const steered = d?.steered ? " (steered)" : "";
-				return new Text(theme.fg("muted", `Submit panel${steered}`), 0, 0);
+				const redirected = d?.redirected ? " (redirected)" : "";
+				return new Text(theme.fg("muted", `Submit panel${redirected}`), 0, 0);
 			}
 			if (action === "posted") {
 				const comments = d?.comments ?? 0;
@@ -362,16 +362,6 @@ export default function prReview(pi: ExtensionAPI) {
 					"PR review mode requires activation via the pr_review tool.",
 					"warning",
 				);
-			}
-		},
-	});
-
-	pi.registerShortcut(Key.ctrlAlt("v"), {
-		description: "Deactivate PR review mode",
-		handler: async (ctx) => {
-			if (state.enabled) {
-				deactivate(state, pi, ctx);
-				ctx.ui.notify("PR review mode off.");
 			}
 		},
 	});

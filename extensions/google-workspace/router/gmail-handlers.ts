@@ -132,7 +132,7 @@ export async function handleSendEmail(
 	}
 	if (!confirmResult.approved) {
 		return {
-			content: [{ type: "text", text: confirmResult.steer }],
+			content: [{ type: "text", text: confirmResult.redirect }],
 		};
 	}
 
@@ -224,7 +224,7 @@ export async function handleDeleteEmail(
 	}
 	if (!confirmResult.approved) {
 		return {
-			content: [{ type: "text", text: confirmResult.steer }],
+			content: [{ type: "text", text: confirmResult.redirect }],
 		};
 	}
 

@@ -1,5 +1,5 @@
 /**
- * Reply review panel: approve, reject, or steer a draft reply
+ * Reply review panel: approve, reject, or redirect a draft reply
  * before posting it to GitHub.
  */
 
@@ -55,11 +55,11 @@ export async function showReplyReview(
 		return { approved: false, reason: "User cancelled the reply review." };
 	}
 
-	if (result.type === "steer") {
+	if (result.type === "redirect") {
 		return {
 			approved: false,
 			reason:
-				`User steered the reply. Their exact feedback:\n\n"${result.note}"\n\n` +
+				`User redirected the reply. Their exact feedback:\n\n"${result.note}"\n\n` +
 				`Original draft reply:\n${draftReply}\n\n` +
 				"Rewrite the reply incorporating the user's feedback above, " +
 				"then call pr_reply with action 'reply' again.",

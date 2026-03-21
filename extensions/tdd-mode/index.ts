@@ -12,7 +12,7 @@
 
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Key, Text } from "@mariozechner/pi-tui";
+import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
 	activate,
@@ -463,11 +463,6 @@ export default function tddMode(pi: ExtensionAPI) {
 			}
 			ctx.ui.notify(lines.join("\n"), "success");
 		},
-	});
-
-	pi.registerShortcut(Key.ctrlAlt("t"), {
-		description: "Toggle TDD mode",
-		handler: async (ctx) => toggle(state, pi, ctx),
 	});
 
 	pi.on("before_agent_start", async () => {

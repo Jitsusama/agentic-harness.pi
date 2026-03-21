@@ -8,7 +8,6 @@ import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import type { DiffFile } from "../lib/github/diff.js";
-import { matchesActionKey } from "../lib/ui/action-bar.js";
 import {
 	languageFromPath,
 	renderCode,
@@ -42,7 +41,7 @@ interface VetComment {
 
 /**
  * Show the vetting workspace. Returns approved/rejected counts,
- * user requests, and steer feedback. Returns null on cancel.
+ * user requests, and redirect feedback. Returns null on cancel.
  */
 export async function vetComments(
 	comments: ReviewComment[],
@@ -72,7 +71,7 @@ export async function vetComments(
 
 	// This is mutable selection state, tracked per tab.
 	const commentIndices = new Map<string, number>();
-	const tabHandled = new Set<string>();
+	const tabPassed = new Set<string>();
 
 	// We build the workspace items from the summary and file tabs.
 	const items: WorkspaceItem[] = [
@@ -83,7 +82,7 @@ export async function vetComments(
 				fileGroups.get(path) ?? [],
 				diffByPath.get(path) ?? null,
 				commentIndices,
-				tabHandled,
+				tabPassed,
 			),
 		),
 	];
@@ -92,24 +91,24 @@ export async function vetComments(
 
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
-		globalActions: [{ key: "h", label: "Handled" }],
+		globalActions: [{ key: "p", label: "Pass" }],
 		tabStatus: (index) => {
 			const tabId = tabIds[index];
 			if (!tabId) return "pending";
 			if (tabId === "summary") return "pending";
-			return tabHandled.has(tabId) ? "complete" : "pending";
+			return tabPassed.has(tabId) ? "complete" : "pending";
 		},
-		allComplete: () => filePaths.every((p) => tabHandled.has(p)),
+		allComplete: () => filePaths.every((p) => tabPassed.has(p)),
 		allowHScroll: true,
 	});
 
 	if (!result) return null;
 
-	if (result.type === "steer") {
-		// A steer could be feedback on a comment or a request for a
-		// new one (from the '+' action). Either way, we return it as
-		// steer feedback and let the LLM interpret the intent. We
-		// include any already-approved comments so they aren't lost.
+	if (result.type === "redirect") {
+		// A redirect could be feedback on a comment or a request for
+		// a new one. Either way, we return it as redirect feedback
+		// and let the LLM interpret the intent. We include any
+		// already-approved comments so they aren't lost.
 		const approved: ReviewComment[] = [];
 		for (const vc of vetComments) {
 			if (vc.status === "approved") {
@@ -120,7 +119,7 @@ export async function vetComments(
 			approved,
 			rejected: 0,
 			edited: 0,
-			steerFeedback: result.note,
+			redirectFeedback: result.note,
 			userRequests: [],
 		};
 	}
@@ -151,7 +150,7 @@ function buildSummaryTab(
 	preApprovedCount: number,
 ): WorkspaceItem {
 	const summaryView: WorkspaceView = {
-		key: "o",
+		key: "1",
 		label: "Overview",
 		content: (theme: Theme) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -229,7 +228,7 @@ function buildFileTab(
 	fileComments: VetComment[],
 	diffFile: DiffFile | null,
 	commentIndices: Map<string, number>,
-	tabHandled: Set<string>,
+	tabPassed: Set<string>,
 ): WorkspaceItem {
 	const getIndex = () => commentIndices.get(filePath) ?? 0;
 	const setIndex = (i: number) => commentIndices.set(filePath, i);
@@ -238,7 +237,7 @@ function buildFileTab(
 		label: shortPath(filePath),
 		views: [
 			buildOverviewView(filePath, fileComments, diffFile),
-			buildCommentsView(filePath, fileComments, getIndex, setIndex, tabHandled),
+			buildCommentsView(filePath, fileComments, getIndex, setIndex, tabPassed),
 			buildSourceView(filePath),
 		],
 		allowHScroll: true,
@@ -252,7 +251,7 @@ function buildOverviewView(
 	diffFile: DiffFile | null,
 ): WorkspaceView {
 	return {
-		key: "o",
+		key: "1",
 		label: "Overview",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -304,29 +303,29 @@ function buildCommentsView(
 	fileComments: VetComment[],
 	getIndex: () => number,
 	setIndex: (i: number) => void,
-	tabHandled: Set<string>,
+	tabPassed: Set<string>,
 ): WorkspaceView {
 	return {
-		key: "c",
+		key: "2",
 		label: "Comments",
 		actions: [
 			{ key: "a", label: "Approve" },
 			{ key: "r", label: "Reject" },
-			{ key: "+", label: "New" },
+			{ key: "n", label: "New" },
 		],
 		content: (theme: Theme, width: number) => {
 			return renderCommentList(fileComments, getIndex(), theme, width);
 		},
 		handleInput: (data: string, inputCtx: WorkspaceInputContext) => {
-			// We handle 'h' to mark the tab as handled.
-			if (matchesKey(data, "h")) {
-				tabHandled.add(filePath);
+			// Pass: mark this tab as reviewed.
+			if (matchesKey(data, "p")) {
+				tabPassed.add(filePath);
 				inputCtx.invalidate();
 				return true;
 			}
 
 			if (fileComments.length === 0) {
-				if (matchesActionKey(data, "+")) {
+				if (matchesKey(data, "n")) {
 					inputCtx.openEditor("New comment for this file:");
 					return true;
 				}
@@ -353,7 +352,7 @@ function buildCommentsView(
 			// Approve
 			if (matchesKey(data, "a")) {
 				vc.status = "approved";
-				checkTabAutoHandled(filePath, fileComments, tabHandled);
+				checkTabAutoPassed(filePath, fileComments, tabPassed);
 				advanceToNextPending(fileComments, getIndex, setIndex);
 				inputCtx.invalidate();
 				inputCtx.scrollToLine(getIndex());
@@ -363,21 +362,15 @@ function buildCommentsView(
 			// Reject
 			if (matchesKey(data, "r")) {
 				vc.status = "rejected";
-				checkTabAutoHandled(filePath, fileComments, tabHandled);
+				checkTabAutoPassed(filePath, fileComments, tabPassed);
 				advanceToNextPending(fileComments, getIndex, setIndex);
 				inputCtx.invalidate();
 				inputCtx.scrollToLine(getIndex());
 				return true;
 			}
 
-			// Steer
-			if (matchesKey(data, "s")) {
-				inputCtx.openEditor(`Steer comment "${vc.comment.body.slice(0, 40)}":`);
-				return true;
-			}
-
 			// New comment
-			if (matchesActionKey(data, "+")) {
+			if (matchesKey(data, "n")) {
 				inputCtx.openEditor("New comment for this file:");
 				return true;
 			}
@@ -390,7 +383,7 @@ function buildCommentsView(
 /** Source view: full file content, syntax highlighted. */
 function buildSourceView(filePath: string): WorkspaceView {
 	return {
-		key: "s",
+		key: "3",
 		label: "Source",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -507,15 +500,15 @@ function advanceToNextPending(
 	}
 }
 
-/** Auto-mark tab as handled when all comments are resolved. */
-function checkTabAutoHandled(
+/** Auto-mark tab as passed when all comments are resolved. */
+function checkTabAutoPassed(
 	filePath: string,
 	comments: VetComment[],
-	tabHandled: Set<string>,
+	tabPassed: Set<string>,
 ): void {
 	const allResolved = comments.every((c) => c.status !== "pending");
 	if (allResolved) {
-		tabHandled.add(filePath);
+		tabPassed.add(filePath);
 	}
 }
 

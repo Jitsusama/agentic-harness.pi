@@ -9,8 +9,7 @@ export type ThreadState =
 	| "implementing" // Currently being worked on
 	| "addressed" // Code changes made, reply pending
 	| "replied" // Reply posted to GitHub
-	| "deferred" // Deferred for later in session
-	| "skipped"; // Skipped indefinitely
+	| "passed"; // Reviewed, moving on
 
 /** GitHub review states. */
 export type ReviewState =
@@ -58,7 +57,7 @@ export interface Review {
 /** Per-thread analysis from the LLM's batch pre-analysis. */
 export interface ThreadAnalysis {
 	/** LLM's recommended action. */
-	recommendation: "implement" | "reply" | "skip" | "defer";
+	recommendation: "implement" | "reply" | "pass";
 	/** LLM's analysis text (markdown). */
 	analysis: string;
 }

@@ -1,13 +1,13 @@
 /**
- * Converts a steer note and its surrounding context into a
+ * Converts a redirect note and its surrounding context into a
  * block reason that guardians and mode enforcement can use.
  */
 
 /**
- * Format a steer result into a block reason for tool_call handlers.
+ * Format a redirect result into a block reason for tool_call handlers.
  * Includes the user's note and the original context.
  */
-export function formatSteer(
+export function formatRedirect(
 	note: string,
 	context: string,
 ): { block: true; reason: string } {

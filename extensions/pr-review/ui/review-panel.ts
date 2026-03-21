@@ -3,14 +3,13 @@
  * views per tab (overview/comments/raw).
  *
  * Uses the workspace prompt for stateful tabbed interaction.
- * Comment actions (approve/reject/steer/new) are handled via
+ * Comment actions (approve/reject/new) are handled via
  * view-specific input handlers in comments mode.
  */
 
 import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
-import { matchesActionKey } from "../../lib/ui/action-bar.js";
 import {
 	languageFromPath,
 	renderCode,
@@ -35,8 +34,8 @@ import {
 	commentsByCategory,
 	commentsForFile,
 	type DiffFile,
-	isTabHandled,
-	markTabHandled,
+	isTabPassed,
+	markTabPassed,
 	type ReviewComment,
 	type ReviewSession,
 } from "../state.js";
@@ -52,18 +51,17 @@ const COMMENT_GLYPH = {
 const COMMENT_ACTIONS: Action[] = [
 	{ key: "a", label: "Approve" },
 	{ key: "r", label: "Reject" },
-	{ key: "s", label: "Steer" },
-	{ key: "+", label: "New" },
+	{ key: "n", label: "New" },
 ];
 
-/** Tab handled action. */
-const HANDLED_ACTION: Action = { key: "h", label: "Handled" };
+/** Tab pass action. */
+const PASS_ACTION: Action = { key: "p", label: "Pass" };
 
 /** Result from the review panel. */
 export type ReviewPanelResult =
 	| { action: "submit" }
 	| {
-			action: "steer";
+			action: "redirect";
 			note: string;
 			commentId?: string;
 			commentSubject?: string;
@@ -72,7 +70,7 @@ export type ReviewPanelResult =
 
 /**
  * Show the Phase 2 review panel.
- * Returns the user's choice: submit, steer, or null (escape).
+ * Returns the user's choice: submit, redirect, or null (escape).
  */
 export async function showReviewPanel(
 	ctx: ExtensionContext,
@@ -87,21 +85,9 @@ export async function showReviewPanel(
 	// These are mutable comment selection indices, tracked per tab.
 	const commentIndices = new Map<string, number>();
 
-	// This is a shared stash for comment context when the user steers on a specific comment.
-	// It's set by comment input handlers and read when processing steer results.
-	const steerState = {
-		commentContext: null as { id: string; subject: string } | null,
-	};
-
 	const rawItems: WorkspaceItem[] = [
-		buildDescTab(ctx, session, tabIds[0] ?? "desc", commentIndices, steerState),
-		buildScopeTab(
-			ctx,
-			session,
-			tabIds[1] ?? "scope",
-			commentIndices,
-			steerState,
-		),
+		buildDescTab(ctx, session, tabIds[0] ?? "desc", commentIndices),
+		buildScopeTab(ctx, session, tabIds[1] ?? "scope", commentIndices),
 		...context.diffFiles.map((file, i) =>
 			buildFileTab(
 				ctx,
@@ -109,22 +95,21 @@ export async function showReviewPanel(
 				file,
 				tabIds[i + 2] ?? `file:${file.path}`,
 				commentIndices,
-				steerState,
 			),
 		),
 	];
 
-	// We inject 'h' handling into every view so it marks the tab
-	// handled without closing the panel.
+	// We inject 'p' handling into every view so it marks the tab
+	// passed without closing the panel.
 	const items = rawItems.map((item, itemIdx) => ({
 		...item,
 		views: item.views.map((v) => ({
 			...v,
 			handleInput: (data: string, inputCtx: WorkspaceInputContext) => {
-				if (matchesKey(data, "h")) {
+				if (matchesKey(data, "p")) {
 					const tabId = tabIds[itemIdx];
 					if (tabId) {
-						markTabHandled(session, tabId);
+						markTabPassed(session, tabId);
 						inputCtx.invalidate();
 					}
 					return true;
@@ -136,13 +121,13 @@ export async function showReviewPanel(
 
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
-		globalActions: [HANDLED_ACTION],
+		globalActions: [PASS_ACTION],
 		tabStatus: (index) => {
 			const tabId = tabIds[index];
 			if (!tabId) return "pending";
-			return isTabHandled(session, tabId) ? "complete" : "pending";
+			return isTabPassed(session, tabId) ? "complete" : "pending";
 		},
-		allComplete: () => tabIds.every((id) => isTabHandled(session, id)),
+		allComplete: () => tabIds.every((id) => isTabPassed(session, id)),
 		allowHScroll: true,
 	});
 
@@ -152,19 +137,17 @@ export async function showReviewPanel(
 		return { action: "submit" };
 	}
 
-	if (result.type === "steer") {
+	if (result.type === "redirect") {
 		return {
-			action: "steer",
+			action: "redirect",
 			note: result.note,
-			commentId: steerState.commentContext?.id,
-			commentSubject: steerState.commentContext?.subject,
 		};
 	}
 
-	// This handles the 'h' action to mark the current tab handled.
-	// It's handled inline via handleInput, but if it reaches here
+	// This handles the 'p' action to mark the current tab passed.
+	// It's passed inline via handleInput, but if it reaches here
 	// it means the workspace returned an action result.
-	if (result.type === "action" && result.value === "h") {
+	if (result.type === "action" && result.value === "p") {
 		// Tab marking is done inline via handleInput.
 		return null;
 	}
@@ -183,7 +166,6 @@ function buildDescTab(
 	session: ReviewSession,
 	tabId: string,
 	commentIndices: Map<string, number>,
-	steerState: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceItem {
 	const context = session.context;
 	if (!context) return { label: "Desc", views: [] };
@@ -192,14 +174,7 @@ function buildDescTab(
 		label: "Desc",
 		views: [
 			buildDescOverview(context, session),
-			buildCommentsView(
-				ctx,
-				session,
-				tabId,
-				"title",
-				commentIndices,
-				steerState,
-			),
+			buildCommentsView(ctx, session, tabId, "title", commentIndices),
 			buildDescRaw(context),
 		],
 	};
@@ -211,7 +186,7 @@ function buildDescOverview(
 	session: ReviewSession,
 ): WorkspaceView {
 	return {
-		key: "o",
+		key: "1",
 		label: "Overview",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -243,7 +218,7 @@ function buildDescOverview(
 /** Desc raw: raw markdown source. */
 function buildDescRaw(context: CrawlResult): WorkspaceView {
 	return {
-		key: "s",
+		key: "3",
 		label: "Source",
 		content: (theme: Theme, _width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -273,7 +248,6 @@ function buildScopeTab(
 	session: ReviewSession,
 	tabId: string,
 	commentIndices: Map<string, number>,
-	steerState: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceItem {
 	const context = session.context;
 	if (!context) return { label: "Scope", views: [] };
@@ -282,14 +256,7 @@ function buildScopeTab(
 		label: "Scope",
 		views: [
 			buildScopeOverview(session),
-			buildCommentsView(
-				ctx,
-				session,
-				tabId,
-				"scope",
-				commentIndices,
-				steerState,
-			),
+			buildCommentsView(ctx, session, tabId, "scope", commentIndices),
 			buildScopeRaw(context),
 		],
 	};
@@ -298,7 +265,7 @@ function buildScopeTab(
 /** Scope overview: AI-generated scope analysis. */
 function buildScopeOverview(session: ReviewSession): WorkspaceView {
 	return {
-		key: "o",
+		key: "1",
 		label: "Overview",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -315,7 +282,7 @@ function buildScopeOverview(session: ReviewSession): WorkspaceView {
 /** Scope raw: file list with per-file stats. */
 function buildScopeRaw(context: CrawlResult): WorkspaceView {
 	return {
-		key: "s",
+		key: "3",
 		label: "Source",
 		content: (theme: Theme, _width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -343,20 +310,12 @@ function buildFileTab(
 	file: DiffFile,
 	tabId: string,
 	commentIndices: Map<string, number>,
-	steerState: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceItem {
 	return {
 		label: shortPath(file.path),
 		views: [
 			buildFileOverview(session, file),
-			buildFileCommentsView(
-				ctx,
-				session,
-				file,
-				tabId,
-				commentIndices,
-				steerState,
-			),
+			buildFileCommentsView(ctx, session, file, tabId, commentIndices),
 			buildFileRaw(session, file),
 		],
 		allowHScroll: true,
@@ -369,7 +328,7 @@ function buildFileOverview(
 	file: DiffFile,
 ): WorkspaceView {
 	return {
-		key: "o",
+		key: "1",
 		label: "Overview",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -410,7 +369,7 @@ function buildFileRaw(session: ReviewSession, file: DiffFile): WorkspaceView {
 	const filePath = `${session.repoPath}/${file.path}`;
 
 	return {
-		key: "s",
+		key: "3",
 		label: "Source",
 		content: async (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
@@ -439,13 +398,12 @@ function buildCommentsView(
 	tabId: string,
 	category: "title" | "scope",
 	commentIndices: Map<string, number>,
-	steerState: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceView {
 	const getIndex = () => commentIndices.get(tabId) ?? 0;
 	const setIndex = (i: number) => commentIndices.set(tabId, i);
 
 	return {
-		key: "c",
+		key: "2",
 		label: "Comments",
 		actions: COMMENT_ACTIONS,
 		content: (theme: Theme, width: number) => {
@@ -462,9 +420,6 @@ function buildCommentsView(
 				session,
 				tabId,
 				inputCtx,
-				(c) => {
-					steerState.commentContext = c;
-				},
 			);
 		},
 	};
@@ -480,13 +435,12 @@ function buildFileCommentsView(
 	file: DiffFile,
 	tabId: string,
 	commentIndices: Map<string, number>,
-	steerState: { commentContext: { id: string; subject: string } | null },
 ): WorkspaceView {
 	const getIndex = () => commentIndices.get(tabId) ?? 0;
 	const setIndex = (i: number) => commentIndices.set(tabId, i);
 
 	return {
-		key: "c",
+		key: "2",
 		label: "Comments",
 		actions: COMMENT_ACTIONS,
 		content: (theme: Theme, width: number) => {
@@ -503,9 +457,6 @@ function buildFileCommentsView(
 				session,
 				tabId,
 				inputCtx,
-				(c) => {
-					steerState.commentContext = c;
-				},
 			);
 		},
 	};
@@ -587,11 +538,9 @@ function handleCommentInput(
 	session: ReviewSession,
 	tabId: string,
 	inputCtx: WorkspaceInputContext,
-	setSteerContext: (ctx: { id: string; subject: string } | null) => void,
 ): boolean {
 	if (comments.length === 0) {
-		// We allow '+' for a new comment even when the list is empty.
-		if (matchesActionKey(data, "+")) {
+		if (matchesKey(data, "n")) {
 			inputCtx.openEditor("New comment observation:");
 			return true;
 		}
@@ -618,7 +567,7 @@ function handleCommentInput(
 	// Approve
 	if (matchesKey(data, "a")) {
 		comment.status = "approved";
-		checkTabAutoHandled(session, tabId, comments);
+		checkTabAutoPassed(session, tabId, comments);
 		advanceToNextPending(comments, getIndex, setIndex);
 		inputCtx.invalidate();
 		inputCtx.scrollToLine(getIndex());
@@ -628,22 +577,15 @@ function handleCommentInput(
 	// Reject
 	if (matchesKey(data, "r")) {
 		comment.status = "rejected";
-		checkTabAutoHandled(session, tabId, comments);
+		checkTabAutoPassed(session, tabId, comments);
 		advanceToNextPending(comments, getIndex, setIndex);
 		inputCtx.invalidate();
 		inputCtx.scrollToLine(getIndex());
 		return true;
 	}
 
-	// Steer: stash comment context, then open editor
-	if (matchesKey(data, "s")) {
-		setSteerContext({ id: comment.id, subject: comment.subject });
-		inputCtx.openEditor(`Steer comment "${comment.subject}":`);
-		return true;
-	}
-
 	// New comment
-	if (matchesActionKey(data, "+")) {
+	if (matchesKey(data, "n")) {
 		inputCtx.openEditor("New comment observation:");
 		return true;
 	}
@@ -668,8 +610,8 @@ function advanceToNextPending(
 	// There are no pending comments left, so we stay at the current one.
 }
 
-/** Check if a tab should be auto-handled. */
-function checkTabAutoHandled(
+/** Check if a tab should be auto-passed. */
+function checkTabAutoPassed(
 	session: ReviewSession,
 	tabId: string,
 	comments: ReviewComment[],
@@ -677,7 +619,7 @@ function checkTabAutoHandled(
 	if (comments.length === 0) return;
 	const allResolved = comments.every((c) => c.status !== "pending");
 	if (allResolved) {
-		markTabHandled(session, tabId);
+		markTabPassed(session, tabId);
 	}
 }
 

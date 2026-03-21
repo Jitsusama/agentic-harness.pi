@@ -88,7 +88,7 @@ export function briefBatchAnalysis(state: PRReplyState): string {
 	);
 	parts.push("");
 	parts.push(
-		"1. **`analyses`**: for each thread, a recommendation (implement/reply/skip/defer) " +
+		"1. **`analyses`**: for each thread, a recommendation (implement/reply/pass) " +
 			"and analysis text explaining your reasoning",
 	);
 	parts.push(
@@ -114,7 +114,7 @@ export function briefProgress(state: PRReplyState): string {
 	const done =
 		countByState(state, "replied") +
 		countByState(state, "addressed") +
-		countByState(state, "skipped");
+		countByState(state, "passed");
 	const total = state.threads.length;
 
 	return `[PR #${state.prNumber} • ${reviewLabel} • ${done}/${total} threads done]`;
@@ -172,19 +172,18 @@ export function briefCompletion(state: PRReplyState): string {
 	const total = state.threads.length;
 	const replied = countByState(state, "replied");
 	const addressed = countByState(state, "addressed");
-	const deferred = countByState(state, "deferred");
-	const skipped = countByState(state, "skipped");
+	const passed = countByState(state, "passed");
 
 	return (
 		`PR reply complete for #${state.prNumber}. ` +
 		`${replied} replied, ${addressed} addressed, ` +
-		`${deferred} deferred, ${skipped} skipped ` +
+		`${passed} passed ` +
 		`out of ${total} thread${total !== 1 ? "s" : ""}.`
 	);
 }
 
-/** Thread choice result: user steered with feedback. */
-export function briefSteer(
+/** Thread choice result: user redirected with feedback. */
+export function briefRedirect(
 	file: string,
 	contextLine: number,
 	feedback: string,
@@ -195,7 +194,7 @@ export function briefSteer(
 		`${feedback}\n\n` +
 		`Thread context:\n${analysisContext}\n\n` +
 		"Interpret the user's feedback and call pr_reply with the appropriate " +
-		"action (implement, reply, skip, or defer). If they want a reply composed, " +
+		"action (implement, reply, or pass). If they want a reply composed, " +
 		"call pr_reply with action 'reply' and a reply_body."
 	);
 }
@@ -229,19 +228,9 @@ export function briefImplementChoice(
 	);
 }
 
-/** Deferred thread count when all reviews are exhausted. */
-export function briefDeferred(deferredCount: number): string {
-	return (
-		`All reviews complete. ${deferredCount} deferred thread${deferredCount !== 1 ? "s" : ""} remaining.\n\n` +
-		"To revisit deferred threads, the user can say 'handle deferred threads' " +
-		"and you should reset them to pending.\n\n" +
-		"Otherwise, call pr_reply with action 'deactivate' to finish."
-	);
-}
-
 /**
  * Re-analysis prompt: tells the LLM to re-evaluate all pending
- * threads after a state change (implementation, reply, skip).
+ * threads after a state change (implementation, reply, or pass).
  */
 export function briefReAnalyze(state: PRReplyState): string {
 	const pending = state.threads.filter(

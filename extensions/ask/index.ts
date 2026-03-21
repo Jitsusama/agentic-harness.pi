@@ -182,7 +182,7 @@ export default function ask(pi: ExtensionAPI) {
 					label: q.label,
 					views: [
 						{
-							key: "q",
+							key: "1",
 							label: "Question",
 							content: (theme: Theme) => [theme.fg("text", ` ${q.prompt}`)],
 						},

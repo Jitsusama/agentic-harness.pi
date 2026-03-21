@@ -76,7 +76,7 @@ export interface Option {
 /**
  * Result from a single prompt. Discriminated union:
  * - 'action': user picked a specific action/option
- * - 'steer': user wants to redirect (Shift+S)
+ * - 'redirect': user wants a different approach (Shift+Escape)
  * null = cancelled (Escape)
  */
 export type PromptResult =
@@ -90,8 +90,8 @@ export type PromptResult =
 			editorText?: string;
 	  }
 	| {
-			type: "steer";
-			/** The steer note: always present. */
+			type: "redirect";
+			/** The redirect note: always present. */
 			note: string;
 	  };
 
@@ -144,8 +144,8 @@ export interface SinglePromptConfig {
 	actions?: Action[];
 	/** Dynamic options (Type B numbered list). */
 	options?: Option[];
-	/** Placeholder text shown in NoteEditor when steer is activated. */
-	steerHint?: string;
+	/** Placeholder text shown in NoteEditor when redirect is activated. */
+	redirectHint?: string;
 	/** Enable horizontal scrolling (Shift+←→) for code content. Default: false. */
 	allowHScroll?: boolean;
 }
@@ -167,8 +167,8 @@ export interface TabbedPromptConfig {
 	canAddItems?: boolean;
 	/** Auto-resolve when all items have been acted on. */
 	autoResolve?: boolean;
-	/** Placeholder text for steer NoteEditor. */
-	steerHint?: string;
+	/** Placeholder text for redirect NoteEditor. */
+	redirectHint?: string;
 	/** Enable horizontal scrolling (Shift+←→) for code content. Default: false. */
 	allowHScroll?: boolean;
 }
@@ -293,6 +293,6 @@ export interface WorkspaceInputContext {
  */
 export type WorkspaceResult =
 	| { type: "submit" }
-	| { type: "steer"; note: string }
+	| { type: "redirect"; note: string }
 	| { type: "action"; value: string; note?: string }
 	| null;

@@ -30,11 +30,11 @@ export function buildPRReplyContext(state: PRReplyState) {
 	if (totalThreads > 0) {
 		const pending = countByState(state, "pending");
 		const replied = countByState(state, "replied");
-		const deferred = countByState(state, "deferred");
+		const passed = countByState(state, "passed");
 		const implementing = countByState(state, "implementing");
 
 		parts.push(
-			`Progress: ${replied}/${totalThreads} replied, ${pending} pending, ${deferred} deferred, ${implementing} implementing`,
+			`Progress: ${replied}/${totalThreads} replied, ${pending} pending, ${passed} passed, ${implementing} implementing`,
 		);
 
 		const review = state.reviews[state.reviewIndex];

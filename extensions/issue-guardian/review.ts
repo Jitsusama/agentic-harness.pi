@@ -8,7 +8,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { prompt } from "../lib/ui/panel.js";
-import { formatSteer } from "../lib/ui/steer.js";
+import { formatRedirect } from "../lib/ui/redirect.js";
 import {
 	type IssueCommand,
 	isIssueCommand,
@@ -60,7 +60,7 @@ export const issueGuardian: CommandGuardian<IssueCommand> = {
 			return { block: true, reason: "User cancelled the issue review." };
 		}
 
-		const steerContext = [
+		const redirectContext = [
 			parsed.title ? `Title: ${parsed.title}` : null,
 			"",
 			parsed.body ?? "",
@@ -68,19 +68,25 @@ export const issueGuardian: CommandGuardian<IssueCommand> = {
 			.filter((l) => l !== null)
 			.join("\n");
 
-		if (result.type === "steer") {
-			return formatSteer(result.note, `Original issue:\n${steerContext}`);
+		if (result.type === "redirect") {
+			return formatRedirect(result.note, `Original issue:\n${redirectContext}`);
 		}
 
 		if (result.type === "action") {
 			if (result.value === "a") {
 				if (result.note) {
-					return formatSteer(result.note, `Original issue:\n${steerContext}`);
+					return formatRedirect(
+						result.note,
+						`Original issue:\n${redirectContext}`,
+					);
 				}
 				return undefined;
 			}
 			if (result.note) {
-				return formatSteer(result.note, `Original issue:\n${steerContext}`);
+				return formatRedirect(
+					result.note,
+					`Original issue:\n${redirectContext}`,
+				);
 			}
 			return {
 				block: true,

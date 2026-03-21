@@ -1,7 +1,7 @@
 /**
  * Handles plan mode transitions: the confirmation gate shown
  * when the agent finishes a turn, context injection into the
- * system prompt, and filtering out stale context messages.
+ * system prompt, and filtering out stale context.
  */
 
 import type {
@@ -35,7 +35,7 @@ export async function handlePlanWritten(
 
 	if (!result || (result.type === "action" && result.value === "s")) return;
 
-	if (result.type === "steer") {
+	if (result.type === "redirect") {
 		deactivate(state, pi, ctx);
 		pi.sendUserMessage(result.note, { deliverAs: "followUp" });
 		return;

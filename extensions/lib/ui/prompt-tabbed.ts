@@ -16,18 +16,14 @@ import {
 	matchesKey,
 	truncateToWidth,
 } from "@mariozechner/pi-tui";
-import {
-	type ActionBarResult,
-	handleActionInput,
-	renderActionBar,
-} from "./action-bar.js";
+import { type ActionBarResult, handleActionInput } from "./action-bar.js";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
 import {
 	handleOptionInput,
 	optionValue,
 	renderOptionList,
 } from "./option-list.js";
-import { buildHintBar, computeChromeLines } from "./panel-layout.js";
+import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
 	handleScrollInput,
@@ -80,7 +76,7 @@ export async function showTabbedPrompt(
 		const loadingViews = new Set<string>();
 
 		let editorContext: {
-			type: "steerAction" | "pureSteer" | "editor" | "addItem" | "editItem";
+			type: "annotatedAction" | "redirect" | "editor" | "addItem" | "editItem";
 			actionKey?: string;
 			label?: string;
 			index?: number;
@@ -161,9 +157,9 @@ export async function showTabbedPrompt(
 			}
 
 			let result: PromptResult;
-			if (editorContext.type === "pureSteer") {
-				result = { type: "steer", note: trimmed };
-			} else if (editorContext.type === "steerAction") {
+			if (editorContext.type === "redirect") {
+				result = { type: "redirect", note: trimmed };
+			} else if (editorContext.type === "annotatedAction") {
 				result = {
 					type: "action",
 					value: editorContext.actionKey ?? "",
@@ -338,7 +334,7 @@ export async function showTabbedPrompt(
 					const opt = options[optionIndex];
 					if (opt) {
 						openEditor({
-							type: "steerAction",
+							type: "annotatedAction",
 							actionKey: optionValue(opt),
 						});
 					}
@@ -416,16 +412,16 @@ export async function showTabbedPrompt(
 		function handleActionResult(result: ActionBarResult) {
 			if (result.type === "action") {
 				handleItemResult({ type: "action", value: result.key });
-			} else if (result.type === "steerAction") {
+			} else if (result.type === "annotatedAction") {
 				const actions = currentActions();
 				const action = actions?.find((a) => a.key === result.key);
 				openEditor({
-					type: "steerAction",
+					type: "annotatedAction",
 					actionKey: result.key,
 					label: action?.label,
 				});
-			} else if (result.type === "pureSteer") {
-				openEditor({ type: "pureSteer" });
+			} else if (result.type === "redirect") {
+				openEditor({ type: "redirect" });
 			}
 		}
 
@@ -445,7 +441,7 @@ export async function showTabbedPrompt(
 			return config.items.map((_, i) => {
 				const result = results.get(i);
 				if (result) {
-					return result.type === "steer" ? "rejected" : "complete";
+					return result.type === "redirect" ? "rejected" : "complete";
 				}
 				return i === currentTab ? "active" : "pending";
 			});
@@ -594,7 +590,7 @@ export async function showTabbedPrompt(
 							? "Edit item:"
 							: editorContext?.label
 								? `${editorContext.label} with note:`
-								: editorContext?.type === "pureSteer"
+								: editorContext?.type === "redirect"
 									? "Feedback:"
 									: "Note:";
 				for (const line of renderNoteEditor(editor, width, theme, {
@@ -610,25 +606,23 @@ export async function showTabbedPrompt(
 						add(line);
 					}
 				}
-				if (actions) {
-					lines.push("");
-					add(renderActionBar(actions, width, theme, !onUserTab));
-				}
 
 				lines.push("");
-				add(
-					buildHintBar({
-						theme,
-						hasTabs: true,
-						needsVScroll,
-						needsHScroll,
-						hasActions: !!actions && !onUserTab,
-						isUserTab: onUserTab,
-						allComplete: results.size >= config.items.length,
-						views: !onUserTab && views.length > 1 ? views : undefined,
-						activeViewIndex: viewIdx,
-					}),
-				);
+				for (const line of renderFooter({
+					theme,
+					width,
+					actions: !onUserTab ? actions : undefined,
+					hasTabs: true,
+					isUserTab: onUserTab,
+					allComplete: results.size >= config.items.length,
+					views: !onUserTab && views.length > 1 ? views : undefined,
+					activeViewIndex: viewIdx,
+					showRedirectHint: !onUserTab,
+					needsVScroll,
+					needsHScroll,
+				})) {
+					add(line);
+				}
 			}
 
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));

@@ -8,7 +8,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { prompt } from "../lib/ui/panel.js";
-import { formatSteer } from "../lib/ui/steer.js";
+import { formatRedirect } from "../lib/ui/redirect.js";
 import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.js";
 
 const PR_ACTIONS = [
@@ -56,7 +56,7 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 			return { block: true, reason: "User cancelled the PR review." };
 		}
 
-		const steerContext = [
+		const redirectContext = [
 			parsed.title ? `Title: ${parsed.title}` : null,
 			"",
 			parsed.body ?? "",
@@ -64,19 +64,22 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 			.filter((l) => l !== null)
 			.join("\n");
 
-		if (result.type === "steer") {
-			return formatSteer(result.note, `Original PR:\n${steerContext}`);
+		if (result.type === "redirect") {
+			return formatRedirect(result.note, `Original PR:\n${redirectContext}`);
 		}
 
 		if (result.type === "action") {
 			if (result.value === "a") {
 				if (result.note) {
-					return formatSteer(result.note, `Original PR:\n${steerContext}`);
+					return formatRedirect(
+						result.note,
+						`Original PR:\n${redirectContext}`,
+					);
 				}
 				return undefined;
 			}
 			if (result.note) {
-				return formatSteer(result.note, `Original PR:\n${steerContext}`);
+				return formatRedirect(result.note, `Original PR:\n${redirectContext}`);
 			}
 			return {
 				block: true,
