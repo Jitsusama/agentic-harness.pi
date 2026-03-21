@@ -160,47 +160,17 @@ a human or a language model is on the receiving end.
 
 ### Human Audience
 
-This covers documentation, readmes, doc comments, inline code
-comments that explain "why" and any other prose that a person
-will read directly.
+This covers documentation, readmes, doc comments and any
+other prose that a person will read directly.
 
 - Use contractions freely ("don't", "isn't", "we're").
 - Every sentence must be complete; no fragments.
 - The tone should sound like you're explaining something to a
   colleague, not writing a spec.
-- Doc comment headers should be warm and explanatory, not terse
-  metadata. Instead of "Plan mode lifecycle: activate,
-  deactivate, toggle, persist and restore," write something
-  like "Manages the full lifecycle of plan mode: turning it on
-  and off, toggling between states, and persisting settings
-  across sessions so nothing gets lost."
-
-### Code Comments
-
-Inline code comments that explain *why* something works the
-way it does are human-audience prose. They need a subject and
-a verb; they're complete sentences.
-
-**Good** (complete sentence, explains why):
-```
-// We cap it to terminal width so prose stays readable.
-```
-
-**Bad** (fragment, missing subject):
-```
-// Cap to terminal width for readability.
-```
-
-Short functional markers like `// fallback` are fine as
-labels. They're naming a thing, not expressing a thought;
-the same rule as noun-phrase list items applies.
-
-**Don't write category or section divider comments** like
-`// ---- Constants ----` or `// Helpers`. If you feel the
-need to carve a file into labelled sections, that's a sign
-the file has too many responsibilities and should be split.
-The code's structure should make the organization obvious
-without signposts.
+- Doc comments follow the same conversational tone as other
+  human-audience prose. The `code-style` skill covers when and
+  how to write them; this skill covers the voice they should
+  use.
 
 ### LLM Audience
 
