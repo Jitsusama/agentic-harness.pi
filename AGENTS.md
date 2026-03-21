@@ -23,9 +23,10 @@ The codebase has four **guardians** (commit, PR, issue, history),
 two **modes** (plan, TDD), four **tools** (ask, web-search,
 pr-annotate, pr-review), a content viewer and a status line.
 
-Extensions and skills are complementary. Skills teach methodology,
-extensions enforce it. Some are paired (e.g. planning skill +
-plan-mode extension) but all work independently.
+Extensions and skills are complementary. Skills teach
+methodology; extensions enforce it. Some are paired (e.g.,
+the planning skill + plan-mode extension) but they all work
+independently.
 
 ## Conventions
 
@@ -41,26 +42,26 @@ plan-mode extension) but all work independently.
 
 ## Design Principles
 
-The code should read like a description of what the system does,
-not how it wires things up. Every module should use idiomatic
-TypeScript, handle errors honestly and serve as an example of
-clean Pi extension code.
+The code should read like a description of what the system
+does, not how it wires things up. Every module should use
+idiomatic TypeScript, handle errors honestly and serve as an
+example of clean Pi extension code.
 
 ### Split by Responsibility, Not Line Count
 
 A 300-line file that does one cohesive job is fine. A 150-line
 file with three interleaved responsibilities should be split.
-The criterion is whether the file has multiple reasons to change,
-not whether it's long.
+The question to ask is whether the file has multiple reasons
+to change, not whether it's long.
 
 ### Composition Over Inheritance
 
 Shared behaviour uses types and helper functions, not class
 hierarchies. Guardians share a `CommandGuardian<T>` interface
 and a `registerGuardian` helper; each guardian is a plain
-module that implements the interface. Modes share a file naming
-convention but no base type, because their runtime contracts
-differ.
+module that implements the interface. Modes share a file
+naming convention but no base type because their runtime
+contracts differ.
 
 ### Guardian Pipeline: detect → parse → review
 
@@ -72,9 +73,9 @@ Every guardian follows the same three-step pipeline:
    `ReviewResult` (undefined to allow, block, or rewrite)
 
 `registerGuardian` wires this pipeline to Pi's `tool_call`
-event. A new guardian implements `CommandGuardian<T>` and calls
-`registerGuardian`; it never touches event wiring or command
-mutation directly.
+event. A new guardian just implements `CommandGuardian<T>` and
+calls `registerGuardian`; it never touches event wiring or
+command mutation directly.
 
 ### Mode File Convention
 
@@ -92,30 +93,33 @@ Each mode extension uses these files:
   Should read as a table of contents for the extension.
 
 Not every mode needs every file; merge neighbours if a file
-would be trivially small. But the naming convention tells
-readers where to find each concern.
+would be trivially small. But the naming convention is what
+tells readers where to find each concern.
 
 ### Don't Merge Things That Merely Converge
 
-Two modules that happen to look similar today aren't necessarily
-the same abstraction. PR and issue guardians share a shape via
-`CommandGuardian` but are not merged into a factory; they are
-independently motivated and could grow separate concerns. When
-deciding whether to deduplicate, ask: are these the same
-concept, or just coincidentally similar right now?
+Two modules that happen to look similar today aren't
+necessarily the same abstraction. PR and issue guardians
+share a shape via `CommandGuardian` but aren't merged into a
+factory; they're independently motivated and could grow
+separate concerns. When deciding whether to deduplicate, ask
+yourself: are these the same concept, or just coincidentally
+similar right now?
 
 ### Keep Concerns in Their Domain
 
 - `formatSteer` lives in `gate.ts`, not `lib/guardian/`,
-  because both guardians and modes use it. It's gate output
-  formatting, not guardian domain logic.
-- Field editing logic (`edit`, `steerText`) lives on the field
-  types, not in the review loop. The review loop calls
-  `field.edit()` without knowing field internals.
+  because both guardians and modes use it. It's about gate
+  output formatting, not guardian domain logic.
+- Field editing logic (`edit`, `steerText`) lives on the
+  field types, not in the review loop. The review loop calls
+  `field.edit()` without knowing anything about field
+  internals.
 - Cookie handling is a self-contained module
   (`web-search/cookies/`) with a barrel `index.ts`. The
-  browser module has no cookie imports. The reader imports
-  only from the barrel, never from internal cookie files.
+  browser module has no cookie imports, and the reader
+  imports only from the barrel, never from internal cookie
+  files.
 
 ### `index.ts` Is for Registration and Wiring
 
@@ -128,16 +132,16 @@ files: enforcement in `enforce.ts`, transitions in
 `transitions.ts`, etc. This prevents interleaving where five
 concerns get shuffled by event registration order.
 
-**Tool registration** is an exception. Pi's `registerTool` API
-bundles `execute`, `renderCall` and `renderResult` as part of
-the registration call. Extracting those to separate files would
-split one cohesive tool definition across modules. Keeping tool
-bodies in `index.ts` follows the same pattern as the existing
-tool extensions (`ask/`, `web-search/`, `pr-annotate/`,
-`pr-review/`). The
-execute body should still delegate to other modules for
-substantial work (showing gates, lifecycle changes) rather than
-inlining all logic.
+**Tool registration** is an exception. Pi's `registerTool`
+API bundles `execute`, `renderCall` and `renderResult` as
+part of the registration call. Extracting those to separate
+files would split one cohesive tool definition across
+modules. Keeping tool bodies in `index.ts` follows the same
+pattern as the existing tool extensions (`ask/`,
+`web-search/`, `pr-annotate/`, `pr-review/`). That said,
+the execute body should still delegate to other modules for
+substantial work (showing gates, lifecycle changes) rather
+than inlining all logic.
 
 ### One Mutation Site for Command Rewriting
 
@@ -162,29 +166,30 @@ modules depend on UI, not the other way around.
 
 ### Panel Composition, Not Wrapping
 
-`showPanel` and `showPanelSeries` have different return types,
-different orchestration (immediate resolve vs async onSelect)
-and different navigation (no tabs vs tabs). They compose the
-same building blocks (`panel-state`, `panel-render`,
-`panel-keys`) with their own orchestration. Do not make one
-wrap the other; that forces one to carry complexity for the
-other's use case.
+`showPanel` and `showPanelSeries` have different return
+types, different orchestration (immediate resolve vs async
+onSelect) and different navigation (no tabs vs tabs). They
+compose the same building blocks (`panel-state`,
+`panel-render`, `panel-keys`) with their own orchestration.
+Do not make one wrap the other; that forces one to carry
+complexity for the other's use case.
 
 ### Idiomatic TypeScript
 
 - Prefer type guards over `as` casts. Each `as` cast should
-  be justified or replaced with a narrowing check. Exception:
-  Pi's `renderCall` and `renderResult` APIs type `args` and
-  `details` as `unknown`; casts there are acceptable since
-  you're reading back what you just wrote.
+  be justified or replaced with a narrowing check. The
+  exception is Pi's `renderCall` and `renderResult` APIs,
+  which type `args` and `details` as `unknown`; casts there
+  are acceptable since you're reading back what you just
+  wrote.
 - Use top-level `import` over inline `require()`. Use dynamic
   `import()` only when lazy loading is intentional.
 - Every empty `catch {}` block must have a comment explaining
   why the error is safe to ignore. Silent swallowing without
   explanation is not acceptable.
-- Every exported function has a JSDoc comment describing what
-  it does (not how). Internal helpers need docs only when their
-  purpose is non-obvious.
+- Every exported function needs a JSDoc comment describing
+  what it does (not how). Internal helpers need docs only
+  when their purpose isn't obvious.
 - Replace magic numbers with named constants.
 
 ## Linting
