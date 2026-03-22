@@ -25,21 +25,21 @@ export function isGhCommand(command: string, subcommand: string): boolean {
 
 export interface GhRebuildConfig {
 	/** "pr" or "issue" */
-	entity: string;
+	readonly entity: string;
 	/** "create" or "edit" */
-	action: string;
+	readonly action: string;
 	/** Entity number for edit commands. */
-	entityNumber?: string | null;
+	readonly entityNumber?: string | null;
 	/** Prefix command (cd /path, etc.) */
-	prefix?: string | null;
+	readonly prefix?: string | null;
 	/** Extra flags to preserve. */
-	extraFlags?: string[];
+	readonly extraFlags?: string[];
 	/** Title. */
-	title?: string | null;
+	readonly title?: string | null;
 	/** Body content. */
-	body: string;
+	readonly body: string;
 	/** Heredoc delimiter. */
-	heredocDelim: string;
+	readonly heredocDelim: string;
 }
 
 /** Rebuild a gh command with an edited body. */
