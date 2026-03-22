@@ -17,16 +17,16 @@ import { showTabbedPrompt } from "./prompt-tabbed.js";
 import { showWorkspacePrompt } from "./prompt-workspace.js";
 import {
 	contentBudget,
+	HSCROLL_CONTENT_WIDTH,
 	handleScrollInput,
 	maxContentWidth,
 	renderScrollRegion,
+	SCROLLBAR_GUTTER,
 	type ScrollState,
 } from "./scroll-region.js";
 import {
 	GLYPH,
-	HSCROLL_CONTENT_WIDTH,
 	type PromptResult,
-	SCROLLBAR_GUTTER,
 	type SinglePromptConfig,
 	type TabbedPromptConfig,
 	type TabbedResult,

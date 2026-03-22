@@ -26,9 +26,11 @@ import {
 import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
+	HSCROLL_CONTENT_WIDTH,
 	handleScrollInput,
 	maxContentWidth,
 	renderScrollRegion,
+	SCROLLBAR_GUTTER,
 	type ScrollState,
 } from "./scroll-region.js";
 import { handleTabInput, renderTabStrip } from "./tab-strip.js";
@@ -36,11 +38,9 @@ import {
 	type Action,
 	type ContentFn,
 	GLYPH,
-	HSCROLL_CONTENT_WIDTH,
 	type Option,
 	type PromptResult,
 	type PromptView,
-	SCROLLBAR_GUTTER,
 	type TabbedPromptConfig,
 	type TabbedResult,
 	type TabStatus,

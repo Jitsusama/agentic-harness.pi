@@ -16,15 +16,33 @@ import {
 	visibleWidth,
 } from "@mariozechner/pi-tui";
 import { getPanelHeightFraction } from "./panel-height.js";
-import {
-	COARSE_SCROLL_OVERLAP_FRACTION,
-	CONTENT_INDENT,
-	FINE_SCROLL_LINES,
-	GLYPH,
-	H_SCROLL_STEP,
-	MAX_CONTENT_WIDTH,
-	SCROLLBAR_GUTTER,
-} from "./types.js";
+import { CONTENT_INDENT, GLYPH } from "./types.js";
+
+/** Maximum content width in columns (readability cap). */
+export const MAX_CONTENT_WIDTH = 100;
+
+/**
+ * Width passed to content functions when horizontal scrolling
+ * is enabled. Large enough that content renderers won't truncate,
+ * letting the scroll region handle the horizontal viewport.
+ */
+export const HSCROLL_CONTENT_WIDTH = 10_000;
+
+/** Horizontal scroll step in visible characters. */
+export const H_SCROLL_STEP = 20;
+
+/** Lines scrolled per Shift+↑↓ fine scroll step. */
+export const FINE_SCROLL_LINES = 3;
+
+/**
+ * Fraction of the viewport kept visible when coarse-scrolling
+ * (PageUp/Down). 0.5 means half the viewport stays from the
+ * previous view, so the reader never loses context.
+ */
+export const COARSE_SCROLL_OVERLAP_FRACTION = 0.5;
+
+/** Width reserved for the vertical scrollbar gutter. */
+export const SCROLLBAR_GUTTER = 2;
 
 export interface ScrollState {
 	/** Vertical scroll offset (lines from top). */

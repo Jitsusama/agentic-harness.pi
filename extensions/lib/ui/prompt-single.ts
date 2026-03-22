@@ -25,18 +25,14 @@ import {
 import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
+	HSCROLL_CONTENT_WIDTH,
 	handleScrollInput,
 	maxContentWidth,
 	renderScrollRegion,
+	SCROLLBAR_GUTTER,
 	type ScrollState,
 } from "./scroll-region.js";
-import {
-	GLYPH,
-	HSCROLL_CONTENT_WIDTH,
-	type PromptResult,
-	SCROLLBAR_GUTTER,
-	type SinglePromptConfig,
-} from "./types.js";
+import { GLYPH, type PromptResult, type SinglePromptConfig } from "./types.js";
 
 /** Show a single interactive prompt panel. */
 export async function showSinglePrompt(
