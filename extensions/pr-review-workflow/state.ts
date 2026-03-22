@@ -8,9 +8,7 @@
  *   PRReviewState : runtime state (enabled, session)
  */
 
-// Re-export diff types from the shared module so existing
-// imports from state.ts continue to work.
-export type { DiffFile, DiffHunk, DiffLine } from "../lib/github/diff.js";
+import type { DiffFile } from "../lib/github/diff.js";
 
 /** Identifies the PR under review. */
 export interface PRTarget {

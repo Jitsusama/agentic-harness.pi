@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
+import type { DiffFile } from "../../lib/github/diff.js";
 import {
 	languageFromPath,
 	renderCode,
@@ -33,7 +34,6 @@ import {
 	type CrawlResult,
 	commentsByCategory,
 	commentsForFile,
-	type DiffFile,
 	isTabPassed,
 	markTabPassed,
 	type ReviewComment,
