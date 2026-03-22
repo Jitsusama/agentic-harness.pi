@@ -18,6 +18,31 @@ import {
 	threadsForReview,
 } from "./state.js";
 
+/** Shape of PR reply data written to session history. */
+interface PersistedState {
+	enabled?: boolean;
+	prNumber?: number;
+	owner?: string;
+	repo?: string;
+	branch?: string;
+	reviews?: ReceivedReview[];
+	threads?: ReviewThread[];
+	threadStates?: Array<[string, ThreadState]>;
+	threadAnalyses?: Array<
+		[string, { recommendation: string; analysis: string }]
+	>;
+	reviewerAnalyses?: Array<[string, { assessment: string }]>;
+	currentThreadId?: string | null;
+	workspacePosition?: {
+		tabIndex: number;
+		threadIndices: Array<[string, number]>;
+	} | null;
+	threadCommits?: Array<[string, string[]]>;
+	awaitingTDDCompletion?: boolean;
+	tddThreadId?: string | null;
+	implementationStartSHA?: string | null;
+}
+
 /** Status glyph for PR reply mode. */
 const STATUS_GLYPH = "◈";
 
@@ -160,29 +185,7 @@ export function persist(state: PRReplyState, pi: ExtensionAPI): void {
 
 /** Restore state from session history on startup. */
 export function restore(state: PRReplyState, ctx: ExtensionContext): void {
-	const saved = getLastEntry<{
-		enabled?: boolean;
-		prNumber?: number;
-		owner?: string;
-		repo?: string;
-		branch?: string;
-		reviews?: ReceivedReview[];
-		threads?: ReviewThread[];
-		threadStates?: Array<[string, ThreadState]>;
-		threadAnalyses?: Array<
-			[string, { recommendation: string; analysis: string }]
-		>;
-		reviewerAnalyses?: Array<[string, { assessment: string }]>;
-		currentThreadId?: string | null;
-		workspacePosition?: {
-			tabIndex: number;
-			threadIndices: Array<[string, number]>;
-		} | null;
-		threadCommits?: Array<[string, string[]]>;
-		awaitingTDDCompletion?: boolean;
-		tddThreadId?: string | null;
-		implementationStartSHA?: string | null;
-	}>(ctx, PERSIST_KEY);
+	const saved = getLastEntry<PersistedState>(ctx, PERSIST_KEY);
 
 	if (!saved) return;
 

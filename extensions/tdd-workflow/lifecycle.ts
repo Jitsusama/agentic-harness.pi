@@ -17,6 +17,15 @@ import {
 	type TddState,
 } from "./state.js";
 
+/** Shape of TDD data written to session history. */
+interface PersistedState {
+	enabled?: boolean;
+	phase?: TddPhase;
+	cycle?: number;
+	planFile?: string | null;
+	testDescription?: string | null;
+}
+
 function updateUI(state: TddState, ctx: ExtensionContext): void {
 	if (!state.enabled) {
 		ctx.ui.setStatus("tdd-workflow", undefined);
@@ -134,7 +143,7 @@ export function nextCycle(
 
 /** Restore TDD state from the session history. */
 export function restore(state: TddState, ctx: ExtensionContext): void {
-	const saved = getLastEntry<TddState>(ctx, "tdd-workflow");
+	const saved = getLastEntry<PersistedState>(ctx, "tdd-workflow");
 	if (saved) {
 		state.enabled = saved.enabled ?? false;
 		state.phase = saved.phase ?? "red";
