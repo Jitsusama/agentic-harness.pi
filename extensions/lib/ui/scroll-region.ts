@@ -16,7 +16,7 @@ import {
 	visibleWidth,
 } from "@mariozechner/pi-tui";
 import { getPanelHeightFraction } from "./panel-height.js";
-import { CONTENT_INDENT, GLYPH } from "./types.js";
+import { GLYPH } from "./types.js";
 
 /** Maximum content width in columns (readability cap). */
 export const MAX_CONTENT_WIDTH = 100;
@@ -155,7 +155,7 @@ export function handleScrollInput(
 }
 
 /** Clamp a vertical scroll offset to valid bounds. */
-export function clampVScroll(
+function clampVScroll(
 	offset: number,
 	contentLength: number,
 	budget: number,
@@ -169,14 +169,6 @@ export function contentBudget(chromeLines: number): number {
 	const termRows = process.stdout.rows || 40;
 	const maxHeight = Math.floor(termRows * getPanelHeightFraction());
 	return Math.max(3, maxHeight - chromeLines);
-}
-
-/**
- * Compute the content width: capped at MAX_CONTENT_WIDTH for
- * readability, with CONTENT_INDENT per side.
- */
-export function contentWidth(termWidth: number): number {
-	return Math.min(termWidth - CONTENT_INDENT * 2, MAX_CONTENT_WIDTH);
 }
 
 /** Find the maximum visible width across content lines. */
