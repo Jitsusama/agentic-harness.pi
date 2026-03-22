@@ -187,16 +187,15 @@ export async function handleActivate(
 
 	activate(state, pi, ctx);
 
-	const proceed = await showSummaryPanel(
-		ctx,
-		ref.number,
-		ref.owner,
-		ref.repo,
-		state.branch,
-		activeReviews,
-		unresolvedThreads,
+	const proceed = await showSummaryPanel(ctx, {
+		prNumber: ref.number,
+		owner: ref.owner,
+		repo: ref.repo,
+		branch: state.branch,
+		reviews: activeReviews,
+		threads: unresolvedThreads,
 		dismissedCount,
-	);
+	});
 
 	if (!proceed) {
 		deactivate(state, pi, ctx);

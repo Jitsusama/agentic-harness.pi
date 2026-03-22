@@ -15,20 +15,27 @@ import type { Review, Thread } from "../state.js";
 import { threadPriority } from "../state.js";
 import { formatFileSummary } from "./format.js";
 
+/** Config for the PR summary panel. */
+export interface SummaryPanelConfig {
+	prNumber: number;
+	owner: string;
+	repo: string;
+	branch: string;
+	reviews: Review[];
+	threads: Thread[];
+	dismissedCount: number;
+}
+
 /**
  * Show the PR summary panel before starting review.
  * Returns true if user wants to proceed, false if cancelled.
  */
 export async function showSummaryPanel(
 	ctx: ExtensionContext,
-	prNumber: number,
-	owner: string,
-	repo: string,
-	branch: string,
-	reviews: Review[],
-	threads: Thread[],
-	dismissedCount: number,
+	config: SummaryPanelConfig,
 ): Promise<boolean> {
+	const { prNumber, owner, repo, branch, reviews, threads, dismissedCount } =
+		config;
 	const reviewers = Array.from(new Set(reviews.map((r) => r.author))).join(
 		", ",
 	);
