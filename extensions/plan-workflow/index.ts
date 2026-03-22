@@ -22,7 +22,7 @@ import { activate, deactivate, restore, toggle } from "./lifecycle.js";
 import { createPlanState } from "./state.js";
 import {
 	buildPlanContext,
-	handlePlanWritten,
+	offerImplementationTransition,
 	planContextFilter,
 } from "./transitions.js";
 
@@ -248,7 +248,7 @@ export default function planMode(pi: ExtensionAPI) {
 	);
 
 	pi.on("agent_end", async (_event, ctx) => {
-		await handlePlanWritten(state, pi, ctx);
+		await offerImplementationTransition(state, pi, ctx);
 	});
 
 	pi.on("before_agent_start", async () => {
