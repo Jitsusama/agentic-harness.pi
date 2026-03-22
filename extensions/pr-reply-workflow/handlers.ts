@@ -11,7 +11,6 @@ import type {
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { resolveRepo } from "../lib/github/repo-discovery.js";
-import { buildAnalysisPrompt } from "./analysis.js";
 import {
 	fetchReviews,
 	getPRBranch,
@@ -44,13 +43,14 @@ import {
 } from "./implementation.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
 import { findPlanContext } from "./plans.js";
-import { buildReplyGuidance } from "./replies.js";
+import { buildReplyGuidance } from "./reply-guidance.js";
 import {
 	type PRReplyState,
 	type ReviewThread,
 	sortReviewsByPriority,
 	threadsForReview,
 } from "./state.js";
+import { buildAnalysisPrompt } from "./thread-context.js";
 import { showReviewOverviewPanel, showSummaryPanel } from "./ui/panels.js";
 import { showReplyReview } from "./ui/reply-review.js";
 import { showThreadGate, type ThreadGateChoice } from "./ui/thread-gate.js";
