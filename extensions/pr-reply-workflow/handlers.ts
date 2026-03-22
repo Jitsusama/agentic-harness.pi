@@ -74,6 +74,13 @@ function textResult(text: string) {
 	return { content: [{ type: "text" as const, text }] };
 }
 
+const VALID_RECOMMENDATIONS = new Set(["implement", "reply", "pass"]);
+
+/** Validate an LLM-provided recommendation string. */
+function isRecommendation(s: string): s is "implement" | "reply" | "pass" {
+	return VALID_RECOMMENDATIONS.has(s);
+}
+
 /** Get the current thread based on review-centric navigation. */
 /** Get the current thread: from workspace selection or legacy navigation. */
 function currentThread(state: PRReplyState): Thread | null {
@@ -257,8 +264,11 @@ export async function handleGenerateAnalysis(
 
 	if (analyses) {
 		for (const a of analyses) {
+			const rec = isRecommendation(a.recommendation)
+				? a.recommendation
+				: "pass";
 			state.threadAnalyses.set(a.thread_id, {
-				recommendation: a.recommendation as "implement" | "reply" | "pass",
+				recommendation: rec,
 				analysis: a.analysis,
 			});
 		}

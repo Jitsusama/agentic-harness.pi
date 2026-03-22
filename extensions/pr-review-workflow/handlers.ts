@@ -61,6 +61,15 @@ function textResult(text: string) {
 	return { content: [{ type: "text" as const, text }] };
 }
 
+const VALID_VERDICTS = new Set(["APPROVE", "REQUEST_CHANGES", "COMMENT"]);
+
+/** Validate an LLM-provided review verdict string. */
+function isReviewVerdict(
+	s: string,
+): s is "APPROVE" | "REQUEST_CHANGES" | "COMMENT" {
+	return VALID_VERDICTS.has(s);
+}
+
 /**
  * Ensure gathered context is available. If the session was
  * restored but context was lost, re-crawl transparently.
@@ -695,8 +704,8 @@ export async function handleSubmit(
 
 	// We update body/verdict if they were provided.
 	if (reviewBody !== null) session.reviewBody = reviewBody;
-	if (verdict !== null) {
-		session.verdict = verdict as typeof session.verdict;
+	if (verdict !== null && isReviewVerdict(verdict)) {
+		session.verdict = verdict;
 	}
 
 	session.phase = "submitting";
