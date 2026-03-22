@@ -36,11 +36,11 @@ import {
 } from "./scroll-region.js";
 import { handleTabInput, renderTabStrip } from "./tab-strip.js";
 import {
-	type Action,
 	GLYPH,
+	type KeyAction,
 	type TabStatus,
-	type WorkspaceConfig,
 	type WorkspaceInputContext,
+	type WorkspacePromptConfig,
 	type WorkspaceResult,
 	type WorkspaceView,
 } from "./types.js";
@@ -53,7 +53,7 @@ function cacheKey(tab: number, view: number): string {
 /** Show a workspace prompt panel. */
 export async function showWorkspacePrompt(
 	ctx: ExtensionContext,
-	config: WorkspaceConfig,
+	config: WorkspacePromptConfig,
 ): Promise<WorkspaceResult> {
 	return ctx.ui.custom<WorkspaceResult>((tui, theme, _kb, done) => {
 		let currentTab = 0;
@@ -106,7 +106,7 @@ export async function showWorkspacePrompt(
 		}
 
 		/** Get actions for the current view, falling back to global. */
-		function currentActions(): Action[] | undefined {
+		function currentActions(): KeyAction[] | undefined {
 			const view = currentView();
 			return view?.actions ?? config.globalActions;
 		}

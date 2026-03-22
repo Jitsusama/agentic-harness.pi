@@ -10,7 +10,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { renderCode, renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { promptSingle } from "../../lib/ui/panel.js";
 import type { CodeContext } from "../code-context.js";
-import type { Review, Thread } from "../state.js";
+import type { ReceivedReview, ReviewThread } from "../state.js";
 
 /** User's decision from the thread gate. */
 export type ThreadGateChoice =
@@ -33,8 +33,8 @@ const ACTION_BY_KEY: Record<string, ThreadGateChoice["action" & string]> = {
  */
 export async function showThreadGate(
 	ctx: ExtensionContext,
-	thread: Thread,
-	review: Review | undefined,
+	thread: ReviewThread,
+	review: ReceivedReview | undefined,
 	codeContext: CodeContext | null,
 	recommendation: string,
 	progressLine: string,

@@ -7,7 +7,7 @@
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import type { Action, Option, PromptView } from "./types.js";
+import type { KeyAction, ListChoice, PromptView } from "./types.js";
 
 /**
  * Compute total chrome lines for the panel (borders, tabs,
@@ -15,8 +15,8 @@ import type { Action, Option, PromptView } from "./types.js";
  */
 export function computeChromeLines(
 	hasTabs: boolean,
-	actions: Action[] | undefined,
-	options: Option[] | undefined,
+	actions: KeyAction[] | undefined,
+	options: ListChoice[] | undefined,
 ): number {
 	let lines = 2; // top + bottom border
 	if (hasTabs) lines += 2; // tab strip + separator
@@ -30,7 +30,7 @@ export function computeChromeLines(
 export interface FooterOptions {
 	theme: Theme;
 	width: number;
-	actions?: Action[];
+	actions?: KeyAction[];
 	views?: PromptView[];
 	activeViewIndex?: number;
 	hasTabs?: boolean;
@@ -62,7 +62,7 @@ export function renderFooter(opts: FooterOptions): string[] {
 
 /** Row 1: actions (left) + modifiers (right). */
 function renderActionRow(
-	actions: Action[],
+	actions: KeyAction[],
 	width: number,
 	theme: Theme,
 	showRedirectHint?: boolean,
@@ -146,7 +146,7 @@ function padLeftRight(left: string, right: string, width: number): string {
 }
 
 /** Format an action label with the key letter highlighted in accent. */
-function formatActionLabel(action: Action, theme: Theme): string {
+function formatActionLabel(action: KeyAction, theme: Theme): string {
 	const label = action.label;
 	const key = action.key;
 	const upperKey = key.toUpperCase();

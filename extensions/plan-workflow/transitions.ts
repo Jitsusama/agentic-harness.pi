@@ -17,7 +17,7 @@ import type { PlanState } from "./state.js";
  * After the agent writes to the plan directory, offer
  * transition options: implement or stay in planning.
  */
-export async function handlePlanWritten(
+export async function offerImplementationTransition(
 	state: PlanState,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,

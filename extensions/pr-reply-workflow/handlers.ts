@@ -11,7 +11,6 @@ import type {
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { resolveRepo } from "../lib/github/repo-discovery.js";
-import { buildAnalysisPrompt } from "./analysis.js";
 import {
 	fetchReviews,
 	getPRBranch,
@@ -21,17 +20,17 @@ import {
 } from "./api/github.js";
 import { getCurrentBranch, resolvePR } from "./api/repo.js";
 import {
-	briefActivation,
-	briefBatchAnalysis,
-	briefCompletion,
-	briefImplementChoice,
-	briefProgress,
-	briefReAnalyze,
-	briefRedirect,
-	briefReplyChoice,
-	briefReviewSummary,
-	briefThread,
+	activationBriefing,
+	batchAnalysisBriefing,
 	buildImplementationContext,
+	completionBriefing,
+	implementChoiceBriefing,
+	progressBriefing,
+	reAnalyzeBriefing,
+	redirectBriefing,
+	replyChoiceBriefing,
+	reviewSummaryBriefing,
+	threadBriefing,
 } from "./briefing.js";
 import { readCodeContext } from "./code-context.js";
 import { checkDependentPRs } from "./dependency-chain.js";
@@ -44,20 +43,21 @@ import {
 } from "./implementation.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
 import { findPlanContext } from "./plans.js";
-import { buildReplyGuidance } from "./replies.js";
+import { buildReplyGuidance } from "./reply-guidance.js";
 import {
 	type PRReplyState,
+	type ReviewThread,
 	sortReviewsByPriority,
-	type Thread,
 	threadsForReview,
 } from "./state.js";
+import { buildAnalysisPrompt } from "./thread-context.js";
 import { showReviewOverviewPanel, showSummaryPanel } from "./ui/panels.js";
 import { showReplyReview } from "./ui/reply-review.js";
 import { showThreadGate, type ThreadGateChoice } from "./ui/thread-gate.js";
 import { showReplyWorkspace } from "./ui/workspace.js";
 
 /** Build a simple text tool result. */
-function textResult(text: string) {
+function plainTextResponse(text: string) {
 	return { content: [{ type: "text" as const, text }] };
 }
 
@@ -70,7 +70,7 @@ function isRecommendation(s: string): s is "implement" | "reply" | "pass" {
 
 /** Get the current thread based on review-centric navigation. */
 /** Get the current thread: from workspace selection or legacy navigation. */
-function currentThread(state: PRReplyState): Thread | null {
+function currentThread(state: PRReplyState): ReviewThread | null {
 	// Workspace flow: currentThreadId is set by the workspace
 	if (state.currentThreadId) {
 		return state.threads.find((t) => t.id === state.currentThreadId) ?? null;
@@ -85,8 +85,8 @@ function currentThread(state: PRReplyState): Thread | null {
 /** Find the next pending thread within a review's threads. */
 function findNextPendingInReview(
 	state: PRReplyState,
-	reviewThreads: Thread[],
-): Thread | null {
+	reviewThreads: ReviewThread[],
+): ReviewThread | null {
 	for (const thread of reviewThreads) {
 		if (state.threadStates.get(thread.id) === "pending") {
 			return thread;
@@ -104,14 +104,14 @@ export async function handleActivate(
 	userRequest: string | null = null,
 ) {
 	if (state.enabled) {
-		return textResult(
+		return plainTextResponse(
 			`PR reply mode is already active for PR #${state.prNumber}.`,
 		);
 	}
 
 	const ref = await resolvePR(pi, prInput);
 	if (!ref) {
-		return textResult(
+		return plainTextResponse(
 			"Could not determine which PR to review. " +
 				"Provide a PR URL, number, or navigate to the branch.",
 		);
@@ -135,7 +135,7 @@ export async function handleActivate(
 		if (currentBranch !== prBranch) {
 			const checkout = await pi.exec("git", ["checkout", prBranch]);
 			if (checkout.code !== 0) {
-				return textResult(
+				return plainTextResponse(
 					`Failed to switch to branch '${prBranch}': ${checkout.stderr}\n` +
 						`You're on '${currentBranch}'. Switch manually and retry.`,
 				);
@@ -154,7 +154,7 @@ export async function handleActivate(
 	const unresolvedThreads = data.threads.filter((t) => !t.isResolved);
 
 	if (unresolvedThreads.length === 0) {
-		return textResult("No unresolved review threads to address.");
+		return plainTextResponse("No unresolved review threads to address.");
 	}
 
 	// We populate the state.
@@ -192,17 +192,17 @@ export async function handleActivate(
 
 	if (!proceed) {
 		deactivate(state, pi, ctx);
-		return textResult("PR reply cancelled.");
+		return plainTextResponse("PR reply cancelled.");
 	}
 
-	const activationText = briefActivation(
+	const activationText = activationBriefing(
 		ref,
 		activeReviews.length,
 		unresolvedThreads.length,
 		dismissedCount,
 	);
 
-	const analysisContext = briefBatchAnalysis(state);
+	const analysisContext = batchAnalysisBriefing(state);
 
 	return {
 		content: [
@@ -226,17 +226,17 @@ export async function handleDeactivate(
 	ctx: ExtensionContext,
 ) {
 	if (!state.enabled) {
-		return textResult("PR reply mode is not active.");
+		return plainTextResponse("PR reply mode is not active.");
 	}
 
 	const rebaseInfo = await checkDependentPRs(state, pi, ctx);
 
 	deactivate(state, pi, ctx);
 
-	const summary = briefCompletion(state);
+	const summary = completionBriefing(state);
 	const text = rebaseInfo ? `${summary}\n\n${rebaseInfo}` : summary;
 
-	return textResult(text);
+	return plainTextResponse(text);
 }
 
 /** Generate analysis: LLM provides batch analysis of all threads. */
@@ -251,7 +251,9 @@ export async function handleGenerateAnalysis(
 	reviewerAnalyses: Array<{ reviewer: string; assessment: string }> | null,
 ) {
 	if (!state.enabled) {
-		return textResult("PR reply mode is not active. Call 'activate' first.");
+		return plainTextResponse(
+			"PR reply mode is not active. Call 'activate' first.",
+		);
 	}
 
 	if (analyses) {
@@ -303,11 +305,13 @@ export async function handleReviewWorkspace(
 	ctx: ExtensionContext,
 ) {
 	if (!state.enabled) {
-		return textResult("PR reply mode is not active. Call 'activate' first.");
+		return plainTextResponse(
+			"PR reply mode is not active. Call 'activate' first.",
+		);
 	}
 
 	if (state.threads.length === 0) {
-		return textResult("No threads to review.");
+		return plainTextResponse("No threads to review.");
 	}
 
 	refreshUI(state, ctx);
@@ -318,7 +322,7 @@ export async function handleReviewWorkspace(
 	refreshUI(state, ctx);
 
 	if (!result) {
-		return textResult(
+		return plainTextResponse(
 			"Workspace dismissed. Call 'review' to reopen, or 'deactivate' to finish.",
 		);
 	}
@@ -348,7 +352,7 @@ export async function handleReviewWorkspace(
 	if (result.action === "open") {
 		const thread = state.threads.find((t) => t.id === result.threadId);
 		if (!thread) {
-			return textResult("Thread not found. Call 'review' to reopen.");
+			return plainTextResponse("Thread not found. Call 'review' to reopen.");
 		}
 
 		state.currentThreadId = result.threadId;
@@ -363,7 +367,7 @@ export async function handleReviewWorkspace(
 		const analysis = state.threadAnalyses.get(thread.id);
 		const recommendation = analysis?.analysis ?? "";
 
-		const progressLine = briefProgress(state);
+		const progressLine = progressBriefing(state);
 
 		// We show the full-context thread gate.
 		const choice = await showThreadGate(
@@ -401,10 +405,14 @@ export async function handleReviewWorkspace(
 			state.threadStates.set(thread.id, "passed");
 			persist(state, pi);
 		}
-		return textResult("Thread passed. Call 'review' to reopen the workspace.");
+		return plainTextResponse(
+			"Thread passed. Call 'review' to reopen the workspace.",
+		);
 	}
 
-	return textResult("Action applied. Call 'review' to reopen the workspace.");
+	return plainTextResponse(
+		"Action applied. Call 'review' to reopen the workspace.",
+	);
 }
 
 /**
@@ -422,7 +430,7 @@ export async function handleNext(
 	ctx: ExtensionContext,
 ) {
 	if (!state.enabled) {
-		return textResult("PR reply mode is not active.");
+		return plainTextResponse("PR reply mode is not active.");
 	}
 
 	while (state.reviewIndex < state.reviews.length) {
@@ -450,7 +458,7 @@ export async function handleNext(
 				content: [
 					{
 						type: "text" as const,
-						text: briefReviewSummary(review, pendingThreads),
+						text: reviewSummaryBriefing(review, pendingThreads),
 					},
 				],
 				details: {
@@ -504,13 +512,13 @@ export async function handleNext(
 			planContext,
 		);
 
-		const progressLine = briefProgress(state);
+		const progressLine = progressBriefing(state);
 
 		return {
 			content: [
 				{
 					type: "text" as const,
-					text: briefThread(progressLine, analysisContext),
+					text: threadBriefing(progressLine, analysisContext),
 				},
 			],
 			details: {
@@ -523,7 +531,7 @@ export async function handleNext(
 	}
 
 	// All reviews exhausted
-	return textResult(
+	return plainTextResponse(
 		"All reviews and threads addressed. Call pr_reply with action 'deactivate' to finish.",
 	);
 }
@@ -536,12 +544,12 @@ export async function handleReview(
 	analysis: string,
 ) {
 	if (!state.enabled) {
-		return textResult("PR reply mode is not active.");
+		return plainTextResponse("PR reply mode is not active.");
 	}
 
 	const review = state.reviews[state.reviewIndex];
 	if (!review) {
-		return textResult("No active review. Call 'next' first.");
+		return plainTextResponse("No active review. Call 'next' first.");
 	}
 
 	const pendingThreads = threadsForReview(review, state.threads).filter(
@@ -560,13 +568,13 @@ export async function handleReview(
 			state.threadStates.set(t.id, "passed");
 		}
 		persist(state, pi);
-		return textResult(
+		return plainTextResponse(
 			`Passed review from ${review.author} (${pendingThreads.length} threads). ` +
 				"Call 'next' to continue.",
 		);
 	}
 
-	return textResult(
+	return plainTextResponse(
 		`Review from ${review.author} acknowledged. ` +
 			`${pendingThreads.length} thread${pendingThreads.length !== 1 ? "s" : ""} to review. ` +
 			"Call 'next' to start.",
@@ -581,12 +589,12 @@ export async function handleShow(
 	recommendation: string,
 ) {
 	if (!state.enabled) {
-		return textResult("PR reply mode is not active.");
+		return plainTextResponse("PR reply mode is not active.");
 	}
 
 	const thread = currentThread(state);
 	if (!thread) {
-		return textResult("No current thread. Call 'next' first.");
+		return plainTextResponse("No current thread. Call 'next' first.");
 	}
 
 	// Hide the widget while the prompt is up so they don't overlap
@@ -594,7 +602,7 @@ export async function handleShow(
 
 	const review = state.reviews.find((r) => r.threadIds.includes(thread.id));
 	const contextLine = thread.line || thread.originalLine || 0;
-	const progressLine = briefProgress(state);
+	const progressLine = progressBriefing(state);
 
 	const codeContext =
 		contextLine > 0
@@ -637,12 +645,12 @@ export async function handleImplement(
 	useTDD?: boolean,
 ) {
 	if (!state.enabled) {
-		return textResult("PR reply mode is not active.");
+		return plainTextResponse("PR reply mode is not active.");
 	}
 
 	const thread = currentThread(state);
 	if (!thread) {
-		return textResult("No current thread. Call 'next' first.");
+		return plainTextResponse("No current thread. Call 'next' first.");
 	}
 
 	await recordImplementationStart(state, pi);
@@ -652,7 +660,7 @@ export async function handleImplement(
 		beginTDDImplementation(state, thread);
 		persist(state, pi);
 
-		return textResult(
+		return plainTextResponse(
 			"Thread marked for TDD implementation.\n\n" +
 				`${buildImplementationContext(thread)}\n\n` +
 				"Start TDD mode with tdd_phase action 'start'. " +
@@ -663,7 +671,7 @@ export async function handleImplement(
 
 	persist(state, pi);
 
-	return textResult(
+	return plainTextResponse(
 		"Thread marked for direct implementation.\n\n" +
 			`${buildImplementationContext(thread)}\n\n` +
 			"Make the necessary changes, run tests, and commit. " +
@@ -679,16 +687,18 @@ export async function handleReplyAction(
 	replyBody: string | null,
 ) {
 	if (!state.enabled) {
-		return textResult("PR reply mode is not active.");
+		return plainTextResponse("PR reply mode is not active.");
 	}
 
 	const thread = currentThread(state);
 	if (!thread) {
-		return textResult("No current thread. Call 'next' first.");
+		return plainTextResponse("No current thread. Call 'next' first.");
 	}
 
 	if (!replyBody) {
-		return textResult("Provide reply_body with the text to post as a reply.");
+		return plainTextResponse(
+			"Provide reply_body with the text to post as a reply.",
+		);
 	}
 
 	return reviewAndPostReply(state, pi, ctx, thread, replyBody);
@@ -705,12 +715,12 @@ export async function handleDone(
 	replyBody: string | null,
 ) {
 	if (!state.enabled) {
-		return textResult("PR reply mode is not active.");
+		return plainTextResponse("PR reply mode is not active.");
 	}
 
 	const thread = currentThread(state);
 	if (!thread) {
-		return textResult("No current thread.");
+		return plainTextResponse("No current thread.");
 	}
 
 	const commits = await collectImplementationCommits(state, pi);
@@ -718,7 +728,7 @@ export async function handleDone(
 
 	if (!replyBody && commits.length > 0) {
 		const guidance = buildReplyGuidance(thread, commits);
-		return textResult(
+		return plainTextResponse(
 			`Found ${commits.length} commit${commits.length !== 1 ? "s" : ""}.\n\n` +
 				`${guidance}\n\n` +
 				"Call pr_reply with action 'done' again, this time with a reply_body.",
@@ -754,7 +764,7 @@ export async function handleDone(
 			? `${commits.length} commit${commits.length !== 1 ? "s" : ""} linked.`
 			: "No new commits detected.";
 
-	const reAnalyze = briefReAnalyze(state);
+	const reAnalyze = reAnalyzeBriefing(state);
 
 	return {
 		content: [
@@ -774,18 +784,18 @@ export async function handleDone(
 /** Pass the current thread (reviewed, moving on). */
 export function handlePass(state: PRReplyState, pi: ExtensionAPI) {
 	if (!state.enabled) {
-		return textResult("PR reply mode is not active.");
+		return plainTextResponse("PR reply mode is not active.");
 	}
 
 	const thread = currentThread(state);
 	if (!thread) {
-		return textResult("No current thread. Call 'next' first.");
+		return plainTextResponse("No current thread. Call 'next' first.");
 	}
 
 	state.threadStates.set(thread.id, "passed");
 	persist(state, pi);
 
-	return textResult("Thread passed. Call 'next' to continue.");
+	return plainTextResponse("Thread passed. Call 'next' to continue.");
 }
 
 /** Map the user's gate choice to a tool result for the LLM. */
@@ -793,12 +803,12 @@ function applyThreadChoice(
 	state: PRReplyState,
 	pi: ExtensionAPI,
 	choice: ThreadGateChoice,
-	thread: Thread,
+	thread: ReviewThread,
 	contextLine: number,
 	analysisContext: string,
 ) {
 	if (!choice) {
-		return textResult(
+		return plainTextResponse(
 			"Thread gate cancelled. Call pr_reply with action 'next' to continue.",
 		);
 	}
@@ -809,7 +819,7 @@ function applyThreadChoice(
 				content: [
 					{
 						type: "text" as const,
-						text: briefRedirect(
+						text: redirectBriefing(
 							thread.file,
 							contextLine,
 							choice.feedback,
@@ -823,7 +833,7 @@ function applyThreadChoice(
 		case "pass": {
 			state.threadStates.set(thread.id, "passed");
 			persist(state, pi);
-			return textResult(
+			return plainTextResponse(
 				"Thread passed. Call pr_reply with action 'next' to continue.",
 			);
 		}
@@ -833,7 +843,11 @@ function applyThreadChoice(
 				content: [
 					{
 						type: "text" as const,
-						text: briefReplyChoice(thread.file, contextLine, analysisContext),
+						text: replyChoiceBriefing(
+							thread.file,
+							contextLine,
+							analysisContext,
+						),
 					},
 				],
 				details: { action: "next", chosen: "reply", threadId: thread.id },
@@ -844,7 +858,7 @@ function applyThreadChoice(
 				content: [
 					{
 						type: "text" as const,
-						text: briefImplementChoice(
+						text: implementChoiceBriefing(
 							thread.file,
 							contextLine,
 							analysisContext,
@@ -867,16 +881,16 @@ async function reviewAndPostReply(
 	state: PRReplyState,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
-	thread: Thread,
+	thread: ReviewThread,
 	draftReply: string,
 ) {
 	if (!state.owner || !state.repo || !state.prNumber) {
-		return textResult("Missing PR context.");
+		return plainTextResponse("Missing PR context.");
 	}
 
 	const topComment = thread.comments.find((c) => c.inReplyTo === null);
 	if (!topComment) {
-		return textResult("Cannot find original comment to reply to.");
+		return plainTextResponse("Cannot find original comment to reply to.");
 	}
 
 	const reviewResult = await showReplyReview(ctx, thread, draftReply);
@@ -901,13 +915,13 @@ async function reviewAndPostReply(
 		await postReply(pi, ref, topComment.databaseId, draftReply);
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		return textResult(`Failed to post reply: ${msg}`);
+		return plainTextResponse(`Failed to post reply: ${msg}`);
 	}
 
 	state.threadStates.set(thread.id, "replied");
 	persist(state, pi);
 
-	const reAnalyze = briefReAnalyze(state);
+	const reAnalyze = reAnalyzeBriefing(state);
 
 	return {
 		content: [
@@ -955,13 +969,13 @@ function handleRepoResult(
 			};
 
 		case "open-failed":
-			return textResult(
+			return plainTextResponse(
 				`Found ${ref.owner}/${ref.repo} at ${result.repoPath} but could not open a new tab. ` +
 					`The user should run: cd ${result.repoPath} && pi "respond to reviews on ${ref.owner}/${ref.repo}#${ref.number}"`,
 			);
 
 		case "not-found":
-			return textResult(
+			return plainTextResponse(
 				`Repository ${ref.owner}/${ref.repo} was not found on disk. ` +
 					"Ask the user where the repository is located.",
 			);

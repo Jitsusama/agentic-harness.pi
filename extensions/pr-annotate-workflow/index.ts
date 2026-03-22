@@ -19,7 +19,7 @@ import { fetchDiff, parseDiff } from "../lib/github/diff.js";
 import type { PRReference } from "../lib/github/pr-reference.js";
 import { getCurrentRepo } from "../lib/github/repo-discovery.js";
 import { postReview } from "./post.js";
-import { vetComments } from "./vet.js";
+import { reviewProposedComments } from "./review.js";
 
 const CommentSchema = Type.Object({
 	path: Type.String({ description: "File path relative to repo root" }),
@@ -66,9 +66,11 @@ const PrReviewParams = Type.Object({
 	}),
 });
 
-export type { ReviewComment, VetResult } from "./types.js";
+import type { ProposedComment } from "./types.js";
 
-function formatCommentRef(c: ReviewComment): string {
+export type { ProposedComment, VetResult } from "./types.js";
+
+function formatCommentRef(c: ProposedComment): string {
 	const range = c.startLine ? `${c.startLine}-${c.line}` : `${c.line}`;
 	return `- ${c.path}:${range}: ${c.body}`;
 }
@@ -142,11 +144,11 @@ export default function prAnnotate(pi: ExtensionAPI) {
 			}
 
 			// We split the comments into pre-approved and new ones.
-			const preApproved: ReviewComment[] = [];
-			const toVet: ReviewComment[] = [];
+			const preApproved: ProposedComment[] = [];
+			const toVet: ProposedComment[] = [];
 
 			for (const c of params.comments) {
-				const comment: ReviewComment = {
+				const comment: ProposedComment = {
 					path: c.path,
 					line: c.line,
 					startLine: c.startLine,
@@ -164,7 +166,7 @@ export default function prAnnotate(pi: ExtensionAPI) {
 			// We fetch the diff for workspace context.
 			const diffFiles = await fetchPRDiff(pi, params.pr, params.repo);
 
-			const result = await vetComments(
+			const result = await reviewProposedComments(
 				toVet,
 				preApproved.length,
 				ctx,

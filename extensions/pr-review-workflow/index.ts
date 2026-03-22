@@ -4,7 +4,7 @@
  * Mode for reviewing someone else's pull request. The LLM drives
  * the workflow by calling pr_review with different actions:
  *
- *   activate          : parse PR ref, resolve repo, crawl context
+ *   activate          : parse PR ref, resolve repo, gather context
  *   generate-comments : agent provides analysis and structured comments
  *   overview          : show Phase 1 overview panel
  *   review            : show Phase 2 review panel
@@ -25,7 +25,6 @@ import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
 	type CommentInput,
-	type HandlerDeps,
 	handleActivate,
 	handleAddComment,
 	handleDeactivate,
@@ -37,11 +36,15 @@ import {
 	handleSubmit,
 	handleUpdateComment,
 	type ReferenceSummaryInput,
+	type ReviewContext,
 	type SourceRoleInput,
 } from "./handlers.js";
 import { deactivate, restore } from "./lifecycle.js";
 import { createState } from "./state.js";
-import { buildPRReviewContext, prReviewContextFilter } from "./transitions.js";
+import {
+	injectReviewGuidance,
+	pruneStaleReviewGuidance,
+} from "./transitions.js";
 
 /** Actions the LLM can request. */
 const ACTIONS = [
@@ -59,7 +62,7 @@ const ACTIONS = [
 
 export default function prReview(pi: ExtensionAPI) {
 	const state = createState();
-	const deps: HandlerDeps = { state, pi };
+	const deps: ReviewContext = { state, pi };
 
 	pi.registerTool({
 		name: "pr_review",
@@ -367,10 +370,10 @@ export default function prReview(pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async () => {
-		return buildPRReviewContext(state);
+		return injectReviewGuidance(state);
 	});
 
-	pi.on("context", prReviewContextFilter(state));
+	pi.on("context", pruneStaleReviewGuidance(state));
 
 	pi.on("session_start", async (_event, ctx) => {
 		restore(state, ctx);

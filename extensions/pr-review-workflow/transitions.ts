@@ -15,7 +15,7 @@ const CONTEXT_TYPE = "pr-review-context";
  * mode is active. Tells the agent which PR we're reviewing,
  * what phase we're in, and the current comment stats.
  */
-export function buildPRReviewContext(state: PRReviewState) {
+export function injectReviewGuidance(state: PRReviewState) {
 	if (!state.enabled || !state.session) return;
 
 	const { pr, phase, repoPath } = state.session;
@@ -48,6 +48,6 @@ export function buildPRReviewContext(state: PRReviewState) {
  * Create a context filter that removes stale PR review context
  * when the mode is not active.
  */
-export function prReviewContextFilter(state: PRReviewState) {
+export function pruneStaleReviewGuidance(state: PRReviewState) {
 	return filterContext(CONTEXT_TYPE, () => state.enabled);
 }

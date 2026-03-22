@@ -1,6 +1,6 @@
 /**
  * Post review comments to GitHub: transforms pr-annotate's
- * ReviewComment format into GitHub API format and delegates
+ * ProposedComment format into GitHub API format and delegates
  * to the shared review posting module.
  */
 
@@ -11,7 +11,7 @@ import {
 	postReview as postReviewAPI,
 	type ReviewAPIComment,
 } from "../lib/github/review-post.js";
-import type { ReviewComment } from "./types.js";
+import type { ProposedComment } from "./types.js";
 
 interface PostResult {
 	error?: string;
@@ -20,13 +20,13 @@ interface PostResult {
 /**
  * Post review comments for a PR.
  *
- * Transforms ReviewComment objects into GitHub API format
+ * Transforms ProposedComment objects into GitHub API format
  * and posts them as a single COMMENT review.
  */
 export async function postReview(
 	pi: ExtensionAPI,
 	pr: number,
-	comments: ReviewComment[],
+	comments: ProposedComment[],
 	body?: string,
 	repo?: string,
 ): Promise<PostResult> {

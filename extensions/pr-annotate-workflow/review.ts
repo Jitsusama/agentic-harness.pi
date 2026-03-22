@@ -14,14 +14,18 @@ import {
 	renderDiff,
 } from "../lib/ui/content-renderer.js";
 import { workspace } from "../lib/ui/panel.js";
-import { CONTENT_INDENT, contentWrapWidth, wordWrap } from "../lib/ui/text.js";
+import {
+	CONTENT_INDENT,
+	contentWrapWidth,
+	wordWrap,
+} from "../lib/ui/text-layout.js";
 import type {
 	WorkspaceInputContext,
 	WorkspaceItem,
 	WorkspaceResult,
 	WorkspaceView,
 } from "../lib/ui/types.js";
-import type { ReviewComment, VetResult } from "./types.js";
+import type { ProposedComment, VetResult } from "./types.js";
 
 /** Status glyphs for comments. */
 const COMMENT_GLYPH = {
@@ -35,7 +39,7 @@ type CommentStatus = "pending" | "approved" | "rejected";
 
 /** Internal comment with mutable status for the workspace. */
 interface VetComment {
-	comment: ReviewComment;
+	comment: ProposedComment;
 	status: CommentStatus;
 }
 
@@ -43,8 +47,8 @@ interface VetComment {
  * Show the vetting workspace. Returns approved/rejected counts,
  * user requests, and redirect feedback. Returns null on cancel.
  */
-export async function vetComments(
-	comments: ReviewComment[],
+export async function reviewProposedComments(
+	comments: ProposedComment[],
 	preApprovedCount: number,
 	ctx: ExtensionContext,
 	diffFiles: DiffFile[],
@@ -54,13 +58,13 @@ export async function vetComments(
 	}
 
 	// We wrap each comment with mutable status tracking.
-	const vetComments: VetComment[] = comments.map((c) => ({
+	const trackedComments: VetComment[] = comments.map((c) => ({
 		comment: c,
 		status: "pending" as CommentStatus,
 	}));
 
 	// We group comments by file path.
-	const fileGroups = groupByFile(vetComments);
+	const fileGroups = groupByFile(trackedComments);
 	const filePaths = [...fileGroups.keys()].sort();
 
 	// We build a diff lookup by path.
@@ -75,7 +79,7 @@ export async function vetComments(
 
 	// We build the workspace items from the summary and file tabs.
 	const items: WorkspaceItem[] = [
-		buildSummaryTab(vetComments, preApprovedCount),
+		buildSummaryTab(trackedComments, preApprovedCount),
 		...filePaths.map((path) =>
 			buildFileTab(
 				path,
@@ -109,8 +113,8 @@ export async function vetComments(
 		// a new one. Either way, we return it as redirect feedback
 		// and let the LLM interpret the intent. We include any
 		// already-approved comments so they aren't lost.
-		const approved: ReviewComment[] = [];
-		for (const vc of vetComments) {
+		const approved: ProposedComment[] = [];
+		for (const vc of trackedComments) {
 			if (vc.status === "approved") {
 				approved.push(vc.comment);
 			}
@@ -125,10 +129,10 @@ export async function vetComments(
 	}
 
 	// We collect the results when the user submits via Ctrl+Enter.
-	const approved: ReviewComment[] = [];
+	const approved: ProposedComment[] = [];
 	let rejected = 0;
 
-	for (const vc of vetComments) {
+	for (const vc of trackedComments) {
 		if (vc.status === "approved") {
 			approved.push(vc.comment);
 		} else if (vc.status === "rejected") {
@@ -146,7 +150,7 @@ export async function vetComments(
 
 /** Build the Summary tab showing overall progress and post action. */
 function buildSummaryTab(
-	vetComments: VetComment[],
+	trackedComments: VetComment[],
 	preApprovedCount: number,
 ): WorkspaceItem {
 	const summaryView: WorkspaceView = {
@@ -156,14 +160,16 @@ function buildSummaryTab(
 			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
 
-			const total = vetComments.length + preApprovedCount;
+			const total = trackedComments.length + preApprovedCount;
 			const approved =
-				vetComments.filter((c) => c.status === "approved").length +
+				trackedComments.filter((c) => c.status === "approved").length +
 				preApprovedCount;
-			const rejected = vetComments.filter(
+			const rejected = trackedComments.filter(
 				(c) => c.status === "rejected",
 			).length;
-			const pending = vetComments.filter((c) => c.status === "pending").length;
+			const pending = trackedComments.filter(
+				(c) => c.status === "pending",
+			).length;
 
 			lines.push(` ${theme.fg("accent", theme.bold("Self-Review Comments"))}`);
 			lines.push("");
@@ -198,12 +204,12 @@ function buildSummaryTab(
 			}
 
 			// File breakdown
-			const files = new Set(vetComments.map((c) => c.comment.path));
+			const files = new Set(trackedComments.map((c) => c.comment.path));
 			if (files.size > 0) {
 				lines.push("");
 				lines.push(` ${theme.fg("text", theme.bold("Files:"))}`);
 				for (const file of [...files].sort()) {
-					const fileComments = vetComments.filter(
+					const fileComments = trackedComments.filter(
 						(c) => c.comment.path === file,
 					);
 					const fa = fileComments.filter((c) => c.status === "approved").length;

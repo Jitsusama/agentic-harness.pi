@@ -4,7 +4,7 @@
  * natural reasoning, guided by these prompt fragments.
  */
 
-import type { Thread } from "./state.js";
+import type { ReviewThread } from "./state.js";
 
 /**
  * Build a prompt fragment describing how to compose a reply.
@@ -13,7 +13,10 @@ import type { Thread } from "./state.js";
  * needs to generate a reply_body for a thread that has been
  * implemented.
  */
-export function buildReplyGuidance(thread: Thread, commits: string[]): string {
+export function buildReplyGuidance(
+	thread: ReviewThread,
+	commits: string[],
+): string {
 	const parts: string[] = [];
 
 	parts.push("## Reply Guidelines");

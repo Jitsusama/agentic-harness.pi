@@ -31,7 +31,7 @@ import {
 	type TabbedPromptConfig,
 	type TabbedResult,
 	type ViewConfig,
-	type WorkspaceConfig,
+	type WorkspacePromptConfig,
 	type WorkspaceResult,
 } from "./types.js";
 
@@ -96,7 +96,7 @@ export async function prompt(
  */
 export async function workspace(
 	ctx: ExtensionContext,
-	config: WorkspaceConfig,
+	config: WorkspacePromptConfig,
 ): Promise<WorkspaceResult> {
 	if (!ctx.hasUI) return null;
 	return showWorkspacePrompt(ctx, config);

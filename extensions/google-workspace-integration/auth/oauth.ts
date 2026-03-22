@@ -213,8 +213,8 @@ export async function refreshTokenIfNeeded(
 }
 
 /**
- * Get current credentials from client.
+ * Extract the current token credentials from an OAuth2 client.
  */
-export function getCredentials(client: OAuth2Client): Credentials {
+export function extractTokens(client: OAuth2Client): Credentials {
 	return client.credentials;
 }

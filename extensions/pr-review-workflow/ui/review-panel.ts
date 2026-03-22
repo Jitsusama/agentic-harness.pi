@@ -22,21 +22,21 @@ import {
 	CONTENT_INDENT,
 	contentWrapWidth,
 	wordWrap,
-} from "../../lib/ui/text.js";
+} from "../../lib/ui/text-layout.js";
 import type {
-	Action,
+	KeyAction,
 	WorkspaceInputContext,
 	WorkspaceItem,
 	WorkspaceResult,
 	WorkspaceView,
 } from "../../lib/ui/types.js";
 import {
-	type CrawlResult,
 	commentsByCategory,
 	commentsForFile,
 	isTabPassed,
 	markTabPassed,
-	type ReviewComment,
+	type PRContext,
+	type ReviewObservation,
 	type ReviewSession,
 } from "../state.js";
 
@@ -48,14 +48,14 @@ const COMMENT_GLYPH = {
 } as const;
 
 /** Comment mode actions. */
-const COMMENT_ACTIONS: Action[] = [
+const COMMENT_ACTIONS: KeyAction[] = [
 	{ key: "a", label: "Approve" },
 	{ key: "r", label: "Reject" },
 	{ key: "n", label: "New" },
 ];
 
 /** Tab pass action. */
-const PASS_ACTION: Action = { key: "p", label: "Pass" };
+const PASS_ACTION: KeyAction = { key: "p", label: "Pass" };
 
 /** Result from the review panel. */
 export type ReviewPanelResult =
@@ -156,7 +156,7 @@ export async function showReviewPanel(
 }
 
 /** Build stable tab IDs for all tabs. */
-function buildTabIds(context: CrawlResult): string[] {
+function buildTabIds(context: PRContext): string[] {
 	return ["desc", "scope", ...context.diffFiles.map((f) => `file:${f.path}`)];
 }
 
@@ -182,7 +182,7 @@ function buildDescTab(
 
 /** Desc overview: PR title and description rendered as markdown. */
 function buildDescOverview(
-	context: CrawlResult,
+	context: PRContext,
 	session: ReviewSession,
 ): WorkspaceView {
 	return {
@@ -216,7 +216,7 @@ function buildDescOverview(
 }
 
 /** Desc raw: raw markdown source. */
-function buildDescRaw(context: CrawlResult): WorkspaceView {
+function buildDescRaw(context: PRContext): WorkspaceView {
 	return {
 		key: "3",
 		label: "Source",
@@ -280,7 +280,7 @@ function buildScopeOverview(session: ReviewSession): WorkspaceView {
 }
 
 /** Scope raw: file list with per-file stats. */
-function buildScopeRaw(context: CrawlResult): WorkspaceView {
+function buildScopeRaw(context: PRContext): WorkspaceView {
 	return {
 		key: "3",
 		label: "Source",
@@ -464,7 +464,7 @@ function buildFileCommentsView(
 
 /** Render a selectable comment list. */
 function renderCommentList(
-	comments: ReviewComment[],
+	comments: ReviewObservation[],
 	selectedIndex: number,
 	theme: Theme,
 	width: number,
@@ -532,7 +532,7 @@ function renderCommentList(
 /** Handle comment mode input: navigation and actions. */
 function handleCommentInput(
 	data: string,
-	comments: ReviewComment[],
+	comments: ReviewObservation[],
 	getIndex: () => number,
 	setIndex: (i: number) => void,
 	session: ReviewSession,
@@ -595,7 +595,7 @@ function handleCommentInput(
 
 /** Advance selection to the next pending comment. */
 function advanceToNextPending(
-	comments: ReviewComment[],
+	comments: ReviewObservation[],
 	getIndex: () => number,
 	setIndex: (i: number) => void,
 ): void {
@@ -614,7 +614,7 @@ function advanceToNextPending(
 function checkTabAutoPassed(
 	session: ReviewSession,
 	tabId: string,
-	comments: ReviewComment[],
+	comments: ReviewObservation[],
 ): void {
 	if (comments.length === 0) return;
 	const allResolved = comments.every((c) => c.status !== "pending");
@@ -625,7 +625,7 @@ function checkTabAutoPassed(
 
 /** Render inline comment indicators for overview mode. */
 function renderCommentIndicators(
-	comments: ReviewComment[],
+	comments: ReviewObservation[],
 	theme: Theme,
 ): string {
 	const pad = " ".repeat(CONTENT_INDENT);
@@ -646,7 +646,7 @@ function renderCommentIndicators(
 }
 
 /** Build a map of line number → indicator glyph for diff overlay. */
-function buildIndicatorMap(comments: ReviewComment[]): Map<number, string> {
+function buildIndicatorMap(comments: ReviewObservation[]): Map<number, string> {
 	const map = new Map<number, string>();
 
 	for (const c of comments) {

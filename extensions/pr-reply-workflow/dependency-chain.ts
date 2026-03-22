@@ -9,7 +9,7 @@ import type {
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { findDependentPRs } from "./api/github.js";
-import { briefRebaseApproved } from "./briefing.js";
+import { rebaseApprovedBriefing } from "./briefing.js";
 import type { DependentPR, PRReplyState } from "./state.js";
 import { showRebasePanel } from "./ui/panels.js";
 
@@ -36,7 +36,7 @@ export async function checkDependentPRs(
 	const choice = await showRebasePanel(ctx, chain);
 
 	if (choice === "rebase") {
-		return briefRebaseApproved(chain);
+		return rebaseApprovedBriefing(chain);
 	}
 
 	return null;

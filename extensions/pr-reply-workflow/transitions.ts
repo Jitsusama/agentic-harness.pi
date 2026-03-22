@@ -15,7 +15,7 @@ const CONTEXT_TYPE = "pr-reply-context";
  * mode is active. Tells the agent which PR we're working on,
  * where we are in the review, and what thread states look like.
  */
-export function buildPRReplyContext(state: PRReplyState) {
+export function injectReplyGuidance(state: PRReplyState) {
 	if (!state.enabled) return;
 
 	const parts: string[] = [];
@@ -66,7 +66,7 @@ export function buildPRReplyContext(state: PRReplyState) {
  * Create a context filter that removes stale PR reply context
  * when the mode is not active.
  */
-export function prReplyContextFilter(state: PRReplyState) {
+export function pruneStaleReplyGuidance(state: PRReplyState) {
 	return filterContext(CONTEXT_TYPE, () => state.enabled);
 }
 

@@ -15,7 +15,7 @@ import type {
 	LinkedIssue,
 	PRMetadata,
 	RelatedPR,
-	Reviewer,
+	ReviewerStatus,
 } from "../state.js";
 import type { GQLIssue, GQLPullRequest, PRContextResponse } from "./types.js";
 
@@ -71,7 +71,7 @@ export async function fetchPRGraphQL(
 	pr: PRMetadata;
 	prComments: IssueComment[];
 	issues: LinkedIssue[];
-	reviewers: Reviewer[];
+	reviewers: ReviewerStatus[];
 }> {
 	const data = await runGraphQL<PRContextResponse>(pi, PR_CONTEXT_QUERY, ref);
 	const pr = data.data.repository.pullRequest;
@@ -85,7 +85,7 @@ export async function fetchPRGraphQL(
 }
 
 // Re-export shared diff utilities for backward compatibility
-// with crawler.ts and other pr-review consumers.
+// with gather.ts and other pr-review consumers.
 export { fetchDiff, parseDiff } from "../../lib/github/diff.js";
 
 /** Get the current GitHub username. */
@@ -198,8 +198,8 @@ function parseLinkedIssues(
 }
 
 /** Extract reviewers from review requests and latest reviews. */
-function parseReviewers(pr: GQLPullRequest): Reviewer[] {
-	const reviewers = new Map<string, Reviewer>();
+function parseReviewers(pr: GQLPullRequest): ReviewerStatus[] {
+	const reviewers = new Map<string, ReviewerStatus>();
 
 	// Pending review requests
 	for (const req of pr.reviewRequests.nodes) {
@@ -215,7 +215,7 @@ function parseReviewers(pr: GQLPullRequest): Reviewer[] {
 		if (login) {
 			reviewers.set(login, {
 				login,
-				verdict: review.state as Reviewer["verdict"],
+				verdict: review.state as ReviewerStatus["verdict"],
 			});
 		}
 	}

@@ -41,7 +41,7 @@ import {
 } from "./implementation.js";
 import { persist, restore, toggle } from "./lifecycle.js";
 import { createPRReplyState } from "./state.js";
-import { buildPRReplyContext, prReplyContextFilter } from "./transitions.js";
+import { injectReplyGuidance, pruneStaleReplyGuidance } from "./transitions.js";
 
 /** Actions the LLM can request. */
 const ACTIONS = [
@@ -274,10 +274,10 @@ export default function prReply(pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async () => {
-		return buildPRReplyContext(state);
+		return injectReplyGuidance(state);
 	});
 
-	pi.on("context", prReplyContextFilter(state));
+	pi.on("context", pruneStaleReplyGuidance(state));
 
 	pi.on("session_start", async (_event, ctx) => {
 		restore(state, ctx);

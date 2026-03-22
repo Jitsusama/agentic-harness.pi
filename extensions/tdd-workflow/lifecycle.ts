@@ -13,7 +13,7 @@ import { getLastEntry } from "../lib/state.js";
 import {
 	PHASE_COLORS,
 	PHASE_GLYPH,
-	type Phase,
+	type TddPhase,
 	type TddState,
 } from "./state.js";
 
@@ -109,7 +109,7 @@ export function toggle(
 /** Move to the given phase within the current cycle. */
 export function advance(
 	state: TddState,
-	next: Phase,
+	next: TddPhase,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 ): void {

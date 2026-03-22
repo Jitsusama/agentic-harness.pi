@@ -1,5 +1,5 @@
 /**
- * Deep context crawler: recursive link crawler that follows
+ * Deep context gathering: recursive link gatherer that follows
  * references up to 5 levels deep with loop detection.
  *
  * Crawl levels:
@@ -19,9 +19,9 @@ import {
 } from "./api/github.js";
 import type { GQLDeepIssue, IssueDeepResponse } from "./api/types.js";
 import type {
-	CrawlResult,
 	DiffFile,
 	LinkedIssue,
+	PRContext,
 	Reference,
 	RelatedPR,
 	SourceFile,
@@ -73,16 +73,16 @@ interface CrawlConfig {
 type CrawlProgress = (depth: number, label: string) => void;
 
 /**
- * Crawl deep context for a PR. Returns a fully populated
- * CrawlResult with all discovered references, issues,
+ * Gather deep context for a PR review. Returns a fully
+ * populated PRContext with all discovered references, issues,
  * source files, and reviewers.
  */
-export async function crawl(
+export async function gatherContext(
 	pi: ExtensionAPI,
 	ref: PRReference,
 	repoPath: string,
 	onProgress?: CrawlProgress,
-): Promise<CrawlResult> {
+): Promise<PRContext> {
 	const config: CrawlConfig = {
 		maxDepth: DEFAULT_MAX_DEPTH,
 		visited: new Set(),

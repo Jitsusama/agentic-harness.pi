@@ -12,8 +12,8 @@ import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { getLastEntry } from "../lib/state.js";
 import {
 	type PRReplyState,
-	type Review,
-	type Thread,
+	type ReceivedReview,
+	type ReviewThread,
 	type ThreadState,
 	threadsForReview,
 } from "./state.js";
@@ -166,8 +166,8 @@ export function restore(state: PRReplyState, ctx: ExtensionContext): void {
 		owner?: string;
 		repo?: string;
 		branch?: string;
-		reviews?: Review[];
-		threads?: Thread[];
+		reviews?: ReceivedReview[];
+		threads?: ReviewThread[];
 		threadStates?: Array<[string, ThreadState]>;
 		threadAnalyses?: Array<
 			[string, { recommendation: string; analysis: string }]

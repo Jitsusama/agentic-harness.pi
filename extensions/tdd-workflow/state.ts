@@ -4,12 +4,12 @@
  */
 
 /** The three phases of the red-green-refactor cycle. */
-export type Phase = "red" | "green" | "refactor";
+export type TddPhase = "red" | "green" | "refactor";
 
 /** Runtime state for TDD mode. */
 export interface TddState {
 	enabled: boolean;
-	phase: Phase;
+	phase: TddPhase;
 	cycle: number;
 	planFile: string | null;
 	testDescription: string | null;
@@ -23,14 +23,14 @@ export const PHASE_GLYPH = "●";
 export type PhaseColor = "error" | "success" | "accent";
 
 /** Theme color for each phase. */
-export const PHASE_COLORS: Record<Phase, PhaseColor> = {
+export const PHASE_COLORS: Record<TddPhase, PhaseColor> = {
 	red: "error",
 	green: "success",
 	refactor: "accent",
 };
 
 /** LLM-facing phase descriptions used in enforcement block messages. */
-export const PHASE_HINTS: Record<Phase, string> = {
+export const PHASE_HINTS: Record<TddPhase, string> = {
 	red: [
 		"You are in RED phase. Write a failing test that describes",
 		"the desired behaviour. Minimal stubs in implementation files",
@@ -51,7 +51,7 @@ export const PHASE_HINTS: Record<Phase, string> = {
 };
 
 /** What to do when the user chooses to stay in a phase. */
-export const PHASE_STAY: Record<Phase, string> = {
+export const PHASE_STAY: Record<TddPhase, string> = {
 	red: "Keep working on the test. The user wants more iteration before moving on.",
 	green:
 		"Keep working on the implementation. The user wants more work done before refactoring.",

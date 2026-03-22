@@ -3,9 +3,9 @@
  * four levels:
  *
  *   PRTarget      : identifies which PR is being reviewed
- *   CrawlResult   : deep context gathered by the crawler
+ *   PRContext      : deep context gathered for review
  *   ReviewSession : the active review with comments and tab state
- *   ReviewComment : a single comment with lifecycle status
+ *   ReviewObservation : a single comment with lifecycle status
  */
 
 import type { DiffFile } from "../lib/github/diff.js";
@@ -83,14 +83,14 @@ export interface SourceFile {
 }
 
 /** A reviewer and their current verdict. */
-export interface Reviewer {
+export interface ReviewerStatus {
 	login: string;
 	verdict: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "PENDING";
 	avatarUrl?: string;
 }
 
-/** Complete result from the deep context crawl. */
-export interface CrawlResult {
+/** Deep context gathered for a PR review. */
+export interface PRContext {
 	pr: PRMetadata;
 	diff: string;
 	diffFiles: DiffFile[];
@@ -98,7 +98,7 @@ export interface CrawlResult {
 	relatedPRs: RelatedPR[];
 	references: Reference[];
 	sourceFiles: SourceFile[];
-	reviewers: Reviewer[];
+	reviewers: ReviewerStatus[];
 	prComments: IssueComment[];
 	hitDepthLimit: boolean;
 }
@@ -107,7 +107,7 @@ export interface CrawlResult {
 export type CommentCategory = "file" | "title" | "scope";
 
 /** A review comment with lifecycle status. */
-export interface ReviewComment {
+export interface ReviewObservation {
 	id: string;
 	file: string | null;
 	startLine: number | null;
@@ -138,7 +138,7 @@ export type ReviewPhase = "gathering" | "overview" | "reviewing" | "submitting";
 export interface ReviewSession {
 	pr: PRTarget;
 	/** Gathered context (null until fetched, not persisted). */
-	context: CrawlResult | null;
+	context: PRContext | null;
 	/** Path used for file reads (worktree or repo root). */
 	repoPath: string;
 	/** Path to the git worktree, or null if on the PR branch. */
@@ -148,7 +148,7 @@ export interface ReviewSession {
 	/** AI-generated scope analysis (from generate-comments). */
 	scopeAnalysis: string;
 	/** Comments collected during the review. */
-	comments: ReviewComment[];
+	comments: ReviewObservation[];
 	/** Per-tab UI state. Key = tab id. */
 	tabStates: Map<string, TabState>;
 	/** The review body text. */
@@ -167,9 +167,13 @@ function nextId(): string {
 /** Add a comment to the session. Returns the new comment. */
 export function addComment(
 	session: ReviewSession,
-	data: Omit<ReviewComment, "id" | "status">,
-): ReviewComment {
-	const comment: ReviewComment = { ...data, id: nextId(), status: "pending" };
+	data: Omit<ReviewObservation, "id" | "status">,
+): ReviewObservation {
+	const comment: ReviewObservation = {
+		...data,
+		id: nextId(),
+		status: "pending",
+	};
 	session.comments.push(comment);
 	return comment;
 }
@@ -178,7 +182,7 @@ export function addComment(
 export function updateComment(
 	session: ReviewSession,
 	id: string,
-	updates: Partial<Omit<ReviewComment, "id">>,
+	updates: Partial<Omit<ReviewObservation, "id">>,
 ): boolean {
 	const comment = session.comments.find((c) => c.id === id);
 	if (!comment) return false;
@@ -198,7 +202,7 @@ export function removeComment(session: ReviewSession, id: string): boolean {
 export function commentsByCategory(
 	session: ReviewSession,
 	category: CommentCategory,
-): ReviewComment[] {
+): ReviewObservation[] {
 	return session.comments.filter((c) => c.category === category);
 }
 
@@ -206,7 +210,7 @@ export function commentsByCategory(
 export function commentsForFile(
 	session: ReviewSession,
 	path: string,
-): ReviewComment[] {
+): ReviewObservation[] {
 	return session.comments.filter((c) => c.file === path);
 }
 

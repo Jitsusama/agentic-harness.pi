@@ -13,8 +13,8 @@ import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { promptSingle } from "../../lib/ui/panel.js";
 import {
 	type DependentPR,
-	type Review,
-	type Thread,
+	type ReceivedReview,
+	type ReviewThread,
 	threadPriority,
 } from "../state.js";
 import { formatFileSummary } from "./format.js";
@@ -25,8 +25,8 @@ export interface SummaryPanelConfig {
 	owner: string;
 	repo: string;
 	branch: string;
-	reviews: Review[];
-	threads: Thread[];
+	reviews: ReceivedReview[];
+	threads: ReviewThread[];
 	dismissedCount: number;
 }
 
@@ -103,8 +103,8 @@ export async function showSummaryPanel(
  */
 export async function showReviewOverviewPanel(
 	ctx: ExtensionContext,
-	review: Review,
-	pendingThreads: Thread[],
+	review: ReceivedReview,
+	pendingThreads: ReviewThread[],
 	analysis: string,
 ): Promise<boolean> {
 	const result = await promptSingle(ctx, {

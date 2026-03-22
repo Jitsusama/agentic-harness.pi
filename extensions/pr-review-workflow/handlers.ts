@@ -2,7 +2,7 @@
  * PR Review action handlers: thin functions that guard,
  * operate, and return briefings.
  *
- * Each handler receives a HandlerDeps bundle. The index.ts
+ * Each handler receives a ReviewContext bundle. The index.ts
  * switch statement delegates to these.
  */
 
@@ -16,8 +16,8 @@ import {
 	parsePRReference,
 } from "../lib/github/pr-reference.js";
 import { getCurrentRepo, resolveRepo } from "../lib/github/repo-discovery.js";
-import { briefActivation, briefGenerateComments } from "./briefing.js";
-import { crawl } from "./crawler.js";
+import { activationBriefing, generateCommentsBriefing } from "./briefing.js";
+import { gatherContext } from "./gather.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
 import {
 	addComment,
@@ -54,13 +54,13 @@ export interface ReferenceSummaryInput {
 }
 
 /** Dependencies shared by all handlers. */
-export interface HandlerDeps {
+export interface ReviewContext {
 	state: PRReviewState;
 	pi: ExtensionAPI;
 }
 
 /** Build a simple text tool result. */
-function textResult(text: string) {
+function plainTextResponse(text: string) {
 	return { content: [{ type: "text" as const, text }] };
 }
 
@@ -75,10 +75,10 @@ function isReviewVerdict(
 
 /**
  * Ensure gathered context is available. If the session was
- * restored but context was lost, re-crawl transparently.
+ * restored but context was lost, re-gather transparently.
  */
 async function ensureContext(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	ctx: ExtensionContext,
 ): Promise<boolean> {
 	const session = deps.state.session;
@@ -93,11 +93,11 @@ async function ensureContext(
 			repo: session.pr.repo,
 			number: session.pr.number,
 		};
-		const crawlResult = await crawl(deps.pi, ref, session.repoPath);
-		session.context = crawlResult;
+		const prContext = await gatherContext(deps.pi, ref, session.repoPath);
+		session.context = prContext;
 		return true;
 	} catch {
-		/* Re-crawl failed: context unavailable */
+		/* Re-gather failed: context unavailable */
 		return false;
 	}
 }
@@ -114,9 +114,9 @@ async function resolvePR(
 	return null;
 }
 
-/** Activate: parse PR ref, resolve repo, crawl deep context. */
+/** Activate: parse PR ref, resolve repo, gather deep context. */
 export async function handleActivate(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	ctx: ExtensionContext,
 	prInput: string | null,
 	userRequest: string | null = null,
@@ -124,7 +124,7 @@ export async function handleActivate(
 	const { state, pi } = deps;
 
 	if (state.session) {
-		return textResult(
+		return plainTextResponse(
 			`PR review is already active for #${state.session.pr.number}. ` +
 				"Call 'deactivate' first to start a new review.",
 		);
@@ -132,7 +132,7 @@ export async function handleActivate(
 
 	const ref = await resolvePR(pi, prInput);
 	if (!ref) {
-		return textResult(
+		return plainTextResponse(
 			"Could not determine which PR to review. " +
 				"Provide a PR URL, number (#123), or owner/repo#number.",
 		);
@@ -147,7 +147,7 @@ export async function handleActivate(
 	);
 
 	if (repoResult.status === "opened-tab") {
-		return textResult(
+		return plainTextResponse(
 			`PR #${ref.number} belongs to ${ref.owner}/${ref.repo}, which is a different repository. ` +
 				`A new terminal tab has been opened at ${repoResult.repoPath} with a pi session ` +
 				"handling the review. Do NOT call pr_review again in this session: " +
@@ -156,20 +156,20 @@ export async function handleActivate(
 	}
 
 	if (repoResult.status === "open-failed") {
-		return textResult(
+		return plainTextResponse(
 			`Found repo at ${repoResult.repoPath} but couldn't open a new tab. ` +
 				`cd to that directory and run the review there.`,
 		);
 	}
 
 	if (repoResult.status === "not-found") {
-		return textResult(
+		return plainTextResponse(
 			`Could not find ${ref.owner}/${ref.repo} on disk. ` +
 				"Clone the repo and try again.",
 		);
 	}
 
-	// We activate and crawl.
+	// We activate and gather context.
 	state.enabled = true;
 	const session = createSession(
 		{
@@ -189,7 +189,7 @@ export async function handleActivate(
 	ctx.ui.notify(`Gathering context for PR #${ref.number}…`, "info");
 
 	try {
-		const crawlResult = await crawl(
+		const prContext = await gatherContext(
 			pi,
 			ref,
 			repoResult.repoPath,
@@ -198,14 +198,14 @@ export async function handleActivate(
 			},
 		);
 
-		// We update the session with crawl results.
-		session.context = crawlResult;
-		session.pr.branch = crawlResult.pr.headRefName;
-		session.pr.baseBranch = crawlResult.pr.baseRefName;
-		session.pr.author = crawlResult.pr.author;
+		// We update the session with gathered context.
+		session.context = prContext;
+		session.pr.branch = prContext.pr.headRefName;
+		session.pr.baseBranch = prContext.pr.baseRefName;
+		session.pr.author = prContext.pr.author;
 
 		// We create a worktree if we're not on the PR branch.
-		const onBranch = await isOnPRBranch(pi, crawlResult.pr.headRefName);
+		const onBranch = await isOnPRBranch(pi, prContext.pr.headRefName);
 		if (!onBranch) {
 			ctx.ui.notify("Creating worktree for PR branch…", "info");
 			const wtPath = await createWorktree(pi, ref.number);
@@ -220,28 +220,28 @@ export async function handleActivate(
 		persist(state, pi);
 		refreshUI(state, ctx);
 
-		const briefing = briefActivation(session);
+		const briefing = activationBriefing(session);
 
 		return {
 			content: [{ type: "text" as const, text: briefing }],
 			details: {
 				action: "activate",
-				fileCount: crawlResult.diffFiles.length,
-				issueCount: crawlResult.issues.length,
-				referenceCount: crawlResult.references.length,
-				reviewerCount: crawlResult.reviewers.length,
+				fileCount: prContext.diffFiles.length,
+				issueCount: prContext.issues.length,
+				referenceCount: prContext.references.length,
+				reviewerCount: prContext.reviewers.length,
 			},
 		};
 	} catch (err) {
 		deactivate(state, pi, ctx);
 		const msg = err instanceof Error ? err.message : String(err);
-		return textResult(`Failed to gather PR context: ${msg}`);
+		return plainTextResponse(`Failed to gather PR context: ${msg}`);
 	}
 }
 
 /** Generate comments: agent provides analysis and structured comments. */
 export async function handleGenerateComments(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	synopsis: string | null,
 	scopeAnalysis: string | null,
 	sourceRoles: SourceRoleInput[] | null,
@@ -251,7 +251,7 @@ export async function handleGenerateComments(
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active. Call 'activate' first.");
+		return plainTextResponse("No PR review active. Call 'activate' first.");
 	}
 
 	const session = state.session;
@@ -297,7 +297,7 @@ export async function handleGenerateComments(
 
 	persist(state, pi);
 
-	const summary = briefGenerateComments(session);
+	const summary = generateCommentsBriefing(session);
 
 	return {
 		content: [{ type: "text" as const, text: summary }],
@@ -309,16 +309,19 @@ export async function handleGenerateComments(
 }
 
 /** Overview: show Phase 1 overview panel. */
-export async function handleOverview(deps: HandlerDeps, ctx: ExtensionContext) {
+export async function handleOverview(
+	deps: ReviewContext,
+	ctx: ExtensionContext,
+) {
 	const { state } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active. Call 'activate' first.");
+		return plainTextResponse("No PR review active. Call 'activate' first.");
 	}
 
 	const session = state.session;
 	if (!(await ensureContext(deps, ctx))) {
-		return textResult("Failed to load PR context.");
+		return plainTextResponse("Failed to load PR context.");
 	}
 
 	session.phase = "overview";
@@ -332,14 +335,14 @@ export async function handleOverview(deps: HandlerDeps, ctx: ExtensionContext) {
 	);
 
 	if (!result) {
-		return textResult(
+		return plainTextResponse(
 			"Overview panel dismissed. Call 'overview' to re-show, " +
 				"or 'review' to proceed.",
 		);
 	}
 
 	if (result.action === "review") {
-		return textResult(
+		return plainTextResponse(
 			"User chose to proceed to review. Call 'review' to show the review panel.",
 		);
 	}
@@ -358,20 +361,20 @@ export async function handleOverview(deps: HandlerDeps, ctx: ExtensionContext) {
 		};
 	}
 
-	return textResult("Overview complete.");
+	return plainTextResponse("Overview complete.");
 }
 
 /** Review: show Phase 2 review panel. */
-export async function handleReview(deps: HandlerDeps, ctx: ExtensionContext) {
+export async function handleReview(deps: ReviewContext, ctx: ExtensionContext) {
 	const { state } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active. Call 'activate' first.");
+		return plainTextResponse("No PR review active. Call 'activate' first.");
 	}
 
 	const session = state.session;
 	if (!(await ensureContext(deps, ctx))) {
-		return textResult("Failed to load PR context.");
+		return plainTextResponse("Failed to load PR context.");
 	}
 
 	session.phase = "reviewing";
@@ -384,14 +387,14 @@ export async function handleReview(deps: HandlerDeps, ctx: ExtensionContext) {
 	refreshUI(state, ctx);
 
 	if (!result) {
-		return textResult(
+		return plainTextResponse(
 			"Review panel dismissed. Call 'review' to re-show, " +
 				"or 'submit' to proceed.",
 		);
 	}
 
 	if (result.action === "submit") {
-		return textResult(
+		return plainTextResponse(
 			"User submitted from review panel. Call 'submit' to show the submit panel.",
 		);
 	}
@@ -431,22 +434,22 @@ export async function handleReview(deps: HandlerDeps, ctx: ExtensionContext) {
 		};
 	}
 
-	return textResult("Review complete.");
+	return plainTextResponse("Review complete.");
 }
 
 /** Add a review comment. */
 export function handleAddComment(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	comment: CommentInput | undefined,
 ) {
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active.");
+		return plainTextResponse("No PR review active.");
 	}
 
 	if (!comment) {
-		return textResult(
+		return plainTextResponse(
 			"Provide a comment object with: file, startLine, endLine, " +
 				"label, decorations, subject, discussion, category.",
 		);
@@ -491,29 +494,31 @@ export function handleAddComment(
 
 /** Update an existing comment. */
 export function handleUpdateComment(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	commentId: string | null,
 	comment: CommentInput | undefined,
 ) {
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active.");
+		return plainTextResponse("No PR review active.");
 	}
 
 	if (!commentId) {
-		return textResult(
+		return plainTextResponse(
 			"Provide comment_id to identify which comment to update.",
 		);
 	}
 
 	if (!comment) {
-		return textResult("Provide a comment object with the updated fields.");
+		return plainTextResponse(
+			"Provide a comment object with the updated fields.",
+		);
 	}
 
 	const found = updateComment(state.session, commentId, comment);
 	if (!found) {
-		return textResult(`Comment ${commentId} not found.`);
+		return plainTextResponse(`Comment ${commentId} not found.`);
 	}
 
 	persist(state, pi);
@@ -531,24 +536,24 @@ export function handleUpdateComment(
 
 /** Remove a comment by ID. */
 export function handleRemoveComment(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	commentId: string | null,
 ) {
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active.");
+		return plainTextResponse("No PR review active.");
 	}
 
 	if (!commentId) {
-		return textResult(
+		return plainTextResponse(
 			"Provide comment_id to identify which comment to remove.",
 		);
 	}
 
 	const found = removeComment(state.session, commentId);
 	if (!found) {
-		return textResult(`Comment ${commentId} not found.`);
+		return plainTextResponse(`Comment ${commentId} not found.`);
 	}
 
 	persist(state, pi);
@@ -566,7 +571,7 @@ export function handleRemoveComment(
 
 /** Submit: show final review summary panel. */
 export async function handleSubmit(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	ctx: ExtensionContext,
 	reviewBody: string | null,
 	verdict: string | null,
@@ -574,7 +579,7 @@ export async function handleSubmit(
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active. Call 'activate' first.");
+		return plainTextResponse("No PR review active. Call 'activate' first.");
 	}
 
 	const session = state.session;
@@ -594,7 +599,7 @@ export async function handleSubmit(
 	persist(state, pi);
 
 	if (!result) {
-		return textResult(
+		return plainTextResponse(
 			"Submit panel dismissed. Call 'submit' to re-show, " +
 				"or 'review' to go back.",
 		);
@@ -620,22 +625,22 @@ export async function handleSubmit(
 		};
 	}
 
-	return textResult("Submit flow complete.");
+	return plainTextResponse("Submit flow complete.");
 }
 
 /** Post: submit review to GitHub. */
-export async function handlePost(deps: HandlerDeps) {
+export async function handlePost(deps: ReviewContext) {
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active.");
+		return plainTextResponse("No PR review active.");
 	}
 
 	const session = state.session;
 	const stats = commentStats(session);
 
 	if (stats.pending > 0) {
-		return textResult(
+		return plainTextResponse(
 			`${stats.pending} comment${stats.pending !== 1 ? "s are" : " is"} still pending: ` +
 				"review all comments before posting.",
 		);
@@ -716,19 +721,19 @@ export async function handlePost(deps: HandlerDeps) {
 		};
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		return textResult(`Failed to post review: ${msg}`);
+		return plainTextResponse(`Failed to post review: ${msg}`);
 	}
 }
 
 /** Deactivate: clean up and exit review mode. */
 export async function handleDeactivate(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	ctx: ExtensionContext,
 ) {
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("PR review is not active.");
+		return plainTextResponse("PR review is not active.");
 	}
 
 	const commentCount = state.session.comments.length;

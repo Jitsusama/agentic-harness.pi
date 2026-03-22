@@ -8,8 +8,12 @@
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { promptSingle } from "../../lib/ui/panel.js";
-import { CONTENT_INDENT } from "../../lib/ui/text.js";
-import type { ReviewComment, ReviewSession, ReviewVerdict } from "../state.js";
+import { CONTENT_INDENT } from "../../lib/ui/text-layout.js";
+import type {
+	ReviewObservation,
+	ReviewSession,
+	ReviewVerdict,
+} from "../state.js";
 
 /** Result from the submit panel. */
 export type SubmitResult =
@@ -116,7 +120,10 @@ export async function showSubmitPanel(
 }
 
 /** Format a comment as a one-line summary. */
-function formatCommentOneLiner(comment: ReviewComment, theme: Theme): string {
+function formatCommentOneLiner(
+	comment: ReviewObservation,
+	theme: Theme,
+): string {
 	const filePart = comment.file ? `${comment.file}:` : "";
 	const linePart =
 		comment.startLine !== null
