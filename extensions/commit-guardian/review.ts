@@ -4,16 +4,12 @@
  * annotations.
  */
 
-import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import {
-	ALLOW,
-	type CommandGuardian,
-	type GuardianResult,
-} from "../lib/guardian/types.js";
-import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirectBlock } from "../lib/ui/redirect.js";
-import { extractCommitFlags, extractMessage, splitAtCommit } from "./parse.js";
-import { type CommitValidation, validate } from "./validate.js";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
+import { prompt } from "../lib/ui/panel.js";
+import { formatRedirect } from "../lib/ui/redirect.js";
+import { extractFlags, extractMessage, splitAtCommit } from "./parse.js";
+import { renderCommitContent } from "./validate.js";
 
 const COMMIT_ACTIONS = [
 	{ key: "a", label: "Approve" },
@@ -38,16 +34,17 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 
 		const isAmend = /--amend\b/.test(command);
 		const { prefix, commitPart } = splitAtCommit(command);
-		const flags = extractCommitFlags(commitPart);
+		const flags = extractFlags(commitPart);
 
 		return { message, isAmend, prefix, flags };
 	},
 
 	async review(
 		parsed: CommitParsed,
+		_event: { input: { command: string } },
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
-		const result = await promptSingle(ctx, {
+		const result = await prompt(ctx, {
 			title: parsed.isAmend ? "Amend Commit" : "Commit",
 			content: renderCommitContent(parsed.message, parsed.isAmend),
 			actions: COMMIT_ACTIONS,
@@ -61,27 +58,24 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 		}
 
 		if (result.type === "redirect") {
-			return formatRedirectBlock(
-				result.note,
-				`Original commit:\n${parsed.message}`,
-			);
+			return formatRedirect(result.note, `Original commit:\n${parsed.message}`);
 		}
 
 		if (result.type === "action") {
-			if (result.key === "a") {
+			if (result.value === "a") {
 				// If the user added a note on approve, we treat it as a redirect.
 				if (result.note) {
-					return formatRedirectBlock(
+					return formatRedirect(
 						result.note,
 						`Original commit:\n${parsed.message}`,
 					);
 				}
-				return ALLOW;
+				return undefined;
 			}
 
 			// If there's a note on reject, we include it as redirect feedback.
 			if (result.note) {
-				return formatRedirectBlock(
+				return formatRedirect(
 					result.note,
 					`Original commit:\n${parsed.message}`,
 				);
@@ -94,68 +88,3 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 		}
 	},
 };
-
-/** Render validation as a compact indicator line. */
-function renderValidation(v: CommitValidation, theme: Theme): string {
-	const parts: string[] = [];
-	const dot = theme.fg("dim", " · ");
-
-	parts.push(
-		v.subjectOk
-			? theme.fg("success", `✓ ${v.subjectLength} chars`)
-			: theme.fg("warning", `⚠ ${v.subjectLength} chars (limit: 50)`),
-	);
-
-	if (v.bodyLongestLine > 0) {
-		parts.push(
-			v.bodyWrapOk
-				? theme.fg("success", "✓ wrap")
-				: theme.fg(
-						"warning",
-						`⚠ line ${v.bodyLongestLineNum}: ${v.bodyLongestLine} chars`,
-					),
-		);
-	}
-
-	parts.push(
-		v.conventionalOk
-			? theme.fg("success", "✓ conventional")
-			: theme.fg("warning", "⚠ not conventional"),
-	);
-
-	return ` ${parts.join(dot)}`;
-}
-
-/** Render a commit message as gate content lines. */
-function renderCommitContent(
-	message: string,
-	isAmend: boolean,
-): (theme: Theme, width: number) => string[] {
-	const lines = message.split("\n");
-	const subject = lines[0] || "";
-	const bodyLines = lines.length > 2 ? lines.slice(2) : [];
-	const validation = validate(message);
-
-	return (theme, _width) => {
-		const out: string[] = [];
-
-		out.push(theme.fg("text", ` ${subject}`));
-
-		if (bodyLines.length > 0) {
-			out.push("");
-			for (const line of bodyLines) {
-				out.push(` ${theme.fg("text", line)}`);
-			}
-		}
-
-		if (isAmend) {
-			out.push("");
-			out.push(theme.fg("warning", " ⚠ Amends previous commit"));
-		}
-
-		out.push("");
-		out.push(renderValidation(validation, theme));
-
-		return out;
-	};
-}

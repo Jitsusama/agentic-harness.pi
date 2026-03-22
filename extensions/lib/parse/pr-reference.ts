@@ -8,9 +8,9 @@
 
 /** Identifies a specific pull request on GitHub. */
 export interface PRReference {
-	readonly owner: string;
-	readonly repo: string;
-	readonly number: number;
+	owner: string;
+	repo: string;
+	number: number;
 }
 
 /** PR link patterns we recognize. */

@@ -4,28 +4,7 @@
  * message injection and filtering.
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-
-/** Default directory for plan files, relative to the project root. */
-export const DEFAULT_PLAN_DIR = ".pi/plans";
-
-/**
- * Load the plan directory from project settings, falling back
- * to DEFAULT_PLAN_DIR when the settings file is missing or
- * doesn't specify a custom path.
- */
-export function loadPlanDir(cwd: string): string {
-	try {
-		const settingsPath = path.join(cwd, ".pi", "settings.json");
-		const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-		return settings.planDir ?? DEFAULT_PLAN_DIR;
-	} catch {
-		/* Settings file missing or malformed: use default. */
-		return DEFAULT_PLAN_DIR;
-	}
-}
 
 /** Type guard for custom entries with a specific customType. */
 function isCustomEntry(

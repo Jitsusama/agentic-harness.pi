@@ -10,12 +10,10 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { buildHunkRanges, clampToHunkRange } from "../lib/github/diff.js";
-import {
-	type PRReference,
-	parsePRReference,
-} from "../lib/github/pr-reference.js";
-import { getCurrentRepo, resolveRepo } from "../lib/github/repo-discovery.js";
+import { getCurrentRepo } from "../lib/github/repo-discovery.js";
+import type { PRReference } from "./api/parse.js";
+import { parsePRReference } from "./api/parse.js";
+import { resolveRepo } from "./api/repo.js";
 import { briefActivation, briefGenerateComments } from "./briefing.js";
 import { crawl } from "./crawler.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
@@ -27,7 +25,6 @@ import {
 	removeComment,
 	updateComment,
 } from "./state.js";
-import { createWorktree, isOnPRBranch, removeWorktree } from "./worktree.js";
 
 /** Structured comment input from the tool parameters. */
 export interface CommentInput {
@@ -64,15 +61,6 @@ function textResult(text: string) {
 	return { content: [{ type: "text" as const, text }] };
 }
 
-const VALID_VERDICTS = new Set(["APPROVE", "REQUEST_CHANGES", "COMMENT"]);
-
-/** Validate an LLM-provided review verdict string. */
-function isReviewVerdict(
-	s: string,
-): s is "APPROVE" | "REQUEST_CHANGES" | "COMMENT" {
-	return VALID_VERDICTS.has(s);
-}
-
 /**
  * Ensure gathered context is available. If the session was
  * restored but context was lost, re-crawl transparently.
@@ -100,6 +88,131 @@ async function ensureContext(
 		/* Re-crawl failed: context unavailable */
 		return false;
 	}
+}
+
+/** A new-side line range covered by a diff hunk. */
+interface HunkRange {
+	start: number;
+	end: number;
+}
+
+/**
+ * Build a map of file path → hunk ranges (new-side line numbers).
+ * GitHub's review API accepts lines within these ranges.
+ */
+function buildDiffHunkRanges(session: ReviewSession): Map<string, HunkRange[]> {
+	const map = new Map<string, HunkRange[]>();
+	const context = session.context;
+	if (!context) return map;
+
+	for (const file of context.diffFiles) {
+		const ranges: HunkRange[] = [];
+		for (const hunk of file.hunks) {
+			ranges.push({
+				start: hunk.newStart,
+				end: hunk.newStart + hunk.newCount - 1,
+			});
+		}
+		map.set(file.path, ranges);
+	}
+
+	return map;
+}
+
+/**
+ * Clamp a line number to a valid diff hunk range.
+ * If the line falls within a hunk, return it as-is.
+ * If outside all hunks, clamp to the nearest hunk boundary.
+ */
+function clampToDiffRange(
+	line: number,
+	ranges: HunkRange[] | undefined,
+): number {
+	if (!ranges || ranges.length === 0) return line;
+
+	// We check if the line is within any hunk.
+	for (const r of ranges) {
+		if (line >= r.start && line <= r.end) return line;
+	}
+
+	// We find the nearest hunk boundary.
+	let closest = line;
+	let minDist = Number.MAX_SAFE_INTEGER;
+	for (const r of ranges) {
+		for (const boundary of [r.start, r.end]) {
+			const dist = Math.abs(boundary - line);
+			if (dist < minDist) {
+				minDist = dist;
+				closest = boundary;
+			}
+		}
+	}
+	return closest;
+}
+
+/** Directory where review worktrees are created. */
+const WORKTREE_DIR = ".review";
+
+/** Check if the current branch matches the PR's head branch. */
+async function isOnPRBranch(
+	pi: ExtensionAPI,
+	prBranch: string,
+): Promise<boolean> {
+	const result = await pi.exec("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
+	if (result.code !== 0) return false;
+	return result.stdout.trim() === prBranch;
+}
+
+/**
+ * Create a worktree for the PR branch. Fetches the PR head ref
+ * and creates a worktree at `.review/pr-<number>`.
+ */
+async function createWorktree(
+	pi: ExtensionAPI,
+	prNumber: number,
+): Promise<string | null> {
+	const branchName = `pr-review-${prNumber}`;
+	const relPath = `${WORKTREE_DIR}/${branchName}`;
+
+	const fetch = await pi.exec("git", [
+		"fetch",
+		"origin",
+		`pull/${prNumber}/head:${branchName}`,
+	]);
+	if (fetch.code !== 0) return null;
+
+	const add = await pi.exec("git", ["worktree", "add", relPath, branchName]);
+	if (add.code !== 0) return null;
+
+	// We return an absolute path so fs.readFileSync works from any cwd.
+	const abs = await pi.exec("git", ["worktree", "list", "--porcelain"]);
+	if (abs.code === 0) {
+		for (const line of abs.stdout.split("\n")) {
+			if (line.startsWith("worktree ") && line.includes(branchName)) {
+				return line.replace("worktree ", "");
+			}
+		}
+	}
+
+	// As a fallback, we resolve relative to the repo root.
+	const root = await pi.exec("git", ["rev-parse", "--show-toplevel"]);
+	if (root.code === 0) {
+		return `${root.stdout.trim()}/${relPath}`;
+	}
+
+	return relPath;
+}
+
+/** Remove a review worktree and its tracking branch. */
+async function removeWorktree(
+	pi: ExtensionAPI,
+	prNumber: number,
+): Promise<void> {
+	const branchName = `pr-review-${prNumber}`;
+	const worktreePath = `${WORKTREE_DIR}/${branchName}`;
+
+	await pi.exec("git", ["worktree", "remove", worktreePath, "--force"]);
+	await pi.exec("git", ["branch", "-D", branchName]);
 }
 
 /** Resolve a PR reference from user input. */
@@ -143,10 +256,11 @@ export async function handleActivate(
 		pi,
 		ref.owner,
 		ref.repo,
-		userRequest ?? `review ${ref.owner}/${ref.repo}#${ref.number}`,
+		ref.number,
+		userRequest,
 	);
 
-	if (repoResult.status === "opened-tab") {
+	if (repoResult.status === "switched") {
 		return textResult(
 			`PR #${ref.number} belongs to ${ref.owner}/${ref.repo}, which is a different repository. ` +
 				`A new terminal tab has been opened at ${repoResult.repoPath} with a pi session ` +
@@ -155,7 +269,7 @@ export async function handleActivate(
 		);
 	}
 
-	if (repoResult.status === "open-failed") {
+	if (repoResult.status === "switch-failed") {
 		return textResult(
 			`Found repo at ${repoResult.repoPath} but couldn't open a new tab. ` +
 				`cd to that directory and run the review there.`,
@@ -581,8 +695,8 @@ export async function handleSubmit(
 
 	// We update body/verdict if they were provided.
 	if (reviewBody !== null) session.reviewBody = reviewBody;
-	if (verdict !== null && isReviewVerdict(verdict)) {
-		session.verdict = verdict;
+	if (verdict !== null) {
+		session.verdict = verdict as typeof session.verdict;
 	}
 
 	session.phase = "submitting";
@@ -653,8 +767,7 @@ export async function handlePost(deps: HandlerDeps) {
 	const approved = session.comments.filter((c) => c.status === "approved");
 
 	// We build hunk ranges per file so we can clamp comment lines.
-	const diffFiles = session.context?.diffFiles ?? [];
-	const hunkRanges = buildHunkRanges(diffFiles);
+	const hunkRanges = buildDiffHunkRanges(session);
 
 	const ghComments = approved
 		.filter((c) => c.file !== null)
@@ -664,7 +777,7 @@ export async function handlePost(deps: HandlerDeps) {
 			const body = `${c.label}${decorStr}: ${c.subject}\n\n${c.discussion}`;
 
 			const ranges = hunkRanges.get(c.file as string);
-			const endLine = clampToHunkRange(c.endLine ?? 1, ranges);
+			const endLine = clampToDiffRange(c.endLine ?? 1, ranges);
 
 			const comment: {
 				path: string;
@@ -685,7 +798,7 @@ export async function handlePost(deps: HandlerDeps) {
 				c.endLine !== null &&
 				c.startLine !== c.endLine
 			) {
-				const startLine = clampToHunkRange(c.startLine, ranges);
+				const startLine = clampToDiffRange(c.startLine, ranges);
 				if (startLine < endLine) {
 					comment.start_line = startLine;
 					comment.start_side = "RIGHT";

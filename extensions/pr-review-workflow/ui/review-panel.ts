@@ -10,7 +10,6 @@
 import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
-import type { DiffFile } from "../../lib/github/diff.js";
 import {
 	languageFromPath,
 	renderCode,
@@ -34,6 +33,7 @@ import {
 	type CrawlResult,
 	commentsByCategory,
 	commentsForFile,
+	type DiffFile,
 	isTabPassed,
 	markTabPassed,
 	type ReviewComment,
@@ -147,7 +147,7 @@ export async function showReviewPanel(
 	// This handles the 'p' action to mark the current tab passed.
 	// It's passed inline via handleInput, but if it reaches here
 	// it means the workspace returned an action result.
-	if (result.type === "action" && result.key === "p") {
+	if (result.type === "action" && result.value === "p") {
 		// Tab marking is done inline via handleInput.
 		return null;
 	}

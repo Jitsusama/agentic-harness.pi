@@ -5,7 +5,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
-import { promptSingle } from "../../lib/ui/panel.js";
+import { prompt } from "../../lib/ui/panel.js";
 
 import type { Thread } from "../state.js";
 
@@ -32,7 +32,7 @@ export async function showReplyReview(
 		};
 	}
 
-	const result = await promptSingle(ctx, {
+	const result = await prompt(ctx, {
 		content: (theme, width) => {
 			const lines: string[] = [];
 			lines.push(
@@ -66,7 +66,7 @@ export async function showReplyReview(
 		};
 	}
 
-	if (result.type === "action" && result.key === "r") {
+	if (result.type === "action" && result.value === "r") {
 		const reason = result.note
 			? `User rejected: ${result.note}`
 			: "User rejected the reply. Ask for guidance on the reply.";

@@ -8,17 +8,14 @@
  */
 
 import {
-	isGhCommand,
-	parseIssueCommand,
-	parsePrCommand,
-	rebuildGhCommand,
-} from "../lib/github/cli.js";
-import {
-	buildCommitHeredoc,
-	extractCommitFlags,
+	buildHeredoc,
+	extractFlags,
 	extractMessage,
 	splitAtCommit,
-} from "../lib/guardian/shell.js";
+} from "../commit-guardian/parse.js";
+import { parseIssueCommand } from "../issue-guardian/parse.js";
+import { isGhCommand, rebuildGhCommand } from "../lib/parse/gh-command.js";
+import { parsePrCommand } from "../pr-guardian/parse.js";
 
 /** Regex to detect existing attribution (case-insensitive). */
 const ATTRIBUTION_PATTERN = /co-authored-by[:\s]+ai/i;
@@ -83,14 +80,14 @@ export function injectCommitAttribution(
 	if (ATTRIBUTION_PATTERN.test(message)) return null;
 
 	const { prefix, commitPart } = splitAtCommit(command);
-	const flags = extractCommitFlags(commitPart);
+	const flags = extractFlags(commitPart);
 
 	// Git trailers need a blank line before them, so we add one
 	// if the message doesn't already end with a newline.
 	const separator = message.endsWith("\n") ? "\n" : "\n\n";
 	const attributed = `${message}${separator}${commitTrailer(modelId)}`;
 
-	const heredoc = buildCommitHeredoc(attributed, flags);
+	const heredoc = buildHeredoc(attributed, flags);
 	return prefix ? `${prefix} && ${heredoc}` : heredoc;
 }
 

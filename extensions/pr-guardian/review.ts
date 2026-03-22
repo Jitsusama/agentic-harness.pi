@@ -5,14 +5,10 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import {
-	ALLOW,
-	type CommandGuardian,
-	type GuardianResult,
-} from "../lib/guardian/types.js";
+import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirectBlock } from "../lib/ui/redirect.js";
+import { prompt } from "../lib/ui/panel.js";
+import { formatRedirect } from "../lib/ui/redirect.js";
 import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.js";
 
 const PR_ACTIONS = [
@@ -31,10 +27,11 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 
 	async review(
 		parsed: PrCommand,
+		_event: { input: { command: string } },
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
 		const isEdit = parsed.action === "edit";
-		const result = await promptSingle(ctx, {
+		const result = await prompt(ctx, {
 			title: isEdit ? "PR Edit" : "New PR",
 			content: (theme, width) => {
 				const out: string[] = [];
@@ -68,27 +65,21 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 			.join("\n");
 
 		if (result.type === "redirect") {
-			return formatRedirectBlock(
-				result.note,
-				`Original PR:\n${redirectContext}`,
-			);
+			return formatRedirect(result.note, `Original PR:\n${redirectContext}`);
 		}
 
 		if (result.type === "action") {
-			if (result.key === "a") {
+			if (result.value === "a") {
 				if (result.note) {
-					return formatRedirectBlock(
+					return formatRedirect(
 						result.note,
 						`Original PR:\n${redirectContext}`,
 					);
 				}
-				return ALLOW;
+				return undefined;
 			}
 			if (result.note) {
-				return formatRedirectBlock(
-					result.note,
-					`Original PR:\n${redirectContext}`,
-				);
+				return formatRedirect(result.note, `Original PR:\n${redirectContext}`);
 			}
 			return {
 				block: true,

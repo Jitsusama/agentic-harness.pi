@@ -5,7 +5,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
-import { promptSingle } from "../lib/ui/panel.js";
+import { prompt } from "../lib/ui/panel.js";
 import type { OAuthAppCredentials } from "./auth/credentials.js";
 import { handleGoogleAuthCommand } from "./auth-command.js";
 
@@ -66,7 +66,7 @@ export async function ensureAuthenticated(
 		}
 
 		// We confirm the user wants to authenticate now.
-		const result = await promptSingle(ctx, {
+		const result = await prompt(ctx, {
 			content: (theme, _width) => [
 				` ${theme.bold("🔐 Authentication Required")}`,
 				"",
@@ -81,7 +81,7 @@ export async function ensureAuthenticated(
 				{ label: "Cancel", value: "no" },
 			],
 		});
-		if (!result || result.type !== "option" || result.value !== "yes") {
+		if (!result || result.type !== "action" || result.value !== "yes") {
 			throw new Error(AUTH_MESSAGES.cancelled);
 		}
 

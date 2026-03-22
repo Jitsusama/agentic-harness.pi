@@ -13,9 +13,8 @@ at runtime.
   - `lib/ui/`: TUI primitives (panels, gates, content
     rendering, text utilities)
   - `lib/guardian/`: guardian pipeline (types, registration,
-    shell parsing)
-  - `lib/github/`: GitHub domain (API, CLI, PR identity,
-    diff, review)
+    review loop)
+  - `lib/parse/`: shell command parsing and gh CLI modelling
   - `lib/state.ts`: session state helpers
 - `skills/`: package-bound markdown instructions the agent
   loads on demand when a task matches their description
@@ -206,12 +205,12 @@ touch the event directly.
 
 - `lib/ui/`: TUI primitives (panels, gates, rendering, text)
 - `lib/guardian/`: guardian pipeline (types, registration,
-  shell parsing)
-- `lib/github/`: GitHub domain (API, CLI, PR identity, diff,
-  review)
+  review loop)
+- `lib/parse/`: shell parsing (command utilities) and gh CLI
+  domain modelling (separate files)
 - `lib/state.ts`: session state helpers
 
-UI primitives have no domain knowledge. Guardian and GitHub
+UI primitives have no domain knowledge. Guardian and parse
 modules depend on UI, not the other way around.
 
 ### Panel Composition, Not Wrapping

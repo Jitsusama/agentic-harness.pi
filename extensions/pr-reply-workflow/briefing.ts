@@ -273,21 +273,3 @@ export function briefRebaseApproved(
 		"then force-push each one. Handle conflicts using the rebase skill."
 	);
 }
-
-/**
- * Build a context string describing what the implementation
- * should address. Used when activating TDD mode or giving
- * the LLM implementation instructions.
- */
-export function buildImplementationContext(thread: Thread): string {
-	const parts: string[] = [];
-
-	parts.push(`Addressing review feedback on ${thread.file}:${thread.line}`);
-	parts.push("");
-
-	for (const comment of thread.comments) {
-		parts.push(`${comment.author}: ${comment.body}`);
-	}
-
-	return parts.join("\n");
-}

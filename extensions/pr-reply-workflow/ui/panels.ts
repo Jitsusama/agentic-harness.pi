@@ -10,25 +10,10 @@
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
-import { promptSingle } from "../../lib/ui/panel.js";
-import {
-	type DependentPR,
-	type Review,
-	type Thread,
-	threadPriority,
-} from "../state.js";
+import { prompt } from "../../lib/ui/panel.js";
+import type { Review, Thread } from "../state.js";
+import { threadPriority } from "../state.js";
 import { formatFileSummary } from "./format.js";
-
-/** Config for the PR summary panel. */
-export interface SummaryPanelConfig {
-	prNumber: number;
-	owner: string;
-	repo: string;
-	branch: string;
-	reviews: Review[];
-	threads: Thread[];
-	dismissedCount: number;
-}
 
 /**
  * Show the PR summary panel before starting review.
@@ -36,10 +21,14 @@ export interface SummaryPanelConfig {
  */
 export async function showSummaryPanel(
 	ctx: ExtensionContext,
-	config: SummaryPanelConfig,
+	prNumber: number,
+	owner: string,
+	repo: string,
+	branch: string,
+	reviews: Review[],
+	threads: Thread[],
+	dismissedCount: number,
 ): Promise<boolean> {
-	const { prNumber, owner, repo, branch, reviews, threads, dismissedCount } =
-		config;
 	const reviewers = Array.from(new Set(reviews.map((r) => r.author))).join(
 		", ",
 	);
@@ -52,7 +41,7 @@ export async function showSummaryPanel(
 	).length;
 	const fileCount = new Set(threads.map((t) => t.file)).size;
 
-	const result = await promptSingle(ctx, {
+	const result = await prompt(ctx, {
 		content: (theme: Theme) => {
 			const lines: string[] = [];
 
@@ -93,7 +82,7 @@ export async function showSummaryPanel(
 	});
 
 	if (!result) return false;
-	return result.type === "action" && result.key === "b";
+	return result.type === "action" && result.value === "b";
 }
 
 /**
@@ -107,7 +96,7 @@ export async function showReviewOverviewPanel(
 	pendingThreads: Thread[],
 	analysis: string,
 ): Promise<boolean> {
-	const result = await promptSingle(ctx, {
+	const result = await prompt(ctx, {
 		content: (theme: Theme, width: number) => {
 			const lines: string[] = [];
 
@@ -156,7 +145,14 @@ export async function showReviewOverviewPanel(
 	});
 
 	if (!result) return false;
-	return result.type === "action" && result.key === "c";
+	return result.type === "action" && result.value === "c";
+}
+
+/** Dependent PR info for rebase confirmation. */
+export interface DependentPR {
+	number: number;
+	title: string;
+	branch: string;
 }
 
 /**
@@ -167,7 +163,7 @@ export async function showRebasePanel(
 	ctx: ExtensionContext,
 	dependents: DependentPR[],
 ): Promise<"rebase" | "skip" | null> {
-	const result = await promptSingle(ctx, {
+	const result = await prompt(ctx, {
 		content: (theme: Theme) => {
 			const lines: string[] = [];
 
@@ -194,5 +190,5 @@ export async function showRebasePanel(
 	});
 
 	if (!result || result.type !== "action") return null;
-	return result.key === "r" ? "rebase" : "skip";
+	return result.value === "r" ? "rebase" : "skip";
 }

@@ -9,7 +9,6 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { runGraphQL } from "../../lib/github/graphql.js";
-import type { PRReference } from "../../lib/github/pr-reference.js";
 import type {
 	IssueComment,
 	LinkedIssue,
@@ -17,6 +16,7 @@ import type {
 	RelatedPR,
 	Reviewer,
 } from "../state.js";
+import type { PRReference } from "./parse.js";
 import type { GQLIssue, GQLPullRequest, PRContextResponse } from "./types.js";
 
 const PR_CONTEXT_QUERY = `

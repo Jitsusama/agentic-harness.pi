@@ -6,7 +6,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { promptTabbed } from "../lib/ui/panel.js";
+import { prompt } from "../lib/ui/panel.js";
 import { contentWrapWidth } from "../lib/ui/text.js";
 import type { PromptItem } from "../lib/ui/types.js";
 
@@ -74,7 +74,7 @@ export async function showRefactorGate(
 		buildSuggestionItem(s, i, suggestions.length),
 	);
 
-	const result = await promptTabbed(ctx, {
+	const result = await prompt(ctx, {
 		items,
 		canAddItems: true,
 		autoResolve: false,
@@ -91,9 +91,9 @@ export async function showRefactorGate(
 		const suggestion = suggestions[i];
 		if (!suggestion) continue;
 
-		if (itemResult.type === "action" && itemResult.key === "a") {
+		if (itemResult.type === "action" && itemResult.value === "a") {
 			approved.push(suggestion);
-		} else if (itemResult.type === "action" && itemResult.key === "r") {
+		} else if (itemResult.type === "action" && itemResult.value === "r") {
 			rejected++;
 		}
 	}

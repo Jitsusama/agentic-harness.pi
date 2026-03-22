@@ -21,7 +21,7 @@ import type {
 	WorkspaceResult,
 	WorkspaceView,
 } from "../lib/ui/types.js";
-import type { ReviewComment, VetResult } from "./types.js";
+import type { ReviewComment, VetResult } from "./index.js";
 
 /** Status glyphs for comments. */
 const COMMENT_GLYPH = {

@@ -133,7 +133,7 @@ export async function showReplyWorkspace(
 		return { action: "redirect", threadId: actionThreadId, note: result.note };
 	}
 
-	if (result.type === "action" && result.key === "p" && actionThreadId) {
+	if (result.type === "action" && result.value === "p" && actionThreadId) {
 		return { action: "pass", threadId: actionThreadId };
 	}
 

@@ -5,9 +5,8 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirectReason } from "../lib/ui/redirect.js";
-import type { PromptResult } from "../lib/ui/types.js";
+import { prompt } from "../lib/ui/panel.js";
+import { formatRedirect } from "../lib/ui/redirect.js";
 
 export interface EmailData {
 	to: string[];
@@ -34,20 +33,20 @@ export type ConfirmResult<T> =
 
 /** Extract redirect feedback from a prompt result, or null if not a redirect. */
 function extractRedirect(
-	result: PromptResult | null,
+	result: { type: string; note?: string; value?: string } | null,
 	context: string,
 ): { approved: false; redirect: string } | null {
 	if (!result) return null;
 	if (result.type === "redirect") {
 		return {
 			approved: false,
-			redirect: formatRedirectReason(result.note ?? "", context),
+			redirect: formatRedirect(result.note ?? "", context).reason,
 		};
 	}
 	if (result.note) {
 		return {
 			approved: false,
-			redirect: formatRedirectReason(result.note, context),
+			redirect: formatRedirect(result.note, context).reason,
 		};
 	}
 	return null;
@@ -64,7 +63,7 @@ export async function confirmSendEmail(
 ): Promise<ConfirmResult<EmailData>> {
 	if (!ctx.hasUI) return { approved: true, data: email };
 
-	const result = await promptSingle(ctx, {
+	const result = await prompt(ctx, {
 		content: (theme) => {
 			const lines = [
 				theme.fg(
@@ -101,7 +100,7 @@ export async function confirmSendEmail(
 		],
 	});
 
-	if (!result || (result.type === "action" && result.key === "c")) {
+	if (!result || (result.type === "action" && result.value === "c")) {
 		return null;
 	}
 	const redirect = extractRedirect(
@@ -123,7 +122,7 @@ export async function confirmDeleteEmail(
 ): Promise<ConfirmResult<true>> {
 	if (!ctx.hasUI) return { approved: true, data: true };
 
-	const result = await promptSingle(ctx, {
+	const result = await prompt(ctx, {
 		content: (theme) => {
 			const lines = [theme.fg("accent", theme.bold(" Delete Email")), ""];
 			if (subject) {
@@ -142,7 +141,7 @@ export async function confirmDeleteEmail(
 		],
 	});
 
-	if (!result || (result.type === "action" && result.key === "c")) {
+	if (!result || (result.type === "action" && result.value === "c")) {
 		return null;
 	}
 	const redirect = extractRedirect(
@@ -166,7 +165,7 @@ export async function confirmCreateEvent(
 		return { approved: true, data: event };
 	}
 
-	const result = await promptSingle(ctx, {
+	const result = await prompt(ctx, {
 		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Create Calendar Event")),
@@ -199,7 +198,7 @@ export async function confirmCreateEvent(
 		],
 	});
 
-	if (!result || (result.type === "action" && result.key === "x")) {
+	if (!result || (result.type === "action" && result.value === "x")) {
 		return null;
 	}
 	const redirect = extractRedirect(
@@ -234,7 +233,7 @@ export async function confirmUpdateEvent(
 		changes.push(`Attendees: ${updates.attendees.join(", ")}`);
 	if (updates.description) changes.push("Description updated");
 
-	const result = await promptSingle(ctx, {
+	const result = await prompt(ctx, {
 		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Update Calendar Event")),
@@ -257,7 +256,7 @@ export async function confirmUpdateEvent(
 		],
 	});
 
-	if (!result || (result.type === "action" && result.key === "c")) {
+	if (!result || (result.type === "action" && result.value === "c")) {
 		return null;
 	}
 	const redirect = extractRedirect(
@@ -281,7 +280,7 @@ export async function confirmDeleteEvent(
 	if (!ctx.hasUI) return { approved: true, data: true };
 	if (!hasAttendees) return { approved: true, data: true };
 
-	const result = await promptSingle(ctx, {
+	const result = await prompt(ctx, {
 		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Delete Calendar Event")),
@@ -299,7 +298,7 @@ export async function confirmDeleteEvent(
 		],
 	});
 
-	if (!result || (result.type === "action" && result.key === "c")) {
+	if (!result || (result.type === "action" && result.value === "c")) {
 		return null;
 	}
 	const redirect = extractRedirect(result, `Delete event: ${summary}`);

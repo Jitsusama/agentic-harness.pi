@@ -75,22 +75,14 @@ export interface Option {
 
 /**
  * Result from a single prompt. Discriminated union:
- * - 'action': user pressed a key action from the action bar
- * - 'option': user selected an item from the option list
+ * - 'action': user picked a specific action/option
  * - 'redirect': user wants a different approach (Shift+Escape)
  * null = cancelled (Escape)
  */
 export type PromptResult =
 	| {
 			type: "action";
-			/** The action key (single letter). */
-			key: string;
-			/** Annotation from hold-to-reveal. Present when user added a note. */
-			note?: string;
-	  }
-	| {
-			type: "option";
-			/** The selected option's value. */
+			/** The action key (for actions) or option value (for options). */
 			value: string;
 			/** Annotation from hold-to-reveal. Present when user added a note. */
 			note?: string;
@@ -146,8 +138,6 @@ export interface PromptItem {
  * Must provide at least one of: actions, options.
  */
 export interface SinglePromptConfig {
-	/** Optional title shown at the top, below the border. */
-	title?: string;
 	/** Renders the content area. */
 	content: ContentFn;
 	/** Fixed actions (Type A key-hint bar). */
@@ -164,8 +154,6 @@ export interface SinglePromptConfig {
  * Config for a tabbed prompt (multiple items).
  */
 export interface TabbedPromptConfig {
-	/** Optional title shown at the top, below the border. */
-	title?: string;
 	/** Items to review. Each becomes a tab. */
 	items: PromptItem[];
 	/**
@@ -199,8 +187,43 @@ export interface ViewConfig {
 /** Panel height mode: controls what fraction of the terminal panels can occupy. */
 export type PanelHeightMode = "minimized" | "normal" | "fullscreen";
 
+/** Panel height fraction when minimized. */
+export const HEIGHT_FRACTION_MINIMIZED = 0.25;
+
+/** Panel height fraction at normal size. */
+export const HEIGHT_FRACTION_NORMAL = 0.6;
+
+/** Panel height fraction when fullscreen. */
+export const HEIGHT_FRACTION_FULLSCREEN = 0.9;
+
+/** Maximum content width in columns (readability cap). */
+export const MAX_CONTENT_WIDTH = 100;
+
 /** Content indent (spaces per side). */
 export const CONTENT_INDENT = 2;
+
+/**
+ * Width passed to content functions when horizontal scrolling
+ * is enabled. Large enough that content renderers won't truncate,
+ * letting the scroll region handle the horizontal viewport.
+ */
+export const HSCROLL_CONTENT_WIDTH = 10_000;
+
+/** Horizontal scroll step in visible characters. */
+export const H_SCROLL_STEP = 20;
+
+/** Lines scrolled per Shift+↑↓ fine scroll step. */
+export const FINE_SCROLL_LINES = 3;
+
+/**
+ * Fraction of the viewport kept visible when coarse-scrolling
+ * (PageUp/Down). 0.5 means half the viewport stays from the
+ * previous view, so the reader never loses context.
+ */
+export const COARSE_SCROLL_OVERLAP_FRACTION = 0.5;
+
+/** Width reserved for the vertical scrollbar gutter. */
+export const SCROLLBAR_GUTTER = 2;
 
 /** Config for a workspace prompt (stateful tabs). */
 export interface WorkspaceConfig {
@@ -271,5 +294,5 @@ export interface WorkspaceInputContext {
 export type WorkspaceResult =
 	| { type: "submit" }
 	| { type: "redirect"; note: string }
-	| { type: "action"; key: string; note?: string }
+	| { type: "action"; value: string; note?: string }
 	| null;

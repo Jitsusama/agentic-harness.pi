@@ -70,7 +70,7 @@ export async function showOverviewPanel(
 
 	if (!result) return null;
 
-	if (result.type === "action" && result.key === "r") {
+	if (result.type === "action" && result.value === "r") {
 		return { action: "review" };
 	}
 

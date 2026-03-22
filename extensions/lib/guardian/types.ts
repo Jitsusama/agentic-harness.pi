@@ -12,7 +12,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 /**
  * Result of a guardian review:
- * - ALLOW (undefined): allow the command as-is
+ * - undefined: allow the command as-is
  * - { block, reason }: block execution with a reason
  * - { rewrite }: allow execution with a rewritten command
  */
@@ -20,9 +20,6 @@ export type GuardianResult =
 	| undefined
 	| { block: true; reason: string }
 	| { rewrite: string };
-
-/** Allow the command as-is. Named constant for self-documenting returns. */
-export const ALLOW: GuardianResult = undefined;
 
 /**
  * A command guardian that intercepts and reviews bash commands.
@@ -36,5 +33,9 @@ export interface CommandGuardian<T> {
 	/** Parse the command into a structured form. Return null to skip. */
 	parse(command: string): T | null;
 	/** Review the parsed command. Shows UI, returns the decision. */
-	review(parsed: T, ctx: ExtensionContext): Promise<GuardianResult>;
+	review(
+		parsed: T,
+		event: { input: { command: string } },
+		ctx: ExtensionContext,
+	): Promise<GuardianResult>;
 }

@@ -12,19 +12,14 @@ import {
 } from "../apis/drive.js";
 import { getSheetContent } from "../apis/sheets.js";
 import { getSlideContent } from "../apis/slides.js";
+import { getBooleanParam, getNumberParam, getStringParam } from "../params.js";
 import {
 	renderDoc,
 	renderFileList,
 	renderSheet,
 	renderSlides,
 } from "../renderers/drive.js";
-import {
-	type ActionParams,
-	getBooleanParam,
-	getNumberParam,
-	getStringParam,
-	type ToolResult,
-} from "../types.js";
+import type { ActionParams, ToolResult } from "../types.js";
 
 export async function handleListFiles(
 	params: ActionParams,

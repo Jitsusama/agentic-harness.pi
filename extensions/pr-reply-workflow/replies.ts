@@ -4,6 +4,7 @@
  * natural reasoning, guided by these prompt fragments.
  */
 
+import { shortSHAs } from "./implementation.js";
 import type { Thread } from "./state.js";
 
 /**
@@ -29,7 +30,7 @@ export function buildReplyGuidance(thread: Thread, commits: string[]): string {
 
 	// Commit info
 	if (commits.length > 0) {
-		const shas = commits.map((sha) => sha.slice(0, 7));
+		const shas = shortSHAs(commits);
 		parts.push(`Commits addressing this: ${shas.join(", ")}`);
 		parts.push("");
 		parts.push("Include commit SHA(s) naturally in the reply.");

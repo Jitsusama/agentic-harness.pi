@@ -11,7 +11,7 @@ import { unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { PRReference } from "./pr-reference.js";
+import type { PRReference } from "../parse/pr-reference.js";
 
 /** A comment in the GitHub review API format. */
 export interface ReviewAPIComment {

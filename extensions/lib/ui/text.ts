@@ -3,9 +3,8 @@
  * and content rendering systems.
  */
 
-import { CONTENT_INDENT } from "./types.js";
-
-export { CONTENT_INDENT };
+/** Content indent used by panel content renderers (spaces per side). */
+export const CONTENT_INDENT = 2;
 
 /** Fallback content width when the panel width is unavailable. */
 export const FALLBACK_CONTENT_WIDTH = 72;

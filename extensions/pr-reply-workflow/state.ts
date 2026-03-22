@@ -76,13 +76,6 @@ export interface WorkspacePosition {
 	threadIndices: Map<string, number>;
 }
 
-/** Dependent PR info for rebase confirmation. */
-export interface DependentPR {
-	number: number;
-	title: string;
-	branch: string;
-}
-
 /** Runtime state for PR reply mode. */
 export interface PRReplyState {
 	enabled: boolean;
@@ -107,6 +100,14 @@ export interface PRReplyState {
 
 	// Currently selected thread ID: set by workspace actions
 	currentThreadId: string | null;
+
+	// Legacy navigation: kept for backward compat during transition
+	/** @deprecated Use workspacePosition instead. */
+	reviewIndex: number;
+	/** @deprecated Use workspacePosition instead. */
+	reviewIntroduced: boolean;
+	/** @deprecated Use workspacePosition instead. */
+	threadIndexInReview: number;
 
 	// Implementation tracking
 	threadCommits: Map<string, string[]>; // thread ID -> commit SHAs
@@ -150,6 +151,9 @@ export function threadsForReview(
 		});
 }
 
+/** Default plan directory, shared with plan-workflow. */
+export const DEFAULT_PLAN_DIR = ".pi/plans";
+
 /**
  * Thread priority for display. CHANGES_REQUESTED threads
  * take precedence over optional feedback.
@@ -173,6 +177,9 @@ export function createPRReplyState(): PRReplyState {
 		reviewerAnalyses: new Map(),
 		workspacePosition: null,
 		currentThreadId: null,
+		reviewIndex: 0,
+		reviewIntroduced: false,
+		threadIndexInReview: 0,
 		threadCommits: new Map(),
 		implementationStartSHA: null,
 		awaitingTDDCompletion: false,

@@ -4,14 +4,10 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import {
-	ALLOW,
-	type CommandGuardian,
-	type GuardianResult,
-} from "../lib/guardian/types.js";
+import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirectBlock } from "../lib/ui/redirect.js";
+import { prompt } from "../lib/ui/panel.js";
+import { formatRedirect } from "../lib/ui/redirect.js";
 import {
 	DESTRUCTIVE_PATTERNS,
 	type DestructivePattern,
@@ -47,6 +43,7 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 
 	async review(
 		parsed: DestructiveMatch,
+		_event: { input: { command: string } },
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
 		const icon = parsed.severity === "irrecoverable" ? "⛔" : "⚠";
@@ -65,7 +62,7 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 			parsed.description,
 		].join("\n");
 
-		const result = await promptSingle(ctx, {
+		const result = await prompt(ctx, {
 			title,
 			content: (theme, width) => renderMarkdown(markdown, theme, width),
 			actions: DESTRUCTIVE_ACTIONS,
@@ -76,14 +73,14 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 		}
 
 		if (result.type === "redirect") {
-			return formatRedirectBlock(
+			return formatRedirect(
 				result.note,
 				`Original command:\n${parsed.command}`,
 			);
 		}
 
-		if (result.type === "action" && result.key === "a") {
-			return ALLOW;
+		if (result.type === "action" && result.value === "a") {
+			return undefined;
 		}
 
 		return { block: true, reason: `User blocked: ${parsed.command}` };

@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { extractOwnerRepo } from "./pr-reference.js";
+import { extractOwnerRepo } from "../parse/pr-reference.js";
 
 /**
  * Common locations where repos live, relative to home.
@@ -68,46 +68,6 @@ export function findRepoOnDisk(owner: string, repo: string): string | null {
 	}
 
 	return null;
-}
-
-/** Result of resolving a repository for a cross-repo workflow. */
-export type RepoResolution =
-	| { readonly status: "current"; readonly repoPath: string }
-	| { readonly status: "opened-tab"; readonly repoPath: string }
-	| { readonly status: "open-failed"; readonly repoPath: string }
-	| { readonly status: "not-found" };
-
-/**
- * Resolve a repository on disk for a cross-repo workflow.
- *
- * Checks if the current directory is the target repo. If not,
- * searches common locations on disk and opens a new terminal
- * tab with pi pre-loaded with the given prompt so the new
- * session can pick up the user's intent.
- */
-export async function resolveRepo(
-	pi: ExtensionAPI,
-	owner: string,
-	repo: string,
-	prompt: string,
-): Promise<RepoResolution> {
-	const current = await getCurrentRepo(pi);
-	if (current?.owner === owner && current?.repo === repo) {
-		const repoPath = (await getRepoRoot(pi)) ?? process.cwd();
-		return { status: "current", repoPath };
-	}
-
-	const repoPath = findRepoOnDisk(owner, repo);
-	if (!repoPath) {
-		return { status: "not-found" };
-	}
-
-	const opened = await openInNewTab(pi, repoPath, prompt);
-	if (opened) {
-		return { status: "opened-tab", repoPath };
-	}
-
-	return { status: "open-failed", repoPath };
 }
 
 /**
