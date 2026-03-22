@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { extractOwnerRepo } from "../parse/pr-reference.js";
+import { extractOwnerRepo } from "./pr-reference.js";
 
 /**
  * Common locations where repos live, relative to home.

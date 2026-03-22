@@ -7,7 +7,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { PRReference } from "../parse/pr-reference.js";
+import type { PRReference } from "./pr-reference.js";
 
 /** A parsed diff file with hunks. */
 export interface DiffFile {
