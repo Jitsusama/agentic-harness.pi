@@ -66,7 +66,7 @@ export async function showReplyReview(
 		};
 	}
 
-	if (result.type === "action" && result.value === "r") {
+	if (result.type === "action" && result.key === "r") {
 		const reason = result.note
 			? `User rejected: ${result.note}`
 			: "User rejected the reply. Ask for guidance on the reply.";

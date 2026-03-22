@@ -7,6 +7,7 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { promptSingle } from "../lib/ui/panel.js";
 import { formatRedirect } from "../lib/ui/redirect.js";
+import type { PromptResult } from "../lib/ui/types.js";
 
 export interface EmailData {
 	to: string[];
@@ -33,7 +34,7 @@ export type ConfirmResult<T> =
 
 /** Extract redirect feedback from a prompt result, or null if not a redirect. */
 function extractRedirect(
-	result: { type: string; note?: string; value?: string } | null,
+	result: PromptResult | null,
 	context: string,
 ): { approved: false; redirect: string } | null {
 	if (!result) return null;
@@ -100,7 +101,7 @@ export async function confirmSendEmail(
 		],
 	});
 
-	if (!result || (result.type === "action" && result.value === "c")) {
+	if (!result || (result.type === "action" && result.key === "c")) {
 		return null;
 	}
 	const redirect = extractRedirect(
@@ -141,7 +142,7 @@ export async function confirmDeleteEmail(
 		],
 	});
 
-	if (!result || (result.type === "action" && result.value === "c")) {
+	if (!result || (result.type === "action" && result.key === "c")) {
 		return null;
 	}
 	const redirect = extractRedirect(
@@ -198,7 +199,7 @@ export async function confirmCreateEvent(
 		],
 	});
 
-	if (!result || (result.type === "action" && result.value === "x")) {
+	if (!result || (result.type === "action" && result.key === "x")) {
 		return null;
 	}
 	const redirect = extractRedirect(
@@ -256,7 +257,7 @@ export async function confirmUpdateEvent(
 		],
 	});
 
-	if (!result || (result.type === "action" && result.value === "c")) {
+	if (!result || (result.type === "action" && result.key === "c")) {
 		return null;
 	}
 	const redirect = extractRedirect(
@@ -298,7 +299,7 @@ export async function confirmDeleteEvent(
 		],
 	});
 
-	if (!result || (result.type === "action" && result.value === "c")) {
+	if (!result || (result.type === "action" && result.key === "c")) {
 		return null;
 	}
 	const redirect = extractRedirect(result, `Delete event: ${summary}`);

@@ -79,7 +79,7 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 			);
 		}
 
-		if (result.type === "action" && result.value === "a") {
+		if (result.type === "action" && result.key === "a") {
 			return undefined;
 		}
 

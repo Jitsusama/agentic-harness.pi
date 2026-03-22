@@ -69,7 +69,7 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 		}
 
 		if (result.type === "action") {
-			if (result.value === "a") {
+			if (result.key === "a") {
 				if (result.note) {
 					return formatRedirect(
 						result.note,

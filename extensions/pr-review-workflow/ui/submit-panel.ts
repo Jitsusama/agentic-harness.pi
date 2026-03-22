@@ -108,7 +108,7 @@ export async function showSubmitPanel(
 		return { action: "redirect", note: result.note };
 	}
 
-	if (result.type === "action" && result.value === "p") {
+	if (result.type === "action" && result.key === "p") {
 		return { action: "post" };
 	}
 

@@ -52,8 +52,8 @@ export async function showSinglePrompt(
 		let cachedWidth = -1;
 		const hScrollEnabled = config.allowHScroll === true;
 		let editorContext: {
-			type: "annotatedAction" | "redirect" | "editor";
-			actionKey?: string;
+			type: "annotatedAction" | "annotatedOption" | "redirect" | "optionEditor";
+			key?: string;
 			label?: string;
 		} | null = null;
 		const editor = new Editor(tui, buildNoteEditorTheme(theme));
@@ -79,13 +79,19 @@ export async function showSinglePrompt(
 			} else if (editorContext.type === "annotatedAction") {
 				done({
 					type: "action",
-					value: editorContext.actionKey ?? "",
+					key: editorContext.key ?? "",
 					note: trimmed,
 				});
-			} else if (editorContext.type === "editor") {
+			} else if (editorContext.type === "annotatedOption") {
 				done({
-					type: "action",
-					value: editorContext.actionKey ?? "",
+					type: "option",
+					value: editorContext.key ?? "",
+					note: trimmed,
+				});
+			} else if (editorContext.type === "optionEditor") {
+				done({
+					type: "option",
+					value: editorContext.key ?? "",
 					editorText: trimmed,
 				});
 			}
@@ -168,11 +174,11 @@ export async function showSinglePrompt(
 						const opt = options[result.index];
 						if (opt?.opensEditor) {
 							openEditor(
-								{ type: "editor", actionKey: optionValue(opt) },
+								{ type: "optionEditor", key: optionValue(opt) },
 								opt.editorPreFill,
 							);
 						} else if (opt) {
-							done({ type: "action", value: optionValue(opt) });
+							done({ type: "option", value: optionValue(opt) });
 						}
 					} else if (result.type === "cancel") {
 						done(null);
@@ -185,8 +191,8 @@ export async function showSinglePrompt(
 					const opt = options[optionIndex];
 					if (opt) {
 						openEditor({
-							type: "annotatedAction",
-							actionKey: optionValue(opt),
+							type: "annotatedOption",
+							key: optionValue(opt),
 						});
 					}
 					return;
@@ -196,12 +202,12 @@ export async function showSinglePrompt(
 
 		function handleActionResult(result: ActionBarResult) {
 			if (result.type === "action") {
-				done({ type: "action", value: result.key });
+				done({ type: "action", key: result.key });
 			} else if (result.type === "annotatedAction") {
 				const action = actions?.find((a) => a.key === result.key);
 				openEditor({
 					type: "annotatedAction",
-					actionKey: result.key,
+					key: result.key,
 					label: action?.label,
 				});
 			} else if (result.type === "redirect") {

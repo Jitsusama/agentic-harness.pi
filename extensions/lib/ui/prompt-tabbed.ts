@@ -76,8 +76,14 @@ export async function showTabbedPrompt(
 		const loadingViews = new Set<string>();
 
 		let editorContext: {
-			type: "annotatedAction" | "redirect" | "editor" | "addItem" | "editItem";
-			actionKey?: string;
+			type:
+				| "annotatedAction"
+				| "annotatedOption"
+				| "redirect"
+				| "optionEditor"
+				| "addItem"
+				| "editItem";
+			key?: string;
 			label?: string;
 			index?: number;
 		} | null = null;
@@ -162,13 +168,19 @@ export async function showTabbedPrompt(
 			} else if (editorContext.type === "annotatedAction") {
 				result = {
 					type: "action",
-					value: editorContext.actionKey ?? "",
+					key: editorContext.key ?? "",
+					note: trimmed,
+				};
+			} else if (editorContext.type === "annotatedOption") {
+				result = {
+					type: "option",
+					value: editorContext.key ?? "",
 					note: trimmed,
 				};
 			} else {
 				result = {
-					type: "action",
-					value: editorContext.actionKey ?? "",
+					type: "option",
+					value: editorContext.key ?? "",
 					editorText: trimmed,
 				};
 			}
@@ -319,12 +331,12 @@ export async function showTabbedPrompt(
 						const opt = options[result.index];
 						if (opt?.opensEditor) {
 							openEditor(
-								{ type: "editor", actionKey: optionValue(opt) },
+								{ type: "optionEditor", key: optionValue(opt) },
 								opt.editorPreFill,
 							);
 						} else if (opt) {
 							handleItemResult({
-								type: "action",
+								type: "option",
 								value: optionValue(opt),
 							});
 						}
@@ -336,8 +348,8 @@ export async function showTabbedPrompt(
 					const opt = options[optionIndex];
 					if (opt) {
 						openEditor({
-							type: "annotatedAction",
-							actionKey: optionValue(opt),
+							type: "annotatedOption",
+							key: optionValue(opt),
 						});
 					}
 					return;
@@ -415,13 +427,13 @@ export async function showTabbedPrompt(
 
 		function handleActionResult(result: ActionBarResult) {
 			if (result.type === "action") {
-				handleItemResult({ type: "action", value: result.key });
+				handleItemResult({ type: "action", key: result.key });
 			} else if (result.type === "annotatedAction") {
 				const actions = currentActions();
 				const action = actions?.find((a) => a.key === result.key);
 				openEditor({
 					type: "annotatedAction",
-					actionKey: result.key,
+					key: result.key,
 					label: action?.label,
 				});
 			} else if (result.type === "redirect") {

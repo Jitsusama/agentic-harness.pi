@@ -100,7 +100,7 @@ export async function showTransitionGate(
 		],
 	});
 
-	if (!result || (result.type === "action" && result.value === "s")) {
+	if (!result || (result.type === "action" && result.key === "s")) {
 		return { approved: false };
 	}
 
@@ -108,7 +108,7 @@ export async function showTransitionGate(
 		return { approved: false, feedback: result.note };
 	}
 
-	if (result.type === "action" && result.value === "m") {
+	if (result.type === "action" && result.key === "m") {
 		if (result.note) {
 			return { approved: false, feedback: result.note };
 		}

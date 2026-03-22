@@ -73,7 +73,7 @@ export const issueGuardian: CommandGuardian<IssueCommand> = {
 		}
 
 		if (result.type === "action") {
-			if (result.value === "a") {
+			if (result.key === "a") {
 				if (result.note) {
 					return formatRedirect(
 						result.note,

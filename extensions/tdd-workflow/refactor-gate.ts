@@ -91,9 +91,9 @@ export async function showRefactorGate(
 		const suggestion = suggestions[i];
 		if (!suggestion) continue;
 
-		if (itemResult.type === "action" && itemResult.value === "a") {
+		if (itemResult.type === "action" && itemResult.key === "a") {
 			approved.push(suggestion);
-		} else if (itemResult.type === "action" && itemResult.value === "r") {
+		} else if (itemResult.type === "action" && itemResult.key === "r") {
 			rejected++;
 		}
 	}

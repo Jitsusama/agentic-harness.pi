@@ -82,7 +82,7 @@ export async function showSummaryPanel(
 	});
 
 	if (!result) return false;
-	return result.type === "action" && result.value === "b";
+	return result.type === "action" && result.key === "b";
 }
 
 /**
@@ -145,7 +145,7 @@ export async function showReviewOverviewPanel(
 	});
 
 	if (!result) return false;
-	return result.type === "action" && result.value === "c";
+	return result.type === "action" && result.key === "c";
 }
 
 /** Dependent PR info for rebase confirmation. */
@@ -190,5 +190,5 @@ export async function showRebasePanel(
 	});
 
 	if (!result || result.type !== "action") return null;
-	return result.value === "r" ? "rebase" : "skip";
+	return result.key === "r" ? "rebase" : "skip";
 }

@@ -62,7 +62,7 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 		}
 
 		if (result.type === "action") {
-			if (result.value === "a") {
+			if (result.key === "a") {
 				// If the user added a note on approve, we treat it as a redirect.
 				if (result.note) {
 					return formatRedirect(

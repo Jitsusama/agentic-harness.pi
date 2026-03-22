@@ -147,7 +147,7 @@ export async function showReviewPanel(
 	// This handles the 'p' action to mark the current tab passed.
 	// It's passed inline via handleInput, but if it reaches here
 	// it means the workspace returned an action result.
-	if (result.type === "action" && result.value === "p") {
+	if (result.type === "action" && result.key === "p") {
 		// Tab marking is done inline via handleInput.
 		return null;
 	}

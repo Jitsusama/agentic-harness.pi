@@ -75,14 +75,22 @@ export interface Option {
 
 /**
  * Result from a single prompt. Discriminated union:
- * - 'action': user picked a specific action/option
+ * - 'action': user pressed a key action from the action bar
+ * - 'option': user selected an item from the option list
  * - 'redirect': user wants a different approach (Shift+Escape)
  * null = cancelled (Escape)
  */
 export type PromptResult =
 	| {
 			type: "action";
-			/** The action key (for actions) or option value (for options). */
+			/** The action key (single letter). */
+			key: string;
+			/** Annotation from hold-to-reveal. Present when user added a note. */
+			note?: string;
+	  }
+	| {
+			type: "option";
+			/** The selected option's value. */
 			value: string;
 			/** Annotation from hold-to-reveal. Present when user added a note. */
 			note?: string;
@@ -298,5 +306,5 @@ export interface WorkspaceInputContext {
 export type WorkspaceResult =
 	| { type: "submit" }
 	| { type: "redirect"; note: string }
-	| { type: "action"; value: string; note?: string }
+	| { type: "action"; key: string; note?: string }
 	| null;

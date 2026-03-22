@@ -33,7 +33,7 @@ export async function handlePlanWritten(
 		],
 	});
 
-	if (!result || (result.type === "action" && result.value === "s")) return;
+	if (!result || (result.type === "action" && result.key === "s")) return;
 
 	if (result.type === "redirect") {
 		deactivate(state, pi, ctx);
@@ -41,7 +41,7 @@ export async function handlePlanWritten(
 		return;
 	}
 
-	if (result.type === "action" && result.value === "i") {
+	if (result.type === "action" && result.key === "i") {
 		deactivate(state, pi, ctx);
 
 		if (result.note) {

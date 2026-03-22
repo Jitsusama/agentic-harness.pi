@@ -154,7 +154,7 @@ export default function ask(pi: ExtensionAPI) {
 					};
 				}
 
-				if (result.type === "action") {
+				if (result.type === "option") {
 					if (result.value === "__other__" && result.editorText) {
 						answers.set(q.id, {
 							id: q.id,
@@ -204,7 +204,7 @@ export default function ask(pi: ExtensionAPI) {
 
 				for (const [index, itemResult] of result.items) {
 					const q = questions[index];
-					if (!q || itemResult.type !== "action") continue;
+					if (!q || itemResult.type !== "option") continue;
 
 					if (itemResult.value === "__other__" && itemResult.editorText) {
 						answers.set(q.id, {

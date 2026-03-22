@@ -113,7 +113,7 @@ export async function showPlanInterview(
 		const q = questions[index];
 		if (!q) continue;
 		if (
-			itemResult.type === "action" &&
+			itemResult.type === "option" &&
 			itemResult.value === "answer" &&
 			itemResult.editorText?.trim()
 		) {

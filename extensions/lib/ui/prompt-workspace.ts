@@ -295,7 +295,7 @@ export async function showWorkspacePrompt(
 				const result = handleActionInput(data, actions);
 				if (result) {
 					if (result.type === "action") {
-						done({ type: "action", value: result.key });
+						done({ type: "action", key: result.key });
 					} else if (result.type === "redirect") {
 						editorLabel = "Feedback:";
 						editorMode = true;

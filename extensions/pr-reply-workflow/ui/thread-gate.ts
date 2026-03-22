@@ -117,6 +117,6 @@ export async function showThreadGate(
 		return { action: "redirect", feedback: result.note };
 	}
 
-	const action = ACTION_BY_KEY[result.value] ?? "pass";
+	const action = ACTION_BY_KEY[result.key] ?? "pass";
 	return { action };
 }
