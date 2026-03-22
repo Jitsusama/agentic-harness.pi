@@ -25,18 +25,14 @@ import {
 import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
+	HSCROLL_CONTENT_WIDTH,
 	handleScrollInput,
 	maxContentWidth,
 	renderScrollRegion,
+	SCROLLBAR_GUTTER,
 	type ScrollState,
 } from "./scroll-region.js";
-import {
-	GLYPH,
-	HSCROLL_CONTENT_WIDTH,
-	type PromptResult,
-	SCROLLBAR_GUTTER,
-	type SinglePromptConfig,
-} from "./types.js";
+import { GLYPH, type PromptResult, type SinglePromptConfig } from "./types.js";
 
 /** Show a single interactive prompt panel. */
 export async function showSinglePrompt(
@@ -52,8 +48,8 @@ export async function showSinglePrompt(
 		let cachedWidth = -1;
 		const hScrollEnabled = config.allowHScroll === true;
 		let editorContext: {
-			type: "annotatedAction" | "redirect" | "editor";
-			actionKey?: string;
+			type: "annotatedAction" | "annotatedOption" | "redirect" | "optionEditor";
+			key?: string;
 			label?: string;
 		} | null = null;
 		const editor = new Editor(tui, buildNoteEditorTheme(theme));
@@ -79,13 +75,19 @@ export async function showSinglePrompt(
 			} else if (editorContext.type === "annotatedAction") {
 				done({
 					type: "action",
-					value: editorContext.actionKey ?? "",
+					key: editorContext.key ?? "",
 					note: trimmed,
 				});
-			} else if (editorContext.type === "editor") {
+			} else if (editorContext.type === "annotatedOption") {
 				done({
-					type: "action",
-					value: editorContext.actionKey ?? "",
+					type: "option",
+					value: editorContext.key ?? "",
+					note: trimmed,
+				});
+			} else if (editorContext.type === "optionEditor") {
+				done({
+					type: "option",
+					value: editorContext.key ?? "",
 					editorText: trimmed,
 				});
 			}
@@ -125,7 +127,9 @@ export async function showSinglePrompt(
 			}
 
 			// Scroll handling
-			const chromeLines = computeChromeLines(false, actions, options);
+			const titleLines = config.title ? 2 : 0;
+			const chromeLines =
+				computeChromeLines(false, actions, options) + titleLines;
 			const budget = contentBudget(chromeLines);
 			const maxH = Math.max(
 				0,
@@ -166,11 +170,11 @@ export async function showSinglePrompt(
 						const opt = options[result.index];
 						if (opt?.opensEditor) {
 							openEditor(
-								{ type: "editor", actionKey: optionValue(opt) },
+								{ type: "optionEditor", key: optionValue(opt) },
 								opt.editorPreFill,
 							);
 						} else if (opt) {
-							done({ type: "action", value: optionValue(opt) });
+							done({ type: "option", value: optionValue(opt) });
 						}
 					} else if (result.type === "cancel") {
 						done(null);
@@ -183,8 +187,8 @@ export async function showSinglePrompt(
 					const opt = options[optionIndex];
 					if (opt) {
 						openEditor({
-							type: "annotatedAction",
-							actionKey: optionValue(opt),
+							type: "annotatedOption",
+							key: optionValue(opt),
 						});
 					}
 					return;
@@ -194,12 +198,12 @@ export async function showSinglePrompt(
 
 		function handleActionResult(result: ActionBarResult) {
 			if (result.type === "action") {
-				done({ type: "action", value: result.key });
+				done({ type: "action", key: result.key });
 			} else if (result.type === "annotatedAction") {
 				const action = actions?.find((a) => a.key === result.key);
 				openEditor({
 					type: "annotatedAction",
-					actionKey: result.key,
+					key: result.key,
 					label: action?.label,
 				});
 			} else if (result.type === "redirect") {
@@ -210,12 +214,19 @@ export async function showSinglePrompt(
 		function render(width: number): string[] {
 			const lines: string[] = [];
 			const add = (s: string) => lines.push(truncateToWidth(s, width));
+			const titleLines = config.title ? 2 : 0;
 
 			// Top border
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 
+			if (config.title) {
+				add(` ${theme.fg("accent", theme.bold(config.title))}`);
+				add("");
+			}
+
 			// Content (cached: only re-render on width change)
-			const chromeLines = computeChromeLines(false, actions, options);
+			const chromeLines =
+				computeChromeLines(false, actions, options) + titleLines;
 			const budget = contentBudget(chromeLines);
 			if (!cachedContent || width !== cachedWidth) {
 				const contentWidth = hScrollEnabled
@@ -244,7 +255,7 @@ export async function showSinglePrompt(
 
 			// We pad to budget only when scrolling to keep height stable.
 			if (needsVScroll) {
-				while (lines.length < budget + 1) {
+				while (lines.length < budget + 1 + titleLines) {
 					lines.push("");
 				}
 			}

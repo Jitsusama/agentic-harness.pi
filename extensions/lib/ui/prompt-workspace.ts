@@ -27,17 +27,17 @@ import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
 import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
+	HSCROLL_CONTENT_WIDTH,
 	handleScrollInput,
 	maxContentWidth,
 	renderScrollRegion,
+	SCROLLBAR_GUTTER,
 	type ScrollState,
 } from "./scroll-region.js";
 import { handleTabInput, renderTabStrip } from "./tab-strip.js";
 import {
 	type Action,
 	GLYPH,
-	HSCROLL_CONTENT_WIDTH,
-	SCROLLBAR_GUTTER,
 	type TabStatus,
 	type WorkspaceConfig,
 	type WorkspaceInputContext,
@@ -295,7 +295,7 @@ export async function showWorkspacePrompt(
 				const result = handleActionInput(data, actions);
 				if (result) {
 					if (result.type === "action") {
-						done({ type: "action", value: result.key });
+						done({ type: "action", key: result.key });
 					} else if (result.type === "redirect") {
 						editorLabel = "Feedback:";
 						editorMode = true;

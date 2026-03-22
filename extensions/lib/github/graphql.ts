@@ -8,7 +8,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { PRReference } from "../parse/pr-reference.js";
+import type { PRReference } from "./pr-reference.js";
 
 /**
  * Execute a typed GraphQL query via `gh api graphql`.

@@ -10,19 +10,16 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import { resolveRepo } from "../lib/github/repo-discovery.js";
 import { buildAnalysisPrompt } from "./analysis.js";
 import {
 	fetchReviews,
+	getPRBranch,
 	type PRReference,
 	postReply,
 	refreshThreadComments,
 } from "./api/github.js";
-import {
-	findDependentPRs,
-	getCurrentBranch,
-	type SwitchResult,
-	switchToRepo,
-} from "./api/repo.js";
+import { getCurrentBranch, resolvePR } from "./api/repo.js";
 import {
 	briefActivation,
 	briefBatchAnalysis,
@@ -30,27 +27,22 @@ import {
 	briefImplementChoice,
 	briefProgress,
 	briefReAnalyze,
-	briefRebaseApproved,
 	briefRedirect,
 	briefReplyChoice,
 	briefReviewSummary,
 	briefThread,
+	buildImplementationContext,
 } from "./briefing.js";
+import { readCodeContext } from "./code-context.js";
+import { checkDependentPRs } from "./dependency-chain.js";
 import {
 	beginTDDImplementation,
-	buildImplementationContext,
 	collectImplementationCommits,
 	linkCommitsToThread,
+	pushIfNeeded,
 	recordImplementationStart,
-	shortSHAs,
 } from "./implementation.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
-import {
-	getPRBranch,
-	pushIfNeeded,
-	readCodeContext,
-	resolvePR,
-} from "./navigation.js";
 import { findPlanContext } from "./plans.js";
 import { buildReplyGuidance } from "./replies.js";
 import {
@@ -59,12 +51,7 @@ import {
 	type Thread,
 	threadsForReview,
 } from "./state.js";
-import {
-	type DependentPR,
-	showRebasePanel,
-	showReviewOverviewPanel,
-	showSummaryPanel,
-} from "./ui/panels.js";
+import { showReviewOverviewPanel, showSummaryPanel } from "./ui/panels.js";
 import { showReplyReview } from "./ui/reply-review.js";
 import { showThreadGate, type ThreadGateChoice } from "./ui/thread-gate.js";
 import { showReplyWorkspace } from "./ui/workspace.js";
@@ -72,6 +59,13 @@ import { showReplyWorkspace } from "./ui/workspace.js";
 /** Build a simple text tool result. */
 function textResult(text: string) {
 	return { content: [{ type: "text" as const, text }] };
+}
+
+const VALID_RECOMMENDATIONS = new Set(["implement", "reply", "pass"]);
+
+/** Validate an LLM-provided recommendation string. */
+function isRecommendation(s: string): s is "implement" | "reply" | "pass" {
+	return VALID_RECOMMENDATIONS.has(s);
 }
 
 /** Get the current thread based on review-centric navigation. */
@@ -123,9 +117,15 @@ export async function handleActivate(
 		);
 	}
 
-	const switchResult = await switchToRepo(pi, ref, userRequest);
-	if (switchResult.status !== "already-here") {
-		return handleSwitchResult(ctx, switchResult, ref);
+	const repoResult = await resolveRepo(
+		pi,
+		ref.owner,
+		ref.repo,
+		userRequest ??
+			`respond to reviews on ${ref.owner}/${ref.repo}#${ref.number}`,
+	);
+	if (repoResult.status !== "current") {
+		return handleRepoResult(ctx, repoResult, ref);
 	}
 
 	// We ensure we're on the PR's branch.
@@ -180,16 +180,15 @@ export async function handleActivate(
 
 	activate(state, pi, ctx);
 
-	const proceed = await showSummaryPanel(
-		ctx,
-		ref.number,
-		ref.owner,
-		ref.repo,
-		state.branch,
-		activeReviews,
-		unresolvedThreads,
+	const proceed = await showSummaryPanel(ctx, {
+		prNumber: ref.number,
+		owner: ref.owner,
+		repo: ref.repo,
+		branch: state.branch,
+		reviews: activeReviews,
+		threads: unresolvedThreads,
 		dismissedCount,
-	);
+	});
 
 	if (!proceed) {
 		deactivate(state, pi, ctx);
@@ -257,8 +256,11 @@ export async function handleGenerateAnalysis(
 
 	if (analyses) {
 		for (const a of analyses) {
+			const rec = isRecommendation(a.recommendation)
+				? a.recommendation
+				: "pass";
 			state.threadAnalyses.set(a.thread_id, {
-				recommendation: a.recommendation as "implement" | "reply" | "pass",
+				recommendation: rec,
 				analysis: a.analysis,
 			});
 		}
@@ -764,7 +766,7 @@ export async function handleDone(
 		details: {
 			action: "done",
 			threadId: thread.id,
-			commits: shortSHAs(commits),
+			commits: commits.map((sha) => sha.slice(0, 7)),
 		},
 	};
 }
@@ -919,11 +921,16 @@ async function reviewAndPostReply(
 }
 
 /**
- * Handle the result of attempting to switch repositories.
+ * Handle a non-current repo resolution: either the repo was
+ * opened in a new tab, the tab failed to open, or the repo
+ * wasn't found on disk.
  */
-function handleSwitchResult(
+function handleRepoResult(
 	ctx: ExtensionContext,
-	result: SwitchResult,
+	result: Exclude<
+		import("../lib/github/repo-discovery.js").RepoResolution,
+		{ status: "current" }
+	>,
 	ref: PRReference,
 ) {
 	switch (result.status) {
@@ -947,7 +954,7 @@ function handleSwitchResult(
 				details: { openedTab: true, repoPath: result.repoPath },
 			};
 
-		case "not-found-opened-tab-failed":
+		case "open-failed":
 			return textResult(
 				`Found ${ref.owner}/${ref.repo} at ${result.repoPath} but could not open a new tab. ` +
 					`The user should run: cd ${result.repoPath} && pi "respond to reviews on ${ref.owner}/${ref.repo}#${ref.number}"`,
@@ -958,103 +965,5 @@ function handleSwitchResult(
 				`Repository ${ref.owner}/${ref.repo} was not found on disk. ` +
 					"Ask the user where the repository is located.",
 			);
-
-		default:
-			return textResult("Unexpected state.");
 	}
-}
-
-/**
- * Walk the dependency chain and offer to rebase dependent PRs.
- * Returns rebase instructions for the LLM, or null if nothing to do.
- */
-async function checkDependentPRs(
-	state: PRReplyState,
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-): Promise<string | null> {
-	if (!state.owner || !state.repo || !state.branch) return null;
-
-	const chain = await walkDependencyChain(
-		pi,
-		state.owner,
-		state.repo,
-		state.branch,
-	);
-	if (chain.length === 0) return null;
-
-	const choice = await showRebasePanel(ctx, chain);
-
-	if (choice === "rebase") {
-		return briefRebaseApproved(chain);
-	}
-
-	return null;
-}
-
-/**
- * Recursively find all PRs in the dependency chain.
- * Returns them in rebase order (closest dependent first).
- */
-async function walkDependencyChain(
-	pi: ExtensionAPI,
-	owner: string,
-	repo: string,
-	branch: string,
-): Promise<DependentPR[]> {
-	const chain: DependentPR[] = [];
-	const visited = new Set<string>();
-	let currentBranch = branch;
-
-	while (true) {
-		if (visited.has(currentBranch)) break;
-		visited.add(currentBranch);
-
-		const dependentNumbers = await findDependentPRs(
-			pi,
-			owner,
-			repo,
-			currentBranch,
-		);
-		if (dependentNumbers.length === 0) break;
-
-		const info = await fetchPRInfo(pi, owner, repo, dependentNumbers[0]);
-		chain.push(info);
-		currentBranch = info.branch;
-	}
-
-	return chain;
-}
-
-/** Fetch basic info about a PR for the dependency chain. */
-async function fetchPRInfo(
-	pi: ExtensionAPI,
-	owner: string,
-	repo: string,
-	prNumber: number,
-): Promise<DependentPR> {
-	const result = await pi.exec("gh", [
-		"pr",
-		"view",
-		String(prNumber),
-		"--repo",
-		`${owner}/${repo}`,
-		"--json",
-		"number,title,headRefName",
-	]);
-
-	if (result.code === 0) {
-		try {
-			const data = JSON.parse(result.stdout);
-			return {
-				number: data.number ?? prNumber,
-				title: data.title ?? `PR #${prNumber}`,
-				branch: data.headRefName ?? "unknown",
-			};
-		} catch {
-			/* Parse failure: fall through to default */
-		}
-	}
-
-	return { number: prNumber, title: `PR #${prNumber}`, branch: "unknown" };
 }

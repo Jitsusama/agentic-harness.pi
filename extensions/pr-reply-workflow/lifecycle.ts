@@ -139,9 +139,6 @@ export function persist(state: PRReplyState, pi: ExtensionAPI): void {
 		branch: state.branch,
 		reviews: state.reviews,
 		threads: state.threads,
-		reviewIndex: state.reviewIndex,
-		reviewIntroduced: state.reviewIntroduced,
-		threadIndexInReview: state.threadIndexInReview,
 		threadStates: Array.from(state.threadStates.entries()),
 		threadAnalyses: Array.from(state.threadAnalyses.entries()),
 		reviewerAnalyses: Array.from(state.reviewerAnalyses.entries()),
@@ -171,9 +168,6 @@ export function restore(state: PRReplyState, ctx: ExtensionContext): void {
 		branch?: string;
 		reviews?: Review[];
 		threads?: Thread[];
-		reviewIndex?: number;
-		reviewIntroduced?: boolean;
-		threadIndexInReview?: number;
 		threadStates?: Array<[string, ThreadState]>;
 		threadAnalyses?: Array<
 			[string, { recommendation: string; analysis: string }]
@@ -199,9 +193,6 @@ export function restore(state: PRReplyState, ctx: ExtensionContext): void {
 	state.branch = saved.branch ?? null;
 	state.reviews = saved.reviews ?? [];
 	state.threads = saved.threads ?? [];
-	state.reviewIndex = saved.reviewIndex ?? 0;
-	state.reviewIntroduced = saved.reviewIntroduced ?? false;
-	state.threadIndexInReview = saved.threadIndexInReview ?? 0;
 	state.awaitingTDDCompletion = saved.awaitingTDDCompletion ?? false;
 	state.tddThreadId = saved.tddThreadId ?? null;
 	state.implementationStartSHA = saved.implementationStartSHA ?? null;

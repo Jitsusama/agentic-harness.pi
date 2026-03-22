@@ -7,7 +7,7 @@
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
-import { prompt } from "../../lib/ui/panel.js";
+import { promptSingle } from "../../lib/ui/panel.js";
 import { CONTENT_INDENT } from "../../lib/ui/text.js";
 import type { ReviewComment, ReviewSession, ReviewVerdict } from "../state.js";
 
@@ -29,7 +29,7 @@ export async function showSubmitPanel(
 	const rejected = session.comments.filter((c) => c.status === "rejected");
 	const pending = session.comments.filter((c) => c.status === "pending");
 
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
@@ -108,7 +108,7 @@ export async function showSubmitPanel(
 		return { action: "redirect", note: result.note };
 	}
 
-	if (result.type === "action" && result.value === "p") {
+	if (result.type === "action" && result.key === "p") {
 		return { action: "post" };
 	}
 

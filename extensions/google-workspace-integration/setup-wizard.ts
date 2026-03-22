@@ -4,7 +4,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { prompt } from "../lib/ui/panel.js";
+import { promptSingle } from "../lib/ui/panel.js";
 import {
 	getOAuthApp,
 	hasOAuthApp,
@@ -56,7 +56,7 @@ async function runSetupWizard(
 	ctx: ExtensionContext,
 ): Promise<OAuthAppCredentials | null> {
 	// Step 1: Show instructions and ask to proceed
-	const proceed = await prompt(ctx, {
+	const proceed = await promptSingle(ctx, {
 		content: (theme) => [
 			` ${theme.bold("⚙️  Google Workspace Setup")}`,
 			"",
