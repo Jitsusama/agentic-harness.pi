@@ -41,7 +41,10 @@ import {
 } from "./handlers.js";
 import { deactivate, restore } from "./lifecycle.js";
 import { createState } from "./state.js";
-import { buildPRReviewContext, prReviewContextFilter } from "./transitions.js";
+import {
+	injectReviewGuidance,
+	pruneStaleReviewGuidance,
+} from "./transitions.js";
 
 /** Actions the LLM can request. */
 const ACTIONS = [
@@ -367,10 +370,10 @@ export default function prReview(pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async () => {
-		return buildPRReviewContext(state);
+		return injectReviewGuidance(state);
 	});
 
-	pi.on("context", prReviewContextFilter(state));
+	pi.on("context", pruneStaleReviewGuidance(state));
 
 	pi.on("session_start", async (_event, ctx) => {
 		restore(state, ctx);
