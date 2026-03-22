@@ -272,7 +272,9 @@ export async function showTabbedPrompt(
 			// Scroll
 			const actions = currentActions();
 			const options = currentOptions();
-			const chromeLines = computeChromeLines(true, actions, options);
+			const titleExtra = config.title ? 2 : 0;
+			const chromeLines =
+				computeChromeLines(true, actions, options) + titleExtra;
 			const budget = contentBudget(chromeLines);
 			const viewIdx = getViewIndex(currentTab);
 			const scrollState = getScrollState(currentTab, viewIdx);
@@ -347,7 +349,9 @@ export async function showTabbedPrompt(
 			const options = currentOptions();
 			const actions = currentActions();
 
-			const chromeLines = computeChromeLines(true, actions, options);
+			const titleExtra = config.title ? 2 : 0;
+			const chromeLines =
+				computeChromeLines(true, actions, options) + titleExtra;
 			const budget = contentBudget(chromeLines);
 			const key = cacheKey(currentTab, 0);
 			const cachedEntry = contentCache.get(key);
@@ -508,6 +512,11 @@ export async function showTabbedPrompt(
 			// Top border
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 
+			if (config.title) {
+				add(` ${theme.fg("accent", theme.bold(config.title))}`);
+				add("");
+			}
+
 			// Tab strip
 			const labels = config.items.map((it) => it.label);
 			add(
@@ -525,7 +534,9 @@ export async function showTabbedPrompt(
 			);
 
 			// Content
-			const chromeLines = computeChromeLines(true, actions, options);
+			const titleExtra = config.title ? 2 : 0;
+			const chromeLines =
+				computeChromeLines(true, actions, options) + titleExtra;
 			const budget = contentBudget(chromeLines);
 			const key = cacheKey(currentTab, viewIdx);
 
@@ -576,7 +587,7 @@ export async function showTabbedPrompt(
 			for (const line of scrolled) add(line);
 
 			if (needsVScroll) {
-				const targetContentEnd = 1 + 2 + budget;
+				const targetContentEnd = 1 + 2 + titleExtra + budget;
 				while (lines.length < targetContentEnd) {
 					lines.push("");
 				}

@@ -125,7 +125,9 @@ export async function showSinglePrompt(
 			}
 
 			// Scroll handling
-			const chromeLines = computeChromeLines(false, actions, options);
+			const titleLines = config.title ? 2 : 0;
+			const chromeLines =
+				computeChromeLines(false, actions, options) + titleLines;
 			const budget = contentBudget(chromeLines);
 			const maxH = Math.max(
 				0,
@@ -210,12 +212,19 @@ export async function showSinglePrompt(
 		function render(width: number): string[] {
 			const lines: string[] = [];
 			const add = (s: string) => lines.push(truncateToWidth(s, width));
+			const titleLines = config.title ? 2 : 0;
 
 			// Top border
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 
+			if (config.title) {
+				add(` ${theme.fg("accent", theme.bold(config.title))}`);
+				add("");
+			}
+
 			// Content (cached: only re-render on width change)
-			const chromeLines = computeChromeLines(false, actions, options);
+			const chromeLines =
+				computeChromeLines(false, actions, options) + titleLines;
 			const budget = contentBudget(chromeLines);
 			if (!cachedContent || width !== cachedWidth) {
 				const contentWidth = hScrollEnabled
@@ -244,7 +253,7 @@ export async function showSinglePrompt(
 
 			// We pad to budget only when scrolling to keep height stable.
 			if (needsVScroll) {
-				while (lines.length < budget + 1) {
+				while (lines.length < budget + 1 + titleLines) {
 					lines.push("");
 				}
 			}

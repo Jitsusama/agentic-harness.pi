@@ -138,6 +138,8 @@ export interface PromptItem {
  * Must provide at least one of: actions, options.
  */
 export interface SinglePromptConfig {
+	/** Optional title shown at the top, below the border. */
+	title?: string;
 	/** Renders the content area. */
 	content: ContentFn;
 	/** Fixed actions (Type A key-hint bar). */
@@ -154,6 +156,8 @@ export interface SinglePromptConfig {
  * Config for a tabbed prompt (multiple items).
  */
 export interface TabbedPromptConfig {
+	/** Optional title shown at the top, below the border. */
+	title?: string;
 	/** Items to review. Each becomes a tab. */
 	items: PromptItem[];
 	/**
