@@ -18,6 +18,7 @@ import {
 	renderMarkdown,
 } from "../../lib/ui/content-renderer.js";
 import { workspace } from "../../lib/ui/panel.js";
+import { tabCompletion } from "../../lib/ui/tab-completion.js";
 import {
 	CONTENT_INDENT,
 	contentWrapWidth,
@@ -119,15 +120,12 @@ export async function showReviewPanel(
 		})),
 	}));
 
+	const completion = tabCompletion(tabIds, (id) => isTabPassed(session, id));
+
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
 		globalActions: [PASS_ACTION],
-		tabStatus: (index) => {
-			const tabId = tabIds[index];
-			if (!tabId) return "pending";
-			return isTabPassed(session, tabId) ? "complete" : "pending";
-		},
-		allComplete: () => tabIds.every((id) => isTabPassed(session, id)),
+		...completion,
 		allowHScroll: true,
 	});
 

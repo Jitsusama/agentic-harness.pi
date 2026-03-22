@@ -14,6 +14,7 @@ import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { workspace } from "../../lib/ui/panel.js";
+import { tabCompletion } from "../../lib/ui/tab-completion.js";
 import { contentWrapWidth, wordWrap } from "../../lib/ui/text-layout.js";
 import type {
 	WorkspaceInputContext,
@@ -110,14 +111,16 @@ export async function showReplyWorkspace(
 
 	const tabIds = ["summary", ...reviews.map((r) => r.id)];
 
+	const reviewIds = reviews.map((r) => r.id);
+	const completion = tabCompletion(
+		tabIds,
+		(id) => tabComplete.has(id),
+		reviewIds,
+	);
+
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
-		tabStatus: (index) => {
-			const tabId = tabIds[index];
-			if (!tabId || tabId === "summary") return "pending";
-			return tabComplete.has(tabId) ? "complete" : "pending";
-		},
-		allComplete: () => reviews.every((r) => tabComplete.has(r.id)),
+		...completion,
 		allowHScroll: true,
 	});
 
