@@ -7,5 +7,5 @@ reasons and commit cadence.
 Activates when implementing features with tests or discussing
 testing.
 
-Pairs with the [tdd-mode extension](../../extensions/tdd-mode/)
+Pairs with the [tdd-workflow extension](../../extensions/tdd-workflow/)
 for phase enforcement.

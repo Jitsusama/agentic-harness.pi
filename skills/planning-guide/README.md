@@ -6,5 +6,5 @@ structured implementation plan.
 
 Activates when you're designing or architecting before building.
 
-Pairs with the [plan-mode extension](../../extensions/plan-mode/)
+Pairs with the [plan-workflow extension](../../extensions/plan-workflow/)
 for read-only enforcement during investigation.
