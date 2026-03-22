@@ -7,7 +7,7 @@
  * keys and their Shift variants.
  */
 
-import { Key, matchesKey } from "@mariozechner/pi-tui";
+import { Key, matchesKey, parseKey } from "@mariozechner/pi-tui";
 import type { KeyAction } from "./types.js";
 
 /**
@@ -41,6 +41,19 @@ const SHIFTED_SYMBOL_BASE: Record<string, string> = {
 	"?": "/",
 	"~": "`",
 };
+
+/**
+ * Check if input is Shift+Escape.
+ *
+ * pi-tui's `matchesKey` rejects all modifiers on escape
+ * (`if (modifier !== 0) return false`), so
+ * `matchesKey(data, Key.shift("escape"))` always fails.
+ * We use `parseKey` instead, which correctly identifies
+ * Shift+Escape from Kitty CSI-u and modifyOtherKeys sequences.
+ */
+export function isShiftEscape(data: string): boolean {
+	return parseKey(data) === "shift+escape";
+}
 
 /**
  * Match a key that may be a shifted symbol.
@@ -88,7 +101,7 @@ export function handleActionInput(
 	}
 
 	// Shift+Escape = redirect (feedback not tied to any action)
-	if (matchesKey(data, Key.shift("escape"))) {
+	if (isShiftEscape(data)) {
 		return { type: "redirect" };
 	}
 

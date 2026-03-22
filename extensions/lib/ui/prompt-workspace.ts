@@ -23,7 +23,7 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@mariozechner/pi-tui";
-import { handleActionInput } from "./action-bar.js";
+import { handleActionInput, isShiftEscape } from "./action-bar.js";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
 import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
@@ -307,7 +307,7 @@ function createWorkspaceController(
 		}
 
 		// Global redirect via Shift+Escape.
-		if (matchesKey(data, Key.shift("escape"))) {
+		if (isShiftEscape(data)) {
 			editorLabel = "Feedback:";
 			editorMode = true;
 			editor.setText("");
