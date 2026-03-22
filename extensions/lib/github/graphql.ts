@@ -24,7 +24,7 @@ export async function runGraphQL<T>(
 	const args = ["api", "graphql", "-f", `query=${query}`];
 
 	for (const [name, value] of Object.entries(variables)) {
-		// -f passes raw strings, -F coerces numbers
+		// The gh CLI uses -f for raw strings and -F for numeric coercion.
 		const flag = typeof value === "number" ? "-F" : "-f";
 		args.push(flag, `${name}=${value}`);
 	}

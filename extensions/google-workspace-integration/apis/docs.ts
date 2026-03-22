@@ -100,7 +100,7 @@ function extractDocBody(doc: unknown): string {
 			continue;
 		}
 
-		// Handle headings
+		// Headings get converted to markdown heading syntax.
 		if (style.startsWith("HEADING_")) {
 			const level = Number.parseInt(style.replace("HEADING_", ""), 10);
 			lines.push(`${"#".repeat(level)} ${text}`);

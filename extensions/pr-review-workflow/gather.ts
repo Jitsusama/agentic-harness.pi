@@ -485,7 +485,7 @@ async function fetchMissingTitles(
 	);
 	if (bareRefs.length === 0) return;
 
-	// Cap at 10 to keep the API calls reasonable
+	// We cap at 10 to keep the number of API calls reasonable.
 	for (const ref of bareRefs.slice(0, 10)) {
 		const num = extractRefNumber(ref.url);
 		if (num === null) continue;
@@ -495,7 +495,7 @@ async function fetchMissingTitles(
 		const repo = parsed?.repo ?? defaultRef.repo;
 
 		try {
-			// gh issue/pr view works for both issues and PRs
+			// The issues API works for both issues and PRs.
 			const result = await pi.exec("gh", [
 				"api",
 				`repos/${owner}/${repo}/issues/${num}`,
@@ -560,7 +560,7 @@ function parseRefUrl(
 		};
 	}
 
-	// Hash reference in title
+	// Bare `#123` references resolve against the current repo.
 	const hashMatch = url.match(/#(\d+)$/);
 	if (hashMatch) {
 		return {

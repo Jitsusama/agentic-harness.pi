@@ -420,7 +420,7 @@ function createTabbedController(
 			return;
 		}
 
-		// Check view switching before actions so their keys don't conflict.
+		// View switching takes priority over actions so their keys don't conflict.
 		const views = currentViews();
 		if (views.length > 1) {
 			for (let i = 0; i < views.length; i++) {

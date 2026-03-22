@@ -33,7 +33,7 @@ export function renderGoogleCall(
 	const action = a.action || "?";
 	let text = theme.fg("toolTitle", theme.bold("google "));
 
-	// Show account if not default
+	// Non-default accounts get a visible label so the user knows which one is active.
 	if (a.account && a.account !== "work") {
 		text += theme.fg("dim", `[${a.account}] `);
 	}

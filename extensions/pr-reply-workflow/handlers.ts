@@ -430,7 +430,7 @@ export async function handleNext(
 			};
 		}
 
-		// Within a review: find next pending thread
+		// We look for the next pending thread within this review.
 		const reviewThreads = threadsForReview(review, state.threads);
 		const nextThread = findNextPendingInReview(state, reviewThreads);
 
@@ -445,7 +445,7 @@ export async function handleNext(
 		refreshUI(state, ctx);
 		persist(state, pi);
 
-		// Re-fetch comments for freshness
+		// We re-fetch comments so the thread reflects any new replies.
 		if (state.owner && state.repo && state.prNumber) {
 			await refreshThreadComments(
 				pi,
@@ -491,7 +491,7 @@ export async function handleNext(
 		};
 	}
 
-	// All reviews exhausted
+	// Every review has been addressed at this point.
 	return plainTextResponse(
 		"All reviews and threads addressed. Call pr_reply with action 'deactivate' to finish.",
 	);
@@ -558,7 +558,7 @@ export async function handleShow(
 		return plainTextResponse("No current thread. Call 'next' first.");
 	}
 
-	// Hide the widget while the prompt is up so they don't overlap
+	// We hide the widget while the prompt is up so they don't overlap.
 	ctx.ui.setWidget("pr-reply-detail", undefined);
 
 	const review = state.reviews.find((r) => r.threadIds.includes(thread.id));
@@ -863,7 +863,7 @@ async function reviewAndPostReply(
 		};
 	}
 
-	// Push any unpushed commits before posting so the SHAs resolve on GitHub
+	// We push any unpushed commits before posting so the SHAs resolve on GitHub.
 	await pushIfNeeded(pi);
 
 	const ref: PRReference = {

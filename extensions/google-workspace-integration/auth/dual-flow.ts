@@ -33,7 +33,7 @@ export async function authenticateWithFallback(
 		const deviceFlow = await initiateDeviceFlow(config);
 		const dismiss = new AbortController();
 
-		// Show device code: dismissed when auth completes or user presses Escape
+		// The device code panel stays up until auth completes or the user presses Escape.
 		view(ctx, {
 			signal: dismiss.signal,
 			content: (theme) => [
@@ -100,7 +100,7 @@ async function authenticateWithWebRedirect(
 
 	const dismiss = new AbortController();
 
-	// Show waiting panel: dismissed when callback arrives or user presses Escape
+	// The waiting panel stays up until the callback arrives or the user presses Escape.
 	view(ctx, {
 		signal: dismiss.signal,
 		content: (theme) => [
