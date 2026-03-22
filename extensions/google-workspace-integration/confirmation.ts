@@ -6,7 +6,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirect } from "../lib/ui/redirect.js";
+import { formatRedirectReason } from "../lib/ui/redirect.js";
 import type { PromptResult } from "../lib/ui/types.js";
 
 export interface EmailData {
@@ -41,13 +41,13 @@ function extractRedirect(
 	if (result.type === "redirect") {
 		return {
 			approved: false,
-			redirect: formatRedirect(result.note ?? "", context).reason,
+			redirect: formatRedirectReason(result.note ?? "", context),
 		};
 	}
 	if (result.note) {
 		return {
 			approved: false,
-			redirect: formatRedirect(result.note, context).reason,
+			redirect: formatRedirectReason(result.note, context),
 		};
 	}
 	return null;

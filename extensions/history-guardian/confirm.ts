@@ -11,7 +11,7 @@ import {
 } from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirect } from "../lib/ui/redirect.js";
+import { formatRedirectBlock } from "../lib/ui/redirect.js";
 import {
 	DESTRUCTIVE_PATTERNS,
 	type DestructivePattern,
@@ -76,7 +76,7 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 		}
 
 		if (result.type === "redirect") {
-			return formatRedirect(
+			return formatRedirectBlock(
 				result.note,
 				`Original command:\n${parsed.command}`,
 			);

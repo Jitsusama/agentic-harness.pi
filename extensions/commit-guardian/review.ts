@@ -11,7 +11,7 @@ import {
 	type GuardianResult,
 } from "../lib/guardian/types.js";
 import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirect } from "../lib/ui/redirect.js";
+import { formatRedirectBlock } from "../lib/ui/redirect.js";
 import { extractFlags, extractMessage, splitAtCommit } from "./parse.js";
 import { renderCommitContent } from "./validate.js";
 
@@ -61,14 +61,17 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 		}
 
 		if (result.type === "redirect") {
-			return formatRedirect(result.note, `Original commit:\n${parsed.message}`);
+			return formatRedirectBlock(
+				result.note,
+				`Original commit:\n${parsed.message}`,
+			);
 		}
 
 		if (result.type === "action") {
 			if (result.key === "a") {
 				// If the user added a note on approve, we treat it as a redirect.
 				if (result.note) {
-					return formatRedirect(
+					return formatRedirectBlock(
 						result.note,
 						`Original commit:\n${parsed.message}`,
 					);
@@ -78,7 +81,7 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 
 			// If there's a note on reject, we include it as redirect feedback.
 			if (result.note) {
-				return formatRedirect(
+				return formatRedirectBlock(
 					result.note,
 					`Original commit:\n${parsed.message}`,
 				);

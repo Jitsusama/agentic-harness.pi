@@ -12,7 +12,7 @@ import {
 } from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirect } from "../lib/ui/redirect.js";
+import { formatRedirectBlock } from "../lib/ui/redirect.js";
 import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.js";
 
 const PR_ACTIONS = [
@@ -68,13 +68,16 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 			.join("\n");
 
 		if (result.type === "redirect") {
-			return formatRedirect(result.note, `Original PR:\n${redirectContext}`);
+			return formatRedirectBlock(
+				result.note,
+				`Original PR:\n${redirectContext}`,
+			);
 		}
 
 		if (result.type === "action") {
 			if (result.key === "a") {
 				if (result.note) {
-					return formatRedirect(
+					return formatRedirectBlock(
 						result.note,
 						`Original PR:\n${redirectContext}`,
 					);
@@ -82,7 +85,10 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 				return ALLOW;
 			}
 			if (result.note) {
-				return formatRedirect(result.note, `Original PR:\n${redirectContext}`);
+				return formatRedirectBlock(
+					result.note,
+					`Original PR:\n${redirectContext}`,
+				);
 			}
 			return {
 				block: true,

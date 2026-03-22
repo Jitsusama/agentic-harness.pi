@@ -12,7 +12,7 @@ import {
 } from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirect } from "../lib/ui/redirect.js";
+import { formatRedirectBlock } from "../lib/ui/redirect.js";
 import {
 	type IssueCommand,
 	isIssueCommand,
@@ -72,13 +72,16 @@ export const issueGuardian: CommandGuardian<IssueCommand> = {
 			.join("\n");
 
 		if (result.type === "redirect") {
-			return formatRedirect(result.note, `Original issue:\n${redirectContext}`);
+			return formatRedirectBlock(
+				result.note,
+				`Original issue:\n${redirectContext}`,
+			);
 		}
 
 		if (result.type === "action") {
 			if (result.key === "a") {
 				if (result.note) {
-					return formatRedirect(
+					return formatRedirectBlock(
 						result.note,
 						`Original issue:\n${redirectContext}`,
 					);
@@ -86,7 +89,7 @@ export const issueGuardian: CommandGuardian<IssueCommand> = {
 				return ALLOW;
 			}
 			if (result.note) {
-				return formatRedirect(
+				return formatRedirectBlock(
 					result.note,
 					`Original issue:\n${redirectContext}`,
 				);
