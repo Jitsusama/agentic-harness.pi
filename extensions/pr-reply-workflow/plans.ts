@@ -5,22 +5,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_PLAN_DIR } from "./state.js";
-
-/**
- * Load the plan directory from project settings.
- * Mirrors plan-workflow's loadPlanDir to share configuration.
- */
-export function loadPlanDir(cwd: string): string {
-	try {
-		const settingsPath = path.join(cwd, ".pi", "settings.json");
-		const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-		return settings.planDir ?? DEFAULT_PLAN_DIR;
-	} catch {
-		/* Settings file missing or malformed: use default */
-		return DEFAULT_PLAN_DIR;
-	}
-}
+import { loadPlanDir } from "../lib/state.js";
 
 /**
  * Search the plan directory for files matching a keyword

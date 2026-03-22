@@ -3,6 +3,8 @@
  * sensible defaults and constants used throughout the extension.
  */
 
+import { DEFAULT_PLAN_DIR } from "../lib/state.js";
+
 /** Runtime state for plan mode. */
 export interface PlanState {
 	enabled: boolean;
@@ -10,9 +12,6 @@ export interface PlanState {
 	wroteToPlanDir: boolean;
 	savedTools: string[] | null;
 }
-
-/** Default directory for plan output files. */
-export const DEFAULT_PLAN_DIR = ".pi/plans";
 
 /** Tools available during plan mode (read-only + plan-dir writes). */
 export const PLAN_TOOLS = [

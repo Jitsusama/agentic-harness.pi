@@ -4,26 +4,12 @@
  * sessions so nothing gets lost.
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { getLastEntry } from "../lib/state.js";
-import { DEFAULT_PLAN_DIR, PLAN_TOOLS, type PlanState } from "./state.js";
-
-/** Load the plan directory from project settings, falling back to the default. */
-export function loadPlanDir(cwd: string): string {
-	try {
-		const settingsPath = path.join(cwd, ".pi", "settings.json");
-		const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-		return settings.planDir ?? DEFAULT_PLAN_DIR;
-	} catch {
-		/* Settings file missing or malformed: use default */
-		return DEFAULT_PLAN_DIR;
-	}
-}
+import { getLastEntry, loadPlanDir } from "../lib/state.js";
+import { PLAN_TOOLS, type PlanState } from "./state.js";
 
 /** Update the status line to reflect plan mode state. */
 export function updateStatus(state: PlanState, ctx: ExtensionContext): void {

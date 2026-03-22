@@ -151,9 +151,6 @@ export function threadsForReview(
 		});
 }
 
-/** Default plan directory, shared with plan-workflow. */
-export const DEFAULT_PLAN_DIR = ".pi/plans";
-
 /**
  * Thread priority for display. CHANGES_REQUESTED threads
  * take precedence over optional feedback.
