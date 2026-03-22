@@ -343,13 +343,13 @@ function buildCommentsView(
 			if (matchesKey(data, Key.up)) {
 				setIndex((getIndex() - 1 + fileComments.length) % fileComments.length);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(getIndex());
+				inputCtx.scrollToContentLine(getIndex());
 				return true;
 			}
 			if (matchesKey(data, Key.down)) {
 				setIndex((getIndex() + 1) % fileComments.length);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(getIndex());
+				inputCtx.scrollToContentLine(getIndex());
 				return true;
 			}
 
@@ -362,7 +362,7 @@ function buildCommentsView(
 				checkTabAutoPassed(filePath, fileComments, tabPassed);
 				advanceToNextPending(fileComments, getIndex, setIndex);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(getIndex());
+				inputCtx.scrollToContentLine(getIndex());
 				return true;
 			}
 
@@ -372,7 +372,7 @@ function buildCommentsView(
 				checkTabAutoPassed(filePath, fileComments, tabPassed);
 				advanceToNextPending(fileComments, getIndex, setIndex);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(getIndex());
+				inputCtx.scrollToContentLine(getIndex());
 				return true;
 			}
 

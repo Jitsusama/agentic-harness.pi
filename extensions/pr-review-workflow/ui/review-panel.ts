@@ -549,13 +549,13 @@ function handleCommentInput(
 	if (matchesKey(data, Key.up)) {
 		setIndex((getIndex() - 1 + comments.length) % comments.length);
 		inputCtx.invalidate();
-		inputCtx.scrollToLine(getIndex());
+		inputCtx.scrollToContentLine(getIndex());
 		return true;
 	}
 	if (matchesKey(data, Key.down)) {
 		setIndex((getIndex() + 1) % comments.length);
 		inputCtx.invalidate();
-		inputCtx.scrollToLine(getIndex());
+		inputCtx.scrollToContentLine(getIndex());
 		return true;
 	}
 
@@ -568,7 +568,7 @@ function handleCommentInput(
 		checkTabAutoPassed(session, tabId, comments);
 		advanceToNextPending(comments, getIndex, setIndex);
 		inputCtx.invalidate();
-		inputCtx.scrollToLine(getIndex());
+		inputCtx.scrollToContentLine(getIndex());
 		return true;
 	}
 
@@ -578,7 +578,7 @@ function handleCommentInput(
 		checkTabAutoPassed(session, tabId, comments);
 		advanceToNextPending(comments, getIndex, setIndex);
 		inputCtx.invalidate();
-		inputCtx.scrollToLine(getIndex());
+		inputCtx.scrollToContentLine(getIndex());
 		return true;
 	}
 

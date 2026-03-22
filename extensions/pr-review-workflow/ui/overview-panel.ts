@@ -207,13 +207,13 @@ function buildReferencesTab(
 			if (matchesKey(data, Key.up)) {
 				setIndex((getIndex() - 1 + total) % total);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(estimateRefLine(references, getIndex()));
+				inputCtx.scrollToContentLine(estimateRefLine(references, getIndex()));
 				return true;
 			}
 			if (matchesKey(data, Key.down)) {
 				setIndex((getIndex() + 1) % total);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(estimateRefLine(references, getIndex()));
+				inputCtx.scrollToContentLine(estimateRefLine(references, getIndex()));
 				return true;
 			}
 
@@ -281,13 +281,13 @@ function buildSourceTab(
 			if (matchesKey(data, Key.up)) {
 				setIndex((getIndex() - 1 + total) % total);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(getIndex());
+				inputCtx.scrollToContentLine(getIndex());
 				return true;
 			}
 			if (matchesKey(data, Key.down)) {
 				setIndex((getIndex() + 1) % total);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(getIndex());
+				inputCtx.scrollToContentLine(getIndex());
 				return true;
 			}
 
