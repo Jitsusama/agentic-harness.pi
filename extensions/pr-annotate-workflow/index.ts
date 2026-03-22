@@ -19,7 +19,7 @@ import { fetchDiff, parseDiff } from "../lib/github/diff.js";
 import type { PRReference } from "../lib/github/pr-reference.js";
 import { getCurrentRepo } from "../lib/github/repo-discovery.js";
 import { postReview } from "./post.js";
-import { vetComments } from "./vet.js";
+import { reviewProposedComments } from "./review.js";
 
 const CommentSchema = Type.Object({
 	path: Type.String({ description: "File path relative to repo root" }),
@@ -166,7 +166,7 @@ export default function prAnnotate(pi: ExtensionAPI) {
 			// We fetch the diff for workspace context.
 			const diffFiles = await fetchPRDiff(pi, params.pr, params.repo);
 
-			const result = await vetComments(
+			const result = await reviewProposedComments(
 				toVet,
 				preApproved.length,
 				ctx,
