@@ -18,7 +18,7 @@ import {
 	postReply,
 	refreshThreadComments,
 } from "./api/github.js";
-import { findDependentPRs, getCurrentBranch } from "./api/repo.js";
+import { getCurrentBranch } from "./api/repo.js";
 import {
 	briefActivation,
 	briefBatchAnalysis,
@@ -26,12 +26,12 @@ import {
 	briefImplementChoice,
 	briefProgress,
 	briefReAnalyze,
-	briefRebaseApproved,
 	briefRedirect,
 	briefReplyChoice,
 	briefReviewSummary,
 	briefThread,
 } from "./briefing.js";
+import { checkDependentPRs } from "./dependency-chain.js";
 import {
 	beginTDDImplementation,
 	buildImplementationContext,
@@ -50,17 +50,12 @@ import {
 import { findPlanContext } from "./plans.js";
 import { buildReplyGuidance } from "./replies.js";
 import {
-	type DependentPR,
 	type PRReplyState,
 	sortReviewsByPriority,
 	type Thread,
 	threadsForReview,
 } from "./state.js";
-import {
-	showRebasePanel,
-	showReviewOverviewPanel,
-	showSummaryPanel,
-} from "./ui/panels.js";
+import { showReviewOverviewPanel, showSummaryPanel } from "./ui/panels.js";
 import { showReplyReview } from "./ui/reply-review.js";
 import { showThreadGate, type ThreadGateChoice } from "./ui/thread-gate.js";
 import { showReplyWorkspace } from "./ui/workspace.js";
@@ -975,99 +970,4 @@ function handleRepoResult(
 					"Ask the user where the repository is located.",
 			);
 	}
-}
-
-/**
- * Walk the dependency chain and offer to rebase dependent PRs.
- * Returns rebase instructions for the LLM, or null if nothing to do.
- */
-async function checkDependentPRs(
-	state: PRReplyState,
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-): Promise<string | null> {
-	if (!state.owner || !state.repo || !state.branch) return null;
-
-	const chain = await walkDependencyChain(
-		pi,
-		state.owner,
-		state.repo,
-		state.branch,
-	);
-	if (chain.length === 0) return null;
-
-	const choice = await showRebasePanel(ctx, chain);
-
-	if (choice === "rebase") {
-		return briefRebaseApproved(chain);
-	}
-
-	return null;
-}
-
-/**
- * Recursively find all PRs in the dependency chain.
- * Returns them in rebase order (closest dependent first).
- */
-async function walkDependencyChain(
-	pi: ExtensionAPI,
-	owner: string,
-	repo: string,
-	branch: string,
-): Promise<DependentPR[]> {
-	const chain: DependentPR[] = [];
-	const visited = new Set<string>();
-	let currentBranch = branch;
-
-	while (true) {
-		if (visited.has(currentBranch)) break;
-		visited.add(currentBranch);
-
-		const dependentNumbers = await findDependentPRs(
-			pi,
-			owner,
-			repo,
-			currentBranch,
-		);
-		if (dependentNumbers.length === 0) break;
-
-		const info = await fetchPRInfo(pi, owner, repo, dependentNumbers[0]);
-		chain.push(info);
-		currentBranch = info.branch;
-	}
-
-	return chain;
-}
-
-/** Fetch basic info about a PR for the dependency chain. */
-async function fetchPRInfo(
-	pi: ExtensionAPI,
-	owner: string,
-	repo: string,
-	prNumber: number,
-): Promise<DependentPR> {
-	const result = await pi.exec("gh", [
-		"pr",
-		"view",
-		String(prNumber),
-		"--repo",
-		`${owner}/${repo}`,
-		"--json",
-		"number,title,headRefName",
-	]);
-
-	if (result.code === 0) {
-		try {
-			const data = JSON.parse(result.stdout);
-			return {
-				number: data.number ?? prNumber,
-				title: data.title ?? `PR #${prNumber}`,
-				branch: data.headRefName ?? "unknown",
-			};
-		} catch {
-			/* Parse failure: fall through to default */
-		}
-	}
-
-	return { number: prNumber, title: `PR #${prNumber}`, branch: "unknown" };
 }
