@@ -31,7 +31,6 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 
 	async review(
 		parsed: PrCommand,
-		_event: { input: { command: string } },
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
 		const isEdit = parsed.action === "edit";

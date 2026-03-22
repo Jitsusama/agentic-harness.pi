@@ -36,9 +36,5 @@ export interface CommandGuardian<T> {
 	/** Parse the command into a structured form. Return null to skip. */
 	parse(command: string): T | null;
 	/** Review the parsed command. Shows UI, returns the decision. */
-	review(
-		parsed: T,
-		event: { input: { command: string } },
-		ctx: ExtensionContext,
-	): Promise<GuardianResult>;
+	review(parsed: T, ctx: ExtensionContext): Promise<GuardianResult>;
 }

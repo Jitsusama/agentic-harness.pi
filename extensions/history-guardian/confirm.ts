@@ -47,7 +47,6 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 
 	async review(
 		parsed: DestructiveMatch,
-		_event: { input: { command: string } },
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
 		const icon = parsed.severity === "irrecoverable" ? "⛔" : "⚠";

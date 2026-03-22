@@ -37,7 +37,7 @@ export function registerGuardian<T>(
 			const parsed = guardian.parse(command);
 			if (!parsed) return;
 
-			const result = await guardian.review(parsed, event, ctx);
+			const result = await guardian.review(parsed, ctx);
 			if (!result) return;
 
 			if ("rewrite" in result) {

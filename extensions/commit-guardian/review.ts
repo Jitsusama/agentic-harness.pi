@@ -45,7 +45,6 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 
 	async review(
 		parsed: CommitParsed,
-		_event: { input: { command: string } },
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
 		const result = await promptSingle(ctx, {

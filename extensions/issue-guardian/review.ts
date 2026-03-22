@@ -35,7 +35,6 @@ export const issueGuardian: CommandGuardian<IssueCommand> = {
 
 	async review(
 		parsed: IssueCommand,
-		_event: { input: { command: string } },
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
 		const isEdit = parsed.action === "edit";
