@@ -16,8 +16,8 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { fetchDiff, parseDiff } from "../lib/github/diff.js";
+import type { PRReference } from "../lib/github/pr-reference.js";
 import { getCurrentRepo } from "../lib/github/repo-discovery.js";
-import type { PRReference } from "../lib/parse/pr-reference.js";
 import { postReview } from "./post.js";
 import { vetComments } from "./vet.js";
 
@@ -66,22 +66,7 @@ const PrReviewParams = Type.Object({
 	}),
 });
 
-export interface ReviewComment {
-	path: string;
-	line: number;
-	startLine?: number;
-	body: string;
-	rationale: string;
-	side: string;
-}
-
-export interface VetResult {
-	approved: ReviewComment[];
-	rejected: number;
-	edited: number;
-	redirectFeedback?: string;
-	userRequests: string[];
-}
+export type { ReviewComment, VetResult } from "./types.js";
 
 function formatCommentRef(c: ReviewComment): string {
 	const range = c.startLine ? `${c.startLine}-${c.line}` : `${c.line}`;

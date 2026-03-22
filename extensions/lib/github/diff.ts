@@ -7,7 +7,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { PRReference } from "../parse/pr-reference.js";
+import type { PRReference } from "./pr-reference.js";
 
 /** A parsed diff file with hunks. */
 export interface DiffFile {
@@ -34,6 +34,62 @@ export interface DiffLine {
 	content: string;
 	oldLineNumber: number | null;
 	newLineNumber: number | null;
+}
+
+/** A new-side line range covered by a single diff hunk. */
+export interface HunkRange {
+	readonly start: number;
+	readonly end: number;
+}
+
+/**
+ * Build a map of file path → hunk ranges (new-side line numbers).
+ * GitHub's review API only accepts lines within these ranges.
+ */
+export function buildHunkRanges(files: DiffFile[]): Map<string, HunkRange[]> {
+	const map = new Map<string, HunkRange[]>();
+
+	for (const file of files) {
+		const ranges: HunkRange[] = [];
+		for (const hunk of file.hunks) {
+			ranges.push({
+				start: hunk.newStart,
+				end: hunk.newStart + hunk.newCount - 1,
+			});
+		}
+		map.set(file.path, ranges);
+	}
+
+	return map;
+}
+
+/**
+ * Clamp a line number to a valid diff hunk range. Returns the
+ * line unchanged if it falls within a hunk; otherwise returns
+ * the nearest hunk boundary.
+ */
+export function clampToHunkRange(
+	line: number,
+	ranges: HunkRange[] | undefined,
+): number {
+	if (!ranges || ranges.length === 0) return line;
+
+	for (const r of ranges) {
+		if (line >= r.start && line <= r.end) return line;
+	}
+
+	let closest = line;
+	let minDist = Number.MAX_SAFE_INTEGER;
+	for (const r of ranges) {
+		for (const boundary of [r.start, r.end]) {
+			const dist = Math.abs(boundary - line);
+			if (dist < minDist) {
+				minDist = dist;
+				closest = boundary;
+			}
+		}
+	}
+	return closest;
 }
 
 /** Fetch the unified diff for a PR via gh CLI. */

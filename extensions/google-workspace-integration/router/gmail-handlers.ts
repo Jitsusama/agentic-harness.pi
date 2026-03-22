@@ -18,16 +18,17 @@ import {
 } from "../apis/gmail.js";
 import { confirmDeleteEmail, confirmSendEmail } from "../confirmation.js";
 import {
-	getNumberParam,
-	getStringArrayParam,
-	getStringParam,
-} from "../params.js";
-import {
 	renderEmail,
 	renderEmailList,
 	renderThread,
 } from "../renderers/email.js";
-import type { ActionParams, ToolResult } from "../types.js";
+import {
+	type ActionParams,
+	getNumberParam,
+	getStringArrayParam,
+	getStringParam,
+	type ToolResult,
+} from "../types.js";
 
 export async function handleSearchEmails(
 	params: ActionParams,

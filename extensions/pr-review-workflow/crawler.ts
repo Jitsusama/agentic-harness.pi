@@ -10,13 +10,13 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { PRReference } from "../lib/github/pr-reference.js";
 import {
 	fetchDiff,
 	fetchPRGraphQL,
 	fetchSiblingPRs,
 	parseDiff,
 } from "./api/github.js";
-import type { PRReference } from "./api/parse.js";
 import type { GQLDeepIssue, IssueDeepResponse } from "./api/types.js";
 import type {
 	CrawlResult,
@@ -64,13 +64,13 @@ query($owner: String!, $repo: String!, $number: Int!) {
 }`;
 
 /** Crawl configuration. */
-export interface CrawlConfig {
+interface CrawlConfig {
 	maxDepth: number;
 	visited: Set<string>;
 }
 
 /** Progress callback: called as crawl depth advances. */
-export type CrawlProgress = (depth: number, label: string) => void;
+type CrawlProgress = (depth: number, label: string) => void;
 
 /**
  * Crawl deep context for a PR. Returns a fully populated

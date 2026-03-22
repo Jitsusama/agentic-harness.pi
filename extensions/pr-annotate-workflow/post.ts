@@ -5,13 +5,13 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { PRReference } from "../lib/github/pr-reference.js";
 import { getCurrentRepo } from "../lib/github/repo-discovery.js";
 import {
 	postReview as postReviewAPI,
 	type ReviewAPIComment,
 } from "../lib/github/review-post.js";
-import type { PRReference } from "../lib/parse/pr-reference.js";
-import type { ReviewComment } from "./index.js";
+import type { ReviewComment } from "./types.js";
 
 interface PostResult {
 	error?: string;

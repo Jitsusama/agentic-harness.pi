@@ -26,9 +26,11 @@ import {
 import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
+	HSCROLL_CONTENT_WIDTH,
 	handleScrollInput,
 	maxContentWidth,
 	renderScrollRegion,
+	SCROLLBAR_GUTTER,
 	type ScrollState,
 } from "./scroll-region.js";
 import { handleTabInput, renderTabStrip } from "./tab-strip.js";
@@ -36,11 +38,9 @@ import {
 	type Action,
 	type ContentFn,
 	GLYPH,
-	HSCROLL_CONTENT_WIDTH,
 	type Option,
 	type PromptResult,
 	type PromptView,
-	SCROLLBAR_GUTTER,
 	type TabbedPromptConfig,
 	type TabbedResult,
 	type TabStatus,
@@ -76,8 +76,14 @@ export async function showTabbedPrompt(
 		const loadingViews = new Set<string>();
 
 		let editorContext: {
-			type: "annotatedAction" | "redirect" | "editor" | "addItem" | "editItem";
-			actionKey?: string;
+			type:
+				| "annotatedAction"
+				| "annotatedOption"
+				| "redirect"
+				| "optionEditor"
+				| "addItem"
+				| "editItem";
+			key?: string;
 			label?: string;
 			index?: number;
 		} | null = null;
@@ -162,13 +168,19 @@ export async function showTabbedPrompt(
 			} else if (editorContext.type === "annotatedAction") {
 				result = {
 					type: "action",
-					value: editorContext.actionKey ?? "",
+					key: editorContext.key ?? "",
+					note: trimmed,
+				};
+			} else if (editorContext.type === "annotatedOption") {
+				result = {
+					type: "option",
+					value: editorContext.key ?? "",
 					note: trimmed,
 				};
 			} else {
 				result = {
-					type: "action",
-					value: editorContext.actionKey ?? "",
+					type: "option",
+					value: editorContext.key ?? "",
 					editorText: trimmed,
 				};
 			}
@@ -272,7 +284,9 @@ export async function showTabbedPrompt(
 			// Scroll
 			const actions = currentActions();
 			const options = currentOptions();
-			const chromeLines = computeChromeLines(true, actions, options);
+			const titleExtra = config.title ? 2 : 0;
+			const chromeLines =
+				computeChromeLines(true, actions, options) + titleExtra;
 			const budget = contentBudget(chromeLines);
 			const viewIdx = getViewIndex(currentTab);
 			const scrollState = getScrollState(currentTab, viewIdx);
@@ -317,12 +331,12 @@ export async function showTabbedPrompt(
 						const opt = options[result.index];
 						if (opt?.opensEditor) {
 							openEditor(
-								{ type: "editor", actionKey: optionValue(opt) },
+								{ type: "optionEditor", key: optionValue(opt) },
 								opt.editorPreFill,
 							);
 						} else if (opt) {
 							handleItemResult({
-								type: "action",
+								type: "option",
 								value: optionValue(opt),
 							});
 						}
@@ -334,8 +348,8 @@ export async function showTabbedPrompt(
 					const opt = options[optionIndex];
 					if (opt) {
 						openEditor({
-							type: "annotatedAction",
-							actionKey: optionValue(opt),
+							type: "annotatedOption",
+							key: optionValue(opt),
 						});
 					}
 					return;
@@ -347,7 +361,9 @@ export async function showTabbedPrompt(
 			const options = currentOptions();
 			const actions = currentActions();
 
-			const chromeLines = computeChromeLines(true, actions, options);
+			const titleExtra = config.title ? 2 : 0;
+			const chromeLines =
+				computeChromeLines(true, actions, options) + titleExtra;
 			const budget = contentBudget(chromeLines);
 			const key = cacheKey(currentTab, 0);
 			const cachedEntry = contentCache.get(key);
@@ -411,13 +427,13 @@ export async function showTabbedPrompt(
 
 		function handleActionResult(result: ActionBarResult) {
 			if (result.type === "action") {
-				handleItemResult({ type: "action", value: result.key });
+				handleItemResult({ type: "action", key: result.key });
 			} else if (result.type === "annotatedAction") {
 				const actions = currentActions();
 				const action = actions?.find((a) => a.key === result.key);
 				openEditor({
 					type: "annotatedAction",
-					actionKey: result.key,
+					key: result.key,
 					label: action?.label,
 				});
 			} else if (result.type === "redirect") {
@@ -508,6 +524,11 @@ export async function showTabbedPrompt(
 			// Top border
 			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 
+			if (config.title) {
+				add(` ${theme.fg("accent", theme.bold(config.title))}`);
+				add("");
+			}
+
 			// Tab strip
 			const labels = config.items.map((it) => it.label);
 			add(
@@ -525,7 +546,9 @@ export async function showTabbedPrompt(
 			);
 
 			// Content
-			const chromeLines = computeChromeLines(true, actions, options);
+			const titleExtra = config.title ? 2 : 0;
+			const chromeLines =
+				computeChromeLines(true, actions, options) + titleExtra;
 			const budget = contentBudget(chromeLines);
 			const key = cacheKey(currentTab, viewIdx);
 
@@ -576,7 +599,7 @@ export async function showTabbedPrompt(
 			for (const line of scrolled) add(line);
 
 			if (needsVScroll) {
-				const targetContentEnd = 1 + 2 + budget;
+				const targetContentEnd = 1 + 2 + titleExtra + budget;
 				while (lines.length < targetContentEnd) {
 					lines.push("");
 				}
