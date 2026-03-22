@@ -46,10 +46,13 @@ export const GLYPH = {
 } as const;
 
 /** Synchronous content rendering function. */
-export type ContentFn = (theme: Theme, width: number) => string[];
+export type ContentRenderer = (theme: Theme, width: number) => string[];
 
 /** Async content rendering function (for lazy loading). */
-export type AsyncContentFn = (theme: Theme, width: number) => Promise<string[]>;
+export type AsyncContentRenderer = (
+	theme: Theme,
+	width: number,
+) => Promise<string[]>;
 
 /** A fixed action shown in the action bar. */
 export interface KeyAction {
@@ -124,7 +127,7 @@ export interface PromptView {
 	/** Display label shown in the hint bar (e.g., "Diff", "File"). */
 	label: string;
 	/** Renders the content for this view. May be async for lazy loading. */
-	content: ContentFn | AsyncContentFn;
+	content: ContentRenderer | AsyncContentRenderer;
 }
 
 /** A single item in a tabbed prompt. */
@@ -149,7 +152,7 @@ export interface SinglePromptConfig {
 	/** Optional title shown at the top, below the border. */
 	title?: string;
 	/** Renders the content area. */
-	content: ContentFn;
+	content: ContentRenderer;
 	/** Fixed actions (Type A key-hint bar). */
 	actions?: KeyAction[];
 	/** Dynamic options (Type B numbered list). */
@@ -189,7 +192,7 @@ export interface ViewConfig {
 	/** Optional title shown at the top. */
 	title?: string;
 	/** Renders the content. */
-	content: ContentFn;
+	content: ContentRenderer;
 	/** Enable horizontal scrolling (Shift+←→) for code content. Default: false. */
 	allowHScroll?: boolean;
 	/** Signal to programmatically dismiss the view. */
@@ -233,7 +236,7 @@ export interface WorkspaceView {
 	/** View label for hint bar. */
 	label: string;
 	/** Render content. May be async. */
-	content: ContentFn | AsyncContentFn;
+	content: ContentRenderer | AsyncContentRenderer;
 	/** Actions specific to this view. */
 	actions?: KeyAction[];
 	/**

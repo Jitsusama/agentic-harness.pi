@@ -35,7 +35,7 @@ import {
 } from "./scroll-region.js";
 import { handleTabInput, renderTabStrip } from "./tab-strip.js";
 import {
-	type ContentFn,
+	type ContentRenderer,
 	GLYPH,
 	type KeyAction,
 	type ListChoice,
@@ -464,7 +464,7 @@ export async function showTabbedPrompt(
 		}
 
 		/** User tab content: static. */
-		const userTabContent: ContentFn = () => {
+		const userTabContent: ContentRenderer = () => {
 			if (userItems.length === 0) return [];
 			return ["  Your additions:"];
 		};
