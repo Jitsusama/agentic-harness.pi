@@ -14,7 +14,11 @@ import {
 	renderDiff,
 } from "../lib/ui/content-renderer.js";
 import { workspace } from "../lib/ui/panel.js";
-import { CONTENT_INDENT, contentWrapWidth, wordWrap } from "../lib/ui/text.js";
+import {
+	CONTENT_INDENT,
+	contentWrapWidth,
+	wordWrap,
+} from "../lib/ui/text-layout.js";
 import type {
 	WorkspaceInputContext,
 	WorkspaceItem,

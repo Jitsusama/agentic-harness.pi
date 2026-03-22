@@ -22,7 +22,7 @@ import {
 	CONTENT_INDENT,
 	contentWrapWidth,
 	wordWrap,
-} from "../../lib/ui/text.js";
+} from "../../lib/ui/text-layout.js";
 import type {
 	KeyAction,
 	WorkspaceInputContext,

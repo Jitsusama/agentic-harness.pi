@@ -14,7 +14,7 @@ import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { workspace } from "../../lib/ui/panel.js";
-import { contentWrapWidth, wordWrap } from "../../lib/ui/text.js";
+import { contentWrapWidth, wordWrap } from "../../lib/ui/text-layout.js";
 import type {
 	WorkspaceInputContext,
 	WorkspaceItem,
