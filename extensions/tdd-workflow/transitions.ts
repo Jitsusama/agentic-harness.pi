@@ -13,8 +13,8 @@ import { promptSingle } from "../lib/ui/panel.js";
 import {
 	PHASE_COLORS,
 	PHASE_GLYPH,
-	type Phase,
 	type PhaseColor,
+	type TddPhase,
 	type TddState,
 } from "./state.js";
 
@@ -24,7 +24,7 @@ const SUMMARY_MAX_LENGTH = 50;
 const SUMMARY_MIN_TRUNCATE = 20;
 
 /** Human-readable phase names for gate display. */
-const PHASE_NAMES: Record<Phase, string> = {
+const PHASE_NAMES: Record<TddPhase, string> = {
 	red: "Red",
 	green: "Green",
 	refactor: "Refactor",
@@ -57,7 +57,7 @@ export async function showTransitionGate(
 	ctx: ExtensionContext,
 	opts: {
 		summary: string;
-		nextPhase: Phase | "stop";
+		nextPhase: TddPhase | "stop";
 		nextContext?: string;
 	},
 ): Promise<TransitionGateResult> {

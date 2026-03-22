@@ -21,7 +21,7 @@ import {
 	createTddState,
 	PHASE_COLORS,
 	PHASE_GLYPH,
-	type Phase,
+	type TddPhase,
 } from "./state.js";
 import { buildTddContext, tddContextFilter } from "./transitions.js";
 
@@ -68,7 +68,7 @@ export default function tddMode(pi: ExtensionAPI) {
 		renderCall(args, theme) {
 			const a = args as { action?: string; context?: string };
 			const action = a.action ?? "?";
-			const color = PHASE_COLORS[action as Phase];
+			const color = PHASE_COLORS[action as TddPhase];
 			const glyph = color
 				? theme.fg(color, PHASE_GLYPH)
 				: action === "done"

@@ -12,7 +12,7 @@ import type {
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { activate, advance, deactivate, nextCycle } from "./lifecycle.js";
-import { PHASE_STAY, type Phase, type TddState } from "./state.js";
+import { PHASE_STAY, type TddPhase, type TddState } from "./state.js";
 import { showTransitionGate } from "./transitions.js";
 
 /** Parameters extracted from the tool call. */
@@ -29,7 +29,7 @@ interface ToolResult {
 }
 
 /** Build a tool result when the user declines a phase transition. */
-function stayResult(phase: Phase, feedback?: string): ToolResult {
+function stayResult(phase: TddPhase, feedback?: string): ToolResult {
 	const stay = PHASE_STAY[phase];
 	const hint = feedback
 		? `User feedback: ${feedback}\n\n${stay} Do not attempt to transition again unless the user asks.`
