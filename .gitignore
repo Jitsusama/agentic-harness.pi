@@ -1,4 +1,5 @@
-.pi/
+.pi/*
+!.pi/skills/
 .review/
 node_modules/
 extensions/*/package-lock.json
