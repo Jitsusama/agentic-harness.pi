@@ -5,8 +5,8 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { parsePRReference } from "../lib/github/pr-reference.js";
 import type { PRReference } from "./api/github.js";
-import { parsePRReference } from "./api/parse.js";
 import {
 	findPRForBranch,
 	getCurrentBranch,

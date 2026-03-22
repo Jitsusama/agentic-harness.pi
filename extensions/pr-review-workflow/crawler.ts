@@ -10,13 +10,13 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { PRReference } from "../lib/github/pr-reference.js";
 import {
 	fetchDiff,
 	fetchPRGraphQL,
 	fetchSiblingPRs,
 	parseDiff,
 } from "./api/github.js";
-import type { PRReference } from "./api/parse.js";
 import type { GQLDeepIssue, IssueDeepResponse } from "./api/types.js";
 import type {
 	CrawlResult,

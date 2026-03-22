@@ -10,9 +10,11 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import {
+	type PRReference,
+	parsePRReference,
+} from "../lib/github/pr-reference.js";
 import { getCurrentRepo } from "../lib/github/repo-discovery.js";
-import type { PRReference } from "./api/parse.js";
-import { parsePRReference } from "./api/parse.js";
 import { resolveRepo } from "./api/repo.js";
 import { briefActivation, briefGenerateComments } from "./briefing.js";
 import { crawl } from "./crawler.js";
