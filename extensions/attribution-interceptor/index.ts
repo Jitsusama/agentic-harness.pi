@@ -1,5 +1,5 @@
 /**
- * Attribution Extension
+ * Attribution Interceptor Extension
  *
  * Injects AI co-authorship attribution into commits, PRs, and
  * issues created through Pi. Makes AI involvement transparent

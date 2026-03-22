@@ -1,5 +1,5 @@
 /**
- * Ask: reusable structured question tool.
+ * Ask Workflow Extension
  *
  * Single question: options list with cursor navigation.
  * Multiple questions: tabbed prompt with per-question options.

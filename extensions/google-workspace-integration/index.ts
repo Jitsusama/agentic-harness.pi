@@ -1,5 +1,5 @@
 /**
- * Google Workspace Extension
+ * Google Workspace Integration Extension
  *
  * Provides AI-friendly access to Gmail, Calendar, Drive, Docs, Sheets,
  * and Slides through a single `google` tool. Handles OAuth2 authentication,

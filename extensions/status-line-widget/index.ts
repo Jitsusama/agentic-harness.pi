@@ -1,5 +1,5 @@
 /**
- * Status Line Extension
+ * Status Line Widget Extension
  *
  * Single-line responsive footer showing directory, model, context
  * usage, cost, thinking level, and extension statuses. Right-justified

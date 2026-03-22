@@ -1,5 +1,5 @@
 /**
- * Web Search Extension
+ * Web Search Integration Extension
  *
  * Two tools for the LLM:
  *   - web_search: search the web via headless Chrome

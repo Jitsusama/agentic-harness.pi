@@ -1,5 +1,5 @@
 /**
- * Panel Height Extension
+ * Panel Zoom Widget Extension
  *
  * Registers global input handlers to toggle panel height between
  * minimized, normal, and fullscreen modes. Uses onTerminalInput

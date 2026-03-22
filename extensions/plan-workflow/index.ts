@@ -1,5 +1,5 @@
 /**
- * Plan Mode Extension
+ * Plan Workflow Extension
  *
  * Read-only investigation mode for collaborative planning.
  * When active, tools are restricted and writes are only allowed

@@ -1,5 +1,5 @@
 /**
- * PR Annotate Extension
+ * PR Annotate Workflow Extension
  *
  * Tool for the LLM to propose self-review comments on a PR.
  * The user vets each comment through the shared gate:

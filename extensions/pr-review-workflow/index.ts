@@ -1,5 +1,5 @@
 /**
- * PR Review Extension
+ * PR Review Workflow Extension
  *
  * Mode for reviewing someone else's pull request. The LLM drives
  * the workflow by calling pr_review with different actions:

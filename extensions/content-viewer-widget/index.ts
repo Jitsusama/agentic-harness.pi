@@ -1,5 +1,5 @@
 /**
- * Content Viewer Extension
+ * Content Viewer Widget Extension
  *
  * Registers the /view command for viewing files, diffs, or
  * text in a scrollable, themed overlay. Also exports showContent

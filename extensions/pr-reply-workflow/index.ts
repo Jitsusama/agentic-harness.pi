@@ -1,5 +1,5 @@
 /**
- * PR Reply Extension
+ * PR Reply Workflow Extension
  *
  * Mode for responding to GitHub PR review feedback. The LLM
  * drives the workflow by calling pr_reply with different actions:

@@ -1,5 +1,5 @@
 /**
- * TDD Mode Extension
+ * TDD Workflow Extension
  *
  * Skill-driven red-green-refactor tracking with LLM-facing
  * enforcement. The agent calls the tdd_phase tool to signal
