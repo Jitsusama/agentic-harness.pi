@@ -1,5 +1,5 @@
 ---
-name: extension-keybindings
+name: extension-keybinding-guide
 description: >
   Keybinding system for Pi extensions. Rules, verb set, footer
   layout and conventions for panels, gates and interactive

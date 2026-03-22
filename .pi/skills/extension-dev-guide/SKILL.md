@@ -1,5 +1,5 @@
 ---
-name: extension-development
+name: extension-dev-guide
 description: >
   How to develop Pi extensions. Discovery workflow for TUI
   components, available APIs, composition patterns and common
