@@ -6,23 +6,21 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
-	ALLOW,
-	type CommandGuardian,
-	type GuardianResult,
-} from "../lib/guardian/types.js";
-import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirectBlock } from "../lib/ui/redirect.js";
+	type EntityReviewConfig,
+	reviewMarkdownEntity,
+} from "../lib/guardian/review-entity.js";
+import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
 import {
 	type IssueCommand,
 	isIssueCommand,
 	parseIssueCommand,
 } from "./parse.js";
 
-const ISSUE_ACTIONS = [
-	{ key: "a", label: "Approve" },
-	{ key: "r", label: "Reject" },
-];
+const ISSUE_REVIEW_CONFIG: EntityReviewConfig = {
+	createTitle: "New Issue",
+	editTitle: "Issue Edit",
+	entityLabel: "issue",
+};
 
 export const issueGuardian: CommandGuardian<IssueCommand> = {
 	detect(command) {
@@ -37,68 +35,6 @@ export const issueGuardian: CommandGuardian<IssueCommand> = {
 		parsed: IssueCommand,
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
-		const isEdit = parsed.action === "edit";
-		const result = await promptSingle(ctx, {
-			title: isEdit ? "Issue Edit" : "New Issue",
-			content: (theme, width) => {
-				const out: string[] = [];
-
-				if (parsed.title) {
-					out.push(theme.fg("text", ` ${theme.bold(parsed.title)}`));
-					out.push("");
-				}
-
-				if (parsed.body) {
-					for (const line of renderMarkdown(parsed.body, theme, width)) {
-						out.push(line);
-					}
-				}
-
-				return out;
-			},
-			actions: ISSUE_ACTIONS,
-		});
-
-		if (!result) {
-			return { block: true, reason: "User cancelled the issue review." };
-		}
-
-		const redirectContext = [
-			parsed.title ? `Title: ${parsed.title}` : null,
-			"",
-			parsed.body ?? "",
-		]
-			.filter((l) => l !== null)
-			.join("\n");
-
-		if (result.type === "redirect") {
-			return formatRedirectBlock(
-				result.note,
-				`Original issue:\n${redirectContext}`,
-			);
-		}
-
-		if (result.type === "action") {
-			if (result.key === "a") {
-				if (result.note) {
-					return formatRedirectBlock(
-						result.note,
-						`Original issue:\n${redirectContext}`,
-					);
-				}
-				return ALLOW;
-			}
-			if (result.note) {
-				return formatRedirectBlock(
-					result.note,
-					`Original issue:\n${redirectContext}`,
-				);
-			}
-			return {
-				block: true,
-				reason:
-					"User rejected the issue. Ask for guidance on the issue description.",
-			};
-		}
+		return reviewMarkdownEntity(ctx, parsed, ISSUE_REVIEW_CONFIG);
 	},
 };

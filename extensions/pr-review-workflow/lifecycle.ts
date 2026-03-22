@@ -44,11 +44,11 @@ function buildDetailText(state: PRReviewState): string {
 		case "overview":
 			return `${prRef} · Overview`;
 		case "reviewing": {
-			const handled = [...session.tabStates.values()].filter(
-				(t) => t.handled,
+			const passed = [...session.tabStates.values()].filter(
+				(t) => t.passed,
 			).length;
 			const tabCount = session.tabStates.size;
-			return `${prRef} · Review · ${handled}/${tabCount} tabs · ${total} comments (${stats.approved}✓ ${stats.rejected}✕ ${stats.pending}○)`;
+			return `${prRef} · Review · ${passed}/${tabCount} tabs · ${total} comments (${stats.approved}✓ ${stats.rejected}✕ ${stats.pending}○)`;
 		}
 		case "submitting":
 			return `${prRef} · Submit review`;
@@ -116,7 +116,13 @@ interface PersistedSession {
 	comments: ReviewObservation[];
 	tabStates: [
 		string,
-		{ handled: boolean; activeView: string; commentIndex: number },
+		{
+			passed?: boolean;
+			/** @deprecated Old name for passed. Kept for backward compat on restore. */
+			handled?: boolean;
+			activeView: string;
+			commentIndex: number;
+		},
 	][];
 	reviewBody: string;
 	verdict: ReviewVerdict;
@@ -145,7 +151,7 @@ export function persist(state: PRReviewState, pi: ExtensionAPI): void {
 						([key, val]) => [
 							key,
 							{
-								handled: val.handled,
+								passed: val.passed,
 								activeView: val.activeView,
 								commentIndex: val.commentIndex,
 							},
@@ -171,7 +177,7 @@ export function restore(state: PRReviewState, ctx: ExtensionContext): void {
 		const tabStates = new Map<
 			string,
 			{
-				handled: boolean;
+				passed: boolean;
 				activeView: "overview" | "comments" | "raw";
 				commentIndex: number;
 			}
@@ -179,7 +185,8 @@ export function restore(state: PRReviewState, ctx: ExtensionContext): void {
 		if (saved.session.tabStates) {
 			for (const [key, val] of saved.session.tabStates) {
 				tabStates.set(key, {
-					handled: val.handled,
+					// The `handled` fallback covers sessions persisted before the rename.
+					passed: val.passed ?? val.handled ?? false,
 					activeView: val.activeView as "overview" | "comments" | "raw",
 					commentIndex: val.commentIndex,
 				});

@@ -2,8 +2,9 @@
  * LLM briefings: pure functions that build markdown text
  * for the agent to reason about.
  *
- * Each function takes review data and returns a string.
- * No side effects, no state mutation, no UI.
+ * Functions named *Summary assemble domain data only. The
+ * calling handler appends LLM instructions separately, so
+ * coaching text never leaks into data assembly.
  */
 
 import type { PRContext, ReviewSession } from "./state.js";
@@ -18,10 +19,11 @@ const MAX_ISSUE_BODY = 500;
 const MAX_ISSUE_COMMENTS = 5;
 
 /**
- * Build the activation briefing: comprehensive context for
- * the agent to analyze and generate comments.
+ * Build a domain summary of the PR for the activation
+ * briefing. Covers header, reviewers, description, linked
+ * issues, references, source files and diff.
  */
-export function activationBriefing(session: ReviewSession): string {
+export function activationSummary(session: ReviewSession): string {
 	const context = session.context;
 	if (!context) return "Context unavailable.";
 
@@ -42,94 +44,23 @@ export function activationBriefing(session: ReviewSession): string {
 	}
 	parts.push("");
 
-	// Reviewers
-	if (context.reviewers.length > 0) {
-		parts.push("### Reviewers");
-		for (const r of context.reviewers) {
-			parts.push(`- @${r.login}: ${r.verdict}`);
-		}
-		parts.push("");
-	}
+	formatReviewers(parts, context);
+	formatDescription(parts, context);
+	formatLinkedIssues(parts, context);
+	formatReferences(parts, context);
+	formatSourceFiles(parts, context);
+	formatDiff(parts, context);
 
-	// PR description
-	if (context.pr.body) {
-		parts.push("### PR Description");
-		parts.push(context.pr.body);
-		parts.push("");
-	}
+	return parts.join("\n");
+}
 
-	// Linked issues
-	if (context.issues.length > 0) {
-		parts.push("### Linked Issues");
-		for (const issue of context.issues) {
-			parts.push(`\n#### Issue #${issue.number}: ${issue.title}`);
-			parts.push(`State: ${issue.state}`);
-			if (issue.labels.length > 0) {
-				parts.push(`Labels: ${issue.labels.join(", ")}`);
-			}
-			if (issue.body) {
-				const preview = issue.body.slice(0, MAX_ISSUE_BODY);
-				const ellipsis = issue.body.length > MAX_ISSUE_BODY ? "…" : "";
-				parts.push(preview + ellipsis);
-			}
-			if (issue.parentIssue) {
-				parts.push(
-					`Parent: #${issue.parentIssue.number}: ${issue.parentIssue.title}`,
-				);
-			}
-			if (issue.subIssues.length > 0) {
-				parts.push("Sub-issues:");
-				for (const sub of issue.subIssues) {
-					parts.push(`  - #${sub.number}: ${sub.title} (${sub.state})`);
-				}
-			}
-			if (issue.comments.length > 0) {
-				const shown = issue.comments.slice(0, MAX_ISSUE_COMMENTS);
-				parts.push(`\n_${issue.comments.length} comments:_`);
-				for (const c of shown) {
-					parts.push(`> @${c.author}: ${c.body.slice(0, 300)}`);
-				}
-			}
-		}
-		parts.push("");
-	}
+/**
+ * LLM instructions for the activation briefing. Appended by
+ * the handler after the domain summary.
+ */
+export function activationInstructions(repoPath: string): string {
+	const parts: string[] = [];
 
-	// We include URLs so the agent can match them for summaries.
-	if (context.references.length > 0) {
-		parts.push("### References");
-		parts.push(
-			"Provide a `reference_summaries` entry for each with a one-sentence summary.",
-		);
-		for (const r of context.references) {
-			parts.push(`- ${r.title}: ${r.url}`);
-		}
-		parts.push("");
-	}
-
-	if (context.hitDepthLimit) {
-		parts.push(
-			"⚠️ **Crawl depth limit reached**: some references were not followed.",
-		);
-		parts.push("");
-	}
-
-	// Source files
-	if (context.sourceFiles.length > 0) {
-		parts.push("### Source Files");
-		parts.push(
-			"These are files the PR interacts with. Fill in the `role` " +
-				"field for each in your `source_roles` parameter.",
-		);
-		for (const f of context.sourceFiles) {
-			parts.push(`- \`${f.path}\``);
-		}
-		parts.push("");
-	}
-
-	// Diff
-	appendDiff(parts, context);
-
-	// Instructions
 	parts.push("### Instructions");
 	parts.push("");
 	parts.push(
@@ -173,17 +104,27 @@ export function activationBriefing(session: ReviewSession): string {
 	);
 	parts.push("");
 	parts.push(
-		`Use the \`read\` tool to examine source files at \`${session.repoPath}/\` for deeper analysis.`,
+		`Use the \`read\` tool to examine source files at \`${repoPath}/\` for deeper analysis.`,
 	);
 	parts.push(
-		`Use \`rg\` in \`bash\` to search for patterns in \`${session.repoPath}/\`.`,
+		`Use \`rg\` in \`bash\` to search for patterns in \`${repoPath}/\`.`,
 	);
 
 	return parts.join("\n");
 }
 
+/**
+ * Build the full activation briefing: domain summary
+ * followed by LLM instructions.
+ */
+export function activationBriefing(session: ReviewSession): string {
+	const summary = activationSummary(session);
+	const instructions = activationInstructions(session.repoPath);
+	return `${summary}\n${instructions}`;
+}
+
 /** Summary returned after comments are generated. */
-export function generateCommentsBriefing(session: ReviewSession): string {
+export function generateCommentsSummary(session: ReviewSession): string {
 	const fileComments = session.comments.filter((c) => c.category === "file");
 	const scopeComments = session.comments.filter((c) => c.category === "scope");
 	const titleComments = session.comments.filter((c) => c.category === "title");
@@ -193,16 +134,115 @@ export function generateCommentsBriefing(session: ReviewSession): string {
 	parts.push(`- ${fileComments.length} file comments`);
 	parts.push(`- ${scopeComments.length} scope comments`);
 	parts.push(`- ${titleComments.length} title/description comments`);
-	parts.push("");
-	parts.push(
-		"Call pr_review with action 'overview' to show the overview panel.",
-	);
 
 	return parts.join("\n");
 }
 
-/** Append the full diff (or truncated) to parts. */
-function appendDiff(parts: string[], context: PRContext): void {
+/**
+ * Full briefing after comment generation: domain summary
+ * plus next-step instruction.
+ */
+export function generateCommentsBriefing(session: ReviewSession): string {
+	const summary = generateCommentsSummary(session);
+	return `${summary}\n\nCall pr_review with action 'overview' to show the overview panel.`;
+}
+
+/** Append reviewer verdicts. */
+function formatReviewers(parts: string[], context: PRContext): void {
+	if (context.reviewers.length === 0) return;
+
+	parts.push("### Reviewers");
+	for (const r of context.reviewers) {
+		parts.push(`- @${r.login}: ${r.verdict}`);
+	}
+	parts.push("");
+}
+
+/** Append the PR description. */
+function formatDescription(parts: string[], context: PRContext): void {
+	if (!context.pr.body) return;
+
+	parts.push("### PR Description");
+	parts.push(context.pr.body);
+	parts.push("");
+}
+
+/** Append linked issues with sub-issues and comments. */
+function formatLinkedIssues(parts: string[], context: PRContext): void {
+	if (context.issues.length === 0) return;
+
+	parts.push("### Linked Issues");
+	for (const issue of context.issues) {
+		parts.push(`\n#### Issue #${issue.number}: ${issue.title}`);
+		parts.push(`State: ${issue.state}`);
+		if (issue.labels.length > 0) {
+			parts.push(`Labels: ${issue.labels.join(", ")}`);
+		}
+		if (issue.body) {
+			const preview = issue.body.slice(0, MAX_ISSUE_BODY);
+			const ellipsis = issue.body.length > MAX_ISSUE_BODY ? "…" : "";
+			parts.push(preview + ellipsis);
+		}
+		if (issue.parentIssue) {
+			parts.push(
+				`Parent: #${issue.parentIssue.number}: ${issue.parentIssue.title}`,
+			);
+		}
+		if (issue.subIssues.length > 0) {
+			parts.push("Sub-issues:");
+			for (const sub of issue.subIssues) {
+				parts.push(`  - #${sub.number}: ${sub.title} (${sub.state})`);
+			}
+		}
+		if (issue.comments.length > 0) {
+			const shown = issue.comments.slice(0, MAX_ISSUE_COMMENTS);
+			parts.push(`\n_${issue.comments.length} comments:_`);
+			for (const c of shown) {
+				parts.push(`> @${c.author}: ${c.body.slice(0, 300)}`);
+			}
+		}
+	}
+	parts.push("");
+}
+
+/** Append discovered references (URLs for the agent to summarize). */
+function formatReferences(parts: string[], context: PRContext): void {
+	if (context.references.length === 0) return;
+
+	parts.push("### References");
+	parts.push(
+		"Provide a `reference_summaries` entry for each with a one-sentence summary.",
+	);
+	for (const r of context.references) {
+		parts.push(`- ${r.title}: ${r.url}`);
+	}
+	parts.push("");
+
+	if (context.hitDepthLimit) {
+		parts.push(
+			"⚠️ **Crawl depth limit reached**: some references were not followed.",
+		);
+		parts.push("");
+	}
+}
+
+/** Append source files the PR interacts with. */
+function formatSourceFiles(parts: string[], context: PRContext): void {
+	if (context.sourceFiles.length === 0) return;
+
+	parts.push("### Source Files");
+	parts.push(
+		"These are files the PR interacts with. Fill in the `role` " +
+			"field for each in your `source_roles` parameter.",
+	);
+	for (const f of context.sourceFiles) {
+		parts.push(`- \`${f.path}\``);
+	}
+	parts.push("");
+}
+
+/** Append the full diff (or truncated with file list). */
+function formatDiff(parts: string[], context: PRContext): void {
 	parts.push("### Full Diff");
 	parts.push("");
 
