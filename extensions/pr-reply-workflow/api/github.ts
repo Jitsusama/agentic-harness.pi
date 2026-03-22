@@ -317,6 +317,61 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 	}
 }
 
+/** Find the PR number associated with a branch. */
+export async function findPRForBranch(
+	pi: ExtensionAPI,
+	owner: string,
+	repo: string,
+	branch: string,
+): Promise<number | null> {
+	const result = await pi.exec("gh", [
+		"pr",
+		"list",
+		"--repo",
+		`${owner}/${repo}`,
+		"--head",
+		branch,
+		"--json",
+		"number",
+		"--jq",
+		".[0].number",
+	]);
+
+	if (result.code !== 0 || !result.stdout.trim()) return null;
+
+	const prNumber = Number.parseInt(result.stdout.trim(), 10);
+	return Number.isNaN(prNumber) ? null : prNumber;
+}
+
+/** Find dependent PRs (PRs whose base is the given branch). */
+export async function findDependentPRs(
+	pi: ExtensionAPI,
+	owner: string,
+	repo: string,
+	branch: string,
+): Promise<number[]> {
+	const result = await pi.exec("gh", [
+		"pr",
+		"list",
+		"--repo",
+		`${owner}/${repo}`,
+		"--base",
+		branch,
+		"--json",
+		"number",
+		"--jq",
+		".[].number",
+	]);
+
+	if (result.code !== 0 || !result.stdout.trim()) return [];
+
+	return result.stdout
+		.trim()
+		.split("\n")
+		.map((n) => Number.parseInt(n, 10))
+		.filter((n) => !Number.isNaN(n));
+}
+
 /** Get the head branch name for a PR from GitHub. */
 export async function getPRBranch(
 	pi: ExtensionAPI,

@@ -8,7 +8,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { findDependentPRs } from "./api/repo.js";
+import { findDependentPRs } from "./api/github.js";
 import { briefRebaseApproved } from "./briefing.js";
 import type { DependentPR, PRReplyState } from "./state.js";
 import { showRebasePanel } from "./ui/panels.js";
