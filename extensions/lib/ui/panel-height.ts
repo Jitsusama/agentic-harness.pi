@@ -15,12 +15,12 @@ import {
 	type PanelHeightMode,
 } from "./types.js";
 
-const STATE_KEY = "__panelHeightMode__";
+const STATE_KEY = Symbol.for("pi:panelHeightMode");
 
 /** Get the current panel height mode. */
 export function getPanelHeightMode(): PanelHeightMode {
 	return (
-		((globalThis as Record<string, unknown>)[STATE_KEY] as
+		((globalThis as Record<symbol, unknown>)[STATE_KEY] as
 			| PanelHeightMode
 			| undefined) ?? "normal"
 	);
@@ -28,7 +28,7 @@ export function getPanelHeightMode(): PanelHeightMode {
 
 /** Set the panel height mode. */
 export function setPanelHeightMode(next: PanelHeightMode): void {
-	(globalThis as Record<string, unknown>)[STATE_KEY] = next;
+	(globalThis as Record<symbol, unknown>)[STATE_KEY] = next;
 }
 
 /** Get the height fraction for the current mode. */
