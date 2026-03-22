@@ -73,7 +73,11 @@ export async function fetchPRGraphQL(
 	issues: LinkedIssue[];
 	reviewers: ReviewerStatus[];
 }> {
-	const data = await runGraphQL<PRContextResponse>(pi, PR_CONTEXT_QUERY, ref);
+	const data = await runGraphQL<PRContextResponse>(pi, PR_CONTEXT_QUERY, {
+		owner: ref.owner,
+		repo: ref.repo,
+		pr: ref.number,
+	});
 	const pr = data.data.repository.pullRequest;
 
 	return {

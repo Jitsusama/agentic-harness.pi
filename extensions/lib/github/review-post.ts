@@ -13,21 +13,22 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { PRReference } from "./pr-reference.js";
 
-/** A comment in the GitHub review API format. */
-export interface ReviewAPIComment {
-	path: string;
-	line: number;
-	start_line?: number;
-	side: string;
-	start_side?: string;
-	body: string;
+/** A review comment in domain-level format. */
+export interface ReviewComment {
+	readonly path: string;
+	readonly line: number;
+	readonly startLine?: number;
+	/** Diff side: defaults to "RIGHT" when omitted. */
+	readonly side?: string;
+	readonly body: string;
 }
 
 /**
  * Post a review with comments to GitHub via `gh api`.
  *
- * Writes the JSON payload to a temp file, calls `gh api`
- * with `--input`, and cleans up the temp file afterward.
+ * Transforms ReviewComment objects into GitHub's wire format
+ * (snake_case fields), writes the JSON payload to a temp file,
+ * and posts via `gh api --input`.
  *
  * @param event - GitHub review event: "COMMENT", "APPROVE",
  *   or "REQUEST_CHANGES"
@@ -37,9 +38,10 @@ export async function postReview(
 	ref: PRReference,
 	event: string,
 	body: string,
-	comments: ReviewAPIComment[],
+	comments: ReviewComment[],
 ): Promise<void> {
-	const payload = JSON.stringify({ event, body, comments });
+	const wireComments = comments.map(toWireFormat);
+	const payload = JSON.stringify({ event, body, comments: wireComments });
 
 	const tmpFile = join(tmpdir(), `pi-pr-review-${Date.now()}.json`);
 	try {
@@ -64,4 +66,20 @@ export async function postReview(
 			/* Temp file cleanup: safe to ignore */
 		}
 	}
+}
+
+/** Transform a domain-level ReviewComment into GitHub's wire format. */
+function toWireFormat(comment: ReviewComment): Record<string, unknown> {
+	const side = comment.side ?? "RIGHT";
+	const wire: Record<string, unknown> = {
+		path: comment.path,
+		line: comment.line,
+		side,
+		body: comment.body,
+	};
+	if (comment.startLine !== undefined) {
+		wire.start_line = comment.startLine;
+		wire.start_side = side;
+	}
+	return wire;
 }

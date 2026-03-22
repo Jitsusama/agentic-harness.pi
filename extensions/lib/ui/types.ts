@@ -259,8 +259,8 @@ export interface WorkspaceInputContext {
 	invalidate: () => void;
 	/** Trigger a repaint without clearing cache (e.g., cursor moved). */
 	requestRender: () => void;
-	/** Adjust scroll so the given line is visible. Use after changing list selection. */
-	scrollToLine: (line: number) => void;
+	/** Adjust scroll so the given content line is visible. */
+	scrollToContentLine: (line: number) => void;
 	/** Open the note editor with a label. */
 	openEditor: (label: string, preFill?: string) => void;
 	/** Close the panel with a result. */

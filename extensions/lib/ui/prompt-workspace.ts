@@ -142,7 +142,7 @@ export async function showWorkspacePrompt(
 				requestRender() {
 					tui.requestRender(true);
 				},
-				scrollToLine(line: number) {
+				scrollToContentLine(line: number) {
 					const tab = currentTab;
 					const view = getViewIndex(tab);
 					const scroll = getScrollState(tab, view);

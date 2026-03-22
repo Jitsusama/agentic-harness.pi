@@ -18,6 +18,7 @@ import {
 	renderMarkdown,
 } from "../../lib/ui/content-renderer.js";
 import { workspace } from "../../lib/ui/panel.js";
+import { tabCompletion } from "../../lib/ui/tab-completion.js";
 import {
 	CONTENT_INDENT,
 	contentWrapWidth,
@@ -119,15 +120,12 @@ export async function showReviewPanel(
 		})),
 	}));
 
+	const completion = tabCompletion(tabIds, (id) => isTabPassed(session, id));
+
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
 		globalActions: [PASS_ACTION],
-		tabStatus: (index) => {
-			const tabId = tabIds[index];
-			if (!tabId) return "pending";
-			return isTabPassed(session, tabId) ? "complete" : "pending";
-		},
-		allComplete: () => tabIds.every((id) => isTabPassed(session, id)),
+		...completion,
 		allowHScroll: true,
 	});
 
@@ -551,13 +549,13 @@ function handleCommentInput(
 	if (matchesKey(data, Key.up)) {
 		setIndex((getIndex() - 1 + comments.length) % comments.length);
 		inputCtx.invalidate();
-		inputCtx.scrollToLine(getIndex());
+		inputCtx.scrollToContentLine(getIndex());
 		return true;
 	}
 	if (matchesKey(data, Key.down)) {
 		setIndex((getIndex() + 1) % comments.length);
 		inputCtx.invalidate();
-		inputCtx.scrollToLine(getIndex());
+		inputCtx.scrollToContentLine(getIndex());
 		return true;
 	}
 
@@ -570,7 +568,7 @@ function handleCommentInput(
 		checkTabAutoPassed(session, tabId, comments);
 		advanceToNextPending(comments, getIndex, setIndex);
 		inputCtx.invalidate();
-		inputCtx.scrollToLine(getIndex());
+		inputCtx.scrollToContentLine(getIndex());
 		return true;
 	}
 
@@ -580,7 +578,7 @@ function handleCommentInput(
 		checkTabAutoPassed(session, tabId, comments);
 		advanceToNextPending(comments, getIndex, setIndex);
 		inputCtx.invalidate();
-		inputCtx.scrollToLine(getIndex());
+		inputCtx.scrollToContentLine(getIndex());
 		return true;
 	}
 

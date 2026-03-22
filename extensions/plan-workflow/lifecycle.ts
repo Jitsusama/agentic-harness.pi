@@ -11,6 +11,12 @@ import type {
 import { getLastEntry, loadPlanDir } from "../lib/state.js";
 import { PLAN_TOOLS, type PlanState } from "./state.js";
 
+/** Shape of plan-workflow data written to session history. */
+interface PersistedState {
+	enabled: boolean;
+	planDir?: string;
+}
+
 /** Update the status line to reflect plan mode state. */
 export function updateStatus(state: PlanState, ctx: ExtensionContext): void {
 	const theme = ctx.ui.theme;
@@ -76,10 +82,7 @@ export function restore(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 ): void {
-	const saved = getLastEntry<{ enabled: boolean; planDir?: string }>(
-		ctx,
-		"plan-workflow",
-	);
+	const saved = getLastEntry<PersistedState>(ctx, "plan-workflow");
 	if (saved) {
 		state.enabled = saved.enabled ?? false;
 		state.planDir = saved.planDir ?? loadPlanDir(ctx.cwd);

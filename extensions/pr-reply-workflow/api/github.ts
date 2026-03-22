@@ -150,9 +150,10 @@ export async function fetchReviews(
 	pi: ExtensionAPI,
 	ref: PRReference,
 ): Promise<{ reviews: ReceivedReview[]; threads: ReviewThread[] }> {
+	const vars = { owner: ref.owner, repo: ref.repo, pr: ref.number };
 	const [threadsData, reviewsData] = await Promise.all([
-		runGraphQL<ThreadsResponse>(pi, THREADS_QUERY, ref),
-		runGraphQL<ReviewsResponse>(pi, REVIEWS_QUERY, ref),
+		runGraphQL<ThreadsResponse>(pi, THREADS_QUERY, vars),
+		runGraphQL<ReviewsResponse>(pi, REVIEWS_QUERY, vars),
 	]);
 
 	const gqlThreads =
@@ -312,7 +313,11 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 }`;
 
 	try {
-		const data = await runGraphQL<RefreshThreadsResponse>(pi, query, ref);
+		const data = await runGraphQL<RefreshThreadsResponse>(pi, query, {
+			owner: ref.owner,
+			repo: ref.repo,
+			pr: ref.number,
+		});
 		const threads = data.data.repository.pullRequest.reviewThreads.nodes;
 
 		const match = threads.find((t) => t.id === thread.id);

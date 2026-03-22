@@ -17,6 +17,32 @@ import { isSetUp, StaleKeyError, setupChromeKey } from "./cookies/index.js";
 import { AuthSetupNeeded, readPage } from "./reader.js";
 import { webSearch as doSearch } from "./search.js";
 
+/** Details returned by web_read on success. */
+interface ReaderDetails {
+	title?: string;
+	url?: string;
+	excerpt?: string;
+	length?: number;
+	filePath?: string;
+}
+
+/** Type guard for successful web_read details. */
+function isReaderDetails(details: unknown): details is ReaderDetails {
+	return (
+		typeof details === "object" && details !== null && !("error" in details)
+	);
+}
+
+/** Check whether tool details indicate an error. */
+function hasErrorDetails(details: unknown): boolean {
+	return (
+		typeof details === "object" &&
+		details !== null &&
+		"error" in details &&
+		Boolean((details as Record<string, unknown>).error)
+	);
+}
+
 export default function webSearch(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "web_search",
@@ -47,7 +73,7 @@ export default function webSearch(pi: ExtensionAPI) {
 
 		renderResult(result, { expanded }, theme) {
 			const text = result.content?.[0]?.text || "";
-			if (result.details?.error || text.startsWith("Search failed")) {
+			if (hasErrorDetails(result.details) || text.startsWith("Search failed")) {
 				return new Text(theme.fg("error", text), 0, 0);
 			}
 			// Count results
@@ -139,18 +165,25 @@ export default function webSearch(pi: ExtensionAPI) {
 
 		renderResult(result, { expanded }, theme) {
 			const text = result.content?.[0]?.text || "";
-			if (result.details?.error || text.startsWith("Failed to read page")) {
+			if (
+				!isReaderDetails(result.details) ||
+				text.startsWith("Failed to read page")
+			) {
 				return new Text(theme.fg("error", text), 0, 0);
 			}
 
-			const title = (result.details?.title as string) || "Page loaded";
-			const excerpt = (result.details?.excerpt as string) || "";
-			const filePath = result.details?.filePath as string | undefined;
-			const totalChars = (result.details?.length as number) || text.length;
+			const {
+				title,
+				excerpt,
+				filePath,
+				length: contentLength,
+			} = result.details;
+			const displayTitle = title || "Page loaded";
+			const totalChars = contentLength || text.length;
 
 			let summary =
 				theme.fg("success", "✓ ") +
-				theme.fg("dim", title) +
+				theme.fg("dim", displayTitle) +
 				theme.fg("muted", ` (${Math.round(totalChars / 1000)}k chars)`);
 			if (filePath) {
 				summary += theme.fg("muted", ` → ${filePath}`);

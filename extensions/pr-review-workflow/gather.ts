@@ -10,6 +10,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { runGraphQL } from "../lib/github/graphql.js";
 import type { PRReference } from "../lib/github/pr-reference.js";
 import {
 	fetchDiff,
@@ -610,22 +611,11 @@ async function fetchDeepIssue(
 	issueNumber: number,
 ): Promise<GQLDeepIssue | null> {
 	try {
-		const result = await pi.exec("gh", [
-			"api",
-			"graphql",
-			"-f",
-			`query=${ISSUE_DEEP_QUERY}`,
-			"-F",
-			`owner=${ref.owner}`,
-			"-F",
-			`repo=${ref.repo}`,
-			"-F",
-			`number=${issueNumber}`,
-		]);
-
-		if (result.code !== 0) return null;
-
-		const data = JSON.parse(result.stdout) as IssueDeepResponse;
+		const data = await runGraphQL<IssueDeepResponse>(pi, ISSUE_DEEP_QUERY, {
+			owner: ref.owner,
+			repo: ref.repo,
+			number: issueNumber,
+		});
 		return data.data.repository.issue;
 	} catch {
 		/* Issue fetch failed: not fatal */

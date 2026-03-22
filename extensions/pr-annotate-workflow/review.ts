@@ -14,6 +14,7 @@ import {
 	renderDiff,
 } from "../lib/ui/content-renderer.js";
 import { workspace } from "../lib/ui/panel.js";
+import { tabCompletion } from "../lib/ui/tab-completion.js";
 import {
 	CONTENT_INDENT,
 	contentWrapWidth,
@@ -93,16 +94,16 @@ export async function reviewProposedComments(
 
 	const tabIds = ["summary", ...filePaths];
 
+	const completion = tabCompletion(
+		tabIds,
+		(id) => tabPassed.has(id),
+		filePaths,
+	);
+
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
 		globalActions: [{ key: "p", label: "Pass" }],
-		tabStatus: (index) => {
-			const tabId = tabIds[index];
-			if (!tabId) return "pending";
-			if (tabId === "summary") return "pending";
-			return tabPassed.has(tabId) ? "complete" : "pending";
-		},
-		allComplete: () => filePaths.every((p) => tabPassed.has(p)),
+		...completion,
 		allowHScroll: true,
 	});
 
@@ -342,13 +343,13 @@ function buildCommentsView(
 			if (matchesKey(data, Key.up)) {
 				setIndex((getIndex() - 1 + fileComments.length) % fileComments.length);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(getIndex());
+				inputCtx.scrollToContentLine(getIndex());
 				return true;
 			}
 			if (matchesKey(data, Key.down)) {
 				setIndex((getIndex() + 1) % fileComments.length);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(getIndex());
+				inputCtx.scrollToContentLine(getIndex());
 				return true;
 			}
 
@@ -361,7 +362,7 @@ function buildCommentsView(
 				checkTabAutoPassed(filePath, fileComments, tabPassed);
 				advanceToNextPending(fileComments, getIndex, setIndex);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(getIndex());
+				inputCtx.scrollToContentLine(getIndex());
 				return true;
 			}
 
@@ -371,7 +372,7 @@ function buildCommentsView(
 				checkTabAutoPassed(filePath, fileComments, tabPassed);
 				advanceToNextPending(fileComments, getIndex, setIndex);
 				inputCtx.invalidate();
-				inputCtx.scrollToLine(getIndex());
+				inputCtx.scrollToContentLine(getIndex());
 				return true;
 			}
 
