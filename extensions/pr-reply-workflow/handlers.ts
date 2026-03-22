@@ -14,11 +14,12 @@ import { resolveRepo } from "../lib/github/repo-discovery.js";
 import { buildAnalysisPrompt } from "./analysis.js";
 import {
 	fetchReviews,
+	getPRBranch,
 	type PRReference,
 	postReply,
 	refreshThreadComments,
 } from "./api/github.js";
-import { getCurrentBranch } from "./api/repo.js";
+import { getCurrentBranch, resolvePR } from "./api/repo.js";
 import {
 	briefActivation,
 	briefBatchAnalysis,
@@ -31,22 +32,18 @@ import {
 	briefReviewSummary,
 	briefThread,
 } from "./briefing.js";
+import { readCodeContext } from "./code-context.js";
 import { checkDependentPRs } from "./dependency-chain.js";
 import {
 	beginTDDImplementation,
 	buildImplementationContext,
 	collectImplementationCommits,
 	linkCommitsToThread,
+	pushIfNeeded,
 	recordImplementationStart,
 	shortSHAs,
 } from "./implementation.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
-import {
-	getPRBranch,
-	pushIfNeeded,
-	readCodeContext,
-	resolvePR,
-} from "./navigation.js";
 import { findPlanContext } from "./plans.js";
 import { buildReplyGuidance } from "./replies.js";
 import {

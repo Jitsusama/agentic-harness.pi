@@ -9,7 +9,7 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { renderCode, renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { promptSingle } from "../../lib/ui/panel.js";
-import type { CodeContext } from "../navigation.js";
+import type { CodeContext } from "../code-context.js";
 import type { Review, Thread } from "../state.js";
 
 /** User's decision from the thread gate. */

@@ -111,3 +111,22 @@ export function buildImplementationContext(thread: Thread): string {
 export function shortSHAs(commits: string[]): string[] {
 	return commits.map((sha) => sha.slice(0, 7));
 }
+
+/**
+ * Push to the remote if there are unpushed commits.
+ * Non-fatal: replies still post if push fails, but SHAs
+ * won't be clickable on GitHub until the next push.
+ */
+export async function pushIfNeeded(pi: ExtensionAPI): Promise<void> {
+	const status = await pi.exec("git", [
+		"rev-list",
+		"--count",
+		"@{upstream}..HEAD",
+	]);
+
+	const ahead = Number.parseInt(status.stdout.trim(), 10);
+	if (Number.isNaN(ahead) || ahead === 0) return;
+
+	await pi.exec("git", ["push"]);
+	// This is non-fatal; the reply will still be posted.
+}

@@ -316,3 +316,23 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 		/* Refresh failed: use stale data rather than blocking */
 	}
 }
+
+/** Get the head branch name for a PR from GitHub. */
+export async function getPRBranch(
+	pi: ExtensionAPI,
+	ref: PRReference,
+): Promise<string | null> {
+	const result = await pi.exec("gh", [
+		"pr",
+		"view",
+		String(ref.number),
+		"--repo",
+		`${ref.owner}/${ref.repo}`,
+		"--json",
+		"headRefName",
+		"--jq",
+		".headRefName",
+	]);
+	if (result.code !== 0 || !result.stdout.trim()) return null;
+	return result.stdout.trim();
+}
