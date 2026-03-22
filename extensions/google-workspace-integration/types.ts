@@ -5,6 +5,45 @@
 /** Parameters passed to router actions. */
 export type ActionParams = Record<string, unknown>;
 
+/** Extract a string parameter, returning undefined if absent or wrong type. */
+export function getStringParam(
+	params: ActionParams,
+	key: string,
+): string | undefined {
+	const value = params[key];
+	return typeof value === "string" ? value : undefined;
+}
+
+/** Extract a number parameter, returning undefined if absent or wrong type. */
+export function getNumberParam(
+	params: ActionParams,
+	key: string,
+): number | undefined {
+	const value = params[key];
+	return typeof value === "number" ? value : undefined;
+}
+
+/** Extract a boolean parameter, returning undefined if absent or wrong type. */
+export function getBooleanParam(
+	params: ActionParams,
+	key: string,
+): boolean | undefined {
+	const value = params[key];
+	return typeof value === "boolean" ? value : undefined;
+}
+
+/** Extract a string array parameter, returning undefined if absent or wrong type. */
+export function getStringArrayParam(
+	params: ActionParams,
+	key: string,
+): string[] | undefined {
+	const value = params[key];
+	if (!Array.isArray(value)) return undefined;
+	return value.every((v) => typeof v === "string")
+		? (value as string[])
+		: undefined;
+}
+
 /** Result of a tool execution. */
 export interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;

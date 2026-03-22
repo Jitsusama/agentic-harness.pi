@@ -17,13 +17,14 @@ import {
 	confirmDeleteEvent,
 	confirmUpdateEvent,
 } from "../confirmation.js";
+import { renderEvent, renderEventList } from "../renderers/calendar.js";
 import {
+	type ActionParams,
 	getNumberParam,
 	getStringArrayParam,
 	getStringParam,
-} from "../params.js";
-import { renderEvent, renderEventList } from "../renderers/calendar.js";
-import type { ActionParams, ToolResult } from "../types.js";
+	type ToolResult,
+} from "../types.js";
 
 export async function handleListEvents(
 	params: ActionParams,
