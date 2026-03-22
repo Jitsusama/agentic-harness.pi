@@ -2,8 +2,10 @@
  * LLM briefings: pure functions that build text summaries
  * for the agent to reason about.
  *
- * Each function takes review/thread data and returns a string.
- * No side effects, no state mutation, no UI.
+ * Functions named *Summary assemble domain data only. The
+ * calling handler appends LLM instructions separately.
+ * Convenience wrappers (activationBriefing, etc.) compose
+ * both for callers that need the full text.
  */
 
 import type { PRReference } from "./api/github.js";
@@ -19,8 +21,8 @@ function countByState(state: PRReplyState, threadState: string): number {
 	return count;
 }
 
-/** Summary text returned after activation. */
-export function activationBriefing(
+/** Domain summary of what activation discovered. */
+export function activationSummary(
 	ref: PRReference,
 	reviewCount: number,
 	threadCount: number,
@@ -37,18 +39,27 @@ export function activationBriefing(
 		);
 	}
 
-	parts.push(
-		"Call pr_reply with action 'generate-analysis' providing your analysis of all threads.",
-	);
-
 	return parts.join(" ");
 }
 
-/**
- * Batch analysis briefing: comprehensive thread context for
- * the LLM to analyze all threads at once.
- */
-export function batchAnalysisBriefing(state: PRReplyState): string {
+/** Full activation briefing: summary plus next-step instruction. */
+export function activationBriefing(
+	ref: PRReference,
+	reviewCount: number,
+	threadCount: number,
+	dismissedCount: number,
+): string {
+	const summary = activationSummary(
+		ref,
+		reviewCount,
+		threadCount,
+		dismissedCount,
+	);
+	return `${summary} Call pr_reply with action 'generate-analysis' providing your analysis of all threads.`;
+}
+
+/** Domain summary of all threads grouped by review. */
+export function batchAnalysisSummary(state: PRReplyState): string {
 	const parts: string[] = [];
 
 	parts.push("## Review Threads for Batch Analysis");
@@ -81,27 +92,28 @@ export function batchAnalysisBriefing(state: PRReplyState): string {
 		}
 	}
 
-	parts.push("### Instructions");
-	parts.push("");
-	parts.push(
-		"Analyze all threads, then call pr_reply with action 'generate-analysis' providing:",
-	);
-	parts.push("");
-	parts.push(
-		"1. **`analyses`**: for each thread, a recommendation (implement/reply/pass) " +
-			"and analysis text explaining your reasoning",
-	);
-	parts.push(
-		"2. **`reviewer_analyses`**: for each reviewer, a brief character assessment " +
-			"(thorough, nitpicky, collaborative, blocking, etc.)",
-	);
-	parts.push("");
-	parts.push(
-		"Be critical: don't just agree with every reviewer. Evaluate whether each " +
-			"suggestion actually improves the code.",
-	);
-
 	return parts.join("\n");
+}
+
+/** LLM instructions for batch analysis. */
+const BATCH_ANALYSIS_INSTRUCTIONS = [
+	"### Instructions",
+	"",
+	"Analyze all threads, then call pr_reply with action 'generate-analysis' providing:",
+	"",
+	"1. **`analyses`**: for each thread, a recommendation (implement/reply/pass) " +
+		"and analysis text explaining your reasoning",
+	"2. **`reviewer_analyses`**: for each reviewer, a brief character assessment " +
+		"(thorough, nitpicky, collaborative, blocking, etc.)",
+	"",
+	"Be critical: don't just agree with every reviewer. Evaluate whether each " +
+		"suggestion actually improves the code.",
+].join("\n");
+
+/** Full batch analysis briefing: thread data plus instructions. */
+export function batchAnalysisBriefing(state: PRReplyState): string {
+	const summary = batchAnalysisSummary(state);
+	return `${summary}\n${BATCH_ANALYSIS_INSTRUCTIONS}`;
 }
 
 /** Progress indicator for thread navigation headers. */
@@ -120,8 +132,8 @@ export function progressBriefing(state: PRReplyState): string {
 	return `[PR #${state.prNumber} • ${reviewLabel} • ${done}/${total} threads done]`;
 }
 
-/** Summary of a new review for the LLM to analyze. */
-export function reviewSummaryBriefing(
+/** Domain summary of a single review and its pending threads. */
+export function reviewSummary(
 	review: ReceivedReview,
 	pendingThreads: ReviewThread[],
 ): string {
@@ -142,17 +154,25 @@ export function reviewSummaryBriefing(
 		const ellipsis = (t.comments[0]?.body.length ?? 0) > 60 ? "…" : "";
 		parts.push(`  • ${t.file}:${t.line}: ${snippet}${ellipsis}`);
 	}
-	parts.push("");
-	parts.push(
-		"Analyze the character of this review: is it thorough, nitpicky, " +
-			"collaborative, blocking? Then call pr_reply with action 'review' " +
-			"and your analysis as the 'analysis' parameter.",
-	);
 
 	return parts.join("\n");
 }
 
-/** Thread context for the LLM, with analysis instructions. */
+/** Full review summary briefing: data plus analysis instruction. */
+export function reviewSummaryBriefing(
+	review: ReceivedReview,
+	pendingThreads: ReviewThread[],
+): string {
+	const summary = reviewSummary(review, pendingThreads);
+	return (
+		`${summary}\n\n` +
+		"Analyze the character of this review: is it thorough, nitpicky, " +
+		"collaborative, blocking? Then call pr_reply with action 'review' " +
+		"and your analysis as the 'analysis' parameter."
+	);
+}
+
+/** Thread context with analysis instruction for the LLM. */
 export function threadBriefing(
 	progressLine: string,
 	analysisContext: string,
@@ -182,8 +202,8 @@ export function completionBriefing(state: PRReplyState): string {
 	);
 }
 
-/** Thread choice result: user redirected with feedback. */
-export function redirectBriefing(
+/** Domain context for a user redirect on a thread. */
+export function redirectSummary(
 	file: string,
 	contextLine: number,
 	feedback: string,
@@ -192,53 +212,87 @@ export function redirectBriefing(
 	return (
 		`User feedback on thread ${file}:${contextLine}:\n\n` +
 		`${feedback}\n\n` +
-		`Thread context:\n${analysisContext}\n\n` +
+		`Thread context:\n${analysisContext}`
+	);
+}
+
+/** Full redirect briefing: context plus next-step instruction. */
+export function redirectBriefing(
+	file: string,
+	contextLine: number,
+	feedback: string,
+	analysisContext: string,
+): string {
+	const summary = redirectSummary(file, contextLine, feedback, analysisContext);
+	return (
+		`${summary}\n\n` +
 		"Interpret the user's feedback and call pr_reply with the appropriate " +
 		"action (implement, reply, or pass). If they want a reply composed, " +
 		"call pr_reply with action 'reply' and a reply_body."
 	);
 }
 
-/** Thread choice result: user chose to reply. */
-export function replyChoiceBriefing(
+/** Domain context for a user reply choice. */
+export function replyChoiceSummary(
 	file: string,
 	contextLine: number,
 	analysisContext: string,
 ): string {
 	return (
 		`User chose to reply to thread on ${file}:${contextLine}.\n\n` +
-		`Thread context:\n${analysisContext}\n\n` +
+		`Thread context:\n${analysisContext}`
+	);
+}
+
+/** Full reply choice briefing: context plus instruction. */
+export function replyChoiceBriefing(
+	file: string,
+	contextLine: number,
+	analysisContext: string,
+): string {
+	const summary = replyChoiceSummary(file, contextLine, analysisContext);
+	return (
+		`${summary}\n\n` +
 		"Compose a reply and call pr_reply with action 'reply' and a reply_body. " +
 		"The reply should be conversational, acknowledge the feedback, and be brief."
 	);
 }
 
-/** Thread choice result: user chose to implement. */
-export function implementChoiceBriefing(
+/** Domain context for a user implement choice. */
+export function implementChoiceSummary(
 	file: string,
 	contextLine: number,
 	analysisContext: string,
 ): string {
 	return (
 		`User chose to implement changes for thread on ${file}:${contextLine}.\n\n` +
-		`Thread context:\n${analysisContext}\n\n` +
+		`Thread context:\n${analysisContext}`
+	);
+}
+
+/** Full implement choice briefing: context plus instruction. */
+export function implementChoiceBriefing(
+	file: string,
+	contextLine: number,
+	analysisContext: string,
+): string {
+	const summary = implementChoiceSummary(file, contextLine, analysisContext);
+	return (
+		`${summary}\n\n` +
 		"Recommend whether to use TDD based on the change scope. " +
 		"Then call pr_reply with action 'implement' (and use_tdd if appropriate). " +
 		"After making changes and committing, call pr_reply with action 'done' and a reply_body."
 	);
 }
 
-/**
- * Re-analysis prompt: tells the LLM to re-evaluate all pending
- * threads after a state change (implementation, reply, or pass).
- */
-export function reAnalyzeBriefing(state: PRReplyState): string {
+/** Domain summary of pending threads needing re-analysis. */
+export function reAnalyzeSummary(state: PRReplyState): string {
 	const pending = state.threads.filter(
 		(t) => state.threadStates.get(t.id) === "pending",
 	);
 
 	if (pending.length === 0) {
-		return "All threads addressed. Call pr_reply with action 'deactivate' to finish.";
+		return "All threads addressed.";
 	}
 
 	const parts: string[] = [];
@@ -252,14 +306,24 @@ export function reAnalyzeBriefing(state: PRReplyState): string {
 		const snippet = t.comments[0]?.body.slice(0, 50).replace(/\n/g, " ") ?? "";
 		parts.push(`  • ${t.id}: ${t.file}:${t.line}: ${snippet}`);
 	}
-	parts.push("");
-	parts.push(
-		"Read the relevant files to check current state, then call " +
-			"pr_reply with action 'generate-analysis' with updated analyses. " +
-			"Then call 'review' to reopen the workspace.",
-	);
 
 	return parts.join("\n");
+}
+
+/** Full re-analysis briefing: summary plus next-step instructions. */
+export function reAnalyzeBriefing(state: PRReplyState): string {
+	const summary = reAnalyzeSummary(state);
+
+	if (summary === "All threads addressed.") {
+		return "All threads addressed. Call pr_reply with action 'deactivate' to finish.";
+	}
+
+	return (
+		`${summary}\n\n` +
+		"Read the relevant files to check current state, then call " +
+		"pr_reply with action 'generate-analysis' with updated analyses. " +
+		"Then call 'review' to reopen the workspace."
+	);
 }
 
 /** Rebase instructions after deactivation. */
