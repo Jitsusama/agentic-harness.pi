@@ -12,7 +12,7 @@ import {
 } from "../lib/guardian/types.js";
 import { promptSingle } from "../lib/ui/panel.js";
 import { formatRedirectBlock } from "../lib/ui/redirect.js";
-import { extractFlags, extractMessage, splitAtCommit } from "./parse.js";
+import { extractCommitFlags, extractMessage, splitAtCommit } from "./parse.js";
 import { renderCommitContent } from "./validate.js";
 
 const COMMIT_ACTIONS = [
@@ -38,7 +38,7 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 
 		const isAmend = /--amend\b/.test(command);
 		const { prefix, commitPart } = splitAtCommit(command);
-		const flags = extractFlags(commitPart);
+		const flags = extractCommitFlags(commitPart);
 
 		return { message, isAmend, prefix, flags };
 	},

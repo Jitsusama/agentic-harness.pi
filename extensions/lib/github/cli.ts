@@ -6,7 +6,12 @@
  * Depends on shell-level primitives from ./command.ts for quoting.
  */
 
-import { quote } from "../guardian/shell.js";
+import {
+	extractBody,
+	extractFlag,
+	quote,
+	splitAtCommand,
+} from "../guardian/shell.js";
 
 /** Extract a number from a command (e.g., PR number from "gh pr edit 42"). */
 export function extractEntityNumber(
@@ -89,4 +94,143 @@ export function extractMultiFlags(
 		}
 	}
 	return results;
+}
+
+// ── PR command parsing ──────────────────────────────────────
+
+export interface PrCommand {
+	/** "create" or "edit" */
+	readonly action: "create" | "edit";
+	readonly title: string | null;
+	readonly body: string | null;
+	/** Everything before the gh pr command (cd, &&, etc.) */
+	readonly prefix: string | null;
+	/** The full gh pr portion of the command */
+	readonly prPart: string;
+	/** PR number for edit commands */
+	readonly prNumber: string | null;
+	/** Extra flags to preserve (--draft, --base, etc.) */
+	readonly extraFlags: string[];
+}
+
+/**
+ * Detect whether a bash command contains a gh pr create or
+ * gh pr edit with body content.
+ */
+export function isPrCommand(command: string): boolean {
+	return isGhCommand(command, "pr");
+}
+
+/** Extract PR details from a bash command. Returns null if no body. */
+export function parsePrCommand(command: string): PrCommand | null {
+	if (!isPrCommand(command)) return null;
+
+	const { prefix, target: prPart } = splitAtCommand(
+		command,
+		/gh\s+pr\s+(?:create|edit)\b/,
+	);
+	const action = /\bgh\s+pr\s+create\b/.test(prPart) ? "create" : "edit";
+
+	const title = extractFlag(prPart, "title");
+	const body = extractBody(command, prPart);
+	const prNumber =
+		action === "edit"
+			? extractEntityNumber(prPart, /\bgh\s+pr\s+edit\s+(\d+)\b/)
+			: null;
+	const extraFlags = extractPrExtraFlags(prPart);
+
+	if (!body) return null;
+
+	return { action, title, body, prefix, prPart, prNumber, extraFlags };
+}
+
+/** Extract PR-specific flags to preserve. */
+function extractPrExtraFlags(prPart: string): string[] {
+	const flags: string[] = [];
+	if (/--draft\b/.test(prPart)) flags.push("--draft");
+	if (/--web\b/.test(prPart)) flags.push("--web");
+
+	for (const flag of ["base", "head", "repo", "milestone"]) {
+		const value = extractFlag(prPart, flag);
+		if (value) flags.push(`--${flag}`, quote(value));
+	}
+
+	for (const [name, value] of extractMultiFlags(prPart, [
+		"label",
+		"assignee",
+		"reviewer",
+	])) {
+		flags.push(`--add-${name}`, quote(value));
+	}
+
+	return flags;
+}
+
+// ── Issue command parsing ───────────────────────────────────
+
+export interface IssueCommand {
+	/** "create" or "edit" */
+	readonly action: "create" | "edit";
+	readonly title: string | null;
+	readonly body: string | null;
+	/** Everything before the gh issue command (cd, &&, etc.) */
+	readonly prefix: string | null;
+	/** The full gh issue portion of the command */
+	readonly issuePart: string;
+	/** Issue number for edit commands */
+	readonly issueNumber: string | null;
+	/** Extra flags to preserve (--label, --assignee, etc.) */
+	readonly extraFlags: string[];
+}
+
+/**
+ * Detect whether a bash command contains a gh issue create or
+ * gh issue edit with body content.
+ */
+export function isIssueCommand(command: string): boolean {
+	return isGhCommand(command, "issue");
+}
+
+/** Extract issue details from a bash command. Returns null if no body. */
+export function parseIssueCommand(command: string): IssueCommand | null {
+	if (!isIssueCommand(command)) return null;
+
+	const { prefix, target: issuePart } = splitAtCommand(
+		command,
+		/gh\s+issue\s+(?:create|edit)\b/,
+	);
+	const action = /\bgh\s+issue\s+create\b/.test(issuePart) ? "create" : "edit";
+
+	const title = extractFlag(issuePart, "title");
+	const body = extractBody(command, issuePart);
+	const issueNumber =
+		action === "edit"
+			? extractEntityNumber(issuePart, /\bgh\s+issue\s+edit\s+(\d+)\b/)
+			: null;
+	const extraFlags = extractIssueExtraFlags(issuePart);
+
+	if (!body) return null;
+
+	return { action, title, body, prefix, issuePart, issueNumber, extraFlags };
+}
+
+/** Extract issue-specific flags to preserve. */
+function extractIssueExtraFlags(issuePart: string): string[] {
+	const flags: string[] = [];
+
+	for (const flag of ["milestone", "repo"]) {
+		const value = extractFlag(issuePart, flag);
+		if (value) flags.push(`--${flag}`, quote(value));
+	}
+
+	for (const [name, value] of extractMultiFlags(issuePart, [
+		"label",
+		"assignee",
+		"project",
+	])) {
+		const prefix = issuePart.includes(`--add-${name}`) ? "add-" : "";
+		flags.push(`--${prefix}${name}`, quote(value));
+	}
+
+	return flags;
 }
