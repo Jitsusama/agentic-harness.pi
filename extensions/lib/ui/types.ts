@@ -203,7 +203,7 @@ export type PanelHeightMode = "minimized" | "normal" | "fullscreen";
 export const CONTENT_INDENT = 2;
 
 /** Config for a workspace prompt (stateful tabs). */
-export interface WorkspaceConfig {
+export interface WorkspacePromptConfig {
 	/** Tab definitions: each is a stateful workspace. */
 	items: WorkspaceItem[];
 	/** Global actions available on all tabs/views. */

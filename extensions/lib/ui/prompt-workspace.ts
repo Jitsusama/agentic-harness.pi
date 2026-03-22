@@ -39,8 +39,8 @@ import {
 	type Action,
 	GLYPH,
 	type TabStatus,
-	type WorkspaceConfig,
 	type WorkspaceInputContext,
+	type WorkspacePromptConfig,
 	type WorkspaceResult,
 	type WorkspaceView,
 } from "./types.js";
@@ -53,7 +53,7 @@ function cacheKey(tab: number, view: number): string {
 /** Show a workspace prompt panel. */
 export async function showWorkspacePrompt(
 	ctx: ExtensionContext,
-	config: WorkspaceConfig,
+	config: WorkspacePromptConfig,
 ): Promise<WorkspaceResult> {
 	return ctx.ui.custom<WorkspaceResult>((tui, theme, _kb, done) => {
 		let currentTab = 0;
