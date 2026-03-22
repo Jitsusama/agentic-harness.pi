@@ -59,61 +59,6 @@ export interface ReviewContext {
 	pi: ExtensionAPI;
 }
 
-/** Build a simple text tool result. */
-function plainTextResponse(text: string) {
-	return { content: [{ type: "text" as const, text }] };
-}
-
-const VALID_VERDICTS = new Set(["APPROVE", "REQUEST_CHANGES", "COMMENT"]);
-
-/** Validate an LLM-provided review verdict string. */
-function isReviewVerdict(
-	s: string,
-): s is "APPROVE" | "REQUEST_CHANGES" | "COMMENT" {
-	return VALID_VERDICTS.has(s);
-}
-
-/**
- * Ensure gathered context is available. If the session was
- * restored but context was lost, re-gather transparently.
- */
-async function ensureContext(
-	deps: ReviewContext,
-	ctx: ExtensionContext,
-): Promise<boolean> {
-	const session = deps.state.session;
-	if (!session) return false;
-	if (session.context) return true;
-
-	ctx.ui.notify("Re-fetching PR context…", "info");
-
-	try {
-		const ref: PRReference = {
-			owner: session.pr.owner,
-			repo: session.pr.repo,
-			number: session.pr.number,
-		};
-		const prContext = await gatherContext(deps.pi, ref, session.repoPath);
-		session.context = prContext;
-		return true;
-	} catch {
-		/* Re-gather failed: context unavailable */
-		return false;
-	}
-}
-
-/** Resolve a PR reference from user input. */
-async function resolvePR(
-	pi: ExtensionAPI,
-	prInput: string | null,
-): Promise<PRReference | null> {
-	const currentRepo = await getCurrentRepo(pi);
-	if (prInput) {
-		return parsePRReference(prInput, currentRepo?.owner, currentRepo?.repo);
-	}
-	return null;
-}
-
 /** Activate: parse PR ref, resolve repo, gather deep context. */
 export async function handleActivate(
 	deps: ReviewContext,
@@ -759,4 +704,59 @@ export async function handleDeactivate(
 		],
 		details: { action: "deactivated" },
 	};
+}
+
+/** Build a simple text tool result. */
+function plainTextResponse(text: string) {
+	return { content: [{ type: "text" as const, text }] };
+}
+
+/** Resolve a PR reference from user input. */
+async function resolvePR(
+	pi: ExtensionAPI,
+	prInput: string | null,
+): Promise<PRReference | null> {
+	const currentRepo = await getCurrentRepo(pi);
+	if (prInput) {
+		return parsePRReference(prInput, currentRepo?.owner, currentRepo?.repo);
+	}
+	return null;
+}
+
+/**
+ * Ensure gathered context is available. If the session was
+ * restored but context was lost, re-gather transparently.
+ */
+async function ensureContext(
+	deps: ReviewContext,
+	ctx: ExtensionContext,
+): Promise<boolean> {
+	const session = deps.state.session;
+	if (!session) return false;
+	if (session.context) return true;
+
+	ctx.ui.notify("Re-fetching PR context…", "info");
+
+	try {
+		const ref: PRReference = {
+			owner: session.pr.owner,
+			repo: session.pr.repo,
+			number: session.pr.number,
+		};
+		const prContext = await gatherContext(deps.pi, ref, session.repoPath);
+		session.context = prContext;
+		return true;
+	} catch {
+		/* Re-gather failed: context unavailable */
+		return false;
+	}
+}
+
+const VALID_VERDICTS = new Set(["APPROVE", "REQUEST_CHANGES", "COMMENT"]);
+
+/** Validate an LLM-provided review verdict string. */
+function isReviewVerdict(
+	s: string,
+): s is "APPROVE" | "REQUEST_CHANGES" | "COMMENT" {
+	return VALID_VERDICTS.has(s);
 }
