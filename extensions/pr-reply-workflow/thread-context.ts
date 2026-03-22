@@ -7,7 +7,7 @@
  * to the user.
  */
 
-import type { Review, ReviewThread } from "./state.js";
+import type { ReceivedReview, ReviewThread } from "./state.js";
 import { threadPriority } from "./state.js";
 
 /**
@@ -19,7 +19,7 @@ import { threadPriority } from "./state.js";
  */
 export function buildAnalysisPrompt(
 	thread: ReviewThread,
-	review: Review,
+	review: ReceivedReview,
 	codeContext: string | null,
 	planContext: string | null,
 ): string {

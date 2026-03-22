@@ -45,7 +45,7 @@ export interface ReviewThread {
 }
 
 /** GitHub review: a reviewer's overall feedback. */
-export interface Review {
+export interface ReceivedReview {
 	id: string;
 	author: string;
 	state: ReviewState;
@@ -94,7 +94,7 @@ export interface PRReplyState {
 	branch: string | null;
 
 	// Reviews (sorted by priority) and threads (grouped by review)
-	reviews: Review[];
+	reviews: ReceivedReview[];
 	threads: ReviewThread[];
 	threadStates: Map<string, ThreadState>;
 
@@ -129,7 +129,7 @@ const REVIEW_PRIORITY: Record<ReviewState, number> = {
 };
 
 /** Sort reviews by priority (mutates the array). */
-export function sortReviewsByPriority(reviews: Review[]): void {
+export function sortReviewsByPriority(reviews: ReceivedReview[]): void {
 	reviews.sort(
 		(a, b) => (REVIEW_PRIORITY[a.state] ?? 3) - (REVIEW_PRIORITY[b.state] ?? 3),
 	);
@@ -139,7 +139,7 @@ export function sortReviewsByPriority(reviews: Review[]): void {
  * Get the threads for a specific review, sorted by file then line.
  */
 export function threadsForReview(
-	review: Review,
+	review: ReceivedReview,
 	allThreads: ReviewThread[],
 ): ReviewThread[] {
 	return allThreads

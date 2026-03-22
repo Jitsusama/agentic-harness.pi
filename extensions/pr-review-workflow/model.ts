@@ -83,7 +83,7 @@ export interface SourceFile {
 }
 
 /** A reviewer and their current verdict. */
-export interface Reviewer {
+export interface ReviewerStatus {
 	login: string;
 	verdict: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "PENDING";
 	avatarUrl?: string;
@@ -98,7 +98,7 @@ export interface PRContext {
 	relatedPRs: RelatedPR[];
 	references: Reference[];
 	sourceFiles: SourceFile[];
-	reviewers: Reviewer[];
+	reviewers: ReviewerStatus[];
 	prComments: IssueComment[];
 	hitDepthLimit: boolean;
 }

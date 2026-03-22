@@ -23,7 +23,7 @@ import type {
 } from "../../lib/ui/types.js";
 import type {
 	PRReplyState,
-	Review,
+	ReceivedReview,
 	ReviewThread,
 	ThreadAnalysis,
 	ThreadState,
@@ -222,7 +222,7 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
  * opens the full-context gate.
  */
 function buildReviewerTab(
-	review: Review,
+	review: ReceivedReview,
 	allThreads: ReviewThread[],
 	threadStates: Map<string, ThreadState>,
 	threadAnalyses: Map<string, ThreadAnalysis>,

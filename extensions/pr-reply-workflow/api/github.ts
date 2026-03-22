@@ -14,7 +14,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { runGraphQL } from "../../lib/github/graphql.js";
 import type { PRReference } from "../../lib/github/pr-reference.js";
 import type {
-	Review,
+	ReceivedReview,
 	ReviewState,
 	ReviewThread,
 	ThreadComment,
@@ -149,7 +149,7 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 export async function fetchReviews(
 	pi: ExtensionAPI,
 	ref: PRReference,
-): Promise<{ reviews: Review[]; threads: ReviewThread[] }> {
+): Promise<{ reviews: ReceivedReview[]; threads: ReviewThread[] }> {
 	const [threadsData, reviewsData] = await Promise.all([
 		runGraphQL<ThreadsResponse>(pi, THREADS_QUERY, ref),
 		runGraphQL<ReviewsResponse>(pi, REVIEWS_QUERY, ref),
@@ -191,8 +191,8 @@ export async function postReply(
 	}
 }
 
-/** Parse raw GraphQL reviews into Review objects. */
-function parseReviews(gqlReviews: GQLReview[]): Review[] {
+/** Parse raw GraphQL reviews into ReceivedReview objects. */
+function parseReviews(gqlReviews: GQLReview[]): ReceivedReview[] {
 	return gqlReviews.map((r) => ({
 		id: r.id,
 		author: r.author?.login ?? "unknown",
@@ -210,7 +210,7 @@ function parseReviews(gqlReviews: GQLReview[]): Review[] {
  */
 function parseThreads(
 	gqlThreads: GQLThread[],
-	reviews: Review[],
+	reviews: ReceivedReview[],
 ): ReviewThread[] {
 	const threads: ReviewThread[] = [];
 

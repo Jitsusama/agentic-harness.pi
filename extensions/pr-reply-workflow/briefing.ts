@@ -7,7 +7,7 @@
  */
 
 import type { PRReference } from "./api/github.js";
-import type { PRReplyState, Review, ReviewThread } from "./state.js";
+import type { PRReplyState, ReceivedReview, ReviewThread } from "./state.js";
 import { threadsForReview } from "./state.js";
 
 /** Count threads in a given state. */
@@ -122,7 +122,7 @@ export function progressBriefing(state: PRReplyState): string {
 
 /** Summary of a new review for the LLM to analyze. */
 export function reviewSummaryBriefing(
-	review: Review,
+	review: ReceivedReview,
 	pendingThreads: ReviewThread[],
 ): string {
 	const parts: string[] = [];
