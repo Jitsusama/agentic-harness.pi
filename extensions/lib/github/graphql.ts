@@ -8,33 +8,28 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { PRReference } from "./pr-reference.js";
 
 /**
  * Execute a typed GraphQL query via `gh api graphql`.
  *
- * Passes owner, repo, and PR number as variables. The query
- * must declare `$owner: String!`, `$repo: String!`, and
- * `$pr: Int!` (or `$number: Int!`: use the appropriate
- * variable name in your query).
+ * Each entry in `variables` becomes a `-f` (string) or `-F`
+ * (number) flag. Callers declare matching `$name` parameters
+ * in their query.
  */
 export async function runGraphQL<T>(
 	pi: ExtensionAPI,
 	query: string,
-	ref: PRReference,
+	variables: Record<string, string | number>,
 ): Promise<T> {
-	const result = await pi.exec("gh", [
-		"api",
-		"graphql",
-		"-f",
-		`query=${query}`,
-		"-F",
-		`owner=${ref.owner}`,
-		"-F",
-		`repo=${ref.repo}`,
-		"-F",
-		`pr=${ref.number}`,
-	]);
+	const args = ["api", "graphql", "-f", `query=${query}`];
+
+	for (const [name, value] of Object.entries(variables)) {
+		// -f passes raw strings, -F coerces numbers
+		const flag = typeof value === "number" ? "-F" : "-f";
+		args.push(flag, `${name}=${value}`);
+	}
+
+	const result = await pi.exec("gh", args);
 
 	if (result.code !== 0) {
 		throw new Error(`GitHub GraphQL error: ${result.stderr}`);
