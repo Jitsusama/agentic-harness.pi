@@ -13,7 +13,7 @@ import {
 	contentWrapWidth,
 	wordWrap,
 } from "../../lib/ui/text.js";
-import type { ReviewComment } from "../state.js";
+import type { ReviewObservation } from "../state.js";
 
 /**
  * Show a read-only comment detail view.
@@ -21,7 +21,7 @@ import type { ReviewComment } from "../state.js";
  */
 export async function showCommentDetail(
 	ctx: ExtensionContext,
-	comment: ReviewComment,
+	comment: ReviewObservation,
 ): Promise<void> {
 	await view(ctx, {
 		title: "Comment Detail",

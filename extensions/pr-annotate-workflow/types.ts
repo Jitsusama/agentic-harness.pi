@@ -4,7 +4,7 @@
  */
 
 /** A comment proposed by the LLM for self-review annotation. */
-export interface ReviewComment {
+export interface ProposedComment {
 	path: string;
 	line: number;
 	startLine?: number;
@@ -15,7 +15,7 @@ export interface ReviewComment {
 
 /** Result of the user vetting proposed comments. */
 export interface VetResult {
-	approved: ReviewComment[];
+	approved: ProposedComment[];
 	rejected: number;
 	edited: number;
 	redirectFeedback?: string;

@@ -21,7 +21,7 @@ import type {
 	WorkspaceResult,
 	WorkspaceView,
 } from "../lib/ui/types.js";
-import type { ReviewComment, VetResult } from "./types.js";
+import type { ProposedComment, VetResult } from "./types.js";
 
 /** Status glyphs for comments. */
 const COMMENT_GLYPH = {
@@ -35,7 +35,7 @@ type CommentStatus = "pending" | "approved" | "rejected";
 
 /** Internal comment with mutable status for the workspace. */
 interface VetComment {
-	comment: ReviewComment;
+	comment: ProposedComment;
 	status: CommentStatus;
 }
 
@@ -44,7 +44,7 @@ interface VetComment {
  * user requests, and redirect feedback. Returns null on cancel.
  */
 export async function vetComments(
-	comments: ReviewComment[],
+	comments: ProposedComment[],
 	preApprovedCount: number,
 	ctx: ExtensionContext,
 	diffFiles: DiffFile[],
@@ -109,7 +109,7 @@ export async function vetComments(
 		// a new one. Either way, we return it as redirect feedback
 		// and let the LLM interpret the intent. We include any
 		// already-approved comments so they aren't lost.
-		const approved: ReviewComment[] = [];
+		const approved: ProposedComment[] = [];
 		for (const vc of vetComments) {
 			if (vc.status === "approved") {
 				approved.push(vc.comment);
@@ -125,7 +125,7 @@ export async function vetComments(
 	}
 
 	// We collect the results when the user submits via Ctrl+Enter.
-	const approved: ReviewComment[] = [];
+	const approved: ProposedComment[] = [];
 	let rejected = 0;
 
 	for (const vc of vetComments) {

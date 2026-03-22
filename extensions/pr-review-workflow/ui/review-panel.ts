@@ -36,7 +36,7 @@ import {
 	commentsForFile,
 	isTabPassed,
 	markTabPassed,
-	type ReviewComment,
+	type ReviewObservation,
 	type ReviewSession,
 } from "../state.js";
 
@@ -464,7 +464,7 @@ function buildFileCommentsView(
 
 /** Render a selectable comment list. */
 function renderCommentList(
-	comments: ReviewComment[],
+	comments: ReviewObservation[],
 	selectedIndex: number,
 	theme: Theme,
 	width: number,
@@ -532,7 +532,7 @@ function renderCommentList(
 /** Handle comment mode input: navigation and actions. */
 function handleCommentInput(
 	data: string,
-	comments: ReviewComment[],
+	comments: ReviewObservation[],
 	getIndex: () => number,
 	setIndex: (i: number) => void,
 	session: ReviewSession,
@@ -595,7 +595,7 @@ function handleCommentInput(
 
 /** Advance selection to the next pending comment. */
 function advanceToNextPending(
-	comments: ReviewComment[],
+	comments: ReviewObservation[],
 	getIndex: () => number,
 	setIndex: (i: number) => void,
 ): void {
@@ -614,7 +614,7 @@ function advanceToNextPending(
 function checkTabAutoPassed(
 	session: ReviewSession,
 	tabId: string,
-	comments: ReviewComment[],
+	comments: ReviewObservation[],
 ): void {
 	if (comments.length === 0) return;
 	const allResolved = comments.every((c) => c.status !== "pending");
@@ -625,7 +625,7 @@ function checkTabAutoPassed(
 
 /** Render inline comment indicators for overview mode. */
 function renderCommentIndicators(
-	comments: ReviewComment[],
+	comments: ReviewObservation[],
 	theme: Theme,
 ): string {
 	const pad = " ".repeat(CONTENT_INDENT);
@@ -646,7 +646,7 @@ function renderCommentIndicators(
 }
 
 /** Build a map of line number → indicator glyph for diff overlay. */
-function buildIndicatorMap(comments: ReviewComment[]): Map<number, string> {
+function buildIndicatorMap(comments: ReviewObservation[]): Map<number, string> {
 	const map = new Map<number, string>();
 
 	for (const c of comments) {

@@ -14,7 +14,7 @@ import {
 	commentStats,
 	type PRReviewState,
 	type PRTarget,
-	type ReviewComment,
+	type ReviewObservation,
 	type ReviewPhase,
 	type ReviewVerdict,
 	resetState,
@@ -113,7 +113,7 @@ interface PersistedSession {
 	worktreePath: string | null;
 	synopsis: string;
 	scopeAnalysis: string;
-	comments: ReviewComment[];
+	comments: ReviewObservation[];
 	tabStates: [
 		string,
 		{ handled: boolean; activeView: string; commentIndex: number },
