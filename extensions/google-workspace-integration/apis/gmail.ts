@@ -159,153 +159,6 @@ export async function getThread(
 	return messages;
 }
 
-function parseEmailAddress(header: string): { name: string; email: string } {
-	const match = header.match(/^(.*?)\s*<(.+?)>$/);
-	if (match) {
-		return {
-			name: match[1]?.trim().replace(/^["']|["']$/g, "") || "",
-			email: match[2]?.trim() || "",
-		};
-	}
-	return { name: "", email: header.trim() };
-}
-
-function parseEmailAddresses(
-	header: string,
-): Array<{ name: string; email: string }> {
-	if (!header) return [];
-	return header.split(",").map((addr) => parseEmailAddress(addr.trim()));
-}
-
-function hasAttachments(payload: unknown): boolean {
-	if (!payload || typeof payload !== "object") return false;
-	const parts = (payload as { parts?: unknown[] }).parts;
-	if (!parts) return false;
-
-	return parts.some((part) => {
-		if (
-			typeof part === "object" &&
-			part !== null &&
-			"filename" in part &&
-			part.filename
-		) {
-			return true;
-		}
-		return false;
-	});
-}
-
-function extractBody(payload: unknown): string {
-	if (!payload || typeof payload !== "object") return "";
-
-	const p = payload as {
-		mimeType?: string;
-		body?: { data?: string };
-		parts?: unknown[];
-	};
-
-	// If there's a body.data, we decode it.
-	if (p.body?.data) {
-		return decodeBase64(p.body.data);
-	}
-
-	// If there are parts, we recursively search for text/plain or text/html.
-	if (p.parts) {
-		for (const part of p.parts) {
-			if (typeof part !== "object" || part === null) continue;
-			const partObj = part as {
-				mimeType?: string;
-				body?: { data?: string };
-				parts?: unknown[];
-			};
-
-			if (partObj.mimeType === "text/plain" && partObj.body?.data) {
-				return decodeBase64(partObj.body.data);
-			}
-		}
-
-		// We fall back to HTML if there's no plain text.
-		for (const part of p.parts) {
-			if (typeof part !== "object" || part === null) continue;
-			const partObj = part as {
-				mimeType?: string;
-				body?: { data?: string };
-				parts?: unknown[];
-			};
-
-			if (partObj.mimeType === "text/html" && partObj.body?.data) {
-				return stripHtml(decodeBase64(partObj.body.data));
-			}
-		}
-
-		// We recurse into multipart parts.
-		for (const part of p.parts) {
-			const body = extractBody(part);
-			if (body) return body;
-		}
-	}
-
-	return "";
-}
-
-function extractAttachments(
-	payload: unknown,
-): Array<{ filename: string; mimeType: string; size: number }> {
-	if (!payload || typeof payload !== "object") return [];
-
-	const attachments: Array<{
-		filename: string;
-		mimeType: string;
-		size: number;
-	}> = [];
-	const p = payload as { parts?: unknown[] };
-
-	if (!p.parts) return [];
-
-	for (const part of p.parts) {
-		if (typeof part !== "object" || part === null) continue;
-		const partObj = part as {
-			filename?: string;
-			mimeType?: string;
-			body?: { size?: number };
-		};
-
-		if (partObj.filename) {
-			attachments.push({
-				filename: partObj.filename,
-				mimeType: partObj.mimeType || "application/octet-stream",
-				size: partObj.body?.size || 0,
-			});
-		}
-	}
-
-	return attachments;
-}
-
-function decodeBase64(data: string): string {
-	try {
-		// Gmail uses URL-safe base64.
-		const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
-		return Buffer.from(base64, "base64").toString("utf-8");
-	} catch (_error) {
-		// Base64 decoding failed (malformed data), so we return an empty string.
-		return "";
-	}
-}
-
-function stripHtml(html: string): string {
-	// This is very basic HTML stripping: we just remove the tags.
-	return html
-		.replace(/<br\s*\/?>/gi, "\n")
-		.replace(/<[^>]+>/g, "")
-		.replace(/&nbsp;/g, " ")
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&amp;/g, "&")
-		.replace(/&quot;/g, '"')
-		.trim();
-}
-
 /**
  * Send an email.
  */
@@ -510,4 +363,151 @@ export async function markUnread(
 			addLabelIds: ["UNREAD"],
 		},
 	});
+}
+
+function parseEmailAddress(header: string): { name: string; email: string } {
+	const match = header.match(/^(.*?)\s*<(.+?)>$/);
+	if (match) {
+		return {
+			name: match[1]?.trim().replace(/^["']|["']$/g, "") || "",
+			email: match[2]?.trim() || "",
+		};
+	}
+	return { name: "", email: header.trim() };
+}
+
+function parseEmailAddresses(
+	header: string,
+): Array<{ name: string; email: string }> {
+	if (!header) return [];
+	return header.split(",").map((addr) => parseEmailAddress(addr.trim()));
+}
+
+function hasAttachments(payload: unknown): boolean {
+	if (!payload || typeof payload !== "object") return false;
+	const parts = (payload as { parts?: unknown[] }).parts;
+	if (!parts) return false;
+
+	return parts.some((part) => {
+		if (
+			typeof part === "object" &&
+			part !== null &&
+			"filename" in part &&
+			part.filename
+		) {
+			return true;
+		}
+		return false;
+	});
+}
+
+function extractBody(payload: unknown): string {
+	if (!payload || typeof payload !== "object") return "";
+
+	const p = payload as {
+		mimeType?: string;
+		body?: { data?: string };
+		parts?: unknown[];
+	};
+
+	// If there's a body.data, we decode it.
+	if (p.body?.data) {
+		return decodeBase64(p.body.data);
+	}
+
+	// If there are parts, we recursively search for text/plain or text/html.
+	if (p.parts) {
+		for (const part of p.parts) {
+			if (typeof part !== "object" || part === null) continue;
+			const partObj = part as {
+				mimeType?: string;
+				body?: { data?: string };
+				parts?: unknown[];
+			};
+
+			if (partObj.mimeType === "text/plain" && partObj.body?.data) {
+				return decodeBase64(partObj.body.data);
+			}
+		}
+
+		// We fall back to HTML if there's no plain text.
+		for (const part of p.parts) {
+			if (typeof part !== "object" || part === null) continue;
+			const partObj = part as {
+				mimeType?: string;
+				body?: { data?: string };
+				parts?: unknown[];
+			};
+
+			if (partObj.mimeType === "text/html" && partObj.body?.data) {
+				return stripHtml(decodeBase64(partObj.body.data));
+			}
+		}
+
+		// We recurse into multipart parts.
+		for (const part of p.parts) {
+			const body = extractBody(part);
+			if (body) return body;
+		}
+	}
+
+	return "";
+}
+
+function extractAttachments(
+	payload: unknown,
+): Array<{ filename: string; mimeType: string; size: number }> {
+	if (!payload || typeof payload !== "object") return [];
+
+	const attachments: Array<{
+		filename: string;
+		mimeType: string;
+		size: number;
+	}> = [];
+	const p = payload as { parts?: unknown[] };
+
+	if (!p.parts) return [];
+
+	for (const part of p.parts) {
+		if (typeof part !== "object" || part === null) continue;
+		const partObj = part as {
+			filename?: string;
+			mimeType?: string;
+			body?: { size?: number };
+		};
+
+		if (partObj.filename) {
+			attachments.push({
+				filename: partObj.filename,
+				mimeType: partObj.mimeType || "application/octet-stream",
+				size: partObj.body?.size || 0,
+			});
+		}
+	}
+
+	return attachments;
+}
+
+function decodeBase64(data: string): string {
+	try {
+		// Gmail uses URL-safe base64.
+		const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
+		return Buffer.from(base64, "base64").toString("utf-8");
+	} catch (_error) {
+		// Base64 decoding failed (malformed data), so we return an empty string.
+		return "";
+	}
+}
+
+function stripHtml(html: string): string {
+	// This is very basic HTML stripping: we just remove the tags.
+	return html
+		.replace(/<br\s*\/?>/gi, "\n")
+		.replace(/<[^>]+>/g, "")
+		.replace(/&nbsp;/g, " ")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&amp;/g, "&")
+		.replace(/&quot;/g, '"')
+		.trim();
 }
