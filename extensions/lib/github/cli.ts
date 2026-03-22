@@ -6,7 +6,7 @@
  * Depends on shell-level primitives from ./command.ts for quoting.
  */
 
-import { quote } from "./command.js";
+import { quote } from "../guardian/shell.js";
 
 /** Extract a number from a command (e.g., PR number from "gh pr edit 42"). */
 export function extractEntityNumber(

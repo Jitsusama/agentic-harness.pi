@@ -12,7 +12,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { runGraphQL } from "../../lib/github/graphql.js";
-import type { PRReference } from "../../lib/parse/pr-reference.js";
+import type { PRReference } from "../../lib/github/pr-reference.js";
 import type { Comment, Review, ReviewState, Thread } from "../state.js";
 
 export type { PRReference };

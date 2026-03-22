@@ -14,7 +14,7 @@ import {
 	splitAtCommit,
 } from "../commit-guardian/parse.js";
 import { parseIssueCommand } from "../issue-guardian/parse.js";
-import { isGhCommand, rebuildGhCommand } from "../lib/parse/gh-command.js";
+import { isGhCommand, rebuildGhCommand } from "../lib/github/cli.js";
 import { parsePrCommand } from "../pr-guardian/parse.js";
 
 /** Regex to detect existing attribution (case-insensitive). */

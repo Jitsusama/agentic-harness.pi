@@ -7,17 +7,17 @@
  */
 
 import {
-	extractBody,
-	extractFlag,
-	quote,
-	splitAtCommand,
-} from "../lib/parse/command.js";
-import {
 	extractEntityNumber,
 	extractMultiFlags,
 	isGhCommand,
 	rebuildGhCommand,
-} from "../lib/parse/gh-command.js";
+} from "../lib/github/cli.js";
+import {
+	extractBody,
+	extractFlag,
+	quote,
+	splitAtCommand,
+} from "../lib/guardian/shell.js";
 
 const HEREDOC_DELIM = "__PR_BODY__";
 

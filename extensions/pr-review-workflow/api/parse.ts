@@ -6,4 +6,4 @@ export {
 	extractOwnerRepo,
 	type PRReference,
 	parsePRReference,
-} from "../../lib/parse/pr-reference.js";
+} from "../../lib/github/pr-reference.js";
