@@ -19,7 +19,7 @@ export type ReviewState =
 	| "DISMISSED";
 
 /** Single comment in a review thread. */
-export interface Comment {
+export interface ThreadComment {
 	id: string;
 	/** Numeric ID used by the REST API (in_reply_to). */
 	databaseId: number;
@@ -30,7 +30,7 @@ export interface Comment {
 }
 
 /** Review thread: a code comment and its replies. */
-export interface Thread {
+export interface ReviewThread {
 	id: string; // Top-level comment ID
 	reviewId: string;
 	reviewer: string;
@@ -39,7 +39,7 @@ export interface Thread {
 	line: number;
 	originalLine: number | null; // Present if outdated
 	startLine: number | null; // Multi-line range start
-	comments: Comment[];
+	comments: ThreadComment[];
 	isOutdated: boolean;
 	isResolved: boolean;
 }
@@ -95,7 +95,7 @@ export interface PRReplyState {
 
 	// Reviews (sorted by priority) and threads (grouped by review)
 	reviews: Review[];
-	threads: Thread[];
+	threads: ReviewThread[];
 	threadStates: Map<string, ThreadState>;
 
 	// Batch analysis from the LLM
@@ -140,8 +140,8 @@ export function sortReviewsByPriority(reviews: Review[]): void {
  */
 export function threadsForReview(
 	review: Review,
-	allThreads: Thread[],
-): Thread[] {
+	allThreads: ReviewThread[],
+): ReviewThread[] {
 	return allThreads
 		.filter((t) => review.threadIds.includes(t.id))
 		.sort((a, b) => {
@@ -154,7 +154,7 @@ export function threadsForReview(
  * Thread priority for display. CHANGES_REQUESTED threads
  * take precedence over optional feedback.
  */
-export function threadPriority(thread: Thread): "required" | "optional" {
+export function threadPriority(thread: ReviewThread): "required" | "optional" {
 	return thread.reviewState === "CHANGES_REQUESTED" ? "required" : "optional";
 }
 

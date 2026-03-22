@@ -13,7 +13,7 @@ import { getLastEntry } from "../lib/state.js";
 import {
 	type PRReplyState,
 	type Review,
-	type Thread,
+	type ReviewThread,
 	type ThreadState,
 	threadsForReview,
 } from "./state.js";
@@ -167,7 +167,7 @@ export function restore(state: PRReplyState, ctx: ExtensionContext): void {
 		repo?: string;
 		branch?: string;
 		reviews?: Review[];
-		threads?: Thread[];
+		threads?: ReviewThread[];
 		threadStates?: Array<[string, ThreadState]>;
 		threadAnalyses?: Array<
 			[string, { recommendation: string; analysis: string }]

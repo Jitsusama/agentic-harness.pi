@@ -13,7 +13,12 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { runGraphQL } from "../../lib/github/graphql.js";
 import type { PRReference } from "../../lib/github/pr-reference.js";
-import type { Comment, Review, ReviewState, Thread } from "../state.js";
+import type {
+	Review,
+	ReviewState,
+	ReviewThread,
+	ThreadComment,
+} from "../state.js";
 
 export type { PRReference };
 
@@ -144,7 +149,7 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 export async function fetchReviews(
 	pi: ExtensionAPI,
 	ref: PRReference,
-): Promise<{ reviews: Review[]; threads: Thread[] }> {
+): Promise<{ reviews: Review[]; threads: ReviewThread[] }> {
 	const [threadsData, reviewsData] = await Promise.all([
 		runGraphQL<ThreadsResponse>(pi, THREADS_QUERY, ref),
 		runGraphQL<ReviewsResponse>(pi, REVIEWS_QUERY, ref),
@@ -199,12 +204,15 @@ function parseReviews(gqlReviews: GQLReview[]): Review[] {
 }
 
 /**
- * Parse raw GraphQL threads into Thread objects.
+ * Parse raw GraphQL threads into ReviewThread objects with nested ThreadComment arrays.
  * Links threads to their originating review and sorts by
  * file, line, then timestamp.
  */
-function parseThreads(gqlThreads: GQLThread[], reviews: Review[]): Thread[] {
-	const threads: Thread[] = [];
+function parseThreads(
+	gqlThreads: GQLThread[],
+	reviews: Review[],
+): ReviewThread[] {
+	const threads: ReviewThread[] = [];
 
 	for (const gt of gqlThreads) {
 		const comments = parseComments(gt.comments.nodes);
@@ -215,7 +223,7 @@ function parseThreads(gqlThreads: GQLThread[], reviews: Review[]): Thread[] {
 		const reviewState = firstComment?.pullRequestReview?.state ?? "COMMENTED";
 		const reviewer = firstComment?.author?.login ?? "unknown";
 
-		const thread: Thread = {
+		const thread: ReviewThread = {
 			id: gt.id,
 			reviewId,
 			reviewer,
@@ -252,7 +260,7 @@ function parseThreads(gqlThreads: GQLThread[], reviews: Review[]): Thread[] {
 }
 
 /** Parse raw GraphQL comments, filtering minimized ones. */
-function parseComments(gqlComments: GQLComment[]): Comment[] {
+function parseComments(gqlComments: GQLComment[]): ThreadComment[] {
 	return gqlComments
 		.filter((c) => !c.isMinimized)
 		.map((c) => ({
@@ -276,7 +284,7 @@ function parseComments(gqlComments: GQLComment[]): Comment[] {
 export async function refreshThreadComments(
 	pi: ExtensionAPI,
 	ref: PRReference,
-	thread: Thread,
+	thread: ReviewThread,
 ): Promise<void> {
 	const query = `
 query($owner: String!, $repo: String!, $pr: Int!) {

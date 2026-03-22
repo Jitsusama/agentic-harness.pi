@@ -7,7 +7,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { promptSingle } from "../../lib/ui/panel.js";
 
-import type { Thread } from "../state.js";
+import type { ReviewThread } from "../state.js";
 
 /** Result of the reply review: approved text, or a reason for rejection. */
 export type ReplyReviewResult =
@@ -21,7 +21,7 @@ export type ReplyReviewResult =
  */
 export async function showReplyReview(
 	ctx: ExtensionContext,
-	thread: Thread,
+	thread: ReviewThread,
 	draftReply: string,
 ): Promise<ReplyReviewResult> {
 	const topComment = thread.comments.find((c) => c.inReplyTo === null);

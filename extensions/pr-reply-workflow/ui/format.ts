@@ -3,16 +3,16 @@
  * workspace) and LLM context (briefings and analysis).
  */
 
-import type { Thread } from "../state.js";
+import type { ReviewThread } from "../state.js";
 import { threadPriority } from "../state.js";
 
 /**
  * Format a summary of threads grouped by file for the
  * overview panel.
  */
-export function formatFileSummary(threads: Thread[]): string[] {
+export function formatFileSummary(threads: ReviewThread[]): string[] {
 	const lines: string[] = [];
-	const byFile = new Map<string, Thread[]>();
+	const byFile = new Map<string, ReviewThread[]>();
 
 	for (const thread of threads) {
 		const existing = byFile.get(thread.file);

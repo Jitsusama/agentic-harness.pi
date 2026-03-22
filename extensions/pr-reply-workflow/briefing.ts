@@ -7,7 +7,7 @@
  */
 
 import type { PRReference } from "./api/github.js";
-import type { PRReplyState, Review, Thread } from "./state.js";
+import type { PRReplyState, Review, ReviewThread } from "./state.js";
 import { threadsForReview } from "./state.js";
 
 /** Count threads in a given state. */
@@ -123,7 +123,7 @@ export function briefProgress(state: PRReplyState): string {
 /** Summary of a new review for the LLM to analyze. */
 export function briefReviewSummary(
 	review: Review,
-	pendingThreads: Thread[],
+	pendingThreads: ReviewThread[],
 ): string {
 	const parts: string[] = [];
 	parts.push(`## Review from ${review.author}`);
@@ -279,7 +279,7 @@ export function briefRebaseApproved(
  * should address. Used when activating TDD mode or giving
  * the LLM implementation instructions.
  */
-export function buildImplementationContext(thread: Thread): string {
+export function buildImplementationContext(thread: ReviewThread): string {
 	const parts: string[] = [];
 
 	parts.push(`Addressing review feedback on ${thread.file}:${thread.line}`);

@@ -9,7 +9,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { PRReplyState, Thread } from "./state.js";
+import type { PRReplyState, ReviewThread } from "./state.js";
 
 /**
  * Record the current HEAD SHA before starting implementation.
@@ -69,7 +69,7 @@ export function linkCommitsToThread(
  */
 export function beginTDDImplementation(
 	state: PRReplyState,
-	thread: Thread,
+	thread: ReviewThread,
 ): void {
 	state.awaitingTDDCompletion = true;
 	state.tddThreadId = thread.id;

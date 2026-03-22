@@ -47,8 +47,8 @@ import { findPlanContext } from "./plans.js";
 import { buildReplyGuidance } from "./replies.js";
 import {
 	type PRReplyState,
+	type ReviewThread,
 	sortReviewsByPriority,
-	type Thread,
 	threadsForReview,
 } from "./state.js";
 import { showReviewOverviewPanel, showSummaryPanel } from "./ui/panels.js";
@@ -70,7 +70,7 @@ function isRecommendation(s: string): s is "implement" | "reply" | "pass" {
 
 /** Get the current thread based on review-centric navigation. */
 /** Get the current thread: from workspace selection or legacy navigation. */
-function currentThread(state: PRReplyState): Thread | null {
+function currentThread(state: PRReplyState): ReviewThread | null {
 	// Workspace flow: currentThreadId is set by the workspace
 	if (state.currentThreadId) {
 		return state.threads.find((t) => t.id === state.currentThreadId) ?? null;
@@ -85,8 +85,8 @@ function currentThread(state: PRReplyState): Thread | null {
 /** Find the next pending thread within a review's threads. */
 function findNextPendingInReview(
 	state: PRReplyState,
-	reviewThreads: Thread[],
-): Thread | null {
+	reviewThreads: ReviewThread[],
+): ReviewThread | null {
 	for (const thread of reviewThreads) {
 		if (state.threadStates.get(thread.id) === "pending") {
 			return thread;
@@ -793,7 +793,7 @@ function applyThreadChoice(
 	state: PRReplyState,
 	pi: ExtensionAPI,
 	choice: ThreadGateChoice,
-	thread: Thread,
+	thread: ReviewThread,
 	contextLine: number,
 	analysisContext: string,
 ) {
@@ -867,7 +867,7 @@ async function reviewAndPostReply(
 	state: PRReplyState,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
-	thread: Thread,
+	thread: ReviewThread,
 	draftReply: string,
 ) {
 	if (!state.owner || !state.repo || !state.prNumber) {

@@ -14,7 +14,7 @@ import { promptSingle } from "../../lib/ui/panel.js";
 import {
 	type DependentPR,
 	type Review,
-	type Thread,
+	type ReviewThread,
 	threadPriority,
 } from "../state.js";
 import { formatFileSummary } from "./format.js";
@@ -26,7 +26,7 @@ export interface SummaryPanelConfig {
 	repo: string;
 	branch: string;
 	reviews: Review[];
-	threads: Thread[];
+	threads: ReviewThread[];
 	dismissedCount: number;
 }
 
@@ -104,7 +104,7 @@ export async function showSummaryPanel(
 export async function showReviewOverviewPanel(
 	ctx: ExtensionContext,
 	review: Review,
-	pendingThreads: Thread[],
+	pendingThreads: ReviewThread[],
 	analysis: string,
 ): Promise<boolean> {
 	const result = await promptSingle(ctx, {

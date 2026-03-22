@@ -24,7 +24,7 @@ import type {
 import type {
 	PRReplyState,
 	Review,
-	Thread,
+	ReviewThread,
 	ThreadAnalysis,
 	ThreadState,
 } from "../state.js";
@@ -223,7 +223,7 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
  */
 function buildReviewerTab(
 	review: Review,
-	allThreads: Thread[],
+	allThreads: ReviewThread[],
 	threadStates: Map<string, ThreadState>,
 	threadAnalyses: Map<string, ThreadAnalysis>,
 	threadIndices: Map<string, number>,
@@ -334,7 +334,7 @@ function buildReviewerTab(
  * The full context is shown in the gate when the user enters a thread.
  */
 function renderThreadList(
-	threads: Thread[],
+	threads: ReviewThread[],
 	threadStates: Map<string, ThreadState>,
 	threadAnalyses: Map<string, ThreadAnalysis>,
 	selectedIndex: number,
@@ -384,7 +384,7 @@ function renderThreadList(
 
 /** Update the action thread to the currently selected thread. */
 function updateActionThread(
-	threads: Thread[],
+	threads: ReviewThread[],
 	getIndex: () => number,
 	setActionThread: (id: string) => void,
 ): void {
@@ -394,7 +394,7 @@ function updateActionThread(
 
 /** Advance selection to the next pending thread. */
 function advanceToNextPending(
-	threads: Thread[],
+	threads: ReviewThread[],
 	threadStates: Map<string, ThreadState>,
 	getIndex: () => number,
 	setIndex: (i: number) => void,
@@ -413,7 +413,7 @@ function advanceToNextPending(
 /** Auto-mark reviewer tab as handled when all threads are resolved. */
 function checkTabAutoComplete(
 	reviewId: string,
-	threads: Thread[],
+	threads: ReviewThread[],
 	threadStates: Map<string, ThreadState>,
 	tabComplete: Set<string>,
 ): void {
