@@ -3,7 +3,7 @@
  * four levels:
  *
  *   PRTarget      : identifies which PR is being reviewed
- *   CrawlResult   : deep context gathered by the crawler
+ *   PRContext      : deep context gathered for review
  *   ReviewSession : the active review with comments and tab state
  *   ReviewObservation : a single comment with lifecycle status
  */
@@ -89,8 +89,8 @@ export interface Reviewer {
 	avatarUrl?: string;
 }
 
-/** Complete result from the deep context crawl. */
-export interface CrawlResult {
+/** Deep context gathered for a PR review. */
+export interface PRContext {
 	pr: PRMetadata;
 	diff: string;
 	diffFiles: DiffFile[];
@@ -138,7 +138,7 @@ export type ReviewPhase = "gathering" | "overview" | "reviewing" | "submitting";
 export interface ReviewSession {
 	pr: PRTarget;
 	/** Gathered context (null until fetched, not persisted). */
-	context: CrawlResult | null;
+	context: PRContext | null;
 	/** Path used for file reads (worktree or repo root). */
 	repoPath: string;
 	/** Path to the git worktree, or null if on the PR branch. */

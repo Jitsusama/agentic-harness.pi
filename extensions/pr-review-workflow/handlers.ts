@@ -17,7 +17,7 @@ import {
 } from "../lib/github/pr-reference.js";
 import { getCurrentRepo, resolveRepo } from "../lib/github/repo-discovery.js";
 import { briefActivation, briefGenerateComments } from "./briefing.js";
-import { crawl } from "./crawler.js";
+import { gatherContext } from "./gather.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
 import {
 	addComment,
@@ -75,7 +75,7 @@ function isReviewVerdict(
 
 /**
  * Ensure gathered context is available. If the session was
- * restored but context was lost, re-crawl transparently.
+ * restored but context was lost, re-gather transparently.
  */
 async function ensureContext(
 	deps: HandlerDeps,
@@ -93,11 +93,11 @@ async function ensureContext(
 			repo: session.pr.repo,
 			number: session.pr.number,
 		};
-		const crawlResult = await crawl(deps.pi, ref, session.repoPath);
-		session.context = crawlResult;
+		const prContext = await gatherContext(deps.pi, ref, session.repoPath);
+		session.context = prContext;
 		return true;
 	} catch {
-		/* Re-crawl failed: context unavailable */
+		/* Re-gather failed: context unavailable */
 		return false;
 	}
 }
@@ -114,7 +114,7 @@ async function resolvePR(
 	return null;
 }
 
-/** Activate: parse PR ref, resolve repo, crawl deep context. */
+/** Activate: parse PR ref, resolve repo, gather deep context. */
 export async function handleActivate(
 	deps: HandlerDeps,
 	ctx: ExtensionContext,
@@ -169,7 +169,7 @@ export async function handleActivate(
 		);
 	}
 
-	// We activate and crawl.
+	// We activate and gather context.
 	state.enabled = true;
 	const session = createSession(
 		{
@@ -189,7 +189,7 @@ export async function handleActivate(
 	ctx.ui.notify(`Gathering context for PR #${ref.number}…`, "info");
 
 	try {
-		const crawlResult = await crawl(
+		const prContext = await gatherContext(
 			pi,
 			ref,
 			repoResult.repoPath,
@@ -198,14 +198,14 @@ export async function handleActivate(
 			},
 		);
 
-		// We update the session with crawl results.
-		session.context = crawlResult;
-		session.pr.branch = crawlResult.pr.headRefName;
-		session.pr.baseBranch = crawlResult.pr.baseRefName;
-		session.pr.author = crawlResult.pr.author;
+		// We update the session with gathered context.
+		session.context = prContext;
+		session.pr.branch = prContext.pr.headRefName;
+		session.pr.baseBranch = prContext.pr.baseRefName;
+		session.pr.author = prContext.pr.author;
 
 		// We create a worktree if we're not on the PR branch.
-		const onBranch = await isOnPRBranch(pi, crawlResult.pr.headRefName);
+		const onBranch = await isOnPRBranch(pi, prContext.pr.headRefName);
 		if (!onBranch) {
 			ctx.ui.notify("Creating worktree for PR branch…", "info");
 			const wtPath = await createWorktree(pi, ref.number);
@@ -226,10 +226,10 @@ export async function handleActivate(
 			content: [{ type: "text" as const, text: briefing }],
 			details: {
 				action: "activate",
-				fileCount: crawlResult.diffFiles.length,
-				issueCount: crawlResult.issues.length,
-				referenceCount: crawlResult.references.length,
-				reviewerCount: crawlResult.reviewers.length,
+				fileCount: prContext.diffFiles.length,
+				issueCount: prContext.issues.length,
+				referenceCount: prContext.references.length,
+				reviewerCount: prContext.reviewers.length,
 			},
 		};
 	} catch (err) {

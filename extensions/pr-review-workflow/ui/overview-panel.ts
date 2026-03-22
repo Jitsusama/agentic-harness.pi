@@ -20,7 +20,7 @@ import type {
 	WorkspaceResult,
 	WorkspaceView,
 } from "../../lib/ui/types.js";
-import type { CrawlResult, Reference, SourceFile } from "../state.js";
+import type { PRContext, Reference, SourceFile } from "../state.js";
 
 /** Result type from the overview panel. */
 export type OverviewResult =
@@ -34,7 +34,7 @@ export type OverviewResult =
  */
 export async function showOverviewPanel(
 	ctx: ExtensionContext,
-	context: CrawlResult,
+	context: PRContext,
 	synopsis: string,
 ): Promise<OverviewResult> {
 	// This is mutable selection state for the lists.
@@ -82,10 +82,7 @@ export async function showOverviewPanel(
 }
 
 /** Build the Overview tab content. */
-function buildOverviewTab(
-	context: CrawlResult,
-	synopsis: string,
-): WorkspaceItem {
+function buildOverviewTab(context: PRContext, synopsis: string): WorkspaceItem {
 	const overviewView: WorkspaceView = {
 		key: "1",
 		label: "Overview",

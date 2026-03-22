@@ -31,11 +31,11 @@ import type {
 	WorkspaceView,
 } from "../../lib/ui/types.js";
 import {
-	type CrawlResult,
 	commentsByCategory,
 	commentsForFile,
 	isTabPassed,
 	markTabPassed,
+	type PRContext,
 	type ReviewObservation,
 	type ReviewSession,
 } from "../state.js";
@@ -156,7 +156,7 @@ export async function showReviewPanel(
 }
 
 /** Build stable tab IDs for all tabs. */
-function buildTabIds(context: CrawlResult): string[] {
+function buildTabIds(context: PRContext): string[] {
 	return ["desc", "scope", ...context.diffFiles.map((f) => `file:${f.path}`)];
 }
 
@@ -182,7 +182,7 @@ function buildDescTab(
 
 /** Desc overview: PR title and description rendered as markdown. */
 function buildDescOverview(
-	context: CrawlResult,
+	context: PRContext,
 	session: ReviewSession,
 ): WorkspaceView {
 	return {
@@ -216,7 +216,7 @@ function buildDescOverview(
 }
 
 /** Desc raw: raw markdown source. */
-function buildDescRaw(context: CrawlResult): WorkspaceView {
+function buildDescRaw(context: PRContext): WorkspaceView {
 	return {
 		key: "3",
 		label: "Source",
@@ -280,7 +280,7 @@ function buildScopeOverview(session: ReviewSession): WorkspaceView {
 }
 
 /** Scope raw: file list with per-file stats. */
-function buildScopeRaw(context: CrawlResult): WorkspaceView {
+function buildScopeRaw(context: PRContext): WorkspaceView {
 	return {
 		key: "3",
 		label: "Source",

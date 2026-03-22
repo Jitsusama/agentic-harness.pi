@@ -6,7 +6,7 @@
  * No side effects, no state mutation, no UI.
  */
 
-import type { CrawlResult, ReviewSession } from "./state.js";
+import type { PRContext, ReviewSession } from "./state.js";
 
 /** Maximum diff characters before truncation. */
 const MAX_DIFF_CHARS = 50000;
@@ -202,7 +202,7 @@ export function briefGenerateComments(session: ReviewSession): string {
 }
 
 /** Append the full diff (or truncated) to parts. */
-function appendDiff(parts: string[], context: CrawlResult): void {
+function appendDiff(parts: string[], context: PRContext): void {
 	parts.push("### Full Diff");
 	parts.push("");
 

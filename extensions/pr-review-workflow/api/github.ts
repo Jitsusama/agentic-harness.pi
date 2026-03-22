@@ -85,7 +85,7 @@ export async function fetchPRGraphQL(
 }
 
 // Re-export shared diff utilities for backward compatibility
-// with crawler.ts and other pr-review consumers.
+// with gather.ts and other pr-review consumers.
 export { fetchDiff, parseDiff } from "../../lib/github/diff.js";
 
 /** Get the current GitHub username. */

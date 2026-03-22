@@ -4,7 +4,7 @@
  * Mode for reviewing someone else's pull request. The LLM drives
  * the workflow by calling pr_review with different actions:
  *
- *   activate          : parse PR ref, resolve repo, crawl context
+ *   activate          : parse PR ref, resolve repo, gather context
  *   generate-comments : agent provides analysis and structured comments
  *   overview          : show Phase 1 overview panel
  *   review            : show Phase 2 review panel
