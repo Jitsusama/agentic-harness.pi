@@ -82,7 +82,7 @@ export function buildPlanContext(state: PlanState) {
 }
 
 /**
- * Create a context filter that removes stale plan-mode context
+ * Create a context filter that removes stale plan-workflow context
  * when plan mode is not active.
  */
 export function planContextFilter(state: PlanState) {

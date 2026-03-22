@@ -61,13 +61,13 @@ reopen it after re-analysis.
 
 ### Related Skills
 
-- `tdd-workflow`: coordinates with pr-reply for test-driven
+- `code-tdd-guide`: coordinates with PR reply for test-driven
   implementations.
-- `git-commit-format`: commit message conventions for
+- `commit-format`: commit message conventions for
   review-driven changes.
-- `git-rebase-resolution`: handles conflicts when rebasing
+- `git-rebase-convention`: handles conflicts when rebasing
   stacks.
-- `pr-writing`: writing good PR descriptions.
+- `github-pr-format`: writing good PR descriptions.
 
 ### Related Extensions
 

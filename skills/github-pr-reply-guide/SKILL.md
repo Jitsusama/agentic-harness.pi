@@ -11,7 +11,7 @@ description: >
 
 ## When to Use
 
-Use pr-reply mode when a PR has review feedback to address:
+Use the PR reply workflow when a PR has review feedback to address:
 
 - Reviewer left comments or requested changes.
 - Multiple threads across different files.

@@ -3,7 +3,7 @@
 Methodology for responding to GitHub PR review feedback.
 
 **Loaded by pi** when you're addressing review comments or
-when pr-reply mode is active.
+when the pr-reply workflow is active.
 
 See `SKILL.md` for the full workflow documentation.
 
@@ -22,18 +22,19 @@ See `SKILL.md` for the full workflow documentation.
 
 ### Related Skills
 
-- `tdd-workflow`: coordinates with pr-reply for test-driven
+- `code-tdd-guide`: coordinates with PR reply for test-driven
   implementations.
-- `git-commit-format`: commit message conventions for
+- `commit-format`: commit message conventions for
   review-driven changes.
-- `git-rebase-resolution`: handles conflicts when rebasing
+- `git-rebase-convention`: handles conflicts when rebasing
   stacks.
-- `pr-writing`: writing good PR descriptions.
+- `github-pr-format`: writing good PR descriptions.
 
 ### Related Extensions
 
-- `extensions/pr-reply/`: the mode implementation.
-- `extensions/tdd-mode/`: coordinates via events for
+- `extensions/pr-reply-workflow/`: the workflow
+  implementation.
+- `extensions/tdd-workflow/`: coordinates via events for
   test-driven fixes.
-- `extensions/plan-mode/`: shares plan directory
+- `extensions/plan-workflow/`: shares plan directory
   configuration.

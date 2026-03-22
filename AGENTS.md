@@ -7,38 +7,86 @@ at runtime.
 
 ## Structure
 
-- `extensions/`: TypeScript modules that enforce guardrails
-  (commit review, mode enforcement, UI components)
+- `extensions/`: TypeScript modules organized by behavioural
+  contract (see Extension Categories below)
 - `extensions/lib/`: shared library, organized by domain:
   - `lib/ui/`: TUI primitives (panels, gates, content
     rendering, text utilities)
   - `lib/guardian/`: guardian pipeline (types, registration,
     review loop)
-  - `lib/parse/`: shell command parsing and gh CLI modeling
+  - `lib/parse/`: shell command parsing and gh CLI modelling
   - `lib/state.ts`: session state helpers
-- `skills/`: markdown instructions the agent loads on demand
-  when a task matches their description
+- `skills/`: package-bound markdown instructions the agent
+  loads on demand when a task matches their description
+- `.pi/skills/`: project-local skills for developing this
+  package (not shipped to consumers)
 
-The codebase has four **guardians** (commit, PR, issue, history),
-two **modes** (plan, TDD), four **tools** (ask, web-search,
-pr-annotate, pr-review), a content viewer and a status line.
+## Extension Categories
+
+Every extension has a contract suffix that identifies what
+it does:
+
+- **Guardians** (`*-guardian`): intercept shell commands and
+  present a human review gate. Implement `CommandGuardian<T>`
+  with detect → parse → review.
+  `commit-guardian`, `pr-guardian`, `issue-guardian`,
+  `history-guardian`
+
+- **Interceptors** (`*-interceptor`): intercept shell commands
+  and modify them silently, without a review gate.
+  `attribution-interceptor`
+
+- **Workflows** (`*-workflow`): orchestrate a multi-step or
+  session-wide process with state and stages. This covers
+  both persistent session workflows (planning, TDD) and
+  task-scoped orchestration (PR review, PR reply).
+  `plan-workflow`, `tdd-workflow`, `pr-review-workflow`,
+  `pr-reply-workflow`, `pr-annotate-workflow`, `ask-workflow`
+
+- **Integrations** (`*-integration`): bridge to external
+  services via registered tools.
+  `google-workspace-integration`, `web-search-integration`
+
+- **Widgets** (`*-widget`): add UI elements to the interface.
+  `content-viewer-widget`, `status-line-widget`,
+  `panel-zoom-widget`
+
+## Skill Categories
+
+Every skill has a type suffix that identifies what kind of
+guidance it provides:
+
+- **Guides** (`*-guide`): teach how to do something.
+  Step-by-step instructions, principles, decision criteria.
+- **Conventions** (`*-convention`): operational rules for
+  using a tool.
+- **Formats** (`*-format`): structural templates for
+  artifacts.
+- **Standards** (`*-standard`): opinionated quality and style
+  preferences.
+
+Skill names follow `{domain}-{concern}-{suffix}`. See the
+`taxonomy-guide` skill in `.pi/skills/` for the full naming
+rules, domain definitions and decision framework.
 
 Extensions and skills are complementary. Skills teach
 methodology; extensions enforce it. Some are paired (e.g.,
-the planning skill + plan-mode extension) but they all work
-independently.
+the `planning-guide` skill + `plan-workflow` extension) but
+they all work independently.
 
 ## Conventions
 
-- Each extension and skill directory has a README.md for humans.
+- Each extension and skill directory has a README.md for
+  humans.
 - Extensions use JSDoc headers describing their purpose.
-- Skills have a SKILL.md (loaded by pi) and a README.md (for
-  browsing). Do not duplicate content between them.
-- **Never put a README.md in the `skills/` root.** Pi treats any
-  `.md` file there as a skill.
+- Skills have a SKILL.md (loaded by pi) and a README.md
+  (for browsing). Do not duplicate content between them.
+- **Never put a README.md in the `skills/` root.** Pi treats
+  any `.md` file there as a skill.
 - Imports from pi use `@mariozechner/pi-coding-agent`,
-  `@mariozechner/pi-ai` and `@mariozechner/pi-tui`. These are
-  provided by pi at runtime; do not add them to package.json.
+  `@mariozechner/pi-ai` and `@mariozechner/pi-tui`. These
+  are provided by pi at runtime; do not add them to
+  package.json.
 
 ## Design Principles
 
@@ -59,7 +107,7 @@ to change, not whether it's long.
 Shared behaviour uses types and helper functions, not class
 hierarchies. Guardians share a `CommandGuardian<T>` interface
 and a `registerGuardian` helper; each guardian is a plain
-module that implements the interface. Modes share a file
+module that implements the interface. Workflows share a file
 naming convention but no base type because their runtime
 contracts differ.
 
@@ -77,9 +125,9 @@ event. A new guardian just implements `CommandGuardian<T>` and
 calls `registerGuardian`; it never touches event wiring or
 command mutation directly.
 
-### Mode File Convention
+### Workflow File Convention
 
-Each mode extension uses these files:
+Each workflow extension uses these files:
 
 - `state.ts`: state interface and initial/default values
 - `lifecycle.ts`: activate, deactivate, toggle, persist,
@@ -92,9 +140,9 @@ Each mode extension uses these files:
   commands/shortcuts/flags, wires other modules to pi events.
   Should read as a table of contents for the extension.
 
-Not every mode needs every file; merge neighbours if a file
-would be trivially small. But the naming convention is what
-tells readers where to find each concern.
+Not every workflow needs every file; merge neighbours if a
+file would be trivially small. But the naming convention is
+what tells readers where to find each concern.
 
 ### Don't Merge Things That Merely Converge
 
@@ -109,17 +157,17 @@ similar right now?
 ### Keep Concerns in Their Domain
 
 - `formatSteer` lives in `gate.ts`, not `lib/guardian/`,
-  because both guardians and modes use it. It's about gate
-  output formatting, not guardian domain logic.
+  because both guardians and workflows use it. It's about
+  gate output formatting, not guardian domain logic.
 - Field editing logic (`edit`, `steerText`) lives on the
   field types, not in the review loop. The review loop calls
   `field.edit()` without knowing anything about field
   internals.
 - Cookie handling is a self-contained module
-  (`web-search/cookies/`) with a barrel `index.ts`. The
-  browser module has no cookie imports, and the reader
-  imports only from the barrel, never from internal cookie
-  files.
+  (`web-search-integration/cookies/`) with a barrel
+  `index.ts`. The browser module has no cookie imports, and
+  the reader imports only from the barrel, never from
+  internal cookie files.
 
 ### `index.ts` Is for Registration and Wiring
 
@@ -137,8 +185,9 @@ API bundles `execute`, `renderCall` and `renderResult` as
 part of the registration call. Extracting those to separate
 files would split one cohesive tool definition across
 modules. Keeping tool bodies in `index.ts` follows the same
-pattern as the existing tool extensions (`ask/`,
-`web-search/`, `pr-annotate/`, `pr-review/`). That said,
+pattern as the existing tool extensions
+(`ask-workflow/`, `web-search-integration/`,
+`pr-annotate-workflow/`, `pr-review-workflow/`). That said,
 the execute body should still delegate to other modules for
 substantial work (showing gates, lifecycle changes) rather
 than inlining all logic.
@@ -158,7 +207,7 @@ touch the event directly.
 - `lib/guardian/`: guardian pipeline (types, registration,
   review loop)
 - `lib/parse/`: shell parsing (command utilities) and gh CLI
-  domain modeling (separate files)
+  domain modelling (separate files)
 - `lib/state.ts`: session state helpers
 
 UI primitives have no domain knowledge. Guardian and parse
@@ -222,14 +271,14 @@ extension in isolation.
   Third-party dependencies belong in `dependencies`.
 - Do not create `.md` files directly in the `skills/` root
   (other than inside subdirectories).
-- Do not introduce class hierarchies for guardians or modes.
-  Use interfaces and composition.
+- Do not introduce class hierarchies for guardians or
+  workflows. Use interfaces and composition.
 - Do not merge PR and issue guardians into a shared factory.
   They are independently motivated.
-- Do not add a shared base type for modes. Their runtime
-  contracts differ (plan-mode intercepts writes, TDD-mode
-  has a phase state machine). File naming convention is the
-  right level of shared structure.
+- Do not add a shared base type for workflows. Their runtime
+  contracts differ (plan-workflow intercepts writes,
+  tdd-workflow has a phase state machine). File naming
+  convention is the right level of shared structure.
 - Do not mutate `event.input.command` outside of
   `registerGuardian`. That is the single mutation site.
 - Do not leave empty `catch {}` blocks without a comment

@@ -153,7 +153,7 @@ export function briefActivation(session: ReviewSession): string {
 			"plain-language summary of what it is and why it matters to this PR",
 	);
 	parts.push(
-		"5. **`comments`**: structured review comments using conventional-comments format:",
+		"5. **`comments`**: structured review comments using comment-format conventions:",
 	);
 	parts.push("   - Categorize as `file`, `title`, or `scope`");
 	parts.push(
