@@ -136,7 +136,7 @@ export function buildTddContext(state: TddState) {
 
 	return {
 		message: {
-			customType: "tdd-mode-context",
+			customType: "tdd-workflow-context",
 			content: parts.join(" | "),
 			display: false,
 		},
@@ -148,5 +148,5 @@ export function buildTddContext(state: TddState) {
  * when TDD mode is not active.
  */
 export function tddContextFilter(state: TddState) {
-	return filterContext("tdd-mode-context", () => state.enabled);
+	return filterContext("tdd-workflow-context", () => state.enabled);
 }

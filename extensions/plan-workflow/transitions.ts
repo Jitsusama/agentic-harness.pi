@@ -63,7 +63,7 @@ export function buildPlanContext(state: PlanState) {
 
 	return {
 		message: {
-			customType: "plan-mode-context",
+			customType: "plan-workflow-context",
 			content: [
 				"[PLAN MODE: read-only investigation]",
 				"",
@@ -86,5 +86,5 @@ export function buildPlanContext(state: PlanState) {
  * when plan mode is not active.
  */
 export function planContextFilter(state: PlanState) {
-	return filterContext("plan-mode-context", () => state.enabled);
+	return filterContext("plan-workflow-context", () => state.enabled);
 }

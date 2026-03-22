@@ -6,7 +6,7 @@
  * so the shortcuts work even while a panel has focus.
  *
  * The status-line extension reads the current mode glyph from the
- * shared panel-height module and renders it as a pinned far-right
+ * shared panel zoom module and renders it as a pinned far-right
  * system indicator.
  *
  * - Ctrl+Alt+F: toggle fullscreen (normal ↔ fullscreen)

@@ -227,7 +227,7 @@ export default function planMode(pi: ExtensionAPI) {
 				return;
 			}
 			state.planDir = args.trim();
-			pi.appendEntry("plan-mode", {
+			pi.appendEntry("plan-workflow", {
 				enabled: state.enabled,
 				planDir: state.planDir,
 			});

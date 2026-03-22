@@ -29,7 +29,7 @@ export function loadPlanDir(cwd: string): string {
 export function updateStatus(state: PlanState, ctx: ExtensionContext): void {
 	const theme = ctx.ui.theme;
 	ctx.ui.setStatus(
-		"plan-mode",
+		"plan-workflow",
 		state.enabled
 			? `${theme.fg("warning", "◈")} ${theme.fg("muted", "Plan")}`
 			: undefined,
@@ -47,7 +47,7 @@ export function activate(
 	state.enabled = true;
 	pi.setActiveTools(PLAN_TOOLS);
 	updateStatus(state, ctx);
-	pi.appendEntry("plan-mode", {
+	pi.appendEntry("plan-workflow", {
 		enabled: state.enabled,
 		planDir: state.planDir,
 	});
@@ -63,7 +63,7 @@ export function deactivate(
 	pi.setActiveTools(state.savedTools ?? pi.getActiveTools());
 	state.savedTools = null;
 	updateStatus(state, ctx);
-	pi.appendEntry("plan-mode", {
+	pi.appendEntry("plan-workflow", {
 		enabled: state.enabled,
 		planDir: state.planDir,
 	});
@@ -92,7 +92,7 @@ export function restore(
 ): void {
 	const saved = getLastEntry<{ enabled: boolean; planDir?: string }>(
 		ctx,
-		"plan-mode",
+		"plan-workflow",
 	);
 	if (saved) {
 		state.enabled = saved.enabled ?? false;

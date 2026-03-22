@@ -151,7 +151,7 @@ export function threadsForReview(
 		});
 }
 
-/** Default plan directory, shared with plan-mode. */
+/** Default plan directory, shared with plan-workflow. */
 export const DEFAULT_PLAN_DIR = ".pi/plans";
 
 /**

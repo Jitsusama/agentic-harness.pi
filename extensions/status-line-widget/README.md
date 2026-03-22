@@ -10,7 +10,7 @@ A responsive single-line footer that adapts to terminal width.
 ```
 
 **Right side** (right-justified):
-- Extension statuses (plan-mode, tdd-mode indicators)
+- Extension statuses (plan-workflow, tdd-workflow indicators)
 - Context token usage (absolute or percentage)
 - Session cost
 - Thinking level glyph (🧠¹ minimal → 🧠⁵ xhigh)

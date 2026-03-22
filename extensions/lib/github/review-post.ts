@@ -1,7 +1,7 @@
 /**
  * Post PR reviews to GitHub: shared temp-file posting pattern.
  *
- * Both pr-annotate and pr-review need to post review comments
+ * Both pr-annotate-workflow and pr-review-workflow need to post review comments
  * via `gh api`. The JSON payload is written to a temp file to
  * avoid shell escaping issues with special characters in
  * comment bodies (backticks, single quotes, newlines).

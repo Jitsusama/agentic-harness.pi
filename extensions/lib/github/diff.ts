@@ -2,8 +2,8 @@
  * Diff fetching and parsing: fetch unified diffs from GitHub
  * and parse them into structured per-file data.
  *
- * Used by pr-review for its workspace diff views and by
- * pr-annotate for comment context overlay.
+ * Used by pr-review-workflow for its workspace diff views and by
+ * pr-annotate-workflow for comment context overlay.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";

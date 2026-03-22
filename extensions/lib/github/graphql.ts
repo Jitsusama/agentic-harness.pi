@@ -2,7 +2,7 @@
  * Shared GraphQL runner: execute typed GraphQL queries via
  * the `gh` CLI.
  *
- * Used by pr-review and pr-reply for all GitHub GraphQL
+ * Used by pr-review-workflow and pr-reply-workflow for all GitHub GraphQL
  * interactions. Provides type-safe responses with automatic
  * error handling.
  */

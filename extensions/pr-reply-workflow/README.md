@@ -71,10 +71,10 @@ reopen it after re-analysis.
 
 ### Related Extensions
 
-- `extensions/pr-reply/`: the mode implementation.
-- `extensions/tdd-mode/`: coordinates via events for
+- `extensions/pr-reply-workflow/`: the workflow implementation.
+- `extensions/tdd-workflow/`: coordinates via events for
   test-driven fixes.
-- `extensions/plan-mode/`: shares plan directory
+- `extensions/plan-workflow/`: shares plan directory
   configuration.
 
 ### Design Notes

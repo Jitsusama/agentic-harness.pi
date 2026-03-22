@@ -1,6 +1,6 @@
 /**
  * Finds and reads plan files that are relevant to the current
- * PR, using the same plan directory that plan-mode uses.
+ * PR, using the same plan directory that plan-workflow uses.
  */
 
 import * as fs from "node:fs";
@@ -9,7 +9,7 @@ import { DEFAULT_PLAN_DIR } from "./state.js";
 
 /**
  * Load the plan directory from project settings.
- * Mirrors plan-mode's loadPlanDir to share configuration.
+ * Mirrors plan-workflow's loadPlanDir to share configuration.
  */
 export function loadPlanDir(cwd: string): string {
 	try {

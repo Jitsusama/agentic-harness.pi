@@ -19,7 +19,7 @@ import {
 
 function updateUI(state: TddState, ctx: ExtensionContext): void {
 	if (!state.enabled) {
-		ctx.ui.setStatus("tdd-mode", undefined);
+		ctx.ui.setStatus("tdd-workflow", undefined);
 		ctx.ui.setWidget("tdd-test", undefined);
 		return;
 	}
@@ -27,7 +27,7 @@ function updateUI(state: TddState, ctx: ExtensionContext): void {
 	const color = PHASE_COLORS[state.phase];
 	const theme = ctx.ui.theme;
 	ctx.ui.setStatus(
-		"tdd-mode",
+		"tdd-workflow",
 		`${theme.fg(color, PHASE_GLYPH)} ${theme.fg("muted", "TDD")}`,
 	);
 
@@ -50,7 +50,7 @@ function updateUI(state: TddState, ctx: ExtensionContext): void {
 
 /** Save TDD state to the session history. */
 export function persist(state: TddState, pi: ExtensionAPI): void {
-	pi.appendEntry("tdd-mode", {
+	pi.appendEntry("tdd-workflow", {
 		enabled: state.enabled,
 		phase: state.phase,
 		cycle: state.cycle,
@@ -134,7 +134,7 @@ export function nextCycle(
 
 /** Restore TDD state from the session history. */
 export function restore(state: TddState, ctx: ExtensionContext): void {
-	const saved = getLastEntry<TddState>(ctx, "tdd-mode");
+	const saved = getLastEntry<TddState>(ctx, "tdd-workflow");
 	if (saved) {
 		state.enabled = saved.enabled ?? false;
 		state.phase = saved.phase ?? "red";
