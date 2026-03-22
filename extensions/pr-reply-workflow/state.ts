@@ -101,14 +101,6 @@ export interface PRReplyState {
 	// Currently selected thread ID: set by workspace actions
 	currentThreadId: string | null;
 
-	// Legacy navigation: kept for backward compat during transition
-	/** @deprecated Use workspacePosition instead. */
-	reviewIndex: number;
-	/** @deprecated Use workspacePosition instead. */
-	reviewIntroduced: boolean;
-	/** @deprecated Use workspacePosition instead. */
-	threadIndexInReview: number;
-
 	// Implementation tracking
 	threadCommits: Map<string, string[]>; // thread ID -> commit SHAs
 	implementationStartSHA: string | null; // HEAD when implementation started
@@ -174,9 +166,6 @@ export function createPRReplyState(): PRReplyState {
 		reviewerAnalyses: new Map(),
 		workspacePosition: null,
 		currentThreadId: null,
-		reviewIndex: 0,
-		reviewIntroduced: false,
-		threadIndexInReview: 0,
 		threadCommits: new Map(),
 		implementationStartSHA: null,
 		awaitingTDDCompletion: false,
