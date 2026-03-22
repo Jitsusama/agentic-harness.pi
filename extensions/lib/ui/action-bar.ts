@@ -8,7 +8,7 @@
  */
 
 import { Key, matchesKey } from "@mariozechner/pi-tui";
-import type { Action } from "./types.js";
+import type { KeyAction } from "./types.js";
 
 /**
  * US keyboard mapping from shifted symbols to their base key.
@@ -77,7 +77,7 @@ export type ActionBarResult =
  */
 export function handleActionInput(
 	data: string,
-	actions: Action[],
+	actions: KeyAction[],
 ): ActionBarResult | null {
 	// Shift+letter = annotated variant of an action
 	for (const action of actions) {

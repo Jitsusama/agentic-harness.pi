@@ -35,10 +35,10 @@ import {
 } from "./scroll-region.js";
 import { handleTabInput, renderTabStrip } from "./tab-strip.js";
 import {
-	type Action,
 	type ContentFn,
 	GLYPH,
-	type Option,
+	type KeyAction,
+	type ListChoice,
 	type PromptResult,
 	type PromptView,
 	type TabbedPromptConfig,
@@ -123,7 +123,7 @@ export async function showTabbedPrompt(
 			return config.items[currentTab]?.views ?? [];
 		}
 
-		const userTabActions: Action[] = [
+		const userTabActions: KeyAction[] = [
 			{ key: "a", label: "Add" },
 			{ key: "e", label: "Edit" },
 			{ key: "d", label: "Delete" },
@@ -210,12 +210,12 @@ export async function showTabbedPrompt(
 			}
 		}
 
-		function currentActions(): Action[] | undefined {
+		function currentActions(): KeyAction[] | undefined {
 			if (isUserTab()) return userTabActions;
 			return config.items[currentTab]?.actions ?? config.actions;
 		}
 
-		function currentOptions(): Option[] | undefined {
+		function currentOptions(): ListChoice[] | undefined {
 			if (isUserTab()) {
 				if (userItems.length === 0) return undefined;
 				return userItems.map((text, i) => ({

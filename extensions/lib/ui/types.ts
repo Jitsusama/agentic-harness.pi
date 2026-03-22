@@ -52,7 +52,7 @@ export type ContentFn = (theme: Theme, width: number) => string[];
 export type AsyncContentFn = (theme: Theme, width: number) => Promise<string[]>;
 
 /** A fixed action shown in the action bar. */
-export interface Action {
+export interface KeyAction {
 	/** Single lowercase letter: the keyboard shortcut AND the return value. */
 	key: string;
 	/** Display label. The key letter is highlighted in accent colour. */
@@ -60,7 +60,7 @@ export interface Action {
 }
 
 /** A dynamic option shown in a numbered list. */
-export interface Option {
+export interface ListChoice {
 	/** Display label (can be a sentence). */
 	label: string;
 	/** Return value. Defaults to lowercase of label if omitted. */
@@ -134,9 +134,9 @@ export interface PromptItem {
 	/** Content views. First is active by default. Items with one view show no view hints. */
 	views: PromptView[];
 	/** Fixed actions for this item (Type A key-hint bar). Overrides shared actions. */
-	actions?: Action[];
+	actions?: KeyAction[];
 	/** Dynamic options for this item (Type B numbered list). Overrides shared options. */
-	options?: Option[];
+	options?: ListChoice[];
 	/** Enable horizontal scrolling for this item's content. Default: false. */
 	allowHScroll?: boolean;
 }
@@ -151,9 +151,9 @@ export interface SinglePromptConfig {
 	/** Renders the content area. */
 	content: ContentFn;
 	/** Fixed actions (Type A key-hint bar). */
-	actions?: Action[];
+	actions?: KeyAction[];
 	/** Dynamic options (Type B numbered list). */
-	options?: Option[];
+	options?: ListChoice[];
 	/** Placeholder text shown in NoteEditor when redirect is activated. */
 	redirectHint?: string;
 	/** Enable horizontal scrolling (Shift+←→) for code content. Default: false. */
@@ -172,9 +172,9 @@ export interface TabbedPromptConfig {
 	 * Default actions for all items. Individual items can override
 	 * by providing their own actions or options.
 	 */
-	actions?: Action[];
+	actions?: KeyAction[];
 	/** Default options for all items. Individual items can override. */
-	options?: Option[];
+	options?: ListChoice[];
 	/** Allow user to add items via '+' hotkey. */
 	canAddItems?: boolean;
 	/** Auto-resolve when all items have been acted on. */
@@ -207,7 +207,7 @@ export interface WorkspacePromptConfig {
 	/** Tab definitions: each is a stateful workspace. */
 	items: WorkspaceItem[];
 	/** Global actions available on all tabs/views. */
-	globalActions?: Action[];
+	globalActions?: KeyAction[];
 	/** Compute tab status externally (called on render). */
 	tabStatus: (index: number) => TabStatus;
 	/** Whether all tabs are complete (highlights Ctrl+Enter). */
@@ -235,7 +235,7 @@ export interface WorkspaceView {
 	/** Render content. May be async. */
 	content: ContentFn | AsyncContentFn;
 	/** Actions specific to this view. */
-	actions?: Action[];
+	actions?: KeyAction[];
 	/**
 	 * Handle input for this view. Called BEFORE default
 	 * handling (scroll, tabs). Return true if handled.

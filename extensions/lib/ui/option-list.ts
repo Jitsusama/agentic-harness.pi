@@ -14,20 +14,20 @@
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
-import { GLYPH, type Option } from "./types.js";
+import { GLYPH, type ListChoice } from "./types.js";
 
 export type OptionListResult =
 	| { type: "select"; index: number }
 	| { type: "cancel" };
 
 /** Resolve the value for an option (defaults to lowercase label). */
-export function optionValue(option: Option): string {
+export function optionValue(option: ListChoice): string {
 	return option.value ?? option.label.toLowerCase();
 }
 
 /** Render the option list with cursor and on-select description. */
 export function renderOptionList(
-	options: Option[],
+	options: ListChoice[],
 	selectedIndex: number,
 	theme: Theme,
 ): string[] {

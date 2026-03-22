@@ -24,7 +24,7 @@ import {
 	wordWrap,
 } from "../../lib/ui/text.js";
 import type {
-	Action,
+	KeyAction,
 	WorkspaceInputContext,
 	WorkspaceItem,
 	WorkspaceResult,
@@ -48,14 +48,14 @@ const COMMENT_GLYPH = {
 } as const;
 
 /** Comment mode actions. */
-const COMMENT_ACTIONS: Action[] = [
+const COMMENT_ACTIONS: KeyAction[] = [
 	{ key: "a", label: "Approve" },
 	{ key: "r", label: "Reject" },
 	{ key: "n", label: "New" },
 ];
 
 /** Tab pass action. */
-const PASS_ACTION: Action = { key: "p", label: "Pass" };
+const PASS_ACTION: KeyAction = { key: "p", label: "Pass" };
 
 /** Result from the review panel. */
 export type ReviewPanelResult =

@@ -36,8 +36,8 @@ import {
 } from "./scroll-region.js";
 import { handleTabInput, renderTabStrip } from "./tab-strip.js";
 import {
-	type Action,
 	GLYPH,
+	type KeyAction,
 	type TabStatus,
 	type WorkspaceInputContext,
 	type WorkspacePromptConfig,
@@ -106,7 +106,7 @@ export async function showWorkspacePrompt(
 		}
 
 		/** Get actions for the current view, falling back to global. */
-		function currentActions(): Action[] | undefined {
+		function currentActions(): KeyAction[] | undefined {
 			const view = currentView();
 			return view?.actions ?? config.globalActions;
 		}

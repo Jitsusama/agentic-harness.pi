@@ -15,7 +15,7 @@ import type { ExtensionAPI, Theme } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { promptSingle, promptTabbed } from "../lib/ui/panel.js";
-import type { Option, PromptItem } from "../lib/ui/types.js";
+import type { ListChoice, PromptItem } from "../lib/ui/types.js";
 
 // Types
 interface QuestionOption {
@@ -91,8 +91,8 @@ function errorResult(
 }
 
 /** Build options for a question, including the "Type something" option. */
-function buildOptions(q: Question): Option[] {
-	const opts: Option[] = q.options.map((o) => ({
+function buildOptions(q: Question): ListChoice[] {
+	const opts: ListChoice[] = q.options.map((o) => ({
 		label: o.label,
 		value: o.value,
 		description: o.description,
