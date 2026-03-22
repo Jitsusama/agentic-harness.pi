@@ -20,7 +20,7 @@ function countByState(state: PRReplyState, threadState: string): number {
 }
 
 /** Summary text returned after activation. */
-export function briefActivation(
+export function activationBriefing(
 	ref: PRReference,
 	reviewCount: number,
 	threadCount: number,
@@ -48,7 +48,7 @@ export function briefActivation(
  * Batch analysis briefing: comprehensive thread context for
  * the LLM to analyze all threads at once.
  */
-export function briefBatchAnalysis(state: PRReplyState): string {
+export function batchAnalysisBriefing(state: PRReplyState): string {
 	const parts: string[] = [];
 
 	parts.push("## Review Threads for Batch Analysis");
@@ -105,7 +105,7 @@ export function briefBatchAnalysis(state: PRReplyState): string {
 }
 
 /** Progress indicator for thread navigation headers. */
-export function briefProgress(state: PRReplyState): string {
+export function progressBriefing(state: PRReplyState): string {
 	const review = state.reviews[state.reviewIndex];
 	const reviewLabel = review
 		? `Review ${state.reviewIndex + 1}/${state.reviews.length} (${review.author})`
@@ -121,7 +121,7 @@ export function briefProgress(state: PRReplyState): string {
 }
 
 /** Summary of a new review for the LLM to analyze. */
-export function briefReviewSummary(
+export function reviewSummaryBriefing(
 	review: Review,
 	pendingThreads: ReviewThread[],
 ): string {
@@ -153,7 +153,7 @@ export function briefReviewSummary(
 }
 
 /** Thread context for the LLM, with analysis instructions. */
-export function briefThread(
+export function threadBriefing(
 	progressLine: string,
 	analysisContext: string,
 ): string {
@@ -168,7 +168,7 @@ export function briefThread(
 }
 
 /** Completion summary when deactivating. */
-export function briefCompletion(state: PRReplyState): string {
+export function completionBriefing(state: PRReplyState): string {
 	const total = state.threads.length;
 	const replied = countByState(state, "replied");
 	const addressed = countByState(state, "addressed");
@@ -183,7 +183,7 @@ export function briefCompletion(state: PRReplyState): string {
 }
 
 /** Thread choice result: user redirected with feedback. */
-export function briefRedirect(
+export function redirectBriefing(
 	file: string,
 	contextLine: number,
 	feedback: string,
@@ -200,7 +200,7 @@ export function briefRedirect(
 }
 
 /** Thread choice result: user chose to reply. */
-export function briefReplyChoice(
+export function replyChoiceBriefing(
 	file: string,
 	contextLine: number,
 	analysisContext: string,
@@ -214,7 +214,7 @@ export function briefReplyChoice(
 }
 
 /** Thread choice result: user chose to implement. */
-export function briefImplementChoice(
+export function implementChoiceBriefing(
 	file: string,
 	contextLine: number,
 	analysisContext: string,
@@ -232,7 +232,7 @@ export function briefImplementChoice(
  * Re-analysis prompt: tells the LLM to re-evaluate all pending
  * threads after a state change (implementation, reply, or pass).
  */
-export function briefReAnalyze(state: PRReplyState): string {
+export function reAnalyzeBriefing(state: PRReplyState): string {
 	const pending = state.threads.filter(
 		(t) => state.threadStates.get(t.id) === "pending",
 	);
@@ -263,7 +263,7 @@ export function briefReAnalyze(state: PRReplyState): string {
 }
 
 /** Rebase instructions after deactivation. */
-export function briefRebaseApproved(
+export function rebaseApprovedBriefing(
 	chain: Array<{ number: number; branch: string }>,
 ): string {
 	const prList = chain.map((d) => `#${d.number} (${d.branch})`).join(" → ");

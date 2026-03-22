@@ -21,7 +21,7 @@ const MAX_ISSUE_COMMENTS = 5;
  * Build the activation briefing: comprehensive context for
  * the agent to analyze and generate comments.
  */
-export function briefActivation(session: ReviewSession): string {
+export function activationBriefing(session: ReviewSession): string {
 	const context = session.context;
 	if (!context) return "Context unavailable.";
 
@@ -183,7 +183,7 @@ export function briefActivation(session: ReviewSession): string {
 }
 
 /** Summary returned after comments are generated. */
-export function briefGenerateComments(session: ReviewSession): string {
+export function generateCommentsBriefing(session: ReviewSession): string {
 	const fileComments = session.comments.filter((c) => c.category === "file");
 	const scopeComments = session.comments.filter((c) => c.category === "scope");
 	const titleComments = session.comments.filter((c) => c.category === "title");

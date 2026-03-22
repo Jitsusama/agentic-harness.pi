@@ -16,7 +16,7 @@ import {
 	parsePRReference,
 } from "../lib/github/pr-reference.js";
 import { getCurrentRepo, resolveRepo } from "../lib/github/repo-discovery.js";
-import { briefActivation, briefGenerateComments } from "./briefing.js";
+import { activationBriefing, generateCommentsBriefing } from "./briefing.js";
 import { gatherContext } from "./gather.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
 import {
@@ -220,7 +220,7 @@ export async function handleActivate(
 		persist(state, pi);
 		refreshUI(state, ctx);
 
-		const briefing = briefActivation(session);
+		const briefing = activationBriefing(session);
 
 		return {
 			content: [{ type: "text" as const, text: briefing }],
@@ -297,7 +297,7 @@ export async function handleGenerateComments(
 
 	persist(state, pi);
 
-	const summary = briefGenerateComments(session);
+	const summary = generateCommentsBriefing(session);
 
 	return {
 		content: [{ type: "text" as const, text: summary }],

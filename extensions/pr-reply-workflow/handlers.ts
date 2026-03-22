@@ -21,17 +21,17 @@ import {
 } from "./api/github.js";
 import { getCurrentBranch, resolvePR } from "./api/repo.js";
 import {
-	briefActivation,
-	briefBatchAnalysis,
-	briefCompletion,
-	briefImplementChoice,
-	briefProgress,
-	briefReAnalyze,
-	briefRedirect,
-	briefReplyChoice,
-	briefReviewSummary,
-	briefThread,
+	activationBriefing,
+	batchAnalysisBriefing,
 	buildImplementationContext,
+	completionBriefing,
+	implementChoiceBriefing,
+	progressBriefing,
+	reAnalyzeBriefing,
+	redirectBriefing,
+	replyChoiceBriefing,
+	reviewSummaryBriefing,
+	threadBriefing,
 } from "./briefing.js";
 import { readCodeContext } from "./code-context.js";
 import { checkDependentPRs } from "./dependency-chain.js";
@@ -195,14 +195,14 @@ export async function handleActivate(
 		return textResult("PR reply cancelled.");
 	}
 
-	const activationText = briefActivation(
+	const activationText = activationBriefing(
 		ref,
 		activeReviews.length,
 		unresolvedThreads.length,
 		dismissedCount,
 	);
 
-	const analysisContext = briefBatchAnalysis(state);
+	const analysisContext = batchAnalysisBriefing(state);
 
 	return {
 		content: [
@@ -233,7 +233,7 @@ export async function handleDeactivate(
 
 	deactivate(state, pi, ctx);
 
-	const summary = briefCompletion(state);
+	const summary = completionBriefing(state);
 	const text = rebaseInfo ? `${summary}\n\n${rebaseInfo}` : summary;
 
 	return textResult(text);
@@ -363,7 +363,7 @@ export async function handleReviewWorkspace(
 		const analysis = state.threadAnalyses.get(thread.id);
 		const recommendation = analysis?.analysis ?? "";
 
-		const progressLine = briefProgress(state);
+		const progressLine = progressBriefing(state);
 
 		// We show the full-context thread gate.
 		const choice = await showThreadGate(
@@ -450,7 +450,7 @@ export async function handleNext(
 				content: [
 					{
 						type: "text" as const,
-						text: briefReviewSummary(review, pendingThreads),
+						text: reviewSummaryBriefing(review, pendingThreads),
 					},
 				],
 				details: {
@@ -504,13 +504,13 @@ export async function handleNext(
 			planContext,
 		);
 
-		const progressLine = briefProgress(state);
+		const progressLine = progressBriefing(state);
 
 		return {
 			content: [
 				{
 					type: "text" as const,
-					text: briefThread(progressLine, analysisContext),
+					text: threadBriefing(progressLine, analysisContext),
 				},
 			],
 			details: {
@@ -594,7 +594,7 @@ export async function handleShow(
 
 	const review = state.reviews.find((r) => r.threadIds.includes(thread.id));
 	const contextLine = thread.line || thread.originalLine || 0;
-	const progressLine = briefProgress(state);
+	const progressLine = progressBriefing(state);
 
 	const codeContext =
 		contextLine > 0
@@ -754,7 +754,7 @@ export async function handleDone(
 			? `${commits.length} commit${commits.length !== 1 ? "s" : ""} linked.`
 			: "No new commits detected.";
 
-	const reAnalyze = briefReAnalyze(state);
+	const reAnalyze = reAnalyzeBriefing(state);
 
 	return {
 		content: [
@@ -809,7 +809,7 @@ function applyThreadChoice(
 				content: [
 					{
 						type: "text" as const,
-						text: briefRedirect(
+						text: redirectBriefing(
 							thread.file,
 							contextLine,
 							choice.feedback,
@@ -833,7 +833,11 @@ function applyThreadChoice(
 				content: [
 					{
 						type: "text" as const,
-						text: briefReplyChoice(thread.file, contextLine, analysisContext),
+						text: replyChoiceBriefing(
+							thread.file,
+							contextLine,
+							analysisContext,
+						),
 					},
 				],
 				details: { action: "next", chosen: "reply", threadId: thread.id },
@@ -844,7 +848,7 @@ function applyThreadChoice(
 				content: [
 					{
 						type: "text" as const,
-						text: briefImplementChoice(
+						text: implementChoiceBriefing(
 							thread.file,
 							contextLine,
 							analysisContext,
@@ -907,7 +911,7 @@ async function reviewAndPostReply(
 	state.threadStates.set(thread.id, "replied");
 	persist(state, pi);
 
-	const reAnalyze = briefReAnalyze(state);
+	const reAnalyze = reAnalyzeBriefing(state);
 
 	return {
 		content: [
