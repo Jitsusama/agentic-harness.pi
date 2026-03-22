@@ -124,8 +124,31 @@ function buildCandidate(
 
 const MAX_LEVEL = 6;
 
+/** Extract the cost from an assistant message, or 0 if not applicable. */
+function assistantCost(message: { role: string }): number {
+	if (message.role === "assistant" && "usage" in message) {
+		return (message as AssistantMessage).usage.cost.total;
+	}
+	return 0;
+}
+
 export default function statusLine(pi: ExtensionAPI) {
+	/** Running cost total, accumulated from session start and message_end events. */
+	let totalCost = 0;
+
+	pi.on("message_end", async (event) => {
+		totalCost += assistantCost(event.message);
+	});
+
 	pi.on("session_start", async (_event, ctx) => {
+		// Compute the initial cost from the existing branch (handles restored sessions).
+		totalCost = 0;
+		for (const e of ctx.sessionManager.getBranch()) {
+			if (e.type === "message") {
+				totalCost += assistantCost(e.message);
+			}
+		}
+
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			const unsub = footerData.onBranchChange(() => tui.requestRender());
 			const sep = theme.fg("dim", SEP);
@@ -134,21 +157,7 @@ export default function statusLine(pi: ExtensionAPI) {
 				dispose: unsub,
 				invalidate() {},
 				render(width: number): string[] {
-					// NOTE: This iterates the entire session branch on every
-					// render (every keypress, scroll, resize). For very long
-					// sessions this could become slow. Future optimization:
-					// cache a running total and compute incrementally.
-					let cost = 0;
-					for (const e of ctx.sessionManager.getBranch()) {
-						if (
-							e.type === "message" &&
-							e.message.role === "assistant" &&
-							"usage" in e.message
-						) {
-							const m = e.message as AssistantMessage;
-							cost += m.usage.cost.total;
-						}
-					}
+					const cost = totalCost;
 
 					const branch = footerData.getGitBranch();
 					const modelId = ctx.model?.id || "no-model";
