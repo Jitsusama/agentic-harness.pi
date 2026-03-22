@@ -25,7 +25,6 @@ import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
 	type CommentInput,
-	type HandlerDeps,
 	handleActivate,
 	handleAddComment,
 	handleDeactivate,
@@ -37,6 +36,7 @@ import {
 	handleSubmit,
 	handleUpdateComment,
 	type ReferenceSummaryInput,
+	type ReviewContext,
 	type SourceRoleInput,
 } from "./handlers.js";
 import { deactivate, restore } from "./lifecycle.js";
@@ -59,7 +59,7 @@ const ACTIONS = [
 
 export default function prReview(pi: ExtensionAPI) {
 	const state = createState();
-	const deps: HandlerDeps = { state, pi };
+	const deps: ReviewContext = { state, pi };
 
 	pi.registerTool({
 		name: "pr_review",

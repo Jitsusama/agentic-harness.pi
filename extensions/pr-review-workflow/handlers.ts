@@ -2,7 +2,7 @@
  * PR Review action handlers: thin functions that guard,
  * operate, and return briefings.
  *
- * Each handler receives a HandlerDeps bundle. The index.ts
+ * Each handler receives a ReviewContext bundle. The index.ts
  * switch statement delegates to these.
  */
 
@@ -54,7 +54,7 @@ export interface ReferenceSummaryInput {
 }
 
 /** Dependencies shared by all handlers. */
-export interface HandlerDeps {
+export interface ReviewContext {
 	state: PRReviewState;
 	pi: ExtensionAPI;
 }
@@ -78,7 +78,7 @@ function isReviewVerdict(
  * restored but context was lost, re-gather transparently.
  */
 async function ensureContext(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	ctx: ExtensionContext,
 ): Promise<boolean> {
 	const session = deps.state.session;
@@ -116,7 +116,7 @@ async function resolvePR(
 
 /** Activate: parse PR ref, resolve repo, gather deep context. */
 export async function handleActivate(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	ctx: ExtensionContext,
 	prInput: string | null,
 	userRequest: string | null = null,
@@ -241,7 +241,7 @@ export async function handleActivate(
 
 /** Generate comments: agent provides analysis and structured comments. */
 export async function handleGenerateComments(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	synopsis: string | null,
 	scopeAnalysis: string | null,
 	sourceRoles: SourceRoleInput[] | null,
@@ -309,7 +309,10 @@ export async function handleGenerateComments(
 }
 
 /** Overview: show Phase 1 overview panel. */
-export async function handleOverview(deps: HandlerDeps, ctx: ExtensionContext) {
+export async function handleOverview(
+	deps: ReviewContext,
+	ctx: ExtensionContext,
+) {
 	const { state } = deps;
 
 	if (!state.session) {
@@ -362,7 +365,7 @@ export async function handleOverview(deps: HandlerDeps, ctx: ExtensionContext) {
 }
 
 /** Review: show Phase 2 review panel. */
-export async function handleReview(deps: HandlerDeps, ctx: ExtensionContext) {
+export async function handleReview(deps: ReviewContext, ctx: ExtensionContext) {
 	const { state } = deps;
 
 	if (!state.session) {
@@ -436,7 +439,7 @@ export async function handleReview(deps: HandlerDeps, ctx: ExtensionContext) {
 
 /** Add a review comment. */
 export function handleAddComment(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	comment: CommentInput | undefined,
 ) {
 	const { state, pi } = deps;
@@ -491,7 +494,7 @@ export function handleAddComment(
 
 /** Update an existing comment. */
 export function handleUpdateComment(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	commentId: string | null,
 	comment: CommentInput | undefined,
 ) {
@@ -531,7 +534,7 @@ export function handleUpdateComment(
 
 /** Remove a comment by ID. */
 export function handleRemoveComment(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	commentId: string | null,
 ) {
 	const { state, pi } = deps;
@@ -566,7 +569,7 @@ export function handleRemoveComment(
 
 /** Submit: show final review summary panel. */
 export async function handleSubmit(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	ctx: ExtensionContext,
 	reviewBody: string | null,
 	verdict: string | null,
@@ -624,7 +627,7 @@ export async function handleSubmit(
 }
 
 /** Post: submit review to GitHub. */
-export async function handlePost(deps: HandlerDeps) {
+export async function handlePost(deps: ReviewContext) {
 	const { state, pi } = deps;
 
 	if (!state.session) {
@@ -722,7 +725,7 @@ export async function handlePost(deps: HandlerDeps) {
 
 /** Deactivate: clean up and exit review mode. */
 export async function handleDeactivate(
-	deps: HandlerDeps,
+	deps: ReviewContext,
 	ctx: ExtensionContext,
 ) {
 	const { state, pi } = deps;
