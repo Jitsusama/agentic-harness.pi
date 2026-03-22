@@ -5,7 +5,11 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
+import {
+	ALLOW,
+	type CommandGuardian,
+	type GuardianResult,
+} from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { promptSingle } from "../lib/ui/panel.js";
 import { formatRedirect } from "../lib/ui/redirect.js";
@@ -76,7 +80,7 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 						`Original PR:\n${redirectContext}`,
 					);
 				}
-				return undefined;
+				return ALLOW;
 			}
 			if (result.note) {
 				return formatRedirect(result.note, `Original PR:\n${redirectContext}`);

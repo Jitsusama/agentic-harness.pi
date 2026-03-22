@@ -5,7 +5,11 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
+import {
+	ALLOW,
+	type CommandGuardian,
+	type GuardianResult,
+} from "../lib/guardian/types.js";
 import { promptSingle } from "../lib/ui/panel.js";
 import { formatRedirect } from "../lib/ui/redirect.js";
 import { extractFlags, extractMessage, splitAtCommit } from "./parse.js";
@@ -70,7 +74,7 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 						`Original commit:\n${parsed.message}`,
 					);
 				}
-				return undefined;
+				return ALLOW;
 			}
 
 			// If there's a note on reject, we include it as redirect feedback.

@@ -4,7 +4,11 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
+import {
+	ALLOW,
+	type CommandGuardian,
+	type GuardianResult,
+} from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { promptSingle } from "../lib/ui/panel.js";
 import { formatRedirect } from "../lib/ui/redirect.js";
@@ -80,7 +84,7 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 		}
 
 		if (result.type === "action" && result.key === "a") {
-			return undefined;
+			return ALLOW;
 		}
 
 		return { block: true, reason: `User blocked: ${parsed.command}` };
