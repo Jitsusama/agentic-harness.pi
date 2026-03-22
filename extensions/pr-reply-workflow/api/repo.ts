@@ -1,16 +1,9 @@
 /**
- * Repository resolution for PR reply: wraps the shared
- * repo-discovery primitives with pr-reply-specific logic
- * for switching repos and finding dependent PRs.
+ * Branch and PR discovery for pr-reply: helpers for finding
+ * the current branch, associated PRs and dependent PRs.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import {
-	findRepoOnDisk,
-	getCurrentRepo,
-	openInNewTab,
-} from "../../lib/github/repo-discovery.js";
-import type { PRReference } from "./github.js";
 
 // Re-export shared utilities used directly by other pr-reply modules.
 export { getCurrentRepo } from "../../lib/github/repo-discovery.js";
@@ -78,45 +71,4 @@ export async function findDependentPRs(
 		.split("\n")
 		.map((n) => Number.parseInt(n, 10))
 		.filter((n) => !Number.isNaN(n));
-}
-
-/** Result of attempting to switch to a repo. */
-export type SwitchResult =
-	| { status: "already-here" }
-	| { status: "opened-tab"; repoPath: string }
-	| { status: "not-found-opened-tab-failed"; repoPath: string }
-	| { status: "not-found" };
-
-/**
- * Ensure we're in the correct repository for the PR.
- *
- * When a user request is provided, it becomes the new tab's
- * initial prompt so the agent there can replicate the user's
- * intent. Returns a structured result so the caller can give
- * the LLM a clear message about what happened.
- */
-export async function switchToRepo(
-	pi: ExtensionAPI,
-	ref: PRReference,
-	userRequest: string | null = null,
-): Promise<SwitchResult> {
-	const current = await getCurrentRepo(pi);
-	if (current?.owner === ref.owner && current?.repo === ref.repo) {
-		return { status: "already-here" };
-	}
-
-	const repoPath = findRepoOnDisk(ref.owner, ref.repo);
-	if (!repoPath) {
-		return { status: "not-found" };
-	}
-
-	const prompt =
-		userRequest ??
-		`respond to reviews on ${ref.owner}/${ref.repo}#${ref.number}`;
-	const opened = await openInNewTab(pi, repoPath, prompt);
-	if (opened) {
-		return { status: "opened-tab", repoPath };
-	}
-
-	return { status: "not-found-opened-tab-failed", repoPath };
 }

@@ -10,6 +10,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import { resolveRepo } from "../lib/github/repo-discovery.js";
 import { buildAnalysisPrompt } from "./analysis.js";
 import {
 	fetchReviews,
@@ -17,12 +18,7 @@ import {
 	postReply,
 	refreshThreadComments,
 } from "./api/github.js";
-import {
-	findDependentPRs,
-	getCurrentBranch,
-	type SwitchResult,
-	switchToRepo,
-} from "./api/repo.js";
+import { findDependentPRs, getCurrentBranch } from "./api/repo.js";
 import {
 	briefActivation,
 	briefBatchAnalysis,
@@ -130,9 +126,15 @@ export async function handleActivate(
 		);
 	}
 
-	const switchResult = await switchToRepo(pi, ref, userRequest);
-	if (switchResult.status !== "already-here") {
-		return handleSwitchResult(ctx, switchResult, ref);
+	const repoResult = await resolveRepo(
+		pi,
+		ref.owner,
+		ref.repo,
+		userRequest ??
+			`respond to reviews on ${ref.owner}/${ref.repo}#${ref.number}`,
+	);
+	if (repoResult.status !== "current") {
+		return handleRepoResult(ctx, repoResult, ref);
 	}
 
 	// We ensure we're on the PR's branch.
@@ -928,11 +930,16 @@ async function reviewAndPostReply(
 }
 
 /**
- * Handle the result of attempting to switch repositories.
+ * Handle a non-current repo resolution: either the repo was
+ * opened in a new tab, the tab failed to open, or the repo
+ * wasn't found on disk.
  */
-function handleSwitchResult(
+function handleRepoResult(
 	ctx: ExtensionContext,
-	result: SwitchResult,
+	result: Exclude<
+		import("../lib/github/repo-discovery.js").RepoResolution,
+		{ status: "current" }
+	>,
 	ref: PRReference,
 ) {
 	switch (result.status) {
@@ -956,7 +963,7 @@ function handleSwitchResult(
 				details: { openedTab: true, repoPath: result.repoPath },
 			};
 
-		case "not-found-opened-tab-failed":
+		case "open-failed":
 			return textResult(
 				`Found ${ref.owner}/${ref.repo} at ${result.repoPath} but could not open a new tab. ` +
 					`The user should run: cd ${result.repoPath} && pi "respond to reviews on ${ref.owner}/${ref.repo}#${ref.number}"`,
@@ -967,9 +974,6 @@ function handleSwitchResult(
 				`Repository ${ref.owner}/${ref.repo} was not found on disk. ` +
 					"Ask the user where the repository is located.",
 			);
-
-		default:
-			return textResult("Unexpected state.");
 	}
 }
 

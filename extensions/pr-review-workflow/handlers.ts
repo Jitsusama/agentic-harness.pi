@@ -14,8 +14,7 @@ import {
 	type PRReference,
 	parsePRReference,
 } from "../lib/github/pr-reference.js";
-import { getCurrentRepo } from "../lib/github/repo-discovery.js";
-import { resolveRepo } from "./api/repo.js";
+import { getCurrentRepo, resolveRepo } from "../lib/github/repo-discovery.js";
 import { briefActivation, briefGenerateComments } from "./briefing.js";
 import { crawl } from "./crawler.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
@@ -267,11 +266,10 @@ export async function handleActivate(
 		pi,
 		ref.owner,
 		ref.repo,
-		ref.number,
-		userRequest,
+		userRequest ?? `review ${ref.owner}/${ref.repo}#${ref.number}`,
 	);
 
-	if (repoResult.status === "switched") {
+	if (repoResult.status === "opened-tab") {
 		return textResult(
 			`PR #${ref.number} belongs to ${ref.owner}/${ref.repo}, which is a different repository. ` +
 				`A new terminal tab has been opened at ${repoResult.repoPath} with a pi session ` +
@@ -280,7 +278,7 @@ export async function handleActivate(
 		);
 	}
 
-	if (repoResult.status === "switch-failed") {
+	if (repoResult.status === "open-failed") {
 		return textResult(
 			`Found repo at ${repoResult.repoPath} but couldn't open a new tab. ` +
 				`cd to that directory and run the review there.`,
