@@ -60,7 +60,7 @@ export interface ReviewContext {
 }
 
 /** Build a simple text tool result. */
-function textResult(text: string) {
+function plainTextResponse(text: string) {
 	return { content: [{ type: "text" as const, text }] };
 }
 
@@ -124,7 +124,7 @@ export async function handleActivate(
 	const { state, pi } = deps;
 
 	if (state.session) {
-		return textResult(
+		return plainTextResponse(
 			`PR review is already active for #${state.session.pr.number}. ` +
 				"Call 'deactivate' first to start a new review.",
 		);
@@ -132,7 +132,7 @@ export async function handleActivate(
 
 	const ref = await resolvePR(pi, prInput);
 	if (!ref) {
-		return textResult(
+		return plainTextResponse(
 			"Could not determine which PR to review. " +
 				"Provide a PR URL, number (#123), or owner/repo#number.",
 		);
@@ -147,7 +147,7 @@ export async function handleActivate(
 	);
 
 	if (repoResult.status === "opened-tab") {
-		return textResult(
+		return plainTextResponse(
 			`PR #${ref.number} belongs to ${ref.owner}/${ref.repo}, which is a different repository. ` +
 				`A new terminal tab has been opened at ${repoResult.repoPath} with a pi session ` +
 				"handling the review. Do NOT call pr_review again in this session: " +
@@ -156,14 +156,14 @@ export async function handleActivate(
 	}
 
 	if (repoResult.status === "open-failed") {
-		return textResult(
+		return plainTextResponse(
 			`Found repo at ${repoResult.repoPath} but couldn't open a new tab. ` +
 				`cd to that directory and run the review there.`,
 		);
 	}
 
 	if (repoResult.status === "not-found") {
-		return textResult(
+		return plainTextResponse(
 			`Could not find ${ref.owner}/${ref.repo} on disk. ` +
 				"Clone the repo and try again.",
 		);
@@ -235,7 +235,7 @@ export async function handleActivate(
 	} catch (err) {
 		deactivate(state, pi, ctx);
 		const msg = err instanceof Error ? err.message : String(err);
-		return textResult(`Failed to gather PR context: ${msg}`);
+		return plainTextResponse(`Failed to gather PR context: ${msg}`);
 	}
 }
 
@@ -251,7 +251,7 @@ export async function handleGenerateComments(
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active. Call 'activate' first.");
+		return plainTextResponse("No PR review active. Call 'activate' first.");
 	}
 
 	const session = state.session;
@@ -316,12 +316,12 @@ export async function handleOverview(
 	const { state } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active. Call 'activate' first.");
+		return plainTextResponse("No PR review active. Call 'activate' first.");
 	}
 
 	const session = state.session;
 	if (!(await ensureContext(deps, ctx))) {
-		return textResult("Failed to load PR context.");
+		return plainTextResponse("Failed to load PR context.");
 	}
 
 	session.phase = "overview";
@@ -335,14 +335,14 @@ export async function handleOverview(
 	);
 
 	if (!result) {
-		return textResult(
+		return plainTextResponse(
 			"Overview panel dismissed. Call 'overview' to re-show, " +
 				"or 'review' to proceed.",
 		);
 	}
 
 	if (result.action === "review") {
-		return textResult(
+		return plainTextResponse(
 			"User chose to proceed to review. Call 'review' to show the review panel.",
 		);
 	}
@@ -361,7 +361,7 @@ export async function handleOverview(
 		};
 	}
 
-	return textResult("Overview complete.");
+	return plainTextResponse("Overview complete.");
 }
 
 /** Review: show Phase 2 review panel. */
@@ -369,12 +369,12 @@ export async function handleReview(deps: ReviewContext, ctx: ExtensionContext) {
 	const { state } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active. Call 'activate' first.");
+		return plainTextResponse("No PR review active. Call 'activate' first.");
 	}
 
 	const session = state.session;
 	if (!(await ensureContext(deps, ctx))) {
-		return textResult("Failed to load PR context.");
+		return plainTextResponse("Failed to load PR context.");
 	}
 
 	session.phase = "reviewing";
@@ -387,14 +387,14 @@ export async function handleReview(deps: ReviewContext, ctx: ExtensionContext) {
 	refreshUI(state, ctx);
 
 	if (!result) {
-		return textResult(
+		return plainTextResponse(
 			"Review panel dismissed. Call 'review' to re-show, " +
 				"or 'submit' to proceed.",
 		);
 	}
 
 	if (result.action === "submit") {
-		return textResult(
+		return plainTextResponse(
 			"User submitted from review panel. Call 'submit' to show the submit panel.",
 		);
 	}
@@ -434,7 +434,7 @@ export async function handleReview(deps: ReviewContext, ctx: ExtensionContext) {
 		};
 	}
 
-	return textResult("Review complete.");
+	return plainTextResponse("Review complete.");
 }
 
 /** Add a review comment. */
@@ -445,11 +445,11 @@ export function handleAddComment(
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active.");
+		return plainTextResponse("No PR review active.");
 	}
 
 	if (!comment) {
-		return textResult(
+		return plainTextResponse(
 			"Provide a comment object with: file, startLine, endLine, " +
 				"label, decorations, subject, discussion, category.",
 		);
@@ -501,22 +501,24 @@ export function handleUpdateComment(
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active.");
+		return plainTextResponse("No PR review active.");
 	}
 
 	if (!commentId) {
-		return textResult(
+		return plainTextResponse(
 			"Provide comment_id to identify which comment to update.",
 		);
 	}
 
 	if (!comment) {
-		return textResult("Provide a comment object with the updated fields.");
+		return plainTextResponse(
+			"Provide a comment object with the updated fields.",
+		);
 	}
 
 	const found = updateComment(state.session, commentId, comment);
 	if (!found) {
-		return textResult(`Comment ${commentId} not found.`);
+		return plainTextResponse(`Comment ${commentId} not found.`);
 	}
 
 	persist(state, pi);
@@ -540,18 +542,18 @@ export function handleRemoveComment(
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active.");
+		return plainTextResponse("No PR review active.");
 	}
 
 	if (!commentId) {
-		return textResult(
+		return plainTextResponse(
 			"Provide comment_id to identify which comment to remove.",
 		);
 	}
 
 	const found = removeComment(state.session, commentId);
 	if (!found) {
-		return textResult(`Comment ${commentId} not found.`);
+		return plainTextResponse(`Comment ${commentId} not found.`);
 	}
 
 	persist(state, pi);
@@ -577,7 +579,7 @@ export async function handleSubmit(
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active. Call 'activate' first.");
+		return plainTextResponse("No PR review active. Call 'activate' first.");
 	}
 
 	const session = state.session;
@@ -597,7 +599,7 @@ export async function handleSubmit(
 	persist(state, pi);
 
 	if (!result) {
-		return textResult(
+		return plainTextResponse(
 			"Submit panel dismissed. Call 'submit' to re-show, " +
 				"or 'review' to go back.",
 		);
@@ -623,7 +625,7 @@ export async function handleSubmit(
 		};
 	}
 
-	return textResult("Submit flow complete.");
+	return plainTextResponse("Submit flow complete.");
 }
 
 /** Post: submit review to GitHub. */
@@ -631,14 +633,14 @@ export async function handlePost(deps: ReviewContext) {
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("No PR review active.");
+		return plainTextResponse("No PR review active.");
 	}
 
 	const session = state.session;
 	const stats = commentStats(session);
 
 	if (stats.pending > 0) {
-		return textResult(
+		return plainTextResponse(
 			`${stats.pending} comment${stats.pending !== 1 ? "s are" : " is"} still pending: ` +
 				"review all comments before posting.",
 		);
@@ -719,7 +721,7 @@ export async function handlePost(deps: ReviewContext) {
 		};
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		return textResult(`Failed to post review: ${msg}`);
+		return plainTextResponse(`Failed to post review: ${msg}`);
 	}
 }
 
@@ -731,7 +733,7 @@ export async function handleDeactivate(
 	const { state, pi } = deps;
 
 	if (!state.session) {
-		return textResult("PR review is not active.");
+		return plainTextResponse("PR review is not active.");
 	}
 
 	const commentCount = state.session.comments.length;
