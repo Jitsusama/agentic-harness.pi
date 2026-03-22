@@ -22,6 +22,7 @@ const ISSUE_REVIEW_CONFIG: EntityReviewConfig = {
 	entityLabel: "issue",
 };
 
+/** Guardian that intercepts gh issue create/edit commands for review. */
 export const issueGuardian: CommandGuardian<IssueCommand> = {
 	detect(command) {
 		return isIssueCommand(command);

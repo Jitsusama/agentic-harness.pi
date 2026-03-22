@@ -9,6 +9,7 @@ import { promptSingle } from "../lib/ui/panel.js";
 import { formatRedirectReason } from "../lib/ui/redirect.js";
 import type { PromptResult } from "../lib/ui/types.js";
 
+/** Email fields presented to the user for confirmation before sending. */
 export interface EmailData {
 	to: string[];
 	cc?: string[];
@@ -17,6 +18,7 @@ export interface EmailData {
 	body: string;
 }
 
+/** Calendar event fields presented to the user for confirmation before creating or updating. */
 export interface EventData {
 	summary: string;
 	start: string;

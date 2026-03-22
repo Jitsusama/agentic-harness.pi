@@ -196,9 +196,15 @@ than inlining all logic.
 ### One Mutation Site for Command Rewriting
 
 `registerGuardian` is the single place that mutates
-`event.input.command`. Individual guardians return a
-`ReviewResult` (undefined, block, or rewrite); they never
-touch the event directly.
+`event.input.command` for guardians. Individual guardians
+return a `ReviewResult` (undefined, block, or rewrite);
+they never touch the event directly.
+
+Interceptors are the second sanctioned mutation site.
+They mutate `event.input.command` silently (no review
+gate) because that's their contract: transparent command
+enrichment. The attribution interceptor is the only
+current example.
 
 ### Layered Library Structure
 
@@ -281,6 +287,7 @@ extension in isolation.
   tdd-workflow has a phase state machine). File naming
   convention is the right level of shared structure.
 - Do not mutate `event.input.command` outside of
-  `registerGuardian`. That is the single mutation site.
+  `registerGuardian` or interceptor extensions. Those
+  are the two sanctioned mutation sites.
 - Do not leave empty `catch {}` blocks without a comment
   explaining why the error is safe to ignore.

@@ -44,6 +44,7 @@ export const COARSE_SCROLL_OVERLAP_FRACTION = 0.5;
 /** Width reserved for the vertical scrollbar gutter. */
 export const SCROLLBAR_GUTTER = 2;
 
+/** Tracks the current scroll position within a content region. */
 export interface ScrollState {
 	/** Vertical scroll offset (lines from top). */
 	vOffset: number;

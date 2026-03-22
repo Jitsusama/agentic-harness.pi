@@ -27,6 +27,7 @@ interface CommitParsed {
 	flags: string[];
 }
 
+/** Guardian that intercepts git commit commands and presents the message for review. */
 export const commitGuardian: CommandGuardian<CommitParsed> = {
 	detect(command) {
 		return /\bgit\s+commit\b/.test(command);

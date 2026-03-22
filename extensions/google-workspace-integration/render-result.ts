@@ -163,7 +163,7 @@ function renderEmailList(
 	}
 
 	if (!options.expanded && count > 0) {
-		// Show subject lines in compact view
+		// Compact view shows a few subject lines as a preview.
 		const previews = messages
 			.slice(0, 3)
 			.map((msg) => {
@@ -225,7 +225,7 @@ function renderEventList(
 	);
 
 	if (!options.expanded && count > 0) {
-		// Show event titles in compact view
+		// Compact view shows a few event titles as a preview.
 		const previews = events
 			.slice(0, 3)
 			.map((evt) => {
@@ -285,7 +285,7 @@ function renderFileList(
 	}
 
 	if (!options.expanded && count > 0) {
-		// Show file names in compact view
+		// Compact view shows a few file names as a preview.
 		const previews = files
 			.slice(0, 3)
 			.map((file) => {

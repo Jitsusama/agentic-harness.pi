@@ -29,6 +29,7 @@ interface DestructiveMatch {
 	description: string;
 }
 
+/** Guardian that intercepts destructive git commands and requires confirmation. */
 export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 	detect(command) {
 		return DESTRUCTIVE_PATTERNS.some((p: DestructivePattern) =>

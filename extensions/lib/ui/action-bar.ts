@@ -66,6 +66,7 @@ export function matchesActionKey(data: string, key: string): boolean {
 	return false;
 }
 
+/** Result of handling an action bar keypress. */
 export type ActionBarResult =
 	| { type: "action"; key: string }
 	| { type: "annotatedAction"; key: string }

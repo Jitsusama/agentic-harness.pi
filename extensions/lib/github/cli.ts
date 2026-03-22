@@ -28,6 +28,7 @@ export function isGhCommand(command: string, subcommand: string): boolean {
 	return re.test(command);
 }
 
+/** Configuration for rebuilding a gh pr/issue command with an edited body. */
 export interface GhRebuildConfig {
 	/** "pr" or "issue" */
 	readonly entity: string;
@@ -98,6 +99,7 @@ export function extractMultiFlags(
 
 // ── PR command parsing ──────────────────────────────────────
 
+/** Parsed gh pr create/edit command with extracted fields. */
 export interface PrCommand {
 	/** "create" or "edit" */
 	readonly action: "create" | "edit";
@@ -168,6 +170,7 @@ function extractPrExtraFlags(prPart: string): string[] {
 
 // ── Issue command parsing ───────────────────────────────────
 
+/** Parsed gh issue create/edit command with extracted fields. */
 export interface IssueCommand {
 	/** "create" or "edit" */
 	readonly action: "create" | "edit";

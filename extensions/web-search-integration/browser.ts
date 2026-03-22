@@ -29,6 +29,7 @@ function findChrome(): string {
 	);
 }
 
+/** Get the shared headless Chrome instance, launching it if needed. */
 export async function getBrowser(): Promise<Browser> {
 	if (browser?.connected) return browser;
 	const executablePath = process.env.CHROME_PATH || findChrome();
@@ -48,6 +49,7 @@ export async function getBrowser(): Promise<Browser> {
 	return browser;
 }
 
+/** Open a new browser tab with a standard user agent string. */
 export async function newPage(): Promise<Page> {
 	const b = await getBrowser();
 	const page = await b.newPage();
@@ -59,6 +61,7 @@ export async function newPage(): Promise<Page> {
 	return page;
 }
 
+/** Shut down the shared Chrome instance if it's running. */
 export async function closeBrowser(): Promise<void> {
 	if (browser?.connected) {
 		await browser.close();

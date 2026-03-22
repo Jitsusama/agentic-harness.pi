@@ -134,7 +134,7 @@ export async function pollForDeviceAuthorization(
 			if (!response.ok) {
 				const error = await response.json();
 
-				// These errors mean we should keep polling
+				// These errors mean we should keep polling.
 				if (
 					error.error === "authorization_pending" ||
 					error.error === "slow_down"
@@ -142,7 +142,7 @@ export async function pollForDeviceAuthorization(
 					continue;
 				}
 
-				// These errors mean authorization failed
+				// These errors mean authorization failed.
 				if (error.error === "expired_token") {
 					throw new Error("Authorization code expired. Please try again.");
 				}
@@ -156,7 +156,7 @@ export async function pollForDeviceAuthorization(
 				);
 			}
 
-			// Success! Convert to Credentials format
+			// The exchange succeeded, so we convert the response to our credentials format.
 			const tokenResponse = (await response.json()) as DeviceFlowTokenResponse;
 
 			return {
@@ -167,7 +167,7 @@ export async function pollForDeviceAuthorization(
 				scope: tokenResponse.scope,
 			};
 		} catch (error) {
-			// If it's one of our thrown errors, re-throw
+			// Our own authorization errors should bubble up rather than being retried.
 			if (error instanceof Error && error.message.includes("Authorization")) {
 				throw error;
 			}
@@ -195,14 +195,13 @@ export async function refreshTokenIfNeeded(
 ): Promise<Credentials | null> {
 	const credentials = client.credentials;
 
-	// Check if token is expired or about to expire (within 5 minutes)
+	// We refresh proactively when the token is within 5 minutes of expiry.
 	if (credentials.expiry_date) {
 		const expiryTime = credentials.expiry_date;
 		const now = Date.now();
 		const fiveMinutes = 5 * 60 * 1000;
 
 		if (expiryTime - now < fiveMinutes) {
-			// Token expired or expiring soon, refresh it
 			const { credentials: newCredentials } = await client.refreshAccessToken();
 			client.setCredentials(newCredentials);
 			return newCredentials;

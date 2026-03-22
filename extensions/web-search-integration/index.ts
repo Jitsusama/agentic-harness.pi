@@ -76,11 +76,11 @@ export default function webSearch(pi: ExtensionAPI) {
 			if (hasErrorDetails(result.details) || text.startsWith("Search failed")) {
 				return new Text(theme.fg("error", text), 0, 0);
 			}
-			// Count results
+			// We count how many numbered results came back.
 			const count = (text.match(/^\d+\./gm) || []).length;
 			const summary = theme.fg("success", `✓ ${count} results`);
 			if (!expanded) {
-				// Show just titles in compact view
+				// Compact view shows just the titles.
 				const titles = text
 					.split("\n\n")
 					.map((block) => {
@@ -151,7 +151,7 @@ export default function webSearch(pi: ExtensionAPI) {
 
 		renderCall(args, theme) {
 			const label = theme.fg("toolTitle", theme.bold("web_read "));
-			// Show just the domain + path, truncated
+			// We show just the domain and path, truncated for readability.
 			let display = args.url;
 			try {
 				const u = new URL(args.url);

@@ -30,6 +30,7 @@ import {
 	type ToolResult,
 } from "../types.js";
 
+/** Search Gmail messages using a query string. */
 export async function handleSearchEmails(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -56,6 +57,7 @@ export async function handleSearchEmails(
 	};
 }
 
+/** Fetch a single email message by ID. */
 export async function handleGetEmail(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -75,6 +77,7 @@ export async function handleGetEmail(
 	};
 }
 
+/** Fetch all messages in an email thread. */
 export async function handleGetThread(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -96,6 +99,7 @@ export async function handleGetThread(
 	};
 }
 
+/** Send an email, with user confirmation before dispatching. */
 export async function handleSendEmail(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -155,6 +159,7 @@ export async function handleSendEmail(
 	};
 }
 
+/** Create a draft email without sending it. */
 export async function handleCreateDraft(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -185,6 +190,7 @@ export async function handleCreateDraft(
 	};
 }
 
+/** Archive an email by removing it from the inbox. */
 export async function handleArchiveEmail(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -203,6 +209,7 @@ export async function handleArchiveEmail(
 	};
 }
 
+/** Permanently delete an email, with user confirmation first. */
 export async function handleDeleteEmail(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -235,6 +242,7 @@ export async function handleDeleteEmail(
 	};
 }
 
+/** Mark an email as read. */
 export async function handleMarkRead(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -253,6 +261,7 @@ export async function handleMarkRead(
 	};
 }
 
+/** Mark an email as unread. */
 export async function handleMarkUnread(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -271,6 +280,7 @@ export async function handleMarkUnread(
 	};
 }
 
+/** Move an archived email back to the inbox. */
 export async function handleUnarchiveEmail(
 	params: ActionParams,
 	auth: OAuth2Client,
