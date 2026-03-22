@@ -1,15 +1,15 @@
 /**
  * Post review comments to GitHub: transforms pr-annotate's
- * ProposedComment format into GitHub API format and delegates
- * to the shared review posting module.
+ * ProposedComment format into the shared ReviewComment type
+ * and delegates to the shared review posting module.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { PRReference } from "../lib/github/pr-reference.js";
 import { getCurrentRepo } from "../lib/github/repo-discovery.js";
 import {
-	postReview as postReviewAPI,
-	type ReviewAPIComment,
+	postReview as postReviewShared,
+	type ReviewComment,
 } from "../lib/github/review-post.js";
 import type { ProposedComment } from "./types.js";
 
@@ -20,8 +20,8 @@ interface PostResult {
 /**
  * Post review comments for a PR.
  *
- * Transforms ProposedComment objects into GitHub API format
- * and posts them as a single COMMENT review.
+ * Strips rationale from ProposedComment objects and posts
+ * them as a single COMMENT review.
  */
 export async function postReview(
 	pi: ExtensionAPI,
@@ -30,19 +30,13 @@ export async function postReview(
 	body?: string,
 	repo?: string,
 ): Promise<PostResult> {
-	const reviewComments: ReviewAPIComment[] = comments.map((c) => {
-		const comment: ReviewAPIComment = {
-			path: c.path,
-			line: c.line,
-			side: c.side,
-			body: c.body,
-		};
-		if (c.startLine) {
-			comment.start_line = c.startLine;
-			comment.start_side = c.side;
-		}
-		return comment;
-	});
+	const reviewComments: ReviewComment[] = comments.map((c) => ({
+		path: c.path,
+		line: c.line,
+		startLine: c.startLine,
+		side: c.side,
+		body: c.body,
+	}));
 
 	const ref = await buildRef(pi, pr, repo);
 	if (!ref) {
@@ -52,7 +46,7 @@ export async function postReview(
 	}
 
 	try {
-		await postReviewAPI(pi, ref, "COMMENT", body || "", reviewComments);
+		await postReviewShared(pi, ref, "COMMENT", body || "", reviewComments);
 		return {};
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);

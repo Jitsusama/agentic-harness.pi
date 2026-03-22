@@ -16,6 +16,7 @@ import {
 	parsePRReference,
 } from "../lib/github/pr-reference.js";
 import { getCurrentRepo, resolveRepo } from "../lib/github/repo-discovery.js";
+import type { ReviewComment } from "../lib/github/review-post.js";
 import { activationBriefing, generateCommentsBriefing } from "./briefing.js";
 import { gatherContext } from "./gather.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
@@ -606,7 +607,7 @@ export async function handlePost(deps: ReviewContext) {
 	const diffFiles = session.context?.diffFiles ?? [];
 	const hunkRanges = buildHunkRanges(diffFiles);
 
-	const ghComments = approved
+	const ghComments: ReviewComment[] = approved
 		.filter((c) => c.file !== null)
 		.map((c) => {
 			const decorStr =
@@ -616,17 +617,9 @@ export async function handlePost(deps: ReviewContext) {
 			const ranges = hunkRanges.get(c.file as string);
 			const endLine = clampToHunkRange(c.endLine ?? 1, ranges);
 
-			const comment: {
-				path: string;
-				line: number;
-				start_line?: number;
-				side: string;
-				start_side?: string;
-				body: string;
-			} = {
+			const comment: ReviewComment = {
 				path: c.file as string,
 				line: endLine,
-				side: "RIGHT",
 				body,
 			};
 
@@ -637,8 +630,7 @@ export async function handlePost(deps: ReviewContext) {
 			) {
 				const startLine = clampToHunkRange(c.startLine, ranges);
 				if (startLine < endLine) {
-					comment.start_line = startLine;
-					comment.start_side = "RIGHT";
+					return { ...comment, startLine };
 				}
 			}
 
