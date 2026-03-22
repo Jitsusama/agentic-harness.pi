@@ -56,45 +56,6 @@ import { showReplyReview } from "./ui/reply-review.js";
 import { showThreadGate, type ThreadGateChoice } from "./ui/thread-gate.js";
 import { showReplyWorkspace } from "./ui/workspace.js";
 
-/** Build a simple text tool result. */
-function plainTextResponse(text: string) {
-	return { content: [{ type: "text" as const, text }] };
-}
-
-const VALID_RECOMMENDATIONS = new Set(["implement", "reply", "pass"]);
-
-/** Validate an LLM-provided recommendation string. */
-function isRecommendation(s: string): s is "implement" | "reply" | "pass" {
-	return VALID_RECOMMENDATIONS.has(s);
-}
-
-/** Get the current thread based on review-centric navigation. */
-/** Get the current thread: from workspace selection or legacy navigation. */
-function currentThread(state: PRReplyState): ReviewThread | null {
-	// Workspace flow: currentThreadId is set by the workspace
-	if (state.currentThreadId) {
-		return state.threads.find((t) => t.id === state.currentThreadId) ?? null;
-	}
-	// Legacy flow: review-centric navigation
-	const review = state.reviews[state.reviewIndex];
-	if (!review) return null;
-	const reviewThreads = threadsForReview(review, state.threads);
-	return reviewThreads[state.threadIndexInReview] ?? null;
-}
-
-/** Find the next pending thread within a review's threads. */
-function findNextPendingInReview(
-	state: PRReplyState,
-	reviewThreads: ReviewThread[],
-): ReviewThread | null {
-	for (const thread of reviewThreads) {
-		if (state.threadStates.get(thread.id) === "pending") {
-			return thread;
-		}
-	}
-	return null;
-}
-
 /** Activate PR reply mode: load reviews and show summary. */
 export async function handleActivate(
 	state: PRReplyState,
@@ -980,4 +941,42 @@ function handleRepoResult(
 					"Ask the user where the repository is located.",
 			);
 	}
+}
+
+/** Build a simple text tool result. */
+function plainTextResponse(text: string) {
+	return { content: [{ type: "text" as const, text }] };
+}
+
+const VALID_RECOMMENDATIONS = new Set(["implement", "reply", "pass"]);
+
+/** Validate an LLM-provided recommendation string. */
+function isRecommendation(s: string): s is "implement" | "reply" | "pass" {
+	return VALID_RECOMMENDATIONS.has(s);
+}
+
+/** Get the current thread from workspace selection or legacy navigation. */
+function currentThread(state: PRReplyState): ReviewThread | null {
+	// Workspace flow: currentThreadId is set by the workspace
+	if (state.currentThreadId) {
+		return state.threads.find((t) => t.id === state.currentThreadId) ?? null;
+	}
+	// Legacy flow: review-centric navigation
+	const review = state.reviews[state.reviewIndex];
+	if (!review) return null;
+	const reviewThreads = threadsForReview(review, state.threads);
+	return reviewThreads[state.threadIndexInReview] ?? null;
+}
+
+/** Find the next pending thread within a review's threads. */
+function findNextPendingInReview(
+	state: PRReplyState,
+	reviewThreads: ReviewThread[],
+): ReviewThread | null {
+	for (const thread of reviewThreads) {
+		if (state.threadStates.get(thread.id) === "pending") {
+			return thread;
+		}
+	}
+	return null;
 }
