@@ -11,7 +11,7 @@ import {
 	postReview as postReviewAPI,
 	type ReviewAPIComment,
 } from "../lib/github/review-post.js";
-import type { ReviewComment } from "./index.js";
+import type { ReviewComment } from "./types.js";
 
 interface PostResult {
 	error?: string;
