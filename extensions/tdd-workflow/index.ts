@@ -14,39 +14,16 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import {
-	activate,
-	advance,
-	deactivate,
-	nextCycle,
-	restore,
-	toggle,
-} from "./lifecycle.js";
+import { dispatchPhaseAction } from "./handlers.js";
+import { restore, toggle } from "./lifecycle.js";
 import { showRefactorGate } from "./refactor-gate.js";
 import {
 	createTddState,
 	PHASE_COLORS,
 	PHASE_GLYPH,
-	PHASE_STAY,
 	type Phase,
 } from "./state.js";
-import {
-	buildTddContext,
-	showTransitionGate,
-	tddContextFilter,
-} from "./transitions.js";
-
-/** Build a tool result when the user declines a phase transition. */
-function stayResult(phase: Phase, feedback?: string) {
-	const stay = PHASE_STAY[phase];
-	const hint = feedback
-		? `User feedback: ${feedback}\n\n${stay} Do not attempt to transition again unless the user asks.`
-		: `Staying in ${phase.toUpperCase()}. ${stay} Do not attempt to transition again unless the user asks.`;
-	return {
-		content: [{ type: "text" as const, text: hint }],
-		details: { action: phase, stayed: true },
-	};
-}
+import { buildTddContext, tddContextFilter } from "./transitions.js";
 
 export default function tddMode(pi: ExtensionAPI) {
 	const state = createTddState();
@@ -81,118 +58,11 @@ export default function tddMode(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const { action, context, summary } = params;
-
-			if (action === "start") {
-				if (state.enabled) {
-					return {
-						content: [{ type: "text", text: "TDD mode is already active." }],
-					};
-				}
-				activate(state, pi, ctx, context ?? null);
-				return {
-					content: [{ type: "text", text: "TDD mode activated." }],
-					details: { action: "start", context },
-				};
-			}
-
-			if (!state.enabled) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: "TDD mode is not active. Call with action 'start' first.",
-						},
-					],
-				};
-			}
-
-			if (action === "stop") {
-				const gate = await showTransitionGate(state, ctx, {
-					summary: summary ?? "Ending TDD session.",
-					nextPhase: "stop",
-				});
-				if (!gate.approved) {
-					return stayResult(state.phase, gate.feedback);
-				}
-				deactivate(state, pi, ctx);
-				return {
-					content: [{ type: "text", text: "TDD mode deactivated." }],
-					details: { action: "stop", summary },
-				};
-			}
-
-			if (action === "red") {
-				// No gate needed when we're already in RED (e.g., right after start or when updating context)
-				if (state.phase !== "red") {
-					const gate = await showTransitionGate(state, ctx, {
-						summary: summary ?? "Starting new test.",
-						nextPhase: "red",
-						nextContext: context,
-					});
-					if (!gate.approved) {
-						return stayResult(state.phase, gate.feedback);
-					}
-				}
-				if (context) state.testDescription = context;
-				advance(state, "red", pi, ctx);
-				return {
-					content: [{ type: "text", text: "RED." }],
-					details: { action: "red", context, summary },
-				};
-			}
-
-			if (action === "green") {
-				const gate = await showTransitionGate(state, ctx, {
-					summary: summary ?? "Test fails for the right reason.",
-					nextPhase: "green",
-					nextContext: context,
-				});
-				if (!gate.approved) {
-					return stayResult(state.phase, gate.feedback);
-				}
-				if (context) state.testDescription = context;
-				advance(state, "green", pi, ctx);
-				return {
-					content: [{ type: "text", text: "GREEN." }],
-					details: { action: "green", context, summary },
-				};
-			}
-
-			if (action === "refactor") {
-				const gate = await showTransitionGate(state, ctx, {
-					summary: summary ?? "Tests pass with minimum implementation.",
-					nextPhase: "refactor",
-				});
-				if (!gate.approved) {
-					return stayResult(state.phase, gate.feedback);
-				}
-				advance(state, "refactor", pi, ctx);
-				return {
-					content: [{ type: "text", text: "REFACTOR." }],
-					details: { action: "refactor", summary },
-				};
-			}
-
-			if (action === "done") {
-				const gate = await showTransitionGate(state, ctx, {
-					summary: summary ?? "Refactoring complete.",
-					nextPhase: "red",
-					nextContext: context,
-				});
-				if (!gate.approved) {
-					return stayResult(state.phase, gate.feedback);
-				}
-				nextCycle(state, pi, ctx, context ?? null);
-				return {
-					content: [{ type: "text", text: "Done." }],
-					details: { action: "done", context, summary },
-				};
-			}
-
-			return {
-				content: [{ type: "text", text: `Unknown action: ${action}` }],
-			};
+			return dispatchPhaseAction(state, pi, ctx, {
+				action: params.action,
+				context: params.context ?? null,
+				summary: params.summary ?? null,
+			});
 		},
 
 		renderCall(args, theme) {
