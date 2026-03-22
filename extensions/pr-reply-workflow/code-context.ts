@@ -4,6 +4,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { languageFromPath } from "../lib/ui/content-renderer.js";
 
 /** Code context around a commented line, ready for rendering. */
 export interface CodeContext {
@@ -15,26 +16,6 @@ export interface CodeContext {
 
 /** Lines of surrounding context to read above and below. */
 const CONTEXT_RADIUS = 5;
-
-/** Map file extensions to language names for syntax highlighting. */
-const LANGUAGE_BY_EXTENSION: Record<string, string> = {
-	ts: "typescript",
-	tsx: "tsx",
-	js: "javascript",
-	jsx: "jsx",
-	py: "python",
-	rb: "ruby",
-	rs: "rust",
-	go: "go",
-	md: "markdown",
-	json: "json",
-	yaml: "yaml",
-	yml: "yaml",
-	toml: "toml",
-	sh: "bash",
-	css: "css",
-	html: "html",
-};
 
 /**
  * Read source code around a commented line for context display.
@@ -56,12 +37,10 @@ export async function readCodeContext(
 
 	if (result.code !== 0 || !result.stdout) return null;
 
-	const ext = filePath.split(".").pop() ?? "";
-
 	return {
 		source: result.stdout,
 		startLine,
 		highlightLine: line,
-		language: LANGUAGE_BY_EXTENSION[ext] ?? "",
+		language: languageFromPath(filePath) ?? "",
 	};
 }
