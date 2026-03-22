@@ -31,17 +31,16 @@ import {
 	briefReplyChoice,
 	briefReviewSummary,
 	briefThread,
+	buildImplementationContext,
 } from "./briefing.js";
 import { readCodeContext } from "./code-context.js";
 import { checkDependentPRs } from "./dependency-chain.js";
 import {
 	beginTDDImplementation,
-	buildImplementationContext,
 	collectImplementationCommits,
 	linkCommitsToThread,
 	pushIfNeeded,
 	recordImplementationStart,
-	shortSHAs,
 } from "./implementation.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
 import { findPlanContext } from "./plans.js";
@@ -767,7 +766,7 @@ export async function handleDone(
 		details: {
 			action: "done",
 			threadId: thread.id,
-			commits: shortSHAs(commits),
+			commits: commits.map((sha) => sha.slice(0, 7)),
 		},
 	};
 }

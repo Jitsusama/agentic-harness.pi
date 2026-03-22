@@ -86,33 +86,6 @@ export function handleTDDCompletion(state: PRReplyState): void {
 }
 
 /**
- * Build a context string describing what the implementation
- * should address. Used when activating TDD mode or giving
- * the LLM implementation instructions.
- */
-export function buildImplementationContext(thread: Thread): string {
-	const parts: string[] = [];
-
-	parts.push(`Addressing review feedback on ${thread.file}:${thread.line}`);
-	parts.push("");
-
-	// We include the original comment and any discussion.
-	for (const comment of thread.comments) {
-		parts.push(`${comment.author}: ${comment.body}`);
-	}
-
-	return parts.join("\n");
-}
-
-/**
- * Get abbreviated commit SHAs for display in replies.
- * Returns 7-character short SHAs.
- */
-export function shortSHAs(commits: string[]): string[] {
-	return commits.map((sha) => sha.slice(0, 7));
-}
-
-/**
  * Push to the remote if there are unpushed commits.
  * Non-fatal: replies still post if push fails, but SHAs
  * won't be clickable on GitHub until the next push.
