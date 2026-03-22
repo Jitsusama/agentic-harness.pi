@@ -4,7 +4,7 @@
  * annotations.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import {
 	ALLOW,
 	type CommandGuardian,
@@ -13,7 +13,7 @@ import {
 import { promptSingle } from "../lib/ui/panel.js";
 import { formatRedirectBlock } from "../lib/ui/redirect.js";
 import { extractCommitFlags, extractMessage, splitAtCommit } from "./parse.js";
-import { renderCommitContent } from "./validate.js";
+import { type CommitValidation, validate } from "./validate.js";
 
 const COMMIT_ACTIONS = [
 	{ key: "a", label: "Approve" },
@@ -94,3 +94,68 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 		}
 	},
 };
+
+/** Render validation as a compact indicator line. */
+function renderValidation(v: CommitValidation, theme: Theme): string {
+	const parts: string[] = [];
+	const dot = theme.fg("dim", " · ");
+
+	parts.push(
+		v.subjectOk
+			? theme.fg("success", `✓ ${v.subjectLength} chars`)
+			: theme.fg("warning", `⚠ ${v.subjectLength} chars (limit: 50)`),
+	);
+
+	if (v.bodyLongestLine > 0) {
+		parts.push(
+			v.bodyWrapOk
+				? theme.fg("success", "✓ wrap")
+				: theme.fg(
+						"warning",
+						`⚠ line ${v.bodyLongestLineNum}: ${v.bodyLongestLine} chars`,
+					),
+		);
+	}
+
+	parts.push(
+		v.conventionalOk
+			? theme.fg("success", "✓ conventional")
+			: theme.fg("warning", "⚠ not conventional"),
+	);
+
+	return ` ${parts.join(dot)}`;
+}
+
+/** Render a commit message as gate content lines. */
+function renderCommitContent(
+	message: string,
+	isAmend: boolean,
+): (theme: Theme, width: number) => string[] {
+	const lines = message.split("\n");
+	const subject = lines[0] || "";
+	const bodyLines = lines.length > 2 ? lines.slice(2) : [];
+	const validation = validate(message);
+
+	return (theme, _width) => {
+		const out: string[] = [];
+
+		out.push(theme.fg("text", ` ${subject}`));
+
+		if (bodyLines.length > 0) {
+			out.push("");
+			for (const line of bodyLines) {
+				out.push(` ${theme.fg("text", line)}`);
+			}
+		}
+
+		if (isAmend) {
+			out.push("");
+			out.push(theme.fg("warning", " ⚠ Amends previous commit"));
+		}
+
+		out.push("");
+		out.push(renderValidation(validation, theme));
+
+		return out;
+	};
+}
