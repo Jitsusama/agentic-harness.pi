@@ -18,6 +18,7 @@ const PR_REVIEW_CONFIG: EntityReviewConfig = {
 	entityLabel: "PR",
 };
 
+/** Guardian that intercepts gh pr create/edit commands for review. */
 export const prGuardian: CommandGuardian<PrCommand> = {
 	detect(command) {
 		return isPrCommand(command);

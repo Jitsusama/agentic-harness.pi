@@ -16,6 +16,7 @@ import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import { GLYPH, type ListChoice } from "./types.js";
 
+/** Result of navigating and selecting from an option list. */
 export type OptionListResult =
 	| { type: "select"; index: number }
 	| { type: "cancel" };

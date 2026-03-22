@@ -26,6 +26,7 @@ import {
 	type ToolResult,
 } from "../types.js";
 
+/** List calendar events within a date range. */
 export async function handleListEvents(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -48,6 +49,7 @@ export async function handleListEvents(
 	};
 }
 
+/** Fetch a single calendar event by ID. */
 export async function handleGetEvent(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -68,6 +70,7 @@ export async function handleGetEvent(
 	};
 }
 
+/** Create a new calendar event, with user confirmation when attendees are involved. */
 export async function handleCreateEvent(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -144,6 +147,7 @@ export async function handleCreateEvent(
 	}
 }
 
+/** Update an existing calendar event, with user confirmation when attendees are present. */
 export async function handleUpdateEvent(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -209,6 +213,7 @@ export async function handleUpdateEvent(
 	};
 }
 
+/** Delete a calendar event, with user confirmation when attendees are present. */
 export async function handleDeleteEvent(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -254,6 +259,7 @@ export async function handleDeleteEvent(
 	};
 }
 
+/** Send an RSVP response (accepted, declined, tentative) to a calendar event. */
 export async function handleRespondToEvent(
 	params: ActionParams,
 	auth: OAuth2Client,

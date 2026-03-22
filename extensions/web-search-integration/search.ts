@@ -8,6 +8,7 @@ import { newPage } from "./browser.js";
 /** Timeout for search page navigation in milliseconds. */
 const SEARCH_PAGE_TIMEOUT = 15_000;
 
+/** A single result from a DuckDuckGo web search. */
 export interface SearchResult {
 	title: string;
 	url: string;
@@ -27,6 +28,7 @@ function extractUrl(ddgHref: string): string {
 	return ddgHref;
 }
 
+/** Search the web via DuckDuckGo's HTML interface using headless Chrome. */
 export async function webSearch(
 	query: string,
 	numResults: number = 10,

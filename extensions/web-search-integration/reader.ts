@@ -30,6 +30,7 @@ export class AuthSetupNeeded extends Error {
 	}
 }
 
+/** Content extracted from a web page after cleaning and readability processing. */
 export interface PageContent {
 	title: string;
 	url: string;
@@ -204,6 +205,7 @@ function saveToTemp(title: string, url: string, content: string): string {
 	return filePath;
 }
 
+/** Fetch a URL, extract readable content, and save large pages to disk. */
 export async function readPage(
 	url: string,
 	signal?: AbortSignal,

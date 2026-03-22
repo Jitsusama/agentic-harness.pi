@@ -26,6 +26,7 @@ import {
 	type ToolResult,
 } from "../types.js";
 
+/** Search and list Google Drive files with optional filters. */
 export async function handleListFiles(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -63,6 +64,7 @@ export async function handleListFiles(
 	};
 }
 
+/** Fetch a Google Drive file's content, routing by MIME type (Docs, Sheets, Slides). */
 export async function handleGetFile(
 	params: ActionParams,
 	auth: OAuth2Client,
@@ -142,6 +144,7 @@ export async function handleGetFile(
 	};
 }
 
+/** List all shared drives the user has access to. */
 export async function handleListSharedDrives(
 	auth: OAuth2Client,
 ): Promise<ToolResult> {

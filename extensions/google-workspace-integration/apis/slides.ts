@@ -5,6 +5,7 @@
 import type { OAuth2Client } from "google-auth-library";
 import { google } from "googleapis";
 
+/** Extracted content from a Google Slides presentation. */
 export interface SlideData {
 	title: string;
 	slides: Array<{

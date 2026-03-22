@@ -188,6 +188,7 @@ export interface TabbedPromptConfig {
 	allowHScroll?: boolean;
 }
 
+/** Configuration for a read-only content view (no actions or options). */
 export interface ViewConfig {
 	/** Optional title shown at the top. */
 	title?: string;

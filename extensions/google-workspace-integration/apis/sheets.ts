@@ -5,6 +5,7 @@
 import type { OAuth2Client } from "google-auth-library";
 import { google } from "googleapis";
 
+/** Extracted content from a Google Sheets spreadsheet. */
 export interface SheetData {
 	title: string;
 	sheets: Array<{

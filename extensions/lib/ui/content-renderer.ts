@@ -83,6 +83,7 @@ export function renderDiff(
 	return lines;
 }
 
+/** Options for rendering syntax-highlighted code blocks. */
 export interface CodeRenderOptions {
 	/** First line number (default: 1). */
 	startLine?: number;

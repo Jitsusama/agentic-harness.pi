@@ -6,6 +6,7 @@ import type { OAuth2Client } from "google-auth-library";
 import { google } from "googleapis";
 import type { DocumentComment } from "../types.js";
 
+/** Extracted text content from a Google Doc. */
 export interface DocContent {
 	title: string;
 	body: string;

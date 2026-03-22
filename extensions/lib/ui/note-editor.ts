@@ -17,6 +17,7 @@ import {
 	truncateToWidth,
 } from "@mariozechner/pi-tui";
 
+/** Configuration for the annotation editor overlay. */
 export interface NoteEditorConfig {
 	/** Label shown above the editor (e.g., "Approving with note:"). */
 	label?: string;

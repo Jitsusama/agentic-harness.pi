@@ -5,14 +5,20 @@
  * e.g. --force-with-lease (risky) before --force (irrecoverable).
  */
 
+/** How dangerous a destructive git operation is. */
 export type Severity = "irrecoverable" | "risky";
 
+/** A regex pattern that matches a destructive git command. */
 export interface DestructivePattern {
 	pattern: RegExp;
 	severity: Severity;
 	description: string;
 }
 
+/**
+ * Known destructive git patterns, ordered from most specific
+ * to most general so narrower matches win.
+ */
 export const DESTRUCTIVE_PATTERNS: DestructivePattern[] = [
 	// Risky: recoverable via reflog or other means
 	{

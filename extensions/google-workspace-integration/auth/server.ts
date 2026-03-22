@@ -7,6 +7,7 @@ import * as http from "node:http";
 /** Timeout before the OAuth callback server gives up (5 minutes). */
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
+/** Result from the local OAuth2 callback server: either an auth code or an error. */
 export interface OAuthCallbackResult {
 	code?: string;
 	error?: string;
