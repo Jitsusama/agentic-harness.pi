@@ -9,6 +9,11 @@
  * sees the injected attribution during review. Returns undefined
  * to let subsequent handlers proceed with the modified command.
  *
+ * This extension mutates `event.input.command` directly rather
+ * than going through `registerGuardian`, because interceptors
+ * are a sanctioned mutation site for silent command enrichment
+ * (see AGENTS.md "One Mutation Site for Command Rewriting").
+ *
  * On by default. Disable with --no-attribution flag.
  */
 
