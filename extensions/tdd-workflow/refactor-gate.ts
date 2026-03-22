@@ -6,7 +6,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { prompt } from "../lib/ui/panel.js";
+import { promptSingle } from "../lib/ui/panel.js";
 import { contentWrapWidth } from "../lib/ui/text.js";
 import type { PromptItem } from "../lib/ui/types.js";
 
@@ -74,7 +74,7 @@ export async function showRefactorGate(
 		buildSuggestionItem(s, i, suggestions.length),
 	);
 
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		items,
 		canAddItems: true,
 		autoResolve: false,

@@ -9,7 +9,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import { filterContext } from "../lib/state.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { prompt } from "../lib/ui/panel.js";
+import { promptSingle } from "../lib/ui/panel.js";
 import {
 	PHASE_COLORS,
 	PHASE_GLYPH,
@@ -72,7 +72,7 @@ export async function showTransitionGate(
 		: PHASE_COLORS[opts.nextPhase];
 	const nextName = isStop ? "Stop" : PHASE_NAMES[opts.nextPhase];
 
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		title: `${currentName} → ${nextName}`,
 		content: (theme, width) => {
 			const short = shortSummary(opts.summary);

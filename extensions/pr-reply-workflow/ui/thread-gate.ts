@@ -8,7 +8,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { renderCode, renderMarkdown } from "../../lib/ui/content-renderer.js";
-import { prompt } from "../../lib/ui/panel.js";
+import { promptSingle } from "../../lib/ui/panel.js";
 import type { CodeContext } from "../navigation.js";
 import type { Review, Thread } from "../state.js";
 
@@ -42,7 +42,7 @@ export async function showThreadGate(
 	const contextLine = thread.line || thread.originalLine || 0;
 	const original = thread.comments.find((c) => c.inReplyTo === null);
 
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
 			const lines: string[] = [];
 

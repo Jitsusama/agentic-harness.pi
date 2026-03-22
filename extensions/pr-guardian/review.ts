@@ -7,7 +7,7 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { prompt } from "../lib/ui/panel.js";
+import { promptSingle } from "../lib/ui/panel.js";
 import { formatRedirect } from "../lib/ui/redirect.js";
 import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.js";
 
@@ -31,7 +31,7 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
 		const isEdit = parsed.action === "edit";
-		const result = await prompt(ctx, {
+		const result = await promptSingle(ctx, {
 			title: isEdit ? "PR Edit" : "New PR",
 			content: (theme, width) => {
 				const out: string[] = [];

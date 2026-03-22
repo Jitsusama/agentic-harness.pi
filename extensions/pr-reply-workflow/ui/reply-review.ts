@@ -5,7 +5,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
-import { prompt } from "../../lib/ui/panel.js";
+import { promptSingle } from "../../lib/ui/panel.js";
 
 import type { Thread } from "../state.js";
 
@@ -32,7 +32,7 @@ export async function showReplyReview(
 		};
 	}
 
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
 			const lines: string[] = [];
 			lines.push(

@@ -9,7 +9,7 @@ import type {
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { filterContext } from "../lib/state.js";
-import { prompt } from "../lib/ui/panel.js";
+import { promptSingle } from "../lib/ui/panel.js";
 import { deactivate } from "./lifecycle.js";
 import type { PlanState } from "./state.js";
 
@@ -25,7 +25,7 @@ export async function handlePlanWritten(
 	if (!state.enabled || !ctx.hasUI || !state.wroteToPlanDir) return;
 	state.wroteToPlanDir = false;
 
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		content: (theme) => [theme.fg("text", ` Plan written → ${state.planDir}`)],
 		actions: [
 			{ key: "i", label: "Implement" },

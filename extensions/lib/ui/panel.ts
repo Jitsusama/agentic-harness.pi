@@ -42,21 +42,41 @@ export { computeChromeLines, renderFooter } from "./panel-layout.js";
  * Show a single interactive prompt. Returns the user's decision
  * or null on cancel (Escape).
  */
-export async function prompt(
+export async function promptSingle(
 	ctx: ExtensionContext,
 	config: SinglePromptConfig,
-): Promise<PromptResult | null>;
+): Promise<PromptResult | null> {
+	if (!ctx.hasUI) return null;
+	return showSinglePrompt(ctx, config);
+}
 
 /**
  * Show a tabbed interactive prompt. Returns all decisions
  * or null on cancel (Escape).
  */
+export async function promptTabbed(
+	ctx: ExtensionContext,
+	config: TabbedPromptConfig,
+): Promise<TabbedResult | null> {
+	if (!ctx.hasUI) return null;
+	return showTabbedPrompt(ctx, config);
+}
+
+/**
+ * Show an interactive prompt, dispatching to single or tabbed
+ * based on the config shape. Prefer `promptSingle` or
+ * `promptTabbed` for unambiguous types.
+ *
+ * @deprecated Use `promptSingle` or `promptTabbed` directly.
+ */
+export async function prompt(
+	ctx: ExtensionContext,
+	config: SinglePromptConfig,
+): Promise<PromptResult | null>;
 export async function prompt(
 	ctx: ExtensionContext,
 	config: TabbedPromptConfig,
 ): Promise<TabbedResult | null>;
-
-/** Implementation of both prompt overloads. */
 export async function prompt(
 	ctx: ExtensionContext,
 	config: SinglePromptConfig | TabbedPromptConfig,
@@ -64,9 +84,9 @@ export async function prompt(
 	if (!ctx.hasUI) return null;
 
 	if ("items" in config) {
-		return showTabbedPrompt(ctx, config);
+		return showTabbedPrompt(ctx, config as TabbedPromptConfig);
 	}
-	return showSinglePrompt(ctx, config);
+	return showSinglePrompt(ctx, config as SinglePromptConfig);
 }
 
 /**

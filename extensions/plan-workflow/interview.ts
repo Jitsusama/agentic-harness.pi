@@ -6,7 +6,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { prompt } from "../lib/ui/panel.js";
+import { promptTabbed } from "../lib/ui/panel.js";
 import { contentWrapWidth } from "../lib/ui/text.js";
 import type { PromptItem } from "../lib/ui/types.js";
 
@@ -77,27 +77,18 @@ export async function showPlanInterview(
 	}
 
 	if (questions.length === 0) {
-		// If there are no questions, we just offer to add custom ones.
-		const result = await prompt(ctx, {
-			content: (theme) => [
-				theme.fg("muted", " No questions to answer."),
-				"",
-				theme.fg("dim", " Press + to add your own question, or Esc to close."),
-			],
+		// No agent questions — offer to add custom ones.
+		const result = await promptTabbed(ctx, {
 			items: [],
 			canAddItems: true,
 		});
 
-		if (!result || result.type !== "object") {
-			return null;
-		}
+		if (!result) return null;
 
-		// The result is a TabbedResult.
-		const tabbed = result as unknown as { userItems: string[] };
-		if (tabbed.userItems?.length > 0) {
+		if (result.userItems.length > 0) {
 			return {
 				answers: [],
-				userQuestions: tabbed.userItems,
+				userQuestions: result.userItems,
 				allPassed: false,
 			};
 		}
@@ -108,7 +99,7 @@ export async function showPlanInterview(
 		buildQuestionItem(q, i, questions.length),
 	);
 
-	const result = await prompt(ctx, {
+	const result = await promptTabbed(ctx, {
 		items,
 		canAddItems: true,
 		autoResolve: false,

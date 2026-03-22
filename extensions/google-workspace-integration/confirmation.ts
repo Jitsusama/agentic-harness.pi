@@ -5,7 +5,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { prompt } from "../lib/ui/panel.js";
+import { promptSingle } from "../lib/ui/panel.js";
 import { formatRedirect } from "../lib/ui/redirect.js";
 
 export interface EmailData {
@@ -63,7 +63,7 @@ export async function confirmSendEmail(
 ): Promise<ConfirmResult<EmailData>> {
 	if (!ctx.hasUI) return { approved: true, data: email };
 
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		content: (theme) => {
 			const lines = [
 				theme.fg(
@@ -122,7 +122,7 @@ export async function confirmDeleteEmail(
 ): Promise<ConfirmResult<true>> {
 	if (!ctx.hasUI) return { approved: true, data: true };
 
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		content: (theme) => {
 			const lines = [theme.fg("accent", theme.bold(" Delete Email")), ""];
 			if (subject) {
@@ -165,7 +165,7 @@ export async function confirmCreateEvent(
 		return { approved: true, data: event };
 	}
 
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Create Calendar Event")),
@@ -233,7 +233,7 @@ export async function confirmUpdateEvent(
 		changes.push(`Attendees: ${updates.attendees.join(", ")}`);
 	if (updates.description) changes.push("Description updated");
 
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Update Calendar Event")),
@@ -280,7 +280,7 @@ export async function confirmDeleteEvent(
 	if (!ctx.hasUI) return { approved: true, data: true };
 	if (!hasAttendees) return { approved: true, data: true };
 
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Delete Calendar Event")),

@@ -14,7 +14,7 @@
 import type { ExtensionAPI, Theme } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { prompt } from "../lib/ui/panel.js";
+import { promptSingle, promptTabbed } from "../lib/ui/panel.js";
 import type { Option, PromptItem } from "../lib/ui/types.js";
 
 // Types
@@ -142,7 +142,7 @@ export default function ask(pi: ExtensionAPI) {
 				const q = questions[0];
 				if (!q) return errorResult("Error: Empty question");
 
-				const result = await prompt(ctx, {
+				const result = await promptSingle(ctx, {
 					content: (theme: Theme) => [theme.fg("text", ` ${q.prompt}`)],
 					options: buildOptions(q),
 				});
@@ -190,7 +190,7 @@ export default function ask(pi: ExtensionAPI) {
 					options: buildOptions(q),
 				}));
 
-				const result = await prompt(ctx, {
+				const result = await promptTabbed(ctx, {
 					items,
 					autoResolve: true,
 				});

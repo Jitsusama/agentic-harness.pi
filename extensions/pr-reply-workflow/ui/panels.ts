@@ -10,7 +10,7 @@
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
-import { prompt } from "../../lib/ui/panel.js";
+import { promptSingle } from "../../lib/ui/panel.js";
 import type { Review, Thread } from "../state.js";
 import { threadPriority } from "../state.js";
 import { formatFileSummary } from "./format.js";
@@ -41,7 +41,7 @@ export async function showSummaryPanel(
 	).length;
 	const fileCount = new Set(threads.map((t) => t.file)).size;
 
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		content: (theme: Theme) => {
 			const lines: string[] = [];
 
@@ -96,7 +96,7 @@ export async function showReviewOverviewPanel(
 	pendingThreads: Thread[],
 	analysis: string,
 ): Promise<boolean> {
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		content: (theme: Theme, width: number) => {
 			const lines: string[] = [];
 
@@ -163,7 +163,7 @@ export async function showRebasePanel(
 	ctx: ExtensionContext,
 	dependents: DependentPR[],
 ): Promise<"rebase" | "skip" | null> {
-	const result = await prompt(ctx, {
+	const result = await promptSingle(ctx, {
 		content: (theme: Theme) => {
 			const lines: string[] = [];
 

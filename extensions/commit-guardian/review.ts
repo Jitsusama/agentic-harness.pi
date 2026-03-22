@@ -6,7 +6,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
-import { prompt } from "../lib/ui/panel.js";
+import { promptSingle } from "../lib/ui/panel.js";
 import { formatRedirect } from "../lib/ui/redirect.js";
 import { extractFlags, extractMessage, splitAtCommit } from "./parse.js";
 import { renderCommitContent } from "./validate.js";
@@ -44,7 +44,7 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 		_event: { input: { command: string } },
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
-		const result = await prompt(ctx, {
+		const result = await promptSingle(ctx, {
 			title: parsed.isAmend ? "Amend Commit" : "Commit",
 			content: renderCommitContent(parsed.message, parsed.isAmend),
 			actions: COMMIT_ACTIONS,
