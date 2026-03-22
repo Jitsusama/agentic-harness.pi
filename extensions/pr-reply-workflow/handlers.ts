@@ -54,13 +54,13 @@ import {
 import { findPlanContext } from "./plans.js";
 import { buildReplyGuidance } from "./replies.js";
 import {
+	type DependentPR,
 	type PRReplyState,
 	sortReviewsByPriority,
 	type Thread,
 	threadsForReview,
 } from "./state.js";
 import {
-	type DependentPR,
 	showRebasePanel,
 	showReviewOverviewPanel,
 	showSummaryPanel,

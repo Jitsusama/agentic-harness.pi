@@ -11,8 +11,12 @@
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { promptSingle } from "../../lib/ui/panel.js";
-import type { Review, Thread } from "../state.js";
-import { threadPriority } from "../state.js";
+import {
+	type DependentPR,
+	type Review,
+	type Thread,
+	threadPriority,
+} from "../state.js";
 import { formatFileSummary } from "./format.js";
 
 /** Config for the PR summary panel. */
@@ -153,13 +157,6 @@ export async function showReviewOverviewPanel(
 
 	if (!result) return false;
 	return result.type === "action" && result.key === "c";
-}
-
-/** Dependent PR info for rebase confirmation. */
-export interface DependentPR {
-	number: number;
-	title: string;
-	branch: string;
 }
 
 /**

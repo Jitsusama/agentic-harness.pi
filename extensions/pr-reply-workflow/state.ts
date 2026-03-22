@@ -76,6 +76,13 @@ export interface WorkspacePosition {
 	threadIndices: Map<string, number>;
 }
 
+/** Dependent PR info for rebase confirmation. */
+export interface DependentPR {
+	number: number;
+	title: string;
+	branch: string;
+}
+
 /** Runtime state for PR reply mode. */
 export interface PRReplyState {
 	enabled: boolean;
