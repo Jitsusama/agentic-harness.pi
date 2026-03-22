@@ -2,7 +2,7 @@
  * Repository discovery and terminal tab spawning: find repos
  * on disk and open new terminal tabs for cross-repo workflows.
  *
- * Used by pr-review and pr-reply when the target PR belongs
+ * Used by pr-review-workflow and pr-reply-workflow when the target PR belongs
  * to a different repo than the current working directory.
  */
 
