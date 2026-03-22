@@ -6,19 +6,17 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
-	ALLOW,
-	type CommandGuardian,
-	type GuardianResult,
-} from "../lib/guardian/types.js";
-import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirectBlock } from "../lib/ui/redirect.js";
+	type EntityReviewConfig,
+	reviewMarkdownEntity,
+} from "../lib/guardian/review-entity.js";
+import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
 import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.js";
 
-const PR_ACTIONS = [
-	{ key: "a", label: "Approve" },
-	{ key: "r", label: "Reject" },
-];
+const PR_REVIEW_CONFIG: EntityReviewConfig = {
+	createTitle: "New PR",
+	editTitle: "PR Edit",
+	entityLabel: "PR",
+};
 
 export const prGuardian: CommandGuardian<PrCommand> = {
 	detect(command) {
@@ -33,67 +31,6 @@ export const prGuardian: CommandGuardian<PrCommand> = {
 		parsed: PrCommand,
 		ctx: ExtensionContext,
 	): Promise<GuardianResult> {
-		const isEdit = parsed.action === "edit";
-		const result = await promptSingle(ctx, {
-			title: isEdit ? "PR Edit" : "New PR",
-			content: (theme, width) => {
-				const out: string[] = [];
-
-				if (parsed.title) {
-					out.push(theme.fg("text", ` ${theme.bold(parsed.title)}`));
-					out.push("");
-				}
-
-				if (parsed.body) {
-					for (const line of renderMarkdown(parsed.body, theme, width)) {
-						out.push(line);
-					}
-				}
-
-				return out;
-			},
-			actions: PR_ACTIONS,
-		});
-
-		if (!result) {
-			return { block: true, reason: "User cancelled the PR review." };
-		}
-
-		const redirectContext = [
-			parsed.title ? `Title: ${parsed.title}` : null,
-			"",
-			parsed.body ?? "",
-		]
-			.filter((l) => l !== null)
-			.join("\n");
-
-		if (result.type === "redirect") {
-			return formatRedirectBlock(
-				result.note,
-				`Original PR:\n${redirectContext}`,
-			);
-		}
-
-		if (result.type === "action") {
-			if (result.key === "a") {
-				if (result.note) {
-					return formatRedirectBlock(
-						result.note,
-						`Original PR:\n${redirectContext}`,
-					);
-				}
-				return ALLOW;
-			}
-			if (result.note) {
-				return formatRedirectBlock(
-					result.note,
-					`Original PR:\n${redirectContext}`,
-				);
-			}
-			return {
-				block: true,
-				reason: "User rejected the PR. Ask for guidance on the PR description.",
-			};
-		}
+		return reviewMarkdownEntity(ctx, parsed, PR_REVIEW_CONFIG);
 	},
 };
