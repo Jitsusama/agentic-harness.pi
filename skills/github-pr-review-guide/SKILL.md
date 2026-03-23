@@ -56,9 +56,9 @@ Call `activate` with a PR reference (URL, `#123`, or
 After gathering context, use the ask tool to present your
 focus areas before generating comments:
 
-- What areas of the PR you plan to focus on.
-- Any concerns you've already spotted.
-- Options to adjust focus, skip areas or add concerns.
+- What areas of the PR you plan to focus on
+- Any concerns you've already spotted
+- Options to adjust focus, skip areas or add concerns
 
 This gives the user a chance to steer the review before
 you invest time generating comments.
@@ -133,23 +133,23 @@ three tabs: Overview (PR metadata + synopsis), References
 (browsable list of all crawled references) and Source
 (browsable list of source files with roles).
 
-The user presses 'r' to move on to review, or steers for
-feedback. If they steer, process their feedback and call
-`overview` again.
+The user presses Ctrl+Enter to move on to review, or
+steers for feedback. If they steer, process their feedback
+and call `overview` again.
 
 ### 6. Review Phase
 
 Call `review` to show the review panel. One tab per changed
 file plus Desc and Scope tabs. Each tab has three views:
 
-- **Overview** (`o`): diff with comment indicators.
-- **Comments** (`c`): selectable comment list with
+- **Overview** (`1`): diff with comment indicators.
+- **Comments** (`2`): selectable comment list with
   approve/reject/steer actions.
-- **Source** (`s`): full file content.
+- **Source** (`3`): full file content.
 
 The user reviews comments, approves/rejects them and can
 steer for changes. Tabs auto-complete when all comments
-are resolved. 'h' manually marks a tab handled.
+are resolved. `p` (Pass) manually marks a tab handled.
 
 If the user steers:
 - On a comment: they want it edited; use `update-comment`
