@@ -94,28 +94,17 @@ export async function showTransitionGate(
 			}
 			return lines;
 		},
-		actions: [
-			{ key: "m", label: `Move to ${nextName}` },
-			{ key: "s", label: `Stay in ${currentName}` },
-		],
 	});
 
-	if (!result || (result.type === "action" && result.key === "s")) {
-		return { approved: false };
-	}
+	if (!result) return { approved: false };
 
 	if (result.type === "redirect") {
 		return { approved: false, feedback: result.note };
 	}
 
-	if (result.type === "action" && result.key === "m") {
-		if (result.note) {
-			return { approved: false, feedback: result.note };
-		}
-		return { approved: true };
-	}
-
-	return { approved: false };
+	// Enter (with or without note via Shift+Enter)
+	if (result.note) return { approved: false, feedback: result.note };
+	return { approved: true };
 }
 
 /**

@@ -31,6 +31,7 @@ export interface FooterOptions {
 	theme: Theme;
 	width: number;
 	actions?: KeyAction[];
+	options?: ListChoice[];
 	views?: PromptView[];
 	activeViewIndex?: number;
 	hasTabs?: boolean;
@@ -108,14 +109,21 @@ function renderControlRow(opts: FooterOptions): string {
 
 	if (opts.isUserTab) {
 		leftParts.push(theme.fg("dim", "↑↓ select"));
-	} else if (!opts.actions || opts.actions.length === 0) {
+	} else if (
+		(!opts.actions || opts.actions.length === 0) &&
+		opts.options &&
+		opts.options.length > 0
+	) {
 		leftParts.push(theme.fg("dim", "↑↓ select"));
 		rightParts.push(theme.fg("dim", "Enter confirm"));
 	}
 
 	// Right: decisions
-	// Enter approve when actions are present (single prompt only).
-	if (opts.actions && opts.actions.length > 0 && !opts.hasTabs) {
+	// Enter approve for single prompts: with actions, or binary
+	// Enter/Escape gates (neither actions nor options).
+	const hasActions = opts.actions && opts.actions.length > 0;
+	const hasOptions = opts.options && opts.options.length > 0;
+	if (!opts.hasTabs && (hasActions || !hasOptions)) {
 		rightParts.push(theme.fg("dim", "Enter approve"));
 	}
 	if (opts.hasTabs) {

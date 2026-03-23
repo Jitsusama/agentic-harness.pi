@@ -27,13 +27,9 @@ export async function offerImplementationTransition(
 
 	const result = await promptSingle(ctx, {
 		content: (theme) => [theme.fg("text", ` Plan written → ${state.planDir}`)],
-		actions: [
-			{ key: "i", label: "Implement" },
-			{ key: "s", label: "Stay in planning" },
-		],
 	});
 
-	if (!result || (result.type === "action" && result.key === "s")) return;
+	if (!result) return;
 
 	if (result.type === "redirect") {
 		deactivate(state, pi, ctx);
@@ -41,18 +37,17 @@ export async function offerImplementationTransition(
 		return;
 	}
 
-	if (result.type === "action" && result.key === "i") {
-		deactivate(state, pi, ctx);
+	// Enter = implement
+	deactivate(state, pi, ctx);
 
-		if (result.note) {
-			pi.sendUserMessage(result.note, { deliverAs: "followUp" });
-			return;
-		}
-
-		pi.sendUserMessage("Let's implement this plan. Start with step 1.", {
-			deliverAs: "followUp",
-		});
+	if (result.note) {
+		pi.sendUserMessage(result.note, { deliverAs: "followUp" });
+		return;
 	}
+
+	pi.sendUserMessage("Let's implement this plan. Start with step 1.", {
+		deliverAs: "followUp",
+	});
 }
 
 /**
