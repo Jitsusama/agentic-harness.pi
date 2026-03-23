@@ -279,9 +279,9 @@ export function implementChoiceBriefing(
 	const summary = implementChoiceSummary(file, contextLine, analysisContext);
 	return (
 		`${summary}\n\n` +
-		"Recommend whether to use TDD based on the change scope. " +
-		"Then call pr_reply with action 'implement' (and use_tdd if appropriate). " +
-		"After making changes and committing, call pr_reply with action 'done' and a reply_body."
+		"Call pr_reply with action 'implement' to begin. " +
+		"You'll then analyse the change and propose a plan for user approval " +
+		"before editing any files."
 	);
 }
 
