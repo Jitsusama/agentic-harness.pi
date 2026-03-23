@@ -15,7 +15,11 @@ import { Key, matchesKey } from "@mariozechner/pi-tui";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { workspace } from "../../lib/ui/panel.js";
 import { tabCompletion } from "../../lib/ui/tab-completion.js";
-import { contentWrapWidth, wordWrap } from "../../lib/ui/text-layout.js";
+import {
+	CONTENT_INDENT,
+	contentWrapWidth,
+	wordWrap,
+} from "../../lib/ui/text-layout.js";
 import type {
 	WorkspaceInputContext,
 	WorkspaceItem,
@@ -48,6 +52,9 @@ const THREAD_GLYPH_COLOR: Record<ThreadState, string> = {
 	replied: "success",
 	passed: "success",
 };
+
+/** Standard content indentation for workspace lines. */
+const pad = " ".repeat(CONTENT_INDENT);
 
 /** Result from the workspace: which action the user chose. */
 export type WorkspaceAction =
