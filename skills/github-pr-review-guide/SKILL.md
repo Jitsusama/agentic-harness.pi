@@ -38,8 +38,8 @@ context or shows a panel.
 ## Standard Sequence
 
 ```
-activate → generate-comments → overview → review
-→ (steer cycles) → submit → post → deactivate
+activate → generate-comments → DISCUSS → overview
+→ review → (steer cycles) → submit → post → deactivate
 ```
 
 ### 1. Activate and Gather
@@ -86,9 +86,37 @@ skills for format and quality guidance.
 - `title`: about title accuracy and description completeness.
 - `file`: code quality, tests, implementation.
 
-### 3. Overview Phase
+### 3. Conversation Phase
 
-Call `overview` to show the overview panel. The user sees
+After `generate-comments`, comments are **proposed** (not
+yet committed to the review). Present your review approach
+conversationally:
+
+1. Explain what the PR does and what the author's intent
+   seems to be.
+2. Describe the concerns you found and your review
+   strategy.
+3. Summarize the proposed comments at a high level.
+4. Wait for the user to respond.
+
+During conversation:
+- When the user gives feedback, **research first**: read
+  files, search patterns, check linked issues. Don't jump
+  to modifying comments without context.
+- Use `list-comments` to see all comments with their IDs.
+- Use `update-comment`, `remove-comment` (supports arrays
+  via `comment_ids`), and `add-comment` to adjust.
+- New comments added during discussion also start as
+  proposed.
+
+When the user is satisfied (e.g., "looks good", "proceed",
+"let's review"), call `overview` to promote proposed
+comments to pending and begin the structured review.
+
+### 4. Overview Phase
+
+Call `overview` to show the overview panel. This also
+promotes all proposed comments to pending. The user sees
 three tabs: Overview (PR metadata + synopsis), References
 (browsable list of all crawled references) and Source
 (browsable list of source files with roles).
@@ -97,7 +125,7 @@ The user presses 'r' to move on to review, or steers for
 feedback. If they steer, process their feedback and call
 `overview` again.
 
-### 4. Review Phase
+### 5. Review Phase
 
 Call `review` to show the review panel. One tab per changed
 file plus Desc and Scope tabs. Each tab has three views:
@@ -118,7 +146,7 @@ If the user steers:
   then call `review`.
 - General feedback: process and call `review`.
 
-### 5. Submit Phase
+### 6. Submit Phase
 
 Call `submit` to show the submit panel. You can optionally
 provide `review_body` and `verdict` to pre-fill.
@@ -130,7 +158,7 @@ steer to edit the body/verdict.
 If they steer, update `review_body`/`verdict` and call
 `submit` again.
 
-### 6. Post and Deactivate
+### 7. Post and Deactivate
 
 The submit panel's post action calls `post` automatically.
 If needed, call `post` directly. Then call `deactivate`
@@ -156,6 +184,11 @@ When a panel returns steer feedback:
 3. Re-open the same panel by calling the same action.
 
 The steer note includes context about what was being viewed.
+
+When the user gives qualitative feedback during conversation
+(before the overview panel), always research first: read the
+relevant code, check linked issues and search for patterns.
+Build context before proposing or modifying comments.
 
 ## What Not to Do
 
