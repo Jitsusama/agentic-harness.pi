@@ -24,8 +24,10 @@ import {
 	addComment,
 	commentStats,
 	createSession,
+	formatCommentSummary,
 	type PRReviewState,
 	removeComment,
+	removeComments,
 	updateComment,
 } from "./state.js";
 import { createWorktree, isOnPRBranch, removeWorktree } from "./worktree.js";
@@ -415,18 +417,12 @@ export function handleAddComment(
 
 	persist(state, pi);
 
-	const decorStr =
-		reviewComment.decorations.length > 0
-			? ` (${reviewComment.decorations.join(", ")})`
-			: "";
-
 	return {
 		content: [
 			{
 				type: "text" as const,
 				text:
-					`Comment added: ${reviewComment.label}${decorStr}: ` +
-					`${reviewComment.subject}\n` +
+					`Comment added: ${formatCommentSummary(reviewComment)}\n` +
 					`Total: ${state.session.comments.length} comments.`,
 			},
 		],
@@ -480,10 +476,11 @@ export function handleUpdateComment(
 	};
 }
 
-/** Remove a comment by ID. */
+/** Remove one or more comments by ID. */
 export function handleRemoveComment(
 	deps: ReviewContext,
 	commentId: string | null,
+	commentIds: string[] | null,
 ) {
 	const { state, pi } = deps;
 
@@ -491,9 +488,36 @@ export function handleRemoveComment(
 		return plainTextResponse("No PR review active.");
 	}
 
+	// Bulk removal when an array is provided.
+	if (commentIds && commentIds.length > 0) {
+		const result = removeComments(state.session, commentIds);
+		persist(state, pi);
+
+		const parts: string[] = [];
+		if (result.removed.length > 0) {
+			parts.push(
+				`Removed ${result.removed.length} comment${result.removed.length !== 1 ? "s" : ""}: ${result.removed.join(", ")}.`,
+			);
+		}
+		if (result.notFound.length > 0) {
+			parts.push(`Not found: ${result.notFound.join(", ")}.`);
+		}
+		parts.push(`Total: ${state.session.comments.length}.`);
+
+		return {
+			content: [{ type: "text" as const, text: parts.join(" ") }],
+			details: {
+				action: "remove-comment",
+				removed: result.removed,
+				notFound: result.notFound,
+			},
+		};
+	}
+
+	// Single removal (backward compat).
 	if (!commentId) {
 		return plainTextResponse(
-			"Provide comment_id to identify which comment to remove.",
+			"Provide comment_id or comment_ids to identify which comments to remove.",
 		);
 	}
 
@@ -512,6 +536,32 @@ export function handleRemoveComment(
 			},
 		],
 		details: { action: "remove-comment", commentId },
+	};
+}
+
+/** List all comments with their IDs. */
+export function handleListComments(deps: ReviewContext) {
+	const { state } = deps;
+
+	if (!state.session) {
+		return plainTextResponse("No PR review active.");
+	}
+
+	const { comments } = state.session;
+
+	if (comments.length === 0) {
+		return {
+			content: [{ type: "text" as const, text: "No comments." }],
+			details: { action: "list-comments", count: 0 },
+		};
+	}
+
+	const lines = comments.map((c) => `- ${formatCommentSummary(c)}`);
+	const text = `${comments.length} comments:\n${lines.join("\n")}`;
+
+	return {
+		content: [{ type: "text" as const, text }],
+		details: { action: "list-comments", count: comments.length },
 	};
 }
 

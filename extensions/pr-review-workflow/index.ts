@@ -10,7 +10,8 @@
  *   review            : show Phase 2 review panel
  *   add-comment       : add a review comment
  *   update-comment    : edit an existing comment by ID
- *   remove-comment    : delete a comment by ID
+ *   remove-comment    : delete comment(s) by ID
+ *   list-comments     : show all comments with their IDs
  *   submit            : show final review summary panel
  *   post              : submit review to GitHub
  *   deactivate        : clean up and exit
@@ -29,6 +30,7 @@ import {
 	handleAddComment,
 	handleDeactivate,
 	handleGenerateComments,
+	handleListComments,
 	handleOverview,
 	handlePost,
 	handleRemoveComment,
@@ -55,6 +57,7 @@ const ACTIONS = [
 	"add-comment",
 	"update-comment",
 	"remove-comment",
+	"list-comments",
 	"submit",
 	"post",
 	"deactivate",
@@ -81,6 +84,8 @@ export default function prReview(pi: ExtensionAPI) {
 			"Call 'overview' to show the Phase 1 overview panel.",
 			"Call 'review' to show the Phase 2 review panel with file tabs.",
 			"Use 'add-comment', 'update-comment', 'remove-comment' for comment management.",
+			"Use 'list-comments' to see all comments with their IDs.",
+			"'remove-comment' accepts comment_ids (array) for bulk removal.",
 			"Call 'submit' to show the final review summary, then 'post' to submit.",
 			"When calling 'activate', include the user's original request in user_request so cross-repo handoffs preserve context.",
 		],
@@ -90,7 +95,7 @@ export default function prReview(pi: ExtensionAPI) {
 					"activate: start review | generate-comments: provide analysis and comments | " +
 					"overview: show overview panel | review: show review panel | " +
 					"add-comment: add a comment | update-comment: edit a comment | " +
-					"remove-comment: delete a comment | " +
+					"remove-comment: delete comment(s) | list-comments: show all with IDs | " +
 					"submit: show submit panel | post: submit review | deactivate: exit",
 			}),
 			pr: Type.Optional(
@@ -213,6 +218,12 @@ export default function prReview(pi: ExtensionAPI) {
 						"Comment ID. Used with 'update-comment' and 'remove-comment'.",
 				}),
 			),
+			comment_ids: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"Multiple comment IDs for bulk removal. Used with 'remove-comment'.",
+				}),
+			),
 			review_body: Type.Optional(
 				Type.String({
 					description: "Review body text. Used with 'submit'.",
@@ -259,7 +270,13 @@ export default function prReview(pi: ExtensionAPI) {
 				case "update-comment":
 					return handleUpdateComment(deps, params.comment_id ?? null, comment);
 				case "remove-comment":
-					return handleRemoveComment(deps, params.comment_id ?? null);
+					return handleRemoveComment(
+						deps,
+						params.comment_id ?? null,
+						(params.comment_ids as string[]) ?? null,
+					);
+				case "list-comments":
+					return handleListComments(deps);
 				case "submit":
 					return handleSubmit(
 						deps,
@@ -338,6 +355,14 @@ export default function prReview(pi: ExtensionAPI) {
 						"success",
 						`✓ Review posted (${verdict}, ${comments} comments)`,
 					),
+					0,
+					0,
+				);
+			}
+			if (action === "list-comments") {
+				const count = d?.count ?? 0;
+				return new Text(
+					theme.fg("muted", `${count} comment${count !== 1 ? "s" : ""}`),
 					0,
 					0,
 				);
