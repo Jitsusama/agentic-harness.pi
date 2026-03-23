@@ -30,6 +30,7 @@ import {
 	handleImplement,
 	handleNext,
 	handlePass,
+	handleProposePlan,
 	handleReplyAction,
 	handleReviewWorkspace,
 	handleShow,
@@ -52,6 +53,7 @@ const ACTIONS = [
 	"next",
 	"show",
 	"implement",
+	"propose-plan",
 	"reply",
 	"done",
 	"pass",
@@ -76,7 +78,12 @@ export default function prReply(pi: ExtensionAPI) {
 			"Workflow: activate → generate-analysis → review → (implement|reply) → done/reply → generate-analysis → review → ... → deactivate.",
 			"After activate, analyze all threads and call 'generate-analysis' with analyses and reviewer_analyses.",
 			"Call 'review' to show the workspace. The user navigates reviewer tabs, selects threads, and chooses actions.",
-			"When the workspace returns 'implement': make changes, run tests, commit. Then call 'done' with a reply_body.",
+			"When the workspace returns 'implement': analyse the change, form a plan, then call 'propose-plan' with a " +
+				"plan_summary describing what you intend to change and why. Do NOT start editing files until the user has approved the plan.",
+			"If the plan is approved, implement the changes. TDD applies whenever the changes involve testable behaviour. " +
+				"When done, call 'done' with a reply_body.",
+			"If the user chose explore, activate plan_mode and use plan_interview to collaborate on a full plan.",
+			"If the user redirected, revise your plan and call 'propose-plan' again.",
 			"When the workspace returns 'reply': call 'reply' with the reply_body text.",
 			"After 'done' or 'reply', RE-ANALYZE all remaining pending threads with fresh code context, " +
 				"then call 'generate-analysis' again before calling 'review'. This ensures recommendations stay current after code changes.",
@@ -90,6 +97,7 @@ export default function prReply(pi: ExtensionAPI) {
 					"review: show/reopen workspace | " +
 					"next: (legacy) load next thread | show: (legacy) present thread gate | " +
 					"implement: begin implementing current thread | " +
+					"propose-plan: present implementation plan for approval | " +
 					"reply: post a reply | done: finish implementation | " +
 					"pass: pass thread | deactivate: exit mode",
 			}),
@@ -149,10 +157,9 @@ export default function prReply(pi: ExtensionAPI) {
 						"Reply text to post. Used with 'reply' and 'done' actions.",
 				}),
 			),
-			use_tdd: Type.Optional(
-				Type.Boolean({
-					description:
-						"Whether to use TDD mode for implementation. Used with 'implement'.",
+			plan_summary: Type.Optional(
+				Type.String({
+					description: "Your implementation plan. Used with 'propose-plan'.",
 				}),
 			),
 		}),
@@ -189,7 +196,9 @@ export default function prReply(pi: ExtensionAPI) {
 				case "show":
 					return handleShow(state, pi, ctx, params.analysis ?? "");
 				case "implement":
-					return handleImplement(state, pi, params.use_tdd);
+					return handleImplement(state, pi);
+				case "propose-plan":
+					return handleProposePlan(state, pi, ctx, params.plan_summary ?? null);
 				case "reply":
 					return handleReplyAction(state, pi, ctx, params.reply_body ?? null);
 				case "done":

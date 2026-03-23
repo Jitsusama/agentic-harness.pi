@@ -35,7 +35,6 @@ import {
 import { readCodeContext } from "./code-context.js";
 import { checkDependentPRs } from "./dependency-chain.js";
 import {
-	beginTDDImplementation,
 	collectImplementationCommits,
 	linkCommitsToThread,
 	pushIfNeeded,
@@ -52,6 +51,7 @@ import {
 } from "./state.js";
 import { buildAnalysisPrompt } from "./thread-context.js";
 import { showReviewOverviewPanel, showSummaryPanel } from "./ui/panels.js";
+import { showPlanGate } from "./ui/plan-gate.js";
 import { showReplyReview } from "./ui/reply-review.js";
 import { showThreadGate, type ThreadGateChoice } from "./ui/thread-gate.js";
 import { showReplyWorkspace } from "./ui/workspace.js";
@@ -599,12 +599,8 @@ export async function handleShow(
 	);
 }
 
-/** Mark current thread for implementation and provide context. */
-export async function handleImplement(
-	state: PRReplyState,
-	pi: ExtensionAPI,
-	useTDD?: boolean,
-) {
+/** Mark current thread for implementation and instruct the LLM to propose a plan. */
+export async function handleImplement(state: PRReplyState, pi: ExtensionAPI) {
 	if (!state.enabled) {
 		return plainTextResponse("PR reply mode is not active.");
 	}
@@ -614,29 +610,80 @@ export async function handleImplement(
 		return plainTextResponse("No current thread. Call 'next' first.");
 	}
 
-	await recordImplementationStart(state, pi);
 	state.threadStates.set(thread.id, "implementing");
-
-	if (useTDD) {
-		beginTDDImplementation(state, thread);
-		persist(state, pi);
-
-		return plainTextResponse(
-			"Thread marked for TDD implementation.\n\n" +
-				`${buildImplementationContext(thread)}\n\n` +
-				"Start TDD mode with tdd_phase action 'start'. " +
-				"When TDD is done, call pr_reply with action 'done' " +
-				"and a reply_body to post.",
-		);
-	}
-
 	persist(state, pi);
 
 	return plainTextResponse(
-		"Thread marked for direct implementation.\n\n" +
-			`${buildImplementationContext(thread)}\n\n` +
-			"Make the necessary changes, run tests, and commit. " +
-			"Then call pr_reply with action 'done' and a reply_body to post.",
+		`${buildImplementationContext(thread)}\n\n` +
+			"Analyse the change needed. Form a plan describing what " +
+			"you intend to change and why, then call pr_reply with " +
+			"action 'propose-plan' and a plan_summary parameter.",
+	);
+}
+
+/**
+ * Show the plan gate for user approval before implementation begins.
+ * The LLM calls this after forming a plan for the current thread.
+ */
+export async function handleProposePlan(
+	state: PRReplyState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	planSummary: string | null,
+) {
+	if (!state.enabled) {
+		return plainTextResponse("PR reply mode is not active.");
+	}
+
+	const thread = currentThread(state);
+	if (!thread) {
+		return plainTextResponse("No current thread.");
+	}
+
+	if (!planSummary) {
+		return plainTextResponse(
+			"Provide plan_summary with your implementation plan.",
+		);
+	}
+
+	const result = await showPlanGate(ctx, planSummary);
+
+	if (!result) {
+		// Cancelled: revert thread to pending.
+		state.threadStates.set(thread.id, "pending");
+		state.currentThreadId = null;
+		persist(state, pi);
+		return plainTextResponse("Plan cancelled. Thread reverted to pending.");
+	}
+
+	if (result.action === "redirect") {
+		return plainTextResponse(
+			`User feedback on your plan:\n\n${result.feedback}\n\n` +
+				"Revise your plan and call 'propose-plan' again.",
+		);
+	}
+
+	if (result.action === "explore") {
+		persist(state, pi);
+		const seed = result.note ? `User context: ${result.note}\n\n` : "";
+		return plainTextResponse(
+			`${seed}The user wants a deeper planning session. Activate plan_mode ` +
+				"and use plan_interview to collaborate on a full plan. " +
+				"After planning concludes and you deactivate plan mode, " +
+				"implement from the plan. Then call pr_reply with action " +
+				"'done' and a reply_body.",
+		);
+	}
+
+	// Approved: record start SHA now.
+	await recordImplementationStart(state, pi);
+	persist(state, pi);
+
+	const guidance = result.note ? `User guidance: ${result.note}\n\n` : "";
+	return plainTextResponse(
+		`${guidance}Plan approved. Implement the changes. TDD applies whenever ` +
+			"the changes involve testable behaviour. When done, call " +
+			"pr_reply with action 'done' and a reply_body.",
 	);
 }
 

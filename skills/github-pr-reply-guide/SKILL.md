@@ -73,20 +73,39 @@ The workspace returns the user's chosen action:
 
 **Implement** (code changes needed):
 ```
-pr_reply(action: "implement", use_tdd: true)
+pr_reply(action: "implement")
 ```
-Make changes, run tests, commit. Then:
+
+This marks the thread for implementation and asks you to
+propose a plan. Analyse the change needed, then present
+your plan for approval:
+
+```
+pr_reply(action: "propose-plan", plan_summary: "## What\n\nExtract validation into a helper...\n\n## Why\n\nReduces duplication and...")
+```
+
+The user sees your plan and can:
+- **Approve** (Enter): you implement the plan.
+- **Explore** (`e`): deeper planning session via plan mode.
+- **Redirect** (Shift+Escape): feedback to revise the plan.
+- **Cancel** (Escape): thread reverts to pending.
+
+After approval, implement the changes. TDD applies whenever
+the changes involve testable behaviour. Then:
 ```
 pr_reply(action: "done", reply_body: "Extracted validation as suggested. abc1234")
 ```
+
+Do NOT start editing files until the user has approved the
+plan. If redirected, revise and call `propose-plan` again.
 
 **Reply** (no code changes):
 ```
 pr_reply(action: "reply", reply_body: "Good point; I'll address this in a follow-up.")
 ```
 
-**Skip and Defer** are handled inline in the workspace;
-the user presses `k` or `d` directly.
+**Pass** is handled inline in the workspace; the user
+presses `p` directly.
 
 After any action, call `review` to reopen the workspace:
 ```
@@ -125,14 +144,18 @@ COMMENTED and APPROVED threads are optional; be selective.
 still be relevant, or it may have been addressed already by
 other changes.
 
-## Recommending TDD vs Direct
+## TDD vs Direct Implementation
 
-Recommend TDD when:
+TDD applies naturally when the plan is approved and the
+changes involve testable behaviour. There's no separate
+toggle; use your judgement after the plan is approved.
+
+Use TDD when:
 - The change involves new testable behaviour.
 - Refactoring existing logic (tests as safety net).
 - The reviewer asks for a design change.
 
-Recommend direct implementation when:
+Go direct when:
 - Simple fixes (typos, naming, formatting).
 - Adding documentation or comments.
 - One-line fixes.
@@ -150,13 +173,14 @@ Bad: "Done.\n\nCommits:\n- abc1234"
 
 ## TDD Coordination
 
-When implementing with TDD:
+When implementing with TDD after plan approval:
 
-1. Call `pr_reply(action: "implement", use_tdd: true)`.
-2. Start TDD with `tdd_phase(action: "start")`.
-3. Go through red-green-refactor cycles.
-4. When TDD signals done, commits are automatically tracked.
-5. Call `pr_reply(action: "done", reply_body: "...")`.
+1. Call `pr_reply(action: "implement")`.
+2. Propose a plan with `pr_reply(action: "propose-plan", ...)`.
+3. After approval, start TDD with `tdd_phase(action: "start")`.
+4. Go through red-green-refactor cycles.
+5. When TDD signals done, commits are automatically tracked.
+6. Call `pr_reply(action: "done", reply_body: "...")`.
 
 ## Error Recovery
 
