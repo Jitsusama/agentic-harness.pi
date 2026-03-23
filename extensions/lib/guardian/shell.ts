@@ -49,16 +49,26 @@ export function quote(s: string): string {
  * target command. Returns the prefix (everything before) and
  * the target command portion.
  *
+ * Separators: `&&`, `;`, and newlines. Newlines are statement
+ * separators in shell scripts, just like `;`. Without this,
+ * guardians silently drop prefixes when the agent formats
+ * commands across multiple lines.
+ *
  * Examples:
  *   splitAtCommand("cd /path && gh pr create ...", /gh\s+pr\s+.../)
  *   splitAtCommand("git add -A && git commit ...", /git\s+commit\b/)
+ *   splitAtCommand("git checkout branch\ngh pr create ...", /gh\s+pr\s+.../)
  */
 export function splitAtCommand(
 	command: string,
 	targetPattern: RegExp,
 ): { prefix: string | null; target: string } {
 	const source = targetPattern.source;
-	const re = new RegExp(`^(.*)\\s*(?:&&|;)\\s*(${source}[\\s\\S]*)$`);
+	// [\s\S]* for the prefix so it matches across newlines.
+	// Separators: &&, ;, or newline.
+	const re = new RegExp(
+		`^([\\s\\S]*)\\s*(?:&&|;|\\n)\\s*(${source}[\\s\\S]*)$`,
+	);
 	const match = command.match(re);
 	if (match?.[1]?.trim()) {
 		return { prefix: match[1].trim(), target: match[2] ?? command };
