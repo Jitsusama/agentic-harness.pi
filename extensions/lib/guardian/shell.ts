@@ -20,6 +20,11 @@ export function extractFlag(command: string, flag: string): string | null {
 	const sqMatch = command.match(sq);
 	if (sqMatch) return sqMatch[1] ?? null;
 
+	// Unquoted (non-whitespace run, stops before shell operators)
+	const uq = new RegExp(`--${flag}\\s+(\\S+)`);
+	const uqMatch = command.match(uq);
+	if (uqMatch) return uqMatch[1] ?? null;
+
 	return null;
 }
 
