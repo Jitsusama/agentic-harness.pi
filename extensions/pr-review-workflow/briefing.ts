@@ -148,11 +148,26 @@ export function generateCommentsSummary(session: ReviewSession): string {
 
 /**
  * Full briefing after comment generation: domain summary
- * plus next-step instruction.
+ * plus conversation coaching. Comments start as proposed and
+ * promote to pending when the user proceeds to overview.
  */
 export function generateCommentsBriefing(session: ReviewSession): string {
 	const summary = generateCommentsSummary(session);
-	return `${summary}\n\nCall pr_review with action 'overview' to show the overview panel.`;
+	const parts = [summary, ""];
+	parts.push(
+		"Comments are **proposed**. Present your review approach conversationally:",
+	);
+	parts.push(
+		"explain what the PR does, what concerns you found, and what your review strategy is.",
+	);
+	parts.push("Wait for the user to discuss and adjust before proceeding.");
+	parts.push(
+		"Use 'list-comments', 'update-comment', 'remove-comment', 'add-comment' to adjust during discussion.",
+	);
+	parts.push(
+		"When the user is satisfied, call 'overview' to promote proposed comments to pending and begin the structured review.",
+	);
+	return parts.join("\n");
 }
 
 /** Append reviewer verdicts. */

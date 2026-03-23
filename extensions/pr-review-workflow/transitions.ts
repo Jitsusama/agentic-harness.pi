@@ -26,11 +26,18 @@ export function injectReviewGuidance(state: PRReviewState) {
 	parts.push(`Phase: ${phase}`);
 
 	const stats = commentStats(state.session);
-	const total = stats.pending + stats.approved + stats.rejected;
+	const total =
+		stats.proposed + stats.pending + stats.approved + stats.rejected;
 	if (total > 0) {
-		parts.push(
-			`Comments: ${total} (${stats.approved} approved, ${stats.pending} pending)`,
-		);
+		if (stats.proposed > 0) {
+			parts.push(
+				`Comments: ${total} (${stats.proposed} proposed, ${stats.approved} approved, ${stats.pending} pending)`,
+			);
+		} else {
+			parts.push(
+				`Comments: ${total} (${stats.approved} approved, ${stats.pending} pending)`,
+			);
+		}
 	}
 
 	parts.push(`Repo: ${repoPath}`);

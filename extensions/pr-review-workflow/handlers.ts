@@ -26,6 +26,7 @@ import {
 	createSession,
 	formatCommentSummary,
 	type PRReviewState,
+	promoteProposedComments,
 	removeComment,
 	removeComments,
 	updateComment,
@@ -226,20 +227,25 @@ export async function handleGenerateComments(
 		}
 	}
 
-	// We add the comments.
+	// We add comments as proposed: they promote to pending when
+	// the user proceeds to overview after the conversation phase.
 	if (comments) {
 		for (const c of comments) {
-			addComment(session, {
-				file: c.file,
-				startLine: c.startLine,
-				endLine: c.endLine,
-				label: c.label,
-				decorations: c.decorations,
-				subject: c.subject,
-				discussion: c.discussion,
-				source: "ai",
-				category: c.category,
-			});
+			addComment(
+				session,
+				{
+					file: c.file,
+					startLine: c.startLine,
+					endLine: c.endLine,
+					label: c.label,
+					decorations: c.decorations,
+					subject: c.subject,
+					discussion: c.discussion,
+					source: "ai",
+					category: c.category,
+				},
+				"proposed",
+			);
 		}
 	}
 
@@ -270,6 +276,13 @@ export async function handleOverview(
 	const session = state.session;
 	if (!(await ensureContext(deps, ctx))) {
 		return plainTextResponse("Failed to load PR context.");
+	}
+
+	// Promote proposed comments to pending: the conversation
+	// phase is over and we're moving to structured review.
+	const promoted = promoteProposedComments(session);
+	if (promoted > 0) {
+		persist(state, deps.pi);
 	}
 
 	session.phase = "overview";
@@ -403,17 +416,28 @@ export function handleAddComment(
 		);
 	}
 
-	const reviewComment = addComment(state.session, {
-		file: comment.file,
-		startLine: comment.startLine,
-		endLine: comment.endLine,
-		label: comment.label,
-		decorations: comment.decorations,
-		subject: comment.subject,
-		discussion: comment.discussion,
-		source: "user",
-		category: comment.category,
-	});
+	// During the conversation phase (proposed comments exist),
+	// new comments also start as proposed so they promote
+	// together when overview is called.
+	const hasProposed = state.session.comments.some(
+		(c) => c.status === "proposed",
+	);
+
+	const reviewComment = addComment(
+		state.session,
+		{
+			file: comment.file,
+			startLine: comment.startLine,
+			endLine: comment.endLine,
+			label: comment.label,
+			decorations: comment.decorations,
+			subject: comment.subject,
+			discussion: comment.discussion,
+			source: "user",
+			category: comment.category,
+		},
+		hasProposed ? "proposed" : "pending",
+	);
 
 	persist(state, pi);
 
@@ -634,6 +658,13 @@ export async function handlePost(deps: ReviewContext) {
 
 	const session = state.session;
 	const stats = commentStats(session);
+
+	if (stats.proposed > 0) {
+		return plainTextResponse(
+			`${stats.proposed} comment${stats.proposed !== 1 ? "s are" : " is"} still proposed: ` +
+				"call 'overview' to finalize before posting.",
+		);
+	}
 
 	if (stats.pending > 0) {
 		return plainTextResponse(
