@@ -116,10 +116,6 @@ export interface PRReplyState {
 	// Implementation tracking
 	threadCommits: Map<string, string[]>; // thread ID -> commit SHAs
 	implementationStartSHA: string | null; // HEAD when implementation started
-
-	// TDD coordination
-	awaitingTDDCompletion: boolean;
-	tddThreadId: string | null;
 }
 
 /**
@@ -183,7 +179,5 @@ export function createPRReplyState(): PRReplyState {
 		threadIndexInReview: 0,
 		threadCommits: new Map(),
 		implementationStartSHA: null,
-		awaitingTDDCompletion: false,
-		tddThreadId: null,
 	};
 }

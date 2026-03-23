@@ -762,8 +762,6 @@ export async function handleDone(
 		state.threadStates.set(thread.id, "addressed");
 	}
 
-	state.awaitingTDDCompletion = false;
-	state.tddThreadId = null;
 	state.implementationStartSHA = null;
 	persist(state, pi);
 

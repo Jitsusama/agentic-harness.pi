@@ -9,7 +9,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { PRReplyState, ReviewThread } from "./state.js";
+import type { PRReplyState } from "./state.js";
 
 /**
  * Record the current HEAD SHA before starting implementation.
@@ -61,28 +61,6 @@ export function linkCommitsToThread(
 	const existing = state.threadCommits.get(threadId) ?? [];
 	state.threadCommits.set(threadId, [...existing, ...commits]);
 	state.implementationStartSHA = null;
-}
-
-/**
- * Prepare state for TDD-driven implementation of a thread.
- * Sets flags that the event handler monitors for TDD completion.
- */
-export function beginTDDImplementation(
-	state: PRReplyState,
-	thread: ReviewThread,
-): void {
-	state.awaitingTDDCompletion = true;
-	state.tddThreadId = thread.id;
-	state.threadStates.set(thread.id, "implementing");
-}
-
-/**
- * Handle TDD completion signal. Clears the awaiting flag
- * so the review loop can resume.
- */
-export function handleTDDCompletion(state: PRReplyState): void {
-	state.awaitingTDDCompletion = false;
-	// The tddThreadId is preserved so we can link commits to it.
 }
 
 /**
