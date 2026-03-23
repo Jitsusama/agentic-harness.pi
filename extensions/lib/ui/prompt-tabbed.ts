@@ -127,7 +127,7 @@ function createTabbedController(
 	}
 
 	const userTabActions: KeyAction[] = [
-		{ key: "a", label: "Add" },
+		{ key: "n", label: "New" },
 		{ key: "e", label: "Edit" },
 		{ key: "d", label: "Delete" },
 	];
@@ -363,7 +363,7 @@ function createTabbedController(
 
 		const actionResult = handleActionInput(data, userTabActions);
 		if (actionResult && actionResult.type === "action") {
-			if (actionResult.key === "a") {
+			if (actionResult.key === "n") {
 				openEditor({ type: "addItem" });
 			} else if (actionResult.key === "e" && userItems.length > 0) {
 				openEditor(

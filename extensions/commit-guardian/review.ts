@@ -15,10 +15,7 @@ import { formatRedirectBlock } from "../lib/ui/redirect.js";
 import { extractCommitFlags, extractMessage, splitAtCommit } from "./parse.js";
 import { type CommitValidation, validate } from "./validate.js";
 
-const COMMIT_ACTIONS = [
-	{ key: "a", label: "Approve" },
-	{ key: "r", label: "Reject" },
-];
+const COMMIT_ACTIONS = [{ key: "r", label: "Reject" }];
 
 interface CommitParsed {
 	message: string;
@@ -69,29 +66,29 @@ export const commitGuardian: CommandGuardian<CommitParsed> = {
 		}
 
 		if (result.type === "action") {
-			if (result.key === "a") {
-				// If the user added a note on approve, we treat it as a redirect.
+			// Reject
+			if (result.key === "r") {
 				if (result.note) {
 					return formatRedirectBlock(
 						result.note,
 						`Original commit:\n${parsed.message}`,
 					);
 				}
-				return ALLOW;
+				return {
+					block: true,
+					reason:
+						"User rejected the commit. Ask for guidance on the commit description.",
+				};
 			}
 
-			// If there's a note on reject, we include it as redirect feedback.
+			// Enter (approve)
 			if (result.note) {
 				return formatRedirectBlock(
 					result.note,
 					`Original commit:\n${parsed.message}`,
 				);
 			}
-			return {
-				block: true,
-				reason:
-					"User rejected the commit. Ask for guidance on the commit description.",
-			};
+			return ALLOW;
 		}
 	},
 };

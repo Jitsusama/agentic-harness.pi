@@ -29,7 +29,7 @@ codebase.
 3. **Enter/Escape for the primary decision pair.** Enter is
    always the default forward action (approve, proceed,
    confirm). Escape is always cancel/dismiss. Zero letters
-   to memorise for the most common interaction.
+   to memorize for the most common interaction.
 
 4. **Explicit letter for destructive or consequential
    actions.** Speed bumps prevent accidents. Delete is `d`,

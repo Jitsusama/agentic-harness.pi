@@ -18,10 +18,7 @@ import {
 	type Severity,
 } from "./patterns.js";
 
-const DESTRUCTIVE_ACTIONS = [
-	{ key: "a", label: "Approve" },
-	{ key: "r", label: "Reject" },
-];
+const DESTRUCTIVE_ACTIONS = [{ key: "r", label: "Reject" }];
 
 interface DestructiveMatch {
 	command: string;
@@ -83,10 +80,12 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 			);
 		}
 
-		if (result.type === "action" && result.key === "a") {
-			return ALLOW;
+		// Reject
+		if (result.type === "action" && result.key === "r") {
+			return { block: true, reason: `User blocked: ${parsed.command}` };
 		}
 
-		return { block: true, reason: `User blocked: ${parsed.command}` };
+		// Enter (approve)
+		return ALLOW;
 	},
 };
