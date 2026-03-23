@@ -4,15 +4,15 @@
  * Mode for responding to GitHub PR review feedback. The LLM
  * drives the workflow by calling pr_reply with different actions:
  *
- *   activate  : load PR, show summary, enter mode
- *   next      : present the next pending thread
- *   review    : show review overview with analysis
- *   show      : present thread gate with recommendation
- *   implement : mark current thread for implementation
- *   reply     : draft and post a reply to the current thread
- *   done      : mark implementation complete, link commits
- *   pass      : pass the current thread (reviewed, moving on)
- *   deactivate: exit PR reply mode
+ *   activate     : load PR, show summary, enter mode
+ *   gen-analysis : batch pre-analysis of all threads
+ *   review       : show/reopen the workspace
+ *   implement    : mark current thread for implementation
+ *   propose-plan : present implementation plan for approval
+ *   reply        : draft and post a reply to the current thread
+ *   done         : mark implementation complete, link commits
+ *   pass         : pass the current thread (reviewed, moving on)
+ *   deactivate   : exit PR reply mode
  *
  * Handlers live in handlers.ts. This file is registration and
  * wiring only.
@@ -28,12 +28,10 @@ import {
 	handleDone,
 	handleGenerateAnalysis,
 	handleImplement,
-	handleNext,
 	handlePass,
 	handleProposePlan,
 	handleReplyAction,
 	handleReviewWorkspace,
-	handleShow,
 } from "./handlers.js";
 import { restore, toggle } from "./lifecycle.js";
 import { createPRReplyState } from "./state.js";
@@ -45,8 +43,6 @@ const ACTIONS = [
 	"deactivate",
 	"generate-analysis",
 	"review",
-	"next",
-	"show",
 	"implement",
 	"propose-plan",
 	"reply",
@@ -90,7 +86,6 @@ export default function prReply(pi: ExtensionAPI) {
 				description:
 					"activate: start mode | generate-analysis: provide batch thread analysis | " +
 					"review: show/reopen workspace | " +
-					"next: (legacy) load next thread | show: (legacy) present thread gate | " +
 					"implement: begin implementing current thread | " +
 					"propose-plan: present implementation plan for approval | " +
 					"reply: post a reply | done: finish implementation | " +
@@ -108,12 +103,6 @@ export default function prReply(pi: ExtensionAPI) {
 						"The user's original request text. Included in the prompt when " +
 						"the reply workflow is handed off to a new terminal tab for a cross-repo PR. " +
 						"Only used with 'activate'.",
-				}),
-			),
-			analysis: Type.Optional(
-				Type.String({
-					description:
-						"Your analysis text. For legacy 'review'/'show' actions. Supports markdown.",
 				}),
 			),
 			analyses: Type.Optional(
@@ -186,10 +175,6 @@ export default function prReply(pi: ExtensionAPI) {
 					);
 				case "review":
 					return handleReviewWorkspace(state, pi, ctx);
-				case "next":
-					return handleNext(state, pi, ctx);
-				case "show":
-					return handleShow(state, pi, ctx, params.analysis ?? "");
 				case "implement":
 					return handleImplement(state, pi);
 				case "propose-plan":
@@ -239,9 +224,6 @@ export default function prReply(pi: ExtensionAPI) {
 					0,
 					0,
 				);
-			}
-			if (d?.action === "next") {
-				return new Text(theme.fg("muted", "Thread loaded"), 0, 0);
 			}
 			if (d?.action === "replied") {
 				return new Text(theme.fg("success", "✓ Reply posted"), 0, 0);

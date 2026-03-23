@@ -74,23 +74,6 @@ interface ReviewsResponse {
 	};
 }
 
-/** Response from the refresh thread comments query. */
-interface RefreshThreadsResponse {
-	data: {
-		repository: {
-			pullRequest: {
-				reviewThreads: {
-					nodes: Array<{
-						id: string;
-						isResolved: boolean;
-						comments: { nodes: GQLComment[] };
-					}>;
-				};
-			};
-		};
-	};
-}
-
 const THREADS_QUERY = `
 query($owner: String!, $repo: String!, $pr: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -276,58 +259,6 @@ function parseComments(gqlComments: GQLComment[]): ThreadComment[] {
 			(a, b) =>
 				new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
 		);
-}
-
-/**
- * Re-fetch a single thread's comments to get the latest conversation.
- * Updates the thread in place with fresh comment data.
- */
-export async function refreshThreadComments(
-	pi: ExtensionAPI,
-	ref: PRReference,
-	thread: ReviewThread,
-): Promise<void> {
-	const query = `
-query($owner: String!, $repo: String!, $pr: Int!) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $pr) {
-      reviewThreads(first: 100) {
-        nodes {
-          id
-          isResolved
-          comments(first: 100) {
-            nodes {
-              id
-              databaseId
-              body
-              createdAt
-              isMinimized
-              author { login }
-              replyTo { id }
-            }
-          }
-        }
-      }
-    }
-  }
-}`;
-
-	try {
-		const data = await runGraphQL<RefreshThreadsResponse>(pi, query, {
-			owner: ref.owner,
-			repo: ref.repo,
-			pr: ref.number,
-		});
-		const threads = data.data.repository.pullRequest.reviewThreads.nodes;
-
-		const match = threads.find((t) => t.id === thread.id);
-		if (match) {
-			thread.comments = parseComments(match.comments.nodes);
-			thread.isResolved = match.isResolved;
-		}
-	} catch {
-		/* Refresh failed: use stale data rather than blocking */
-	}
 }
 
 /** Find the PR number associated with a branch. */

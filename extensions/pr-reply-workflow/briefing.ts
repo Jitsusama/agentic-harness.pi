@@ -2,14 +2,14 @@
  * LLM briefings: pure functions that build text summaries
  * for the agent to reason about.
  *
- * Functions named *Summary assemble domain data only. The
- * calling handler appends LLM instructions separately.
- * Convenience wrappers (activationBriefing, etc.) compose
- * both for callers that need the full text.
+ * Each briefing composes a domain summary (what happened)
+ * with LLM instructions (what to do next). Internal
+ * *Summary helpers assemble domain data only; the exported
+ * *Briefing functions add the instructions.
  */
 
 import type { PRReference } from "./api/github.js";
-import type { PRReplyState, ReceivedReview, ReviewThread } from "./state.js";
+import type { PRReplyState, ReviewThread } from "./state.js";
 import { threadsForReview } from "./state.js";
 
 /** Count threads in a given state. */
@@ -22,7 +22,7 @@ function countByState(state: PRReplyState, threadState: string): number {
 }
 
 /** Domain summary of what activation discovered. */
-export function activationSummary(
+function activationSummary(
 	ref: PRReference,
 	reviewCount: number,
 	threadCount: number,
@@ -59,7 +59,7 @@ export function activationBriefing(
 }
 
 /** Domain summary of all threads grouped by review. */
-export function batchAnalysisSummary(state: PRReplyState): string {
+function batchAnalysisSummary(state: PRReplyState): string {
 	const parts: string[] = [];
 
 	parts.push("## Review Threads for Batch Analysis");
@@ -132,61 +132,6 @@ export function progressBriefing(state: PRReplyState): string {
 	return `[PR #${state.prNumber} • ${reviewLabel} • ${done}/${total} threads done]`;
 }
 
-/** Domain summary of a single review and its pending threads. */
-export function reviewSummary(
-	review: ReceivedReview,
-	pendingThreads: ReviewThread[],
-): string {
-	const parts: string[] = [];
-	parts.push(`## Review from ${review.author}`);
-	parts.push(`**State**: ${review.state}`);
-	parts.push(`**Submitted**: ${review.submittedAt}`);
-	parts.push(`**Threads**: ${pendingThreads.length}`);
-	if (review.body) {
-		parts.push("");
-		parts.push("### Review Comment");
-		parts.push(review.body);
-	}
-	parts.push("");
-	parts.push("### Threads in This Review");
-	for (const t of pendingThreads) {
-		const snippet = t.comments[0]?.body.slice(0, 60).replace(/\n/g, " ") ?? "";
-		const ellipsis = (t.comments[0]?.body.length ?? 0) > 60 ? "…" : "";
-		parts.push(`  • ${t.file}:${t.line}: ${snippet}${ellipsis}`);
-	}
-
-	return parts.join("\n");
-}
-
-/** Full review summary briefing: data plus analysis instruction. */
-export function reviewSummaryBriefing(
-	review: ReceivedReview,
-	pendingThreads: ReviewThread[],
-): string {
-	const summary = reviewSummary(review, pendingThreads);
-	return (
-		`${summary}\n\n` +
-		"Analyze the character of this review: is it thorough, nitpicky, " +
-		"collaborative, blocking? Then call pr_reply with action 'review' " +
-		"and your analysis as the 'analysis' parameter."
-	);
-}
-
-/** Thread context with analysis instruction for the LLM. */
-export function threadBriefing(
-	progressLine: string,
-	analysisContext: string,
-): string {
-	return (
-		`${progressLine}\n\n${analysisContext}\n\n` +
-		"Analyze this thread critically. Don't just agree with the reviewer: evaluate " +
-		"whether their suggestion actually improves the code. If the user already " +
-		"addressed the feedback or pushed back with good reasoning, say so. " +
-		"Then call pr_reply with action 'show' and your recommendation " +
-		"(as the 'analysis' parameter)."
-	);
-}
-
 /** Completion summary when deactivating. */
 export function completionBriefing(state: PRReplyState): string {
 	const total = state.threads.length;
@@ -203,7 +148,7 @@ export function completionBriefing(state: PRReplyState): string {
 }
 
 /** Domain context for a user redirect on a thread. */
-export function redirectSummary(
+function redirectSummary(
 	file: string,
 	contextLine: number,
 	feedback: string,
@@ -233,7 +178,7 @@ export function redirectBriefing(
 }
 
 /** Domain context for a user reply choice. */
-export function replyChoiceSummary(
+function replyChoiceSummary(
 	file: string,
 	contextLine: number,
 	analysisContext: string,
@@ -259,7 +204,7 @@ export function replyChoiceBriefing(
 }
 
 /** Domain context for a user implement choice. */
-export function implementChoiceSummary(
+function implementChoiceSummary(
 	file: string,
 	contextLine: number,
 	analysisContext: string,
@@ -286,7 +231,7 @@ export function implementChoiceBriefing(
 }
 
 /** Domain summary of pending threads needing re-analysis. */
-export function reAnalyzeSummary(state: PRReplyState): string {
+function reAnalyzeSummary(state: PRReplyState): string {
 	const pending = state.threads.filter(
 		(t) => state.threadStates.get(t.id) === "pending",
 	);
