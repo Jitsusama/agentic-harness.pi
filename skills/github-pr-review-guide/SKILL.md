@@ -51,7 +51,19 @@ Call `activate` with a PR reference (URL, `#123`, or
 - Returns a comprehensive briefing with the full diff, issue
   context, reviewer status and source file list.
 
-### 2. Generate Comments
+### 2. Check In with the User
+
+After gathering context, use the ask tool to present your
+focus areas before generating comments:
+
+- What areas of the PR you plan to focus on.
+- Any concerns you've already spotted.
+- Options to adjust focus, skip areas or add concerns.
+
+This gives the user a chance to steer the review before
+you invest time generating comments.
+
+### 3. Generate Comments
 
 After receiving the activation briefing, analyze the PR
 thoroughly. Use `read` to examine source files and `rg`
@@ -86,7 +98,7 @@ skills for format and quality guidance.
 - `title`: about title accuracy and description completeness.
 - `file`: code quality, tests, implementation.
 
-### 3. Conversation Phase
+### 4. Conversation Phase
 
 After `generate-comments`, comments are **proposed** (not
 yet committed to the review). Present your review approach
@@ -113,7 +125,7 @@ When the user is satisfied (e.g., "looks good", "proceed",
 "let's review"), call `overview` to promote proposed
 comments to pending and begin the structured review.
 
-### 4. Overview Phase
+### 5. Overview Phase
 
 Call `overview` to show the overview panel. This also
 promotes all proposed comments to pending. The user sees
@@ -125,7 +137,7 @@ The user presses 'r' to move on to review, or steers for
 feedback. If they steer, process their feedback and call
 `overview` again.
 
-### 5. Review Phase
+### 6. Review Phase
 
 Call `review` to show the review panel. One tab per changed
 file plus Desc and Scope tabs. Each tab has three views:
@@ -146,7 +158,7 @@ If the user steers:
   then call `review`.
 - General feedback: process and call `review`.
 
-### 6. Submit Phase
+### 7. Submit Phase
 
 Call `submit` to show the submit panel. You can optionally
 provide `review_body` and `verdict` to pre-fill.
@@ -158,7 +170,7 @@ steer to edit the body/verdict.
 If they steer, update `review_body`/`verdict` and call
 `submit` again.
 
-### 7. Post and Deactivate
+### 8. Post and Deactivate
 
 The submit panel's post action calls `post` automatically.
 If needed, call `post` directly. Then call `deactivate`

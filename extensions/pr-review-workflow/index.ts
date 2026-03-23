@@ -81,6 +81,9 @@ export default function prReview(pi: ExtensionAPI) {
 			"Use when the user wants to review someone else's PR, do a code review, or provide PR feedback.",
 			"Workflow: activate → generate-comments → DISCUSS → overview → review → submit → post → deactivate.",
 			"After activate, analyze the context and call 'generate-comments' with structured comments.",
+			"After gathering context and before generating review comments, use the ask tool to present your " +
+				"focus areas and get confirmation from the user. Include options for the user to adjust focus, " +
+				"skip areas, or add concerns.",
 			"After generate-comments, present your review approach conversationally and discuss with the user. " +
 				"Comments start as 'proposed'. Adjust with list/update/remove/add during discussion. " +
 				"When the user is satisfied, call 'overview' to promote proposed → pending.",
