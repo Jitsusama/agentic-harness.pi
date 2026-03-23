@@ -79,13 +79,17 @@ export default function prReview(pi: ExtensionAPI) {
 			"Review a pull request. Read the pr-review skill for methodology.",
 		promptGuidelines: [
 			"Use when the user wants to review someone else's PR, do a code review, or provide PR feedback.",
-			"Workflow: activate → generate-comments → overview → review → submit → post → deactivate.",
+			"Workflow: activate → generate-comments → DISCUSS → overview → review → submit → post → deactivate.",
 			"After activate, analyze the context and call 'generate-comments' with structured comments.",
-			"Call 'overview' to show the Phase 1 overview panel.",
+			"After generate-comments, present your review approach conversationally and discuss with the user. " +
+				"Comments start as 'proposed'. Adjust with list/update/remove/add during discussion. " +
+				"When the user is satisfied, call 'overview' to promote proposed → pending.",
+			"Call 'overview' to show the Phase 1 overview panel (also finalizes proposed comments).",
 			"Call 'review' to show the Phase 2 review panel with file tabs.",
 			"Use 'add-comment', 'update-comment', 'remove-comment' for comment management.",
 			"Use 'list-comments' to see all comments with their IDs.",
 			"'remove-comment' accepts comment_ids (array) for bulk removal.",
+			"When the user gives feedback during discussion, research first (read files, search patterns) before proposing changes.",
 			"Call 'submit' to show the final review summary, then 'post' to submit.",
 			"When calling 'activate', include the user's original request in user_request so cross-repo handoffs preserve context.",
 		],

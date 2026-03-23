@@ -43,6 +43,7 @@ import {
 
 /** Status glyphs for comments. */
 const COMMENT_GLYPH = {
+	proposed: "○",
 	pending: "●",
 	approved: "◆",
 	rejected: "✕",
@@ -487,7 +488,9 @@ function renderCommentList(
 				? "success"
 				: c.status === "rejected"
 					? "error"
-					: "accent";
+					: c.status === "proposed"
+						? "dim"
+						: "accent";
 
 		const lineRange =
 			c.startLine !== null

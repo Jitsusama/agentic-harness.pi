@@ -48,7 +48,8 @@ function buildDetailText(state: PRReviewState): string {
 				(t) => t.passed,
 			).length;
 			const tabCount = session.tabStates.size;
-			return `${prRef} · Review · ${passed}/${tabCount} tabs · ${total} comments (${stats.approved}✓ ${stats.rejected}✕ ${stats.pending}○)`;
+			const proposedPart = stats.proposed > 0 ? ` ${stats.proposed}◇` : "";
+			return `${prRef} · Review · ${passed}/${tabCount} tabs · ${total} comments (${stats.approved}✓ ${stats.rejected}✕ ${stats.pending}○${proposedPart})`;
 		}
 		case "submitting":
 			return `${prRef} · Submit review`;

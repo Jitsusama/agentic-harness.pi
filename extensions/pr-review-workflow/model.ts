@@ -106,6 +106,9 @@ export interface PRContext {
 /** Comment categories: determines which tab a comment appears in. */
 export type CommentCategory = "file" | "title" | "scope";
 
+/** Comment lifecycle status. */
+export type CommentStatus = "proposed" | "pending" | "approved" | "rejected";
+
 /** A review comment with lifecycle status. */
 export interface ReviewObservation {
 	id: string;
@@ -116,7 +119,7 @@ export interface ReviewObservation {
 	decorations: string[];
 	subject: string;
 	discussion: string;
-	status: "pending" | "approved" | "rejected";
+	status: CommentStatus;
 	source: "ai" | "user";
 	category: CommentCategory;
 }
@@ -164,15 +167,16 @@ function nextId(): string {
 	return `rc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Add a comment to the session. Returns the new comment. */
+/** Add a comment to the session. Defaults to pending status. */
 export function addComment(
 	session: ReviewSession,
 	data: Omit<ReviewObservation, "id" | "status">,
+	status: CommentStatus = "pending",
 ): ReviewObservation {
 	const comment: ReviewObservation = {
 		...data,
 		id: nextId(),
-		status: "pending",
+		status,
 	};
 	session.comments.push(comment);
 	return comment;
@@ -252,19 +256,34 @@ export function commentsForFile(
 
 /** Count comments by status. */
 export function commentStats(session: ReviewSession): {
+	proposed: number;
 	pending: number;
 	approved: number;
 	rejected: number;
 } {
+	let proposed = 0;
 	let pending = 0;
 	let approved = 0;
 	let rejected = 0;
 	for (const c of session.comments) {
-		if (c.status === "pending") pending++;
+		if (c.status === "proposed") proposed++;
+		else if (c.status === "pending") pending++;
 		else if (c.status === "approved") approved++;
 		else rejected++;
 	}
-	return { pending, approved, rejected };
+	return { proposed, pending, approved, rejected };
+}
+
+/** Promote all proposed comments to pending. */
+export function promoteProposedComments(session: ReviewSession): number {
+	let promoted = 0;
+	for (const c of session.comments) {
+		if (c.status === "proposed") {
+			c.status = "pending";
+			promoted++;
+		}
+	}
+	return promoted;
 }
 
 /** Check if a tab is passed (all comments resolved or explicit). */
