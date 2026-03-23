@@ -10,12 +10,11 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { getLastEntry } from "../lib/state.js";
-import {
-	type PRReplyState,
-	type ReceivedReview,
-	type ReviewThread,
-	type ThreadState,
-	threadsForReview,
+import type {
+	PRReplyState,
+	ReceivedReview,
+	ReviewThread,
+	ThreadState,
 } from "./state.js";
 
 /** Shape of PR reply data written to session history. */
@@ -49,6 +48,59 @@ const STATUS_GLYPH = "◈";
 /** Persist key for session history entries. */
 const PERSIST_KEY = "pr-reply";
 
+/** Derive the current workflow phase from thread states. */
+function derivePhase(state: PRReplyState): string {
+	for (const [, st] of state.threadStates) {
+		if (st === "implementing") return "Implementing";
+	}
+	for (const [, st] of state.threadStates) {
+		if (st === "addressed") return "Composing Reply";
+	}
+	return "Browsing";
+}
+
+/**
+ * Derive the current review position from workspace selection
+ * or legacy navigation index.
+ */
+function deriveReviewPosition(state: PRReplyState): number {
+	if (state.currentThreadId) {
+		const thread = state.threads.find((t) => t.id === state.currentThreadId);
+		if (thread) {
+			const idx = state.reviews.findIndex((r) =>
+				r.threadIds.includes(thread.id),
+			);
+			if (idx >= 0) return idx + 1;
+		}
+	}
+	return (state.reviewIndex ?? 0) + 1;
+}
+
+/** Build the detail widget text for the current state. */
+function buildDetailText(state: PRReplyState): string {
+	const prRef = `PR #${state.prNumber}`;
+	const phase = derivePhase(state);
+
+	const reviewPos = deriveReviewPosition(state);
+	const reviewSegment = `${reviewPos}/${state.reviews.length} reviews`;
+
+	let replied = 0;
+	let passed = 0;
+	let pending = 0;
+	for (const [, st] of state.threadStates) {
+		if (st === "replied" || st === "addressed") replied++;
+		else if (st === "passed") passed++;
+		else if (st === "pending") pending++;
+		// "implementing" counts as pending (in progress)
+	}
+	const done = replied + passed;
+	const total = state.threads.length;
+	const threadSegment = `${done}/${total} threads`;
+	const counts = `(${replied}✓ ${passed}↩ ${pending}○)`;
+
+	return `${prRef} · ${phase} · ${reviewSegment} · ${threadSegment} ${counts}`;
+}
+
 /** Update status line and widget to reflect current state. */
 function updateUI(state: PRReplyState, ctx: ExtensionContext): void {
 	if (!state.enabled) {
@@ -58,34 +110,12 @@ function updateUI(state: PRReplyState, ctx: ExtensionContext): void {
 	}
 
 	const theme = ctx.ui.theme;
-	const prRef = state.prNumber ? `#${state.prNumber}` : "?";
 	ctx.ui.setStatus(
 		PERSIST_KEY,
-		`${theme.fg("accent", STATUS_GLYPH)} ${theme.fg("muted", `PR ${prRef}`)}`,
+		`${theme.fg("accent", STATUS_GLYPH)} ${theme.fg("muted", "PR Reply")}`,
 	);
 
-	const review = state.reviews[state.reviewIndex];
-	if (!review) {
-		ctx.ui.setWidget("pr-reply-detail", undefined);
-		return;
-	}
-
-	const reviewThreads = threadsForReview(review, state.threads);
-	const thread = reviewThreads[state.threadIndexInReview];
-
-	const totalReviews = state.reviews.length;
-	const reviewProgress = `Review ${state.reviewIndex + 1}/${totalReviews}`;
-	const done = countDone(state);
-	const totalThreads = state.threads.length;
-
-	let detail: string;
-	if (thread) {
-		const threadProgress = `Thread ${state.threadIndexInReview + 1}/${reviewThreads.length}`;
-		detail = `${reviewProgress} (${review.author}) • ${threadProgress} • ${thread.file}:${thread.line} • ${review.state} [${done}/${totalThreads} total]`;
-	} else {
-		detail = `${reviewProgress} (${review.author}) • ${review.state} [${done}/${totalThreads} total]`;
-	}
-
+	const detail = buildDetailText(state);
 	ctx.ui.setWidget("pr-reply-detail", (_tui, theme) => ({
 		render(width: number): string[] {
 			const truncated = truncateToWidth(detail, width);
@@ -94,17 +124,6 @@ function updateUI(state: PRReplyState, ctx: ExtensionContext): void {
 			return [`${" ".repeat(pad)}${text}`];
 		},
 	}));
-}
-
-/** Count threads that are replied, addressed, or passed. */
-function countDone(state: PRReplyState): number {
-	let count = 0;
-	for (const [, value] of state.threadStates) {
-		if (value === "replied" || value === "addressed" || value === "passed") {
-			count++;
-		}
-	}
-	return count;
 }
 
 /** Enter PR reply mode for a specific PR. */
