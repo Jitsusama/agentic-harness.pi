@@ -114,6 +114,10 @@ function renderControlRow(opts: FooterOptions): string {
 	}
 
 	// Right: decisions
+	// Enter approve when actions are present (single prompt only).
+	if (opts.actions && opts.actions.length > 0 && !opts.hasTabs) {
+		rightParts.push(theme.fg("dim", "Enter approve"));
+	}
 	if (opts.hasTabs) {
 		const submit = "Ctrl+Enter submit";
 		rightParts.push(

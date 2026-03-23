@@ -172,6 +172,18 @@ function createSingleController(
 			return;
 		}
 
+		// Enter as default forward action when actions are present.
+		if (actions) {
+			if (matchesKey(data, Key.shift("enter"))) {
+				openEditor({ type: "annotatedAction", key: "__enter__" });
+				return;
+			}
+			if (matchesKey(data, Key.enter)) {
+				done({ type: "action", key: "__enter__" });
+				return;
+			}
+		}
+
 		if (actions) {
 			const result = handleActionInput(data, actions);
 			if (result) {

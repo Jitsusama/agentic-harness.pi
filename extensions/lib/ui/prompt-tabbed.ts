@@ -463,6 +463,18 @@ function createTabbedController(
 			return;
 		}
 
+		// Enter as default forward action for the current item.
+		if (actions && !isUserTab()) {
+			if (matchesKey(data, Key.shift("enter"))) {
+				openEditor({ type: "annotatedAction", key: "__enter__" });
+				return;
+			}
+			if (matchesKey(data, Key.enter)) {
+				handleItemResult({ type: "action", key: "__enter__" });
+				return;
+			}
+		}
+
 		if (actions) {
 			const result = handleActionInput(data, actions);
 			if (result) {
