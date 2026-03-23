@@ -255,13 +255,16 @@ formatting. **Run the linter after making code changes and before
 committing:**
 
 ```sh
-npm run lint        # check for issues
-npm run lint:fix    # auto-fix what it can
+npm run lint:fix    # auto-fix, then verify
+npm run lint        # confirm no remaining issues
 ```
 
-All code in `extensions/` must pass `npm run lint` cleanly (no
-errors, no warnings) before being committed. Fix the code to
-satisfy the linter rather than suppressing rules.
+Always run `lint:fix` first. Biome's auto-fixes are safe for
+this project (import ordering, formatting), so there's no
+reason to check before fixing. All code in `extensions/` must
+pass `npm run lint` cleanly (no errors, no warnings) before
+being committed. Fix the code to satisfy the linter rather
+than suppressing rules.
 
 ## Testing Changes
 
