@@ -198,6 +198,42 @@ export function removeComment(session: ReviewSession, id: string): boolean {
 	return true;
 }
 
+/**
+ * Remove multiple comments by ID. Returns which IDs were
+ * removed and which weren't found.
+ */
+export function removeComments(
+	session: ReviewSession,
+	ids: string[],
+): { removed: string[]; notFound: string[] } {
+	const removed: string[] = [];
+	const notFound: string[] = [];
+	for (const id of ids) {
+		if (removeComment(session, id)) {
+			removed.push(id);
+		} else {
+			notFound.push(id);
+		}
+	}
+	return { removed, notFound };
+}
+
+/** Format a comment as a single-line summary with its ID. */
+export function formatCommentSummary(c: ReviewObservation): string {
+	const location = c.file
+		? c.startLine !== null
+			? c.startLine !== c.endLine
+				? `${c.file}:L${c.startLine}-${c.endLine}`
+				: `${c.file}:L${c.startLine}`
+			: c.file
+		: "(PR-level)";
+
+	const decorStr =
+		c.decorations.length > 0 ? ` (${c.decorations.join(", ")})` : "";
+
+	return `[${c.id}] ${location} ${c.label}${decorStr}: ${c.subject} [${c.status}]`;
+}
+
 /** Filter comments by category. */
 export function commentsByCategory(
 	session: ReviewSession,

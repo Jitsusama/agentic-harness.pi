@@ -7,6 +7,7 @@
  * coaching text never leaks into data assembly.
  */
 
+import { formatCommentSummary } from "./model.js";
 import type { PRContext, ReviewSession } from "./state.js";
 
 /** Maximum diff characters before truncation. */
@@ -134,6 +135,13 @@ export function generateCommentsSummary(session: ReviewSession): string {
 	parts.push(`- ${fileComments.length} file comments`);
 	parts.push(`- ${scopeComments.length} scope comments`);
 	parts.push(`- ${titleComments.length} title/description comments`);
+
+	if (session.comments.length > 0) {
+		parts.push("");
+		for (const c of session.comments) {
+			parts.push(`- ${formatCommentSummary(c)}`);
+		}
+	}
 
 	return parts.join("\n");
 }

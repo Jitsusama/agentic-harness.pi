@@ -29,7 +29,8 @@ context or shows a panel.
 | `review` | Show Phase 2 review panel |
 | `add-comment` | Add a review comment |
 | `update-comment` | Edit an existing comment by ID |
-| `remove-comment` | Delete a comment by ID |
+| `remove-comment` | Delete comment(s) by ID or IDs |
+| `list-comments` | Show all comments with their IDs |
 | `submit` | Show final review summary panel |
 | `post` | Submit review to GitHub |
 | `deactivate` | Clean up and exit |
@@ -164,3 +165,5 @@ The steer note includes context about what was being viewed.
 - Don't comment on style when conventions aren't violated.
 - Don't leave blocking feedback without constructive guidance.
 - Don't add duplicate comments; use `update-comment` to edit.
+- Don't guess comment IDs; use `list-comments` to discover them.
+- Use `comment_ids` (array) with `remove-comment` for bulk removal.
