@@ -16,7 +16,6 @@ import {
 	getPRBranch,
 	type PRReference,
 	postReply,
-	refreshThreadComments,
 } from "./api/github.js";
 import { getCurrentBranch, resolvePR } from "./api/repo.js";
 import {
@@ -29,8 +28,6 @@ import {
 	reAnalyzeBriefing,
 	redirectBriefing,
 	replyChoiceBriefing,
-	reviewSummaryBriefing,
-	threadBriefing,
 } from "./briefing.js";
 import { readCodeContext } from "./code-context.js";
 import { checkDependentPRs } from "./dependency-chain.js";
@@ -41,7 +38,6 @@ import {
 	recordImplementationStart,
 } from "./implementation.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
-import { findPlanContext } from "./plans.js";
 import { buildReplyGuidance } from "./reply-guidance.js";
 import {
 	type PRReplyState,
@@ -50,7 +46,7 @@ import {
 	threadsForReview,
 } from "./state.js";
 import { buildAnalysisPrompt } from "./thread-context.js";
-import { showReviewOverviewPanel, showSummaryPanel } from "./ui/panels.js";
+import { showSummaryPanel } from "./ui/panels.js";
 import { showPlanGate } from "./ui/plan-gate.js";
 import { showReplyReview } from "./ui/reply-review.js";
 import { showThreadGate, type ThreadGateChoice } from "./ui/thread-gate.js";
@@ -373,229 +369,6 @@ export async function handleReviewWorkspace(
 
 	return plainTextResponse(
 		"Action applied. Call 'review' to reopen the workspace.",
-	);
-}
-
-/**
- * Advance to the next item in the review → thread cascade.
- *
- * Navigation order:
- *   1. Reviews sorted by priority (CHANGES_REQUESTED → COMMENTED → APPROVED)
- *   2. Within each review, threads sorted by file then line
- *   3. When entering a new review, return review summary
- *   4. When within a review, return next thread data
- */
-export async function handleNext(
-	state: PRReplyState,
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-) {
-	if (!state.enabled) {
-		return plainTextResponse("PR reply mode is not active.");
-	}
-
-	while (state.reviewIndex < state.reviews.length) {
-		const review = state.reviews[state.reviewIndex];
-		if (!review) break;
-
-		// New review: return its summary for analysis
-		if (!state.reviewIntroduced) {
-			const reviewThreads = threadsForReview(review, state.threads);
-			const pendingThreads = reviewThreads.filter(
-				(t) => state.threadStates.get(t.id) === "pending",
-			);
-
-			if (pendingThreads.length === 0) {
-				state.reviewIndex++;
-				continue;
-			}
-
-			state.reviewIntroduced = true;
-			state.threadIndexInReview = 0;
-			refreshUI(state, ctx);
-			persist(state, pi);
-
-			return {
-				content: [
-					{
-						type: "text" as const,
-						text: reviewSummaryBriefing(review, pendingThreads),
-					},
-				],
-				details: {
-					action: "review-summary",
-					reviewId: review.id,
-					reviewer: review.author,
-				},
-			};
-		}
-
-		// We look for the next pending thread within this review.
-		const reviewThreads = threadsForReview(review, state.threads);
-		const nextThread = findNextPendingInReview(state, reviewThreads);
-
-		if (!nextThread) {
-			state.reviewIndex++;
-			state.reviewIntroduced = false;
-			state.threadIndexInReview = 0;
-			continue;
-		}
-
-		state.threadIndexInReview = reviewThreads.indexOf(nextThread);
-		refreshUI(state, ctx);
-		persist(state, pi);
-
-		// We re-fetch comments so the thread reflects any new replies.
-		if (state.owner && state.repo && state.prNumber) {
-			await refreshThreadComments(
-				pi,
-				{ owner: state.owner, repo: state.repo, number: state.prNumber },
-				nextThread,
-			);
-			if (nextThread.isResolved) {
-				state.threadStates.set(nextThread.id, "passed");
-				persist(state, pi);
-				return handleNext(state, pi, ctx);
-			}
-		}
-
-		const contextLine = nextThread.line || nextThread.originalLine || 0;
-		const codeContext =
-			contextLine > 0
-				? await readCodeContext(pi, nextThread.file, contextLine)
-				: null;
-		const planContext = findPlanContext(ctx.cwd, nextThread.file);
-
-		const analysisContext = buildAnalysisPrompt(
-			nextThread,
-			review,
-			codeContext?.source ?? null,
-			planContext,
-		);
-
-		const progressLine = progressBriefing(state);
-
-		return {
-			content: [
-				{
-					type: "text" as const,
-					text: threadBriefing(progressLine, analysisContext),
-				},
-			],
-			details: {
-				action: "next",
-				threadId: nextThread.id,
-				file: nextThread.file,
-				line: contextLine,
-			},
-		};
-	}
-
-	// Every review has been addressed at this point.
-	return plainTextResponse(
-		"All reviews and threads addressed. Call pr_reply with action 'deactivate' to finish.",
-	);
-}
-
-/** Show the review overview panel with the LLM's analysis. */
-export async function handleReview(
-	state: PRReplyState,
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-	analysis: string,
-) {
-	if (!state.enabled) {
-		return plainTextResponse("PR reply mode is not active.");
-	}
-
-	const review = state.reviews[state.reviewIndex];
-	if (!review) {
-		return plainTextResponse("No active review. Call 'next' first.");
-	}
-
-	const pendingThreads = threadsForReview(review, state.threads).filter(
-		(t) => state.threadStates.get(t.id) === "pending",
-	);
-
-	const proceed = await showReviewOverviewPanel(
-		ctx,
-		review,
-		pendingThreads,
-		analysis,
-	);
-
-	if (!proceed) {
-		for (const t of pendingThreads) {
-			state.threadStates.set(t.id, "passed");
-		}
-		persist(state, pi);
-		return plainTextResponse(
-			`Passed review from ${review.author} (${pendingThreads.length} threads). ` +
-				"Call 'next' to continue.",
-		);
-	}
-
-	return plainTextResponse(
-		`Review from ${review.author} acknowledged. ` +
-			`${pendingThreads.length} thread${pendingThreads.length !== 1 ? "s" : ""} to review. ` +
-			"Call 'next' to start.",
-	);
-}
-
-/** Show the thread decision gate with the LLM's recommendation. */
-export async function handleShow(
-	state: PRReplyState,
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-	recommendation: string,
-) {
-	if (!state.enabled) {
-		return plainTextResponse("PR reply mode is not active.");
-	}
-
-	const thread = currentThread(state);
-	if (!thread) {
-		return plainTextResponse("No current thread. Call 'next' first.");
-	}
-
-	// We hide the widget while the prompt is up so they don't overlap.
-	ctx.ui.setWidget("pr-reply-detail", undefined);
-
-	const review = state.reviews.find((r) => r.threadIds.includes(thread.id));
-	const contextLine = thread.line || thread.originalLine || 0;
-	const progressLine = progressBriefing(state);
-
-	const codeContext =
-		contextLine > 0
-			? await readCodeContext(pi, thread.file, contextLine)
-			: null;
-
-	const redirectContext = buildAnalysisPrompt(
-		thread,
-		review ?? state.reviews[0],
-		codeContext?.source ?? null,
-		null,
-	);
-
-	const choice = await showThreadGate(
-		ctx,
-		thread,
-		review,
-		codeContext,
-		recommendation,
-		progressLine,
-	);
-
-	// We restore the widget after the prompt closes.
-	refreshUI(state, ctx);
-
-	return applyThreadChoice(
-		state,
-		pi,
-		choice,
-		thread,
-		contextLine,
-		redirectContext,
 	);
 }
 
@@ -1011,17 +784,4 @@ function currentThread(state: PRReplyState): ReviewThread | null {
 	if (!review) return null;
 	const reviewThreads = threadsForReview(review, state.threads);
 	return reviewThreads[state.threadIndexInReview] ?? null;
-}
-
-/** Find the next pending thread within a review's threads. */
-function findNextPendingInReview(
-	state: PRReplyState,
-	reviewThreads: ReviewThread[],
-): ReviewThread | null {
-	for (const thread of reviewThreads) {
-		if (state.threadStates.get(thread.id) === "pending") {
-			return thread;
-		}
-	}
-	return null;
 }

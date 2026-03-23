@@ -9,7 +9,6 @@
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import { promptSingle } from "../../lib/ui/panel.js";
 import {
 	type DependentPR,
@@ -89,68 +88,6 @@ export async function showSummaryPanel(
 	});
 
 	return result !== null;
-}
-
-/**
- * Show a review overview panel: reviewer, state, body, thread list.
- * Shown once before iterating that review's threads.
- * Returns true if user wants to proceed, false if cancelled.
- */
-export async function showReviewOverviewPanel(
-	ctx: ExtensionContext,
-	review: ReceivedReview,
-	pendingThreads: ReviewThread[],
-	analysis: string,
-): Promise<boolean> {
-	const result = await promptSingle(ctx, {
-		content: (theme: Theme, width: number) => {
-			const lines: string[] = [];
-
-			lines.push(
-				theme.fg("accent", theme.bold(`Review from ${review.author}`)),
-			);
-			lines.push(theme.fg("muted", `State: ${review.state}`));
-			lines.push(
-				theme.fg(
-					"muted",
-					`${pendingThreads.length} thread${pendingThreads.length !== 1 ? "s" : ""} to review`,
-				),
-			);
-			lines.push("");
-
-			if (review.body) {
-				lines.push(theme.fg("dim", "─".repeat(Math.min(width, 40))));
-				lines.push("");
-				lines.push(...renderMarkdown(review.body, theme, width));
-				lines.push("");
-			}
-
-			lines.push(theme.fg("dim", "Threads:"));
-			for (const t of pendingThreads) {
-				const firstComment = t.comments[0];
-				const snippet = firstComment
-					? firstComment.body.slice(0, 60).replace(/\n/g, " ")
-					: "";
-				const ellipsis = (firstComment?.body.length ?? 0) > 60 ? "…" : "";
-				lines.push(`  • ${t.file}:${t.line}: ${snippet}${ellipsis}`);
-			}
-			lines.push("");
-
-			if (analysis) {
-				lines.push(theme.fg("dim", "─".repeat(Math.min(width, 40))));
-				lines.push("");
-				lines.push(...renderMarkdown(analysis, theme, width));
-			}
-
-			return lines;
-		},
-		actions: [{ key: "p", label: "Pass" }],
-	});
-
-	if (!result) return false;
-	if (result.type === "action" && result.key === "p") return false;
-	// Enter = continue
-	return true;
 }
 
 /**
