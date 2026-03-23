@@ -45,7 +45,7 @@ pr_reply(action: "generate-analysis", analyses: [...], reviewer_analyses: [...])
 
 For each thread, provide:
 - `thread_id`: the thread ID from the activation data.
-- `recommendation`: implement, reply, skip or defer.
+- `recommendation`: implement, reply or pass.
 - `analysis`: your reasoning (shown to the user in the
   workspace).
 
@@ -62,10 +62,8 @@ chooses actions directly in the workspace.
 
 The workspace has:
 - **Summary tab**: PR overview, progress tracker.
-- **Reviewer tabs** (one per reviewer) with:
-  - `[o] Overview`: reviewer comment, thread summary list.
-  - `[t] Threads`: selectable list with your recommendation.
-  - `[s] Source`: code around the selected thread.
+- **Reviewer tabs** (one per reviewer): selectable thread
+  list with your recommendation for each thread.
 
 ### Step 4: Handle Actions
 
@@ -179,8 +177,8 @@ When implementing with TDD after plan approval:
 2. Propose a plan with `pr_reply(action: "propose-plan", ...)`.
 3. After approval, start TDD with `tdd_phase(action: "start")`.
 4. Go through red-green-refactor cycles.
-5. When TDD signals done, commits are automatically tracked.
-6. Call `pr_reply(action: "done", reply_body: "...")`.
+5. When TDD is done, call `pr_reply(action: "done", reply_body: "...")`
+   to collect commits and post the reply.
 
 ## Error Recovery
 

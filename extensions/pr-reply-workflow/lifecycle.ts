@@ -37,8 +37,6 @@ interface PersistedState {
 		threadIndices: Array<[string, number]>;
 	} | null;
 	threadCommits?: Array<[string, string[]]>;
-	awaitingTDDCompletion?: boolean;
-	tddThreadId?: string | null;
 	implementationStartSHA?: string | null;
 }
 
@@ -196,8 +194,6 @@ export function persist(state: PRReplyState, pi: ExtensionAPI): void {
 				}
 			: null,
 		threadCommits: Array.from(state.threadCommits.entries()),
-		awaitingTDDCompletion: state.awaitingTDDCompletion,
-		tddThreadId: state.tddThreadId,
 		implementationStartSHA: state.implementationStartSHA,
 	});
 }
@@ -215,8 +211,6 @@ export function restore(state: PRReplyState, ctx: ExtensionContext): void {
 	state.branch = saved.branch ?? null;
 	state.reviews = saved.reviews ?? [];
 	state.threads = saved.threads ?? [];
-	state.awaitingTDDCompletion = saved.awaitingTDDCompletion ?? false;
-	state.tddThreadId = saved.tddThreadId ?? null;
 	state.implementationStartSHA = saved.implementationStartSHA ?? null;
 
 	if (saved.threadStates) {

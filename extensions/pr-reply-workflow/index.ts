@@ -35,12 +35,7 @@ import {
 	handleReviewWorkspace,
 	handleShow,
 } from "./handlers.js";
-import {
-	collectImplementationCommits,
-	handleTDDCompletion,
-	linkCommitsToThread,
-} from "./implementation.js";
-import { persist, restore, toggle } from "./lifecycle.js";
+import { restore, toggle } from "./lifecycle.js";
 import { createPRReplyState } from "./state.js";
 import { injectReplyGuidance, pruneStaleReplyGuidance } from "./transitions.js";
 
@@ -263,23 +258,6 @@ export default function prReply(pi: ExtensionAPI) {
 	pi.registerCommand("pr-reply", {
 		description: "Toggle PR reply mode",
 		handler: async (_args, ctx) => toggle(state, pi, ctx),
-	});
-
-	pi.on("tool_result", async (event) => {
-		if (!state.enabled || !state.awaitingTDDCompletion) return;
-		if (event.toolName !== "tdd_phase") return;
-
-		const details = event.details as { action?: string } | undefined;
-		if (details?.action !== "done" && details?.action !== "stop") return;
-
-		handleTDDCompletion(state);
-
-		const commits = await collectImplementationCommits(state, pi);
-		if (state.tddThreadId) {
-			linkCommitsToThread(state, state.tddThreadId, commits);
-		}
-
-		persist(state, pi);
 	});
 
 	pi.on("before_agent_start", async () => {

@@ -49,10 +49,6 @@ export function injectReplyGuidance(state: PRReplyState) {
 		}
 	}
 
-	if (state.awaitingTDDCompletion) {
-		parts.push("Awaiting TDD completion for current thread");
-	}
-
 	return {
 		message: {
 			customType: CONTEXT_TYPE,
