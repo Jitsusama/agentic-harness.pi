@@ -47,11 +47,22 @@ When creating a PR that depends on another PR's branch:
 
 1. Base the new branch on the predecessor's branch, not
    on `main`.
-2. Set the PR's base to the predecessor's branch:
+2. **Verify the current branch** before creating the PR.
+   `gh pr create` always uses the current checkout as
+   the head branch, regardless of `--head`. Confirm
+   with a separate bash call:
+   ```bash
+   git branch --show-current
+   ```
+3. Set the PR's base to the predecessor's branch:
    ```bash
    gh pr create --base predecessor-branch ...
    ```
-3. Update the parent PR's description with the `👉`
+4. After creation, verify the head is correct:
+   ```bash
+   gh pr view NUMBER --json headRefName --jq .headRefName
+   ```
+5. Update the parent PR's description with the `👉`
    link per `github-pr-format`.
 
 ## Verifying the Chain Before Merging
