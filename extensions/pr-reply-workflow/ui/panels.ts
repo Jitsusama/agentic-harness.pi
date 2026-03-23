@@ -86,14 +86,9 @@ export async function showSummaryPanel(
 
 			return lines;
 		},
-		actions: [
-			{ key: "b", label: "Begin Review" },
-			{ key: "c", label: "Cancel" },
-		],
 	});
 
-	if (!result) return false;
-	return result.type === "action" && result.key === "b";
+	return result !== null;
 }
 
 /**
@@ -149,14 +144,13 @@ export async function showReviewOverviewPanel(
 
 			return lines;
 		},
-		actions: [
-			{ key: "c", label: "Continue" },
-			{ key: "p", label: "Pass Review" },
-		],
+		actions: [{ key: "p", label: "Pass" }],
 	});
 
 	if (!result) return false;
-	return result.type === "action" && result.key === "c";
+	if (result.type === "action" && result.key === "p") return false;
+	// Enter = continue
+	return true;
 }
 
 /**
@@ -187,12 +181,11 @@ export async function showRebasePanel(
 
 			return lines;
 		},
-		actions: [
-			{ key: "r", label: "Rebase All" },
-			{ key: "s", label: "Skip" },
-		],
+		actions: [{ key: "p", label: "Pass" }],
 	});
 
-	if (!result || result.type !== "action") return null;
-	return result.key === "r" ? "rebase" : "skip";
+	if (!result) return null;
+	if (result.type === "action" && result.key === "p") return "skip";
+	// Enter = rebase
+	return "rebase";
 }

@@ -102,7 +102,6 @@ export async function showSubmitPanel(
 
 			return lines;
 		},
-		actions: [{ key: "p", label: "Post review" }],
 		allowHScroll: true,
 	});
 
@@ -112,11 +111,8 @@ export async function showSubmitPanel(
 		return { action: "redirect", note: result.note };
 	}
 
-	if (result.type === "action" && result.key === "p") {
-		return { action: "post" };
-	}
-
-	return null;
+	// Enter = post
+	return { action: "post" };
 }
 
 /** Format a comment as a one-line summary. */

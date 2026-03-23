@@ -316,7 +316,6 @@ function buildCommentsView(
 		key: "2",
 		label: "Comments",
 		actions: [
-			{ key: "a", label: "Approve" },
 			{ key: "r", label: "Reject" },
 			{ key: "n", label: "New" },
 		],
@@ -356,8 +355,8 @@ function buildCommentsView(
 			const vc = fileComments[getIndex()];
 			if (!vc) return false;
 
-			// Approve
-			if (matchesKey(data, "a")) {
+			// Approve (Enter)
+			if (matchesKey(data, Key.enter)) {
 				vc.status = "approved";
 				checkTabAutoPassed(filePath, fileComments, tabPassed);
 				advanceToNextPending(fileComments, getIndex, setIndex);

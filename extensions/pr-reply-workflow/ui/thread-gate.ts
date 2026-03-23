@@ -22,7 +22,7 @@ export type ThreadGateChoice =
 
 /** Map from prompt action keys to domain actions. */
 const ACTION_BY_KEY: Record<string, ThreadGateChoice["action" & string]> = {
-	r: "reply",
+	w: "reply",
 	p: "pass",
 };
 
@@ -105,7 +105,7 @@ export async function showThreadGate(
 			return lines;
 		},
 		actions: [
-			{ key: "r", label: "Reply" },
+			{ key: "w", label: "Write" },
 			{ key: "p", label: "Pass" },
 		],
 		allowHScroll: true,
@@ -116,6 +116,9 @@ export async function showThreadGate(
 	if (result.type === "redirect") {
 		return { action: "redirect", feedback: result.note };
 	}
+
+	// Enter = implement (default forward action)
+	if (result.key === "__enter__") return { action: "implement" };
 
 	const action = ACTION_BY_KEY[result.key] ?? "pass";
 	return { action };

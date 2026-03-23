@@ -97,15 +97,9 @@ export async function confirmSendEmail(
 			}
 			return lines;
 		},
-		actions: [
-			{ key: "s", label: "Send" },
-			{ key: "c", label: "Cancel" },
-		],
 	});
 
-	if (!result || (result.type === "action" && result.key === "c")) {
-		return null;
-	}
+	if (!result) return null;
 	const redirect = extractRedirect(
 		result,
 		`Original email to: ${email.to.join(", ")}\nSubject: ${email.subject}`,
@@ -138,21 +132,20 @@ export async function confirmDeleteEmail(
 			);
 			return lines;
 		},
-		actions: [
-			{ key: "d", label: "Delete" },
-			{ key: "c", label: "Cancel" },
-		],
+		actions: [{ key: "d", label: "Delete" }],
 	});
 
-	if (!result || (result.type === "action" && result.key === "c")) {
-		return null;
-	}
+	if (!result) return null;
 	const redirect = extractRedirect(
 		result,
 		`Delete email ${subject ? `"${subject}"` : messageId}`,
 	);
 	if (redirect) return redirect;
-	return { approved: true, data: true };
+	// Only the explicit Delete key triggers deletion (destructive).
+	if (result.type === "action" && result.key === "d") {
+		return { approved: true, data: true };
+	}
+	return null;
 }
 
 /**
@@ -195,15 +188,9 @@ export async function confirmCreateEvent(
 			lines.push(" Invitations will be sent to all attendees.");
 			return lines;
 		},
-		actions: [
-			{ key: "c", label: "Create" },
-			{ key: "x", label: "Cancel" },
-		],
 	});
 
-	if (!result || (result.type === "action" && result.key === "x")) {
-		return null;
-	}
+	if (!result) return null;
 	const redirect = extractRedirect(
 		result,
 		`Create event: ${event.summary}\nAttendees: ${event.attendees.join(", ")}`,
@@ -253,15 +240,9 @@ export async function confirmUpdateEvent(
 			lines.push(" Attendees will be notified of the changes.");
 			return lines;
 		},
-		actions: [
-			{ key: "u", label: "Update" },
-			{ key: "c", label: "Cancel" },
-		],
 	});
 
-	if (!result || (result.type === "action" && result.key === "c")) {
-		return null;
-	}
+	if (!result) return null;
 	const redirect = extractRedirect(
 		result,
 		`Update event: ${existingEvent.summary}\nChanges: ${changes.join(", ")}`,
@@ -295,16 +276,15 @@ export async function confirmDeleteEvent(
 			lines.push(" Attendees will be notified of the cancellation.");
 			return lines;
 		},
-		actions: [
-			{ key: "d", label: "Delete" },
-			{ key: "c", label: "Cancel" },
-		],
+		actions: [{ key: "d", label: "Delete" }],
 	});
 
-	if (!result || (result.type === "action" && result.key === "c")) {
-		return null;
-	}
+	if (!result) return null;
 	const redirect = extractRedirect(result, `Delete event: ${summary}`);
 	if (redirect) return redirect;
-	return { approved: true, data: true };
+	// Only the explicit Delete key triggers deletion (destructive).
+	if (result.type === "action" && result.key === "d") {
+		return { approved: true, data: true };
+	}
+	return null;
 }

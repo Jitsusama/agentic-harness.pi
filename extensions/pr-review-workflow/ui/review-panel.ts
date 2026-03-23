@@ -51,7 +51,6 @@ const COMMENT_GLYPH = {
 
 /** Comment mode actions. */
 const COMMENT_ACTIONS: KeyAction[] = [
-	{ key: "a", label: "Approve" },
 	{ key: "r", label: "Reject" },
 	{ key: "n", label: "New" },
 ];
@@ -565,8 +564,8 @@ function handleCommentInput(
 	const comment = comments[getIndex()];
 	if (!comment) return false;
 
-	// Approve
-	if (matchesKey(data, "a")) {
+	// Approve (Enter)
+	if (matchesKey(data, Key.enter)) {
 		comment.status = "approved";
 		checkTabAutoPassed(session, tabId, comments);
 		advanceToNextPending(comments, getIndex, setIndex);
