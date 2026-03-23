@@ -63,14 +63,13 @@ export async function showOverviewPanel(
 
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
-		globalActions: [{ key: "r", label: "Review" }],
 		tabStatus: () => "pending",
-		allComplete: () => false,
+		allComplete: () => true,
 	});
 
 	if (!result) return null;
 
-	if (result.type === "action" && result.key === "r") {
+	if (result.type === "submit") {
 		return { action: "review" };
 	}
 

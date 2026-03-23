@@ -172,6 +172,20 @@ function createSingleController(
 			return;
 		}
 
+		// Enter as default forward action. Fires when actions are
+		// present, or when neither actions nor options are present
+		// (binary Enter/Escape gate).
+		if (actions || !options) {
+			if (matchesKey(data, Key.shift("enter"))) {
+				openEditor({ type: "annotatedAction", key: "__enter__" });
+				return;
+			}
+			if (matchesKey(data, Key.enter)) {
+				done({ type: "action", key: "__enter__" });
+				return;
+			}
+		}
+
 		if (actions) {
 			const result = handleActionInput(data, actions);
 			if (result) {
@@ -286,6 +300,7 @@ function createSingleController(
 				theme,
 				width,
 				actions,
+				options,
 				needsVScroll,
 				needsHScroll,
 			})) {

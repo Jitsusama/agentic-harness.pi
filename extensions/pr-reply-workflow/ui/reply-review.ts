@@ -45,10 +45,7 @@ export async function showReplyReview(
 			lines.push(...renderMarkdown(draftReply, theme, width));
 			return lines;
 		},
-		actions: [
-			{ key: "a", label: "Approve" },
-			{ key: "r", label: "Reject" },
-		],
+		actions: [{ key: "r", label: "Reject" }],
 	});
 
 	if (!result) {
@@ -73,5 +70,6 @@ export async function showReplyReview(
 		return { approved: false, reason };
 	}
 
+	// Enter = approved
 	return { approved: true };
 }

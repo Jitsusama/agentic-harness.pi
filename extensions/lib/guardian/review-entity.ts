@@ -31,10 +31,7 @@ export interface ReviewableEntity {
 	readonly body: string | null;
 }
 
-const REVIEW_ACTIONS = [
-	{ key: "a", label: "Approve" },
-	{ key: "r", label: "Reject" },
-];
+const REVIEW_ACTIONS = [{ key: "r", label: "Reject" }];
 
 /**
  * Present a markdown entity for human review and return the
@@ -98,24 +95,27 @@ export async function reviewMarkdownEntity(
 	}
 
 	if (result.type === "action") {
-		if (result.key === "a") {
+		// Reject
+		if (result.key === "r") {
 			if (result.note) {
 				return formatRedirectBlock(
 					result.note,
 					`${originalPrefix}:\n${redirectContext}`,
 				);
 			}
-			return ALLOW;
+			return {
+				block: true,
+				reason: `User rejected the ${config.entityLabel}. Ask for guidance on the ${config.entityLabel} description.`,
+			};
 		}
+
+		// Enter (approve)
 		if (result.note) {
 			return formatRedirectBlock(
 				result.note,
 				`${originalPrefix}:\n${redirectContext}`,
 			);
 		}
-		return {
-			block: true,
-			reason: `User rejected the ${config.entityLabel}. Ask for guidance on the ${config.entityLabel} description.`,
-		};
+		return ALLOW;
 	}
 }

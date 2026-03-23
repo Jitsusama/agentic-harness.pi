@@ -51,10 +51,7 @@ function buildSuggestionItem(
 				},
 			},
 		],
-		actions: [
-			{ key: "a", label: "Approve" },
-			{ key: "r", label: "Reject" },
-		],
+		actions: [{ key: "r", label: "Reject" }],
 	};
 }
 
@@ -91,7 +88,7 @@ export async function showRefactorGate(
 		const suggestion = suggestions[i];
 		if (!suggestion) continue;
 
-		if (itemResult.type === "action" && itemResult.key === "a") {
+		if (itemResult.type === "action" && itemResult.key === "__enter__") {
 			approved.push(suggestion);
 		} else if (itemResult.type === "action" && itemResult.key === "r") {
 			rejected++;
