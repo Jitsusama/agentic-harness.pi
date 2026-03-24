@@ -16,6 +16,11 @@ keeping a linear dependency order. This skill covers
 how to detect, create, retarget and merge stacked PRs
 safely.
 
+For merge strategy, branch deletion defaults and
+post-merge local cleanup, see `github-pr-merge-convention`.
+This skill adds the stack-specific constraints on top
+of those defaults.
+
 ## Detecting a Stack
 
 Before merging or rebasing any PR, check whether it's
@@ -149,20 +154,10 @@ after the full stack is merged.
 
 ## Cleaning Up After a Full Merge
 
-Once every PR in the stack is merged, delete all the
-stale remote branches:
-
-```bash
-git push origin --delete branch-1 branch-2 branch-3
-```
-
-Then clean up local branches and prune stale remote
-tracking refs:
-
-```bash
-git branch -D branch-1 branch-2 branch-3
-git fetch --prune
-```
+Once every PR in the stack is merged, follow the
+post-merge local hygiene steps from
+`github-pr-merge-convention`, batching all the stale
+branches together.
 
 ## Rebasing a Stack
 
