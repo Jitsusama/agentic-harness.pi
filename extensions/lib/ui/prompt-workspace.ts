@@ -378,6 +378,7 @@ function createWorkspaceController(
 				add(line);
 			}
 		} else {
+			const view = currentView();
 			lines.push("");
 			for (const line of renderFooter({
 				theme,
@@ -387,6 +388,7 @@ function createWorkspaceController(
 				allComplete: config.allComplete(),
 				views: views.length > 1 ? views : undefined,
 				activeViewIndex: viewIdx,
+				enterHint: view?.enterHint,
 				needsVScroll,
 				needsHScroll,
 			})) {

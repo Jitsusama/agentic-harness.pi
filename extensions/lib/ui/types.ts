@@ -241,6 +241,12 @@ export interface WorkspaceView {
 	/** Actions specific to this view. */
 	actions?: KeyAction[];
 	/**
+	 * Short verb shown as "Enter {hint}" in the footer when this
+	 * view handles Enter (e.g., "approve", "open", "select").
+	 * Omit when the view doesn't handle Enter.
+	 */
+	enterHint?: string;
+	/**
 	 * Handle input for this view. Called BEFORE default
 	 * handling (scroll, tabs). Return true if handled.
 	 * Use for selectable lists, per-view actions, etc.

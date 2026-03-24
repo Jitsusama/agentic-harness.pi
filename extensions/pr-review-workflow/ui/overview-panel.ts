@@ -154,6 +154,7 @@ function buildReferencesTab(
 	const refView: WorkspaceView = {
 		key: "2",
 		label: "References",
+		enterHint: "open",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 			const wrapWidth = contentWrapWidth(width);
@@ -243,6 +244,7 @@ function buildSourceTab(
 	const sourceView: WorkspaceView = {
 		key: "3",
 		label: "Source",
+		enterHint: "open",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 			const wrapWidth = contentWrapWidth(width);

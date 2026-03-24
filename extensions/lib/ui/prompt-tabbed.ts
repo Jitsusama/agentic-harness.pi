@@ -635,13 +635,14 @@ function createTabbedController(
 			for (const line of renderFooter({
 				theme,
 				width,
-				actions: !onUserTab ? actions : undefined,
+				actions,
 				hasTabs: true,
 				isUserTab: onUserTab,
 				allComplete: results.size >= config.items.length,
 				views: !onUserTab && views.length > 1 ? views : undefined,
 				activeViewIndex: viewIdx,
 				showRedirectHint: !onUserTab,
+				enterHint: !onUserTab && actions ? "approve" : undefined,
 				needsVScroll,
 				needsHScroll,
 			})) {

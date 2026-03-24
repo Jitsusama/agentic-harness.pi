@@ -319,6 +319,7 @@ function buildCommentsView(
 			{ key: "r", label: "Reject" },
 			{ key: "n", label: "New" },
 		],
+		enterHint: "approve",
 		content: (theme: Theme, width: number) => {
 			return renderCommentList(fileComments, getIndex(), theme, width);
 		},
