@@ -38,8 +38,9 @@ it does:
   `history-guardian`
 
 - **Interceptors** (`*-interceptor`): intercept shell commands
-  and modify them silently, without a review gate.
-  `attribution-interceptor`
+  and modify or block them silently, without a review gate.
+  `attribution-interceptor`, `git-cli-interceptor`,
+  `github-cli-interceptor`
 
 - **Workflows** (`*-workflow`): orchestrate a multi-step or
   session-wide process with state and stages. This covers
