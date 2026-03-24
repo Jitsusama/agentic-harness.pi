@@ -234,7 +234,7 @@ function horizontalSlice(text: string, offset: number, width: number): string {
 			while (i < text.length && !/[A-Za-z]/.test(text[i] ?? "")) i++;
 			i++;
 			const esc = text.slice(escStart, i);
-			if (esc === "\x1b[0m" || esc === "\x1b[m") {
+			if (esc === "\x1b[0m" || esc === "\x1b[m" || esc === "\x1b[39m") {
 				activeEscapes = "";
 			} else {
 				activeEscapes += esc;

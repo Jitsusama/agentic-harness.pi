@@ -120,7 +120,7 @@ export function parseDiff(diff: string): DiffFile[] {
 	for (const section of fileSections) {
 		const lines = section.split("\n");
 		const headerMatch = lines[0]?.match(/a\/(.+?) b\/(.+)/);
-		if (!headerMatch) continue;
+		if (!headerMatch?.[2]) continue;
 
 		const newPath = headerMatch[2];
 		let status: DiffFile["status"] = "modified";
@@ -185,10 +185,10 @@ export function parseDiff(diff: string): DiffFile[] {
 				currentHunk.lines.push(diffLine);
 				oldLine++;
 				deletions++;
-			} else if (line.startsWith(" ") || line === "") {
+			} else if (line.startsWith(" ")) {
 				const diffLine: DiffLine = {
 					type: "context",
-					content: line.startsWith(" ") ? line.slice(1) : line,
+					content: line.slice(1),
 					oldLineNumber: oldLine,
 					newLineNumber: newLine,
 				};

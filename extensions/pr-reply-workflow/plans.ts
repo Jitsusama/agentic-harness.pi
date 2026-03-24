@@ -102,6 +102,7 @@ function isDirectory(p: string): boolean {
 	try {
 		return fs.statSync(p).isDirectory();
 	} catch {
+		/* Path doesn't exist or isn't accessible */
 		return false;
 	}
 }

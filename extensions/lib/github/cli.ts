@@ -3,7 +3,8 @@
  * multi-value flag extraction and command rebuilding for gh
  * pr/issue create/edit commands.
  *
- * Depends on shell-level primitives from ./command.ts for quoting.
+ * Depends on shell-level primitives from lib/guardian/shell.ts
+ * for quoting and heredoc parsing.
  */
 
 import {

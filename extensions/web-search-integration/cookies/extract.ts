@@ -110,7 +110,7 @@ interface CookieRow {
 	samesite: number;
 }
 
-function queryCookies(
+async function queryCookies(
 	dbPath: string,
 	hostKeys: string[],
 ): Promise<CookieRow[]> {
@@ -123,11 +123,11 @@ function queryCookies(
 		}
 	}
 
-	// We lazy-require sqlite3 because it's a native module and
+	// We lazy-import sqlite3 because it's a native module and
 	// we only want to load it when cookies are actually needed,
 	// not on every extension load.
-	const sqlite3 = require("sqlite3");
-	const db = new sqlite3.Database(tmpDb, sqlite3.OPEN_READONLY);
+	const sqlite3 = await import("sqlite3");
+	const db = new sqlite3.default.Database(tmpDb, sqlite3.default.OPEN_READONLY);
 
 	const placeholders = hostKeys.map(() => "?").join(", ");
 	const sql = `

@@ -123,7 +123,8 @@ export function extractCommitFlags(commitPart: string): string[] {
 	if (/--no-verify\b/.test(commitPart)) flags.push("--no-verify");
 	if (/--allow-empty\b/.test(commitPart)) flags.push("--allow-empty");
 	if (/--signoff\b|\s-s\b/.test(commitPart)) flags.push("--signoff");
-	if (/-a\b/.test(commitPart)) flags.push("-a");
+	// Matches both standalone `-a` and combined `-am` forms.
+	if (/-a\b|-am\b/.test(commitPart)) flags.push("-a");
 	return flags;
 }
 

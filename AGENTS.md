@@ -1,9 +1,10 @@
 ## What This Is
 
 A pi package: a collection of extensions and skills that other
-people install into their pi setup. There is no build step, no
-test suite and no dependencies to install. Pi compiles TypeScript
-at runtime.
+people install into their pi setup. There is no build step and
+no test suite. Pi compiles TypeScript at runtime. Most
+extensions have no dependencies; exceptions (like
+`google-workspace-integration`) carry their own `package.json`.
 
 ## Structure
 
@@ -21,6 +22,9 @@ at runtime.
   loads on demand when a task matches their description
 - `.pi/skills/`: project-local skills for developing this
   package (not shipped to consumers)
+
+UI primitives have no domain knowledge. Guardian and GitHub
+modules depend on UI, not the other way around.
 
 ## Extension Categories
 
@@ -106,11 +110,10 @@ to change, not whether it's long.
 ### Composition Over Inheritance
 
 Shared behaviour uses types and helper functions, not class
-hierarchies. Guardians share a `CommandGuardian<T>` interface
-and a `registerGuardian` helper; each guardian is a plain
-module that implements the interface. Workflows share a file
-naming convention but no base type because their runtime
-contracts differ.
+hierarchies. Each guardian is a plain module that implements
+the shared interface; a registration helper wires it into
+Pi's event system. Workflows share a file naming convention
+but no base type because their runtime contracts differ.
 
 ### Guardian Pipeline: detect → parse → review
 
@@ -119,12 +122,12 @@ Every guardian follows the same three-step pipeline:
 1. **detect**: does this command match? (fast, no parsing)
 2. **parse**: extract structured data from the command
 3. **review**: present the data for human review, return a
-   `ReviewResult` (undefined to allow, block, or rewrite)
+   result (undefined to allow, block, or rewrite)
 
-`registerGuardian` wires this pipeline to Pi's `tool_call`
-event. A new guardian just implements `CommandGuardian<T>` and
-calls `registerGuardian`; it never touches event wiring or
-command mutation directly.
+A new guardian implements the shared interface and calls the
+registration helper; it never touches event wiring or command
+mutation directly. See `lib/guardian/types.ts` for the
+contract.
 
 ### Workflow File Convention
 
@@ -132,7 +135,7 @@ Each workflow extension uses these files:
 
 - `state.ts`: state interface and initial/default values
 - `lifecycle.ts`: activate, deactivate, toggle, persist,
-  restore (pure functions taking state + pi/ctx)
+  restore
 - `enforce.ts`: tool_call interception: what gets blocked,
   what gets allowed and why
 - `transitions.ts`: confirmation gates, context injection,
@@ -157,18 +160,16 @@ similar right now?
 
 ### Keep Concerns in Their Domain
 
-- `formatSteer` lives in `gate.ts`, not `lib/guardian/`,
-  because both guardians and workflows use it. It's about
-  gate output formatting, not guardian domain logic.
-- Field editing logic (`edit`, `steerText`) lives on the
-  field types, not in the review loop. The review loop calls
-  `field.edit()` without knowing anything about field
-  internals.
-- Cookie handling is a self-contained module
-  (`web-search-integration/cookies/`) with a barrel
-  `index.ts`. The browser module has no cookie imports, and
-  the reader imports only from the barrel, never from
-  internal cookie files.
+Each module should own its concern and nothing else. When a
+helper is used by multiple domains, it belongs in the shared
+library at the level that matches its concern, not in the
+first domain that needed it.
+
+Barrel exports (`index.ts`) define the public surface of a
+module. Consumers import from the barrel, never from
+internal files. The cookies module in `web-search-integration`
+is a good example: the browser module has no cookie imports,
+and the reader imports only from the barrel.
 
 ### `index.ts` Is for Registration and Wiring
 
@@ -177,58 +178,28 @@ event handlers and tools, then wire to other modules. They
 should read as a table of contents.
 
 **Event handlers** should delegate to named functions in other
-files: enforcement in `enforce.ts`, transitions in
-`transitions.ts`, etc. This prevents interleaving where five
-concerns get shuffled by event registration order.
+files. This prevents interleaving where five concerns get
+shuffled by event registration order.
 
 **Tool registration** is an exception. Pi's `registerTool`
 API bundles `execute`, `renderCall` and `renderResult` as
 part of the registration call. Extracting those to separate
 files would split one cohesive tool definition across
-modules. Keeping tool bodies in `index.ts` follows the same
-pattern as the existing tool extensions
-(`ask-workflow/`, `web-search-integration/`,
-`pr-annotate-workflow/`, `pr-review-workflow/`). That said,
-the execute body should still delegate to other modules for
-substantial work (showing gates, lifecycle changes) rather
-than inlining all logic.
+modules. That said, the execute body should still delegate to
+other modules for substantial work (showing gates, lifecycle
+changes) rather than inlining all logic.
 
 ### One Mutation Site for Command Rewriting
 
-`registerGuardian` is the single place that mutates
-`event.input.command` for guardians. Individual guardians
-return a `ReviewResult` (undefined, block, or rewrite);
+The guardian registration helper is the single place that
+mutates `event.input.command` for guardians. Individual
+guardians return a result (undefined, block, or rewrite);
 they never touch the event directly.
 
 Interceptors are the second sanctioned mutation site.
 They mutate `event.input.command` silently (no review
 gate) because that's their contract: transparent command
-enrichment. The attribution interceptor is the only
-current example.
-
-### Layered Library Structure
-
-`extensions/lib/` is organized by domain:
-
-- `lib/ui/`: TUI primitives (panels, gates, rendering, text)
-- `lib/guardian/`: guardian pipeline (types, registration,
-  shell parsing)
-- `lib/github/`: GitHub domain (API, CLI, PR identity, diff,
-  review)
-- `lib/state.ts`: session state helpers
-
-UI primitives have no domain knowledge. Guardian and GitHub
-modules depend on UI, not the other way around.
-
-### Panel Composition, Not Wrapping
-
-`showPanel` and `showPanelSeries` have different return
-types, different orchestration (immediate resolve vs async
-onSelect) and different navigation (no tabs vs tabs). They
-compose the same building blocks (`panel-state`,
-`panel-render`, `panel-keys`) with their own orchestration.
-Do not make one wrap the other; that forces one to carry
-complexity for the other's use case.
+enrichment.
 
 ### Idiomatic TypeScript
 
@@ -289,8 +260,8 @@ extension in isolation.
   contracts differ (plan-workflow intercepts writes,
   tdd-workflow has a phase state machine). File naming
   convention is the right level of shared structure.
-- Do not mutate `event.input.command` outside of
-  `registerGuardian` or interceptor extensions. Those
-  are the two sanctioned mutation sites.
+- Do not mutate `event.input.command` outside of the
+  guardian registration helper or interceptor extensions.
+  Those are the two sanctioned mutation sites.
 - Do not leave empty `catch {}` blocks without a comment
   explaining why the error is safe to ignore.
