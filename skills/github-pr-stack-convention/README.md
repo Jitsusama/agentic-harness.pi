@@ -8,4 +8,5 @@ Loaded when merging PRs, rebasing branches with
 dependents, or creating PRs based on other PRs.
 
 See `github-pr-format` for stack notation in PR
-descriptions (`👈 👇 👉`).
+descriptions (`👈 👇 👉`). See `github-pr-merge-convention`
+for merge strategy and branch cleanup defaults.
