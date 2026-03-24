@@ -168,7 +168,10 @@ function formatHighlightedCode(
 /**
  * Track ANSI escape state through a line of text.
  * Returns the active escape string to prepend to the next line.
- * Resets on \x1b[0m or \x1b[39m (colour reset).
+ * Resets on \x1b[0m, \x1b[m or \x1b[39m (colour reset).
+ *
+ * Accumulates non-reset escapes so combined formatting (e.g.,
+ * bold + colour) carries across line boundaries.
  */
 function trackAnsiState(current: string, line: string): string {
 	let state = current;
@@ -183,7 +186,7 @@ function trackAnsiState(current: string, line: string): string {
 			if (seq === "\x1b[0m" || seq === "\x1b[m" || seq === "\x1b[39m") {
 				state = "";
 			} else {
-				state = seq;
+				state += seq;
 			}
 		} else {
 			i++;

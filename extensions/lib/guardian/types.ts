@@ -2,10 +2,10 @@
  * Guardian domain types: the contract that all command guardians
  * implement.
  *
- * A CommandGuardian detects, parses, and reviews bash commands.
- * The review function returns a ReviewResult that describes what
- * should happen: allow as-is, block, or allow with a rewritten
- * command.
+ * A CommandGuardian detects, parses and reviews bash commands.
+ * The review function returns a GuardianResult that describes
+ * what should happen: allow as-is, block, or allow with a
+ * rewritten command.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
