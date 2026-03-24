@@ -404,6 +404,7 @@ function buildCommentsView(
 		key: "2",
 		label: "Comments",
 		actions: COMMENT_ACTIONS,
+		enterHint: "approve",
 		content: (theme: Theme, width: number) => {
 			const comments = commentsByCategory(session, category);
 			return renderCommentList(comments, getIndex(), theme, width);
@@ -441,6 +442,7 @@ function buildFileCommentsView(
 		key: "2",
 		label: "Comments",
 		actions: COMMENT_ACTIONS,
+		enterHint: "approve",
 		content: (theme: Theme, width: number) => {
 			const comments = commentsForFile(session, file.path);
 			return renderCommentList(comments, getIndex(), theme, width);

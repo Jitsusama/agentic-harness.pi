@@ -249,6 +249,7 @@ function buildReviewerTab(
 		key: "1",
 		label: "Threads",
 		actions: [{ key: "p", label: "Pass" }],
+		enterHint: "select",
 		content: (theme: Theme, width: number) => {
 			const lines: string[] = [];
 

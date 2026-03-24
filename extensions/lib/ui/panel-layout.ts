@@ -38,6 +38,11 @@ export interface FooterOptions {
 	allComplete?: boolean;
 	isUserTab?: boolean;
 	showRedirectHint?: boolean;
+	/**
+	 * Verb shown as "Enter {hint}" in the decisions area.
+	 * When provided, overrides the default "Enter approve" logic.
+	 */
+	enterHint?: string;
 	needsVScroll?: boolean;
 	needsHScroll?: boolean;
 }
@@ -119,11 +124,14 @@ function renderControlRow(opts: FooterOptions): string {
 	}
 
 	// Right: decisions
-	// Enter approve for single prompts: with actions, or binary
-	// Enter/Escape gates (neither actions nor options).
+	// Explicit Enter hint takes priority (workspace views, tabbed items).
+	// Falls back to "Enter approve" for single prompts with actions
+	// or binary Enter/Escape gates.
 	const hasActions = opts.actions && opts.actions.length > 0;
 	const hasOptions = opts.options && opts.options.length > 0;
-	if (!opts.hasTabs && (hasActions || !hasOptions)) {
+	if (opts.enterHint) {
+		rightParts.push(theme.fg("dim", `Enter ${opts.enterHint}`));
+	} else if (!opts.hasTabs && (hasActions || !hasOptions)) {
 		rightParts.push(theme.fg("dim", "Enter approve"));
 	}
 	if (opts.hasTabs) {
