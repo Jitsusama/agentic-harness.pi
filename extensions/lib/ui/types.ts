@@ -128,6 +128,8 @@ export interface PromptView {
 	label: string;
 	/** Renders the content for this view. May be async for lazy loading. */
 	content: ContentRenderer | AsyncContentRenderer;
+	/** Enable horizontal scrolling for this view's content. Overrides item/config. */
+	allowHScroll?: boolean;
 }
 
 /** A single item in a tabbed prompt. */
@@ -252,6 +254,8 @@ export interface WorkspaceView {
 	 * Use for selectable lists, per-view actions, etc.
 	 */
 	handleInput?: WorkspaceInputHandler;
+	/** Enable horizontal scrolling for this view's content. Overrides item/config. */
+	allowHScroll?: boolean;
 }
 
 /** Input handler for a workspace view. */
