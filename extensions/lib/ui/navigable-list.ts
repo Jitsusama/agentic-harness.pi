@@ -81,7 +81,7 @@ export interface NavigableListOutput {
 
 const PAD = " ".repeat(CONTENT_INDENT);
 /** Extra indent for detail and subtitle lines (past cursor + glyph). */
-const DETAIL_INDENT = `${PAD}      `;
+export const DETAIL_INDENT = `${PAD}      `;
 
 /**
  * Render a flat list of items with cursor and expand/collapse.
