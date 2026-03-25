@@ -2,8 +2,9 @@
  * Phase 1: Overview panel: Overview/References/Source tabs.
  *
  * Uses the workspace prompt for stateful tabbed interaction.
- * References and Source tabs have selectable lists with ↑↓
- * navigation and Enter to open URLs in the system browser.
+ * References are split into PR Refs (from the PR body and
+ * linked issues) and Comment Refs (from PR and issue comments).
+ * Each reference is prefixed with a type glyph.
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
@@ -144,13 +145,15 @@ function buildOverviewTab(context: PRContext, synopsis: string): WorkspaceItem {
 	return { label: "Overview", views: [overviewView] };
 }
 
-/** Build the References tab with a selectable list. */
+/** Build the References tab with categorised, glyph-prefixed lists. */
 function buildReferencesTab(
 	ctx: ExtensionContext,
 	references: Reference[],
 	getIndex: () => number,
 	setIndex: (i: number) => void,
 ): WorkspaceItem {
+	const displayRefs = buildDisplayOrder(references);
+
 	const refView: WorkspaceView = {
 		key: "2",
 		label: "References",
@@ -160,67 +163,63 @@ function buildReferencesTab(
 			const wrapWidth = contentWrapWidth(width);
 			const lines: string[] = [];
 
-			if (references.length === 0) {
+			if (displayRefs.length === 0) {
 				lines.push(`${pad}${theme.fg("dim", "No references discovered.")}`);
 				return lines;
 			}
 
+			const prRefs = displayRefs.filter((r) => isPRRef(r));
+			const commentRefs = displayRefs.filter((r) => !isPRRef(r));
 			const selected = getIndex();
-
-			// We group references by type.
-			const groups = groupByType(references);
 			let flatIdx = 0;
 
-			for (const [type, refs] of groups) {
-				lines.push(` ${theme.fg("text", theme.bold(typeLabel(type)))}`);
-				for (const ref of refs) {
-					const isSel = flatIdx === selected;
-					const cursor = isSel ? "▸ " : "  ";
-					const depthTag =
-						ref.depth > 0 ? theme.fg("dim", ` ᐩ${ref.depth}`) : "";
+			if (prRefs.length > 0) {
+				flatIdx = renderRefSection(
+					"PR Refs",
+					prRefs,
+					flatIdx,
+					selected,
+					theme,
+					pad,
+					wrapWidth,
+					lines,
+				);
+			}
 
-					const line = `${pad}${cursor}${ref.title}${depthTag}`;
-					lines.push(isSel ? theme.fg("accent", line) : line);
-
-					// We show the description below the selected item.
-					if (isSel) {
-						const desc = refDescription(ref);
-						if (desc) {
-							for (const wl of wordWrap(desc, wrapWidth - 6)) {
-								lines.push(`${pad}      ${theme.fg("dim", wl)}`);
-							}
-						}
-					}
-
-					flatIdx++;
-				}
-				lines.push("");
+			if (commentRefs.length > 0) {
+				flatIdx = renderRefSection(
+					"Comment Refs",
+					commentRefs,
+					flatIdx,
+					selected,
+					theme,
+					pad,
+					wrapWidth,
+					lines,
+				);
 			}
 
 			return lines;
 		},
 		handleInput: (data: string, inputCtx: WorkspaceInputContext) => {
-			const total = references.length;
+			const total = displayRefs.length;
 			if (total === 0) return false;
 
-			// ↑↓ navigation
 			if (matchesKey(data, Key.up)) {
 				setIndex((getIndex() - 1 + total) % total);
 				inputCtx.invalidate();
-				inputCtx.scrollToContentLine(estimateRefLine(references, getIndex()));
+				inputCtx.scrollToContentLine(estimateRefLine(displayRefs, getIndex()));
 				return true;
 			}
 			if (matchesKey(data, Key.down)) {
 				setIndex((getIndex() + 1) % total);
 				inputCtx.invalidate();
-				inputCtx.scrollToContentLine(estimateRefLine(references, getIndex()));
+				inputCtx.scrollToContentLine(estimateRefLine(displayRefs, getIndex()));
 				return true;
 			}
 
-			// Enter opens URL
 			if (matchesKey(data, Key.enter)) {
-				const flat = flattenByType(references);
-				const ref = flat[getIndex()];
+				const ref = displayRefs[getIndex()];
 				if (ref?.url) {
 					openUrl(ctx, ref.url);
 				}
@@ -316,53 +315,129 @@ function openUrl(ctx: ExtensionContext, url: string): void {
 	});
 }
 
-/** Group references by type, preserving order. */
-function groupByType(refs: Reference[]): [Reference["type"], Reference[]][] {
-	const order: Reference["type"][] = [
-		"issue",
-		"pr",
-		"commit",
-		"file",
-		"external",
-	];
-	const groups = new Map<Reference["type"], Reference[]>();
+// -- Reference categorisation and display helpers --
 
-	for (const ref of refs) {
-		if (!groups.has(ref.type)) groups.set(ref.type, []);
-		groups.get(ref.type)?.push(ref);
+const TYPE_ORDER: Reference["type"][] = [
+	"issue",
+	"pr",
+	"commit",
+	"file",
+	"external",
+];
+
+/** Glyph prefix for each reference type. */
+function typeGlyph(type: Reference["type"]): string {
+	switch (type) {
+		case "issue":
+			return "#";
+		case "pr":
+			return "!";
+		case "commit":
+			return "○";
+		case "file":
+			return "●";
+		case "external":
+			return "→";
 	}
-
-	return order
-		.filter((t) => groups.has(t))
-		.map((t) => [t, groups.get(t) ?? []]);
 }
 
-/** Flatten references in display order (grouped by type). */
-function flattenByType(refs: Reference[]): Reference[] {
-	return groupByType(refs).flatMap(([_, items]) => items);
+/**
+ * Whether a reference belongs in the "PR Refs" section.
+ * PR Refs come from the PR body, linked issues, or
+ * depth-0 cross-references. Everything else is a
+ * "Comment Ref" (PR comments, issue comments).
+ */
+function isPRRef(ref: Reference): boolean {
+	const s = ref.source;
+	return (
+		s.startsWith("PR body") ||
+		s.startsWith("linked issues") ||
+		(ref.depth === 0 && !s.startsWith("PR comment"))
+	);
+}
+
+/**
+ * Build the flat display order: PR Refs then Comment Refs,
+ * each sorted by type order then title.
+ */
+function buildDisplayOrder(refs: Reference[]): Reference[] {
+	const sorted = [...refs].sort((a, b) => {
+		const typeA = TYPE_ORDER.indexOf(a.type);
+		const typeB = TYPE_ORDER.indexOf(b.type);
+		if (typeA !== typeB) return typeA - typeB;
+		return a.title.localeCompare(b.title);
+	});
+
+	const prRefs = sorted.filter((r) => isPRRef(r));
+	const commentRefs = sorted.filter((r) => !isPRRef(r));
+	return [...prRefs, ...commentRefs];
+}
+
+/** Render a section of references into the output lines. */
+function renderRefSection(
+	heading: string,
+	refs: Reference[],
+	startIdx: number,
+	selected: number,
+	theme: Theme,
+	pad: string,
+	wrapWidth: number,
+	lines: string[],
+): number {
+	lines.push(` ${theme.fg("text", theme.bold(heading))}`);
+	let flatIdx = startIdx;
+
+	for (const ref of refs) {
+		const isSel = flatIdx === selected;
+		const cursor = isSel ? "▸ " : "  ";
+		const glyph = typeGlyph(ref.type);
+		const depthTag = ref.depth > 0 ? theme.fg("dim", ` ᐩ${ref.depth}`) : "";
+
+		const line = `${pad}${cursor}${glyph} ${ref.title}${depthTag}`;
+		lines.push(isSel ? theme.fg("accent", line) : line);
+
+		if (isSel) {
+			const desc = refDescription(ref);
+			if (desc) {
+				for (const wl of wordWrap(desc, wrapWidth - 6)) {
+					lines.push(`${pad}      ${theme.fg("dim", wl)}`);
+				}
+			}
+		}
+
+		flatIdx++;
+	}
+
+	lines.push("");
+	return flatIdx;
 }
 
 /**
  * Estimate the display line for a reference at the given flat index.
- * Accounts for group headers, expanded descriptions, and blank lines.
+ * Accounts for section headers, expanded descriptions and blank lines.
  */
 function estimateRefLine(refs: Reference[], flatIndex: number): number {
-	const groups = groupByType(refs);
+	const prRefs = refs.filter((r) => isPRRef(r));
+	const commentRefs = refs.filter((r) => !isPRRef(r));
+
 	let line = 0;
 	let idx = 0;
 
-	for (const [_, items] of groups) {
-		line++; // group header
-		for (const item of items) {
+	const sections: Reference[][] = [];
+	if (prRefs.length > 0) sections.push(prRefs);
+	if (commentRefs.length > 0) sections.push(commentRefs);
+
+	for (const section of sections) {
+		line++; // section header
+		for (const item of section) {
 			if (idx === flatIndex) return line;
-			line++; // item line
-			// The selected item expands with a description (~2 lines estimate).
+			line++;
 			if (idx === flatIndex && refDescription(item)) {
 				line += 2;
 			}
 			idx++;
 		}
-		line++; // blank line after group
+		line++; // blank line after section
 	}
 
 	return line;
@@ -374,20 +449,4 @@ function refDescription(ref: Reference): string {
 	if (ref.description) parts.push(ref.description);
 	if (ref.source) parts.push(`from ${ref.source}`);
 	return parts.join(" · ");
-}
-
-/** Human-readable label for a reference type. */
-function typeLabel(type: Reference["type"]): string {
-	switch (type) {
-		case "issue":
-			return "Issues";
-		case "pr":
-			return "Pull Requests";
-		case "commit":
-			return "Commits";
-		case "file":
-			return "Files";
-		case "external":
-			return "External Links";
-	}
 }
