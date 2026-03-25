@@ -178,12 +178,22 @@ export function renderNavigableSections(
 	return { lines, selectedLine };
 }
 
-/** Compute the wrap width for detail text. */
+/**
+ * Compute the wrap width for detail text. Caps to the visible
+ * terminal width so text wraps sensibly even when the panel
+ * passes a wider value for horizontal scrolling.
+ */
 function detailWrapWidth(width: number | undefined): number {
-	// Fall back to terminal width when the caller doesn't provide one.
-	const effective = width ?? process.stdout.columns ?? 80;
-	return Math.max(20, effective - DETAIL_INDENT_WIDTH);
+	const cols = process.stdout.columns;
+	const visible =
+		cols && cols > 0 ? cols - DETAIL_INDENT_WIDTH : FALLBACK_DETAIL_WIDTH;
+	const fromWidth =
+		width && width > 0 ? width - DETAIL_INDENT_WIDTH : FALLBACK_DETAIL_WIDTH;
+	return Math.max(20, Math.min(fromWidth, visible));
 }
+
+/** Fallback detail width when terminal columns are unavailable. */
+const FALLBACK_DETAIL_WIDTH = 64;
 
 /** Render a single item: cursor, glyph, summary, subtitle, detail. */
 function renderItem(
