@@ -40,6 +40,7 @@ import {
 	type ReviewObservation,
 	type ReviewSession,
 } from "../state.js";
+import { buildDiffText, shortPath } from "./diff-display.js";
 
 /** Status glyphs for comments. */
 const COMMENT_GLYPH = {
@@ -337,7 +338,7 @@ function buildFileOverview(
 			);
 			lines.push("");
 
-			const diffText = buildFileDiff(file);
+			const diffText = buildDiffText(file);
 			if (diffText) {
 				const diffLines = renderDiff(diffText, theme, width);
 				const fileComments = commentsForFile(session, file.path);
@@ -682,26 +683,4 @@ function extractLineNumber(
 		}
 	}
 	return null;
-}
-
-/** Build a unified diff string from a DiffFile's hunks. */
-function buildFileDiff(file: DiffFile): string | null {
-	if (file.hunks.length === 0) return null;
-
-	const lines: string[] = [];
-	for (const hunk of file.hunks) {
-		lines.push(hunk.header);
-		for (const line of hunk.lines) {
-			const prefix =
-				line.type === "added" ? "+" : line.type === "removed" ? "-" : " ";
-			lines.push(`${prefix}${line.content}`);
-		}
-	}
-	return lines.join("\n");
-}
-
-/** Extract the filename from a path for use as a short tab label. */
-function shortPath(path: string): string {
-	const lastSlash = path.lastIndexOf("/");
-	return lastSlash >= 0 ? path.slice(lastSlash + 1) : path;
 }

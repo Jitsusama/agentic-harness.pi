@@ -30,6 +30,7 @@ import type {
 	WorkspaceView,
 } from "../../lib/ui/types.js";
 import type { PRContext, Reference } from "../state.js";
+import { buildDiffText, shortPath } from "./diff-display.js";
 
 /** Result type from the overview panel. */
 export type OverviewResult =
@@ -299,28 +300,6 @@ function buildFileSourceView(file: DiffFile, repoPath: string): WorkspaceView {
 			return lines;
 		},
 	};
-}
-
-/** Build a unified diff string from a DiffFile's hunks. */
-function buildDiffText(file: DiffFile): string | null {
-	if (file.hunks.length === 0) return null;
-
-	const lines: string[] = [];
-	for (const hunk of file.hunks) {
-		lines.push(hunk.header);
-		for (const line of hunk.lines) {
-			const prefix =
-				line.type === "added" ? "+" : line.type === "removed" ? "-" : " ";
-			lines.push(`${prefix}${line.content}`);
-		}
-	}
-	return lines.join("\n");
-}
-
-/** Extract the filename from a path for use as a short tab label. */
-function shortPath(path: string): string {
-	const lastSlash = path.lastIndexOf("/");
-	return lastSlash >= 0 ? path.slice(lastSlash + 1) : path;
 }
 
 /** Open a URL in the system browser. */
