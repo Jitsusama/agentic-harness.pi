@@ -16,7 +16,6 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import {
-	DETAIL_INDENT,
 	handleNavigableListInput,
 	type NavigableItem,
 	renderNavigableList,
@@ -34,11 +33,11 @@ export function optionValue(option: ListChoice): string {
 }
 
 /** Map a ListChoice to a NavigableItem for the shared renderer. */
-function toNavigableItem(opt: ListChoice, theme: Theme): NavigableItem {
+function toNavigableItem(opt: ListChoice): NavigableItem {
 	return {
 		summary: opt.label,
 		detail: opt.description
-			? [`${DETAIL_INDENT}${theme.fg("dim", opt.description)}`]
+			? [{ text: opt.description, color: "dim" }]
 			: undefined,
 	};
 }
@@ -49,7 +48,7 @@ export function renderOptionList(
 	selectedIndex: number,
 	theme: Theme,
 ): string[] {
-	const items = options.map((opt) => toNavigableItem(opt, theme));
+	const items = options.map((opt) => toNavigableItem(opt));
 	const { lines } = renderNavigableList(items, selectedIndex, theme, {
 		numbered: true,
 	});

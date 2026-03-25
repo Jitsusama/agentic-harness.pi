@@ -18,7 +18,7 @@ import {
 	renderDiff,
 } from "../../lib/ui/content-renderer.js";
 import {
-	DETAIL_INDENT,
+	type DetailEntry,
 	handleNavigableListInput,
 	type NavigableItem,
 	type NavigableSection,
@@ -182,13 +182,13 @@ function buildReferencesTab(
 		label: "References",
 		enterHint: "open",
 		content: (theme: Theme, width: number) => {
-			const wrapWidth = contentWrapWidth(width) - 6;
-			cachedSections = buildRefSections(displayRefs, theme, wrapWidth);
+			cachedSections = buildRefSections(displayRefs, theme);
 			const { lines, selectedLine } = renderNavigableSections(
 				cachedSections,
 				getIndex(),
 				theme,
 				{ emptyMessage: "No references discovered." },
+				width,
 			);
 			lastSelectedLine = selectedLine;
 			return lines;
@@ -305,7 +305,6 @@ function buildFileNotesView(
 		actions: NOTE_ACTIONS,
 		enterHint: "edit",
 		content: (theme: Theme, width: number) => {
-			const wrapWidth = contentWrapWidth(width) - 4;
 			const notes = getNotes();
 			const lines: string[] = [];
 
@@ -316,10 +315,8 @@ function buildFileNotesView(
 
 			const items: NavigableItem[] = notes.map((note) => {
 				const firstLine = note.split("\n")[0] ?? "";
-				const detail: string[] | undefined = note.includes("\n")
-					? wordWrap(note.slice(note.indexOf("\n") + 1), wrapWidth).map(
-							(wl) => `${DETAIL_INDENT}${theme.fg("dim", wl)}`,
-						)
+				const detail: DetailEntry[] | undefined = note.includes("\n")
+					? [{ text: note.slice(note.indexOf("\n") + 1), color: "dim" }]
 					: undefined;
 				return { summary: firstLine, detail };
 			});
@@ -329,6 +326,7 @@ function buildFileNotesView(
 				getIndex(),
 				theme,
 				{ emptyMessage: "No notes yet. Press n to add one." },
+				width,
 			);
 			lines.push(...listLines);
 
@@ -494,17 +492,11 @@ function buildDisplayOrder(refs: Reference[]): Reference[] {
 }
 
 /** Map a reference to a NavigableItem. */
-function refToItem(
-	ref: Reference,
-	theme: Theme,
-	wrapWidth: number,
-): NavigableItem {
+function refToItem(ref: Reference, theme: Theme): NavigableItem {
 	const depthTag = ref.depth > 0 ? theme.fg("dim", ` ᐩ${ref.depth}`) : "";
 	const desc = refDescription(ref);
-	const detail: string[] | undefined = desc
-		? wordWrap(desc, wrapWidth).map(
-				(wl) => `${DETAIL_INDENT}${theme.fg("dim", wl)}`,
-			)
+	const detail: DetailEntry[] | undefined = desc
+		? [{ text: desc, color: "dim" }]
 		: undefined;
 
 	return {
@@ -515,11 +507,7 @@ function refToItem(
 }
 
 /** Build NavigableSections from the display-ordered references. */
-function buildRefSections(
-	refs: Reference[],
-	theme: Theme,
-	wrapWidth: number,
-): NavigableSection[] {
+function buildRefSections(refs: Reference[], theme: Theme): NavigableSection[] {
 	const prRefs = refs.filter((r) => isPRRef(r));
 	const commentRefs = refs.filter((r) => !isPRRef(r));
 	const sections: NavigableSection[] = [];
@@ -527,13 +515,13 @@ function buildRefSections(
 	if (prRefs.length > 0) {
 		sections.push({
 			heading: "PR Refs",
-			items: prRefs.map((r) => refToItem(r, theme, wrapWidth)),
+			items: prRefs.map((r) => refToItem(r, theme)),
 		});
 	}
 	if (commentRefs.length > 0) {
 		sections.push({
 			heading: "Comment Refs",
-			items: commentRefs.map((r) => refToItem(r, theme, wrapWidth)),
+			items: commentRefs.map((r) => refToItem(r, theme)),
 		});
 	}
 

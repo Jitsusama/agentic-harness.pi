@@ -14,18 +14,14 @@ import {
 	renderDiff,
 } from "../lib/ui/content-renderer.js";
 import {
-	DETAIL_INDENT,
+	type DetailEntry,
 	handleNavigableListInput,
 	type NavigableItem,
 	renderNavigableList,
 } from "../lib/ui/navigable-list.js";
 import { workspace } from "../lib/ui/panel.js";
 import { tabCompletion } from "../lib/ui/tab-completion.js";
-import {
-	CONTENT_INDENT,
-	contentWrapWidth,
-	wordWrap,
-} from "../lib/ui/text-layout.js";
+import { CONTENT_INDENT } from "../lib/ui/text-layout.js";
 import type {
 	WorkspaceInputContext,
 	WorkspaceItem,
@@ -415,11 +411,7 @@ function buildSourceView(filePath: string): WorkspaceView {
 }
 
 /** Map a vet comment to a NavigableItem. */
-function vetCommentToItem(
-	vc: VetComment,
-	theme: Theme,
-	wrapWidth: number,
-): NavigableItem {
+function vetCommentToItem(vc: VetComment, theme: Theme): NavigableItem {
 	const c = vc.comment;
 	const glyphColor =
 		vc.status === "approved"
@@ -436,18 +428,14 @@ function vetCommentToItem(
 				? "error"
 				: "dim";
 
-	const detail: string[] = [""];
-	for (const wl of wordWrap(c.body, wrapWidth)) {
-		detail.push(`${DETAIL_INDENT}${theme.fg("text", wl)}`);
-	}
+	const detail: DetailEntry[] = [""];
+	detail.push({ text: c.body, color: "text" });
 	if (c.rationale) {
 		detail.push("");
-		detail.push(`${DETAIL_INDENT}${theme.fg("dim", "Rationale:")}`);
-		for (const wl of wordWrap(c.rationale, wrapWidth)) {
-			detail.push(`${DETAIL_INDENT}${theme.fg("dim", wl)}`);
-		}
+		detail.push({ text: "Rationale:", color: "dim" });
+		detail.push({ text: c.rationale, color: "dim" });
 	}
-	detail.push(`${DETAIL_INDENT}${theme.fg(statusColor, `[${vc.status}]`)}`);
+	detail.push(theme.fg(statusColor, `[${vc.status}]`));
 	detail.push("");
 
 	return {
@@ -464,11 +452,14 @@ function renderCommentList(
 	theme: Theme,
 	width: number,
 ): string[] {
-	const wrapWidth = contentWrapWidth(width) - 6;
-	const items = comments.map((vc) => vetCommentToItem(vc, theme, wrapWidth));
-	const { lines } = renderNavigableList(items, selectedIndex, theme, {
-		emptyMessage: "No comments for this file.",
-	});
+	const items = comments.map((vc) => vetCommentToItem(vc, theme));
+	const { lines } = renderNavigableList(
+		items,
+		selectedIndex,
+		theme,
+		{ emptyMessage: "No comments for this file." },
+		width,
+	);
 	return lines;
 }
 

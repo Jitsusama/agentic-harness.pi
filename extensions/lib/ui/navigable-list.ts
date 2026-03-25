@@ -7,13 +7,19 @@
  *   - Sectioned: items grouped under headings
  *
  * Each item has a one-line summary, an optional leading glyph,
- * optional detail lines (shown only when selected) and optional
- * subtitle lines (shown for every item).
+ * optional detail entries (shown only when selected) and
+ * optional subtitle lines (shown for every item).
  *
- * The renderer owns cursor display, accent highlighting and
- * expand/collapse. Domain code owns the data mapping (what
- * glyphs look like, how summaries are built, what detail
- * contains).
+ * Detail entries are either structured (renderer wraps, indents
+ * and themes) or pre-formatted strings (renderer only indents).
+ *
+ *   - `{ text, color }` → renderer word-wraps and themes
+ *   - `string` → renderer indents as-is (empty string = blank line)
+ *
+ * The renderer owns cursor display, accent highlighting,
+ * expand/collapse and detail formatting. Domain code owns
+ * the data mapping (what glyphs look like, how summaries are
+ * built, what detail contains).
  *
  * Rendering example (flat):
  *
@@ -36,10 +42,21 @@
  */
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey } from "@mariozechner/pi-tui";
+import { Key, matchesKey, visibleWidth } from "@mariozechner/pi-tui";
+import { wordWrap } from "./text-layout.js";
 import { CONTENT_INDENT, GLYPH } from "./types.js";
 
 // -- Types --
+
+/**
+ * A detail entry: either structured (renderer formats) or
+ * a pre-formatted string (renderer only indents).
+ *
+ * - `{ text, color }`: renderer word-wraps at the available
+ *   width and applies `theme.fg(color, ...)` to each line.
+ * - `string`: renderer prepends indent. Empty string = blank line.
+ */
+export type DetailEntry = string | { text: string; color: string };
 
 /** A single item in a navigable list. */
 export interface NavigableItem {
@@ -49,8 +66,8 @@ export interface NavigableItem {
 	summary: string;
 	/** Lines shown under every item regardless of selection (dim). */
 	subtitle?: string[];
-	/** Lines shown only when this item is selected (expanded detail). */
-	detail?: string[];
+	/** Entries shown only when this item is selected (expanded detail). */
+	detail?: DetailEntry[];
 }
 
 /** A group of items under a heading. */
@@ -80,8 +97,10 @@ export interface NavigableListOutput {
 // -- Rendering --
 
 const PAD = " ".repeat(CONTENT_INDENT);
-/** Extra indent for detail and subtitle lines (past cursor + glyph). */
-export const DETAIL_INDENT = `${PAD}      `;
+/** Indent for detail and subtitle lines (past cursor + glyph). */
+const DETAIL_INDENT = `${PAD}      `;
+/** Available width for detail text within the indent. */
+const DETAIL_INDENT_WIDTH = visibleWidth(DETAIL_INDENT);
 
 /**
  * Render a flat list of items with cursor and expand/collapse.
@@ -92,9 +111,11 @@ export function renderNavigableList(
 	selectedIndex: number,
 	theme: Theme,
 	options?: NavigableListOptions,
+	width?: number,
 ): NavigableListOutput {
 	const lines: string[] = [];
 	let selectedLine = 0;
+	const detailWidth = detailWrapWidth(width);
 
 	if (items.length === 0) {
 		const msg = options?.emptyMessage ?? "No items.";
@@ -110,7 +131,7 @@ export function renderNavigableList(
 		if (isSel) selectedLine = lines.length;
 
 		const numberPrefix = options?.numbered ? `${i + 1}. ` : "";
-		renderItem(item, isSel, numberPrefix, theme, lines);
+		renderItem(item, isSel, numberPrefix, theme, lines, detailWidth);
 	}
 
 	return { lines, selectedLine };
@@ -125,10 +146,12 @@ export function renderNavigableSections(
 	selectedIndex: number,
 	theme: Theme,
 	options?: NavigableListOptions,
+	width?: number,
 ): NavigableListOutput {
 	const lines: string[] = [];
 	let selectedLine = 0;
 	let flatIndex = 0;
+	const detailWidth = detailWrapWidth(width);
 
 	const totalItems = sections.reduce((n, s) => n + s.items.length, 0);
 	if (totalItems === 0) {
@@ -145,7 +168,7 @@ export function renderNavigableSections(
 			if (isSel) selectedLine = lines.length;
 
 			const numberPrefix = options?.numbered ? `${flatIndex + 1}. ` : "";
-			renderItem(item, isSel, numberPrefix, theme, lines);
+			renderItem(item, isSel, numberPrefix, theme, lines, detailWidth);
 			flatIndex++;
 		}
 
@@ -155,6 +178,13 @@ export function renderNavigableSections(
 	return { lines, selectedLine };
 }
 
+/** Compute the wrap width for detail text. */
+function detailWrapWidth(width: number | undefined): number {
+	// Fall back to terminal width when the caller doesn't provide one.
+	const effective = width ?? process.stdout.columns ?? 80;
+	return Math.max(20, effective - DETAIL_INDENT_WIDTH);
+}
+
 /** Render a single item: cursor, glyph, summary, subtitle, detail. */
 function renderItem(
 	item: NavigableItem,
@@ -162,6 +192,7 @@ function renderItem(
 	numberPrefix: string,
 	theme: Theme,
 	lines: string[],
+	detailWidth: number,
 ): void {
 	const cursor = isSelected ? `${GLYPH.cursor} ` : "  ";
 	const glyph = item.glyph ? `${item.glyph} ` : "";
@@ -180,10 +211,18 @@ function renderItem(
 		}
 	}
 
-	// Detail lines are shown only for the selected item.
+	// Detail entries are shown only for the selected item.
 	if (isSelected && item.detail) {
-		for (const det of item.detail) {
-			lines.push(det);
+		for (const entry of item.detail) {
+			if (typeof entry === "string") {
+				// Pre-formatted: indent non-empty, blank line for empty.
+				lines.push(entry ? `${DETAIL_INDENT}${entry}` : "");
+			} else {
+				// Structured: word-wrap and theme.
+				for (const wl of wordWrap(entry.text, detailWidth)) {
+					lines.push(`${DETAIL_INDENT}${theme.fg(entry.color, wl)}`);
+				}
+			}
 		}
 	}
 }

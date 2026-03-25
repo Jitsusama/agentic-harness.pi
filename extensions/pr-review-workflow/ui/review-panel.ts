@@ -18,18 +18,14 @@ import {
 	renderMarkdown,
 } from "../../lib/ui/content-renderer.js";
 import {
-	DETAIL_INDENT,
+	type DetailEntry,
 	handleNavigableListInput,
 	type NavigableItem,
 	renderNavigableList,
 } from "../../lib/ui/navigable-list.js";
 import { workspace } from "../../lib/ui/panel.js";
 import { tabCompletion } from "../../lib/ui/tab-completion.js";
-import {
-	CONTENT_INDENT,
-	contentWrapWidth,
-	wordWrap,
-} from "../../lib/ui/text-layout.js";
+import { CONTENT_INDENT } from "../../lib/ui/text-layout.js";
 import type {
 	KeyAction,
 	WorkspaceInputContext,
@@ -470,11 +466,7 @@ function buildFileCommentsView(
 }
 
 /** Map a review comment to a NavigableItem. */
-function commentToItem(
-	c: ReviewObservation,
-	theme: Theme,
-	wrapWidth: number,
-): NavigableItem {
+function commentToItem(c: ReviewObservation, theme: Theme): NavigableItem {
 	const glyphColor =
 		c.status === "approved"
 			? "success"
@@ -501,14 +493,12 @@ function commentToItem(
 				? "error"
 				: "dim";
 
-	const detail: string[] = [""];
+	const detail: DetailEntry[] = [""];
 	if (c.discussion) {
-		for (const wl of wordWrap(c.discussion, wrapWidth)) {
-			detail.push(`${DETAIL_INDENT}${theme.fg("text", wl)}`);
-		}
+		detail.push({ text: c.discussion, color: "text" });
 	}
 	detail.push(
-		`${DETAIL_INDENT}${theme.fg(statusColor, `[${c.status}]`)} ${theme.fg("dim", `(${c.source})`)}`,
+		`${theme.fg(statusColor, `[${c.status}]`)} ${theme.fg("dim", `(${c.source})`)}`,
 	);
 	detail.push("");
 
@@ -526,11 +516,14 @@ function renderCommentList(
 	theme: Theme,
 	width: number,
 ): string[] {
-	const wrapWidth = contentWrapWidth(width) - 6;
-	const items = comments.map((c) => commentToItem(c, theme, wrapWidth));
-	const { lines } = renderNavigableList(items, selectedIndex, theme, {
-		emptyMessage: "No comments.",
-	});
+	const items = comments.map((c) => commentToItem(c, theme));
+	const { lines } = renderNavigableList(
+		items,
+		selectedIndex,
+		theme,
+		{ emptyMessage: "No comments." },
+		width,
+	);
 	return lines;
 }
 
