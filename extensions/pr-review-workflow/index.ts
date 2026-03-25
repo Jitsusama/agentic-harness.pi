@@ -87,9 +87,11 @@ export default function prReview(pi: ExtensionAPI) {
 			"After generate-analysis, call 'overview' to show the user the overview panel for their first pass.",
 			"After overview, call 'generate-comments' with structured review comments informed by your analysis.",
 			"After generate-comments, present your review approach conversationally and discuss with the user. " +
+				"If the user left notes during the overview, acknowledge which ones informed your comments. " +
 				"Comments start as 'proposed'. Adjust with list/update/remove/add during discussion. " +
-				"When the user is satisfied, call 'overview' to promote proposed → pending.",
-			"Call 'overview' to show the Phase 1 overview panel (also finalizes proposed comments).",
+				"When the user is satisfied, call 'overview' to promote proposed → pending, then 'review'.",
+			"Call 'overview' to show the Phase 1 overview panel (also finalizes proposed comments). " +
+				"The user can take notes on files during the overview; these are returned in the result.",
 			"Call 'review' to show the Phase 2 review panel with file tabs.",
 			"Use 'add-comment', 'update-comment', 'remove-comment' for comment management.",
 			"Use 'list-comments' to see all comments with their IDs.",

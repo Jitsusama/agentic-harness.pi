@@ -79,18 +79,20 @@ pass through the code before comments shape their thinking.
 
 After `generate-analysis`, call `overview` to show the
 overview panel. The user sees the synopsis, categorised
-references, and per-file diff and source views. This is
-their first pass through the code.
+references, and per-file tabs with Diff, Notes and Source
+views. This is their first pass through the code.
 
-The user presses Ctrl+Enter to proceed, or steers for
-feedback. If they steer, process their feedback and call
-`overview` again.
+The user can take notes on individual files during the
+overview. When they press Ctrl+Enter to proceed, any
+notes are included in the result text. If they steer,
+process their feedback and call `overview` again.
 
 ### 4. Generate Comments
 
 After the user finishes the overview, call
 `generate-comments` with structured review comments
-informed by your analysis:
+informed by your analysis and any user notes from the
+overview:
 
 - **`comments`**: structured review comments, each with:
   - `file` (path or null for PR-level)
@@ -103,6 +105,11 @@ informed by your analysis:
 
 Use the `comment-format` and `code-review-standard`
 skills for format and quality guidance.
+
+If the user left notes during the overview, use them as
+direction. Notes signal what the reviewer noticed and
+cares about; generate comments that address those
+observations where appropriate.
 
 **Category rules:**
 - `scope`: only about scope concerns (focus, organization).
@@ -119,8 +126,10 @@ conversationally:
    seems to be.
 2. Describe the concerns you found and your review
    strategy.
-3. Summarize the proposed comments at a high level.
-4. Wait for the user to respond.
+3. If the user left notes, acknowledge which ones informed
+   your comments and which you chose not to address.
+4. Summarize the proposed comments at a high level.
+5. Wait for the user to respond.
 
 During conversation:
 - When the user gives feedback, **research first**: read
@@ -140,7 +149,8 @@ comments to pending and begin the structured review.
 
 Call `overview` again to promote proposed comments to
 pending. The user can do a second pass through the code
-if they wish, now with the comments finalised.
+if they wish, now with the comments finalised. After the
+overview, call `review` to show the review panel.
 
 ### 7. Review Phase
 
