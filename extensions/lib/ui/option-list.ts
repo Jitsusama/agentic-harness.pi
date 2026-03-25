@@ -60,10 +60,9 @@ export function renderOptionList(
  * Handle option list key input. Returns a result or null if
  * unhandled. The caller maintains selectedIndex state.
  *
- * Composes NavigableList's ↑/↓ handling with number-key
- * direct selection, Enter to confirm and Escape to cancel.
- * Uses clamped navigation (not wrapping) for consistency
- * with numbered menus.
+ * Composes NavigableList's ↑/↓ handling (wrapping) with
+ * number-key direct selection, Enter to confirm and Escape
+ * to cancel.
  */
 export function handleOptionInput(
 	data: string,

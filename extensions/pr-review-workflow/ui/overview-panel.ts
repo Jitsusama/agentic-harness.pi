@@ -175,6 +175,7 @@ function buildReferencesTab(
 ): WorkspaceItem {
 	const displayRefs = buildDisplayOrder(references);
 	let cachedSections: NavigableSection[] | null = null;
+	let lastSelectedLine = 0;
 
 	const refView: WorkspaceView = {
 		key: "2",
@@ -183,26 +184,33 @@ function buildReferencesTab(
 		content: (theme: Theme, width: number) => {
 			const wrapWidth = contentWrapWidth(width) - 6;
 			cachedSections = buildRefSections(displayRefs, theme, wrapWidth);
-			const { lines } = renderNavigableSections(
+			const { lines, selectedLine } = renderNavigableSections(
 				cachedSections,
 				getIndex(),
 				theme,
 				{ emptyMessage: "No references discovered." },
 			);
+			lastSelectedLine = selectedLine;
 			return lines;
 		},
 		handleInput: (data: string, inputCtx: WorkspaceInputContext) => {
 			if (displayRefs.length === 0) return false;
 
+			const prevIndex = getIndex();
 			const navResult = handleNavigableListInput(
 				data,
-				getIndex(),
+				prevIndex,
 				displayRefs.length,
 			);
 			if (navResult !== null) {
 				setIndex(navResult);
 				inputCtx.invalidate();
-				inputCtx.scrollToContentLine(navResult);
+				// Estimate scroll target from the last render's selected
+				// line, adjusted by the navigation delta. The next render
+				// will produce the exact line via renderNavigableSections.
+				inputCtx.scrollToContentLine(
+					lastSelectedLine + (navResult - prevIndex),
+				);
 				return true;
 			}
 

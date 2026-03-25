@@ -360,9 +360,7 @@ function threadToItem(
 		thread.comments[0]?.body.slice(0, 70).replace(/\n/g, " ") ?? "";
 	const ellipsis = (thread.comments[0]?.body.length ?? 0) > 70 ? "…" : "";
 	const subtitle: string[] | undefined = snippet
-		? wordWrap(`${snippet}${ellipsis}`, wrapWidth).map((wl) =>
-				theme.fg("dim", wl),
-			)
+		? wordWrap(`${snippet}${ellipsis}`, wrapWidth)
 		: undefined;
 
 	return {
