@@ -40,7 +40,7 @@ context or shows a panel.
 
 ```
 activate → generate-analysis → overview
-→ generate-comments → DISCUSS → overview
+→ generate-comments → DISCUSS
 → review → (steer cycles) → submit → post → deactivate
 ```
 
@@ -79,18 +79,20 @@ pass through the code before comments shape their thinking.
 
 After `generate-analysis`, call `overview` to show the
 overview panel. The user sees the synopsis, categorised
-references, and per-file diff and source views. This is
-their first pass through the code.
+references, and per-file tabs with Diff, Notes and Source
+views. This is their first pass through the code.
 
-The user presses Ctrl+Enter to proceed, or steers for
-feedback. If they steer, process their feedback and call
-`overview` again.
+The user can take notes on individual files during the
+overview. When they press Ctrl+Enter to proceed, any
+notes are included in the result text. If they steer,
+process their feedback and call `overview` again.
 
 ### 4. Generate Comments
 
 After the user finishes the overview, call
 `generate-comments` with structured review comments
-informed by your analysis:
+informed by your analysis and any user notes from the
+overview:
 
 - **`comments`**: structured review comments, each with:
   - `file` (path or null for PR-level)
@@ -103,6 +105,11 @@ informed by your analysis:
 
 Use the `comment-format` and `code-review-standard`
 skills for format and quality guidance.
+
+If the user left notes during the overview, use them as
+direction. Notes signal what the reviewer noticed and
+cares about; generate comments that address those
+observations where appropriate.
 
 **Category rules:**
 - `scope`: only about scope concerns (focus, organization).
@@ -119,8 +126,10 @@ conversationally:
    seems to be.
 2. Describe the concerns you found and your review
    strategy.
-3. Summarize the proposed comments at a high level.
-4. Wait for the user to respond.
+3. If the user left notes, acknowledge which ones informed
+   your comments and which you chose not to address.
+4. Summarize the proposed comments at a high level.
+5. Wait for the user to respond.
 
 During conversation:
 - When the user gives feedback, **research first**: read
@@ -133,16 +142,13 @@ During conversation:
   proposed.
 
 When the user is satisfied (e.g., "looks good", "proceed",
-"let's review"), call `overview` to promote proposed
-comments to pending and begin the structured review.
+"let's review"), call `review` directly. Proposed comments
+are promoted to pending automatically when the review
+panel opens. The user can call `overview` again themselves
+if they want another pass through the code, but the agent
+should not force a second overview just for promotion.
 
-### 6. Second Overview
-
-Call `overview` again to promote proposed comments to
-pending. The user can do a second pass through the code
-if they wish, now with the comments finalised.
-
-### 7. Review Phase
+### 6. Review Phase
 
 Call `review` to show the review panel. One tab per changed
 file plus Desc and Scope tabs. Each tab has three views:
@@ -163,7 +169,7 @@ If the user steers:
   then call `review`.
 - General feedback: process and call `review`.
 
-### 8. Submit Phase
+### 7. Submit Phase
 
 Call `submit` to show the submit panel. You can optionally
 provide `review_body` and `verdict` to pre-fill.
@@ -175,7 +181,7 @@ steer to edit the body/verdict.
 If they steer, update `review_body`/`verdict` and call
 `submit` again.
 
-### 9. Post and Deactivate
+### 8. Post and Deactivate
 
 The submit panel's post action calls `post` automatically.
 If needed, call `post` directly. Then call `deactivate`

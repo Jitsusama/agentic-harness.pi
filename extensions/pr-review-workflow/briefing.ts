@@ -188,13 +188,17 @@ export function generateCommentsBriefing(session: ReviewSession): string {
 	parts.push(
 		"explain what the PR does, what concerns you found, and what your review strategy is.",
 	);
+	parts.push(
+		"If the user left notes during the overview, acknowledge which ones " +
+			"informed your comments and which you chose not to address (and why).",
+	);
 	parts.push("Wait for the user to discuss and adjust before proceeding.");
 	parts.push(
 		"Use 'list-comments', 'update-comment', 'remove-comment', 'add-comment' to adjust during discussion.",
 	);
 	parts.push(
-		"When the user is satisfied, call 'overview' to promote proposed " +
-			"comments to pending and show the review panel.",
+		"When the user is satisfied, call 'review' to show the review panel. " +
+			"Proposed comments are promoted to pending automatically.",
 	);
 	return parts.join("\n");
 }
