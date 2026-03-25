@@ -116,6 +116,26 @@ export function activationBriefing(session: ReviewSession): string {
 }
 
 /**
+ * Format user notes from the overview panel for the agent.
+ * Returns null when there are no notes.
+ */
+export function formatOverviewNotes(
+	notes: Map<string, string[]>,
+): string | null {
+	if (notes.size === 0) return null;
+
+	const parts: string[] = ["User notes from overview:", ""];
+	for (const [path, fileNotes] of notes) {
+		parts.push(`## ${path}`);
+		for (const note of fileNotes) {
+			parts.push(`- "${note}"`);
+		}
+		parts.push("");
+	}
+	return parts.join("\n");
+}
+
+/**
  * Briefing after generate-analysis: confirms the analysis was
  * stored and tells the agent to call overview next.
  */

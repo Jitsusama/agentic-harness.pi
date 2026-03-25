@@ -19,6 +19,7 @@ import { getCurrentRepo, resolveRepo } from "../lib/github/repo-discovery.js";
 import type { ReviewComment } from "../lib/github/review-post.js";
 import {
 	activationBriefing,
+	formatOverviewNotes,
 	generateAnalysisBriefing,
 	generateCommentsBriefing,
 } from "./briefing.js";
@@ -329,9 +330,20 @@ export async function handleOverview(
 	}
 
 	if (result.action === "review") {
-		return plainTextResponse(
-			"User chose to proceed to review. Call 'review' to show the review panel.",
-		);
+		const notesText = formatOverviewNotes(result.notes);
+		const parts = [
+			"User chose to proceed. Call 'generate-comments' with " +
+				"structured review comments informed by your analysis.",
+		];
+		if (notesText) {
+			parts.push("");
+			parts.push(notesText);
+		}
+
+		return {
+			content: [{ type: "text" as const, text: parts.join("\n") }],
+			details: { action: "overview", noteCount: result.notes.size },
+		};
 	}
 
 	if (result.action === "redirect") {

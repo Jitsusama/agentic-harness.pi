@@ -268,8 +268,16 @@ export interface WorkspaceInputContext {
 	requestRender: () => void;
 	/** Adjust scroll so the given content line is visible. */
 	scrollToContentLine: (line: number) => void;
-	/** Open the note editor with a label. */
-	openEditor: (label: string, preFill?: string) => void;
+	/**
+	 * Open the note editor. Without onSubmit, the editor closes
+	 * the panel with a redirect result. With onSubmit, the
+	 * callback receives the text and the panel stays open.
+	 */
+	openEditor: (
+		label: string,
+		preFill?: string,
+		onSubmit?: (text: string) => void,
+	) => void;
 	/** Close the panel with a result. */
 	done: (result: WorkspaceResult) => void;
 }
