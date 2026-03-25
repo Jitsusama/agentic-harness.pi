@@ -67,6 +67,7 @@ function createWorkspaceController(
 	let currentTab = 0;
 	let editorMode = false;
 	let editorLabel = "Feedback:";
+	let editorCallback: ((text: string) => void) | null = null;
 	let lastWidth = process.stdout.columns || 80;
 
 	const activeViewIndex = new Map<number, number>();
@@ -121,7 +122,12 @@ function createWorkspaceController(
 		editorMode = false;
 		editor.setText("");
 
-		if (trimmed) {
+		if (editorCallback) {
+			const cb = editorCallback;
+			editorCallback = null;
+			if (trimmed) cb(trimmed);
+			tui.requestRender();
+		} else if (trimmed) {
 			done({ type: "redirect", note: trimmed });
 		} else {
 			tui.requestRender();
@@ -154,8 +160,13 @@ function createWorkspaceController(
 					scroll.vOffset = line - budget + margin + 1;
 				}
 			},
-			openEditor(label: string, preFill?: string) {
+			openEditor(
+				label: string,
+				preFill?: string,
+				onSubmit?: (text: string) => void,
+			) {
 				editorLabel = label;
+				editorCallback = onSubmit ?? null;
 				editorMode = true;
 				editor.setText(preFill ?? "");
 				tui.requestRender();
@@ -208,6 +219,7 @@ function createWorkspaceController(
 		if (editorMode) {
 			if (matchesKey(data, Key.escape)) {
 				editorMode = false;
+				editorCallback = null;
 				editor.setText("");
 				tui.requestRender();
 				return;

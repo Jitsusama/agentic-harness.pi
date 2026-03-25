@@ -24,6 +24,7 @@ import {
 	wordWrap,
 } from "../../lib/ui/text-layout.js";
 import type {
+	KeyAction,
 	WorkspaceInputContext,
 	WorkspaceItem,
 	WorkspaceResult,
@@ -34,9 +35,15 @@ import { buildDiffText, shortPath } from "./diff-display.js";
 
 /** Result type from the overview panel. */
 export type OverviewResult =
-	| { action: "review" }
+	| { action: "review"; notes: Map<string, string[]> }
 	| { action: "redirect"; note: string }
 	| null;
+
+/** Note actions shown in the Notes view footer. */
+const NOTE_ACTIONS: KeyAction[] = [
+	{ key: "n", label: "New" },
+	{ key: "d", label: "Delete" },
+];
 
 /**
  * Show the Phase 1 overview panel.
@@ -49,6 +56,8 @@ export async function showOverviewPanel(
 	repoPath: string,
 ): Promise<OverviewResult> {
 	let refIndex = 0;
+	const fileNotes = new Map<string, string[]>();
+	const noteIndices = new Map<string, number>();
 
 	const items: WorkspaceItem[] = [
 		buildOverviewTab(context, synopsis),
@@ -60,7 +69,9 @@ export async function showOverviewPanel(
 				refIndex = i;
 			},
 		),
-		...context.diffFiles.map((file) => buildFileTab(file, repoPath)),
+		...context.diffFiles.map((file) =>
+			buildFileTab(file, repoPath, fileNotes, noteIndices),
+		),
 	];
 
 	const result: WorkspaceResult = await workspace(ctx, {
@@ -73,7 +84,7 @@ export async function showOverviewPanel(
 	if (!result) return null;
 
 	if (result.type === "submit") {
-		return { action: "review" };
+		return { action: "review", notes: fileNotes };
 	}
 
 	if (result.type === "redirect") {
@@ -235,11 +246,38 @@ function buildReferencesTab(
 	return { label: "Refs", views: [refView] };
 }
 
-/** Build a per-file tab with Diff and Source views. */
-function buildFileTab(file: DiffFile, repoPath: string): WorkspaceItem {
+/** Build a per-file tab with Diff, Notes and Source views. */
+function buildFileTab(
+	file: DiffFile,
+	repoPath: string,
+	fileNotes: Map<string, string[]>,
+	noteIndices: Map<string, number>,
+): WorkspaceItem {
+	const getNotes = () => fileNotes.get(file.path) ?? [];
+	const setNotes = (notes: string[]) => {
+		if (notes.length > 0) {
+			fileNotes.set(file.path, notes);
+		} else {
+			fileNotes.delete(file.path);
+		}
+	};
+	const getIndex = () => noteIndices.get(file.path) ?? 0;
+	const setIndex = (i: number) => noteIndices.set(file.path, i);
+
 	return {
-		label: shortPath(file.path),
-		views: [buildFileDiffView(file), buildFileSourceView(file, repoPath)],
+		// The label getter is evaluated each render, so the note
+		// count updates as notes are added or removed.
+		get label() {
+			const count = getNotes().length;
+			return count > 0
+				? `${shortPath(file.path)} (${count})`
+				: shortPath(file.path);
+		},
+		views: [
+			buildFileDiffView(file),
+			buildFileNotesView(file, getNotes, setNotes, getIndex, setIndex),
+			buildFileSourceView(file, repoPath),
+		],
 		allowHScroll: true,
 	};
 }
@@ -270,12 +308,124 @@ function buildFileDiffView(file: DiffFile): WorkspaceView {
 	};
 }
 
+/** File Notes view: selectable list of user notes with add/edit/delete. */
+function buildFileNotesView(
+	file: DiffFile,
+	getNotes: () => string[],
+	setNotes: (notes: string[]) => void,
+	getIndex: () => number,
+	setIndex: (i: number) => void,
+): WorkspaceView {
+	return {
+		key: "2",
+		label: "Notes",
+		actions: NOTE_ACTIONS,
+		enterHint: "edit",
+		content: (theme: Theme, width: number) => {
+			const pad = " ".repeat(CONTENT_INDENT);
+			const wrapWidth = contentWrapWidth(width);
+			const notes = getNotes();
+			const lines: string[] = [];
+
+			lines.push(
+				` ${theme.fg("accent", theme.bold(file.path))} ${theme.fg("dim", `(${notes.length} note${notes.length !== 1 ? "s" : ""})`)}`,
+			);
+			lines.push("");
+
+			if (notes.length === 0) {
+				lines.push(
+					`${pad}${theme.fg("dim", "No notes yet. Press n to add one.")}`,
+				);
+				return lines;
+			}
+
+			const selected = getIndex();
+
+			for (let i = 0; i < notes.length; i++) {
+				const isSel = i === selected;
+				const cursor = isSel ? "▸ " : "  ";
+				const note = notes[i] ?? "";
+				const firstLine = note.split("\n")[0] ?? "";
+				const line = `${pad}${cursor}${firstLine}`;
+				lines.push(isSel ? theme.fg("accent", line) : line);
+
+				// We show the full note below the selected item.
+				if (isSel && note.includes("\n")) {
+					const rest = note.slice(note.indexOf("\n") + 1);
+					for (const wl of wordWrap(rest, wrapWidth - 4)) {
+						lines.push(`${pad}    ${theme.fg("dim", wl)}`);
+					}
+				}
+			}
+
+			return lines;
+		},
+		handleInput: (data: string, inputCtx: WorkspaceInputContext) => {
+			const notes = getNotes();
+
+			// Add a new note.
+			if (matchesKey(data, "n")) {
+				inputCtx.openEditor("New note:", undefined, (text) => {
+					const updated = [...getNotes(), text];
+					setNotes(updated);
+					setIndex(updated.length - 1);
+					inputCtx.invalidate();
+				});
+				return true;
+			}
+
+			if (notes.length === 0) return false;
+
+			// ↑↓ navigation
+			if (matchesKey(data, Key.up)) {
+				setIndex((getIndex() - 1 + notes.length) % notes.length);
+				inputCtx.invalidate();
+				inputCtx.scrollToContentLine(getIndex() + 2);
+				return true;
+			}
+			if (matchesKey(data, Key.down)) {
+				setIndex((getIndex() + 1) % notes.length);
+				inputCtx.invalidate();
+				inputCtx.scrollToContentLine(getIndex() + 2);
+				return true;
+			}
+
+			// Edit selected note.
+			if (matchesKey(data, Key.enter)) {
+				const idx = getIndex();
+				const current = notes[idx] ?? "";
+				inputCtx.openEditor("Edit note:", current, (text) => {
+					const updated = [...getNotes()];
+					updated[idx] = text;
+					setNotes(updated);
+					inputCtx.invalidate();
+				});
+				return true;
+			}
+
+			// Delete selected note.
+			if (matchesKey(data, "d")) {
+				const idx = getIndex();
+				const updated = getNotes().filter((_, i) => i !== idx);
+				setNotes(updated);
+				if (idx >= updated.length && updated.length > 0) {
+					setIndex(updated.length - 1);
+				}
+				inputCtx.invalidate();
+				return true;
+			}
+
+			return false;
+		},
+	};
+}
+
 /** File Source view: full file content, syntax highlighted. */
 function buildFileSourceView(file: DiffFile, repoPath: string): WorkspaceView {
 	const filePath = `${repoPath}/${file.path}`;
 
 	return {
-		key: "2",
+		key: "3",
 		label: "Source",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
