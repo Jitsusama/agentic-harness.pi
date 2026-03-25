@@ -24,7 +24,8 @@ context or shows a panel.
 | Action | Purpose |
 |--------|---------|
 | `activate` | Parse PR ref, resolve repo, crawl deep context |
-| `generate-comments` | Provide analysis, synopsis and comments |
+| `generate-analysis` | Provide synopsis, scope, roles and reference summaries |
+| `generate-comments` | Provide structured review comments |
 | `overview` | Show Phase 1 overview panel |
 | `review` | Show Phase 2 review panel |
 | `add-comment` | Add a review comment |
@@ -38,7 +39,8 @@ context or shows a panel.
 ## Standard Sequence
 
 ```
-activate → generate-comments → DISCUSS → overview
+activate → generate-analysis → overview
+→ generate-comments → DISCUSS → overview
 → review → (steer cycles) → submit → post → deactivate
 ```
 
@@ -51,12 +53,12 @@ Call `activate` with a PR reference (URL, `#123`, or
 - Returns a comprehensive briefing with the full diff, issue
   context, reviewer status and source file list.
 
-### 2. Generate Comments
+### 2. Generate Analysis
 
 After receiving the activation briefing, analyze the PR
 thoroughly. Use `read` to examine source files and `rg`
 via `bash` to search for patterns. Then call
-`generate-comments` with:
+`generate-analysis` with:
 
 - **`synopsis`**: a conversational, approachable summary
   for a human reviewer. Lead with the motivation, then
@@ -69,6 +71,27 @@ via `bash` to search for patterns. Then call
 - **`reference_summaries`**: for each discovered reference,
   a one-sentence plain-language summary of what it is and
   why it matters to this PR (matched by URL).
+
+Do **not** generate comments yet. The user gets a first
+pass through the code before comments shape their thinking.
+
+### 3. First Overview
+
+After `generate-analysis`, call `overview` to show the
+overview panel. The user sees the synopsis, categorised
+references, and per-file diff and source views. This is
+their first pass through the code.
+
+The user presses Ctrl+Enter to proceed, or steers for
+feedback. If they steer, process their feedback and call
+`overview` again.
+
+### 4. Generate Comments
+
+After the user finishes the overview, call
+`generate-comments` with structured review comments
+informed by your analysis:
+
 - **`comments`**: structured review comments, each with:
   - `file` (path or null for PR-level)
   - `startLine`, `endLine` (or null for file-level)
@@ -86,7 +109,7 @@ skills for format and quality guidance.
 - `title`: about title accuracy and description completeness.
 - `file`: code quality, tests, implementation.
 
-### 3. Conversation Phase
+### 5. Conversation Phase
 
 After `generate-comments`, comments are **proposed** (not
 yet committed to the review). Present your review approach
@@ -113,19 +136,13 @@ When the user is satisfied (e.g., "looks good", "proceed",
 "let's review"), call `overview` to promote proposed
 comments to pending and begin the structured review.
 
-### 4. Overview Phase
+### 6. Second Overview
 
-Call `overview` to show the overview panel. This also
-promotes all proposed comments to pending. The user sees
-three tabs: Overview (PR metadata + synopsis), References
-(browsable list of all crawled references) and Source
-(browsable list of source files with roles).
+Call `overview` again to promote proposed comments to
+pending. The user can do a second pass through the code
+if they wish, now with the comments finalised.
 
-The user presses 'r' to move on to review, or steers for
-feedback. If they steer, process their feedback and call
-`overview` again.
-
-### 5. Review Phase
+### 7. Review Phase
 
 Call `review` to show the review panel. One tab per changed
 file plus Desc and Scope tabs. Each tab has three views:
@@ -146,7 +163,7 @@ If the user steers:
   then call `review`.
 - General feedback: process and call `review`.
 
-### 6. Submit Phase
+### 8. Submit Phase
 
 Call `submit` to show the submit panel. You can optionally
 provide `review_body` and `verdict` to pre-fill.
@@ -158,7 +175,7 @@ steer to edit the body/verdict.
 If they steer, update `review_body`/`verdict` and call
 `submit` again.
 
-### 7. Post and Deactivate
+### 9. Post and Deactivate
 
 The submit panel's post action calls `post` automatically.
 If needed, call `post` directly. Then call `deactivate`

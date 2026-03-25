@@ -17,7 +17,11 @@ import {
 } from "../lib/github/pr-reference.js";
 import { getCurrentRepo, resolveRepo } from "../lib/github/repo-discovery.js";
 import type { ReviewComment } from "../lib/github/review-post.js";
-import { activationBriefing, generateCommentsBriefing } from "./briefing.js";
+import {
+	activationBriefing,
+	generateAnalysisBriefing,
+	generateCommentsBriefing,
+} from "./briefing.js";
 import { gatherContext } from "./gather.js";
 import { activate, deactivate, persist, refreshUI } from "./lifecycle.js";
 import {
@@ -188,14 +192,13 @@ export async function handleActivate(
 	}
 }
 
-/** Generate comments: agent provides analysis and structured comments. */
-export async function handleGenerateComments(
+/** Generate analysis: agent provides contextual awareness before comments. */
+export async function handleGenerateAnalysis(
 	deps: ReviewContext,
 	synopsis: string | null,
 	scopeAnalysis: string | null,
 	sourceRoles: SourceRoleInput[] | null,
 	referenceSummaries: ReferenceSummaryInput[] | null,
-	comments: CommentInput[] | null,
 ) {
 	const { state, pi } = deps;
 
@@ -205,7 +208,6 @@ export async function handleGenerateComments(
 
 	const session = state.session;
 
-	// We store the synopsis and scope analysis.
 	if (synopsis) session.synopsis = synopsis;
 	if (scopeAnalysis) session.scopeAnalysis = scopeAnalysis;
 
@@ -226,6 +228,29 @@ export async function handleGenerateComments(
 			if (ref) ref.description = rs.summary;
 		}
 	}
+
+	persist(state, pi);
+
+	const briefing = generateAnalysisBriefing();
+
+	return {
+		content: [{ type: "text" as const, text: briefing }],
+		details: { action: "generate-analysis" },
+	};
+}
+
+/** Generate comments: agent provides structured review comments. */
+export async function handleGenerateComments(
+	deps: ReviewContext,
+	comments: CommentInput[] | null,
+) {
+	const { state, pi } = deps;
+
+	if (!state.session) {
+		return plainTextResponse("No PR review active. Call 'activate' first.");
+	}
+
+	const session = state.session;
 
 	// We add comments as proposed: they promote to pending when
 	// the user proceeds to overview after the conversation phase.
@@ -251,10 +276,10 @@ export async function handleGenerateComments(
 
 	persist(state, pi);
 
-	const summary = generateCommentsBriefing(session);
+	const briefing = generateCommentsBriefing(session);
 
 	return {
-		content: [{ type: "text" as const, text: summary }],
+		content: [{ type: "text" as const, text: briefing }],
 		details: {
 			action: "generate-comments",
 			commentCount: session.comments.length,

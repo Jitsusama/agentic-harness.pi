@@ -5,7 +5,8 @@
  * the workflow by calling pr_review with different actions:
  *
  *   activate          : parse PR ref, resolve repo, gather context
- *   generate-comments : agent provides analysis and structured comments
+ *   generate-analysis : agent provides synopsis, scope, roles, summaries
+ *   generate-comments : agent provides structured review comments
  *   overview          : show Phase 1 overview panel
  *   review            : show Phase 2 review panel
  *   add-comment       : add a review comment
@@ -29,6 +30,7 @@ import {
 	handleActivate,
 	handleAddComment,
 	handleDeactivate,
+	handleGenerateAnalysis,
 	handleGenerateComments,
 	handleListComments,
 	handleOverview,
@@ -51,6 +53,7 @@ import {
 /** Actions the LLM can request. */
 const ACTIONS = [
 	"activate",
+	"generate-analysis",
 	"generate-comments",
 	"overview",
 	"review",
@@ -79,8 +82,10 @@ export default function prReview(pi: ExtensionAPI) {
 			"Review a pull request. Read the pr-review skill for methodology.",
 		promptGuidelines: [
 			"Use when the user wants to review someone else's PR, do a code review, or provide PR feedback.",
-			"Workflow: activate → generate-comments → DISCUSS → overview → review → submit → post → deactivate.",
-			"After activate, analyze the context and call 'generate-comments' with structured comments.",
+			"Workflow: activate → generate-analysis → overview → generate-comments → DISCUSS → overview → review → submit → post → deactivate.",
+			"After activate, analyze the context and call 'generate-analysis' with synopsis, scope analysis, source roles and reference summaries. No comments yet.",
+			"After generate-analysis, call 'overview' to show the user the overview panel for their first pass.",
+			"After overview, call 'generate-comments' with structured review comments informed by your analysis.",
 			"After generate-comments, present your review approach conversationally and discuss with the user. " +
 				"Comments start as 'proposed'. Adjust with list/update/remove/add during discussion. " +
 				"When the user is satisfied, call 'overview' to promote proposed → pending.",
@@ -96,7 +101,8 @@ export default function prReview(pi: ExtensionAPI) {
 		parameters: Type.Object({
 			action: StringEnum(ACTIONS, {
 				description:
-					"activate: start review | generate-comments: provide analysis and comments | " +
+					"activate: start review | generate-analysis: provide analysis and context | " +
+					"generate-comments: provide structured comments | " +
 					"overview: show overview panel | review: show review panel | " +
 					"add-comment: add a comment | update-comment: edit a comment | " +
 					"remove-comment: delete comment(s) | list-comments: show all with IDs | " +
@@ -119,13 +125,13 @@ export default function prReview(pi: ExtensionAPI) {
 			synopsis: Type.Optional(
 				Type.String({
 					description:
-						"AI-generated PR synopsis. Used with 'generate-comments'.",
+						"AI-generated PR synopsis. Used with 'generate-analysis'.",
 				}),
 			),
 			scope_analysis: Type.Optional(
 				Type.String({
 					description:
-						"AI-generated scope analysis. Used with 'generate-comments'.",
+						"AI-generated scope analysis. Used with 'generate-analysis'.",
 				}),
 			),
 			source_roles: Type.Optional(
@@ -136,7 +142,7 @@ export default function prReview(pi: ExtensionAPI) {
 					}),
 					{
 						description:
-							"Source file role descriptions. Used with 'generate-comments'.",
+							"Source file role descriptions. Used with 'generate-analysis'.",
 					},
 				),
 			),
@@ -149,7 +155,7 @@ export default function prReview(pi: ExtensionAPI) {
 						}),
 					}),
 					{
-						description: "Reference summaries. Used with 'generate-comments'.",
+						description: "Reference summaries. Used with 'generate-analysis'.",
 					},
 				),
 			),
@@ -256,15 +262,16 @@ export default function prReview(pi: ExtensionAPI) {
 						params.pr ?? null,
 						(params.user_request as string) ?? null,
 					);
-				case "generate-comments":
-					return handleGenerateComments(
+				case "generate-analysis":
+					return handleGenerateAnalysis(
 						deps,
 						(params.synopsis as string) ?? null,
 						(params.scope_analysis as string) ?? null,
 						sourceRoles ?? null,
 						refSummaries ?? null,
-						comments ?? null,
 					);
+				case "generate-comments":
+					return handleGenerateComments(deps, comments ?? null);
 				case "overview":
 					return handleOverview(deps, ctx);
 				case "review":
@@ -330,6 +337,9 @@ export default function prReview(pi: ExtensionAPI) {
 					0,
 					0,
 				);
+			}
+			if (action === "generate-analysis") {
+				return new Text(theme.fg("success", "✓ Analysis stored"), 0, 0);
 			}
 			if (action === "generate-comments") {
 				const count = d?.commentCount ?? 0;
