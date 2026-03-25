@@ -13,7 +13,7 @@
  */
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import { Key, matchesKey } from "@mariozechner/pi-tui";
 import { GLYPH, type ListChoice } from "./types.js";
 
 /** Result of navigating and selecting from an option list. */
@@ -44,20 +44,16 @@ export function renderOptionList(
 		const label = opt.label;
 
 		if (isSelected) {
-			lines.push(
-				truncateToWidth(`${prefix}${theme.fg("accent", `${number}${label}`)}`),
-			);
+			lines.push(`${prefix}${theme.fg("accent", `${number}${label}`)}`);
 		} else {
-			lines.push(truncateToWidth(`${prefix}${number}${label}`));
+			lines.push(`${prefix}${number}${label}`);
 		}
 
 		// We only show the description for the currently selected item.
 		if (isSelected && opt.description) {
 			// The prefix has ANSI codes, so we use a fixed visible width (3 chars) + the number.
 			const indent = " ".repeat(3 + number.length);
-			lines.push(
-				truncateToWidth(`${indent}${theme.fg("dim", opt.description)}`),
-			);
+			lines.push(`${indent}${theme.fg("dim", opt.description)}`);
 		}
 	}
 
