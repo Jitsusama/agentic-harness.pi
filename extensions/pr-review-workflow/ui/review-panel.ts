@@ -17,6 +17,12 @@ import {
 	renderDiff,
 	renderMarkdown,
 } from "../../lib/ui/content-renderer.js";
+import {
+	DETAIL_INDENT,
+	handleNavigableListInput,
+	type NavigableItem,
+	renderNavigableList,
+} from "../../lib/ui/navigable-list.js";
 import { workspace } from "../../lib/ui/panel.js";
 import { tabCompletion } from "../../lib/ui/tab-completion.js";
 import {
@@ -463,6 +469,56 @@ function buildFileCommentsView(
 	};
 }
 
+/** Map a review comment to a NavigableItem. */
+function commentToItem(
+	c: ReviewObservation,
+	theme: Theme,
+	wrapWidth: number,
+): NavigableItem {
+	const glyphColor =
+		c.status === "approved"
+			? "success"
+			: c.status === "rejected"
+				? "error"
+				: c.status === "proposed"
+					? "dim"
+					: "accent";
+
+	const lineRange =
+		c.startLine !== null
+			? c.startLine !== c.endLine
+				? `L${c.startLine}-${c.endLine}`
+				: `L${c.startLine}`
+			: "";
+
+	const decorStr =
+		c.decorations.length > 0 ? ` (${c.decorations.join(", ")})` : "";
+
+	const statusColor =
+		c.status === "approved"
+			? "success"
+			: c.status === "rejected"
+				? "error"
+				: "dim";
+
+	const detail: string[] = [""];
+	if (c.discussion) {
+		for (const wl of wordWrap(c.discussion, wrapWidth)) {
+			detail.push(`${DETAIL_INDENT}${theme.fg("text", wl)}`);
+		}
+	}
+	detail.push(
+		`${DETAIL_INDENT}${theme.fg(statusColor, `[${c.status}]`)} ${theme.fg("dim", `(${c.source})`)}`,
+	);
+	detail.push("");
+
+	return {
+		glyph: theme.fg(glyphColor, COMMENT_GLYPH[c.status]),
+		summary: `${lineRange} ${c.label}${decorStr}: ${c.subject}`,
+		detail,
+	};
+}
+
 /** Render a selectable comment list. */
 function renderCommentList(
 	comments: ReviewObservation[],
@@ -470,65 +526,11 @@ function renderCommentList(
 	theme: Theme,
 	width: number,
 ): string[] {
-	const pad = " ".repeat(CONTENT_INDENT);
-	const wrapWidth = contentWrapWidth(width);
-	const lines: string[] = [];
-
-	if (comments.length === 0) {
-		lines.push(`${pad}${theme.fg("dim", "No comments.")}`);
-		return lines;
-	}
-
-	for (let i = 0; i < comments.length; i++) {
-		const c = comments[i];
-		if (!c) continue;
-		const isSel = i === selectedIndex;
-		const cursor = isSel ? "▸ " : "  ";
-		const glyph = COMMENT_GLYPH[c.status];
-		const glyphColor =
-			c.status === "approved"
-				? "success"
-				: c.status === "rejected"
-					? "error"
-					: c.status === "proposed"
-						? "dim"
-						: "accent";
-
-		const lineRange =
-			c.startLine !== null
-				? c.startLine !== c.endLine
-					? `L${c.startLine}-${c.endLine}`
-					: `L${c.startLine}`
-				: "";
-
-		const decorStr =
-			c.decorations.length > 0 ? ` (${c.decorations.join(", ")})` : "";
-
-		const summary = `${lineRange} ${c.label}${decorStr}: ${c.subject}`;
-		const line = `${pad}${cursor}${theme.fg(glyphColor, glyph)} ${summary}`;
-		lines.push(isSel ? theme.fg("accent", line) : line);
-
-		// Expanded view for selected comment
-		if (isSel) {
-			lines.push("");
-			if (c.discussion) {
-				for (const wl of wordWrap(c.discussion, wrapWidth - 6)) {
-					lines.push(`${pad}      ${theme.fg("text", wl)}`);
-				}
-			}
-			const statusColor =
-				c.status === "approved"
-					? "success"
-					: c.status === "rejected"
-						? "error"
-						: "dim";
-			lines.push(
-				`${pad}      ${theme.fg(statusColor, `[${c.status}]`)} ${theme.fg("dim", `(${c.source})`)}`,
-			);
-			lines.push("");
-		}
-	}
-
+	const wrapWidth = contentWrapWidth(width) - 6;
+	const items = comments.map((c) => commentToItem(c, theme, wrapWidth));
+	const { lines } = renderNavigableList(items, selectedIndex, theme, {
+		emptyMessage: "No comments.",
+	});
 	return lines;
 }
 
@@ -551,16 +553,11 @@ function handleCommentInput(
 	}
 
 	// ↑↓ navigation
-	if (matchesKey(data, Key.up)) {
-		setIndex((getIndex() - 1 + comments.length) % comments.length);
+	const navResult = handleNavigableListInput(data, getIndex(), comments.length);
+	if (navResult !== null) {
+		setIndex(navResult);
 		inputCtx.invalidate();
-		inputCtx.scrollToContentLine(getIndex());
-		return true;
-	}
-	if (matchesKey(data, Key.down)) {
-		setIndex((getIndex() + 1) % comments.length);
-		inputCtx.invalidate();
-		inputCtx.scrollToContentLine(getIndex());
+		inputCtx.scrollToContentLine(navResult);
 		return true;
 	}
 
