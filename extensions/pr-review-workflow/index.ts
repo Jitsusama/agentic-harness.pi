@@ -82,17 +82,17 @@ export default function prReview(pi: ExtensionAPI) {
 			"Review a pull request. Read the pr-review skill for methodology.",
 		promptGuidelines: [
 			"Use when the user wants to review someone else's PR, do a code review, or provide PR feedback.",
-			"Workflow: activate → generate-analysis → overview → generate-comments → DISCUSS → overview → review → submit → post → deactivate.",
+			"Workflow: activate → generate-analysis → overview → generate-comments → DISCUSS → review → submit → post → deactivate.",
 			"After activate, analyze the context and call 'generate-analysis' with synopsis, scope analysis, source roles and reference summaries. No comments yet.",
 			"After generate-analysis, call 'overview' to show the user the overview panel for their first pass.",
 			"After overview, call 'generate-comments' with structured review comments informed by your analysis.",
 			"After generate-comments, present your review approach conversationally and discuss with the user. " +
 				"If the user left notes during the overview, acknowledge which ones informed your comments. " +
 				"Comments start as 'proposed'. Adjust with list/update/remove/add during discussion. " +
-				"When the user is satisfied, call 'overview' to promote proposed → pending, then 'review'.",
-			"Call 'overview' to show the Phase 1 overview panel (also finalizes proposed comments). " +
+				"When the user is satisfied, call 'review' directly (proposed comments are promoted automatically).",
+			"Call 'overview' to show the overview panel. " +
 				"The user can take notes on files during the overview; these are returned in the result.",
-			"Call 'review' to show the Phase 2 review panel with file tabs.",
+			"Call 'review' to show the review panel with file tabs. Promotes proposed → pending automatically.",
 			"Use 'add-comment', 'update-comment', 'remove-comment' for comment management.",
 			"Use 'list-comments' to see all comments with their IDs.",
 			"'remove-comment' accepts comment_ids (array) for bulk removal.",
@@ -238,7 +238,9 @@ export default function prReview(pi: ExtensionAPI) {
 			),
 			review_body: Type.Optional(
 				Type.String({
-					description: "Review body text. Used with 'submit'.",
+					description:
+						"Review body text. Used with 'submit'. " +
+						"Use real newlines for line breaks, not literal backslash-n sequences.",
 				}),
 			),
 			verdict: Type.Optional(

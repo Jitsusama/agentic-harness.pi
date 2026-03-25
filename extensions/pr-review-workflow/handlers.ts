@@ -304,13 +304,6 @@ export async function handleOverview(
 		return plainTextResponse("Failed to load PR context.");
 	}
 
-	// Promote proposed comments to pending: the conversation
-	// phase is over and we're moving to structured review.
-	const promoted = promoteProposedComments(session);
-	if (promoted > 0) {
-		persist(state, deps.pi);
-	}
-
 	session.phase = "overview";
 	refreshUI(state, ctx);
 
@@ -374,6 +367,14 @@ export async function handleReview(deps: ReviewContext, ctx: ExtensionContext) {
 	const session = state.session;
 	if (!(await ensureContext(deps, ctx))) {
 		return plainTextResponse("Failed to load PR context.");
+	}
+
+	// Promote proposed comments to pending before showing the
+	// review panel. This removes the need for a second overview
+	// call just to promote comments after discussion.
+	const promoted = promoteProposedComments(session);
+	if (promoted > 0) {
+		persist(state, deps.pi);
 	}
 
 	session.phase = "reviewing";

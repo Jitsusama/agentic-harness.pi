@@ -40,7 +40,7 @@ context or shows a panel.
 
 ```
 activate → generate-analysis → overview
-→ generate-comments → DISCUSS → overview
+→ generate-comments → DISCUSS
 → review → (steer cycles) → submit → post → deactivate
 ```
 
@@ -142,17 +142,13 @@ During conversation:
   proposed.
 
 When the user is satisfied (e.g., "looks good", "proceed",
-"let's review"), call `overview` to promote proposed
-comments to pending and begin the structured review.
+"let's review"), call `review` directly. Proposed comments
+are promoted to pending automatically when the review
+panel opens. The user can call `overview` again themselves
+if they want another pass through the code, but the agent
+should not force a second overview just for promotion.
 
-### 6. Second Overview
-
-Call `overview` again to promote proposed comments to
-pending. The user can do a second pass through the code
-if they wish, now with the comments finalised. After the
-overview, call `review` to show the review panel.
-
-### 7. Review Phase
+### 6. Review Phase
 
 Call `review` to show the review panel. One tab per changed
 file plus Desc and Scope tabs. Each tab has three views:
@@ -173,7 +169,7 @@ If the user steers:
   then call `review`.
 - General feedback: process and call `review`.
 
-### 8. Submit Phase
+### 7. Submit Phase
 
 Call `submit` to show the submit panel. You can optionally
 provide `review_body` and `verdict` to pre-fill.
@@ -185,7 +181,7 @@ steer to edit the body/verdict.
 If they steer, update `review_body`/`verdict` and call
 `submit` again.
 
-### 9. Post and Deactivate
+### 8. Post and Deactivate
 
 The submit panel's post action calls `post` automatically.
 If needed, call `post` directly. Then call `deactivate`

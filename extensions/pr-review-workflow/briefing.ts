@@ -197,9 +197,8 @@ export function generateCommentsBriefing(session: ReviewSession): string {
 		"Use 'list-comments', 'update-comment', 'remove-comment', 'add-comment' to adjust during discussion.",
 	);
 	parts.push(
-		"When the user is satisfied, call 'overview' to promote proposed " +
-			"comments to pending. After the overview, call 'review' to show " +
-			"the review panel.",
+		"When the user is satisfied, call 'review' to show the review panel. " +
+			"Proposed comments are promoted to pending automatically.",
 	);
 	return parts.join("\n");
 }
