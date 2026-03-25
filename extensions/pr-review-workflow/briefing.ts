@@ -56,8 +56,8 @@ export function activationSummary(session: ReviewSession): string {
 }
 
 /**
- * LLM instructions for the activation briefing. Appended by
- * the handler after the domain summary.
+ * LLM instructions for the activation briefing. Tells the
+ * agent to analyze deeply, then call generate-analysis.
  */
 export function activationInstructions(repoPath: string): string {
 	const parts: string[] = [];
@@ -65,7 +65,19 @@ export function activationInstructions(repoPath: string): string {
 	parts.push("### Instructions");
 	parts.push("");
 	parts.push(
-		"Analyze the PR thoroughly, then call `pr_review` with action `generate-comments` providing:",
+		"Analyze the PR thoroughly. Read source files and search for patterns " +
+			"to build deep understanding before generating any output.",
+	);
+	parts.push("");
+	parts.push(
+		`Use the \`read\` tool to examine source files at \`${repoPath}/\` for deeper analysis.`,
+	);
+	parts.push(
+		`Use \`rg\` in \`bash\` to search for patterns in \`${repoPath}/\`.`,
+	);
+	parts.push("");
+	parts.push(
+		"Then call `pr_review` with action `generate-analysis` providing:",
 	);
 	parts.push("");
 	parts.push(
@@ -84,31 +96,10 @@ export function activationInstructions(repoPath: string): string {
 		"4. **`reference_summaries`**: for each discovered reference, a one-sentence " +
 			"plain-language summary of what it is and why it matters to this PR",
 	);
-	parts.push(
-		"5. **`comments`**: structured review comments using comment-format conventions:",
-	);
-	parts.push("   - Categorize as `file`, `title`, or `scope`");
-	parts.push(
-		"   - Use appropriate labels: praise, nitpick, suggestion, issue, question, thought, todo, note",
-	);
-	parts.push("   - Add decorations: blocking, non-blocking, if-minor");
-	parts.push(
-		"   - `scope` comments: only about scope concerns (focus, organization)",
-	);
-	parts.push(
-		"   - `title` comments: about title accuracy and description completeness",
-	);
-	parts.push("   - `file` comments: code quality, tests, implementation");
-	parts.push(
-		"   - Write comments as a human reviewer: never mention tools " +
-			"(rg, read, bash) or your investigation process in comment text",
-	);
 	parts.push("");
 	parts.push(
-		`Use the \`read\` tool to examine source files at \`${repoPath}/\` for deeper analysis.`,
-	);
-	parts.push(
-		`Use \`rg\` in \`bash\` to search for patterns in \`${repoPath}/\`.`,
+		"The overview panel will be shown to the user after analysis. " +
+			"Do **not** generate comments yet: that happens after the user's first pass.",
 	);
 
 	return parts.join("\n");
@@ -122,6 +113,23 @@ export function activationBriefing(session: ReviewSession): string {
 	const summary = activationSummary(session);
 	const instructions = activationInstructions(session.repoPath);
 	return `${summary}\n${instructions}`;
+}
+
+/**
+ * Briefing after generate-analysis: confirms the analysis was
+ * stored and tells the agent to call overview next.
+ */
+export function generateAnalysisBriefing(): string {
+	const parts: string[] = [];
+	parts.push("Analysis stored. Call `pr_review` with action `overview`.");
+	parts.push(
+		"The overview panel will be shown to the user for their first pass through the code.",
+	);
+	parts.push(
+		"After the user finishes the overview, call `generate-comments` with " +
+			"structured review comments informed by your analysis.",
+	);
+	return parts.join("\n");
 }
 
 /** Summary returned after comments are generated. */
@@ -149,7 +157,7 @@ export function generateCommentsSummary(session: ReviewSession): string {
 /**
  * Full briefing after comment generation: domain summary
  * plus conversation coaching. Comments start as proposed and
- * promote to pending when the user proceeds to overview.
+ * promote to pending when the user proceeds to review.
  */
 export function generateCommentsBriefing(session: ReviewSession): string {
 	const summary = generateCommentsSummary(session);
@@ -165,7 +173,8 @@ export function generateCommentsBriefing(session: ReviewSession): string {
 		"Use 'list-comments', 'update-comment', 'remove-comment', 'add-comment' to adjust during discussion.",
 	);
 	parts.push(
-		"When the user is satisfied, call 'overview' to promote proposed comments to pending and begin the structured review.",
+		"When the user is satisfied, call 'overview' to promote proposed " +
+			"comments to pending and show the review panel.",
 	);
 	return parts.join("\n");
 }
