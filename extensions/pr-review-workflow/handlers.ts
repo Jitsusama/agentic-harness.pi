@@ -293,6 +293,7 @@ export async function handleOverview(
 		ctx,
 		session.context,
 		session.synopsis,
+		session.repoPath,
 	);
 
 	if (!result) {

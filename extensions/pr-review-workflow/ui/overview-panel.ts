@@ -1,14 +1,22 @@
 /**
- * Phase 1: Overview panel: Overview/References/Source tabs.
+ * Phase 1: Overview panel: Overview/References/per-file tabs.
  *
  * Uses the workspace prompt for stateful tabbed interaction.
  * References are split into PR Refs (from the PR body and
  * linked issues) and Comment Refs (from PR and issue comments).
- * Each reference is prefixed with a type glyph.
+ * Each reference is prefixed with a type glyph. Per-file tabs
+ * show diff and source views inline.
  */
 
+import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
+import type { DiffFile } from "../../lib/github/diff.js";
+import {
+	languageFromPath,
+	renderCode,
+	renderDiff,
+} from "../../lib/ui/content-renderer.js";
 import { workspace } from "../../lib/ui/panel.js";
 import {
 	CONTENT_INDENT,
@@ -21,7 +29,7 @@ import type {
 	WorkspaceResult,
 	WorkspaceView,
 } from "../../lib/ui/types.js";
-import type { PRContext, Reference, SourceFile } from "../state.js";
+import type { PRContext, Reference } from "../state.js";
 
 /** Result type from the overview panel. */
 export type OverviewResult =
@@ -37,10 +45,9 @@ export async function showOverviewPanel(
 	ctx: ExtensionContext,
 	context: PRContext,
 	synopsis: string,
+	repoPath: string,
 ): Promise<OverviewResult> {
-	// This is mutable selection state for the lists.
 	let refIndex = 0;
-	let sourceIndex = 0;
 
 	const items: WorkspaceItem[] = [
 		buildOverviewTab(context, synopsis),
@@ -52,20 +59,14 @@ export async function showOverviewPanel(
 				refIndex = i;
 			},
 		),
-		buildSourceTab(
-			ctx,
-			context.sourceFiles,
-			() => sourceIndex,
-			(i) => {
-				sourceIndex = i;
-			},
-		),
+		...context.diffFiles.map((file) => buildFileTab(file, repoPath)),
 	];
 
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
 		tabStatus: () => "pending",
 		allComplete: () => true,
+		allowHScroll: true,
 	});
 
 	if (!result) return null;
@@ -233,77 +234,93 @@ function buildReferencesTab(
 	return { label: "Refs", views: [refView] };
 }
 
-/** Build the Source tab with a selectable file list. */
-function buildSourceTab(
-	ctx: ExtensionContext,
-	sourceFiles: SourceFile[],
-	getIndex: () => number,
-	setIndex: (i: number) => void,
-): WorkspaceItem {
-	const sourceView: WorkspaceView = {
-		key: "3",
-		label: "Source",
-		enterHint: "open",
+/** Build a per-file tab with Diff and Source views. */
+function buildFileTab(file: DiffFile, repoPath: string): WorkspaceItem {
+	return {
+		label: shortPath(file.path),
+		views: [buildFileDiffView(file), buildFileSourceView(file, repoPath)],
+		allowHScroll: true,
+	};
+}
+
+/** File Diff view: unified diff without comment overlay. */
+function buildFileDiffView(file: DiffFile): WorkspaceView {
+	return {
+		key: "1",
+		label: "Diff",
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
-			const wrapWidth = contentWrapWidth(width);
 			const lines: string[] = [];
 
-			if (sourceFiles.length === 0) {
-				lines.push(`${pad}${theme.fg("dim", "No source files discovered.")}`);
-				return lines;
-			}
+			lines.push(
+				` ${theme.fg("accent", theme.bold(file.path))} ${theme.fg("dim", `(${file.status}, +${file.additions} -${file.deletions})`)}`,
+			);
+			lines.push("");
 
-			const selected = getIndex();
-
-			for (let i = 0; i < sourceFiles.length; i++) {
-				const file = sourceFiles[i];
-				if (!file) continue;
-				const isSel = i === selected;
-				const cursor = isSel ? "▸ " : "  ";
-				const line = `${pad}${cursor}${file.path}`;
-				lines.push(isSel ? theme.fg("accent", line) : line);
-
-				// We show the role description for the selected item.
-				if (isSel && file.role) {
-					for (const wl of wordWrap(file.role, wrapWidth - 4)) {
-						lines.push(`${pad}    ${theme.fg("dim", wl)}`);
-					}
-				}
+			const diffText = buildDiffText(file);
+			if (diffText) {
+				lines.push(...renderDiff(diffText, theme, width));
+			} else {
+				lines.push(`${pad}${theme.fg("dim", "(no diff hunks)")}`);
 			}
 
 			return lines;
 		},
-		handleInput: (data: string, inputCtx: WorkspaceInputContext) => {
-			const total = sourceFiles.length;
-			if (total === 0) return false;
+	};
+}
 
-			if (matchesKey(data, Key.up)) {
-				setIndex((getIndex() - 1 + total) % total);
-				inputCtx.invalidate();
-				inputCtx.scrollToContentLine(getIndex());
-				return true;
-			}
-			if (matchesKey(data, Key.down)) {
-				setIndex((getIndex() + 1) % total);
-				inputCtx.invalidate();
-				inputCtx.scrollToContentLine(getIndex());
-				return true;
+/** File Source view: full file content, syntax highlighted. */
+function buildFileSourceView(file: DiffFile, repoPath: string): WorkspaceView {
+	const filePath = `${repoPath}/${file.path}`;
+
+	return {
+		key: "2",
+		label: "Source",
+		content: (theme: Theme, width: number) => {
+			const pad = " ".repeat(CONTENT_INDENT);
+			const lines: string[] = [];
+
+			lines.push(` ${theme.fg("accent", theme.bold(file.path))}`);
+			lines.push("");
+
+			let source: string;
+			try {
+				source = fs.readFileSync(filePath, "utf-8");
+			} catch {
+				return [`${pad}${theme.fg("dim", "(file not available)")}`];
 			}
 
-			if (matchesKey(data, Key.enter)) {
-				const file = sourceFiles[getIndex()];
-				if (file?.url) {
-					openUrl(ctx, file.url);
-				}
-				return true;
-			}
+			lines.push(
+				...renderCode(source, theme, width, {
+					language: languageFromPath(filePath),
+				}),
+			);
 
-			return false;
+			return lines;
 		},
 	};
+}
 
-	return { label: "Source", views: [sourceView] };
+/** Build a unified diff string from a DiffFile's hunks. */
+function buildDiffText(file: DiffFile): string | null {
+	if (file.hunks.length === 0) return null;
+
+	const lines: string[] = [];
+	for (const hunk of file.hunks) {
+		lines.push(hunk.header);
+		for (const line of hunk.lines) {
+			const prefix =
+				line.type === "added" ? "+" : line.type === "removed" ? "-" : " ";
+			lines.push(`${prefix}${line.content}`);
+		}
+	}
+	return lines.join("\n");
+}
+
+/** Extract the filename from a path for use as a short tab label. */
+function shortPath(path: string): string {
+	const lastSlash = path.lastIndexOf("/");
+	return lastSlash >= 0 ? path.slice(lastSlash + 1) : path;
 }
 
 /** Open a URL in the system browser. */
