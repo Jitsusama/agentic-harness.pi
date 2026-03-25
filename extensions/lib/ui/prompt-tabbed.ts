@@ -287,7 +287,18 @@ function createTabbedController(
 	 */
 	function ensureViewContent(tab: number, view: number, width: number): void {
 		const key = cacheKey(tab, view);
-		if (contentCache.has(key) || loadingViews.has(key)) return;
+		if (loadingViews.has(key)) return;
+		const existing = contentCache.get(key);
+		if (existing) {
+			// Re-render when the real width arrives after a width-0
+			// prefetch (view switching passes 0 before render provides
+			// the actual terminal width).
+			if (width > 0 && existing.width !== width) {
+				contentCache.delete(key);
+			} else {
+				return;
+			}
+		}
 
 		const item = config.items[tab];
 		const viewDef = item?.views[view];
