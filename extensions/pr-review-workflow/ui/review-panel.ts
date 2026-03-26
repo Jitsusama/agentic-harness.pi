@@ -138,9 +138,17 @@ export async function showReviewPanel(
 	}
 
 	if (result.type === "redirect") {
+		const comment = selectedComment(
+			session,
+			tabIds,
+			commentIndices,
+			result.tabIndex,
+		);
 		return {
 			action: "redirect",
 			note: result.note,
+			commentId: comment?.id,
+			commentSubject: comment?.subject,
 		};
 	}
 
@@ -673,4 +681,32 @@ function extractLineNumber(
 		}
 	}
 	return null;
+}
+
+/**
+ * Resolve the currently selected comment from a tab index.
+ * Tab layout: [desc (title), scope, file0, file1, ...].
+ */
+function selectedComment(
+	session: ReviewSession,
+	tabIds: string[],
+	commentIndices: Map<string, number>,
+	tabIndex: number,
+): ReviewObservation | null {
+	const tabId = tabIds[tabIndex];
+	if (!tabId) return null;
+
+	const idx = commentIndices.get(tabId) ?? 0;
+	let comments: ReviewObservation[];
+
+	if (tabId === "desc") {
+		comments = commentsByCategory(session, "title");
+	} else if (tabId === "scope") {
+		comments = commentsByCategory(session, "scope");
+	} else {
+		const filePath = tabId.replace(/^file:/, "");
+		comments = commentsForFile(session, filePath);
+	}
+
+	return comments[idx] ?? null;
 }

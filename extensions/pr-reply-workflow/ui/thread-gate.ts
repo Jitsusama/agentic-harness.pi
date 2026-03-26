@@ -117,6 +117,12 @@ export async function showThreadGate(
 		return { action: "redirect", feedback: result.note };
 	}
 
+	// Any annotation on an action becomes a redirect so the LLM
+	// sees the user's note with full thread context.
+	if (result.note) {
+		return { action: "redirect", feedback: result.note };
+	}
+
 	// Enter = implement (default forward action)
 	if (result.key === "__enter__") return { action: "implement" };
 

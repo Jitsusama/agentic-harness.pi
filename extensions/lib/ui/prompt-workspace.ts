@@ -40,6 +40,7 @@ import {
 	GLYPH,
 	type KeyAction,
 	type TabStatus,
+	type WorkspaceDoneInput,
 	type WorkspaceInputContext,
 	type WorkspacePromptConfig,
 	type WorkspaceResult,
@@ -62,12 +63,17 @@ function createWorkspaceController(
 	config: WorkspacePromptConfig,
 	tui: TUI,
 	theme: Theme,
-	done: (result: WorkspaceResult) => void,
+	rawDone: (result: WorkspaceResult) => void,
 ) {
 	let currentTab = 0;
 	let editorMode = false;
 	let editorLabel = "Feedback:";
 	let editorCallback: ((text: string) => void) | null = null;
+
+	/** Inject the active tab index into every non-null result. */
+	function done(result: WorkspaceDoneInput) {
+		rawDone(result ? { ...result, tabIndex: currentTab } : null);
+	}
 	let lastWidth = process.stdout.columns || 80;
 
 	const activeViewIndex = new Map<number, number>();
@@ -171,7 +177,7 @@ function createWorkspaceController(
 				editor.setText(preFill ?? "");
 				tui.requestRender();
 			},
-			done(result: WorkspaceResult) {
+			done(result: WorkspaceDoneInput) {
 				done(result);
 			},
 		};

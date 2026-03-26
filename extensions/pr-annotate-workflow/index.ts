@@ -197,6 +197,18 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				const parts = [
 					`User feedback on review comments:\n\n${result.redirectFeedback}`,
 				];
+				if (result.redirectComment) {
+					const c = result.redirectComment;
+					const lineRange = c.startLine
+						? `L${c.startLine}-${c.line}`
+						: `L${c.line}`;
+					parts.push("");
+					parts.push("Comment being redirected:");
+					parts.push(`- File: ${c.path}`);
+					parts.push(`- Lines: ${lineRange}`);
+					parts.push(`- Body: ${c.body}`);
+					if (c.rationale) parts.push(`- Rationale: ${c.rationale}`);
+				}
 				if (allApproved.length > 0) {
 					parts.push("");
 					parts.push(

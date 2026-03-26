@@ -121,11 +121,21 @@ export async function reviewProposedComments(
 				approved.push(vc.comment);
 			}
 		}
+
+		// Resolve which comment the user was looking at.
+		const activeComment = selectedVetComment(
+			filePaths,
+			fileGroups,
+			commentIndices,
+			result.tabIndex,
+		);
+
 		return {
 			approved,
 			rejected: 0,
 			edited: 0,
 			redirectFeedback: result.note,
+			redirectComment: activeComment?.comment,
 			userRequests: [],
 		};
 	}
@@ -567,6 +577,27 @@ function extractLineNumber(
 		}
 	}
 	return null;
+}
+
+/**
+ * Resolve the comment the user was viewing when they redirected.
+ * Tab layout: [summary, file0, file1, ...]. Tab 0 (summary)
+ * has no comments.
+ */
+function selectedVetComment(
+	filePaths: string[],
+	fileGroups: Map<string, VetComment[]>,
+	commentIndices: Map<string, number>,
+	tabIndex: number,
+): VetComment | null {
+	// Tab 0 is the summary tab — no associated comment.
+	const fileIdx = tabIndex - 1;
+	const filePath = filePaths[fileIdx];
+	if (!filePath) return null;
+
+	const comments = fileGroups.get(filePath) ?? [];
+	const idx = commentIndices.get(filePath) ?? 0;
+	return comments[idx] ?? null;
 }
 
 /** Build a unified diff string from a DiffFile's hunks. */
