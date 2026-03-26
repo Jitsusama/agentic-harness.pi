@@ -106,7 +106,6 @@ export async function reviewProposedComments(
 		items,
 		globalActions: [{ key: "p", label: "Pass" }],
 		...completion,
-		allowHScroll: true,
 	});
 
 	if (!result) return null;
@@ -249,7 +248,6 @@ function buildFileTab(
 			buildCommentsView(filePath, fileComments, getIndex, setIndex, tabPassed),
 			buildSourceView(filePath),
 		],
-		allowHScroll: true,
 	};
 }
 
@@ -262,6 +260,7 @@ function buildOverviewView(
 	return {
 		key: "1",
 		label: "Overview",
+		allowHScroll: true,
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
@@ -393,6 +392,7 @@ function buildSourceView(filePath: string): WorkspaceView {
 	return {
 		key: "3",
 		label: "Source",
+		allowHScroll: true,
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 

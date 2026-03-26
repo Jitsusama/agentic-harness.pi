@@ -133,7 +133,6 @@ export async function showReplyWorkspace(
 	const result: WorkspaceResult = await workspace(ctx, {
 		items,
 		...completion,
-		allowHScroll: true,
 	});
 
 	// We save the workspace position.
