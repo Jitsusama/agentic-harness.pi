@@ -440,7 +440,7 @@ function vetCommentToItem(vc: VetComment, theme: Theme): NavigableItem {
 
 	return {
 		glyph: theme.fg(glyphColor, COMMENT_GLYPH[vc.status]),
-		summary: `${lineRange}: ${c.body.split("\n")[0]}`,
+		summary: `${lineRange}: ${c.subject ?? c.body.split("\n")[0]}`,
 		detail,
 	};
 }

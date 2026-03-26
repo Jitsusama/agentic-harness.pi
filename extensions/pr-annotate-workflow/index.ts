@@ -31,6 +31,13 @@ const CommentSchema = Type.Object({
 			description: "Start line number for a multi-line comment range",
 		}),
 	),
+	subject: Type.Optional(
+		Type.String({
+			description:
+				"Concise summary of the comment's concern (e.g., 'missing null check'). " +
+				"Shown as the list label; the body is shown when expanded.",
+		}),
+	),
 	body: Type.String({ description: "The review comment text" }),
 	rationale: Type.String({
 		description: "Why this is worth flagging (shown to user only, not posted)",
@@ -117,6 +124,8 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				"and call pr_annotate again with the previously approved comments plus the new ones.",
 			"If posting fails, the approved comments are returned: fix the issue and retry with the same comments.",
 			"Be concise in your review comment body: explain why you think this is worth flagging.",
+			"Always provide a subject: a short phrase summarizing the concern (e.g., 'missing null check', " +
+				"'design decision: fallback chain'). This appears as the list label during vetting.",
 			"The line range is the most important part of a review comment: it frames what the reviewer " +
 				"sees before they read a word. Read your comment body, identify the specific code it " +
 				"discusses and select exactly those lines. A comment about validation logic must highlight " +
@@ -152,6 +161,7 @@ export default function prAnnotate(pi: ExtensionAPI) {
 					path: c.path,
 					line: c.line,
 					startLine: c.startLine,
+					subject: c.subject,
 					body: c.body,
 					rationale: c.rationale,
 					side: c.side || "RIGHT",
