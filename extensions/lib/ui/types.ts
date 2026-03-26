@@ -282,16 +282,26 @@ export interface WorkspaceInputContext {
 		preFill?: string,
 		onSubmit?: (text: string) => void,
 	) => void;
-	/** Close the panel with a result. */
-	done: (result: WorkspaceResult) => void;
+	/** Close the panel with a result. The active tab index is injected automatically. */
+	done: (result: WorkspaceDoneInput) => void;
 }
+
+/**
+ * Input accepted by WorkspaceInputContext.done(). Views pass
+ * results without tabIndex; the controller injects it.
+ */
+export type WorkspaceDoneInput =
+	| { type: "submit" }
+	| { type: "redirect"; note: string }
+	| { type: "action"; key: string; note?: string }
+	| null;
 
 /**
  * Result from a workspace prompt. Discriminated by type.
  * null = cancelled (Escape).
  */
 export type WorkspaceResult =
-	| { type: "submit" }
-	| { type: "redirect"; note: string }
-	| { type: "action"; key: string; note?: string }
+	| { type: "submit"; tabIndex: number }
+	| { type: "redirect"; note: string; tabIndex: number }
+	| { type: "action"; key: string; note?: string; tabIndex: number }
 	| null;

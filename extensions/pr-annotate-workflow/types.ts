@@ -21,5 +21,7 @@ export interface VetResult {
 	rejected: number;
 	edited: number;
 	redirectFeedback?: string;
+	/** File and comment the user was viewing when they redirected. */
+	redirectComment?: ProposedComment;
 	userRequests: string[];
 }

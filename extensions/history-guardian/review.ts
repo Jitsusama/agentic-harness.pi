@@ -80,12 +80,25 @@ export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 			);
 		}
 
-		// Reject
-		if (result.type === "action" && result.key === "r") {
-			return { block: true, reason: `User blocked: ${parsed.command}` };
-		}
+		if (result.type === "action") {
+			const context = `Original command:\n${parsed.command}`;
 
-		// Enter (approve)
-		return ALLOW;
+			// Reject
+			if (result.key === "r") {
+				if (result.note) {
+					return formatRedirectBlock(result.note, context);
+				}
+				return {
+					block: true,
+					reason: `User blocked: ${parsed.command}`,
+				};
+			}
+
+			// Enter (approve)
+			if (result.note) {
+				return formatRedirectBlock(result.note, context);
+			}
+			return ALLOW;
+		}
 	},
 };

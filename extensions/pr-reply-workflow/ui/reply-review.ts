@@ -64,12 +64,32 @@ export async function showReplyReview(
 	}
 
 	if (result.type === "action" && result.key === "r") {
-		const reason = result.note
-			? `User rejected: ${result.note}`
-			: "User rejected the reply. Ask for guidance on the reply.";
-		return { approved: false, reason };
+		if (result.note) {
+			return {
+				approved: false,
+				reason:
+					`User rejected the reply. Their feedback:\n\n"${result.note}"\n\n` +
+					`Original draft reply:\n${draftReply}\n\n` +
+					"Rewrite the reply incorporating the user's feedback above, " +
+					"then call pr_reply with action 'reply' again.",
+			};
+		}
+		return {
+			approved: false,
+			reason: "User rejected the reply. Ask for guidance on the reply.",
+		};
 	}
 
-	// Enter = approved
+	// Enter (approve) — a note on approval is feedback to address first.
+	if (result.note) {
+		return {
+			approved: false,
+			reason:
+				`User wants adjustments before posting. Their feedback:\n\n"${result.note}"\n\n` +
+				`Original draft reply:\n${draftReply}\n\n` +
+				"Rewrite the reply incorporating the user's feedback above, " +
+				"then call pr_reply with action 'reply' again.",
+		};
+	}
 	return { approved: true };
 }
