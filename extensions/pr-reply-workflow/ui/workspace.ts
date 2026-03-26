@@ -13,6 +13,11 @@
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import { renderMarkdown } from "../../lib/ui/content-renderer.js";
+import {
+	handleNavigableListInput,
+	type NavigableItem,
+	renderNavigableList,
+} from "../../lib/ui/navigable-list.js";
 import { workspace } from "../../lib/ui/panel.js";
 import { tabCompletion } from "../../lib/ui/tab-completion.js";
 import {
@@ -289,16 +294,13 @@ function buildReviewerTab(
 			if (reviewThreads.length === 0) return false;
 
 			// ↑↓ navigation
-			if (matchesKey(data, Key.up)) {
-				setIndex(
-					(getIndex() - 1 + reviewThreads.length) % reviewThreads.length,
-				);
-				inputCtx.invalidate();
-				updateActionThread(reviewThreads, getIndex, setActionThread);
-				return true;
-			}
-			if (matchesKey(data, Key.down)) {
-				setIndex((getIndex() + 1) % reviewThreads.length);
+			const navResult = handleNavigableListInput(
+				data,
+				getIndex(),
+				reviewThreads.length,
+			);
+			if (navResult !== null) {
+				setIndex(navResult);
 				inputCtx.invalidate();
 				updateActionThread(reviewThreads, getIndex, setActionThread);
 				return true;
@@ -339,10 +341,39 @@ function buildReviewerTab(
 	return { label: review.author, views: [view] };
 }
 
+/** Map a thread to a NavigableItem for the shared renderer. */
+function threadToItem(
+	thread: ReviewThread,
+	threadStates: Map<string, ThreadState>,
+	threadAnalyses: Map<string, ThreadAnalysis>,
+	theme: Theme,
+	wrapWidth: number,
+): NavigableItem {
+	const st = threadStates.get(thread.id) ?? "pending";
+	const glyphColor = THREAD_GLYPH_COLOR[st];
+	const analysis = threadAnalyses.get(thread.id);
+	const rec = analysis ? ` → ${analysis.recommendation}` : "";
+	const location = `${thread.file}:${thread.line}`;
+
+	// Snippet shown for every item (subtitle).
+	const snippet =
+		thread.comments[0]?.body.slice(0, 70).replace(/\n/g, " ") ?? "";
+	const ellipsis = (thread.comments[0]?.body.length ?? 0) > 70 ? "…" : "";
+	const subtitle: string[] | undefined = snippet
+		? wordWrap(`${snippet}${ellipsis}`, wrapWidth)
+		: undefined;
+
+	return {
+		glyph: theme.fg(glyphColor, THREAD_GLYPH[st]),
+		summary: `${location}${rec} ${theme.fg("dim", `[${st}]`)}`,
+		subtitle,
+	};
+}
+
 /**
  * Render a compact thread list for navigation.
- * Shows file:line, status, and recommendation: no expanded views.
- * The full context is shown in the gate when the user enters a thread.
+ * Shows file:line, status, and recommendation. The snippet
+ * appears as a subtitle under every item.
  */
 function renderThreadList(
 	threads: ReviewThread[],
@@ -352,44 +383,13 @@ function renderThreadList(
 	theme: Theme,
 	width: number,
 ): string[] {
-	const wrapWidth = contentWrapWidth(width);
-	const lines: string[] = [];
-
-	if (threads.length === 0) {
-		lines.push(`${pad}${theme.fg("dim", "No threads.")}`);
-		return lines;
-	}
-
-	for (let i = 0; i < threads.length; i++) {
-		const thread = threads[i];
-		if (!thread) continue;
-		const isSel = i === selectedIndex;
-		const st = threadStates.get(thread.id) ?? "pending";
-		const cursor = isSel ? "▸ " : "  ";
-		const glyph = THREAD_GLYPH[st];
-		const glyphColor = THREAD_GLYPH_COLOR[st];
-
-		const analysis = threadAnalyses.get(thread.id);
-		const rec = analysis ? ` → ${analysis.recommendation}` : "";
-
-		const location = `${thread.file}:${thread.line}`;
-		const summary = `${location}${rec}`;
-		const line = `${pad}${cursor}${theme.fg(glyphColor, glyph)} ${summary} ${theme.fg("dim", `[${st}]`)}`;
-		lines.push(isSel ? theme.fg("accent", line) : line);
-
-		// We show the snippet on the second line.
-		const snippet =
-			thread.comments[0]?.body.slice(0, 70).replace(/\n/g, " ") ?? "";
-		const ellipsis = (thread.comments[0]?.body.length ?? 0) > 70 ? "…" : "";
-		if (snippet) {
-			for (const wl of wordWrap(`${snippet}${ellipsis}`, wrapWidth - 8)) {
-				lines.push(
-					`${pad}      ${isSel ? theme.fg("accent", theme.fg("dim", wl)) : theme.fg("dim", wl)}`,
-				);
-			}
-		}
-	}
-
+	const wrapWidth = contentWrapWidth(width) - 8;
+	const items = threads.map((t) =>
+		threadToItem(t, threadStates, threadAnalyses, theme, wrapWidth),
+	);
+	const { lines } = renderNavigableList(items, selectedIndex, theme, {
+		emptyMessage: "No threads.",
+	});
 	return lines;
 }
 

@@ -13,13 +13,15 @@ import {
 	renderCode,
 	renderDiff,
 } from "../lib/ui/content-renderer.js";
+import {
+	type DetailEntry,
+	handleNavigableListInput,
+	type NavigableItem,
+	renderNavigableList,
+} from "../lib/ui/navigable-list.js";
 import { workspace } from "../lib/ui/panel.js";
 import { tabCompletion } from "../lib/ui/tab-completion.js";
-import {
-	CONTENT_INDENT,
-	contentWrapWidth,
-	wordWrap,
-} from "../lib/ui/text-layout.js";
+import { CONTENT_INDENT } from "../lib/ui/text-layout.js";
 import type {
 	WorkspaceInputContext,
 	WorkspaceItem,
@@ -340,16 +342,15 @@ function buildCommentsView(
 			}
 
 			// ↑↓ navigation
-			if (matchesKey(data, Key.up)) {
-				setIndex((getIndex() - 1 + fileComments.length) % fileComments.length);
+			const navResult = handleNavigableListInput(
+				data,
+				getIndex(),
+				fileComments.length,
+			);
+			if (navResult !== null) {
+				setIndex(navResult);
 				inputCtx.invalidate();
-				inputCtx.scrollToContentLine(getIndex());
-				return true;
-			}
-			if (matchesKey(data, Key.down)) {
-				setIndex((getIndex() + 1) % fileComments.length);
-				inputCtx.invalidate();
-				inputCtx.scrollToContentLine(getIndex());
+				inputCtx.scrollToContentLine(navResult);
 				return true;
 			}
 
@@ -409,6 +410,41 @@ function buildSourceView(filePath: string): WorkspaceView {
 	};
 }
 
+/** Map a vet comment to a NavigableItem. */
+function vetCommentToItem(vc: VetComment, theme: Theme): NavigableItem {
+	const c = vc.comment;
+	const glyphColor =
+		vc.status === "approved"
+			? "success"
+			: vc.status === "rejected"
+				? "error"
+				: "accent";
+
+	const lineRange = c.startLine ? `L${c.startLine}-${c.line}` : `L${c.line}`;
+	const statusColor =
+		vc.status === "approved"
+			? "success"
+			: vc.status === "rejected"
+				? "error"
+				: "dim";
+
+	const detail: DetailEntry[] = [""];
+	detail.push({ text: c.body, color: "text" });
+	if (c.rationale) {
+		detail.push("");
+		detail.push({ text: "Rationale:", color: "dim" });
+		detail.push({ text: c.rationale, color: "dim" });
+	}
+	detail.push(theme.fg(statusColor, `[${vc.status}]`));
+	detail.push("");
+
+	return {
+		glyph: theme.fg(glyphColor, COMMENT_GLYPH[vc.status]),
+		summary: `${lineRange}: ${c.body.split("\n")[0]}`,
+		detail,
+	};
+}
+
 /** Render a selectable comment list. */
 function renderCommentList(
 	comments: VetComment[],
@@ -416,61 +452,14 @@ function renderCommentList(
 	theme: Theme,
 	width: number,
 ): string[] {
-	const pad = " ".repeat(CONTENT_INDENT);
-	const wrapWidth = contentWrapWidth(width);
-	const lines: string[] = [];
-
-	if (comments.length === 0) {
-		lines.push(`${pad}${theme.fg("dim", "No comments for this file.")}`);
-		return lines;
-	}
-
-	for (let i = 0; i < comments.length; i++) {
-		const vc = comments[i];
-		if (!vc) continue;
-		const c = vc.comment;
-		const isSel = i === selectedIndex;
-		const cursor = isSel ? "▸ " : "  ";
-		const glyph = COMMENT_GLYPH[vc.status];
-		const glyphColor =
-			vc.status === "approved"
-				? "success"
-				: vc.status === "rejected"
-					? "error"
-					: "accent";
-
-		const lineRange = c.startLine ? `L${c.startLine}-${c.line}` : `L${c.line}`;
-
-		const summary = `${lineRange}: ${c.body.split("\n")[0]}`;
-		const line = `${pad}${cursor}${theme.fg(glyphColor, glyph)} ${summary}`;
-		lines.push(isSel ? theme.fg("accent", line) : line);
-
-		// Expanded view for selected comment
-		if (isSel) {
-			lines.push("");
-			// Full body
-			for (const wl of wordWrap(c.body, wrapWidth - 6)) {
-				lines.push(`${pad}      ${theme.fg("text", wl)}`);
-			}
-			// Rationale
-			if (c.rationale) {
-				lines.push("");
-				lines.push(`${pad}      ${theme.fg("dim", "Rationale:")}`);
-				for (const wl of wordWrap(c.rationale, wrapWidth - 6)) {
-					lines.push(`${pad}      ${theme.fg("dim", wl)}`);
-				}
-			}
-			const statusColor =
-				vc.status === "approved"
-					? "success"
-					: vc.status === "rejected"
-						? "error"
-						: "dim";
-			lines.push(`${pad}      ${theme.fg(statusColor, `[${vc.status}]`)}`);
-			lines.push("");
-		}
-	}
-
+	const items = comments.map((vc) => vetCommentToItem(vc, theme));
+	const { lines } = renderNavigableList(
+		items,
+		selectedIndex,
+		theme,
+		{ emptyMessage: "No comments for this file." },
+		width,
+	);
 	return lines;
 }
 

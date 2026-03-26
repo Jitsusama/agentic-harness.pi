@@ -2,19 +2,25 @@
  * OptionList: numbered vertical option list with cursor and
  * on-select descriptions.
  *
- * Descriptions are shown only for the currently selected item
- * (in dim colour): progressive disclosure to save vertical space.
- * Number keys provide direct selection.
+ * Composes on NavigableList for cursor rendering, accent
+ * highlighting and expand/collapse. Adds number prefixes,
+ * number-key direct selection, Enter to confirm and Escape
+ * to cancel.
  *
- *     1. Big bang: rewrite all extensions
- *   ▸ 2. Incremental: replace layers gradually
+ *   ▸ 1. Incremental: replace layers gradually
  *        Start with lowest layer, work up.        ← dim
+ *     2. Big bang: rewrite all extensions
  *     3. By extension: port one at a time
  */
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
-import { GLYPH, type ListChoice } from "./types.js";
+import { Key, matchesKey } from "@mariozechner/pi-tui";
+import {
+	handleNavigableListInput,
+	type NavigableItem,
+	renderNavigableList,
+} from "./navigable-list.js";
+import type { ListChoice } from "./types.js";
 
 /** Result of navigating and selecting from an option list. */
 export type OptionListResult =
@@ -26,65 +32,46 @@ export function optionValue(option: ListChoice): string {
 	return option.value ?? option.label.toLowerCase();
 }
 
+/** Map a ListChoice to a NavigableItem for the shared renderer. */
+function toNavigableItem(opt: ListChoice): NavigableItem {
+	return {
+		summary: opt.label,
+		detail: opt.description
+			? [{ text: opt.description, color: "dim" }]
+			: undefined,
+	};
+}
+
 /** Render the option list with cursor and on-select description. */
 export function renderOptionList(
 	options: ListChoice[],
 	selectedIndex: number,
 	theme: Theme,
 ): string[] {
-	const lines: string[] = [];
-
-	for (let i = 0; i < options.length; i++) {
-		const opt = options[i];
-		if (!opt) continue;
-
-		const isSelected = i === selectedIndex;
-		const prefix = isSelected ? ` ${theme.fg("accent", GLYPH.cursor)} ` : "   ";
-		const number = `${i + 1}. `;
-		const label = opt.label;
-
-		if (isSelected) {
-			lines.push(
-				truncateToWidth(`${prefix}${theme.fg("accent", `${number}${label}`)}`),
-			);
-		} else {
-			lines.push(truncateToWidth(`${prefix}${number}${label}`));
-		}
-
-		// We only show the description for the currently selected item.
-		if (isSelected && opt.description) {
-			// The prefix has ANSI codes, so we use a fixed visible width (3 chars) + the number.
-			const indent = " ".repeat(3 + number.length);
-			lines.push(
-				truncateToWidth(`${indent}${theme.fg("dim", opt.description)}`),
-			);
-		}
-	}
-
+	const items = options.map((opt) => toNavigableItem(opt));
+	const { lines } = renderNavigableList(items, selectedIndex, theme, {
+		numbered: true,
+	});
 	return lines;
 }
 
 /**
  * Handle option list key input. Returns a result or null if
  * unhandled. The caller maintains selectedIndex state.
+ *
+ * Composes NavigableList's ↑/↓ handling (wrapping) with
+ * number-key direct selection, Enter to confirm and Escape
+ * to cancel.
  */
 export function handleOptionInput(
 	data: string,
 	selectedIndex: number,
 	optionCount: number,
 ): { type: "navigate"; index: number } | OptionListResult | null {
-	// Arrow key navigation
-	if (matchesKey(data, Key.up)) {
-		return {
-			type: "navigate",
-			index: Math.max(0, selectedIndex - 1),
-		};
-	}
-	if (matchesKey(data, Key.down)) {
-		return {
-			type: "navigate",
-			index: Math.min(optionCount - 1, selectedIndex + 1),
-		};
+	// ↑/↓ navigation (wrapping, from shared handler)
+	const navResult = handleNavigableListInput(data, selectedIndex, optionCount);
+	if (navResult !== null) {
+		return { type: "navigate", index: navResult };
 	}
 
 	// Number key direct selection (1-9)

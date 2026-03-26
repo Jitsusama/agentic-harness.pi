@@ -17,6 +17,14 @@ import {
 	renderCode,
 	renderDiff,
 } from "../../lib/ui/content-renderer.js";
+import {
+	type DetailEntry,
+	handleNavigableListInput,
+	type NavigableItem,
+	type NavigableSection,
+	renderNavigableList,
+	renderNavigableSections,
+} from "../../lib/ui/navigable-list.js";
 import { workspace } from "../../lib/ui/panel.js";
 import {
 	CONTENT_INDENT,
@@ -166,68 +174,43 @@ function buildReferencesTab(
 	setIndex: (i: number) => void,
 ): WorkspaceItem {
 	const displayRefs = buildDisplayOrder(references);
+	let cachedSections: NavigableSection[] | null = null;
+	let lastSelectedLine = 0;
 
 	const refView: WorkspaceView = {
 		key: "2",
 		label: "References",
 		enterHint: "open",
 		content: (theme: Theme, width: number) => {
-			const pad = " ".repeat(CONTENT_INDENT);
-			const wrapWidth = contentWrapWidth(width);
-			const lines: string[] = [];
-
-			if (displayRefs.length === 0) {
-				lines.push(`${pad}${theme.fg("dim", "No references discovered.")}`);
-				return lines;
-			}
-
-			const prRefs = displayRefs.filter((r) => isPRRef(r));
-			const commentRefs = displayRefs.filter((r) => !isPRRef(r));
-			const selected = getIndex();
-			let flatIdx = 0;
-
-			if (prRefs.length > 0) {
-				flatIdx = renderRefSection(
-					"PR Refs",
-					prRefs,
-					flatIdx,
-					selected,
-					theme,
-					pad,
-					wrapWidth,
-					lines,
-				);
-			}
-
-			if (commentRefs.length > 0) {
-				flatIdx = renderRefSection(
-					"Comment Refs",
-					commentRefs,
-					flatIdx,
-					selected,
-					theme,
-					pad,
-					wrapWidth,
-					lines,
-				);
-			}
-
+			cachedSections = buildRefSections(displayRefs, theme);
+			const { lines, selectedLine } = renderNavigableSections(
+				cachedSections,
+				getIndex(),
+				theme,
+				{ emptyMessage: "No references discovered." },
+				width,
+			);
+			lastSelectedLine = selectedLine;
 			return lines;
 		},
 		handleInput: (data: string, inputCtx: WorkspaceInputContext) => {
-			const total = displayRefs.length;
-			if (total === 0) return false;
+			if (displayRefs.length === 0) return false;
 
-			if (matchesKey(data, Key.up)) {
-				setIndex((getIndex() - 1 + total) % total);
+			const prevIndex = getIndex();
+			const navResult = handleNavigableListInput(
+				data,
+				prevIndex,
+				displayRefs.length,
+			);
+			if (navResult !== null) {
+				setIndex(navResult);
 				inputCtx.invalidate();
-				inputCtx.scrollToContentLine(estimateRefLine(displayRefs, getIndex()));
-				return true;
-			}
-			if (matchesKey(data, Key.down)) {
-				setIndex((getIndex() + 1) % total);
-				inputCtx.invalidate();
-				inputCtx.scrollToContentLine(estimateRefLine(displayRefs, getIndex()));
+				// Estimate scroll target from the last render's selected
+				// line, adjusted by the navigation delta. The next render
+				// will produce the exact line via renderNavigableSections.
+				inputCtx.scrollToContentLine(
+					lastSelectedLine + (navResult - prevIndex),
+				);
 				return true;
 			}
 
@@ -322,8 +305,6 @@ function buildFileNotesView(
 		actions: NOTE_ACTIONS,
 		enterHint: "edit",
 		content: (theme: Theme, width: number) => {
-			const pad = " ".repeat(CONTENT_INDENT);
-			const wrapWidth = contentWrapWidth(width);
 			const notes = getNotes();
 			const lines: string[] = [];
 
@@ -332,31 +313,22 @@ function buildFileNotesView(
 			);
 			lines.push("");
 
-			if (notes.length === 0) {
-				lines.push(
-					`${pad}${theme.fg("dim", "No notes yet. Press n to add one.")}`,
-				);
-				return lines;
-			}
-
-			const selected = getIndex();
-
-			for (let i = 0; i < notes.length; i++) {
-				const isSel = i === selected;
-				const cursor = isSel ? "▸ " : "  ";
-				const note = notes[i] ?? "";
+			const items: NavigableItem[] = notes.map((note) => {
 				const firstLine = note.split("\n")[0] ?? "";
-				const line = `${pad}${cursor}${firstLine}`;
-				lines.push(isSel ? theme.fg("accent", line) : line);
+				const detail: DetailEntry[] | undefined = note.includes("\n")
+					? [{ text: note.slice(note.indexOf("\n") + 1), color: "dim" }]
+					: undefined;
+				return { summary: firstLine, detail };
+			});
 
-				// We show the full note below the selected item.
-				if (isSel && note.includes("\n")) {
-					const rest = note.slice(note.indexOf("\n") + 1);
-					for (const wl of wordWrap(rest, wrapWidth - 4)) {
-						lines.push(`${pad}    ${theme.fg("dim", wl)}`);
-					}
-				}
-			}
+			const { lines: listLines } = renderNavigableList(
+				items,
+				getIndex(),
+				theme,
+				{ emptyMessage: "No notes yet. Press n to add one." },
+				width,
+			);
+			lines.push(...listLines);
 
 			return lines;
 		},
@@ -377,16 +349,16 @@ function buildFileNotesView(
 			if (notes.length === 0) return false;
 
 			// ↑↓ navigation
-			if (matchesKey(data, Key.up)) {
-				setIndex((getIndex() - 1 + notes.length) % notes.length);
+			const navResult = handleNavigableListInput(
+				data,
+				getIndex(),
+				notes.length,
+			);
+			if (navResult !== null) {
+				setIndex(navResult);
 				inputCtx.invalidate();
-				inputCtx.scrollToContentLine(getIndex() + 2);
-				return true;
-			}
-			if (matchesKey(data, Key.down)) {
-				setIndex((getIndex() + 1) % notes.length);
-				inputCtx.invalidate();
-				inputCtx.scrollToContentLine(getIndex() + 2);
+				// +2 accounts for the file header and blank line above the list.
+				inputCtx.scrollToContentLine(navResult + 2);
 				return true;
 			}
 
@@ -519,74 +491,41 @@ function buildDisplayOrder(refs: Reference[]): Reference[] {
 	return [...prRefs, ...commentRefs];
 }
 
-/** Render a section of references into the output lines. */
-function renderRefSection(
-	heading: string,
-	refs: Reference[],
-	startIdx: number,
-	selected: number,
-	theme: Theme,
-	pad: string,
-	wrapWidth: number,
-	lines: string[],
-): number {
-	lines.push(` ${theme.fg("text", theme.bold(heading))}`);
-	let flatIdx = startIdx;
+/** Map a reference to a NavigableItem. */
+function refToItem(ref: Reference, theme: Theme): NavigableItem {
+	const depthTag = ref.depth > 0 ? theme.fg("dim", ` ᐩ${ref.depth}`) : "";
+	const desc = refDescription(ref);
+	const detail: DetailEntry[] | undefined = desc
+		? [{ text: desc, color: "dim" }]
+		: undefined;
 
-	for (const ref of refs) {
-		const isSel = flatIdx === selected;
-		const cursor = isSel ? "▸ " : "  ";
-		const glyph = typeGlyph(ref.type);
-		const depthTag = ref.depth > 0 ? theme.fg("dim", ` ᐩ${ref.depth}`) : "";
-
-		const line = `${pad}${cursor}${glyph} ${ref.title}${depthTag}`;
-		lines.push(isSel ? theme.fg("accent", line) : line);
-
-		if (isSel) {
-			const desc = refDescription(ref);
-			if (desc) {
-				for (const wl of wordWrap(desc, wrapWidth - 6)) {
-					lines.push(`${pad}      ${theme.fg("dim", wl)}`);
-				}
-			}
-		}
-
-		flatIdx++;
-	}
-
-	lines.push("");
-	return flatIdx;
+	return {
+		glyph: typeGlyph(ref.type),
+		summary: `${ref.title}${depthTag}`,
+		detail,
+	};
 }
 
-/**
- * Estimate the display line for a reference at the given flat index.
- * Accounts for section headers, expanded descriptions and blank lines.
- */
-function estimateRefLine(refs: Reference[], flatIndex: number): number {
+/** Build NavigableSections from the display-ordered references. */
+function buildRefSections(refs: Reference[], theme: Theme): NavigableSection[] {
 	const prRefs = refs.filter((r) => isPRRef(r));
 	const commentRefs = refs.filter((r) => !isPRRef(r));
+	const sections: NavigableSection[] = [];
 
-	let line = 0;
-	let idx = 0;
-
-	const sections: Reference[][] = [];
-	if (prRefs.length > 0) sections.push(prRefs);
-	if (commentRefs.length > 0) sections.push(commentRefs);
-
-	for (const section of sections) {
-		line++; // section header
-		for (const item of section) {
-			if (idx === flatIndex) return line;
-			line++;
-			if (idx === flatIndex && refDescription(item)) {
-				line += 2;
-			}
-			idx++;
-		}
-		line++; // blank line after section
+	if (prRefs.length > 0) {
+		sections.push({
+			heading: "PR Refs",
+			items: prRefs.map((r) => refToItem(r, theme)),
+		});
+	}
+	if (commentRefs.length > 0) {
+		sections.push({
+			heading: "Comment Refs",
+			items: commentRefs.map((r) => refToItem(r, theme)),
+		});
 	}
 
-	return line;
+	return sections;
 }
 
 /** Build a description string for a reference's expanded view. */
