@@ -8,17 +8,22 @@
  * commit commands, but nothing about specific CLI tools like gh.
  */
 
-/** Extract a --flag "value" or --flag 'value' from a command string. */
+/** Extract a --flag value from a command string (quoted or unquoted). */
 export function extractFlag(command: string, flag: string): string | null {
-	// Double-quoted
+	// Double-quoted: --flag "value with spaces"
 	const dq = new RegExp(`--${flag}\\s+"((?:[^"\\\\]|\\\\.)*)"`);
 	const dqMatch = command.match(dq);
 	if (dqMatch) return dqMatch[1]?.replace(/\\(.)/g, "$1");
 
-	// Single-quoted
+	// Single-quoted: --flag 'value with spaces'
 	const sq = new RegExp(`--${flag}\\s+'([^']*)'`);
 	const sqMatch = command.match(sq);
 	if (sqMatch) return sqMatch[1] ?? null;
+
+	// Unquoted: --flag value (no whitespace in value)
+	const uq = new RegExp(`--${flag}\\s+(\\S+)`);
+	const uqMatch = command.match(uq);
+	if (uqMatch) return uqMatch[1] ?? null;
 
 	return null;
 }
