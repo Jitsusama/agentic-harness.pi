@@ -101,62 +101,65 @@ Always merge bottom-up: the PR closest to `main` first,
 then the next one up, and so on. Never merge a PR in
 the middle or top of a stack before its predecessors.
 
-After merging each PR:
-
-1. **Wait for GitHub to retarget.** When a base branch
-   is deleted after merge, GitHub automatically
-   retargets any PR that had it as a base to the merged
-   PR's own base (usually `main`). This is the safest
-   path.
-2. **If the base branch wasn't deleted**, retarget the
-   next PR in the stack manually before merging it:
-   ```bash
-   gh pr edit NEXT_NUMBER --base main
-   ```
-3. **Wait for mergeability status** to update before
-   merging the next PR. GitHub needs a moment to
-   recompute:
-   ```bash
-   gh pr view NEXT_NUMBER \
-     --json mergeable,mergeStateStatus \
-     --jq '"\(.mergeable) | \(.mergeStateStatus)"'
-   ```
-   Don't merge until the status shows `MERGEABLE`
-   and `CLEAN`.
-
-## Branch Deletion and Auto-Close
-
-Deleting a branch that another open PR uses as its base
-will **auto-close** that dependent PR, and GitHub won't
-let you reopen it. This is the single most dangerous
-operation in a stack.
-
-**Before deleting any branch**, check whether open PRs
-depend on it:
+Use `--delete-branch` on every merge, same as a
+standalone PR:
 
 ```bash
+gh pr merge NUMBER --merge --delete-branch
+```
+
+When `--delete-branch` is part of the same `gh pr merge`
+call, GitHub treats the branch deletion as part of the
+merge event. It automatically retargets any open PR that
+had the deleted branch as its base to the merged PR's
+target (usually `main`). This is the safest and simplest
+path through a stack.
+
+After each merge, wait for GitHub to finish retargeting
+and recompute mergeability before merging the next PR:
+
+```bash
+gh pr view NEXT_NUMBER \
+  --json baseRefName,mergeable,mergeStateStatus \
+  --jq '"\(.baseRefName) | \(.mergeable) | \(.mergeStateStatus)"'
+```
+
+Don't merge until the base shows `main` (or whatever the
+stack's root target is), mergeable shows `MERGEABLE` and
+status shows `CLEAN`.
+
+## Branch Deletion Outside of Merge
+
+The safe auto-retarget behaviour described above **only**
+applies when `--delete-branch` runs as part of
+`gh pr merge`. If a branch is deleted by any other means
+(such as `git push origin --delete`, the GitHub UI or a
+separate API call after the merge already completed),
+GitHub will **auto-close** every open PR that uses the
+deleted branch as its base. Those PRs cannot be
+reopened; they must be recreated from scratch.
+
+This distinction matters when a PR was already merged in
+a prior step (or by someone else) and you're cleaning up
+the branch later. In that case, retarget all dependents
+before deleting:
+
+```bash
+# Check for dependents.
 gh pr list --state open --json baseRefName,number \
   --jq '.[] | select(.baseRefName == "BRANCH_TO_DELETE")'
-```
 
-If anything depends on it, retarget the dependent first:
-
-```bash
+# Retarget each one.
 gh pr edit DEPENDENT_NUMBER --base main
-# Wait for status update, then delete the branch.
+
+# Wait for status to update, then delete.
+git push origin --delete BRANCH_TO_DELETE
 ```
 
-The `--delete-branch` flag on `gh pr merge` is safe for
-the **top** of a stack (nothing depends on it) but
-dangerous for any other position. Prefer merging
-without `--delete-branch` and cleaning up branches
-after the full stack is merged.
+## Post-Merge Local Hygiene
 
-## Cleaning Up After a Full Merge
-
-Once every PR in the stack is merged, follow the
-post-merge local hygiene steps from
-`github-pr-merge-convention`, batching all the stale
+After the full stack is merged, follow the cleanup steps
+from `github-pr-merge-convention`, batching all stale
 branches together.
 
 ## Rebasing a Stack
@@ -174,10 +177,10 @@ carry wrong code.
 ## What Not to Do
 
 - Don't merge out of order. Always bottom-up.
-- Don't delete a base branch before retargeting its
-  dependents.
-- Don't use `--delete-branch` on anything except the
-  top of the stack.
+- Don't delete a branch outside of `gh pr merge
+  --delete-branch` without retargeting dependents
+  first. A raw branch delete auto-closes dependent
+  PRs permanently.
 - Don't assume PR bases are correct. Verify the chain
   before merging.
 - Don't rebase a branch in the middle of a stack

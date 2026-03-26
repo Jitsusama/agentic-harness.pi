@@ -39,12 +39,26 @@ const STATE_CHANGE_PATTERNS: RegExp[] = [
 const SEPARATOR = /\s*(?:&&|;|\n)\s*/;
 
 /**
+ * Strip heredoc bodies from a command so only actual shell
+ * commands are analysed. Without this, text inside a heredoc
+ * (like "git push --delete" in a commit message body) would
+ * be mistaken for a real command.
+ */
+function stripHeredocBodies(command: string): string {
+	return command.replace(
+		/<<-?\s*['"]?(\w+)['"]?\s*\n[\s\S]*?\n\1(?:\s*$)?/gm,
+		"",
+	);
+}
+
+/**
  * Check whether a bash command chains multiple concerns that
  * should be separate calls. Returns a block reason or null
  * if the command is fine.
  */
 export function detectCompoundViolation(command: string): string | null {
-	const segments = command.split(SEPARATOR).filter(Boolean);
+	const stripped = stripHeredocBodies(command);
+	const segments = stripped.split(SEPARATOR).filter(Boolean);
 	if (segments.length < 2) return null;
 
 	let guardableCount = 0;
