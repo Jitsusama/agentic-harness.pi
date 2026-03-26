@@ -71,6 +71,7 @@ export function parsePRReference(
  *
  * Handles:
  *   - HTTPS: https://github.com/owner/repo.git
+ *   - HTTPS with credentials: https://user:token@github.com/owner/repo.git
  *   - SSH: git@github.com:owner/repo.git
  *
  * Returns null if the URL doesn't match GitHub patterns.
@@ -78,8 +79,9 @@ export function parsePRReference(
 export function extractOwnerRepo(
 	remoteUrl: string,
 ): { owner: string; repo: string } | null {
+	// HTTPS, with optional user:pass@ credentials (e.g. x-access-token:TOKEN@).
 	const httpsMatch = remoteUrl.match(
-		/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/,
+		/^https?:\/\/(?:[^@]+@)?github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/,
 	);
 	if (httpsMatch) {
 		return { owner: httpsMatch[1], repo: httpsMatch[2] };
