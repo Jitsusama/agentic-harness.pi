@@ -8,6 +8,8 @@ export interface ProposedComment {
 	path: string;
 	line: number;
 	startLine?: number;
+	/** Concise summary of the comment's concern (e.g., "missing null check"). */
+	subject?: string;
 	body: string;
 	rationale: string;
 	side: string;
