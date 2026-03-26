@@ -86,7 +86,6 @@ export async function showOverviewPanel(
 		items,
 		tabStatus: () => "pending",
 		allComplete: () => true,
-		allowHScroll: true,
 	});
 
 	if (!result) return null;
@@ -261,7 +260,6 @@ function buildFileTab(
 			buildFileNotesView(file, getNotes, setNotes, getIndex, setIndex),
 			buildFileSourceView(file, repoPath),
 		],
-		allowHScroll: true,
 	};
 }
 
@@ -270,6 +268,7 @@ function buildFileDiffView(file: DiffFile): WorkspaceView {
 	return {
 		key: "1",
 		label: "Diff",
+		allowHScroll: true,
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
@@ -399,6 +398,7 @@ function buildFileSourceView(file: DiffFile, repoPath: string): WorkspaceView {
 	return {
 		key: "3",
 		label: "Source",
+		allowHScroll: true,
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];

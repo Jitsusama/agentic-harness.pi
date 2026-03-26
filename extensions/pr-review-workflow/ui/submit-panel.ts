@@ -102,7 +102,6 @@ export async function showSubmitPanel(
 
 			return lines;
 		},
-		allowHScroll: true,
 	});
 
 	if (!result) return null;

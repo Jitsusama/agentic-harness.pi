@@ -196,8 +196,12 @@ function createWorkspaceController(
 		const viewDef = item?.views[view];
 		if (!viewDef) return;
 
-		const itemHScroll = item?.allowHScroll ?? config.allowHScroll ?? false;
-		const contentWidth = itemHScroll
+		const viewHScroll =
+			viewDef.allowHScroll ??
+			item?.allowHScroll ??
+			config.allowHScroll ??
+			false;
+		const contentWidth = viewHScroll
 			? HSCROLL_CONTENT_WIDTH
 			: width - SCROLLBAR_GUTTER;
 		const result = viewDef.content(theme, contentWidth);
@@ -210,7 +214,7 @@ function createWorkspaceController(
 					lines,
 					width,
 					hScroll:
-						itemHScroll && maxContentWidth(lines) > width - SCROLLBAR_GUTTER,
+						viewHScroll && maxContentWidth(lines) > width - SCROLLBAR_GUTTER,
 				});
 				tui.requestRender();
 			});
@@ -219,7 +223,7 @@ function createWorkspaceController(
 				lines: result,
 				width,
 				hScroll:
-					itemHScroll && maxContentWidth(result) > width - SCROLLBAR_GUTTER,
+					viewHScroll && maxContentWidth(result) > width - SCROLLBAR_GUTTER,
 			});
 		}
 	}

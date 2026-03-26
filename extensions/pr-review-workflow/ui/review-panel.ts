@@ -129,7 +129,6 @@ export async function showReviewPanel(
 		items,
 		globalActions: [PASS_ACTION],
 		...completion,
-		allowHScroll: true,
 	});
 
 	if (!result) return null;
@@ -319,7 +318,6 @@ function buildFileTab(
 			buildFileCommentsView(ctx, session, file, tabId, commentIndices),
 			buildFileRaw(session, file),
 		],
-		allowHScroll: true,
 	};
 }
 
@@ -331,6 +329,7 @@ function buildFileOverview(
 	return {
 		key: "1",
 		label: "Overview",
+		allowHScroll: true,
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
@@ -371,6 +370,7 @@ function buildFileRaw(session: ReviewSession, file: DiffFile): WorkspaceView {
 
 	return {
 		key: "3",
+		allowHScroll: true,
 		label: "Source",
 		content: async (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
