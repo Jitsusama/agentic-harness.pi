@@ -14,6 +14,7 @@
 import type { ExtensionAPI, Theme } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { promptSingle, promptTabbed } from "../lib/ui/panel.js";
 import type { ListChoice, PromptItem } from "../lib/ui/types.js";
 
@@ -143,7 +144,8 @@ export default function ask(pi: ExtensionAPI) {
 				if (!q) return errorResult("Error: Empty question");
 
 				const result = await promptSingle(ctx, {
-					content: (theme: Theme) => [theme.fg("text", ` ${q.prompt}`)],
+					content: (theme: Theme, width: number) =>
+						renderMarkdown(q.prompt, theme, width),
 					options: buildOptions(q),
 				});
 
@@ -184,7 +186,8 @@ export default function ask(pi: ExtensionAPI) {
 						{
 							key: "1",
 							label: "Question",
-							content: (theme: Theme) => [theme.fg("text", ` ${q.prompt}`)],
+							content: (theme: Theme, width: number) =>
+								renderMarkdown(q.prompt, theme, width),
 						},
 					],
 					options: buildOptions(q),
