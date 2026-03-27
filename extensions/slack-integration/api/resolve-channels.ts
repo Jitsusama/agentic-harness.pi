@@ -92,15 +92,36 @@ export async function resolveChannelsInMessages(
 }
 
 /**
+ * Detect names that are actually user IDs.
+ *
+ * The search API returns user IDs as channel names for DM
+ * channels (e.g. "U098TB6UXGA" instead of a readable name).
+ * We must not cache these because they'd prevent
+ * resolveChannelsInMessages from calling conversations.info
+ * to get the proper "DM with @username" display name.
+ */
+function looksLikeUserId(name: string): boolean {
+	return /^[UW][A-Z0-9]{8,}$/.test(name);
+}
+
+/**
  * Pre-populate the channel meta cache from search results.
  *
  * Search results include channel name but not channel type.
  * This avoids conversations.info calls for channels we've
  * already seen names for, but those entries won't have
  * accurate kind until conversations.info runs.
+ *
+ * Skips names that look like user IDs (DM channels) — those
+ * need conversations.info to resolve properly.
  */
 export function cacheChannelName(channelId: string, name: string): void {
 	if (channelMetaCache.has(channelId)) return;
+
+	// DM channels report user IDs as names in search results.
+	// Skip these so resolveChannelsInMessages can do a proper
+	// conversations.info lookup.
+	if (looksLikeUserId(name)) return;
 
 	// Infer kind from the mpdm- prefix as a hint.
 	// This is a best-effort guess; conversations.info will

@@ -79,6 +79,13 @@ with triaging issues."
 ### "React to that with :emoji:"
 → `add_reaction` with `target` or `channel`+`ts`, and `emoji`
 
+### "Messages I reacted to" / "Where did I react"
+→ Multiple `search_messages` calls, one per common emoji.
+  Use `hasmy::thumbsup:`, `hasmy::heart:`, `hasmy::fire:`,
+  etc. as the query. See "Enterprise Grid Limitations" for
+  the full approach.
+  **Do not** try `hasmy:reaction` — it returns nothing.
+
 ## Search Operators
 
 Slack search supports these operators embedded in the `query`:
@@ -88,7 +95,9 @@ Slack search supports these operators embedded in the `query`:
   (also available as the `with` parameter)
 - `in:#channel` — messages in a channel
 - `has:reaction` / `has:link` / `has:pin` — message properties
-- `hasmy::emoji:` — messages you reacted to with a specific emoji
+- `hasmy::thumbsup:` — messages you reacted to with a
+  **specific** emoji. There is no wildcard form: `hasmy:reaction`
+  does NOT work. You must name the exact emoji.
 - `is:thread` — only thread messages
 - `is:saved` — your saved items
 - `after:YYYY-MM-DD` / `before:YYYY-MM-DD` — date range
@@ -189,6 +198,43 @@ count by channel to rank DM partners. Channel names show
 who the DM is with (e.g. "DM with @chao.duan" or "Group DM
 (@chao.duan, @xiao.li, @henrique.andrade)").
 
+## Enterprise Grid Limitations
+
+Some Slack APIs are blocked on enterprise workspaces even
+with browser session tokens:
+
+- **`reactions.list`**: blocked (`not_allowed_token_type`).
+  Cannot list all messages a user reacted to.
+- **`users.conversations`**: blocked (`enterprise_is_restricted`).
+  Cannot list DM channels or group DMs.
+- **`conversations.list`**: blocked. Cannot enumerate channels.
+
+These limitations mean some queries require creative
+workarounds through search. Never fall back to raw shell
+commands or curl — always use the tool's search actions.
+
+### "Messages I reacted to" / "Where did I react"
+
+The `hasmy::emoji:` operator requires a specific emoji name.
+There is no wildcard. Search common emojis individually:
+
+```
+hasmy::thumbsup: after:2025-03-20
+hasmy::heart: after:2025-03-20
+hasmy::fire: after:2025-03-20
+hasmy::joy: after:2025-03-20
+hasmy::raised_hands: after:2025-03-20
+hasmy::tada: after:2025-03-20
+hasmy::100: after:2025-03-20
+```
+
+Run multiple `search_messages` calls with these queries.
+Deduplicate across results and filter by `channelKind` if
+the user asks about DMs specifically.
+
+**Warn the user** that this only covers common emojis. Custom
+or unusual reactions may be missed.
+
 ## Common Mistakes to Avoid
 
 **DON'T** just echo "here are the results":
@@ -219,4 +265,19 @@ slack({ action: "get_user", user: "U08ME9KASG7" })
 
 # ✅ Good
 slack({ action: "get_user", user: "joel.gerber" })
+```
+
+**DON'T** fall back to raw curl or shell commands when an API
+is blocked. Use the tool's search actions creatively instead.
+The user should never see curl scripts in the output.
+
+**DON'T** try non-existent search operators:
+```
+# ❌ These don't exist
+hasmy:reaction
+has:myreaction
+
+# ✅ Must name a specific emoji
+hasmy::thumbsup:
+hasmy::heart:
 ```
