@@ -18,7 +18,12 @@ import type { SlackMessage } from "../types.js";
 export function formatSlackText(text: string): string {
 	return (
 		text
-			// User mentions: <@U123> → @username or @U123
+			// User mentions with label: <@U123|display.name> → @display.name
+			.replace(
+				/<@([UW][A-Z0-9]+)\|([^>]+)>/g,
+				(_match, _id: string, name: string) => `@${name}`,
+			)
+			// User mentions without label: <@U123> → @username or @U123
 			.replace(/<@([UW][A-Z0-9]+)>/g, (_match, id: string) => {
 				return `@${displayNameForId(id)}`;
 			})
@@ -30,6 +35,9 @@ export function formatSlackText(text: string): string {
 			.replace(/<(https?:\/\/[^|>]+)\|([^>]+)>/g, "[$2]($1)")
 			// URL links without label: <url> → url
 			.replace(/<(https?:\/\/[^>]+)>/g, "$1")
+			// Mailto links: <mailto:a@b.com|a@b.com> → a@b.com
+			.replace(/<mailto:([^|>]+)\|([^>]+)>/g, "$2")
+			.replace(/<mailto:([^>]+)>/g, "$1")
 			// Slack bold *text* → **text** (markdown bold)
 			.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "**$1**")
 	);

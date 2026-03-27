@@ -134,6 +134,32 @@ Don't re-list every message — the tool output already shows
 them. Add interpretation and context the raw output doesn't
 provide.
 
+## Efficiency: Minimise Tool Calls
+
+The Slack API has no "top DM partners" or "most active
+channels" endpoint. Complex questions require creative
+querying. Aim to extract maximum information from each call.
+
+**Batch over serial**: a single `search_messages` with 100
+results gives you channel IDs, user IDs, timestamps and
+text. Extract patterns from that data before making more
+calls. Don't look up each user or channel individually
+unless you need details beyond what the search gave you.
+
+**User IDs are auto-resolved**: the tool resolves raw Slack
+user IDs (U08ME9KASG7) to @handles automatically. You don't
+need to call `get_user` just to learn someone's name — it
+already appears in message output.
+
+**DM channels start with D**: when scanning search results
+for direct message patterns, look for channel IDs that
+start with `D`. Group channels start with `G`, public
+channels start with `C`.
+
+**Use search operators aggressively**: `from:me in:D0AG3` is
+faster than listing a channel's messages. Combine operators
+to narrow results before fetching.
+
 ## Common Mistakes to Avoid
 
 **DON'T** just echo "here are the results":

@@ -8,6 +8,7 @@
 import { cacheUser } from "../resolvers/user.js";
 import type { SlackMessage, SlackReaction } from "../types.js";
 import type { SlackClient } from "./client.js";
+import { resolveUsersInMessages } from "./resolve-users.js";
 
 /** Raw message shape from the Slack API. */
 interface RawMessage {
@@ -76,7 +77,9 @@ export async function getMessage(
 		// Permalink is non-critical.
 	}
 
-	return toSlackMessage(msg, channel);
+	const result = toSlackMessage(msg, channel);
+	await resolveUsersInMessages(client, [result], signal);
+	return result;
 }
 
 /**
@@ -100,7 +103,11 @@ export async function listMessages(
 		signal,
 	);
 
-	return (response.messages ?? []).map((m) => toSlackMessage(m, channel));
+	const results = (response.messages ?? []).map((m) =>
+		toSlackMessage(m, channel),
+	);
+	await resolveUsersInMessages(client, results, signal);
+	return results;
 }
 
 /**
@@ -130,7 +137,9 @@ export async function getThread(
 		signal,
 	);
 
-	return messages.map((m) => toSlackMessage(m, channel));
+	const results = messages.map((m) => toSlackMessage(m, channel));
+	await resolveUsersInMessages(client, results, signal);
+	return results;
 }
 
 /** Result from sending a message. */
