@@ -213,7 +213,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"For thread replies, use reply_to_thread with the parent message's channel and ts.",
 			"Channel names work with or without the # prefix. User IDs (U…) resolve to DM channels automatically.",
 			"User handles work with or without the @ prefix.",
-			"For DM-only queries, prefer list_messages with the user's ID as the channel. For keyword search across DMs and channels, use the 'with' parameter on search_messages.",
+			"To read DMs with a person, ALWAYS use list_messages with their user ID as the channel (resolves to the DM automatically). NEVER use search_messages with 'with:' for DM history — search mixes in shared channels and misses messages. Only use 'with:' when you need keyword filtering across all conversations.",
 			"The query parameter is optional for search when structured params (from, with, channel, after, before) are provided — it defaults to *.",
 			"Be concise in your responses — summarise the substance of results rather than restating what the tool output already shows.",
 		],
