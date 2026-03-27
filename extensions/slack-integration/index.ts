@@ -2,8 +2,9 @@
  * Slack Integration Extension
  *
  * Provides AI-friendly access to Slack through a single `slack`
- * tool. Handles OAuth2 authentication using a user-created Slack
- * app and renders content as markdown-like text.
+ * tool. Supports browser session tokens (xoxc- extracted from
+ * Chrome) and OAuth2 user tokens (xoxp-). Renders content as
+ * markdown-like text.
  */
 
 import { StringEnum } from "@mariozechner/pi-ai";
@@ -15,7 +16,6 @@ import { clearAllConfig } from "./auth/credentials.js";
 import { handleSlackAuthCommand } from "./auth-command.js";
 import { ensureAuthenticated, formatAuthError } from "./auth-flow.js";
 import { routeAction } from "./router.js";
-import { ensureOAuthApp } from "./setup-wizard.js";
 import type { OAuthApp } from "./types.js";
 
 /** Fallback OAuth config from environment variables. */
@@ -29,15 +29,14 @@ export default function slackIntegration(pi: ExtensionAPI) {
 	let cachedClient: SlackClient | null = null;
 
 	/**
-	 * Get an authenticated Slack client, prompting for auth
-	 * if needed. Caches the client for the session.
+	 * Get an authenticated Slack client, prompting for setup
+	 * and auth if needed. Caches the client for the session.
 	 */
 	async function getClient(
 		ctx: Parameters<typeof ensureAuthenticated>[0],
-		oauthApp: OAuthApp,
 	): Promise<SlackClient> {
 		if (cachedClient) return cachedClient;
-		cachedClient = await ensureAuthenticated(ctx, oauthApp);
+		cachedClient = await ensureAuthenticated(ctx, ENV_OAUTH_CONFIG);
 		return cachedClient;
 	}
 
@@ -132,14 +131,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			try {
-				const oauthApp = await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
-				if (!oauthApp) {
-					throw new Error(
-						"OAuth credentials setup required but was cancelled.",
-					);
-				}
-
-				const client = await getClient(ctx, oauthApp);
+				const client = await getClient(ctx);
 				return await routeAction(params.action as string, client, params, ctx);
 			} catch (error) {
 				return {
@@ -245,9 +237,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("slack-setup", {
-		description: "Set up Slack app OAuth credentials (interactive)",
-		handler: async (_args, ctx) => {
-			await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
+		description: "Set up Slack authentication (interactive)",
+		handler: async (args, ctx) => {
+			await handleSlackAuthCommand(args, ctx, ENV_OAUTH_CONFIG);
 		},
 	});
 
@@ -255,9 +247,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		description:
 			"Authenticate with Slack. Usage: slack-auth [--status] [--logout]",
 		handler: async (args, ctx) => {
-			const oauthApp = await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
-			if (!oauthApp) return;
-			await handleSlackAuthCommand(args, ctx, oauthApp);
+			await handleSlackAuthCommand(args, ctx, ENV_OAUTH_CONFIG);
 		},
 	});
 

@@ -1,10 +1,16 @@
 /**
- * Orchestrates Slack authentication, guiding the user through
- * the OAuth web redirect flow when no valid token exists.
+ * Orchestrates Slack authentication, bridging the setup wizard
+ * and the OAuth web redirect flow.
+ *
+ * Two auth paths converge here:
+ *   - Browser session: setup wizard handles everything, this
+ *     module just creates the client from stored credentials.
+ *   - OAuth: setup wizard stores the app credentials, this
+ *     module runs the web redirect flow to get a user token.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { promptSingle, view } from "../lib/ui/panel.js";
+import { view } from "../lib/ui/panel.js";
 import { SlackClient } from "./api/client.js";
 import { openInBrowser } from "./auth/browser.js";
 import {
@@ -19,67 +25,53 @@ import {
 	exchangeCodeForToken,
 } from "./auth/oauth.js";
 import { waitForOAuthCallback } from "./auth/server.js";
-
-/** Messages shown during the auth flow. */
-const AUTH_MESSAGES = {
-	cancelled:
-		"⚠️ Authentication required but was cancelled.\n\n" +
-		"Run /slack-auth to authenticate with Slack.",
-	setupCancelled:
-		"⚠️ OAuth credentials setup required but was cancelled.\n\n" +
-		"Run /slack-setup to configure Slack app credentials.",
-};
+import { ensureSetup } from "./setup-wizard.js";
 
 /**
  * Ensure the user is authenticated with Slack.
  *
- * Returns a SlackClient ready to make API calls. If no valid
- * token exists, prompts the user through the OAuth flow.
+ * Returns a SlackClient ready to make API calls. Runs the
+ * setup wizard and/or OAuth flow as needed.
  */
 export async function ensureAuthenticated(
 	ctx: ExtensionContext,
-	oauthApp: OAuthApp,
+	envConfig: OAuthApp,
 ): Promise<SlackClient> {
+	const setup = await ensureSetup(ctx, envConfig);
+
+	if (!setup) {
+		throw new Error("Slack authentication setup was cancelled.");
+	}
+
+	// Browser session path: credentials are already stored.
+	if (setup.mode === "session") {
+		return clientFromStoredToken();
+	}
+
+	// OAuth path: may need to run the web redirect flow.
 	if (hasToken()) {
 		const token = getToken();
 		if (token) {
-			const client = new SlackClient(token.accessToken);
-
-			// Verify the token still works.
+			const client = new SlackClient(token.accessToken, token.cookie);
 			try {
 				await client.call("auth.test");
 				return client;
 			} catch {
-				// Token expired or revoked, fall through to re-auth.
+				// Token invalid, run the OAuth flow.
 			}
 		}
 	}
 
-	if (!ctx.hasUI) {
-		throw new Error(
-			"Not authenticated and no UI available for interactive authentication.",
-		);
+	return await runOAuthFlow(ctx, setup.app);
+}
+
+/** Create a client from the stored token. Throws if no token. */
+function clientFromStoredToken(): SlackClient {
+	const token = getToken();
+	if (!token) {
+		throw new Error("No stored Slack token found.");
 	}
-
-	const result = await promptSingle(ctx, {
-		content: (theme) => [
-			` ${theme.bold("🔐 Slack Authentication Required")}`,
-			"",
-			" You need to authenticate with Slack before using",
-			" Slack features. This opens your browser to authorize",
-			" the app with your Slack workspace.",
-		],
-		options: [
-			{ label: "Authenticate now", value: "yes" },
-			{ label: "Cancel", value: "no" },
-		],
-	});
-
-	if (!result || result.type !== "option" || result.value !== "yes") {
-		throw new Error(AUTH_MESSAGES.cancelled);
-	}
-
-	return await runOAuthFlow(ctx, oauthApp);
+	return new SlackClient(token.accessToken, token.cookie);
 }
 
 /**
@@ -98,7 +90,6 @@ async function runOAuthFlow(
 
 	const dismiss = new AbortController();
 
-	// Show a waiting panel while the user authorizes in their browser.
 	view(ctx, {
 		signal: dismiss.signal,
 		content: (theme) => [
@@ -120,22 +111,17 @@ async function runOAuthFlow(
 		if (callback.error) {
 			throw new Error(`Slack OAuth error: ${callback.error}`);
 		}
-
 		if (!callback.code) {
 			throw new Error("No authorization code received from Slack.");
 		}
-
 		if (callback.state !== state) {
-			throw new Error(
-				"OAuth state mismatch. The callback may have come from a different flow.",
-			);
+			throw new Error("OAuth state mismatch.");
 		}
 
 		const token = await exchangeCodeForToken(oauthApp, callback.code);
 		storeToken(token);
 
-		// Verify the token works.
-		const client = new SlackClient(token.accessToken);
+		const client = new SlackClient(token.accessToken, token.cookie);
 		await client.call("auth.test");
 
 		ctx.ui.notify(
@@ -152,12 +138,11 @@ async function runOAuthFlow(
 /** Format an auth error for the tool result. */
 export function formatAuthError(error: unknown): string {
 	const message = error instanceof Error ? error.message : String(error);
-
 	if (message.includes("cancelled")) {
-		return AUTH_MESSAGES.cancelled;
-	}
-	if (message.includes("setup required")) {
-		return AUTH_MESSAGES.setupCancelled;
+		return (
+			"⚠️ Authentication required but was cancelled.\n\n" +
+			"Run /slack-auth to authenticate with Slack."
+		);
 	}
 	return `Slack API error: ${message}`;
 }

@@ -24,16 +24,26 @@ export interface SlackApiResponse {
 	[key: string]: unknown;
 }
 
-/** Authenticated Slack API client. */
+/**
+ * Authenticated Slack API client.
+ *
+ * Supports two auth modes:
+ *   - OAuth user tokens (xoxp-): token sent in body, no cookie
+ *   - Browser session tokens (xoxc-): token in body + cookie in header
+ */
 export class SlackClient {
-	constructor(private readonly token: string) {}
+	constructor(
+		private readonly token: string,
+		private readonly cookie?: string,
+	) {}
 
 	/**
 	 * Call a Slack Web API method.
 	 *
 	 * Sends a POST with form-encoded body containing the token
-	 * and any additional parameters. Retries on rate limits with
-	 * exponential backoff.
+	 * and any additional parameters. For browser session tokens,
+	 * includes the session cookie in the request header. Retries
+	 * on rate limits with exponential backoff.
 	 */
 	async call<T = Record<string, unknown>>(
 		method: string,
@@ -48,6 +58,13 @@ export class SlackClient {
 			}
 		}
 
+		const headers: Record<string, string> = {
+			"Content-Type": "application/x-www-form-urlencoded",
+		};
+		if (this.cookie) {
+			headers.Cookie = `d=${this.cookie}`;
+		}
+
 		let lastError: Error | null = null;
 
 		for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -57,7 +74,7 @@ export class SlackClient {
 
 			const response = await fetch(`${SLACK_API_BASE}/${method}`, {
 				method: "POST",
-				headers: { "Content-Type": "application/x-www-form-urlencoded" },
+				headers,
 				body: body.toString(),
 				signal,
 			});

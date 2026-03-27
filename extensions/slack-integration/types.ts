@@ -8,9 +8,19 @@ export interface OAuthApp {
 	readonly clientSecret: string;
 }
 
-/** Stored OAuth token. Slack user tokens (xoxp-) don't expire, but we track metadata. */
+/**
+ * Stored Slack credentials.
+ *
+ * Supports two auth modes:
+ *   - OAuth user tokens (xoxp-): proper OAuth2 flow, no cookie needed
+ *   - Browser session tokens (xoxc-): extracted from browser, requires cookie
+ *
+ * Enterprise workspaces often block app creation, making browser
+ * session tokens the only viable option.
+ */
 export interface StoredToken {
 	accessToken: string;
+	cookie?: string;
 	userId: string;
 	teamId: string;
 	teamName?: string;
