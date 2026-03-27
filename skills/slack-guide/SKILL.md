@@ -358,6 +358,49 @@ if the user asks about DMs specifically.
 **Warn the user** that this only covers common emojis. Custom
 or unusual reactions may be missed.
 
+## Message Formatting (mrkdwn)
+
+Slack uses its own markup format called **mrkdwn**, not
+standard markdown. When composing messages, use these rules:
+
+### Text Formatting
+- **Bold**: `*text*` (single asterisks, not double)
+- **Italic**: `_text_` (underscores)
+- **Strikethrough**: `~text~` (single tildes)
+- **Inline code**: `` `code` ``
+- **Code block**: triple backticks on their own lines.
+  No language hints — Slack ignores them and renders the
+  hint as literal text.
+
+### Structure
+- **Bulleted lists**: start each line with `• ` (Unicode
+  bullet, U+2022). mrkdwn has no list syntax — Slack's
+  editor creates `rich_text_list` blocks behind the scenes,
+  but the API sends plain text. `•` is the closest visual
+  approximation; wrapped lines won't indent like native
+  Slack lists. `-` and `*` do NOT render as bullets.
+- **No ordered lists**: mrkdwn has no numbered list syntax.
+  `1.` renders as literal text. Use `•` for all lists.
+- **Blockquotes**: `>` at the start of the line
+- **Line breaks**: newlines are preserved as-is
+- **No headers**: `#` has no special meaning in Slack
+
+### Links and Mentions
+- **Links**: `<https://example.com|display text>` (not
+  markdown's `[text](url)` syntax)
+- **User mentions**: `<@U12345>` with the user's Slack ID
+- **Channel mentions**: `<#C12345>` with the channel ID
+
+### What Doesn't Work
+- `**double asterisks**` — renders as literal asterisks
+- `~~double tildes~~` — renders as literal tildes
+- ` ```python ` — the language hint appears as text
+- `[text](url)` — renders as literal brackets
+- `# Heading` — renders as literal `#`
+- `![alt](image-url)` — no image embedding
+- `- item` or `* item` — not converted to bullets
+- `1. item` — no ordered list rendering
+
 ## Common Mistakes to Avoid
 
 **DON'T** just echo "here are the results":

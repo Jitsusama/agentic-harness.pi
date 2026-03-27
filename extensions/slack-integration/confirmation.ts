@@ -1,16 +1,19 @@
 /**
  * Confirmation gates for Slack write operations.
  *
- * Uses promptSingle from the shared panel library, matching
- * the google-workspace-integration pattern. Each gate shows
- * the user what will happen and lets them approve, cancel, or
- * redirect (provide feedback for the agent to adjust).
+ * Each gate shows the user what will happen and lets them
+ * approve, reject, annotate or redirect — matching the
+ * guardian pattern used elsewhere in the harness.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { renderMarkdown } from "../lib/ui/content-renderer.js";
 import { promptSingle } from "../lib/ui/panel.js";
 import { formatRedirectReason } from "../lib/ui/redirect.js";
-import type { PromptResult } from "../lib/ui/types.js";
+import type { KeyAction } from "../lib/ui/types.js";
+
+/** Reject action shown in every confirmation gate. */
+const REJECT_ACTION: KeyAction[] = [{ key: "r", label: "Reject" }];
 
 /** Result from a confirmation gate. */
 export type ConfirmResult<T> =
@@ -18,25 +21,9 @@ export type ConfirmResult<T> =
 	| { approved: false; redirect: string }
 	| null;
 
-/** Extract redirect feedback from a prompt result. */
-function extractRedirect(
-	result: PromptResult | null,
-	context: string,
-): { approved: false; redirect: string } | null {
-	if (!result) return null;
-	if (result.type === "redirect") {
-		return {
-			approved: false,
-			redirect: formatRedirectReason(result.note ?? "", context),
-		};
-	}
-	if (result.note) {
-		return {
-			approved: false,
-			redirect: formatRedirectReason(result.note, context),
-		};
-	}
-	return null;
+/** Shorthand for a redirect result. */
+function redirect(note: string, context: string): ConfirmResult<never> {
+	return { approved: false, redirect: formatRedirectReason(note, context) };
 }
 
 /**
@@ -49,34 +36,40 @@ export async function confirmSendMessage(
 ): Promise<ConfirmResult<{ text: string }>> {
 	if (!ctx.hasUI) return { approved: true, data: { text } };
 
+	const context = `Send message to ${conversationName}:\n${text.slice(0, 200)}`;
+
 	const result = await promptSingle(ctx, {
-		content: (theme) => {
+		content: (theme, width) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Send Slack Message")),
 				"",
 				` ${theme.fg("muted", "To:")} ${conversationName}`,
 				"",
 			];
-			const textLines = text.split("\n");
-			const preview = textLines.slice(0, 15);
-			for (const line of preview) {
-				lines.push(` ${line}`);
-			}
-			if (textLines.length > 15) {
-				lines.push(
-					` ${theme.fg("dim", `… (${textLines.length - 15} more lines)`)}`,
-				);
+			for (const line of renderMarkdown(text, theme, width)) {
+				lines.push(line);
 			}
 			return lines;
 		},
+		actions: REJECT_ACTION,
 	});
 
 	if (!result) return null;
-	const redirect = extractRedirect(
-		result,
-		`Send message to ${conversationName}:\n${text.slice(0, 200)}`,
-	);
-	if (redirect) return redirect;
+
+	if (result.type === "redirect") {
+		return redirect(result.note, context);
+	}
+
+	if (result.type === "action") {
+		if (result.key === "r") {
+			if (result.note) return redirect(result.note, context);
+			return redirect("User rejected. Ask for guidance.", context);
+		}
+		// Enter (approve)
+		if (result.note) return redirect(result.note, context);
+		return { approved: true, data: { text } };
+	}
+
 	return { approved: true, data: { text } };
 }
 
@@ -89,12 +82,12 @@ export async function confirmReply(
 	threadTs: string,
 	text: string,
 ): Promise<ConfirmResult<{ text: string }>> {
-	if (!ctx.hasUI) {
-		return { approved: true, data: { text } };
-	}
+	if (!ctx.hasUI) return { approved: true, data: { text } };
+
+	const context = `Reply in ${conversationName} thread ${threadTs}:\n${text.slice(0, 200)}`;
 
 	const result = await promptSingle(ctx, {
-		content: (theme) => {
+		content: (theme, width) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Reply to Thread")),
 				"",
@@ -102,26 +95,30 @@ export async function confirmReply(
 				` ${theme.fg("muted", "Thread:")} ${threadTs}`,
 				"",
 			];
-			const textLines = text.split("\n");
-			const preview = textLines.slice(0, 15);
-			for (const line of preview) {
-				lines.push(` ${line}`);
-			}
-			if (textLines.length > 15) {
-				lines.push(
-					` ${theme.fg("dim", `… (${textLines.length - 15} more lines)`)}`,
-				);
+			for (const line of renderMarkdown(text, theme, width)) {
+				lines.push(line);
 			}
 			return lines;
 		},
+		actions: REJECT_ACTION,
 	});
 
 	if (!result) return null;
-	const redirect = extractRedirect(
-		result,
-		`Reply in ${conversationName} thread ${threadTs}:\n${text.slice(0, 200)}`,
-	);
-	if (redirect) return redirect;
+
+	if (result.type === "redirect") {
+		return redirect(result.note, context);
+	}
+
+	if (result.type === "action") {
+		if (result.key === "r") {
+			if (result.note) return redirect(result.note, context);
+			return redirect("User rejected. Ask for guidance.", context);
+		}
+		// Enter (approve)
+		if (result.note) return redirect(result.note, context);
+		return { approved: true, data: { text } };
+	}
+
 	return { approved: true, data: { text } };
 }
 
@@ -138,6 +135,8 @@ export async function confirmReaction(
 	if (!ctx.hasUI) return { approved: true, data: true };
 
 	const verb = action === "add" ? "Add" : "Remove";
+	const context = `${verb} :${emoji}: reaction in ${conversationName}`;
+
 	const result = await promptSingle(ctx, {
 		content: (theme) => [
 			theme.fg("accent", theme.bold(` ${verb} Reaction`)),
@@ -146,13 +145,24 @@ export async function confirmReaction(
 			` ${theme.fg("muted", "Message:")} ${ts}`,
 			` ${theme.fg("muted", "Emoji:")} :${emoji}:`,
 		],
+		actions: REJECT_ACTION,
 	});
 
 	if (!result) return null;
-	const redirect = extractRedirect(
-		result,
-		`${verb} :${emoji}: reaction in ${conversationName}`,
-	);
-	if (redirect) return redirect;
+
+	if (result.type === "redirect") {
+		return redirect(result.note, context);
+	}
+
+	if (result.type === "action") {
+		if (result.key === "r") {
+			if (result.note) return redirect(result.note, context);
+			return redirect("User rejected. Ask for guidance.", context);
+		}
+		// Enter (approve)
+		if (result.note) return redirect(result.note, context);
+		return { approved: true, data: true };
+	}
+
 	return { approved: true, data: true };
 }
