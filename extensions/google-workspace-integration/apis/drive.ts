@@ -111,6 +111,7 @@ export async function getFileMetadata(
 		fileId,
 		fields:
 			"id,name,mimeType,size,modifiedTime,createdTime,owners,webViewLink,iconLink,description",
+		supportsAllDrives: true,
 	});
 
 	const f = response.data;
