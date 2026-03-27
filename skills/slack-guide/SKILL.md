@@ -234,6 +234,13 @@ fetches as many pages as needed.
 - **Specific count**: pass any number. `limit: 1000` fetches
   up to 1000, paging through internally.
 
+**When the user asks a question that requires comprehensive
+data** (e.g. "how many times did I…", "find all messages
+about…", "what did I say over the past N months"), **always
+pass `limit: 0`** with appropriate `oldest`/`latest` params.
+The default limit of 20 is useless for these queries. Drawing
+conclusions from partial data is worse than fetching too much.
+
 For search results, when the total exceeds what was fetched,
 the output says so. Relay this to the user and offer to fetch
 the rest with a higher limit.
@@ -244,11 +251,12 @@ The Slack API has no "top DM partners" or "most active
 channels" endpoint. Complex questions require creative
 querying. Aim to extract maximum information from each call.
 
-**Use `with:` for DM queries**: the `with` parameter
-searches DMs and threads with a specific person in one call.
-"Messages with chao.duan" → `search_messages` with
-`with: "chao.duan"`. Much more efficient than searching by
-channel ID.
+**Use `list_messages` for DM history**: pass the person's
+user ID as the `channel` — it resolves to the DM
+automatically via `conversations.open`. This returns only
+DM messages, complete and in order. Use `with:` on
+`search_messages` only when you need keyword filtering
+across DMs *and* shared channels.
 
 **Batch over serial**: a single `search_messages` with 100
 results gives you channel IDs, user IDs, timestamps and
