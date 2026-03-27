@@ -1,0 +1,244 @@
+/**
+ * Slack Integration Extension
+ *
+ * Provides AI-friendly access to Slack through a single `slack`
+ * tool. Handles OAuth2 authentication using a user-created Slack
+ * app and renders content as markdown-like text.
+ */
+
+import { StringEnum } from "@mariozechner/pi-ai";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { Text } from "@mariozechner/pi-tui";
+import { Type } from "@sinclair/typebox";
+import type { SlackClient } from "./api/client.js";
+import { clearAllConfig } from "./auth/credentials.js";
+import { handleSlackAuthCommand } from "./auth-command.js";
+import { ensureAuthenticated, formatAuthError } from "./auth-flow.js";
+import { ensureOAuthApp } from "./setup-wizard.js";
+import type { OAuthApp } from "./types.js";
+
+/** Fallback OAuth config from environment variables. */
+const ENV_OAUTH_CONFIG: OAuthApp = {
+	clientId: process.env.SLACK_CLIENT_ID || "",
+	clientSecret: process.env.SLACK_CLIENT_SECRET || "",
+};
+
+export default function slackIntegration(pi: ExtensionAPI) {
+	/** Cached authenticated client. */
+	let cachedClient: SlackClient | null = null;
+
+	/**
+	 * Get an authenticated Slack client, prompting for auth
+	 * if needed. Caches the client for the session.
+	 */
+	async function getClient(
+		ctx: Parameters<typeof ensureAuthenticated>[0],
+		oauthApp: OAuthApp,
+	): Promise<SlackClient> {
+		if (cachedClient) return cachedClient;
+		cachedClient = await ensureAuthenticated(ctx, oauthApp);
+		return cachedClient;
+	}
+
+	pi.registerTool({
+		name: "slack",
+		label: "Slack",
+		description:
+			"Access Slack: search messages, read threads, send messages, " +
+			"look up users and channels, manage reactions. Use when asked " +
+			"to check Slack, find messages, send messages, or interact " +
+			"with Slack in any way.",
+		promptSnippet:
+			"Access Slack: search messages, read threads, send messages, " +
+			"look up users/channels, manage reactions.",
+		promptGuidelines: [
+			"Accept Slack permalink URLs directly as the target parameter.",
+			"Parse Slack search operators: from:user, in:#channel, after:YYYY-MM-DD, before:YYYY-MM-DD.",
+			"Remember context from previous results — user may reference 'that message', 'the thread', etc.",
+			"For thread replies, use reply_to_thread with the parent message's channel and ts.",
+			"Channel names work with or without the # prefix.",
+			"User handles work with or without the @ prefix.",
+		],
+		parameters: Type.Object({
+			action: StringEnum(
+				[
+					"search_messages",
+					"search_files",
+					"get_message",
+					"get_thread",
+					"list_messages",
+					"get_channel",
+					"get_user",
+					"list_reactions",
+					"get_reactions",
+					"send_message",
+					"reply_to_thread",
+					"add_reaction",
+					"remove_reaction",
+				] as const,
+				{ description: "The operation to perform" },
+			),
+			// Targeting
+			target: Type.Optional(
+				Type.String({ description: "Slack message permalink URL" }),
+			),
+			channel: Type.Optional(
+				Type.String({
+					description: "Channel name (with or without #), or channel ID",
+				}),
+			),
+			ts: Type.Optional(Type.String({ description: "Message timestamp" })),
+			user: Type.Optional(
+				Type.String({
+					description: "User handle (with or without @), or user ID",
+				}),
+			),
+			// Search
+			query: Type.Optional(Type.String({ description: "Search query text" })),
+			from: Type.Optional(
+				Type.String({ description: "Filter by sender (username)" }),
+			),
+			after: Type.Optional(
+				Type.String({ description: "Messages after date (YYYY-MM-DD)" }),
+			),
+			before: Type.Optional(
+				Type.String({ description: "Messages before date (YYYY-MM-DD)" }),
+			),
+			// Content
+			text: Type.Optional(Type.String({ description: "Message text to send" })),
+			emoji: Type.Optional(
+				Type.String({ description: "Emoji name (without colons)" }),
+			),
+			// Pagination
+			limit: Type.Optional(
+				Type.Number({
+					description: "Maximum results (default varies by action)",
+				}),
+			),
+			oldest: Type.Optional(
+				Type.String({ description: "Only messages after this timestamp" }),
+			),
+			latest: Type.Optional(
+				Type.String({ description: "Only messages before this timestamp" }),
+			),
+			// File search
+			type: Type.Optional(
+				Type.String({
+					description: "File type filter (images, snippets, pdfs)",
+				}),
+			),
+		}),
+
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			try {
+				const oauthApp = await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
+				if (!oauthApp) {
+					throw new Error(
+						"OAuth credentials setup required but was cancelled.",
+					);
+				}
+
+				// Validate auth works before routing.
+				await getClient(ctx, oauthApp);
+				const action = params.action as string;
+
+				// TODO: Route to action handlers (step 4)
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `Action "${action}" is not yet implemented.`,
+						},
+					],
+				};
+			} catch (error) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: formatAuthError(error),
+						},
+					],
+				};
+			}
+		},
+
+		renderCall(args, _options, theme) {
+			const a = args as {
+				action?: string;
+				query?: string;
+				channel?: string;
+				target?: string;
+			};
+			let text = theme.fg("toolTitle", theme.bold("slack "));
+			text += a.action ?? "?";
+
+			if (a.query) {
+				const preview =
+					a.query.length > 40 ? `${a.query.slice(0, 40)}…` : a.query;
+				text += theme.fg("dim", ` "${preview}"`);
+			}
+			if (a.channel) {
+				const ch = a.channel.startsWith("#") ? a.channel : `#${a.channel}`;
+				text += theme.fg("dim", ` ${ch}`);
+			}
+			if (a.target) {
+				text += theme.fg("muted", " (URL)");
+			}
+
+			return new Text(text, 0, 0);
+		},
+
+		renderResult(result, _options, theme) {
+			const textContent = result.content?.[0]?.text || "";
+
+			if (
+				textContent.startsWith("Slack API error:") ||
+				textContent.startsWith("⚠️")
+			) {
+				const preview =
+					textContent.length > 100
+						? `${textContent.slice(0, 100)}…`
+						: textContent;
+				return new Text(theme.fg("error", preview), 0, 0);
+			}
+
+			if (textContent.startsWith("✓")) {
+				return new Text(theme.fg("success", textContent.split("\n")[0]), 0, 0);
+			}
+
+			return new Text(theme.fg("success", "✓"), 0, 0);
+		},
+	});
+
+	pi.registerCommand("slack-setup", {
+		description: "Set up Slack app OAuth credentials (interactive)",
+		handler: async (_args, ctx) => {
+			await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
+		},
+	});
+
+	pi.registerCommand("slack-auth", {
+		description:
+			"Authenticate with Slack. Usage: slack-auth [--status] [--logout]",
+		handler: async (args, ctx) => {
+			const oauthApp = await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
+			if (!oauthApp) return;
+			await handleSlackAuthCommand(args, ctx, oauthApp);
+		},
+	});
+
+	pi.registerCommand("slack-reset", {
+		description:
+			"Clear all Slack configuration (OAuth credentials, tokens). " +
+			"Used for testing or starting fresh.",
+		handler: async (_args, ctx) => {
+			clearAllConfig();
+			cachedClient = null;
+			ctx.ui.notify(
+				"✓ Cleared all Slack configuration. Run /slack-setup to start fresh.",
+				"info",
+			);
+		},
+	});
+}
