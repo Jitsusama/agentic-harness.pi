@@ -94,10 +94,13 @@ Slack search supports these operators embedded in the `query`:
 - `with:@person` — DMs and threads with a specific person
   (also available as the `with` parameter)
 - `in:#channel` — messages in a channel
-- `has:reaction` / `has:link` / `has:pin` — message properties
-- `hasmy::thumbsup:` — messages you reacted to with a
+- `has:reaction` — messages that have **any** reaction on them
+  (from anyone). Does NOT mean "messages I reacted to."
+- `has:link` / `has:pin` — message properties
+- `hasmy::thumbsup:` — messages **you** reacted to with a
   **specific** emoji. There is no wildcard form: `hasmy:reaction`
   does NOT work. You must name the exact emoji.
+  Do not confuse with `has:reaction` which is unrelated.
 - `is:thread` — only thread messages
 - `is:saved` — your saved items
 - `after:YYYY-MM-DD` / `before:YYYY-MM-DD` — date range
