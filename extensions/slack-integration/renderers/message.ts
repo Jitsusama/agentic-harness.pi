@@ -27,6 +27,8 @@ export function formatSlackText(text: string): string {
 			.replace(/<@([UW][A-Z0-9]+)>/g, (_match, id: string) => {
 				return `@${displayNameForId(id)}`;
 			})
+			// Broadcast mentions: <!here>, <!channel>, <!everyone> → @here etc.
+			.replace(/<!(here|channel|everyone)>/g, "@$1")
 			// Channel links: <#C123|channel-name> → #channel-name
 			.replace(/<#[A-Z0-9]+\|([^>]+)>/g, "#$1")
 			// Channel links without label: <#C123> → #C123
