@@ -477,7 +477,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			if (d?.message) {
 				const m = d.message as MessagePreview;
 				const who = resolveUser(m.user);
-				const snippet = truncateText(m.text || "", 60);
+				const snippet = truncateText(formatSlackText(m.text || ""), 60);
 				return new Text(
 					`${theme.fg("success", "✓")} ${theme.fg("dim", who)}: ${snippet}`,
 					0,
