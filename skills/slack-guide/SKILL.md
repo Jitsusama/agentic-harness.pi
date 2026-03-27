@@ -54,25 +54,37 @@ with triaging issues."
 → `search_messages` with `query: "X"`
 
 ### "Messages from [person]" / "What did [person] say"
-→ `search_messages` with `query` and `from: "person"`
+→ `search_messages` with `from: "person"` (and optionally `query`)
 - Use the person's Slack handle (first.last format)
+- `query` is optional when structured params (`from`, `with`,
+  `channel`, `after`, `before`) are present — it defaults to `*`
 
 ### "Messages in [channel] about X"
 → `search_messages` with `query: "X"` and `channel: "channel-name"`
 
 ### "Messages I sent to [person]"
-→ `search_messages` with `with: "person"` and `from: "me"`
+→ `list_messages` with the person's user ID as `channel`,
+  then filter output to messages from the authenticated user.
+  Falls back to `search_messages` with `from: "me"` and
+  `with: "person"` when keyword filtering is needed, but
+  note that search results include shared channels.
 
 ### "My DMs with [person]" / "Conversations with [person]"
-→ `search_messages` with `with: "person"` (no `from` filter)
-  Returns both sides of the conversation. **Warning**: `with:`
-  returns results from DMs, group DMs *and* shared channels.
-  Slack has no `is:dm` search operator. When the user
-  specifically asks for DMs, prefer `list_messages` on the DM
-  channel directly (use `get_user` first to find their ID,
-  then use the DM channel ID `D…`). If you must use search,
-  filter results by `channelKind === "dm"` and tell the user
-  you've filtered.
+→ **Always** use `list_messages` with the person's user ID
+  as the `channel`. The resolver calls `conversations.open`
+  to find the DM channel automatically. This returns only
+  DM messages — complete and in order.
+
+  **Do not** use `search_messages` with `with:` for DM
+  history. Search mixes in shared channel results, misses
+  messages the index doesn't match, and is unreliable for
+  comprehensive queries. Only use `with:` when you need
+  keyword filtering across all conversations (DMs, group
+  DMs and channels together) and tell the user the results
+  include shared channel messages.
+
+  To get the user ID, call `get_user` first if you only
+  have a handle.
 
 ### "Last thread I started in [channel]"
 → `search_messages` with `from: "me"` and `channel: "channel-name"`
@@ -222,6 +234,13 @@ fetches as many pages as needed.
 - **Specific count**: pass any number. `limit: 1000` fetches
   up to 1000, paging through internally.
 
+**When the user asks a question that requires comprehensive
+data** (e.g. "how many times did I…", "find all messages
+about…", "what did I say over the past N months"), **always
+pass `limit: 0`** with appropriate `oldest`/`latest` params.
+The default limit of 20 is useless for these queries. Drawing
+conclusions from partial data is worse than fetching too much.
+
 For search results, when the total exceeds what was fetched,
 the output says so. Relay this to the user and offer to fetch
 the rest with a higher limit.
@@ -232,11 +251,12 @@ The Slack API has no "top DM partners" or "most active
 channels" endpoint. Complex questions require creative
 querying. Aim to extract maximum information from each call.
 
-**Use `with:` for DM queries**: the `with` parameter
-searches DMs and threads with a specific person in one call.
-"Messages with chao.duan" → `search_messages` with
-`with: "chao.duan"`. Much more efficient than searching by
-channel ID.
+**Use `list_messages` for DM history**: pass the person's
+user ID as the `channel` — it resolves to the DM
+automatically via `conversations.open`. This returns only
+DM messages, complete and in order. Use `with:` on
+`search_messages` only when you need keyword filtering
+across DMs *and* shared channels.
 
 **Batch over serial**: a single `search_messages` with 100
 results gives you channel IDs, user IDs, timestamps and
