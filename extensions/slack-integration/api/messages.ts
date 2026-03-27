@@ -132,10 +132,18 @@ export async function getMessage(
 	return result;
 }
 
+/** Maximum results per page for conversations.history. */
+const MAX_HISTORY_PER_PAGE = 200;
+
+/** Default number of messages when no limit is specified. */
+const DEFAULT_HISTORY_LIMIT = 20;
+
 /**
- * List recent messages in a channel.
+ * List recent messages in a channel with automatic pagination.
  *
- * Returns messages in reverse chronological order (newest first).
+ * Uses conversations.history with cursor-based pagination.
+ * Pass `limit: 0` for unlimited. Returns messages in reverse
+ * chronological order (newest first).
  */
 export async function listMessages(
 	client: SlackClient,
@@ -143,19 +151,21 @@ export async function listMessages(
 	opts: { limit?: number; oldest?: string; latest?: string } = {},
 	signal?: AbortSignal,
 ): Promise<SlackMessage[]> {
-	const limit = Math.min(opts.limit || 20, 200);
+	const targetLimit =
+		opts.limit === 0 ? undefined : opts.limit || DEFAULT_HISTORY_LIMIT;
+	const perPage = targetLimit
+		? Math.min(targetLimit, MAX_HISTORY_PER_PAGE)
+		: MAX_HISTORY_PER_PAGE;
 
-	const response = await client.call<{
-		messages: RawMessage[];
-	}>(
+	const raw = await client.paginate<RawMessage>(
 		"conversations.history",
-		{ channel, limit, oldest: opts.oldest, latest: opts.latest },
+		{ channel, limit: perPage, oldest: opts.oldest, latest: opts.latest },
+		(r) => ((r as { messages?: RawMessage[] }).messages ?? []) as RawMessage[],
+		targetLimit,
 		signal,
 	);
 
-	const results = (response.messages ?? []).map((m) =>
-		toSlackMessage(m, channel),
-	);
+	const results = raw.map((m) => toSlackMessage(m, channel));
 	await resolveUsersInMessages(client, results, signal);
 	await resolveChannelsInMessages(client, results, signal);
 	refreshDmNames(results);

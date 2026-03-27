@@ -87,8 +87,14 @@ with triaging issues."
 → `get_thread` with `target: "permalink_url"` from previous results
 - Always prefer the permalink URL from search results
 
-### "What's happening in #channel"
-→ `list_messages` with `channel: "channel-name"`, `limit: 10`
+### "What's happening in #channel" / "Last N messages in #channel"
+→ `list_messages` with `channel: "channel-name"` and a `limit`
+  This uses `conversations.history`, which returns every
+  message in the channel. Pass `limit: 0` for unlimited.
+  **Always use `list_messages` for channel history**, not
+  `search_messages`. Slack's search index doesn't guarantee
+  returning every message; a wildcard query like `*` will
+  miss messages that the indexer doesn't match.
 
 ### "Who is [person]"
 → `get_user` with `user: "person"` (handle or @handle)
@@ -206,19 +212,19 @@ provide.
 
 ## Pagination
 
-The tool auto-paginates search results internally. You don't
-need to manage pages yourself; just set the `limit` parameter
-and the tool fetches as many pages as needed.
+The tool auto-paginates internally for `search_messages`,
+`search_files` and `list_messages`. You don't need to manage
+pages yourself; just set the `limit` parameter and the tool
+fetches as many pages as needed.
 
 - **Default limit**: 20 results. Fine for quick lookups.
-- **"Show me all"**: pass `limit: 0` for unlimited results
-  (up to Slack's ceiling of 10,000).
-- **Specific count**: pass any number. `limit: 200` fetches
-  up to 200, paging through internally.
+- **"Show me all"**: pass `limit: 0` for unlimited results.
+- **Specific count**: pass any number. `limit: 1000` fetches
+  up to 1000, paging through internally.
 
-When the total exceeds what was fetched, the output says so.
-Relay this to the user and offer to fetch the rest with a
-higher limit.
+For search results, when the total exceeds what was fetched,
+the output says so. Relay this to the user and offer to fetch
+the rest with a higher limit.
 
 ## Efficiency: Minimise Tool Calls
 
@@ -333,6 +339,17 @@ slack({ action: "get_user", user: "joel.gerber" })
 **DON'T** fall back to raw curl or shell commands when an API
 is blocked. Use the tool's search actions creatively instead.
 The user should never see curl scripts in the output.
+
+**DON'T** use `search_messages` to get channel history:
+```
+# ❌ Bad: search index doesn't return all messages
+slack({ action: "search_messages", query: "*",
+        channel: "privacy-engineering", limit: 1000 })
+
+# ✅ Good: conversations.history returns every message
+slack({ action: "list_messages",
+        channel: "privacy-engineering", limit: 1000 })
+```
 
 **DON'T** try non-existent search operators:
 ```
