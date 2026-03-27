@@ -87,6 +87,31 @@ function missing(param: string): ToolResult {
 }
 
 /**
+ * Coerce a timestamp parameter to Slack's epoch-seconds format.
+ *
+ * The agent often passes ISO date strings (e.g. "2026-01-27"
+ * or "2026-01-27T00:00:00Z") for oldest/latest, but Slack's
+ * conversations.history API expects Unix epoch seconds (e.g.
+ * "1737936000"). This silently converts dates so the API
+ * doesn't ignore them and return empty results.
+ */
+function coerceTimestamp(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+
+	// Already a numeric timestamp (epoch seconds or Slack ts with decimals).
+	if (/^\d+(\.\d+)?$/.test(value)) return value;
+
+	// ISO date or datetime string: parse and convert to epoch seconds.
+	const parsed = Date.parse(value);
+	if (!Number.isNaN(parsed)) {
+		return String(parsed / 1000);
+	}
+
+	// Unrecognised format: pass through and let Slack deal with it.
+	return value;
+}
+
+/**
  * Fall back to `*` when no explicit query is given but
  * structured search params (from, with, channel, after,
  * before) are present. Lets agents omit `query` when
@@ -201,8 +226,8 @@ async function handleListMessages(
 	const channel = await resolveChannel(client, channelInput);
 	const messages = await listMessages(client, channel, {
 		limit: numberParam(params, "limit"),
-		oldest: stringParam(params, "oldest"),
-		latest: stringParam(params, "latest"),
+		oldest: coerceTimestamp(stringParam(params, "oldest")),
+		latest: coerceTimestamp(stringParam(params, "latest")),
 	});
 
 	return text(renderMessageList(messages), { messages });
