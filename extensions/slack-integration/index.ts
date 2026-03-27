@@ -18,6 +18,33 @@ import { ensureAuthenticated, formatAuthError } from "./auth-flow.js";
 import { routeAction } from "./router.js";
 import type { OAuthApp } from "./types.js";
 
+/** Lightweight shapes for renderResult previews. */
+interface MessagePreview {
+	user?: string;
+	text?: string;
+}
+interface UserPreview {
+	name?: string;
+	realName?: string;
+	displayName?: string;
+	title?: string;
+}
+interface ChannelPreview {
+	name?: string;
+	topic?: string;
+	memberCount?: number;
+}
+interface FilePreview {
+	name?: string;
+}
+
+/** Truncate text to a maximum length, adding ellipsis. */
+function truncateText(text: string, max: number): string {
+	const oneLine = text.replace(/\n/g, " ").trim();
+	if (oneLine.length <= max) return oneLine;
+	return `${oneLine.slice(0, max - 1)}…`;
+}
+
 /** Fallback OAuth config from environment variables. */
 const ENV_OAUTH_CONFIG: OAuthApp = {
 	clientId: process.env.SLACK_CLIENT_ID || "",
@@ -207,28 +234,112 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				return new Text(theme.fg("success", textContent.split("\n")[0]), 0, 0);
 			}
 
-			// Search results with total count
+			// Search results (messages or files)
 			if (d?.total !== undefined) {
 				const total = d.total as number;
-				const count = Array.isArray(d.messages)
-					? d.messages.length
-					: Array.isArray(d.files)
-						? d.files.length
-						: 0;
-				let summary = theme.fg("success", `✓ ${total} result(s)`);
-				if (count < total) {
-					summary += theme.fg("muted", ` (showing ${count})`);
+				const msgs = d.messages as MessagePreview[] | undefined;
+				const files = d.files as FilePreview[] | undefined;
+
+				if (msgs?.length) {
+					const summary = theme.fg("success", `✓ ${total} messages`);
+					const previews = msgs
+						.slice(0, 3)
+						.map((m) => {
+							const who = theme.fg("dim", m.user ? `@${m.user}` : "?");
+							const snippet = truncateText(m.text || "", 60);
+							return `  ${who}: ${snippet}`;
+						})
+						.join("\n");
+					const more =
+						msgs.length > 3
+							? `\n  ${theme.fg("muted", `… ${msgs.length - 3} more`)}`
+							: "";
+					if (!options.expanded) {
+						return new Text(`${summary}\n${previews}${more}`, 0, 0);
+					}
+					return new Text(`${summary}\n${textContent}`, 0, 0);
 				}
-				if (!options.expanded) return new Text(summary, 0, 0);
-				return new Text(`${summary}\n${textContent}`, 0, 0);
+
+				if (files?.length) {
+					const summary = theme.fg("success", `✓ ${total} files`);
+					const previews = files
+						.slice(0, 3)
+						.map((f) => `  ${theme.fg("dim", f.name || "untitled")}`)
+						.join("\n");
+					if (!options.expanded) {
+						return new Text(`${summary}\n${previews}`, 0, 0);
+					}
+					return new Text(`${summary}\n${textContent}`, 0, 0);
+				}
+
+				return new Text(theme.fg("success", `✓ ${total} results`), 0, 0);
 			}
 
 			// Thread or message list
 			if (Array.isArray(d?.messages)) {
-				const count = (d.messages as unknown[]).length;
-				const summary = theme.fg("success", `✓ ${count} message(s)`);
-				if (!options.expanded) return new Text(summary, 0, 0);
+				const msgs = d.messages as MessagePreview[];
+				const summary = theme.fg("success", `✓ ${msgs.length} message(s)`);
+				const previews = msgs
+					.slice(0, 4)
+					.map((m) => {
+						const who = theme.fg("dim", m.user ? `@${m.user}` : "?");
+						const snippet = truncateText(m.text || "", 50);
+						return `  ${who}: ${snippet}`;
+					})
+					.join("\n");
+				const more =
+					msgs.length > 4
+						? `\n  ${theme.fg("muted", `… ${msgs.length - 4} more`)}`
+						: "";
+				if (!options.expanded) {
+					return new Text(`${summary}\n${previews}${more}`, 0, 0);
+				}
 				return new Text(`${summary}\n${textContent}`, 0, 0);
+			}
+
+			// Single user
+			if (d?.user) {
+				const u = d.user as UserPreview;
+				const name = u.displayName || u.realName || u.name || "?";
+				const title = u.title ? theme.fg("dim", ` — ${u.title}`) : "";
+				return new Text(
+					`${theme.fg("success", "✓")} @${u.name}${title} (${name})`,
+					0,
+					0,
+				);
+			}
+
+			// Single channel
+			if (d?.channel) {
+				const ch = d.channel as ChannelPreview;
+				const members = ch.memberCount
+					? theme.fg("dim", ` (${ch.memberCount} members)`)
+					: "";
+				const topic = ch.topic
+					? `\n  ${theme.fg("dim", truncateText(ch.topic, 60))}`
+					: "";
+				return new Text(
+					`${theme.fg("success", "✓")} #${ch.name}${members}${topic}`,
+					0,
+					0,
+				);
+			}
+
+			// Single message
+			if (d?.message) {
+				const m = d.message as MessagePreview;
+				const who = m.user ? `@${m.user}` : "?";
+				const snippet = truncateText(m.text || "", 60);
+				return new Text(
+					`${theme.fg("success", "✓")} ${theme.fg("dim", who)}: ${snippet}`,
+					0,
+					0,
+				);
+			}
+
+			// Reactions
+			if (d?.reactions) {
+				return new Text(theme.fg("success", "✓ reactions"), 0, 0);
 			}
 
 			// Fallback
