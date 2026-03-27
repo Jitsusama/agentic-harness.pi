@@ -109,9 +109,10 @@ async function handleSearchMessages(
 	await resolveChannelsInMessages(client, result.messages);
 	refreshDmNames(result.messages);
 
-	return text(renderMessageList(result.messages, result.total), {
+	return text(renderMessageList(result.messages, result.total, result.query), {
 		messages: result.messages,
 		total: result.total,
+		query: result.query,
 	});
 }
 
@@ -132,9 +133,10 @@ async function handleSearchFiles(
 		limit: numberParam(params, "limit"),
 	});
 
-	return text(renderFileList(result.files, result.total), {
+	return text(renderFileList(result.files, result.total, result.query), {
 		files: result.files,
 		total: result.total,
+		query: result.query,
 	});
 }
 

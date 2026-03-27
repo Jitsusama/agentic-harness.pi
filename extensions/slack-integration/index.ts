@@ -15,6 +15,8 @@ import type { SlackClient } from "./api/client.js";
 import { clearAllConfig } from "./auth/credentials.js";
 import { handleSlackAuthCommand } from "./auth-command.js";
 import { ensureAuthenticated, formatAuthError } from "./auth-flow.js";
+import { formatSlackText } from "./renderers/message.js";
+import { parseSlackUrl } from "./resolvers/url.js";
 import { displayNameForId } from "./resolvers/user.js";
 import { routeAction } from "./router.js";
 import type { OAuthApp } from "./types.js";
@@ -105,7 +107,7 @@ function renderMessagePreviews(
 	const lines = shown.map((m) => {
 		const who = theme.fg("dim", resolveUser(m.user));
 		const where = m.channelName ? theme.fg("muted", ` (${m.channelName})`) : "";
-		const snippet = truncateText(m.text || "", 50);
+		const snippet = truncateText(formatSlackText(m.text || ""), 50);
 		return `  ${who}${where}: ${snippet}`;
 	});
 	if (msgs.length > MAX_PREVIEWS) {
@@ -151,7 +153,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"look up users/channels, manage reactions.",
 		promptGuidelines: [
 			"Accept Slack permalink URLs directly as the target parameter.",
-			"Parse Slack search operators: from:user, in:#channel, after:YYYY-MM-DD, before:YYYY-MM-DD.",
+			"Parse Slack search operators: from:user, in:#channel, after:YYYY-MM-DD, before:YYYY-MM-DD. The after/before operators are exclusive: after:2026-03-26 means March 27 onward. To include today, use yesterday's date.",
 			"Remember context from previous results — user may reference 'that message', 'the thread', etc.",
 			"For thread replies, use reply_to_thread with the parent message's channel and ts.",
 			"Channel names work with or without the # prefix.",
@@ -251,7 +253,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			}
 		},
 
-		renderCall(args, _options, theme) {
+		renderCall(args, theme) {
 			const a = args as {
 				action?: string;
 				query?: string;
@@ -268,31 +270,41 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			let label = theme.fg("toolTitle", theme.bold("slack "));
 			label += a.action ?? "?";
 
-			// Build the effective query showing all search parameters.
+			// Search actions: show the assembled query (includes all params).
+			// Non-search actions: show individual params.
 			if (a.action?.startsWith("search")) {
 				const queryParts = assembleQueryPreview(a);
 				if (queryParts) {
 					label += theme.fg("dim", ` "${queryParts}"`);
 				}
-			} else if (a.query) {
-				const preview =
-					a.query.length > 40 ? `${a.query.slice(0, 40)}…` : a.query;
-				label += theme.fg("dim", ` "${preview}"`);
-			}
-
-			if (a.channel) {
-				const ch = a.channel.startsWith("#") ? a.channel : `#${a.channel}`;
-				label += theme.fg("dim", ` ${ch}`);
-			}
-			if (a.user) {
-				const handle = a.user.startsWith("@") ? a.user : `@${a.user}`;
-				label += theme.fg("dim", ` ${handle}`);
-			}
-			if (a.emoji) {
-				label += theme.fg("dim", ` :${a.emoji}:`);
-			}
-			if (a.target) {
-				label += theme.fg("muted", " (URL)");
+			} else {
+				if (a.query) {
+					const preview =
+						a.query.length > 40 ? `${a.query.slice(0, 40)}…` : a.query;
+					label += theme.fg("dim", ` "${preview}"`);
+				}
+				if (a.channel) {
+					const looksLikeId = /^[CDGW][A-Z0-9]+$/.test(a.channel);
+					const ch = looksLikeId
+						? a.channel
+						: a.channel.startsWith("#")
+							? a.channel
+							: `#${a.channel}`;
+					label += theme.fg("dim", ` ${ch}`);
+				}
+				if (a.user) {
+					const handle = a.user.startsWith("@") ? a.user : `@${a.user}`;
+					label += theme.fg("dim", ` ${handle}`);
+				}
+				if (a.emoji) {
+					label += theme.fg("dim", ` :${a.emoji}:`);
+				}
+				if (a.target) {
+					const parsed = parseSlackUrl(a.target);
+					if (parsed) {
+						label += theme.fg("dim", ` ${parsed.channel} ${parsed.ts}`);
+					}
+				}
 			}
 
 			return new Text(label, 0, 0);

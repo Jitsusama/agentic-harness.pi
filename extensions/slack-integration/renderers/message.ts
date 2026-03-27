@@ -50,10 +50,37 @@ export function renderMessage(msg: SlackMessage): string {
 	const user = msg.user ? `@${displayNameForId(msg.user)}` : "unknown";
 	const ts = formatTimestamp(msg.ts);
 	const where = msg.channelName ? ` (${msg.channelName})` : "";
-	parts.push(`**${user}** ${ts}${where}`);
+	const replyTag = msg.replyCount
+		? ` [${msg.replyCount} ${msg.replyCount === 1 ? "reply" : "replies"}]`
+		: "";
+	parts.push(`**${user}** ${ts}${where}${replyTag}`);
 
 	if (msg.text) {
 		parts.push(formatSlackText(msg.text));
+	}
+
+	if (msg.attachments?.length) {
+		for (const att of msg.attachments) {
+			const title = att.title || att.fallback;
+			const url = att.fromUrl || att.imageUrl;
+			if (title && url) {
+				parts.push(`📎 [${title}](${url})`);
+			} else if (title) {
+				parts.push(`📎 ${title}`);
+			} else if (url) {
+				parts.push(`📎 ${url}`);
+			}
+			if (att.text) {
+				parts.push(formatSlackText(att.text));
+			}
+		}
+	}
+
+	if (msg.files?.length) {
+		for (const f of msg.files) {
+			const type = f.mimetype ? ` [${f.mimetype}]` : "";
+			parts.push(`📄 ${f.name}${type}`);
+		}
 	}
 
 	if (msg.reactions?.length) {
@@ -72,6 +99,7 @@ export function renderMessage(msg: SlackMessage): string {
 export function renderMessageList(
 	messages: SlackMessage[],
 	total?: number,
+	query?: string,
 ): string {
 	if (messages.length === 0) {
 		return "No messages found.";
@@ -79,8 +107,15 @@ export function renderMessageList(
 
 	const lines: string[] = [];
 
+	if (query) {
+		lines.push(`Query: ${query}`);
+	}
 	if (total !== undefined) {
-		lines.push(`Found ${total} message(s), showing ${messages.length}:\n`);
+		const truncated = total > messages.length;
+		const showing = truncated
+			? `, showing ${messages.length} (limit reached — pass a higher limit or 0 for all)`
+			: `, showing ${messages.length}`;
+		lines.push(`Found ${total} message(s)${showing}:\n`);
 	}
 
 	for (const msg of messages) {
