@@ -54,8 +54,10 @@ with triaging issues."
 → `search_messages` with `query: "X"`
 
 ### "Messages from [person]" / "What did [person] say"
-→ `search_messages` with `query` and `from: "person"`
+→ `search_messages` with `from: "person"` (and optionally `query`)
 - Use the person's Slack handle (first.last format)
+- `query` is optional when structured params (`from`, `with`,
+  `channel`, `after`, `before`) are present — it defaults to `*`
 
 ### "Messages in [channel] about X"
 → `search_messages` with `query: "X"` and `channel: "channel-name"`
@@ -64,15 +66,17 @@ with triaging issues."
 → `search_messages` with `with: "person"` and `from: "me"`
 
 ### "My DMs with [person]" / "Conversations with [person]"
-→ `search_messages` with `with: "person"` (no `from` filter)
-  Returns both sides of the conversation. **Warning**: `with:`
+→ Prefer `list_messages` with the person's user ID as the
+  channel. The resolver calls `conversations.open` to find
+  the DM channel automatically. This returns only DM messages,
+  no shared channel noise.
+
+  Fall back to `search_messages` with `with: "person"` only
+  when you need keyword filtering. **Warning**: `with:`
   returns results from DMs, group DMs *and* shared channels.
-  Slack has no `is:dm` search operator. When the user
-  specifically asks for DMs, prefer `list_messages` on the DM
-  channel directly (use `get_user` first to find their ID,
-  then use the DM channel ID `D…`). If you must use search,
+  Slack has no `is:dm` search operator. If you use search,
   filter results by `channelKind === "dm"` and tell the user
-  you've filtered.
+  you've filtered out shared channel results.
 
 ### "Last thread I started in [channel]"
 → `search_messages` with `from: "me"` and `channel: "channel-name"`

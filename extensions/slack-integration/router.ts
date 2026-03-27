@@ -86,13 +86,29 @@ function missing(param: string): ToolResult {
 	return text(`Missing required parameter: ${param}`);
 }
 
+/**
+ * Fall back to `*` when no explicit query is given but
+ * structured search params (from, with, channel, after,
+ * before) are present. Lets agents omit `query` when
+ * filtering by operator alone.
+ */
+function defaultQuery(params: ActionParams): string | undefined {
+	const hasOperator =
+		stringParam(params, "from") ||
+		stringParam(params, "with") ||
+		stringParam(params, "channel") ||
+		stringParam(params, "after") ||
+		stringParam(params, "before");
+	return hasOperator ? "*" : undefined;
+}
+
 // ── Read handlers ───────────────────────────────────────
 
 async function handleSearchMessages(
 	client: SlackClient,
 	params: ActionParams,
 ): Promise<ToolResult> {
-	const query = stringParam(params, "query");
+	const query = stringParam(params, "query") ?? defaultQuery(params);
 	if (!query) return missing("query");
 
 	const result = await searchMessages(client, query, {
@@ -120,7 +136,7 @@ async function handleSearchFiles(
 	client: SlackClient,
 	params: ActionParams,
 ): Promise<ToolResult> {
-	const query = stringParam(params, "query");
+	const query = stringParam(params, "query") ?? defaultQuery(params);
 	if (!query) return missing("query");
 
 	const result = await searchFiles(client, query, {

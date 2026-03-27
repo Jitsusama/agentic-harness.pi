@@ -211,9 +211,10 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"Parse Slack search operators: from:user, in:#channel, after:YYYY-MM-DD, before:YYYY-MM-DD. The after/before operators are exclusive: after:2026-03-26 means March 27 onward. To include today, use yesterday's date.",
 			"Remember context from previous results — user may reference 'that message', 'the thread', etc.",
 			"For thread replies, use reply_to_thread with the parent message's channel and ts.",
-			"Channel names work with or without the # prefix.",
+			"Channel names work with or without the # prefix. User IDs (U…) resolve to DM channels automatically.",
 			"User handles work with or without the @ prefix.",
-			"Use the 'with' parameter to search DMs and threads with a specific person — much more efficient than filtering by channel.",
+			"For DM-only queries, prefer list_messages with the user's ID as the channel. For keyword search across DMs and channels, use the 'with' parameter on search_messages.",
+			"The query parameter is optional for search when structured params (from, with, channel, after, before) are provided — it defaults to *.",
 			"Be concise in your responses — summarise the substance of results rather than restating what the tool output already shows.",
 		],
 		parameters: Type.Object({
