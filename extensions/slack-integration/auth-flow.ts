@@ -144,6 +144,8 @@ export function formatAuthError(error: unknown): string {
 			"Run /slack-auth to authenticate with Slack."
 		);
 	}
+	// Errors from describeError() already have a "Slack API error:" prefix.
+	if (message.startsWith("Slack API error:")) return message;
 	return `Slack API error: ${message}`;
 }
 
