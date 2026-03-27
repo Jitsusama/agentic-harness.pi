@@ -27,8 +27,7 @@ import type { OAuthApp, SlackUser } from "./types.js";
 interface MessagePreview {
 	user?: string;
 	text?: string;
-	channelName?: string;
-	channelKind?: string;
+	conversation?: { displayName?: string; kind?: string };
 }
 interface UserPreview {
 	name?: string;
@@ -108,7 +107,9 @@ function renderMessagePreviews(
 	const shown = msgs.slice(0, MAX_PREVIEWS);
 	const lines = shown.map((m) => {
 		const who = theme.fg("dim", resolveUser(m.user));
-		const where = m.channelName ? theme.fg("muted", ` (${m.channelName})`) : "";
+		const where = m.conversation?.displayName
+			? theme.fg("muted", ` (${m.conversation.displayName})`)
+			: "";
 		const snippet = truncateText(formatSlackText(m.text || ""), 50);
 		return `  ${who}${where}: ${snippet}`;
 	});

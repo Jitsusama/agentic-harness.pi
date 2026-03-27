@@ -49,7 +49,9 @@ export function renderMessage(msg: SlackMessage): string {
 
 	const user = msg.user ? `@${displayNameForId(msg.user)}` : "unknown";
 	const ts = formatTimestamp(msg.ts);
-	const where = msg.channelName ? ` (${msg.channelName})` : "";
+	const where = msg.conversation?.displayName
+		? ` (${msg.conversation.displayName})`
+		: "";
 	const replyTag = msg.replyCount
 		? ` [${msg.replyCount} ${msg.replyCount === 1 ? "reply" : "replies"}]`
 		: "";

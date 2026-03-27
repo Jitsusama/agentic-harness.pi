@@ -7,6 +7,7 @@
 
 import { cacheUser } from "../resolvers/user.js";
 import type {
+	Conversation,
 	SlackAttachment,
 	SlackFile,
 	SlackMessage,
@@ -15,8 +16,8 @@ import type {
 import type { SlackClient } from "./client.js";
 import {
 	refreshDmNames,
-	resolveChannelsInMessages,
-} from "./resolve-channels.js";
+	resolveConversationsInMessages,
+} from "./resolve-conversations.js";
 import { resolveUsersInMessages } from "./resolve-users.js";
 
 /** Raw message shape from the Slack API. */
@@ -45,7 +46,10 @@ interface RawMessage {
 }
 
 /** Convert a raw API message to our domain type. */
-function toSlackMessage(msg: RawMessage, channel?: string): SlackMessage {
+function toSlackMessage(
+	msg: RawMessage,
+	conversation?: Conversation,
+): SlackMessage {
 	if (msg.user && msg.username) {
 		cacheUser(msg.username, msg.user);
 	}
@@ -77,7 +81,7 @@ function toSlackMessage(msg: RawMessage, channel?: string): SlackMessage {
 		ts: msg.ts,
 		text: msg.text ?? "",
 		user: msg.user,
-		channel,
+		conversation,
 		threadTs: msg.thread_ts,
 		replyCount: msg.reply_count,
 		isThreadParent,
@@ -96,7 +100,7 @@ function toSlackMessage(msg: RawMessage, channel?: string): SlackMessage {
  */
 export async function getMessage(
 	client: SlackClient,
-	channel: string,
+	conversation: Conversation,
 	ts: string,
 	signal?: AbortSignal,
 ): Promise<SlackMessage> {
@@ -104,7 +108,13 @@ export async function getMessage(
 		messages: RawMessage[];
 	}>(
 		"conversations.history",
-		{ channel, latest: ts, oldest: ts, limit: 1, inclusive: true },
+		{
+			channel: conversation.id,
+			latest: ts,
+			oldest: ts,
+			limit: 1,
+			inclusive: true,
+		},
 		signal,
 	);
 
@@ -117,7 +127,7 @@ export async function getMessage(
 	try {
 		const linkResponse = await client.call<{ permalink: string }>(
 			"chat.getPermalink",
-			{ channel, message_ts: ts },
+			{ channel: conversation.id, message_ts: ts },
 			signal,
 		);
 		msg.permalink = linkResponse.permalink;
@@ -125,9 +135,9 @@ export async function getMessage(
 		// Permalink is non-critical.
 	}
 
-	const result = toSlackMessage(msg, channel);
+	const result = toSlackMessage(msg, conversation);
 	await resolveUsersInMessages(client, [result], signal);
-	await resolveChannelsInMessages(client, [result], signal);
+	await resolveConversationsInMessages(client, [result], signal);
 	refreshDmNames([result]);
 	return result;
 }
@@ -147,7 +157,7 @@ const DEFAULT_HISTORY_LIMIT = 20;
  */
 export async function listMessages(
 	client: SlackClient,
-	channel: string,
+	conversation: Conversation,
 	opts: { limit?: number; oldest?: string; latest?: string } = {},
 	signal?: AbortSignal,
 ): Promise<SlackMessage[]> {
@@ -159,15 +169,20 @@ export async function listMessages(
 
 	const raw = await client.paginate<RawMessage>(
 		"conversations.history",
-		{ channel, limit: perPage, oldest: opts.oldest, latest: opts.latest },
+		{
+			channel: conversation.id,
+			limit: perPage,
+			oldest: opts.oldest,
+			latest: opts.latest,
+		},
 		(r) => ((r as { messages?: RawMessage[] }).messages ?? []) as RawMessage[],
 		targetLimit,
 		signal,
 	);
 
-	const results = raw.map((m) => toSlackMessage(m, channel));
+	const results = raw.map((m) => toSlackMessage(m, conversation));
 	await resolveUsersInMessages(client, results, signal);
-	await resolveChannelsInMessages(client, results, signal);
+	await resolveConversationsInMessages(client, results, signal);
 	refreshDmNames(results);
 	return results;
 }
@@ -180,7 +195,7 @@ export async function listMessages(
  */
 export async function getThread(
 	client: SlackClient,
-	channel: string,
+	conversation: Conversation,
 	threadTs: string,
 	limit?: number,
 	signal?: AbortSignal,
@@ -190,7 +205,7 @@ export async function getThread(
 	const messages = await client.paginate<RawMessage>(
 		"conversations.replies",
 		{
-			channel,
+			channel: conversation.id,
 			ts: threadTs,
 			limit: Math.min(maxResults, 200),
 		},
@@ -199,9 +214,9 @@ export async function getThread(
 		signal,
 	);
 
-	const results = messages.map((m) => toSlackMessage(m, channel));
+	const results = messages.map((m) => toSlackMessage(m, conversation));
 	await resolveUsersInMessages(client, results, signal);
-	await resolveChannelsInMessages(client, results, signal);
+	await resolveConversationsInMessages(client, results, signal);
 	refreshDmNames(results);
 	return results;
 }
@@ -209,6 +224,7 @@ export async function getThread(
 /** Result from sending a message. */
 export interface SendResult {
 	ok: boolean;
+	/** The conversation ID the message was posted to. */
 	channel: string;
 	ts: string;
 }
@@ -218,14 +234,14 @@ export interface SendResult {
  */
 export async function sendMessage(
 	client: SlackClient,
-	channel: string,
+	conversationId: string,
 	text: string,
 	signal?: AbortSignal,
 ): Promise<SendResult> {
 	const response = await client.call<{
 		channel: string;
 		ts: string;
-	}>("chat.postMessage", { channel, text }, signal);
+	}>("chat.postMessage", { channel: conversationId, text }, signal);
 
 	return {
 		ok: true,
@@ -239,7 +255,7 @@ export async function sendMessage(
  */
 export async function replyToThread(
 	client: SlackClient,
-	channel: string,
+	conversationId: string,
 	threadTs: string,
 	text: string,
 	signal?: AbortSignal,
@@ -247,7 +263,11 @@ export async function replyToThread(
 	const response = await client.call<{
 		channel: string;
 		ts: string;
-	}>("chat.postMessage", { channel, text, thread_ts: threadTs }, signal);
+	}>(
+		"chat.postMessage",
+		{ channel: conversationId, text, thread_ts: threadTs },
+		signal,
+	);
 
 	return {
 		ok: true,

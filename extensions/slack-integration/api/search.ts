@@ -7,11 +7,11 @@
  * count). Caches channel and user mappings found in results.
  */
 
-import { cacheChannel } from "../resolvers/channel.js";
+import { cacheChannelName } from "../resolvers/conversation.js";
 import { cacheUser } from "../resolvers/user.js";
-import type { SlackMessage } from "../types.js";
+import type { Conversation, SlackMessage } from "../types.js";
 import type { SlackClient } from "./client.js";
-import { cacheChannelName } from "./resolve-channels.js";
+import { cacheConversationFromSearch } from "./resolve-conversations.js";
 
 /** Maximum results per page (Slack API hard limit). */
 const MAX_PER_PAGE = 100;
@@ -70,11 +70,11 @@ interface MessageMatch {
 	reply_count?: number;
 }
 
-/** Cache channel and user mappings from a search match. */
+/** Cache conversation and user mappings from a search match. */
 function cacheMatchMappings(m: MessageMatch): void {
 	if (m.channel?.id && m.channel?.name) {
-		cacheChannel(m.channel.name, m.channel.id);
-		cacheChannelName(m.channel.id, m.channel.name);
+		cacheChannelName(m.channel.name, m.channel.id);
+		cacheConversationFromSearch(m.channel.id, m.channel.name);
 	}
 	if (m.user && m.username) {
 		cacheUser(m.username, m.user);
@@ -83,12 +83,24 @@ function cacheMatchMappings(m: MessageMatch): void {
 
 /** Convert a Slack search match to our message type. */
 function matchToMessage(m: MessageMatch): SlackMessage {
+	const conversation: Conversation | undefined = m.channel?.id
+		? {
+				id: m.channel.id,
+				name: m.channel.name,
+				kind: m.channel.name?.startsWith("mpdm-") ? "group_dm" : "channel",
+				displayName: m.channel.name
+					? m.channel.name.startsWith("mpdm-")
+						? undefined
+						: `#${m.channel.name}`
+					: undefined,
+			}
+		: undefined;
+
 	return {
 		ts: m.ts,
 		text: m.text ?? "",
 		user: m.user,
-		channel: m.channel?.id,
-		channelName: m.channel?.name,
+		conversation,
 		threadTs: m.thread_ts,
 		replyCount: m.reply_count,
 		isThreadParent: m.thread_ts !== undefined && m.thread_ts === m.ts,

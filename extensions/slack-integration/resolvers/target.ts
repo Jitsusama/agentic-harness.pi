@@ -1,5 +1,5 @@
 /**
- * Resolve a message target to a channel ID and timestamp.
+ * Resolve a message target to a Conversation and timestamp.
  *
  * Many actions accept either a Slack permalink URL or a
  * channel + timestamp pair. This module centralises that
@@ -7,21 +7,16 @@
  */
 
 import type { SlackClient } from "../api/client.js";
-import { resolveChannel } from "./channel.js";
+import type { MessageTarget } from "../types.js";
+import { resolveConversation } from "./conversation.js";
 import { parseSlackUrl } from "./url.js";
-
-/** Resolved message target: a channel ID and timestamp. */
-export interface MessageTarget {
-	channel: string;
-	ts: string;
-}
 
 /**
  * Resolve a message target from tool parameters.
  *
  * Accepts:
- *   - target (Slack URL) → parsed directly
- *   - channel + ts → channel resolved via resolver
+ *   - target (Slack URL) → parsed, then conversation resolved
+ *   - channel + ts → conversation resolved
  *
  * Throws if neither provides enough information.
  */
@@ -34,12 +29,15 @@ export async function resolveTarget(
 	// Slack permalink URL takes priority.
 	if (target) {
 		const parsed = parseSlackUrl(target);
-		if (parsed) return parsed;
+		if (parsed) {
+			const conversation = await resolveConversation(client, parsed.channel);
+			return { conversation, ts: parsed.ts };
+		}
 
 		// If it looks like a URL but didn't parse, try as a channel name.
 		if (!target.startsWith("http")) {
-			const resolvedChannel = await resolveChannel(client, target);
-			if (ts) return { channel: resolvedChannel, ts };
+			const conversation = await resolveConversation(client, target);
+			if (ts) return { conversation, ts };
 		}
 
 		throw new Error(
@@ -50,8 +48,8 @@ export async function resolveTarget(
 
 	// Channel + timestamp pair.
 	if (channel && ts) {
-		const resolvedChannel = await resolveChannel(client, channel);
-		return { channel: resolvedChannel, ts };
+		const conversation = await resolveConversation(client, channel);
+		return { conversation, ts };
 	}
 
 	if (channel && !ts) {
