@@ -2,8 +2,9 @@
  * Slack search API: messages and files.
  *
  * Builds queries from structured parameters, including Slack
- * search operators (from:, in:, after:, before:). Caches
- * channel and user mappings found in results.
+ * search operators (from:, in:, after:, before:). Auto-paginates
+ * through results using Slack's traditional paging (page +
+ * count). Caches channel and user mappings found in results.
  */
 
 import { cacheChannel } from "../resolvers/channel.js";
@@ -11,6 +12,15 @@ import { cacheUser } from "../resolvers/user.js";
 import type { SlackMessage } from "../types.js";
 import type { SlackClient } from "./client.js";
 import { cacheChannelName } from "./resolve-channels.js";
+
+/** Maximum results per page (Slack API hard limit). */
+const MAX_PER_PAGE = 100;
+
+/** Maximum page number (Slack API hard limit). */
+const MAX_PAGE = 100;
+
+/** Default number of results when no limit is specified. */
+const DEFAULT_LIMIT = 20;
 
 /** Build a search query string from structured parameters. */
 function buildQuery(
@@ -41,18 +51,66 @@ function buildQuery(
 	return q;
 }
 
-/** Search result with messages and total count. */
+/** Search result with messages, total count and the query sent to Slack. */
 export interface MessageSearchResult {
 	messages: SlackMessage[];
 	total: number;
+	query: string;
+}
+
+/** Shape of a message match from the Slack search API. */
+interface MessageMatch {
+	ts: string;
+	channel: { id: string; name: string };
+	user?: string;
+	username?: string;
+	text: string;
+	permalink: string;
+	thread_ts?: string;
+	reply_count?: number;
+}
+
+/** Cache channel and user mappings from a search match. */
+function cacheMatchMappings(m: MessageMatch): void {
+	if (m.channel?.id && m.channel?.name) {
+		cacheChannel(m.channel.name, m.channel.id);
+		cacheChannelName(m.channel.id, m.channel.name);
+	}
+	if (m.user && m.username) {
+		cacheUser(m.username, m.user);
+	}
+}
+
+/** Convert a Slack search match to our message type. */
+function matchToMessage(m: MessageMatch): SlackMessage {
+	return {
+		ts: m.ts,
+		text: m.text ?? "",
+		user: m.user,
+		channel: m.channel?.id,
+		channelName: m.channel?.name,
+		threadTs: m.thread_ts,
+		replyCount: m.reply_count,
+		isThreadParent: m.thread_ts !== undefined && m.thread_ts === m.ts,
+		permalink: m.permalink,
+	};
+}
+
+/** Slack search API response shape for messages. */
+interface MessageSearchResponse {
+	messages: {
+		total: number;
+		paging: { count: number; total: number; page: number; pages: number };
+		matches: MessageMatch[];
+	};
 }
 
 /**
- * Search Slack messages.
+ * Search Slack messages with automatic pagination.
  *
- * Supports Slack search operators embedded in the query string,
- * plus structured channel/from/after/before parameters that get
- * appended as operators.
+ * Fetches pages of up to 100 results until the requested limit
+ * is reached or all pages are exhausted. Pass `limit: 0` for
+ * unlimited (up to Slack's ceiling of 10,000 results).
  */
 export async function searchMessages(
 	client: SlackClient,
@@ -68,60 +126,58 @@ export async function searchMessages(
 	signal?: AbortSignal,
 ): Promise<MessageSearchResult> {
 	const fullQuery = buildQuery(query, opts);
-	const limit = Math.min(opts.limit || 20, 100);
+	const targetLimit =
+		opts.limit === 0 ? Number.POSITIVE_INFINITY : opts.limit || DEFAULT_LIMIT;
+	const perPage = Math.min(targetLimit, MAX_PER_PAGE);
 
-	const response = await client.call<{
-		messages: {
-			total: number;
-			matches: Array<{
-				ts: string;
-				channel: { id: string; name: string };
-				user?: string;
-				username?: string;
-				text: string;
-				permalink: string;
-				thread_ts?: string;
-				reply_count?: number;
-			}>;
-		};
-	}>(
-		"search.messages",
-		{
-			query: fullQuery,
-			count: limit,
-			sort: "timestamp",
-			sort_dir: "desc",
-		},
-		signal,
-	);
+	const allMessages: SlackMessage[] = [];
+	const seen = new Set<string>();
+	let page = 1;
+	let totalPages = 1;
+	let total = 0;
 
-	const matches = response.messages?.matches ?? [];
+	while (
+		allMessages.length < targetLimit &&
+		page <= totalPages &&
+		page <= MAX_PAGE
+	) {
+		if (signal?.aborted) break;
 
-	// Cache channel and user mappings from results.
-	for (const m of matches) {
-		if (m.channel?.id && m.channel?.name) {
-			cacheChannel(m.channel.name, m.channel.id);
-			cacheChannelName(m.channel.id, m.channel.name);
+		const response = await client.call<MessageSearchResponse>(
+			"search.messages",
+			{
+				query: fullQuery,
+				count: perPage,
+				page,
+				sort: "timestamp",
+				sort_dir: "desc",
+			},
+			signal,
+		);
+
+		const matches = response.messages?.matches ?? [];
+		total = response.messages?.total ?? 0;
+		totalPages = response.messages?.paging?.pages ?? 1;
+
+		if (matches.length === 0) break;
+
+		for (const m of matches) {
+			cacheMatchMappings(m);
+
+			if (seen.has(m.ts)) continue;
+			seen.add(m.ts);
+
+			allMessages.push(matchToMessage(m));
+			if (allMessages.length >= targetLimit) break;
 		}
-		if (m.user && m.username) {
-			cacheUser(m.username, m.user);
-		}
+
+		page++;
 	}
 
-	const messages: SlackMessage[] = matches.map((m) => ({
-		ts: m.ts,
-		text: m.text ?? "",
-		user: m.user,
-		channel: m.channel?.id,
-		channelName: m.channel?.name,
-		threadTs: m.thread_ts,
-		replyCount: m.reply_count,
-		permalink: m.permalink,
-	}));
-
 	return {
-		messages,
-		total: response.messages?.total ?? 0,
+		messages: allMessages,
+		total,
+		query: fullQuery,
 	};
 }
 
@@ -140,9 +196,36 @@ export interface SlackFileResult {
 export interface FileSearchResult {
 	files: SlackFileResult[];
 	total: number;
+	query: string;
 }
 
-/** Search Slack files. */
+/** Shape of a file match from the Slack search API. */
+interface FileMatch {
+	id: string;
+	name: string;
+	title?: string;
+	mimetype?: string;
+	size?: number;
+	user?: string;
+	permalink?: string;
+}
+
+/** Slack search API response shape for files. */
+interface FileSearchResponse {
+	files: {
+		total: number;
+		paging: { count: number; total: number; page: number; pages: number };
+		matches: FileMatch[];
+	};
+}
+
+/**
+ * Search Slack files with automatic pagination.
+ *
+ * Fetches pages of up to 100 results until the requested limit
+ * is reached or all pages are exhausted. Pass `limit: 0` for
+ * unlimited (up to Slack's ceiling of 10,000 results).
+ */
 export async function searchFiles(
 	client: SlackClient,
 	query: string,
@@ -158,44 +241,63 @@ export async function searchFiles(
 	signal?: AbortSignal,
 ): Promise<FileSearchResult> {
 	const fullQuery = buildQuery(query, opts);
-	const limit = Math.min(opts.limit || 20, 100);
+	const targetLimit =
+		opts.limit === 0 ? Number.POSITIVE_INFINITY : opts.limit || DEFAULT_LIMIT;
+	const perPage = Math.min(targetLimit, MAX_PER_PAGE);
 
-	const response = await client.call<{
-		files: {
-			total: number;
-			matches: Array<{
-				id: string;
-				name: string;
-				title?: string;
-				mimetype?: string;
-				size?: number;
-				user?: string;
-				permalink?: string;
-			}>;
-		};
-	}>(
-		"search.files",
-		{
-			query: fullQuery,
-			count: limit,
-			sort: "timestamp",
-			sort_dir: "desc",
-		},
-		signal,
-	);
+	const allFiles: SlackFileResult[] = [];
+	const seen = new Set<string>();
+	let page = 1;
+	let totalPages = 1;
+	let total = 0;
 
-	const matches = response.files?.matches ?? [];
+	while (
+		allFiles.length < targetLimit &&
+		page <= totalPages &&
+		page <= MAX_PAGE
+	) {
+		if (signal?.aborted) break;
+
+		const response = await client.call<FileSearchResponse>(
+			"search.files",
+			{
+				query: fullQuery,
+				count: perPage,
+				page,
+				sort: "timestamp",
+				sort_dir: "desc",
+			},
+			signal,
+		);
+
+		const matches = response.files?.matches ?? [];
+		total = response.files?.total ?? 0;
+		totalPages = response.files?.paging?.pages ?? 1;
+
+		if (matches.length === 0) break;
+
+		for (const f of matches) {
+			if (seen.has(f.id)) continue;
+			seen.add(f.id);
+
+			allFiles.push({
+				id: f.id,
+				name: f.name,
+				title: f.title,
+				mimetype: f.mimetype,
+				size: f.size,
+				user: f.user,
+				permalink: f.permalink,
+			});
+			if (allFiles.length >= targetLimit) break;
+		}
+
+		page++;
+	}
 
 	return {
-		files: matches.map((f) => ({
-			id: f.id,
-			name: f.name,
-			title: f.title,
-			mimetype: f.mimetype,
-			size: f.size,
-			user: f.user,
-			permalink: f.permalink,
-		})),
-		total: response.files?.total ?? 0,
+		files: allFiles,
+		total,
+		query: fullQuery,
 	};
 }

@@ -8,13 +8,21 @@ import type { SlackFileResult } from "../api/search.js";
 export function renderFileList(
 	files: SlackFileResult[],
 	total: number,
+	query?: string,
 ): string {
 	if (files.length === 0) {
 		return "No files found.";
 	}
 
 	const lines: string[] = [];
-	lines.push(`Found ${total} file(s), showing ${files.length}:\n`);
+	if (query) {
+		lines.push(`Query: ${query}`);
+	}
+	const truncated = total > files.length;
+	const showing = truncated
+		? `, showing ${files.length} (limit reached — pass a higher limit or 0 for all)`
+		: `, showing ${files.length}`;
+	lines.push(`Found ${total} file(s)${showing}:\n`);
 
 	for (const f of files) {
 		const size = f.size ? ` (${formatBytes(f.size)})` : "";
