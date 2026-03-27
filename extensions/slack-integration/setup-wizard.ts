@@ -133,6 +133,15 @@ async function runSetupWizard(
 async function setupViaBrowser(
 	ctx: ExtensionContext,
 ): Promise<{ mode: "session" } | null> {
+	// Ask for workspace URL so we navigate directly.
+	const urlInput = await ctx.ui.editor(
+		"Enter your Slack workspace URL (e.g. your-team.slack.com):",
+		"",
+	);
+	const slackUrl = urlInput?.trim()
+		? normaliseSlackUrl(urlInput.trim())
+		: undefined;
+
 	const dismiss = new AbortController();
 
 	view(ctx, {
@@ -140,15 +149,16 @@ async function setupViaBrowser(
 		content: (theme) => [
 			` ${theme.bold("🌐 Browser Credential Extraction")}`,
 			"",
-			" Chrome is launching and navigating to Slack.",
+			` Chrome is launching and navigating to ${slackUrl ?? "Slack"}.`,
 			" If you're not logged in, log in now.",
+			" This can take a few minutes with SSO/2FA.",
 			"",
-			` ${theme.fg("dim", "Waiting for credentials…")}`,
+			` ${theme.fg("dim", "Waiting for credentials (up to 5 minutes)…")}`,
 		],
 	});
 
 	try {
-		const creds = await extractFromBrowser();
+		const creds = await extractFromBrowser(slackUrl);
 		dismiss.abort();
 		return await verifyAndStore(ctx, creds.token, creds.cookie);
 	} catch (error) {
@@ -339,4 +349,14 @@ async function verifyAndStore(
 		ctx.ui.notify(`Authentication failed: ${msg}`, "error");
 		return null;
 	}
+}
+
+/** Normalise a workspace input into a full https URL. */
+function normaliseSlackUrl(input: string): string {
+	// Already a full URL.
+	if (input.startsWith("https://") || input.startsWith("http://")) {
+		return input;
+	}
+	// Bare domain like "myteam.slack.com".
+	return `https://${input}`;
 }

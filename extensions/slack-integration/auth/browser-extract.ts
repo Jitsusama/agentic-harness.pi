@@ -20,8 +20,8 @@ const DEFAULT_SLACK_URL = "https://app.slack.com";
 /** How often to poll for credentials (milliseconds). */
 const POLL_INTERVAL_MS = 1000;
 
-/** Default timeout before giving up (milliseconds). */
-const DEFAULT_TIMEOUT_MS = 60_000;
+/** Default timeout: 5 minutes to allow for SSO, 2FA, workspace selection. */
+const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Paths where Chrome might be installed. */
 const CHROME_PATHS = [
