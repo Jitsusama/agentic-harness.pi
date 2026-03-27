@@ -47,10 +47,14 @@ with triaging issues."
 ### "Messages in [channel] about X"
 → `search_messages` with `query: "X"` and `channel: "channel-name"`
 
-### "Messages I sent to [person]" / "My DMs with [person]"
+### "Messages I sent to [person]"
 → `search_messages` with `with: "person"` and `from: "me"`
-  The `with` parameter is the most efficient way to search
-  conversations with a specific person.
+
+### "My DMs with [person]" / "Conversations with [person]"
+→ `search_messages` with `with: "person"` (no `from` filter)
+  Returns both sides of the conversation. Results include
+  DMs, group DMs and shared channels — use `channelKind` to
+  filter to just DMs if needed.
 
 ### "Show me the thread" / "Get the full thread"
 → `get_thread` with `target: "permalink_url"` from previous results
@@ -167,10 +171,11 @@ user IDs (U08ME9KASG7) to @handles automatically. You don't
 need to call `get_user` just to learn someone's name — it
 already appears in message output.
 
-**DM channels start with D**: when scanning search results
-for direct message patterns, look for channel IDs that
-start with `D`. Group channels start with `G`, public
-channels start with `C`.
+**Channel kinds are resolved automatically**: each message
+includes a `channelName` and `channelKind` field. Kinds are
+`dm` (1:1 direct message), `group_dm` (multi-person DM),
+or `channel` (public or private channel). Use these to
+filter results instead of guessing from channel ID prefixes.
 
 **Use search operators aggressively**: combine operators to
 narrow results. `from:me with:@person after:2025-03-01` is
@@ -178,9 +183,11 @@ far more efficient than broad searches filtered after the
 fact.
 
 **For "who do I DM most"**: search `from:me` with a high
-limit. DM channel IDs start with `D`. Count occurrences of
-each `D`-prefixed channel in the results to rank DM partners.
-User IDs in those messages are auto-resolved to @handles.
+limit. Each result has `channelKind` set to `dm`, `group_dm`
+or `channel`. Filter to `dm` and `group_dm` entries and
+count by channel to rank DM partners. Channel names show
+who the DM is with (e.g. "DM with @chao.duan" or "Group DM
+(@chao.duan, @xiao.li, @henrique.andrade)").
 
 ## Common Mistakes to Avoid
 

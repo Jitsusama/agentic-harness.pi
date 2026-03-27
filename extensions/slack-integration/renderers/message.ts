@@ -49,7 +49,8 @@ export function renderMessage(msg: SlackMessage): string {
 
 	const user = msg.user ? `@${displayNameForId(msg.user)}` : "unknown";
 	const ts = formatTimestamp(msg.ts);
-	parts.push(`**${user}** ${ts}`);
+	const where = msg.channelName ? ` (${msg.channelName})` : "";
+	parts.push(`**${user}** ${ts}${where}`);
 
 	if (msg.text) {
 		parts.push(formatSlackText(msg.text));

@@ -54,12 +54,17 @@ export interface ToolResult {
 	details?: unknown;
 }
 
+/** Classification of a Slack channel. */
+export type ChannelKind = "channel" | "dm" | "group_dm";
+
 /** A Slack message as returned by the API. */
 export interface SlackMessage {
 	ts: string;
 	text: string;
 	user?: string;
 	channel?: string;
+	channelName?: string;
+	channelKind?: ChannelKind;
 	threadTs?: string;
 	replyCount?: number;
 	reactions?: SlackReaction[];

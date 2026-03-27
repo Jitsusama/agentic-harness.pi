@@ -23,6 +23,8 @@ import type { OAuthApp } from "./types.js";
 interface MessagePreview {
 	user?: string;
 	text?: string;
+	channelName?: string;
+	channelKind?: string;
 }
 interface UserPreview {
 	name?: string;
@@ -64,8 +66,9 @@ function renderMessagePreviews(
 	const shown = msgs.slice(0, MAX_PREVIEWS);
 	const lines = shown.map((m) => {
 		const who = theme.fg("dim", resolveUser(m.user));
-		const snippet = truncateText(m.text || "", 60);
-		return `  ${who}: ${snippet}`;
+		const where = m.channelName ? theme.fg("muted", ` (${m.channelName})`) : "";
+		const snippet = truncateText(m.text || "", 50);
+		return `  ${who}${where}: ${snippet}`;
 	});
 	if (msgs.length > MAX_PREVIEWS) {
 		lines.push(

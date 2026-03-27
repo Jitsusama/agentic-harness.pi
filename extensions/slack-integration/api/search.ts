@@ -10,6 +10,7 @@ import { cacheChannel } from "../resolvers/channel.js";
 import { cacheUser } from "../resolvers/user.js";
 import type { SlackMessage } from "../types.js";
 import type { SlackClient } from "./client.js";
+import { cacheChannelName } from "./resolve-channels.js";
 
 /** Build a search query string from structured parameters. */
 function buildQuery(
@@ -100,6 +101,7 @@ export async function searchMessages(
 	for (const m of matches) {
 		if (m.channel?.id && m.channel?.name) {
 			cacheChannel(m.channel.name, m.channel.id);
+			cacheChannelName(m.channel.id, m.channel.name);
 		}
 		if (m.user && m.username) {
 			cacheUser(m.username, m.user);
@@ -111,6 +113,7 @@ export async function searchMessages(
 		text: m.text ?? "",
 		user: m.user,
 		channel: m.channel?.id,
+		channelName: m.channel?.name,
 		threadTs: m.thread_ts,
 		replyCount: m.reply_count,
 		permalink: m.permalink,

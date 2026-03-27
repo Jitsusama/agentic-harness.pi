@@ -22,6 +22,10 @@ import {
 	listReactions,
 	removeReaction,
 } from "./api/reactions.js";
+import {
+	refreshDmNames,
+	resolveChannelsInMessages,
+} from "./api/resolve-channels.js";
 import { searchFiles, searchMessages } from "./api/search.js";
 import { getUserInfo } from "./api/users.js";
 import {
@@ -99,6 +103,11 @@ async function handleSearchMessages(
 		before: stringParam(params, "before"),
 		limit: numberParam(params, "limit"),
 	});
+
+	// Resolve channel kinds (DM, group DM, channel) for search
+	// results. Search gives us names but not types.
+	await resolveChannelsInMessages(client, result.messages);
+	refreshDmNames(result.messages);
 
 	return text(renderMessageList(result.messages, result.total), {
 		messages: result.messages,
