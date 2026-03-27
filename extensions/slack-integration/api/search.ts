@@ -17,6 +17,7 @@ function buildQuery(
 	opts: {
 		channel?: string;
 		from?: string;
+		with?: string;
 		after?: string;
 		before?: string;
 	},
@@ -29,6 +30,10 @@ function buildQuery(
 	if (opts.from) {
 		const user = opts.from.startsWith("@") ? opts.from.slice(1) : opts.from;
 		q += ` from:${user}`;
+	}
+	if (opts.with) {
+		const user = opts.with.startsWith("@") ? opts.with.slice(1) : opts.with;
+		q += ` with:${user}`;
 	}
 	if (opts.after) q += ` after:${opts.after}`;
 	if (opts.before) q += ` before:${opts.before}`;
@@ -54,6 +59,7 @@ export async function searchMessages(
 	opts: {
 		channel?: string;
 		from?: string;
+		with?: string;
 		after?: string;
 		before?: string;
 		limit?: number;
@@ -140,6 +146,7 @@ export async function searchFiles(
 	opts: {
 		channel?: string;
 		from?: string;
+		with?: string;
 		after?: string;
 		before?: string;
 		type?: string;

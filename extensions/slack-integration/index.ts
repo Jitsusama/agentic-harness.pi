@@ -115,6 +115,8 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"For thread replies, use reply_to_thread with the parent message's channel and ts.",
 			"Channel names work with or without the # prefix.",
 			"User handles work with or without the @ prefix.",
+			"Use the 'with' parameter to search DMs and threads with a specific person — much more efficient than filtering by channel.",
+			"Be concise in your responses — summarise the substance of results rather than restating what the tool output already shows.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(
@@ -154,6 +156,12 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			query: Type.Optional(Type.String({ description: "Search query text" })),
 			from: Type.Optional(
 				Type.String({ description: "Filter by sender (username)" }),
+			),
+			with: Type.Optional(
+				Type.String({
+					description:
+						"Search DMs and threads with a specific person (username)",
+				}),
 			),
 			after: Type.Optional(
 				Type.String({ description: "Messages after date (YYYY-MM-DD)" }),

@@ -94,6 +94,7 @@ async function handleSearchMessages(
 	const result = await searchMessages(client, query, {
 		channel: stringParam(params, "channel"),
 		from: stringParam(params, "from"),
+		with: stringParam(params, "with"),
 		after: stringParam(params, "after"),
 		before: stringParam(params, "before"),
 		limit: numberParam(params, "limit"),
@@ -115,6 +116,7 @@ async function handleSearchFiles(
 	const result = await searchFiles(client, query, {
 		channel: stringParam(params, "channel"),
 		from: stringParam(params, "from"),
+		with: stringParam(params, "with"),
 		after: stringParam(params, "after"),
 		before: stringParam(params, "before"),
 		type: stringParam(params, "type"),

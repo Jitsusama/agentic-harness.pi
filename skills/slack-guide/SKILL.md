@@ -47,9 +47,10 @@ with triaging issues."
 ### "Messages in [channel] about X"
 → `search_messages` with `query: "X"` and `channel: "channel-name"`
 
-### "Messages I sent to [person]"
-→ `search_messages` with `query: "from:me to:person"` or
-  `from: "my.handle"` with the other person's context
+### "Messages I sent to [person]" / "My DMs with [person]"
+→ `search_messages` with `with: "person"` and `from: "me"`
+  The `with` parameter is the most efficient way to search
+  conversations with a specific person.
 
 ### "Show me the thread" / "Get the full thread"
 → `get_thread` with `target: "permalink_url"` from previous results
@@ -79,13 +80,22 @@ with triaging issues."
 Slack search supports these operators embedded in the `query`:
 - `from:username` — messages from a person
 - `to:username` — direct messages to a person
+- `with:@person` — DMs and threads with a specific person
+  (also available as the `with` parameter)
 - `in:#channel` — messages in a channel
 - `has:reaction` / `has:link` / `has:pin` — message properties
+- `hasmy::emoji:` — messages you reacted to with a specific emoji
+- `is:thread` — only thread messages
+- `is:saved` — your saved items
 - `after:YYYY-MM-DD` / `before:YYYY-MM-DD` — date range
-- `during:month` / `during:today` — relative dates
+- `on:YYYY-MM-DD` — exact date
+- `during:month` / `during:year` — relative dates (e.g. `during:march`)
+- `"exact phrase"` — quoted exact phrase match
+- `term -excluded` — exclude results containing a word
+- `rep*` — wildcard prefix match (min 3 characters)
 
-These can also be passed as structured parameters (`from`,
-`channel`, `after`, `before`) which get appended to the query.
+Structured parameters (`from`, `with`, `channel`, `after`,
+`before`) get appended as operators to the query string.
 
 ## URL and ID Handling
 
@@ -140,6 +150,12 @@ The Slack API has no "top DM partners" or "most active
 channels" endpoint. Complex questions require creative
 querying. Aim to extract maximum information from each call.
 
+**Use `with:` for DM queries**: the `with` parameter
+searches DMs and threads with a specific person in one call.
+"Messages with chao.duan" → `search_messages` with
+`with: "chao.duan"`. Much more efficient than searching by
+channel ID.
+
 **Batch over serial**: a single `search_messages` with 100
 results gives you channel IDs, user IDs, timestamps and
 text. Extract patterns from that data before making more
@@ -156,9 +172,15 @@ for direct message patterns, look for channel IDs that
 start with `D`. Group channels start with `G`, public
 channels start with `C`.
 
-**Use search operators aggressively**: `from:me in:D0AG3` is
-faster than listing a channel's messages. Combine operators
-to narrow results before fetching.
+**Use search operators aggressively**: combine operators to
+narrow results. `from:me with:@person after:2025-03-01` is
+far more efficient than broad searches filtered after the
+fact.
+
+**For "who do I DM most"**: search `from:me` with a high
+limit. DM channel IDs start with `D`. Count occurrences of
+each `D`-prefixed channel in the results to rank DM partners.
+User IDs in those messages are auto-resolved to @handles.
 
 ## Common Mistakes to Avoid
 
