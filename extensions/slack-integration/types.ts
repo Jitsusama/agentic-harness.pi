@@ -57,6 +57,22 @@ export interface ToolResult {
 /** Classification of a Slack channel. */
 export type ChannelKind = "channel" | "dm" | "group_dm";
 
+/** An attachment or link unfurl on a Slack message. */
+export interface SlackAttachment {
+	title?: string;
+	text?: string;
+	fallback?: string;
+	fromUrl?: string;
+	imageUrl?: string;
+}
+
+/** A file attached to a Slack message. */
+export interface SlackFile {
+	name: string;
+	mimetype?: string;
+	url?: string;
+}
+
 /** A Slack message as returned by the API. */
 export interface SlackMessage {
 	ts: string;
@@ -67,7 +83,11 @@ export interface SlackMessage {
 	channelKind?: ChannelKind;
 	threadTs?: string;
 	replyCount?: number;
+	/** True when this message started a thread (threadTs === ts). */
+	isThreadParent?: boolean;
 	reactions?: SlackReaction[];
+	attachments?: SlackAttachment[];
+	files?: SlackFile[];
 	permalink?: string;
 }
 

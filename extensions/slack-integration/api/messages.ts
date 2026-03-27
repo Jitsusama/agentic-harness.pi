@@ -6,7 +6,12 @@
  */
 
 import { cacheUser } from "../resolvers/user.js";
-import type { SlackMessage, SlackReaction } from "../types.js";
+import type {
+	SlackAttachment,
+	SlackFile,
+	SlackMessage,
+	SlackReaction,
+} from "../types.js";
 import type { SlackClient } from "./client.js";
 import {
 	refreshDmNames,
@@ -22,6 +27,19 @@ interface RawMessage {
 	thread_ts?: string;
 	reply_count?: number;
 	reactions?: Array<{ name: string; count: number; users: string[] }>;
+	attachments?: Array<{
+		title?: string;
+		text?: string;
+		fallback?: string;
+		from_url?: string;
+		image_url?: string;
+	}>;
+	files?: Array<{
+		name: string;
+		mimetype?: string;
+		url_private?: string;
+		permalink?: string;
+	}>;
 	permalink?: string;
 	username?: string;
 }
@@ -32,6 +50,29 @@ function toSlackMessage(msg: RawMessage, channel?: string): SlackMessage {
 		cacheUser(msg.username, msg.user);
 	}
 
+	const attachments: SlackAttachment[] | undefined = msg.attachments?.length
+		? msg.attachments.map((a) => ({
+				title: a.title,
+				text: a.text,
+				fallback: a.fallback,
+				fromUrl: a.from_url,
+				imageUrl: a.image_url,
+			}))
+		: undefined;
+
+	const files: SlackFile[] | undefined = msg.files?.length
+		? msg.files.map((f) => ({
+				name: f.name,
+				mimetype: f.mimetype,
+				url: f.url_private || f.permalink,
+			}))
+		: undefined;
+
+	// A message is a thread parent when its threadTs equals its own ts.
+	// Messages without threadTs are top-level posts (not in any thread).
+	const isThreadParent =
+		msg.thread_ts !== undefined && msg.thread_ts === msg.ts;
+
 	return {
 		ts: msg.ts,
 		text: msg.text ?? "",
@@ -39,7 +80,10 @@ function toSlackMessage(msg: RawMessage, channel?: string): SlackMessage {
 		channel,
 		threadTs: msg.thread_ts,
 		replyCount: msg.reply_count,
+		isThreadParent,
 		reactions: msg.reactions as SlackReaction[] | undefined,
+		attachments,
+		files,
 		permalink: msg.permalink,
 	};
 }
