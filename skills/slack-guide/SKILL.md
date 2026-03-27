@@ -19,6 +19,19 @@ language requests into structured API calls.
 User must run `/slack-setup` once to authenticate. Credentials
 persist across sessions. The tool auto-prompts if not set up.
 
+## User Identity
+
+The extension tracks the authenticated user's Slack handle in
+session state. Once populated, it's injected into agent context
+automatically so you always know who you're acting on behalf of.
+
+**First session**: call `get_user` with the user's handle early
+in the conversation to verify identity and populate the session
+state. Don't guess handles from project context; verify them.
+
+**Subsequent sessions**: the identity is restored automatically.
+Use the known handle for `from:` queries without re-verifying.
+
 ## Core Principle: Present Results, Don't Parrot
 
 After a tool call returns, **summarise the results conversationally**.
@@ -93,6 +106,13 @@ with triaging issues."
 ### "React to that with :emoji:"
 → `add_reaction` with `target` or `channel`+`ts`, and `emoji`
 
+### Ambiguous Date Ranges
+
+When the user says "last 3 months", "recently" or "this
+quarter", state the exact date range you're using (e.g.,
+"Searching from December 27 to today") so the user can
+correct it if it doesn't match their intent.
+
 ### "Messages I reacted to" / "Where did I react"
 → Multiple `search_messages` calls, one per common emoji.
   Use `hasmy::thumbsup:`, `hasmy::heart:`, `hasmy::fire:`,
@@ -129,6 +149,13 @@ Slack search supports these operators embedded in the `query`:
 
 Structured parameters (`from`, `with`, `channel`, `after`,
 `before`) get appended as operators to the query string.
+
+**No "starts with" operator**: Slack search matches a phrase
+anywhere in the message body, not just at the start. When
+the user asks for messages starting with a phrase, search
+for that phrase and tell the user that results include any
+message containing it. Post-filtering on returned text is
+approximate since message text in results may be truncated.
 
 ## URL and ID Handling
 
@@ -176,6 +203,22 @@ When presenting results to the user:
 Don't re-list every message — the tool output already shows
 them. Add interpretation and context the raw output doesn't
 provide.
+
+## Pagination
+
+The tool auto-paginates search results internally. You don't
+need to manage pages yourself; just set the `limit` parameter
+and the tool fetches as many pages as needed.
+
+- **Default limit**: 20 results. Fine for quick lookups.
+- **"Show me all"**: pass `limit: 0` for unlimited results
+  (up to Slack's ceiling of 10,000).
+- **Specific count**: pass any number. `limit: 200` fetches
+  up to 200, paging through internally.
+
+When the total exceeds what was fetched, the output says so.
+Relay this to the user and offer to fetch the rest with a
+higher limit.
 
 ## Efficiency: Minimise Tool Calls
 
