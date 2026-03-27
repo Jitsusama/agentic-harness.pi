@@ -11,15 +11,17 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { getLastEntry } from "../lib/state.js";
 import type { SlackClient } from "./api/client.js";
-import { clearAllConfig } from "./auth/credentials.js";
+import { clearAllConfig, getToken } from "./auth/credentials.js";
 import { handleSlackAuthCommand } from "./auth-command.js";
 import { ensureAuthenticated, formatAuthError } from "./auth-flow.js";
 import { formatSlackText } from "./renderers/message.js";
 import { parseSlackUrl } from "./resolvers/url.js";
 import { displayNameForId } from "./resolvers/user.js";
 import { routeAction } from "./router.js";
-import type { OAuthApp } from "./types.js";
+import { createSessionState, type SlackSessionState } from "./state.js";
+import type { OAuthApp, SlackUser } from "./types.js";
 
 /** Lightweight shapes for renderResult previews. */
 interface MessagePreview {
@@ -124,9 +126,15 @@ const ENV_OAUTH_CONFIG: OAuthApp = {
 	clientSecret: process.env.SLACK_CLIENT_SECRET || "",
 };
 
+/** Session history key for persisting Slack identity. */
+const SESSION_KEY = "slack-identity";
+
 export default function slackIntegration(pi: ExtensionAPI) {
 	/** Cached authenticated client. */
 	let cachedClient: SlackClient | null = null;
+
+	/** Session state: the authenticated user's identity. */
+	const session = createSessionState();
 
 	/**
 	 * Get an authenticated Slack client, prompting for setup
@@ -139,6 +147,53 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		cachedClient = await ensureAuthenticated(ctx, ENV_OAUTH_CONFIG);
 		return cachedClient;
 	}
+
+	/**
+	 * Check whether a get_user result matches the authenticated
+	 * user. If so, capture the handle in session state. This is
+	 * the lazy population trigger: the agent calls get_user once
+	 * and the identity is remembered for the rest of the session.
+	 */
+	function captureIdentityIfSelf(result: { details?: unknown }): void {
+		if (session.userHandle) return;
+
+		const user = (result.details as { user?: SlackUser } | undefined)?.user;
+		if (!user?.id || !user?.name) return;
+
+		const token = getToken();
+		if (!token?.userId || token.userId !== user.id) return;
+
+		session.userId = user.id;
+		session.userHandle = user.name;
+		pi.appendEntry(SESSION_KEY, {
+			userId: session.userId,
+			userHandle: session.userHandle,
+		});
+	}
+
+	// Restore identity from previous session.
+	pi.on("session_start", async (_event, ctx) => {
+		const saved = getLastEntry<SlackSessionState>(ctx, SESSION_KEY);
+		if (saved?.userId && saved?.userHandle) {
+			session.userId = saved.userId;
+			session.userHandle = saved.userHandle;
+		}
+	});
+
+	// Inject identity into agent context when known.
+	pi.on("before_agent_start", async () => {
+		if (!session.userHandle) return;
+		return {
+			messages: [
+				{
+					type: "text" as const,
+					text:
+						`The authenticated Slack user is @${session.userHandle}` +
+						` (${session.userId}). Use this handle for from: queries.`,
+				},
+			],
+		};
+	});
 
 	pi.registerTool({
 		name: "slack",
@@ -240,7 +295,16 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			try {
 				const client = await getClient(ctx);
-				return await routeAction(params.action as string, client, params, ctx);
+				const result = await routeAction(
+					params.action as string,
+					client,
+					params,
+					ctx,
+				);
+				if (params.action === "get_user") {
+					captureIdentityIfSelf(result);
+				}
+				return result;
 			} catch (error) {
 				return {
 					content: [
