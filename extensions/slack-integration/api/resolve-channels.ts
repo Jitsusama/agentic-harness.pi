@@ -163,12 +163,12 @@ async function resolveChannelMeta(
 			const name = displayNameForId(userId);
 			const displayName = name !== userId ? name : undefined;
 			return {
-				name: displayName ? `DM with @${displayName}` : `DM with ${userId}`,
+				name: displayName ? `@${displayName}` : userId,
 				kind,
 				dmUserId: userId,
 			};
 		}
-		return { name: "DM", kind };
+		return { name: "DM (unknown)", kind };
 	}
 
 	if (ch.is_mpim) {
@@ -198,17 +198,17 @@ function formatGroupDmName(rawName?: string, purpose?: string): string {
 			.trim()
 			.split(/\s+/)
 			.map((n) => (n.startsWith("@") ? n : `@${n}`));
-		return `Group DM (${names.join(", ")})`;
+		return names.join(", ");
 	}
 
 	// Fall back to parsing mpdm- name.
 	if (rawName?.startsWith("mpdm-")) {
 		const stripped = rawName.replace(/^mpdm-/, "").replace(/-\d+$/, "");
 		const users = stripped.split("--").map((u) => `@${u}`);
-		return `Group DM (${users.join(", ")})`;
+		return users.join(", ");
 	}
 
-	return "Group DM";
+	return "group DM";
 }
 
 /**
@@ -236,7 +236,7 @@ export function refreshDmNames(messages: SlackMessage[]): void {
 		if (meta?.kind === "dm" && meta.dmUserId) {
 			const name = displayNameForId(meta.dmUserId);
 			if (name !== meta.dmUserId) {
-				meta.name = `DM with @${name}`;
+				meta.name = `@${name}`;
 				msg.channelName = meta.name;
 			}
 		}
