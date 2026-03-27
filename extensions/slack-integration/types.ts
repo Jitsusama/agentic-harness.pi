@@ -54,8 +54,44 @@ export interface ToolResult {
 	details?: unknown;
 }
 
-/** Classification of a Slack channel. */
-export type ChannelKind = "channel" | "dm" | "group_dm";
+/** Classification of a Slack conversation. */
+export type ConversationKind = "channel" | "dm" | "group_dm";
+
+/**
+ * A Slack conversation at any level of resolution.
+ *
+ * Created during input resolution (router) and enriched
+ * during output formatting (post-fetch message rendering).
+ * Fields that aren't available yet are undefined.
+ */
+export interface Conversation {
+	/** Slack conversation ID (C..., D..., G...). Always present. */
+	id: string;
+	/** Raw Slack channel name (e.g. "gitstream"). Undefined for DMs. */
+	name?: string;
+	/** What kind of conversation this is. */
+	kind: ConversationKind;
+	/** Human-readable name: "#gitstream", "@chao.duan", "@a, @b, @c". */
+	displayName?: string;
+	/** The other person's user ID. Only set when kind is "dm". */
+	dmUserId?: string;
+}
+
+/** A message target: a conversation plus a timestamp. */
+export interface MessageTarget {
+	conversation: Conversation;
+	ts: string;
+}
+
+/** Resolved identifiers from tool parameters. */
+export interface ResolvedParams {
+	/** Resolved conversation (from `channel` param, `target`, or `channel` + `ts`). */
+	conversation?: Conversation;
+	/** Resolved message target (from `target` param or `channel` + `ts`). */
+	target?: MessageTarget;
+	/** Resolved user ID (from `user` param). */
+	userId?: string;
+}
 
 /** An attachment or link unfurl on a Slack message. */
 export interface SlackAttachment {
@@ -78,9 +114,8 @@ export interface SlackMessage {
 	ts: string;
 	text: string;
 	user?: string;
-	channel?: string;
-	channelName?: string;
-	channelKind?: ChannelKind;
+	/** The conversation this message belongs to. */
+	conversation?: Conversation;
 	threadTs?: string;
 	replyCount?: number;
 	/** True when this message started a thread (threadTs === ts). */

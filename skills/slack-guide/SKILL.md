@@ -48,6 +48,26 @@ the collapsed tool output. Add value by highlighting what matters:
 discussing M5 risk areas and an upcoming call. You offered to help
 with triaging issues."
 
+## Identifier Resolution
+
+The `channel` parameter accepts **any identifier format**
+uniformly across all actions:
+
+- Channel names: `"gitstream"` or `"#gitstream"`
+- Channel IDs: `"C0AJY0FLK8Q"`
+- User IDs: `"U093FQUHEJG"` (resolves to the DM conversation)
+- Slack permalink URLs: passed as `target`, parsed automatically
+
+The tool resolves all identifiers before processing. You don't
+need to worry about which format a particular action expects;
+use whatever you have from previous context.
+
+**One exception**: `search_messages` and `search_files` cannot
+search inside DM or group DM conversations. If you pass a user
+ID or DM channel ID as `channel` to a search action, the tool
+returns a clear error directing you to use `list_messages`
+instead. This is a Slack API limitation, not a tool limitation.
+
 ## Translating User Intent
 
 ### "Check Slack for X" / "Search Slack for X"
@@ -72,8 +92,8 @@ with triaging issues."
 ### "My DMs with [person]" / "Conversations with [person]"
 → **Always** use `list_messages` with the person's user ID
   as the `channel`. The resolver calls `conversations.open`
-  to find the DM channel automatically. This returns only
-  DM messages — complete and in order.
+  to find the DM automatically. This returns only DM messages
+  — complete and in order.
 
   **Do not** use `search_messages` with `with:` for DM
   history. Search mixes in shared channel results, misses
@@ -96,8 +116,9 @@ with triaging issues."
   someone else's thread.
 
 ### "Show me the thread" / "Get the full thread"
-→ `get_thread` with `target: "permalink_url"` from previous results
-- Always prefer the permalink URL from search results
+→ `get_thread` with the message's `channel` + `ts`, or with
+  `target` if you have a permalink URL from search results.
+  Both approaches work identically — use whichever you have.
 
 ### "What's happening in #channel" / "Last N messages in #channel"
 → `list_messages` with `channel: "channel-name"` and a `limit`
@@ -177,11 +198,20 @@ approximate since message text in results may be truncated.
 
 ## URL and ID Handling
 
-- **Permalink URLs**: pass directly as the `target` parameter.
-  Works for `get_message`, `get_thread`, `get_reactions`,
-  `reply_to_thread`, `add_reaction`, `remove_reaction`.
-- **Channel names**: with or without `#`. Resolved automatically.
-- **User handles**: with or without `@`. Resolved automatically.
+All identifier formats are resolved automatically:
+
+- **Permalink URLs**: pass as `target` — works for any
+  message-targeting action (`get_message`, `get_thread`,
+  `get_reactions`, `reply_to_thread`, `add_reaction`,
+  `remove_reaction`).
+- **Channel + ts**: pass as `channel` + `ts` — works for
+  the same actions. Equivalent to using a permalink.
+- **Channel names**: with or without `#`. Resolved to the
+  conversation automatically.
+- **User IDs as channel**: resolves to the DM conversation
+  automatically via `conversations.open`.
+- **User handles**: with or without `@`. Resolved to user
+  IDs automatically.
 - **Timestamps**: the `ts` field from previous results.
 
 ## Context Management
@@ -191,15 +221,16 @@ approximate since message text in results may be truncated.
 After `search_messages`, remember the message list. The user
 may say:
 - "Show me the thread for the first one" → use the permalink
+  or channel + ts from the result
 - "What's the context for that third message" → get_thread
 - "Reply to that" → use channel + ts from the message
 
 After `list_messages` in a channel, the user may say:
-- "What's that thread about" → get_thread with a ts
+- "What's that thread about" → get_thread with channel + ts
 - "Send a reply" → reply_to_thread
 
 After `get_user`, the user may ask:
-- "Send them a message" → use the user's DM channel
+- "Send them a message" → use the user ID as channel
 
 ### Thread Navigation
 
@@ -259,21 +290,24 @@ DM messages, complete and in order. Use `with:` on
 across DMs *and* shared channels.
 
 **Batch over serial**: a single `search_messages` with 100
-results gives you channel IDs, user IDs, timestamps and
-text. Extract patterns from that data before making more
-calls. Don't look up each user or channel individually
-unless you need details beyond what the search gave you.
+results gives you conversation metadata, user IDs,
+timestamps and text. Extract patterns from that data before
+making more calls. Don't look up each user or channel
+individually unless you need details beyond what the search
+gave you.
 
-**User IDs are auto-resolved**: the tool resolves raw Slack
-user IDs (U08ME9KASG7) to @handles automatically. You don't
-need to call `get_user` just to learn someone's name — it
-already appears in message output.
+**User mentions are auto-resolved**: the tool resolves raw
+Slack user IDs (U08ME9KASG7) to @handles automatically,
+both in message author fields and in message text mentions.
+You don't need to call `get_user` just to learn someone's
+name — it already appears in message output.
 
-**Channel kinds are resolved automatically**: each message
-includes a `channelName` and `channelKind` field. Kinds are
-`dm` (1:1 direct message), `group_dm` (multi-person DM),
-or `channel` (public or private channel). Use these to
-filter results instead of guessing from channel ID prefixes.
+**Conversation types are resolved automatically**: each
+message includes conversation metadata with a `displayName`
+and `kind`. Kinds are `dm` (1:1 direct message), `group_dm`
+(multi-person DM), or `channel` (public or private channel).
+Use these to filter results instead of guessing from ID
+prefixes.
 
 **Use search operators aggressively**: combine operators to
 narrow results. `from:me with:@person after:2025-03-01` is
@@ -281,11 +315,11 @@ far more efficient than broad searches filtered after the
 fact.
 
 **For "who do I DM most"**: search `from:me` with a high
-limit. Each result has `channelKind` set to `dm`, `group_dm`
-or `channel`. Filter to `dm` and `group_dm` entries and
-count by channel to rank DM partners. Channel names show
-who the DM is with (e.g. "DM with @chao.duan" or "Group DM
-(@chao.duan, @xiao.li, @henrique.andrade)").
+limit. Each result has a conversation `kind` of `dm`,
+`group_dm` or `channel`. Filter to `dm` and `group_dm`
+entries and count by conversation to rank DM partners.
+Display names show who the DM is with (e.g. "@chao.duan"
+or "@chao.duan, @xiao.li, @henrique.andrade").
 
 ## Enterprise Grid Limitations
 
@@ -318,8 +352,8 @@ hasmy::100: after:2025-03-20
 ```
 
 Run multiple `search_messages` calls with these queries.
-Deduplicate across results and filter by `channelKind` if
-the user asks about DMs specifically.
+Deduplicate across results and filter by conversation `kind`
+if the user asks about DMs specifically.
 
 **Warn the user** that this only covers common emojis. Custom
 or unusual reactions may be missed.
@@ -343,8 +377,9 @@ the full thread?"
 # ❌ Bad: asking for a URL the results already provided
 "What's the thread URL?"
 
-# ✅ Good: use the permalink from the search result
+# ✅ Good: use the permalink or channel + ts from the result
 slack({ action: "get_thread", target: "https://...permalink..." })
+slack({ action: "get_thread", channel: "C0AJY0FLK8Q", ts: "1743044006.509399" })
 ```
 
 **DON'T** pass raw user IDs when the user gave a name:
@@ -369,6 +404,15 @@ slack({ action: "search_messages", query: "*",
 # ✅ Good: conversations.history returns every message
 slack({ action: "list_messages",
         channel: "privacy-engineering", limit: 1000 })
+```
+
+**DON'T** use `search_messages` to search DMs:
+```
+# ❌ Bad: search can't target DM conversations
+slack({ action: "search_messages", channel: "U093FQUHEJG" })
+
+# ✅ Good: list_messages resolves user IDs to DMs
+slack({ action: "list_messages", channel: "U093FQUHEJG" })
 ```
 
 **DON'T** try non-existent search operators:

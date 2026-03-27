@@ -2,7 +2,7 @@
  * Slack channel API: info and metadata.
  */
 
-import { cacheChannel } from "../resolvers/channel.js";
+import { cacheChannelName } from "../resolvers/conversation.js";
 import type { SlackChannel } from "../types.js";
 import type { SlackClient } from "./client.js";
 
@@ -34,7 +34,7 @@ export async function getChannelInfo(
 
 	// Cache the name → ID mapping.
 	if (ch?.name && ch?.id) {
-		cacheChannel(ch.name, ch.id);
+		cacheChannelName(ch.name, ch.id);
 	}
 
 	return {

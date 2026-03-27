@@ -27,8 +27,7 @@ import type { OAuthApp, SlackUser } from "./types.js";
 interface MessagePreview {
 	user?: string;
 	text?: string;
-	channelName?: string;
-	channelKind?: string;
+	conversation?: { displayName?: string; kind?: string };
 }
 interface UserPreview {
 	name?: string;
@@ -108,7 +107,9 @@ function renderMessagePreviews(
 	const shown = msgs.slice(0, MAX_PREVIEWS);
 	const lines = shown.map((m) => {
 		const who = theme.fg("dim", resolveUser(m.user));
-		const where = m.channelName ? theme.fg("muted", ` (${m.channelName})`) : "";
+		const where = m.conversation?.displayName
+			? theme.fg("muted", ` (${m.conversation.displayName})`)
+			: "";
 		const snippet = truncateText(formatSlackText(m.text || ""), 50);
 		return `  ${who}${where}: ${snippet}`;
 	});
@@ -207,13 +208,13 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"Access Slack: search messages, read threads, send messages, " +
 			"look up users/channels, manage reactions.",
 		promptGuidelines: [
-			"Accept Slack permalink URLs directly as the target parameter.",
+			"All identifier formats (channel names, IDs, user IDs, permalink URLs) are resolved automatically. Use whatever you have from context.",
 			"Parse Slack search operators: from:user, in:#channel, after:YYYY-MM-DD, before:YYYY-MM-DD. The after/before operators are exclusive: after:2026-03-26 means March 27 onward. To include today, use yesterday's date.",
 			"Remember context from previous results — user may reference 'that message', 'the thread', etc.",
 			"For thread replies, use reply_to_thread with the parent message's channel and ts.",
-			"Channel names work with or without the # prefix. User IDs (U…) resolve to DM channels automatically.",
 			"User handles work with or without the @ prefix.",
 			"To read DMs with a person, ALWAYS use list_messages with their user ID as the channel (resolves to the DM automatically). NEVER use search_messages with 'with:' for DM history — search mixes in shared channels and misses messages. Only use 'with:' when you need keyword filtering across all conversations.",
+			"search_messages cannot search DM conversations — the tool returns a clear error. Use list_messages for DMs.",
 			"When the user asks about DM history over a time range, pass limit: 0 and the oldest/latest params to list_messages to get ALL messages in that window. The default limit (20) is far too small for comprehensive queries. Don't draw conclusions from partial data.",
 			"The query parameter is optional for search when structured params (from, with, channel, after, before) are provided — it defaults to *.",
 			"Be concise in your responses — summarise the substance of results rather than restating what the tool output already shows.",

@@ -40,21 +40,21 @@ function extractRedirect(
 }
 
 /**
- * Confirm sending a message to a channel.
+ * Confirm sending a message to a conversation.
  */
 export async function confirmSendMessage(
 	ctx: ExtensionContext,
-	channel: string,
+	conversationName: string,
 	text: string,
-): Promise<ConfirmResult<{ channel: string; text: string }>> {
-	if (!ctx.hasUI) return { approved: true, data: { channel, text } };
+): Promise<ConfirmResult<{ text: string }>> {
+	if (!ctx.hasUI) return { approved: true, data: { text } };
 
 	const result = await promptSingle(ctx, {
 		content: (theme) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Send Slack Message")),
 				"",
-				` ${theme.fg("muted", "Channel:")} ${channel}`,
+				` ${theme.fg("muted", "To:")} ${conversationName}`,
 				"",
 			];
 			const textLines = text.split("\n");
@@ -74,10 +74,10 @@ export async function confirmSendMessage(
 	if (!result) return null;
 	const redirect = extractRedirect(
 		result,
-		`Send message to ${channel}:\n${text.slice(0, 200)}`,
+		`Send message to ${conversationName}:\n${text.slice(0, 200)}`,
 	);
 	if (redirect) return redirect;
-	return { approved: true, data: { channel, text } };
+	return { approved: true, data: { text } };
 }
 
 /**
@@ -85,12 +85,12 @@ export async function confirmSendMessage(
  */
 export async function confirmReply(
 	ctx: ExtensionContext,
-	channel: string,
+	conversationName: string,
 	threadTs: string,
 	text: string,
-): Promise<ConfirmResult<{ channel: string; threadTs: string; text: string }>> {
+): Promise<ConfirmResult<{ text: string }>> {
 	if (!ctx.hasUI) {
-		return { approved: true, data: { channel, threadTs, text } };
+		return { approved: true, data: { text } };
 	}
 
 	const result = await promptSingle(ctx, {
@@ -98,7 +98,7 @@ export async function confirmReply(
 			const lines = [
 				theme.fg("accent", theme.bold(" Reply to Thread")),
 				"",
-				` ${theme.fg("muted", "Channel:")} ${channel}`,
+				` ${theme.fg("muted", "In:")} ${conversationName}`,
 				` ${theme.fg("muted", "Thread:")} ${threadTs}`,
 				"",
 			];
@@ -119,10 +119,10 @@ export async function confirmReply(
 	if (!result) return null;
 	const redirect = extractRedirect(
 		result,
-		`Reply in ${channel} thread ${threadTs}:\n${text.slice(0, 200)}`,
+		`Reply in ${conversationName} thread ${threadTs}:\n${text.slice(0, 200)}`,
 	);
 	if (redirect) return redirect;
-	return { approved: true, data: { channel, threadTs, text } };
+	return { approved: true, data: { text } };
 }
 
 /**
@@ -130,7 +130,7 @@ export async function confirmReply(
  */
 export async function confirmReaction(
 	ctx: ExtensionContext,
-	channel: string,
+	conversationName: string,
 	ts: string,
 	emoji: string,
 	action: "add" | "remove",
@@ -142,7 +142,7 @@ export async function confirmReaction(
 		content: (theme) => [
 			theme.fg("accent", theme.bold(` ${verb} Reaction`)),
 			"",
-			` ${theme.fg("muted", "Channel:")} ${channel}`,
+			` ${theme.fg("muted", "In:")} ${conversationName}`,
 			` ${theme.fg("muted", "Message:")} ${ts}`,
 			` ${theme.fg("muted", "Emoji:")} :${emoji}:`,
 		],
@@ -151,7 +151,7 @@ export async function confirmReaction(
 	if (!result) return null;
 	const redirect = extractRedirect(
 		result,
-		`${verb} :${emoji}: reaction in ${channel}`,
+		`${verb} :${emoji}: reaction in ${conversationName}`,
 	);
 	if (redirect) return redirect;
 	return { approved: true, data: true };

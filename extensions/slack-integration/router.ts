@@ -2,8 +2,9 @@
  * Routes incoming Slack tool actions to the appropriate
  * API handlers.
  *
- * Each action maps to a handler via a registry. Handlers
- * receive the Slack client, raw params, and extension context.
+ * Resolves all identifiers (channel, target, user) before
+ * dispatching so handlers receive typed objects instead of
+ * raw strings. Each action maps to a handler via a registry.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -24,8 +25,8 @@ import {
 } from "./api/reactions.js";
 import {
 	refreshDmNames,
-	resolveChannelsInMessages,
-} from "./api/resolve-channels.js";
+	resolveConversationsInMessages,
+} from "./api/resolve-conversations.js";
 import { searchFiles, searchMessages } from "./api/search.js";
 import { getUserInfo } from "./api/users.js";
 import {
@@ -45,12 +46,13 @@ import {
 } from "./renderers/reactions.js";
 import { renderFileList } from "./renderers/search.js";
 import { renderUser } from "./renderers/user.js";
-import { resolveChannel } from "./resolvers/channel.js";
+import { resolveConversation } from "./resolvers/conversation.js";
 import { resolveTarget } from "./resolvers/target.js";
 import { resolveUser } from "./resolvers/user.js";
 import {
 	type ActionParams,
 	numberParam,
+	type ResolvedParams,
 	stringParam,
 	type ToolResult,
 } from "./types.js";
@@ -59,10 +61,16 @@ import {
 type ActionHandler = (
 	client: SlackClient,
 	params: ActionParams,
+	resolved: ResolvedParams,
 	ctx: ExtensionContext,
 ) => Promise<ToolResult>;
 
-/** Route a tool action to the appropriate handler. */
+/**
+ * Route a tool action to the appropriate handler.
+ *
+ * Resolves all identifiers upfront, then dispatches to the
+ * handler with both raw params and resolved types.
+ */
 export async function routeAction(
 	action: string,
 	client: SlackClient,
@@ -73,7 +81,9 @@ export async function routeAction(
 	if (!handler) {
 		return text(`Unknown action: ${action}`);
 	}
-	return handler(client, params, ctx);
+
+	const resolved = await resolveAllParams(client, params);
+	return handler(client, params, resolved, ctx);
 }
 
 /** Shorthand for a simple text result. */
@@ -84,6 +94,62 @@ function text(content: string, details?: unknown): ToolResult {
 /** Shorthand for missing parameter errors. */
 function missing(param: string): ToolResult {
 	return text(`Missing required parameter: ${param}`);
+}
+
+/**
+ * Resolve all identifiers from raw tool parameters.
+ *
+ * Runs before every handler so they receive typed objects
+ * instead of raw strings. Resolution errors (unknown channel,
+ * bad URL) propagate as exceptions to the caller.
+ */
+async function resolveAllParams(
+	client: SlackClient,
+	params: ActionParams,
+): Promise<ResolvedParams> {
+	const resolved: ResolvedParams = {};
+
+	const targetStr = stringParam(params, "target");
+	const channelStr = stringParam(params, "channel");
+	const tsStr = stringParam(params, "ts");
+	const userStr = stringParam(params, "user");
+
+	// Target (permalink or channel+ts) takes priority.
+	if (targetStr || (channelStr && tsStr)) {
+		try {
+			resolved.target = await resolveTarget(
+				client,
+				targetStr,
+				channelStr,
+				tsStr,
+			);
+			resolved.conversation = resolved.target.conversation;
+		} catch {
+			// Target resolution failed. Fall through to channel-only
+			// resolution if channel was provided without ts.
+			if (channelStr && !tsStr) {
+				resolved.conversation = await resolveConversation(client, channelStr);
+			}
+			// If target was explicitly provided and failed, re-throw.
+			else if (targetStr) {
+				throw new Error(
+					"Could not parse the target URL. Provide a valid Slack permalink, " +
+						"or use the channel and ts parameters instead.",
+				);
+			}
+		}
+	}
+	// Channel without ts: conversation-only resolution.
+	else if (channelStr) {
+		resolved.conversation = await resolveConversation(client, channelStr);
+	}
+
+	// User resolution.
+	if (userStr) {
+		resolved.userId = await resolveUser(client, userStr);
+	}
+
+	return resolved;
 }
 
 /**
@@ -132,12 +198,25 @@ function defaultQuery(params: ActionParams): string | undefined {
 async function handleSearchMessages(
 	client: SlackClient,
 	params: ActionParams,
+	resolved: ResolvedParams,
 ): Promise<ToolResult> {
 	const query = stringParam(params, "query") ?? defaultQuery(params);
 	if (!query) return missing("query");
 
+	// Validate: search doesn't support DM conversations.
+	if (resolved.conversation) {
+		const conv = resolved.conversation;
+		if (conv.kind === "dm" || conv.kind === "group_dm") {
+			return text(
+				`Slack search doesn't support ${conv.kind === "dm" ? "DM" : "group DM"} conversations. ` +
+					"Use `list_messages` with the user ID as the channel instead.",
+			);
+		}
+	}
+
 	const result = await searchMessages(client, query, {
-		channel: stringParam(params, "channel"),
+		// Use the resolved channel name for the search operator.
+		channel: resolved.conversation?.name ?? stringParam(params, "channel"),
 		from: stringParam(params, "from"),
 		with: stringParam(params, "with"),
 		after: stringParam(params, "after"),
@@ -145,9 +224,9 @@ async function handleSearchMessages(
 		limit: numberParam(params, "limit"),
 	});
 
-	// Resolve channel kinds (DM, group DM, channel) for search
-	// results. Search gives us names but not types.
-	await resolveChannelsInMessages(client, result.messages);
+	// Resolve conversation kinds (DM, group DM, channel) for
+	// search results. Search gives us names but not types.
+	await resolveConversationsInMessages(client, result.messages);
 	refreshDmNames(result.messages);
 
 	return text(renderMessageList(result.messages, result.total, result.query), {
@@ -160,12 +239,24 @@ async function handleSearchMessages(
 async function handleSearchFiles(
 	client: SlackClient,
 	params: ActionParams,
+	resolved: ResolvedParams,
 ): Promise<ToolResult> {
 	const query = stringParam(params, "query") ?? defaultQuery(params);
 	if (!query) return missing("query");
 
+	// Validate: search doesn't support DM conversations.
+	if (resolved.conversation) {
+		const conv = resolved.conversation;
+		if (conv.kind === "dm" || conv.kind === "group_dm") {
+			return text(
+				`Slack search doesn't support ${conv.kind === "dm" ? "DM" : "group DM"} conversations. ` +
+					"Use `list_messages` with the user ID as the channel instead.",
+			);
+		}
+	}
+
 	const result = await searchFiles(client, query, {
-		channel: stringParam(params, "channel"),
+		channel: resolved.conversation?.name ?? stringParam(params, "channel"),
 		from: stringParam(params, "from"),
 		with: stringParam(params, "with"),
 		after: stringParam(params, "after"),
@@ -182,35 +273,31 @@ async function handleSearchFiles(
 }
 
 async function handleGetMessage(
-	client: SlackClient,
-	params: ActionParams,
+	_client: SlackClient,
+	_params: ActionParams,
+	resolved: ResolvedParams,
 ): Promise<ToolResult> {
-	const { channel, ts } = await resolveTarget(
-		client,
-		stringParam(params, "target"),
-		stringParam(params, "channel"),
-		stringParam(params, "ts"),
-	);
+	if (!resolved.target) return missing("channel + ts or target");
 
-	const msg = await getMessage(client, channel, ts);
+	const msg = await getMessage(
+		_client,
+		resolved.target.conversation,
+		resolved.target.ts,
+	);
 	return text(renderMessage(msg), { message: msg });
 }
 
 async function handleGetThread(
 	client: SlackClient,
 	params: ActionParams,
+	resolved: ResolvedParams,
 ): Promise<ToolResult> {
-	const { channel, ts } = await resolveTarget(
-		client,
-		stringParam(params, "target"),
-		stringParam(params, "channel"),
-		stringParam(params, "ts"),
-	);
+	if (!resolved.target) return missing("channel + ts or target");
 
 	const messages = await getThread(
 		client,
-		channel,
-		ts,
+		resolved.target.conversation,
+		resolved.target.ts,
 		numberParam(params, "limit"),
 	);
 	return text(renderThread(messages), { messages });
@@ -219,12 +306,11 @@ async function handleGetThread(
 async function handleListMessages(
 	client: SlackClient,
 	params: ActionParams,
+	resolved: ResolvedParams,
 ): Promise<ToolResult> {
-	const channelInput = stringParam(params, "channel");
-	if (!channelInput) return missing("channel");
+	if (!resolved.conversation) return missing("channel");
 
-	const channel = await resolveChannel(client, channelInput);
-	const messages = await listMessages(client, channel, {
+	const messages = await listMessages(client, resolved.conversation, {
 		limit: numberParam(params, "limit"),
 		oldest: coerceTimestamp(stringParam(params, "oldest")),
 		latest: coerceTimestamp(stringParam(params, "latest")),
@@ -235,34 +321,33 @@ async function handleListMessages(
 
 async function handleGetChannel(
 	client: SlackClient,
-	params: ActionParams,
+	_params: ActionParams,
+	resolved: ResolvedParams,
 ): Promise<ToolResult> {
-	const channelInput = stringParam(params, "channel");
-	if (!channelInput) return missing("channel");
+	if (!resolved.conversation) return missing("channel");
 
-	const channelId = await resolveChannel(client, channelInput);
-	const info = await getChannelInfo(client, channelId);
+	const info = await getChannelInfo(client, resolved.conversation.id);
 	return text(renderChannel(info), { channel: info });
 }
 
 async function handleGetUser(
 	client: SlackClient,
-	params: ActionParams,
+	_params: ActionParams,
+	resolved: ResolvedParams,
 ): Promise<ToolResult> {
-	const userInput = stringParam(params, "user");
-	if (!userInput) return missing("user");
+	if (!resolved.userId) return missing("user");
 
-	const userId = await resolveUser(client, userInput);
-	const info = await getUserInfo(client, userId);
+	const info = await getUserInfo(client, resolved.userId);
 	return text(renderUser(info), { user: info });
 }
 
 async function handleListReactions(
 	client: SlackClient,
 	params: ActionParams,
+	resolved: ResolvedParams,
 ): Promise<ToolResult> {
 	const messages = await listReactions(client, {
-		user: stringParam(params, "user"),
+		user: resolved.userId ?? stringParam(params, "user"),
 		limit: numberParam(params, "limit"),
 	});
 	return text(renderReactedMessages(messages), { messages });
@@ -270,16 +355,16 @@ async function handleListReactions(
 
 async function handleGetReactions(
 	client: SlackClient,
-	params: ActionParams,
+	_params: ActionParams,
+	resolved: ResolvedParams,
 ): Promise<ToolResult> {
-	const { channel, ts } = await resolveTarget(
-		client,
-		stringParam(params, "target"),
-		stringParam(params, "channel"),
-		stringParam(params, "ts"),
-	);
+	if (!resolved.target) return missing("channel + ts or target");
 
-	const data = await getReactions(client, channel, ts);
+	const data = await getReactions(
+		client,
+		resolved.target.conversation.id,
+		resolved.target.ts,
+	);
 	return text(renderMessageReactions(data), { reactions: data });
 }
 
@@ -288,86 +373,119 @@ async function handleGetReactions(
 async function handleSendMessage(
 	client: SlackClient,
 	params: ActionParams,
+	resolved: ResolvedParams,
 	ctx: ExtensionContext,
 ): Promise<ToolResult> {
-	const channelInput = stringParam(params, "channel");
+	if (!resolved.conversation) return missing("channel");
 	const msgText = stringParam(params, "text");
-	if (!channelInput) return missing("channel");
 	if (!msgText) return missing("text");
 
-	const channel = await resolveChannel(client, channelInput);
-
-	const confirmed = await confirmSendMessage(ctx, channel, msgText);
+	const displayName =
+		resolved.conversation.displayName ?? resolved.conversation.id;
+	const confirmed = await confirmSendMessage(ctx, displayName, msgText);
 	if (!confirmed) return text("✗ Send message cancelled.");
 	if (!confirmed.approved) return text(confirmed.redirect);
 
-	const result = await sendMessage(client, channel, confirmed.data.text);
-	return text(`✓ Message sent to ${channel} (ts: ${result.ts})`, result);
+	const result = await sendMessage(
+		client,
+		resolved.conversation.id,
+		confirmed.data.text,
+	);
+	return text(`✓ Message sent to ${displayName} (ts: ${result.ts})`, result);
 }
 
 async function handleReplyToThread(
 	client: SlackClient,
 	params: ActionParams,
+	resolved: ResolvedParams,
 	ctx: ExtensionContext,
 ): Promise<ToolResult> {
-	const { channel, ts } = await resolveTarget(
-		client,
-		stringParam(params, "target"),
-		stringParam(params, "channel"),
-		stringParam(params, "ts"),
-	);
+	if (!resolved.target) return missing("channel + ts or target");
 	const msgText = stringParam(params, "text");
 	if (!msgText) return missing("text");
 
-	const confirmed = await confirmReply(ctx, channel, ts, msgText);
+	const displayName =
+		resolved.target.conversation.displayName ?? resolved.target.conversation.id;
+	const confirmed = await confirmReply(
+		ctx,
+		displayName,
+		resolved.target.ts,
+		msgText,
+	);
 	if (!confirmed) return text("✗ Reply cancelled.");
 	if (!confirmed.approved) return text(confirmed.redirect);
 
-	const result = await replyToThread(client, channel, ts, confirmed.data.text);
-	return text(`✓ Reply sent in thread ${ts} (ts: ${result.ts})`, result);
+	const result = await replyToThread(
+		client,
+		resolved.target.conversation.id,
+		resolved.target.ts,
+		confirmed.data.text,
+	);
+	return text(
+		`✓ Reply sent in thread ${resolved.target.ts} (ts: ${result.ts})`,
+		result,
+	);
 }
 
 async function handleAddReaction(
-	client: SlackClient,
+	_client: SlackClient,
 	params: ActionParams,
+	resolved: ResolvedParams,
 	ctx: ExtensionContext,
 ): Promise<ToolResult> {
-	const { channel, ts } = await resolveTarget(
-		client,
-		stringParam(params, "target"),
-		stringParam(params, "channel"),
-		stringParam(params, "ts"),
-	);
+	if (!resolved.target) return missing("channel + ts or target");
 	const emoji = stringParam(params, "emoji");
 	if (!emoji) return missing("emoji");
 
-	const confirmed = await confirmReaction(ctx, channel, ts, emoji, "add");
+	const displayName =
+		resolved.target.conversation.displayName ?? resolved.target.conversation.id;
+	const confirmed = await confirmReaction(
+		ctx,
+		displayName,
+		resolved.target.ts,
+		emoji,
+		"add",
+	);
 	if (!confirmed) return text("✗ Reaction cancelled.");
 	if (!confirmed.approved) return text(confirmed.redirect);
 
-	await addReaction(client, channel, ts, emoji);
+	await addReaction(
+		_client,
+		resolved.target.conversation.id,
+		resolved.target.ts,
+		emoji,
+	);
 	return text(`✓ Added :${emoji}: reaction`);
 }
 
 async function handleRemoveReaction(
-	client: SlackClient,
+	_client: SlackClient,
 	params: ActionParams,
+	resolved: ResolvedParams,
 	ctx: ExtensionContext,
 ): Promise<ToolResult> {
-	const { channel, ts } = await resolveTarget(
-		client,
-		stringParam(params, "target"),
-		stringParam(params, "channel"),
-		stringParam(params, "ts"),
-	);
+	if (!resolved.target) return missing("channel + ts or target");
 	const emoji = stringParam(params, "emoji");
 	if (!emoji) return missing("emoji");
 
-	const confirmed = await confirmReaction(ctx, channel, ts, emoji, "remove");
+	const displayName =
+		resolved.target.conversation.displayName ?? resolved.target.conversation.id;
+	const confirmed = await confirmReaction(
+		ctx,
+		displayName,
+		resolved.target.ts,
+		emoji,
+		"remove",
+	);
 	if (!confirmed) return text("✗ Reaction removal cancelled.");
 	if (!confirmed.approved) return text(confirmed.redirect);
 
-	await removeReaction(client, channel, ts, emoji);
+	await removeReaction(
+		_client,
+		resolved.target.conversation.id,
+		resolved.target.ts,
+		emoji,
+	);
 	return text(`✓ Removed :${emoji}: reaction`);
 }
 
