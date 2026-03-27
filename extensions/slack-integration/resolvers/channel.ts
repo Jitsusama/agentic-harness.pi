@@ -55,6 +55,11 @@ export async function resolveChannel(
 	// Channel name: strip leading #.
 	const name = input.startsWith("#") ? input.slice(1) : input;
 
+	// Recheck after stripping: #U098TB6UXGA → U098TB6UXGA is a user ID.
+	if (USER_ID_PATTERN.test(name)) {
+		return openDmChannel(client, name);
+	}
+
 	// Check cache first.
 	const cached = lookupId(CACHE_FILE, name);
 	if (cached) return cached;
