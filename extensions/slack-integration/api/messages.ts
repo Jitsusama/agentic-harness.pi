@@ -5,7 +5,12 @@
  * and sending messages/replies.
  */
 
+import { lookupId } from "../resolvers/cache.js";
 import { cacheUser, resolveUser } from "../resolvers/user.js";
+
+/** Cache filename used by the user resolver. */
+const USER_CACHE_FILE = "users.json";
+
 import type {
 	Conversation,
 	SlackAttachment,
@@ -232,18 +237,30 @@ export interface SendResult {
 /**
  * Pattern matching @handle mentions in outgoing message text.
  *
- * Matches `@word.word` patterns (e.g. @franck.delache) that
- * aren't already inside Slack's `<@U...>` syntax. Handles
- * may contain dots, hyphens and underscores.
+ * Matches any @word pattern that isn't already inside Slack's
+ * `<@U...>` syntax. Handles may contain dots, hyphens and
+ * underscores.
  */
-const OUTGOING_MENTION_PATTERN = /(?<![<@\w])@([\w][\w.-]+[\w])/g;
+const OUTGOING_MENTION_PATTERN = /(?<![<@\w])@([\w][\w.-]*[\w])/g;
 
 /**
- * Convert @handle mentions to Slack's `<@USER_ID>` format.
+ * Slack broadcast keywords that use `<!keyword>` syntax
+ * instead of `<@USER_ID>`.
+ */
+const SLACK_BROADCASTS = new Set(["here", "channel", "everyone"]);
+
+/**
+ * Convert @mentions in outgoing text to Slack's native syntax.
  *
- * Resolves each @handle via the user resolver (cache first,
- * API fallback). Handles that can't be resolved are left as
- * plain text so the message still sends.
+ * Handles two kinds of mentions:
+ * - Broadcast keywords (@here, @channel, @everyone) → `<!keyword>`
+ * - User handles (@franck.delache) → `<@USER_ID>`
+ *
+ * User resolution strategy:
+ * 1. Try the local user cache for every match (fast, no API)
+ * 2. For multi-segment handles (contain a dot, like first.last),
+ *    also try API resolution on cache miss
+ * 3. Leave unresolved handles as plain text
  */
 async function formatMentions(
 	client: SlackClient,
@@ -254,21 +271,35 @@ async function formatMentions(
 	if (matches.length === 0) return text;
 
 	// Deduplicate handles to avoid resolving the same one twice.
-	const uniqueHandles = [...new Set(matches.map((m) => m[1]))];
+	const uniqueHandles = [
+		...new Set(
+			matches.map((m) => m[1]).filter((h) => !SLACK_BROADCASTS.has(h)),
+		),
+	];
 	const resolved = new Map<string, string>();
 
 	for (const handle of uniqueHandles) {
-		try {
-			const userId = await resolveUser(client, handle, signal);
-			resolved.set(handle, userId);
-		} catch {
-			// Handle couldn't be resolved. Leave it as plain text.
+		// Fast path: check the local cache (no API call).
+		const cached = lookupId(USER_CACHE_FILE, handle);
+		if (cached) {
+			resolved.set(handle, cached);
+			continue;
+		}
+
+		// API fallback: only for multi-segment handles (first.last)
+		// to avoid spurious lookups for random @words in text.
+		if (handle.includes(".")) {
+			try {
+				const userId = await resolveUser(client, handle, signal);
+				resolved.set(handle, userId);
+			} catch {
+				// Handle couldn't be resolved. Leave as plain text.
+			}
 		}
 	}
 
-	if (resolved.size === 0) return text;
-
 	return text.replace(OUTGOING_MENTION_PATTERN, (_match, handle: string) => {
+		if (SLACK_BROADCASTS.has(handle)) return `<!${handle}>`;
 		const userId = resolved.get(handle);
 		return userId ? `<@${userId}>` : `@${handle}`;
 	});
