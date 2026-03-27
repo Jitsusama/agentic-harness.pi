@@ -14,6 +14,7 @@ import type { SlackClient } from "./api/client.js";
 import { clearAllConfig } from "./auth/credentials.js";
 import { handleSlackAuthCommand } from "./auth-command.js";
 import { ensureAuthenticated, formatAuthError } from "./auth-flow.js";
+import { routeAction } from "./router.js";
 import { ensureOAuthApp } from "./setup-wizard.js";
 import type { OAuthApp } from "./types.js";
 
@@ -138,19 +139,8 @@ export default function slackIntegration(pi: ExtensionAPI) {
 					);
 				}
 
-				// Validate auth works before routing.
-				await getClient(ctx, oauthApp);
-				const action = params.action as string;
-
-				// TODO: Route to action handlers (step 4)
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `Action "${action}" is not yet implemented.`,
-						},
-					],
-				};
+				const client = await getClient(ctx, oauthApp);
+				return await routeAction(params.action as string, client, params, ctx);
 			} catch (error) {
 				return {
 					content: [
@@ -169,32 +159,44 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				query?: string;
 				channel?: string;
 				target?: string;
+				user?: string;
+				emoji?: string;
 			};
-			let text = theme.fg("toolTitle", theme.bold("slack "));
-			text += a.action ?? "?";
+			let label = theme.fg("toolTitle", theme.bold("slack "));
+			label += a.action ?? "?";
 
 			if (a.query) {
 				const preview =
 					a.query.length > 40 ? `${a.query.slice(0, 40)}…` : a.query;
-				text += theme.fg("dim", ` "${preview}"`);
+				label += theme.fg("dim", ` "${preview}"`);
 			}
 			if (a.channel) {
 				const ch = a.channel.startsWith("#") ? a.channel : `#${a.channel}`;
-				text += theme.fg("dim", ` ${ch}`);
+				label += theme.fg("dim", ` ${ch}`);
+			}
+			if (a.user) {
+				const handle = a.user.startsWith("@") ? a.user : `@${a.user}`;
+				label += theme.fg("dim", ` ${handle}`);
+			}
+			if (a.emoji) {
+				label += theme.fg("dim", ` :${a.emoji}:`);
 			}
 			if (a.target) {
-				text += theme.fg("muted", " (URL)");
+				label += theme.fg("muted", " (URL)");
 			}
 
-			return new Text(text, 0, 0);
+			return new Text(label, 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result, options, theme) {
 			const textContent = result.content?.[0]?.text || "";
+			const d = result.details as Record<string, unknown> | undefined;
 
+			// Errors
 			if (
 				textContent.startsWith("Slack API error:") ||
-				textContent.startsWith("⚠️")
+				textContent.startsWith("⚠️") ||
+				textContent.startsWith("Missing required")
 			) {
 				const preview =
 					textContent.length > 100
@@ -203,10 +205,41 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				return new Text(theme.fg("error", preview), 0, 0);
 			}
 
+			// Cancellations
+			if (textContent.startsWith("✗")) {
+				return new Text(theme.fg("warning", textContent), 0, 0);
+			}
+
+			// Write successes
 			if (textContent.startsWith("✓")) {
 				return new Text(theme.fg("success", textContent.split("\n")[0]), 0, 0);
 			}
 
+			// Search results with total count
+			if (d?.total !== undefined) {
+				const total = d.total as number;
+				const count = Array.isArray(d.messages)
+					? d.messages.length
+					: Array.isArray(d.files)
+						? d.files.length
+						: 0;
+				let summary = theme.fg("success", `✓ ${total} result(s)`);
+				if (count < total) {
+					summary += theme.fg("muted", ` (showing ${count})`);
+				}
+				if (!options.expanded) return new Text(summary, 0, 0);
+				return new Text(`${summary}\n${textContent}`, 0, 0);
+			}
+
+			// Thread or message list
+			if (Array.isArray(d?.messages)) {
+				const count = (d.messages as unknown[]).length;
+				const summary = theme.fg("success", `✓ ${count} message(s)`);
+				if (!options.expanded) return new Text(summary, 0, 0);
+				return new Text(`${summary}\n${textContent}`, 0, 0);
+			}
+
+			// Fallback
 			return new Text(theme.fg("success", "✓"), 0, 0);
 		},
 	});
