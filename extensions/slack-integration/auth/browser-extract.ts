@@ -77,38 +77,30 @@ export async function extractFromBrowser(
 	});
 
 	try {
+		const context = browser.defaultBrowserContext();
 		const page = (await browser.pages())[0] ?? (await browser.newPage());
 		await page.goto(slackUrl, { waitUntil: "domcontentloaded" });
 
 		const startTime = Date.now();
 
 		while (Date.now() - startTime < timeoutMs) {
-			// Try to extract the token from localStorage.
-			const token = await page.evaluate(() => {
-				try {
-					const raw = localStorage.getItem("localConfig_v2");
-					if (!raw) return null;
-					const config = JSON.parse(raw);
-					const teams = config?.teams;
-					if (!teams) return null;
-					for (const t of Object.values(teams) as Array<
-						Record<string, unknown>
-					>) {
-						const tok = t?.token as string | undefined;
-						if (tok?.startsWith("xoxc-")) return tok;
-					}
-					return null;
-				} catch {
-					return null;
-				}
-			});
+			// Grab the most recent page — Slack and SSO flows may open
+			// new tabs or navigate, destroying the original context.
+			const pages = await browser.pages();
+			const activePage = pages[pages.length - 1] ?? page;
 
-			// Try to extract the cookie from the browser's cookie jar.
-			const cookies = await page.cookies();
+			// The cookie lives in the browser context, not the page,
+			// so it survives navigations. Check it first.
+			const cookies = await context.cookies();
 			const dCookie = cookies.find(
 				(c) => c.name === "d" && c.domain.includes("slack.com"),
 			);
 			const cookie = dCookie?.value;
+
+			// Try to read the token from localStorage. This fails during
+			// navigations (context destroyed) and on non-Slack pages
+			// (SSO provider). Both are expected — we just retry.
+			const token = await extractTokenFromPage(activePage);
 
 			if (token?.startsWith("xoxc-") && cookie?.startsWith("xoxd-")) {
 				return { token, cookie };
@@ -123,6 +115,42 @@ export async function extractFromBrowser(
 		);
 	} finally {
 		await browser.close();
+	}
+}
+
+/**
+ * Try to extract the xoxc- token from a page's localStorage.
+ *
+ * Returns null if the page isn't on Slack yet, is mid-navigation,
+ * or the execution context was destroyed. All expected during
+ * SSO flows.
+ */
+async function extractTokenFromPage(
+	page: import("puppeteer-core").Page,
+): Promise<string | null> {
+	try {
+		return await page.evaluate(() => {
+			try {
+				const raw = localStorage.getItem("localConfig_v2");
+				if (!raw) return null;
+				const config = JSON.parse(raw);
+				const teams = config?.teams;
+				if (!teams) return null;
+				for (const t of Object.values(teams) as Array<
+					Record<string, unknown>
+				>) {
+					const tok = t?.token as string | undefined;
+					if (tok?.startsWith("xoxc-")) return tok;
+				}
+				return null;
+			} catch {
+				return null;
+			}
+		});
+	} catch {
+		// Execution context destroyed (navigation), page closed, or
+		// cross-origin frame (SSO provider). All expected — retry.
+		return null;
 	}
 }
 
