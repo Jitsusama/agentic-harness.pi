@@ -15,6 +15,7 @@ import type { SlackClient } from "./api/client.js";
 import { clearAllConfig } from "./auth/credentials.js";
 import { handleSlackAuthCommand } from "./auth-command.js";
 import { ensureAuthenticated, formatAuthError } from "./auth-flow.js";
+import { displayNameForId } from "./resolvers/user.js";
 import { routeAction } from "./router.js";
 import type { OAuthApp } from "./types.js";
 
@@ -43,6 +44,35 @@ function truncateText(text: string, max: number): string {
 	const oneLine = text.replace(/\n/g, " ").trim();
 	if (oneLine.length <= max) return oneLine;
 	return `${oneLine.slice(0, max - 1)}…`;
+}
+
+/** Resolve a user ID to @handle for previews. */
+function resolveUser(userId: string | undefined): string {
+	if (!userId) return "?";
+	const name = displayNameForId(userId);
+	return `@${name}`;
+}
+
+/** Max message previews to show in collapsed view. */
+const MAX_PREVIEWS = 5;
+
+/** Render message previews with resolved usernames for collapsed view. */
+function renderMessagePreviews(
+	msgs: MessagePreview[],
+	theme: { fg: (color: string, text: string) => string },
+): string {
+	const shown = msgs.slice(0, MAX_PREVIEWS);
+	const lines = shown.map((m) => {
+		const who = theme.fg("dim", resolveUser(m.user));
+		const snippet = truncateText(m.text || "", 60);
+		return `  ${who}: ${snippet}`;
+	});
+	if (msgs.length > MAX_PREVIEWS) {
+		lines.push(
+			`  ${theme.fg("muted", `… ${msgs.length - MAX_PREVIEWS} more`)}`,
+		);
+	}
+	return lines.join("\n");
 }
 
 /** Fallback OAuth config from environment variables. */
@@ -242,20 +272,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 
 				if (msgs?.length) {
 					const summary = theme.fg("success", `✓ ${total} messages`);
-					const previews = msgs
-						.slice(0, 3)
-						.map((m) => {
-							const who = theme.fg("dim", m.user ? `@${m.user}` : "?");
-							const snippet = truncateText(m.text || "", 60);
-							return `  ${who}: ${snippet}`;
-						})
-						.join("\n");
-					const more =
-						msgs.length > 3
-							? `\n  ${theme.fg("muted", `… ${msgs.length - 3} more`)}`
-							: "";
+					const previews = renderMessagePreviews(msgs, theme);
 					if (!options.expanded) {
-						return new Text(`${summary}\n${previews}${more}`, 0, 0);
+						return new Text(`${summary}\n${previews}`, 0, 0);
 					}
 					return new Text(`${summary}\n${textContent}`, 0, 0);
 				}
@@ -263,7 +282,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				if (files?.length) {
 					const summary = theme.fg("success", `✓ ${total} files`);
 					const previews = files
-						.slice(0, 3)
+						.slice(0, MAX_PREVIEWS)
 						.map((f) => `  ${theme.fg("dim", f.name || "untitled")}`)
 						.join("\n");
 					if (!options.expanded) {
@@ -279,20 +298,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			if (Array.isArray(d?.messages)) {
 				const msgs = d.messages as MessagePreview[];
 				const summary = theme.fg("success", `✓ ${msgs.length} message(s)`);
-				const previews = msgs
-					.slice(0, 4)
-					.map((m) => {
-						const who = theme.fg("dim", m.user ? `@${m.user}` : "?");
-						const snippet = truncateText(m.text || "", 50);
-						return `  ${who}: ${snippet}`;
-					})
-					.join("\n");
-				const more =
-					msgs.length > 4
-						? `\n  ${theme.fg("muted", `… ${msgs.length - 4} more`)}`
-						: "";
+				const previews = renderMessagePreviews(msgs, theme);
 				if (!options.expanded) {
-					return new Text(`${summary}\n${previews}${more}`, 0, 0);
+					return new Text(`${summary}\n${previews}`, 0, 0);
 				}
 				return new Text(`${summary}\n${textContent}`, 0, 0);
 			}
@@ -328,7 +336,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			// Single message
 			if (d?.message) {
 				const m = d.message as MessagePreview;
-				const who = m.user ? `@${m.user}` : "?";
+				const who = resolveUser(m.user);
 				const snippet = truncateText(m.text || "", 60);
 				return new Text(
 					`${theme.fg("success", "✓")} ${theme.fg("dim", who)}: ${snippet}`,
