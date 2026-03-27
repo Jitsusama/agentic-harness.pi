@@ -52,9 +52,23 @@ with triaging issues."
 
 ### "My DMs with [person]" / "Conversations with [person]"
 → `search_messages` with `with: "person"` (no `from` filter)
-  Returns both sides of the conversation. Results include
-  DMs, group DMs and shared channels — use `channelKind` to
-  filter to just DMs if needed.
+  Returns both sides of the conversation. **Warning**: `with:`
+  returns results from DMs, group DMs *and* shared channels.
+  Slack has no `is:dm` search operator. When the user
+  specifically asks for DMs, prefer `list_messages` on the DM
+  channel directly (use `get_user` first to find their ID,
+  then use the DM channel ID `D…`). If you must use search,
+  filter results by `channelKind === "dm"` and tell the user
+  you've filtered.
+
+### "Last thread I started in [channel]"
+→ `search_messages` with `from: "me"` and `channel: "channel-name"`
+  Slack has no "thread parent only" operator. `is:thread`
+  matches replies too. To find threads the user *started*,
+  look for messages with `[N replies]` in the output — these
+  are thread parents. Messages without a reply count are
+  either top-level posts with no thread or replies within
+  someone else's thread.
 
 ### "Show me the thread" / "Get the full thread"
 → `get_thread` with `target: "permalink_url"` from previous results
@@ -103,7 +117,10 @@ Slack search supports these operators embedded in the `query`:
   Do not confuse with `has:reaction` which is unrelated.
 - `is:thread` — only thread messages
 - `is:saved` — your saved items
-- `after:YYYY-MM-DD` / `before:YYYY-MM-DD` — date range
+- `after:YYYY-MM-DD` / `before:YYYY-MM-DD` — date range.
+  **These are exclusive**: `after:2026-03-26` means messages
+  from March 27 onward, not from March 26. To include today,
+  use yesterday's date.
 - `on:YYYY-MM-DD` — exact date
 - `during:month` / `during:year` — relative dates (e.g. `during:march`)
 - `"exact phrase"` — quoted exact phrase match
