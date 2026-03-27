@@ -70,10 +70,9 @@ export async function fetchConversation(
  */
 export function refreshCachedDmNames(): void {
 	for (const conv of cache.values()) {
-		if (conv.kind === "dm" && conv.name) {
-			// name stores the DM partner's user ID for DMs.
-			const handle = displayNameForId(conv.name);
-			if (handle !== conv.name) {
+		if (conv.kind === "dm" && conv.dmUserId) {
+			const handle = displayNameForId(conv.dmUserId);
+			if (handle !== conv.dmUserId) {
 				conv.displayName = `@${handle}`;
 			}
 		}
@@ -101,10 +100,9 @@ function toConversation(ch: {
 			handle && handle !== userId ? `@${handle}` : userId ? userId : undefined;
 		return {
 			id: ch.id,
-			// Store the DM partner's user ID as name for later refresh.
-			name: userId,
 			kind: "dm",
 			displayName,
+			dmUserId: userId,
 		};
 	}
 

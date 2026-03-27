@@ -67,12 +67,14 @@ export type ConversationKind = "channel" | "dm" | "group_dm";
 export interface Conversation {
 	/** Slack conversation ID (C..., D..., G...). Always present. */
 	id: string;
-	/** Raw Slack name (e.g. "gitstream"). Undefined for DMs. */
+	/** Raw Slack channel name (e.g. "gitstream"). Undefined for DMs. */
 	name?: string;
 	/** What kind of conversation this is. */
 	kind: ConversationKind;
 	/** Human-readable name: "#gitstream", "@chao.duan", "@a, @b, @c". */
 	displayName?: string;
+	/** The other person's user ID. Only set when kind is "dm". */
+	dmUserId?: string;
 }
 
 /** A message target: a conversation plus a timestamp. */
@@ -90,9 +92,6 @@ export interface ResolvedParams {
 	/** Resolved user ID (from `user` param). */
 	userId?: string;
 }
-
-/** @deprecated Use ConversationKind instead. */
-export type ChannelKind = ConversationKind;
 
 /** An attachment or link unfurl on a Slack message. */
 export interface SlackAttachment {

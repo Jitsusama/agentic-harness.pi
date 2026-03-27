@@ -172,9 +172,8 @@ async function openDmConversation(
 
 	const conversation: Conversation = {
 		id: channelId,
-		// Store user ID as name for later display name refresh.
-		name: userId,
 		kind: "dm",
+		dmUserId: userId,
 	};
 	cacheConversation(conversation);
 	return conversation;
