@@ -55,6 +55,44 @@ function resolveUser(userId: string | undefined): string {
 	return `@${name}`;
 }
 
+/**
+ * Assemble the effective search query for display.
+ *
+ * Combines the raw query with structured parameters (from,
+ * with, after, before) so the user sees the full query that
+ * gets sent to Slack, not just the raw query parameter.
+ */
+function assembleQueryPreview(a: {
+	query?: string;
+	from?: string;
+	with?: string;
+	after?: string;
+	before?: string;
+	channel?: string;
+	limit?: number;
+}): string {
+	const parts: string[] = [];
+	if (a.query) parts.push(a.query);
+	if (a.from) {
+		const user = a.from.startsWith("@") ? a.from.slice(1) : a.from;
+		parts.push(`from:${user}`);
+	}
+	if (a.with) {
+		const user = a.with.startsWith("@") ? a.with.slice(1) : a.with;
+		parts.push(`with:${user}`);
+	}
+	if (a.channel) {
+		const ch = a.channel.startsWith("#") ? a.channel : `#${a.channel}`;
+		parts.push(`in:${ch}`);
+	}
+	if (a.after) parts.push(`after:${a.after}`);
+	if (a.before) parts.push(`before:${a.before}`);
+
+	const full = parts.join(" ");
+	if (full.length > 60) return `${full.slice(0, 59)}…`;
+	return full;
+}
+
 /** Max message previews to show in collapsed view. */
 const MAX_PREVIEWS = 5;
 
@@ -221,15 +259,27 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				target?: string;
 				user?: string;
 				emoji?: string;
+				from?: string;
+				with?: string;
+				after?: string;
+				before?: string;
+				limit?: number;
 			};
 			let label = theme.fg("toolTitle", theme.bold("slack "));
 			label += a.action ?? "?";
 
-			if (a.query) {
+			// Build the effective query showing all search parameters.
+			if (a.action?.startsWith("search")) {
+				const queryParts = assembleQueryPreview(a);
+				if (queryParts) {
+					label += theme.fg("dim", ` "${queryParts}"`);
+				}
+			} else if (a.query) {
 				const preview =
 					a.query.length > 40 ? `${a.query.slice(0, 40)}…` : a.query;
 				label += theme.fg("dim", ` "${preview}"`);
 			}
+
 			if (a.channel) {
 				const ch = a.channel.startsWith("#") ? a.channel : `#${a.channel}`;
 				label += theme.fg("dim", ` ${ch}`);
