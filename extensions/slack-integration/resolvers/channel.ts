@@ -19,11 +19,15 @@ const CACHE_FILE = "channels.json";
 /** Pattern matching Slack channel IDs (C, D, or G prefix). */
 const CHANNEL_ID_PATTERN = /^[CDG][A-Z0-9]{8,}$/;
 
+/** Pattern matching Slack user IDs (U or W prefix). */
+const USER_ID_PATTERN = /^[UW][A-Z0-9]{8,}$/;
+
 /**
  * Resolve a channel identifier to a channel ID.
  *
  * Accepts:
  *   - Channel ID (C..., D..., G...) → returned as-is
+ *   - User ID (U..., W...) → opens/finds the DM channel via conversations.open
  *   - Channel name (with or without #) → resolved via cache, then search
  *   - Slack URL → parsed for the channel ID
  */
@@ -33,6 +37,11 @@ export async function resolveChannel(
 ): Promise<string> {
 	if (CHANNEL_ID_PATTERN.test(input)) {
 		return input;
+	}
+
+	// User ID: open a DM channel with that user.
+	if (USER_ID_PATTERN.test(input)) {
+		return openDmChannel(client, input);
 	}
 
 	// Slack URL: extract channel ID directly.
@@ -88,4 +97,29 @@ export function cacheChannel(name: string, id: string): void {
 /** List all cached channel mappings. */
 export function listCachedChannels(): Array<{ name: string; id: string }> {
 	return listCached(CACHE_FILE);
+}
+
+/**
+ * Open or find the DM channel for a user ID.
+ *
+ * Uses conversations.open which returns the existing DM channel
+ * if one exists, or creates it if not.
+ */
+async function openDmChannel(
+	client: SlackClient,
+	userId: string,
+): Promise<string> {
+	const response = await client.call<{
+		channel: { id: string };
+	}>("conversations.open", { users: userId });
+
+	const channelId = response.channel?.id;
+	if (!channelId) {
+		throw new Error(
+			`Could not open DM channel for user "${userId}". ` +
+				"Verify the user ID is correct.",
+		);
+	}
+
+	return channelId;
 }
