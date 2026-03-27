@@ -5,7 +5,7 @@
  * and sending messages/replies.
  */
 
-import { cacheUser } from "../resolvers/user.js";
+import { cacheUser, resolveUser } from "../resolvers/user.js";
 import type {
 	Conversation,
 	SlackAttachment,
@@ -230,6 +230,51 @@ export interface SendResult {
 }
 
 /**
+ * Pattern matching @handle mentions in outgoing message text.
+ *
+ * Matches `@word.word` patterns (e.g. @franck.delache) that
+ * aren't already inside Slack's `<@U...>` syntax. Handles
+ * may contain dots, hyphens and underscores.
+ */
+const OUTGOING_MENTION_PATTERN = /(?<![<@\w])@([\w][\w.-]+[\w])/g;
+
+/**
+ * Convert @handle mentions to Slack's `<@USER_ID>` format.
+ *
+ * Resolves each @handle via the user resolver (cache first,
+ * API fallback). Handles that can't be resolved are left as
+ * plain text so the message still sends.
+ */
+async function formatMentions(
+	client: SlackClient,
+	text: string,
+	signal?: AbortSignal,
+): Promise<string> {
+	const matches = [...text.matchAll(OUTGOING_MENTION_PATTERN)];
+	if (matches.length === 0) return text;
+
+	// Deduplicate handles to avoid resolving the same one twice.
+	const uniqueHandles = [...new Set(matches.map((m) => m[1]))];
+	const resolved = new Map<string, string>();
+
+	for (const handle of uniqueHandles) {
+		try {
+			const userId = await resolveUser(client, handle, signal);
+			resolved.set(handle, userId);
+		} catch {
+			// Handle couldn't be resolved. Leave it as plain text.
+		}
+	}
+
+	if (resolved.size === 0) return text;
+
+	return text.replace(OUTGOING_MENTION_PATTERN, (_match, handle: string) => {
+		const userId = resolved.get(handle);
+		return userId ? `<@${userId}>` : `@${handle}`;
+	});
+}
+
+/**
  * Send a message to a channel.
  */
 export async function sendMessage(
@@ -238,10 +283,11 @@ export async function sendMessage(
 	text: string,
 	signal?: AbortSignal,
 ): Promise<SendResult> {
+	const formatted = await formatMentions(client, text, signal);
 	const response = await client.call<{
 		channel: string;
 		ts: string;
-	}>("chat.postMessage", { channel: conversationId, text }, signal);
+	}>("chat.postMessage", { channel: conversationId, text: formatted }, signal);
 
 	return {
 		ok: true,
@@ -260,12 +306,13 @@ export async function replyToThread(
 	text: string,
 	signal?: AbortSignal,
 ): Promise<SendResult> {
+	const formatted = await formatMentions(client, text, signal);
 	const response = await client.call<{
 		channel: string;
 		ts: string;
 	}>(
 		"chat.postMessage",
-		{ channel: conversationId, text, thread_ts: threadTs },
+		{ channel: conversationId, text: formatted, thread_ts: threadTs },
 		signal,
 	);
 

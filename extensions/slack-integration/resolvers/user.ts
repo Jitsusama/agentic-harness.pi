@@ -28,6 +28,7 @@ const USER_ID_PATTERN = /^[UW][A-Z0-9]{8,}$/;
 export async function resolveUser(
 	client: SlackClient,
 	input: string,
+	signal?: AbortSignal,
 ): Promise<string> {
 	if (USER_ID_PATTERN.test(input)) {
 		return input;
@@ -49,10 +50,7 @@ export async function resolveUser(
 				username: string;
 			}>;
 		};
-	}>("search.messages", {
-		query: `from:${name} *`,
-		count: 1,
-	});
+	}>("search.messages", { query: `from:${name} *`, count: 1 }, signal);
 
 	const match = response.messages?.matches?.[0];
 	if (match?.user && match?.username) {
