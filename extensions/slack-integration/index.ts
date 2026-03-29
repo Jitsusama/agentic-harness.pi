@@ -14,12 +14,15 @@ import { Type } from "@sinclair/typebox";
 import { getLastEntry } from "../../lib/internal/state.js";
 import type { SlackClient } from "../../lib/slack/api/client.js";
 import { clearAllConfig, getToken } from "../../lib/slack/auth/credentials.js";
+import {
+	ensureAuthenticated,
+	formatAuthError,
+} from "../../lib/slack/auth/ensure-auth.js";
 import { formatSlackText } from "../../lib/slack/renderers/message.js";
 import { parseSlackUrl } from "../../lib/slack/resolvers/url.js";
 import { displayNameForId } from "../../lib/slack/resolvers/user.js";
 import type { OAuthApp, SlackUser } from "../../lib/slack/types.js";
 import { handleSlackAuthCommand } from "./auth-command.js";
-import { ensureAuthenticated, formatAuthError } from "./auth-flow.js";
 import { routeAction } from "./router.js";
 import { createSessionState, type SlackSessionState } from "./state.js";
 

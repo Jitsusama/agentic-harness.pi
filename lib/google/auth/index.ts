@@ -1,40 +1,15 @@
 /**
- * Google Workspace authentication: OAuth flow, token
- * management, credential storage and device flow.
+ * Google Workspace authentication: one-call auth entry point,
+ * credential state and error formatting.
  */
 
-export { openInBrowser } from "./browser.js";
 export {
-	clearAllConfig,
+	ensureAuthenticated,
+	formatAuthError,
+} from "./ensure-auth.js";
+export {
 	getCredentials,
 	getDefaultAccount,
 	listAccounts,
 	type OAuthAppCredentials,
-	saveAccount,
-	setDefaultAccount,
-	storeCredentials,
 } from "./credentials.js";
-export {
-	authenticateWithFallback,
-	type OAuthFlowResult,
-} from "./dual-flow.js";
-export {
-	getOAuthApp,
-	hasOAuthApp,
-	storeOAuthApp,
-} from "./oauth-app.js";
-export {
-	createOAuth2Client,
-	type DeviceFlowResponse,
-	extractTokens,
-	initiateDeviceFlow,
-	type OAuth2Config,
-	pollForDeviceAuthorization,
-	refreshTokenIfNeeded,
-	SCOPES,
-	setCredentials,
-} from "./oauth.js";
-export {
-	type OAuthCallbackResult,
-	waitForOAuthCallback,
-} from "./server.js";

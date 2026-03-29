@@ -1,31 +1,12 @@
 /**
- * Slack authentication: OAuth flow, token management,
- * credential storage and browser extraction.
+ * Slack authentication: one-call auth entry point,
+ * credential state and error formatting.
  */
 
 export {
-	type BrowserCredentials,
-	extractFromBrowser,
-} from "./browser-extract.js";
-export { openInBrowser } from "./browser.js";
-export {
-	clearAllConfig,
-	getOAuthApp,
-	getToken,
-	hasOAuthApp,
-	hasToken,
-	storeOAuthApp,
-	storeToken,
-} from "./credentials.js";
-export { extractFromCurl, isValidCookie, isValidToken } from "./extract.js";
-export {
-	buildAuthUrl,
-	CALLBACK_PORT,
-	exchangeCodeForToken,
-	REDIRECT_URI,
-	SCOPES,
-} from "./oauth.js";
-export {
-	type OAuthCallbackResult,
-	waitForOAuthCallback,
-} from "./server.js";
+	ensureAuthenticated,
+	formatAuthError,
+} from "./ensure-auth.js";
+export { getToken, hasToken } from "./credentials.js";
+export type { OAuthApp } from "../types.js";
+export type { StoredToken } from "../types.js";

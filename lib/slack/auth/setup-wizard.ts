@@ -12,8 +12,9 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { SlackClient } from "../../lib/slack/api/client.js";
-import { extractFromBrowser } from "../../lib/slack/auth/browser-extract.js";
+import { SlackClient } from "../api/client.js";
+import { promptSingle, view } from "../../ui/index.js";
+import { extractFromBrowser } from "./browser-extract.js";
 import {
 	getOAuthApp,
 	getToken,
@@ -22,9 +23,8 @@ import {
 	type OAuthApp,
 	storeOAuthApp,
 	storeToken,
-} from "../../lib/slack/auth/credentials.js";
-import { extractFromCurl } from "../../lib/slack/auth/extract.js";
-import { promptSingle, view } from "../../lib/ui/index.js";
+} from "./credentials.js";
+import { extractFromCurl } from "./extract.js";
 
 /**
  * Ensure the user has valid Slack credentials.
