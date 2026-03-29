@@ -1,10 +1,18 @@
 /**
  * Conversation resolver: any identifier → Conversation.
  *
- * Accepts channel names (with or without #), channel IDs,
- * user IDs, and Slack URLs. Returns a Conversation with at
- * least id and kind populated. Uses the shared conversation
- * cache to avoid redundant API calls.
+ * Accepts channel IDs, user IDs, @-prefixed user handles,
+ * #-prefixed channel names, bare channel names and Slack
+ * URLs. Returns a Conversation with at least id and kind
+ * populated. Uses the shared conversation cache to avoid
+ * redundant API calls.
+ *
+ * The prefix determines intent: `@handle` resolves as a
+ * user (opening the DM conversation), `#name` resolves as
+ * a channel. IDs are detected by their Slack prefix pattern
+ * (C/D/G for channels, U/W for users). Bare strings that
+ * match none of these fall through to channel name search
+ * as a last resort.
  *
  * On enterprise grids, conversations.list is blocked, so we
  * resolve channel names by searching for a message in that
@@ -21,6 +29,7 @@ import {
 	inferKindFromId,
 } from "./conversation-cache.js";
 import { parseSlackUrl } from "./url.js";
+import { resolveUser } from "./user.js";
 
 const CACHE_FILE = "channels.json";
 
@@ -36,6 +45,7 @@ const USER_ID_PATTERN = /^[UW][A-Z0-9]{8,}$/;
  * Accepts:
  *   - Channel ID (C..., D..., G...) → fetched via cache or conversations.info
  *   - User ID (U..., W...) → opens/finds the DM conversation via conversations.open
+ *   - @handle (e.g. "@joel.gerber") → resolved to user ID via search, then DM
  *   - Channel name (with or without #) → resolved via file cache, then search
  *   - Slack URL → parsed for the channel ID
  */
@@ -60,6 +70,12 @@ export async function resolveConversation(
 	// URL that contains /archives/CHANNELID/ but didn't match the full pattern.
 	const archiveMatch = input.match(/archives\/([CDG][A-Z0-9]+)/);
 	if (archiveMatch) return resolveById(client, archiveMatch[1]);
+
+	// User handle: @joel.gerber → resolve to user ID, then DM.
+	if (input.startsWith("@")) {
+		const userId = await resolveUser(client, input.slice(1));
+		return openDmConversation(client, userId);
+	}
 
 	// Channel name: strip leading #.
 	const name = input.startsWith("#") ? input.slice(1) : input;
