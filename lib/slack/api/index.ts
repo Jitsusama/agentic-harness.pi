@@ -3,7 +3,7 @@
  */
 
 export { getChannelInfo } from "./channels.js";
-export { SlackClient, type SlackApiResponse } from "./client.js";
+export { SlackClient } from "./client.js";
 export {
 	getMessage,
 	getThread,
@@ -21,12 +21,6 @@ export {
 	removeReaction,
 } from "./reactions.js";
 export {
-	cacheConversationFromSearch,
-	refreshDmNames,
-	resolveConversationsInMessages,
-} from "./resolve-conversations.js";
-export { resolveUsersInMessages } from "./resolve-users.js";
-export {
 	type FileSearchResult,
 	type MessageSearchResult,
 	searchFiles,
@@ -34,4 +28,3 @@ export {
 	type SlackFileResult,
 } from "./search.js";
 export { getUserInfo } from "./users.js";
-

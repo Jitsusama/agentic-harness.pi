@@ -8,4 +8,14 @@
 export * from "./apis/index.js";
 export * from "./auth/index.js";
 export * from "./renderers/index.js";
-export * from "./types.js";
+
+// Re-export domain types (omit router internals).
+export type {
+	CalendarEvent,
+	DocumentComment,
+	DriveFile,
+	EmailMessage,
+	EmailMessageFull,
+	GoogleAccount,
+	StoredCredentials,
+} from "./types.js";

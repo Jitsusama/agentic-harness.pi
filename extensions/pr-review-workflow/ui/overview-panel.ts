@@ -13,10 +13,8 @@ import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import type { DiffFile } from "../../../lib/internal/github/diff.js";
 import {
-	CONTENT_INDENT,
 	contentWrapWidth,
 	type DetailEntry,
-	handleNavigableListInput,
 	type KeyAction,
 	languageFromPath,
 	type NavigableItem,
@@ -25,13 +23,15 @@ import {
 	renderDiff,
 	renderNavigableList,
 	renderNavigableSections,
-	type WorkspaceInputContext,
 	type WorkspaceItem,
 	type WorkspaceResult,
 	type WorkspaceView,
 	wordWrap,
 	workspace,
 } from "../../../lib/ui/index.js";
+import { handleNavigableListInput } from "../../../lib/ui/navigable-list.js";
+import { CONTENT_INDENT } from "../../../lib/ui/text-layout.js";
+import type { WorkspaceInputContext } from "../../../lib/ui/types.js";
 import type { PRContext, Reference } from "../state.js";
 import { buildDiffText, shortPath } from "./diff-display.js";
 

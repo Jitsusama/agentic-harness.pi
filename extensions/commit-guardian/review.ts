@@ -10,7 +10,8 @@ import {
 	type CommandGuardian,
 	type GuardianResult,
 } from "../../lib/internal/guardian/types.js";
-import { formatRedirectBlock, promptSingle } from "../../lib/ui/index.js";
+import { promptSingle } from "../../lib/ui/index.js";
+import { formatRedirectBlock } from "../../lib/ui/redirect.js";
 import { extractCommitFlags, extractMessage, splitAtCommit } from "./parse.js";
 import { type CommitValidation, validate } from "./validate.js";
 

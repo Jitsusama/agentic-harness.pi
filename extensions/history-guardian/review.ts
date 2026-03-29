@@ -9,11 +9,8 @@ import {
 	type CommandGuardian,
 	type GuardianResult,
 } from "../../lib/internal/guardian/types.js";
-import {
-	formatRedirectBlock,
-	promptSingle,
-	renderMarkdown,
-} from "../../lib/ui/index.js";
+import { promptSingle, renderMarkdown } from "../../lib/ui/index.js";
+import { formatRedirectBlock } from "../../lib/ui/redirect.js";
 import {
 	DESTRUCTIVE_PATTERNS,
 	type DestructivePattern,

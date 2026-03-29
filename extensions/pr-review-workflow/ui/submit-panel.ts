@@ -6,11 +6,8 @@
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import {
-	CONTENT_INDENT,
-	promptSingle,
-	renderMarkdown,
-} from "../../../lib/ui/index.js";
+import { promptSingle, renderMarkdown } from "../../../lib/ui/index.js";
+import { CONTENT_INDENT } from "../../../lib/ui/text-layout.js";
 import type {
 	ReviewObservation,
 	ReviewSession,

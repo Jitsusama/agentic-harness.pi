@@ -13,20 +13,20 @@
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import {
-	CONTENT_INDENT,
 	contentWrapWidth,
-	handleNavigableListInput,
 	type NavigableItem,
 	renderMarkdown,
 	renderNavigableList,
-	tabCompletion,
-	type WorkspaceInputContext,
 	type WorkspaceItem,
 	type WorkspaceResult,
 	type WorkspaceView,
 	wordWrap,
 	workspace,
 } from "../../../lib/ui/index.js";
+import { handleNavigableListInput } from "../../../lib/ui/navigable-list.js";
+import { tabCompletion } from "../../../lib/ui/tab-completion.js";
+import { CONTENT_INDENT } from "../../../lib/ui/text-layout.js";
+import type { WorkspaceInputContext } from "../../../lib/ui/types.js";
 import type {
 	PRReplyState,
 	ReceivedReview,

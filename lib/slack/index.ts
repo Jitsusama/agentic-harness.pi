@@ -9,4 +9,19 @@ export * from "./api/index.js";
 export * from "./auth/index.js";
 export * from "./renderers/index.js";
 export * from "./resolvers/index.js";
-export * from "./types.js";
+
+// Re-export domain types (omit router internals).
+export type {
+	Conversation,
+	ConversationKind,
+	MessageTarget,
+	OAuthApp,
+	SearchResult,
+	SlackAttachment,
+	SlackChannel,
+	SlackFile,
+	SlackMessage,
+	SlackReaction,
+	SlackUser,
+	StoredToken,
+} from "./types.js";
