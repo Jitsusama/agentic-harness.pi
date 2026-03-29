@@ -11,17 +11,17 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import type { SlackClient } from "../../lib/slack/api/client.js";
+import { clearAllConfig, getToken } from "../../lib/slack/auth/credentials.js";
+import { formatSlackText } from "../../lib/slack/renderers/message.js";
+import { parseSlackUrl } from "../../lib/slack/resolvers/url.js";
+import { displayNameForId } from "../../lib/slack/resolvers/user.js";
+import type { OAuthApp, SlackUser } from "../../lib/slack/types.js";
 import { getLastEntry } from "../lib/state.js";
-import type { SlackClient } from "./api/client.js";
-import { clearAllConfig, getToken } from "./auth/credentials.js";
 import { handleSlackAuthCommand } from "./auth-command.js";
 import { ensureAuthenticated, formatAuthError } from "./auth-flow.js";
-import { formatSlackText } from "./renderers/message.js";
-import { parseSlackUrl } from "./resolvers/url.js";
-import { displayNameForId } from "./resolvers/user.js";
 import { routeAction } from "./router.js";
 import { createSessionState, type SlackSessionState } from "./state.js";
-import type { OAuthApp, SlackUser } from "./types.js";
 
 /** Lightweight shapes for renderResult previews. */
 interface MessagePreview {

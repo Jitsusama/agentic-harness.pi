@@ -8,54 +8,54 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { getChannelInfo } from "./api/channels.js";
-import type { SlackClient } from "./api/client.js";
+import { getChannelInfo } from "../../lib/slack/api/channels.js";
+import type { SlackClient } from "../../lib/slack/api/client.js";
 import {
 	getMessage,
 	getThread,
 	listMessages,
 	replyToThread,
 	sendMessage,
-} from "./api/messages.js";
+} from "../../lib/slack/api/messages.js";
 import {
 	addReaction,
 	getReactions,
 	listReactions,
 	removeReaction,
-} from "./api/reactions.js";
+} from "../../lib/slack/api/reactions.js";
 import {
 	refreshDmNames,
 	resolveConversationsInMessages,
-} from "./api/resolve-conversations.js";
-import { searchFiles, searchMessages } from "./api/search.js";
-import { getUserInfo } from "./api/users.js";
-import {
-	confirmReaction,
-	confirmReply,
-	confirmSendMessage,
-} from "./confirmation.js";
-import { renderChannel } from "./renderers/channel.js";
+} from "../../lib/slack/api/resolve-conversations.js";
+import { searchFiles, searchMessages } from "../../lib/slack/api/search.js";
+import { getUserInfo } from "../../lib/slack/api/users.js";
+import { renderChannel } from "../../lib/slack/renderers/channel.js";
 import {
 	renderMessage,
 	renderMessageList,
 	renderThread,
-} from "./renderers/message.js";
+} from "../../lib/slack/renderers/message.js";
 import {
 	renderMessageReactions,
 	renderReactedMessages,
-} from "./renderers/reactions.js";
-import { renderFileList } from "./renderers/search.js";
-import { renderUser } from "./renderers/user.js";
-import { resolveConversation } from "./resolvers/conversation.js";
-import { resolveTarget } from "./resolvers/target.js";
-import { resolveUser } from "./resolvers/user.js";
+} from "../../lib/slack/renderers/reactions.js";
+import { renderFileList } from "../../lib/slack/renderers/search.js";
+import { renderUser } from "../../lib/slack/renderers/user.js";
+import { resolveConversation } from "../../lib/slack/resolvers/conversation.js";
+import { resolveTarget } from "../../lib/slack/resolvers/target.js";
+import { resolveUser } from "../../lib/slack/resolvers/user.js";
 import {
 	type ActionParams,
 	numberParam,
 	type ResolvedParams,
 	stringParam,
 	type ToolResult,
-} from "./types.js";
+} from "../../lib/slack/types.js";
+import {
+	confirmReaction,
+	confirmReply,
+	confirmSendMessage,
+} from "./confirmation.js";
 
 /** Handler function that processes a Slack action. */
 type ActionHandler = (

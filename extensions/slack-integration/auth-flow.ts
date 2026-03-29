@@ -10,21 +10,21 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { view } from "../../lib/ui/index.js";
-import { SlackClient } from "./api/client.js";
-import { openInBrowser } from "./auth/browser.js";
+import { SlackClient } from "../../lib/slack/api/client.js";
+import { openInBrowser } from "../../lib/slack/auth/browser.js";
 import {
 	getToken,
 	hasToken,
 	type OAuthApp,
 	storeToken,
-} from "./auth/credentials.js";
+} from "../../lib/slack/auth/credentials.js";
 import {
 	buildAuthUrl,
 	CALLBACK_PORT,
 	exchangeCodeForToken,
-} from "./auth/oauth.js";
-import { waitForOAuthCallback } from "./auth/server.js";
+} from "../../lib/slack/auth/oauth.js";
+import { waitForOAuthCallback } from "../../lib/slack/auth/server.js";
+import { view } from "../../lib/ui/index.js";
 import { ensureSetup } from "./setup-wizard.js";
 
 /**
