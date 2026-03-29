@@ -9,7 +9,7 @@ import type {
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import { getLastEntry } from "../lib/state.js";
+import { getLastEntry } from "../../lib/internal/state.js";
 import {
 	type PRReplyState,
 	type ReceivedReview,

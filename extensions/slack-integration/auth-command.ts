@@ -6,11 +6,15 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { view } from "../lib/ui/panel.js";
-import { SlackClient } from "./api/client.js";
-import { clearAllConfig, getToken, hasToken } from "./auth/credentials.js";
-import { ensureSetup } from "./setup-wizard.js";
-import type { OAuthApp } from "./types.js";
+import { SlackClient } from "../../lib/slack/api/client.js";
+import {
+	clearAllConfig,
+	getToken,
+	hasToken,
+} from "../../lib/slack/auth/credentials.js";
+import { ensureSetup } from "../../lib/slack/auth/setup-wizard.js";
+import type { OAuthApp } from "../../lib/slack/types.js";
+import { view } from "../../lib/ui/index.js";
 
 /**
  * Handle /slack-auth command.

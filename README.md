@@ -61,6 +61,43 @@ the TDD workflow:
 }
 ```
 
+## Library
+
+The [`lib/`](lib/) directory provides reusable TypeScript code
+that other Pi packages can import without loading any of this
+package's extensions or skills. Add this repo as a dependency:
+
+```json
+{
+  "dependencies": {
+    "agentic-harness.pi": "github:Jitsusama/agentic-harness.pi"
+  }
+}
+```
+
+Then import from the public modules:
+
+```typescript
+import { promptSingle, renderMarkdown } from "agentic-harness.pi/ui";
+import { ensureAuthenticated, searchMessages } from "agentic-harness.pi/slack";
+import { ensureAuthenticated, listEvents } from "agentic-harness.pi/google";
+import { webSearch, readPage } from "agentic-harness.pi/web";
+```
+
+Four public libraries are available:
+
+- **[`lib/ui/`](lib/ui/)** — TUI primitives: panels, prompts,
+  content rendering, navigable lists and text layout.
+- **[`lib/slack/`](lib/slack/)** — Slack API client,
+  authentication, renderers and resolvers.
+- **[`lib/google/`](lib/google/)** — Google Workspace API
+  clients, authentication and renderers.
+- **[`lib/web/`](lib/web/)** — Web search and page reading
+  via headless Chrome.
+
+Everything in `lib/internal/` is not part of the public
+surface and may change without notice.
+
 ## Project-Local Overrides
 
 Each project can layer on its own configuration via `.pi/`:

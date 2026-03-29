@@ -10,29 +10,25 @@
 import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
-import type { DiffFile } from "../../lib/github/diff.js";
+import type { DiffFile } from "../../../lib/internal/github/diff.js";
 import {
+	type DetailEntry,
+	type KeyAction,
 	languageFromPath,
+	type NavigableItem,
 	renderCode,
 	renderDiff,
 	renderMarkdown,
-} from "../../lib/ui/content-renderer.js";
-import {
-	type DetailEntry,
-	handleNavigableListInput,
-	type NavigableItem,
 	renderNavigableList,
-} from "../../lib/ui/navigable-list.js";
-import { workspace } from "../../lib/ui/panel.js";
-import { tabCompletion } from "../../lib/ui/tab-completion.js";
-import { CONTENT_INDENT } from "../../lib/ui/text-layout.js";
-import type {
-	KeyAction,
-	WorkspaceInputContext,
-	WorkspaceItem,
-	WorkspaceResult,
-	WorkspaceView,
-} from "../../lib/ui/types.js";
+	type WorkspaceItem,
+	type WorkspaceResult,
+	type WorkspaceView,
+	workspace,
+} from "../../../lib/ui/index.js";
+import { handleNavigableListInput } from "../../../lib/ui/navigable-list.js";
+import { tabCompletion } from "../../../lib/ui/tab-completion.js";
+import { CONTENT_INDENT } from "../../../lib/ui/text-layout.js";
+import type { WorkspaceInputContext } from "../../../lib/ui/types.js";
 import {
 	commentsByCategory,
 	commentsForFile,

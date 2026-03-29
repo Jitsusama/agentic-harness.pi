@@ -4,7 +4,7 @@
  * PR reply session when active.
  */
 
-import { filterContext } from "../lib/state.js";
+import { filterContext } from "../../lib/internal/state.js";
 import { type PRReplyState, threadsForReview } from "./state.js";
 
 /** Custom message type for PR reply context. */

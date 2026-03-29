@@ -573,7 +573,7 @@ other features are accessed via slash commands (`/plan`,
 
 ### 4.2 Shared UI Infrastructure
 
-These are handled by library components in `extensions/lib/ui/`
+These are handled by library components in `lib/ui/`
 and apply across all panels and workspaces that use them.
 
 #### Panel and Prompt Dismissal

@@ -14,9 +14,13 @@
 import type { ExtensionAPI, Theme } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { promptSingle, promptTabbed } from "../lib/ui/panel.js";
-import type { ListChoice, PromptItem } from "../lib/ui/types.js";
+import {
+	type ListChoice,
+	type PromptItem,
+	promptSingle,
+	promptTabbed,
+	renderMarkdown,
+} from "../../lib/ui/index.js";
 
 // Types
 interface QuestionOption {

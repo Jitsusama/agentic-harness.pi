@@ -9,7 +9,7 @@ export {
 	extractCommitFlags,
 	extractMessage,
 	splitAtCommit,
-} from "../lib/guardian/shell.js";
+} from "../../lib/internal/guardian/shell.js";
 
 /**
  * Detect whether a bash command contains a git commit with

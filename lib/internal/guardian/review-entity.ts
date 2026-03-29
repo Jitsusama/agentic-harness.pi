@@ -9,9 +9,11 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { renderMarkdown } from "../ui/content-renderer.js";
-import { promptSingle } from "../ui/panel.js";
-import { formatRedirectBlock } from "../ui/redirect.js";
+import {
+	formatRedirectBlock,
+	promptSingle,
+	renderMarkdown,
+} from "../../ui/index.js";
 import { ALLOW, type GuardianResult } from "./types.js";
 
 /** Labels that distinguish one entity type from another. */

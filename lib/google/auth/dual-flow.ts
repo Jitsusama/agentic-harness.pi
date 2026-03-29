@@ -5,7 +5,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { Credentials } from "google-auth-library";
-import { view } from "../../lib/ui/panel.js";
+import { view } from "../../ui/index.js";
 import { openInBrowser } from "./browser.js";
 import type { OAuth2Config } from "./oauth.js";
 import {

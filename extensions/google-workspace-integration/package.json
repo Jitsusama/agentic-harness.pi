@@ -1,9 +1,5 @@
 {
 	"name": "google-workspace-extension",
 	"version": "0.1.0",
-	"type": "module",
-	"dependencies": {
-		"googleapis": "^140.0.1",
-		"google-auth-library": "^9.14.2"
-	}
+	"type": "module"
 }

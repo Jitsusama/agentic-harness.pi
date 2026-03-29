@@ -9,6 +9,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
+import type { ActionParams, ToolResult } from "../../lib/google/types.js";
 import {
 	handleCreateEvent,
 	handleDeleteEvent,
@@ -34,7 +35,6 @@ import {
 	handleSendEmail,
 	handleUnarchiveEmail,
 } from "./router/gmail-handlers.js";
-import type { ActionParams, ToolResult } from "./types.js";
 
 /** Handler function that processes a Google Workspace action. */
 type ActionHandler = (

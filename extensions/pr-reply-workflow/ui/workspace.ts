@@ -12,25 +12,21 @@
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
-import { renderMarkdown } from "../../lib/ui/content-renderer.js";
 import {
-	handleNavigableListInput,
-	type NavigableItem,
-	renderNavigableList,
-} from "../../lib/ui/navigable-list.js";
-import { workspace } from "../../lib/ui/panel.js";
-import { tabCompletion } from "../../lib/ui/tab-completion.js";
-import {
-	CONTENT_INDENT,
 	contentWrapWidth,
+	type NavigableItem,
+	renderMarkdown,
+	renderNavigableList,
+	type WorkspaceItem,
+	type WorkspaceResult,
+	type WorkspaceView,
 	wordWrap,
-} from "../../lib/ui/text-layout.js";
-import type {
-	WorkspaceInputContext,
-	WorkspaceItem,
-	WorkspaceResult,
-	WorkspaceView,
-} from "../../lib/ui/types.js";
+	workspace,
+} from "../../../lib/ui/index.js";
+import { handleNavigableListInput } from "../../../lib/ui/navigable-list.js";
+import { tabCompletion } from "../../../lib/ui/tab-completion.js";
+import { CONTENT_INDENT } from "../../../lib/ui/text-layout.js";
+import type { WorkspaceInputContext } from "../../../lib/ui/types.js";
 import type {
 	PRReplyState,
 	ReceivedReview,

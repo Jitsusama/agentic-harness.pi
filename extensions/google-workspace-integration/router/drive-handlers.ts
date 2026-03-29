@@ -3,28 +3,31 @@
  */
 
 import type { OAuth2Client } from "google-auth-library";
-import { getDocComments, getDocContent } from "../apis/docs.js";
+import {
+	getDocComments,
+	getDocContent,
+} from "../../../lib/google/apis/docs.js";
 import {
 	getFileMetadata,
 	listFiles,
 	listSharedDrives,
 	parseGoogleUrl,
-} from "../apis/drive.js";
-import { getSheetContent } from "../apis/sheets.js";
-import { getSlideContent } from "../apis/slides.js";
+} from "../../../lib/google/apis/drive.js";
+import { getSheetContent } from "../../../lib/google/apis/sheets.js";
+import { getSlideContent } from "../../../lib/google/apis/slides.js";
 import {
 	renderDoc,
 	renderFileList,
 	renderSheet,
 	renderSlides,
-} from "../renderers/drive.js";
+} from "../../../lib/google/renderers/drive.js";
 import {
 	type ActionParams,
 	getBooleanParam,
 	getNumberParam,
 	getStringParam,
 	type ToolResult,
-} from "../types.js";
+} from "../../../lib/google/types.js";
 
 /** Search and list Google Drive files with optional filters. */
 export async function handleListFiles(

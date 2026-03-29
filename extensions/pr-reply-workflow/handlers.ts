@@ -10,7 +10,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { resolveRepo } from "../lib/github/repo-discovery.js";
+import { resolveRepo } from "../../lib/internal/github/repo-discovery.js";
 import {
 	fetchReviews,
 	getPRBranch,
@@ -903,7 +903,7 @@ async function reviewAndPostReply(
 function handleRepoResult(
 	ctx: ExtensionContext,
 	result: Exclude<
-		import("../lib/github/repo-discovery.js").RepoResolution,
+		import("../../lib/internal/github/repo-discovery.js").RepoResolution,
 		{ status: "current" }
 	>,
 	ref: PRReference,

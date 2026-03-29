@@ -1,8 +1,5 @@
 {
 	"name": "slack-integration",
 	"version": "0.1.0",
-	"type": "module",
-	"dependencies": {
-		"puppeteer-core": "^24.0.0"
-	}
+	"type": "module"
 }

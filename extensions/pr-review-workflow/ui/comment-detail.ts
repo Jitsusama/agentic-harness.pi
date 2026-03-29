@@ -7,12 +7,8 @@
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import { view } from "../../lib/ui/panel.js";
-import {
-	CONTENT_INDENT,
-	contentWrapWidth,
-	wordWrap,
-} from "../../lib/ui/text-layout.js";
+import { contentWrapWidth, view, wordWrap } from "../../../lib/ui/index.js";
+import { CONTENT_INDENT } from "../../../lib/ui/text-layout.js";
 import type { ReviewObservation } from "../state.js";
 
 /**

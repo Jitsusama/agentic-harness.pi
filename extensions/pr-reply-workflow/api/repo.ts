@@ -4,8 +4,8 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { parsePRReference } from "../../lib/github/pr-reference.js";
-import { getCurrentRepo } from "../../lib/github/repo-discovery.js";
+import { parsePRReference } from "../../../lib/internal/github/pr-reference.js";
+import { getCurrentRepo } from "../../../lib/internal/github/repo-discovery.js";
 import { findPRForBranch, type PRReference } from "./github.js";
 
 // Re-export for other pr-reply modules.

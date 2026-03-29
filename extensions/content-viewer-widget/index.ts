@@ -19,8 +19,8 @@ import {
 	renderCode,
 	renderDiff,
 	renderMarkdown,
-} from "../lib/ui/content-renderer.js";
-import { view } from "../lib/ui/panel.js";
+	view,
+} from "../../lib/ui/index.js";
 
 /** Content type for explicit rendering. */
 type ContentType = "markdown" | "diff" | "code";

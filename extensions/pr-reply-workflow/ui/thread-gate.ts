@@ -7,8 +7,11 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { renderCode, renderMarkdown } from "../../lib/ui/content-renderer.js";
-import { promptSingle } from "../../lib/ui/panel.js";
+import {
+	promptSingle,
+	renderCode,
+	renderMarkdown,
+} from "../../../lib/ui/index.js";
 import type { CodeContext } from "../code-context.js";
 import type { ReceivedReview, ReviewThread } from "../state.js";
 

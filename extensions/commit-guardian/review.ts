@@ -9,9 +9,9 @@ import {
 	ALLOW,
 	type CommandGuardian,
 	type GuardianResult,
-} from "../lib/guardian/types.js";
-import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirectBlock } from "../lib/ui/redirect.js";
+} from "../../lib/internal/guardian/types.js";
+import { promptSingle } from "../../lib/ui/index.js";
+import { formatRedirectBlock } from "../../lib/ui/redirect.js";
 import { extractCommitFlags, extractMessage, splitAtCommit } from "./parse.js";
 import { type CommitValidation, validate } from "./validate.js";
 

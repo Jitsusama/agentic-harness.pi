@@ -4,7 +4,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { languageFromPath } from "../lib/ui/content-renderer.js";
+import { languageFromPath } from "../../lib/ui/index.js";
 
 /** Code context around a commented line, ready for rendering. */
 export interface CodeContext {

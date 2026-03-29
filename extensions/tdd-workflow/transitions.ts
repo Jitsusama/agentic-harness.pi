@@ -7,9 +7,8 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
-import { filterContext } from "../lib/state.js";
-import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { promptSingle } from "../lib/ui/panel.js";
+import { filterContext } from "../../lib/internal/state.js";
+import { promptSingle, renderMarkdown } from "../../lib/ui/index.js";
 import {
 	PHASE_COLORS,
 	PHASE_GLYPH,

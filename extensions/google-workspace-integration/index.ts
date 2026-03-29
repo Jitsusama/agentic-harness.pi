@@ -7,81 +7,44 @@
  */
 
 import { StringEnum } from "@mariozechner/pi-ai";
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { OAuth2Client } from "google-auth-library";
+import { clearAllConfig } from "../../lib/google/auth/credentials.js";
 import {
-	clearAllConfig,
-	getCredentials,
-	getDefaultAccount,
-	storeCredentials,
-} from "./auth/credentials.js";
-
-import {
-	createOAuth2Client,
-	refreshTokenIfNeeded,
-	setCredentials,
-} from "./auth/oauth.js";
+	ensureAuthenticated,
+	formatAuthError,
+} from "../../lib/google/auth/ensure-auth.js";
+import { ensureOAuthApp } from "../../lib/google/auth/setup-wizard.js";
 import { handleGoogleAuthCommand } from "./auth-command.js";
-import { ensureAuthenticated, formatAuthError } from "./auth-flow.js";
 import { renderGoogleCall } from "./render-call.js";
 import { renderGoogleResult } from "./render-result.js";
 import { routeAction } from "./router.js";
-import { ensureOAuthApp } from "./setup-wizard.js";
 
-// OAuth2 configuration from environment variables
-// These serve as fallback if not in session storage
+// OAuth2 configuration from environment variables.
 const ENV_OAUTH_CONFIG = {
 	clientId: process.env.GOOGLE_CLIENT_ID || "",
 	clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-	redirectUri: "http://localhost:8765",
 };
 
 export default function googleWorkspace(pi: ExtensionAPI) {
-	// Cache of OAuth clients per account
-	const oauthClients = new Map<string, OAuth2Client>();
+	/** Cached OAuth clients keyed by account name. */
+	const clientCache = new Map<string, OAuth2Client>();
 
 	/**
-	 * Get or create an authenticated OAuth2 client for an account.
+	 * Get an authenticated Google client, prompting for setup
+	 * and auth if needed. Caches the client for the session.
 	 */
-	async function getAuthClient(
-		_ctx: ExtensionContext,
-		accountName: string,
-		oauthConfig: { clientId: string; clientSecret: string },
+	async function getClient(
+		ctx: Parameters<typeof ensureAuthenticated>[0],
+		account?: string,
 	): Promise<OAuth2Client> {
-		// We check the cache first.
-		let client = oauthClients.get(accountName);
-		if (client) {
-			// We refresh the token if needed.
-			const newCreds = await refreshTokenIfNeeded(client);
-			if (newCreds) {
-				storeCredentials(accountName, newCreds);
-			}
-			return client;
-		}
+		const key = account ?? "__default__";
+		const cached = clientCache.get(key);
+		if (cached) return cached;
 
-		// We load stored credentials.
-		const credentials = getCredentials(accountName);
-		if (!credentials) {
-			throw new Error(
-				`Not authenticated. Run: google-auth --account ${accountName}`,
-			);
-		}
-
-		// We create a new client and set its credentials.
-		client = createOAuth2Client(oauthConfig);
-		setCredentials(client, credentials);
-
-		// We refresh the token if it's needed.
-		const newCreds = await refreshTokenIfNeeded(client);
-		if (newCreds) {
-			storeCredentials(accountName, newCreds);
-		}
-
-		oauthClients.set(accountName, client);
+		const client = await ensureAuthenticated(ctx, ENV_OAUTH_CONFIG, account);
+		clientCache.set(key, client);
 		return client;
 	}
 
@@ -223,28 +186,8 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			const { action, account: accountName } = params;
 
 			try {
-				// Step 1: Ensure OAuth app credentials are configured
-				const oauthConfig = await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
-				if (!oauthConfig) {
-					throw new Error(
-						"OAuth credentials setup required but was cancelled.",
-					);
-				}
+				const auth = await getClient(ctx, accountName as string | undefined);
 
-				// Step 2: Determine which account to use
-				const account = accountName
-					? (accountName as string)
-					: getDefaultAccount()?.name || "work";
-
-				// Step 3: Ensure user is authenticated (auto-prompts if needed)
-				const auth = await ensureAuthenticated(
-					ctx,
-					account,
-					oauthConfig,
-					getAuthClient,
-				);
-
-				// Step 4: Route to appropriate handler
 				return await routeAction(action as string, params, auth, ctx);
 			} catch (error) {
 				return {
@@ -273,11 +216,8 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		description:
 			"Authenticate with Google Workspace. Usage: google-auth [--account name] [--list] [--default name]",
 		handler: async (args, ctx) => {
-			// We get the OAuth config from storage or env vars, prompting if needed.
 			const oauthConfig = await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
-			if (!oauthConfig) {
-				return; // Setup was cancelled or failed
-			}
+			if (!oauthConfig) return;
 			await handleGoogleAuthCommand(args, ctx, oauthConfig);
 		},
 	});
@@ -287,7 +227,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			"Clear all Google Workspace configuration (OAuth credentials, accounts, tokens). Used for testing or starting fresh.",
 		handler: async (_args, ctx) => {
 			clearAllConfig();
-			oauthClients.clear();
+			clientCache.clear();
 			ctx.ui.notify(
 				"✓ Cleared all Google Workspace configuration. Run /google-setup to start fresh.",
 				"info",

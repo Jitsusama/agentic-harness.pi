@@ -3,7 +3,7 @@
  * sensible defaults and constants used throughout the extension.
  */
 
-import { DEFAULT_PLAN_DIR } from "../lib/state.js";
+import { DEFAULT_PLAN_DIR } from "../../lib/internal/state.js";
 
 /** Runtime state for plan mode. */
 export interface PlanState {

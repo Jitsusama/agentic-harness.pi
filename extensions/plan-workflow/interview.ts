@@ -5,10 +5,12 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { promptTabbed } from "../lib/ui/panel.js";
-import { contentWrapWidth } from "../lib/ui/text-layout.js";
-import type { PromptItem } from "../lib/ui/types.js";
+import {
+	contentWrapWidth,
+	type PromptItem,
+	promptTabbed,
+	renderMarkdown,
+} from "../../lib/ui/index.js";
 
 /** A single question presented during the plan interview. */
 export interface PlanQuestion {
