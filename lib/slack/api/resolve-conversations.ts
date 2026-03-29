@@ -47,7 +47,7 @@ export async function resolveConversationsInMessages(
 	// Resolve unknown conversations via conversations.info.
 	if (unknownIds.size > 0) {
 		const ids = [...unknownIds];
-		const BATCH_SIZE = 5;
+		const BATCH_SIZE = 20;
 
 		for (let i = 0; i < ids.length; i += BATCH_SIZE) {
 			if (signal?.aborted) return;

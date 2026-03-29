@@ -60,10 +60,11 @@ export async function resolveUsersInMessages(
 
 	if (unknownIds.size === 0) return;
 
-	// Resolve in parallel with a concurrency limit to avoid
-	// hitting rate limits on large result sets.
+	// Resolve in parallel with a concurrency limit. users.info
+	// is Tier 4 (~100 req/min), so 20 concurrent is well
+	// within limits.
 	const ids = [...unknownIds];
-	const BATCH_SIZE = 5;
+	const BATCH_SIZE = 20;
 
 	for (let i = 0; i < ids.length; i += BATCH_SIZE) {
 		if (signal?.aborted) return;
