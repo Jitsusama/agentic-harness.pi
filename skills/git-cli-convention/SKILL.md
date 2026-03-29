@@ -56,7 +56,7 @@ git commit -F- <<'EOF'
 feat(auth): add token refresh
 EOF
 
-# Commit with flags
+# Amend to fix a mistake in the last commit
 git commit --amend -F- <<'EOF'
 fix(api): correct response parsing
 EOF
