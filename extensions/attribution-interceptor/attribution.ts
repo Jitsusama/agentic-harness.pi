@@ -18,6 +18,7 @@ import {
 	extractCommitFlags,
 	extractMessage,
 	splitAtCommit,
+	stripHeredocBodies,
 } from "../../lib/internal/guardian/shell.js";
 
 /** Regex to detect existing attribution (case-insensitive). */
@@ -76,7 +77,7 @@ export function injectCommitAttribution(
 	command: string,
 	modelId: string | null,
 ): string | null {
-	if (!/\bgit\s+commit\b/.test(command)) return null;
+	if (!/\bgit\s+commit\b/.test(stripHeredocBodies(command))) return null;
 
 	const message = extractMessage(command);
 	if (!message) return null;
@@ -103,7 +104,7 @@ export function injectGhAttribution(
 	entity: "pr" | "issue",
 	modelId: string | null,
 ): string | null {
-	if (!isGhCommand(command, entity)) return null;
+	if (!isGhCommand(stripHeredocBodies(command), entity)) return null;
 
 	if (entity === "pr") {
 		const parsed = parsePrCommand(command);

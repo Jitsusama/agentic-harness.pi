@@ -81,6 +81,19 @@ export function splitAtCommand(
 	return { prefix: null, target: command };
 }
 
+/**
+ * Strip heredoc bodies from a command so only actual shell
+ * commands are analysed. Without this, text inside a heredoc
+ * (like "git commit" in a PR description) would be mistaken
+ * for a real command.
+ */
+export function stripHeredocBodies(command: string): string {
+	return command.replace(
+		/<<-?\s*['"]?(\w+)['"]?\s*\n[\s\S]*?\n\1(?:\s*$)?/gm,
+		"",
+	);
+}
+
 // ── Git commit command parsing ──────────────────────────────
 
 const COMMIT_HEREDOC_DELIM = "__COMMIT_MSG__";

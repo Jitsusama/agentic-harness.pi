@@ -40,8 +40,13 @@ probably two commits.
 - Never force-push shared branches without discussion.
 - Prefer `--force-with-lease` over `--force` when rewriting
   remote.
-- Avoid WIP commits on shared branches; squash or amend
-  locally.
+- Don't amend commits to add scope. If new work belongs
+  in its own commit, make a new commit.
+- Amending is acceptable only to fix a bug or mistake in
+  the most recent commit (wrong code, typo in the message,
+  missing file that was part of the same change).
+- Avoid WIP commits on shared branches; squash locally
+  with interactive rebase before pushing.
 
 ## When Not to Commit
 
