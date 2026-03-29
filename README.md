@@ -81,9 +81,10 @@ Then import from the public modules:
 import { promptSingle, renderMarkdown } from "agentic-harness.pi/ui";
 import { ensureAuthenticated, searchMessages } from "agentic-harness.pi/slack";
 import { ensureAuthenticated, listEvents } from "agentic-harness.pi/google";
+import { webSearch, readPage } from "agentic-harness.pi/web";
 ```
 
-Three public libraries are available:
+Four public libraries are available:
 
 - **[`lib/ui/`](lib/ui/)** — TUI primitives: panels, prompts,
   content rendering, navigable lists and text layout.
@@ -91,6 +92,8 @@ Three public libraries are available:
   authentication, renderers and resolvers.
 - **[`lib/google/`](lib/google/)** — Google Workspace API
   clients, authentication and renderers.
+- **[`lib/web/`](lib/web/)** — Web search and page reading
+  via headless Chrome.
 
 Everything in `lib/internal/` is not part of the public
 surface and may change without notice.

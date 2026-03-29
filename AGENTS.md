@@ -2,9 +2,8 @@
 
 A pi package: a collection of extensions and skills that other
 people install into their pi setup. There is no build step and
-no test suite. Pi compiles TypeScript at runtime. Most
-extensions have no dependencies; exceptions (like
-`google-workspace-integration`) carry their own `package.json`.
+no test suite. Pi compiles TypeScript at runtime. Third-party
+dependencies live in the root `package.json`.
 
 ## Structure
 
@@ -197,6 +196,27 @@ External consumers import from barrels, never from internal
 files. Internal extensions may import from either barrels or
 specific files depending on what they need.
 
+### Integration Architecture
+
+Integration extensions (`*-integration`) bridge to external
+services. Their domain logic — API clients, authentication,
+renderers, types — lives in `lib/` as a public library.
+The extension keeps only Pi-specific wiring: tool
+registration, `renderCall`/`renderResult`, slash commands,
+confirmation gates and session lifecycle.
+
+This split means other Pi packages can use the library
+(e.g., call the Slack API) without loading the extension.
+The extension is a thin consumer of its own library.
+
+**Caching belongs in the extension**, not the library.
+Authentication functions like `ensureAuthenticated` are
+stateless: they read credentials, build a client and
+return it. The extension wraps this in a cache (`Map` or
+local variable) so repeated tool calls within a session
+reuse the same client. The library stays pure; the
+extension owns session lifetime.
+
 ### `index.ts` Is for Registration and Wiring
 
 Extension `index.ts` files declare state, register commands,
@@ -258,10 +278,10 @@ npm run lint        # confirm no remaining issues
 
 Always run `lint:fix` first. Biome's auto-fixes are safe for
 this project (import ordering, formatting), so there's no
-reason to check before fixing. All code in `extensions/` must
-pass `npm run lint` cleanly (no errors, no warnings) before
-being committed. Fix the code to satisfy the linter rather
-than suppressing rules.
+reason to check before fixing. All code in `extensions/` and
+`lib/` must pass `npm run lint` cleanly (no errors, no
+warnings) before being committed. Fix the code to satisfy the
+linter rather than suppressing rules.
 
 ## Testing Changes
 
@@ -275,7 +295,10 @@ extension in isolation.
 - Do not add pi's own packages to package.json. They are
   provided at runtime (`@mariozechner/pi-coding-agent`,
   `@mariozechner/pi-ai`, `@mariozechner/pi-tui`).
-  Third-party dependencies belong in `dependencies`.
+  Third-party dependencies belong in the root
+  `package.json`'s `dependencies`, not in extension-local
+  package.json files. Library code lives in `lib/` and
+  resolves dependencies from the root `node_modules`.
 - Do not create `.md` files directly in the `skills/` root
   (other than inside subdirectories).
 - Do not introduce class hierarchies for guardians or

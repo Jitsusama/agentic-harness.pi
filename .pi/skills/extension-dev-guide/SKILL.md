@@ -12,26 +12,48 @@ description: >
 
 Before building any UI, follow this sequence:
 
-1. **Read Pi's TUI docs** for patterns and available components:
-   `/nix/store/hzcf5vfkr9cln378lzy5dfy39jin26p6-pi-coding-agent-0.58.1/lib/node_modules/pi-monorepo/docs/tui.md`
+1. **Read Pi's TUI docs** for patterns and available
+   components. The main Pi documentation is listed in the
+   system prompt under "Pi documentation" — read `docs/tui.md`
+   from there. Follow links to related docs as needed.
 
 2. **Read the type declarations** for the specific component
-   you need. All exports from `@mariozechner/pi-tui`:
-   `/nix/store/hzcf5vfkr9cln378lzy5dfy39jin26p6-pi-coding-agent-0.58.1/lib/node_modules/pi-monorepo/packages/tui/dist/index.d.ts`
-
-   Component-specific types live in `dist/components/*.d.ts`
-   under that same package directory.
+   you need. The `@mariozechner/pi-tui` package's
+   `dist/index.d.ts` and `dist/components/*.d.ts` files show
+   the exact API surface.
 
 3. **Read the higher-level components** exported by
-   `@mariozechner/pi-coding-agent`:
-   `/nix/store/hzcf5vfkr9cln378lzy5dfy39jin26p6-pi-coding-agent-0.58.1/lib/node_modules/pi-monorepo/packages/coding-agent/dist/modes/interactive/components/index.d.ts`
+   `@mariozechner/pi-coding-agent` in its
+   `dist/modes/interactive/components/index.d.ts`.
 
-4. **Check this project's `extensions/lib/ui/`** for existing
-   abstractions built on top of Pi's primitives. Don't
+4. **Check this project's `lib/ui/`** for existing
+   abstractions built on top of Pi's primitives. The barrel
+   at `lib/ui/index.ts` shows the public surface. Don't
    duplicate what's already there.
 
-5. **Browse Pi's examples** for working implementations:
-   `/nix/store/hzcf5vfkr9cln378lzy5dfy39jin26p6-pi-coding-agent-0.58.1/lib/node_modules/pi-monorepo/examples/extensions/`
+5. **Browse Pi's examples** for working implementations.
+   The examples directory is listed in the system prompt.
+
+## Architecture: Extensions vs Library
+
+Extensions and library code serve different roles. See
+AGENTS.md's "Integration Architecture" section for the full
+pattern. The short version:
+
+- **`lib/`** holds domain logic: API clients, authentication,
+  renderers, types and UI components. This is reusable code
+  that other Pi packages can import.
+- **`extensions/`** holds Pi-specific wiring: tool
+  registration, `renderCall`/`renderResult`, slash commands,
+  confirmation gates, session state and lifecycle.
+
+When building an integration, the extension should be a thin
+consumer of its library. Caching belongs in the extension;
+the library stays stateless.
+
+When building a guardian or workflow, shared logic goes in
+`lib/internal/`. See AGENTS.md for the full guidelines on
+public vs internal code.
 
 ## What's Available (Orientation Only; Verify Against Source)
 
@@ -92,14 +114,22 @@ Before building any UI, follow this sequence:
 | Terminal title | `setTitle()` |
 | Raw terminal input | `onTerminalInput()` |
 
-**From this project's `extensions/lib/ui/`:**
+**From this project's `lib/ui/` (barrel: `lib/ui/index.ts`):**
 
-| Need | Module |
+| Need | Export |
 |------|--------|
-| Bordered scrollable panel with options | `panel.ts` (`showPanel`, `showPanelSeries`) |
-| Approval gate with steer option | `gate.ts` (`showGate`, `formatSteer`) |
-| Markdown/diff/code rendering | `content-renderer.ts` |
-| Word wrap and text helpers | `text.ts` |
+| Interactive single-choice panel | `promptSingle` |
+| Interactive tabbed panel | `promptTabbed` |
+| Read-only content display | `view` |
+| Stateful workspace prompt | `workspace` |
+| Markdown/diff/code rendering | `renderMarkdown`, `renderDiff`, `renderCode` |
+| Navigable list rendering | `renderNavigableList`, `renderNavigableSections` |
+| Text wrapping | `contentWrapWidth`, `wordWrap` |
+
+Internal files not in the barrel (`redirect.ts`,
+`tab-completion.ts`, `navigable-list.ts` input handler,
+`text-layout.ts`, `panel-height.ts`) can be imported
+directly by extensions in this package when needed.
 
 ## Gotchas
 

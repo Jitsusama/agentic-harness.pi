@@ -17,5 +17,6 @@ They fall into five categories:
   services.
 - **Widgets** (`*-widget`) add UI elements to the interface.
 
-Each extension has its own README. The [lib](lib/) directory
-holds the common components they share.
+Each extension has its own README. Domain logic (API clients,
+authentication, renderers) lives in the top-level
+[`lib/`](../lib/) directory as reusable libraries.
