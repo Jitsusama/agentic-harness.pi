@@ -12,6 +12,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
+import { stripHeredocBodies } from "./shell.js";
 import type { CommandGuardian } from "./types.js";
 
 /**
@@ -32,7 +33,7 @@ export function registerGuardian<T>(
 			if (!ctx.hasUI) return;
 
 			const command = event.input.command;
-			if (!guardian.detect(command)) return;
+			if (!guardian.detect(stripHeredocBodies(command))) return;
 
 			const parsed = guardian.parse(command);
 			if (!parsed) return;

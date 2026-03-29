@@ -11,6 +11,8 @@
  * because git add is a staging prefix, not a guardable target.
  */
 
+import { stripHeredocBodies } from "../../lib/internal/guardian/shell.js";
+
 /** Commands that guardians intercept and may rewrite. */
 const GUARDABLE_PATTERNS: RegExp[] = [
 	/\bgit\s+commit\b/,
@@ -37,19 +39,6 @@ const STATE_CHANGE_PATTERNS: RegExp[] = [
 
 /** Shell separators that divide independent commands. */
 const SEPARATOR = /\s*(?:&&|;|\n)\s*/;
-
-/**
- * Strip heredoc bodies from a command so only actual shell
- * commands are analysed. Without this, text inside a heredoc
- * (like "git push --delete" in a commit message body) would
- * be mistaken for a real command.
- */
-function stripHeredocBodies(command: string): string {
-	return command.replace(
-		/<<-?\s*['"]?(\w+)['"]?\s*\n[\s\S]*?\n\1(?:\s*$)?/gm,
-		"",
-	);
-}
 
 /**
  * Check whether a bash command chains multiple concerns that
