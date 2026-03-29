@@ -903,7 +903,7 @@ async function reviewAndPostReply(
 function handleRepoResult(
 	ctx: ExtensionContext,
 	result: Exclude<
-		import("../lib/github/repo-discovery.js").RepoResolution,
+		import("../../lib/internal/github/repo-discovery.js").RepoResolution,
 		{ status: "current" }
 	>,
 	ref: PRReference,

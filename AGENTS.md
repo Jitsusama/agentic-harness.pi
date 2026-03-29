@@ -8,23 +8,30 @@ extensions have no dependencies; exceptions (like
 
 ## Structure
 
-- `extensions/`: TypeScript modules organized by behavioural
-  contract (see Extension Categories below)
-- `extensions/lib/`: shared library, organized by domain:
-  - `lib/ui/`: TUI primitives (panels, gates, content
-    rendering, text utilities)
-  - `lib/guardian/`: guardian pipeline (types, registration,
-    shell parsing)
-  - `lib/github/`: GitHub domain (API, CLI, PR identity,
-    diff, review)
-  - `lib/state.ts`: session state helpers
+- `lib/`: shared library code, split into public and internal
+  - `lib/ui/`: TUI primitives: panels, prompts, content
+    rendering, navigable lists, text layout (public)
+  - `lib/slack/`: Slack API client, authentication,
+    renderers, resolvers and types (public)
+  - `lib/google/`: Google Workspace API clients,
+    authentication, renderers and types (public)
+  - `lib/internal/`: not for external use
+    - `guardian/`: guardian pipeline (types, registration,
+      shell parsing)
+    - `github/`: GitHub utilities (CLI parsing, diff,
+      GraphQL, PR identity, review posting)
+    - `state.ts`: session state helpers
+- `extensions/`: Pi extension wiring, organized by
+  behavioural contract (see Extension Categories below)
 - `skills/`: package-bound markdown instructions the agent
   loads on demand when a task matches their description
 - `.pi/skills/`: project-local skills for developing this
   package (not shipped to consumers)
 
-UI primitives have no domain knowledge. Guardian and GitHub
-modules depend on UI, not the other way around.
+Public library modules have barrel exports (`index.ts`) that
+define what external consumers can import. Internal modules
+have no barrels and are consumed by extensions via direct
+file imports.
 
 ## Extension Categories
 
@@ -127,8 +134,8 @@ Every guardian follows the same three-step pipeline:
 
 A new guardian implements the shared interface and calls the
 registration helper; it never touches event wiring or command
-mutation directly. See `lib/guardian/types.ts` for the
-contract.
+mutation directly. See `lib/internal/guardian/types.ts` for
+the contract.
 
 ### Workflow File Convention
 
@@ -166,11 +173,27 @@ helper is used by multiple domains, it belongs in the shared
 library at the level that matches its concern, not in the
 first domain that needed it.
 
-Barrel exports (`index.ts`) define the public surface of a
-module. Consumers import from the barrel, never from
-internal files. The cookies module in `web-search-integration`
-is a good example: the browser module has no cookie imports,
-and the reader imports only from the barrel.
+### Public Library vs Internal Code
+
+The `lib/` directory is split into public modules (with
+barrel exports) and `lib/internal/` (no barrels).
+
+**Public modules** (`lib/ui/`, `lib/slack/`, `lib/google/`)
+have an `index.ts` barrel that declares the public surface.
+Every export in a barrel is a long-term commitment: other
+Pi packages depend on it. Only export interfaces consumers
+need to get value from the library. Implementation details
+(cache management, parameter parsing, layout plumbing) stay
+out of the barrel even if they're exported from the file
+itself.
+
+**Internal modules** (`lib/internal/`) have no barrels.
+Extensions import directly from specific files. These are
+free to change without worrying about external consumers.
+
+External consumers import from barrels, never from internal
+files. Internal extensions may import from either barrels or
+specific files depending on what they need.
 
 ### `index.ts` Is for Registration and Wiring
 
