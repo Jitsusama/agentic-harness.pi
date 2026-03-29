@@ -9,14 +9,6 @@
  * tab-completion) are not re-exported.
  */
 
-// ── Panel interaction ───────────────────────────────────────
-export {
-	promptSingle,
-	promptTabbed,
-	view,
-	workspace,
-} from "./panel.js";
-
 // ── Content rendering ───────────────────────────────────────
 export {
 	type CodeRenderOptions,
@@ -25,7 +17,6 @@ export {
 	renderDiff,
 	renderMarkdown,
 } from "./content-renderer.js";
-
 // ── Navigable lists ─────────────────────────────────────────
 export {
 	type DetailEntry,
@@ -34,6 +25,13 @@ export {
 	renderNavigableList,
 	renderNavigableSections,
 } from "./navigable-list.js";
+// ── Panel interaction ───────────────────────────────────────
+export {
+	promptSingle,
+	promptTabbed,
+	view,
+	workspace,
+} from "./panel.js";
 
 // ── Text layout ─────────────────────────────────────────────
 export { contentWrapWidth, wordWrap } from "./text-layout.js";

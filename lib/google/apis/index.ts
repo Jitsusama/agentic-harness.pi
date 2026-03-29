@@ -34,5 +34,5 @@ export {
 	sendEmail,
 	unarchiveEmail,
 } from "./gmail.js";
-export { type SheetData, getSheetContent } from "./sheets.js";
-export { type SlideData, getSlideContent } from "./slides.js";
+export { getSheetContent, type SheetData } from "./sheets.js";
+export { getSlideContent, type SlideData } from "./slides.js";

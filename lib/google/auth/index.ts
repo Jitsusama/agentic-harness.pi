@@ -4,12 +4,12 @@
  */
 
 export {
-	ensureAuthenticated,
-	formatAuthError,
-} from "./ensure-auth.js";
-export {
 	getCredentials,
 	getDefaultAccount,
 	listAccounts,
 	type OAuthAppCredentials,
 } from "./credentials.js";
+export {
+	ensureAuthenticated,
+	formatAuthError,
+} from "./ensure-auth.js";

@@ -9,6 +9,7 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import type { OAuth2Client } from "google-auth-library";
 import { clearAllConfig } from "../../lib/google/auth/credentials.js";
 import {
 	ensureAuthenticated,
@@ -27,6 +28,26 @@ const ENV_OAUTH_CONFIG = {
 };
 
 export default function googleWorkspace(pi: ExtensionAPI) {
+	/** Cached OAuth clients keyed by account name. */
+	const clientCache = new Map<string, OAuth2Client>();
+
+	/**
+	 * Get an authenticated Google client, prompting for setup
+	 * and auth if needed. Caches the client for the session.
+	 */
+	async function getClient(
+		ctx: Parameters<typeof ensureAuthenticated>[0],
+		account?: string,
+	): Promise<OAuth2Client> {
+		const key = account ?? "__default__";
+		const cached = clientCache.get(key);
+		if (cached) return cached;
+
+		const client = await ensureAuthenticated(ctx, ENV_OAUTH_CONFIG, account);
+		clientCache.set(key, client);
+		return client;
+	}
+
 	pi.registerTool({
 		name: "google",
 		label: "Google Workspace",
@@ -165,11 +186,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			const { action, account: accountName } = params;
 
 			try {
-				const auth = await ensureAuthenticated(
-					ctx,
-					ENV_OAUTH_CONFIG,
-					accountName as string | undefined,
-				);
+				const auth = await getClient(ctx, accountName as string | undefined);
 
 				return await routeAction(action as string, params, auth, ctx);
 			} catch (error) {
@@ -210,6 +227,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			"Clear all Google Workspace configuration (OAuth credentials, accounts, tokens). Used for testing or starting fresh.",
 		handler: async (_args, ctx) => {
 			clearAllConfig();
+			clientCache.clear();
 			ctx.ui.notify(
 				"✓ Cleared all Google Workspace configuration. Run /google-setup to start fresh.",
 				"info",

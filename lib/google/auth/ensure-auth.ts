@@ -5,7 +5,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { Credentials, OAuth2Client } from "google-auth-library";
+import type { OAuth2Client } from "google-auth-library";
 import { promptSingle } from "../../ui/index.js";
 import {
 	getCredentials,
@@ -18,7 +18,6 @@ import {
 import { authenticateWithFallback } from "./dual-flow.js";
 import {
 	createOAuth2Client,
-	extractTokens,
 	refreshTokenIfNeeded,
 	setCredentials,
 } from "./oauth.js";
@@ -55,8 +54,7 @@ export async function ensureAuthenticated(
 		throw new Error("OAuth credentials setup required but was cancelled.");
 	}
 
-	const accountName =
-		account ?? getDefaultAccount()?.name ?? "work";
+	const accountName = account ?? getDefaultAccount()?.name ?? "work";
 
 	// Try to build a client from stored credentials.
 	const stored = getCredentials(accountName);

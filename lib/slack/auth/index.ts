@@ -3,10 +3,9 @@
  * credential state and error formatting.
  */
 
+export type { OAuthApp, StoredToken } from "../types.js";
+export { getToken, hasToken } from "./credentials.js";
 export {
 	ensureAuthenticated,
 	formatAuthError,
 } from "./ensure-auth.js";
-export { getToken, hasToken } from "./credentials.js";
-export type { OAuthApp } from "../types.js";
-export type { StoredToken } from "../types.js";

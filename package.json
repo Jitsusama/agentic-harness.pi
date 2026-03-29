@@ -19,8 +19,8 @@
     "./google/renderers": "./lib/google/renderers/index.ts"
   },
   "scripts": {
-    "lint": "biome check extensions/",
-    "lint:fix": "biome check --write extensions/"
+    "lint": "biome check extensions/ lib/",
+    "lint:fix": "biome check --write extensions/ lib/"
   },
   "pi": {
     "extensions": [

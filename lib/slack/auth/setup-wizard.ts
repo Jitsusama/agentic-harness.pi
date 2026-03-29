@@ -12,8 +12,8 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { SlackClient } from "../api/client.js";
 import { promptSingle, view } from "../../ui/index.js";
+import { SlackClient } from "../api/client.js";
 import { extractFromBrowser } from "./browser-extract.js";
 import {
 	getOAuthApp,

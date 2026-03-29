@@ -10,8 +10,8 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { SlackClient } from "../api/client.js";
 import { view } from "../../ui/index.js";
+import { SlackClient } from "../api/client.js";
 import { openInBrowser } from "./browser.js";
 import {
 	getToken,
@@ -19,11 +19,7 @@ import {
 	type OAuthApp,
 	storeToken,
 } from "./credentials.js";
-import {
-	buildAuthUrl,
-	CALLBACK_PORT,
-	exchangeCodeForToken,
-} from "./oauth.js";
+import { buildAuthUrl, CALLBACK_PORT, exchangeCodeForToken } from "./oauth.js";
 import { waitForOAuthCallback } from "./server.js";
 import { ensureSetup } from "./setup-wizard.js";
 

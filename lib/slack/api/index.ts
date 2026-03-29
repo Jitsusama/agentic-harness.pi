@@ -9,8 +9,8 @@ export {
 	getThread,
 	listMessages,
 	replyToThread,
-	sendMessage,
 	type SendResult,
+	sendMessage,
 } from "./messages.js";
 export {
 	addReaction,
@@ -23,8 +23,8 @@ export {
 export {
 	type FileSearchResult,
 	type MessageSearchResult,
+	type SlackFileResult,
 	searchFiles,
 	searchMessages,
-	type SlackFileResult,
 } from "./search.js";
 export { getUserInfo } from "./users.js";
