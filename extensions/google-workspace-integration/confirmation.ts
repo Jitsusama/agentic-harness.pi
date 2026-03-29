@@ -5,9 +5,11 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirectReason } from "../lib/ui/redirect.js";
-import type { PromptResult } from "../lib/ui/types.js";
+import {
+	formatRedirectReason,
+	type PromptResult,
+	promptSingle,
+} from "../../lib/ui/index.js";
 
 /** Email fields presented to the user for confirmation before sending. */
 export interface EmailData {

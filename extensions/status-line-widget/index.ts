@@ -20,7 +20,7 @@ import * as path from "node:path";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import { getPanelHeightGlyph } from "../lib/ui/panel-height.js";
+import { getPanelHeightGlyph } from "../../lib/ui/panel-height.js";
 
 const THINKING_GLYPHS: Record<string, string> = {
 	off: "",

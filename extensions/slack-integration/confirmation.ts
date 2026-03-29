@@ -7,10 +7,12 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { renderMarkdown } from "../lib/ui/content-renderer.js";
-import { promptSingle } from "../lib/ui/panel.js";
-import { formatRedirectReason } from "../lib/ui/redirect.js";
-import type { KeyAction } from "../lib/ui/types.js";
+import {
+	formatRedirectReason,
+	type KeyAction,
+	promptSingle,
+	renderMarkdown,
+} from "../../lib/ui/index.js";
 
 /** Reject action shown in every confirmation gate. */
 const REJECT_ACTION: KeyAction[] = [{ key: "r", label: "Reject" }];

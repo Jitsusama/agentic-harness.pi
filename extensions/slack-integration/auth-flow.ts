@@ -10,7 +10,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { view } from "../lib/ui/panel.js";
+import { view } from "../../lib/ui/index.js";
 import { SlackClient } from "./api/client.js";
 import { openInBrowser } from "./auth/browser.js";
 import {

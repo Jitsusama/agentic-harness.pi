@@ -9,8 +9,7 @@
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import { renderMarkdown } from "../../lib/ui/content-renderer.js";
-import { promptSingle } from "../../lib/ui/panel.js";
+import { promptSingle, renderMarkdown } from "../../../lib/ui/index.js";
 import {
 	type DependentPR,
 	type ReceivedReview,

@@ -6,7 +6,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { view } from "../lib/ui/panel.js";
+import { view } from "../../lib/ui/index.js";
 import { SlackClient } from "./api/client.js";
 import { clearAllConfig, getToken, hasToken } from "./auth/credentials.js";
 import { ensureSetup } from "./setup-wizard.js";

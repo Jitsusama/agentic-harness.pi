@@ -5,7 +5,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
-import { view } from "../lib/ui/panel.js";
+import { view } from "../../lib/ui/index.js";
 import {
 	listAccounts,
 	saveAccount,

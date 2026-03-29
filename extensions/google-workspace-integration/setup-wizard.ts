@@ -4,7 +4,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { promptSingle } from "../lib/ui/panel.js";
+import { promptSingle } from "../../lib/ui/index.js";
 import {
 	getOAuthApp,
 	hasOAuthApp,
