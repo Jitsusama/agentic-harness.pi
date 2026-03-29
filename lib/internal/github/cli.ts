@@ -12,6 +12,7 @@ import {
 	extractFlag,
 	quote,
 	splitAtCommand,
+	stripHeredocBodies,
 } from "../guardian/shell.js";
 
 /** Extract a number from a command (e.g., PR number from "gh pr edit 42"). */
@@ -26,7 +27,7 @@ export function extractEntityNumber(
 /** Detect whether a bash command contains a specific gh subcommand. */
 export function isGhCommand(command: string, subcommand: string): boolean {
 	const re = new RegExp(`\\bgh\\s+${subcommand}\\s+(create|edit)\\b`);
-	return re.test(command);
+	return re.test(stripHeredocBodies(command));
 }
 
 /** Configuration for rebuilding a gh pr/issue command with an edited body. */
