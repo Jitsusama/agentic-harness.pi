@@ -12,10 +12,14 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { closeBrowser } from "./browser.js";
-import { isSetUp, StaleKeyError, setupChromeKey } from "./cookies/index.js";
-import { AuthSetupNeeded, readPage } from "./reader.js";
-import { webSearch as doSearch } from "./search.js";
+import { closeBrowser } from "../../lib/web/browser.js";
+import {
+	isSetUp,
+	StaleKeyError,
+	setupChromeKey,
+} from "../../lib/web/cookies/index.js";
+import { AuthSetupNeeded, readPage } from "../../lib/web/reader.js";
+import { webSearch as doSearch } from "../../lib/web/search.js";
 
 /** Details returned by web_read on success. */
 interface ReaderDetails {

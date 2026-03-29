@@ -16,7 +16,8 @@
     "./google": "./lib/google/index.ts",
     "./google/apis": "./lib/google/apis/index.ts",
     "./google/auth": "./lib/google/auth/index.ts",
-    "./google/renderers": "./lib/google/renderers/index.ts"
+    "./google/renderers": "./lib/google/renderers/index.ts",
+    "./web": "./lib/web/index.ts"
   },
   "scripts": {
     "lint": "biome check extensions/ lib/",

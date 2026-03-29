@@ -15,6 +15,8 @@ extensions have no dependencies; exceptions (like
     renderers, resolvers and types (public)
   - `lib/google/`: Google Workspace API clients,
     authentication, renderers and types (public)
+  - `lib/web/`: web search and page reading via headless
+    Chrome (public)
   - `lib/internal/`: not for external use
     - `guardian/`: guardian pipeline (types, registration,
       shell parsing)

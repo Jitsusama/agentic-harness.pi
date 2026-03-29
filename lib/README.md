@@ -16,6 +16,8 @@ from internal files.
   renderers and resolvers.
 - **[`google/`](google/)** — Google Workspace API clients,
   authentication and renderers.
+- **[`web/`](web/)** — Web search and page reading via
+  headless Chrome.
 
 ## Internal Modules
 
