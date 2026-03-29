@@ -10,7 +10,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { resolveRepo } from "../lib/github/repo-discovery.js";
+import { resolveRepo } from "../../lib/internal/github/repo-discovery.js";
 import {
 	fetchReviews,
 	getPRBranch,

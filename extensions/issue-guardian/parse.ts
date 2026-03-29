@@ -3,15 +3,15 @@
  * lib/github/cli and adds the issue-specific rebuild helper.
  */
 
-import { rebuildGhCommand } from "../lib/github/cli.js";
+import { rebuildGhCommand } from "../../lib/internal/github/cli.js";
 
 export {
 	type IssueCommand,
 	isIssueCommand,
 	parseIssueCommand,
-} from "../lib/github/cli.js";
+} from "../../lib/internal/github/cli.js";
 
-import type { IssueCommand } from "../lib/github/cli.js";
+import type { IssueCommand } from "../../lib/internal/github/cli.js";
 
 const HEREDOC_DELIM = "__ISSUE_BODY__";
 

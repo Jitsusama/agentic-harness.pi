@@ -4,7 +4,7 @@
  * diff text content and the short tab label for a file.
  */
 
-import type { DiffFile } from "../../lib/github/diff.js";
+import type { DiffFile } from "../../../lib/internal/github/diff.js";
 
 /** Build a unified diff string from a DiffFile's hunks. */
 export function buildDiffText(file: DiffFile): string | null {

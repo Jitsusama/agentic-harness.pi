@@ -8,8 +8,8 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import { filterContext } from "../../lib/internal/state.js";
 import { promptSingle } from "../../lib/ui/panel.js";
-import { filterContext } from "../lib/state.js";
 import { deactivate } from "./lifecycle.js";
 import type { PlanState } from "./state.js";
 

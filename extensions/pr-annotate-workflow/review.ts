@@ -7,6 +7,7 @@
 import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
+import type { DiffFile } from "../../lib/internal/github/diff.js";
 import {
 	CONTENT_INDENT,
 	type DetailEntry,
@@ -23,7 +24,6 @@ import {
 	type WorkspaceView,
 	workspace,
 } from "../../lib/ui/index.js";
-import type { DiffFile } from "../lib/github/diff.js";
 import type { ProposedComment, VetResult } from "./types.js";
 
 /** Status glyphs for comments. */

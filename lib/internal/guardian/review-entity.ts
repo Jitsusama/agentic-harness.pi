@@ -13,7 +13,7 @@ import {
 	formatRedirectBlock,
 	promptSingle,
 	renderMarkdown,
-} from "../../../lib/ui/index.js";
+} from "../../ui/index.js";
 import { ALLOW, type GuardianResult } from "./types.js";
 
 /** Labels that distinguish one entity type from another. */

@@ -4,7 +4,7 @@
  * session, and filters out stale context messages.
  */
 
-import { filterContext } from "../lib/state.js";
+import { filterContext } from "../../lib/internal/state.js";
 import { commentStats, type PRReviewState } from "./state.js";
 
 /** Custom message type for PR review context. */

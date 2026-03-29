@@ -3,15 +3,15 @@
  * lib/github/cli and adds the PR-specific rebuild helper.
  */
 
-import { rebuildGhCommand } from "../lib/github/cli.js";
+import { rebuildGhCommand } from "../../lib/internal/github/cli.js";
 
 export {
 	isPrCommand,
 	type PrCommand,
 	parsePrCommand,
-} from "../lib/github/cli.js";
+} from "../../lib/internal/github/cli.js";
 
-import type { PrCommand } from "../lib/github/cli.js";
+import type { PrCommand } from "../../lib/internal/github/cli.js";
 
 const HEREDOC_DELIM = "__PR_BODY__";
 

@@ -10,13 +10,19 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { buildHunkRanges, clampToHunkRange } from "../lib/github/diff.js";
+import {
+	buildHunkRanges,
+	clampToHunkRange,
+} from "../../lib/internal/github/diff.js";
 import {
 	type PRReference,
 	parsePRReference,
-} from "../lib/github/pr-reference.js";
-import { getCurrentRepo, resolveRepo } from "../lib/github/repo-discovery.js";
-import type { ReviewComment } from "../lib/github/review-post.js";
+} from "../../lib/internal/github/pr-reference.js";
+import {
+	getCurrentRepo,
+	resolveRepo,
+} from "../../lib/internal/github/repo-discovery.js";
+import type { ReviewComment } from "../../lib/internal/github/review-post.js";
 import {
 	activationBriefing,
 	formatOverviewNotes,

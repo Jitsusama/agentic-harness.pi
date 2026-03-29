@@ -5,7 +5,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { loadPlanDir } from "../lib/state.js";
+import { loadPlanDir } from "../../lib/internal/state.js";
 
 /**
  * Search the plan directory for files matching a keyword

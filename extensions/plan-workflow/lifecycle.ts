@@ -8,7 +8,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { getLastEntry, loadPlanDir } from "../lib/state.js";
+import { getLastEntry, loadPlanDir } from "../../lib/internal/state.js";
 import { PLAN_TOOLS, type PlanState } from "./state.js";
 
 /** Shape of plan-workflow data written to session history. */

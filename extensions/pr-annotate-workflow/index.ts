@@ -15,9 +15,9 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { fetchDiff, parseDiff } from "../lib/github/diff.js";
-import type { PRReference } from "../lib/github/pr-reference.js";
-import { getCurrentRepo } from "../lib/github/repo-discovery.js";
+import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
+import type { PRReference } from "../../lib/internal/github/pr-reference.js";
+import { getCurrentRepo } from "../../lib/internal/github/repo-discovery.js";
 import { postReview } from "./post.js";
 import { reviewProposedComments } from "./review.js";
 

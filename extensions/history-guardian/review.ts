@@ -5,15 +5,15 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
+	ALLOW,
+	type CommandGuardian,
+	type GuardianResult,
+} from "../../lib/internal/guardian/types.js";
+import {
 	formatRedirectBlock,
 	promptSingle,
 	renderMarkdown,
 } from "../../lib/ui/index.js";
-import {
-	ALLOW,
-	type CommandGuardian,
-	type GuardianResult,
-} from "../lib/guardian/types.js";
 import {
 	DESTRUCTIVE_PATTERNS,
 	type DestructivePattern,

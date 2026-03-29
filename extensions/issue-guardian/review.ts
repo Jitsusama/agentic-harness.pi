@@ -8,8 +8,11 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
 	type EntityReviewConfig,
 	reviewMarkdownEntity,
-} from "../lib/guardian/review-entity.js";
-import type { CommandGuardian, GuardianResult } from "../lib/guardian/types.js";
+} from "../../lib/internal/guardian/review-entity.js";
+import type {
+	CommandGuardian,
+	GuardianResult,
+} from "../../lib/internal/guardian/types.js";
 import {
 	type IssueCommand,
 	isIssueCommand,

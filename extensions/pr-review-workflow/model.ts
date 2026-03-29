@@ -8,7 +8,7 @@
  *   ReviewObservation : a single comment with lifecycle status
  */
 
-import type { DiffFile } from "../lib/github/diff.js";
+import type { DiffFile } from "../../lib/internal/github/diff.js";
 
 /** Identifies the PR under review. */
 export interface PRTarget {

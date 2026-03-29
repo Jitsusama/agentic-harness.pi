@@ -12,13 +12,13 @@ import {
 	parseIssueCommand,
 	parsePrCommand,
 	rebuildGhCommand,
-} from "../lib/github/cli.js";
+} from "../../lib/internal/github/cli.js";
 import {
 	buildCommitHeredoc,
 	extractCommitFlags,
 	extractMessage,
 	splitAtCommit,
-} from "../lib/guardian/shell.js";
+} from "../../lib/internal/guardian/shell.js";
 
 /** Regex to detect existing attribution (case-insensitive). */
 const ATTRIBUTION_PATTERN = /co-authored-by[:\s]+ai/i;

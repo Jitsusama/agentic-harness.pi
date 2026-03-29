@@ -8,8 +8,8 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { runGraphQL } from "../../lib/github/graphql.js";
-import type { PRReference } from "../../lib/github/pr-reference.js";
+import { runGraphQL } from "../../../lib/internal/github/graphql.js";
+import type { PRReference } from "../../../lib/internal/github/pr-reference.js";
 import type {
 	IssueComment,
 	LinkedIssue,
@@ -90,7 +90,7 @@ export async function fetchPRGraphQL(
 
 // Re-export shared diff utilities for backward compatibility
 // with gather.ts and other pr-review consumers.
-export { fetchDiff, parseDiff } from "../../lib/github/diff.js";
+export { fetchDiff, parseDiff } from "../../../lib/internal/github/diff.js";
 
 /** Get the current GitHub username. */
 export async function getCurrentUser(pi: ExtensionAPI): Promise<string> {
@@ -152,7 +152,7 @@ export async function fetchSiblingPRs(
 }
 
 // Re-export shared review posting.
-export { postReview } from "../../lib/github/review-post.js";
+export { postReview } from "../../../lib/internal/github/review-post.js";
 
 /** Extract PR metadata from the GraphQL PR node. */
 function parsePRMetadata(pr: GQLPullRequest, prNumber: number): PRMetadata {
