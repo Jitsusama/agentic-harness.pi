@@ -104,7 +104,7 @@ export function injectGhAttribution(
 	entity: "pr" | "issue",
 	modelId: string | null,
 ): string | null {
-	if (!isGhCommand(command, entity)) return null;
+	if (!isGhCommand(stripHeredocBodies(command), entity)) return null;
 
 	if (entity === "pr") {
 		const parsed = parsePrCommand(command);
