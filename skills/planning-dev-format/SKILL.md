@@ -19,7 +19,21 @@ person implementing can make intelligent decisions.
 
 ## Essential Plan Sections
 
-### 1. Context from Research
+### 1. Skills to Follow
+
+Reference the skills the implementer should load during
+implementation. Don't rewrite their content; just name them:
+
+```markdown
+Follow TDD workflow (see code-tdd-guide skill) for implementation.
+Follow code-style-standard skill for design and style.
+Follow prose-standard skill for comments, docs and descriptions.
+```
+
+The implementer loads these skills and applies them. Plans
+don't need to repeat the guidance.
+
+### 2. Context from Research
 
 Include findings from investigation that help implementation
 understand the landscape:
@@ -43,7 +57,7 @@ understand the landscape:
 - Why this approach over alternatives?
 - What was discussed/decided during planning?
 
-### 2. PR Breakdown
+### 3. PR Breakdown
 
 Break work into logical, independently reviewable units.
 No standard structure - let the work guide the split.
@@ -62,7 +76,7 @@ For each PR:
 **Files:** New files and modified files
 ```
 
-### 3. Interfaces (Per PR or Component)
+### 4. Interfaces (Per PR or Component)
 
 Define what's publicly exposed and how it's called:
 
@@ -87,7 +101,7 @@ Calls: BigQuery INFORMATION_SCHEMA query
 Side effects: None (pure function - returns data, doesn't mutate state)
 ```
 
-### 4. Data Structures
+### 5. Data Structures
 
 Describe what flows through the system:
 
@@ -113,7 +127,7 @@ Processing: Convert to Date, format as YYYY-MM-DD (iso8601)
 Output: Array of YYYY-MM-DD strings
 ```
 
-### 5. Test Scenarios (Per PR)
+### 6. Test Scenarios (Per PR)
 
 List behaviors to verify - high level, not full test code:
 
@@ -136,7 +150,7 @@ List behaviors to verify - high level, not full test code:
 
 During TDD, more scenarios will emerge. This is the starting point.
 
-### 6. Open Questions
+### 7. Open Questions
 
 Mark unknowns to resolve during implementation:
 
@@ -274,16 +288,6 @@ Constraint enforcement:
 Error handling:
 - INFORMATION_SCHEMA query fails → raise with context
 ```
-
-## Reference TDD Workflow
-
-Don't rewrite the TDD process in plans. Just reference it:
-
-```markdown
-Follow TDD workflow (see code-tdd-guide skill) for implementation.
-```
-
-The implementer knows to do RED → GREEN → REFACTOR cycles.
 
 ## When to Use This Skill
 
