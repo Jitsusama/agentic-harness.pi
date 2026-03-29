@@ -6,6 +6,18 @@
     "pi-package"
   ],
   "license": "MIT",
+  "exports": {
+    "./ui": "./lib/ui/index.ts",
+    "./slack": "./lib/slack/index.ts",
+    "./slack/api": "./lib/slack/api/index.ts",
+    "./slack/auth": "./lib/slack/auth/index.ts",
+    "./slack/renderers": "./lib/slack/renderers/index.ts",
+    "./slack/resolvers": "./lib/slack/resolvers/index.ts",
+    "./google": "./lib/google/index.ts",
+    "./google/apis": "./lib/google/apis/index.ts",
+    "./google/auth": "./lib/google/auth/index.ts",
+    "./google/renderers": "./lib/google/renderers/index.ts"
+  },
   "scripts": {
     "lint": "biome check extensions/",
     "lint:fix": "biome check --write extensions/"
