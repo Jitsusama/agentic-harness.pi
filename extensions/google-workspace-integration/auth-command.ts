@@ -5,15 +5,18 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
-import { view } from "../../lib/ui/index.js";
 import {
 	listAccounts,
 	saveAccount,
 	setDefaultAccount,
 	storeCredentials,
-} from "./auth/credentials.js";
-import { authenticateWithFallback } from "./auth/dual-flow.js";
-import { createOAuth2Client, setCredentials } from "./auth/oauth.js";
+} from "../../lib/google/auth/credentials.js";
+import { authenticateWithFallback } from "../../lib/google/auth/dual-flow.js";
+import {
+	createOAuth2Client,
+	setCredentials,
+} from "../../lib/google/auth/oauth.js";
+import { view } from "../../lib/ui/index.js";
 
 interface OAuthConfig {
 	clientId: string;

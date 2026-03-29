@@ -11,20 +11,23 @@ import {
 	listEvents,
 	respondToEvent,
 	updateEvent,
-} from "../apis/calendar.js";
+} from "../../../lib/google/apis/calendar.js";
 import {
-	confirmCreateEvent,
-	confirmDeleteEvent,
-	confirmUpdateEvent,
-} from "../confirmation.js";
-import { renderEvent, renderEventList } from "../renderers/calendar.js";
+	renderEvent,
+	renderEventList,
+} from "../../../lib/google/renderers/calendar.js";
 import {
 	type ActionParams,
 	getNumberParam,
 	getStringArrayParam,
 	getStringParam,
 	type ToolResult,
-} from "../types.js";
+} from "../../../lib/google/types.js";
+import {
+	confirmCreateEvent,
+	confirmDeleteEvent,
+	confirmUpdateEvent,
+} from "../confirmation.js";
 
 /** List calendar events within a date range. */
 export async function handleListEvents(

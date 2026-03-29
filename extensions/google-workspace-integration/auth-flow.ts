@@ -5,8 +5,8 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
+import type { OAuthAppCredentials } from "../../lib/google/auth/credentials.js";
 import { promptSingle } from "../../lib/ui/index.js";
-import type { OAuthAppCredentials } from "./auth/credentials.js";
 import { handleGoogleAuthCommand } from "./auth-command.js";
 
 /**

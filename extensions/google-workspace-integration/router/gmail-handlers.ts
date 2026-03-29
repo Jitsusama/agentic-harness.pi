@@ -15,20 +15,20 @@ import {
 	searchEmails,
 	sendEmail,
 	unarchiveEmail,
-} from "../apis/gmail.js";
-import { confirmDeleteEmail, confirmSendEmail } from "../confirmation.js";
+} from "../../../lib/google/apis/gmail.js";
 import {
 	renderEmail,
 	renderEmailList,
 	renderThread,
-} from "../renderers/email.js";
+} from "../../../lib/google/renderers/email.js";
 import {
 	type ActionParams,
 	getNumberParam,
 	getStringArrayParam,
 	getStringParam,
 	type ToolResult,
-} from "../types.js";
+} from "../../../lib/google/types.js";
+import { confirmDeleteEmail, confirmSendEmail } from "../confirmation.js";
 
 /** Search Gmail messages using a query string. */
 export async function handleSearchEmails(

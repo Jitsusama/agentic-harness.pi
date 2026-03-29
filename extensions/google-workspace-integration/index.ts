@@ -18,13 +18,13 @@ import {
 	getCredentials,
 	getDefaultAccount,
 	storeCredentials,
-} from "./auth/credentials.js";
+} from "../../lib/google/auth/credentials.js";
 
 import {
 	createOAuth2Client,
 	refreshTokenIfNeeded,
 	setCredentials,
-} from "./auth/oauth.js";
+} from "../../lib/google/auth/oauth.js";
 import { handleGoogleAuthCommand } from "./auth-command.js";
 import { ensureAuthenticated, formatAuthError } from "./auth-flow.js";
 import { renderGoogleCall } from "./render-call.js";

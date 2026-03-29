@@ -4,13 +4,13 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { promptSingle } from "../../lib/ui/index.js";
 import {
 	getOAuthApp,
 	hasOAuthApp,
 	type OAuthAppCredentials,
 	storeOAuthApp,
-} from "./auth/credentials.js";
+} from "../../lib/google/auth/credentials.js";
+import { promptSingle } from "../../lib/ui/index.js";
 import {
 	ERRORS,
 	isValidClientId,
