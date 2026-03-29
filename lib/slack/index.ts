@@ -16,7 +16,6 @@ export type {
 	ConversationKind,
 	MessageTarget,
 	OAuthApp,
-	SearchResult,
 	SlackAttachment,
 	SlackChannel,
 	SlackFile,
