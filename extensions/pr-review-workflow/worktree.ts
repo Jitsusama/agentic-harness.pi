@@ -7,7 +7,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 /** Directory where review worktrees are created. */
-const WORKTREE_DIR = ".review";
+const WORKTREE_DIR = ".worktree";
 
 /** Check if the current branch matches the PR's head branch. */
 export async function isOnPRBranch(
@@ -21,7 +21,7 @@ export async function isOnPRBranch(
 
 /**
  * Create a worktree for the PR branch. Fetches the PR head ref
- * and creates a worktree at `.review/pr-review-<number>`.
+ * and creates a worktree at `.worktree/pr-review-<number>`.
  * Returns the absolute worktree path, or null on failure.
  */
 export async function createWorktree(
