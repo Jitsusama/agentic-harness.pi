@@ -102,8 +102,9 @@ export default function planMode(pi: ExtensionAPI) {
 		promptSnippet:
 			"Present planning questions as a tabbed interview during plan mode.",
 		promptGuidelines: [
-			"During planning, use plan_interview to ask clarifying questions instead of asking inline.",
-			"Loop: call plan_interview, process answers, call again with follow-up questions. Stop when you have no more questions and the user adds none.",
+			"Use plan_interview only for genuine questions that need the user's input: decisions, preferences, scope calls, trade-off choices.",
+			"Do NOT use plan_interview to present analysis, explain findings, summarize research or propose approaches. Those are normal conversation.",
+			"Loop: call plan_interview, process answers, call again with follow-ups. Stop when you have no more questions and the user adds none.",
 			"Only include genuine questions: never include 'no questions' or 'skip' options. The tool has its own Done page.",
 		],
 		parameters: Type.Object({

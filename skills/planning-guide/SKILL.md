@@ -12,16 +12,28 @@ description: >
 
 1. **Understand the goal**: what are we trying to accomplish and why.
 2. **Investigate**: read the relevant code, understand the current state.
-3. **Ask questions**: use `plan_interview` for structured input.
-   Loop: present questions, process answers, ask follow-ups.
-   Keep going until you have no more questions and the user
-   adds none.
+3. **Ask questions**: use `plan_interview` when you have
+   genuine questions that need the user's input. Loop until
+   you have no more and the user adds none.
 4. **Summarize findings**: present what you learned, concisely.
 5. **Propose an approach**: high-level strategy, invite feedback.
 6. **Iterate**: refine through conversation until aligned.
 7. **Write the plan**: structured markdown file.
    - **If planning code work:** Load the `planning-dev-format` skill for
      guidance on plan structure (interfaces, data flow, test scenarios).
+
+## Interview vs. Conversation
+
+`plan_interview` is for **questions that need the user's
+input** — decisions, preferences, scope calls, trade-off
+choices. If you're presenting analysis, explaining findings,
+summarizing what you learned, or proposing an approach, that's
+**conversation** — write it as a normal response.
+
+The test: if the user could meaningfully skip the item or
+pass on it, it's a question. If they'd be confused by a
+"Pass" button because you're explaining something to them,
+it's conversation.
 
 ## Plan File Naming
 
