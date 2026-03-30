@@ -220,6 +220,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"search_messages cannot search DM conversations — the tool returns a clear error. Use list_messages for DMs.",
 			"When the user asks about DM history over a time range, pass limit: 0 and the oldest/latest params to list_messages to get ALL messages in that window. The default limit (20) is far too small for comprehensive queries. Don't draw conclusions from partial data.",
 			"The query parameter is optional for search when structured params (from, with, channel, after, before) are provided — it defaults to *.",
+			"To start a group DM, pass comma-separated user IDs or @handles as the channel (e.g. 'W018HTJBU1H,U09HTCT9YLU' or '@katie.laliberte,@jonathan.feng'). The tool calls conversations.open to create or find the group DM.",
 			"Be concise in your responses — summarise the substance of results rather than restating what the tool output already shows.",
 		],
 		parameters: Type.Object({
@@ -247,7 +248,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			),
 			channel: Type.Optional(
 				Type.String({
-					description: "Channel name (with or without #), or channel ID",
+					description:
+						"Channel name (with or without #), channel ID, " +
+						"user ID (opens DM), or comma-separated user IDs/handles (opens group DM)",
 				}),
 			),
 			ts: Type.Optional(Type.String({ description: "Message timestamp" })),
