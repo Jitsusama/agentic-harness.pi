@@ -29,7 +29,7 @@ import {
 	inferKindFromId,
 } from "./conversation-cache.js";
 import { parseSlackUrl } from "./url.js";
-import { resolveUser } from "./user.js";
+import { displayNameForId, resolveUser } from "./user.js";
 
 const CACHE_FILE = "channels.json";
 
@@ -45,6 +45,7 @@ const USER_ID_PATTERN = /^[UW][A-Z0-9]{8,}$/;
  * Accepts:
  *   - Channel ID (C..., D..., G...) → fetched via cache or conversations.info
  *   - User ID (U..., W...) → opens/finds the DM conversation via conversations.open
+ *   - Comma-separated user IDs or @handles → opens/finds a group DM
  *   - @handle (e.g. "@joel.gerber") → resolved to user ID via search, then DM
  *   - Channel name (with or without #) → resolved via file cache, then search
  *   - Slack URL → parsed for the channel ID
@@ -53,6 +54,11 @@ export async function resolveConversation(
 	client: SlackClient,
 	input: string,
 ): Promise<Conversation> {
+	// Comma-separated values: open a group DM with multiple users.
+	if (input.includes(",")) {
+		return openGroupDmConversation(client, input);
+	}
+
 	// Channel ID: look up metadata.
 	if (CHANNEL_ID_PATTERN.test(input)) {
 		return resolveById(client, input);
@@ -193,4 +199,65 @@ async function openDmConversation(
 	};
 	cacheConversation(conversation);
 	return conversation;
+}
+
+/**
+ * Open or find a group DM with multiple users.
+ *
+ * Accepts a comma-separated string of user IDs and/or @handles.
+ * Each segment is resolved to a user ID, then conversations.open
+ * is called with all IDs to create or find the group DM.
+ */
+async function openGroupDmConversation(
+	client: SlackClient,
+	input: string,
+): Promise<Conversation> {
+	const segments = input
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	if (segments.length < 2) {
+		throw new Error(
+			"Group DM requires at least two user IDs or handles, " +
+				"separated by commas.",
+		);
+	}
+
+	const userIds: string[] = [];
+	for (const segment of segments) {
+		const bare = segment.startsWith("@") ? segment.slice(1) : segment;
+		if (USER_ID_PATTERN.test(bare)) {
+			userIds.push(bare);
+		} else {
+			userIds.push(await resolveUser(client, bare));
+		}
+	}
+
+	const response = await client.call<{
+		channel: { id: string; name?: string; purpose?: { value?: string } };
+	}>("conversations.open", { users: userIds.join(",") });
+
+	const ch = response.channel;
+	if (!ch?.id) {
+		throw new Error(
+			"Could not open group DM. Verify the user IDs or handles are correct.",
+		);
+	}
+
+	const conversation: Conversation = {
+		id: ch.id,
+		kind: "group_dm",
+		displayName: formatGroupDmDisplayName(userIds),
+	};
+	cacheConversation(conversation);
+	return conversation;
+}
+
+/**
+ * Build a display name for a group DM from resolved user IDs.
+ *
+ * Uses cached @handles when available, falls back to raw IDs.
+ */
+function formatGroupDmDisplayName(userIds: string[]): string {
+	return userIds.map((id) => `@${displayNameForId(id)}`).join(", ");
 }

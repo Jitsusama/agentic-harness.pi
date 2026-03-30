@@ -139,6 +139,19 @@ instead. This is a Slack API limitation, not a tool limitation.
 → `send_message` with `channel` and `text`
 - The user sees a confirmation gate before it sends
 
+### "Start a group DM with [person] and [person]"
+→ `send_message` with `channel` set to comma-separated user
+  IDs or @handles, and `text` for the message body.
+  Examples:
+  - `channel: "W018HTJBU1H,U09HTCT9YLU"`
+  - `channel: "@katie.laliberte,@jonathan.feng"`
+
+  The tool calls `conversations.open` with multiple users to
+  create or find the group DM, then sends the message.
+  Handles are resolved to user IDs automatically. If you
+  already have user IDs from a previous `get_user` call, use
+  those directly.
+
 ### "Reply to that thread saying…"
 → `reply_to_thread` with `channel`, `ts` (from previous context), and `text`
 
@@ -210,6 +223,8 @@ All identifier formats are resolved automatically:
   conversation automatically.
 - **User IDs as channel**: resolves to the DM conversation
   automatically via `conversations.open`.
+- **Comma-separated user IDs or @handles**: resolves to a
+  group DM via `conversations.open` with multiple users.
 - **User handles**: with or without `@`. Resolved to user
   IDs automatically.
 - **Timestamps**: the `ts` field from previous results.
