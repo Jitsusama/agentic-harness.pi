@@ -24,6 +24,11 @@ export const PLAN_TOOLS = [
 	"ask",
 	"plan_mode",
 	"plan_interview",
+	"slack",
+	"google",
+	"web_search",
+	"web_read",
+	"vault",
 ];
 
 /** Git-mutating bash commands: blocked in plan mode. */
