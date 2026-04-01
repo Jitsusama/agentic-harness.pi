@@ -45,6 +45,14 @@ export default function planMode(pi: ExtensionAPI) {
 			action: StringEnum(["activate", "deactivate"] as const, {
 				description: "Whether to activate or deactivate plan mode",
 			}),
+			repos: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						'Repository paths to create worktrees in. Use "." for the ' +
+						"current repo. Each gets its own worktree so implementation " +
+						"happens in isolated working trees. Only used with 'activate'.",
+				}),
+			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (params.action === "activate") {
@@ -53,14 +61,28 @@ export default function planMode(pi: ExtensionAPI) {
 						content: [{ type: "text", text: "Plan mode is already active." }],
 					};
 				}
-				activate(state, pi, ctx);
+				const result = await activate(
+					state,
+					pi,
+					ctx,
+					params.repos as string[] | undefined,
+				);
+
+				const parts = [
+					`Plan mode activated. Writes restricted to ${state.planDir}/.`,
+					"Read-only investigation is now enforced.",
+				];
+				for (const wt of state.worktrees) {
+					parts.push(`Worktree: ${wt.worktreePath}`);
+				}
+				for (const failed of result.failedRepos) {
+					parts.push(
+						`WARNING: Failed to create worktree for ${failed}. Check the path exists and is a git repository.`,
+					);
+				}
+
 				return {
-					content: [
-						{
-							type: "text",
-							text: `Plan mode activated. Writes restricted to ${state.planDir}/. Read-only investigation is now enforced.`,
-						},
-					],
+					content: [{ type: "text", text: parts.join(" ") }],
 				};
 			}
 

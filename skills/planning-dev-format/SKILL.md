@@ -289,6 +289,24 @@ Error handling:
 - INFORMATION_SCHEMA query fails → raise with context
 ```
 
+## Cleanup Section
+
+When the plan was created with worktrees (the `repos`
+parameter was provided during activation), include a cleanup
+section at the end of the plan. List each worktree:
+
+```markdown
+## Cleanup
+
+After the work is merged or abandoned:
+- [ ] Remove worktree: `git worktree remove <worktree-path>`
+- [ ] Delete branch: `git branch -D <branch>`
+```
+
+The worktree paths are reported during activation. Replace
+`<branch>` with whatever branch was created during
+implementation.
+
 ## When to Use This Skill
 
 Use during `plan_mode` when:

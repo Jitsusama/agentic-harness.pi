@@ -129,10 +129,24 @@ When the user's intent suggests investigation or planning
 first", "let's think about this before building"):
 
 1. Confirm with the user that they want plan mode.
-2. Call `plan_mode` with action `activate`.
-3. Investigate, collaborate, write the plan.
-4. When transitioning to implementation, call `plan_mode`
-   with action `deactivate`.
+2. Identify which repositories the work will touch.
+3. Call `plan_mode` with action `activate` and the `repos`
+   parameter listing those paths (use `"."` for the current
+   repo). This creates a worktree in each repository so
+   implementation happens in isolated working trees.
+4. Investigate, collaborate, write the plan.
+5. When the plan is written, a transition gate appears.
+   Choosing to implement deactivates plan mode. The
+   implementation prompt includes the worktree paths;
+   cd into each worktree to implement.
+
+Worktrees are created at each repo's current HEAD. Branch
+creation happens later, during implementation, following
+the `git-branch-convention` skill.
+
+When worktree isolation isn't needed (quick investigations,
+plans that won't lead to implementation), omit the `repos`
+parameter. Plan mode will activate without worktrees.
 
 The `/plan` command and `Ctrl+Alt+P` shortcut also toggle
-plan mode directly.
+plan mode directly (without worktrees).
