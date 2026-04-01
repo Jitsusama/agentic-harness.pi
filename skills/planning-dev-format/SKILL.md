@@ -57,10 +57,31 @@ understand the landscape:
 - Why this approach over alternatives?
 - What was discussed/decided during planning?
 
-### 3. PR Breakdown
+### 3. Progress Rules
+
+Every plan must include a short progress tracking section
+near the top, right after context. This travels with the
+plan file so any agent picking it up in a fresh session
+knows the rules without loading external skills:
+
+```markdown
+## Progress
+
+Steps use checkboxes. Find the first unchecked step;
+that's where to start. After completing a step, check it
+off and commit the plan file update with the implementation
+work. Do not start the next step until the current one is
+checked off.
+```
+
+This section is short and imperative. It is not a
+suggestion; it is a standing order embedded in the
+document itself.
+
+### 4. PR Breakdown
 
 Break work into logical, independently reviewable units.
-No standard structure - let the work guide the split.
+No standard structure; let the work guide the split.
 
 For each PR:
 
@@ -76,7 +97,7 @@ For each PR:
 **Files:** New files and modified files
 ```
 
-### 4. Interfaces (Per PR or Component)
+### 5. Interfaces (Per PR or Component)
 
 Define what's publicly exposed and how it's called:
 
@@ -101,7 +122,7 @@ Calls: BigQuery INFORMATION_SCHEMA query
 Side effects: None (pure function - returns data, doesn't mutate state)
 ```
 
-### 5. Data Structures
+### 6. Data Structures
 
 Describe what flows through the system:
 
@@ -127,7 +148,7 @@ Processing: Convert to Date, format as YYYY-MM-DD (iso8601)
 Output: Array of YYYY-MM-DD strings
 ```
 
-### 6. Test Scenarios (Per PR)
+### 7. Test Scenarios (Per PR)
 
 List behaviors to verify - high level, not full test code:
 
@@ -150,7 +171,7 @@ List behaviors to verify - high level, not full test code:
 
 During TDD, more scenarios will emerge. This is the starting point.
 
-### 7. Open Questions
+### 8. Open Questions
 
 Mark unknowns to resolve during implementation:
 

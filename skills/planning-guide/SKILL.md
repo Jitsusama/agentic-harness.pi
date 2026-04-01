@@ -72,6 +72,14 @@ during investigation.
 
 High-level strategy. Why this approach over alternatives.
 
+## Progress
+
+Steps use checkboxes. Find the first unchecked step;
+that's where to start. After completing a step, check it
+off and commit the plan file update with the implementation
+work. Do not start the next step until the current one is
+checked off.
+
 ## Steps
 
 - [ ] First step: small enough for one TDD cycle / one commit.
@@ -102,11 +110,30 @@ Each step should be:
 
 ## Progress Tracking
 
-Plans are living documents. Use checkboxes (`- [ ]` / `- [x]`)
-for steps so the implementer can mark them off as they go.
-After completing a step, update the plan file before moving
-on to the next one. This keeps the plan accurate and makes it
-easy to resume after interruptions.
+The plan file is the single source of truth for what's done
+and what's left. Implementation may happen in a different
+session, possibly days later, so the plan must be
+self-explanatory at all times.
+
+**Before starting:** read the plan file. Find the first
+unchecked step. That's where you begin.
+
+**After completing a step:** update the plan file immediately.
+Check off the step (`- [x]`), then commit the plan file
+update alongside the implementation work. Do not start the
+next step until the current one is checked off. This is not
+optional.
+
+**If a step turns out wrong:** don't silently skip it. Update
+the plan: rewrite the step, add new ones, remove obsolete
+ones. The plan should always reflect reality, not the
+original optimistic guess. See "Deviating from the Plan"
+below.
+
+**If you're resuming someone else's work:** the checked-off
+steps tell you what's done. The unchecked steps tell you
+what's left. Trust the checkboxes; don't re-investigate
+completed work unless something looks wrong.
 
 ## Deviating from the Plan
 
