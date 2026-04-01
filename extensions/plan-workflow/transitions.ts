@@ -45,7 +45,7 @@ export async function offerImplementationTransition(
 		return;
 	}
 
-	pi.sendUserMessage("Let's implement this plan. Start with step 1.", {
+	pi.sendUserMessage(buildImplementationPrompt(state), {
 		deliverAs: "followUp",
 	});
 }
@@ -56,24 +56,37 @@ export async function offerImplementationTransition(
 export function buildPlanContext(state: PlanState) {
 	if (!state.enabled) return;
 
+	const lines = [
+		"[PLAN MODE: read-only investigation]",
+		"",
+		"Investigate the codebase and collaborate toward an",
+		"implementation plan. Do not modify code files.",
+		"",
+		"Use plan_interview for questions that need user input.",
+		"Use normal conversation for explanations, analysis and",
+		"proposals.",
+		"",
+		`Write plan files to: ${state.planDir}/`,
+	];
+
+	if (state.worktrees.length > 0) {
+		lines.push("");
+		lines.push("Worktrees prepared for implementation:");
+		for (const wt of state.worktrees) {
+			lines.push(`  ${wt.repoPath} → ${wt.worktreePath}`);
+		}
+	}
+
+	lines.push("");
+	lines.push(
+		"When the plan is ready and the user is satisfied, offer",
+		"to transition to implementation.",
+	);
+
 	return {
 		message: {
 			customType: "plan-workflow-context",
-			content: [
-				"[PLAN MODE: read-only investigation]",
-				"",
-				"Investigate the codebase and collaborate toward an",
-				"implementation plan. Do not modify code files.",
-				"",
-				"Use plan_interview for questions that need user input.",
-				"Use normal conversation for explanations, analysis and",
-				"proposals.",
-				"",
-				`Write plan files to: ${state.planDir}/`,
-				"",
-				"When the plan is ready and the user is satisfied, offer",
-				"to transition to implementation.",
-			].join("\n"),
+			content: lines.join("\n"),
 			display: false,
 		},
 	};
@@ -85,4 +98,27 @@ export function buildPlanContext(state: PlanState) {
  */
 export function planContextFilter(state: PlanState) {
 	return filterContext("plan-workflow-context", () => state.enabled);
+}
+
+/**
+ * Build the implementation prompt, including the plan file
+ * path and worktree locations when available.
+ */
+function buildImplementationPrompt(state: PlanState): string {
+	const parts: string[] = [];
+
+	if (state.lastPlanFile) {
+		parts.push(`Read the plan at ${state.lastPlanFile}.`);
+	}
+
+	if (state.worktrees.length > 0) {
+		parts.push("Worktrees for this plan:");
+		for (const wt of state.worktrees) {
+			parts.push(`  ${wt.worktreePath}`);
+		}
+		parts.push("cd into the worktree to implement.");
+	}
+
+	parts.push("Start with step 1.");
+	return parts.join("\n");
 }

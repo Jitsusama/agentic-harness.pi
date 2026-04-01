@@ -34,6 +34,7 @@ export function enforcePlanMode(
 
 		if (inPlanDir) {
 			state.wroteToPlanDir = true;
+			state.lastPlanFile = resolved;
 			return;
 		}
 
