@@ -12,7 +12,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { closeBrowser } from "../../lib/web/browser.js";
+import { closeBrowser, killBrowserSync } from "../../lib/web/browser.js";
 import {
 	isSetUp,
 	StaleKeyError,
@@ -286,8 +286,13 @@ export default function webSearch(pi: ExtensionAPI) {
 		},
 	});
 
-	// We clean up the browser when the session ends.
+	// We clean up the browser when the session ends gracefully.
 	pi.on("session_end", async () => {
+		process.removeListener("exit", killBrowserSync);
 		await closeBrowser();
 	});
+
+	// If the process dies without a clean session_end (e.g., crash,
+	// SIGTERM), kill Chrome synchronously so it doesn't orphan.
+	process.on("exit", killBrowserSync);
 }

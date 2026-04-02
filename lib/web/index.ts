@@ -7,6 +7,6 @@
  * implementation details: use `webSearch` and `readPage`.
  */
 
-export { closeBrowser } from "./browser.js";
+export { closeBrowser, killBrowserSync } from "./browser.js";
 export { AuthSetupNeeded, type PageContent, readPage } from "./reader.js";
 export { type SearchResult, webSearch } from "./search.js";
