@@ -10,6 +10,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import { findItem } from "../../lib/internal/comments/operations.js";
 import {
 	buildHunkRanges,
 	clampToHunkRange,
@@ -410,7 +411,7 @@ export async function handleReview(deps: ReviewContext, ctx: ExtensionContext) {
 		parts.push(`User feedback from review panel:\n\n"${result.note}"`);
 
 		if (result.commentId) {
-			const comment = session.comments.find((c) => c.id === result.commentId);
+			const comment = findItem(session.comments, result.commentId);
 			if (comment) {
 				parts.push("");
 				parts.push("Comment being redirected:");

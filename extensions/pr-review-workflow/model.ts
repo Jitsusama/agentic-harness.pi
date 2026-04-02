@@ -8,6 +8,15 @@
  *   ReviewObservation : a single comment with lifecycle status
  */
 
+import {
+	addItem,
+	promoteStatus,
+	removeItem,
+	removeItems,
+	statusStats,
+	updateItem,
+} from "../../lib/internal/comments/operations.js";
+import type { LifecycleItem } from "../../lib/internal/comments/types.js";
 import type { DiffFile } from "../../lib/internal/github/diff.js";
 
 /** Identifies the PR under review. */
@@ -110,8 +119,7 @@ export type CommentCategory = "file" | "title" | "scope";
 export type CommentStatus = "proposed" | "pending" | "approved" | "rejected";
 
 /** A review comment with lifecycle status. */
-export interface ReviewObservation {
-	id: string;
+export interface ReviewObservation extends LifecycleItem<CommentStatus> {
 	file: string | null;
 	startLine: number | null;
 	endLine: number | null;
@@ -119,7 +127,6 @@ export interface ReviewObservation {
 	decorations: string[];
 	subject: string;
 	discussion: string;
-	status: CommentStatus;
 	source: "ai" | "user";
 	category: CommentCategory;
 }
@@ -162,10 +169,8 @@ export interface ReviewSession {
 	phase: ReviewPhase;
 }
 
-/** Generate a unique comment ID. */
-function nextId(): string {
-	return `rc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
+/** ID prefix for review comments. */
+const COMMENT_PREFIX = "rc";
 
 /** Add a comment to the session. Defaults to pending status. */
 export function addComment(
@@ -173,13 +178,7 @@ export function addComment(
 	data: Omit<ReviewObservation, "id" | "status">,
 	status: CommentStatus = "pending",
 ): ReviewObservation {
-	const comment: ReviewObservation = {
-		...data,
-		id: nextId(),
-		status,
-	};
-	session.comments.push(comment);
-	return comment;
+	return addItem(session.comments, { ...data, status }, COMMENT_PREFIX);
 }
 
 /** Update an existing comment. Returns true if found. */
@@ -188,18 +187,12 @@ export function updateComment(
 	id: string,
 	updates: Partial<Omit<ReviewObservation, "id">>,
 ): boolean {
-	const comment = session.comments.find((c) => c.id === id);
-	if (!comment) return false;
-	Object.assign(comment, updates);
-	return true;
+	return updateItem(session.comments, id, updates);
 }
 
 /** Remove a comment by ID. Returns true if found. */
 export function removeComment(session: ReviewSession, id: string): boolean {
-	const index = session.comments.findIndex((c) => c.id === id);
-	if (index === -1) return false;
-	session.comments.splice(index, 1);
-	return true;
+	return removeItem(session.comments, id);
 }
 
 /**
@@ -210,16 +203,7 @@ export function removeComments(
 	session: ReviewSession,
 	ids: string[],
 ): { removed: string[]; notFound: string[] } {
-	const removed: string[] = [];
-	const notFound: string[] = [];
-	for (const id of ids) {
-		if (removeComment(session, id)) {
-			removed.push(id);
-		} else {
-			notFound.push(id);
-		}
-	}
-	return { removed, notFound };
+	return removeItems(session.comments, ids);
 }
 
 /** Format a comment as a single-line summary with its ID. */
@@ -254,6 +238,14 @@ export function commentsForFile(
 	return session.comments.filter((c) => c.file === path);
 }
 
+/** All possible comment statuses, for stats computation. */
+const COMMENT_STATUSES = [
+	"proposed",
+	"pending",
+	"approved",
+	"rejected",
+] as const;
+
 /** Count comments by status. */
 export function commentStats(session: ReviewSession): {
 	proposed: number;
@@ -261,29 +253,12 @@ export function commentStats(session: ReviewSession): {
 	approved: number;
 	rejected: number;
 } {
-	let proposed = 0;
-	let pending = 0;
-	let approved = 0;
-	let rejected = 0;
-	for (const c of session.comments) {
-		if (c.status === "proposed") proposed++;
-		else if (c.status === "pending") pending++;
-		else if (c.status === "approved") approved++;
-		else rejected++;
-	}
-	return { proposed, pending, approved, rejected };
+	return statusStats(session.comments, COMMENT_STATUSES);
 }
 
 /** Promote all proposed comments to pending. */
 export function promoteProposedComments(session: ReviewSession): number {
-	let promoted = 0;
-	for (const c of session.comments) {
-		if (c.status === "proposed") {
-			c.status = "pending";
-			promoted++;
-		}
-	}
-	return promoted;
+	return promoteStatus(session.comments, "proposed", "pending");
 }
 
 /** Check if a tab is passed (all comments resolved or explicit). */

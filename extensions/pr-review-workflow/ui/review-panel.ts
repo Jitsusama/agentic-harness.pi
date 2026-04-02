@@ -10,6 +10,8 @@
 import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
+import { advanceToNextWithStatus } from "../../../lib/internal/comments/navigation.js";
+import { allResolved } from "../../../lib/internal/comments/operations.js";
 import type { DiffFile } from "../../../lib/internal/github/diff.js";
 import {
 	type DetailEntry,
@@ -590,32 +592,26 @@ function handleCommentInput(
 	return false;
 }
 
-/** Advance selection to the next pending comment. */
+/**
+ * Advance selection to the next pending comment.
+ * Stays at the current index if none remain.
+ */
 function advanceToNextPending(
 	comments: ReviewObservation[],
 	getIndex: () => number,
 	setIndex: (i: number) => void,
 ): void {
-	const current = getIndex();
-	for (let i = 1; i <= comments.length; i++) {
-		const next = (current + i) % comments.length;
-		if (comments[next]?.status === "pending") {
-			setIndex(next);
-			return;
-		}
-	}
-	// There are no pending comments left, so we stay at the current one.
+	const next = advanceToNextWithStatus(comments, getIndex(), "pending");
+	if (next !== null) setIndex(next);
 }
 
-/** Check if a tab should be auto-passed. */
+/** Auto-pass the tab when all comments have been resolved. */
 function checkTabAutoPassed(
 	session: ReviewSession,
 	tabId: string,
 	comments: ReviewObservation[],
 ): void {
-	if (comments.length === 0) return;
-	const allResolved = comments.every((c) => c.status !== "pending");
-	if (allResolved) {
+	if (allResolved(comments, "pending")) {
 		markTabPassed(session, tabId);
 	}
 }
