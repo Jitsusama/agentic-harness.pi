@@ -146,10 +146,12 @@ export async function showReplyWorkspace(
 		return { action: "pass", threadId: actionThreadId };
 	}
 
-	if (result.type === "submit" && actionThreadId) {
+	// Enter on a thread: open the full-context gate.
+	if (result.type === "action" && result.key === "open" && actionThreadId) {
 		return { action: "open", threadId: actionThreadId };
 	}
 
+	// Ctrl+Enter or unhandled submit: dismiss the workspace.
 	return null;
 }
 
@@ -303,9 +305,10 @@ function buildReviewerTab(
 
 			setActionThread(thread.id);
 
-			// Enter: open the full-context gate
+			// Enter: open the full-context gate (distinct from
+			// workspace-level Ctrl+Enter submit).
 			if (matchesKey(data, Key.enter)) {
-				inputCtx.done({ type: "submit" });
+				inputCtx.done({ type: "action", key: "open" });
 				return true;
 			}
 
