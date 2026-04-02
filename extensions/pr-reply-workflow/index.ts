@@ -220,7 +220,14 @@ export default function prReply(pi: ExtensionAPI) {
 
 		renderResult(res, _options, theme) {
 			const d = res.details as
-				| { action?: string; threadCount?: number; openedTab?: boolean }
+				| {
+						action?: string;
+						threadCount?: number;
+						analyzed?: number;
+						total?: number;
+						redirected?: boolean;
+						openedTab?: boolean;
+				  }
 				| undefined;
 			if (d?.openedTab) {
 				return new Text(
@@ -236,11 +243,25 @@ export default function prReply(pi: ExtensionAPI) {
 					0,
 				);
 			}
+			if (d?.action === "generate-analysis") {
+				return new Text(
+					theme.fg("success", `✓ ${d.analyzed}/${d.total} threads analyzed`),
+					0,
+					0,
+				);
+			}
+			if (d?.action === "review") {
+				const redirected = d.redirected ? " (redirected)" : "";
+				return new Text(theme.fg("muted", `Workspace${redirected}`), 0, 0);
+			}
 			if (d?.action === "next") {
 				return new Text(theme.fg("muted", "Thread loaded"), 0, 0);
 			}
 			if (d?.action === "replied") {
 				return new Text(theme.fg("success", "✓ Reply posted"), 0, 0);
+			}
+			if (d?.action === "deactivated") {
+				return new Text(theme.fg("muted", "Reply complete"), 0, 0);
 			}
 			const t = res.content?.[0];
 			const text = t && "text" in t ? t.text : "";
