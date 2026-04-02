@@ -192,9 +192,11 @@ export async function handleDeactivate(
 
 	const rebaseInfo = await checkDependentPRs(state, pi, ctx);
 
+	// Build the summary before deactivate resets state.
+	const summary = completionBriefing(state);
+
 	deactivate(state, pi, ctx);
 
-	const summary = completionBriefing(state);
 	const text = rebaseInfo ? `${summary}\n\n${rebaseInfo}` : summary;
 
 	return {
