@@ -53,18 +53,43 @@ export async function getBrowser(): Promise<Browser> {
 export async function newPage(): Promise<Page> {
 	const b = await getBrowser();
 	const page = await b.newPage();
-	await page.setUserAgent(
-		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-			"AppleWebKit/537.36 (KHTML, like Gecko) " +
-			"Chrome/131.0.0.0 Safari/537.36",
-	);
+	try {
+		await page.setUserAgent(
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+				"AppleWebKit/537.36 (KHTML, like Gecko) " +
+				"Chrome/131.0.0.0 Safari/537.36",
+		);
+	} catch (err) {
+		await page.close();
+		throw err;
+	}
 	return page;
 }
 
 /** Shut down the shared Chrome instance if it's running. */
 export async function closeBrowser(): Promise<void> {
-	if (browser?.connected) {
-		await browser.close();
+	const b = browser;
+	if (!b) return;
+
+	try {
+		if (b.connected) await b.close();
+	} catch {
+		// Graceful close failed. Kill the Chrome process tree so it
+		// doesn't linger as an orphan.
+		b.process()?.kill("SIGKILL");
+	} finally {
 		browser = undefined;
 	}
+}
+
+/**
+ * Force-kill the Chrome process synchronously. Called from
+ * `process.on('exit')` where async work isn't possible.
+ */
+export function killBrowserSync(): void {
+	const b = browser;
+	if (!b) return;
+
+	b.process()?.kill("SIGKILL");
+	browser = undefined;
 }
