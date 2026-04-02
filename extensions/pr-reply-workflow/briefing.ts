@@ -14,11 +14,7 @@ import { threadsForReview } from "./state.js";
 
 /** Count threads in a given state. */
 function countByState(state: PRReplyState, threadState: string): number {
-	let count = 0;
-	for (const [, value] of state.threadStates) {
-		if (value === threadState) count++;
-	}
-	return count;
+	return state.threads.filter((t) => t.status === threadState).length;
 }
 
 /** Domain summary of what activation discovered. */
@@ -287,9 +283,7 @@ export function implementChoiceBriefing(
 
 /** Domain summary of pending threads needing re-analysis. */
 export function reAnalyzeSummary(state: PRReplyState): string {
-	const pending = state.threads.filter(
-		(t) => state.threadStates.get(t.id) === "pending",
-	);
+	const pending = state.threads.filter((t) => t.status === "pending");
 
 	if (pending.length === 0) {
 		return "All threads addressed.";

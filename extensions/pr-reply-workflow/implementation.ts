@@ -73,7 +73,7 @@ export function beginTDDImplementation(
 ): void {
 	state.awaitingTDDCompletion = true;
 	state.tddThreadId = thread.id;
-	state.threadStates.set(thread.id, "implementing");
+	thread.status = "implementing";
 }
 
 /**

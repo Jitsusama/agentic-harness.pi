@@ -1,12 +1,18 @@
 /**
- * Comment vetting flow: workspace prompt where each file is
- * a tab with Overview (diff), Comments (selectable list), and
- * Source (full file) views. Mirrors pr-review's review panel.
+ * Annotation vetting workspace: each file is a tab with
+ * Overview (diff), Comments (selectable list), and Source
+ * (full file) views.
+ *
+ * Comments live on the session and are mutated in place.
+ * The workspace reads directly from the session's comment
+ * array, so all status changes persist through redirects.
  */
 
 import * as fs from "node:fs";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
+import { advanceToNextWithStatus } from "../../lib/internal/comments/navigation.js";
+import { allResolved } from "../../lib/internal/comments/operations.js";
 import type { DiffFile } from "../../lib/internal/github/diff.js";
 import {
 	type DetailEntry,
@@ -24,7 +30,8 @@ import { handleNavigableListInput } from "../../lib/ui/navigable-list.js";
 import { tabCompletion } from "../../lib/ui/tab-completion.js";
 import { CONTENT_INDENT } from "../../lib/ui/text-layout.js";
 import type { WorkspaceInputContext } from "../../lib/ui/types.js";
-import type { ProposedComment, VetResult } from "./types.js";
+import { commentStats, commentsForFile } from "./state.js";
+import type { AnnotateComment, AnnotateSession } from "./types.js";
 
 /** Status glyphs for comments. */
 const COMMENT_GLYPH = {
@@ -33,56 +40,56 @@ const COMMENT_GLYPH = {
 	rejected: "✕",
 } as const;
 
-/** Comment status type. */
-type CommentStatus = "pending" | "approved" | "rejected";
-
-/** Internal comment with mutable status for the workspace. */
-interface VetComment {
-	comment: ProposedComment;
-	status: CommentStatus;
-}
+/** Result from the vetting workspace. */
+export type ReviewResult =
+	| { action: "submit" }
+	| {
+			action: "redirect";
+			note: string;
+			commentId?: string;
+			commentSubject?: string;
+	  }
+	| null;
 
 /**
- * Show the vetting workspace. Returns approved/rejected counts,
- * user requests, and redirect feedback. Returns null on cancel.
+ * Show the annotation vetting workspace. Comments are
+ * mutated in place on the session — status changes
+ * survive redirects and panel reloads.
  */
-export async function reviewProposedComments(
-	comments: ProposedComment[],
-	preApprovedCount: number,
+export async function showAnnotateWorkspace(
 	ctx: ExtensionContext,
-	diffFiles: DiffFile[],
-): Promise<VetResult | null> {
-	if (comments.length === 0 && preApprovedCount === 0) {
-		return { approved: [], rejected: 0, edited: 0, userRequests: [] };
+	session: AnnotateSession,
+): Promise<ReviewResult> {
+	if (session.comments.length === 0) {
+		return { action: "submit" };
 	}
 
-	// We wrap each comment with mutable status tracking.
-	const trackedComments: VetComment[] = comments.map((c) => ({
-		comment: c,
-		status: "pending" as CommentStatus,
-	}));
-
-	// We group comments by file path.
-	const fileGroups = groupByFile(trackedComments);
-	const filePaths = [...fileGroups.keys()].sort();
+	const filePaths = uniqueFilePaths(session.comments);
 
 	// We build a diff lookup by path.
 	const diffByPath = new Map<string, DiffFile>();
-	for (const df of diffFiles) {
+	for (const df of session.diffFiles) {
 		diffByPath.set(df.path, df);
 	}
 
-	// This is mutable selection state, tracked per tab.
+	// Mutable selection state, tracked per tab.
 	const commentIndices = new Map<string, number>();
 	const tabPassed = new Set<string>();
 
-	// We build the workspace items from the summary and file tabs.
+	// We seed tab completion from existing comment statuses.
+	for (const path of filePaths) {
+		const fileComments = commentsForFile(session, path);
+		if (allResolved(fileComments, "pending")) {
+			tabPassed.add(path);
+		}
+	}
+
 	const items: WorkspaceItem[] = [
-		buildSummaryTab(trackedComments, preApprovedCount),
+		buildSummaryTab(session),
 		...filePaths.map((path) =>
 			buildFileTab(
 				path,
-				fileGroups.get(path) ?? [],
+				session,
 				diffByPath.get(path) ?? null,
 				commentIndices,
 				tabPassed,
@@ -91,7 +98,6 @@ export async function reviewProposedComments(
 	];
 
 	const tabIds = ["summary", ...filePaths];
-
 	const completion = tabCompletion(
 		tabIds,
 		(id) => tabPassed.has(id),
@@ -106,102 +112,57 @@ export async function reviewProposedComments(
 
 	if (!result) return null;
 
-	if (result.type === "redirect") {
-		// A redirect could be feedback on a comment or a request for
-		// a new one. Either way, we return it as redirect feedback
-		// and let the LLM interpret the intent. We include any
-		// already-approved comments so they aren't lost.
-		const approved: ProposedComment[] = [];
-		for (const vc of trackedComments) {
-			if (vc.status === "approved") {
-				approved.push(vc.comment);
-			}
-		}
+	if (result.type === "submit") {
+		return { action: "submit" };
+	}
 
-		// Resolve which comment the user was looking at.
-		const activeComment = selectedVetComment(
+	if (result.type === "redirect") {
+		const comment = selectedComment(
 			filePaths,
-			fileGroups,
+			session,
 			commentIndices,
 			result.tabIndex,
 		);
-
 		return {
-			approved,
-			rejected: 0,
-			edited: 0,
-			redirectFeedback: result.note,
-			redirectComment: activeComment?.comment,
-			userRequests: [],
+			action: "redirect",
+			note: result.note,
+			commentId: comment?.id,
+			commentSubject: comment?.subject,
 		};
 	}
 
-	// We collect the results when the user submits via Ctrl+Enter.
-	const approved: ProposedComment[] = [];
-	let rejected = 0;
-
-	for (const vc of trackedComments) {
-		if (vc.status === "approved") {
-			approved.push(vc.comment);
-		} else if (vc.status === "rejected") {
-			rejected++;
-		}
-	}
-
-	return {
-		approved,
-		rejected,
-		edited: 0,
-		userRequests: [],
-	};
+	return null;
 }
 
-/** Build the Summary tab showing overall progress and post action. */
-function buildSummaryTab(
-	trackedComments: VetComment[],
-	preApprovedCount: number,
-): WorkspaceItem {
+/** Build the Summary tab showing overall progress. */
+function buildSummaryTab(session: AnnotateSession): WorkspaceItem {
 	const summaryView: WorkspaceView = {
 		key: "1",
 		label: "Overview",
 		content: (theme: Theme) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
-
-			const total = trackedComments.length + preApprovedCount;
-			const approved =
-				trackedComments.filter((c) => c.status === "approved").length +
-				preApprovedCount;
-			const rejected = trackedComments.filter(
-				(c) => c.status === "rejected",
-			).length;
-			const pending = trackedComments.filter(
-				(c) => c.status === "pending",
-			).length;
+			const stats = commentStats(session);
+			const total = stats.pending + stats.approved + stats.rejected;
 
 			lines.push(` ${theme.fg("accent", theme.bold("Self-Review Comments"))}`);
 			lines.push("");
 			lines.push(
 				`${pad}${theme.fg("text", `${total} total comment${total !== 1 ? "s" : ""}`)}`,
 			);
-			if (preApprovedCount > 0) {
-				lines.push(
-					`${pad}${theme.fg("dim", `${preApprovedCount} pre-approved from prior round`)}`,
-				);
-			}
 			lines.push("");
 			lines.push(
-				`${pad}${theme.fg("success", `${COMMENT_GLYPH.approved} ${approved} approved`)}`,
+				`${pad}${theme.fg("success", `${COMMENT_GLYPH.approved} ${stats.approved} approved`)}`,
 			);
 			lines.push(
-				`${pad}${theme.fg("error", `${COMMENT_GLYPH.rejected} ${rejected} rejected`)}`,
+				`${pad}${theme.fg("error", `${COMMENT_GLYPH.rejected} ${stats.rejected} rejected`)}`,
 			);
 			lines.push(
-				`${pad}${theme.fg("dim", `${COMMENT_GLYPH.pending} ${pending} pending`)}`,
+				`${pad}${theme.fg("dim", `${COMMENT_GLYPH.pending} ${stats.pending} pending`)}`,
 			);
 			lines.push("");
 
-			if (pending > 0) {
+			if (stats.pending > 0) {
 				lines.push(
 					`${pad}${theme.fg("dim", "Review all comments before posting.")}`,
 				);
@@ -211,18 +172,16 @@ function buildSummaryTab(
 				);
 			}
 
-			// File breakdown
-			const files = new Set(trackedComments.map((c) => c.comment.path));
-			if (files.size > 0) {
+			// File breakdown.
+			const filePaths = uniqueFilePaths(session.comments);
+			if (filePaths.length > 0) {
 				lines.push("");
 				lines.push(` ${theme.fg("text", theme.bold("Files:"))}`);
-				for (const file of [...files].sort()) {
-					const fileComments = trackedComments.filter(
-						(c) => c.comment.path === file,
-					);
-					const fa = fileComments.filter((c) => c.status === "approved").length;
-					const fr = fileComments.filter((c) => c.status === "rejected").length;
-					const fp = fileComments.filter((c) => c.status === "pending").length;
+				for (const file of filePaths) {
+					const fc = commentsForFile(session, file);
+					const fa = fc.filter((c) => c.status === "approved").length;
+					const fr = fc.filter((c) => c.status === "rejected").length;
+					const fp = fc.filter((c) => c.status === "pending").length;
 					lines.push(
 						`${pad}${theme.fg("text", file)} ${theme.fg("dim", `(${fa}✓ ${fr}✕ ${fp}○)`)}`,
 					);
@@ -239,7 +198,7 @@ function buildSummaryTab(
 /** Build a file tab with Overview (diff), Comments and Source views. */
 function buildFileTab(
 	filePath: string,
-	fileComments: VetComment[],
+	session: AnnotateSession,
 	diffFile: DiffFile | null,
 	commentIndices: Map<string, number>,
 	tabPassed: Set<string>,
@@ -250,8 +209,8 @@ function buildFileTab(
 	return {
 		label: shortPath(filePath),
 		views: [
-			buildOverviewView(filePath, fileComments, diffFile),
-			buildCommentsView(filePath, fileComments, getIndex, setIndex, tabPassed),
+			buildOverviewView(filePath, session, diffFile),
+			buildCommentsView(filePath, session, getIndex, setIndex, tabPassed),
 			buildSourceView(filePath),
 		],
 	};
@@ -260,7 +219,7 @@ function buildFileTab(
 /** Overview view: diff with comment indicators on annotated lines. */
 function buildOverviewView(
 	filePath: string,
-	fileComments: VetComment[],
+	session: AnnotateSession,
 	diffFile: DiffFile | null,
 ): WorkspaceView {
 	return {
@@ -270,6 +229,7 @@ function buildOverviewView(
 		content: (theme: Theme, width: number) => {
 			const pad = " ".repeat(CONTENT_INDENT);
 			const lines: string[] = [];
+			const fileComments = commentsForFile(session, filePath);
 
 			const status = diffFile?.status ?? "modified";
 			const additions = diffFile?.additions ?? 0;
@@ -280,13 +240,11 @@ function buildOverviewView(
 			);
 			lines.push("");
 
-			// Comment indicators
 			if (fileComments.length > 0) {
 				lines.push(renderCommentIndicators(fileComments, theme));
 				lines.push("");
 			}
 
-			// We render the diff if one is available.
 			const diffText = diffFile ? buildFileDiff(diffFile) : null;
 			if (diffText) {
 				const diffLines = renderDiff(diffText, theme, width);
@@ -295,12 +253,9 @@ function buildOverviewView(
 				for (let i = 0; i < diffLines.length; i++) {
 					const lineNum = diffFile ? extractLineNumber(diffFile, i) : null;
 					const indicator = lineNum ? indicatorMap.get(lineNum) : undefined;
-
-					if (indicator) {
-						lines.push(`${indicator} ${diffLines[i]}`);
-					} else {
-						lines.push(`  ${diffLines[i]}`);
-					}
+					lines.push(
+						indicator ? `${indicator} ${diffLines[i]}` : `  ${diffLines[i]}`,
+					);
 				}
 			} else {
 				lines.push(`${pad}${theme.fg("dim", "(no diff available)")}`);
@@ -314,7 +269,7 @@ function buildOverviewView(
 /** Comments view: selectable list with approve/reject actions. */
 function buildCommentsView(
 	filePath: string,
-	fileComments: VetComment[],
+	session: AnnotateSession,
 	getIndex: () => number,
 	setIndex: (i: number) => void,
 	tabPassed: Set<string>,
@@ -328,9 +283,12 @@ function buildCommentsView(
 		],
 		enterHint: "approve",
 		content: (theme: Theme, width: number) => {
-			return renderCommentList(fileComments, getIndex(), theme, width);
+			const comments = commentsForFile(session, filePath);
+			return renderCommentList(comments, getIndex(), theme, width);
 		},
 		handleInput: (data: string, inputCtx: WorkspaceInputContext) => {
+			const comments = commentsForFile(session, filePath);
+
 			// Pass: mark this tab as reviewed.
 			if (matchesKey(data, "p")) {
 				tabPassed.add(filePath);
@@ -338,7 +296,7 @@ function buildCommentsView(
 				return true;
 			}
 
-			if (fileComments.length === 0) {
+			if (comments.length === 0) {
 				if (matchesKey(data, "n")) {
 					inputCtx.openEditor("New comment for this file:");
 					return true;
@@ -350,7 +308,7 @@ function buildCommentsView(
 			const navResult = handleNavigableListInput(
 				data,
 				getIndex(),
-				fileComments.length,
+				comments.length,
 			);
 			if (navResult !== null) {
 				setIndex(navResult);
@@ -359,14 +317,15 @@ function buildCommentsView(
 				return true;
 			}
 
-			const vc = fileComments[getIndex()];
-			if (!vc) return false;
+			const comment = comments[getIndex()];
+			if (!comment) return false;
 
 			// Approve (Enter)
 			if (matchesKey(data, Key.enter)) {
-				vc.status = "approved";
-				checkTabAutoPassed(filePath, fileComments, tabPassed);
-				advanceToNextPending(fileComments, getIndex, setIndex);
+				comment.status = "approved";
+				checkTabAutoPassed(filePath, comments, tabPassed);
+				const next = advanceToNextWithStatus(comments, getIndex(), "pending");
+				if (next !== null) setIndex(next);
 				inputCtx.invalidate();
 				inputCtx.scrollToContentLine(getIndex());
 				return true;
@@ -374,9 +333,10 @@ function buildCommentsView(
 
 			// Reject
 			if (matchesKey(data, "r")) {
-				vc.status = "rejected";
-				checkTabAutoPassed(filePath, fileComments, tabPassed);
-				advanceToNextPending(fileComments, getIndex, setIndex);
+				comment.status = "rejected";
+				checkTabAutoPassed(filePath, comments, tabPassed);
+				const next = advanceToNextWithStatus(comments, getIndex(), "pending");
+				if (next !== null) setIndex(next);
 				inputCtx.invalidate();
 				inputCtx.scrollToContentLine(getIndex());
 				return true;
@@ -416,21 +376,20 @@ function buildSourceView(filePath: string): WorkspaceView {
 	};
 }
 
-/** Map a vet comment to a NavigableItem. */
-function vetCommentToItem(vc: VetComment, theme: Theme): NavigableItem {
-	const c = vc.comment;
+/** Map an annotation comment to a NavigableItem. */
+function commentToItem(c: AnnotateComment, theme: Theme): NavigableItem {
 	const glyphColor =
-		vc.status === "approved"
+		c.status === "approved"
 			? "success"
-			: vc.status === "rejected"
+			: c.status === "rejected"
 				? "error"
 				: "accent";
 
 	const lineRange = c.startLine ? `L${c.startLine}-${c.line}` : `L${c.line}`;
 	const statusColor =
-		vc.status === "approved"
+		c.status === "approved"
 			? "success"
-			: vc.status === "rejected"
+			: c.status === "rejected"
 				? "error"
 				: "dim";
 
@@ -441,11 +400,11 @@ function vetCommentToItem(vc: VetComment, theme: Theme): NavigableItem {
 		detail.push({ text: "Rationale:", color: "dim" });
 		detail.push({ text: c.rationale, color: "dim" });
 	}
-	detail.push(theme.fg(statusColor, `[${vc.status}]`));
+	detail.push(theme.fg(statusColor, `[${c.status}]`));
 	detail.push("");
 
 	return {
-		glyph: theme.fg(glyphColor, COMMENT_GLYPH[vc.status]),
+		glyph: theme.fg(glyphColor, COMMENT_GLYPH[c.status]),
 		summary: `${lineRange}: ${c.subject ?? c.body.split("\n")[0]}`,
 		detail,
 	};
@@ -453,12 +412,12 @@ function vetCommentToItem(vc: VetComment, theme: Theme): NavigableItem {
 
 /** Render a selectable comment list. */
 function renderCommentList(
-	comments: VetComment[],
+	comments: AnnotateComment[],
 	selectedIndex: number,
 	theme: Theme,
 	width: number,
 ): string[] {
-	const items = comments.map((vc) => vetCommentToItem(vc, theme));
+	const items = comments.map((c) => commentToItem(c, theme));
 	const { lines } = renderNavigableList(
 		items,
 		selectedIndex,
@@ -469,15 +428,9 @@ function renderCommentList(
 	return lines;
 }
 
-/** Group comments by file path, preserving order. */
-function groupByFile(comments: VetComment[]): Map<string, VetComment[]> {
-	const groups = new Map<string, VetComment[]>();
-	for (const vc of comments) {
-		const path = vc.comment.path;
-		if (!groups.has(path)) groups.set(path, []);
-		groups.get(path)?.push(vc);
-	}
-	return groups;
+/** Get sorted unique file paths from the comment list. */
+function uniqueFilePaths(comments: AnnotateComment[]): string[] {
+	return [...new Set(comments.map((c) => c.path))].sort();
 }
 
 /** Extract filename from a path for tab labels. */
@@ -486,45 +439,31 @@ function shortPath(path: string): string {
 	return lastSlash >= 0 ? path.slice(lastSlash + 1) : path;
 }
 
-/** Advance selection to the next pending comment. */
-function advanceToNextPending(
-	comments: VetComment[],
-	getIndex: () => number,
-	setIndex: (i: number) => void,
-): void {
-	const current = getIndex();
-	for (let i = 1; i <= comments.length; i++) {
-		const next = (current + i) % comments.length;
-		if (comments[next]?.status === "pending") {
-			setIndex(next);
-			return;
-		}
-	}
-}
-
-/** Auto-mark tab as passed when all comments are resolved. */
+/** Auto-mark tab as passed when all comments have been resolved. */
 function checkTabAutoPassed(
 	filePath: string,
-	comments: VetComment[],
+	comments: AnnotateComment[],
 	tabPassed: Set<string>,
 ): void {
-	const allResolved = comments.every((c) => c.status !== "pending");
-	if (allResolved) {
+	if (allResolved(comments, "pending")) {
 		tabPassed.add(filePath);
 	}
 }
 
 /** Render inline comment indicators. */
-function renderCommentIndicators(comments: VetComment[], theme: Theme): string {
+function renderCommentIndicators(
+	comments: AnnotateComment[],
+	theme: Theme,
+): string {
 	const pad = " ".repeat(CONTENT_INDENT);
 	const indicators: string[] = [];
 
-	for (const vc of comments) {
-		const glyph = COMMENT_GLYPH[vc.status];
+	for (const c of comments) {
+		const glyph = COMMENT_GLYPH[c.status];
 		const color =
-			vc.status === "approved"
+			c.status === "approved"
 				? "success"
-				: vc.status === "rejected"
+				: c.status === "rejected"
 					? "error"
 					: "accent";
 		indicators.push(theme.fg(color, glyph));
@@ -535,17 +474,16 @@ function renderCommentIndicators(comments: VetComment[], theme: Theme): string {
 
 /** Build a map of line number → indicator glyph for diff overlay. */
 function buildIndicatorMap(
-	comments: VetComment[],
+	comments: AnnotateComment[],
 	diffFile: DiffFile | null,
 ): Map<number, string> {
 	const map = new Map<number, string>();
 	if (!diffFile) return map;
 
-	for (const vc of comments) {
-		const c = vc.comment;
+	for (const c of comments) {
 		const start = c.startLine ?? c.line;
 		const end = c.line;
-		const glyph = COMMENT_GLYPH[vc.status];
+		const glyph = COMMENT_GLYPH[c.status];
 
 		for (let line = start; line <= end; line++) {
 			if (!map.has(line)) {
@@ -577,21 +515,20 @@ function extractLineNumber(
 
 /**
  * Resolve the comment the user was viewing when they redirected.
- * Tab layout: [summary, file0, file1, ...]. Tab 0 (summary)
- * has no comments.
+ * Tab layout: [summary, file0, file1, ...].
  */
-function selectedVetComment(
+function selectedComment(
 	filePaths: string[],
-	fileGroups: Map<string, VetComment[]>,
+	session: AnnotateSession,
 	commentIndices: Map<string, number>,
 	tabIndex: number,
-): VetComment | null {
+): AnnotateComment | null {
 	// Tab 0 is the summary tab — no associated comment.
 	const fileIdx = tabIndex - 1;
 	const filePath = filePaths[fileIdx];
 	if (!filePath) return null;
 
-	const comments = fileGroups.get(filePath) ?? [];
+	const comments = commentsForFile(session, filePath);
 	const idx = commentIndices.get(filePath) ?? 0;
 	return comments[idx] ?? null;
 }

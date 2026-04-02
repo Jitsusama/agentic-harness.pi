@@ -3,6 +3,8 @@
  * thread lifecycle states and their transitions.
  */
 
+import type { LifecycleItem } from "../../lib/internal/comments/types.js";
+
 /** Review thread workflow states. */
 export type ThreadState =
 	| "pending" // Not yet addressed
@@ -30,8 +32,7 @@ export interface ThreadComment {
 }
 
 /** Review thread: a code comment and its replies. */
-export interface ReviewThread {
-	id: string; // Top-level comment ID
+export interface ReviewThread extends LifecycleItem<ThreadState> {
 	reviewId: string;
 	reviewer: string;
 	reviewState: ReviewState;
@@ -96,7 +97,6 @@ export interface PRReplyState {
 	// Reviews (sorted by priority) and threads (grouped by review)
 	reviews: ReceivedReview[];
 	threads: ReviewThread[];
-	threadStates: Map<string, ThreadState>;
 
 	// Batch analysis from the LLM
 	threadAnalyses: Map<string, ThreadAnalysis>;
@@ -168,7 +168,6 @@ export function createPRReplyState(): PRReplyState {
 		branch: null,
 		reviews: [],
 		threads: [],
-		threadStates: new Map(),
 		threadAnalyses: new Map(),
 		reviewerAnalyses: new Map(),
 		workspacePosition: null,

@@ -9,5 +9,8 @@ external packages. These modules may change without notice.
   review gate.
 - **`github/`** — GitHub utilities: CLI parsing, diff parsing,
   GraphQL helpers, PR reference resolution and review posting.
+- **`comments/`** — shared lifecycle model for review items:
+  types, CRUD operations and navigation helpers used by all
+  PR workflow extensions.
 - **`state.ts`** — session state helpers: entry persistence,
   plan directory resolution and context filtering.
