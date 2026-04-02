@@ -12,6 +12,8 @@
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
+import { advanceToNextWithStatus } from "../../../lib/internal/comments/navigation.js";
+import { allResolved } from "../../../lib/internal/comments/operations.js";
 import {
 	contentWrapWidth,
 	type NavigableItem,
@@ -72,7 +74,7 @@ export async function showReplyWorkspace(
 	ctx: ExtensionContext,
 	state: PRReplyState,
 ): Promise<WorkspaceAction> {
-	const { reviews, threads, threadStates, threadAnalyses } = state;
+	const { reviews, threads, threadAnalyses } = state;
 
 	// This is mutable selection state, tracked per reviewer tab.
 	const threadIndices = new Map<string, number>();
@@ -89,11 +91,9 @@ export async function showReplyWorkspace(
 	const tabComplete = new Set<string>();
 	for (const review of reviews) {
 		const reviewThreads = threadsForReview(review, threads);
-		const allDone = reviewThreads.every((t) => {
-			const st = threadStates.get(t.id);
-			return st && st !== "pending";
-		});
-		if (allDone) tabComplete.add(review.id);
+		if (allResolved(reviewThreads, "pending")) {
+			tabComplete.add(review.id);
+		}
 	}
 
 	// We track the thread the user is acting on.
@@ -106,7 +106,6 @@ export async function showReplyWorkspace(
 			buildReviewerTab(
 				review,
 				threads,
-				threadStates,
 				threadAnalyses,
 				threadIndices,
 				tabComplete,
@@ -177,12 +176,12 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 			let implementing = 0;
 			let pending = 0;
 			let passed = 0;
-			for (const [, st] of state.threadStates) {
-				if (st === "replied") replied++;
-				else if (st === "addressed") addressed++;
-				else if (st === "implementing") implementing++;
-				else if (st === "pending") pending++;
-				else if (st === "passed") passed++;
+			for (const t of state.threads) {
+				if (t.status === "replied") replied++;
+				else if (t.status === "addressed") addressed++;
+				else if (t.status === "implementing") implementing++;
+				else if (t.status === "pending") pending++;
+				else if (t.status === "passed") passed++;
 			}
 			const total = state.threads.length;
 			const done = replied + addressed + passed;
@@ -206,7 +205,7 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 			for (const review of state.reviews) {
 				const reviewThreads = threadsForReview(review, state.threads);
 				const reviewPending = reviewThreads.filter(
-					(t) => state.threadStates.get(t.id) === "pending",
+					(t) => t.status === "pending",
 				).length;
 				const stateColor =
 					review.state === "CHANGES_REQUESTED"
@@ -234,7 +233,6 @@ function buildSummaryTab(state: PRReplyState): WorkspaceItem {
 function buildReviewerTab(
 	review: ReceivedReview,
 	allThreads: ReviewThread[],
-	threadStates: Map<string, ThreadState>,
 	threadAnalyses: Map<string, ThreadAnalysis>,
 	threadIndices: Map<string, number>,
 	tabComplete: Set<string>,
@@ -275,7 +273,6 @@ function buildReviewerTab(
 			lines.push(
 				...renderThreadList(
 					reviewThreads,
-					threadStates,
 					threadAnalyses,
 					getIndex(),
 					theme,
@@ -314,16 +311,15 @@ function buildReviewerTab(
 
 			// Pass inline
 			if (matchesKey(data, "p")) {
-				const st = threadStates.get(thread.id);
-				if (st === "pending") {
-					threadStates.set(thread.id, "passed");
-					checkTabAutoComplete(
-						review.id,
+				if (thread.status === "pending") {
+					thread.status = "passed";
+					checkTabAutoComplete(review.id, reviewThreads, tabComplete);
+					const next = advanceToNextWithStatus(
 						reviewThreads,
-						threadStates,
-						tabComplete,
+						getIndex(),
+						"pending",
 					);
-					advanceToNextPending(reviewThreads, threadStates, getIndex, setIndex);
+					if (next !== null) setIndex(next);
 					inputCtx.invalidate();
 				}
 				return true;
@@ -339,12 +335,11 @@ function buildReviewerTab(
 /** Map a thread to a NavigableItem for the shared renderer. */
 function threadToItem(
 	thread: ReviewThread,
-	threadStates: Map<string, ThreadState>,
 	threadAnalyses: Map<string, ThreadAnalysis>,
 	theme: Theme,
 	wrapWidth: number,
 ): NavigableItem {
-	const st = threadStates.get(thread.id) ?? "pending";
+	const st = thread.status;
 	const glyphColor = THREAD_GLYPH_COLOR[st];
 	const analysis = threadAnalyses.get(thread.id);
 	const rec = analysis ? ` → ${analysis.recommendation}` : "";
@@ -372,7 +367,6 @@ function threadToItem(
  */
 function renderThreadList(
 	threads: ReviewThread[],
-	threadStates: Map<string, ThreadState>,
 	threadAnalyses: Map<string, ThreadAnalysis>,
 	selectedIndex: number,
 	theme: Theme,
@@ -380,7 +374,7 @@ function renderThreadList(
 ): string[] {
 	const wrapWidth = contentWrapWidth(width) - 8;
 	const items = threads.map((t) =>
-		threadToItem(t, threadStates, threadAnalyses, theme, wrapWidth),
+		threadToItem(t, threadAnalyses, theme, wrapWidth),
 	);
 	const { lines } = renderNavigableList(items, selectedIndex, theme, {
 		emptyMessage: "No threads.",
@@ -398,36 +392,13 @@ function updateActionThread(
 	if (thread) setActionThread(thread.id);
 }
 
-/** Advance selection to the next pending thread. */
-function advanceToNextPending(
-	threads: ReviewThread[],
-	threadStates: Map<string, ThreadState>,
-	getIndex: () => number,
-	setIndex: (i: number) => void,
-): void {
-	const current = getIndex();
-	for (let i = 1; i <= threads.length; i++) {
-		const next = (current + i) % threads.length;
-		const st = threadStates.get(threads[next]?.id ?? "");
-		if (st === "pending") {
-			setIndex(next);
-			return;
-		}
-	}
-}
-
 /** Auto-mark reviewer tab as handled when all threads are resolved. */
 function checkTabAutoComplete(
 	reviewId: string,
 	threads: ReviewThread[],
-	threadStates: Map<string, ThreadState>,
 	tabComplete: Set<string>,
 ): void {
-	const allResolved = threads.every((t) => {
-		const st = threadStates.get(t.id);
-		return st && st !== "pending";
-	});
-	if (allResolved) {
+	if (allResolved(threads, "pending")) {
 		tabComplete.add(reviewId);
 	}
 }

@@ -136,7 +136,7 @@ export async function handleActivate(
 	state.threadIndexInReview = 0;
 
 	for (const thread of unresolvedThreads) {
-		state.threadStates.set(thread.id, "pending");
+		thread.status = "pending";
 	}
 
 	activate(state, pi, ctx);
@@ -363,7 +363,7 @@ export async function handleReviewWorkspace(
 	if (result.action === "pass") {
 		const thread = state.threads.find((t) => t.id === result.threadId);
 		if (thread) {
-			state.threadStates.set(thread.id, "passed");
+			thread.status = "passed";
 			persist(state, pi);
 		}
 		return plainTextResponse(
@@ -402,7 +402,7 @@ export async function handleNext(
 		if (!state.reviewIntroduced) {
 			const reviewThreads = threadsForReview(review, state.threads);
 			const pendingThreads = reviewThreads.filter(
-				(t) => state.threadStates.get(t.id) === "pending",
+				(t) => t.status === "pending",
 			);
 
 			if (pendingThreads.length === 0) {
@@ -432,7 +432,7 @@ export async function handleNext(
 
 		// We look for the next pending thread within this review.
 		const reviewThreads = threadsForReview(review, state.threads);
-		const nextThread = findNextPendingInReview(state, reviewThreads);
+		const nextThread = findNextPendingInReview(reviewThreads);
 
 		if (!nextThread) {
 			state.reviewIndex++;
@@ -453,7 +453,7 @@ export async function handleNext(
 				nextThread,
 			);
 			if (nextThread.isResolved) {
-				state.threadStates.set(nextThread.id, "passed");
+				nextThread.status = "passed";
 				persist(state, pi);
 				return handleNext(state, pi, ctx);
 			}
@@ -514,7 +514,7 @@ export async function handleReview(
 	}
 
 	const pendingThreads = threadsForReview(review, state.threads).filter(
-		(t) => state.threadStates.get(t.id) === "pending",
+		(t) => t.status === "pending",
 	);
 
 	const proceed = await showReviewOverviewPanel(
@@ -526,7 +526,7 @@ export async function handleReview(
 
 	if (!proceed) {
 		for (const t of pendingThreads) {
-			state.threadStates.set(t.id, "passed");
+			t.status = "passed";
 		}
 		persist(state, pi);
 		return plainTextResponse(
@@ -615,7 +615,7 @@ export async function handleImplement(
 	}
 
 	await recordImplementationStart(state, pi);
-	state.threadStates.set(thread.id, "implementing");
+	thread.status = "implementing";
 
 	if (useTDD) {
 		beginTDDImplementation(state, thread);
@@ -707,12 +707,12 @@ export async function handleDone(
 
 		const replyDetails = replyResult.details as { action?: string } | undefined;
 		if (replyDetails?.action !== "replied") {
-			state.threadStates.set(thread.id, "addressed");
+			thread.status = "addressed";
 			persist(state, pi);
 			return replyResult;
 		}
 	} else {
-		state.threadStates.set(thread.id, "addressed");
+		thread.status = "addressed";
 	}
 
 	state.awaitingTDDCompletion = false;
@@ -753,7 +753,7 @@ export function handlePass(state: PRReplyState, pi: ExtensionAPI) {
 		return plainTextResponse("No current thread. Call 'next' first.");
 	}
 
-	state.threadStates.set(thread.id, "passed");
+	thread.status = "passed";
 	persist(state, pi);
 
 	return plainTextResponse("Thread passed. Call 'next' to continue.");
@@ -792,7 +792,7 @@ function applyThreadChoice(
 			};
 
 		case "pass": {
-			state.threadStates.set(thread.id, "passed");
+			thread.status = "passed";
 			persist(state, pi);
 			return plainTextResponse(
 				"Thread passed. Call pr_reply with action 'next' to continue.",
@@ -879,7 +879,7 @@ async function reviewAndPostReply(
 		return plainTextResponse(`Failed to post reply: ${msg}`);
 	}
 
-	state.threadStates.set(thread.id, "replied");
+	thread.status = "replied";
 	persist(state, pi);
 
 	const reAnalyze = reAnalyzeBriefing(state);
@@ -970,11 +970,10 @@ function currentThread(state: PRReplyState): ReviewThread | null {
 
 /** Find the next pending thread within a review's threads. */
 function findNextPendingInReview(
-	state: PRReplyState,
 	reviewThreads: ReviewThread[],
 ): ReviewThread | null {
 	for (const thread of reviewThreads) {
-		if (state.threadStates.get(thread.id) === "pending") {
+		if (thread.status === "pending") {
 			return thread;
 		}
 	}

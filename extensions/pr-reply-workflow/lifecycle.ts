@@ -18,6 +18,15 @@ import {
 	threadsForReview,
 } from "./state.js";
 
+/**
+ * Shape of a persisted thread. Includes the status field
+ * that lives on the thread object, plus a fallback for
+ * sessions persisted before the migration.
+ */
+interface PersistedThread extends ReviewThread {
+	status: ThreadState;
+}
+
 /** Shape of PR reply data written to session history. */
 interface PersistedState {
 	enabled?: boolean;
@@ -26,7 +35,8 @@ interface PersistedState {
 	repo?: string;
 	branch?: string;
 	reviews?: ReceivedReview[];
-	threads?: ReviewThread[];
+	threads?: PersistedThread[];
+	/** @deprecated Separate map from before status lived on threads. */
 	threadStates?: Array<[string, ThreadState]>;
 	threadAnalyses?: Array<
 		[string, { recommendation: string; analysis: string }]
@@ -98,13 +108,12 @@ function updateUI(state: PRReplyState, ctx: ExtensionContext): void {
 
 /** Count threads that are replied, addressed, or passed. */
 function countDone(state: PRReplyState): number {
-	let count = 0;
-	for (const [, value] of state.threadStates) {
-		if (value === "replied" || value === "addressed" || value === "passed") {
-			count++;
-		}
-	}
-	return count;
+	return state.threads.filter(
+		(t) =>
+			t.status === "replied" ||
+			t.status === "addressed" ||
+			t.status === "passed",
+	).length;
 }
 
 /** Enter PR reply mode for a specific PR. */
@@ -164,7 +173,6 @@ export function persist(state: PRReplyState, pi: ExtensionAPI): void {
 		branch: state.branch,
 		reviews: state.reviews,
 		threads: state.threads,
-		threadStates: Array.from(state.threadStates.entries()),
 		threadAnalyses: Array.from(state.threadAnalyses.entries()),
 		reviewerAnalyses: Array.from(state.reviewerAnalyses.entries()),
 		currentThreadId: state.currentThreadId,
@@ -195,14 +203,31 @@ export function restore(state: PRReplyState, ctx: ExtensionContext): void {
 	state.repo = saved.repo ?? null;
 	state.branch = saved.branch ?? null;
 	state.reviews = saved.reviews ?? [];
-	state.threads = saved.threads ?? [];
+	const threads: ReviewThread[] = saved.threads ?? [];
+
+	// Backward compat: restore status from the old separate Map
+	// for sessions persisted before the migration.
+	if (saved.threadStates) {
+		const legacyStates = new Map(saved.threadStates);
+		for (const thread of threads) {
+			if (!thread.status) {
+				thread.status = legacyStates.get(thread.id) ?? "pending";
+			}
+		}
+	}
+
+	// Ensure every thread has a status (default to pending).
+	for (const thread of threads) {
+		if (!thread.status) {
+			thread.status = "pending";
+		}
+	}
+
+	state.threads = threads;
 	state.awaitingTDDCompletion = saved.awaitingTDDCompletion ?? false;
 	state.tddThreadId = saved.tddThreadId ?? null;
 	state.implementationStartSHA = saved.implementationStartSHA ?? null;
 
-	if (saved.threadStates) {
-		state.threadStates = new Map(saved.threadStates);
-	}
 	if (saved.threadAnalyses) {
 		state.threadAnalyses = new Map(saved.threadAnalyses);
 	}

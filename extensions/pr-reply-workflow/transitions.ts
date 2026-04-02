@@ -72,9 +72,5 @@ export function pruneStaleReplyGuidance(state: PRReplyState) {
 
 /** Count threads in a given state. */
 function countByState(state: PRReplyState, threadState: string): number {
-	let count = 0;
-	for (const [, value] of state.threadStates) {
-		if (value === threadState) count++;
-	}
-	return count;
+	return state.threads.filter((t) => t.status === threadState).length;
 }
