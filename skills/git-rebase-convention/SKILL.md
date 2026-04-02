@@ -60,6 +60,22 @@ After each conflict resolution:
 Run the full suite after the rebase completes. Never push
 until everything passes.
 
+## Prevent Terminal Blocking
+
+Git commands that open an editor or prompt for input
+will block the terminal indefinitely. Guard against this
+on every rebase invocation:
+
+- Never use `git rebase -i` or `--interactive`. If commits
+  need reordering, squashing or editing, do it with
+  separate non-interactive commands (`git reset`,
+  `git commit --amend`, etc.).
+- Always set `GIT_TERMINAL_PROMPT=0` so git fails instead
+  of blocking on credential or confirmation prompts:
+  ```bash
+  GIT_TERMINAL_PROMPT=0 git rebase main
+  ```
+
 ## Pushing
 
 - Always use `--force-with-lease`, never `--force`.
