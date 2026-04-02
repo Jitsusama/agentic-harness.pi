@@ -14,3 +14,6 @@ external packages. These modules may change without notice.
   PR workflow extensions.
 - **`state.ts`** — session state helpers: entry persistence,
   plan directory resolution and context filtering.
+- **`workflow-status.ts`** — shared status line and detail
+  widget management for workflow extensions: guard logic,
+  glyph rendering, right-aligned detail text.

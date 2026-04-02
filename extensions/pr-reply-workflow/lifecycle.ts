@@ -8,14 +8,17 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { getLastEntry } from "../../lib/internal/state.js";
+import {
+	updateWorkflowStatus,
+	type WorkflowStatusConfig,
+} from "../../lib/internal/workflow-status.js";
 import {
 	type PRReplyState,
 	type ReceivedReview,
 	type ReviewThread,
+	resetState,
 	type ThreadState,
-	threadsForReview,
 } from "./state.js";
 
 /**
@@ -53,67 +56,39 @@ interface PersistedState {
 	implementationStartSHA?: string | null;
 }
 
-/** Status glyph for PR reply mode. */
-const STATUS_GLYPH = "◈";
-
 /** Persist key for session history entries. */
 const PERSIST_KEY = "pr-reply";
 
-/** Update status line and widget to reflect current state. */
-function updateUI(state: PRReplyState, ctx: ExtensionContext): void {
-	if (!state.enabled) {
-		ctx.ui.setStatus(PERSIST_KEY, undefined);
-		ctx.ui.setWidget("pr-reply-detail", undefined);
-		return;
-	}
+/** Widget key for the detail line above the editor. */
+const WIDGET_KEY = "pr-reply-detail";
 
-	const theme = ctx.ui.theme;
-	const prRef = state.prNumber ? `#${state.prNumber}` : "?";
-	ctx.ui.setStatus(
-		PERSIST_KEY,
-		`${theme.fg("accent", STATUS_GLYPH)} ${theme.fg("muted", `PR ${prRef}`)}`,
-	);
+/** Shared config for status line and detail widget. */
+const STATUS_CONFIG: WorkflowStatusConfig = {
+	statusKey: PERSIST_KEY,
+	widgetKey: WIDGET_KEY,
+	label: "PR Reply",
+};
 
-	const review = state.reviews[state.reviewIndex];
-	if (!review) {
-		ctx.ui.setWidget("pr-reply-detail", undefined);
-		return;
-	}
+/** Build the detail widget text for the current state. */
+function buildDetailText(state: PRReplyState): string | null {
+	if (state.threads.length === 0) return null;
 
-	const reviewThreads = threadsForReview(review, state.threads);
-	const thread = reviewThreads[state.threadIndexInReview];
-
-	const totalReviews = state.reviews.length;
-	const reviewProgress = `Review ${state.reviewIndex + 1}/${totalReviews}`;
-	const done = countDone(state);
-	const totalThreads = state.threads.length;
-
-	let detail: string;
-	if (thread) {
-		const threadProgress = `Thread ${state.threadIndexInReview + 1}/${reviewThreads.length}`;
-		detail = `${reviewProgress} (${review.author}) • ${threadProgress} • ${thread.file}:${thread.line} • ${review.state} [${done}/${totalThreads} total]`;
-	} else {
-		detail = `${reviewProgress} (${review.author}) • ${review.state} [${done}/${totalThreads} total]`;
-	}
-
-	ctx.ui.setWidget("pr-reply-detail", (_tui, theme) => ({
-		render(width: number): string[] {
-			const truncated = truncateToWidth(detail, width);
-			const text = theme.fg("dim", truncated);
-			const pad = Math.max(0, width - visibleWidth(truncated));
-			return [`${" ".repeat(pad)}${text}`];
-		},
-	}));
-}
-
-/** Count threads that are replied, addressed, or passed. */
-function countDone(state: PRReplyState): number {
-	return state.threads.filter(
+	const prRef = state.prNumber ? `PR #${state.prNumber}` : "PR ?";
+	const total = state.threads.length;
+	const done = state.threads.filter(
 		(t) =>
 			t.status === "replied" ||
 			t.status === "addressed" ||
 			t.status === "passed",
 	).length;
+	const pending = total - done;
+
+	return `${prRef} · Reply · ${done}/${total} (${done}✓ ${pending}○)`;
+}
+
+/** Update status line and detail widget to reflect current state. */
+function updateUI(state: PRReplyState, ctx: ExtensionContext): void {
+	updateWorkflowStatus(STATUS_CONFIG, state, ctx, () => buildDetailText(state));
 }
 
 /** Enter PR reply mode for a specific PR. */
@@ -135,7 +110,7 @@ export function deactivate(
 	ctx: ExtensionContext,
 ): void {
 	if (!state.enabled) return;
-	state.enabled = false;
+	resetState(state);
 	updateUI(state, ctx);
 	persist(state, pi);
 }

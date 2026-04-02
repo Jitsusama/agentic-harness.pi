@@ -197,7 +197,10 @@ export async function handleDeactivate(
 	const summary = completionBriefing(state);
 	const text = rebaseInfo ? `${summary}\n\n${rebaseInfo}` : summary;
 
-	return plainTextResponse(text);
+	return {
+		content: [{ type: "text" as const, text }],
+		details: { action: "deactivated" },
+	};
 }
 
 /** Generate analysis: LLM provides batch analysis of all threads. */
@@ -557,9 +560,6 @@ export async function handleShow(
 	if (!thread) {
 		return plainTextResponse("No current thread. Call 'next' first.");
 	}
-
-	// We hide the widget while the prompt is up so they don't overlap.
-	ctx.ui.setWidget("pr-reply-detail", undefined);
 
 	const review = state.reviews.find((r) => r.threadIds.includes(thread.id));
 	const contextLine = thread.line || thread.originalLine || 0;

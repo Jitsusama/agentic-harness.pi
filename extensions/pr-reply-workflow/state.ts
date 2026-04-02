@@ -178,3 +178,22 @@ export function createPRReplyState(): PRReplyState {
 		tddThreadId: null,
 	};
 }
+
+/** Reset state to defaults, clearing all accumulated data. */
+export function resetState(state: PRReplyState): void {
+	state.enabled = false;
+	state.prNumber = null;
+	state.owner = null;
+	state.repo = null;
+	state.branch = null;
+	state.reviews = [];
+	state.threads = [];
+	state.threadAnalyses = new Map();
+	state.reviewerAnalyses = new Map();
+	state.workspacePosition = null;
+	state.currentThreadId = null;
+	state.threadCommits = new Map();
+	state.implementationStartSHA = null;
+	state.awaitingTDDCompletion = false;
+	state.tddThreadId = null;
+}

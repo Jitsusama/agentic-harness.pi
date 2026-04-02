@@ -258,23 +258,28 @@ export default function prAnnotate(pi: ExtensionAPI) {
 			if (d.cancelled) {
 				return new Text(theme.fg("warning", "Review cancelled"), 0, 0);
 			}
-			if (d.redirected) {
-				return new Text(theme.fg("accent", "↩ Redirected"), 0, 0);
-			}
 			if (action === "activate") {
+				const files = d.fileCount as number | undefined;
+				const filePart = files ? `, ${files} files` : "";
 				return new Text(
-					theme.fg("success", `✓ Session started for PR #${d.pr}`),
+					theme.fg("success", `✓ Session started${filePart}`),
 					0,
 					0,
 				);
 			}
 			if (action === "add-comments" || action === "add-comment") {
+				const added = d.added as number | undefined;
 				const total = d.total as number;
+				const addedPart = added ? `${added} added, ` : "";
 				return new Text(
-					theme.fg("success", `✓ ${total} comment${total !== 1 ? "s" : ""}`),
+					theme.fg("success", `✓ ${addedPart}${total} total`),
 					0,
 					0,
 				);
+			}
+			if (action === "review") {
+				const redirected = d.redirected ? " (redirected)" : "";
+				return new Text(theme.fg("muted", `Review panel${redirected}`), 0, 0);
 			}
 			if (action === "posted") {
 				const count = d.posted as number;
@@ -288,7 +293,7 @@ export default function prAnnotate(pi: ExtensionAPI) {
 				);
 			}
 			if (action === "deactivated") {
-				return new Text(theme.fg("muted", "Session ended"), 0, 0);
+				return new Text(theme.fg("muted", "Annotate complete"), 0, 0);
 			}
 
 			const t = res.content?.[0];

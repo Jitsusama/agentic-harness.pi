@@ -8,8 +8,11 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { getLastEntry } from "../../lib/internal/state.js";
+import {
+	updateWorkflowStatus,
+	type WorkflowStatusConfig,
+} from "../../lib/internal/workflow-status.js";
 import {
 	commentStats,
 	type PRReviewState,
@@ -20,65 +23,48 @@ import {
 	resetState,
 } from "./state.js";
 
-/** Status glyph for PR review mode. */
-const STATUS_GLYPH = "◈";
-
 /** Persist key for session history entries. */
 const PERSIST_KEY = "pr-review";
 
 /** Widget key for the detail line above the editor. */
 const WIDGET_KEY = "pr-review-detail";
 
+/** Shared config for status line and detail widget. */
+const STATUS_CONFIG: WorkflowStatusConfig = {
+	statusKey: PERSIST_KEY,
+	widgetKey: WIDGET_KEY,
+	label: "PR Review",
+};
+
 /** Build the detail widget text for the current phase. */
-function buildDetailText(state: PRReviewState): string {
+function buildDetailText(state: PRReviewState): string | null {
 	const session = state.session;
-	if (!session) return "";
+	if (!session) return null;
 
 	const prRef = `PR #${session.pr.number}`;
 	const stats = commentStats(session);
-	const total = stats.pending + stats.approved + stats.rejected;
+	const total =
+		stats.proposed + stats.pending + stats.approved + stats.rejected;
 
 	switch (session.phase) {
 		case "gathering":
-			return `${prRef} · Gathering context…`;
+			return `${prRef} · Gathering…`;
 		case "overview":
 			return `${prRef} · Overview`;
 		case "reviewing": {
-			const passed = [...session.tabStates.values()].filter(
-				(t) => t.passed,
-			).length;
-			const tabCount = session.tabStates.size;
+			if (total === 0) return `${prRef} · Review`;
+			const resolved = stats.approved + stats.rejected;
 			const proposedPart = stats.proposed > 0 ? ` ${stats.proposed}◇` : "";
-			return `${prRef} · Review · ${passed}/${tabCount} tabs · ${total} comments (${stats.approved}✓ ${stats.rejected}✕ ${stats.pending}○${proposedPart})`;
+			return `${prRef} · Review · ${resolved}/${total} (${stats.approved}✓ ${stats.rejected}✕ ${stats.pending}○${proposedPart})`;
 		}
 		case "submitting":
-			return `${prRef} · Submit review`;
+			return `${prRef} · Submit`;
 	}
 }
 
 /** Update status line and detail widget to reflect current state. */
 function updateUI(state: PRReviewState, ctx: ExtensionContext): void {
-	if (!state.enabled || !state.session) {
-		ctx.ui.setStatus(PERSIST_KEY, undefined);
-		ctx.ui.setWidget(WIDGET_KEY, undefined);
-		return;
-	}
-
-	const theme = ctx.ui.theme;
-	ctx.ui.setStatus(
-		PERSIST_KEY,
-		`${theme.fg("accent", STATUS_GLYPH)} ${theme.fg("muted", "PR Review")}`,
-	);
-
-	const detail = buildDetailText(state);
-	ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => ({
-		render(width: number): string[] {
-			const truncated = truncateToWidth(detail, width);
-			const text = theme.fg("dim", truncated);
-			const pad = Math.max(0, width - visibleWidth(truncated));
-			return [`${" ".repeat(pad)}${text}`];
-		},
-	}));
+	updateWorkflowStatus(STATUS_CONFIG, state, ctx, () => buildDetailText(state));
 }
 
 /** Enter PR review mode. */
