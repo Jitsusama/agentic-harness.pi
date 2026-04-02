@@ -113,8 +113,12 @@ observations where appropriate.
 
 **Category rules:**
 - `scope`: only about scope concerns (focus, organization).
+  Set `file` to null: these merge into the review body.
 - `title`: about title accuracy and description completeness.
-- `file`: code quality, tests, implementation.
+  Set `file` to null: these merge into the review body.
+- `file`: code quality, tests, implementation. Must have a
+  file path and line range (GitHub only supports inline
+  comments on diff lines).
 
 ### 5. Conversation Phase
 

@@ -730,42 +730,48 @@ export async function handlePost(deps: ReviewContext) {
 
 	const approved = session.comments.filter((c) => c.status === "approved");
 
+	// PR-level comments (scope, title) can't be posted as inline
+	// review comments: GitHub only supports those on diff lines.
+	// Merge them into the review body so the feedback reaches
+	// the author.
+	const fileComments = approved.filter((c) => c.file !== null);
+	const prLevelComments = approved.filter((c) => c.file === null);
+	const finalBody = mergeBodyComments(session.reviewBody, prLevelComments);
+
 	// We build hunk ranges per file so we can clamp comment lines.
 	const diffFiles = session.context?.diffFiles ?? [];
 	const hunkRanges = buildHunkRanges(diffFiles);
 
-	const ghComments: ReviewComment[] = approved
-		.filter((c) => c.file !== null)
-		.map((c) => {
-			const decorStr =
-				c.decorations.length > 0 ? ` (${c.decorations.join(", ")})` : "";
-			const body = `${c.label}${decorStr}: ${c.subject}\n\n${c.discussion}`;
+	const ghComments: ReviewComment[] = fileComments.map((c) => {
+		const decorStr =
+			c.decorations.length > 0 ? ` (${c.decorations.join(", ")})` : "";
+		const body = `${c.label}${decorStr}: ${c.subject}\n\n${c.discussion}`;
 
-			const ranges = hunkRanges.get(c.file as string);
-			const endLine = clampToHunkRange(c.endLine ?? 1, ranges);
+		const ranges = hunkRanges.get(c.file as string);
+		const endLine = clampToHunkRange(c.endLine ?? 1, ranges);
 
-			const comment: ReviewComment = {
-				path: c.file as string,
-				line: endLine,
-				body,
-			};
+		const comment: ReviewComment = {
+			path: c.file as string,
+			line: endLine,
+			body,
+		};
 
-			if (
-				c.startLine !== null &&
-				c.endLine !== null &&
-				c.startLine !== c.endLine
-			) {
-				const startLine = clampToHunkRange(c.startLine, ranges);
-				if (startLine < endLine) {
-					return { ...comment, startLine };
-				}
+		if (
+			c.startLine !== null &&
+			c.endLine !== null &&
+			c.startLine !== c.endLine
+		) {
+			const startLine = clampToHunkRange(c.startLine, ranges);
+			if (startLine < endLine) {
+				return { ...comment, startLine };
 			}
+		}
 
-			return comment;
-		});
+		return comment;
+	});
 
 	try {
-		await postReview(pi, ref, session.verdict, session.reviewBody, ghComments);
+		await postReview(pi, ref, session.verdict, finalBody, ghComments);
 
 		return {
 			content: [
@@ -869,6 +875,28 @@ async function ensureContext(
 		/* Re-gather failed: context unavailable */
 		return false;
 	}
+}
+
+/**
+ * Merge PR-level comments into the review body. GitHub only
+ * supports inline comments on files in the diff, so scope and
+ * title feedback goes here instead.
+ */
+function mergeBodyComments(
+	body: string,
+	comments: import("./state.js").ReviewObservation[],
+): string {
+	if (comments.length === 0) return body;
+
+	const section = comments
+		.map((c) => {
+			const decorStr =
+				c.decorations.length > 0 ? ` (${c.decorations.join(", ")})` : "";
+			return `**${c.label}${decorStr}: ${c.subject}**\n\n${c.discussion}`;
+		})
+		.join("\n\n---\n\n");
+
+	return body ? `${body}\n\n---\n\n${section}` : section;
 }
 
 const VALID_VERDICTS = new Set(["APPROVE", "REQUEST_CHANGES", "COMMENT"]);
