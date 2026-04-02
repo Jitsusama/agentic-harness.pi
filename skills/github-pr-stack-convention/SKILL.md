@@ -101,19 +101,21 @@ Always merge bottom-up: the PR closest to `main` first,
 then the next one up, and so on. Never merge a PR in
 the middle or top of a stack before its predecessors.
 
-Use `--delete-branch` on every merge, same as a
-standalone PR:
+### With Auto-Delete (Preferred)
+
+If the repository has the "Automatically delete head
+branches" setting enabled (`delete_branch_on_merge:
+true`), merge each PR without `--delete-branch`:
 
 ```bash
-gh pr merge NUMBER --merge --delete-branch
+gh pr merge NUMBER --merge
 ```
 
-When `--delete-branch` is part of the same `gh pr merge`
-call, GitHub treats the branch deletion as part of the
-merge event. It automatically retargets any open PR that
-had the deleted branch as its base to the merged PR's
-target (usually `main`). This is the safest and simplest
-path through a stack.
+GitHub handles branch deletion as part of its internal
+merge flow, which triggers auto-retarget: any open PR
+that had the deleted branch as its base gets retargeted
+to the merged PR's target (usually `main`). This is the
+safest and simplest path through a stack.
 
 After each merge, wait for GitHub to finish retargeting
 and recompute mergeability before merging the next PR:
@@ -128,33 +130,71 @@ Don't merge until the base shows `main` (or whatever the
 stack's root target is), mergeable shows `MERGEABLE` and
 status shows `CLEAN`.
 
-## Branch Deletion Outside of Merge
-
-The safe auto-retarget behaviour described above **only**
-applies when `--delete-branch` runs as part of
-`gh pr merge`. If a branch is deleted by any other means
-(such as `git push origin --delete`, the GitHub UI or a
-separate API call after the merge already completed),
-GitHub will **auto-close** every open PR that uses the
-deleted branch as its base. Those PRs cannot be
-reopened; they must be recreated from scratch.
-
-This distinction matters when a PR was already merged in
-a prior step (or by someone else) and you're cleaning up
-the branch later. In that case, retarget all dependents
-before deleting:
+To check whether the setting is enabled:
 
 ```bash
-# Check for dependents.
-gh pr list --state open --json baseRefName,number \
-  --jq '.[] | select(.baseRefName == "BRANCH_TO_DELETE")'
-
-# Retarget each one.
-gh pr edit DEPENDENT_NUMBER --base main
-
-# Wait for status to update, then delete.
-git push origin --delete BRANCH_TO_DELETE
+gh api repos/OWNER/REPO --jq .delete_branch_on_merge
 ```
+
+To enable it (requires admin access):
+
+```bash
+gh api repos/OWNER/REPO -X PATCH \
+  -f delete_branch_on_merge=true
+```
+
+### Without Auto-Delete (Fallback)
+
+If the repository does not have auto-delete enabled and
+you can't change the setting, use a three-step flow for
+each PR in the stack:
+
+1. Merge without `--delete-branch`:
+   ```bash
+   gh pr merge NUMBER --merge
+   ```
+2. Retarget the next PR in the stack:
+   ```bash
+   gh pr edit NEXT_NUMBER --base main
+   ```
+3. Delete the branch after the retarget is confirmed:
+   ```bash
+   git push origin --delete BRANCH_NAME
+   ```
+
+After step 3, verify the next PR is in good shape before
+continuing:
+
+```bash
+gh pr view NEXT_NUMBER \
+  --json baseRefName,mergeable,mergeStateStatus \
+  --jq '"\(.baseRefName) | \(.mergeable) | \(.mergeStateStatus)"'
+```
+
+Repeat for each PR in the stack, bottom to top.
+
+## Why `--delete-branch` Is Broken for Stacks
+
+Do not use `gh pr merge --delete-branch` when merging
+stacked PRs. The CLI's `--delete-branch` flag deletes
+the branch via a separate API call after the merge
+completes. GitHub treats this the same as `git push
+origin --delete`: a raw branch deletion that
+**auto-closes** every open PR that uses the deleted
+branch as its base. Those PRs can't be reopened; they
+must be recreated from scratch.
+
+The auto-retarget behaviour that makes stack merging
+smooth only happens when GitHub's own internal flow
+deletes the branch (the web UI merge button or the
+`delete_branch_on_merge` repo setting). No external
+API call can trigger it. This is
+[cli/cli#1168](https://github.com/cli/cli/issues/1168),
+open since 2020.
+
+For standalone PRs (no dependents), `--delete-branch`
+is still fine. The danger is specific to PRs whose
+branch is another PR's base.
 
 ## Post-Merge Local Hygiene
 
@@ -176,11 +216,14 @@ carry wrong code.
 
 ## What Not to Do
 
+- Don't use `--delete-branch` with `gh pr merge` when
+  the PR has dependents. It auto-closes them
+  permanently. See "Why `--delete-branch` Is Broken
+  for Stacks" above.
 - Don't merge out of order. Always bottom-up.
-- Don't delete a branch outside of `gh pr merge
-  --delete-branch` without retargeting dependents
-  first. A raw branch delete auto-closes dependent
-  PRs permanently.
+- Don't delete a branch without retargeting dependents
+  first (unless the repo's auto-delete setting handles
+  retarget for you).
 - Don't assume PR bases are correct. Verify the chain
   before merging.
 - Don't rebase a branch in the middle of a stack

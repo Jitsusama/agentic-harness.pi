@@ -36,6 +36,9 @@ default branch. There is no reason to keep merged
 branches around; they clutter the branch list and
 create ambiguity about what's still in flight.
 
+For standalone PRs (no other open PR uses this branch
+as its base):
+
 ```bash
 gh pr merge NUMBER --merge --delete-branch
 ```
@@ -43,11 +46,12 @@ gh pr merge NUMBER --merge --delete-branch
 The `--delete-branch` flag handles both the remote
 branch and the local tracking branch in one step.
 
-This is safe even when the PR is part of a stack.
-When `--delete-branch` runs as part of `gh pr merge`,
-GitHub auto-retargets dependent PRs rather than closing
-them. See `github-pr-stack-convention` for the full
-merge sequence.
+**Do not use `--delete-branch` when the PR is part of
+a stack.** The CLI's `--delete-branch` deletes via a
+separate API call, which auto-closes any PR that uses
+the deleted branch as its base. Those PRs can't be
+reopened. See `github-pr-stack-convention` for the
+safe merge sequence.
 
 ## Post-Merge Local Hygiene
 
@@ -82,8 +86,6 @@ git branch -d branch-1 branch-2 branch-3
 - Don't leave merged branches on the remote. Delete them.
 - Don't skip the local cleanup. Stale local branches and
   tracking refs accumulate silently.
-- Don't delete a branch outside of `gh pr merge
-  --delete-branch` when other open PRs depend on it.
-  A raw delete (via `git push --delete`, the GitHub UI
-  or a separate API call) auto-closes dependents
-  permanently. See `github-pr-stack-convention`.
+- Don't use `--delete-branch` when other open PRs depend
+  on the branch. It auto-closes dependents permanently.
+  See `github-pr-stack-convention`.
