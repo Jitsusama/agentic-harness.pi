@@ -23,6 +23,7 @@ export {
 export {
 	type FileSearchResult,
 	type MessageSearchResult,
+	type SearchPageInfo,
 	type SlackFileResult,
 	searchFiles,
 	searchMessages,

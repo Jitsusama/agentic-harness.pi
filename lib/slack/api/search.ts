@@ -58,6 +58,16 @@ export interface MessageSearchResult {
 	query: string;
 }
 
+/** Page metadata passed to the `onPage` callback. */
+export interface SearchPageInfo {
+	/** Current page number (1-indexed). */
+	page: number;
+	/** Total number of pages available. */
+	totalPages: number;
+	/** Total number of matching messages across all pages. */
+	total: number;
+}
+
 /** Shape of a message match from the Slack search API. */
 interface MessageMatch {
 	ts: string;
@@ -134,6 +144,14 @@ export async function searchMessages(
 		after?: string;
 		before?: string;
 		limit?: number;
+		/**
+		 * Called after each page is fetched, deduplicated and
+		 * cached. Receives only new (non-duplicate) messages
+		 * from that page. Useful for progress reporting or
+		 * incremental processing without reimplementing
+		 * pagination.
+		 */
+		onPage?: (messages: SlackMessage[], pageInfo: SearchPageInfo) => void;
 	} = {},
 	signal?: AbortSignal,
 ): Promise<MessageSearchResult> {
@@ -173,14 +191,21 @@ export async function searchMessages(
 
 		if (matches.length === 0) break;
 
+		const pageMessages: SlackMessage[] = [];
 		for (const m of matches) {
 			cacheMatchMappings(m);
 
 			if (seen.has(m.ts)) continue;
 			seen.add(m.ts);
 
-			allMessages.push(matchToMessage(m));
+			const msg = matchToMessage(m);
+			allMessages.push(msg);
+			pageMessages.push(msg);
 			if (allMessages.length >= targetLimit) break;
+		}
+
+		if (opts.onPage && pageMessages.length > 0) {
+			opts.onPage(pageMessages, { page, totalPages, total });
 		}
 
 		page++;
