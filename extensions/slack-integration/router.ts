@@ -23,10 +23,7 @@ import {
 	listReactions,
 	removeReaction,
 } from "../../lib/slack/api/reactions.js";
-import {
-	refreshDmNames,
-	resolveConversationsInMessages,
-} from "../../lib/slack/api/resolve-conversations.js";
+import { resolveMessages } from "../../lib/slack/api/resolve-messages.js";
 import { searchFiles, searchMessages } from "../../lib/slack/api/search.js";
 import { getUserInfo } from "../../lib/slack/api/users.js";
 import { renderChannel } from "../../lib/slack/renderers/channel.js";
@@ -224,10 +221,9 @@ async function handleSearchMessages(
 		limit: numberParam(params, "limit"),
 	});
 
-	// Resolve conversation kinds (DM, group DM, channel) for
-	// search results. Search gives us names but not types.
-	await resolveConversationsInMessages(client, result.messages);
-	refreshDmNames(result.messages);
+	// Resolve users, conversations and channel mentions so
+	// the rendered output shows handles instead of raw IDs.
+	await resolveMessages(client, result.messages);
 
 	return text(renderMessageList(result.messages, result.total, result.query), {
 		messages: result.messages,
@@ -284,6 +280,7 @@ async function handleGetMessage(
 		resolved.target.conversation,
 		resolved.target.ts,
 	);
+	await resolveMessages(_client, [msg]);
 	return text(renderMessage(msg), { message: msg });
 }
 
@@ -300,6 +297,7 @@ async function handleGetThread(
 		resolved.target.ts,
 		numberParam(params, "limit"),
 	);
+	await resolveMessages(client, messages);
 	return text(renderThread(messages), { messages });
 }
 
@@ -315,6 +313,7 @@ async function handleListMessages(
 		oldest: coerceTimestamp(stringParam(params, "oldest")),
 		latest: coerceTimestamp(stringParam(params, "latest")),
 	});
+	await resolveMessages(client, messages);
 
 	return text(renderMessageList(messages), { messages });
 }

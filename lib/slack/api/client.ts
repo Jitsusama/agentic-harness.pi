@@ -41,6 +41,24 @@ export class RateLimitError extends Error {
 	}
 }
 
+/**
+ * Thrown when Slack returns `{ ok: false, error: "..." }`.
+ *
+ * Preserves the API error code so callers can distinguish
+ * permanent failures (channel_not_found, not_in_channel)
+ * from transient ones without parsing error message strings.
+ */
+export class SlackApiError extends Error {
+	constructor(
+		/** The Slack API error code (e.g. "not_in_channel"). */
+		public readonly errorCode: string,
+		message: string,
+	) {
+		super(message);
+		this.name = "SlackApiError";
+	}
+}
+
 /** Slack API response shape. Every method returns { ok, ... }. */
 export interface SlackApiResponse {
 	ok: boolean;
@@ -137,7 +155,10 @@ export class SlackClient {
 					attempt--;
 					continue;
 				}
-				lastError = new Error(describeError(data.error));
+				lastError = new SlackApiError(
+					data.error ?? "unknown",
+					describeError(data.error),
+				);
 				throw lastError;
 			}
 
