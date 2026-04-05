@@ -8,8 +8,18 @@
 
 const SLACK_API_BASE = "https://slack.com/api";
 
-/** Maximum retries on rate-limited responses. */
-const MAX_RETRIES = 3;
+/**
+ * Maximum retries for non-rate-limit errors (network
+ * failures, unexpected HTTP status codes).
+ */
+const MAX_ERROR_RETRIES = 3;
+
+/**
+ * Maximum rate limit retries before giving up. Rate limits
+ * are transient by definition (the API tells us to wait and
+ * retry), so this budget is much higher than error retries.
+ */
+const MAX_RATE_LIMIT_RETRIES = 10;
 
 /** Initial backoff delay in milliseconds. */
 const INITIAL_BACKOFF_MS = 1000;
@@ -66,8 +76,9 @@ export class SlackClient {
 		}
 
 		let lastError: Error | null = null;
+		let rateLimitHits = 0;
 
-		for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+		for (let attempt = 0; attempt < MAX_ERROR_RETRIES; attempt++) {
 			if (signal?.aborted) {
 				throw new Error("Request aborted");
 			}
@@ -80,12 +91,16 @@ export class SlackClient {
 			});
 
 			if (response.status === 429) {
+				if (++rateLimitHits > MAX_RATE_LIMIT_RETRIES) {
+					throw new Error(
+						`Slack API rate limited ${rateLimitHits} times for ${method}`,
+					);
+				}
 				const retryAfter = Number(response.headers.get("Retry-After") || "1");
-				const backoff = Math.max(
-					retryAfter * 1000,
-					INITIAL_BACKOFF_MS * 2 ** attempt,
-				);
-				await sleep(backoff);
+				await sleep(retryAfter * 1000);
+				// Don't count rate limits against the error retry
+				// budget — the API is explicitly telling us to wait.
+				attempt--;
 				continue;
 			}
 
@@ -99,8 +114,14 @@ export class SlackClient {
 
 			if (!data.ok) {
 				if (data.error === "ratelimited") {
-					const backoff = INITIAL_BACKOFF_MS * 2 ** attempt;
+					if (++rateLimitHits > MAX_RATE_LIMIT_RETRIES) {
+						throw new Error(
+							`Slack API rate limited ${rateLimitHits} times for ${method}`,
+						);
+					}
+					const backoff = INITIAL_BACKOFF_MS * 2 ** rateLimitHits;
 					await sleep(backoff);
+					attempt--;
 					continue;
 				}
 				lastError = new Error(describeError(data.error));
