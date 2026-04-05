@@ -6,7 +6,8 @@
  * when possible.
  */
 
-import { displayNameForId } from "../resolvers/user.js";
+import { cacheChannelName } from "../resolvers/conversation.js";
+import { cacheUser, displayNameForId } from "../resolvers/user.js";
 import type { SlackMessage } from "../types.js";
 
 /**
@@ -19,9 +20,13 @@ export function formatSlackText(text: string): string {
 	return (
 		text
 			// User mentions with label: <@U123|display.name> → @display.name
+			// Opportunistically cache the name → ID mapping for later unlabelled mentions.
 			.replace(
 				/<@([UW][A-Z0-9]+)\|([^>]+)>/g,
-				(_match, _id: string, name: string) => `@${name}`,
+				(_match, id: string, name: string) => {
+					cacheUser(name, id);
+					return `@${name}`;
+				},
 			)
 			// User mentions without label: <@U123> → @username or @U123
 			.replace(/<@([UW][A-Z0-9]+)>/g, (_match, id: string) => {
@@ -29,10 +34,19 @@ export function formatSlackText(text: string): string {
 			})
 			// Broadcast mentions: <!here>, <!channel>, <!everyone> → @here etc.
 			.replace(/<!(here|channel|everyone)>/g, "@$1")
-			// Channel links: <#C123|channel-name> → #channel-name
-			.replace(/<#[A-Z0-9]+\|([^>]+)>/g, "#$1")
-			// Channel links without label: <#C123> → #C123
-			.replace(/<#([A-Z0-9]+)>/g, "#$1")
+			// Channel links with label: <#C123|channel-name> → #channel-name
+			// Opportunistically cache the name → ID mapping.
+			.replace(
+				/<#([A-Z0-9]+)\|([^>]+)>/g,
+				(_match, id: string, name: string) => {
+					cacheChannelName(name, id);
+					return `#${name}`;
+				},
+			)
+			// Channel links without label: <#C123> → #channel-name (via cache)
+			.replace(/<#([A-Z0-9]+)>/g, (_match, id: string) => {
+				return `#${displayNameForId(id)}`;
+			})
 			// URL links with label: <url|text> → [text](url)
 			.replace(/<(https?:\/\/[^|>]+)\|([^>]+)>/g, "[$2]($1)")
 			// URL links without label: <url> → url

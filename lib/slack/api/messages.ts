@@ -19,11 +19,6 @@ import type {
 	SlackReaction,
 } from "../types.js";
 import type { SlackClient } from "./client.js";
-import {
-	refreshDmNames,
-	resolveConversationsInMessages,
-} from "./resolve-conversations.js";
-import { resolveUsersInMessages } from "./resolve-users.js";
 
 /** Raw message shape from the Slack API. */
 interface RawMessage {
@@ -140,11 +135,7 @@ export async function getMessage(
 		// Permalink is non-critical.
 	}
 
-	const result = toSlackMessage(msg, conversation);
-	await resolveUsersInMessages(client, [result], signal);
-	await resolveConversationsInMessages(client, [result], signal);
-	refreshDmNames([result]);
-	return result;
+	return toSlackMessage(msg, conversation);
 }
 
 /** Maximum results per page for conversations.history. */
@@ -185,11 +176,7 @@ export async function listMessages(
 		signal,
 	);
 
-	const results = raw.map((m) => toSlackMessage(m, conversation));
-	await resolveUsersInMessages(client, results, signal);
-	await resolveConversationsInMessages(client, results, signal);
-	refreshDmNames(results);
-	return results;
+	return raw.map((m) => toSlackMessage(m, conversation));
 }
 
 /**
@@ -219,11 +206,7 @@ export async function getThread(
 		signal,
 	);
 
-	const results = messages.map((m) => toSlackMessage(m, conversation));
-	await resolveUsersInMessages(client, results, signal);
-	await resolveConversationsInMessages(client, results, signal);
-	refreshDmNames(results);
-	return results;
+	return messages.map((m) => toSlackMessage(m, conversation));
 }
 
 /** Result from sending a message. */

@@ -64,13 +64,24 @@ export async function resolveUser(
 	);
 }
 
+/** Cache file for channel name ↔ ID mappings. */
+const CHANNEL_CACHE_FILE = "channels.json";
+
 /**
- * Look up a display name for a user ID from the local cache.
- * Returns the cached handle if found, or the raw ID if not.
+ * Look up a display name for any Slack entity ID.
+ *
+ * Routes by ID prefix:
+ *   - U/W → user cache (users.json)
+ *   - C/G → channel cache (channels.json)
+ *
+ * Returns the cached name if found, the raw ID otherwise.
  * Local-only: no API calls.
  */
-export function displayNameForId(userId: string): string {
-	return lookupName(CACHE_FILE, userId) ?? userId;
+export function displayNameForId(id: string): string {
+	if (id.startsWith("C") || id.startsWith("G")) {
+		return lookupName(CHANNEL_CACHE_FILE, id) ?? id;
+	}
+	return lookupName(CACHE_FILE, id) ?? id;
 }
 
 /**

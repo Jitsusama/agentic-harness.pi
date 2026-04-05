@@ -3,7 +3,7 @@
  */
 
 export { getChannelInfo } from "./channels.js";
-export { RateLimitError, SlackClient } from "./client.js";
+export { RateLimitError, SlackApiError, SlackClient } from "./client.js";
 export {
 	getMessage,
 	getThread,
@@ -20,6 +20,7 @@ export {
 	type ReactedMessage,
 	removeReaction,
 } from "./reactions.js";
+export { resolveMessages } from "./resolve-messages.js";
 export {
 	type FileSearchResult,
 	type MessageSearchResult,
