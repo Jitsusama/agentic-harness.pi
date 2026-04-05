@@ -24,6 +24,23 @@ const MAX_RATE_LIMIT_RETRIES = 10;
 /** Initial backoff delay in milliseconds. */
 const INITIAL_BACKOFF_MS = 1000;
 
+/**
+ * Thrown when a Slack API call exhausts its rate limit retry
+ * budget. Callers can catch this specifically to implement
+ * backpressure (e.g. reducing concurrency) before retrying.
+ */
+export class RateLimitError extends Error {
+	constructor(
+		/** The Slack API method that was rate limited. */
+		public readonly method: string,
+		/** How many rate limit responses were received. */
+		public readonly hitCount: number,
+	) {
+		super(`Slack API rate limited ${hitCount} times for ${method}`);
+		this.name = "RateLimitError";
+	}
+}
+
 /** Slack API response shape. Every method returns { ok, ... }. */
 export interface SlackApiResponse {
 	ok: boolean;
@@ -92,9 +109,7 @@ export class SlackClient {
 
 			if (response.status === 429) {
 				if (++rateLimitHits > MAX_RATE_LIMIT_RETRIES) {
-					throw new Error(
-						`Slack API rate limited ${rateLimitHits} times for ${method}`,
-					);
+					throw new RateLimitError(method, rateLimitHits);
 				}
 				const retryAfter = Number(response.headers.get("Retry-After") || "1");
 				await sleep(retryAfter * 1000);
@@ -115,9 +130,7 @@ export class SlackClient {
 			if (!data.ok) {
 				if (data.error === "ratelimited") {
 					if (++rateLimitHits > MAX_RATE_LIMIT_RETRIES) {
-						throw new Error(
-							`Slack API rate limited ${rateLimitHits} times for ${method}`,
-						);
+						throw new RateLimitError(method, rateLimitHits);
 					}
 					const backoff = INITIAL_BACKOFF_MS * 2 ** rateLimitHits;
 					await sleep(backoff);

@@ -3,7 +3,7 @@
  */
 
 export { getChannelInfo } from "./channels.js";
-export { SlackClient } from "./client.js";
+export { RateLimitError, SlackClient } from "./client.js";
 export {
 	getMessage,
 	getThread,
