@@ -82,7 +82,7 @@ async function runSetupWizard(
 		],
 	});
 
-	if (!proceed || proceed.type !== "action" || proceed.value !== "continue") {
+	if (!proceed || proceed.type !== "option" || proceed.value !== "continue") {
 		ctx.ui.notify("Setup cancelled. Run /google-setup when ready.", "info");
 		return null;
 	}
