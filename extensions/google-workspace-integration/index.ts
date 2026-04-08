@@ -174,6 +174,16 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 					description: "Sort order: modifiedTime, name, relevance",
 				}),
 			),
+			modified_after: Type.Optional(
+				Type.String({
+					description: "Only files modified after this date (YYYY-MM-DD)",
+				}),
+			),
+			modified_before: Type.Optional(
+				Type.String({
+					description: "Only files modified before this date (YYYY-MM-DD)",
+				}),
+			),
 			include_comments: Type.Optional(
 				Type.Boolean({ description: "Include document comments" }),
 			),

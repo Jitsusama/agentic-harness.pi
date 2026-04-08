@@ -19,6 +19,8 @@ export async function listFiles(
 		shared?: boolean;
 		sharedDriveId?: string;
 		orderBy?: "modifiedTime" | "name" | "relevance";
+		modifiedAfter?: string;
+		modifiedBefore?: string;
 		limit?: number;
 		pageToken?: string;
 	} = {},
@@ -53,6 +55,14 @@ export async function listFiles(
 
 	if (options.shared) {
 		queryParts.push("sharedWithMe = true");
+	}
+
+	if (options.modifiedAfter) {
+		queryParts.push(`modifiedTime > '${toRfc3339(options.modifiedAfter)}'`);
+	}
+
+	if (options.modifiedBefore) {
+		queryParts.push(`modifiedTime < '${toRfc3339(options.modifiedBefore)}'`);
 	}
 
 	const q = queryParts.join(" and ");
@@ -199,4 +209,18 @@ function getMimeType(type: string): string {
 	};
 
 	return mimeTypes[type] || type;
+}
+
+/**
+ * Convert a date string to RFC 3339 format for Drive
+ * queries. Accepts YYYY-MM-DD or full ISO 8601.
+ */
+function toRfc3339(date: string): string {
+	// Already a full timestamp.
+	if (date.includes("T")) return date;
+	// Date-only: append midnight UTC.
+	if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return `${date}T00:00:00Z`;
+	// Unrecognised format: pass through and let the API
+	// reject it rather than silently mangling the value.
+	return date;
 }

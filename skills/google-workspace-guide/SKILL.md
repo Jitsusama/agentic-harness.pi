@@ -186,6 +186,9 @@ user final say before invitations go out.
 ### "Files [person] shared with me"
 → `list_files` with `shared: true`, `owner: "person@shopify.com"`
 
+### "Files modified this quarter" / "Recent docs since March"
+→ `list_files` with `modified_after: "YYYY-MM-DD"` (and optionally `modified_before`). Dates are YYYY-MM-DD; the API converts to RFC 3339 internally.
+
 ### "Search our team drive for [topic]"
 → Two steps:
 1. `list_shared_drives` to find team drives

@@ -41,6 +41,8 @@ export async function handleListFiles(
 	const shared = getBooleanParam(params, "shared");
 	const sharedDriveId = getStringParam(params, "shared_drive_id");
 	const orderBy = getStringParam(params, "order_by");
+	const modifiedAfter = getStringParam(params, "modified_after");
+	const modifiedBefore = getStringParam(params, "modified_before");
 	const limit = getNumberParam(params, "limit");
 	const pageToken = getStringParam(params, "page_token");
 
@@ -52,6 +54,8 @@ export async function handleListFiles(
 		shared,
 		sharedDriveId,
 		orderBy: orderBy as "modifiedTime" | "name" | "relevance" | undefined,
+		modifiedAfter,
+		modifiedBefore,
 		limit,
 		pageToken,
 	});
