@@ -145,13 +145,19 @@ Your calendar is included automatically. The response shows each person's
 busy blocks and common free slots where everyone (including you) is available.
 Supports up to 49 attendees.
 
+The time window can span multiple days (e.g. an entire week). When the user
+asks to "find a time this week" or "look across next week", use a single call
+with the full date range rather than one call per day.
+
 ### "Schedule a meeting with [people] when everyone is free"
 → Two steps:
 1. `check_availability` to find common free slots
 2. `create_event` with the chosen slot and attendees
 
-Pick the first free slot that meets the requested duration. The confirmation
-gate on `create_event` gives the user final say before invitations go out.
+Pick the first free slot that meets the requested duration. When scanning a
+multi-day range, filter free slots to business hours and skip weekends unless
+the user says otherwise. The confirmation gate on `create_event` gives the
+user final say before invitations go out.
 
 ## Drive - Translating User Intent
 
