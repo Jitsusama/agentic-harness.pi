@@ -11,11 +11,14 @@ export * from "./renderers/index.js";
 
 // Re-export domain types (omit router internals).
 export type {
+	BusyPeriod,
 	CalendarEvent,
+	CalendarFreeBusy,
 	DocumentComment,
 	DriveFile,
 	EmailMessage,
 	EmailMessageFull,
+	FreeBusyResult,
 	GoogleAccount,
 	StoredCredentials,
 } from "./types.js";

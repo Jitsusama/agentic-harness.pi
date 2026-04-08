@@ -127,6 +127,32 @@ Build queries using these operators:
 ### "Add [person] to that meeting"
 → `update_event` with updated `attendees` list (append to existing)
 
+### "What's on [person]'s calendar?" / "Show me Alice's schedule"
+→ `list_events` with:
+- `calendar_id`: person's email address
+- `start`/`end`: time window
+
+This shows full event details when the person has shared their calendar with
+you or org-wide event visibility is enabled. If it fails with a permission
+error, fall back to `check_availability` which only needs free/busy access.
+
+### "When is [person] free?" / "Check availability for [people]"
+→ `check_availability` with:
+- `attendees`: email addresses to check
+- `start`/`end`: time window to check
+
+Your calendar is included automatically. The response shows each person's
+busy blocks and common free slots where everyone (including you) is available.
+Supports up to 49 attendees.
+
+### "Schedule a meeting with [people] when everyone is free"
+→ Two steps:
+1. `check_availability` to find common free slots
+2. `create_event` with the chosen slot and attendees
+
+Pick the first free slot that meets the requested duration. The confirmation
+gate on `create_event` gives the user final say before invitations go out.
+
 ## Drive - Translating User Intent
 
 ### "Find my recent files" / "What's in my Drive?"

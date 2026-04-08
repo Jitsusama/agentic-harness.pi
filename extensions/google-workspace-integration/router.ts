@@ -11,6 +11,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
 import type { ActionParams, ToolResult } from "../../lib/google/types.js";
 import {
+	handleCheckAvailability,
 	handleCreateEvent,
 	handleDeleteEvent,
 	handleGetEvent,
@@ -61,6 +62,7 @@ const ACTION_HANDLERS = new Map<string, ActionHandler>([
 	["update_event", handleUpdateEvent],
 	["delete_event", handleDeleteEvent],
 	["respond_to_event", handleRespondToEvent],
+	["check_availability", handleCheckAvailability],
 	["list_files", handleListFiles],
 	["get_file", handleGetFile],
 	["list_shared_drives", (_params, auth) => handleListSharedDrives(auth)],

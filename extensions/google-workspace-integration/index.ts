@@ -62,6 +62,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			"Extract email addresses and infer domains (@shopify.com for first names).",
 			"For replies, use send_email with reply_to parameter and extract recipient from context.",
 			"Confirmation gates allow editing - don't re-prompt for details user already provided.",
+			"To view another person's calendar, use list_events with their email as calendar_id. To find common free time across multiple people, use check_availability (includes your calendar automatically). Two-step scheduling: check_availability first, then create_event with the chosen slot.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(
@@ -82,6 +83,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 					"update_event",
 					"delete_event",
 					"respond_to_event",
+					"check_availability",
 					"list_files",
 					"get_file",
 					"list_shared_drives",

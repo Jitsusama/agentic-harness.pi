@@ -24,6 +24,13 @@ interface ResultDetails {
 	files?: Array<{ name?: string; mimeType?: string }>;
 	file?: { name?: string; mimeType?: string };
 	drives?: unknown[];
+	freeBusy?: {
+		calendars?: Array<{
+			email?: string;
+			busy?: Array<{ start?: string; end?: string }>;
+			errors?: string[];
+		}>;
+	};
 	id?: string;
 	nextPageToken?: string;
 }
@@ -95,6 +102,11 @@ export function renderGoogleResult(
 		textContent.startsWith("✓ Marked as")
 	) {
 		return new Text(theme.fg("success", textContent), 0, 0);
+	}
+
+	// Free/busy results
+	if (d?.freeBusy) {
+		return renderFreeBusyResult(d.freeBusy, options, theme);
 	}
 
 	// Calendar list results
@@ -305,6 +317,59 @@ function renderFileList(
 	}
 
 	return new Text(summary, 0, 0);
+}
+
+function renderFreeBusyResult(
+	freeBusy: NonNullable<ResultDetails["freeBusy"]>,
+	options: RenderOptions,
+	theme: Theme,
+): Text {
+	const calendars = freeBusy.calendars ?? [];
+	const calCount = calendars.length;
+
+	// We count the free slots by looking at calendars without errors.
+	const allBusy = calendars
+		.filter((c) => !c.errors || c.errors.length === 0)
+		.flatMap((c) => c.busy ?? []);
+
+	const busyCount = allBusy.length;
+	const summary = theme.fg(
+		"success",
+		`✓ ${calCount} calendar${calCount !== 1 ? "s" : ""} checked`,
+	);
+
+	const busyInfo = theme.fg(
+		"dim",
+		` · ${busyCount} busy block${busyCount !== 1 ? "s" : ""}`,
+	);
+
+	if (!options.expanded && calendars.length > 0) {
+		const previews = calendars
+			.slice(0, 3)
+			.map((cal) => {
+				const name = cal.email || "Unknown";
+				const count = cal.busy?.length ?? 0;
+				const status =
+					cal.errors && cal.errors.length > 0
+						? "⚠️ error"
+						: count === 0
+							? "free"
+							: `${count} busy`;
+				return `  ${theme.fg("dim", `${name}: ${status}`)}`;
+			})
+			.join("\n");
+
+		if (calendars.length > 3) {
+			return new Text(
+				`${summary}${busyInfo}\n${previews}\n  ${theme.fg("muted", `... ${calendars.length - 3} more`)}`,
+				0,
+				0,
+			);
+		}
+		return new Text(`${summary}${busyInfo}\n${previews}`, 0, 0);
+	}
+
+	return new Text(`${summary}${busyInfo}`, 0, 0);
 }
 
 function renderSingleFile(

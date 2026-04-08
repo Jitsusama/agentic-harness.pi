@@ -8,6 +8,7 @@ export {
 	deleteEvent,
 	getEvent,
 	listEvents,
+	queryFreeBusy,
 	respondToEvent,
 	updateEvent,
 } from "./calendar.js";

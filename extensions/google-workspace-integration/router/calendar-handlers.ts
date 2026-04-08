@@ -9,12 +9,14 @@ import {
 	deleteEvent,
 	getEvent,
 	listEvents,
+	queryFreeBusy,
 	respondToEvent,
 	updateEvent,
 } from "../../../lib/google/apis/calendar.js";
 import {
 	renderEvent,
 	renderEventList,
+	renderFreeBusy,
 } from "../../../lib/google/renderers/calendar.js";
 import {
 	type ActionParams,
@@ -259,6 +261,49 @@ export async function handleDeleteEvent(
 	await deleteEvent(auth, eventId, calendarId);
 	return {
 		content: [{ type: "text", text: "✓ Event deleted" }],
+	};
+}
+
+/** Check free/busy availability for multiple people within a time window. */
+export async function handleCheckAvailability(
+	params: ActionParams,
+	auth: OAuth2Client,
+): Promise<ToolResult> {
+	const attendees = getStringArrayParam(params, "attendees");
+	const start = getStringParam(params, "start");
+	const end = getStringParam(params, "end");
+
+	if (!attendees || attendees.length === 0) {
+		return {
+			content: [
+				{
+					type: "text",
+					text: "Missing required parameter: attendees (at least one email)",
+				},
+			],
+		};
+	}
+
+	if (!start || !end) {
+		return {
+			content: [
+				{
+					type: "text",
+					text: "Missing required parameters: start, end",
+				},
+			],
+		};
+	}
+
+	const result = await queryFreeBusy(auth, {
+		emails: attendees,
+		timeMin: start,
+		timeMax: end,
+	});
+
+	return {
+		content: [{ type: "text", text: renderFreeBusy(result) }],
+		details: { freeBusy: result },
 	};
 }
 
