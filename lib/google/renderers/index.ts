@@ -4,7 +4,7 @@
  * and email messages.
  */
 
-export { renderEvent, renderEventList } from "./calendar.js";
+export { renderEvent, renderEventList, renderFreeBusy } from "./calendar.js";
 export {
 	renderComments,
 	renderDoc,

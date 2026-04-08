@@ -115,6 +115,29 @@ export interface CalendarEvent {
 	htmlLink?: string;
 }
 
+/** A time range when someone is busy. */
+export interface BusyPeriod {
+	start: string; // ISO datetime
+	end: string; // ISO datetime
+}
+
+/** Free/busy result for a single calendar. */
+export interface CalendarFreeBusy {
+	email: string;
+	busy: BusyPeriod[];
+	/** True when this entry represents the authenticated user. */
+	self?: boolean;
+	/** Per-calendar errors (e.g. "notFound" for invalid emails). */
+	errors?: string[];
+}
+
+/** Result of a free/busy query across multiple calendars. */
+export interface FreeBusyResult {
+	timeMin: string; // ISO datetime
+	timeMax: string; // ISO datetime
+	calendars: CalendarFreeBusy[];
+}
+
 /** Drive file metadata. */
 export interface DriveFile {
 	id: string;

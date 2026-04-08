@@ -4,7 +4,12 @@
 
 import type { OAuth2Client } from "google-auth-library";
 import { google } from "googleapis";
-import type { CalendarEvent } from "../types.js";
+import type {
+	BusyPeriod,
+	CalendarEvent,
+	CalendarFreeBusy,
+	FreeBusyResult,
+} from "../types.js";
 
 /**
  * List calendar events in a date range.
@@ -300,6 +305,98 @@ export async function deleteEvent(
 		eventId,
 		sendUpdates: "all", // Notify attendees
 	});
+}
+
+/**
+ * Query free/busy information for multiple calendars.
+ *
+ * Automatically includes the authenticated user's calendar
+ * alongside the provided attendee emails so the result
+ * reflects everyone's availability. Deduplicates if the
+ * user's email is already in the list.
+ */
+export async function queryFreeBusy(
+	auth: OAuth2Client,
+	options: {
+		emails: string[];
+		timeMin: string; // ISO datetime
+		timeMax: string; // ISO datetime
+		timeZone?: string;
+	},
+): Promise<FreeBusyResult> {
+	const calendar = google.calendar({ version: "v3", auth });
+	const userEmail = await resolveUserEmail(auth);
+
+	// We build the items list, always including the user's
+	// calendar and deduplicating if their email was already
+	// passed as an attendee.
+	const seen = new Set<string>();
+	const items: Array<{ id: string }> = [{ id: "primary" }];
+	if (userEmail) seen.add(userEmail.toLowerCase());
+
+	for (const email of options.emails) {
+		const lower = email.toLowerCase();
+		if (!seen.has(lower)) {
+			seen.add(lower);
+			items.push({ id: email });
+		}
+	}
+
+	const response = await calendar.freebusy.query({
+		requestBody: {
+			timeMin: new Date(options.timeMin).toISOString(),
+			timeMax: new Date(options.timeMax).toISOString(),
+			timeZone:
+				options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+			items,
+		},
+	});
+
+	const rawCalendars = response.data.calendars ?? {};
+	const calendars: CalendarFreeBusy[] = [];
+
+	for (const [id, data] of Object.entries(rawCalendars)) {
+		const busy: BusyPeriod[] = (data.busy ?? []).map((period) => ({
+			start: period.start ?? "",
+			end: period.end ?? "",
+		}));
+
+		const errors = (data.errors ?? []).map(
+			(e) => e.reason ?? e.domain ?? "unknown",
+		);
+
+		const isSelf =
+			id === "primary" ||
+			(userEmail !== undefined && id.toLowerCase() === userEmail.toLowerCase());
+
+		calendars.push({
+			email: isSelf ? (userEmail ?? "you") : id,
+			busy,
+			self: isSelf || undefined,
+			errors: errors.length > 0 ? errors : undefined,
+		});
+	}
+
+	return {
+		timeMin: response.data.timeMin ?? options.timeMin,
+		timeMax: response.data.timeMax ?? options.timeMax,
+		calendars,
+	};
+}
+
+/** Resolve the authenticated user's email from their OAuth token. */
+async function resolveUserEmail(
+	auth: OAuth2Client,
+): Promise<string | undefined> {
+	try {
+		const tokenInfo = await auth.getTokenInfo(
+			auth.credentials.access_token || "",
+		);
+		return tokenInfo.email;
+	} catch {
+		// Token info fetch is non-critical; we proceed without it.
+		return undefined;
+	}
 }
 
 /**

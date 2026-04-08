@@ -19,6 +19,7 @@ interface CallArgs {
 	summary?: string;
 	start?: string;
 	account?: string;
+	attendees?: string[];
 }
 
 /**
@@ -144,6 +145,19 @@ export function renderGoogleCall(
 
 		case "respond_to_event":
 			text += "respond_to_event";
+			break;
+
+		case "check_availability":
+			text += "check_availability";
+			if (a.attendees && a.attendees.length > 0) {
+				const names = a.attendees.slice(0, 3).join(", ");
+				const more =
+					a.attendees.length > 3 ? ` +${a.attendees.length - 3} more` : "";
+				text += theme.fg("dim", ` ${names}${more}`);
+			}
+			if (a.start) {
+				text += theme.fg("muted", ` from ${a.start}`);
+			}
 			break;
 
 		case "list_files":
