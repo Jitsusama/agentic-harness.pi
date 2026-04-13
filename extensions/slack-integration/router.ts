@@ -54,8 +54,10 @@ import {
 	confirmReaction,
 	confirmReply,
 	confirmSendMessage,
+	confirmSendThread,
 	confirmUploadFile,
 	type FileInfo,
+	type ThreadMessage,
 } from "./confirmation.js";
 
 /** Handler function that processes a Slack action. */
@@ -556,6 +558,145 @@ async function handleUploadFile(
 	);
 }
 
+async function handleSendThread(
+	client: SlackClient,
+	params: ActionParams,
+	resolved: ResolvedParams,
+	ctx: ExtensionContext,
+): Promise<ToolResult> {
+	if (!resolved.conversation) return missing("channel");
+
+	const rawMessages = params.messages;
+	if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
+		return missing("messages");
+	}
+
+	// Parse and validate the messages array.
+	const parsed = parseThreadMessages(rawMessages);
+	if (typeof parsed === "string") return text(parsed);
+
+	const displayName =
+		resolved.conversation.displayName ?? resolved.conversation.id;
+
+	// Gather file info for any attached files.
+	const threadMessages: ThreadMessage[] = [];
+	for (const msg of parsed) {
+		const fileInfos: FileInfo[] = [];
+		for (const filePath of msg.filePaths) {
+			try {
+				const size = await getFileSize(filePath);
+				fileInfos.push({ name: basename(filePath), size });
+			} catch {
+				return text(`File not found: ${filePath}`);
+			}
+		}
+		threadMessages.push({
+			text: msg.text,
+			files: fileInfos.length > 0 ? fileInfos : undefined,
+		});
+	}
+
+	// Show the tabbed confirmation gate.
+	const confirmed = await confirmSendThread(ctx, displayName, threadMessages);
+	if (!confirmed) return text("\u2717 Send thread cancelled.");
+	if (!confirmed.approved) return text(confirmed.redirect);
+
+	// Send messages sequentially: first creates the parent,
+	// the rest reply to it. Messages with files use the
+	// upload flow with initialComment so text and files
+	// appear as a single message.
+	const channelId = resolved.conversation.id;
+	let parentTs: string | undefined;
+
+	for (let i = 0; i < parsed.length; i++) {
+		const msg = parsed[i];
+		const isParent = i === 0;
+
+		if (msg.filePaths.length > 0) {
+			await uploadFiles(client, msg.filePaths, {
+				channelId,
+				threadTs: parentTs,
+				initialComment: msg.text,
+			});
+			// completeUploadExternal doesn't return the message
+			// ts. For the parent we need it to thread subsequent
+			// replies, so fetch the latest message in the channel.
+			if (isParent) {
+				parentTs = await fetchLatestMessageTs(client, channelId);
+			}
+		} else if (isParent) {
+			const result = await sendMessage(client, channelId, msg.text);
+			parentTs = result.ts;
+		} else {
+			await replyToThread(client, channelId, parentTs as string, msg.text);
+		}
+	}
+
+	return text(
+		`\u2713 Thread sent to ${displayName} (${parsed.length} messages, parent ts: ${parentTs})`,
+		{ threadTs: parentTs },
+	);
+}
+
+/** Parsed thread message with collected file paths. */
+interface ParsedThreadMessage {
+	text: string;
+	filePaths: string[];
+}
+
+/**
+ * Parse and validate the raw messages array from tool params.
+ *
+ * Returns the parsed messages or an error string.
+ */
+function parseThreadMessages(raw: unknown[]): ParsedThreadMessage[] | string {
+	const messages: ParsedThreadMessage[] = [];
+
+	for (let i = 0; i < raw.length; i++) {
+		const entry = raw[i] as Record<string, unknown> | undefined;
+		if (!entry || typeof entry !== "object") {
+			return `Invalid message at index ${i}: expected an object.`;
+		}
+
+		const msgText = typeof entry.text === "string" ? entry.text : undefined;
+		if (!msgText) {
+			return `Missing text in message at index ${i}.`;
+		}
+
+		const filePaths: string[] = [];
+		if (typeof entry.file_path === "string") {
+			filePaths.push(entry.file_path);
+		}
+		if (Array.isArray(entry.file_paths)) {
+			for (const p of entry.file_paths) {
+				if (typeof p === "string") filePaths.push(p);
+			}
+		}
+
+		messages.push({ text: msgText, filePaths: [...new Set(filePaths)] });
+	}
+
+	return messages;
+}
+
+/**
+ * Fetch the timestamp of the most recent message in a channel.
+ *
+ * Used after file uploads to recover the parent message ts,
+ * since completeUploadExternal doesn't return it.
+ */
+async function fetchLatestMessageTs(
+	client: SlackClient,
+	channelId: string,
+): Promise<string | undefined> {
+	const messages = await listMessages(
+		client,
+		{ id: channelId, kind: "channel" },
+		{ limit: 1 },
+	);
+	return messages[0]?.ts;
+}
+
 // ── File upload helpers ─────────────────────────────────
 
 /**
@@ -645,6 +786,7 @@ const ACTION_HANDLERS = new Map<string, ActionHandler>([
 	["send_message", handleSendMessage],
 	["reply_to_thread", handleReplyToThread],
 	["upload_file", handleUploadFile],
+	["send_thread", handleSendThread],
 	["add_reaction", handleAddReaction],
 	["remove_reaction", handleRemoveReaction],
 ]);
