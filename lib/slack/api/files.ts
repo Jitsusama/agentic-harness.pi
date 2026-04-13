@@ -117,30 +117,54 @@ async function completeUpload(
 	};
 
 	// completeUploadExternal doesn't return the message ts.
-	// When sharing to a channel, recover it by fetching the
-	// latest message so callers can use it for threading.
-	if (opts.channelId) {
-		result.ts = await fetchLatestTs(client, opts.channelId, signal);
+	// When sharing to a channel, recover it from the file's
+	// share metadata via files.info. This is deterministic
+	// (keyed on the file we just uploaded) so there's no
+	// race with other messages landing in the channel.
+	if (opts.channelId && result.files.length > 0) {
+		result.ts = await fetchShareTs(
+			client,
+			result.files[0].id,
+			opts.channelId,
+			signal,
+		);
 	}
 
 	return result;
 }
 
+/** Share metadata shape from the files.info response. */
+interface FileShareEntry {
+	ts: string;
+	thread_ts?: string;
+}
+
 /**
- * Fetch the timestamp of the most recent message in a channel.
+ * Fetch the message timestamp from a file's share metadata.
  *
- * Used after file uploads to recover the message ts that
- * completeUploadExternal doesn't return.
+ * Uses files.info to look up the share entry for the given
+ * channel. This is deterministic: we're reading metadata for
+ * the exact file we just uploaded, not guessing based on
+ * channel history.
  */
-async function fetchLatestTs(
+async function fetchShareTs(
 	client: SlackClient,
+	fileId: string,
 	channelId: string,
 	signal?: AbortSignal,
 ): Promise<string | undefined> {
 	const response = await client.call<{
-		messages?: Array<{ ts: string }>;
-	}>("conversations.history", { channel: channelId, limit: 1 }, signal);
-	return response.messages?.[0]?.ts;
+		file?: {
+			shares?: {
+				public?: Record<string, FileShareEntry[]>;
+				private?: Record<string, FileShareEntry[]>;
+			};
+		};
+	}>("files.info", { file: fileId }, signal);
+
+	const shares = response.file?.shares;
+	const entries = shares?.public?.[channelId] ?? shares?.private?.[channelId];
+	return entries?.[0]?.ts;
 }
 
 /**
