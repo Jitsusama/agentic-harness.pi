@@ -233,6 +233,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"To start a group DM, pass comma-separated user IDs or @handles as the channel (e.g. 'W018HTJBU1H,U09HTCT9YLU' or '@katie.laliberte,@jonathan.feng'). The tool calls conversations.open to create or find the group DM.",
 			"Be concise in your responses — summarise the substance of results rather than restating what the tool output already shows.",
 			"To upload files, use upload_file with file_path (single) or file_paths (array) and a channel. Files can also be attached to send_message and reply_to_thread by adding file_path or file_paths.",
+			"To post an entire thread at once, use send_thread with channel and a messages array. The first message becomes the thread parent; the rest become replies in order. Each message has text and optional file_path/file_paths. A tabbed review gate lets the user approve each message before sending.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(
@@ -249,6 +250,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 					"send_message",
 					"reply_to_thread",
 					"upload_file",
+					"send_thread",
 					"add_reaction",
 					"remove_reaction",
 				] as const,
@@ -314,6 +316,27 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			latest: Type.Optional(
 				Type.String({ description: "Only messages before this timestamp" }),
 			),
+			// Thread
+			messages: Type.Optional(
+				Type.Array(
+					Type.Object({
+						text: Type.String({ description: "Message text" }),
+						file_path: Type.Optional(
+							Type.String({ description: "Local file path to attach" }),
+						),
+						file_paths: Type.Optional(
+							Type.Array(Type.String(), {
+								description: "Local file paths to attach (multiple)",
+							}),
+						),
+					}),
+					{
+						description:
+							"Ordered messages for send_thread. First becomes the " +
+							"thread parent; the rest become replies.",
+					},
+				),
+			),
 			// File search
 			type: Type.Optional(
 				Type.String({
@@ -362,6 +385,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				limit?: number;
 				file_path?: string;
 				file_paths?: string[];
+				messages?: unknown[];
 			};
 			let label = theme.fg("toolTitle", theme.bold("slack "));
 			label += a.action ?? "?";
@@ -405,6 +429,11 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				if (fileCount > 0) {
 					const tag = fileCount === 1 ? "📄 1 file" : `📄 ${fileCount} files`;
 					label += theme.fg("dim", ` ${tag}`);
+				}
+				if (a.messages?.length) {
+					const count = a.messages.length;
+					const noun = count === 1 ? "message" : "messages";
+					label += theme.fg("dim", ` (${count} ${noun})`);
 				}
 			}
 

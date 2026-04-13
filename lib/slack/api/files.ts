@@ -15,6 +15,11 @@ import type { SlackClient } from "./client.js";
 export interface UploadResult {
 	ok: boolean;
 	files: Array<{ id: string; title?: string }>;
+	/**
+	 * Timestamp of the message created when sharing to a channel.
+	 * Only present when channelId was provided.
+	 */
+	ts?: string;
 }
 
 /** Options for sharing uploaded files. */
@@ -106,10 +111,79 @@ async function completeUpload(
 		files: Array<{ id: string; title?: string }>;
 	}>("files.completeUploadExternal", params, signal);
 
-	return {
+	const result: UploadResult = {
 		ok: true,
 		files: response.files ?? [],
 	};
+
+	// completeUploadExternal doesn't return the message ts.
+	// When sharing to a channel, recover it from the file's
+	// share metadata via files.info. This is deterministic
+	// (keyed on the file we just uploaded) so there's no
+	// race with other messages landing in the channel.
+	if (opts.channelId && result.files.length > 0) {
+		result.ts = await fetchShareTs(
+			client,
+			result.files[0].id,
+			opts.channelId,
+			signal,
+		);
+	}
+
+	return result;
+}
+
+/** Share metadata shape from the files.info response. */
+interface FileShareEntry {
+	ts: string;
+	thread_ts?: string;
+}
+
+/** Maximum attempts when polling for share metadata. */
+const SHARE_POLL_MAX_ATTEMPTS = 5;
+
+/** Initial delay between share metadata polls (milliseconds). */
+const SHARE_POLL_INITIAL_DELAY_MS = 500;
+
+/**
+ * Fetch the message timestamp from a file's share metadata.
+ *
+ * Uses files.info to look up the share entry for the given
+ * channel. This is deterministic: we're reading metadata for
+ * the exact file we just uploaded, not guessing based on
+ * channel history.
+ *
+ * Slack processes file shares asynchronously, so the share
+ * entry may not exist immediately after completeUploadExternal
+ * returns. We poll with exponential backoff until it appears
+ * or the attempt budget is exhausted.
+ */
+async function fetchShareTs(
+	client: SlackClient,
+	fileId: string,
+	channelId: string,
+	signal?: AbortSignal,
+): Promise<string | undefined> {
+	for (let attempt = 0; attempt < SHARE_POLL_MAX_ATTEMPTS; attempt++) {
+		const response = await client.call<{
+			file?: {
+				shares?: {
+					public?: Record<string, FileShareEntry[]>;
+					private?: Record<string, FileShareEntry[]>;
+				};
+			};
+		}>("files.info", { file: fileId }, signal);
+
+		const shares = response.file?.shares;
+		const entries = shares?.public?.[channelId] ?? shares?.private?.[channelId];
+		if (entries?.[0]?.ts) return entries[0].ts;
+
+		// Share metadata isn't ready yet. Wait before retrying.
+		const delay = SHARE_POLL_INITIAL_DELAY_MS * 2 ** attempt;
+		await new Promise((resolve) => setTimeout(resolve, delay));
+	}
+
+	return undefined;
 }
 
 /**

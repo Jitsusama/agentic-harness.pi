@@ -41,6 +41,25 @@ const STATE_CHANGE_PATTERNS: RegExp[] = [
 const SEPARATOR = /\s*(?:&&|;|\n)\s*/;
 
 /**
+ * Block `git commit --amend` unconditionally. Amends
+ * rewrite history and are almost never the right choice
+ * when the agent can just make a new commit.
+ */
+export function detectAmendViolation(command: string): string | null {
+	const stripped = stripHeredocBodies(command);
+	if (/\bgit\s+commit\b/.test(stripped) && /--amend\b/.test(stripped)) {
+		return (
+			"Blocked: --amend is not allowed. Make a new commit " +
+			"instead.\n\n" +
+			"Amending rewrites history and is almost never necessary. " +
+			"A new commit is cleaner and preserves the work trail. " +
+			"Read the git-commit-convention skill for guidance."
+		);
+	}
+	return null;
+}
+
+/**
  * Check whether a bash command chains multiple concerns that
  * should be separate calls. Returns a block reason or null
  * if the command is fine.

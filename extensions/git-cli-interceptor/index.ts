@@ -16,7 +16,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
-import { detectCompoundViolation } from "./patterns.js";
+import { detectAmendViolation, detectCompoundViolation } from "./patterns.js";
 
 export default function gitCliInterceptor(pi: ExtensionAPI) {
 	pi.on(
@@ -25,10 +25,12 @@ export default function gitCliInterceptor(pi: ExtensionAPI) {
 			if (!isToolCallEventType("bash", event)) return;
 
 			const command = event.input.command;
-			const violation = detectCompoundViolation(command);
-			if (violation) {
-				return { block: true, reason: violation };
-			}
+
+			const amend = detectAmendViolation(command);
+			if (amend) return { block: true, reason: amend };
+
+			const compound = detectCompoundViolation(command);
+			if (compound) return { block: true, reason: compound };
 		},
 	);
 }
