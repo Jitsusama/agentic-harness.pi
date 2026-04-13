@@ -124,6 +124,16 @@ function renderMessagePreviews(
 	return lines.join("\n");
 }
 
+/** Count files from the file_path and file_paths params. */
+function countFiles(filePath?: string, filePaths?: string[]): number {
+	const paths = new Set<string>();
+	if (filePath) paths.add(filePath);
+	if (filePaths) {
+		for (const p of filePaths) paths.add(p);
+	}
+	return paths.size;
+}
+
 /** Fallback OAuth config from environment variables. */
 const ENV_OAUTH_CONFIG: OAuthApp = {
 	clientId: process.env.SLACK_CLIENT_ID || "",
@@ -204,12 +214,12 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		label: "Slack",
 		description:
 			"Access Slack: search messages, read threads, send messages, " +
-			"look up users and channels, manage reactions. Use when asked " +
-			"to check Slack, find messages, send messages, or interact " +
-			"with Slack in any way.",
+			"upload files, look up users and channels, manage reactions. " +
+			"Use when asked to check Slack, find messages, send messages, " +
+			"upload files, or interact with Slack in any way.",
 		promptSnippet:
 			"Access Slack: search messages, read threads, send messages, " +
-			"look up users/channels, manage reactions.",
+			"upload files, look up users/channels, manage reactions.",
 		promptGuidelines: [
 			"All identifier formats (channel names, IDs, user IDs, permalink URLs) are resolved automatically. Use whatever you have from context.",
 			"Parse Slack search operators: from:user, in:#channel, after:YYYY-MM-DD, before:YYYY-MM-DD. The after/before operators are exclusive: after:2026-03-26 means March 27 onward. To include today, use yesterday's date.",
@@ -222,6 +232,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"The query parameter is optional for search when structured params (from, with, channel, after, before) are provided — it defaults to *.",
 			"To start a group DM, pass comma-separated user IDs or @handles as the channel (e.g. 'W018HTJBU1H,U09HTCT9YLU' or '@katie.laliberte,@jonathan.feng'). The tool calls conversations.open to create or find the group DM.",
 			"Be concise in your responses — summarise the substance of results rather than restating what the tool output already shows.",
+			"To upload files, use upload_file with file_path (single) or file_paths (array) and a channel. Files can also be attached to send_message and reply_to_thread by adding file_path or file_paths.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(
@@ -237,6 +248,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 					"get_reactions",
 					"send_message",
 					"reply_to_thread",
+					"upload_file",
 					"add_reaction",
 					"remove_reaction",
 				] as const,
@@ -278,6 +290,15 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			),
 			// Content
 			text: Type.Optional(Type.String({ description: "Message text to send" })),
+			// File upload
+			file_path: Type.Optional(
+				Type.String({ description: "Local file path to upload" }),
+			),
+			file_paths: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "Local file paths to upload (multiple files)",
+				}),
+			),
 			emoji: Type.Optional(
 				Type.String({ description: "Emoji name (without colons)" }),
 			),
@@ -339,6 +360,8 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				after?: string;
 				before?: string;
 				limit?: number;
+				file_path?: string;
+				file_paths?: string[];
 			};
 			let label = theme.fg("toolTitle", theme.bold("slack "));
 			label += a.action ?? "?";
@@ -377,6 +400,11 @@ export default function slackIntegration(pi: ExtensionAPI) {
 					if (parsed) {
 						label += theme.fg("dim", ` ${parsed.channel} ${parsed.ts}`);
 					}
+				}
+				const fileCount = countFiles(a.file_path, a.file_paths);
+				if (fileCount > 0) {
+					const tag = fileCount === 1 ? "📄 1 file" : `📄 ${fileCount} files`;
+					label += theme.fg("dim", ` ${tag}`);
 				}
 			}
 
