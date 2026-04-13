@@ -195,8 +195,19 @@ instead. This is a Slack API limitation, not a tool limitation.
 - Each message object has `text` and optional `file_path`
   / `file_paths` for attachments.
 - A tabbed review gate shows every message for approval
-  before anything is sent. Rejecting any message halts
-  the entire thread.
+  before anything is sent. Rejecting or redirecting any
+  single message halts the entire thread and nothing is
+  sent.
+- When the user rejects or steers a message, their note
+  tells you what to change. Rewrite the affected
+  message(s) based on their feedback and resubmit the
+  full `messages` array. Don't drop the rejected message;
+  fix it. Don't resend only the rejected one; the whole
+  thread must be reviewed together.
+- Every message must be reviewed. If the user submits
+  early (Ctrl+Enter) without reviewing all tabs, the
+  gate rejects with a note asking them to review
+  everything.
 
 ```
 slack({ action: "send_thread", channel: "#team-updates",
@@ -548,7 +559,10 @@ channel or thread. The user can approve, reject or redirect.
 
 `send_thread` uses a tabbed confirmation gate: one tab per
 message showing the text and any attached files. All
-messages must be approved before anything is sent.
+messages must be approved before anything is sent. If the
+user rejects or steers any message, the entire thread is
+halted. Rewrite the affected message(s) based on the
+user's feedback and resubmit the full array.
 
 ## Common Mistakes to Avoid
 
