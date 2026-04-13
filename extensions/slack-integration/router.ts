@@ -7,9 +7,11 @@
  * raw strings. Each action maps to a handler via a registry.
  */
 
+import { basename } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { getChannelInfo } from "../../lib/slack/api/channels.js";
 import type { SlackClient } from "../../lib/slack/api/client.js";
+import { getFileSize, uploadFiles } from "../../lib/slack/api/files.js";
 import {
 	getMessage,
 	getThread,
@@ -52,6 +54,8 @@ import {
 	confirmReaction,
 	confirmReply,
 	confirmSendMessage,
+	confirmUploadFile,
+	type FileInfo,
 } from "./confirmation.js";
 
 /** Handler function that processes a Slack action. */
@@ -377,10 +381,29 @@ async function handleSendMessage(
 ): Promise<ToolResult> {
 	if (!resolved.conversation) return missing("channel");
 	const msgText = stringParam(params, "text");
-	if (!msgText) return missing("text");
+	const filePaths = collectFilePaths(params);
+	if (!msgText && filePaths.length === 0) return missing("text");
 
 	const displayName =
 		resolved.conversation.displayName ?? resolved.conversation.id;
+
+	// When files are attached, use the upload flow instead.
+	if (filePaths.length > 0) {
+		return handleFileUpload(
+			client,
+			ctx,
+			displayName,
+			filePaths,
+			resolved.conversation.id,
+			undefined,
+			msgText,
+		);
+	}
+
+	// After the file path check above, msgText is guaranteed
+	// to be defined here (we returned early if both were empty).
+	if (!msgText) return missing("text");
+
 	const confirmed = await confirmSendMessage(ctx, displayName, msgText);
 	if (!confirmed) return text("✗ Send message cancelled.");
 	if (!confirmed.approved) return text(confirmed.redirect);
@@ -401,10 +424,29 @@ async function handleReplyToThread(
 ): Promise<ToolResult> {
 	if (!resolved.target) return missing("channel + ts or target");
 	const msgText = stringParam(params, "text");
-	if (!msgText) return missing("text");
+	const filePaths = collectFilePaths(params);
+	if (!msgText && filePaths.length === 0) return missing("text");
 
 	const displayName =
 		resolved.target.conversation.displayName ?? resolved.target.conversation.id;
+
+	// When files are attached, use the upload flow instead.
+	if (filePaths.length > 0) {
+		return handleFileUpload(
+			client,
+			ctx,
+			displayName,
+			filePaths,
+			resolved.target.conversation.id,
+			resolved.target.ts,
+			msgText,
+		);
+	}
+
+	// After the file path check above, msgText is guaranteed
+	// to be defined here (we returned early if both were empty).
+	if (!msgText) return missing("text");
+
 	const confirmed = await confirmReply(
 		ctx,
 		displayName,
@@ -488,6 +530,106 @@ async function handleRemoveReaction(
 	return text(`✓ Removed :${emoji}: reaction`);
 }
 
+async function handleUploadFile(
+	client: SlackClient,
+	params: ActionParams,
+	resolved: ResolvedParams,
+	ctx: ExtensionContext,
+): Promise<ToolResult> {
+	if (!resolved.conversation) return missing("channel");
+	const filePaths = collectFilePaths(params);
+	if (filePaths.length === 0) return missing("file_path or file_paths");
+
+	const displayName =
+		resolved.conversation.displayName ?? resolved.conversation.id;
+	const threadTs = resolved.target?.ts;
+	const msgText = stringParam(params, "text");
+
+	return handleFileUpload(
+		client,
+		ctx,
+		displayName,
+		filePaths,
+		resolved.conversation.id,
+		threadTs,
+		msgText,
+	);
+}
+
+// ── File upload helpers ─────────────────────────────────
+
+/**
+ * Collect file paths from the file_path and file_paths params.
+ *
+ * Accepts either a single path or an array, or both. Returns
+ * a deduplicated list.
+ */
+function collectFilePaths(params: ActionParams): string[] {
+	const paths: string[] = [];
+
+	const single = stringParam(params, "file_path");
+	if (single) paths.push(single);
+
+	const multiple = params.file_paths;
+	if (Array.isArray(multiple)) {
+		for (const p of multiple) {
+			if (typeof p === "string") paths.push(p);
+		}
+	}
+
+	return [...new Set(paths)];
+}
+
+/**
+ * Shared file upload flow used by upload_file, send_message
+ * and reply_to_thread when files are present.
+ *
+ * Validates files exist, shows the confirmation gate, then
+ * uploads via the 3-step Slack external upload API.
+ */
+async function handleFileUpload(
+	client: SlackClient,
+	ctx: ExtensionContext,
+	displayName: string,
+	filePaths: string[],
+	channelId: string,
+	threadTs?: string,
+	initialComment?: string,
+): Promise<ToolResult> {
+	// Gather file info for the confirmation gate.
+	const fileInfos: FileInfo[] = [];
+	for (const filePath of filePaths) {
+		try {
+			const size = await getFileSize(filePath);
+			fileInfos.push({ name: basename(filePath), size });
+		} catch {
+			return text(`File not found: ${filePath}`);
+		}
+	}
+
+	const confirmed = await confirmUploadFile(
+		ctx,
+		displayName,
+		fileInfos,
+		initialComment,
+		threadTs,
+	);
+	if (!confirmed) return text("✗ Upload cancelled.");
+	if (!confirmed.approved) return text(confirmed.redirect);
+
+	const result = await uploadFiles(client, filePaths, {
+		channelId,
+		threadTs,
+		initialComment,
+	});
+
+	const fileNames = fileInfos.map((f) => f.name).join(", ");
+	const threadNote = threadTs ? ` in thread ${threadTs}` : "";
+	return text(`✓ Uploaded ${fileNames} to ${displayName}${threadNote}`, {
+		upload: result,
+	});
+}
+
 // ── Action registry ─────────────────────────────────────
 
 const ACTION_HANDLERS = new Map<string, ActionHandler>([
@@ -502,6 +644,7 @@ const ACTION_HANDLERS = new Map<string, ActionHandler>([
 	["get_reactions", handleGetReactions],
 	["send_message", handleSendMessage],
 	["reply_to_thread", handleReplyToThread],
+	["upload_file", handleUploadFile],
 	["add_reaction", handleAddReaction],
 	["remove_reaction", handleRemoveReaction],
 ]);

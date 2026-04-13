@@ -14,6 +14,12 @@ import {
 } from "../../lib/ui/index.js";
 import { formatRedirectReason } from "../../lib/ui/redirect.js";
 
+/** File metadata for the upload confirmation gate. */
+export interface FileInfo {
+	name: string;
+	size: number;
+}
+
 /** Reject action shown in every confirmation gate. */
 const REJECT_ACTION: KeyAction[] = [{ key: "r", label: "Reject" }];
 
@@ -122,6 +128,73 @@ export async function confirmReply(
 	}
 
 	return { approved: true, data: { text } };
+}
+
+/**
+ * Confirm uploading files to a conversation.
+ */
+export async function confirmUploadFile(
+	ctx: ExtensionContext,
+	conversationName: string,
+	files: FileInfo[],
+	text?: string,
+	threadTs?: string,
+): Promise<ConfirmResult<true>> {
+	if (!ctx.hasUI) return { approved: true, data: true };
+
+	const context = `Upload ${files.length === 1 ? files[0].name : `${files.length} files`} to ${conversationName}`;
+
+	const result = await promptSingle(ctx, {
+		content: (theme, width) => {
+			const lines = [
+				theme.fg("accent", theme.bold(" Upload File")),
+				"",
+				` ${theme.fg("muted", "To:")} ${conversationName}`,
+			];
+			if (threadTs) {
+				lines.push(` ${theme.fg("muted", "Thread:")} ${threadTs}`);
+			}
+			lines.push("");
+			for (const f of files) {
+				lines.push(
+					` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
+				);
+			}
+			if (text) {
+				lines.push("");
+				lines.push(` ${theme.fg("muted", "Comment:")}`);
+				for (const line of renderMarkdown(text, theme, width)) {
+					lines.push(line);
+				}
+			}
+			return lines;
+		},
+		actions: REJECT_ACTION,
+	});
+
+	if (!result) return null;
+
+	if (result.type === "redirect") {
+		return redirect(result.note, context);
+	}
+
+	if (result.type === "action") {
+		if (result.key === "r") {
+			if (result.note) return redirect(result.note, context);
+			return redirect("User rejected. Ask for guidance.", context);
+		}
+		if (result.note) return redirect(result.note, context);
+		return { approved: true, data: true };
+	}
+
+	return { approved: true, data: true };
+}
+
+/** Format byte count as a human-readable size. */
+function formatBytes(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /**

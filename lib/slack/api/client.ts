@@ -198,6 +198,35 @@ export class SlackClient {
 
 		return results;
 	}
+
+	/**
+	 * Upload raw bytes to an external upload URL.
+	 *
+	 * Used by the file upload flow after obtaining a URL from
+	 * files.getUploadURLExternal. Includes the session cookie
+	 * when using browser tokens so auth stays encapsulated.
+	 */
+	async upload(url: string, body: Buffer, signal?: AbortSignal): Promise<void> {
+		const headers: Record<string, string> = {
+			"Content-Type": "application/octet-stream",
+		};
+		if (this.cookie) {
+			headers.Cookie = `d=${this.cookie}`;
+		}
+
+		const response = await fetch(url, {
+			method: "POST",
+			headers,
+			body,
+			signal,
+		});
+
+		if (!response.ok) {
+			throw new Error(
+				`File upload failed: HTTP ${response.status} ${response.statusText}`,
+			);
+		}
+	}
 }
 
 /** Describe a Slack API error with actionable guidance. */

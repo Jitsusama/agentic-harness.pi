@@ -5,6 +5,12 @@
 export { getChannelInfo } from "./channels.js";
 export { RateLimitError, SlackApiError, SlackClient } from "./client.js";
 export {
+	getFileSize,
+	type UploadOptions,
+	type UploadResult,
+	uploadFiles,
+} from "./files.js";
+export {
 	getMessage,
 	getThread,
 	listMessages,
