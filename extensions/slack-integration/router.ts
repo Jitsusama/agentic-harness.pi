@@ -607,25 +607,41 @@ async function handleSendThread(
 	// appear as a single message.
 	const channelId = resolved.conversation.id;
 	let parentTs: string | undefined;
+	let sent = 0;
 
 	for (let i = 0; i < parsed.length; i++) {
 		const msg = parsed[i];
 		const isParent = i === 0;
 
-		if (msg.filePaths.length > 0) {
-			const uploadResult = await uploadFiles(client, msg.filePaths, {
-				channelId,
-				threadTs: parentTs,
-				initialComment: msg.text,
-			});
-			if (isParent) {
-				parentTs = uploadResult.ts;
+		try {
+			if (msg.filePaths.length > 0) {
+				const uploadResult = await uploadFiles(client, msg.filePaths, {
+					channelId,
+					threadTs: parentTs,
+					initialComment: msg.text,
+				});
+				if (isParent) {
+					parentTs = uploadResult.ts;
+				}
+			} else if (isParent) {
+				const result = await sendMessage(client, channelId, msg.text);
+				parentTs = result.ts;
+			} else {
+				if (!parentTs) {
+					return text(
+						`\u2717 Thread failed: could not determine parent message timestamp. ` +
+							`Sent ${sent} of ${parsed.length} messages.`,
+					);
+				}
+				await replyToThread(client, channelId, parentTs, msg.text);
 			}
-		} else if (isParent) {
-			const result = await sendMessage(client, channelId, msg.text);
-			parentTs = result.ts;
-		} else {
-			await replyToThread(client, channelId, parentTs as string, msg.text);
+			sent++;
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			return text(
+				`\u2717 Thread failed at message ${i + 1} of ${parsed.length}: ${reason}. ` +
+					`${sent} message(s) were already sent.`,
+			);
 		}
 	}
 

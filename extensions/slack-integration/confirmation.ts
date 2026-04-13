@@ -257,6 +257,16 @@ export async function confirmSendThread(
 
 	if (!result) return null;
 
+	// Ctrl+Enter can submit before all tabs are reviewed.
+	// Treat incomplete review as a cancellation so no
+	// unreviewed messages slip through.
+	if (result.items.size < messages.length) {
+		return redirect(
+			"Not all messages were reviewed. Review every message before sending.",
+			context,
+		);
+	}
+
 	// Check each tab's result. Any rejection or redirect halts everything.
 	for (const [, itemResult] of result.items) {
 		if (itemResult.type === "redirect") {

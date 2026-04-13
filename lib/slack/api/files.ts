@@ -139,6 +139,12 @@ interface FileShareEntry {
 	thread_ts?: string;
 }
 
+/** Maximum attempts when polling for share metadata. */
+const SHARE_POLL_MAX_ATTEMPTS = 5;
+
+/** Initial delay between share metadata polls (milliseconds). */
+const SHARE_POLL_INITIAL_DELAY_MS = 500;
+
 /**
  * Fetch the message timestamp from a file's share metadata.
  *
@@ -146,6 +152,11 @@ interface FileShareEntry {
  * channel. This is deterministic: we're reading metadata for
  * the exact file we just uploaded, not guessing based on
  * channel history.
+ *
+ * Slack processes file shares asynchronously, so the share
+ * entry may not exist immediately after completeUploadExternal
+ * returns. We poll with exponential backoff until it appears
+ * or the attempt budget is exhausted.
  */
 async function fetchShareTs(
 	client: SlackClient,
@@ -153,18 +164,26 @@ async function fetchShareTs(
 	channelId: string,
 	signal?: AbortSignal,
 ): Promise<string | undefined> {
-	const response = await client.call<{
-		file?: {
-			shares?: {
-				public?: Record<string, FileShareEntry[]>;
-				private?: Record<string, FileShareEntry[]>;
+	for (let attempt = 0; attempt < SHARE_POLL_MAX_ATTEMPTS; attempt++) {
+		const response = await client.call<{
+			file?: {
+				shares?: {
+					public?: Record<string, FileShareEntry[]>;
+					private?: Record<string, FileShareEntry[]>;
+				};
 			};
-		};
-	}>("files.info", { file: fileId }, signal);
+		}>("files.info", { file: fileId }, signal);
 
-	const shares = response.file?.shares;
-	const entries = shares?.public?.[channelId] ?? shares?.private?.[channelId];
-	return entries?.[0]?.ts;
+		const shares = response.file?.shares;
+		const entries = shares?.public?.[channelId] ?? shares?.private?.[channelId];
+		if (entries?.[0]?.ts) return entries[0].ts;
+
+		// Share metadata isn't ready yet. Wait before retrying.
+		const delay = SHARE_POLL_INITIAL_DELAY_MS * 2 ** attempt;
+		await new Promise((resolve) => setTimeout(resolve, delay));
+	}
+
+	return undefined;
 }
 
 /**
