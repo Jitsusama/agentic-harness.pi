@@ -16,6 +16,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
+import { stripHeredocBodies } from "../../lib/internal/guardian/shell.js";
 import { detectAmendViolation, detectCompoundViolation } from "./patterns.js";
 
 export default function gitCliInterceptor(pi: ExtensionAPI) {
@@ -24,12 +25,12 @@ export default function gitCliInterceptor(pi: ExtensionAPI) {
 		async (event): Promise<ToolCallEventResult | undefined> => {
 			if (!isToolCallEventType("bash", event)) return;
 
-			const command = event.input.command;
+			const stripped = stripHeredocBodies(event.input.command);
 
-			const amend = detectAmendViolation(command);
+			const amend = detectAmendViolation(stripped);
 			if (amend) return { block: true, reason: amend };
 
-			const compound = detectCompoundViolation(command);
+			const compound = detectCompoundViolation(stripped);
 			if (compound) return { block: true, reason: compound };
 		},
 	);

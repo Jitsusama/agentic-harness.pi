@@ -1,17 +1,17 @@
 /**
- * Detects bash commands that violate the git-cli-convention
- * skill's "one concern per bash call" rule.
+ * Git CLI violation detection: patterns that should be
+ * blocked before reaching guardians.
  *
- * A guardable command is one that a guardian or interceptor
- * needs to process independently (git commit, gh pr/issue
- * create/edit). Two guardable commands in one bash call means
- * one guardian's rewrite could drop the other command.
+ * - Amend ban: `git commit --amend` is blocked
+ *   unconditionally (git-commit-convention skill).
+ * - Compound commands: multiple guardable targets or
+ *   state changes mixed with guardable commands are
+ *   blocked so guardians can process each independently
+ *   (git-cli-convention skill).
  *
  * The git add + git commit pattern is explicitly allowed
  * because git add is a staging prefix, not a guardable target.
  */
-
-import { stripHeredocBodies } from "../../lib/internal/guardian/shell.js";
 
 /** Commands that guardians intercept and may rewrite. */
 const GUARDABLE_PATTERNS: RegExp[] = [
@@ -45,8 +45,7 @@ const SEPARATOR = /\s*(?:&&|;|\n)\s*/;
  * rewrite history and are almost never the right choice
  * when the agent can just make a new commit.
  */
-export function detectAmendViolation(command: string): string | null {
-	const stripped = stripHeredocBodies(command);
+export function detectAmendViolation(stripped: string): string | null {
 	if (/\bgit\s+commit\b/.test(stripped) && /--amend\b/.test(stripped)) {
 		return (
 			"Blocked: --amend is not allowed. Make a new commit " +
@@ -64,8 +63,7 @@ export function detectAmendViolation(command: string): string | null {
  * should be separate calls. Returns a block reason or null
  * if the command is fine.
  */
-export function detectCompoundViolation(command: string): string | null {
-	const stripped = stripHeredocBodies(command);
+export function detectCompoundViolation(stripped: string): string | null {
 	const segments = stripped.split(SEPARATOR).filter(Boolean);
 	if (segments.length < 2) return null;
 
