@@ -2,11 +2,12 @@
 name: slack-guide
 description: >
   Access Slack: search messages, read threads, send messages,
-  look up users and channels, manage reactions. Use when asked
-  to "check Slack", "find messages", "search Slack", "send a
-  message", "what did X say", "show me the thread", "who is",
-  "react to", or any query about Slack messages, channels or
-  users.
+  upload files, look up users and channels, manage reactions.
+  Use when asked to "check Slack", "find messages", "search
+  Slack", "send a message", "upload a file", "share this
+  file", "attach this", "what did X say", "show me the
+  thread", "who is", "react to", or any query about Slack
+  messages, channels or users.
 ---
 
 # Slack
@@ -157,6 +158,34 @@ instead. This is a Slack API limitation, not a tool limitation.
 
 ### "React to that with :emoji:"
 → `add_reaction` with `target` or `channel`+`ts`, and `emoji`
+
+### "Send this file to #channel" / "Share this in #channel"
+→ `upload_file` with `file_path` and `channel`
+- The file path must be an absolute path or relative to the
+  current working directory.
+- Add `text` for an initial comment introducing the file.
+
+### "Reply with this file attached" / "Share this in the thread"
+→ `upload_file` with `file_path`, `channel`+`ts` (or
+  `target`), and optionally `text`
+- Thread targeting works the same as `reply_to_thread`:
+  use `target` for a permalink or `channel`+`ts` for
+  explicit targeting.
+
+### "Send a message with this file" / "Message them with the report"
+→ `send_message` with `text`, `channel`, and `file_path`
+- When `file_path` or `file_paths` is present on
+  `send_message` or `reply_to_thread`, the file gets
+  uploaded and shared alongside the message text.
+- This is the natural choice when the user wants both a
+  message and a file attachment in a single action.
+
+### "Upload these files" / "Share all of these"
+→ `upload_file` with `file_paths` (array) and `channel`
+- Multiple files are uploaded individually and shared
+  together in a single message.
+- `file_path` (singular) and `file_paths` (array) can be
+  combined; duplicates are ignored.
 
 ### Ambiguous Date Ranges
 
@@ -415,6 +444,72 @@ standard markdown. When composing messages, use these rules:
 - `![alt](image-url)` — no image embedding
 - `- item` or `* item` — not converted to bullets
 - `1. item` — no ordered list rendering
+
+## Uploading Files
+
+The `upload_file` action uploads local files to Slack using
+the V2 external upload API. Files can also be attached to
+`send_message` and `reply_to_thread` by adding `file_path`
+or `file_paths` to the call.
+
+### When to Use Which
+
+**File only (no message text):**
+```
+slack({ action: "upload_file", channel: "team-updates",
+        file_path: "/path/to/report.pdf" })
+```
+
+**File with an introductory comment:**
+```
+slack({ action: "upload_file", channel: "team-updates",
+        file_path: "/path/to/report.pdf",
+        text: "Here's the weekly report" })
+```
+
+**Message with file attachment:**
+```
+slack({ action: "send_message", channel: "team-updates",
+        text: "Here's the weekly report",
+        file_path: "/path/to/report.pdf" })
+```
+The `send_message` and `reply_to_thread` approach is the
+natural choice when the user's intent is "send a message
+with an attachment."
+
+**Thread reply with file:**
+```
+slack({ action: "reply_to_thread", channel: "C0AJY0FLK8Q",
+        ts: "1743044006.509399",
+        text: "Updated version attached",
+        file_path: "/path/to/updated.png" })
+```
+Alternatively, use `upload_file` with `target` or
+`channel`+`ts` for thread targeting.
+
+**Multiple files:**
+```
+slack({ action: "upload_file", channel: "design-reviews",
+        file_paths: ["/path/to/mockup-v1.png",
+                     "/path/to/mockup-v2.png"],
+        text: "Two options for the new layout" })
+```
+`file_path` and `file_paths` can be combined; duplicates
+are ignored.
+
+### File Path Resolution
+
+File paths must be absolute or relative to the current
+working directory. The tool reads the file from disk and
+uploads the raw bytes to Slack. It supports any file type:
+images, PDFs, code files, documents and anything else Slack
+accepts.
+
+### Confirmation Gate
+
+All file uploads show a confirmation gate before uploading.
+The gate displays file names, sizes and the destination
+channel or thread. The user can approve, reject or redirect.
 
 ## Common Mistakes to Avoid
 

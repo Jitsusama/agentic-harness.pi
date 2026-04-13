@@ -5,5 +5,5 @@ requests into structured `slack` tool calls and present
 results conversationally.
 
 Covers intent mapping, search operators, context management,
-thread navigation, and response formatting. Paired with the
-`slack-integration` extension.
+thread navigation, file uploads and response formatting.
+Paired with the `slack-integration` extension.
