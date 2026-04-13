@@ -10,6 +10,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
 	type KeyAction,
 	promptSingle,
+	promptTabbed,
 	renderMarkdown,
 } from "../../lib/ui/index.js";
 import { formatRedirectReason } from "../../lib/ui/redirect.js";
@@ -195,6 +196,93 @@ function formatBytes(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** A message in a thread for the send_thread confirmation gate. */
+export interface ThreadMessage {
+	text: string;
+	files?: FileInfo[];
+}
+
+/**
+ * Confirm sending a thread of messages.
+ *
+ * Shows a tabbed panel with one tab per message. Each tab
+ * renders the message text as markdown plus any file
+ * attachment info. The user approves each message via Enter
+ * or rejects via 'r'. Any rejection halts the entire thread
+ * and returns a redirect.
+ */
+export async function confirmSendThread(
+	ctx: ExtensionContext,
+	conversationName: string,
+	messages: ThreadMessage[],
+): Promise<ConfirmResult<true>> {
+	if (!ctx.hasUI) return { approved: true, data: true };
+
+	const context = `Send thread (${messages.length} messages) to ${conversationName}`;
+
+	const result = await promptTabbed(ctx, {
+		title: ` Send Thread to ${conversationName}`,
+		items: messages.map((msg, i) => ({
+			label: `M${i + 1}`,
+			views: [
+				{
+					key: "1",
+					label: "Message",
+					content: (theme, width) => {
+						const lines: string[] = [];
+						const role = i === 0 ? "Thread parent" : `Reply ${i}`;
+						lines.push(` ${theme.fg("muted", role)}`);
+						lines.push("");
+						for (const line of renderMarkdown(msg.text, theme, width)) {
+							lines.push(line);
+						}
+						if (msg.files?.length) {
+							lines.push("");
+							for (const f of msg.files) {
+								lines.push(
+									` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
+								);
+							}
+						}
+						return lines;
+					},
+				},
+			],
+		})),
+		actions: REJECT_ACTION,
+		autoResolve: true,
+	});
+
+	if (!result) return null;
+
+	// Ctrl+Enter can submit before all tabs are reviewed.
+	// Treat incomplete review as a cancellation so no
+	// unreviewed messages slip through.
+	if (result.items.size < messages.length) {
+		return redirect(
+			"Not all messages were reviewed. Review every message before sending.",
+			context,
+		);
+	}
+
+	// Check each tab's result. Any rejection or redirect halts everything.
+	for (const [, itemResult] of result.items) {
+		if (itemResult.type === "redirect") {
+			return redirect(itemResult.note, context);
+		}
+		if (itemResult.type === "action" && itemResult.key === "r") {
+			const note = itemResult.note ?? "User rejected. Ask for guidance.";
+			return redirect(note, context);
+		}
+		// Action with a note (annotated Enter) is a redirect.
+		if (itemResult.type === "action" && itemResult.note) {
+			return redirect(itemResult.note, context);
+		}
+	}
+
+	return { approved: true, data: true };
 }
 
 /**

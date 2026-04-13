@@ -2,12 +2,13 @@
 name: slack-guide
 description: >
   Access Slack: search messages, read threads, send messages,
-  upload files, look up users and channels, manage reactions.
-  Use when asked to "check Slack", "find messages", "search
-  Slack", "send a message", "upload a file", "share this
-  file", "attach this", "what did X say", "show me the
-  thread", "who is", "react to", or any query about Slack
-  messages, channels or users.
+  send threads, upload files, look up users and channels,
+  manage reactions. Use when asked to "check Slack", "find
+  messages", "search Slack", "send a message", "post a
+  thread", "send these as a thread", "upload a file",
+  "share this file", "attach this", "what did X say",
+  "show me the thread", "who is", "react to", or any query
+  about Slack messages, channels or users.
 ---
 
 # Slack
@@ -186,6 +187,36 @@ instead. This is a Slack API limitation, not a tool limitation.
   together in a single message.
 - `file_path` (singular) and `file_paths` (array) can be
   combined; duplicates are ignored.
+
+### "Post a thread about X" / "Send these as a thread"
+→ `send_thread` with `channel` and `messages` array
+- The first message becomes the thread parent; the rest
+  become replies in order.
+- Each message object has `text` and optional `file_path`
+  / `file_paths` for attachments.
+- A tabbed review gate shows every message for approval
+  before anything is sent. Rejecting or redirecting any
+  single message halts the entire thread and nothing is
+  sent.
+- When the user rejects or steers a message, their note
+  tells you what to change. Rewrite the affected
+  message(s) based on their feedback and resubmit the
+  full `messages` array. Don't drop the rejected message;
+  fix it. Don't resend only the rejected one; the whole
+  thread must be reviewed together.
+- Every message must be reviewed. If the user submits
+  early (Ctrl+Enter) without reviewing all tabs, the
+  gate rejects with a note asking them to review
+  everything.
+
+```
+slack({ action: "send_thread", channel: "#team-updates",
+        messages: [
+          { text: "Weekly update for the team" },
+          { text: "Progress: shipped the new dashboard" },
+          { text: "Blockers: waiting on API access" }
+        ] })
+```
 
 ### Ambiguous Date Ranges
 
@@ -505,11 +536,33 @@ uploads the raw bytes to Slack. It supports any file type:
 images, PDFs, code files, documents and anything else Slack
 accepts.
 
+**Thread messages with attachments:**
+```
+slack({ action: "send_thread", channel: "design-reviews",
+        messages: [
+          { text: "Two layout options for review" },
+          { text: "Option A",
+            file_path: "/path/to/mockup-v1.png" },
+          { text: "Option B",
+            file_path: "/path/to/mockup-v2.png" }
+        ] })
+```
+Each message in a `send_thread` call can have its own
+attachments. Files are uploaded into the thread after
+each message is sent.
+
 ### Confirmation Gate
 
 All file uploads show a confirmation gate before uploading.
 The gate displays file names, sizes and the destination
 channel or thread. The user can approve, reject or redirect.
+
+`send_thread` uses a tabbed confirmation gate: one tab per
+message showing the text and any attached files. All
+messages must be approved before anything is sent. If the
+user rejects or steers any message, the entire thread is
+halted. Rewrite the affected message(s) based on the
+user's feedback and resubmit the full array.
 
 ## Common Mistakes to Avoid
 

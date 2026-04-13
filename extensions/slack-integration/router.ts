@@ -54,8 +54,10 @@ import {
 	confirmReaction,
 	confirmReply,
 	confirmSendMessage,
+	confirmSendThread,
 	confirmUploadFile,
 	type FileInfo,
+	type ThreadMessage,
 } from "./confirmation.js";
 
 /** Handler function that processes a Slack action. */
@@ -556,6 +558,140 @@ async function handleUploadFile(
 	);
 }
 
+async function handleSendThread(
+	client: SlackClient,
+	params: ActionParams,
+	resolved: ResolvedParams,
+	ctx: ExtensionContext,
+): Promise<ToolResult> {
+	if (!resolved.conversation) return missing("channel");
+
+	const rawMessages = params.messages;
+	if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
+		return missing("messages");
+	}
+
+	// Parse and validate the messages array.
+	const parsed = parseThreadMessages(rawMessages);
+	if (typeof parsed === "string") return text(parsed);
+
+	const displayName =
+		resolved.conversation.displayName ?? resolved.conversation.id;
+
+	// Gather file info for any attached files.
+	const threadMessages: ThreadMessage[] = [];
+	for (const msg of parsed) {
+		const fileInfos: FileInfo[] = [];
+		for (const filePath of msg.filePaths) {
+			try {
+				const size = await getFileSize(filePath);
+				fileInfos.push({ name: basename(filePath), size });
+			} catch {
+				return text(`File not found: ${filePath}`);
+			}
+		}
+		threadMessages.push({
+			text: msg.text,
+			files: fileInfos.length > 0 ? fileInfos : undefined,
+		});
+	}
+
+	// Show the tabbed confirmation gate.
+	const confirmed = await confirmSendThread(ctx, displayName, threadMessages);
+	if (!confirmed) return text("\u2717 Send thread cancelled.");
+	if (!confirmed.approved) return text(confirmed.redirect);
+
+	// Send messages sequentially: first creates the parent,
+	// the rest reply to it. Messages with files use the
+	// upload flow with initialComment so text and files
+	// appear as a single message.
+	const channelId = resolved.conversation.id;
+	let parentTs: string | undefined;
+	let sent = 0;
+
+	for (let i = 0; i < parsed.length; i++) {
+		const msg = parsed[i];
+		const isParent = i === 0;
+
+		try {
+			if (msg.filePaths.length > 0) {
+				const uploadResult = await uploadFiles(client, msg.filePaths, {
+					channelId,
+					threadTs: parentTs,
+					initialComment: msg.text,
+				});
+				if (isParent) {
+					parentTs = uploadResult.ts;
+				}
+			} else if (isParent) {
+				const result = await sendMessage(client, channelId, msg.text);
+				parentTs = result.ts;
+			} else {
+				if (!parentTs) {
+					return text(
+						`\u2717 Thread failed: could not determine parent message timestamp. ` +
+							`Sent ${sent} of ${parsed.length} messages.`,
+					);
+				}
+				await replyToThread(client, channelId, parentTs, msg.text);
+			}
+			sent++;
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			return text(
+				`\u2717 Thread failed at message ${i + 1} of ${parsed.length}: ${reason}. ` +
+					`${sent} message(s) were already sent.`,
+			);
+		}
+	}
+
+	return text(
+		`\u2713 Thread sent to ${displayName} (${parsed.length} messages, parent ts: ${parentTs})`,
+		{ threadTs: parentTs },
+	);
+}
+
+/** Parsed thread message with collected file paths. */
+interface ParsedThreadMessage {
+	text: string;
+	filePaths: string[];
+}
+
+/**
+ * Parse and validate the raw messages array from tool params.
+ *
+ * Returns the parsed messages or an error string.
+ */
+function parseThreadMessages(raw: unknown[]): ParsedThreadMessage[] | string {
+	const messages: ParsedThreadMessage[] = [];
+
+	for (let i = 0; i < raw.length; i++) {
+		const entry = raw[i] as Record<string, unknown> | undefined;
+		if (!entry || typeof entry !== "object") {
+			return `Invalid message at index ${i}: expected an object.`;
+		}
+
+		const msgText = typeof entry.text === "string" ? entry.text : undefined;
+		if (!msgText) {
+			return `Missing text in message at index ${i}.`;
+		}
+
+		const filePaths: string[] = [];
+		if (typeof entry.file_path === "string") {
+			filePaths.push(entry.file_path);
+		}
+		if (Array.isArray(entry.file_paths)) {
+			for (const p of entry.file_paths) {
+				if (typeof p === "string") filePaths.push(p);
+			}
+		}
+
+		messages.push({ text: msgText, filePaths: [...new Set(filePaths)] });
+	}
+
+	return messages;
+}
+
 // ── File upload helpers ─────────────────────────────────
 
 /**
@@ -645,6 +781,7 @@ const ACTION_HANDLERS = new Map<string, ActionHandler>([
 	["send_message", handleSendMessage],
 	["reply_to_thread", handleReplyToThread],
 	["upload_file", handleUploadFile],
+	["send_thread", handleSendThread],
 	["add_reaction", handleAddReaction],
 	["remove_reaction", handleRemoveReaction],
 ]);
