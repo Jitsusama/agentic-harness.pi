@@ -15,6 +15,11 @@ import type { SlackClient } from "./client.js";
 export interface UploadResult {
 	ok: boolean;
 	files: Array<{ id: string; title?: string }>;
+	/**
+	 * Timestamp of the message created when sharing to a channel.
+	 * Only present when channelId was provided.
+	 */
+	ts?: string;
 }
 
 /** Options for sharing uploaded files. */
@@ -106,10 +111,36 @@ async function completeUpload(
 		files: Array<{ id: string; title?: string }>;
 	}>("files.completeUploadExternal", params, signal);
 
-	return {
+	const result: UploadResult = {
 		ok: true,
 		files: response.files ?? [],
 	};
+
+	// completeUploadExternal doesn't return the message ts.
+	// When sharing to a channel, recover it by fetching the
+	// latest message so callers can use it for threading.
+	if (opts.channelId) {
+		result.ts = await fetchLatestTs(client, opts.channelId, signal);
+	}
+
+	return result;
+}
+
+/**
+ * Fetch the timestamp of the most recent message in a channel.
+ *
+ * Used after file uploads to recover the message ts that
+ * completeUploadExternal doesn't return.
+ */
+async function fetchLatestTs(
+	client: SlackClient,
+	channelId: string,
+	signal?: AbortSignal,
+): Promise<string | undefined> {
+	const response = await client.call<{
+		messages?: Array<{ ts: string }>;
+	}>("conversations.history", { channel: channelId, limit: 1 }, signal);
+	return response.messages?.[0]?.ts;
 }
 
 /**

@@ -613,16 +613,13 @@ async function handleSendThread(
 		const isParent = i === 0;
 
 		if (msg.filePaths.length > 0) {
-			await uploadFiles(client, msg.filePaths, {
+			const uploadResult = await uploadFiles(client, msg.filePaths, {
 				channelId,
 				threadTs: parentTs,
 				initialComment: msg.text,
 			});
-			// completeUploadExternal doesn't return the message
-			// ts. For the parent we need it to thread subsequent
-			// replies, so fetch the latest message in the channel.
 			if (isParent) {
-				parentTs = await fetchLatestMessageTs(client, channelId);
+				parentTs = uploadResult.ts;
 			}
 		} else if (isParent) {
 			const result = await sendMessage(client, channelId, msg.text);
@@ -677,24 +674,6 @@ function parseThreadMessages(raw: unknown[]): ParsedThreadMessage[] | string {
 	}
 
 	return messages;
-}
-
-/**
- * Fetch the timestamp of the most recent message in a channel.
- *
- * Used after file uploads to recover the parent message ts,
- * since completeUploadExternal doesn't return it.
- */
-async function fetchLatestMessageTs(
-	client: SlackClient,
-	channelId: string,
-): Promise<string | undefined> {
-	const messages = await listMessages(
-		client,
-		{ id: channelId, kind: "channel" },
-		{ limit: 1 },
-	);
-	return messages[0]?.ts;
 }
 
 // ── File upload helpers ─────────────────────────────────
