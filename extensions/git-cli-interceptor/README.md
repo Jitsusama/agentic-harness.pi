@@ -7,6 +7,8 @@ and retry with separate bash calls.
 
 ## What It Catches
 
+- `git commit --amend` — amends rewrite history and are
+  almost never the right choice. Make a new commit instead.
 - Multiple guardable commands chained together (e.g.,
   `git commit && gh pr create`)
 - Git state changes mixed with guardable commands (e.g.,
