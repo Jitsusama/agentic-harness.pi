@@ -12,7 +12,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
-import { stripHeredocBodies } from "./shell.js";
+import { stripHeredocBodies } from "../shell/parse.js";
 import type { CommandGuardian } from "./types.js";
 
 /**

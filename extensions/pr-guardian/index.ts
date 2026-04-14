@@ -6,7 +6,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { registerGuardian } from "../../lib/internal/guardian/register.js";
+import { registerGuardian } from "../../lib/guardian/register.js";
 import { prGuardian } from "./review.js";
 
 export default function prGuardianExtension(pi: ExtensionAPI) {

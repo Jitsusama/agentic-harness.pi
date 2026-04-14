@@ -7,10 +7,10 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
 	ALLOW,
 	type CommandGuardian,
+	formatRedirectBlock,
 	type GuardianResult,
-} from "../../lib/internal/guardian/types.js";
+} from "../../lib/guardian/index.js";
 import { promptSingle, renderMarkdown } from "../../lib/ui/index.js";
-import { formatRedirectBlock } from "../../lib/ui/redirect.js";
 import {
 	DESTRUCTIVE_PATTERNS,
 	type DestructivePattern,

@@ -16,9 +16,12 @@ dependencies live in the root `package.json`.
     authentication, renderers and types (public)
   - `lib/web/`: web search and page reading via headless
     Chrome (public)
+  - `lib/guardian/`: guardian contract, registration and
+    redirect formatting (public)
+  - `lib/shell/`: shell command parsing: flag extraction,
+    heredoc stripping, splitting, quoting (public)
   - `lib/internal/`: not for external use
-    - `guardian/`: guardian pipeline (types, registration,
-      shell parsing)
+    - `guardian/`: commit-specific parsing and entity review
     - `github/`: GitHub utilities (CLI parsing, diff,
       GraphQL, PR identity, review posting)
     - `state.ts`: session state helpers
@@ -31,8 +34,7 @@ dependencies live in the root `package.json`.
 
 Public library modules have barrel exports (`index.ts`) that
 define what external consumers can import. Internal modules
-have no barrels and are consumed by extensions via direct
-file imports.
+are consumed by extensions via direct file imports.
 
 ## Extension Categories
 
@@ -135,8 +137,8 @@ Every guardian follows the same three-step pipeline:
 
 A new guardian implements the shared interface and calls the
 registration helper; it never touches event wiring or command
-mutation directly. See `lib/internal/guardian/types.ts` for
-the contract.
+mutation directly. See `lib/guardian/` for the public contract
+(downstream packages import from `./guardian`).
 
 ### Workflow File Convention
 

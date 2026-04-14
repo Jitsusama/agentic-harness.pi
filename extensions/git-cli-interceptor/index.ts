@@ -16,7 +16,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
-import { stripHeredocBodies } from "../../lib/internal/guardian/shell.js";
+import { stripHeredocBodies } from "../../lib/shell/parse.js";
 import { detectAmendViolation, detectCompoundViolation } from "./patterns.js";
 
 export default function gitCliInterceptor(pi: ExtensionAPI) {

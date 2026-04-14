@@ -7,6 +7,8 @@
   ],
   "license": "MIT",
   "exports": {
+    "./guardian": "./lib/guardian/index.ts",
+    "./shell": "./lib/shell/index.ts",
     "./ui": "./lib/ui/index.ts",
     "./slack": "./lib/slack/index.ts",
     "./slack/api": "./lib/slack/api/index.ts",
