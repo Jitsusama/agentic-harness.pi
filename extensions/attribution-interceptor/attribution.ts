@@ -18,8 +18,8 @@ import {
 	extractCommitFlags,
 	extractMessage,
 	splitAtCommit,
-	stripHeredocBodies,
 } from "../../lib/internal/guardian/shell.js";
+import { stripHeredocBodies } from "../../lib/shell/parse.js";
 
 /** Regex to detect existing attribution (case-insensitive). */
 const ATTRIBUTION_PATTERN = /co-authored-by[:\s]+ai/i;
