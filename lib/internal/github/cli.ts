@@ -3,7 +3,7 @@
  * multi-value flag extraction and command rebuilding for gh
  * pr/issue create/edit commands.
  *
- * Depends on shell-level primitives from lib/guardian/shell.ts
+ * Depends on shell-level primitives from lib/shell/parse.ts
  * for quoting and heredoc parsing.
  */
 
@@ -12,7 +12,7 @@ import {
 	extractFlag,
 	quote,
 	splitAtCommand,
-} from "../guardian/shell.js";
+} from "../../shell/parse.js";
 
 /** Extract a number from a command (e.g., PR number from "gh pr edit 42"). */
 export function extractEntityNumber(
