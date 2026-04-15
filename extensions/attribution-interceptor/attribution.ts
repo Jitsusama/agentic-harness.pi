@@ -19,7 +19,7 @@ import {
 	extractMessage,
 	splitAtCommit,
 } from "../../lib/internal/guardian/shell.js";
-import { stripHeredocBodies } from "../../lib/shell/parse.js";
+import { stripHeredocBodies, stripShellData } from "../../lib/shell/parse.js";
 
 /** Regex to detect existing attribution (case-insensitive). */
 const ATTRIBUTION_PATTERN = /co-authored-by[:\s]+ai/i;
@@ -77,7 +77,8 @@ export function injectCommitAttribution(
 	command: string,
 	modelId: string | null,
 ): string | null {
-	if (!/\bgit\s+commit\b/.test(stripHeredocBodies(command))) return null;
+	const stripped = stripShellData(stripHeredocBodies(command));
+	if (!/\bgit\s+commit\b/.test(stripped)) return null;
 
 	const message = extractMessage(command);
 	if (!message) return null;
@@ -104,7 +105,8 @@ export function injectGhAttribution(
 	entity: "pr" | "issue",
 	modelId: string | null,
 ): string | null {
-	if (!isGhCommand(stripHeredocBodies(command), entity)) return null;
+	const stripped = stripShellData(stripHeredocBodies(command));
+	if (!isGhCommand(stripped, entity)) return null;
 
 	if (entity === "pr") {
 		const parsed = parsePrCommand(command);
