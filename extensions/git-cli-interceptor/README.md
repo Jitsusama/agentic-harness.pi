@@ -9,6 +9,9 @@ and retry with separate bash calls.
 
 - `git commit --amend` — amends rewrite history and are
   almost never the right choice. Make a new commit instead.
+- `git commit` with an unquoted heredoc delimiter
+  (`<<EOF` instead of `<<'EOF'`), which allows shell
+  variable expansion to corrupt the commit message.
 - Multiple guardable commands chained together (e.g.,
   `git commit && gh pr create`)
 - Git state changes mixed with guardable commands (e.g.,

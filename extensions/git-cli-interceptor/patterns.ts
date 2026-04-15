@@ -4,6 +4,9 @@
  *
  * - Amend ban: `git commit --amend` is blocked
  *   unconditionally (git-commit-convention skill).
+ * - Unquoted heredoc: `<<EOF` instead of `<<'EOF'`
+ *   allows variable expansion that corrupts content
+ *   (git-cli-convention skill).
  * - Compound commands: multiple guardable targets or
  *   state changes mixed with guardable commands are
  *   blocked so guardians can process each independently
@@ -12,6 +15,8 @@
  * The git add + git commit pattern is explicitly allowed
  * because git add is a staging prefix, not a guardable target.
  */
+
+import { hasUnquotedHeredoc } from "../../lib/shell/parse.js";
 
 /** Commands that guardians intercept and may rewrite. */
 const GUARDABLE_PATTERNS: RegExp[] = [
@@ -56,6 +61,29 @@ export function detectAmendViolation(stripped: string): string | null {
 		);
 	}
 	return null;
+}
+
+/**
+ * Block `git commit` with an unquoted heredoc delimiter.
+ * Takes the stripped command (for git commit scoping) and
+ * the original (for heredoc operator validation).
+ */
+export function detectUnquotedCommitHeredoc(
+	stripped: string,
+	original: string,
+): string | null {
+	if (!/\bgit\s+commit\b/.test(stripped)) return null;
+	if (!hasUnquotedHeredoc(original)) return null;
+
+	return (
+		"Blocked: heredoc uses an unquoted delimiter (e.g. " +
+		"`<<EOF`), which allows shell variable expansion. " +
+		"Use a quoted delimiter (`<<'EOF'`) to prevent " +
+		"`$variable` and backtick expansion from corrupting " +
+		"the commit message.\n\n" +
+		"Read the git-cli-convention skill for the correct " +
+		"pattern, then retry."
+	);
 }
 
 /**
