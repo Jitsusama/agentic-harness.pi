@@ -8,7 +8,9 @@
 
 export {
 	extractBody,
+	extractBodyFilePath,
 	extractFlag,
+	hasUnquotedHeredoc,
 	quote,
 	splitAtCommand,
 	stripHeredocBodies,

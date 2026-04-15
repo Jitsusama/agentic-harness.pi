@@ -27,6 +27,22 @@ The single-quoted `'EOF'` delimiter prevents shell variable
 expansion; backticks, dollar signs and special characters
 all pass through literally.
 
+**Never use an unquoted heredoc delimiter.** `<<EOF` allows
+shell variable expansion: `$variables`, backticks and
+`$(commands)` are expanded inside the body, corrupting
+the content. Always quote the delimiter: `<<'EOF'`.
+
+Because quoted heredocs are fully literal, never put
+`$variable` syntax in the body expecting it to resolve.
+It won't — the text arrives exactly as written. If you
+need a dynamic value, write the actual value directly
+in the body text.
+
+**Never use `--body-file` with a file path.** Always use
+`--body-file -` to pipe from a heredoc. File-based bodies
+add an unnecessary intermediate artifact and bypass the
+guardian review flow.
+
 The same pattern works for editing:
 
 ```bash
@@ -99,6 +115,9 @@ The `--body` flag has quoting issues:
 
 `--body-file -` with heredoc avoids all of these. Always
 prefer it for bodies with any formatting.
+
+Do not use `--body-file` with a file path either. Always
+use `--body-file -` piped from a heredoc.
 
 The `github-pr-format` and `github-issue-format` skills cover the
 *content* of descriptions. This skill covers the command

@@ -93,6 +93,48 @@ export function stripHeredocBodies(command: string): string {
 	);
 }
 
+/**
+ * Check whether a command contains a heredoc with an unquoted
+ * delimiter. Unquoted delimiters (`<<EOF`) allow shell variable
+ * expansion inside the body, which almost always corrupts the
+ * content. Quoted delimiters (`<<'EOF'` or `<<"EOF"`) suppress
+ * expansion and pass content through literally.
+ *
+ * Matches the full heredoc structure (operator, body and
+ * closing delimiter) so that `<<` appearing inside heredoc
+ * body text does not trigger false positives.
+ *
+ * Returns true if an unquoted heredoc is found. Returns false
+ * if there are no heredocs or all heredocs have quoted
+ * delimiters.
+ */
+export function hasUnquotedHeredoc(command: string): boolean {
+	// Match the full heredoc: operator + body + closing delimiter.
+	// Group 1 captures the optional quote around the delimiter.
+	// Group 2 captures the delimiter word. The closing delimiter
+	// uses a backreference to group 2 so only real heredocs match.
+	const HEREDOC_FULL =
+		/<<-?\s*(['"]?)([A-Za-z_]\w*)\1\s*\n[\s\S]*?\n\2(?:\s*$)?/gm;
+	for (const match of command.matchAll(HEREDOC_FULL)) {
+		if (!match[1]) return true;
+	}
+	return false;
+}
+
+/**
+ * Check whether a `--body-file` flag points to a file path
+ * instead of stdin (`-`). Returns the path if found, null
+ * if `--body-file -` or no `--body-file` at all.
+ */
+export function extractBodyFilePath(command: string): string | null {
+	const match = command.match(/--body-file\s+(\S+)/);
+	if (!match) return null;
+	const target = match[1];
+	if (target === "-") return null;
+	// Strip surrounding quotes if present.
+	return target?.replace(/^['"]|['"]$/g, "") ?? null;
+}
+
 /** Characters that delimit commands in shell syntax. */
 const COMMAND_DELIMITERS = new Set([";", "&", "|", "(", ")"]);
 

@@ -25,6 +25,17 @@ The single-quoted `'EOF'` delimiter prevents shell variable
 expansion; backticks, dollar signs and special characters
 all pass through literally.
 
+**Never use an unquoted heredoc delimiter.** `<<EOF` allows
+shell variable expansion: `$variables`, backticks and
+`$(commands)` are expanded inside the body, corrupting
+the content. Always quote the delimiter: `<<'EOF'`.
+
+Because quoted heredocs are fully literal, never put
+`$variable` syntax in the body expecting it to resolve.
+It won't — the text arrives exactly as written. If you
+need a dynamic value, write the actual value directly
+in the commit message.
+
 ## Why Heredoc Over -m
 
 The `-m` flag has limitations:
