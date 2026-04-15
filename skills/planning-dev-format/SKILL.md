@@ -150,26 +150,24 @@ Output: Array of YYYY-MM-DD strings
 
 ### 7. Test Scenarios (Per PR)
 
-List behaviors to verify - high level, not full test code:
+List behaviours to verify, high level, not full test code.
+This is a coverage checklist, not a TDD implementation
+sequence. Use flat bullets; don't group by happy path vs.
+edge case vs. error. The implementer decides the TDD order
+during implementation (see `code-tdd-guide`).
 
 ```markdown
-**Happy path:**
-- Groups small partitions into single chunk when under limits
-- Returns chunk with correct partition_ids, byte_size, row_count
-
-**Edge cases:**
 - No partition_ids (nil) → returns single chunk representing whole table
 - Empty partition_ids array → same as nil
-
-**Constraint enforcement:**
+- Groups small partitions into single chunk when under limits
+- Returns chunk with correct partition_ids, byte_size, row_count
 - Splits into multiple chunks when partition count exceeds 4000
 - Splits when accumulated bytes exceed MAX_BYTES_PER_CHUNK
-
-**Error handling:**
 - BigQuery connection error → raises with context
 ```
 
-During TDD, more scenarios will emerge. This is the starting point.
+During TDD, more scenarios will emerge. This is the starting
+point.
 
 ### 8. Open Questions
 
@@ -297,16 +295,11 @@ Constraints:
 
 **Test Scenarios:**
 
-Happy path:
 - No partition_ids (nil) → single chunk with empty partition_ids
 - Single partition → one chunk with metadata
 - Multiple small partitions → grouped into one chunk
-
-Constraint enforcement:
 - >4000 partitions → split into multiple chunks
 - Accumulated bytes >100GB → split into multiple chunks
-
-Error handling:
 - INFORMATION_SCHEMA query fails → raise with context
 ```
 

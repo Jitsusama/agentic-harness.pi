@@ -50,20 +50,30 @@ selects nothing. Only then signal `done`.
 
 ## Test Ordering
 
-Within a test file, order tests from the most expected
-behaviour to the least expected:
+Order tests so each one forces exactly **one new increment**
+of functionality into existence. The first test should need
+the least code to pass. Each subsequent test should require
+one new capability that the existing code doesn't have yet.
 
-1. **Happy path**: the primary success case
-2. **Alternate outcomes**: other valid paths through the code
-   (e.g., empty results, failed upstream query; these are
-   expected scenarios with different outcomes, not errors)
-3. **Edge cases**: boundary conditions, zero/one/many, nil
-4. **Error cases**: invalid inputs, unsupported types,
-   exceptions that indicate a bug or misconfiguration
+This usually means the simplest, most degenerate cases come
+first (nil input, empty collection, missing resource) because
+they force the minimum viable skeleton: a constructor, a
+method signature, a return type. The happy path — the primary
+success case — often comes **later** because it requires the
+most machinery to work.
 
-When you add a new test in a later TDD cycle, put it in the
-right position according to this ordering rather than just
-appending it to the end.
+**Do not follow the plan's scenario grouping as the
+implementation order.** Plans group scenarios by category
+(happy path, edge cases, errors) for coverage clarity.
+That grouping is not a sequence. Before writing the first
+test, sort the scenarios by how much code each one forces
+into existence and start with the one that forces the
+least.
+
+The test: for each scenario, ask "how much code do I need
+to make this pass?" If the answer is "almost everything",
+it comes later. If the answer is "a constructor and a
+zero-value return", it comes first.
 
 ## After Refactor: Commit
 
