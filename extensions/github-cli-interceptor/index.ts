@@ -39,7 +39,7 @@ export default function githubCliInterceptor(pi: ExtensionAPI) {
 				detectInlineBody(stripped) ??
 				detectPackedMetadata(stripped) ??
 				detectBodyFilePath(stripped) ??
-				detectMissingHeredoc(stripped);
+				detectMissingHeredoc(stripped, command);
 			if (strippedViolation) {
 				return { block: true, reason: strippedViolation };
 			}

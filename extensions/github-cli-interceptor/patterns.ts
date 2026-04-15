@@ -98,11 +98,18 @@ export function detectBodyFilePath(command: string): string | null {
  * Check whether a gh command uses --body-file - but has no
  * heredoc to feed it. Without a heredoc, the command hangs
  * waiting for stdin.
+ *
+ * Takes both the stripped command (for gh scoping and
+ * --body-file detection) and the original (for heredoc
+ * presence, since stripping removes the operator).
  */
-export function detectMissingHeredoc(command: string): string | null {
-	if (!GH_ENTITY_COMMAND.test(command)) return null;
-	if (!BODY_FILE_STDIN.test(command)) return null;
-	if (HEREDOC.test(command)) return null;
+export function detectMissingHeredoc(
+	stripped: string,
+	original: string,
+): string | null {
+	if (!GH_ENTITY_COMMAND.test(stripped)) return null;
+	if (!BODY_FILE_STDIN.test(stripped)) return null;
+	if (HEREDOC.test(original)) return null;
 
 	return (
 		"Blocked: --body-file - has no heredoc to provide the " +

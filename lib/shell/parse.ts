@@ -100,16 +100,22 @@ export function stripHeredocBodies(command: string): string {
  * content. Quoted delimiters (`<<'EOF'` or `<<"EOF"`) suppress
  * expansion and pass content through literally.
  *
+ * Matches the full heredoc structure (operator, body and
+ * closing delimiter) so that `<<` appearing inside heredoc
+ * body text does not trigger false positives.
+ *
  * Returns true if an unquoted heredoc is found. Returns false
  * if there are no heredocs or all heredocs have quoted
  * delimiters.
  */
 export function hasUnquotedHeredoc(command: string): boolean {
-	// Match heredoc operators: << or <<- followed by the delimiter.
-	// Capture group 1 gets the optional opening quote character.
-	// If group 1 is empty, the delimiter is unquoted.
-	const HEREDOC_OPERATOR = /<<-?\s*(['"]?)([A-Za-z_]\w*)\1/g;
-	for (const match of command.matchAll(HEREDOC_OPERATOR)) {
+	// Match the full heredoc: operator + body + closing delimiter.
+	// Group 1 captures the optional quote around the delimiter.
+	// Group 2 captures the delimiter word. The closing delimiter
+	// uses a backreference to group 2 so only real heredocs match.
+	const HEREDOC_FULL =
+		/<<-?\s*(['"]?)([A-Za-z_]\w*)\1\s*\n[\s\S]*?\n\2(?:\s*$)?/gm;
+	for (const match of command.matchAll(HEREDOC_FULL)) {
 		if (!match[1]) return true;
 	}
 	return false;
