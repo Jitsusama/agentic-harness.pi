@@ -1,9 +1,10 @@
 ---
 name: commit-format
 description: >
-  Conventional commit message format, types and line length
-  rules. Use when writing commit messages, discussing commit
-  conventions or preparing to commit changes.
+  Conventional commit message structure: types, scopes,
+  subject and body rules. Use when writing a commit message
+  or amending a commit. Pairs with git-cli-convention for
+  command syntax and git-commit-convention for when to commit.
 ---
 
 # Conventional Commits

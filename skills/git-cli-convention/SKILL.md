@@ -1,9 +1,10 @@
 ---
 name: git-cli-convention
 description: >
-  Git command formatting. Heredoc syntax, shell quoting and
-  commit command patterns. Use when formatting git commands
-  or writing heredocs.
+  Command syntax for git operations. Heredoc format for
+  commit messages, shell quoting and multi-line input
+  patterns. Use when running git commit, git tag or any
+  git command with structured input.
 ---
 
 # Git CLI Conventions

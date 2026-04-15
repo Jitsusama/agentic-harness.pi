@@ -2,7 +2,7 @@
 name: git-rebase-convention
 description: >
   Resolving rebase conflicts with design intent preservation.
-  Use when rebasing, resolving merge conflicts or discussing
+  Use when rebasing, resolving merge conflicts or choosing a
   conflict resolution strategy.
 ---
 

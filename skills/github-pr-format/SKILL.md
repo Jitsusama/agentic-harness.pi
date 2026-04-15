@@ -1,9 +1,11 @@
 ---
 name: github-pr-format
 description: >
-  Pull request structure, narrative and review guidance. Use
-  when writing PR descriptions or discussing what makes a good
-  PR. Covers body structure, story types and self-review.
+  PR description structure and narrative. Body organization,
+  story types, self-review guidance and title conventions.
+  Use when writing or editing a pull request description.
+  Pairs with github-cli-convention for command syntax and
+  prose-standard for voice.
 ---
 
 # Pull Request Writing

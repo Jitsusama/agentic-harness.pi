@@ -1,9 +1,10 @@
 ---
 name: code-investigation-guide
 description: >
-  How to research and present findings about a codebase. Reading code,
-  tracing flows, summarizing architecture. Use when asked to understand,
-  explore or explain existing code.
+  How to research and present findings about a codebase.
+  Reading code, tracing flows, summarizing architecture.
+  Use when understanding, exploring or explaining existing
+  code before proposing changes.
 ---
 
 # Code Investigation

@@ -2,9 +2,10 @@
 name: github-pr-stack-convention
 description: >
   Stacked PR lifecycle: creating, retargeting, rebasing and
-  merging PRs that depend on other PRs. Use when merging PRs,
-  rebasing branches that have dependents, or creating PRs
-  based on other PRs.
+  merging PRs that depend on other PRs. Use when working
+  with PRs based on other PRs or rebasing branches that
+  have dependents. Pairs with github-pr-merge-convention
+  for general merge strategy.
 ---
 
 # Stacked PR Convention

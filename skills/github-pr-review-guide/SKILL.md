@@ -1,9 +1,10 @@
 ---
 name: github-pr-review-guide
 description: >
-  Pull request review workflow. How to gather context, analyze
-  code, collect review comments and post structured reviews.
-  Use when reviewing someone else's PR.
+  Pull request review workflow. Context gathering, code
+  analysis and structured review posting. Use when reviewing
+  someone else's PR. Pairs with code-review-standard for
+  evaluation criteria and comment-format for comment structure.
 ---
 
 # PR Review Workflow

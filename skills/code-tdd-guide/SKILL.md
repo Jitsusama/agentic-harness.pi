@@ -1,9 +1,10 @@
 ---
 name: code-tdd-guide
 description: >
-  Test-driven development methodology. Red-green-refactor cycle,
-  when to stub, how to validate failure reasons, commit cadence.
-  Use when implementing features with tests or discussing testing.
+  Test-driven development methodology. Red-green-refactor
+  cycle, when to stub, how to validate failure reasons,
+  commit cadence. Use when implementing with TDD, writing
+  tests first or entering the tdd_phase workflow.
 ---
 
 # Test-Driven Development
