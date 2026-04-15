@@ -97,17 +97,6 @@ export function stripHeredocBodies(command: string): string {
 const COMMAND_DELIMITERS = new Set([";", "&", "|", "(", ")"]);
 
 /**
- * Return true when the character at position `i` could start
- * a new token in shell syntax. A `#` at such a position begins
- * a comment.
- */
-function isWordStart(command: string, i: number): boolean {
-	if (i === 0) return true;
-	const prev = command[i - 1];
-	return /\s/.test(prev) || COMMAND_DELIMITERS.has(prev);
-}
-
-/**
  * Strip non-executable content from a shell command string:
  * comments and the interior of quoted strings.
  *
@@ -120,6 +109,11 @@ function isWordStart(command: string, i: number): boolean {
  * state across the entire string (including newlines) so
  * multi-line quoted strings are handled correctly.
  *
+ * Backslash-newline (line continuation) is handled correctly:
+ * both characters are consumed and the next line continues
+ * mid-word, so a `#` after a continuation is not mistaken
+ * for a comment.
+ *
  * Quote delimiters themselves are preserved (content between
  * them is removed) so that surrounding syntax stays intact:
  *   `git commit -m "message" --no-verify`
@@ -130,17 +124,27 @@ export function stripShellData(command: string): string {
 	let inSingle = false;
 	let inDouble = false;
 	let escaped = false;
+	// Tracks whether the current position could start a new
+	// token. Maintained by the scanner so that backslash-newline
+	// continuations correctly suppress word-start detection.
+	let atWordStart = true;
 
 	for (let i = 0; i < command.length; i++) {
 		const ch = command[i];
 
 		// The previous character was an unquoted backslash, so
-		// this character is escaped — emit it unconditionally.
+		// this character is escaped.
 		if (escaped) {
 			escaped = false;
+			// Backslash-newline is a line continuation: both
+			// characters are consumed and the lines join. The
+			// next character is still mid-word.
+			if (ch === "\n") continue;
 			if (!inSingle && !inDouble) {
+				result += "\\";
 				result += ch;
 			}
+			atWordStart = false;
 			continue;
 		}
 
@@ -148,9 +152,7 @@ export function stripShellData(command: string): string {
 		// except single quotes, where nothing is special.
 		if (ch === "\\" && !inSingle) {
 			escaped = true;
-			if (!inDouble) {
-				result += ch;
-			}
+			atWordStart = false;
 			continue;
 		}
 
@@ -158,6 +160,7 @@ export function stripShellData(command: string): string {
 		if (ch === "'" && !inDouble) {
 			inSingle = !inSingle;
 			result += ch;
+			atWordStart = false;
 			continue;
 		}
 
@@ -165,6 +168,7 @@ export function stripShellData(command: string): string {
 		if (ch === '"' && !inSingle) {
 			inDouble = !inDouble;
 			result += ch;
+			atWordStart = false;
 			continue;
 		}
 
@@ -173,7 +177,7 @@ export function stripShellData(command: string): string {
 
 		// Unquoted `#` at a word-start position begins a comment
 		// that runs to the end of the line.
-		if (ch === "#" && isWordStart(command, i)) {
+		if (ch === "#" && atWordStart) {
 			const newline = command.indexOf("\n", i);
 			if (newline === -1) break;
 			// We jump to the character before the newline so the
@@ -184,6 +188,13 @@ export function stripShellData(command: string): string {
 		}
 
 		result += ch;
+		atWordStart = ch === "\n" || /\s/.test(ch) || COMMAND_DELIMITERS.has(ch);
+	}
+
+	// A trailing backslash with no following character: emit it
+	// so the command skeleton reflects the original structure.
+	if (escaped && !inSingle && !inDouble) {
+		result += "\\";
 	}
 
 	return result;
