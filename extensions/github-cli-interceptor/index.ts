@@ -15,6 +15,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
+import { stripHeredocBodies, stripShellData } from "../../lib/shell/parse.js";
 import { detectInlineBody, detectPackedMetadata } from "./patterns.js";
 
 export default function githubCliInterceptor(pi: ExtensionAPI) {
@@ -23,9 +24,9 @@ export default function githubCliInterceptor(pi: ExtensionAPI) {
 		async (event): Promise<ToolCallEventResult | undefined> => {
 			if (!isToolCallEventType("bash", event)) return;
 
-			const command = event.input.command;
+			const stripped = stripShellData(stripHeredocBodies(event.input.command));
 			const violation =
-				detectInlineBody(command) ?? detectPackedMetadata(command);
+				detectInlineBody(stripped) ?? detectPackedMetadata(stripped);
 			if (violation) {
 				return { block: true, reason: violation };
 			}
