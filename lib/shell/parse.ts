@@ -92,3 +92,99 @@ export function stripHeredocBodies(command: string): string {
 		"",
 	);
 }
+
+/** Characters that delimit commands in shell syntax. */
+const COMMAND_DELIMITERS = new Set([";", "&", "|", "(", ")"]);
+
+/**
+ * Return true when the character at position `i` could start
+ * a new token in shell syntax. A `#` at such a position begins
+ * a comment.
+ */
+function isWordStart(command: string, i: number): boolean {
+	if (i === 0) return true;
+	const prev = command[i - 1];
+	return /\s/.test(prev) || COMMAND_DELIMITERS.has(prev);
+}
+
+/**
+ * Strip non-executable content from a shell command string:
+ * comments and the interior of quoted strings.
+ *
+ * Designed to run on the output of `stripHeredocBodies` so
+ * that heredoc bodies are already removed. The result is a
+ * command skeleton suitable for pattern matching — command
+ * names, flags and operators survive; data does not.
+ *
+ * The scanner tracks single-quote, double-quote and escape
+ * state across the entire string (including newlines) so
+ * multi-line quoted strings are handled correctly.
+ *
+ * Quote delimiters themselves are preserved (content between
+ * them is removed) so that surrounding syntax stays intact:
+ *   `git commit -m "message" --no-verify`
+ *   → `git commit -m "" --no-verify`
+ */
+export function stripShellData(command: string): string {
+	let result = "";
+	let inSingle = false;
+	let inDouble = false;
+	let escaped = false;
+
+	for (let i = 0; i < command.length; i++) {
+		const ch = command[i];
+
+		// The previous character was an unquoted backslash, so
+		// this character is escaped — emit it unconditionally.
+		if (escaped) {
+			escaped = false;
+			if (!inSingle && !inDouble) {
+				result += ch;
+			}
+			continue;
+		}
+
+		// Backslash escapes the next character in every context
+		// except single quotes, where nothing is special.
+		if (ch === "\\" && !inSingle) {
+			escaped = true;
+			if (!inDouble) {
+				result += ch;
+			}
+			continue;
+		}
+
+		// Single-quote toggle (only outside double quotes).
+		if (ch === "'" && !inDouble) {
+			inSingle = !inSingle;
+			result += ch;
+			continue;
+		}
+
+		// Double-quote toggle (only outside single quotes).
+		if (ch === '"' && !inSingle) {
+			inDouble = !inDouble;
+			result += ch;
+			continue;
+		}
+
+		// Inside quotes: swallow the content.
+		if (inSingle || inDouble) continue;
+
+		// Unquoted `#` at a word-start position begins a comment
+		// that runs to the end of the line.
+		if (ch === "#" && isWordStart(command, i)) {
+			const newline = command.indexOf("\n", i);
+			if (newline === -1) break;
+			// We jump to the character before the newline so the
+			// loop increment lands on the newline itself, which
+			// the next iteration emits normally.
+			i = newline - 1;
+			continue;
+		}
+
+		result += ch;
+	}
+
+	return result;
+}
