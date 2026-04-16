@@ -1,10 +1,11 @@
 ---
 name: planning-dev-format
 description: >
-  Development work planning methodology. How to structure plans for
-  code implementation without writing the implementation itself.
-  Focus on context, interfaces, data flow and behaviours. Use during
-  plan_mode when code work is involved.
+  Plan structure for code implementation work. Context,
+  interfaces, data flow and behaviours without writing the
+  implementation itself. Use during plan_mode when the work
+  involves building or modifying code. Pairs with
+  planning-guide for the overall planning methodology.
 ---
 
 # Development Planning

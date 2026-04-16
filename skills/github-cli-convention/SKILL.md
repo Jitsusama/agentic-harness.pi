@@ -1,9 +1,10 @@
 ---
 name: github-cli-convention
 description: >
-  GitHub CLI command formatting. Heredoc syntax, title
-  conventions and metadata patterns. Use when formatting
-  gh commands or creating issues and PRs via CLI.
+  Command syntax for GitHub CLI operations. Heredoc format
+  for PR and issue bodies, title conventions and metadata
+  flags. Use when running gh pr create, gh issue create or
+  any gh command with structured input.
 ---
 
 # GitHub CLI Conventions

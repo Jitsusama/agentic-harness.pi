@@ -1,10 +1,11 @@
 ---
 name: comment-format
 description: >
-  Conventional Comments format for review feedback. Labels,
-  decorations and tone guidance. Use when writing review
-  comments, giving code feedback or formatting review
-  observations.
+  Conventional Comments structure for review feedback.
+  Labels, decorations and tone. Use when writing review
+  comments, giving code feedback or posting PR review
+  observations. Pairs with code-review-standard for what
+  to evaluate.
 ---
 
 # Conventional Comments

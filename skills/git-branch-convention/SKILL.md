@@ -1,8 +1,9 @@
 ---
 name: git-branch-convention
 description: >
-  Branch naming, creation and safe transitions. Use when creating
-  branches, switching between them or moving commits.
+  Branch naming, creation and safe transitions. Use when
+  creating a branch, switching branches, moving commits
+  between branches or starting new work.
 ---
 
 # Branch Management

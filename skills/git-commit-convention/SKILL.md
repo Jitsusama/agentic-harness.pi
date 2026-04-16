@@ -1,9 +1,11 @@
 ---
 name: git-commit-convention
 description: >
-  When and how to commit. Commit frequency, atomic commits
-  and history management. Use when discussing when or how
-  to commit, or managing git history.
+  Operational commit rules: when to commit, what goes in
+  each commit, commit frequency and history management.
+  Use when committing code, deciding commit boundaries or
+  managing git history. Pairs with commit-format for message
+  structure.
 ---
 
 # Git Commit Convention

@@ -1,12 +1,12 @@
 ---
 name: prose-standard
 description: >
-  Personal writing voice and style guide. Spelling, punctuation,
-  tone, and sentence structure preferences. Use when writing any
-  English prose or agent-facing content: code comments, PR
-  descriptions, issue bodies, review comments, markdown documents,
-  agent instructions, or any other artifact meant to be read by
-  humans or language models.
+  Voice and style rules for all written output. Spelling
+  (Canadian English), punctuation, tone and sentence structure.
+  Use when writing or editing commit messages, PR descriptions,
+  issue bodies, review comments, code comments, markdown, skill
+  files, agent instructions or any other prose for humans or
+  language models.
 ---
 
 # Writing Voice

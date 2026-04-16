@@ -1,9 +1,11 @@
 ---
 name: planning-guide
 description: >
-  Collaborative planning methodology. How to investigate a codebase,
-  ask clarifying questions and produce a structured implementation
-  plan. Use when designing or architecting before building.
+  Collaborative planning methodology. Codebase investigation,
+  clarifying questions and structured plan creation. Use when
+  entering plan_mode, designing before building or architecting
+  a solution. Pairs with planning-dev-format when planning code
+  work.
 ---
 
 # Collaborative Planning

@@ -1,10 +1,11 @@
 ---
 name: code-style-standard
 description: >
-  Personal code design and style preferences. Readability,
-  cognitive load, naming, structure, abstraction, testing
-  and domain-driven design. Use when writing or modifying
-  code in any language.
+  Code design and style rules applied to all code.
+  Readability, naming, structure, abstraction, testing and
+  domain-driven design. Use when writing, modifying or
+  reviewing code in any language. Pairs with prose-standard
+  for code comments and doc comments.
 ---
 
 # Code Style

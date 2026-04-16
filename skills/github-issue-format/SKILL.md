@@ -1,9 +1,10 @@
 ---
 name: github-issue-format
 description: >
-  GitHub issue structure and narrative. Use when writing issue
-  descriptions or discussing what makes a good issue. Covers
-  problem statements, acceptance criteria and body structure.
+  Issue body structure and narrative. Problem statements,
+  acceptance criteria and body organization. Use when writing
+  or editing a GitHub issue. Pairs with github-cli-convention
+  for command syntax and prose-standard for voice.
 ---
 
 # Issue Writing

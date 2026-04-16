@@ -1,9 +1,10 @@
 ---
 name: github-pr-merge-convention
 description: >
-  PR merge strategy, branch cleanup and post-merge hygiene.
-  Use when merging a PR, cleaning up after a merge or
-  deciding how to land changes on the default branch.
+  PR merge strategy, branch cleanup and post-merge hygiene
+  for any pull request. Use when merging a PR, cleaning up
+  after a merge or deciding how to land changes. See
+  github-pr-stack-convention when PRs depend on other PRs.
 ---
 
 # PR Merge Convention
