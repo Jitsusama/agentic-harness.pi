@@ -5,6 +5,7 @@
  * and sending messages/replies.
  */
 
+import { extractTables } from "../blocks.js";
 import { lookupId } from "../resolvers/cache.js";
 import { cacheUser, resolveUser } from "../resolvers/user.js";
 
@@ -34,6 +35,7 @@ interface RawMessage {
 		fallback?: string;
 		from_url?: string;
 		image_url?: string;
+		blocks?: unknown[];
 	}>;
 	files?: Array<{
 		name: string;
@@ -41,6 +43,7 @@ interface RawMessage {
 		url_private?: string;
 		permalink?: string;
 	}>;
+	blocks?: unknown[];
 	permalink?: string;
 	username?: string;
 }
@@ -77,6 +80,22 @@ function toSlackMessage(
 	const isThreadParent =
 		msg.thread_ts !== undefined && msg.thread_ts === msg.ts;
 
+	// Extract tables from Block Kit blocks. Tables can live
+	// in top-level blocks (sent via chat.postMessage) or inside
+	// attachments[].blocks (created in Slack's WYSIWYG editor).
+	const allBlocks: unknown[] = [];
+	if (msg.blocks?.length) {
+		allBlocks.push(...msg.blocks);
+	}
+	if (msg.attachments?.length) {
+		for (const att of msg.attachments) {
+			if (att.blocks?.length) {
+				allBlocks.push(...att.blocks);
+			}
+		}
+	}
+	const tables = allBlocks.length ? extractTables(allBlocks) : undefined;
+
 	return {
 		ts: msg.ts,
 		text: msg.text ?? "",
@@ -88,6 +107,7 @@ function toSlackMessage(
 		reactions: msg.reactions as SlackReaction[] | undefined,
 		attachments,
 		files,
+		tables: tables?.length ? tables : undefined,
 		permalink: msg.permalink,
 	};
 }
