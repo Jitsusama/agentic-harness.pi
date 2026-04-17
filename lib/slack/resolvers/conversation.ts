@@ -20,6 +20,7 @@
  */
 
 import type { SlackClient } from "../api/client.js";
+import { getUserInfo } from "../api/users.js";
 import type { Conversation } from "../types.js";
 import { cacheMapping, listCached, lookupId } from "./cache.js";
 import {
@@ -192,10 +193,12 @@ async function openDmConversation(
 		);
 	}
 
+	const displayName = await dmDisplayName(client, userId);
 	const conversation: Conversation = {
 		id: channelId,
 		kind: "dm",
 		dmUserId: userId,
+		displayName,
 	};
 	cacheConversation(conversation);
 	return conversation;
@@ -260,4 +263,29 @@ async function openGroupDmConversation(
  */
 function formatGroupDmDisplayName(userIds: string[]): string {
 	return userIds.map((id) => `@${displayNameForId(id)}`).join(", ");
+}
+
+/**
+ * Resolve a display name for a DM user.
+ *
+ * Checks the file cache first. On miss, calls users.info
+ * to fetch the handle (which also populates the cache for
+ * future lookups). Returns `@handle` or undefined if
+ * resolution fails entirely.
+ */
+async function dmDisplayName(
+	client: SlackClient,
+	userId: string,
+): Promise<string | undefined> {
+	const cached = displayNameForId(userId);
+	if (cached !== userId) return `@${cached}`;
+
+	try {
+		const user = await getUserInfo(client, userId);
+		const handle = user.name;
+		if (handle) return `@${handle}`;
+	} catch {
+		// users.info failed; fall through to undefined.
+	}
+	return undefined;
 }
