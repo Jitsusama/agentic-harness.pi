@@ -46,11 +46,12 @@ export default function planMode(pi: ExtensionAPI) {
 				description: "Whether to activate or deactivate plan mode",
 			}),
 			repos: Type.Optional(
-				Type.Array(Type.String(), {
+				Type.String({
 					description:
-						'Repository paths to create worktrees in. Use "." for the ' +
-						"current repo. Each gets its own worktree so implementation " +
-						"happens in isolated working trees. Only used with 'activate'.",
+						"Comma-separated repository paths to create worktrees in. " +
+						"Use a single dot for the current repo. Each gets its own " +
+						"worktree so implementation happens in isolated working " +
+						"trees. Only used with activate.",
 				}),
 			),
 		}),
@@ -61,11 +62,15 @@ export default function planMode(pi: ExtensionAPI) {
 						content: [{ type: "text", text: "Plan mode is already active." }],
 					};
 				}
+				const reposRaw = params.repos as string | undefined;
+				const repos = reposRaw
+					? reposRaw.split(",").map((r: string) => r.trim()).filter(Boolean)
+					: undefined;
 				const result = await activate(
 					state,
 					pi,
 					ctx,
-					params.repos as string[] | undefined,
+					repos,
 				);
 
 				const parts = [
