@@ -248,6 +248,9 @@ function describeError(error?: string): string {
 			"Run /slack-auth to re-authenticate with the correct scopes.",
 		channel_not_found: "Channel not found. Check the channel name or ID.",
 		user_not_found: "User not found. Check the username or ID.",
+		thread_not_found:
+			"The timestamp doesn't match a thread parent. " +
+			"Use the ts values from list_messages or search_messages results.",
 	};
 
 	const hint = hints[error];

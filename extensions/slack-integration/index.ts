@@ -12,7 +12,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { getLastEntry } from "../../lib/internal/state.js";
-import type { SlackClient } from "../../lib/slack/api/client.js";
+import { SlackApiError, type SlackClient } from "../../lib/slack/api/client.js";
 import { clearAllConfig, getToken } from "../../lib/slack/auth/credentials.js";
 import {
 	ensureAuthenticated,
@@ -134,6 +134,32 @@ function countFiles(filePath?: string, filePaths?: string[]): number {
 	return paths.size;
 }
 
+/**
+ * Slack API error codes that indicate an auth/setup problem.
+ *
+ * These need human action (run /slack-auth) so they're returned
+ * as formatted tool output. All other errors throw so the
+ * framework marks the result as isError.
+ */
+const AUTH_ERROR_CODES = new Set([
+	"invalid_auth",
+	"token_revoked",
+	"not_authed",
+	"account_inactive",
+	"missing_scope",
+]);
+
+/** Check whether an error is an auth/setup problem. */
+function isAuthError(error: unknown): boolean {
+	if (error instanceof SlackApiError) {
+		return AUTH_ERROR_CODES.has(error.errorCode);
+	}
+	const message = error instanceof Error ? error.message : String(error);
+	return (
+		message.includes("cancelled") || message.includes("No stored Slack token")
+	);
+}
+
 /** Fallback OAuth config from environment variables. */
 const ENV_OAUTH_CONFIG: OAuthApp = {
 	clientId: process.env.SLACK_CLIENT_ID || "",
@@ -234,6 +260,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"Be concise in your responses — summarise the substance of results rather than restating what the tool output already shows.",
 			"To upload files, use upload_file with file_path (single) or file_paths (array) and a channel. Files can also be attached to send_message and reply_to_thread by adding file_path or file_paths.",
 			"To post an entire thread at once, use send_thread with channel and a messages array. The first message becomes the thread parent; the rest become replies in order. Each message has text and optional file_path/file_paths. A tabbed review gate lets the user approve each message before sending.",
+			"Every message in results includes a (ts:...) value. For get_thread, reply_to_thread and other ts-based actions, always use these ts values from previous tool results. Never fabricate or guess a timestamp.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(
@@ -359,14 +386,21 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				}
 				return result;
 			} catch (error) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: formatAuthError(error),
-						},
-					],
-				};
+				// Auth and setup errors need human action, so format
+				// them as tool output. All other errors (API failures,
+				// network errors) throw so the framework marks the
+				// result as isError and the LLM gets a strong signal.
+				if (isAuthError(error)) {
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: formatAuthError(error),
+							},
+						],
+					};
+				}
+				throw error;
 			}
 		},
 

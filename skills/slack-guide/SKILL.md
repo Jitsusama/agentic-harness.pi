@@ -122,6 +122,11 @@ instead. This is a Slack API limitation, not a tool limitation.
   `target` if you have a permalink URL from search results.
   Both approaches work identically — use whichever you have.
 
+  Every message in tool results includes a `(ts:...)` value
+  in its header line. Use that exact value. **Never fabricate
+  or guess a timestamp** — Slack timestamps are precise
+  identifiers, not derivable from human-readable dates.
+
 ### "What's happening in #channel" / "Last N messages in #channel"
 → `list_messages` with `channel: "channel-name"` and a `limit`
   This uses `conversations.history`, which returns every
@@ -586,6 +591,16 @@ the full thread?"
 # ✅ Good: use the permalink or channel + ts from the result
 slack({ action: "get_thread", target: "https://...permalink..." })
 slack({ action: "get_thread", channel: "C0AJY0FLK8Q", ts: "1743044006.509399" })
+```
+
+**DON'T** fabricate or guess Slack timestamps:
+```
+# ❌ Bad: inventing a timestamp that looks plausible
+slack({ action: "get_thread", channel: "C0AJY0FLK8Q", ts: "1776349731.307559" })
+
+# ✅ Good: use the (ts:...) value from a previous result
+# Result showed: **@user** Apr 16, 10:02 AM (ts:1776348171.653739) [6 replies]
+slack({ action: "get_thread", channel: "C0AJY0FLK8Q", ts: "1776348171.653739" })
 ```
 
 **DON'T** pass raw user IDs when the user gave a name:

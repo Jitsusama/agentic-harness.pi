@@ -71,7 +71,7 @@ export function renderMessage(msg: SlackMessage): string {
 	const replyTag = msg.replyCount
 		? ` [${msg.replyCount} ${msg.replyCount === 1 ? "reply" : "replies"}]`
 		: "";
-	parts.push(`**${user}** ${ts}${where}${replyTag}`);
+	parts.push(`**${user}** ${ts} (ts:${msg.ts})${where}${replyTag}`);
 
 	if (msg.text) {
 		parts.push(formatSlackText(msg.text));
@@ -159,7 +159,7 @@ export function renderThread(messages: SlackMessage[]): string {
 		const user = msg.user ? `@${displayNameForId(msg.user)}` : "unknown";
 		const ts = formatTimestamp(msg.ts);
 
-		lines.push(`${prefix} **${user}** ${ts}`);
+		lines.push(`${prefix} **${user}** ${ts} (ts:${msg.ts})`);
 		if (msg.text) {
 			const indent = i === messages.length - 1 ? "  " : "│ ";
 			for (const line of formatSlackText(msg.text).split("\n")) {
