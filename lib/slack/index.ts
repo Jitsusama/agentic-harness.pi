@@ -7,6 +7,14 @@
 
 export * from "./api/index.js";
 export * from "./auth/index.js";
+export {
+	extractCellText,
+	extractTables,
+	mrkdwnToCell,
+	parseMrkdwnToElements,
+	renderRichTextCell,
+	tableToBlock,
+} from "./blocks.js";
 export * from "./renderers/index.js";
 export * from "./resolvers/index.js";
 
@@ -18,9 +26,11 @@ export type {
 	OAuthApp,
 	SlackAttachment,
 	SlackChannel,
+	SlackColumnSetting,
 	SlackFile,
 	SlackMessage,
 	SlackReaction,
+	SlackTable,
 	SlackUser,
 	StoredToken,
 } from "./types.js";
