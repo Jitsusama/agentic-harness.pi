@@ -265,7 +265,7 @@ const SLACK_BROADCASTS = new Set(["here", "channel", "everyone"]);
  *    also try API resolution on cache miss
  * 3. Leave unresolved handles as plain text
  */
-async function formatMentions(
+export async function formatMentions(
 	client: SlackClient,
 	text: string,
 	signal?: AbortSignal,
@@ -310,18 +310,30 @@ async function formatMentions(
 
 /**
  * Send a message to a channel.
+ *
+ * When `blocks` is provided, it's JSON-stringified and sent
+ * as the `blocks` parameter to `chat.postMessage`. The `text`
+ * field serves as the notification fallback.
  */
 export async function sendMessage(
 	client: SlackClient,
 	conversationId: string,
 	text: string,
+	blocks?: unknown[],
 	signal?: AbortSignal,
 ): Promise<SendResult> {
 	const formatted = await formatMentions(client, text, signal);
+	const params: Record<string, string | number | boolean | undefined> = {
+		channel: conversationId,
+		text: formatted,
+	};
+	if (blocks) {
+		params.blocks = JSON.stringify(blocks);
+	}
 	const response = await client.call<{
 		channel: string;
 		ts: string;
-	}>("chat.postMessage", { channel: conversationId, text: formatted }, signal);
+	}>("chat.postMessage", params, signal);
 
 	return {
 		ok: true,
@@ -332,23 +344,32 @@ export async function sendMessage(
 
 /**
  * Reply to a thread.
+ *
+ * When `blocks` is provided, it's JSON-stringified and sent
+ * as the `blocks` parameter to `chat.postMessage`. The `text`
+ * field serves as the notification fallback.
  */
 export async function replyToThread(
 	client: SlackClient,
 	conversationId: string,
 	threadTs: string,
 	text: string,
+	blocks?: unknown[],
 	signal?: AbortSignal,
 ): Promise<SendResult> {
 	const formatted = await formatMentions(client, text, signal);
+	const params: Record<string, string | number | boolean | undefined> = {
+		channel: conversationId,
+		text: formatted,
+		thread_ts: threadTs,
+	};
+	if (blocks) {
+		params.blocks = JSON.stringify(blocks);
+	}
 	const response = await client.call<{
 		channel: string;
 		ts: string;
-	}>(
-		"chat.postMessage",
-		{ channel: conversationId, text: formatted, thread_ts: threadTs },
-		signal,
-	);
+	}>("chat.postMessage", params, signal);
 
 	return {
 		ok: true,

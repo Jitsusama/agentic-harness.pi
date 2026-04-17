@@ -13,6 +13,7 @@ import { getChannelInfo } from "../../lib/slack/api/channels.js";
 import type { SlackClient } from "../../lib/slack/api/client.js";
 import { getFileSize, uploadFiles } from "../../lib/slack/api/files.js";
 import {
+	formatMentions,
 	getMessage,
 	getThread,
 	listMessages,
@@ -28,6 +29,7 @@ import {
 import { resolveMessages } from "../../lib/slack/api/resolve-messages.js";
 import { searchFiles, searchMessages } from "../../lib/slack/api/search.js";
 import { getUserInfo } from "../../lib/slack/api/users.js";
+import { tableToBlock } from "../../lib/slack/blocks.js";
 import { renderChannel } from "../../lib/slack/renderers/channel.js";
 import {
 	renderMessage,
@@ -47,6 +49,8 @@ import {
 	type ActionParams,
 	numberParam,
 	type ResolvedParams,
+	type SlackColumnSetting,
+	type SlackTable,
 	stringParam,
 	type ToolResult,
 } from "../../lib/slack/types.js";
@@ -57,6 +61,7 @@ import {
 	confirmSendThread,
 	confirmUploadFile,
 	type FileInfo,
+	type TableParam,
 	type ThreadMessage,
 } from "./confirmation.js";
 
@@ -373,6 +378,97 @@ async function handleGetReactions(
 	return text(renderMessageReactions(data), { reactions: data });
 }
 
+// ── Table helpers ───────────────────────────────────────
+
+/** Maximum rows in a Slack table block. */
+const MAX_TABLE_ROWS = 100;
+
+/** Maximum columns in a Slack table block. */
+const MAX_TABLE_COLUMNS = 20;
+
+/** Extract and validate a table from tool params. */
+function extractTableParam(params: ActionParams): TableParam | undefined {
+	const raw = params.table as
+		| { columns?: string[]; rows?: string[][]; column_settings?: unknown[] }
+		| undefined;
+	if (!raw || !Array.isArray(raw.columns) || !Array.isArray(raw.rows)) {
+		return undefined;
+	}
+	return {
+		columns: raw.columns,
+		rows: raw.rows,
+		column_settings: Array.isArray(raw.column_settings)
+			? raw.column_settings
+			: undefined,
+	};
+}
+
+/** Validate table dimensions and row consistency. */
+function validateTable(table: TableParam): string | undefined {
+	if (table.columns.length === 0) return "Table must have at least one column.";
+	if (table.columns.length > MAX_TABLE_COLUMNS) {
+		return `Table exceeds ${MAX_TABLE_COLUMNS} column limit (got ${table.columns.length}).`;
+	}
+	if (table.rows.length > MAX_TABLE_ROWS) {
+		return `Table exceeds ${MAX_TABLE_ROWS} row limit (got ${table.rows.length}).`;
+	}
+	for (let i = 0; i < table.rows.length; i++) {
+		if (table.rows[i].length !== table.columns.length) {
+			return (
+				`Row ${i + 1} has ${table.rows[i].length} cells ` +
+				`but table has ${table.columns.length} columns.`
+			);
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Resolve @mentions and build a Block Kit table block.
+ *
+ * Runs formatMentions on every cell, maps column settings,
+ * and returns the Block Kit block ready for chat.postMessage.
+ */
+async function buildTableBlock(
+	client: SlackClient,
+	rawTable: TableParam,
+	signal?: AbortSignal,
+): Promise<unknown> {
+	// Resolve @mentions in all cells.
+	const columns = await Promise.all(
+		rawTable.columns.map((c) => formatMentions(client, c, signal)),
+	);
+	const rows = await Promise.all(
+		rawTable.rows.map((row) =>
+			Promise.all(row.map((cell) => formatMentions(client, cell, signal))),
+		),
+	);
+
+	// Map column_settings from snake_case to camelCase.
+	let columnSettings: (SlackColumnSetting | null)[] | undefined;
+	if (rawTable.column_settings) {
+		columnSettings = rawTable.column_settings.map((s) => {
+			if (s == null) return null;
+			const entry = s as { align?: string; is_wrapped?: boolean };
+			const setting: SlackColumnSetting = {};
+			if (
+				entry.align === "left" ||
+				entry.align === "center" ||
+				entry.align === "right"
+			) {
+				setting.align = entry.align;
+			}
+			if (typeof entry.is_wrapped === "boolean") {
+				setting.isWrapped = entry.is_wrapped;
+			}
+			return Object.keys(setting).length > 0 ? setting : null;
+		});
+	}
+
+	const table: SlackTable = { columns, rows, columnSettings };
+	return tableToBlock(table);
+}
+
 // ── Write handlers (with confirmation gates) ────────────
 
 async function handleSendMessage(
@@ -384,7 +480,8 @@ async function handleSendMessage(
 	if (!resolved.conversation) return missing("channel");
 	const msgText = stringParam(params, "text");
 	const filePaths = collectFilePaths(params);
-	if (!msgText && filePaths.length === 0) return missing("text");
+	const tableParam = extractTableParam(params);
+	if (!msgText && filePaths.length === 0 && !tableParam) return missing("text");
 
 	const displayName =
 		resolved.conversation.displayName ?? resolved.conversation.id;
@@ -402,11 +499,25 @@ async function handleSendMessage(
 		);
 	}
 
-	// After the file path check above, msgText is guaranteed
-	// to be defined here (we returned early if both were empty).
-	if (!msgText) return missing("text");
+	// Validate and build table block if present.
+	let blocks: unknown[] | undefined;
+	if (tableParam) {
+		const error = validateTable(tableParam);
+		if (error) return text(error);
+		blocks = [await buildTableBlock(client, tableParam)];
+	}
 
-	const confirmed = await confirmSendMessage(ctx, displayName, msgText);
+	// Generate fallback text for notifications when only a table is present.
+	const effectiveText =
+		msgText ?? (tableParam ? `Table with ${tableParam.rows.length} rows` : "");
+	if (!effectiveText) return missing("text");
+
+	const confirmed = await confirmSendMessage(
+		ctx,
+		displayName,
+		effectiveText,
+		tableParam,
+	);
 	if (!confirmed) return text("✗ Send message cancelled.");
 	if (!confirmed.approved) return text(confirmed.redirect);
 
@@ -414,6 +525,7 @@ async function handleSendMessage(
 		client,
 		resolved.conversation.id,
 		confirmed.data.text,
+		blocks,
 	);
 	return text(`✓ Message sent to ${displayName} (ts: ${result.ts})`, result);
 }
@@ -427,7 +539,8 @@ async function handleReplyToThread(
 	if (!resolved.target) return missing("channel + ts or target");
 	const msgText = stringParam(params, "text");
 	const filePaths = collectFilePaths(params);
-	if (!msgText && filePaths.length === 0) return missing("text");
+	const tableParam = extractTableParam(params);
+	if (!msgText && filePaths.length === 0 && !tableParam) return missing("text");
 
 	const displayName =
 		resolved.target.conversation.displayName ?? resolved.target.conversation.id;
@@ -445,15 +558,24 @@ async function handleReplyToThread(
 		);
 	}
 
-	// After the file path check above, msgText is guaranteed
-	// to be defined here (we returned early if both were empty).
-	if (!msgText) return missing("text");
+	// Validate and build table block if present.
+	let blocks: unknown[] | undefined;
+	if (tableParam) {
+		const error = validateTable(tableParam);
+		if (error) return text(error);
+		blocks = [await buildTableBlock(client, tableParam)];
+	}
+
+	const effectiveText =
+		msgText ?? (tableParam ? `Table with ${tableParam.rows.length} rows` : "");
+	if (!effectiveText) return missing("text");
 
 	const confirmed = await confirmReply(
 		ctx,
 		displayName,
 		resolved.target.ts,
-		msgText,
+		effectiveText,
+		tableParam,
 	);
 	if (!confirmed) return text("✗ Reply cancelled.");
 	if (!confirmed.approved) return text(confirmed.redirect);
@@ -463,6 +585,7 @@ async function handleReplyToThread(
 		resolved.target.conversation.id,
 		resolved.target.ts,
 		confirmed.data.text,
+		blocks,
 	);
 	return text(
 		`✓ Reply sent in thread ${resolved.target.ts} (ts: ${result.ts})`,
@@ -578,9 +701,10 @@ async function handleSendThread(
 	const displayName =
 		resolved.conversation.displayName ?? resolved.conversation.id;
 
-	// Gather file info for any attached files.
+	// Validate tables and gather file info.
 	const threadMessages: ThreadMessage[] = [];
-	for (const msg of parsed) {
+	for (let idx = 0; idx < parsed.length; idx++) {
+		const msg = parsed[idx];
 		const fileInfos: FileInfo[] = [];
 		for (const filePath of msg.filePaths) {
 			try {
@@ -590,9 +714,14 @@ async function handleSendThread(
 				return text(`File not found: ${filePath}`);
 			}
 		}
+		if (msg.table) {
+			const error = validateTable(msg.table);
+			if (error) return text(`Message ${idx + 1}: ${error}`);
+		}
 		threadMessages.push({
 			text: msg.text,
 			files: fileInfos.length > 0 ? fileInfos : undefined,
+			table: msg.table,
 		});
 	}
 
@@ -614,6 +743,12 @@ async function handleSendThread(
 		const isParent = i === 0;
 
 		try {
+			// Build table block if this message has a table.
+			let msgBlocks: unknown[] | undefined;
+			if (msg.table) {
+				msgBlocks = [await buildTableBlock(client, msg.table)];
+			}
+
 			if (msg.filePaths.length > 0) {
 				const uploadResult = await uploadFiles(client, msg.filePaths, {
 					channelId,
@@ -624,7 +759,12 @@ async function handleSendThread(
 					parentTs = uploadResult.ts;
 				}
 			} else if (isParent) {
-				const result = await sendMessage(client, channelId, msg.text);
+				const result = await sendMessage(
+					client,
+					channelId,
+					msg.text,
+					msgBlocks,
+				);
 				parentTs = result.ts;
 			} else {
 				if (!parentTs) {
@@ -633,7 +773,7 @@ async function handleSendThread(
 							`Sent ${sent} of ${parsed.length} messages.`,
 					);
 				}
-				await replyToThread(client, channelId, parentTs, msg.text);
+				await replyToThread(client, channelId, parentTs, msg.text, msgBlocks);
 			}
 			sent++;
 		} catch (error) {
@@ -651,10 +791,11 @@ async function handleSendThread(
 	);
 }
 
-/** Parsed thread message with collected file paths. */
+/** Parsed thread message with collected file paths and optional table. */
 interface ParsedThreadMessage {
 	text: string;
 	filePaths: string[];
+	table?: TableParam;
 }
 
 /**
@@ -686,7 +827,30 @@ function parseThreadMessages(raw: unknown[]): ParsedThreadMessage[] | string {
 			}
 		}
 
-		messages.push({ text: msgText, filePaths: [...new Set(filePaths)] });
+		// Optional table parameter.
+		const tableRaw = entry.table as
+			| { columns?: unknown; rows?: unknown; column_settings?: unknown }
+			| undefined;
+		let table: TableParam | undefined;
+		if (
+			tableRaw &&
+			Array.isArray(tableRaw.columns) &&
+			Array.isArray(tableRaw.rows)
+		) {
+			table = {
+				columns: tableRaw.columns as string[],
+				rows: tableRaw.rows as string[][],
+				column_settings: Array.isArray(tableRaw.column_settings)
+					? (tableRaw.column_settings as unknown[])
+					: undefined,
+			};
+		}
+
+		messages.push({
+			text: msgText,
+			filePaths: [...new Set(filePaths)],
+			table,
+		});
 	}
 
 	return messages;
