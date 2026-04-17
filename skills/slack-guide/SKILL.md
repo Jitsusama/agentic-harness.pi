@@ -480,6 +480,75 @@ standard markdown. When composing messages, use these rules:
 - `![alt](image-url)` — no image embedding
 - `- item` or `* item` — not converted to bullets
 - `1. item` — no ordered list rendering
+- `| col | col |` — markdown tables don't work in Slack.
+  Use the `table` parameter instead (see Tables below).
+
+## Tables
+
+Slack supports native table blocks via Block Kit. Tables
+appear in received messages (rendered as markdown tables in
+tool output) and can be sent using the `table` parameter.
+
+### Reading Tables
+
+When a message contains a Slack table block, the tool
+renders it as a pipe-delimited markdown table in the
+output. Bold text appears as `**text**`, links as
+`[text](url)`, mentions as `@handle` — the same format
+as regular message text.
+
+### Sending Tables
+
+Use the `table` parameter on `send_message`,
+`reply_to_thread`, or individual `send_thread` messages.
+
+```
+slack({
+  action: "send_message",
+  channel: "#ops",
+  text: "Outstanding issues by director:",
+  table: {
+    columns: ["Director", "Issue Count"],
+    rows: [
+      ["*Patrick Burke*", "3"],
+      ["<https://github.com/org/repo/pulls|Andrew McNamara>", "2"],
+      ["Brad Wright", "2"]
+    ],
+    column_settings: [null, { align: "right" }]
+  }
+})
+```
+
+**Cell formatting**: cells are mrkdwn strings — the same
+formatting as message text. Use `*bold*`, `_italic_`,
+`~strike~`, `` `code` ``, `<url|text>` for links, and
+`@handle` for mentions. Cells without formatting are sent
+as plain text.
+
+**Column settings**: optional per-column display settings.
+Each entry can have:
+- `align`: `"left"` (default), `"center"`, or `"right"`
+- `is_wrapped`: `true` to wrap text instead of truncating
+
+Use `null` to skip a column and keep defaults.
+
+**Notification fallback**: the `text` field becomes the
+notification preview when a table is present. If `text`
+is omitted, a fallback like "Table with N rows" is
+generated.
+
+**Constraints**:
+- 1 table per message (Slack limit)
+- Max 100 rows, 20 columns
+- Each row must have the same number of cells as there
+  are columns
+
+### "Send a table showing…" / "Post this data as a table"
+→ `send_message` with `table: { columns, rows }`
+- Tables render as native Slack table blocks (not ASCII art
+  or code blocks)
+- A confirmation gate shows a box-drawing preview of the
+  table before sending
 
 ## Uploading Files
 
