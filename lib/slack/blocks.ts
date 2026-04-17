@@ -35,7 +35,7 @@ interface RichTextElement {
  * Used as a fast pre-check: if a string contains none of
  * these, it's plain text and can skip tokenising.
  */
-const FORMATTING_CHARS = /[<`*_~]/;
+const FORMATTING_CHARS = /[<`*_~:]/;
 
 /**
  * Angle-bracket pattern: matches Slack's `<...>` syntax for
@@ -60,6 +60,12 @@ const BACKTICK = /`([^`]+)`/g;
 const BOLD = /(^|(?<=\s))\*([^*]+)\*(?=\s|[.,;:!?)}\]]|$)/g;
 const ITALIC = /(^|(?<=\s))_([^_]+)_(?=\s|[.,;:!?)}\]]|$)/g;
 const STRIKE = /(^|(?<=\s))~([^~]+)~(?=\s|[.,;:!?)}\]]|$)/g;
+
+/**
+ * Emoji shortcode pattern: `:name:` where name can contain
+ * letters, numbers, underscores, hyphens and plus signs.
+ */
+const EMOJI = /:([a-z0-9_+-]+):/g;
 
 /** A token found during mrkdwn scanning. */
 interface Token {
@@ -142,6 +148,15 @@ export function parseMrkdwnToElements(text: string): RichTextElement[] {
 			start: match.index,
 			end: match.index + match[0].length,
 			element: { type: "text", text: match[1], style: { code: true } },
+		});
+	}
+
+	// 2b. Emoji shortcodes.
+	for (const match of text.matchAll(EMOJI)) {
+		tokens.push({
+			start: match.index,
+			end: match.index + match[0].length,
+			element: { type: "emoji", name: match[1] },
 		});
 	}
 

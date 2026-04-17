@@ -64,14 +64,12 @@ export default function planMode(pi: ExtensionAPI) {
 				}
 				const reposRaw = params.repos as string | undefined;
 				const repos = reposRaw
-					? reposRaw.split(",").map((r: string) => r.trim()).filter(Boolean)
+					? reposRaw
+							.split(",")
+							.map((r: string) => r.trim())
+							.filter(Boolean)
 					: undefined;
-				const result = await activate(
-					state,
-					pi,
-					ctx,
-					repos,
-				);
+				const result = await activate(state, pi, ctx, repos);
 
 				const parts = [
 					`Plan mode activated. Writes restricted to ${state.planDir}/.`,

@@ -29,7 +29,7 @@ import {
 import { resolveMessages } from "../../lib/slack/api/resolve-messages.js";
 import { searchFiles, searchMessages } from "../../lib/slack/api/search.js";
 import { getUserInfo } from "../../lib/slack/api/users.js";
-import { tableToBlock } from "../../lib/slack/blocks.js";
+import { parseMrkdwnToElements, tableToBlock } from "../../lib/slack/blocks.js";
 import { renderChannel } from "../../lib/slack/renderers/channel.js";
 import {
 	renderMessage,
@@ -504,7 +504,24 @@ async function handleSendMessage(
 	if (tableParam) {
 		const error = validateTable(tableParam);
 		if (error) return text(error);
-		blocks = [await buildTableBlock(client, tableParam)];
+		const tableBlock = await buildTableBlock(client, tableParam);
+		// When blocks are present, Slack's text field is only a
+		// notification fallback — it doesn't render in the message.
+		// Prepend a rich_text block so the message text is visible.
+		blocks = [];
+		if (msgText) {
+			const formatted = await formatMentions(client, msgText);
+			blocks.push({
+				type: "rich_text",
+				elements: [
+					{
+						type: "rich_text_section",
+						elements: parseMrkdwnToElements(formatted),
+					},
+				],
+			});
+		}
+		blocks.push(tableBlock);
 	}
 
 	// Generate fallback text for notifications when only a table is present.
@@ -563,7 +580,21 @@ async function handleReplyToThread(
 	if (tableParam) {
 		const error = validateTable(tableParam);
 		if (error) return text(error);
-		blocks = [await buildTableBlock(client, tableParam)];
+		const tableBlock = await buildTableBlock(client, tableParam);
+		blocks = [];
+		if (msgText) {
+			const formatted = await formatMentions(client, msgText);
+			blocks.push({
+				type: "rich_text",
+				elements: [
+					{
+						type: "rich_text_section",
+						elements: parseMrkdwnToElements(formatted),
+					},
+				],
+			});
+		}
+		blocks.push(tableBlock);
 	}
 
 	const effectiveText =
@@ -746,7 +777,21 @@ async function handleSendThread(
 			// Build table block if this message has a table.
 			let msgBlocks: unknown[] | undefined;
 			if (msg.table) {
-				msgBlocks = [await buildTableBlock(client, msg.table)];
+				const tableBlock = await buildTableBlock(client, msg.table);
+				msgBlocks = [];
+				if (msg.text) {
+					const formatted = await formatMentions(client, msg.text);
+					msgBlocks.push({
+						type: "rich_text",
+						elements: [
+							{
+								type: "rich_text_section",
+								elements: parseMrkdwnToElements(formatted),
+							},
+						],
+					});
+				}
+				msgBlocks.push(tableBlock);
 			}
 
 			if (msg.filePaths.length > 0) {
