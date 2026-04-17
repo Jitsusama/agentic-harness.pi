@@ -109,6 +109,31 @@ export interface SlackFile {
 	url?: string;
 }
 
+/** Per-column display settings for a Slack table block. */
+export interface SlackColumnSetting {
+	/** Text alignment: "left" (default), "center", or "right". */
+	align?: "left" | "center" | "right";
+	/** Whether text wraps instead of truncating. */
+	isWrapped?: boolean;
+}
+
+/**
+ * A table extracted from or destined for a Slack table block.
+ *
+ * When reading, columns and rows contain rendered text
+ * (rich text elements converted to readable strings).
+ * When sending, they contain mrkdwn strings that get
+ * converted to Block Kit elements.
+ */
+export interface SlackTable {
+	/** Header row labels. */
+	columns: string[];
+	/** Data rows. Each row has the same length as columns. */
+	rows: string[][];
+	/** Per-column settings (positional). Use null to skip a column. */
+	columnSettings?: (SlackColumnSetting | null)[];
+}
+
 /** A Slack message as returned by the API. */
 export interface SlackMessage {
 	ts: string;
@@ -123,6 +148,8 @@ export interface SlackMessage {
 	reactions?: SlackReaction[];
 	attachments?: SlackAttachment[];
 	files?: SlackFile[];
+	/** Tables extracted from Block Kit table blocks. */
+	tables?: SlackTable[];
 	permalink?: string;
 }
 
