@@ -319,6 +319,45 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			),
 			// Content
 			text: Type.Optional(Type.String({ description: "Message text to send" })),
+			// Table
+			table: Type.Optional(
+				Type.Object(
+					{
+						columns: Type.Array(Type.String(), {
+							description: "Column header labels",
+						}),
+						rows: Type.Array(Type.Array(Type.String()), {
+							description:
+								"Data rows (mrkdwn strings: *bold*, _italic_, " +
+								"~strike~, `code`, <url|text>, @mention)",
+						}),
+						column_settings: Type.Optional(
+							Type.Array(
+								Type.Union([
+									Type.Object({
+										align: Type.Optional(
+											StringEnum(["left", "center", "right"] as const),
+										),
+										is_wrapped: Type.Optional(Type.Boolean()),
+									}),
+									Type.Null(),
+								]),
+								{
+									description:
+										"Per-column settings. Use null to skip. " +
+										"align: left (default), center, right. " +
+										"is_wrapped: wrap text instead of truncating.",
+								},
+							),
+						),
+					},
+					{
+						description:
+							"Native Slack table block. 1 per message. " +
+							"Max 100 rows, 20 columns.",
+					},
+				),
+			),
 			// File upload
 			file_path: Type.Optional(
 				Type.String({ description: "Local file path to upload" }),
@@ -354,6 +393,25 @@ export default function slackIntegration(pi: ExtensionAPI) {
 						file_paths: Type.Optional(
 							Type.Array(Type.String(), {
 								description: "Local file paths to attach (multiple)",
+							}),
+						),
+						table: Type.Optional(
+							Type.Object({
+								columns: Type.Array(Type.String()),
+								rows: Type.Array(Type.Array(Type.String())),
+								column_settings: Type.Optional(
+									Type.Array(
+										Type.Union([
+											Type.Object({
+												align: Type.Optional(
+													StringEnum(["left", "center", "right"] as const),
+												),
+												is_wrapped: Type.Optional(Type.Boolean()),
+											}),
+											Type.Null(),
+										]),
+									),
+								),
 							}),
 						),
 					}),

@@ -21,6 +21,13 @@ export interface FileInfo {
 	size: number;
 }
 
+/** Table data passed from the router for gate previews. */
+export interface TableParam {
+	columns: string[];
+	rows: string[][];
+	column_settings?: unknown[];
+}
+
 /** Reject action shown in every confirmation gate. */
 const REJECT_ACTION: KeyAction[] = [{ key: "r", label: "Reject" }];
 
@@ -42,6 +49,7 @@ export async function confirmSendMessage(
 	ctx: ExtensionContext,
 	conversationName: string,
 	text: string,
+	table?: TableParam,
 ): Promise<ConfirmResult<{ text: string }>> {
 	if (!ctx.hasUI) return { approved: true, data: { text } };
 
@@ -57,6 +65,12 @@ export async function confirmSendMessage(
 			];
 			for (const line of renderMarkdown(text, theme, width)) {
 				lines.push(line);
+			}
+			if (table) {
+				lines.push("");
+				for (const line of renderTablePreview(table, theme, width)) {
+					lines.push(line);
+				}
 			}
 			return lines;
 		},
@@ -90,6 +104,7 @@ export async function confirmReply(
 	conversationName: string,
 	threadTs: string,
 	text: string,
+	table?: TableParam,
 ): Promise<ConfirmResult<{ text: string }>> {
 	if (!ctx.hasUI) return { approved: true, data: { text } };
 
@@ -106,6 +121,12 @@ export async function confirmReply(
 			];
 			for (const line of renderMarkdown(text, theme, width)) {
 				lines.push(line);
+			}
+			if (table) {
+				lines.push("");
+				for (const line of renderTablePreview(table, theme, width)) {
+					lines.push(line);
+				}
 			}
 			return lines;
 		},
@@ -191,6 +212,102 @@ export async function confirmUploadFile(
 	return { approved: true, data: true };
 }
 
+// ── Table preview rendering ─────────────────────────────
+
+/** Theme type from the promptSingle/promptTabbed content callback. */
+interface GateTheme {
+	fg: (color: string, text: string) => string;
+	bold: (text: string) => string;
+}
+
+/**
+ * Render a table preview using box-drawing characters.
+ *
+ * Shows the mrkdwn source text (what the agent wrote) so
+ * the user can verify the data before it's transformed
+ * to Block Kit.
+ */
+function renderTablePreview(
+	table: TableParam,
+	theme: GateTheme,
+	maxWidth: number,
+): string[] {
+	const allRows = [table.columns, ...table.rows];
+
+	// Calculate column widths, capped to available space.
+	const colCount = table.columns.length;
+	const widths: number[] = [];
+	for (let c = 0; c < colCount; c++) {
+		let max = 0;
+		for (const row of allRows) {
+			max = Math.max(max, (row[c] ?? "").length);
+		}
+		widths.push(max);
+	}
+
+	// Cap total width to terminal. Shrink the widest column
+	// if needed (3 chars overhead per column: " │ " separators
+	// plus the outer "│ " and " │").
+	const overhead = 1 + colCount * 3;
+	const available = Math.max(maxWidth - overhead, colCount * 3);
+	const totalWidth = widths.reduce((a, b) => a + b, 0);
+	if (totalWidth > available) {
+		const scale = available / totalWidth;
+		for (let c = 0; c < colCount; c++) {
+			widths[c] = Math.max(3, Math.floor(widths[c] * scale));
+		}
+	}
+
+	// Parse alignment from column_settings.
+	const aligns: ("left" | "center" | "right")[] = [];
+	for (let c = 0; c < colCount; c++) {
+		const s = table.column_settings?.[c] as
+			| { align?: string }
+			| null
+			| undefined;
+		if (s?.align === "right") aligns.push("right");
+		else if (s?.align === "center") aligns.push("center");
+		else aligns.push("left");
+	}
+
+	/** Pad and truncate a cell value to the column width. */
+	function padCell(value: string, col: number): string {
+		const w = widths[col];
+		const truncated = value.length > w ? `${value.slice(0, w - 1)}…` : value;
+		if (aligns[col] === "right") return truncated.padStart(w);
+		if (aligns[col] === "center") {
+			const pad = w - truncated.length;
+			const left = Math.floor(pad / 2);
+			return " ".repeat(left) + truncated + " ".repeat(pad - left);
+		}
+		return truncated.padEnd(w);
+	}
+
+	function formatRow(row: string[]): string {
+		return `│ ${row.map((v, c) => padCell(v, c)).join(" │ ")} │`;
+	}
+
+	// Top border.
+	const topBorder = `┌${widths.map((w) => "─".repeat(w + 2)).join("┬")}┐`;
+	// Header separator.
+	const headerSep = `├${widths.map((w) => "─".repeat(w + 2)).join("┼")}┤`;
+	// Bottom border.
+	const bottomBorder = `└${widths.map((w) => "─".repeat(w + 2)).join("┴")}┘`;
+
+	const lines: string[] = [];
+	lines.push(` ${theme.fg("dim", topBorder)}`);
+	lines.push(
+		` ${theme.fg("dim", "│")} ${table.columns.map((v, c) => theme.bold(padCell(v, c))).join(` ${theme.fg("dim", "│")} `)} ${theme.fg("dim", "│")}`,
+	);
+	lines.push(` ${theme.fg("dim", headerSep)}`);
+	for (const row of table.rows) {
+		lines.push(` ${theme.fg("dim", formatRow(row))}`);
+	}
+	lines.push(` ${theme.fg("dim", bottomBorder)}`);
+
+	return lines;
+}
+
 /** Format byte count as a human-readable size. */
 function formatBytes(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;
@@ -202,6 +319,7 @@ function formatBytes(bytes: number): string {
 export interface ThreadMessage {
 	text: string;
 	files?: FileInfo[];
+	table?: TableParam;
 }
 
 /**
@@ -237,6 +355,12 @@ export async function confirmSendThread(
 						lines.push("");
 						for (const line of renderMarkdown(msg.text, theme, width)) {
 							lines.push(line);
+						}
+						if (msg.table) {
+							lines.push("");
+							for (const line of renderTablePreview(msg.table, theme, width)) {
+								lines.push(line);
+							}
 						}
 						if (msg.files?.length) {
 							lines.push("");

@@ -11,6 +11,7 @@ export {
 	uploadFiles,
 } from "./files.js";
 export {
+	formatMentions,
 	getMessage,
 	getThread,
 	listMessages,
