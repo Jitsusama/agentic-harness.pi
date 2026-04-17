@@ -8,7 +8,7 @@
 
 import { cacheChannelName } from "../resolvers/conversation.js";
 import { cacheUser, displayNameForId } from "../resolvers/user.js";
-import type { SlackMessage } from "../types.js";
+import type { SlackMessage, SlackTable } from "../types.js";
 
 /**
  * Convert Slack mrkdwn to readable text.
@@ -59,6 +59,37 @@ export function formatSlackText(text: string): string {
 	);
 }
 
+/**
+ * Render a SlackTable as a pipe-delimited markdown table.
+ *
+ * Pads cells to column widths for readability.
+ */
+function renderTable(table: SlackTable): string {
+	// Calculate column widths.
+	const widths = table.columns.map((col, i) =>
+		Math.max(col.length, ...table.rows.map((row) => (row[i] ?? "").length)),
+	);
+
+	// Header row.
+	const header = table.columns
+		.map((col, i) => col.padEnd(widths[i]))
+		.join(" | ");
+
+	// Separator row.
+	const separator = widths.map((w) => "-".repeat(w)).join(" | ");
+
+	// Data rows.
+	const rows = table.rows.map((row) =>
+		row.map((cell, i) => (cell ?? "").padEnd(widths[i])).join(" | "),
+	);
+
+	return [
+		`| ${header} |`,
+		`| ${separator} |`,
+		...rows.map((r) => `| ${r} |`),
+	].join("\n");
+}
+
 /** Format a single message as a readable block. */
 export function renderMessage(msg: SlackMessage): string {
 	const parts: string[] = [];
@@ -75,6 +106,12 @@ export function renderMessage(msg: SlackMessage): string {
 
 	if (msg.text) {
 		parts.push(formatSlackText(msg.text));
+	}
+
+	if (msg.tables?.length) {
+		for (const table of msg.tables) {
+			parts.push(renderTable(table));
+		}
 	}
 
 	if (msg.attachments?.length) {
@@ -160,10 +197,17 @@ export function renderThread(messages: SlackMessage[]): string {
 		const ts = formatTimestamp(msg.ts);
 
 		lines.push(`${prefix} **${user}** ${ts} (ts:${msg.ts})`);
+		const indent = i === messages.length - 1 ? "  " : "│ ";
 		if (msg.text) {
-			const indent = i === messages.length - 1 ? "  " : "│ ";
 			for (const line of formatSlackText(msg.text).split("\n")) {
 				lines.push(`${indent}${line}`);
+			}
+		}
+		if (msg.tables?.length) {
+			for (const table of msg.tables) {
+				for (const line of renderTable(table).split("\n")) {
+					lines.push(`${indent}${line}`);
+				}
 			}
 		}
 		if (i < messages.length - 1) lines.push("│");
