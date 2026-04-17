@@ -29,7 +29,7 @@ import {
 import { resolveMessages } from "../../lib/slack/api/resolve-messages.js";
 import { searchFiles, searchMessages } from "../../lib/slack/api/search.js";
 import { getUserInfo } from "../../lib/slack/api/users.js";
-import { tableToBlock } from "../../lib/slack/blocks.js";
+import { parseMrkdwnToElements, tableToBlock } from "../../lib/slack/blocks.js";
 import { renderChannel } from "../../lib/slack/renderers/channel.js";
 import {
 	renderMessage,
@@ -516,7 +516,7 @@ async function handleSendMessage(
 				elements: [
 					{
 						type: "rich_text_section",
-						elements: [{ type: "text", text: formatted }],
+						elements: parseMrkdwnToElements(formatted),
 					},
 				],
 			});
@@ -589,7 +589,7 @@ async function handleReplyToThread(
 				elements: [
 					{
 						type: "rich_text_section",
-						elements: [{ type: "text", text: formatted }],
+						elements: parseMrkdwnToElements(formatted),
 					},
 				],
 			});
@@ -786,7 +786,7 @@ async function handleSendThread(
 						elements: [
 							{
 								type: "rich_text_section",
-								elements: [{ type: "text", text: formatted }],
+								elements: parseMrkdwnToElements(formatted),
 							},
 						],
 					});
