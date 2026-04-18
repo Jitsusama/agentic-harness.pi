@@ -7,6 +7,8 @@ description: Access Google Workspace (Gmail, Calendar, Drive, Docs, Sheets, Slid
 
 Access Gmail, Google Calendar, and Google Drive through the `google` tool. Translates natural language requests into structured API calls.
 
+When composing emails, drafts or event descriptions on behalf of the user, follow the user's writing voice and prose style guides. The text should sound like the user wrote it.
+
 ## Authentication
 
 User must run `google-auth` once to authenticate. Credentials persist in session.

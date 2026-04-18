@@ -250,7 +250,8 @@ export function replyChoiceBriefing(
 	return (
 		`${summary}\n\n` +
 		"Compose a reply and call pr_reply with action 'reply' and a reply_body. " +
-		"The reply should be conversational, acknowledge the feedback, and be brief."
+		"The reply should be conversational, acknowledge the feedback, and be brief. " +
+		"Follow the user's writing voice and prose style."
 	);
 }
 

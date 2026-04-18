@@ -40,7 +40,10 @@ export function buildReplyGuidance(
 	}
 
 	parts.push("");
-	parts.push("Keep it brief, conversational, and acknowledge the feedback.");
+	parts.push(
+		"Keep it brief, conversational, and acknowledge the feedback. " +
+			"Follow the user's writing voice and prose style.",
+	);
 
 	return parts.join("\n");
 }

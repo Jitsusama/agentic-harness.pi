@@ -4,8 +4,9 @@ description: >
   Code design and style rules applied to all code.
   Readability, naming, structure, abstraction, testing and
   domain-driven design. Use when writing, modifying or
-  reviewing code in any language. Pairs with prose-standard
-  for code comments and doc comments.
+  reviewing code in any language. Follow the user's writing
+  voice and prose style guides for code comments and doc
+  comments.
 ---
 
 # Code Style

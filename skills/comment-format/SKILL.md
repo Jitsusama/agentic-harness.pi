@@ -5,7 +5,8 @@ description: >
   Labels, decorations and tone. Use when writing review
   comments, giving code feedback or posting PR review
   observations. Pairs with code-review-standard for what
-  to evaluate.
+  to evaluate. Follow the user's writing voice and prose
+  style guides for comment text.
 ---
 
 # Conventional Comments
@@ -71,6 +72,12 @@ The tone should be warm, instructional and
 teaching-oriented. Not just "what's wrong" but "what I
 think and why." Explain your reasoning, suggest
 alternatives and teach.
+
+The structural format here (labels, decorations,
+subject/discussion) is the container; the prose inside it
+should follow the user's writing voice and prose style
+guides so the comments sound like something they would
+actually write.
 
 ### Good Examples
 

@@ -4,7 +4,9 @@ description: >
   Conventional commit message structure: types, scopes,
   subject and body rules. Use when writing a commit message
   or amending a commit. Pairs with git-cli-convention for
-  command syntax and git-commit-convention for when to commit.
+  command syntax and git-commit-convention for when to
+  commit. Follow the user's writing voice and prose style
+  guides for body text.
 ---
 
 # Conventional Commits

@@ -4,7 +4,8 @@ description: >
   Issue body structure and narrative. Problem statements,
   acceptance criteria and body organization. Use when writing
   or editing a GitHub issue. Pairs with github-cli-convention
-  for command syntax and prose-standard for voice.
+  for command syntax. Follow the user's writing voice and
+  prose style guides for issue text.
 ---
 
 # Issue Writing

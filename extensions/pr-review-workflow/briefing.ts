@@ -84,6 +84,7 @@ export function activationInstructions(repoPath: string): string {
 		"1. **`synopsis`**: a conversational, approachable summary for a human reviewer. " +
 			"Lead with the motivation (what problem or need), then explain the approach. " +
 			"Write like you're catching up a teammate: not a commit message or changelog entry. " +
+			"Follow the user's writing voice and prose style. " +
 			"Avoid listing every file or change mechanically.",
 	);
 	parts.push(
