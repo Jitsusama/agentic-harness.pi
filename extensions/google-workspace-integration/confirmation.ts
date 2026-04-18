@@ -37,6 +37,9 @@ export type ConfirmResult<T> =
 	| { approved: false; redirect: string }
 	| null;
 
+/** Reject action shared by non-destructive confirmation gates. */
+const REJECT_ACTION = [{ key: "r", label: "Reject" }];
+
 /** Extract redirect feedback from a prompt result, or null if not a redirect. */
 function extractRedirect(
 	result: PromptResult | null,
@@ -96,14 +99,22 @@ export async function confirmSendEmail(
 			}
 			return lines;
 		},
+		actions: REJECT_ACTION,
 	});
 
 	if (!result) return null;
-	const redirect = extractRedirect(
-		result,
-		`Original email to: ${email.to.join(", ")}\nSubject: ${email.subject}`,
-	);
+	const emailContext = `Original email to: ${email.to.join(", ")}\nSubject: ${email.subject}`;
+	const redirect = extractRedirect(result, emailContext);
 	if (redirect) return redirect;
+	if (result.type === "action" && result.key === "r") {
+		return {
+			approved: false,
+			redirect: formatRedirectReason(
+				"User rejected the email. Ask what to change.",
+				emailContext,
+			),
+		};
+	}
 	return { approved: true, data: email };
 }
 
@@ -190,14 +201,22 @@ export async function confirmCreateEvent(
 			lines.push(" Invitations will be sent to all attendees.");
 			return lines;
 		},
+		actions: REJECT_ACTION,
 	});
 
 	if (!result) return null;
-	const redirect = extractRedirect(
-		result,
-		`Create event: ${event.summary}\nAttendees: ${event.attendees.join(", ")}`,
-	);
+	const eventContext = `Create event: ${event.summary}\nAttendees: ${event.attendees.join(", ")}`;
+	const redirect = extractRedirect(result, eventContext);
 	if (redirect) return redirect;
+	if (result.type === "action" && result.key === "r") {
+		return {
+			approved: false,
+			redirect: formatRedirectReason(
+				"User rejected the event. Ask what to change.",
+				eventContext,
+			),
+		};
+	}
 	return { approved: true, data: event };
 }
 
@@ -252,14 +271,22 @@ export async function confirmUpdateEvent(
 			lines.push(" Attendees will be notified of the changes.");
 			return lines;
 		},
+		actions: REJECT_ACTION,
 	});
 
 	if (!result) return null;
-	const redirect = extractRedirect(
-		result,
-		`Update event: ${existingEvent.summary}\nChanges: ${changes.join(", ")}`,
-	);
+	const updateContext = `Update event: ${existingEvent.summary}\nChanges: ${changes.join(", ")}`;
+	const redirect = extractRedirect(result, updateContext);
 	if (redirect) return redirect;
+	if (result.type === "action" && result.key === "r") {
+		return {
+			approved: false,
+			redirect: formatRedirectReason(
+				"User rejected the update. Ask what to change.",
+				updateContext,
+			),
+		};
+	}
 	return { approved: true, data: true };
 }
 
