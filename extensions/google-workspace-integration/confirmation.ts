@@ -231,8 +231,8 @@ export async function confirmUpdateEvent(
 			];
 			lines.push(` ${theme.fg("muted", "Event:")} ${existingEvent.summary}`);
 			lines.push(` ${theme.fg("muted", "ID:")} \`${eventId}\``);
-			lines.push("");
 			if (changes.length > 0) {
+				lines.push("");
 				lines.push(" **Changes:**");
 				for (const change of changes) {
 					lines.push(` - ${change}`);
