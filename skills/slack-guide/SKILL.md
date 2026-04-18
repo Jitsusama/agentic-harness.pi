@@ -16,6 +16,11 @@ description: >
 Access Slack through the `slack` tool. Translates natural
 language requests into structured API calls.
 
+When composing messages on behalf of the user (not just
+relaying information), follow the user's writing voice and
+prose style guides. The message should sound like the user
+wrote it.
+
 ## Authentication
 
 User must run `/slack-setup` once to authenticate. Credentials

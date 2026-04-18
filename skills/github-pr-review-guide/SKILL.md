@@ -4,7 +4,9 @@ description: >
   Pull request review workflow. Context gathering, code
   analysis and structured review posting. Use when reviewing
   someone else's PR. Pairs with code-review-standard for
-  evaluation criteria and comment-format for comment structure.
+  evaluation criteria and comment-format for comment
+  structure. Follow the user's writing voice and prose
+  style guides for review text.
 ---
 
 # PR Review Workflow

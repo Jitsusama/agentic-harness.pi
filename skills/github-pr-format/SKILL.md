@@ -4,8 +4,9 @@ description: >
   PR description structure and narrative. Body organization,
   story types, self-review guidance and title conventions.
   Use when writing or editing a pull request description.
-  Pairs with github-cli-convention for command syntax and
-  prose-standard for voice.
+  Pairs with github-cli-convention for command syntax.
+  Follow the user's writing voice and prose style guides
+  for description text.
 ---
 
 # Pull Request Writing

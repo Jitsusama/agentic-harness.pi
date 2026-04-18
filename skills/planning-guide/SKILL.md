@@ -99,7 +99,7 @@ Known risks and how we'll mitigate them.
 
 For dev plans, the "Skills to Follow" section names the skills
 the implementer should load (e.g., `code-tdd-guide`,
-`code-style-standard`, `prose-standard`). See `planning-dev-format`
+`code-style-standard` and any prose style guides). See `planning-dev-format`
 for the full list and structure.
 
 ## Step Granularity

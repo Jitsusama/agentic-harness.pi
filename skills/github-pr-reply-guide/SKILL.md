@@ -4,7 +4,8 @@ description: >
   Responding to GitHub PR review feedback. Workflow for analyzing
   review threads, implementing changes and posting replies with
   commit references. Use when addressing PR reviews or responding
-  to reviewer feedback.
+  to reviewer feedback. Follow the user's writing voice and
+  prose style guides for reply text.
 ---
 
 # PR Reply Workflow
@@ -139,7 +140,9 @@ Recommend direct implementation when:
 
 ## Writing Replies
 
-Reply text should be:
+Reply text should follow the user's writing voice and
+prose style guides. Beyond that:
+
 - Conversational, not formal.
 - Acknowledge the feedback explicitly.
 - Briefly explain what was done.

@@ -28,7 +28,7 @@ implementation. Don't rewrite their content; just name them:
 ```markdown
 Follow TDD workflow (see code-tdd-guide skill) for implementation.
 Follow code-style-standard skill for design and style.
-Follow prose-standard skill for comments, docs and descriptions.
+Follow the user's writing voice and prose style guides for comments, docs and descriptions.
 ```
 
 The implementer loads these skills and applies them. Plans
