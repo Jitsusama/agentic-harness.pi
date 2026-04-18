@@ -5,7 +5,11 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { type PromptResult, promptSingle } from "../../lib/ui/index.js";
+import {
+	type PromptResult,
+	promptSingle,
+	wordWrap,
+} from "../../lib/ui/index.js";
 import { formatRedirectReason } from "../../lib/ui/redirect.js";
 
 /** Email fields presented to the user for confirmation before sending. */
@@ -66,7 +70,7 @@ export async function confirmSendEmail(
 	if (!ctx.hasUI) return { approved: true, data: email };
 
 	const result = await promptSingle(ctx, {
-		content: (theme) => {
+		content: (theme, width) => {
 			const lines = [
 				theme.fg(
 					"accent",
@@ -84,15 +88,11 @@ export async function confirmSendEmail(
 			lines.push("");
 			lines.push(` ${theme.fg("muted", "Subject:")} ${email.subject}`);
 			lines.push("");
-			const bodyLines = email.body.split("\n");
-			const preview = bodyLines.slice(0, 15);
-			for (const line of preview) {
-				lines.push(` ${line}`);
-			}
-			if (bodyLines.length > 15) {
-				lines.push(
-					` ${theme.fg("dim", `... (${bodyLines.length - 15} more lines)`)}`,
-				);
+			const wrapWidth = Math.max(20, width - 2);
+			for (const line of email.body.split("\n")) {
+				for (const wrapped of wordWrap(line, wrapWidth)) {
+					lines.push(` ${wrapped}`);
+				}
 			}
 			return lines;
 		},
@@ -161,7 +161,7 @@ export async function confirmCreateEvent(
 	}
 
 	const result = await promptSingle(ctx, {
-		content: (theme) => {
+		content: (theme, width) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Create Calendar Event")),
 				"",
@@ -177,10 +177,13 @@ export async function confirmCreateEvent(
 				` ${theme.fg("muted", "Attendees:")} ${event.attendees.join(", ")}`,
 			);
 			if (event.description) {
+				const wrapWidth = Math.max(20, width - 2);
 				lines.push("");
 				lines.push(` ${theme.fg("muted", "Description:")}`);
-				for (const line of event.description.split("\n").slice(0, 5)) {
-					lines.push(` ${line}`);
+				for (const line of event.description.split("\n")) {
+					for (const wrapped of wordWrap(line, wrapWidth)) {
+						lines.push(` ${wrapped}`);
+					}
 				}
 			}
 			lines.push("");
@@ -220,10 +223,8 @@ export async function confirmUpdateEvent(
 	if (updates.location) changes.push(`Location: ${updates.location}`);
 	if (updates.attendees)
 		changes.push(`Attendees: ${updates.attendees.join(", ")}`);
-	if (updates.description) changes.push("Description updated");
-
 	const result = await promptSingle(ctx, {
-		content: (theme) => {
+		content: (theme, width) => {
 			const lines = [
 				theme.fg("accent", theme.bold(" Update Calendar Event")),
 				"",
@@ -231,9 +232,21 @@ export async function confirmUpdateEvent(
 			lines.push(` ${theme.fg("muted", "Event:")} ${existingEvent.summary}`);
 			lines.push(` ${theme.fg("muted", "ID:")} \`${eventId}\``);
 			lines.push("");
-			lines.push(" **Changes:**");
-			for (const change of changes) {
-				lines.push(` - ${change}`);
+			if (changes.length > 0) {
+				lines.push(" **Changes:**");
+				for (const change of changes) {
+					lines.push(` - ${change}`);
+				}
+			}
+			if (updates.description) {
+				const wrapWidth = Math.max(20, width - 2);
+				lines.push("");
+				lines.push(` ${theme.fg("muted", "Description:")}`);
+				for (const line of updates.description.split("\n")) {
+					for (const wrapped of wordWrap(line, wrapWidth)) {
+						lines.push(` ${wrapped}`);
+					}
+				}
 			}
 			lines.push("");
 			lines.push(" Attendees will be notified of the changes.");
