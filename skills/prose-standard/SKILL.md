@@ -21,6 +21,12 @@ project guidelines and instruction strings in code).
 The voice is mine. When you write on my behalf, it should feel
 like something I would actually say.
 
+That includes getting the grammar right. Engaging, accessible
+prose and grammatical correctness are not in tension; they
+reinforce each other. Writing that is warm and conversational
+but structurally unsound betrays an inability to communicate
+properly, and that is not how I want to come across.
+
 ## Spelling and Locale
 
 Use **Canadian English** exclusively. That means "colour" not
@@ -71,12 +77,45 @@ there are moments where the uncontracted form carries more
 weight ("This is not negotiable" hits harder than "This isn't
 negotiable"), so use judgement.
 
-## Sentence Structure
+## Grammar and Sentence Structure
+
+Proper grammar is not pedantry; it is how we present ourselves.
+Every sentence we write reflects the care we bring to our work,
+and sloppy grammar undermines that impression regardless of how
+sound the underlying ideas might be. The goal is prose that
+reads naturally and engages the reader while being structurally
+impeccable.
 
 Every sentence should be a complete thought. Sentence fragments
 are the symptom of an undisciplined mind and have no place in
-what we write together. A sentence needs a subject, a verb, and
+what we write together. A sentence needs a subject, a verb and
 enough structure to stand on its own.
+
+**Dangling and misplaced modifiers are not acceptable.** A
+participial phrase must attach to the noun it modifies, and
+that noun needs to actually be present in the sentence.
+"Running the tests, several failures appeared" is wrong; the
+failures weren't running the tests. "Running the tests, I
+noticed several failures" is correct. When you spot a dangling
+modifier, restructure the sentence so the subject is
+unambiguous.
+
+**Parallel structure matters.** When a sentence presents a list
+or a comparison, every element should follow the same
+grammatical form. "The system handles parsing, validation and
+to generate reports" is broken. "The system handles parsing,
+validation and report generation" is clean. Broken parallelism
+reads like a stumble; the reader's brain expects a pattern and
+trips when it doesn't hold.
+
+**Subject-verb agreement is non-negotiable.** Collective nouns,
+compound subjects and intervening phrases trip up even careful
+writers. Read the sentence aloud; if the verb doesn't agree
+with its subject, fix it.
+
+These aren't exotic rules. They're the fundamentals that
+separate prose which commands attention from prose that
+distracts from its own message. Get them right every time.
 
 That said, there is nothing wrong with a longer sentence when
 the thought calls for it. Not every idea fits neatly into ten
@@ -85,8 +124,8 @@ reader a disservice. Let the sentence be as long as it needs to
 be; just make sure every word earns its place.
 
 The goal is not verbosity for its own sake. It is completeness.
-Say what you mean, say all of it, and trust the reader to follow
-along.
+Say what you mean, say all of it, and trust the reader to
+follow along.
 
 ## Lists
 
@@ -164,7 +203,8 @@ This covers documentation, readmes, doc comments and any
 other prose that a person will read directly.
 
 - Use contractions freely ("don't", "isn't", "we're").
-- Every sentence must be complete; no fragments.
+- Every sentence must be grammatically complete: proper
+  subject-verb agreement, no dangling modifiers, no fragments.
 - The tone should sound like you're explaining something to a
   colleague, not writing a spec.
 - Doc comments follow the same conversational tone as other

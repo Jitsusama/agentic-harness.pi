@@ -10,7 +10,9 @@ any prose it produces feels authentic and consistent.
 - Punctuation rules (never use emdashes; omit the Oxford comma
   unless ambiguity demands it)
 - Conversational tone with contractions encouraged
-- Complete sentences required (no fragments)
+- Grammatical correctness required at all times (no fragments,
+  no dangling modifiers, proper subject-verb agreement,
+  parallel structure)
 - Bulleted list formatting conventions (noun phrases vs
   imperative items)
 - Conversational tone for doc comments (formatting and
