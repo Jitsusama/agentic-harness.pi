@@ -291,11 +291,22 @@ Use file IDs or URLs for follow-up (get_file).
 ### Document Content
 
 Docs/Sheets/Slides rendered as markdown:
-- Docs: formatted text with headings
+- Docs: formatted text with headings, **all tabs included**
 - Sheets: markdown tables (one per sheet)
 - Slides: outline format
 
 Comments (if requested) appear at the end with status and replies.
+
+### Google Docs Tabs
+
+Google Docs can contain multiple tabs (like sheets in a spreadsheet). The `get_file` action automatically fetches **all tabs** in a document:
+
+- **Multi-tab documents**: each tab renders under its own `## 📑 Tab Title` heading with a tab ID. Child tabs use deeper headings (`###`, `####`, `#####`) matching their nesting level. A tab count appears in the metadata.
+- **Single-tab documents**: the content renders flat with no extra heading.
+- **Tab links**: when a URL contains a `tab=t.XXXXX` parameter (from "Copy link" on a tab), the response includes a "Linked tab" hint identifying which tab was referenced.
+- **Tab content**: available in `details.content.tabs[]`, each with `id`, `title`, `body`, and `nestingLevel` (0 for root tabs, 1+ for subtabs).
+
+When the user asks about a specific tab, reference it by its title. When summarising a multi-tab document, mention all tabs by name.
 
 ## Common Mistakes to Avoid
 

@@ -4,6 +4,7 @@
 
 import type { OAuth2Client } from "google-auth-library";
 import {
+	type DocTab,
 	getDocComments,
 	getDocContent,
 } from "../../../lib/google/apis/docs.js";
@@ -83,6 +84,7 @@ export async function handleGetFile(
 
 	// We parse the URL if one was provided.
 	let fileId = id;
+	let linkedTabId: string | undefined;
 	if (url && !fileId) {
 		const parsed = parseGoogleUrl(url);
 		if (!parsed) {
@@ -91,6 +93,7 @@ export async function handleGetFile(
 			};
 		}
 		fileId = parsed.id;
+		linkedTabId = parsed.tabId;
 	}
 
 	if (!fileId) {
@@ -117,9 +120,18 @@ export async function handleGetFile(
 	// We route based on the MIME type.
 	if (mime === "application/vnd.google-apps.document") {
 		const content = await getDocContent(auth, fileId);
+		const text = renderDoc(file, content, comments);
+
+		// When the URL linked to a specific tab, add a hint
+		// so the agent knows which tab was referenced.
+		const linkedTabHint = linkedTabId
+			? buildLinkedTabHint(linkedTabId, content.tabs)
+			: undefined;
+		const fullText = linkedTabHint ? `${text}\n---\n${linkedTabHint}` : text;
+
 		return {
-			content: [{ type: "text", text: renderDoc(file, content, comments) }],
-			details: { file, content, comments },
+			content: [{ type: "text", text: fullText }],
+			details: { file, content, comments, linkedTabId },
 		};
 	}
 
@@ -149,6 +161,18 @@ export async function handleGetFile(
 		],
 		details: { file },
 	};
+}
+
+/**
+ * Build a hint line identifying the tab that the URL linked to.
+ */
+function buildLinkedTabHint(
+	linkedTabId: string,
+	tabs: DocTab[],
+): string | undefined {
+	const tab = tabs.find((t) => t.id === linkedTabId);
+	if (!tab) return undefined;
+	return `**Linked tab:** ${tab.title} (\`${tab.id}\`)`;
 }
 
 /** List all shared drives the user has access to. */
