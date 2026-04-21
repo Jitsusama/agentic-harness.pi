@@ -159,12 +159,18 @@ export async function listSharedDrives(
 	}));
 }
 
+/** Result of parsing a Google Workspace URL. */
+export interface ParsedGoogleUrl {
+	id: string;
+	type: string;
+	/** Tab ID extracted from a `tab=t.XXXXX` query parameter, if present. */
+	tabId?: string;
+}
+
 /**
- * Parse file ID from a Google URL.
+ * Parse file ID (and optional tab ID) from a Google URL.
  */
-export function parseGoogleUrl(
-	url: string,
-): { id: string; type: string } | null {
+export function parseGoogleUrl(url: string): ParsedGoogleUrl | null {
 	// We match against various Google URL patterns.
 	const patterns = [
 		// docs.google.com/document/d/FILE_ID/...
@@ -187,11 +193,21 @@ export function parseGoogleUrl(
 			else if (url.includes("/spreadsheets/")) type = "sheet";
 			else if (url.includes("/presentation/")) type = "slides";
 
-			return { id: match[1], type };
+			const tabId = extractTabId(url);
+			return { id: match[1], type, ...(tabId ? { tabId } : {}) };
 		}
 	}
 
 	return null;
+}
+
+/**
+ * Extract a tab ID from a Google Docs URL query parameter.
+ * Google Docs tab links use `?tab=t.XXXXX` or `#tab=t.XXXXX`.
+ */
+function extractTabId(url: string): string | undefined {
+	const match = url.match(/[?&#]tab=(t\.[a-zA-Z0-9_-]+)/);
+	return match?.[1];
 }
 
 function getMimeType(type: string): string {

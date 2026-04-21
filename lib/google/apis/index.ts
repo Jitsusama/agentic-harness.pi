@@ -14,6 +14,7 @@ export {
 } from "./calendar.js";
 export {
 	type DocContent,
+	type DocTab,
 	getDocComments,
 	getDocContent,
 } from "./docs.js";
@@ -21,6 +22,7 @@ export {
 	getFileMetadata,
 	listFiles,
 	listSharedDrives,
+	type ParsedGoogleUrl,
 	parseGoogleUrl,
 } from "./drive.js";
 export {

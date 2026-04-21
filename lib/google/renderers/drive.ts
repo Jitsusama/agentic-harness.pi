@@ -2,7 +2,7 @@
  * Drive file rendering to markdown.
  */
 
-import type { DocContent } from "../apis/docs.js";
+import type { DocContent, DocTab } from "../apis/docs.js";
 import type { SheetData } from "../apis/sheets.js";
 import type { SlideData } from "../apis/slides.js";
 import type { DocumentComment, DriveFile } from "../types.js";
@@ -43,6 +43,10 @@ export function renderFileList(
 
 /**
  * Render a Google Doc as markdown.
+ *
+ * When the document has multiple tabs, each tab is rendered
+ * under its own heading. Single-tab documents render flat
+ * (no extra heading) for a clean reading experience.
  */
 export function renderDoc(
 	file: DriveFile,
@@ -60,8 +64,25 @@ export function renderDoc(
 	if (file.webViewLink) {
 		lines.push(`Link: ${file.webViewLink}`);
 	}
+
+	const tabs = content.tabs;
+	const multiTab = tabs.length > 1;
+
+	if (multiTab) {
+		lines.push(`Tabs: ${tabs.length}`);
+	}
+
 	lines.push("\n---\n");
-	lines.push(content.body);
+
+	if (multiTab) {
+		for (const tab of tabs) {
+			lines.push(renderTabHeading(tab));
+			lines.push(tab.body);
+			lines.push("");
+		}
+	} else {
+		lines.push(content.body);
+	}
 
 	if (comments && comments.length > 0) {
 		lines.push("\n---\n");
@@ -69,6 +90,28 @@ export function renderDoc(
 	}
 
 	return lines.join("\n");
+}
+
+/**
+ * Maximum heading depth for tab headings.
+ *
+ * Google Docs allows up to 3 nesting levels (nestingLevel 0–3).
+ * With the +2 offset that maps to heading levels 2–5 (`##`
+ * through `#####`), covering the full range the UI supports.
+ */
+const MAX_TAB_HEADING_LEVEL = 5;
+
+/**
+ * Render a tab section heading with its title and ID.
+ *
+ * Root tabs render as `##`, children as `###`, grandchildren
+ * as `####`, and the deepest subtabs as `#####`.
+ */
+function renderTabHeading(tab: DocTab): string {
+	const level = Math.min(tab.nestingLevel + 2, MAX_TAB_HEADING_LEVEL);
+	const hashes = "#".repeat(level);
+	const idSuffix = tab.id ? ` \`${tab.id}\`` : "";
+	return `${hashes} 📑 ${tab.title}${idSuffix}\n`;
 }
 
 /**
