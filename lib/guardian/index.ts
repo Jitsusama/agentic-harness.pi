@@ -7,5 +7,8 @@
  */
 
 export { formatRedirectBlock } from "./redirect.js";
-export { registerGuardian } from "./register.js";
+export {
+	type RegisterGuardianOptions,
+	registerGuardian,
+} from "./register.js";
 export { ALLOW, type CommandGuardian, type GuardianResult } from "./types.js";

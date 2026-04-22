@@ -21,6 +21,8 @@ dependencies live in the root `package.json`.
   - `lib/shell/`: shell command parsing: flag extraction,
     heredoc stripping, splitting, quoting (public)
   - `lib/internal/`: not for external use
+    - `git/`: process-global bypass state for git
+      command interception
     - `guardian/`: commit-specific parsing and entity review
     - `github/`: GitHub utilities (CLI parsing, diff,
       GraphQL, PR identity, review posting)
@@ -57,7 +59,8 @@ it does:
   both persistent session workflows (planning, TDD) and
   task-scoped orchestration (PR review, PR reply).
   `plan-workflow`, `tdd-workflow`, `pr-review-workflow`,
-  `pr-reply-workflow`, `pr-annotate-workflow`, `ask-workflow`
+  `pr-reply-workflow`, `pr-annotate-workflow`, `ask-workflow`,
+  `git-bypass-workflow`
 
 - **Integrations** (`*-integration`): bridge to external
   services via registered tools.
