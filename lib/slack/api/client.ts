@@ -200,6 +200,43 @@ export class SlackClient {
 	}
 
 	/**
+	 * Download a file from an authenticated Slack URL.
+	 *
+	 * Used to fetch files from `url_private` URLs on Slack
+	 * messages. Authenticates with the Bearer token (or session
+	 * cookie for browser tokens). Returns the raw bytes and
+	 * the content type reported by the server.
+	 */
+	async download(
+		url: string,
+		signal?: AbortSignal,
+	): Promise<{ buffer: Buffer; contentType: string }> {
+		const headers: Record<string, string> = {
+			Authorization: `Bearer ${this.token}`,
+		};
+		if (this.cookie) {
+			headers.Cookie = `d=${this.cookie}`;
+		}
+
+		const response = await fetch(url, {
+			method: "GET",
+			headers,
+			signal,
+		});
+
+		if (!response.ok) {
+			throw new Error(
+				`File download failed: HTTP ${response.status} ${response.statusText}`,
+			);
+		}
+
+		const arrayBuffer = await response.arrayBuffer();
+		const contentType =
+			response.headers.get("content-type") ?? "application/octet-stream";
+		return { buffer: Buffer.from(arrayBuffer), contentType };
+	}
+
+	/**
 	 * Upload raw bytes to an external upload URL.
 	 *
 	 * Used by the file upload flow after obtaining a URL from

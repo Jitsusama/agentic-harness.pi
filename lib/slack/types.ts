@@ -48,9 +48,14 @@ export function numberParam(
 	return typeof value === "number" ? value : undefined;
 }
 
+/** Content block in a tool result: text or base64 image. */
+export type ToolContent =
+	| { type: "text"; text: string }
+	| { type: "image"; data: string; mimeType: string };
+
 /** Result of a tool execution. */
 export interface ToolResult {
-	content: Array<{ type: "text"; text: string }>;
+	content: ToolContent[];
 	details?: unknown;
 }
 

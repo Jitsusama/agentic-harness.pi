@@ -261,6 +261,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"To upload files, use upload_file with file_path (single) or file_paths (array) and a channel. Files can also be attached to send_message and reply_to_thread by adding file_path or file_paths.",
 			"To post an entire thread at once, use send_thread with channel and a messages array. The first message becomes the thread parent; the rest become replies in order. Each message has text and optional file_path/file_paths. A tabbed review gate lets the user approve each message before sending.",
 			"Every message in results includes a (ts:...) value. For get_thread, reply_to_thread and other ts-based actions, always use these ts values from previous tool results. Never fabricate or guess a timestamp.",
+			"To get_message on a thread reply, set ts to the thread parent's ts (the first message in the thread) and message_id to the reply's ts. Without message_id, get_message only finds top-level channel messages.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(
@@ -295,6 +296,13 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				}),
 			),
 			ts: Type.Optional(Type.String({ description: "Message timestamp" })),
+			message_id: Type.Optional(
+				Type.String({
+					description:
+						"Message ID for thread lookup. For get_message on a thread reply, " +
+						"set ts to the thread parent ts and message_id to the reply ts.",
+				}),
+			),
 			user: Type.Optional(
 				Type.String({
 					description: "User handle (with or without @), or user ID",

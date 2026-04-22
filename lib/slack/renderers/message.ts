@@ -134,7 +134,11 @@ export function renderMessage(msg: SlackMessage): string {
 	if (msg.files?.length) {
 		for (const f of msg.files) {
 			const type = f.mimetype ? ` [${f.mimetype}]` : "";
-			parts.push(`📄 ${f.name}${type}`);
+			if (f.url) {
+				parts.push(`📄 [${f.name}](${f.url})${type}`);
+			} else {
+				parts.push(`📄 ${f.name}${type}`);
+			}
 		}
 	}
 
@@ -209,6 +213,40 @@ export function renderThread(messages: SlackMessage[]): string {
 					lines.push(`${indent}${line}`);
 				}
 			}
+		}
+		if (msg.attachments?.length) {
+			for (const att of msg.attachments) {
+				const title = att.title || att.fallback;
+				const url = att.fromUrl || att.imageUrl;
+				if (title && url) {
+					lines.push(`${indent}📎 [${title}](${url})`);
+				} else if (title) {
+					lines.push(`${indent}📎 ${title}`);
+				} else if (url) {
+					lines.push(`${indent}📎 ${url}`);
+				}
+				if (att.text) {
+					for (const line of formatSlackText(att.text).split("\n")) {
+						lines.push(`${indent}${line}`);
+					}
+				}
+			}
+		}
+		if (msg.files?.length) {
+			for (const f of msg.files) {
+				const type = f.mimetype ? ` [${f.mimetype}]` : "";
+				if (f.url) {
+					lines.push(`${indent}📄 [${f.name}](${f.url})${type}`);
+				} else {
+					lines.push(`${indent}📄 ${f.name}${type}`);
+				}
+			}
+		}
+		if (msg.reactions?.length) {
+			const rxns = msg.reactions
+				.map((r) => `:${r.name}: ${r.count}`)
+				.join("  ");
+			lines.push(`${indent}${rxns}`);
 		}
 		if (i < messages.length - 1) lines.push("│");
 	}

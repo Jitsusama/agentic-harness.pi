@@ -186,6 +186,123 @@ async function fetchShareTs(
 	return undefined;
 }
 
+/** MIME types recognised as images that the model can interpret. */
+const IMAGE_MIME_TYPES = new Set([
+	"image/png",
+	"image/jpeg",
+	"image/gif",
+	"image/webp",
+]);
+
+/**
+ * Application MIME types that contain readable text.
+ *
+ * These aren't under `text/` but the model can interpret
+ * their content when decoded as UTF-8.
+ */
+const TEXT_APPLICATION_TYPES = new Set([
+	"application/json",
+	"application/xml",
+	"application/javascript",
+	"application/typescript",
+	"application/x-yaml",
+	"application/x-sh",
+	"application/sql",
+	"application/graphql",
+	"application/toml",
+]);
+
+/** Maximum file size we'll download (5 MB). */
+const MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024;
+
+/** A downloaded file ready to be returned as model content. */
+export type DownloadedFile =
+	| { kind: "image"; data: string; mimeType: string; name: string }
+	| { kind: "text"; text: string; name: string };
+
+/**
+ * Check whether a MIME type is a supported image format.
+ *
+ * Used to decide whether a file attachment should be
+ * downloaded and sent to the model as image content.
+ */
+export function isImageMimeType(mimeType: string | undefined): boolean {
+	if (!mimeType) return false;
+	const base = baseMimeType(mimeType);
+	return IMAGE_MIME_TYPES.has(base);
+}
+
+/**
+ * Check whether a MIME type is readable as text.
+ *
+ * Matches all `text/*` types and a curated set of
+ * `application/*` types that contain human-readable content.
+ */
+export function isTextMimeType(mimeType: string | undefined): boolean {
+	if (!mimeType) return false;
+	const base = baseMimeType(mimeType);
+	return base.startsWith("text/") || TEXT_APPLICATION_TYPES.has(base);
+}
+
+/** Strip parameters from a MIME type (e.g. "text/plain; charset=utf-8" → "text/plain"). */
+function baseMimeType(mimeType: string): string {
+	return mimeType.split(";")[0].trim().toLowerCase();
+}
+
+/**
+ * Download displayable files from Slack messages.
+ *
+ * Filters files to supported image and text types, downloads
+ * them via the authenticated client, and returns content
+ * ready for model consumption. Images are base64-encoded;
+ * text files are decoded as UTF-8. Skips files that are too
+ * large or fail to download.
+ */
+export async function downloadFiles(
+	client: SlackClient,
+	files: Array<{ name: string; mimetype?: string; url?: string }>,
+	signal?: AbortSignal,
+): Promise<DownloadedFile[]> {
+	const results: DownloadedFile[] = [];
+
+	for (const file of files) {
+		if (!file.url) continue;
+
+		const isImage = isImageMimeType(file.mimetype);
+		const isText = isTextMimeType(file.mimetype);
+		if (!isImage && !isText) continue;
+
+		try {
+			const { buffer, contentType } = await client.download(file.url, signal);
+			if (buffer.length > MAX_DOWNLOAD_BYTES) continue;
+
+			if (isImage) {
+				const mimeType = isImageMimeType(contentType)
+					? baseMimeType(contentType)
+					: (file.mimetype ?? "image/png");
+
+				results.push({
+					kind: "image",
+					data: buffer.toString("base64"),
+					mimeType,
+					name: file.name,
+				});
+			} else {
+				results.push({
+					kind: "text",
+					text: buffer.toString("utf-8"),
+					name: file.name,
+				});
+			}
+		} catch {
+			// Download failed; skip this file silently.
+			// The text renderer still shows the filename.
+		}
+	}
+
+	return results;
+}
+
 /**
  * Get the byte size of a local file.
  *

@@ -115,39 +115,67 @@ function toSlackMessage(
 /**
  * Fetch a single message by channel and timestamp.
  *
- * Uses conversations.history with inclusive bounds to get
- * exactly one message. Attempts to fetch a permalink as well.
+ * For top-level messages, pass the message's ts directly.
+ * For thread replies, pass the thread parent's ts and the
+ * reply's ts as messageId. Uses conversations.history for
+ * top-level messages and conversations.replies for thread
+ * replies.
  */
 export async function getMessage(
 	client: SlackClient,
 	conversation: Conversation,
 	ts: string,
+	messageId?: string,
 	signal?: AbortSignal,
 ): Promise<SlackMessage> {
-	const response = await client.call<{
-		messages: RawMessage[];
-	}>(
-		"conversations.history",
-		{
-			channel: conversation.id,
-			latest: ts,
-			oldest: ts,
-			limit: 1,
-			inclusive: true,
-		},
-		signal,
-	);
+	let msg: RawMessage | undefined;
 
-	const msg = response.messages?.[0];
+	if (messageId) {
+		// Fetch a specific thread reply: ts is the thread parent,
+		// messageId is the reply we want.
+		const response = await client.call<{
+			messages: RawMessage[];
+		}>(
+			"conversations.replies",
+			{
+				channel: conversation.id,
+				ts,
+				latest: messageId,
+				oldest: messageId,
+				limit: 1,
+				inclusive: true,
+			},
+			signal,
+		);
+		msg = response.messages?.find((m) => m.ts === messageId);
+	} else {
+		// Fetch a top-level channel message.
+		const response = await client.call<{
+			messages: RawMessage[];
+		}>(
+			"conversations.history",
+			{
+				channel: conversation.id,
+				latest: ts,
+				oldest: ts,
+				limit: 1,
+				inclusive: true,
+			},
+			signal,
+		);
+		msg = response.messages?.[0];
+	}
+
 	if (!msg) {
 		throw new Error("Message not found.");
 	}
 
 	// Best-effort permalink fetch.
+	const permalinkTs = messageId ?? ts;
 	try {
 		const linkResponse = await client.call<{ permalink: string }>(
 			"chat.getPermalink",
-			{ channel: conversation.id, message_ts: ts },
+			{ channel: conversation.id, message_ts: permalinkTs },
 			signal,
 		);
 		msg.permalink = linkResponse.permalink;

@@ -11,7 +11,12 @@ import { basename } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { getChannelInfo } from "../../lib/slack/api/channels.js";
 import type { SlackClient } from "../../lib/slack/api/client.js";
-import { getFileSize, uploadFiles } from "../../lib/slack/api/files.js";
+import {
+	type DownloadedFile,
+	downloadFiles,
+	getFileSize,
+	uploadFiles,
+} from "../../lib/slack/api/files.js";
 import {
 	formatMentions,
 	getMessage,
@@ -50,8 +55,10 @@ import {
 	numberParam,
 	type ResolvedParams,
 	type SlackColumnSetting,
+	type SlackMessage,
 	type SlackTable,
 	stringParam,
+	type ToolContent,
 	type ToolResult,
 } from "../../lib/slack/types.js";
 import {
@@ -97,6 +104,39 @@ export async function routeAction(
 /** Shorthand for a simple text result. */
 function text(content: string, details?: unknown): ToolResult {
 	return { content: [{ type: "text", text: content }], details };
+}
+
+/** Build a result with text and optional file content. */
+function textWithFiles(
+	content: string,
+	files: DownloadedFile[],
+	details?: unknown,
+): ToolResult {
+	const parts: ToolContent[] = [{ type: "text", text: content }];
+	for (const file of files) {
+		if (file.kind === "image") {
+			parts.push({ type: "image", data: file.data, mimeType: file.mimeType });
+		} else {
+			parts.push({ type: "text", text: `\n📄 ${file.name}:\n${file.text}` });
+		}
+	}
+	return { content: parts, details };
+}
+
+/**
+ * Download displayable files from a set of messages.
+ *
+ * Collects all files across the messages and downloads
+ * images and text-based files via the authenticated client.
+ */
+async function collectFileContent(
+	client: SlackClient,
+	messages: SlackMessage[],
+	signal?: AbortSignal,
+): Promise<DownloadedFile[]> {
+	const allFiles = messages.flatMap((m) => m.files ?? []);
+	if (allFiles.length === 0) return [];
+	return downloadFiles(client, allFiles, signal);
 }
 
 /** Shorthand for missing parameter errors. */
@@ -280,19 +320,22 @@ async function handleSearchFiles(
 }
 
 async function handleGetMessage(
-	_client: SlackClient,
-	_params: ActionParams,
+	client: SlackClient,
+	params: ActionParams,
 	resolved: ResolvedParams,
 ): Promise<ToolResult> {
 	if (!resolved.target) return missing("channel + ts or target");
 
+	const messageId = stringParam(params, "message_id");
 	const msg = await getMessage(
-		_client,
+		client,
 		resolved.target.conversation,
 		resolved.target.ts,
+		messageId,
 	);
-	await resolveMessages(_client, [msg]);
-	return text(renderMessage(msg), { message: msg });
+	await resolveMessages(client, [msg]);
+	const files = await collectFileContent(client, [msg]);
+	return textWithFiles(renderMessage(msg), files, { message: msg });
 }
 
 async function handleGetThread(
@@ -309,7 +352,8 @@ async function handleGetThread(
 		numberParam(params, "limit"),
 	);
 	await resolveMessages(client, messages);
-	return text(renderThread(messages), { messages });
+	const files = await collectFileContent(client, messages);
+	return textWithFiles(renderThread(messages), files, { messages });
 }
 
 async function handleListMessages(
@@ -325,8 +369,8 @@ async function handleListMessages(
 		latest: coerceTimestamp(stringParam(params, "latest")),
 	});
 	await resolveMessages(client, messages);
-
-	return text(renderMessageList(messages), { messages });
+	const files = await collectFileContent(client, messages);
+	return textWithFiles(renderMessageList(messages), files, { messages });
 }
 
 async function handleGetChannel(
