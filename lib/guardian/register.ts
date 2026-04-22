@@ -15,6 +15,15 @@ import {
 import { stripHeredocBodies, stripShellData } from "../shell/parse.js";
 import type { CommandGuardian } from "./types.js";
 
+/** Options for guardian registration. */
+export interface RegisterGuardianOptions {
+	/**
+	 * When provided, the guardian is skipped if this returns true.
+	 * Checked before detect, so it short-circuits cheaply.
+	 */
+	bypass?: () => boolean;
+}
+
 /**
  * Register a command guardian on Pi's tool_call event.
  *
@@ -25,12 +34,14 @@ import type { CommandGuardian } from "./types.js";
 export function registerGuardian<T>(
 	pi: ExtensionAPI,
 	guardian: CommandGuardian<T>,
+	options?: RegisterGuardianOptions,
 ): void {
 	pi.on(
 		"tool_call",
 		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
 			if (!isToolCallEventType("bash", event)) return;
 			if (!ctx.hasUI) return;
+			if (options?.bypass?.()) return;
 
 			const command = event.input.command;
 			if (!guardian.detect(stripShellData(stripHeredocBodies(command)))) return;
