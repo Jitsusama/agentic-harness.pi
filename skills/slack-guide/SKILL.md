@@ -132,6 +132,18 @@ instead. This is a Slack API limitation, not a tool limitation.
   or guess a timestamp** — Slack timestamps are precise
   identifiers, not derivable from human-readable dates.
 
+### "Get that specific message from the thread"
+→ `get_message` with `channel`, `ts` (the reply's ts) and
+  `thread_ts` (the thread parent's ts).
+
+  Without `thread_ts`, `get_message` only finds top-level
+  channel messages. Thread replies require both timestamps
+  because Slack's API uses the parent ts to locate the thread
+  and the reply ts to find the specific message within it.
+
+  The thread parent's ts is the first message's `(ts:...)`
+  in a `get_thread` result.
+
 ### "What's happening in #channel" / "Last N messages in #channel"
 → `list_messages` with `channel: "channel-name"` and a `limit`
   This uses `conversations.history`, which returns every
@@ -322,6 +334,34 @@ After `get_user`, the user may ask:
 The most common follow-up after a search is reading a thread.
 When results show messages with thread context, proactively
 mention that threads are available.
+
+## File Attachments
+
+Slack messages can carry file attachments: images,
+screenshots, code snippets, JSON configs, etc. The tool
+automatically downloads and exposes file content for
+targeted fetches (`get_message` and `get_thread`).
+
+**Images** (png, jpeg, gif, webp) are downloaded and
+returned as image content the model can see directly.
+
+**Text files** (`text/*` types plus json, xml, yaml,
+javascript, typescript, sh, sql, graphql, toml) are
+downloaded and returned as text content.
+
+**Other file types** are not downloaded but their URLs
+are rendered as markdown links (`📄 [name](url)`) so
+the user can access them manually.
+
+**Bulk fetches** (`list_messages`, `search_messages`)
+don't auto-download files — they show file references
+with URLs. Use `get_message` to download a specific
+file on demand.
+
+Limits: max 10 files per request, 5 MB per image,
+128 KB per text file. Oversized or inaccessible files
+are skipped silently; the filename still appears in
+the rendered text.
 
 ## Response Formatting
 

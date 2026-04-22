@@ -200,6 +200,68 @@ export class SlackClient {
 	}
 
 	/**
+	 * Download a file from an authenticated Slack URL.
+	 *
+	 * Used to fetch files from `url_private` URLs on Slack
+	 * messages. Authenticates with the Bearer token (or session
+	 * cookie for browser tokens). Returns the raw bytes and
+	 * the content type reported by the server.
+	 *
+	 * When `maxBytes` is set, the Content-Length header is
+	 * checked before reading the body to avoid buffering
+	 * oversized files.
+	 */
+	async download(
+		url: string,
+		opts?: { signal?: AbortSignal; maxBytes?: number },
+	): Promise<{ buffer: Buffer; contentType: string }> {
+		const headers: Record<string, string> = {
+			Authorization: `Bearer ${this.token}`,
+		};
+		if (this.cookie) {
+			headers.Cookie = `d=${this.cookie}`;
+		}
+
+		const response = await fetch(url, {
+			method: "GET",
+			headers,
+			signal: opts?.signal,
+		});
+
+		if (!response.ok) {
+			throw new Error(
+				`File download failed: HTTP ${response.status} ${response.statusText}`,
+			);
+		}
+
+		// Reject oversized files before reading the body when
+		// the server reports Content-Length.
+		if (opts?.maxBytes) {
+			const contentLength = response.headers.get("content-length");
+			if (contentLength !== null && Number(contentLength) > opts.maxBytes) {
+				// Consume the body to release the connection.
+				await response.body?.cancel();
+				throw new Error(
+					`File too large: ${contentLength} bytes exceeds ${opts.maxBytes} byte limit`,
+				);
+			}
+		}
+
+		const arrayBuffer = await response.arrayBuffer();
+
+		// Belt-and-suspenders: reject if the actual body exceeds
+		// the limit (covers missing or dishonest Content-Length).
+		if (opts?.maxBytes && arrayBuffer.byteLength > opts.maxBytes) {
+			throw new Error(
+				`File too large: ${arrayBuffer.byteLength} bytes exceeds ${opts.maxBytes} byte limit`,
+			);
+		}
+		const contentType =
+			response.headers.get("content-type") ?? "application/octet-stream";
+		return { buffer: Buffer.from(arrayBuffer), contentType };
+	}
+
+	/**
 	 * Upload raw bytes to an external upload URL.
 	 *
 	 * Used by the file upload flow after obtaining a URL from
