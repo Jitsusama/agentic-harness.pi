@@ -369,8 +369,7 @@ async function handleListMessages(
 		latest: coerceTimestamp(stringParam(params, "latest")),
 	});
 	await resolveMessages(client, messages);
-	const files = await collectFileContent(client, messages);
-	return textWithFiles(renderMessageList(messages), files, { messages });
+	return text(renderMessageList(messages), { messages });
 }
 
 async function handleGetChannel(
