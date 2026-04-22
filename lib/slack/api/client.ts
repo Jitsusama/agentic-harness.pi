@@ -237,8 +237,10 @@ export class SlackClient {
 		// Reject oversized files before reading the body when
 		// the server reports Content-Length.
 		if (opts?.maxBytes) {
-			const contentLength = Number(response.headers.get("content-length"));
-			if (contentLength > opts.maxBytes) {
+			const contentLength = response.headers.get("content-length");
+			if (contentLength !== null && Number(contentLength) > opts.maxBytes) {
+				// Consume the body to release the connection.
+				await response.body?.cancel();
 				throw new Error(
 					`File too large: ${contentLength} bytes exceeds ${opts.maxBytes} byte limit`,
 				);
@@ -246,6 +248,14 @@ export class SlackClient {
 		}
 
 		const arrayBuffer = await response.arrayBuffer();
+
+		// Belt-and-suspenders: reject if the actual body exceeds
+		// the limit (covers missing or dishonest Content-Length).
+		if (opts?.maxBytes && arrayBuffer.byteLength > opts.maxBytes) {
+			throw new Error(
+				`File too large: ${arrayBuffer.byteLength} bytes exceeds ${opts.maxBytes} byte limit`,
+			);
+		}
 		const contentType =
 			response.headers.get("content-type") ?? "application/octet-stream";
 		return { buffer: Buffer.from(arrayBuffer), contentType };

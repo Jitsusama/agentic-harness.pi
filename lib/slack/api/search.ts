@@ -127,13 +127,6 @@ interface MessageSearchResponse {
 	};
 }
 
-/**
- * Search Slack messages with automatic pagination.
- *
- * Fetches pages of up to 100 results until the requested limit
- * is reached or all pages are exhausted. Pass `limit: 0` for
- * unlimited (up to Slack's ceiling of 10,000 results).
- */
 /** Options for searching messages. */
 export interface SearchMessagesOptions {
 	channel?: string;
