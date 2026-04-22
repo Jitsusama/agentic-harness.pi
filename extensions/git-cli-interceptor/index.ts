@@ -16,6 +16,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
+import { isGitBypassed } from "../../lib/internal/git/bypass.js";
 import { stripHeredocBodies, stripShellData } from "../../lib/shell/parse.js";
 import {
 	detectAmendViolation,
@@ -28,6 +29,7 @@ export default function gitCliInterceptor(pi: ExtensionAPI) {
 		"tool_call",
 		async (event): Promise<ToolCallEventResult | undefined> => {
 			if (!isToolCallEventType("bash", event)) return;
+			if (isGitBypassed()) return;
 
 			const command = event.input.command;
 			const stripped = stripShellData(stripHeredocBodies(command));
