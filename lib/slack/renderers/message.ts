@@ -90,6 +90,54 @@ function renderTable(table: SlackTable): string {
 	].join("\n");
 }
 
+/**
+ * Render a message's attachments, files and reactions as lines.
+ *
+ * Shared by renderMessage (no prefix) and renderThread
+ * (indented prefix). Each line is prefixed with the given
+ * string so thread rendering can maintain its visual tree.
+ */
+function renderMessageExtras(msg: SlackMessage, prefix: string): string[] {
+	const lines: string[] = [];
+
+	if (msg.attachments?.length) {
+		for (const att of msg.attachments) {
+			const title = att.title || att.fallback;
+			const url = att.fromUrl || att.imageUrl;
+			if (title && url) {
+				lines.push(`${prefix}📎 [${title}](${url})`);
+			} else if (title) {
+				lines.push(`${prefix}📎 ${title}`);
+			} else if (url) {
+				lines.push(`${prefix}📎 ${url}`);
+			}
+			if (att.text) {
+				for (const line of formatSlackText(att.text).split("\n")) {
+					lines.push(`${prefix}${line}`);
+				}
+			}
+		}
+	}
+
+	if (msg.files?.length) {
+		for (const f of msg.files) {
+			const type = f.mimetype ? ` [${f.mimetype}]` : "";
+			if (f.url) {
+				lines.push(`${prefix}📄 [${f.name}](${f.url})${type}`);
+			} else {
+				lines.push(`${prefix}📄 ${f.name}${type}`);
+			}
+		}
+	}
+
+	if (msg.reactions?.length) {
+		const rxns = msg.reactions.map((r) => `:${r.name}: ${r.count}`).join("  ");
+		lines.push(`${prefix}${rxns}`);
+	}
+
+	return lines;
+}
+
 /** Format a single message as a readable block. */
 export function renderMessage(msg: SlackMessage): string {
 	const parts: string[] = [];
@@ -114,38 +162,7 @@ export function renderMessage(msg: SlackMessage): string {
 		}
 	}
 
-	if (msg.attachments?.length) {
-		for (const att of msg.attachments) {
-			const title = att.title || att.fallback;
-			const url = att.fromUrl || att.imageUrl;
-			if (title && url) {
-				parts.push(`📎 [${title}](${url})`);
-			} else if (title) {
-				parts.push(`📎 ${title}`);
-			} else if (url) {
-				parts.push(`📎 ${url}`);
-			}
-			if (att.text) {
-				parts.push(formatSlackText(att.text));
-			}
-		}
-	}
-
-	if (msg.files?.length) {
-		for (const f of msg.files) {
-			const type = f.mimetype ? ` [${f.mimetype}]` : "";
-			if (f.url) {
-				parts.push(`📄 [${f.name}](${f.url})${type}`);
-			} else {
-				parts.push(`📄 ${f.name}${type}`);
-			}
-		}
-	}
-
-	if (msg.reactions?.length) {
-		const rxns = msg.reactions.map((r) => `:${r.name}: ${r.count}`).join("  ");
-		parts.push(rxns);
-	}
+	parts.push(...renderMessageExtras(msg, ""));
 
 	if (msg.permalink) {
 		parts.push(`[link](${msg.permalink})`);
@@ -214,40 +231,7 @@ export function renderThread(messages: SlackMessage[]): string {
 				}
 			}
 		}
-		if (msg.attachments?.length) {
-			for (const att of msg.attachments) {
-				const title = att.title || att.fallback;
-				const url = att.fromUrl || att.imageUrl;
-				if (title && url) {
-					lines.push(`${indent}📎 [${title}](${url})`);
-				} else if (title) {
-					lines.push(`${indent}📎 ${title}`);
-				} else if (url) {
-					lines.push(`${indent}📎 ${url}`);
-				}
-				if (att.text) {
-					for (const line of formatSlackText(att.text).split("\n")) {
-						lines.push(`${indent}${line}`);
-					}
-				}
-			}
-		}
-		if (msg.files?.length) {
-			for (const f of msg.files) {
-				const type = f.mimetype ? ` [${f.mimetype}]` : "";
-				if (f.url) {
-					lines.push(`${indent}📄 [${f.name}](${f.url})${type}`);
-				} else {
-					lines.push(`${indent}📄 ${f.name}${type}`);
-				}
-			}
-		}
-		if (msg.reactions?.length) {
-			const rxns = msg.reactions
-				.map((r) => `:${r.name}: ${r.count}`)
-				.join("  ");
-			lines.push(`${indent}${rxns}`);
-		}
+		lines.push(...renderMessageExtras(msg, indent));
 		if (i < messages.length - 1) lines.push("│");
 	}
 

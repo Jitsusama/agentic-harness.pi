@@ -206,10 +206,14 @@ export class SlackClient {
 	 * messages. Authenticates with the Bearer token (or session
 	 * cookie for browser tokens). Returns the raw bytes and
 	 * the content type reported by the server.
+	 *
+	 * When `maxBytes` is set, the Content-Length header is
+	 * checked before reading the body to avoid buffering
+	 * oversized files.
 	 */
 	async download(
 		url: string,
-		signal?: AbortSignal,
+		opts?: { signal?: AbortSignal; maxBytes?: number },
 	): Promise<{ buffer: Buffer; contentType: string }> {
 		const headers: Record<string, string> = {
 			Authorization: `Bearer ${this.token}`,
@@ -221,13 +225,24 @@ export class SlackClient {
 		const response = await fetch(url, {
 			method: "GET",
 			headers,
-			signal,
+			signal: opts?.signal,
 		});
 
 		if (!response.ok) {
 			throw new Error(
 				`File download failed: HTTP ${response.status} ${response.statusText}`,
 			);
+		}
+
+		// Reject oversized files before reading the body when
+		// the server reports Content-Length.
+		if (opts?.maxBytes) {
+			const contentLength = Number(response.headers.get("content-length"));
+			if (contentLength > opts.maxBytes) {
+				throw new Error(
+					`File too large: ${contentLength} bytes exceeds ${opts.maxBytes} byte limit`,
+				);
+			}
 		}
 
 		const arrayBuffer = await response.arrayBuffer();

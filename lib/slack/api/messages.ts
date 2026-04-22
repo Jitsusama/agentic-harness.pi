@@ -14,6 +14,7 @@ const USER_CACHE_FILE = "users.json";
 
 import type {
 	Conversation,
+	MessageTarget,
 	SlackAttachment,
 	SlackFile,
 	SlackMessage,
@@ -112,42 +113,47 @@ function toSlackMessage(
 	};
 }
 
+/** Options for fetching a single message. */
+export interface GetMessageOptions {
+	signal?: AbortSignal;
+}
+
 /**
- * Fetch a single message by channel and timestamp.
+ * Fetch a single message by target.
  *
- * For top-level messages, pass the message's ts directly.
- * For thread replies, pass the thread parent's ts and the
- * reply's ts as messageId. Uses conversations.history for
- * top-level messages and conversations.replies for thread
- * replies.
+ * For top-level messages, pass a target with `ts`.
+ * For thread replies, include `threadTs` in the target.
+ * Uses conversations.history for top-level messages and
+ * conversations.replies for thread replies.
  */
 export async function getMessage(
 	client: SlackClient,
-	conversation: Conversation,
-	ts: string,
-	messageId?: string,
-	signal?: AbortSignal,
+	target: MessageTarget,
+	opts?: GetMessageOptions,
 ): Promise<SlackMessage> {
+	const { conversation, ts, threadTs } = target;
 	let msg: RawMessage | undefined;
 
-	if (messageId) {
-		// Fetch a specific thread reply: ts is the thread parent,
-		// messageId is the reply we want.
+	if (threadTs) {
+		// Fetch a specific thread reply: threadTs is the parent,
+		// ts is the reply we want.
 		const response = await client.call<{
 			messages: RawMessage[];
 		}>(
 			"conversations.replies",
 			{
 				channel: conversation.id,
-				ts,
-				latest: messageId,
-				oldest: messageId,
+				ts: threadTs,
+				latest: ts,
+				oldest: ts,
 				limit: 1,
 				inclusive: true,
 			},
-			signal,
+			opts?.signal,
 		);
-		msg = response.messages?.find((m) => m.ts === messageId);
+		// Slack may include the thread parent alongside the
+		// targeted reply; find the exact message we asked for.
+		msg = response.messages?.find((m) => m.ts === ts);
 	} else {
 		// Fetch a top-level channel message.
 		const response = await client.call<{
@@ -161,7 +167,7 @@ export async function getMessage(
 				limit: 1,
 				inclusive: true,
 			},
-			signal,
+			opts?.signal,
 		);
 		msg = response.messages?.[0];
 	}
@@ -171,12 +177,11 @@ export async function getMessage(
 	}
 
 	// Best-effort permalink fetch.
-	const permalinkTs = messageId ?? ts;
 	try {
 		const linkResponse = await client.call<{ permalink: string }>(
 			"chat.getPermalink",
-			{ channel: conversation.id, message_ts: permalinkTs },
-			signal,
+			{ channel: conversation.id, message_ts: ts },
+			opts?.signal,
 		);
 		msg.permalink = linkResponse.permalink;
 	} catch {
@@ -192,6 +197,14 @@ const MAX_HISTORY_PER_PAGE = 200;
 /** Default number of messages when no limit is specified. */
 const DEFAULT_HISTORY_LIMIT = 20;
 
+/** Options for listing channel history. */
+export interface ListMessagesOptions {
+	limit?: number;
+	oldest?: string;
+	latest?: string;
+	signal?: AbortSignal;
+}
+
 /**
  * List recent messages in a channel with automatic pagination.
  *
@@ -202,8 +215,7 @@ const DEFAULT_HISTORY_LIMIT = 20;
 export async function listMessages(
 	client: SlackClient,
 	conversation: Conversation,
-	opts: { limit?: number; oldest?: string; latest?: string } = {},
-	signal?: AbortSignal,
+	opts: ListMessagesOptions = {},
 ): Promise<SlackMessage[]> {
 	const targetLimit =
 		opts.limit === 0 ? undefined : opts.limit || DEFAULT_HISTORY_LIMIT;
@@ -221,37 +233,43 @@ export async function listMessages(
 		},
 		(r) => ((r as { messages?: RawMessage[] }).messages ?? []) as RawMessage[],
 		targetLimit,
-		signal,
+		opts.signal,
 	);
 
 	return raw.map((m) => toSlackMessage(m, conversation));
 }
 
+/** Options for fetching a thread. */
+export interface GetThreadOptions {
+	limit?: number;
+	signal?: AbortSignal;
+}
+
 /**
  * Fetch all replies in a thread.
  *
- * Auto-paginates using cursor until all messages are collected
- * or the limit is reached.
+ * The target's `ts` identifies the thread parent message.
+ * Auto-paginates using cursor until all messages are
+ * collected or the limit is reached.
  */
 export async function getThread(
 	client: SlackClient,
-	conversation: Conversation,
-	threadTs: string,
-	limit?: number,
-	signal?: AbortSignal,
+	target: MessageTarget,
+	opts?: GetThreadOptions,
 ): Promise<SlackMessage[]> {
-	const maxResults = limit || 100;
+	const { conversation, ts } = target;
+	const maxResults = opts?.limit || 100;
 
 	const messages = await client.paginate<RawMessage>(
 		"conversations.replies",
 		{
 			channel: conversation.id,
-			ts: threadTs,
+			ts,
 			limit: Math.min(maxResults, 200),
 		},
 		(r) => (r.messages ?? []) as RawMessage[],
 		maxResults,
-		signal,
+		opts?.signal,
 	);
 
 	return messages.map((m) => toSlackMessage(m, conversation));

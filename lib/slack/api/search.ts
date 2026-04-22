@@ -134,26 +134,36 @@ interface MessageSearchResponse {
  * is reached or all pages are exhausted. Pass `limit: 0` for
  * unlimited (up to Slack's ceiling of 10,000 results).
  */
+/** Options for searching messages. */
+export interface SearchMessagesOptions {
+	channel?: string;
+	from?: string;
+	with?: string;
+	after?: string;
+	before?: string;
+	limit?: number;
+	signal?: AbortSignal;
+	/**
+	 * Called after each page is fetched, deduplicated and
+	 * cached. Receives only new (non-duplicate) messages
+	 * from that page. Useful for progress reporting or
+	 * incremental processing without reimplementing
+	 * pagination.
+	 */
+	onPage?: (messages: SlackMessage[], pageInfo: SearchPageInfo) => void;
+}
+
+/**
+ * Search Slack messages with automatic pagination.
+ *
+ * Fetches pages of up to 100 results until the requested limit
+ * is reached or all pages are exhausted. Pass `limit: 0` for
+ * unlimited (up to Slack's ceiling of 10,000 results).
+ */
 export async function searchMessages(
 	client: SlackClient,
 	query: string,
-	opts: {
-		channel?: string;
-		from?: string;
-		with?: string;
-		after?: string;
-		before?: string;
-		limit?: number;
-		/**
-		 * Called after each page is fetched, deduplicated and
-		 * cached. Receives only new (non-duplicate) messages
-		 * from that page. Useful for progress reporting or
-		 * incremental processing without reimplementing
-		 * pagination.
-		 */
-		onPage?: (messages: SlackMessage[], pageInfo: SearchPageInfo) => void;
-	} = {},
-	signal?: AbortSignal,
+	opts: SearchMessagesOptions = {},
 ): Promise<MessageSearchResult> {
 	const fullQuery = buildQuery(query, opts);
 	const targetLimit =
@@ -171,7 +181,7 @@ export async function searchMessages(
 		page <= totalPages &&
 		page <= MAX_PAGE
 	) {
-		if (signal?.aborted) break;
+		if (opts.signal?.aborted) break;
 
 		const response = await client.call<MessageSearchResponse>(
 			"search.messages",
@@ -182,7 +192,7 @@ export async function searchMessages(
 				sort: "timestamp",
 				sort_dir: "desc",
 			},
-			signal,
+			opts.signal,
 		);
 
 		const matches = response.messages?.matches ?? [];
@@ -256,6 +266,18 @@ interface FileSearchResponse {
 	};
 }
 
+/** Options for searching files. */
+export interface SearchFilesOptions {
+	channel?: string;
+	from?: string;
+	with?: string;
+	after?: string;
+	before?: string;
+	type?: string;
+	limit?: number;
+	signal?: AbortSignal;
+}
+
 /**
  * Search Slack files with automatic pagination.
  *
@@ -266,16 +288,7 @@ interface FileSearchResponse {
 export async function searchFiles(
 	client: SlackClient,
 	query: string,
-	opts: {
-		channel?: string;
-		from?: string;
-		with?: string;
-		after?: string;
-		before?: string;
-		type?: string;
-		limit?: number;
-	} = {},
-	signal?: AbortSignal,
+	opts: SearchFilesOptions = {},
 ): Promise<FileSearchResult> {
 	const fullQuery = buildQuery(query, opts);
 	const targetLimit =
@@ -293,7 +306,7 @@ export async function searchFiles(
 		page <= totalPages &&
 		page <= MAX_PAGE
 	) {
-		if (signal?.aborted) break;
+		if (opts.signal?.aborted) break;
 
 		const response = await client.call<FileSearchResponse>(
 			"search.files",
@@ -304,7 +317,7 @@ export async function searchFiles(
 				sort: "timestamp",
 				sort_dir: "desc",
 			},
-			signal,
+			opts.signal,
 		);
 
 		const matches = response.files?.matches ?? [];

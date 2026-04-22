@@ -212,8 +212,14 @@ const TEXT_APPLICATION_TYPES = new Set([
 	"application/toml",
 ]);
 
-/** Maximum file size we'll download (5 MB). */
-const MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024;
+/** Default maximum size for image files (5 MB). */
+const DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** Default maximum size for text files (128 KB). */
+const DEFAULT_MAX_TEXT_BYTES = 128 * 1024;
+
+/** Default maximum number of files to download per request. */
+const DEFAULT_MAX_FILES = 10;
 
 /** A downloaded file ready to be returned as model content. */
 export type DownloadedFile =
@@ -249,6 +255,17 @@ function baseMimeType(mimeType: string): string {
 	return mimeType.split(";")[0].trim().toLowerCase();
 }
 
+/** Options for downloading files from Slack messages. */
+export interface FileDownloadOptions {
+	signal?: AbortSignal;
+	/** Maximum number of files to download (default: 10). */
+	maxFiles?: number;
+	/** Maximum size per image file in bytes (default: 5 MB). */
+	maxImageBytes?: number;
+	/** Maximum size per text file in bytes (default: 128 KB). */
+	maxTextBytes?: number;
+}
+
 /**
  * Download displayable files from Slack messages.
  *
@@ -261,20 +278,28 @@ function baseMimeType(mimeType: string): string {
 export async function downloadFiles(
 	client: SlackClient,
 	files: Array<{ name: string; mimetype?: string; url?: string }>,
-	signal?: AbortSignal,
+	opts?: FileDownloadOptions,
 ): Promise<DownloadedFile[]> {
+	const maxFiles = opts?.maxFiles ?? DEFAULT_MAX_FILES;
+	const maxImageBytes = opts?.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES;
+	const maxTextBytes = opts?.maxTextBytes ?? DEFAULT_MAX_TEXT_BYTES;
 	const results: DownloadedFile[] = [];
 
 	for (const file of files) {
+		if (results.length >= maxFiles) break;
 		if (!file.url) continue;
 
 		const isImage = isImageMimeType(file.mimetype);
 		const isText = isTextMimeType(file.mimetype);
 		if (!isImage && !isText) continue;
 
+		const maxBytes = isImage ? maxImageBytes : maxTextBytes;
+
 		try {
-			const { buffer, contentType } = await client.download(file.url, signal);
-			if (buffer.length > MAX_DOWNLOAD_BYTES) continue;
+			const { buffer, contentType } = await client.download(file.url, {
+				signal: opts?.signal,
+				maxBytes,
+			});
 
 			if (isImage) {
 				const mimeType = isImageMimeType(contentType)

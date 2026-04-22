@@ -82,10 +82,17 @@ export interface Conversation {
 	dmUserId?: string;
 }
 
-/** A message target: a conversation plus a timestamp. */
+/**
+ * A message target: a conversation plus a timestamp.
+ *
+ * For thread replies, `threadTs` identifies the parent
+ * message. When absent, the message is assumed to be
+ * a top-level channel message.
+ */
 export interface MessageTarget {
 	conversation: Conversation;
 	ts: string;
+	threadTs?: string;
 }
 
 /** Resolved identifiers from tool parameters. */

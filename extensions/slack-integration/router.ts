@@ -117,7 +117,9 @@ function textWithFiles(
 		if (file.kind === "image") {
 			parts.push({ type: "image", data: file.data, mimeType: file.mimeType });
 		} else {
-			parts.push({ type: "text", text: `\n📄 ${file.name}:\n${file.text}` });
+			// The rendered text already shows the file reference
+			// with URL; just append the content.
+			parts.push({ type: "text", text: `\n${file.text}` });
 		}
 	}
 	return { content: parts, details };
@@ -132,11 +134,10 @@ function textWithFiles(
 async function collectFileContent(
 	client: SlackClient,
 	messages: SlackMessage[],
-	signal?: AbortSignal,
 ): Promise<DownloadedFile[]> {
 	const allFiles = messages.flatMap((m) => m.files ?? []);
 	if (allFiles.length === 0) return [];
-	return downloadFiles(client, allFiles, signal);
+	return downloadFiles(client, allFiles);
 }
 
 /** Shorthand for missing parameter errors. */
@@ -160,6 +161,7 @@ async function resolveAllParams(
 	const targetStr = stringParam(params, "target");
 	const channelStr = stringParam(params, "channel");
 	const tsStr = stringParam(params, "ts");
+	const threadTsStr = stringParam(params, "thread_ts");
 	const userStr = stringParam(params, "user");
 
 	// Target (permalink or channel+ts) takes priority.
@@ -171,6 +173,9 @@ async function resolveAllParams(
 				channelStr,
 				tsStr,
 			);
+			if (threadTsStr) {
+				resolved.target.threadTs = threadTsStr;
+			}
 			resolved.conversation = resolved.target.conversation;
 		} catch {
 			// Target resolution failed. Fall through to channel-only
@@ -321,18 +326,12 @@ async function handleSearchFiles(
 
 async function handleGetMessage(
 	client: SlackClient,
-	params: ActionParams,
+	_params: ActionParams,
 	resolved: ResolvedParams,
 ): Promise<ToolResult> {
 	if (!resolved.target) return missing("channel + ts or target");
 
-	const messageId = stringParam(params, "message_id");
-	const msg = await getMessage(
-		client,
-		resolved.target.conversation,
-		resolved.target.ts,
-		messageId,
-	);
+	const msg = await getMessage(client, resolved.target);
 	await resolveMessages(client, [msg]);
 	const files = await collectFileContent(client, [msg]);
 	return textWithFiles(renderMessage(msg), files, { message: msg });
@@ -345,12 +344,9 @@ async function handleGetThread(
 ): Promise<ToolResult> {
 	if (!resolved.target) return missing("channel + ts or target");
 
-	const messages = await getThread(
-		client,
-		resolved.target.conversation,
-		resolved.target.ts,
-		numberParam(params, "limit"),
-	);
+	const messages = await getThread(client, resolved.target, {
+		limit: numberParam(params, "limit"),
+	});
 	await resolveMessages(client, messages);
 	const files = await collectFileContent(client, messages);
 	return textWithFiles(renderThread(messages), files, { messages });
