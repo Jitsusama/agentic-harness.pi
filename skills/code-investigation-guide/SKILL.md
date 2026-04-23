@@ -35,6 +35,26 @@ description: >
 - Call out surprises, risks or constraints.
 - Keep it concise; the user can ask for more detail.
 
+## Command Output Fidelity
+
+RTK may compress output from bash commands. Pi's native
+`grep`, `find` and `ls` tools bypass RTK entirely (they
+aren't bash), so prefer those for searching and listing.
+
+When running git commands through bash during investigation,
+be aware that RTK caps `git log` at 10 entries, injects
+`--no-merges` silently and truncates lines. If you need
+full commit history or complete messages, prefix the
+command with `NORTK=1` to bypass compression:
+
+```bash
+NORTK=1 git log --oneline -20
+```
+
+The `NORTK=1` prefix is stripped before execution; bash
+never sees it as an environment variable. It works on any
+bash command, not just git.
+
 ## What Not to Do
 
 - Don't dump entire files into the conversation.
