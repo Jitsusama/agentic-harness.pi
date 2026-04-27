@@ -41,6 +41,10 @@ RTK may compress output from bash commands. Pi's native
 `grep`, `find` and `ls` tools bypass RTK entirely (they
 aren't bash), so prefer those for searching and listing.
 
+For piped commands (`git log | head -20`), RTK rewrites
+the left side but passes the right side through unchanged.
+The pipe target receives RTK-compressed input.
+
 When running git commands through bash during investigation,
 be aware that RTK caps `git log` at 10 entries, injects
 `--no-merges` silently and truncates lines. If you need
