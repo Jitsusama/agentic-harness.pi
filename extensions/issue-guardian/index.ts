@@ -10,5 +10,5 @@ import { registerGuardian } from "../../lib/guardian/register.js";
 import { issueGuardian } from "./review.js";
 
 export default function issueGuardianExtension(pi: ExtensionAPI) {
-	registerGuardian(pi, issueGuardian);
+	registerGuardian(pi, issueGuardian, { name: "issue" });
 }

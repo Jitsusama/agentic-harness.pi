@@ -12,6 +12,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
+import { record, register } from "../internal/guardian/registry.js";
 import { stripHeredocBodies, stripShellData } from "../shell/parse.js";
 import type { CommandGuardian } from "./types.js";
 
@@ -22,6 +23,13 @@ export interface RegisterGuardianOptions {
 	 * Checked before detect, so it short-circuits cheaply.
 	 */
 	bypass?: () => boolean;
+	/**
+	 * Display name for the guardian status registry. When set,
+	 * the guardian's last-call outcome is tracked and surfaced
+	 * in `/guardian-status`. Optional so downstream packages
+	 * that haven't been updated keep working.
+	 */
+	name?: string;
 }
 
 /**
@@ -36,27 +44,52 @@ export function registerGuardian<T>(
 	guardian: CommandGuardian<T>,
 	options?: RegisterGuardianOptions,
 ): void {
+	const trackedName = options?.name;
+	if (trackedName) register(trackedName);
+
 	pi.on(
 		"tool_call",
 		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
 			if (!isToolCallEventType("bash", event)) return;
-			if (!ctx.hasUI) return;
-			if (options?.bypass?.()) return;
 
-			const command = event.input.command;
-			if (!guardian.detect(stripShellData(stripHeredocBodies(command)))) return;
-
-			const parsed = guardian.parse(command);
-			if (!parsed) return;
-
-			const result = await guardian.review(parsed, ctx);
-			if (!result) return;
-
-			if ("rewrite" in result) {
-				(event.input as { command: string }).command = result.rewrite;
+			if (!ctx.hasUI) {
+				if (trackedName) record(trackedName, { kind: "skipped", why: "no-ui" });
+				return;
+			}
+			if (options?.bypass?.()) {
+				if (trackedName)
+					record(trackedName, { kind: "skipped", why: "bypassed" });
 				return;
 			}
 
+			const command = event.input.command;
+			if (!guardian.detect(stripShellData(stripHeredocBodies(command)))) {
+				if (trackedName)
+					record(trackedName, { kind: "skipped", why: "detect-miss" });
+				return;
+			}
+
+			const parsed = guardian.parse(command);
+			if (!parsed) {
+				if (trackedName)
+					record(trackedName, { kind: "skipped", why: "parse-null" });
+				return;
+			}
+
+			const result = await guardian.review(parsed, ctx);
+			if (!result) {
+				if (trackedName) record(trackedName, { kind: "allowed" });
+				return;
+			}
+
+			if ("rewrite" in result) {
+				(event.input as { command: string }).command = result.rewrite;
+				if (trackedName) record(trackedName, { kind: "rewritten" });
+				return;
+			}
+
+			if (trackedName)
+				record(trackedName, { kind: "blocked", reason: result.reason });
 			return result;
 		},
 	);

@@ -10,5 +10,5 @@ import { registerGuardian } from "../../lib/guardian/register.js";
 import { prGuardian } from "./review.js";
 
 export default function prGuardianExtension(pi: ExtensionAPI) {
-	registerGuardian(pi, prGuardian);
+	registerGuardian(pi, prGuardian, { name: "pr" });
 }
