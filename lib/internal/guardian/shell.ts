@@ -10,18 +10,36 @@ import { splitAtCommand } from "../../shell/parse.js";
 
 const COMMIT_HEREDOC_DELIM = "__COMMIT_MSG__";
 
+/** Detects the bash heredoc operator (`<<TAG` / `<<'TAG'` / `<<-"TAG"`). */
+const HEREDOC_OPERATOR = /<<-?\s*['"]?\w+['"]?/;
+
 /**
  * Extract the commit message from a bash command.
  *
  * Supports two formats:
  *   heredoc:  git commit -F- <<'EOF'\nmessage\nEOF
  *   -m flag:  git commit -m "message" or -am "message"
+ *
+ * The heredoc regex carries the `m` flag so `$` matches
+ * end-of-line, which lets us recognise heredocs even when
+ * the bash invocation chains more commands afterwards
+ * (`...EOF && echo done`).
+ *
+ * When a heredoc operator is present but body extraction
+ * fails, bail with `null` rather than falling through to
+ * `-m` extraction. Otherwise a literal `-m "..."` written
+ * inside the heredoc body — e.g. an example commit message
+ * quoted in the description — would be picked up as a real
+ * flag and silently replace the user's intended message
+ * once attribution-interceptor's rewrite kicks in.
  */
 export function extractMessage(command: string): string | null {
 	const heredoc = command.match(
-		/<<-?\s*['"]?(\w+)['"]?\s*\n([\s\S]*?)\n\1\s*$/,
+		/<<-?\s*['"]?(\w+)['"]?\s*\n([\s\S]*?)\n\1\s*$/m,
 	);
 	if (heredoc) return heredoc[2] ?? null;
+
+	if (HEREDOC_OPERATOR.test(command)) return null;
 
 	const normalized = command.replace(/-am\s+/g, "-a -m ");
 	const messages: string[] = [];
