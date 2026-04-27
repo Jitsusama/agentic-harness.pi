@@ -12,5 +12,8 @@ import { isGitBypassed } from "../../lib/internal/git/bypass.js";
 import { commitGuardian } from "./review.js";
 
 export default function commitGuardianExtension(pi: ExtensionAPI) {
-	registerGuardian(pi, commitGuardian, { bypass: isGitBypassed });
+	registerGuardian(pi, commitGuardian, {
+		name: "commit",
+		bypass: isGitBypassed,
+	});
 }

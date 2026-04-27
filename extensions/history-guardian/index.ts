@@ -11,5 +11,8 @@ import { isGitBypassed } from "../../lib/internal/git/bypass.js";
 import { historyGuardian } from "./review.js";
 
 export default function historyGuardianExtension(pi: ExtensionAPI) {
-	registerGuardian(pi, historyGuardian, { bypass: isGitBypassed });
+	registerGuardian(pi, historyGuardian, {
+		name: "history",
+		bypass: isGitBypassed,
+	});
 }
