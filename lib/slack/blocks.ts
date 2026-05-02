@@ -1,8 +1,9 @@
 /**
- * Block Kit table support: tokenising mrkdwn to rich text
- * elements, rendering rich text elements back to readable
- * text, extracting tables from blocks, and building table
- * blocks for sending.
+ * Block Kit support: tokenising mrkdwn into rich text
+ * elements, building structured `rich_text` blocks (lists,
+ * quotes, code blocks, tables) for sending, rendering
+ * received rich text back to readable text and extracting
+ * tables from blocks.
  */
 
 import { displayNameForId } from "./resolvers/user.js";
@@ -35,7 +36,7 @@ interface RichTextElement {
  * Used as a fast pre-check: if a string contains none of
  * these, it's plain text and can skip tokenising.
  */
-const FORMATTING_CHARS = /[<`*_~:]/;
+const FORMATTING_CHARS = /[<`*_~:[#]/;
 
 /**
  * Angle-bracket pattern: matches Slack's `<...>` syntax for
@@ -47,6 +48,14 @@ const ANGLE_BRACKET = /<([^>]+)>/g;
  * Backtick pattern: matches inline code spans.
  */
 const BACKTICK = /`([^`]+)`/g;
+
+/**
+ * Markdown-style link pattern: `[text](url)`. Many agents
+ * (and humans copy-pasting from anywhere) write links this
+ * way instead of Slack's native `<url|text>` syntax. Without
+ * conversion they render as literal brackets and parens.
+ */
+const MARKDOWN_LINK = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 
 /**
  * Inline style patterns with word-boundary rules.
@@ -62,10 +71,31 @@ const ITALIC = /(^|(?<=\s))_([^_]+)_(?=\s|[.,;:!?)}\]]|$)/g;
 const STRIKE = /(^|(?<=\s))~([^~]+)~(?=\s|[.,;:!?)}\]]|$)/g;
 
 /**
+ * Markdown-style double-marker patterns. Agents reflexively
+ * write `**bold**` and `~~strike~~` even when targeting
+ * Slack mrkdwn, where those would render with the marker
+ * characters visible. We accept them as alternatives.
+ */
+const MARKDOWN_BOLD = /\*\*([^*\n]+?)\*\*/g;
+const MARKDOWN_STRIKE = /~~([^~\n]+?)~~/g;
+
+/**
  * Emoji shortcode pattern: `:name:` where name can contain
  * letters, numbers, underscores, hyphens and plus signs.
  */
 const EMOJI = /:([a-z0-9_+-]+):/g;
+
+/**
+ * Hex-colour-lookalike pattern: `#` followed by 3, 4, 6 or
+ * 8 hex digits with no alphanumeric character after. Slack
+ * auto-renders these as colour swatches in plain mrkdwn,
+ * which catches PR numbers like `#675891` (six digits = a
+ * valid hex code). Splitting the `#` from the digits across
+ * two adjacent text elements defeats the swatch detector
+ * while rendering identically.
+ */
+const HEX_COLOR_LIKE =
+	/#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})(?![0-9a-zA-Z])/g;
 
 /** A token found during mrkdwn scanning. */
 interface Token {
@@ -73,8 +103,12 @@ interface Token {
 	start: number;
 	/** End index (exclusive). */
 	end: number;
-	/** The Block Kit element this token produces. */
-	element: RichTextElement;
+	/**
+	 * The Block Kit elements this token produces. Most tokens
+	 * yield a single element; the colour-swatch shield emits
+	 * two so Slack's auto-detector can't see a single hex run.
+	 */
+	elements: RichTextElement[];
 }
 
 /**
@@ -133,53 +167,98 @@ export function parseMrkdwnToElements(text: string): RichTextElement[] {
 	// Collect all tokens from all pattern types.
 	const tokens: Token[] = [];
 
-	// 1. Angle-bracket patterns (highest priority).
+	// 1. Angle-bracket patterns (highest priority — unambiguous
+	//    Slack-internal syntax).
 	for (const match of text.matchAll(ANGLE_BRACKET)) {
 		tokens.push({
 			start: match.index,
 			end: match.index + match[0].length,
-			element: parseAngleBracket(match[1]),
+			elements: [parseAngleBracket(match[1])],
 		});
 	}
 
-	// 2. Backtick patterns.
+	// 2. Markdown-style links. Higher priority than backticks
+	//    so a link's display text can contain backticks.
+	for (const match of text.matchAll(MARKDOWN_LINK)) {
+		tokens.push({
+			start: match.index,
+			end: match.index + match[0].length,
+			elements: [{ type: "link", url: match[2], text: match[1] }],
+		});
+	}
+
+	// 3. Backtick code spans.
 	for (const match of text.matchAll(BACKTICK)) {
 		tokens.push({
 			start: match.index,
 			end: match.index + match[0].length,
-			element: { type: "text", text: match[1], style: { code: true } },
+			elements: [{ type: "text", text: match[1], style: { code: true } }],
 		});
 	}
 
-	// 2b. Emoji shortcodes.
+	// 4. Emoji shortcodes.
 	for (const match of text.matchAll(EMOJI)) {
 		tokens.push({
 			start: match.index,
 			end: match.index + match[0].length,
-			element: { type: "emoji", name: match[1] },
+			elements: [{ type: "emoji", name: match[1] }],
 		});
 	}
 
-	// 3. Inline style patterns.
+	// 5. Markdown-style double-marker styles. Must precede
+	//    the single-marker patterns so `**bold**` doesn't get
+	//    mis-tokenised as `*` then `bold` then `*`.
+	for (const match of text.matchAll(MARKDOWN_BOLD)) {
+		tokens.push({
+			start: match.index,
+			end: match.index + match[0].length,
+			elements: [{ type: "text", text: match[1], style: { bold: true } }],
+		});
+	}
+	for (const match of text.matchAll(MARKDOWN_STRIKE)) {
+		tokens.push({
+			start: match.index,
+			end: match.index + match[0].length,
+			elements: [{ type: "text", text: match[1], style: { strike: true } }],
+		});
+	}
+
+	// 6. Slack-native single-marker inline styles.
 	for (const match of text.matchAll(BOLD)) {
 		tokens.push({
 			start: match.index,
 			end: match.index + match[0].length,
-			element: { type: "text", text: match[2], style: { bold: true } },
+			elements: [{ type: "text", text: match[2], style: { bold: true } }],
 		});
 	}
 	for (const match of text.matchAll(ITALIC)) {
 		tokens.push({
 			start: match.index,
 			end: match.index + match[0].length,
-			element: { type: "text", text: match[2], style: { italic: true } },
+			elements: [{ type: "text", text: match[2], style: { italic: true } }],
 		});
 	}
 	for (const match of text.matchAll(STRIKE)) {
 		tokens.push({
 			start: match.index,
 			end: match.index + match[0].length,
-			element: { type: "text", text: match[2], style: { strike: true } },
+			elements: [{ type: "text", text: match[2], style: { strike: true } }],
+		});
+	}
+
+	// 7. Hex-colour-lookalike shield (lowest priority — only
+	//    fires when no other pattern claims the range). Emits
+	//    two adjacent text elements so the rendered output is
+	//    identical but Slack's swatch detector sees two pieces
+	//    instead of one hex run.
+	for (const match of text.matchAll(HEX_COLOR_LIKE)) {
+		tokens.push({
+			start: match.index,
+			end: match.index + match[0].length,
+			elements: [
+				{ type: "text", text: "#" },
+				{ type: "text", text: match[1] },
+			],
 		});
 	}
 
@@ -203,7 +282,7 @@ export function parseMrkdwnToElements(text: string): RichTextElement[] {
 			if (plain) pushText(elements, plain);
 		}
 
-		elements.push(token.element);
+		for (const el of token.elements) elements.push(el);
 		cursor = token.end;
 	}
 
@@ -424,6 +503,336 @@ export function extractTables(blocks: unknown[]): SlackTable[] {
 	}
 
 	return tables;
+}
+
+// ── mrkdwn → rich_text block (sending) ──────────────────
+
+/**
+ * Match an ordered list line: `1. content`. Captures
+ * leading whitespace, the digits and the content.
+ */
+const ORDERED_LIST_LINE = /^(\s*)(\d+)\.\s+(.+)$/;
+
+/**
+ * Match an unordered list line: `- content`, `* content`
+ * or `+ content`. Captures leading whitespace and the
+ * content (the marker itself is discarded).
+ */
+const UNORDERED_LIST_LINE = /^(\s*)[-*+]\s+(.+)$/;
+
+/**
+ * Match a blockquote line: `> content`. The space after
+ * `>` is optional. Captures the content.
+ */
+const QUOTE_LINE = /^>\s?(.*)$/;
+
+/**
+ * Match a code-fence line: opening or closing triple
+ * backticks. Anything after the fence (e.g. a language
+ * hint) is ignored — Slack does not render it.
+ */
+const FENCE_LINE = /^```/;
+
+/**
+ * Match a heading line: one to six leading `#` followed by
+ * whitespace and content. Slack only has a single `header`
+ * block style, so the level is captured for completeness
+ * but not used — `#` and `######` render the same.
+ */
+const HEADING_LINE = /^(#{1,6})\s+(.+)$/;
+
+/**
+ * Match a divider line: three or more dashes, asterisks or
+ * underscores on a line by themselves. Mirrors CommonMark's
+ * thematic-break rule. Distinct from a list bullet because
+ * a bullet always has whitespace and content after the
+ * marker.
+ */
+const DIVIDER_LINE = /^(?:-{3,}|\*{3,}|_{3,})\s*$/;
+
+/**
+ * Width of one indent level for nested lists, measured in
+ * spaces. Two spaces or one tab counts as one level — the
+ * convention Slack's editor uses.
+ */
+const INDENT_WIDTH = 2;
+
+/** Maximum nesting level Slack accepts for `rich_text_list`. */
+const MAX_LIST_INDENT = 8;
+
+/**
+ * Compute an indent level from a run of leading whitespace.
+ *
+ * Tabs count as one full level; spaces count as one level
+ * per `INDENT_WIDTH` characters. The result is clamped so
+ * we never exceed Slack's nesting limit.
+ */
+function indentLevel(whitespace: string): number {
+	let spaces = 0;
+	for (const ch of whitespace) {
+		if (ch === "\t") spaces += INDENT_WIDTH;
+		else if (ch === " ") spaces += 1;
+	}
+	const level = Math.floor(spaces / INDENT_WIDTH);
+	return Math.min(level, MAX_LIST_INDENT);
+}
+
+/** A pending list item collected during line-by-line parsing. */
+interface ListItem {
+	indent: number;
+	style: "ordered" | "bullet";
+	content: string;
+}
+
+/**
+ * Build a Block Kit `blocks` array from mrkdwn-style text.
+ *
+ * Walks the text line by line, producing a mix of
+ * top-level blocks:
+ *
+ * - `rich_text` for paragraphs, lists, quotes and code
+ *   fences. Inline formatting inside each line goes
+ *   through {@link parseMrkdwnToElements}, which also
+ *   handles markdown-style links, double-marker styles
+ *   and the colour-swatch shield.
+ * - `header` for `#`-prefixed lines.
+ * - `divider` for thematic breaks (`---`, `***`, `___`).
+ *
+ * Returns the array plus a `hasStructure` flag the caller
+ * can use to decide whether sending blocks (instead of
+ * plain mrkdwn) actually changes how the message renders.
+ */
+export function mrkdwnToBlocks(text: string): {
+	blocks: unknown[];
+	hasStructure: boolean;
+} {
+	const outer: unknown[] = [];
+	let rtChildren: unknown[] = [];
+	let sectionLines: string[] = [];
+	let listItems: ListItem[] = [];
+	let quoteLines: string[] = [];
+	let fenceLines: string[] = [];
+	let inFence = false;
+	let hasStructure = false;
+	// Tracks a blank line that fell *between* two distinct
+	// blocks (not inside an in-progress section). When the
+	// next block opens, we emit a spacer section before it so
+	// the rendered message preserves the visual gap the user
+	// wrote in their input.
+	let pendingSpacer = false;
+
+	const emitSpacer = (): void => {
+		if (!pendingSpacer || rtChildren.length === 0) {
+			pendingSpacer = false;
+			return;
+		}
+		rtChildren.push({
+			type: "rich_text_section",
+			elements: [{ type: "text", text: "\n" }],
+		});
+		pendingSpacer = false;
+	};
+
+	const flushSection = (): void => {
+		// Trim trailing blank lines so the section ends cleanly.
+		// Blank lines inside a section (between paragraphs) are
+		// preserved — Slack renders the embedded newlines as the
+		// paragraph break the user wrote.
+		while (
+			sectionLines.length > 0 &&
+			sectionLines[sectionLines.length - 1] === ""
+		) {
+			sectionLines.pop();
+		}
+		if (sectionLines.length === 0) return;
+		rtChildren.push({
+			type: "rich_text_section",
+			elements: parseMrkdwnToElements(sectionLines.join("\n")),
+		});
+		sectionLines = [];
+	};
+
+	const flushList = (): void => {
+		if (listItems.length === 0) return;
+		hasStructure = true;
+		// Group adjacent items that share both indent and style.
+		// A change in either ends the current `rich_text_list`
+		// and starts a new one.
+		let start = 0;
+		while (start < listItems.length) {
+			const first = listItems[start];
+			let end = start + 1;
+			while (
+				end < listItems.length &&
+				listItems[end].indent === first.indent &&
+				listItems[end].style === first.style
+			) {
+				end++;
+			}
+			const block: Record<string, unknown> = {
+				type: "rich_text_list",
+				style: first.style,
+				elements: listItems.slice(start, end).map((item) => ({
+					type: "rich_text_section",
+					elements: parseMrkdwnToElements(item.content),
+				})),
+			};
+			if (first.indent > 0) block.indent = first.indent;
+			rtChildren.push(block);
+			start = end;
+		}
+		listItems = [];
+	};
+
+	const flushQuote = (): void => {
+		if (quoteLines.length === 0) return;
+		hasStructure = true;
+		rtChildren.push({
+			type: "rich_text_quote",
+			elements: parseMrkdwnToElements(quoteLines.join("\n")),
+		});
+		quoteLines = [];
+	};
+
+	const flushFence = (): void => {
+		hasStructure = true;
+		rtChildren.push({
+			type: "rich_text_preformatted",
+			elements: [{ type: "text", text: fenceLines.join("\n") }],
+		});
+		fenceLines = [];
+	};
+
+	const flushParagraph = (): void => {
+		flushSection();
+		flushList();
+		flushQuote();
+	};
+
+	// Close the current `rich_text` block (if any) and push
+	// it to the outer blocks array. Used before emitting a
+	// top-level block (header or divider) that can't live
+	// inside `rich_text`.
+	const closeRichText = (): void => {
+		flushParagraph();
+		if (rtChildren.length === 0) return;
+		outer.push({ type: "rich_text", elements: rtChildren });
+		rtChildren = [];
+		// Block-level boundaries (header, divider) carry their
+		// own visual separation — no rich_text spacer needed
+		// when we cross into one.
+		pendingSpacer = false;
+	};
+
+	for (const line of text.split("\n")) {
+		if (inFence) {
+			if (FENCE_LINE.test(line)) {
+				flushFence();
+				inFence = false;
+			} else {
+				fenceLines.push(line);
+			}
+			continue;
+		}
+
+		if (FENCE_LINE.test(line)) {
+			flushParagraph();
+			emitSpacer();
+			inFence = true;
+			continue;
+		}
+
+		const heading = line.match(HEADING_LINE);
+		if (heading) {
+			closeRichText();
+			hasStructure = true;
+			outer.push({
+				type: "header",
+				text: { type: "plain_text", text: heading[2], emoji: true },
+			});
+			continue;
+		}
+
+		if (DIVIDER_LINE.test(line)) {
+			closeRichText();
+			hasStructure = true;
+			outer.push({ type: "divider" });
+			continue;
+		}
+
+		// Blank line. Three cases:
+		//   1. We're inside a section. Preserve the blank as an
+		//      embedded newline so paragraphs separated by a
+		//      blank line render with the spacing the user
+		//      wrote. Slack's editor likewise keeps blank lines
+		//      inside a single `rich_text_section`.
+		//   2. We're inside a list or quote. Those can't span a
+		//      blank line, so end them. The blank then becomes a
+		//      spacer between the list/quote and whatever comes
+		//      next.
+		//   3. Nothing in progress. The blank line still earns a
+		//      spacer once the next block opens.
+		if (line.trim().length === 0) {
+			if (sectionLines.length > 0) {
+				sectionLines.push("");
+			} else {
+				flushList();
+				flushQuote();
+				pendingSpacer = true;
+			}
+			continue;
+		}
+
+		const ordered = line.match(ORDERED_LIST_LINE);
+		if (ordered) {
+			flushSection();
+			flushQuote();
+			emitSpacer();
+			listItems.push({
+				indent: indentLevel(ordered[1]),
+				style: "ordered",
+				content: ordered[3],
+			});
+			continue;
+		}
+
+		const unordered = line.match(UNORDERED_LIST_LINE);
+		if (unordered) {
+			flushSection();
+			flushQuote();
+			emitSpacer();
+			listItems.push({
+				indent: indentLevel(unordered[1]),
+				style: "bullet",
+				content: unordered[2],
+			});
+			continue;
+		}
+
+		const quote = line.match(QUOTE_LINE);
+		if (quote) {
+			flushSection();
+			flushList();
+			emitSpacer();
+			quoteLines.push(quote[1]);
+			continue;
+		}
+
+		// Plain paragraph line: end any list/quote run, then
+		// accumulate into the current section.
+		flushList();
+		flushQuote();
+		emitSpacer();
+		sectionLines.push(line);
+	}
+
+	// End of input. An unterminated fence is still emitted —
+	// dropping its content silently would be worse than
+	// rendering a slightly-imperfect code block.
+	if (inFence) flushFence();
+	closeRichText();
+
+	return { blocks: outer, hasStructure };
 }
 
 // ── Table building (sending) ────────────────────────────

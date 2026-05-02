@@ -10,6 +10,7 @@ export * from "./auth/index.js";
 export {
 	extractCellText,
 	extractTables,
+	mrkdwnToBlocks,
 	mrkdwnToCell,
 	parseMrkdwnToElements,
 	renderRichTextCell,

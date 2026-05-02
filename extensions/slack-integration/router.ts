@@ -34,7 +34,7 @@ import {
 import { resolveMessages } from "../../lib/slack/api/resolve-messages.js";
 import { searchFiles, searchMessages } from "../../lib/slack/api/search.js";
 import { getUserInfo } from "../../lib/slack/api/users.js";
-import { parseMrkdwnToElements, tableToBlock } from "../../lib/slack/blocks.js";
+import { mrkdwnToBlocks, tableToBlock } from "../../lib/slack/blocks.js";
 import { renderChannel } from "../../lib/slack/renderers/channel.js";
 import {
 	renderMessage,
@@ -508,6 +508,27 @@ async function buildTableBlock(
 	return tableToBlock(table);
 }
 
+/**
+ * Resolve @mentions in `text` and parse the result into a
+ * Block Kit blocks array (rich_text plus optional header
+ * and divider blocks). `hasStructure` indicates whether the
+ * blocks contain anything that would render differently as
+ * blocks than as plain mrkdwn — callers use it to decide
+ * whether to attach blocks when no table is present.
+ *
+ * Used by the send_message, reply_to_thread and send_thread
+ * paths to build the leading content of every outgoing
+ * message.
+ */
+async function buildLeadingBlocks(
+	client: SlackClient,
+	text: string,
+	signal?: AbortSignal,
+): Promise<{ blocks: unknown[]; hasStructure: boolean }> {
+	const formatted = await formatMentions(client, text, signal);
+	return mrkdwnToBlocks(formatted);
+}
+
 // ── Write handlers (with confirmation gates) ────────────
 
 async function handleSendMessage(
@@ -538,7 +559,10 @@ async function handleSendMessage(
 		);
 	}
 
-	// Validate and build table block if present.
+	// Build the blocks payload. Two reasons to send blocks:
+	//   1. The message has a table.
+	//   2. The text contains lists, quotes or code blocks
+	//      that only render correctly via `rich_text` blocks.
 	let blocks: unknown[] | undefined;
 	if (tableParam) {
 		const error = validateTable(tableParam);
@@ -546,21 +570,19 @@ async function handleSendMessage(
 		const tableBlock = await buildTableBlock(client, tableParam);
 		// When blocks are present, Slack's text field is only a
 		// notification fallback — it doesn't render in the message.
-		// Prepend a rich_text block so the message text is visible.
+		// Prepend the leading blocks so the message text is visible.
 		blocks = [];
 		if (msgText) {
-			const formatted = await formatMentions(client, msgText);
-			blocks.push({
-				type: "rich_text",
-				elements: [
-					{
-						type: "rich_text_section",
-						elements: parseMrkdwnToElements(formatted),
-					},
-				],
-			});
+			const { blocks: leading } = await buildLeadingBlocks(client, msgText);
+			blocks.push(...leading);
 		}
 		blocks.push(tableBlock);
+	} else if (msgText) {
+		const { blocks: leading, hasStructure } = await buildLeadingBlocks(
+			client,
+			msgText,
+		);
+		if (hasStructure) blocks = leading;
 	}
 
 	// Generate fallback text for notifications when only a table is present.
@@ -614,7 +636,7 @@ async function handleReplyToThread(
 		);
 	}
 
-	// Validate and build table block if present.
+	// See handleSendMessage for the two-reason rationale.
 	let blocks: unknown[] | undefined;
 	if (tableParam) {
 		const error = validateTable(tableParam);
@@ -622,18 +644,16 @@ async function handleReplyToThread(
 		const tableBlock = await buildTableBlock(client, tableParam);
 		blocks = [];
 		if (msgText) {
-			const formatted = await formatMentions(client, msgText);
-			blocks.push({
-				type: "rich_text",
-				elements: [
-					{
-						type: "rich_text_section",
-						elements: parseMrkdwnToElements(formatted),
-					},
-				],
-			});
+			const { blocks: leading } = await buildLeadingBlocks(client, msgText);
+			blocks.push(...leading);
 		}
 		blocks.push(tableBlock);
+	} else if (msgText) {
+		const { blocks: leading, hasStructure } = await buildLeadingBlocks(
+			client,
+			msgText,
+		);
+		if (hasStructure) blocks = leading;
 	}
 
 	const effectiveText =
@@ -813,24 +833,27 @@ async function handleSendThread(
 		const isParent = i === 0;
 
 		try {
-			// Build table block if this message has a table.
+			// Build the blocks payload for this thread message.
+			// Same two reasons as handleSendMessage: a table is
+			// present, or the text has lists/quotes/code blocks.
 			let msgBlocks: unknown[] | undefined;
 			if (msg.table) {
 				const tableBlock = await buildTableBlock(client, msg.table);
 				msgBlocks = [];
 				if (msg.text) {
-					const formatted = await formatMentions(client, msg.text);
-					msgBlocks.push({
-						type: "rich_text",
-						elements: [
-							{
-								type: "rich_text_section",
-								elements: parseMrkdwnToElements(formatted),
-							},
-						],
-					});
+					const { blocks: leading } = await buildLeadingBlocks(
+						client,
+						msg.text,
+					);
+					msgBlocks.push(...leading);
 				}
 				msgBlocks.push(tableBlock);
+			} else if (msg.text) {
+				const { blocks: leading, hasStructure } = await buildLeadingBlocks(
+					client,
+					msg.text,
+				);
+				if (hasStructure) msgBlocks = leading;
 			}
 
 			if (msg.filePaths.length > 0) {
