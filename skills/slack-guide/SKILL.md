@@ -2,13 +2,14 @@
 name: slack-guide
 description: >
   Access Slack: search messages, read threads, send messages,
-  send threads, upload files, look up users and channels,
-  manage reactions. Use when asked to "check Slack", "find
-  messages", "search Slack", "send a message", "post a
-  thread", "send these as a thread", "upload a file",
-  "share this file", "attach this", "what did X say",
-  "show me the thread", "who is", "react to", or any query
-  about Slack messages, channels or users.
+  send threads, edit messages, upload files, look up users
+  and channels, manage reactions. Use when asked to "check
+  Slack", "find messages", "search Slack", "send a message",
+  "post a thread", "send these as a thread", "edit that
+  message", "fix that message", "update what I said",
+  "upload a file", "share this file", "attach this", "what
+  did X say", "show me the thread", "who is", "react to",
+  or any query about Slack messages, channels or users.
 ---
 
 # Slack
@@ -178,6 +179,29 @@ instead. This is a Slack API limitation, not a tool limitation.
 
 ### "Reply to that thread saying…"
 → `reply_to_thread` with `channel`, `ts` (from previous context), and `text`
+
+### "Edit that message" / "Fix that" / "Update what I said"
+→ `edit_message` with `target` (or `channel`+`ts`) and the
+  new `text` (and optional `table`)
+- Only edits messages the authenticated user authored.
+  Slack rejects edits to anyone else's messages.
+- The full message text is **replaced**, not merged. Pass
+  the complete new text, not just the part that changed.
+- Cannot add or remove file attachments — Slack's
+  `chat.update` API only changes text and blocks. If the
+  user wants to swap attachments, delete the message and
+  re-upload.
+- The confirmation gate shows the new text exactly as it
+  will appear after the edit. The user approves, rejects
+  or redirects with notes — the same flow as `send_message`.
+- Works on top-level messages and thread replies
+  identically. Use the reply's own `ts`, not the thread
+  parent's.
+
+```
+slack({ action: "edit_message", target: "https://...permalink...",
+        text: "Updated draft — fixed the typo and added the link" })
+```
 
 ### "Reply to that thread with these messages…" / "Send these as replies"
 → `reply_to_thread` with `channel`, `ts` and a `messages`
@@ -786,6 +810,27 @@ slack({ action: "search_messages", channel: "U093FQUHEJG" })
 
 # ✅ Good: list_messages resolves user IDs to DMs
 slack({ action: "list_messages", channel: "U093FQUHEJG" })
+```
+
+**DON'T** patch an edit by appending only the change:
+```
+# ❌ Bad: chat.update replaces the entire message
+slack({ action: "edit_message", target: "...",
+        text: "(typo fix)" })
+
+# ✅ Good: send the full new message text
+slack({ action: "edit_message", target: "...",
+        text: "Here's the report — fixed the table totals." })
+```
+
+**DON'T** try to swap attachments via `edit_message`:
+```
+# ❌ Bad: chat.update can't change attachments
+slack({ action: "edit_message", target: "...",
+        text: "updated", file_path: "/new/file.png" })
+
+# ✅ Good: delete and re-upload, or post a follow-up reply
+# explaining the change.
 ```
 
 **DON'T** try non-existent search operators:

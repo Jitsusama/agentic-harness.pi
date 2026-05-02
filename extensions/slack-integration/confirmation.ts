@@ -97,6 +97,67 @@ export async function confirmSendMessage(
 }
 
 /**
+ * Confirm editing an existing message.
+ *
+ * Mirrors the send-message gate: shows the new content the
+ * message will be replaced with, plus the conversation and
+ * timestamp so the user knows exactly which message gets
+ * rewritten.
+ */
+export async function confirmEditMessage(
+	ctx: ExtensionContext,
+	conversationName: string,
+	ts: string,
+	text: string,
+	table?: TableParam,
+): Promise<ConfirmResult<{ text: string }>> {
+	if (!ctx.hasUI) return { approved: true, data: { text } };
+
+	const context = `Edit message ${ts} in ${conversationName}:\n${text.slice(0, 200)}`;
+
+	const result = await promptSingle(ctx, {
+		content: (theme, width) => {
+			const lines = [
+				theme.fg("accent", theme.bold(" Edit Slack Message")),
+				"",
+				` ${theme.fg("muted", "In:")} ${conversationName}`,
+				` ${theme.fg("muted", "Message:")} ${ts}`,
+				"",
+			];
+			for (const line of renderMarkdown(text, theme, width)) {
+				lines.push(line);
+			}
+			if (table) {
+				lines.push("");
+				for (const line of renderTablePreview(table, theme, width)) {
+					lines.push(line);
+				}
+			}
+			return lines;
+		},
+		actions: REJECT_ACTION,
+	});
+
+	if (!result) return null;
+
+	if (result.type === "redirect") {
+		return redirect(result.note, context);
+	}
+
+	if (result.type === "action") {
+		if (result.key === "r") {
+			if (result.note) return redirect(result.note, context);
+			return redirect("User rejected. Ask for guidance.", context);
+		}
+		// Enter (approve)
+		if (result.note) return redirect(result.note, context);
+		return { approved: true, data: { text } };
+	}
+
+	return { approved: true, data: { text } };
+}
+
+/**
  * Confirm replying to a thread.
  */
 export async function confirmReply(

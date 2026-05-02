@@ -389,6 +389,46 @@ export async function sendMessage(
 }
 
 /**
+ * Edit an existing message.
+ *
+ * Calls `chat.update`. Slack only allows editing messages
+ * the authenticated user authored, and it cannot change
+ * file attachments — only the message's text and blocks.
+ *
+ * When `blocks` is provided, the previous blocks payload
+ * is replaced wholesale. Pass `blocks: []` to clear blocks
+ * and revert the message to plain text.
+ */
+export async function editMessage(
+	client: SlackClient,
+	conversationId: string,
+	ts: string,
+	text: string,
+	blocks?: unknown[],
+	signal?: AbortSignal,
+): Promise<SendResult> {
+	const formatted = await formatMentions(client, text, signal);
+	const params: Record<string, string | number | boolean | undefined> = {
+		channel: conversationId,
+		ts,
+		text: formatted,
+	};
+	if (blocks) {
+		params.blocks = JSON.stringify(blocks);
+	}
+	const response = await client.call<{
+		channel: string;
+		ts: string;
+	}>("chat.update", params, signal);
+
+	return {
+		ok: true,
+		channel: response.channel,
+		ts: response.ts,
+	};
+}
+
+/**
  * Reply to a thread.
  *
  * When `blocks` is provided, it's JSON-stringified and sent
