@@ -498,17 +498,29 @@ standard markdown. When composing messages, use these rules:
   hint as literal text.
 
 ### Structure
-- **Bulleted lists**: start each line with `• ` (Unicode
-  bullet, U+2022). mrkdwn has no list syntax — Slack's
-  editor creates `rich_text_list` blocks behind the scenes,
-  but the API sends plain text. `•` is the closest visual
-  approximation; wrapped lines won't indent like native
-  Slack lists. `-` and `*` do NOT render as bullets.
-- **No ordered lists**: mrkdwn has no numbered list syntax.
-  `1.` renders as literal text. Use `•` for all lists.
-- **Blockquotes**: `>` at the start of the line
-- **Line breaks**: newlines are preserved as-is
-- **No headers**: `#` has no special meaning in Slack
+- **Bulleted lists**: start each line with `- `, `* ` or
+  `+ ` followed by the item content. The tool converts
+  consecutive bullet lines into a native Slack
+  `rich_text_list` block, so wrapped lines indent
+  correctly and items render the same as Slack's editor
+  produces.
+- **Ordered lists**: start each line with `1. `, `2. ` and
+  so on. The tool converts consecutive numbered lines into
+  a native ordered list. Slack always renumbers from 1
+  regardless of the digits you write — the digits are just
+  a marker.
+- **Nested lists**: indent sub-items by two spaces (or one
+  tab) per level. Mixing bullet and ordered styles or
+  changing indent starts a new list block.
+- **Blockquotes**: start each line with `> `. Consecutive
+  quote lines become a single `rich_text_quote` block.
+- **Code blocks**: triple backticks on their own lines
+  become a `rich_text_preformatted` block. No language
+  hints — Slack ignores them.
+- **Line breaks**: newlines inside a paragraph are
+  preserved. A blank line ends the current paragraph and
+  starts a new block.
+- **No headers**: `#` has no special meaning in Slack.
 
 ### Links and Mentions
 - **Links**: `<https://example.com|display text>` (not
@@ -523,8 +535,6 @@ standard markdown. When composing messages, use these rules:
 - `[text](url)` — renders as literal brackets
 - `# Heading` — renders as literal `#`
 - `![alt](image-url)` — no image embedding
-- `- item` or `* item` — not converted to bullets
-- `1. item` — no ordered list rendering
 - `| col | col |` — markdown tables don't work in Slack.
   Use the `table` parameter instead (see Tables below).
 

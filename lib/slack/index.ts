@@ -11,6 +11,7 @@ export {
 	extractCellText,
 	extractTables,
 	mrkdwnToCell,
+	mrkdwnToRichTextBlock,
 	parseMrkdwnToElements,
 	renderRichTextCell,
 	tableToBlock,
