@@ -240,11 +240,12 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		label: "Slack",
 		description:
 			"Access Slack: search messages, read threads, send messages, " +
-			"upload files, look up users and channels, manage reactions. " +
-			"Use when asked to check Slack, find messages, send messages, " +
-			"upload files, or interact with Slack in any way.",
+			"edit messages, upload files, look up users and channels, " +
+			"manage reactions. Use when asked to check Slack, find messages, " +
+			"send messages, edit messages, upload files, or interact with " +
+			"Slack in any way.",
 		promptSnippet:
-			"Access Slack: search messages, read threads, send messages, " +
+			"Access Slack: search messages, read threads, send/edit messages, " +
 			"upload files, look up users/channels, manage reactions.",
 		promptGuidelines: [
 			"All identifier formats (channel names, IDs, user IDs, permalink URLs) are resolved automatically. Use whatever you have from context.",
@@ -262,6 +263,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"To post an entire thread at once, use send_thread with channel and a messages array. The first message becomes the thread parent; the rest become replies in order. Each message has text and optional file_path/file_paths. A tabbed review gate lets the user approve each message before sending. The same `messages` array works on reply_to_thread to queue several replies on an existing thread.",
 			"Every message in results includes a (ts:...) value. For get_thread, reply_to_thread and other ts-based actions, always use these ts values from previous tool results. Never fabricate or guess a timestamp.",
 			"To get_message on a thread reply, set ts to the reply's ts and thread_ts to the thread parent's ts. Without thread_ts, get_message only finds top-level channel messages.",
+			"To edit a message you sent, use edit_message with the channel and ts (or a permalink as target) plus the new text and/or table. Slack only allows editing your own messages, and chat.update cannot add or remove file attachments — only the text and blocks change.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(
@@ -277,6 +279,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 					"get_reactions",
 					"send_message",
 					"reply_to_thread",
+					"edit_message",
 					"upload_file",
 					"send_thread",
 					"add_reaction",

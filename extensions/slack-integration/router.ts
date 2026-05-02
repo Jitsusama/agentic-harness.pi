@@ -18,6 +18,7 @@ import {
 	uploadFiles,
 } from "../../lib/slack/api/files.js";
 import {
+	editMessage,
 	formatMentions,
 	getMessage,
 	getThread,
@@ -62,6 +63,7 @@ import {
 	type ToolResult,
 } from "../../lib/slack/types.js";
 import {
+	confirmEditMessage,
 	confirmReaction,
 	confirmReply,
 	confirmSendMessage,
@@ -710,6 +712,77 @@ async function handleReplyToThread(
 	);
 }
 
+async function handleEditMessage(
+	client: SlackClient,
+	params: ActionParams,
+	resolved: ResolvedParams,
+	ctx: ExtensionContext,
+): Promise<ToolResult> {
+	if (!resolved.target) return missing("channel + ts or target");
+	const msgText = stringParam(params, "text");
+	const tableParam = extractTableParam(params);
+	if (!msgText && !tableParam) return missing("text");
+
+	// chat.update can rewrite text and blocks but cannot
+	// add or remove file attachments. Reject file params
+	// up front so the agent isn't surprised when the files
+	// silently disappear from its plan.
+	if (collectFilePaths(params).length > 0) {
+		return text(
+			"✗ edit_message cannot change file attachments. " +
+				"Slack's chat.update API only updates text and blocks. " +
+				"Delete the message and re-upload if attachments need to change.",
+		);
+	}
+
+	const displayName =
+		resolved.target.conversation.displayName ?? resolved.target.conversation.id;
+
+	// Build blocks the same way send_message does, so edits
+	// preserve table rendering and rich_text structure.
+	let blocks: unknown[] | undefined;
+	if (tableParam) {
+		const error = validateTable(tableParam);
+		if (error) return text(error);
+		const tableBlock = await buildTableBlock(client, tableParam);
+		blocks = [];
+		if (msgText) {
+			const { blocks: leading } = await buildLeadingBlocks(client, msgText);
+			blocks.push(...leading);
+		}
+		blocks.push(tableBlock);
+	} else if (msgText) {
+		const { blocks: leading, hasStructure } = await buildLeadingBlocks(
+			client,
+			msgText,
+		);
+		if (hasStructure) blocks = leading;
+	}
+
+	const effectiveText =
+		msgText ?? (tableParam ? `Table with ${tableParam.rows.length} rows` : "");
+	if (!effectiveText) return missing("text");
+
+	const confirmed = await confirmEditMessage(
+		ctx,
+		displayName,
+		resolved.target.ts,
+		effectiveText,
+		tableParam,
+	);
+	if (!confirmed) return text("✗ Edit cancelled.");
+	if (!confirmed.approved) return text(confirmed.redirect);
+
+	const result = await editMessage(
+		client,
+		resolved.target.conversation.id,
+		resolved.target.ts,
+		confirmed.data.text,
+		blocks,
+	);
+	return text(`✓ Message edited in ${displayName} (ts: ${result.ts})`, result);
+}
+
 async function handleAddReaction(
 	_client: SlackClient,
 	params: ActionParams,
@@ -1132,6 +1205,7 @@ const ACTION_HANDLERS = new Map<string, ActionHandler>([
 	["get_reactions", handleGetReactions],
 	["send_message", handleSendMessage],
 	["reply_to_thread", handleReplyToThread],
+	["edit_message", handleEditMessage],
 	["upload_file", handleUploadFile],
 	["send_thread", handleSendThread],
 	["add_reaction", handleAddReaction],
