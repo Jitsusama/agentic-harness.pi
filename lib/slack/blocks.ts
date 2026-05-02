@@ -557,6 +557,24 @@ const DIVIDER_LINE = /^(?:-{3,}|\*{3,}|_{3,})\s*$/;
  */
 const INDENT_WIDTH = 2;
 
+/**
+ * Inline patterns whose presence forces a `rich_text`
+ * block even when no block-level structure (list, heading,
+ * quote, fence, divider) is present.
+ *
+ * Plain mrkdwn can't faithfully render any of these:
+ * markdown-style `[text](url)` shows literal brackets,
+ * `**bold**` and `~~strike~~` show their markers, and
+ * `#XXXXXX` hex-lookalikes get auto-rendered as colour
+ * swatches that the shield in `parseMrkdwnToElements`
+ * defeats only when blocks are sent.
+ *
+ * Non-global so `.test()` doesn't carry `lastIndex` state
+ * between calls.
+ */
+const NEEDS_RICH_TEXT_INLINE =
+	/\[[^\]\n]+\]\([^)\s]+\)|\*\*[^*\n]+?\*\*|~~[^~\n]+?~~|#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})(?![0-9a-zA-Z])/;
+
 /** Maximum nesting level Slack accepts for `rich_text_list`. */
 const MAX_LIST_INDENT = 8;
 
@@ -613,7 +631,13 @@ export function mrkdwnToBlocks(text: string): {
 	let quoteLines: string[] = [];
 	let fenceLines: string[] = [];
 	let inFence = false;
-	let hasStructure = false;
+	// Inline patterns that mrkdwn can't render correctly
+	// force a rich_text block even when no block-level
+	// structure (list, heading, quote, fence, divider)
+	// shows up. Without this, a message like
+	// `[link](https://...)` would skip blocks and Slack
+	// would render the brackets literally.
+	let hasStructure = NEEDS_RICH_TEXT_INLINE.test(text);
 	// Tracks a blank line that fell *between* two distinct
 	// blocks (not inside an in-progress section). When the
 	// next block opens, we emit a spacer section before it so
