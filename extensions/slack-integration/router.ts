@@ -618,10 +618,37 @@ async function handleReplyToThread(
 	const msgText = stringParam(params, "text");
 	const filePaths = collectFilePaths(params);
 	const tableParam = extractTableParam(params);
-	if (!msgText && filePaths.length === 0 && !tableParam) return missing("text");
+	const rawMessages = params.messages;
+	const hasMessages = Array.isArray(rawMessages) && rawMessages.length > 0;
 
 	const displayName =
 		resolved.target.conversation.displayName ?? resolved.target.conversation.id;
+
+	// Multi-reply mode: queue several replies in a single
+	// gate, mirroring send_thread but rooted on the existing
+	// parent. Mutually exclusive with the single-reply
+	// params (text/files/table) so the user's intent is
+	// unambiguous.
+	if (hasMessages) {
+		if (msgText || filePaths.length > 0 || tableParam) {
+			return text(
+				"\u2717 Cannot combine `messages` with `text`, file or table params. " +
+					"Use `messages` for queued replies, or the single-reply params for one reply.",
+			);
+		}
+		const parsed = parseThreadMessages(rawMessages);
+		if (typeof parsed === "string") return text(parsed);
+		return dispatchThread(
+			client,
+			ctx,
+			resolved.target.conversation.id,
+			displayName,
+			parsed,
+			resolved.target.ts,
+		);
+	}
+
+	if (!msgText && filePaths.length === 0 && !tableParam) return missing("text");
 
 	// When files are attached, use the upload flow instead.
 	if (filePaths.length > 0) {
@@ -784,14 +811,42 @@ async function handleSendThread(
 		return missing("messages");
 	}
 
-	// Parse and validate the messages array.
 	const parsed = parseThreadMessages(rawMessages);
 	if (typeof parsed === "string") return text(parsed);
 
 	const displayName =
 		resolved.conversation.displayName ?? resolved.conversation.id;
 
-	// Validate tables and gather file info.
+	return dispatchThread(
+		client,
+		ctx,
+		resolved.conversation.id,
+		displayName,
+		parsed,
+		undefined,
+	);
+}
+
+/**
+ * Validate, confirm and send a sequence of thread messages.
+ *
+ * When `existingParentTs` is undefined, the first message
+ * creates a new thread parent and the remaining messages
+ * become replies (the `send_thread` flow).
+ *
+ * When `existingParentTs` is provided, every message is
+ * sent as a reply to that existing thread (the queued-reply
+ * flow on `reply_to_thread`).
+ */
+async function dispatchThread(
+	client: SlackClient,
+	ctx: ExtensionContext,
+	channelId: string,
+	displayName: string,
+	parsed: ParsedThreadMessage[],
+	existingParentTs: string | undefined,
+): Promise<ToolResult> {
+	// Validate tables and gather file info for the gate.
 	const threadMessages: ThreadMessage[] = [];
 	for (let idx = 0; idx < parsed.length; idx++) {
 		const msg = parsed[idx];
@@ -815,46 +870,35 @@ async function handleSendThread(
 		});
 	}
 
-	// Show the tabbed confirmation gate.
-	const confirmed = await confirmSendThread(ctx, displayName, threadMessages);
-	if (!confirmed) return text("\u2717 Send thread cancelled.");
+	const isReplyMode = existingParentTs !== undefined;
+	const cancelLabel = isReplyMode
+		? "\u2717 Queued replies cancelled."
+		: "\u2717 Send thread cancelled.";
+	const noun = isReplyMode ? "replies" : "thread";
+
+	const confirmed = await confirmSendThread(
+		ctx,
+		displayName,
+		threadMessages,
+		existingParentTs,
+	);
+	if (!confirmed) return text(cancelLabel);
 	if (!confirmed.approved) return text(confirmed.redirect);
 
-	// Send messages sequentially: first creates the parent,
-	// the rest reply to it. Messages with files use the
-	// upload flow with initialComment so text and files
-	// appear as a single message.
-	const channelId = resolved.conversation.id;
-	let parentTs: string | undefined;
+	// Send messages sequentially. In create mode the first
+	// becomes the parent; in reply mode every message is a
+	// reply to `existingParentTs`. Messages with files use
+	// the upload flow with initialComment so text and files
+	// appear as a single Slack message.
+	let parentTs = existingParentTs;
 	let sent = 0;
 
 	for (let i = 0; i < parsed.length; i++) {
 		const msg = parsed[i];
-		const isParent = i === 0;
+		const isParent = !isReplyMode && i === 0;
 
 		try {
-			// Build the blocks payload for this thread message.
-			// Same two reasons as handleSendMessage: a table is
-			// present, or the text has lists/quotes/code blocks.
-			let msgBlocks: unknown[] | undefined;
-			if (msg.table) {
-				const tableBlock = await buildTableBlock(client, msg.table);
-				msgBlocks = [];
-				if (msg.text) {
-					const { blocks: leading } = await buildLeadingBlocks(
-						client,
-						msg.text,
-					);
-					msgBlocks.push(...leading);
-				}
-				msgBlocks.push(tableBlock);
-			} else if (msg.text) {
-				const { blocks: leading, hasStructure } = await buildLeadingBlocks(
-					client,
-					msg.text,
-				);
-				if (hasStructure) msgBlocks = leading;
-			}
+			const msgBlocks = await buildThreadMessageBlocks(client, msg);
 
 			if (msg.filePaths.length > 0) {
 				const uploadResult = await uploadFiles(client, msg.filePaths, {
@@ -876,7 +920,7 @@ async function handleSendThread(
 			} else {
 				if (!parentTs) {
 					return text(
-						`\u2717 Thread failed: could not determine parent message timestamp. ` +
+						`\u2717 ${noun} failed: missing parent thread timestamp. ` +
 							`Sent ${sent} of ${parsed.length} messages.`,
 					);
 				}
@@ -886,16 +930,53 @@ async function handleSendThread(
 		} catch (error) {
 			const reason = error instanceof Error ? error.message : String(error);
 			return text(
-				`\u2717 Thread failed at message ${i + 1} of ${parsed.length}: ${reason}. ` +
+				`\u2717 ${noun} failed at message ${i + 1} of ${parsed.length}: ${reason}. ` +
 					`${sent} message(s) were already sent.`,
 			);
 		}
 	}
 
+	if (isReplyMode) {
+		return text(
+			`\u2713 ${parsed.length} replies sent in ${displayName} thread ${parentTs}`,
+			{ threadTs: parentTs },
+		);
+	}
 	return text(
 		`\u2713 Thread sent to ${displayName} (${parsed.length} messages, parent ts: ${parentTs})`,
 		{ threadTs: parentTs },
 	);
+}
+
+/**
+ * Build the blocks payload for one thread message.
+ *
+ * Same two reasons to attach blocks as `handleSendMessage`:
+ * the message has a table, or the text has lists / quotes /
+ * code blocks that only render correctly via `rich_text`.
+ */
+async function buildThreadMessageBlocks(
+	client: SlackClient,
+	msg: ParsedThreadMessage,
+): Promise<unknown[] | undefined> {
+	if (msg.table) {
+		const tableBlock = await buildTableBlock(client, msg.table);
+		const blocks: unknown[] = [];
+		if (msg.text) {
+			const { blocks: leading } = await buildLeadingBlocks(client, msg.text);
+			blocks.push(...leading);
+		}
+		blocks.push(tableBlock);
+		return blocks;
+	}
+	if (msg.text) {
+		const { blocks: leading, hasStructure } = await buildLeadingBlocks(
+			client,
+			msg.text,
+		);
+		if (hasStructure) return leading;
+	}
+	return undefined;
 }
 
 /** Parsed thread message with collected file paths and optional table. */

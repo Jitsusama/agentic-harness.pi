@@ -179,6 +179,20 @@ instead. This is a Slack API limitation, not a tool limitation.
 ### "Reply to that thread saying…"
 → `reply_to_thread` with `channel`, `ts` (from previous context), and `text`
 
+### "Reply to that thread with these messages…" / "Send these as replies"
+→ `reply_to_thread` with `channel`, `ts` and a `messages`
+  array (same shape as `send_thread`)
+- Use this when the user has several thoughts that belong
+  on an existing thread and you want to queue them up for
+  a single review pass.
+- Mutually exclusive with `text`, `file_path`/`file_paths`
+  and `table`. Pick one mode.
+- The tabbed review gate works the same as `send_thread`:
+  one tab per reply, all must be approved, any rejection
+  halts everything. The role label on each tab says
+  "Reply N of M" so the gate can't be confused with the
+  thread-creation flow.
+
 ### "React to that with :emoji:"
 → `add_reaction` with `target` or `channel`+`ts`, and `emoji`
 
@@ -230,6 +244,11 @@ instead. This is a Slack API limitation, not a tool limitation.
   early (Ctrl+Enter) without reviewing all tabs, the
   gate rejects with a note asking them to review
   everything.
+- The same `messages` array works on `reply_to_thread`
+  when the user wants to queue several replies on an
+  existing thread instead of starting a new one. See
+  the "Reply to that thread with these messages" entry
+  above.
 
 ```
 slack({ action: "send_thread", channel: "#team-updates",

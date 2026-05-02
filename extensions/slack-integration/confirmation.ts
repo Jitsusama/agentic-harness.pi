@@ -330,18 +330,30 @@ export interface ThreadMessage {
  * attachment info. The user approves each message via Enter
  * or rejects via 'r'. Any rejection halts the entire thread
  * and returns a redirect.
+ *
+ * When `parentTs` is provided, every message is framed as a
+ * reply to that existing thread. When omitted, the first
+ * message is the thread parent and the rest are replies.
  */
 export async function confirmSendThread(
 	ctx: ExtensionContext,
 	conversationName: string,
 	messages: ThreadMessage[],
+	parentTs?: string,
 ): Promise<ConfirmResult<true>> {
 	if (!ctx.hasUI) return { approved: true, data: true };
 
-	const context = `Send thread (${messages.length} messages) to ${conversationName}`;
+	const isReplyMode = parentTs !== undefined;
+	const action = isReplyMode
+		? `Queue ${messages.length} replies in ${conversationName} thread ${parentTs}`
+		: `Send thread (${messages.length} messages) to ${conversationName}`;
+	const title = isReplyMode
+		? ` Queue ${messages.length} Replies in ${conversationName}`
+		: ` Send Thread to ${conversationName}`;
+	const context = action;
 
 	const result = await promptTabbed(ctx, {
-		title: ` Send Thread to ${conversationName}`,
+		title,
 		items: messages.map((msg, i) => ({
 			label: `M${i + 1}`,
 			views: [
@@ -350,7 +362,11 @@ export async function confirmSendThread(
 					label: "Message",
 					content: (theme, width) => {
 						const lines: string[] = [];
-						const role = i === 0 ? "Thread parent" : `Reply ${i}`;
+						const role = isReplyMode
+							? `Reply ${i + 1} of ${messages.length} (in thread ${parentTs})`
+							: i === 0
+								? "Thread parent"
+								: `Reply ${i}`;
 						lines.push(` ${theme.fg("muted", role)}`);
 						lines.push("");
 						for (const line of renderMarkdown(msg.text, theme, width)) {
