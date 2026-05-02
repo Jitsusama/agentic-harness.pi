@@ -34,7 +34,7 @@ import {
 import { resolveMessages } from "../../lib/slack/api/resolve-messages.js";
 import { searchFiles, searchMessages } from "../../lib/slack/api/search.js";
 import { getUserInfo } from "../../lib/slack/api/users.js";
-import { mrkdwnToRichTextBlock, tableToBlock } from "../../lib/slack/blocks.js";
+import { mrkdwnToBlocks, tableToBlock } from "../../lib/slack/blocks.js";
 import { renderChannel } from "../../lib/slack/renderers/channel.js";
 import {
 	renderMessage,
@@ -510,23 +510,23 @@ async function buildTableBlock(
 
 /**
  * Resolve @mentions in `text` and parse the result into a
- * `rich_text` block, with `hasStructure` indicating whether
- * the block contains lists, quotes or code blocks (i.e.
- * sending it as blocks renders differently than as plain
- * mrkdwn).
+ * Block Kit blocks array (rich_text plus optional header
+ * and divider blocks). `hasStructure` indicates whether the
+ * blocks contain anything that would render differently as
+ * blocks than as plain mrkdwn — callers use it to decide
+ * whether to attach blocks when no table is present.
  *
  * Used by the send_message, reply_to_thread and send_thread
- * paths to attach a single rich_text block before any table
- * block, and to decide whether to send blocks at all when
- * no table is present.
+ * paths to build the leading content of every outgoing
+ * message.
  */
-async function buildLeadingRichTextBlock(
+async function buildLeadingBlocks(
 	client: SlackClient,
 	text: string,
 	signal?: AbortSignal,
-): Promise<{ block: unknown; hasStructure: boolean }> {
+): Promise<{ blocks: unknown[]; hasStructure: boolean }> {
 	const formatted = await formatMentions(client, text, signal);
-	return mrkdwnToRichTextBlock(formatted);
+	return mrkdwnToBlocks(formatted);
 }
 
 // ── Write handlers (with confirmation gates) ────────────
@@ -570,19 +570,19 @@ async function handleSendMessage(
 		const tableBlock = await buildTableBlock(client, tableParam);
 		// When blocks are present, Slack's text field is only a
 		// notification fallback — it doesn't render in the message.
-		// Prepend a rich_text block so the message text is visible.
+		// Prepend the leading blocks so the message text is visible.
 		blocks = [];
 		if (msgText) {
-			const { block } = await buildLeadingRichTextBlock(client, msgText);
-			blocks.push(block);
+			const { blocks: leading } = await buildLeadingBlocks(client, msgText);
+			blocks.push(...leading);
 		}
 		blocks.push(tableBlock);
 	} else if (msgText) {
-		const { block, hasStructure } = await buildLeadingRichTextBlock(
+		const { blocks: leading, hasStructure } = await buildLeadingBlocks(
 			client,
 			msgText,
 		);
-		if (hasStructure) blocks = [block];
+		if (hasStructure) blocks = leading;
 	}
 
 	// Generate fallback text for notifications when only a table is present.
@@ -644,16 +644,16 @@ async function handleReplyToThread(
 		const tableBlock = await buildTableBlock(client, tableParam);
 		blocks = [];
 		if (msgText) {
-			const { block } = await buildLeadingRichTextBlock(client, msgText);
-			blocks.push(block);
+			const { blocks: leading } = await buildLeadingBlocks(client, msgText);
+			blocks.push(...leading);
 		}
 		blocks.push(tableBlock);
 	} else if (msgText) {
-		const { block, hasStructure } = await buildLeadingRichTextBlock(
+		const { blocks: leading, hasStructure } = await buildLeadingBlocks(
 			client,
 			msgText,
 		);
-		if (hasStructure) blocks = [block];
+		if (hasStructure) blocks = leading;
 	}
 
 	const effectiveText =
@@ -841,16 +841,19 @@ async function handleSendThread(
 				const tableBlock = await buildTableBlock(client, msg.table);
 				msgBlocks = [];
 				if (msg.text) {
-					const { block } = await buildLeadingRichTextBlock(client, msg.text);
-					msgBlocks.push(block);
+					const { blocks: leading } = await buildLeadingBlocks(
+						client,
+						msg.text,
+					);
+					msgBlocks.push(...leading);
 				}
 				msgBlocks.push(tableBlock);
 			} else if (msg.text) {
-				const { block, hasStructure } = await buildLeadingRichTextBlock(
+				const { blocks: leading, hasStructure } = await buildLeadingBlocks(
 					client,
 					msg.text,
 				);
-				if (hasStructure) msgBlocks = [block];
+				if (hasStructure) msgBlocks = leading;
 			}
 
 			if (msg.filePaths.length > 0) {

@@ -483,57 +483,66 @@ if the user asks about DMs specifically.
 **Warn the user** that this only covers common emojis. Custom
 or unusual reactions may be missed.
 
-## Message Formatting (mrkdwn)
+## Message Formatting
 
-Slack uses its own markup format called **mrkdwn**, not
-standard markdown. When composing messages, use these rules:
+The tool accepts a hybrid of Slack mrkdwn and standard
+markdown and converts the message to Block Kit before
+sending. Both spellings of bold, italic, strikethrough and
+links are accepted. Lists, headings, dividers, blockquotes
+and code blocks render natively.
 
 ### Text Formatting
-- **Bold**: `*text*` (single asterisks, not double)
-- **Italic**: `_text_` (underscores)
-- **Strikethrough**: `~text~` (single tildes)
+- **Bold**: `*text*` or `**text**`
+- **Italic**: `_text_`
+- **Strikethrough**: `~text~` or `~~text~~`
 - **Inline code**: `` `code` ``
 - **Code block**: triple backticks on their own lines.
-  No language hints — Slack ignores them and renders the
-  hint as literal text.
+  No language hints — Slack ignores them.
 
 ### Structure
+- **Headings**: `# Title`, `## Subtitle`, etc. Slack only
+  has one heading style, so all levels render the same
+  (large bold text). The tool emits a Block Kit `header`
+  block.
+- **Dividers**: a line containing only `---`, `***` or
+  `___` becomes a horizontal rule (Block Kit `divider`).
 - **Bulleted lists**: start each line with `- `, `* ` or
-  `+ ` followed by the item content. The tool converts
-  consecutive bullet lines into a native Slack
-  `rich_text_list` block, so wrapped lines indent
-  correctly and items render the same as Slack's editor
-  produces.
+  `+ `. The tool converts consecutive bullet lines into a
+  native Slack `rich_text_list` block, so wrapped lines
+  indent correctly.
 - **Ordered lists**: start each line with `1. `, `2. ` and
-  so on. The tool converts consecutive numbered lines into
-  a native ordered list. Slack always renumbers from 1
-  regardless of the digits you write — the digits are just
-  a marker.
+  so on. Slack always renumbers from 1 regardless of the
+  digits you write — the digits are just a marker.
 - **Nested lists**: indent sub-items by two spaces (or one
   tab) per level. Mixing bullet and ordered styles or
   changing indent starts a new list block.
 - **Blockquotes**: start each line with `> `. Consecutive
   quote lines become a single `rich_text_quote` block.
-- **Code blocks**: triple backticks on their own lines
-  become a `rich_text_preformatted` block. No language
-  hints — Slack ignores them.
 - **Line breaks**: newlines inside a paragraph are
-  preserved. A blank line ends the current paragraph and
-  starts a new block.
-- **No headers**: `#` has no special meaning in Slack.
+  preserved. A blank line between paragraphs (or between a
+  paragraph and a list/quote/code) renders as visible
+  vertical space.
 
 ### Links and Mentions
-- **Links**: `<https://example.com|display text>` (not
-  markdown's `[text](url)` syntax)
-- **User mentions**: `<@U12345>` with the user's Slack ID
-- **Channel mentions**: `<#C12345>` with the channel ID
+- **Links**: `[display text](https://example.com)` or
+  Slack's native `<https://example.com|display text>` —
+  both work. Bare URLs (`https://example.com`) auto-link.
+- **User mentions**: write `@first.last` and the tool
+  resolves the handle to a user ID. `<@U12345>` is also
+  accepted.
+- **Channel mentions**: `<#C12345>` with the channel ID.
 
-### What Doesn't Work
-- `**double asterisks**` — renders as literal asterisks
-- `~~double tildes~~` — renders as literal tildes
+### Avoiding Auto-Detected Colour Swatches
+
+Slack auto-renders any `#` followed by 3, 4, 6 or 8 hex
+digits as a colour swatch — which catches PR numbers like
+`#675891`. The tool defends against this automatically by
+splitting the `#` and the digits across two adjacent text
+elements, so the rendered output looks identical but the
+swatch detector doesn't fire. No special syntax needed.
+
+### What Still Doesn't Work
 - ` ```python ` — the language hint appears as text
-- `[text](url)` — renders as literal brackets
-- `# Heading` — renders as literal `#`
 - `![alt](image-url)` — no image embedding
 - `| col | col |` — markdown tables don't work in Slack.
   Use the `table` parameter instead (see Tables below).
