@@ -532,7 +532,9 @@ The tool accepts a hybrid of Slack mrkdwn and standard
 markdown and converts the message to Block Kit before
 sending. Both spellings of bold, italic, strikethrough and
 links are accepted. Lists, headings, dividers, blockquotes
-and code blocks render natively.
+and code blocks render natively. Not all markdown features
+translate — see "Unsupported Syntax" below for what to
+never include.
 
 ### Text Formatting
 - **Bold**: `*text*` or `**text**`
@@ -584,17 +586,29 @@ splitting the `#` and the digits across two adjacent text
 elements, so the rendered output looks identical but the
 swatch detector doesn't fire. No special syntax needed.
 
-### What Still Doesn't Work
-- ` ```python ` — the language hint appears as text
-- `![alt](image-url)` — no image embedding
-- `| col | col |` — markdown tables don't work in Slack.
-  Use the `table` parameter instead (see Tables below).
+### Unsupported Syntax (Never Use)
+
+These render as raw text or break formatting. Never include
+them in Slack messages:
+
+- ` ```python ` — language hints are ignored. Use bare
+  triple backticks with no language identifier.
+- `![alt](image-url)` — image embedding does not exist.
+  Upload images with `file_path` instead.
+- `| col | col |` — pipe tables render as broken
+  plaintext. Always use the `table` parameter for
+  tabular data (see Tables below).
 
 ## Tables
 
-Slack supports native table blocks via Block Kit. Tables
-appear in received messages (rendered as markdown tables in
-tool output) and can be sent using the `table` parameter.
+**Always use the `table` parameter for tabular data.** Never
+format tables as pipe-delimited markdown in the `text`
+field — Slack renders pipe tables as broken plaintext.
+
+Tables appear in received messages (rendered as pipe tables
+in tool output for readability) and are sent using the
+`table` parameter on `send_message`, `reply_to_thread` or
+individual `send_thread` messages.
 
 ### Reading Tables
 
@@ -831,6 +845,19 @@ slack({ action: "edit_message", target: "...",
 
 # ✅ Good: delete and re-upload, or post a follow-up reply
 # explaining the change.
+```
+
+**DON'T** format tabular data as markdown in the text field:
+```
+# ❌ Bad: pipe tables render as broken plaintext in Slack
+slack({ action: "send_message", channel: "#ops",
+        text: "| Name | Count |\n|------|-------|\n| Alice | 3 |" })
+
+# ✅ Good: use the table parameter for native Block Kit tables
+slack({ action: "send_message", channel: "#ops",
+        text: "Outstanding issues:",
+        table: { columns: ["Name", "Count"],
+                 rows: [["Alice", "3"]] } })
 ```
 
 **DON'T** try non-existent search operators:
