@@ -5,12 +5,47 @@ import type {
 	Finding,
 } from "../../../extensions/pr-workflow/findings.js";
 import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
+import type {
+	StackCriticRun,
+	StackFinding,
+} from "../../../extensions/pr-workflow/stack-critic.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import {
 	decideFinding,
 	formatFindingsView,
 } from "../../../extensions/pr-workflow/synthesis.js";
 import { expectFailure } from "./fixtures.js";
+
+function stackFinding(
+	id: number,
+	subject: string,
+	homePrNumber: number,
+	spans: number[],
+): StackFinding {
+	return {
+		id,
+		location: { kind: "global" },
+		label: "issue",
+		decorations: [],
+		subject,
+		discussion: "d",
+		category: "scope",
+		origin: { kind: "stack-critic", runId: "sc-1", reviewerId: "sc" },
+		state: "draft",
+		homePrNumber,
+		spans,
+	};
+}
+
+function stackCriticRun(findings: StackFinding[]): StackCriticRun {
+	return {
+		id: "sc-1",
+		startedAt: "2026-05-19T00:00:00Z",
+		reviewerId: "sc",
+		findings,
+		warnings: [],
+	};
+}
 
 /**
  * Round 4 (the user) is the synthesis layer. The user
@@ -152,6 +187,45 @@ describe("formatFindingsView", () => {
 		expect(text).toContain("Original subject");
 	});
 
+	it("appends a stack-level findings section when a stack-critic run is present", () => {
+		// Stack findings render with an S-prefix on the
+		// id (e.g. [S1]) so the user can pass scope=stack
+		// when deciding. Home PR and spans show on the
+		// header so the user knows where it'll post and
+		// what it refers to.
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([judgedFinding(10, "per-pr")]);
+		state.stackCritic = stackCriticRun([
+			stackFinding(1, "inconsistent retries", 2, [1, 2, 3]),
+		]);
+		const text = formatFindingsView(state);
+		expect(text).toContain("per-pr");
+		expect(text).toContain("inconsistent retries");
+		expect(text).toMatch(/S1|\[S-1\]|stack:.*\[1\]/);
+		expect(text).toContain("#2");
+		expect(text).toMatch(/1,\s*2,\s*3/);
+	});
+
+	it("shows stack decisions in the stack-level section", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([judgedFinding(10, "per-pr")]);
+		state.stackCritic = stackCriticRun([stackFinding(1, "stacked", 1, [1, 2])]);
+		decideFinding(state, {
+			findingId: 1,
+			verdict: "endorse",
+			scope: "stack",
+		});
+		const text = formatFindingsView(state);
+		expect(text).toMatch(/stacked[\s\S]*decision:\s*endorse/);
+	});
+
+	it("renders without a stack section when stackCritic is null", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([judgedFinding(10, "per-pr")]);
+		const text = formatFindingsView(state);
+		expect(text).not.toMatch(/stack-level|cross-pr|stack finding/i);
+	});
+
 	it("returns a clear empty-state message when there's no judge run", async () => {
 		const state = createPrWorkflowState();
 		const text = formatFindingsView(state);
@@ -247,6 +321,64 @@ describe("decideFinding", () => {
 		expect(state.council.decisions.get(10)?.decidedAt).toBe(
 			"2030-12-31T23:59:59.000Z",
 		);
+	});
+
+	describe("stack scope", () => {
+		it("records a decision against a stack-critic finding into stackDecisions", () => {
+			const state = createPrWorkflowState();
+			state.stackCritic = stackCriticRun([
+				stackFinding(1, "cross-pr", 2, [1, 2]),
+			]);
+			const result = decideFinding(state, {
+				findingId: 1,
+				verdict: "endorse",
+				scope: "stack",
+			});
+			expect(result.ok).toBe(true);
+			expect(state.stackDecisions.get(1)?.verdict).toBe("endorse");
+			// Per-PR map is untouched.
+			expect(state.council.decisions.size).toBe(0);
+		});
+
+		it("rejects scope=stack when no stack-critic run exists", () => {
+			const state = createPrWorkflowState();
+			const result = decideFinding(state, {
+				findingId: 1,
+				verdict: "endorse",
+				scope: "stack",
+			});
+			expect(expectFailure(result).error).toMatch(/stack-critic|stack/i);
+		});
+
+		it("rejects scope=stack with unknown stack findingId", () => {
+			const state = createPrWorkflowState();
+			state.stackCritic = stackCriticRun([stackFinding(1, "x", 1, [1, 2])]);
+			const result = decideFinding(state, {
+				findingId: 99,
+				verdict: "endorse",
+				scope: "stack",
+			});
+			expect(expectFailure(result).error).toMatch(/unknown|not in/i);
+		});
+
+		it("stack decisions are independent from per-PR decisions on the same id", () => {
+			// findingId 1 can exist as both a per-PR finding
+			// and a stack finding without collision.
+			const state = createPrWorkflowState();
+			state.council.lastJudge = makeJudge([judgedFinding(1, "per-pr")]);
+			state.stackCritic = stackCriticRun([stackFinding(1, "stack", 1, [1, 2])]);
+
+			decideFinding(state, { findingId: 1, verdict: "endorse" });
+			decideFinding(state, {
+				findingId: 1,
+				verdict: "dismiss",
+				reason: "covered elsewhere",
+				scope: "stack",
+			});
+
+			expect(state.council.decisions.get(1)?.verdict).toBe("endorse");
+			expect(state.stackDecisions.get(1)?.verdict).toBe("dismiss");
+		});
 	});
 });
 

@@ -6,8 +6,43 @@ import {
 	type PostReviewExec,
 	postReviewAction,
 } from "../../../extensions/pr-workflow/post.js";
+import type {
+	StackCriticRun,
+	StackFinding,
+} from "../../../extensions/pr-workflow/stack-critic.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import { expectFailure, prMetadata } from "./fixtures.js";
+
+function stackFinding(
+	id: number,
+	subject: string,
+	homePrNumber: number,
+	spans: number[],
+): StackFinding {
+	return {
+		id,
+		location: { kind: "global" },
+		label: "issue",
+		decorations: [],
+		subject,
+		discussion: `discussion for ${subject}`,
+		category: "scope",
+		origin: { kind: "stack-critic", runId: "sc-1", reviewerId: "sc" },
+		state: "draft",
+		homePrNumber,
+		spans,
+	};
+}
+
+function stackCriticRun(findings: StackFinding[]): StackCriticRun {
+	return {
+		id: "sc-1",
+		startedAt: "x",
+		reviewerId: "sc",
+		findings,
+		warnings: [],
+	};
+}
 
 /**
  * Post gate.
@@ -406,5 +441,121 @@ describe("postReviewAction", () => {
 			exec,
 		});
 		expect(expectFailure(result).error).toMatch(/gh api 422|post.*failed/i);
+	});
+});
+
+describe("buildReviewPayload with stack findings", () => {
+	// Phase 2: stack-critic findings whose `homePrNumber`
+	// matches the cursor PR get posted alongside per-PR
+	// findings, in the body section (they are scope-level
+	// by nature). Stack findings home to OTHER PRs in the
+	// stack get skipped with a clear reason — the user
+	// posts those by navigating to the home PR.
+
+	function baseState() {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "x",
+			metadata: prMetadata({
+				title: "t",
+				url: "u",
+				author: "a",
+				base: { ref: "main", sha: "d" },
+				head: { ref: "feat", sha: "h" },
+			}),
+			files: [],
+			stack: null,
+		};
+		state.council.lastJudge = judge([]);
+		return state;
+	}
+
+	it("posts a stack finding when its homePrNumber matches the cursor PR", () => {
+		const state = baseState();
+		state.stackCritic = stackCriticRun([
+			stackFinding(1, "Inconsistent retries", 42, [42, 43]),
+		]);
+		state.stackDecisions.set(1, {
+			findingId: 1,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+
+		const payload = buildReviewPayload(state);
+		expect(payload.body).toContain("Inconsistent retries");
+		expect(payload.body).toMatch(/spans|42.*43|cross-PR/i);
+		expect(payload.includedStackFindingIds).toEqual([1]);
+	});
+
+	it("skips a stack finding when its homePrNumber differs from the cursor PR", () => {
+		const state = baseState();
+		state.stackCritic = stackCriticRun([
+			stackFinding(1, "Belongs on PR 43", 43, [42, 43]),
+		]);
+		state.stackDecisions.set(1, {
+			findingId: 1,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+
+		const payload = buildReviewPayload(state);
+		expect(payload.includedStackFindingIds).toEqual([]);
+		const skip = payload.skipped.find(
+			(s) => s.findingId === 1 && /stack/.test(s.reason),
+		);
+		expect(skip).toBeDefined();
+		expect(skip?.reason).toMatch(/#43|home/i);
+	});
+
+	it("skips pending and dismissed stack findings", () => {
+		const state = baseState();
+		state.stackCritic = stackCriticRun([
+			stackFinding(1, "Pending", 42, [42]),
+			stackFinding(2, "Dismissed", 42, [42]),
+		]);
+		state.stackDecisions.set(2, {
+			findingId: 2,
+			verdict: "dismiss",
+			reason: "out of scope",
+			decidedAt: "x",
+		});
+
+		const payload = buildReviewPayload(state);
+		expect(payload.includedStackFindingIds).toEqual([]);
+		expect(payload.skipped).toHaveLength(2);
+	});
+
+	it("leaves includedStackFindingIds empty when there is no stack-critic run", () => {
+		const state = baseState();
+		const payload = buildReviewPayload(state);
+		expect(payload.includedStackFindingIds).toEqual([]);
+	});
+
+	it("posts a stack-only review when no per-PR findings are eligible", async () => {
+		// The user might run stack-critic without any
+		// per-PR decisions on the current cursor. Should
+		// still post the cross-PR findings.
+		const state = baseState();
+		state.stackCritic = stackCriticRun([
+			stackFinding(1, "Cross-PR pattern", 42, [42, 43]),
+		]);
+		state.stackDecisions.set(1, {
+			findingId: 1,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const result = await postReviewAction({
+			state,
+			event: "COMMENT",
+			exec,
+		});
+		expect(result.ok).toBe(true);
+		expect(exec).toHaveBeenCalled();
+		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(arg.body).toContain("Cross-PR pattern");
+		expect(arg.body).toMatch(/cross-PR finding/i);
 	});
 });

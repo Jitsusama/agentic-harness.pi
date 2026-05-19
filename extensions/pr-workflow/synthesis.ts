@@ -65,8 +65,19 @@ export type FindingDecision =
 /** Result of a decision mutation. */
 export type DecisionResult = { ok: true } | { ok: false; error: string };
 
+/**
+ * Which set of findings the decision targets. Defaults
+ * to `"pr"` (the per-PR judge findings in
+ * `state.council.lastJudge`). `"stack"` routes the
+ * decision to `state.stackDecisions` against the most
+ * recent `state.stackCritic` run.
+ */
+export type DecideFindingScope = "pr" | "stack";
+
+type WithScope<T> = T & { readonly scope?: DecideFindingScope };
+
 /** Inputs to `decideFinding`, without the timestamp. */
-export type DecideFindingInput =
+export type DecideFindingInput = WithScope<
 	| { findingId: number; verdict: "endorse" }
 	| { findingId: number; verdict: "qualify"; note: string }
 	| {
@@ -77,7 +88,8 @@ export type DecideFindingInput =
 	  }
 	| { findingId: number; verdict: "dismiss"; reason?: string }
 	| { findingId: number; verdict: "promote" }
-	| { findingId: number; verdict: "fix"; instructions?: string };
+	| { findingId: number; verdict: "fix"; instructions?: string }
+>;
 
 /**
  * Record or overwrite the user's decision on one finding.
@@ -90,6 +102,51 @@ export function decideFinding(
 	input: DecideFindingInput,
 	now: () => Date = () => new Date(),
 ): DecisionResult {
+	const scope: DecideFindingScope = input.scope ?? "pr";
+	const lookup = lookupFinding(state, input.findingId, scope);
+	if (!lookup.ok) return lookup;
+
+	const validation = validateInput(input);
+	if (!validation.ok) return validation;
+
+	const decidedAt = now().toISOString();
+	const decision: FindingDecision = buildDecision(input, decidedAt);
+	if (scope === "stack") {
+		state.stackDecisions.set(input.findingId, decision);
+	} else {
+		state.council.decisions.set(input.findingId, decision);
+	}
+	return { ok: true };
+}
+
+/**
+ * Resolve a finding id against the scope-appropriate
+ * source. Returns a failure result with a scope-specific
+ * error when the source isn't populated or the id
+ * doesn't exist.
+ */
+function lookupFinding(
+	state: PrWorkflowState,
+	findingId: number,
+	scope: DecideFindingScope,
+): DecisionResult {
+	if (scope === "stack") {
+		if (state.stackCritic === null) {
+			return {
+				ok: false,
+				error:
+					"No stack-critic run available. Run pr_workflow action=stack-critic first.",
+			};
+		}
+		const exists = state.stackCritic.findings.some((f) => f.id === findingId);
+		if (!exists) {
+			return {
+				ok: false,
+				error: `Unknown stack findingId ${findingId}: not in the most-recent stack-critic run.`,
+			};
+		}
+		return { ok: true };
+	}
 	const judge = state.council.lastJudge;
 	if (judge === null) {
 		return {
@@ -98,21 +155,13 @@ export function decideFinding(
 				"No findings to decide on. Run pr_workflow action=council, then action=judge first.",
 		};
 	}
-	const exists = judge.consolidatedFindings.some(
-		(f) => f.id === input.findingId,
-	);
+	const exists = judge.consolidatedFindings.some((f) => f.id === findingId);
 	if (!exists) {
 		return {
 			ok: false,
-			error: `Unknown findingId ${input.findingId}: not in the most-recent judge run.`,
+			error: `Unknown findingId ${findingId}: not in the most-recent judge run.`,
 		};
 	}
-	const validation = validateInput(input);
-	if (!validation.ok) return validation;
-
-	const decidedAt = now().toISOString();
-	const decision: FindingDecision = buildDecision(input, decidedAt);
-	state.council.decisions.set(input.findingId, decision);
 	return { ok: true };
 }
 
@@ -195,7 +244,7 @@ export function formatFindingsView(state: PrWorkflowState): string {
 	if (judge === null) {
 		return "No findings yet. Run pr_workflow action=council, then action=judge.";
 	}
-	if (judge.consolidatedFindings.length === 0) {
+	if (judge.consolidatedFindings.length === 0 && state.stackCritic === null) {
 		return "Judge consolidated 0 findings; nothing to decide on.";
 	}
 	const lines: string[] = [];
@@ -222,6 +271,24 @@ export function formatFindingsView(state: PrWorkflowState): string {
 			lines.push(`     original discussion: ${finding.discussion}`);
 		}
 		lines.push("");
+	}
+	if (state.stackCritic !== null && state.stackCritic.findings.length > 0) {
+		lines.push("Stack-level findings (decide with scope=stack):");
+		lines.push("");
+		for (const finding of state.stackCritic.findings) {
+			const decision = state.stackDecisions.get(finding.id) ?? null;
+			const display = applyEdit(finding, decision);
+			lines.push(
+				`[S${finding.id}] [${finding.label}] ${display.subject} (home: #${finding.homePrNumber}; spans: ${finding.spans.join(", ")})`,
+			);
+			lines.push(`   ${display.discussion}`);
+			lines.push(`   decision: ${renderDecision(decision)}`);
+			if (decision?.verdict === "edit") {
+				lines.push(`     original subject: ${finding.subject}`);
+				lines.push(`     original discussion: ${finding.discussion}`);
+			}
+			lines.push("");
+		}
 	}
 	return lines.join("\n").trimEnd();
 }
