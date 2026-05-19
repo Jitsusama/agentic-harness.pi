@@ -372,7 +372,43 @@ findings to GitHub. The reverse direction — reading
 what reviewers already left and responding — happens
 through three small actions.
 
-When to reach for them:
+### Two inboxes, kept separate
+
+Threads and council findings are *two different
+streams of work*. Don't merge them into one mental
+model.
+
+| Threads | Council findings |
+|---|---|
+| Human (or other AI) reviewers wrote them on GitHub | Pi generated them by reading the diff |
+| Social obligation — someone is waiting for a reply | Technical discovery — the user decides what's worth doing |
+| Close with `reply` + `resolve` | Close with `decide` + `post` or `fix` |
+| Action family: `threads`, `reply`, `resolve` | Action family: `council`, `judge`, `critique`, `findings`, `decide`, `post`, `fix-*` |
+
+The distinction matters because the work has
+different urgency. "Alice is waiting for a reply on
+T1" has a deadline. "The council noticed F3 might
+be a race" is optional. Merging them into one
+inbox would hide which is which.
+
+When the user asks an open question like "what's on
+this PR?" — run *both* and present them in two
+sections, not one merged list. When the user is in
+thread-mode ("address what alice said"), don't
+automatically run the council. When the user is in
+council-mode ("check this for me"), don't reach for
+thread tools unless they ask.
+
+The two streams can cross *in conversation* (the
+user might dismiss F5 because alice already raised
+it in T1, citing T1 in the dismissal reason). They
+should not cross *in the tool surface*. There is no
+`ingest-threads` action. There is no
+`findings.source = thread` field. The scenarios that
+led to keeping the two streams separate are walked
+in the project's design 19 (`council-vs-threads`).
+
+### When to reach for thread actions
 
 - User: "what review comments are still open on this
   PR?" → `action="threads"`. Render the result.
