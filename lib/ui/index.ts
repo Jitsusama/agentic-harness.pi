@@ -9,6 +9,14 @@
  * tab-completion) are not re-exported.
  */
 
+// ── Badges and bars ─────────────────────────────────────────
+export {
+	type BadgeKind,
+	type BadgeOptions,
+	type BarOptions,
+	renderBadge,
+	renderBar,
+} from "./badge.js";
 // ── Content rendering ───────────────────────────────────────
 export {
 	type CodeRenderOptions,
@@ -17,6 +25,13 @@ export {
 	renderDiff,
 	renderMarkdown,
 } from "./content-renderer.js";
+// ── Narration ───────────────────────────────────────────────
+export {
+	NARRATION_GLYPH,
+	type NarrationLevel,
+	type NarrationOptions,
+	renderNarrationLine,
+} from "./narration.js";
 // ── Navigable lists ─────────────────────────────────────────
 export {
 	type DetailEntry,
@@ -32,6 +47,14 @@ export {
 	view,
 	workspace,
 } from "./panel.js";
+// ── Pipeline progress ───────────────────────────────────────
+export {
+	type PipelineProgressOptions,
+	type PipelineStage,
+	renderPipelineProgress,
+	renderPipelineProgressLines,
+	type StageState,
+} from "./pipeline-progress.js";
 
 // ── Text layout ─────────────────────────────────────────────
 export { contentWrapWidth, wordWrap } from "./text-layout.js";
