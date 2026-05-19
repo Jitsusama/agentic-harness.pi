@@ -12,6 +12,19 @@ describe("createPrWorkflowState", () => {
 		expect(state.pr).toBeNull();
 	});
 
+	it("starts with no stack-critic reviewer, run, or decisions", () => {
+		// Phase 1+2 of stack-aware review adds three slots
+		// to the council/state shape: a configurable stack
+		// critic reviewer (separate from judge), the most
+		// recent run, and the decision map for stack-level
+		// findings. Fresh sessions should have none of them
+		// populated.
+		const state = createPrWorkflowState();
+		expect(state.council.stackCritic).toBeNull();
+		expect(state.stackCritic).toBeNull();
+		expect(state.stackDecisions.size).toBe(0);
+	});
+
 	it("returns an independent state object on every call", () => {
 		// State is created fresh each time so callers can't
 		// accidentally share a mutable singleton. Each session
@@ -21,5 +34,11 @@ describe("createPrWorkflowState", () => {
 		expect(a).not.toBe(b);
 		a.active = true;
 		expect(b.active).toBe(false);
+		a.stackDecisions.set(1, {
+			findingId: 1,
+			verdict: "endorse",
+			decidedAt: "2026-05-19T00:00:00Z",
+		});
+		expect(b.stackDecisions.size).toBe(0);
 	});
 });
