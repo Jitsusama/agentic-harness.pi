@@ -164,6 +164,26 @@ describe("buildCritiquePrompt", () => {
 		expect(text).toContain("findingId");
 		expect(text).toContain("position");
 	});
+
+	it("embeds the critique JSON schema and instructs verify_output", async () => {
+		// The critique subagent gets pr-workflow-verify
+		// loaded so it can self-validate before ending.
+		// The prompt must teach the model to use the tool
+		// and embed the schema it's being validated
+		// against.
+		const text = buildCritiquePrompt({
+			reviewerId: "fast",
+			council: council(),
+			judge: judge(),
+		});
+		expect(text).toContain("verify_output");
+		expect(text).toMatch(/stage[=:].?["']?critique/i);
+		expect(text).toMatch(/JSON Schema/i);
+		// All four critique positions appear in the
+		// embedded schema's enum.
+		expect(text).toContain("amplify");
+		expect(text).toContain("qualify");
+	});
 });
 
 describe("parseCritiqueOutput", () => {
