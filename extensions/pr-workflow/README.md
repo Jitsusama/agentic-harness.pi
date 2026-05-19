@@ -50,7 +50,7 @@ steering it from a menu.
 
 ## Actions
 
-One `pr_workflow` tool, 20 actions. The user drives the
+One `pr_workflow` tool, 23 actions. The user drives the
 flow conversationally; the agent translates intent into
 the right action.
 
@@ -160,6 +160,43 @@ Index stability: the snapshot is whatever
 `threads` last fetched. If the upstream conversation
 changes, re-run `threads` to refresh the index before
 replying or resolving.
+
+**Fix queue**
+
+Findings decided with `verdict="fix"` get queued for the
+user (or the main agent on their behalf) to apply as
+commits in the working checkout instead of posting them
+as review comments. The queue itself is just the `fix`-
+verdicted decisions in the order the judge emitted them;
+these actions walk it and record outcomes.
+
+- `action="fix-next"` — return the next pending fix
+  with its subject, location, instructions, and queue
+  counts. Returns a `null` context plus a "queue done"
+  / "no fixes queued" summary when the queue is empty.
+  Pure read; doesn't mutate state.
+- `action="fix-done" findingId=<n> commitSha=<sha>` —
+  record that a commit landed for finding `n`. The
+  decision is mutated in place to attach
+  `resolvedBy: { commitSha, recordedAt }`; subsequent
+  `fix-next` calls skip it.
+- `action="fix-skip" findingId=<n> skipReason="..."`
+  — abandon a queued fix. Records `skipped: { reason,
+  recordedAt }`; the findings view shows
+  `fix skipped — <reason>`.
+
+The loop is non-autonomous on purpose: `fix-next`
+hands the agent the next finding's context, the agent
+does the actual edit / checks / commit in its main
+loop using normal pi tooling (where the user can
+interrupt at any prose turn), and `fix-done` records
+the outcome. The tools never apply edits themselves.
+
+The findings view renders fix-verdicted decisions in
+three states: `queued for fix — <instructions>`,
+`✓ fixed in <sha>`, or `fix skipped — <reason>`. The
+`status` action's `fix queue:` line gives the
+breakdown at a glance.
 
 State across cursor moves: per-PR council run, judge
 run, critique run and decisions snapshot under
