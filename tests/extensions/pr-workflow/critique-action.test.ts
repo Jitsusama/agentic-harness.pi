@@ -225,6 +225,9 @@ describe("formatCritiqueSummary", () => {
 		};
 		const text = formatCritiqueSummary({ judge, critique });
 		expect(text).toMatch(/no critique|silent|no position/i);
+		// Empty WITHOUT warnings is a legitimate 'nothing
+		// to flag' shape; the retry hint should stay quiet.
+		expect(text).not.toMatch(/critique-retry/);
 	});
 
 	it("surfaces a retry hint for reviewers that came back empty with warnings", async () => {

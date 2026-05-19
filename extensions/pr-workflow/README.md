@@ -48,30 +48,77 @@ steering it from a menu.
   hijacked by default. Pi steers nvim via the documented
   companion protocol; the user always wins.
 
-## Status
+## Actions
 
-Early scaffold. The extension registers a single
-`pr_workflow` tool with two actions:
+One `pr_workflow` tool, 15 actions. The user drives the
+flow conversationally; the agent translates intent into
+the right action.
 
-- `pr_workflow(action="status")` — returns the current
-  workflow state. Useful for diagnostics and for confirming
-  the extension is loaded.
-- `pr_workflow(action="load", pr=<ref>)` — parses a PR
-  reference (full URL, owner/repo#number short form, or
-  bare number with repo defaults), fetches metadata from
-  GitHub, fetches and parses the per-file diff, walks the
-  base/head chain to detect a PR stack and surfaces a
-  one-screen summary: title, author, state, base/head,
-  diffstat, URL, stack chain (when present, with the
-  cursor marked), fan-out children (when the cursor has
-  more than one child) and the file list. Diff and stack
-  fetches are best-effort: if either fails, the workflow
-  stays loaded with whatever succeeded and reports what
-  didn't.
+**Setup**
 
-Every other capability — council, findings, post, stack
-overview, neovim companion wiring — lands in follow-up
-commits, each gated by tests.
+- `action="load"` — parse a PR reference, fetch metadata
+  + diff, detect stack, surface a one-screen summary.
+  Diff and stack fetches are best-effort.
+- `action="status"` — read-only state report.
+- `action="council-config"` — set the reviewer roster
+  (id + model + tools).
+- `action="judge-config"` — set the judge model.
+
+**Round 1 — fan-out**
+
+- `action="council"` — dispatch the roster against a
+  shared worktree; each reviewer returns findings,
+  warnings and usage.
+- `action="council-retry" reviewerId=<id>` — re-run one
+  reviewer in the most recent council run and substitute
+  their output in place. Finding ids are allocated past
+  the current max so decisions on un-retried findings
+  stay stable.
+
+**Round 2 — synthesis**
+
+- `action="judge"` — consolidate round-1 findings with
+  `agreement.raisedBy` attribution and a judge
+  self-signal.
+
+**Round 3 — optional pushback**
+
+- `action="critique"` — the round-1 roster takes per-
+  finding positions (`agree | disagree | qualify |
+  amplify`) on the judge's list.
+- `action="critique-retry" reviewerId=<id>` — re-run one
+  reviewer in the most recent critique run. Critique
+  entries reference judge findings by `findingId`, so
+  substitution is direct.
+
+**Round 4 — user**
+
+- `action="findings"` — render judge + critique + user
+  decisions as one consolidated view.
+- `action="decide" findingId=<n> verdict=<v>` — record
+  the user's verdict (`endorse | qualify | edit |
+  dismiss | promote | fix`).
+
+**Posting**
+
+- `action="post"` — send eligible findings to GitHub as
+  a PR review (inline comments for line-located
+  findings, body summary for file- and scope-level
+  findings).
+
+**Stack navigation**
+
+- `action="stack"` — render the discovered PR stack with
+  cursor.
+- `action="stack-next"` — re-load the next PR
+  downstream.
+- `action="stack-prev"` — re-load the PR upstream.
+
+The council and critique summaries surface a retry hint
+at the top when a reviewer returned empty with warnings
+(the classic 'reviewer crashed' shape), so the user sees
+the suggested follow-up action before scrolling through
+the rest of the output.
 
 ## Sibling Extensions
 

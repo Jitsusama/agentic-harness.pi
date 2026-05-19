@@ -109,6 +109,30 @@ pr_workflow action=critique  # round 3
 
 Otherwise skip to round 4.
 
+### When a reviewer crashes
+
+If the council or critique summary surfaces a retry
+hint ("reviewer X returned no findings with warnings"),
+offer the user the targeted retry rather than re-running
+the whole round:
+
+```
+pr_workflow action=council-retry reviewerId=skeptic
+pr_workflow action=critique-retry reviewerId=skeptic
+```
+
+Council retry allocates new finding ids past the current
+max, so decisions the user already made on un-retried
+findings stay stable. Critique retry replaces the
+reviewer's positions on the judge's findings; nothing
+else moves. Do not call retry against a reviewer who
+legitimately came back empty (no warnings); that's a
+silent reviewer, not a crashed one.
+
+The judge has no retry primitive — re-running
+`action=judge` is itself idempotent (it overwrites
+`lastJudge`).
+
 ### Round 4: user synthesis
 
 Round 4 is conversation, not a panel. Loop through
