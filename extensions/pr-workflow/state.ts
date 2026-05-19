@@ -14,6 +14,7 @@
 
 import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
+import type { CritiqueRun } from "./critique.js";
 import type { PrMetadata } from "./fetch.js";
 import type { CouncilRun } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
@@ -58,6 +59,8 @@ export interface CouncilState {
 	lastRun: CouncilRun | null;
 	/** Most recent judge run (null until round 2 completes). */
 	lastJudge: JudgeRun | null;
+	/** Most recent critique run (null until round 3 completes). */
+	lastCritique: CritiqueRun | null;
 }
 
 /** Top-level runtime state for the PR workflow. */
@@ -75,6 +78,12 @@ export function createPrWorkflowState(): PrWorkflowState {
 	return {
 		active: false,
 		pr: null,
-		council: { roster: [], judge: null, lastRun: null, lastJudge: null },
+		council: {
+			roster: [],
+			judge: null,
+			lastRun: null,
+			lastJudge: null,
+			lastCritique: null,
+		},
 	};
 }

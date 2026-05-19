@@ -130,13 +130,24 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			"place; capabilities land incrementally.",
 		parameters: Type.Object({
 			action: StringEnum(
-				["load", "status", "council-config", "council"] as const,
+				[
+					"load",
+					"status",
+					"council-config",
+					"council",
+					"judge-config",
+					"judge",
+					"critique",
+				] as const,
 				{
 					description:
 						"load: attach a PR to the session. " +
 						"status: report current workflow state. " +
 						"council-config: set the multi-model review roster. " +
-						"council: run the configured roster against the loaded PR.",
+						"council: run the configured roster against the loaded PR. " +
+						"judge-config: set the judge reviewer for round-2 consolidation. " +
+						"judge: run round-2 consolidation against the most recent council run. " +
+						"critique: run round-3 critique — the roster pushes back on the judge's consolidated list.",
 				},
 			),
 			pr: Type.Optional(
@@ -271,6 +282,43 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
+			if (params.action === "critique") {
+				const { registry, runPi } = getCouncilDeps();
+				const result = await runCritiqueAction({
+					state,
+					registry,
+					dispatch: (opts) => runReviewer({ ...opts, runPi }),
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				const judge = state.council.lastJudge;
+				if (judge === null) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Critique ran but judge state vanished.",
+							},
+						],
+						details: { ok: true, run: result.run },
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: formatCritiqueSummary({ judge, critique: result.run }),
+						},
+					],
+					details: { ok: true, run: result.run },
+				};
+			}
+
 			if (params.action === "status") {
 				const ref = state.pr
 					? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
@@ -282,6 +330,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					`council last run: ${state.council.lastRun?.id ?? "none"}`,
 					`judge: ${state.council.judge?.id ?? "unset"}`,
 					`judge last run: ${state.council.lastJudge?.id ?? "none"}`,
+					`critique last run: ${state.council.lastCritique?.id ?? "none"}`,
 				];
 				return {
 					content: [{ type: "text", text: lines.join("\n") }],
