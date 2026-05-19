@@ -15,6 +15,7 @@ import {
 	type CritiqueRun,
 	type ReviewerCritiqueOutput,
 	runCritique,
+	runOneCritiqueReviewer,
 } from "./critique.js";
 import type { FindingLocation } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
@@ -91,6 +92,102 @@ export async function runCritiqueAction(
 	return { ok: true, run };
 }
 
+/** Inputs for `retryCritiqueReviewer`. */
+export interface RetryCritiqueReviewerInput {
+	readonly state: PrWorkflowState;
+	readonly registry: WorktreeRegistry;
+	readonly dispatch: CouncilDispatch;
+	readonly reviewerId: string;
+	readonly signal?: AbortSignal;
+}
+
+/**
+ * Re-run a single reviewer in the most recent critique
+ * run and substitute their `ReviewerCritiqueOutput` in
+ * place.
+ *
+ * Critique entries reference judge findings by
+ * `findingId`, so there's no id allocation concern here
+ * — the retried reviewer's new entries simply replace
+ * their old ones. Decisions on judge findings are
+ * unaffected; only this reviewer's positions on those
+ * findings change.
+ */
+export async function retryCritiqueReviewer(
+	input: RetryCritiqueReviewerInput,
+): Promise<CritiqueActionResult> {
+	const { state, reviewerId } = input;
+	if (state.pr === null) {
+		return {
+			ok: false,
+			error:
+				"PR is not fully loaded; reload before retrying a critique reviewer.",
+		};
+	}
+	const metadata = state.pr.metadata;
+	if (metadata === null) {
+		return {
+			ok: false,
+			error:
+				"PR is not fully loaded; reload before retrying a critique reviewer.",
+		};
+	}
+	if (state.council.lastRun === null) {
+		return {
+			ok: false,
+			error: "No council run available. Call pr_workflow action=council first.",
+		};
+	}
+	if (state.council.lastJudge === null) {
+		return {
+			ok: false,
+			error: "No judge run available. Call pr_workflow action=judge first.",
+		};
+	}
+	const lastCritique = state.council.lastCritique;
+	if (lastCritique === null) {
+		return {
+			ok: false,
+			error:
+				"No critique run to retry. Call pr_workflow action=critique first.",
+		};
+	}
+	const reviewer = state.council.roster.find((r) => r.id === reviewerId);
+	if (!reviewer) {
+		return {
+			ok: false,
+			error: `Reviewer "${reviewerId}" is not in the current council roster.`,
+		};
+	}
+	const existingIndex = lastCritique.reviewerOutputs.findIndex(
+		(o) => o.reviewerId === reviewerId,
+	);
+	if (existingIndex < 0) {
+		return {
+			ok: false,
+			error: `Reviewer "${reviewerId}" has no output in the last critique run.`,
+		};
+	}
+
+	const pr = state.pr;
+	const output = await runOneCritiqueReviewer({
+		runId: lastCritique.id,
+		council: state.council.lastRun,
+		judge: state.council.lastJudge,
+		reviewer,
+		target: {
+			owner: pr.reference.owner,
+			repo: pr.reference.repo,
+			sha: metadata.head.sha,
+		},
+		registry: input.registry,
+		dispatch: input.dispatch,
+		signal: input.signal,
+	});
+	lastCritique.reviewerOutputs[existingIndex] = output;
+	return { ok: true, run: lastCritique };
+}
+
 /** Inputs to `formatCritiqueSummary`. */
 export interface FormatCritiqueSummaryInput {
 	readonly judge: JudgeRun;
@@ -109,6 +206,24 @@ export function formatCritiqueSummary(
 	const lines: string[] = [];
 	lines.push(`Critique run ${input.critique.id}`);
 	lines.push(`Reviewers: ${input.critique.reviewerOutputs.length}`);
+
+	// Empty-with-warnings is the classic 'reviewer
+	// crashed' shape. Flag retry candidates up front so
+	// the user sees the suggestion before scrolling
+	// through per-finding positions.
+	const retryCandidates = input.critique.reviewerOutputs.filter(
+		(o) => o.critiques.length === 0 && o.warnings.length > 0,
+	);
+	if (retryCandidates.length > 0) {
+		lines.push("");
+		for (const c of retryCandidates) {
+			lines.push(
+				`⚠ ${c.reviewerId} returned no critiques with warnings; ` +
+					`consider \`pr_workflow action=critique-retry reviewerId=${c.reviewerId}\`.`,
+			);
+		}
+	}
+
 	lines.push("");
 	if (input.judge.consolidatedFindings.length === 0) {
 		lines.push("(no consolidated findings to critique)");

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CritiqueRun } from "../../../extensions/pr-workflow/critique.js";
 import {
 	formatCritiqueSummary,
+	retryCritiqueReviewer,
 	runCritiqueAction,
 } from "../../../extensions/pr-workflow/critique-action.js";
 import type {
@@ -224,5 +225,167 @@ describe("formatCritiqueSummary", () => {
 		};
 		const text = formatCritiqueSummary({ judge, critique });
 		expect(text).toMatch(/no critique|silent|no position/i);
+	});
+
+	it("surfaces a retry hint for reviewers that came back empty with warnings", async () => {
+		const judge: JudgeRun = {
+			id: "j-1",
+			startedAt: "2026-01-01T00:05:00Z",
+			judgeReviewerId: "j",
+			selfSignal: null,
+			consolidatedFindings: [consolidated()],
+			warnings: [],
+		};
+		const critique: CritiqueRun = {
+			id: "critique-1",
+			startedAt: "2026-01-01T00:10:00Z",
+			judgeRunId: "j-1",
+			reviewerOutputs: [
+				{
+					reviewerId: "skeptic",
+					critiques: [],
+					warnings: ["Pi subprocess exited non-zero (exit 1)"],
+				},
+			],
+			warnings: [],
+		};
+		const text = formatCritiqueSummary({ judge, critique });
+		expect(text).toMatch(/critique-retry reviewerId=skeptic/);
+	});
+});
+
+describe("retryCritiqueReviewer", () => {
+	it("refuses without a PR loaded", async () => {
+		const state = createPrWorkflowState();
+		const result = await retryCritiqueReviewer({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async () => {
+				throw new Error("should not be called");
+			},
+			reviewerId: "fast",
+		});
+		expect(expectFailure(result).error).toMatch(/PR is not fully loaded/i);
+	});
+
+	it("refuses without a critique run to retry", async () => {
+		const state = withFullPipeline();
+		state.council.lastCritique = null;
+		const result = await retryCritiqueReviewer({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async () => {
+				throw new Error("should not be called");
+			},
+			reviewerId: "fast",
+		});
+		expect(expectFailure(result).error).toMatch(
+			/no critique run|critique first/i,
+		);
+	});
+
+	it("refuses when the reviewerId is not in the roster", async () => {
+		const state = withFullPipeline();
+		state.council.lastCritique = {
+			id: "critique-1",
+			startedAt: "2026-01-01T00:10:00Z",
+			judgeRunId: "j-1",
+			reviewerOutputs: [{ reviewerId: "fast", critiques: [], warnings: [] }],
+			warnings: [],
+		};
+		const result = await retryCritiqueReviewer({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async () => {
+				throw new Error("should not be called");
+			},
+			reviewerId: "ghost",
+		});
+		expect(expectFailure(result).error).toMatch(/ghost.*not in/i);
+	});
+
+	it("refuses when the reviewer has no prior critique output to replace", async () => {
+		const state = withFullPipeline();
+		state.council.lastCritique = {
+			id: "critique-1",
+			startedAt: "2026-01-01T00:10:00Z",
+			judgeRunId: "j-1",
+			reviewerOutputs: [{ reviewerId: "fast", critiques: [], warnings: [] }],
+			warnings: [],
+		};
+		const result = await retryCritiqueReviewer({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async () => {
+				throw new Error("should not be called");
+			},
+			reviewerId: "skeptic",
+		});
+		expect(expectFailure(result).error).toMatch(
+			/skeptic.*no output|last critique run/i,
+		);
+	});
+
+	it("substitutes the reviewer's critique output in place", async () => {
+		// Pre-existing: fast disagreed, skeptic crashed.
+		// Retry skeptic; their fresh "agree" position
+		// should overwrite the empty/warned-out entry while
+		// fast's disagree stays put.
+		const state = withFullPipeline();
+		state.council.lastCritique = {
+			id: "critique-1",
+			startedAt: "2026-01-01T00:10:00Z",
+			judgeRunId: "j-1",
+			reviewerOutputs: [
+				{
+					reviewerId: "fast",
+					critiques: [
+						{
+							reviewerId: "fast",
+							findingId: 10,
+							position: "disagree",
+							rationale: "not buying it",
+						},
+					],
+					warnings: [],
+				},
+				{
+					reviewerId: "skeptic",
+					critiques: [],
+					warnings: ["crashed earlier"],
+				},
+			],
+			warnings: [],
+		};
+		const result = await retryCritiqueReviewer({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async (opts) => ({
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: JSON.stringify({
+					critiques: [
+						{
+							findingId: 10,
+							position: "agree",
+							rationale: "on reflection, yes",
+						},
+					],
+				}),
+				stderr: "",
+				warnings: [],
+			}),
+			reviewerId: "skeptic",
+		});
+		expect(result.ok).toBe(true);
+		const run = state.council.lastCritique as CritiqueRun;
+		expect(run.reviewerOutputs).toHaveLength(2);
+		const skeptic = run.reviewerOutputs.find((o) => o.reviewerId === "skeptic");
+		const fast = run.reviewerOutputs.find((o) => o.reviewerId === "fast");
+		expect(skeptic?.critiques).toHaveLength(1);
+		expect(skeptic?.critiques[0].position).toBe("agree");
+		expect(skeptic?.warnings).toEqual([]);
+		// fast's pre-existing critique untouched.
+		expect(fast?.critiques[0].position).toBe("disagree");
 	});
 });

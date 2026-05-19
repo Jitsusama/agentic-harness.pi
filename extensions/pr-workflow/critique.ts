@@ -97,6 +97,66 @@ export interface RunCritiqueOptions {
 	readonly signal?: AbortSignal;
 }
 
+/** Inputs to `runOneCritiqueReviewer`. */
+export interface RunOneCritiqueReviewerOptions {
+	readonly runId: string;
+	readonly council: CouncilRun;
+	readonly judge: JudgeRun;
+	readonly reviewer: CouncilReviewer;
+	readonly target: Pick<CouncilTarget, "owner" | "repo" | "sha">;
+	readonly registry: WorktreeRegistry;
+	readonly dispatch: CouncilDispatch;
+	readonly signal?: AbortSignal;
+}
+
+/**
+ * Run a single critique reviewer. Acquires the shared
+ * worktree, builds the prompt, dispatches, and parses
+ * output. Mirrors the per-reviewer body of `runCritique`
+ * but returns one `ReviewerCritiqueOutput` for callers
+ * that need to substitute it in place of an earlier
+ * attempt.
+ */
+export async function runOneCritiqueReviewer(
+	options: RunOneCritiqueReviewerOptions,
+): Promise<ReviewerCritiqueOutput> {
+	const handle = await options.registry.ensure({
+		owner: options.target.owner,
+		repo: options.target.repo,
+		sha: options.target.sha,
+	});
+	const prompt = buildCritiquePrompt({
+		reviewerId: options.reviewer.id,
+		council: options.council,
+		judge: options.judge,
+	});
+	try {
+		const dispatched = await options.dispatch({
+			reviewer: options.reviewer,
+			prompt,
+			cwd: handle.path,
+			signal: options.signal,
+		});
+		const parsed = parseCritiqueOutput(dispatched.finalAssistantText, {
+			runId: options.runId,
+			reviewerId: options.reviewer.id,
+		});
+		return {
+			reviewerId: options.reviewer.id,
+			critiques: parsed.critiques,
+			warnings: [...dispatched.warnings, ...parsed.warnings],
+			...(dispatched.usage ? { usage: dispatched.usage } : {}),
+		};
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		return {
+			reviewerId: options.reviewer.id,
+			critiques: [],
+			warnings: [`Critique dispatch failed: ${message}`],
+		};
+	}
+}
+
 /**
  * Render the critique prompt for a single reviewer. The
  * reviewer sees:

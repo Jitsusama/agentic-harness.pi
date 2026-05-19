@@ -31,7 +31,11 @@ import {
 	retryCouncilReviewer,
 	runCouncilAction,
 } from "./council-action.js";
-import { formatCritiqueSummary, runCritiqueAction } from "./critique-action.js";
+import {
+	formatCritiqueSummary,
+	retryCritiqueReviewer,
+	runCritiqueAction,
+} from "./critique-action.js";
 import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
 import {
 	configureJudge,
@@ -171,6 +175,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"stack-next",
 					"stack-prev",
 					"council-retry",
+					"critique-retry",
 				] as const,
 				{
 					description:
@@ -188,7 +193,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"stack-next: re-load the next PR downstream of the cursor. " +
 						"stack-prev: re-load the PR upstream of the cursor. " +
 						"council-retry: re-run one reviewer in the most recent " +
-						"council run and substitute their output in place.",
+						"council run and substitute their output in place. " +
+						"critique-retry: re-run one reviewer in the most recent " +
+						"critique run and substitute their output in place.",
 				},
 			),
 			pr: Type.Optional(
@@ -464,6 +471,56 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							{
 								type: "text",
 								text: "Critique ran but judge state vanished.",
+							},
+						],
+						details: { ok: true, run: result.run },
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: formatCritiqueSummary({ judge, critique: result.run }),
+						},
+					],
+					details: { ok: true, run: result.run },
+				};
+			}
+
+			if (params.action === "critique-retry") {
+				if (!params.reviewerId) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "critique-retry requires a `reviewerId` argument.",
+							},
+						],
+						details: { ok: false, error: "missing reviewerId argument" },
+						isError: true,
+					};
+				}
+				const { registry, runPi, extraExtensions } = getCouncilDeps();
+				const result = await retryCritiqueReviewer({
+					state,
+					registry,
+					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
+					reviewerId: params.reviewerId,
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				const judge = state.council.lastJudge;
+				if (judge === null) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Critique retry succeeded but judge state vanished.",
 							},
 						],
 						details: { ok: true, run: result.run },
