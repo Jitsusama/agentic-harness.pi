@@ -151,10 +151,22 @@ specific threads, mark them resolved.
   comment.
 - `action="reply" threadIndex=N replyBody="..."` — post
   a reply to the thread at index N (1-based, from the
-  most recent `threads` snapshot).
+  most recent `threads` snapshot). Pauses for an
+  in-terminal confirmation gate that renders the
+  thread's existing comments alongside the proposed
+  reply. Shift+Esc opens the note editor to edit the
+  reply inline; `r` rejects; Enter approves.
 - `action="resolve" threadIndex=N` — mark the thread
   at index N resolved. Idempotent: resolving an
-  already-resolved thread is a no-op.
+  already-resolved thread is a no-op. Pauses for an
+  in-terminal confirmation gate that renders the
+  thread context with an explicit "Mark thread
+  resolved" intent line. `r` rejects; Enter approves.
+
+Both gates short-circuit to approved when running
+headless (`ctx.hasUI === false`). When there's no panel
+to render, the user is trusted to have approved
+out-of-band.
 
 Index stability: the snapshot is whatever
 `threads` last fetched. If the upstream conversation
