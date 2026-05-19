@@ -49,6 +49,7 @@ import { runReviewer } from "./reviewer.js";
 import { createSpawnRunPi } from "./runpi-spawn.js";
 import { createGitHubPrSearch } from "./search.js";
 import { buildStack, type StackEntry } from "./stack.js";
+import { formatStack, nextInStack, prevInStack } from "./stack-view.js";
 import { createPrWorkflowState } from "./state.js";
 import {
 	type DecideFindingInput,
@@ -162,6 +163,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"post",
 					"fix-config",
 					"fix",
+					"stack",
+					"stack-next",
+					"stack-prev",
 				] as const,
 				{
 					description:
@@ -176,7 +180,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"decide: record the user's verdict on a single finding. " +
 						"post: send eligible findings to GitHub as a PR review. " +
 						"fix-config: set the model for fix subagents (e.g. anthropic:claude-opus-4). " +
-						"fix: drain the fix queue — dispatch a coding subagent per finding verdict'd as `fix`.",
+						"fix: drain the fix queue — dispatch a coding subagent per finding verdict'd as `fix`. " +
+						"stack: render the discovered PR stack with cursor highlighted. " +
+						"stack-next: re-load the next PR downstream of the cursor. " +
+						"stack-prev: re-load the PR upstream of the cursor.",
 				},
 			),
 			pr: Type.Optional(
@@ -580,6 +587,80 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				return {
 					content: [{ type: "text", text: formatFixSummary(result) }],
 					details: { ok: true, results: result.results },
+				};
+			}
+
+			if (params.action === "stack") {
+				if (state.pr === null) {
+					return {
+						content: [
+							{ type: "text", text: "No PR loaded; call action=load first." },
+						],
+						details: { ok: false, error: "no pr loaded" },
+						isError: true,
+					};
+				}
+				if (state.pr.stack === null || state.pr.stack.entries.length <= 1) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "This PR is not part of a detected stack (no upstream or downstream PRs were found).",
+							},
+						],
+						details: { ok: true, stack: null },
+					};
+				}
+				return {
+					content: [{ type: "text", text: formatStack(state.pr.stack) }],
+					details: { ok: true, stack: state.pr.stack },
+				};
+			}
+
+			if (params.action === "stack-next" || params.action === "stack-prev") {
+				if (state.pr === null || state.pr.stack === null) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "No stack discovered; call action=load on a PR that's part of a stack.",
+							},
+						],
+						details: { ok: false, error: "no stack" },
+						isError: true,
+					};
+				}
+				const pick =
+					params.action === "stack-next"
+						? nextInStack(state.pr.stack)
+						: prevInStack(state.pr.stack);
+				if (pick === null) {
+					const direction =
+						params.action === "stack-next" ? "downstream" : "upstream";
+					const suffix =
+						params.action === "stack-next" &&
+						state.pr.stack.cursorChildren.length > 0
+							? ` Cursor has ${state.pr.stack.cursorChildren.length} fan-out children; ask the user which one to load.`
+							: "";
+					return {
+						content: [
+							{
+								type: "text",
+								text: `No ${direction} PR in stack from cursor.${suffix}`,
+							},
+						],
+						details: { ok: false, error: `no ${direction}` },
+					};
+				}
+				const ref = `${pick.reference.owner}/${pick.reference.repo}#${pick.reference.number}`;
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Next in stack: ${ref} (${pick.title}). Call action=load with pr="${ref}" to navigate.`,
+						},
+					],
+					details: { ok: true, target: pick, suggestedAction: "load" },
 				};
 			}
 
