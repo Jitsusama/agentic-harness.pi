@@ -195,4 +195,3 @@ export function recordFixSkip(
  * don't have to dig into `findings.js` for the type.
  */
 export type { Finding, JudgeRun };
-

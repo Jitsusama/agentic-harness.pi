@@ -38,6 +38,12 @@ import {
 } from "./critique-action.js";
 import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
 import {
+	formatFixQueueStatus,
+	nextFixAction,
+	recordFixDoneAction,
+	recordFixSkipAction,
+} from "./fix-action.js";
+import {
 	configureJudge,
 	formatJudgeSummary,
 	runJudgeAction,
@@ -193,6 +199,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"threads",
 					"reply",
 					"resolve",
+					"fix-next",
+					"fix-done",
+					"fix-skip",
 				] as const,
 				{
 					description:
@@ -219,7 +228,15 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"PR in the discovered stack. " +
 						"threads: fetch the loaded PR's existing review threads. " +
 						"reply: post a reply to a thread by its [T#] index. " +
-						"resolve: resolve a thread by its [T#] index.",
+						"resolve: resolve a thread by its [T#] index. " +
+						"fix-next: return the next finding queued for fix " +
+						"(verdict=fix) with no recorded outcome. The agent " +
+						"applies the edit in its main loop using normal tools " +
+						"so the user can interrupt at any point. " +
+						"fix-done: record a commit against a queued fix. " +
+						"Requires findingId and commitSha. " +
+						"fix-skip: abandon a queued fix with a reason. " +
+						"Requires findingId and skipReason.",
 				},
 			),
 			pr: Type.Optional(
@@ -382,6 +399,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				Type.String({
 					description:
 						"The reply body to post to the targeted thread. Required for action=reply.",
+				}),
+			),
+			commitSha: Type.Optional(
+				Type.String({
+					description:
+						"Git commit sha that landed the fix. Required for action=fix-done.",
+				}),
+			),
+			skipReason: Type.Optional(
+				Type.String({
+					description:
+						"Reason the queued fix is being abandoned. Required for action=fix-skip; surfaced in the findings view.",
 				}),
 			),
 		}),
@@ -956,6 +985,129 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
+			if (params.action === "fix-next") {
+				const result = nextFixAction(state);
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [{ type: "text", text: result.summary }],
+					details: {
+						ok: true,
+						context: result.context,
+						done: result.context === null,
+					},
+				};
+			}
+
+			if (params.action === "fix-done") {
+				if (typeof params.findingId !== "number") {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "fix-done requires a `findingId` argument.",
+							},
+						],
+						details: { ok: false, error: "missing findingId" },
+						isError: true,
+					};
+				}
+				if (typeof params.commitSha !== "string") {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "fix-done requires a `commitSha` argument.",
+							},
+						],
+						details: { ok: false, error: "missing commitSha" },
+						isError: true,
+					};
+				}
+				const result = recordFixDoneAction({
+					state,
+					findingId: params.findingId,
+					commitSha: params.commitSha,
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Finding ${params.findingId} recorded as fixed in ${params.commitSha.trim()}.`,
+						},
+					],
+					details: {
+						ok: true,
+						findingId: params.findingId,
+						commitSha: params.commitSha.trim(),
+					},
+				};
+			}
+
+			if (params.action === "fix-skip") {
+				if (typeof params.findingId !== "number") {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "fix-skip requires a `findingId` argument.",
+							},
+						],
+						details: { ok: false, error: "missing findingId" },
+						isError: true,
+					};
+				}
+				if (typeof params.skipReason !== "string") {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "fix-skip requires a `skipReason` argument.",
+							},
+						],
+						details: { ok: false, error: "missing skipReason" },
+						isError: true,
+					};
+				}
+				const result = recordFixSkipAction({
+					state,
+					findingId: params.findingId,
+					reason: params.skipReason,
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Finding ${params.findingId} marked as skipped.`,
+						},
+					],
+					details: {
+						ok: true,
+						findingId: params.findingId,
+						reason: params.skipReason.trim(),
+					},
+				};
+			}
+
 			if (params.action === "status") {
 				const ref = state.pr
 					? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
@@ -985,6 +1137,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					`stack findings: ${state.stackCritic?.findings.length ?? 0} (${state.stackDecisions.size} decided)`,
 					`stack snapshots: ${stackSnapshotSummary}`,
 					`threads: ${state.threads === null ? "not fetched" : `${state.threads.threads.length} (fetched ${state.threads.fetchedAt})`}`,
+					formatFixQueueStatus(state),
 					...renderUsageLines(breakdown),
 				];
 				return {
