@@ -52,6 +52,9 @@ prose; you translate intent into calls.
 | `stack` | Render the discovered PR stack with cursor highlighted. |
 | `stack-next` | Identify the PR downstream of the cursor and return its ref. |
 | `stack-prev` | Identify the PR upstream of the cursor and return its ref. |
+| `threads` | Fetch the loaded PR's existing review threads. Renders them indexed as `[T1]`, `[T2]`… |
+| `reply` | Reply to a thread by its `[T#]` index. Requires `threadIndex` and `replyBody`. |
+| `resolve` | Mark a thread resolved by its `[T#]` index. Requires `threadIndex`. |
 
 ## When to call what
 
@@ -309,6 +312,48 @@ When NOT to run `stack-critic`:
   judge on at least one PR first.
 - The user is in 'just this PR' mode and doesn't want
   cross-PR feedback. Stack-critic findings can wait.
+
+## Existing threads
+
+The pipeline above describes one direction: pi posts
+findings to GitHub. The reverse direction — reading
+what reviewers already left and responding — happens
+through three small actions.
+
+When to reach for them:
+
+- User: "what review comments are still open on this
+  PR?" → `action="threads"`. Render the result.
+- User: "reply to the second one saying I'll fix it in
+  a follow-up" → `action="reply" threadIndex=2
+  replyBody="I'll fix in a follow-up PR."`
+- User: "resolve the first thread" →
+  `action="resolve" threadIndex=1`.
+
+The display index is 1-based and matches the `[T#]`
+label the tool renders. The snapshot is whatever the
+last `action="threads"` returned, so if you suspect
+upstream activity (the user just got a slack ping),
+re-run `threads` to refresh the index before replying.
+
+Reply and resolve don't auto-update the snapshot. They
+post the mutation and return success; the next
+`threads` call will reflect the new state. If the user
+is about to do several replies, render `threads` once,
+call the mutations, then optionally re-run `threads`
+to confirm.
+
+What NOT to use these for:
+
+- Posting initial review comments — that's
+  `action="post"` and the rest of the pipeline.
+- Drafting wholesale rewrites of a thread — reply
+  appends; GitHub doesn't support editing someone
+  else's prior comments.
+- Walking the full reply history in detail — the tool
+  shows the first comment plus a 'more reply' count.
+  For deep history, point the user at the URL in the
+  rendered output.
 
 ## Verdict reference
 

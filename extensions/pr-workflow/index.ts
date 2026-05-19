@@ -64,6 +64,13 @@ import {
 	decideFinding,
 	formatFindingsView,
 } from "./synthesis.js";
+import { fetchReviewThreads, replyToThread, resolveThread } from "./threads.js";
+import {
+	formatThreadsView,
+	loadThreadsAction,
+	replyToThreadAction,
+	resolveThreadAction,
+} from "./threads-action.js";
 import { summarizeUsage, type UsageBreakdown } from "./usage.js";
 import { resolveVerifyExtensionPath } from "./verify-path.js";
 import { WorktreeRegistry } from "./worktree.js";
@@ -183,6 +190,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"critique-retry",
 					"stack-critic-config",
 					"stack-critic",
+					"threads",
+					"reply",
+					"resolve",
 				] as const,
 				{
 					description:
@@ -206,7 +216,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"stack-critic-config: set the reviewer that runs the " +
 						"cross-PR stack-critic. " +
 						"stack-critic: synthesize cross-PR findings across every " +
-						"PR in the discovered stack.",
+						"PR in the discovered stack. " +
+						"threads: fetch the loaded PR's existing review threads. " +
+						"reply: post a reply to a thread by its [T#] index. " +
+						"resolve: resolve a thread by its [T#] index.",
 				},
 			),
 			pr: Type.Optional(
@@ -357,6 +370,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				Type.String({
 					description:
 						"Used when verdict=fix. Optional free-form note describing how the user (or the main agent, on the user's behalf) plans to fix the finding. Persisted with the decision; not sent anywhere.",
+				}),
+			),
+			threadIndex: Type.Optional(
+				Type.Integer({
+					description:
+						"1-based index of a review thread in the most recent threads snapshot (the [T#] label rendered by action=threads). Required for action=reply and action=resolve.",
+				}),
+			),
+			replyBody: Type.Optional(
+				Type.String({
+					description:
+						"The reply body to post to the targeted thread. Required for action=reply.",
 				}),
 			),
 		}),
@@ -815,6 +840,122 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
+			if (params.action === "threads") {
+				const result = await loadThreadsAction({
+					state,
+					fetcher: (ref) => fetchReviewThreads(pi, ref),
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [{ type: "text", text: formatThreadsView(state) }],
+					details: {
+						ok: true,
+						prNumber: result.snapshot.prNumber,
+						threadCount: result.snapshot.threads.length,
+						fetchedAt: result.snapshot.fetchedAt,
+					},
+				};
+			}
+
+			if (params.action === "reply") {
+				if (typeof params.threadIndex !== "number") {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "reply requires a `threadIndex` argument.",
+							},
+						],
+						details: { ok: false, error: "missing threadIndex" },
+						isError: true,
+					};
+				}
+				if (typeof params.replyBody !== "string") {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "reply requires a `replyBody` argument.",
+							},
+						],
+						details: { ok: false, error: "missing replyBody" },
+						isError: true,
+					};
+				}
+				const result = await replyToThreadAction({
+					state,
+					index: params.threadIndex,
+					body: params.replyBody,
+					sender: (threadId, body) => replyToThread(pi, threadId, body),
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Reply posted to [T${params.threadIndex}]: ${result.url}`,
+						},
+					],
+					details: {
+						ok: true,
+						url: result.url,
+						threadIndex: params.threadIndex,
+					},
+				};
+			}
+
+			if (params.action === "resolve") {
+				if (typeof params.threadIndex !== "number") {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "resolve requires a `threadIndex` argument.",
+							},
+						],
+						details: { ok: false, error: "missing threadIndex" },
+						isError: true,
+					};
+				}
+				const result = await resolveThreadAction({
+					state,
+					index: params.threadIndex,
+					resolver: (threadId) => resolveThread(pi, threadId),
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Thread [T${params.threadIndex}] resolved.`,
+						},
+					],
+					details: {
+						ok: true,
+						isResolved: result.isResolved,
+						threadIndex: params.threadIndex,
+					},
+				};
+			}
+
 			if (params.action === "status") {
 				const ref = state.pr
 					? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
@@ -843,6 +984,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					`stack critic last run: ${state.stackCritic?.id ?? "none"}`,
 					`stack findings: ${state.stackCritic?.findings.length ?? 0} (${state.stackDecisions.size} decided)`,
 					`stack snapshots: ${stackSnapshotSummary}`,
+					`threads: ${state.threads === null ? "not fetched" : `${state.threads.threads.length} (fetched ${state.threads.fetchedAt})`}`,
 					...renderUsageLines(breakdown),
 				];
 				return {
