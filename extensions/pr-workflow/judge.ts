@@ -19,28 +19,17 @@
  *   - Active Synthesis (consolidate, don't concatenate)
  */
 
-import type { Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import type { CouncilDispatch, CouncilTarget } from "./council.js";
-import type {
-	ConventionalLabel,
-	CouncilRun,
-	Finding,
-	FindingLocation,
-	FindingSeverity,
-} from "./findings.js";
+import type { CouncilRun, Finding, FindingLocation } from "./findings.js";
 import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
-import { JudgeFinding, JudgeOutput, JudgeSelfSignalSchema } from "./schemas.js";
+import { JudgeFinding, JudgeOutput, JudgeSelfSignal } from "./schemas.js";
 import type { WorktreeRegistry } from "./worktree.js";
 
-/** Type of one schema-valid judge finding. */
-type JudgeFindingStatic = Static<typeof JudgeFinding>;
-
-/** Judge self-signal of confidence in the consolidation. */
-export interface JudgeSelfSignal {
-	readonly confidence: "low" | "medium" | "high";
-	readonly rationale: string;
-}
+// Judge self-signal lives in schemas.ts as the
+// authoritative shape. Re-exported here so existing
+// call sites keep importing it from `judge.js`.
+export type { JudgeSelfSignal };
 
 /** Result of one judge round. */
 export interface JudgeRun {
@@ -312,7 +301,7 @@ function extractJson(text: string): string | null {
 
 function toSelfSignal(raw: unknown): JudgeSelfSignal | null {
 	if (raw === undefined) return null;
-	if (!Value.Check(JudgeSelfSignalSchema, raw)) return null;
+	if (!Value.Check(JudgeSelfSignal, raw)) return null;
 	return raw;
 }
 
@@ -324,7 +313,7 @@ function toSelfSignal(raw: unknown): JudgeSelfSignal | null {
  * `agreement` shape when both arrays are present.
  */
 function toJudgedFinding(
-	raw: JudgeFindingStatic,
+	raw: JudgeFinding,
 	id: number,
 	context: JudgeParseContext,
 ): Finding {
@@ -336,13 +325,13 @@ function toJudgedFinding(
 	const agreement = liftAgreement(raw.raisedBy, raw.sourceFindingIds);
 	return {
 		id,
-		location: raw.location as FindingLocation,
-		label: raw.label as ConventionalLabel,
+		location: raw.location,
+		label: raw.label,
 		decorations: raw.decorations ?? [],
 		subject: raw.subject,
 		discussion: raw.discussion,
 		category,
-		severity: raw.severity as FindingSeverity | undefined,
+		severity: raw.severity,
 		confidence: raw.confidence,
 		origin: {
 			kind: "judge",

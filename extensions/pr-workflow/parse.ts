@@ -21,17 +21,9 @@
  * (whitespace-only strings).
  */
 
-import type { Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import type {
-	ConventionalLabel,
-	Finding,
-	FindingSeverity,
-} from "./findings.js";
+import type { Finding } from "./findings.js";
 import { CouncilFinding } from "./schemas.js";
-
-/** Static type of one schema-valid council finding. */
-type CouncilFindingStatic = Static<typeof CouncilFinding>;
 
 /** Caller-supplied context for parsing. */
 export interface ParseContext {
@@ -137,7 +129,7 @@ function extractFindingsArray(parsed: unknown): unknown[] | null {
  * and infers category from location.
  */
 function toFinding(
-	raw: CouncilFindingStatic,
+	raw: CouncilFinding,
 	id: number,
 	context: ParseContext,
 ): Finding {
@@ -146,12 +138,12 @@ function toFinding(
 	return {
 		id,
 		location: raw.location,
-		label: raw.label as ConventionalLabel,
+		label: raw.label,
 		decorations: raw.decorations ?? [],
 		subject: raw.subject,
 		discussion: raw.discussion,
 		category,
-		severity: raw.severity as FindingSeverity | undefined,
+		severity: raw.severity,
 		confidence: raw.confidence,
 		origin: {
 			kind: "council",

@@ -27,11 +27,14 @@ import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
 import {
 	CritiqueEntry as CritiqueEntrySchema,
 	CritiqueOutput,
+	type CritiquePosition,
 } from "./schemas.js";
 import type { WorktreeRegistry } from "./worktree.js";
 
-/** Reviewer's stance on a single consolidated finding. */
-export type CritiquePosition = "agree" | "disagree" | "qualify" | "amplify";
+// Vocabulary type lives in `schemas.ts`. Re-exported
+// here so existing call sites that import the type
+// from `critique.js` keep working.
+export type { CritiquePosition };
 
 /** One reviewer's position on one consolidated finding. */
 export interface CritiqueEntry {
@@ -254,7 +257,7 @@ export function parseCritiqueOutput(
 		critiques.push({
 			reviewerId: context.reviewerId,
 			findingId: raw.findingId,
-			position: raw.position as CritiquePosition,
+			position: raw.position,
 			rationale: raw.rationale,
 		});
 	}

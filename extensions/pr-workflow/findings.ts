@@ -17,33 +17,17 @@
  */
 
 import type { ReviewerUsage } from "./reviewer.js";
+import type {
+	ConventionalLabel,
+	FindingLocation,
+	FindingSeverity,
+} from "./schemas.js";
 
-/** A location in the PR. */
-export type FindingLocation =
-	| {
-			readonly kind: "line";
-			readonly file: string;
-			readonly start: number;
-			readonly end: number;
-			readonly side: "old" | "new" | "both";
-	  }
-	| { readonly kind: "file"; readonly file: string }
-	| { readonly kind: "global" };
-
-/** Conventional Comments labels. */
-export type ConventionalLabel =
-	| "praise"
-	| "nitpick"
-	| "suggestion"
-	| "issue"
-	| "todo"
-	| "question"
-	| "thought"
-	| "chore"
-	| "note"
-	| "typo"
-	| "polish"
-	| "quibble";
+// Vocabulary types live in `schemas.ts` as the single
+// source of truth. Re-exported here so the ~30 call
+// sites that already `import type { ... } from
+// "./findings.js"` keep working without churn.
+export type { ConventionalLabel, FindingLocation, FindingSeverity };
 
 /** Where the finding came from. */
 export type FindingOrigin =
@@ -62,9 +46,6 @@ export type FindingOrigin =
 
 /** Lifecycle state. */
 export type FindingState = "draft" | "promoted" | "dismissed";
-
-/** Severity. Orthogonal to label/decorations. */
-export type FindingSeverity = "critical" | "medium" | "minor";
 
 /**
  * Cross-reviewer agreement metadata attached by the judge

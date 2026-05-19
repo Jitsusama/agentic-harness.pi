@@ -1,10 +1,16 @@
 import { Value } from "@sinclair/typebox/value";
 import { describe, expect, it } from "vitest";
 import {
+	ConventionalLabel,
 	CouncilFindingsOutput,
 	CritiqueOutput,
+	CritiquePosition,
+	FindingLocation,
+	FindingSeverity,
+	FindingSide,
 	getSchema,
 	JudgeOutput,
+	JudgeSelfSignal,
 } from "../../../extensions/pr-workflow/schemas.js";
 
 // The schema is the single source of truth for the
@@ -258,5 +264,149 @@ describe("getSchema", () => {
 		expect(getSchema("council")).toBe(CouncilFindingsOutput);
 		expect(getSchema("judge")).toBe(JudgeOutput);
 		expect(getSchema("critique")).toBe(CritiqueOutput);
+	});
+});
+
+describe("vocabulary schemas", () => {
+	// These small schemas are exported on their own so
+	// other code can reference them (or their derived
+	// types) without re-hard-coding the literals. The
+	// label, severity, position, side and location
+	// vocabularies live in one place; if a value moves
+	// in or out, only schemas.ts and these tests change.
+
+	it("ConventionalLabel accepts every Conventional Comment", () => {
+		for (const label of [
+			"praise",
+			"nitpick",
+			"suggestion",
+			"issue",
+			"todo",
+			"question",
+			"thought",
+			"chore",
+			"note",
+			"typo",
+			"polish",
+			"quibble",
+		]) {
+			expect(Value.Check(ConventionalLabel, label)).toBe(true);
+		}
+	});
+
+	it("ConventionalLabel rejects freeform strings", () => {
+		expect(Value.Check(ConventionalLabel, "critical")).toBe(false);
+		expect(Value.Check(ConventionalLabel, "comment")).toBe(false);
+	});
+
+	it("FindingSeverity has exactly three buckets", () => {
+		expect(Value.Check(FindingSeverity, "critical")).toBe(true);
+		expect(Value.Check(FindingSeverity, "medium")).toBe(true);
+		expect(Value.Check(FindingSeverity, "minor")).toBe(true);
+		expect(Value.Check(FindingSeverity, "high")).toBe(false);
+	});
+
+	it("FindingSide accepts old, new, both", () => {
+		for (const side of ["old", "new", "both"]) {
+			expect(Value.Check(FindingSide, side)).toBe(true);
+		}
+		expect(Value.Check(FindingSide, "left")).toBe(false);
+	});
+
+	it("CritiquePosition has the four allowed positions", () => {
+		for (const pos of ["agree", "disagree", "qualify", "amplify"]) {
+			expect(Value.Check(CritiquePosition, pos)).toBe(true);
+		}
+		expect(Value.Check(CritiquePosition, "veto")).toBe(false);
+	});
+
+	it("FindingLocation accepts each kind with the right shape", () => {
+		expect(
+			Value.Check(FindingLocation, {
+				kind: "line",
+				file: "a.ts",
+				start: 1,
+				end: 2,
+				side: "new",
+			}),
+		).toBe(true);
+		expect(Value.Check(FindingLocation, { kind: "file", file: "a.ts" })).toBe(
+			true,
+		);
+		expect(Value.Check(FindingLocation, { kind: "global" })).toBe(true);
+	});
+
+	it("FindingLocation rejects an empty file path", () => {
+		// `file` is a required, non-empty string on both
+		// the line and file variants. An empty path is a
+		// hallucination, not a valid location.
+		expect(Value.Check(FindingLocation, { kind: "file", file: "" })).toBe(
+			false,
+		);
+	});
+
+	it("FindingLocation rejects line locations with start < 1", () => {
+		// Line numbers are 1-indexed. 0 (and negatives) are
+		// nonsense and break downstream GitHub posting.
+		expect(
+			Value.Check(FindingLocation, {
+				kind: "line",
+				file: "a.ts",
+				start: 0,
+				end: 1,
+				side: "new",
+			}),
+		).toBe(false);
+	});
+
+	it("JudgeSelfSignal requires confidence in the enum and non-empty rationale", () => {
+		expect(
+			Value.Check(JudgeSelfSignal, { confidence: "high", rationale: "ok" }),
+		).toBe(true);
+		expect(
+			Value.Check(JudgeSelfSignal, { confidence: "wat", rationale: "ok" }),
+		).toBe(false);
+		expect(
+			Value.Check(JudgeSelfSignal, { confidence: "high", rationale: "" }),
+		).toBe(false);
+	});
+});
+
+describe("tightened constraints", () => {
+	// Tighter rules introduced when schemas became the
+	// authoritative source of truth.
+
+	it("rejects findings with empty raisedBy strings on the judge schema", () => {
+		// raisedBy items reference reviewer ids; empty
+		// strings are nonsense and would corrupt the
+		// agreement table downstream.
+		const output = {
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "x",
+					discussion: "y",
+					raisedBy: [""],
+					sourceFindingIds: [1],
+				},
+			],
+		};
+		expect(Value.Check(JudgeOutput, output)).toBe(false);
+	});
+
+	it("rejects findings with empty decoration strings on round 1", () => {
+		const output = {
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "x",
+					discussion: "y",
+					decorations: [""],
+				},
+			],
+		};
+		expect(Value.Check(CouncilFindingsOutput, output)).toBe(false);
 	});
 });

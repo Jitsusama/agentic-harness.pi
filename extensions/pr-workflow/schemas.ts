@@ -2,29 +2,34 @@
  * Reviewer output schemas.
  *
  * The single source of truth for what each reviewer
- * subagent must emit. Three stages, three schemas:
+ * subagent must emit, and for the corresponding
+ * TypeScript types the rest of the codebase consumes.
+ * One declaration per concept; everything else
+ * (findings.ts, critique.ts, parsers, prompts, the
+ * verify extension) imports from here.
+ *
+ * For each concept we export a pair:
+ *
+ *   - The TypeBox schema (PascalCase, e.g. `Label`).
+ *     Used by `verify_output`, the parent parsers, and
+ *     stringified into prompts as JSON Schema.
+ *   - A TypeScript type of the same name, derived via
+ *     `Static<typeof Schema>`. Imported wherever code
+ *     reads or constructs a value of that shape.
+ *
+ * TypeScript keeps value-namespace and type-namespace
+ * bindings separate, so `Label` works as both
+ * `import { Label }` (the schema) and
+ * `import type { Label }` (the type).
+ *
+ * Stages:
  *
  *   - `CouncilFindingsOutput` — round 1 reviewer output.
- *   - `JudgeOutput` — round 2 consolidated output (carries
- *     the judge's optional self-signal and per-finding
+ *   - `JudgeOutput` — round 2 consolidated output
+ *     (judge's optional self-signal plus per-finding
  *     agreement metadata).
- *   - `CritiqueOutput` — round 3 push-back from reviewers
- *     on the judge's consolidation.
- *
- * These schemas serve four roles:
- *
- *   1. Runtime contract used by the parent parser
- *      (`parse.ts`, `judge.ts`, `critique.ts`) so any
- *      reviewer JSON that passes here can be trusted.
- *   2. Runtime contract used by the subagent's
- *      `verify_output` tool (the pr-workflow-verify
- *      sibling extension), so the subagent can
- *      self-check before ending its run.
- *   3. JSON-Schema snippet embedded in the reviewer
- *      prompt so the model knows the exact contract it
- *      will be validated against.
- *   4. Source of TypeScript types via TypeBox's
- *      `Static<>` helper.
+ *   - `CritiqueOutput` — round 3 push-back from the
+ *     reviewers on the judge's consolidation.
  *
  * Keep this file authoritative. If a subagent's allowed
  * output shape changes, change it here first and
@@ -33,8 +38,16 @@
 
 import { type Static, Type } from "@sinclair/typebox";
 
+// ---------------------------------------------------------------------------
+// Vocabularies
+//
+// These are the small enums and unions every higher-level
+// schema composes from. Each is exported as both a
+// runtime schema and a static type.
+// ---------------------------------------------------------------------------
+
 /** Conventional Comments labels accepted on findings. */
-const Label = Type.Union([
+export const ConventionalLabel = Type.Union([
 	Type.Literal("praise"),
 	Type.Literal("nitpick"),
 	Type.Literal("suggestion"),
@@ -48,26 +61,32 @@ const Label = Type.Union([
 	Type.Literal("polish"),
 	Type.Literal("quibble"),
 ]);
+export type ConventionalLabel = Static<typeof ConventionalLabel>;
 
-/** Severity buckets for findings (optional on output). */
-const Severity = Type.Union([
+/** Severity buckets for findings. Optional on the wire. */
+export const FindingSeverity = Type.Union([
 	Type.Literal("critical"),
 	Type.Literal("medium"),
 	Type.Literal("minor"),
 ]);
+export type FindingSeverity = Static<typeof FindingSeverity>;
 
-/** Where a finding points to. Three discriminated variants. */
-const FindingLocation = Type.Union([
+/** Which side of the diff a line-located finding points at. */
+export const FindingSide = Type.Union([
+	Type.Literal("old"),
+	Type.Literal("new"),
+	Type.Literal("both"),
+]);
+export type FindingSide = Static<typeof FindingSide>;
+
+/** Where a finding points to. A three-variant discriminated union. */
+export const FindingLocation = Type.Union([
 	Type.Object({
 		kind: Type.Literal("line"),
 		file: Type.String({ minLength: 1 }),
 		start: Type.Integer({ minimum: 1 }),
 		end: Type.Integer({ minimum: 1 }),
-		side: Type.Union([
-			Type.Literal("old"),
-			Type.Literal("new"),
-			Type.Literal("both"),
-		]),
+		side: FindingSide,
 	}),
 	Type.Object({
 		kind: Type.Literal("file"),
@@ -77,42 +96,19 @@ const FindingLocation = Type.Union([
 		kind: Type.Literal("global"),
 	}),
 ]);
+export type FindingLocation = Static<typeof FindingLocation>;
 
-/** A round-1 reviewer finding. */
-export const CouncilFinding = Type.Object({
-	location: FindingLocation,
-	label: Label,
-	decorations: Type.Optional(Type.Array(Type.String())),
-	subject: Type.String({ minLength: 1 }),
-	discussion: Type.String({ minLength: 1 }),
-	severity: Type.Optional(Severity),
-	confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
-});
+/** Reviewer's stance on a single consolidated finding. */
+export const CritiquePosition = Type.Union([
+	Type.Literal("agree"),
+	Type.Literal("disagree"),
+	Type.Literal("qualify"),
+	Type.Literal("amplify"),
+]);
+export type CritiquePosition = Static<typeof CritiquePosition>;
 
-/** Round-1 reviewer output. */
-export const CouncilFindingsOutput = Type.Object({
-	findings: Type.Array(CouncilFinding),
-});
-
-/** Inferred type for council reviewer output. */
-export type CouncilFindingsOutputT = Static<typeof CouncilFindingsOutput>;
-
-/**
- * Judge consolidation output.
- *
- * Same core finding shape as round 1, with two extra
- * agreement-metadata fields (`raisedBy`,
- * `sourceFindingIds`). These are optional because a
- * judge insight can legitimately have no upstream
- * reviewer (the judge surfaced it on its own); when
- * present they MUST be the right type, so a judge that
- * emits `raisedBy: "fast"` instead of `["fast"]` fails
- * schema validation. The top-level `selfSignal`
- * captures the judge's confidence in its own
- * consolidation.
- */
 /** Judge's self-confidence signal on its consolidation. */
-export const JudgeSelfSignalSchema = Type.Object({
+export const JudgeSelfSignal = Type.Object({
 	confidence: Type.Union([
 		Type.Literal("low"),
 		Type.Literal("medium"),
@@ -120,48 +116,89 @@ export const JudgeSelfSignalSchema = Type.Object({
 	]),
 	rationale: Type.String({ minLength: 1 }),
 });
+export type JudgeSelfSignal = Static<typeof JudgeSelfSignal>;
 
-export const JudgeFinding = Type.Object({
+// ---------------------------------------------------------------------------
+// Round 1 — council
+// ---------------------------------------------------------------------------
+
+/** A round-1 reviewer finding. */
+export const CouncilFinding = Type.Object({
 	location: FindingLocation,
-	label: Label,
-	decorations: Type.Optional(Type.Array(Type.String())),
+	label: ConventionalLabel,
+	decorations: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
 	subject: Type.String({ minLength: 1 }),
 	discussion: Type.String({ minLength: 1 }),
-	severity: Type.Optional(Severity),
+	severity: Type.Optional(FindingSeverity),
 	confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
-	raisedBy: Type.Optional(Type.Array(Type.String())),
+});
+export type CouncilFinding = Static<typeof CouncilFinding>;
+
+/** Round-1 reviewer output. */
+export const CouncilFindingsOutput = Type.Object({
+	findings: Type.Array(CouncilFinding),
+});
+export type CouncilFindingsOutput = Static<typeof CouncilFindingsOutput>;
+
+// ---------------------------------------------------------------------------
+// Round 2 — judge
+//
+// Same core finding shape as round 1, with two extra
+// agreement-metadata fields (`raisedBy`,
+// `sourceFindingIds`). These are optional because a
+// judge insight can legitimately have no upstream
+// reviewer (the judge surfaced it on its own); when
+// present they MUST be the right type, so a judge that
+// emits `raisedBy: "fast"` instead of `["fast"]` fails
+// schema validation. The top-level `selfSignal` carries
+// the judge's confidence in its own consolidation.
+// ---------------------------------------------------------------------------
+
+/** A round-2 consolidated finding. */
+export const JudgeFinding = Type.Object({
+	location: FindingLocation,
+	label: ConventionalLabel,
+	decorations: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	subject: Type.String({ minLength: 1 }),
+	discussion: Type.String({ minLength: 1 }),
+	severity: Type.Optional(FindingSeverity),
+	confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+	raisedBy: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
 	sourceFindingIds: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }))),
 });
+export type JudgeFinding = Static<typeof JudgeFinding>;
 
+/** Round-2 judge output. */
 export const JudgeOutput = Type.Object({
-	selfSignal: Type.Optional(JudgeSelfSignalSchema),
+	selfSignal: Type.Optional(JudgeSelfSignal),
 	findings: Type.Array(JudgeFinding),
 });
+export type JudgeOutput = Static<typeof JudgeOutput>;
 
-/** Inferred type for judge output. */
-export type JudgeOutputT = Static<typeof JudgeOutput>;
+// ---------------------------------------------------------------------------
+// Round 3 — critique
+// ---------------------------------------------------------------------------
 
 /**
- * Critique entry: a single reviewer's position on one of
- * the judge's consolidated findings.
+ * Critique entry: one reviewer's position on one of the
+ * judge's consolidated findings.
  */
 export const CritiqueEntry = Type.Object({
 	findingId: Type.Integer({ minimum: 1 }),
-	position: Type.Union([
-		Type.Literal("agree"),
-		Type.Literal("disagree"),
-		Type.Literal("qualify"),
-		Type.Literal("amplify"),
-	]),
+	position: CritiquePosition,
 	rationale: Type.String({ minLength: 1 }),
 });
+export type CritiqueEntry = Static<typeof CritiqueEntry>;
 
+/** Round-3 critique output. */
 export const CritiqueOutput = Type.Object({
 	critiques: Type.Array(CritiqueEntry),
 });
+export type CritiqueOutput = Static<typeof CritiqueOutput>;
 
-/** Inferred type for critique output. */
-export type CritiqueOutputT = Static<typeof CritiqueOutput>;
+// ---------------------------------------------------------------------------
+// Stage registry
+// ---------------------------------------------------------------------------
 
 /** Stage names that key into the schema registry. */
 export type StageName = "council" | "judge" | "critique";
