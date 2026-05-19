@@ -65,6 +65,7 @@ import {
 } from "./stack-critic-action.js";
 import { formatStack, nextInStack, prevInStack } from "./stack-view.js";
 import { createPrWorkflowState } from "./state.js";
+import { formatPrSummary } from "./summary.js";
 import {
 	type DecideFindingInput,
 	decideFinding,
@@ -203,6 +204,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"fix-next",
 					"fix-done",
 					"fix-skip",
+					"summary",
 				] as const,
 				{
 					description:
@@ -237,7 +239,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"fix-done: record a commit against a queued fix. " +
 						"Requires findingId and commitSha. " +
 						"fix-skip: abandon a queued fix with a reason. " +
-						"Requires findingId and skipReason.",
+						"Requires findingId and skipReason. " +
+						"summary: one-shot read-only view of the loaded PR " +
+						"(header, stack, threads, council, fix queue). " +
+						"Reads cached snapshots only — never fetches.",
 				},
 			),
 			pr: Type.Optional(
@@ -1151,6 +1156,14 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						findingId: params.findingId,
 						reason: params.skipReason.trim(),
 					},
+				};
+			}
+
+			if (params.action === "summary") {
+				const text = formatPrSummary(state);
+				return {
+					content: [{ type: "text", text }],
+					details: { ok: true },
 				};
 			}
 
