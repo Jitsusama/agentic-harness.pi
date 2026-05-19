@@ -3,3 +3,6 @@
 .worktrees/
 node_modules/
 extensions/*/package-lock.json
+package-lock.json
+coverage/
+

@@ -22,9 +22,13 @@
     "./web": "./lib/web/index.ts"
   },
   "scripts": {
-    "lint": "biome check extensions/ lib/",
-    "lint:fix": "biome check --write extensions/ lib/"
+    "lint": "biome check extensions/ lib/ tests/",
+    "lint:fix": "biome check --write extensions/ lib/ tests/",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
+  "packageManager": "pnpm@9.15.0",
   "pi": {
     "extensions": [
       "./extensions"
@@ -43,6 +47,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.6",
-    "@types/jsdom": "^28.0.0"
+    "@types/jsdom": "^28.0.0",
+    "@types/node": "^20.11.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "vitest": "^2.1.0"
   }
 }
