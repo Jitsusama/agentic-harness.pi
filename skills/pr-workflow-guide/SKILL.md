@@ -44,7 +44,12 @@ prose; you translate intent into calls.
 | `critique` | Round 3 (optional): roster pushes back on the judge. Only after the gate. |
 | `findings` | Show the current findings view (judge + critique + decisions). Read-only. |
 | `decide` | Round 4: record the user's verdict on one finding. |
-| `post` | Ship the review to GitHub. Final action. |
+| `post` | Ship eligible findings to GitHub as a PR review. |
+| `fix-config` | Set the model used by fix subagents. |
+| `fix` | Drain the fix queue: dispatch a coding subagent per finding verdict'd as `fix`. |
+| `stack` | Render the discovered PR stack with cursor highlighted. |
+| `stack-next` | Identify the PR downstream of the cursor and return its ref. |
+| `stack-prev` | Identify the PR upstream of the cursor and return its ref. |
 
 ## When to call what
 
@@ -184,6 +189,35 @@ pr_workflow action=fix-config model="anthropic:claude-opus-4"
 ```
 
 The fix model persists across `/reload`.
+
+### Navigating a stack
+
+When `load` reveals the PR is part of a stack, the
+user can navigate parent / child PRs:
+
+```
+pr_workflow action=stack          # show the chain
+pr_workflow action=stack-next     # "what's downstream?"
+pr_workflow action=stack-prev     # "what's upstream?"
+```
+
+The `stack-next` and `stack-prev` actions do NOT
+re-load the new PR themselves. They return the
+adjacent PR's ref and tell you to call `load`. This
+is intentional: every significant state change goes
+through prose, so the user has a chance to intervene
+("hold on, before moving on, let's post the current
+findings first").
+
+If the cursor has fan-out children (multiple
+downstream PRs), `stack-next` returns no automatic
+pick and the action's prose includes the child count.
+Ask the user which fork to follow.
+
+Reviews don't currently follow the chain
+automatically; each PR is a separate review session.
+That's a deliberate scoping choice, not a bug: the
+council reviews the cursor PR's diff in isolation.
 
 ## Verdict reference
 
