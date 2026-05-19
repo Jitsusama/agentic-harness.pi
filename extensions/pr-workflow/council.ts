@@ -130,6 +130,5 @@ export async function runCouncil(
 		startedAt: new Date().toISOString(),
 		target: { kind: "diff", prNumber: options.target.prNumber },
 		reviewerOutputs,
-		worktreePath: handle.path,
 	};
 }

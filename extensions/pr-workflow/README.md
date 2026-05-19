@@ -73,6 +73,18 @@ Every other capability — council, findings, post, stack
 overview, neovim companion wiring — lands in follow-up
 commits, each gated by tests.
 
+## Sibling Extensions
+
+- [`pr-workflow-verify`](../pr-workflow-verify/) registers
+  a `verify_output` tool that reviewer subagents call to
+  self-validate their JSON against the same TypeBox
+  schemas the parent will parse against. The parent
+  resolves this extension's absolute path (via
+  `verify-path.ts`) and injects it into every reviewer
+  subagent through `pi --extension <path>`. Schemas live
+  in [`schemas.ts`](./schemas.ts) and are the single
+  source of truth for both sides.
+
 ## Files
 
 - `state.ts` — runtime state for the session (active PR,
