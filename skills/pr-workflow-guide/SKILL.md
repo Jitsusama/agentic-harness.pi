@@ -38,7 +38,8 @@ prose; you translate intent into calls.
 | Action | When to call |
 |---|---|
 | `load` | First action of any PR session. User said "review PR 42" or pasted a URL. |
-| `status` | User asks "where are we?", "what's loaded?", or "how much has this cost?". Read-only; surfaces the per-stage and total token/cost spend, including stack-critic state. |
+| `status` | Debug-y session dump: IDs, configs, raw counts, per-stage cost. Use when the user asks a low-level state question or you need to verify wiring. |
+| `summary` | User-facing "what's the state of this PR?" panel. Header + stack + threads + council + fix queue, composed from cached snapshots. Use when the user asks open questions like "where are we on this?" or comes back to a session after a break. Never fetches — if threads aren't cached the panel prompts to run `action=threads`. |
 | `council-config` | User wants to set or change the reviewer roster. |
 | `council` | Round 1: fan out the roster. User said "run the review", "kick it off". |
 | `judge-config` | User wants to set or change the judge model. |

@@ -50,7 +50,7 @@ steering it from a menu.
 
 ## Actions
 
-One `pr_workflow` tool, 23 actions. The user drives the
+One `pr_workflow` tool, 24 actions. The user drives the
 flow conversationally; the agent translates intent into
 the right action.
 
@@ -59,7 +59,13 @@ the right action.
 - `action="load"` — parse a PR reference, fetch metadata
   + diff, detect stack, surface a one-screen summary.
   Diff and stack fetches are best-effort.
-- `action="status"` — read-only state report.
+- `action="status"` — read-only state report (debug-y;
+  IDs, configs, raw counts).
+- `action="summary"` — one-shot user-facing view of
+  the loaded PR: header, stack position, threads,
+  council state, fix queue. Read-only; reads cached
+  snapshots only and never fetches. Use for "what's
+  the state of this PR?" between scenarios.
 - `action="council-config"` — set the reviewer roster
   (id + model + tools).
 - `action="judge-config"` — set the judge model.
