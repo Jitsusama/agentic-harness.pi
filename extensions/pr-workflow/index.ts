@@ -70,6 +70,7 @@ import {
 	decideFinding,
 	formatFindingsView,
 } from "./synthesis.js";
+import { confirmReplyGate, confirmResolveGate } from "./thread-gate.js";
 import { fetchReviewThreads, replyToThread, resolveThread } from "./threads.js";
 import {
 	formatThreadsView,
@@ -414,7 +415,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}),
 			),
 		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (params.action === "council-config") {
 				const reviewers = params.reviewers ?? [];
 				const result = configureCouncil(state, { reviewers });
@@ -917,10 +918,43 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
+				const threadForGate = state.threads?.threads[params.threadIndex - 1];
+				if (threadForGate === undefined) {
+					const result = await replyToThreadAction({
+						state,
+						index: params.threadIndex,
+						body: params.replyBody,
+						sender: (threadId, body) => replyToThread(pi, threadId, body),
+					});
+					return {
+						content: [
+							{
+								type: "text",
+								text: result.ok ? "Reply posted." : result.error,
+							},
+						],
+						details: result.ok
+							? { ok: true, url: result.url }
+							: { ok: false, error: result.error },
+						isError: !result.ok,
+					};
+				}
+				const gate = await confirmReplyGate(
+					ctx,
+					threadForGate,
+					params.replyBody,
+				);
+				if (!gate.approved) {
+					return {
+						content: [{ type: "text", text: gate.reason }],
+						details: { ok: false, error: gate.reason },
+						isError: true,
+					};
+				}
 				const result = await replyToThreadAction({
 					state,
 					index: params.threadIndex,
-					body: params.replyBody,
+					body: gate.body,
 					sender: (threadId, body) => replyToThread(pi, threadId, body),
 				});
 				if (!result.ok) {
@@ -941,6 +975,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						ok: true,
 						url: result.url,
 						threadIndex: params.threadIndex,
+						body: gate.body,
 					},
 				};
 			}
@@ -957,6 +992,17 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						details: { ok: false, error: "missing threadIndex" },
 						isError: true,
 					};
+				}
+				const threadForGate = state.threads?.threads[params.threadIndex - 1];
+				if (threadForGate !== undefined) {
+					const gate = await confirmResolveGate(ctx, threadForGate);
+					if (!gate.approved) {
+						return {
+							content: [{ type: "text", text: gate.reason }],
+							details: { ok: false, error: gate.reason },
+							isError: true,
+						};
+					}
 				}
 				const result = await resolveThreadAction({
 					state,

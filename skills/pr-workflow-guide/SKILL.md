@@ -395,6 +395,39 @@ is about to do several replies, render `threads` once,
 call the mutations, then optionally re-run `threads`
 to confirm.
 
+### Confirmation gates
+
+Both `reply` and `resolve` pause for an in-terminal
+confirmation panel before hitting GitHub. The panel
+renders the thread's existing comments alongside the
+proposed reply (or the resolution intent), so the user
+sees what they're approving before any mutation
+lands.
+
+Key behaviour the user might rely on:
+
+- **Enter** approves and fires the mutation.
+- **`r`** rejects; the action returns a clean error and
+  nothing posts.
+- **Escape** cancels (same outcome as `r`).
+- **Shift+Escape** (reply only) opens an inline note
+  editor. Whatever the user types replaces the proposed
+  reply body. Useful when the user wants to tweak
+  wording without round-tripping back through prose.
+
+The agent's responsibility doesn't change: still draft
+the reply text in prose first, confirm in conversation,
+*then* call the tool. The gate is the second line of
+defense, not the first. If the user rejects or edits in
+the panel, surface that outcome back in prose so the
+conversation reflects what actually happened.
+
+The gate short-circuits to approved when running
+headless (no TUI). In that case the prose-level
+confirmation is the only gate, which matches how the
+agent operates in batch / CI contexts where there's no
+person to interact with a panel.
+
 What NOT to use these for:
 
 - Posting initial review comments — that's

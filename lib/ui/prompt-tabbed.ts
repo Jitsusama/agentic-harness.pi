@@ -13,6 +13,7 @@ import {
 	Editor,
 	isKeyRelease,
 	Key,
+	type KeyId,
 	matchesKey,
 	type TUI,
 	truncateToWidth,
@@ -440,7 +441,7 @@ function createTabbedController(
 		if (views.length > 1) {
 			for (let i = 0; i < views.length; i++) {
 				const view = views[i];
-				if (view && matchesKey(data, view.key)) {
+				if (view && matchesKey(data, view.key as KeyId)) {
 					activeViewIndex.set(currentTab, i);
 					tui.requestRender();
 					ensureViewContent(currentTab, i, 0);
