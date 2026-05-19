@@ -55,8 +55,12 @@ Early scaffold. The extension registers a single
 - `pr_workflow(action="load", pr=<ref>)` — parses a PR
   reference (full URL, owner/repo#number short form, or
   bare number with repo defaults), fetches metadata from
-  GitHub and surfaces a one-screen summary (title, author,
-  state, base/head, diffstat, URL).
+  GitHub, fetches and parses the per-file diff, and
+  surfaces a one-screen summary (title, author, state,
+  base/head, diffstat, URL, file list with per-file change
+  counts). The diff fetch is best-effort: if it fails, the
+  workflow stays loaded with metadata only and reports the
+  diff error.
 
 Every other capability — council, findings, post, fix
 loop, stack overview, neovim companion wiring — lands in

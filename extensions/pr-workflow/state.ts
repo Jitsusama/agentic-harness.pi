@@ -12,6 +12,7 @@
  * one.
  */
 
+import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import type { PrMetadata } from "./fetch.js";
 
@@ -29,6 +30,8 @@ export interface ActivePr {
 	loadedAt: string;
 	/** Fetched PR metadata. `null` between load and fetch. */
 	metadata: PrMetadata | null;
+	/** Parsed per-file diff. `null` until the diff is fetched. */
+	files: DiffFile[] | null;
 }
 
 /** Top-level runtime state for the PR workflow. */

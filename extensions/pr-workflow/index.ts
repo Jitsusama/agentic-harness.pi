@@ -20,6 +20,7 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
 import { fetchPrMetadata } from "./fetch.js";
 import { loadPr } from "./load.js";
 import { createPrWorkflowState } from "./state.js";
@@ -120,18 +121,49 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
+			// Diff fetch is best-effort: if it fails, we keep the PR
+			// loaded with metadata only and report the failure.
+			let diffError: string | null = null;
+			try {
+				const raw = await fetchDiff(pi, loaded.reference);
+				loaded.files = parseDiff(raw);
+			} catch (error) {
+				diffError = error instanceof Error ? error.message : String(error);
+			}
+
 			const m = loaded.metadata;
-			const summary = m
-				? [
-						`Loaded ${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number}: ${m.title}`,
-						`author: ${m.author} · state: ${m.state}${m.isDraft ? " (draft)" : ""}`,
-						`base: ${m.base.ref} ← head: ${m.head.ref}`,
-						`${m.changedFiles} files changed, +${m.additions} −${m.deletions}`,
-						`${m.url}`,
-					].join("\n")
-				: "Loaded.";
+			const lines: string[] = [];
+			if (m) {
+				lines.push(
+					`Loaded ${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number}: ${m.title}`,
+					`author: ${m.author} · state: ${m.state}${m.isDraft ? " (draft)" : ""}`,
+					`base: ${m.base.ref} ← head: ${m.head.ref}`,
+					`${m.changedFiles} files changed, +${m.additions} −${m.deletions}`,
+					`${m.url}`,
+				);
+			} else {
+				lines.push("Loaded.");
+			}
+			if (loaded.files) {
+				lines.push("");
+				lines.push("Files:");
+				for (const f of loaded.files) {
+					const tag =
+						f.status === "added"
+							? "+"
+							: f.status === "deleted"
+								? "-"
+								: f.status === "renamed"
+									? "→"
+									: "~";
+					lines.push(`  ${tag} ${f.path}  (+${f.additions} −${f.deletions})`);
+				}
+			} else if (diffError) {
+				lines.push("");
+				lines.push(`Diff fetch failed: ${diffError}`);
+			}
 			return {
-				content: [{ type: "text", text: summary }],
+				content: [{ type: "text", text: lines.join("\n") }],
 				details: { ok: true, pr: loaded },
 			};
 		},
