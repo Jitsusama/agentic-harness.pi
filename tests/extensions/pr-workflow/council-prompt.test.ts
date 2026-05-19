@@ -121,6 +121,42 @@ describe("buildReviewerPrompt", () => {
 		}
 	});
 
+	it("instructs the reviewer to call verify_output before ending", () => {
+		// Council reviewer subagents get the
+		// pr-workflow-verify extension injected so they can
+		// validate their JSON against the schema. The prompt
+		// must teach the model to USE that tool, otherwise
+		// the self-correction loop never starts.
+		const prompt = buildReviewerPrompt({
+			prTitle: "x",
+			prDescription: "",
+			files: [file()],
+		});
+		expect(prompt).toContain("verify_output");
+		// The tool needs the stage so the prompt has to
+		// tell the model which schema to validate against.
+		expect(prompt).toMatch(/stage[=:].?["']?council/i);
+	});
+
+	it("embeds the JSON schema for the council output", () => {
+		// The model is more reliable when it sees the
+		// schema it'll be validated against, not just a
+		// hand-rolled example. We pin the load-bearing
+		// schema markers rather than the whole stringified
+		// JSON to keep this resilient to TypeBox version
+		// formatting changes.
+		const prompt = buildReviewerPrompt({
+			prTitle: "x",
+			prDescription: "",
+			files: [file()],
+		});
+		expect(prompt).toMatch(/JSON Schema/i);
+		// All twelve Conventional Comments labels appear
+		// in the schema's label enum.
+		expect(prompt).toContain("praise");
+		expect(prompt).toContain("quibble");
+	});
+
 	it("handles an empty file list without crashing", () => {
 		// Pathological input shouldn't blow up the prompt
 		// builder. The model will just see "no files" and

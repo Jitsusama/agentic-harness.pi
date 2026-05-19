@@ -12,6 +12,7 @@
  */
 
 import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
+import { CouncilFindingsOutput } from "./schemas.js";
 
 /** Inputs the reviewer needs to do its job. */
 export interface ReviewerPromptInput {
@@ -78,29 +79,33 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 			'"confidence" are optional. If you have nothing to flag, return ' +
 			'{"findings": []}.',
 	);
-	sections.push("Schema:");
-	sections.push(
-		[
-			"```json",
-			"{",
-			'  "findings": [',
-			"    {",
-			'      "location": { "kind": "line", "file": "src/foo.ts", "start": 10, "end": 12, "side": "new" },',
-			'      "label": "issue",',
-			'      "decorations": ["blocking"],',
-			'      "subject": "Single-line summary",',
-			'      "discussion": "Multi-line markdown body.",',
-			'      "severity": "critical",',
-			'      "confidence": 0.9',
-			"    }",
-			"  ]",
-			"}",
-			"```",
-		].join("\n"),
-	);
 	sections.push(
 		'Location kinds: "line" (file + start/end + side: "old"|"new"|"both"), ' +
 			'"file" (file only), or "global" (PR-level).',
+	);
+
+	sections.push("## JSON Schema");
+	sections.push(
+		"Your output must match this JSON Schema exactly. The same schema is used " +
+			"by the `verify_output` tool you'll call below and by the parent parser, " +
+			"so anything that passes the verifier will be accepted.",
+	);
+	sections.push(
+		["```json", JSON.stringify(CouncilFindingsOutput, null, 2), "```"].join(
+			"\n",
+		),
+	);
+
+	sections.push("## Self-verify before ending");
+	sections.push(
+		"Before you finish your run, call the `verify_output` tool with " +
+			'stage: "council" and `output` set to the object you intend to emit. ' +
+			"The tool returns `ok: true` with the parsed finding count, or `ok: false` " +
+			"with a list of {path, message} errors. If errors are reported, fix the " +
+			"offending fields and call `verify_output` again. Only emit your final " +
+			"fenced JSON block (and end the run) once the verifier returns `ok: true`. " +
+			"If the verifier keeps reporting the same error after three attempts, " +
+			"emit your best attempt and the parent will surface the warnings.",
 	);
 
 	return sections.join("\n\n");
