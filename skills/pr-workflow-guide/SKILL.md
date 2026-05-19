@@ -55,6 +55,9 @@ prose; you translate intent into calls.
 | `threads` | Fetch the loaded PR's existing review threads. Renders them indexed as `[T1]`, `[T2]`… |
 | `reply` | Reply to a thread by its `[T#]` index. Requires `threadIndex` and `replyBody`. |
 | `resolve` | Mark a thread resolved by its `[T#]` index. Requires `threadIndex`. |
+| `fix-next` | Return the next finding queued for fix (verdict=fix) with no recorded outcome. Pure read. |
+| `fix-done` | Record that a commit landed for a queued fix. Requires `findingId` and `commitSha`. |
+| `fix-skip` | Abandon a queued fix with a reason. Requires `findingId` and `skipReason`. |
 
 ## When to call what
 
@@ -181,33 +184,82 @@ self-applied fixes are independent.
 
 ### Applying fixes
 
-There is no `fix` action. Council, judge and critique
-do the *research* in a worktree (so the user's working
-tree stays clean), but the *edits* happen in the user's
-actual checkout, where you already are. Workflow:
+Council, judge and critique do the *research* in a
+worktree (so the user's working tree stays clean), but
+the *edits* happen in the user's actual checkout, where
+you already are. The flow has two halves: deciding
+(`verdict="fix"`) and applying (`fix-next` → main-loop
+edits → `fix-done`).
+
+**Deciding.** First, mark the findings the user wants
+to address as fixes rather than comments:
 
 ```
 pr_workflow action=decide findingId=14 verdict=fix
 pr_workflow action=decide findingId=15 verdict=fix instructions="match existing helper-fn style"
 ```
 
-The `verdict=fix` decision is a bookmark: the user is
-claiming the finding for themselves. The optional
-`instructions` field is a free-form note describing how
-the fix should land (for the user's reference or for
-you, the main agent, when they ask you to apply it).
+The optional `instructions` field is a free-form note
+on how the fix should land. It rides along on the
+decision and shows up in `fix-next`.
 
-When the user wants you to apply a `fix`-verdict
-finding, just use your normal edit tools in their
-checkout. The finding's location and discussion tell you
-where and what; the user's instructions (if any) tell
-you how. Commit when they're satisfied.
+**Applying.** When the user says "apply the queue" or
+"now do the rename", walk it:
 
-When the user wants to apply the fix themselves, they
-open the relevant file in their editor and do it. The
-decision stays in `findings` as a record of intent.
+```
+pr_workflow action=fix-next
+  → {findingId: 14, finding: {...}, instructions: "..."}
+  or null if the queue is empty
+```
 
-Neither path involves the worktree the council ran in.
+Apply the edit using your normal tools (`read`, `edit`,
+`write`, `bash`). The finding's `location` tells you
+the file and line; `discussion` tells you what's wrong;
+`instructions` (if present) tell you how the user wants
+it fixed. Run whatever checks make sense (lint, tests).
+Commit through `commit-guardian` like any other commit
+— the guardian fires automatically and the user
+approves the message.
+
+Once the commit lands, record it:
+
+```
+pr_workflow action=fix-done findingId=14 commitSha=a1b2c3d
+```
+
+Loop back to `fix-next` for the next finding. When it
+returns a null context, the queue is done. The user is
+free to interrupt at any prose turn between `fix-next`
+and `fix-done` — the loop is in the agent, not the
+tool, so course-correction is free.
+
+If the user changes their mind on a queued finding
+("actually that's not worth fixing"), use `fix-skip`
+with a short reason:
+
+```
+pr_workflow action=fix-skip findingId=15 skipReason="not worth a follow-up"
+```
+
+The findings view renders the three terminal states
+inline: `queued for fix — <instructions>`,
+`✓ fixed in <sha>`, or `fix skipped — <reason>`.
+
+Things the loop does NOT do:
+
+- **Apply edits itself.** Edits live in your main loop
+  so the user can interrupt. The tool only supplies the
+  next finding's context and records outcomes.
+- **Run checks automatically.** The agent reads the
+  repo and decides what to run (lint, tests). The tool
+  doesn't carry a checks-config in v1.
+- **Push.** Pushing is the user's call after the queue
+  is done. `git push` works as normal.
+- **Cross-PR.** Stack-level fixes (`verdict=fix` on
+  stack findings) are out of scope for v1. Use
+  per-PR fixes only.
+
+Neither half involves the worktree the council ran in.
 That worktree exists for read-only research; nothing in
 the normal flow writes back to it.
 
