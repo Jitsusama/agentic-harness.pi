@@ -54,8 +54,8 @@ the TDD workflow:
   "packages": [
     {
       "source": "git:github.com/Jitsusama/agentic-harness.pi",
-      "extensions": ["extensions/tdd-mode"],
-      "skills": ["skills/tdd-workflow"]
+      "extensions": ["extensions/tdd-workflow"],
+      "skills": ["skills/code-tdd-guide"]
     }
   ]
 }

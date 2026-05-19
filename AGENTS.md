@@ -63,7 +63,8 @@ it does:
   both persistent session workflows (planning, TDD) and
   task-scoped orchestration (PR review and reply).
   `plan-workflow`, `tdd-workflow`, `pr-workflow`,
-  `ask-workflow`, `git-bypass-workflow`
+  `ask-workflow`, `git-bypass-workflow`,
+  `guardian-status-workflow`
 
 - **Integrations** (`*-integration`): bridge to external
   services via registered tools.
@@ -72,6 +73,12 @@ it does:
 - **Widgets** (`*-widget`): add UI elements to the interface.
   `content-viewer-widget`, `status-line-widget`,
   `panel-zoom-widget`
+
+- **Verifiers** (`*-verify`): expose a tool that subagents
+  call to self-validate their structured output against the
+  parent extension's schema before completion. Loaded into
+  the subagent via `pi --extension <path>`, not
+  auto-discovered. `pr-workflow-verify`
 
 ## Skill Categories
 

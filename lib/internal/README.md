@@ -4,16 +4,15 @@ Shared code used by extensions in this package. Not part of
 the public library surface; don't import from here in
 external packages. These modules may change without notice.
 
-- **`guardian/`** — guardian pipeline: `CommandGuardian`
-  interface, registration helper, shell parsing and entity
-  review gate.
-- **`github/`** — GitHub utilities: CLI parsing, diff parsing,
-  GraphQL helpers, PR reference resolution and review posting.
-- **`comments/`** — shared lifecycle model for review items:
-  types, CRUD operations and navigation helpers used by all
-  PR workflow extensions.
+- **`git/`** — process-global bypass state for git command
+  interception. Read by interceptors and guardians so
+  approved commands skip re-gating.
+- **`github/`** — GitHub utilities: CLI parsing, diff
+  parsing, GraphQL helpers, PR reference resolution and
+  review posting.
+- **`guardian/`** — guardian-specific helpers that aren't
+  part of the public `lib/guardian/` contract: commit
+  message parsing and the entity review gate used by
+  `commit-guardian`.
 - **`state.ts`** — session state helpers: entry persistence,
   plan directory resolution and context filtering.
-- **`workflow-status.ts`** — shared status line and detail
-  widget management for workflow extensions: guard logic,
-  glyph rendering, right-aligned detail text.
