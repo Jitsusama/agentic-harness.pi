@@ -20,6 +20,7 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { loadPr } from "./load.js";
 import { createPrWorkflowState } from "./state.js";
 
 export default function prWorkflow(pi: ExtensionAPI) {
@@ -66,17 +67,39 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			// action === "load"
+			if (!params.pr) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: "pr_workflow load requires a `pr` argument.",
+						},
+					],
+					details: { ok: false, error: "missing pr argument" },
+					isError: true,
+				};
+			}
+
+			const outcome = loadPr(state, { input: params.pr });
+			if (!outcome.ok) {
+				return {
+					content: [{ type: "text", text: outcome.error }],
+					details: { ok: false, error: outcome.error },
+					isError: true,
+				};
+			}
+
+			const ref = state.pr?.reference;
 			return {
 				content: [
 					{
 						type: "text",
-						text:
-							"pr_workflow load is not yet implemented. The extension " +
-							"shell is in place; the PR-resolution + council + " +
-							"findings pipeline lands in follow-up commits.",
+						text: ref
+							? `Loaded ${ref.owner}/${ref.repo}#${ref.number}. Metadata fetch, council and findings land in follow-up commits.`
+							: "Loaded.",
 					},
 				],
-				details: { stub: true, requested: params.pr },
+				details: { ok: true, pr: state.pr },
 			};
 		},
 	});

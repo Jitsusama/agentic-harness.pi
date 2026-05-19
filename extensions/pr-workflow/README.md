@@ -46,14 +46,17 @@ steering it from a menu.
 
 ## Status
 
-Scaffold only. The extension registers a single
+Early scaffold. The extension registers a single
 `pr_workflow` tool with two actions:
 
 - `pr_workflow(action="status")` — returns the current
   workflow state. Useful for diagnostics and for confirming
   the extension is loaded.
-- `pr_workflow(action="load", pr=<ref>)` — placeholder. Once
-  implemented, attaches a PR (or stack) to the session.
+- `pr_workflow(action="load", pr=<ref>)` — parses a PR
+  reference (full URL, owner/repo#number short form, or
+  bare number with repo defaults) and attaches it to the
+  session. No metadata fetch yet — that lands in the next
+  capability commit.
 
 Every other capability — council, findings, post, fix
 loop, stack overview, neovim companion wiring — lands in
@@ -64,6 +67,8 @@ follow-up commits, each gated by tests.
 - `state.ts` — runtime state for the session (active PR,
   findings, council, companion linkage). Grows as
   capabilities land.
+- `load.ts` — parses a PR reference and engages the
+  session. Pure; no network calls.
 - `index.ts` — extension registration. Reads as a table of
   contents.
 
