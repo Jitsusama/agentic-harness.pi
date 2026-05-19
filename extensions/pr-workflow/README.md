@@ -31,10 +31,11 @@ steering it from a menu.
   Council mechanics live in `extensions/pr-workflow/council/`
   once that capability scaffolds.
 - **Neovim is the code viewer.** When paired with a neovim
-  via the `neovim-pi` extension, pi opens `pi://` buffers for
-  diffs and source files. Unpaired sessions fall back to
-  inline diff rendering for context only; substantive viewing
-  needs nvim.
+  via the `neovim-pi` extension, the agent can call
+  `nvim_buffer_open` with `pi://pr/.../file/<sha>/<path>`
+  URIs to view PR files in nvim. Unpaired sessions fall
+  back to inline diff rendering for context only;
+  substantive viewing needs nvim.
 - **Stack-aware.** When the active PR is part of a stack, the
   council reasons across the whole stack, and post gates lay
   out the order of operations explicitly.
@@ -85,6 +86,31 @@ follow-up commits, each gated by tests.
 - `search.ts` — GitHub-backed `PrSearch` factory. Runs one
   GraphQL query per neighbour lookup; the walker calls it
   at most `maxDepth * 2` times per discovery.
+- `buffer.ts` — `pi://pr/...` URI scheme: parser, builder,
+  resolver and filetype inference. All pure; the file
+  fetcher is injected.
+
+## `pi://pr` URI Scheme
+
+The extension defines one URI shape today:
+
+```
+pi://pr/<owner>/<repo>/<number>/file/<sha>/<path>
+```
+
+The SHA is baked into the URI so the resolver is
+self-contained and doesn't depend on workflow state.
+Re-loading the PR generates fresh URIs against the new
+head; existing URIs continue to resolve at the SHA they
+name.
+
+On startup the extension emits a
+`neovim-pi:register-handler` event asking neovim-pi to
+route `buffer.uri.resolve` calls through its handler.
+When the event has no listener (neovim-pi not installed,
+not loaded yet, or doesn't speak this contract), the
+emit is a no-op and `pi://pr/...` URIs won't open in
+nvim. The agent can still construct URIs for use later.
 - `index.ts` — extension registration. Reads as a table of
   contents.
 

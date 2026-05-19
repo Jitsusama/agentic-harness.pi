@@ -21,14 +21,44 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
-import { fetchPrMetadata } from "./fetch.js";
+import { parsePrFileUri, prFileUri, resolvePrFile } from "./buffer.js";
+import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
 import { loadPr } from "./load.js";
 import { createGitHubPrSearch } from "./search.js";
 import { buildStack, type StackEntry } from "./stack.js";
 import { createPrWorkflowState } from "./state.js";
 
+/**
+ * Event emitted to ask neovim-pi to install a buffer URI
+ * handler. The neovim-pi extension subscribes; if it isn't
+ * loaded the emit is a no-op and `pi://pr/...` URIs simply
+ * won't open in nvim. The handler signature matches what
+ * neovim-pi's `addMethod("buffer.uri.resolve", ...)` expects.
+ */
+const NEOVIM_PI_REGISTER_HANDLER = "neovim-pi:register-handler";
+
 export default function prWorkflow(pi: ExtensionAPI) {
 	const state = createPrWorkflowState();
+
+	// Ask neovim-pi (when present) to route pi://pr/.../file/...
+	// URIs through our resolver. The fetcher closes over `pi` so
+	// the handler has access to `pi.exec` for the gh round-trip.
+	const handler = async (args: unknown[]) => {
+		const uri = String(args[0] ?? "");
+		const parsed = parsePrFileUri(uri);
+		if (parsed === null) {
+			return {
+				lines: [`pr-workflow: not a pi://pr file URI: ${uri}`],
+			};
+		}
+		return resolvePrFile(parsed, (owner, repo, ref, path) =>
+			fetchFileContent(pi, owner, repo, ref, path),
+		);
+	};
+	pi.events.emit(NEOVIM_PI_REGISTER_HANDLER, {
+		method: "buffer.uri.resolve",
+		handler,
+	});
 
 	pi.registerTool({
 		name: "pr_workflow",
@@ -189,6 +219,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			if (loaded.files) {
 				lines.push("");
 				lines.push("Files:");
+				const sha = loaded.metadata?.head.sha;
 				for (const f of loaded.files) {
 					const tag =
 						f.status === "added"
@@ -199,6 +230,23 @@ export default function prWorkflow(pi: ExtensionAPI) {
 									? "→"
 									: "~";
 					lines.push(`  ${tag} ${f.path}  (+${f.additions} −${f.deletions})`);
+				}
+				if (sha) {
+					const sample = loaded.files[0];
+					if (sample) {
+						const uri = prFileUri({
+							owner: loaded.reference.owner,
+							repo: loaded.reference.repo,
+							number: loaded.reference.number,
+							sha,
+							path: sample.path,
+						});
+						lines.push("");
+						lines.push(
+							`To open a file in nvim, call nvim_buffer_open with a URI like:`,
+						);
+						lines.push(`  ${uri}`);
+					}
 				}
 			} else if (diffError) {
 				lines.push("");

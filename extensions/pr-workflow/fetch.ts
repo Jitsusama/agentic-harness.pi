@@ -132,6 +132,39 @@ export async function fetchPrMetadata(
 	return parsePrMetadata(raw);
 }
 
+/**
+ * Fetch a file's contents at a specific ref via `gh api`.
+ *
+ * Uses the contents endpoint, which returns base64-encoded
+ * file data up to 1 MB. Larger files require a different
+ * code path (blobs API) that lands when the workflow has a
+ * reason to view them.
+ */
+export async function fetchFileContent(
+	pi: ExtensionAPI,
+	owner: string,
+	repo: string,
+	ref: string,
+	path: string,
+): Promise<string> {
+	const result = await pi.exec("gh", [
+		"api",
+		`/repos/${owner}/${repo}/contents/${path}?ref=${ref}`,
+		"--jq",
+		".content",
+	]);
+	if (result.code !== 0) {
+		throw new Error(
+			`Failed to fetch ${path} at ${ref}: ${result.stderr.trim() || "non-zero exit"}`,
+		);
+	}
+	const base64 = result.stdout.replace(/\s+/g, "");
+	if (!base64) {
+		throw new Error(`No content returned for ${path} at ${ref}`);
+	}
+	return Buffer.from(base64, "base64").toString("utf-8");
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
