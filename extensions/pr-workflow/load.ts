@@ -56,6 +56,7 @@ export function loadPr(
 	state.pr = {
 		reference,
 		loadedAt: clock().toISOString(),
+		metadata: null,
 	};
 	return { ok: true };
 }

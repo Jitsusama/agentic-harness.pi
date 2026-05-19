@@ -13,6 +13,7 @@
  */
 
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
+import type { PrMetadata } from "./fetch.js";
 
 /**
  * Snapshot of the PR currently loaded into the workflow.
@@ -26,6 +27,8 @@ export interface ActivePr {
 	reference: PRReference;
 	/** ISO 8601 timestamp of when the PR was loaded. */
 	loadedAt: string;
+	/** Fetched PR metadata. `null` between load and fetch. */
+	metadata: PrMetadata | null;
 }
 
 /** Top-level runtime state for the PR workflow. */

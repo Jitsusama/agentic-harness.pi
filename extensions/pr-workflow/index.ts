@@ -20,6 +20,7 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { fetchPrMetadata } from "./fetch.js";
 import { loadPr } from "./load.js";
 import { createPrWorkflowState } from "./state.js";
 
@@ -89,17 +90,49 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
-			const ref = state.pr?.reference;
+			const loaded = state.pr;
+			if (!loaded) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: "Unreachable: state.pr null after successful load.",
+						},
+					],
+					details: { ok: false, error: "unreachable" },
+					isError: true,
+				};
+			}
+
+			try {
+				loaded.metadata = await fetchPrMetadata(pi, loaded.reference);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Loaded ${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number} but could not fetch metadata: ${message}`,
+						},
+					],
+					details: { ok: false, pr: loaded, error: message },
+					isError: true,
+				};
+			}
+
+			const m = loaded.metadata;
+			const summary = m
+				? [
+						`Loaded ${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number}: ${m.title}`,
+						`author: ${m.author} · state: ${m.state}${m.isDraft ? " (draft)" : ""}`,
+						`base: ${m.base.ref} ← head: ${m.head.ref}`,
+						`${m.changedFiles} files changed, +${m.additions} −${m.deletions}`,
+						`${m.url}`,
+					].join("\n")
+				: "Loaded.";
 			return {
-				content: [
-					{
-						type: "text",
-						text: ref
-							? `Loaded ${ref.owner}/${ref.repo}#${ref.number}. Metadata fetch, council and findings land in follow-up commits.`
-							: "Loaded.",
-					},
-				],
-				details: { ok: true, pr: state.pr },
+				content: [{ type: "text", text: summary }],
+				details: { ok: true, pr: loaded },
 			};
 		},
 	});
