@@ -15,6 +15,7 @@
 import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import type { PrMetadata } from "./fetch.js";
+import type { Stack } from "./stack.js";
 
 /**
  * Snapshot of the PR currently loaded into the workflow.
@@ -32,6 +33,8 @@ export interface ActivePr {
 	metadata: PrMetadata | null;
 	/** Parsed per-file diff. `null` until the diff is fetched. */
 	files: DiffFile[] | null;
+	/** Discovered PR stack with cursor position. `null` until detected. */
+	stack: Stack | null;
 }
 
 /** Top-level runtime state for the PR workflow. */

@@ -58,6 +58,7 @@ export function loadPr(
 		loadedAt: clock().toISOString(),
 		metadata: null,
 		files: null,
+		stack: null,
 	};
 	return { ok: true };
 }

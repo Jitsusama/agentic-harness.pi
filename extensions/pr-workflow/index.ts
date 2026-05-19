@@ -23,6 +23,8 @@ import { Type } from "@sinclair/typebox";
 import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
 import { fetchPrMetadata } from "./fetch.js";
 import { loadPr } from "./load.js";
+import { createGitHubPrSearch } from "./search.js";
+import { buildStack, type StackEntry } from "./stack.js";
 import { createPrWorkflowState } from "./state.js";
 
 export default function prWorkflow(pi: ExtensionAPI) {
@@ -131,6 +133,27 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				diffError = error instanceof Error ? error.message : String(error);
 			}
 
+			// Stack discovery is best-effort too. The walker needs
+			// metadata's base/head ref names, so we can only run it
+			// after the metadata fetch succeeded.
+			let stackError: string | null = null;
+			try {
+				const cursor: StackEntry = {
+					reference: loaded.reference,
+					title: loaded.metadata.title,
+					baseRefName: loaded.metadata.base.ref,
+					headRefName: loaded.metadata.head.ref,
+				};
+				const search = createGitHubPrSearch(
+					pi,
+					loaded.reference.owner,
+					loaded.reference.repo,
+				);
+				loaded.stack = await buildStack(cursor, search);
+			} catch (error) {
+				stackError = error instanceof Error ? error.message : String(error);
+			}
+
 			const m = loaded.metadata;
 			const lines: string[] = [];
 			if (m) {
@@ -143,6 +166,25 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				);
 			} else {
 				lines.push("Loaded.");
+			}
+			const stack = loaded.stack;
+			if (stack && stack.entries.length > 1) {
+				lines.push("");
+				lines.push(`Stack (${stack.entries.length} PRs):`);
+				stack.entries.forEach((e, i) => {
+					const marker = i === stack.cursorIndex ? "▶" : " ";
+					lines.push(
+						`  ${marker} ${e.reference.owner}/${e.reference.repo}#${e.reference.number}: ${e.title}`,
+					);
+				});
+				if (stack.cursorChildren.length > 0) {
+					lines.push(
+						`  (fan-out: ${stack.cursorChildren.length} children of cursor)`,
+					);
+				}
+			} else if (stackError) {
+				lines.push("");
+				lines.push(`Stack discovery failed: ${stackError}`);
 			}
 			if (loaded.files) {
 				lines.push("");
