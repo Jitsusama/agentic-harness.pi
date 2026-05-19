@@ -3,7 +3,7 @@
  * short forms, and bare numbers. Also extracts owner/repo from
  * git remote URLs.
  *
- * Used by both pr-review-workflow and pr-reply-workflow extensions.
+ * Used by the pr-workflow extension.
  */
 
 /** Identifies a specific pull request on GitHub. */

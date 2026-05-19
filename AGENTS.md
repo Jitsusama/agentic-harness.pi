@@ -61,10 +61,9 @@ it does:
 - **Workflows** (`*-workflow`): orchestrate a multi-step or
   session-wide process with state and stages. This covers
   both persistent session workflows (planning, TDD) and
-  task-scoped orchestration (PR review, PR reply).
-  `plan-workflow`, `tdd-workflow`, `pr-review-workflow`,
-  `pr-reply-workflow`, `pr-annotate-workflow`, `ask-workflow`,
-  `git-bypass-workflow`
+  task-scoped orchestration (PR review and reply).
+  `plan-workflow`, `tdd-workflow`, `pr-workflow`,
+  `ask-workflow`, `git-bypass-workflow`
 
 - **Integrations** (`*-integration`): bridge to external
   services via registered tools.
