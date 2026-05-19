@@ -10,6 +10,7 @@ import {
 	type WorktreeProvider,
 	WorktreeRegistry,
 } from "../../../extensions/pr-workflow/worktree.js";
+import { expectFailure, prMetadata } from "./fixtures.js";
 
 function fakeProvider(): WorktreeProvider {
 	return {
@@ -32,18 +33,13 @@ function withLoadedPr() {
 	state.pr = {
 		reference: { owner: "o", repo: "r", number: 42 },
 		loadedAt: "2026-01-01T00:00:00Z",
-		metadata: {
+		metadata: prMetadata({
 			title: "t",
 			url: "u",
-			state: "OPEN",
 			author: "a",
-			isDraft: false,
 			base: { ref: "main", sha: "deadbeef" },
 			head: { ref: "feat", sha: "headsha1" },
-			changedFiles: 0,
-			additions: 0,
-			deletions: 0,
-		},
+		}),
 		files: [],
 		stack: null,
 	};
@@ -100,8 +96,7 @@ describe("configureJudge", () => {
 		const result = configureJudge(state, {
 			judge: { id: "", model: "x" },
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/judge id|empty|reviewer id/i);
+		expect(expectFailure(result).error).toMatch(/judge id|empty|reviewer id/i);
 	});
 });
 
@@ -116,8 +111,7 @@ describe("runJudgeAction", () => {
 				throw new Error("should not be called");
 			},
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/council|round 1|fanout/i);
+		expect(expectFailure(result).error).toMatch(/council|round 1|fanout/i);
 	});
 
 	it("refuses to run when no judge is configured", async () => {
@@ -130,8 +124,7 @@ describe("runJudgeAction", () => {
 				throw new Error("should not be called");
 			},
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/judge|configure/i);
+		expect(expectFailure(result).error).toMatch(/judge|configure/i);
 	});
 
 	it("dispatches the judge, parses output, and stores the JudgeRun in state", async () => {

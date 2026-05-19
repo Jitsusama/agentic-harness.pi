@@ -26,7 +26,12 @@ import {
  *     instead of "$0.00"
  */
 
-function usage(over: Partial<ReviewerUsage>): ReviewerUsage {
+interface UsageOverrides {
+	readonly tokens?: Partial<ReviewerUsage["tokens"]>;
+	readonly cost?: Partial<ReviewerUsage["cost"]>;
+}
+
+function usage(over: UsageOverrides = {}): ReviewerUsage {
 	return {
 		tokens: {
 			input: 0,
@@ -159,7 +164,6 @@ describe("councilRunUsage", () => {
 					usage: usage({ tokens: { total: 200 }, cost: { total: 0.02 } }),
 				},
 			],
-			worktreePath: "/tmp",
 		};
 		const result = councilRunUsage(run);
 		expect(result?.tokens.total).toBe(300);
@@ -175,7 +179,6 @@ describe("councilRunUsage", () => {
 				{ reviewerId: "a", findings: [], warnings: [] },
 				{ reviewerId: "b", findings: [], warnings: [] },
 			],
-			worktreePath: "/tmp",
 		};
 		expect(councilRunUsage(run)).toBeUndefined();
 	});
@@ -224,7 +227,6 @@ describe("summarizeUsage", () => {
 					usage: usage({ tokens: { total: 1000 }, cost: { total: 0.1 } }),
 				},
 			],
-			worktreePath: "/tmp",
 		};
 		const judge: JudgeRun = {
 			id: "j",

@@ -13,16 +13,15 @@ import type { DiffFile } from "../../../lib/internal/github/diff.js";
 function file(overrides: Partial<DiffFile> = {}): DiffFile {
 	return {
 		path: "src/foo.ts",
-		oldPath: null,
 		status: "modified",
 		additions: 1,
 		deletions: 0,
 		hunks: [
 			{
 				oldStart: 1,
-				oldLines: 0,
+				oldCount: 0,
 				newStart: 1,
-				newLines: 1,
+				newCount: 1,
 				header: "@@ -1,0 +1,1 @@",
 				lines: [
 					{
@@ -78,9 +77,9 @@ describe("buildReviewerPrompt", () => {
 					hunks: [
 						{
 							oldStart: 1,
-							oldLines: 1,
+							oldCount: 1,
 							newStart: 1,
-							newLines: 1,
+							newCount: 1,
 							header: "@@ -1,1 +1,1 @@",
 							lines: [
 								{

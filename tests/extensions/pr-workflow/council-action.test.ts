@@ -8,6 +8,7 @@ import type { CouncilRun } from "../../../extensions/pr-workflow/findings.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import type { WorktreeProvider } from "../../../extensions/pr-workflow/worktree.js";
 import { WorktreeRegistry } from "../../../extensions/pr-workflow/worktree.js";
+import { expectFailure, prMetadata } from "./fixtures.js";
 
 /**
  * These tests cover the pure-data action handlers
@@ -55,8 +56,7 @@ describe("configureCouncil", () => {
 	it("rejects an empty roster — a council with no reviewers is nonsense", async () => {
 		const state = createPrWorkflowState();
 		const result = configureCouncil(state, { reviewers: [] });
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/empty|no reviewers|at least/i);
+		expect(expectFailure(result).error).toMatch(/empty|no reviewers|at least/i);
 	});
 
 	it("rejects reviewers with duplicate ids", async () => {
@@ -70,8 +70,7 @@ describe("configureCouncil", () => {
 				{ id: "a", model: "y" },
 			],
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/duplicate/i);
+		expect(expectFailure(result).error).toMatch(/duplicate/i);
 	});
 });
 
@@ -89,8 +88,7 @@ describe("runCouncilAction", () => {
 				throw new Error("should not be called");
 			},
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/no pr|load/i);
+		expect(expectFailure(result).error).toMatch(/no pr|load/i);
 	});
 
 	it("refuses to run when the roster is empty", async () => {
@@ -98,18 +96,13 @@ describe("runCouncilAction", () => {
 		state.pr = {
 			reference: { owner: "o", repo: "r", number: 1 },
 			loadedAt: "2026-01-01T00:00:00Z",
-			metadata: {
+			metadata: prMetadata({
 				title: "t",
 				url: "https://example/1",
-				state: "OPEN",
 				author: "a",
-				isDraft: false,
 				base: { ref: "main", sha: "deadbeef" },
 				head: { ref: "feat", sha: "abc1234" },
-				changedFiles: 0,
-				additions: 0,
-				deletions: 0,
-			},
+			}),
 			files: [],
 			stack: null,
 		};
@@ -120,8 +113,9 @@ describe("runCouncilAction", () => {
 				throw new Error("should not be called");
 			},
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/roster|council-config|configure/i);
+		expect(expectFailure(result).error).toMatch(
+			/roster|council-config|configure/i,
+		);
 	});
 
 	it("dispatches the configured roster, stamps the run, and stores it in state", async () => {
@@ -133,18 +127,13 @@ describe("runCouncilAction", () => {
 		state.pr = {
 			reference: { owner: "o", repo: "r", number: 42 },
 			loadedAt: "2026-01-01T00:00:00Z",
-			metadata: {
+			metadata: prMetadata({
 				title: "Add foo",
 				url: "https://example/42",
-				state: "OPEN",
 				author: "a",
-				isDraft: false,
 				base: { ref: "main", sha: "deadbeef" },
 				head: { ref: "feat", sha: "headsha1" },
-				changedFiles: 0,
-				additions: 0,
-				deletions: 0,
-			},
+			}),
 			files: [],
 			stack: null,
 		};
@@ -197,6 +186,7 @@ describe("formatCouncilSummary", () => {
 							id: 1,
 							location: { kind: "global" },
 							label: "issue",
+							decorations: [],
 							subject: "X",
 							discussion: "Y",
 							origin: {

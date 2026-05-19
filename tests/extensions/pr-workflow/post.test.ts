@@ -7,6 +7,7 @@ import {
 	postReviewAction,
 } from "../../../extensions/pr-workflow/post.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
+import { expectFailure, prMetadata } from "./fixtures.js";
 
 /**
  * Post gate.
@@ -307,18 +308,13 @@ describe("postReviewAction", () => {
 		state.pr = {
 			reference: { owner: "o", repo: "r", number: 42 },
 			loadedAt: "x",
-			metadata: {
+			metadata: prMetadata({
 				title: "t",
 				url: "u",
-				state: "OPEN",
 				author: "a",
-				isDraft: false,
 				base: { ref: "main", sha: "deadbeef" },
 				head: { ref: "feat", sha: "headsha1" },
-				changedFiles: 0,
-				additions: 0,
-				deletions: 0,
-			},
+			}),
 			files: [],
 			stack: null,
 		};
@@ -370,8 +366,7 @@ describe("postReviewAction", () => {
 		state.council.decisions.clear();
 		const exec: PostReviewExec = vi.fn();
 		const result = await postReviewAction({ state, event: "COMMENT", exec });
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/no findings|empty|nothing/i);
+		expect(expectFailure(result).error).toMatch(/no findings|empty|nothing/i);
 		expect(exec).not.toHaveBeenCalled();
 	});
 
@@ -410,7 +405,6 @@ describe("postReviewAction", () => {
 			event: "COMMENT",
 			exec,
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/gh api 422|post.*failed/i);
+		expect(expectFailure(result).error).toMatch(/gh api 422|post.*failed/i);
 	});
 });

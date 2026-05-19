@@ -14,6 +14,7 @@ import {
 	type WorktreeProvider,
 	WorktreeRegistry,
 } from "../../../extensions/pr-workflow/worktree.js";
+import { expectFailure, prMetadata } from "./fixtures.js";
 
 function fakeProvider(): WorktreeProvider {
 	return {
@@ -51,18 +52,13 @@ function withFullPipeline() {
 	state.pr = {
 		reference: { owner: "o", repo: "r", number: 42 },
 		loadedAt: "2026-01-01T00:00:00Z",
-		metadata: {
+		metadata: prMetadata({
 			title: "t",
 			url: "u",
-			state: "OPEN",
 			author: "a",
-			isDraft: false,
 			base: { ref: "main", sha: "deadbeef" },
 			head: { ref: "feat", sha: "headsha1" },
-			changedFiles: 0,
-			additions: 0,
-			deletions: 0,
-		},
+		}),
 		files: [],
 		stack: null,
 	};
@@ -103,8 +99,7 @@ describe("runCritiqueAction", () => {
 				throw new Error("should not be called");
 			},
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/judge|round 2/i);
+		expect(expectFailure(result).error).toMatch(/judge|round 2/i);
 	});
 
 	it("refuses without a roster", async () => {
@@ -117,8 +112,7 @@ describe("runCritiqueAction", () => {
 				throw new Error("should not be called");
 			},
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/roster|reviewer/i);
+		expect(expectFailure(result).error).toMatch(/roster|reviewer/i);
 	});
 
 	it("dispatches each roster member and stores the CritiqueRun in state", async () => {

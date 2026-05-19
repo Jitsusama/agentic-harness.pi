@@ -10,6 +10,7 @@ import { createSpawnRunPi } from "../../../extensions/pr-workflow/runpi-spawn.js
  * the test environment.
  */
 
+import type { ChildProcess } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { PassThrough } from "node:stream";
 
@@ -68,7 +69,11 @@ function makeFakeChild(): {
 describe("createSpawnRunPi", () => {
 	it("invokes the provided spawn with the pi binary and the supplied args/cwd", async () => {
 		const fake = makeFakeChild();
-		const calls: Array<{ command: string; args: string[]; cwd: string }> = [];
+		const calls: Array<{
+			command: string;
+			args: readonly string[];
+			cwd: string;
+		}> = [];
 		const runPi = createSpawnRunPi({
 			binary: "pi",
 			spawn: (command, args, opts) => {
@@ -78,7 +83,7 @@ describe("createSpawnRunPi", () => {
 					fake.stderr.end("");
 					fake.emitClose(0);
 				});
-				return fake.child as unknown as ReturnType<typeof spawnStub>;
+				return fake.child as unknown as ChildProcess;
 			},
 		});
 		await runPi({
@@ -108,7 +113,7 @@ describe("createSpawnRunPi", () => {
 					fake.stderr.end("oops");
 					fake.emitClose(2);
 				});
-				return fake.child as unknown as ReturnType<typeof spawnStub>;
+				return fake.child as unknown as ChildProcess;
 			},
 		});
 		const result = await runPi({ args: [], cwd: "/tmp" });
@@ -128,7 +133,7 @@ describe("createSpawnRunPi", () => {
 				queueMicrotask(() => {
 					fake.emitError(new Error("ENOENT: missing-pi"));
 				});
-				return fake.child as unknown as ReturnType<typeof spawnStub>;
+				return fake.child as unknown as ChildProcess;
 			},
 		});
 		await expect(runPi({ args: [], cwd: "/tmp" })).rejects.toThrow(/ENOENT/);
@@ -148,7 +153,7 @@ describe("createSpawnRunPi", () => {
 		};
 		const runPi = createSpawnRunPi({
 			binary: "pi",
-			spawn: () => fake.child as unknown as ReturnType<typeof spawnStub>,
+			spawn: () => fake.child as unknown as ChildProcess,
 		});
 		const ac = new AbortController();
 		const promise = runPi({ args: [], cwd: "/tmp", signal: ac.signal });

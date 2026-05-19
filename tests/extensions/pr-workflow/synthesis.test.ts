@@ -8,9 +8,9 @@ import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import {
 	decideFinding,
-	type FindingDecision,
 	formatFindingsView,
 } from "../../../extensions/pr-workflow/synthesis.js";
+import { expectFailure } from "./fixtures.js";
 
 /**
  * Round 4 (the user) is the synthesis layer. The user
@@ -201,8 +201,9 @@ describe("decideFinding", () => {
 			findingId: 999,
 			verdict: "endorse",
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/unknown|no finding|not found/i);
+		expect(expectFailure(result).error).toMatch(
+			/unknown|no finding|not found/i,
+		);
 		expect(state.council.decisions.has(999)).toBe(false);
 	});
 
@@ -215,8 +216,7 @@ describe("decideFinding", () => {
 			verdict: "qualify",
 			note: "",
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/note|qualify/i);
+		expect(expectFailure(result).error).toMatch(/note|qualify/i);
 	});
 
 	it("requires at least one of subject/discussion on edit", async () => {
@@ -225,8 +225,7 @@ describe("decideFinding", () => {
 			findingId: 10,
 			verdict: "edit",
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/subject|discussion|edit/i);
+		expect(expectFailure(result).error).toMatch(/subject|discussion|edit/i);
 	});
 
 	it("refuses to record decisions before a judge run exists — there's nothing to decide on", async () => {
@@ -235,18 +234,14 @@ describe("decideFinding", () => {
 			findingId: 10,
 			verdict: "endorse",
 		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/judge|round 2|no findings/i);
+		expect(expectFailure(result).error).toMatch(/judge|round 2|no findings/i);
 	});
 
 	it("stamps decidedAt with the injected clock", async () => {
 		const state = withJudge();
 		decideFinding(
 			state,
-			{ findingId: 10, verdict: "endorse" } as Omit<
-				FindingDecision,
-				"decidedAt"
-			>,
+			{ findingId: 10, verdict: "endorse" },
 			() => new Date("2030-12-31T23:59:59Z"),
 		);
 		expect(state.council.decisions.get(10)?.decidedAt).toBe(
