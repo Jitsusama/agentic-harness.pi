@@ -139,9 +139,55 @@ The tool refuses empty reviews. If `findings` shows
 nothing endorsed/qualified/edited/promoted, push back
 on the user before calling `post`.
 
+Findings verdict'd as `fix` are intentionally excluded
+from the posted review (a fix supplants the comment).
+Mix `endorse`/`fix` freely on the same council run:
+posted comments and applied fixes are independent.
+
+### Applying fixes
+
+When the user wants the agent to MAKE the change rather
+than COMMENT on it:
+
+```
+pr_workflow action=decide findingId=14 verdict=fix
+pr_workflow action=decide findingId=15 verdict=fix instructions="match existing helper-fn style"
+pr_workflow action=fix
+```
+
+What `fix` does:
+
+- Drains every finding verdict'd as `fix` since the
+  last council run.
+- Dispatches one coding subagent per finding into the
+  council's worktree.
+- Subagent reads, edits and writes files using its own
+  pi tools.
+- Returns a summary: which findings landed, which
+  failed, what files were touched.
+
+What `fix` does NOT do:
+
+- It doesn't commit. The user reviews the diff in nvim
+  (or the worktree) and commits when satisfied via
+  normal git tooling.
+- It doesn't push. Pushing to someone else's branch is
+  an out-of-band action and intentionally manual.
+- It doesn't run tests automatically. Configurable
+  checks layer on in a follow-up.
+
+Optional `fix-config` before `fix` if the user wants a
+different model for fixing than for reviewing:
+
+```
+pr_workflow action=fix-config model="anthropic:claude-opus-4"
+```
+
+The fix model persists across `/reload`.
+
 ## Verdict reference
 
-Five verdicts. Each carries the fields needed to render
+Six verdicts. Each carries the fields needed to render
 the finding correctly.
 
 | Verdict | Required extra | What it does |
