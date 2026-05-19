@@ -8,7 +8,7 @@
  */
 
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
-import type { PrWorkflowState } from "./state.js";
+import type { CouncilState, PrRunSnapshot, PrWorkflowState } from "./state.js";
 
 /**
  * Inputs for `loadPr`. `now` is injected so tests can pin the
@@ -51,6 +51,29 @@ export function loadPr(
 		};
 	}
 
+	const previousNumber = state.pr?.reference.number ?? null;
+	if (
+		previousNumber !== null &&
+		previousNumber !== reference.number &&
+		hasReviewState(state.council)
+	) {
+		state.stackRuns.set(previousNumber, snapshot(state.council));
+	}
+
+	const restored = state.stackRuns.get(reference.number) ?? null;
+	if (restored) {
+		state.council.lastRun = restored.lastRun;
+		state.council.lastJudge = restored.lastJudge;
+		state.council.lastCritique = restored.lastCritique;
+		state.council.decisions = new Map(restored.decisions);
+		state.stackRuns.delete(reference.number);
+	} else if (previousNumber !== reference.number) {
+		state.council.lastRun = null;
+		state.council.lastJudge = null;
+		state.council.lastCritique = null;
+		state.council.decisions = new Map();
+	}
+
 	const clock = input.now ?? (() => new Date());
 	state.active = true;
 	state.pr = {
@@ -61,4 +84,29 @@ export function loadPr(
 		stack: null,
 	};
 	return { ok: true };
+}
+
+/**
+ * True when the council has anything worth remembering
+ * for the PR currently being navigated away from — a
+ * run, a judge result, a critique result, or a user
+ * decision.
+ */
+function hasReviewState(council: CouncilState): boolean {
+	return (
+		council.lastRun !== null ||
+		council.lastJudge !== null ||
+		council.lastCritique !== null ||
+		council.decisions.size > 0
+	);
+}
+
+/** Build a `PrRunSnapshot` from the current council state. */
+function snapshot(council: CouncilState): PrRunSnapshot {
+	return {
+		lastRun: council.lastRun,
+		lastJudge: council.lastJudge,
+		lastCritique: council.lastCritique,
+		decisions: new Map(council.decisions),
+	};
 }

@@ -70,6 +70,23 @@ export interface CouncilState {
 	decisions: Map<number, FindingDecision>;
 }
 
+/**
+ * Per-PR run state that survives cursor moves through a
+ * stack.
+ *
+ * Phase 0 of stack-aware review: as the user sweeps
+ * through a stack, each PR's runs and decisions get
+ * stashed under its PR number so they rehydrate on
+ * re-visit. Roster and judge config are session-global
+ * and live on `CouncilState` directly.
+ */
+export interface PrRunSnapshot {
+	lastRun: CouncilRun | null;
+	lastJudge: JudgeRun | null;
+	lastCritique: CritiqueRun | null;
+	decisions: Map<number, FindingDecision>;
+}
+
 /** Top-level runtime state for the PR workflow. */
 export interface PrWorkflowState {
 	/** Whether the workflow is currently engaged. */
@@ -78,6 +95,12 @@ export interface PrWorkflowState {
 	pr: ActivePr | null;
 	/** Council configuration and history. */
 	council: CouncilState;
+	/**
+	 * Per-PR run snapshots keyed by PR number. Populated
+	 * by `loadPr` when the cursor moves off a PR that
+	 * actually has runs or decisions to remember.
+	 */
+	stackRuns: Map<number, PrRunSnapshot>;
 }
 
 /** Construct the initial state for a fresh session. */
@@ -93,5 +116,6 @@ export function createPrWorkflowState(): PrWorkflowState {
 			lastCritique: null,
 			decisions: new Map(),
 		},
+		stackRuns: new Map(),
 	};
 }
