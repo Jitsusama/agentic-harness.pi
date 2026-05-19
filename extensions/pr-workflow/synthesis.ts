@@ -54,6 +54,12 @@ export type FindingDecision =
 			readonly findingId: number;
 			readonly verdict: "promote";
 			readonly decidedAt: string;
+	  }
+	| {
+			readonly findingId: number;
+			readonly verdict: "fix";
+			readonly instructions?: string;
+			readonly decidedAt: string;
 	  };
 
 /** Result of a decision mutation. */
@@ -70,7 +76,8 @@ export type DecideFindingInput =
 			discussion?: string;
 	  }
 	| { findingId: number; verdict: "dismiss"; reason?: string }
-	| { findingId: number; verdict: "promote" };
+	| { findingId: number; verdict: "promote" }
+	| { findingId: number; verdict: "fix"; instructions?: string };
 
 /**
  * Record or overwrite the user's decision on one finding.
@@ -167,6 +174,13 @@ function buildDecision(
 			};
 		case "promote":
 			return { findingId: input.findingId, verdict: "promote", decidedAt };
+		case "fix":
+			return {
+				findingId: input.findingId,
+				verdict: "fix",
+				instructions: input.instructions,
+				decidedAt,
+			};
 	}
 }
 
@@ -266,6 +280,10 @@ function renderDecision(decision: FindingDecision | null): string {
 			return decision.reason ? `dismiss — ${decision.reason}` : "dismiss";
 		case "promote":
 			return "promote";
+		case "fix":
+			return decision.instructions
+				? `queued for fix — ${decision.instructions}`
+				: "queued for fix";
 	}
 }
 

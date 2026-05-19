@@ -106,4 +106,10 @@ export interface CouncilRun {
 	readonly startedAt: string;
 	readonly target: { readonly kind: "diff"; readonly prNumber: number };
 	readonly reviewerOutputs: ReviewerOutput[];
+	/**
+	 * Path of the worktree the reviewers ran against.
+	 * Subsequent rounds (judge, critique, fix) reuse the
+	 * same worktree so file context stays consistent.
+	 */
+	readonly worktreePath: string;
 }

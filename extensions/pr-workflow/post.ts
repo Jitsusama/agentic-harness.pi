@@ -102,6 +102,13 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 			skipped.push({ findingId: finding.id, reason: "dismiss" });
 			continue;
 		}
+		if (decision.verdict === "fix") {
+			skipped.push({
+				findingId: finding.id,
+				reason: "queued for fix (not posted)",
+			});
+			continue;
+		}
 		const body = renderCommentBody(finding, decision);
 		if (finding.location.kind === "line") {
 			const comment: ReviewComment = {

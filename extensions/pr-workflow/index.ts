@@ -32,6 +32,8 @@ import {
 } from "./council-action.js";
 import { formatCritiqueSummary, runCritiqueAction } from "./critique-action.js";
 import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
+import { runFix } from "./fix.js";
+import { formatFixSummary, type RunFix, runFixAction } from "./fix-action.js";
 import {
 	configureJudge,
 	formatJudgeSummary,
@@ -158,6 +160,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"findings",
 					"decide",
 					"post",
+					"fix-config",
+					"fix",
 				] as const,
 				{
 					description:
@@ -170,7 +174,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"critique: run round-3 critique — the roster pushes back on the judge's consolidated list. " +
 						"findings: render the round-4 view (judge + critique + user decisions). " +
 						"decide: record the user's verdict on a single finding. " +
-						"post: send eligible findings to GitHub as a PR review.",
+						"post: send eligible findings to GitHub as a PR review. " +
+						"fix-config: set the model for fix subagents (e.g. anthropic:claude-opus-4). " +
+						"fix: drain the fix queue — dispatch a coding subagent per finding verdict'd as `fix`.",
 				},
 			),
 			pr: Type.Optional(
@@ -236,7 +242,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			),
 			verdict: Type.Optional(
 				StringEnum(
-					["endorse", "qualify", "edit", "dismiss", "promote"] as const,
+					["endorse", "qualify", "edit", "dismiss", "promote", "fix"] as const,
 					{
 						description:
 							"User's verdict on the finding. Required for action=decide.",
@@ -277,6 +283,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				Type.String({
 					description:
 						"Optional caller-supplied summary prefix prepended to the auto-generated review body.",
+				}),
+			),
+			instructions: Type.Optional(
+				Type.String({
+					description:
+						"Used when verdict=fix. Optional user instructions forwarded to the fix subagent (e.g. style preferences).",
+				}),
+			),
+			model: Type.Optional(
+				Type.String({
+					description:
+						"Used by fix-config. Pi model identifier (e.g. anthropic:claude-opus-4) for fix subagents.",
 				}),
 			),
 		}),
@@ -459,6 +477,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					params.subject,
 					params.discussion,
 					params.reason,
+					params.instructions,
 				);
 				const result = decideFinding(state, input);
 				if (!result.ok) {
@@ -514,6 +533,53 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						},
 					],
 					details: { ok: true, payload: result.payload },
+				};
+			}
+
+			if (params.action === "fix-config") {
+				if (typeof params.model !== "string" || params.model.trim() === "") {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "fix-config requires a non-empty `model`.",
+							},
+						],
+						details: { ok: false, error: "missing model" },
+						isError: true,
+					};
+				}
+				state.council.fixModel = params.model;
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Fix model set to ${params.model}.`,
+						},
+					],
+					details: { ok: true },
+				};
+			}
+
+			if (params.action === "fix") {
+				const { runPi } = getCouncilDeps();
+				const fixRunner: RunFix = (opts) =>
+					runFix({
+						...opts,
+						runPi,
+						tools: ["read", "edit", "write", "grep", "glob", "ls"],
+					});
+				const result = await runFixAction({ state, runFix: fixRunner });
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [{ type: "text", text: formatFixSummary(result) }],
+					details: { ok: true, results: result.results },
 				};
 			}
 
@@ -702,11 +768,12 @@ export default function prWorkflow(pi: ExtensionAPI) {
 
 function buildDecideInput(
 	findingId: number,
-	verdict: "endorse" | "qualify" | "edit" | "dismiss" | "promote",
+	verdict: "endorse" | "qualify" | "edit" | "dismiss" | "promote" | "fix",
 	note: string | undefined,
 	subject: string | undefined,
 	discussion: string | undefined,
 	reason: string | undefined,
+	instructions: string | undefined,
 ): DecideFindingInput {
 	switch (verdict) {
 		case "endorse":
@@ -719,5 +786,7 @@ function buildDecideInput(
 			return { findingId, verdict: "dismiss", reason };
 		case "promote":
 			return { findingId, verdict: "promote" };
+		case "fix":
+			return { findingId, verdict: "fix", instructions };
 	}
 }

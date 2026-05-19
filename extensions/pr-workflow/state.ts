@@ -68,6 +68,12 @@ export interface CouncilState {
 	 * before posting.
 	 */
 	decisions: Map<number, FindingDecision>;
+	/**
+	 * Model to use for fix subagents. When null, fix
+	 * dispatchers fall back to pi's default model. Set
+	 * via `pr_workflow action=fix-config`.
+	 */
+	fixModel: string | null;
 }
 
 /** Top-level runtime state for the PR workflow. */
@@ -92,6 +98,7 @@ export function createPrWorkflowState(): PrWorkflowState {
 			lastJudge: null,
 			lastCritique: null,
 			decisions: new Map(),
+			fixModel: null,
 		},
 	};
 }
