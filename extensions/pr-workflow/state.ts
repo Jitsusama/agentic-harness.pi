@@ -20,6 +20,7 @@ import type { CouncilRun } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { Stack } from "./stack.js";
+import type { FindingDecision } from "./synthesis.js";
 
 /**
  * Snapshot of the PR currently loaded into the workflow.
@@ -61,6 +62,12 @@ export interface CouncilState {
 	lastJudge: JudgeRun | null;
 	/** Most recent critique run (null until round 3 completes). */
 	lastCritique: CritiqueRun | null;
+	/**
+	 * Round-4 user decisions keyed by finding id. The
+	 * map is mutable: the user can revise a decision
+	 * before posting.
+	 */
+	decisions: Map<number, FindingDecision>;
 }
 
 /** Top-level runtime state for the PR workflow. */
@@ -84,6 +91,7 @@ export function createPrWorkflowState(): PrWorkflowState {
 			lastRun: null,
 			lastJudge: null,
 			lastCritique: null,
+			decisions: new Map(),
 		},
 	};
 }

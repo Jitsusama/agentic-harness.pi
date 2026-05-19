@@ -29,13 +29,24 @@ import {
 	formatCouncilSummary,
 	runCouncilAction,
 } from "./council-action.js";
+import { formatCritiqueSummary, runCritiqueAction } from "./critique-action.js";
 import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
+import {
+	configureJudge,
+	formatJudgeSummary,
+	runJudgeAction,
+} from "./judge-action.js";
 import { loadPr } from "./load.js";
 import { runReviewer } from "./reviewer.js";
 import { createSpawnRunPi } from "./runpi-spawn.js";
 import { createGitHubPrSearch } from "./search.js";
 import { buildStack, type StackEntry } from "./stack.js";
 import { createPrWorkflowState } from "./state.js";
+import {
+	type DecideFindingInput,
+	decideFinding,
+	formatFindingsView,
+} from "./synthesis.js";
 import { WorktreeRegistry } from "./worktree.js";
 import { createGitWorktreeProvider } from "./worktree-git.js";
 
@@ -138,6 +149,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"judge-config",
 					"judge",
 					"critique",
+					"findings",
+					"decide",
 				] as const,
 				{
 					description:
@@ -147,7 +160,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"council: run the configured roster against the loaded PR. " +
 						"judge-config: set the judge reviewer for round-2 consolidation. " +
 						"judge: run round-2 consolidation against the most recent council run. " +
-						"critique: run round-3 critique — the roster pushes back on the judge's consolidated list.",
+						"critique: run round-3 critique — the roster pushes back on the judge's consolidated list. " +
+						"findings: render the round-4 view (judge + critique + user decisions). " +
+						"decide: record the user's verdict on a single finding.",
 				},
 			),
 			pr: Type.Optional(
@@ -182,6 +197,67 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							"Roster of reviewers. Required for action=council-config.",
 					},
 				),
+			),
+			judge: Type.Optional(
+				Type.Object({
+					id: Type.String({
+						description: "Stable id for the judge reviewer.",
+					}),
+					model: Type.Optional(
+						Type.String({
+							description:
+								"Pi --model value for the judge (e.g. anthropic:claude-opus-4).",
+						}),
+					),
+					tools: Type.Optional(
+						Type.Array(Type.String(), {
+							description: "Tool palette for the judge.",
+						}),
+					),
+				}),
+				{
+					description:
+						"Judge reviewer config. Required for action=judge-config.",
+				},
+			),
+			findingId: Type.Optional(
+				Type.Integer({
+					description:
+						"Finding id from the most-recent judge run. Required for action=decide.",
+				}),
+			),
+			verdict: Type.Optional(
+				StringEnum(
+					["endorse", "qualify", "edit", "dismiss", "promote"] as const,
+					{
+						description:
+							"User's verdict on the finding. Required for action=decide.",
+					},
+				),
+			),
+			note: Type.Optional(
+				Type.String({
+					description:
+						"Required when verdict=qualify. Says what to soften or qualify.",
+				}),
+			),
+			subject: Type.Optional(
+				Type.String({
+					description:
+						"Used when verdict=edit. Overrides the finding's subject before promotion.",
+				}),
+			),
+			discussion: Type.Optional(
+				Type.String({
+					description:
+						"Used when verdict=edit. Overrides the finding's discussion before promotion.",
+				}),
+			),
+			reason: Type.Optional(
+				Type.String({
+					description:
+						"Used when verdict=dismiss. Explains why the finding was dropped.",
+				}),
 			),
 		}),
 		async execute(_toolCallId, params) {
@@ -316,6 +392,70 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						},
 					],
 					details: { ok: true, run: result.run },
+				};
+			}
+
+			if (params.action === "findings") {
+				return {
+					content: [{ type: "text", text: formatFindingsView(state) }],
+					details: {
+						ok: true,
+						judgeRunId: state.council.lastJudge?.id ?? null,
+						critiqueRunId: state.council.lastCritique?.id ?? null,
+						decisionCount: state.council.decisions.size,
+					},
+				};
+			}
+
+			if (params.action === "decide") {
+				if (typeof params.findingId !== "number") {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "decide requires a `findingId` argument.",
+							},
+						],
+						details: { ok: false, error: "missing findingId" },
+						isError: true,
+					};
+				}
+				if (!params.verdict) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "decide requires a `verdict` argument.",
+							},
+						],
+						details: { ok: false, error: "missing verdict" },
+						isError: true,
+					};
+				}
+				const input = buildDecideInput(
+					params.findingId,
+					params.verdict,
+					params.note,
+					params.subject,
+					params.discussion,
+					params.reason,
+				);
+				const result = decideFinding(state, input);
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Decision recorded for finding ${params.findingId}: ${params.verdict}.`,
+						},
+					],
+					details: { ok: true },
 				};
 			}
 
@@ -500,4 +640,26 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			};
 		},
 	});
+}
+
+function buildDecideInput(
+	findingId: number,
+	verdict: "endorse" | "qualify" | "edit" | "dismiss" | "promote",
+	note: string | undefined,
+	subject: string | undefined,
+	discussion: string | undefined,
+	reason: string | undefined,
+): DecideFindingInput {
+	switch (verdict) {
+		case "endorse":
+			return { findingId, verdict: "endorse" };
+		case "qualify":
+			return { findingId, verdict: "qualify", note: note ?? "" };
+		case "edit":
+			return { findingId, verdict: "edit", subject, discussion };
+		case "dismiss":
+			return { findingId, verdict: "dismiss", reason };
+		case "promote":
+			return { findingId, verdict: "promote" };
+	}
 }
