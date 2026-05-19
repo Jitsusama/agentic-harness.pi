@@ -50,7 +50,7 @@ steering it from a menu.
 
 ## Actions
 
-One `pr_workflow` tool, 17 actions. The user drives the
+One `pr_workflow` tool, 20 actions. The user drives the
 flow conversationally; the agent translates intent into
 the right action.
 
@@ -136,6 +136,30 @@ the right action.
 - `action="stack-next"` — re-load the next PR
   downstream.
 - `action="stack-prev"` — re-load the PR upstream.
+
+**Existing review threads**
+
+The round-trip on posting: read what reviewers (or a
+previous pi-workflow run) have already left, respond to
+specific threads, mark them resolved.
+
+- `action="threads"` — fetch the loaded PR's review
+  threads (open, resolved, outdated) and store an
+  indexed snapshot on the session. Renders
+  `[T1]`, `[T2]`… with location (`path:line` or
+  `(PR-level)`), flags, and an excerpt of the first
+  comment.
+- `action="reply" threadIndex=N replyBody="..."` — post
+  a reply to the thread at index N (1-based, from the
+  most recent `threads` snapshot).
+- `action="resolve" threadIndex=N` — mark the thread
+  at index N resolved. Idempotent: resolving an
+  already-resolved thread is a no-op.
+
+Index stability: the snapshot is whatever
+`threads` last fetched. If the upstream conversation
+changes, re-run `threads` to refresh the index before
+replying or resolving.
 
 State across cursor moves: per-PR council run, judge
 run, critique run and decisions snapshot under
