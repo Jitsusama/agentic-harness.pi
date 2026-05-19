@@ -723,6 +723,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					judge: state.council.lastJudge,
 					critique: state.council.lastCritique,
 				});
+				const stackSnapshotSummary =
+					state.stackRuns.size === 0
+						? "none"
+						: Array.from(state.stackRuns.keys())
+								.sort((a, b) => a - b)
+								.map((n) => `#${n}`)
+								.join(", ");
 				const lines = [
 					`active: ${state.active ? "yes" : "no"}`,
 					`pr: ${ref}`,
@@ -731,6 +738,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					`judge: ${state.council.judge?.id ?? "unset"}`,
 					`judge last run: ${state.council.lastJudge?.id ?? "none"}`,
 					`critique last run: ${state.council.lastCritique?.id ?? "none"}`,
+					`stack snapshots: ${stackSnapshotSummary}`,
 					...renderUsageLines(breakdown),
 				];
 				return {
