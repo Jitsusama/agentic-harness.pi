@@ -11,6 +11,7 @@ import {
 	getSchema,
 	JudgeOutput,
 	JudgeSelfSignal,
+	StackCriticOutput,
 } from "../../../extensions/pr-workflow/schemas.js";
 
 // The schema is the single source of truth for the
@@ -259,11 +260,107 @@ describe("CritiqueOutput", () => {
 	});
 });
 
+describe("StackCriticOutput", () => {
+	// Stack-critic findings carry the same core shape as
+	// judge findings plus two stack-aware fields:
+	// homePrNumber (post target) and spans (the PRs the
+	// finding refers to). The schema guards both.
+
+	it("accepts a populated cross-PR finding", () => {
+		const output = {
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "Inconsistent error handling across the stack",
+					discussion:
+						"PR #1 throws on validation failure; PR #3 returns a Result.",
+					homePrNumber: 1,
+					spans: [1, 3],
+				},
+			],
+		};
+		expect(Value.Check(StackCriticOutput, output)).toBe(true);
+	});
+
+	it("accepts a single-PR-spanned finding (escalated from review)", () => {
+		// A stack-critic finding can refer to just one PR
+		// if the model only saw it in light of the wider
+		// context. Spans MUST be non-empty but doesn't
+		// have to be plural.
+		const output = {
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "note",
+					subject: "This API choice only makes sense if PR #2 lands",
+					discussion: "Standalone it looks arbitrary.",
+					homePrNumber: 1,
+					spans: [1],
+				},
+			],
+		};
+		expect(Value.Check(StackCriticOutput, output)).toBe(true);
+	});
+
+	it("accepts an empty findings list", () => {
+		expect(Value.Check(StackCriticOutput, { findings: [] })).toBe(true);
+	});
+
+	it("rejects a finding with no spans", () => {
+		const output = {
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "x",
+					discussion: "y",
+					homePrNumber: 1,
+					spans: [],
+				},
+			],
+		};
+		expect(Value.Check(StackCriticOutput, output)).toBe(false);
+	});
+
+	it("rejects a finding with homePrNumber zero", () => {
+		const output = {
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "x",
+					discussion: "y",
+					homePrNumber: 0,
+					spans: [1],
+				},
+			],
+		};
+		expect(Value.Check(StackCriticOutput, output)).toBe(false);
+	});
+
+	it("rejects a finding missing homePrNumber", () => {
+		const output = {
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "x",
+					discussion: "y",
+					spans: [1, 2],
+				},
+			],
+		};
+		expect(Value.Check(StackCriticOutput, output)).toBe(false);
+	});
+});
+
 describe("getSchema", () => {
 	it("returns the matching schema for each stage name", () => {
 		expect(getSchema("council")).toBe(CouncilFindingsOutput);
 		expect(getSchema("judge")).toBe(JudgeOutput);
 		expect(getSchema("critique")).toBe(CritiqueOutput);
+		expect(getSchema("stack-critic")).toBe(StackCriticOutput);
 	});
 });
 
