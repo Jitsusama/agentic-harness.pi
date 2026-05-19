@@ -24,6 +24,8 @@
 			"@mariozechner/pi-ai": ["node_modules/@earendil-works/pi-ai"],
 			"@mariozechner/pi-ai/*": ["node_modules/@earendil-works/pi-ai/*"],
 			"@sinclair/typebox": ["node_modules/typebox"],
+			"@sinclair/typebox/value": ["node_modules/typebox/build/value"],
+			"@sinclair/typebox/value/*": ["node_modules/typebox/build/value/*"],
 			"@sinclair/typebox/*": ["node_modules/typebox/*"]
 		}
 	},
