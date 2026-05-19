@@ -116,6 +116,22 @@ describe("buildJudgePrompt", () => {
 		const text = buildJudgePrompt({ council: council() });
 		expect(text).toMatch(/synthesize|consolidate|merge similar/i);
 	});
+
+	it("embeds the judge JSON schema and instructs verify_output", async () => {
+		// The judge subagent gets pr-workflow-verify
+		// loaded so it can self-validate before ending.
+		// The prompt must teach the model to USE the tool
+		// and embed the schema it's being validated
+		// against. We pin load-bearing markers, not exact
+		// JSON formatting.
+		const text = buildJudgePrompt({ council: council() });
+		expect(text).toContain("verify_output");
+		expect(text).toMatch(/stage[=:].?["']?judge/i);
+		expect(text).toMatch(/JSON Schema/i);
+		// Label vocabulary present (schema embedded).
+		expect(text).toContain("praise");
+		expect(text).toContain("quibble");
+	});
 });
 
 describe("parseJudgeOutput", () => {
@@ -219,11 +235,38 @@ describe("parseJudgeOutput", () => {
 		expect(result.findings).toHaveLength(0);
 	});
 
-	it("drops malformed agreement entries but keeps the finding", async () => {
-		// A finding without proper agreement metadata is
-		// still a valid finding; the judge may have
-		// synthesized it from scratch. Keep it; just
-		// don't lie about agreement.
+	it("keeps a judge finding that omits agreement metadata entirely", async () => {
+		// A judge insight that came purely from the judge
+		// (not from any reviewer) has no `raisedBy` /
+		// `sourceFindingIds`. The schema treats those
+		// fields as optional so absence is fine.
+		const text = [
+			"```json",
+			JSON.stringify({
+				findings: [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "Lone judge insight",
+						discussion: "D",
+					},
+				],
+			}),
+			"```",
+		].join("\n");
+		const result = parseJudgeOutput(text, CTX);
+		expect(result.findings).toHaveLength(1);
+		expect(result.findings[0].agreement).toBeUndefined();
+	});
+
+	it("drops a judge finding whose agreement fields are the wrong type", async () => {
+		// Agreement metadata is optional but when present
+		// must be well-typed. A judge that emits
+		// `raisedBy: "fast"` instead of `["fast"]` is
+		// emitting malformed output that the parent's
+		// schema rejects. The whole finding is dropped
+		// with a warning; the subagent's `verify_output`
+		// loop would have caught this before emission.
 		const text = [
 			"```json",
 			JSON.stringify({
@@ -241,8 +284,8 @@ describe("parseJudgeOutput", () => {
 			"```",
 		].join("\n");
 		const result = parseJudgeOutput(text, CTX);
-		expect(result.findings).toHaveLength(1);
-		expect(result.findings[0].agreement).toBeUndefined();
+		expect(result.findings).toHaveLength(0);
+		expect(result.warnings.length).toBeGreaterThan(0);
 	});
 
 	it("emits a warning and returns empty when no JSON block is found", async () => {

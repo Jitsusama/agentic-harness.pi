@@ -100,12 +100,27 @@ export type CouncilFindingsOutputT = Static<typeof CouncilFindingsOutput>;
 /**
  * Judge consolidation output.
  *
- * Same finding shape as round 1, with two extra fields per
- * finding (`raisedBy`, `sourceFindingIds`) recording the
- * judge's agreement metadata. The top-level `selfSignal`
+ * Same core finding shape as round 1, with two extra
+ * agreement-metadata fields (`raisedBy`,
+ * `sourceFindingIds`). These are optional because a
+ * judge insight can legitimately have no upstream
+ * reviewer (the judge surfaced it on its own); when
+ * present they MUST be the right type, so a judge that
+ * emits `raisedBy: "fast"` instead of `["fast"]` fails
+ * schema validation. The top-level `selfSignal`
  * captures the judge's confidence in its own
  * consolidation.
  */
+/** Judge's self-confidence signal on its consolidation. */
+export const JudgeSelfSignalSchema = Type.Object({
+	confidence: Type.Union([
+		Type.Literal("low"),
+		Type.Literal("medium"),
+		Type.Literal("high"),
+	]),
+	rationale: Type.String({ minLength: 1 }),
+});
+
 export const JudgeFinding = Type.Object({
 	location: FindingLocation,
 	label: Label,
@@ -113,21 +128,13 @@ export const JudgeFinding = Type.Object({
 	subject: Type.String({ minLength: 1 }),
 	discussion: Type.String({ minLength: 1 }),
 	severity: Type.Optional(Severity),
-	raisedBy: Type.Array(Type.String()),
-	sourceFindingIds: Type.Array(Type.Integer({ minimum: 1 })),
+	confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+	raisedBy: Type.Optional(Type.Array(Type.String())),
+	sourceFindingIds: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }))),
 });
 
 export const JudgeOutput = Type.Object({
-	selfSignal: Type.Optional(
-		Type.Object({
-			confidence: Type.Union([
-				Type.Literal("low"),
-				Type.Literal("medium"),
-				Type.Literal("high"),
-			]),
-			rationale: Type.String({ minLength: 1 }),
-		}),
-	),
+	selfSignal: Type.Optional(JudgeSelfSignalSchema),
 	findings: Type.Array(JudgeFinding),
 });
 

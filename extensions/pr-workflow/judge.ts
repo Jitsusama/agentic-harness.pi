@@ -19,17 +19,22 @@
  *   - Active Synthesis (consolidate, don't concatenate)
  */
 
+import type { Static } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import type { CouncilDispatch, CouncilTarget } from "./council.js";
 import type {
 	ConventionalLabel,
 	CouncilRun,
 	Finding,
-	FindingAgreement,
 	FindingLocation,
 	FindingSeverity,
 } from "./findings.js";
 import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
+import { JudgeFinding, JudgeOutput, JudgeSelfSignalSchema } from "./schemas.js";
 import type { WorktreeRegistry } from "./worktree.js";
+
+/** Type of one schema-valid judge finding. */
+type JudgeFindingStatic = Static<typeof JudgeFinding>;
 
 /** Judge self-signal of confidence in the consolidation. */
 export interface JudgeSelfSignal {
@@ -138,29 +143,38 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 	}
 	lines.push("");
 	lines.push(
-		"Respond with a single fenced JSON block. Schema (omit fields " +
-			"that don't apply):",
+		"Respond with a single fenced JSON block. No prose outside the block. " +
+			"The object has an optional `selfSignal` and a `findings` array. " +
+			"Each finding's core shape (location, label, subject, discussion, " +
+			"plus optional decorations, severity, confidence) matches round 1. " +
+			"On top of that the judge attaches optional `raisedBy` (list of " +
+			"reviewer ids that surfaced this point) and `sourceFindingIds` (the " +
+			"round-1 ids you consolidated). Omit those two fields for a finding " +
+			"the judge surfaced on its own.",
+	);
+	lines.push("");
+	lines.push("## JSON Schema");
+	lines.push(
+		"Your output must match this JSON Schema exactly. The same schema is " +
+			"used by the `verify_output` tool you'll call below and by the parent " +
+			"parser, so anything that passes the verifier will be accepted.",
 	);
 	lines.push("```json");
-	lines.push("{");
-	lines.push('  "selfSignal": {');
-	lines.push('    "confidence": "low" | "medium" | "high",');
-	lines.push('    "rationale": "one-line reason"');
-	lines.push("  },");
-	lines.push('  "findings": [');
-	lines.push("    {");
-	lines.push('      "location": { "kind": "line"|"file"|"global", ... },');
-	lines.push('      "label": "praise"|"nitpick"|"suggestion"|"issue"|...,');
-	lines.push('      "decorations": ["blocking", ...],');
-	lines.push('      "subject": "...",');
-	lines.push('      "discussion": "...",');
-	lines.push('      "severity": "critical"|"medium"|"minor",');
-	lines.push('      "raisedBy": ["reviewerId", ...],');
-	lines.push('      "sourceFindingIds": [1, 5, ...]');
-	lines.push("    }");
-	lines.push("  ]");
-	lines.push("}");
+	lines.push(JSON.stringify(JudgeOutput, null, 2));
 	lines.push("```");
+	lines.push("");
+	lines.push("## Self-verify before ending");
+	lines.push(
+		"Before you finish your run, call the `verify_output` tool with " +
+			'stage: "judge" and `output` set to the object you intend to emit. ' +
+			"The tool returns `ok: true` with the parsed finding count, or `ok: " +
+			"false` with a list of {path, message} errors. If errors are reported, " +
+			"fix the offending fields and call `verify_output` again. Only emit " +
+			"your final fenced JSON block (and end the run) once the verifier " +
+			"returns `ok: true`. If the verifier keeps reporting the same error " +
+			"after three attempts, emit your best attempt and the parent will " +
+			"surface the warnings.",
+	);
 	return lines.join("\n");
 }
 
@@ -174,29 +188,6 @@ function renderLocation(loc: FindingLocation): string {
 			return "(scope)";
 	}
 }
-
-const VALID_LABELS: ReadonlySet<ConventionalLabel> = new Set([
-	"praise",
-	"nitpick",
-	"suggestion",
-	"issue",
-	"todo",
-	"question",
-	"thought",
-	"chore",
-	"note",
-	"typo",
-	"polish",
-	"quibble",
-]);
-
-const VALID_SEVERITIES: ReadonlySet<FindingSeverity> = new Set([
-	"critical",
-	"medium",
-	"minor",
-]);
-
-const VALID_CONFIDENCES = new Set(["low", "medium", "high"] as const);
 
 /**
  * Parse the judge's response into a consolidated finding
@@ -243,12 +234,17 @@ export function parseJudgeOutput(
 	const warnings: string[] = [];
 	let nextId = context.startId;
 	for (let i = 0; i < rawFindings.length; i++) {
-		const finding = toJudgedFinding(rawFindings[i], nextId, context);
-		if (finding === null) {
+		const raw = rawFindings[i];
+		if (!Value.Check(JudgeFinding, raw)) {
 			warnings.push(`Judge finding at index ${i} is malformed; skipped`);
 			continue;
 		}
-		findings.push(finding);
+		// Schema accepts " " (length 1); drop trim-empty.
+		if (raw.subject.trim() === "" || raw.discussion.trim() === "") {
+			warnings.push(`Judge finding at index ${i} is malformed; skipped`);
+			continue;
+		}
+		findings.push(toJudgedFinding(raw, nextId, context));
 		nextId++;
 	}
 
@@ -315,76 +311,39 @@ function extractJson(text: string): string | null {
 }
 
 function toSelfSignal(raw: unknown): JudgeSelfSignal | null {
-	if (typeof raw !== "object" || raw === null) return null;
-	const r = raw as Record<string, unknown>;
-	const confidence = r.confidence;
-	const rationale = r.rationale;
-	if (typeof confidence !== "string") return null;
-	if (!VALID_CONFIDENCES.has(confidence as JudgeSelfSignal["confidence"]))
-		return null;
-	if (typeof rationale !== "string") return null;
-	return {
-		confidence: confidence as JudgeSelfSignal["confidence"],
-		rationale,
-	};
+	if (raw === undefined) return null;
+	if (!Value.Check(JudgeSelfSignalSchema, raw)) return null;
+	return raw;
 }
 
+/**
+ * Build a `Finding` from a schema-validated judge raw
+ * entry. The schema guarantees core fields are
+ * well-formed; this step stamps id, origin, derives
+ * category, and lifts agreement metadata into the
+ * `agreement` shape when both arrays are present.
+ */
 function toJudgedFinding(
-	raw: unknown,
+	raw: JudgeFindingStatic,
 	id: number,
 	context: JudgeParseContext,
-): Finding | null {
-	if (typeof raw !== "object" || raw === null) return null;
-	const r = raw as Record<string, unknown>;
-
-	const location = toLocation(r.location);
-	if (location === null) return null;
-
-	const label = r.label;
-	if (
-		typeof label !== "string" ||
-		!VALID_LABELS.has(label as ConventionalLabel)
-	) {
-		return null;
+): Finding {
+	if (raw.subject.trim() === "" || raw.discussion.trim() === "") {
+		throw new Error("unreachable: caller filters whitespace-only entries");
 	}
-
-	const subject = r.subject;
-	if (typeof subject !== "string" || subject.trim().length === 0) return null;
-
-	const discussion = r.discussion;
-	if (typeof discussion !== "string" || discussion.trim().length === 0)
-		return null;
-
-	const decorations = Array.isArray(r.decorations)
-		? r.decorations.filter((d): d is string => typeof d === "string")
-		: [];
-
-	const severity =
-		typeof r.severity === "string" &&
-		VALID_SEVERITIES.has(r.severity as FindingSeverity)
-			? (r.severity as FindingSeverity)
-			: undefined;
-
-	const confidence =
-		typeof r.confidence === "number" && r.confidence >= 0 && r.confidence <= 1
-			? r.confidence
-			: undefined;
-
 	const category: Finding["category"] =
-		location.kind === "global" ? "scope" : "file";
-
-	const agreement = toAgreement(r.raisedBy, r.sourceFindingIds);
-
+		raw.location.kind === "global" ? "scope" : "file";
+	const agreement = liftAgreement(raw.raisedBy, raw.sourceFindingIds);
 	return {
 		id,
-		location,
-		label: label as ConventionalLabel,
-		decorations,
-		subject,
-		discussion,
+		location: raw.location as FindingLocation,
+		label: raw.label as ConventionalLabel,
+		decorations: raw.decorations ?? [],
+		subject: raw.subject,
+		discussion: raw.discussion,
 		category,
-		severity,
-		confidence,
+		severity: raw.severity as FindingSeverity | undefined,
+		confidence: raw.confidence,
 		origin: {
 			kind: "judge",
 			runId: context.runId,
@@ -395,37 +354,18 @@ function toJudgedFinding(
 	};
 }
 
-function toAgreement(
-	raisedByRaw: unknown,
-	sourceIdsRaw: unknown,
-): FindingAgreement | null {
-	if (!Array.isArray(raisedByRaw)) return null;
-	if (!Array.isArray(sourceIdsRaw)) return null;
-	const raisedBy = raisedByRaw.filter(
-		(r): r is string => typeof r === "string",
-	);
-	const sourceFindingIds = sourceIdsRaw.filter(
-		(n): n is number => typeof n === "number" && Number.isFinite(n),
-	);
-	if (raisedBy.length === 0 && sourceFindingIds.length === 0) return null;
-	return { raisedBy, sourceFindingIds };
-}
-
-function toLocation(raw: unknown): FindingLocation | null {
-	if (typeof raw !== "object" || raw === null) return null;
-	const r = raw as Record<string, unknown>;
-	const kind = r.kind;
-	if (kind === "global") return { kind: "global" };
-	if (kind === "file") {
-		if (typeof r.file !== "string") return null;
-		return { kind: "file", file: r.file };
-	}
-	if (kind === "line") {
-		if (typeof r.file !== "string") return null;
-		if (typeof r.start !== "number" || typeof r.end !== "number") return null;
-		const side = r.side;
-		if (side !== "old" && side !== "new" && side !== "both") return null;
-		return { kind: "line", file: r.file, start: r.start, end: r.end, side };
-	}
-	return null;
+/**
+ * Lift schema-valid agreement arrays into the optional
+ * `agreement` shape. We attach agreement only when at
+ * least one piece of metadata is non-empty; an empty
+ * raisedBy + empty sourceFindingIds carries no signal.
+ */
+function liftAgreement(
+	raisedBy: readonly string[] | undefined,
+	sourceFindingIds: readonly number[] | undefined,
+): { raisedBy: string[]; sourceFindingIds: number[] } | null {
+	const rb = raisedBy ?? [];
+	const sids = sourceFindingIds ?? [];
+	if (rb.length === 0 && sids.length === 0) return null;
+	return { raisedBy: [...rb], sourceFindingIds: [...sids] };
 }

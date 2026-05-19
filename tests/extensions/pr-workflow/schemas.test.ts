@@ -189,7 +189,26 @@ describe("JudgeOutput", () => {
 		expect(Value.Check(JudgeOutput, { findings: [] })).toBe(true);
 	});
 
-	it("rejects raisedBy that is not an array of strings", () => {
+	it("accepts a finding without raisedBy or sourceFindingIds", () => {
+		// A judge insight can legitimately have no
+		// upstream reviewer (the judge surfaced it on its
+		// own). Agreement metadata is optional; absence is
+		// fine, what we reject is presence with the wrong
+		// type.
+		const output = {
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "Lone insight",
+					discussion: "d",
+				},
+			],
+		};
+		expect(Value.Check(JudgeOutput, output)).toBe(true);
+	});
+
+	it("rejects raisedBy that is present but not an array of strings", () => {
 		const output = {
 			findings: [
 				{
