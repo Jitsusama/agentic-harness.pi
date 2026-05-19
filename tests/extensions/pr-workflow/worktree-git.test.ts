@@ -95,7 +95,7 @@ describe("createGitWorktreeProvider — ensure()", () => {
 		const { exec, calls } = fakeExec({
 			// First call the provider makes is a HEAD probe
 			// at the target path.
-			[`rev-parse HEAD`]: {
+			"rev-parse HEAD": {
 				stdout: "abc123def456\n",
 				stderr: "",
 				exitCode: 0,
@@ -122,7 +122,7 @@ describe("createGitWorktreeProvider — ensure()", () => {
 		// silently reuse a tree pointing at the wrong SHA.
 		const targetPath = "/tmp/s/worktrees/octocat-hello-world/abc123def456";
 		const { exec, calls } = fakeExec({
-			[`rev-parse HEAD`]: {
+			"rev-parse HEAD": {
 				stdout: "deadbeef\n",
 				stderr: "",
 				exitCode: 0,

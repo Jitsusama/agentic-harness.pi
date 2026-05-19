@@ -17,16 +17,27 @@
  * agent on the user's behalf) initiated.
  */
 
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
 import { parsePrFileUri, prFileUri, resolvePrFile } from "./buffer.js";
+import {
+	configureCouncil,
+	formatCouncilSummary,
+	runCouncilAction,
+} from "./council-action.js";
 import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
 import { loadPr } from "./load.js";
+import { runReviewer } from "./reviewer.js";
+import { createSpawnRunPi } from "./runpi-spawn.js";
 import { createGitHubPrSearch } from "./search.js";
 import { buildStack, type StackEntry } from "./stack.js";
 import { createPrWorkflowState } from "./state.js";
+import { WorktreeRegistry } from "./worktree.js";
+import { createGitWorktreeProvider } from "./worktree-git.js";
 
 /**
  * Events used to register `pi://pr/...` URI handling with
@@ -45,6 +56,38 @@ const NEOVIM_PI_READY = "neovim-pi:ready";
 
 export default function prWorkflow(pi: ExtensionAPI) {
 	const state = createPrWorkflowState();
+
+	// Production wiring for the council action. Built
+	// lazily on first use so a session that never runs
+	// the council never spawns a git provider or touches
+	// the state dir.
+	let councilDeps: {
+		registry: WorktreeRegistry;
+		runPi: ReturnType<typeof createSpawnRunPi>;
+	} | null = null;
+	const getCouncilDeps = () => {
+		if (councilDeps !== null) return councilDeps;
+		const stateDir = join(
+			process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"),
+			"pi",
+			"pr-workflow",
+		);
+		const provider = createGitWorktreeProvider({
+			stateDir,
+			// The default resolver assumes the user's clone
+			// lives at ~/src/github.com/<owner>/<repo>. This
+			// matches the convention documented in personal
+			// AGENTS.md; a future commit makes it pluggable
+			// per workspace.
+			resolveSourceRepo: async (req) =>
+				join(homedir(), "src", "github.com", req.owner, req.repo),
+		});
+		councilDeps = {
+			registry: new WorktreeRegistry(provider),
+			runPi: createSpawnRunPi({ binary: "pi" }),
+		};
+		return councilDeps;
+	};
 
 	// Ask neovim-pi (when present) to route pi://pr/.../file/...
 	// URIs through our resolver. The fetcher closes over `pi` so
@@ -86,10 +129,16 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			"Use for pull request review and reply work. The shell is in " +
 			"place; capabilities land incrementally.",
 		parameters: Type.Object({
-			action: StringEnum(["load", "status"] as const, {
-				description:
-					"load: attach a PR to the session. status: report current workflow state.",
-			}),
+			action: StringEnum(
+				["load", "status", "council-config", "council"] as const,
+				{
+					description:
+						"load: attach a PR to the session. " +
+						"status: report current workflow state. " +
+						"council-config: set the multi-model review roster. " +
+						"council: run the configured roster against the loaded PR.",
+				},
+			),
 			pr: Type.Optional(
 				Type.String({
 					description:
@@ -98,18 +147,93 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"Required for action=load.",
 				}),
 			),
+			reviewers: Type.Optional(
+				Type.Array(
+					Type.Object({
+						id: Type.String({
+							description: "Stable reviewer id used in finding origin.",
+						}),
+						model: Type.Optional(
+							Type.String({
+								description:
+									"Pi --model value (e.g. anthropic:claude-sonnet-4.5).",
+							}),
+						),
+						tools: Type.Optional(
+							Type.Array(Type.String(), {
+								description:
+									"Tool palette passed via --tools (e.g. [read,grep,glob,ls,bash]).",
+							}),
+						),
+					}),
+					{
+						description:
+							"Roster of reviewers. Required for action=council-config.",
+					},
+				),
+			),
 		}),
 		async execute(_toolCallId, params) {
+			if (params.action === "council-config") {
+				const reviewers = params.reviewers ?? [];
+				const result = configureCouncil(state, { reviewers });
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				const names = state.council.roster
+					.map((r) => `${r.id}${r.model ? ` (${r.model})` : ""}`)
+					.join(", ");
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Council roster set (${state.council.roster.length}): ${names}`,
+						},
+					],
+					details: { ok: true, roster: state.council.roster },
+				};
+			}
+
+			if (params.action === "council") {
+				const { registry, runPi } = getCouncilDeps();
+				const result = await runCouncilAction({
+					state,
+					registry,
+					dispatch: (opts) => runReviewer({ ...opts, runPi }),
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [{ type: "text", text: formatCouncilSummary(result.run) }],
+					details: { ok: true, run: result.run },
+				};
+			}
+
 			if (params.action === "status") {
 				const ref = state.pr
 					? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
 					: "none";
-				const lines = [`active: ${state.active ? "yes" : "no"}`, `pr: ${ref}`];
+				const lines = [
+					`active: ${state.active ? "yes" : "no"}`,
+					`pr: ${ref}`,
+					`council roster: ${state.council.roster.length} reviewer(s)`,
+					`council last run: ${state.council.lastRun?.id ?? "none"}`,
+				];
 				return {
 					content: [{ type: "text", text: lines.join("\n") }],
 					details: {
 						active: state.active,
 						pr: state.pr,
+						council: state.council,
 					},
 				};
 			}
