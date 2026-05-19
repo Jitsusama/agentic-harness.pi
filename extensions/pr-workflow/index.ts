@@ -55,6 +55,7 @@ import {
 	formatFindingsView,
 } from "./synthesis.js";
 import { summarizeUsage, type UsageBreakdown } from "./usage.js";
+import { resolveVerifyExtensionPath } from "./verify-path.js";
 import { WorktreeRegistry } from "./worktree.js";
 import { createGitWorktreeProvider } from "./worktree-git.js";
 
@@ -83,6 +84,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	let councilDeps: {
 		registry: WorktreeRegistry;
 		runPi: ReturnType<typeof createSpawnRunPi>;
+		extraExtensions: readonly string[];
 	} | null = null;
 	const getCouncilDeps = () => {
 		if (councilDeps !== null) return councilDeps;
@@ -104,6 +106,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 		councilDeps = {
 			registry: new WorktreeRegistry(provider),
 			runPi: createSpawnRunPi({ binary: "pi" }),
+			// Every reviewer subagent loads pr-workflow-verify
+			// so it can self-check its JSON output via the
+			// verify_output tool before ending the run.
+			extraExtensions: [resolveVerifyExtensionPath()],
 		};
 		return councilDeps;
 	};
@@ -322,11 +328,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "council") {
-				const { registry, runPi } = getCouncilDeps();
+				const { registry, runPi, extraExtensions } = getCouncilDeps();
 				const result = await runCouncilAction({
 					state,
 					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi }),
+					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
 				});
 				if (!result.ok) {
 					return {
@@ -375,11 +381,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "judge") {
-				const { registry, runPi } = getCouncilDeps();
+				const { registry, runPi, extraExtensions } = getCouncilDeps();
 				const result = await runJudgeAction({
 					state,
 					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi }),
+					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
 				});
 				if (!result.ok) {
 					return {
@@ -395,11 +401,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "critique") {
-				const { registry, runPi } = getCouncilDeps();
+				const { registry, runPi, extraExtensions } = getCouncilDeps();
 				const result = await runCritiqueAction({
 					state,
 					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi }),
+					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
 				});
 				if (!result.ok) {
 					return {

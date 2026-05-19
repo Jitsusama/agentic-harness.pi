@@ -55,6 +55,16 @@ export interface RunReviewerOptions {
 	readonly signal?: AbortSignal;
 	/** Subprocess runner. Inject a fake for tests. */
 	readonly runPi: RunPi;
+	/**
+	 * Absolute paths of sibling extensions to inject
+	 * into the subagent via `--extension`. Used by the
+	 * council orchestrator to load the verify-output
+	 * surface (and any future parent-side helpers) so the
+	 * subagent can self-validate before ending. Pi auto-
+	 * discovery still applies for the user's own globals;
+	 * these layer on top.
+	 */
+	readonly extraExtensions?: readonly string[];
 }
 
 /** Token + cost figures for one reviewer subagent run. */
@@ -98,7 +108,11 @@ export interface RunReviewerResult {
 export async function runReviewer(
 	options: RunReviewerOptions,
 ): Promise<RunReviewerResult> {
-	const args = composeArgs(options.reviewer, options.prompt);
+	const args = composeArgs(
+		options.reviewer,
+		options.prompt,
+		options.extraExtensions,
+	);
 	const result = await options.runPi({
 		args,
 		cwd: options.cwd,
@@ -123,13 +137,22 @@ export async function runReviewer(
 	};
 }
 
-function composeArgs(reviewer: CouncilReviewer, prompt: string): string[] {
+function composeArgs(
+	reviewer: CouncilReviewer,
+	prompt: string,
+	extraExtensions: readonly string[] | undefined,
+): string[] {
 	const args: string[] = ["--mode", "json", "--no-session", "-p"];
 	if (reviewer.model) {
 		args.push("--model", reviewer.model);
 	}
 	if (reviewer.tools && reviewer.tools.length > 0) {
 		args.push("--tools", reviewer.tools.join(","));
+	}
+	if (extraExtensions) {
+		for (const path of extraExtensions) {
+			args.push("--extension", path);
+		}
 	}
 	args.push(prompt);
 	return args;

@@ -116,6 +116,57 @@ describe("runReviewer — argument composition", () => {
 		expect(args[args.length - 1]).toBe("Review the diff at hand");
 	});
 
+	it("passes each extra extension path via --extension", async () => {
+		// The parent injects sibling extensions (e.g. the
+		// pr-workflow-verify tool surface) into every
+		// reviewer subagent so the model can self-validate
+		// its output before ending. Each path goes through
+		// as a separate `--extension <path>` pair so pi's
+		// CLI parser sees them as repeated, not as one
+		// concatenated value.
+		const { runPi, calls } = fakeRun({
+			stdout: assistantEvent(`{"findings": []}`),
+		});
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: [
+				"/abs/path/to/pr-workflow-verify/index.ts",
+				"/abs/path/to/another-extension/index.ts",
+			],
+			runPi,
+		});
+		const args = calls[0].args;
+		const extensionFlagPositions: number[] = [];
+		for (let i = 0; i < args.length; i++) {
+			if (args[i] === "--extension") extensionFlagPositions.push(i);
+		}
+		expect(extensionFlagPositions).toHaveLength(2);
+		expect(args[extensionFlagPositions[0] + 1]).toBe(
+			"/abs/path/to/pr-workflow-verify/index.ts",
+		);
+		expect(args[extensionFlagPositions[1] + 1]).toBe(
+			"/abs/path/to/another-extension/index.ts",
+		);
+	});
+
+	it("omits --extension entirely when no extraExtensions are supplied", async () => {
+		// Older callers and the default path don't pass
+		// extensions through; we keep pi's default extension
+		// discovery in that case.
+		const { runPi, calls } = fakeRun({
+			stdout: assistantEvent(`{"findings": []}`),
+		});
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+		expect(calls[0].args).not.toContain("--extension");
+	});
+
 	it("omits --model and --tools when the reviewer config doesn't specify them", async () => {
 		// Fallback to pi's defaults (whatever the user has
 		// configured in their session). The dispatcher
