@@ -231,6 +231,39 @@ describe("formatFindingsView", () => {
 		const text = formatFindingsView(state);
 		expect(text).toMatch(/no findings|no judge|run.*council/i);
 	});
+
+	it("renders a 'fixed in <sha>' line when a fix has been recorded", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([judgedFinding(10, "Null deref")]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "fix",
+			decidedAt: "2026-05-19T00:00:00Z",
+			resolvedBy: {
+				commitSha: "abc1234",
+				recordedAt: "2026-05-19T00:05:00Z",
+			},
+		});
+		const text = formatFindingsView(state);
+		expect(text).toMatch(/fixed in abc1234/);
+		expect(text).not.toMatch(/queued for fix/);
+	});
+
+	it("renders 'fix skipped' with the reason when a fix has been abandoned", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([judgedFinding(10, "Null deref")]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "fix",
+			decidedAt: "2026-05-19T00:00:00Z",
+			skipped: {
+				reason: "actually fine",
+				recordedAt: "2026-05-19T00:05:00Z",
+			},
+		});
+		const text = formatFindingsView(state);
+		expect(text).toMatch(/fix skipped — actually fine/);
+	});
 });
 
 describe("decideFinding", () => {

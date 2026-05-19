@@ -60,6 +60,25 @@ export type FindingDecision =
 			readonly verdict: "fix";
 			readonly instructions?: string;
 			readonly decidedAt: string;
+			/**
+			 * Set by `recordFixDone` after the user (or agent
+			 * acting on their behalf) lands a commit that
+			 * addresses this finding. Mutually exclusive with
+			 * `skipped`.
+			 */
+			readonly resolvedBy?: {
+				readonly commitSha: string;
+				readonly recordedAt: string;
+			};
+			/**
+			 * Set by `recordFixSkip` when the user decides not
+			 * to land the queued fix after all. Mutually
+			 * exclusive with `resolvedBy`.
+			 */
+			readonly skipped?: {
+				readonly reason: string;
+				readonly recordedAt: string;
+			};
 	  };
 
 /** Result of a decision mutation. */
@@ -348,6 +367,12 @@ function renderDecision(decision: FindingDecision | null): string {
 		case "promote":
 			return "promote";
 		case "fix":
+			if (decision.resolvedBy) {
+				return `✓ fixed in ${decision.resolvedBy.commitSha}`;
+			}
+			if (decision.skipped) {
+				return `fix skipped — ${decision.skipped.reason}`;
+			}
 			return decision.instructions
 				? `queued for fix — ${decision.instructions}`
 				: "queued for fix";
