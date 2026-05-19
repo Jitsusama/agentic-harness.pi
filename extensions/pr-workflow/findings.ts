@@ -42,6 +42,11 @@ export type FindingOrigin =
 			readonly kind: "judge";
 			readonly runId: string;
 			readonly judgeReviewerId: string;
+	  }
+	| {
+			readonly kind: "stack-critic";
+			readonly runId: string;
+			readonly reviewerId: string;
 	  };
 
 /** Lifecycle state. */

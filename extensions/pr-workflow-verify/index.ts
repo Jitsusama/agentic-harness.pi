@@ -31,20 +31,21 @@ export default function (pi: ExtensionAPI) {
 		label: "Verify Output",
 		description:
 			"Validate your final reviewer output against the schema for the " +
-			"named stage (council, judge, or critique). Returns ok: true with " +
-			"the parsed item count, or ok: false with a list of {path, message} " +
-			"errors. Call this before ending your run; if errors are reported, " +
-			"fix your output and call again until ok: true.",
+			"named stage (council, judge, critique, or stack-critic). Returns " +
+			"ok: true with the parsed item count, or ok: false with a list of " +
+			"{path, message} errors. Call this before ending your run; if " +
+			"errors are reported, fix your output and call again until ok: true.",
 		parameters: Type.Object({
 			stage: Type.Union(
 				[
 					Type.Literal("council"),
 					Type.Literal("judge"),
 					Type.Literal("critique"),
+					Type.Literal("stack-critic"),
 				],
 				{
 					description:
-						"Which reviewer stage produced this output: council (round 1), judge (round 2), or critique (round 3).",
+						"Which reviewer stage produced this output: council (round 1), judge (round 2), critique (round 3), or stack-critic (cross-PR synthesis).",
 				},
 			),
 			output: Type.Unknown({

@@ -197,11 +197,43 @@ export const CritiqueOutput = Type.Object({
 export type CritiqueOutput = Static<typeof CritiqueOutput>;
 
 // ---------------------------------------------------------------------------
+// Stack critic
+//
+// Cross-PR findings have the same core shape as judge
+// findings (location, label, subject, discussion,
+// severity, confidence) but no agreement metadata; they
+// have no upstream reviewer to consolidate. Two extra
+// fields are required: `homePrNumber` picks the post
+// destination, and `spans` lists every PR the finding
+// refers to (always non-empty).
+// ---------------------------------------------------------------------------
+
+/** A stack-critic finding. */
+export const StackCriticFinding = Type.Object({
+	location: FindingLocation,
+	label: ConventionalLabel,
+	decorations: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	subject: Type.String({ minLength: 1 }),
+	discussion: Type.String({ minLength: 1 }),
+	severity: Type.Optional(FindingSeverity),
+	confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+	homePrNumber: Type.Integer({ minimum: 1 }),
+	spans: Type.Array(Type.Integer({ minimum: 1 }), { minItems: 1 }),
+});
+export type StackCriticFinding = Static<typeof StackCriticFinding>;
+
+/** Stack-critic output. */
+export const StackCriticOutput = Type.Object({
+	findings: Type.Array(StackCriticFinding),
+});
+export type StackCriticOutput = Static<typeof StackCriticOutput>;
+
+// ---------------------------------------------------------------------------
 // Stage registry
 // ---------------------------------------------------------------------------
 
 /** Stage names that key into the schema registry. */
-export type StageName = "council" | "judge" | "critique";
+export type StageName = "council" | "judge" | "critique" | "stack-critic";
 
 /**
  * Resolve a stage name to its schema. Used by the verify
@@ -216,5 +248,7 @@ export function getSchema(stage: StageName) {
 			return JudgeOutput;
 		case "critique":
 			return CritiqueOutput;
+		case "stack-critic":
+			return StackCriticOutput;
 	}
 }

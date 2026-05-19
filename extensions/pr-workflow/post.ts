@@ -21,6 +21,7 @@
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import type { ReviewComment } from "../../lib/internal/github/review-post.js";
 import type { Finding, FindingAgreement, FindingLocation } from "./findings.js";
+import type { StackFinding } from "./stack-critic.js";
 import type { PrWorkflowState } from "./state.js";
 import type { FindingDecision } from "./synthesis.js";
 
@@ -44,6 +45,13 @@ export interface ReviewPayload {
 	readonly comments: ReviewComment[];
 	readonly body: string;
 	readonly includedFindingIds: number[];
+	/**
+	 * Stack-level finding ids included in this payload.
+	 * Separate from `includedFindingIds` because the two
+	 * id spaces don't share a namespace; tracking them
+	 * apart lets the post summary count each kind.
+	 */
+	readonly includedStackFindingIds: number[];
 	readonly skipped: SkippedFinding[];
 }
 
@@ -80,6 +88,7 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 			comments: [],
 			body: "",
 			includedFindingIds: [],
+			includedStackFindingIds: [],
 			skipped: [],
 		};
 	}
@@ -87,6 +96,7 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 	const inline: ReviewComment[] = [];
 	const bodyLines: string[] = [];
 	const includedFindingIds: number[] = [];
+	const includedStackFindingIds: number[] = [];
 	const skipped: SkippedFinding[] = [];
 
 	for (const finding of judge.consolidatedFindings) {
@@ -128,8 +138,76 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 		includedFindingIds.push(finding.id);
 	}
 
+	const cursorPrNumber = state.pr?.reference.number ?? null;
+	const stackCritic = state.stackCritic;
+	if (stackCritic !== null) {
+		for (const finding of stackCritic.findings) {
+			if (cursorPrNumber === null || finding.homePrNumber !== cursorPrNumber) {
+				skipped.push({
+					findingId: finding.id,
+					reason: `stack: homes to PR #${finding.homePrNumber}, not current cursor`,
+				});
+				continue;
+			}
+			const decision = state.stackDecisions.get(finding.id) ?? null;
+			if (decision === null) {
+				skipped.push({
+					findingId: finding.id,
+					reason: "stack: pending, no user decision",
+				});
+				continue;
+			}
+			if (decision.verdict === "dismiss") {
+				skipped.push({ findingId: finding.id, reason: "stack: dismiss" });
+				continue;
+			}
+			if (decision.verdict === "fix") {
+				skipped.push({
+					findingId: finding.id,
+					reason: "stack: queued for fix (not posted)",
+				});
+				continue;
+			}
+			bodyLines.push(renderStackBodyEntry(finding, decision));
+			includedStackFindingIds.push(finding.id);
+		}
+	}
+
 	const body = bodyLines.length > 0 ? bodyLines.join("\n\n") : "";
-	return { comments: inline, body, includedFindingIds, skipped };
+	return {
+		comments: inline,
+		body,
+		includedFindingIds,
+		includedStackFindingIds,
+		skipped,
+	};
+}
+
+/**
+ * Render a stack-level finding as a body entry. Same
+ * Conventional Comments shape as per-PR body entries
+ * plus a cross-PR header listing the spanned PRs so
+ * readers know what else the finding refers to.
+ */
+function renderStackBodyEntry(
+	finding: StackFinding,
+	decision: FindingDecision,
+): string {
+	const subject = effectiveSubject(finding, decision);
+	const discussion = effectiveDiscussion(finding, decision);
+	const lines: string[] = [];
+	const spansSentence =
+		finding.spans.length === 1
+			? `(cross-PR: spans #${finding.spans[0]})`
+			: `(cross-PR: spans #${finding.spans.join(", #")})`;
+	lines.push(`### [${finding.label}] ${subject} ${spansSentence}`);
+	lines.push("");
+	lines.push(discussion);
+	if (decision.verdict === "qualify") {
+		lines.push("");
+		lines.push(`> Qualifier: ${decision.note}`);
+	}
+	return lines.join("\n");
 }
 
 /**
@@ -150,7 +228,10 @@ export async function postReviewAction(
 		return { ok: false, error: "No PR loaded; call action=load first." };
 	}
 	const payload = buildReviewPayload(input.state);
-	if (payload.includedFindingIds.length === 0) {
+	if (
+		payload.includedFindingIds.length === 0 &&
+		payload.includedStackFindingIds.length === 0
+	) {
 		return {
 			ok: false,
 			error:
@@ -225,8 +306,13 @@ function renderSummary(
 		lines.push(prefix.trim());
 		lines.push("");
 	}
+	const stackCount = payload.includedStackFindingIds.length;
+	const stackSentence =
+		stackCount === 0
+			? ""
+			: ` Plus ${stackCount} cross-PR finding(s) from the stack-critic.`;
 	lines.push(
-		`Council review: ${payload.includedFindingIds.length} finding(s) posted, ${payload.skipped.length} skipped.`,
+		`Council review: ${payload.includedFindingIds.length} finding(s) posted, ${payload.skipped.length} skipped.${stackSentence}`,
 	);
 	const judge = state.council.lastJudge;
 	if (judge !== null && judge.selfSignal !== null) {

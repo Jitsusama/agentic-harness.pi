@@ -50,7 +50,7 @@ steering it from a menu.
 
 ## Actions
 
-One `pr_workflow` tool, 15 actions. The user drives the
+One `pr_workflow` tool, 17 actions. The user drives the
 flow conversationally; the agent translates intent into
 the right action.
 
@@ -63,6 +63,9 @@ the right action.
 - `action="council-config"` — set the reviewer roster
   (id + model + tools).
 - `action="judge-config"` — set the judge model.
+- `action="stack-critic-config"` — set the stack-critic
+  reviewer (separate model for cross-PR pattern
+  detection).
 
 **Round 1 — fan-out**
 
@@ -91,20 +94,40 @@ the right action.
   entries reference judge findings by `findingId`, so
   substitution is direct.
 
+**Stack critic (cross-PR)**
+
+- `action="stack-critic"` — once at least one PR in the
+  stack has been judged, run the stack-critic reviewer
+  to surface cross-PR findings (inconsistent error
+  handling, abstractions that shift between layers,
+  duplicated logic). Reads live + snapshotted judge
+  findings from across the stack. Each emitted finding
+  carries a `homePrNumber` (post destination) and
+  `spans` (every PR the finding refers to).
+
 **Round 4 — user**
 
 - `action="findings"` — render judge + critique + user
-  decisions as one consolidated view.
-- `action="decide" findingId=<n> verdict=<v>` — record
-  the user's verdict (`endorse | qualify | edit |
-  dismiss | promote | fix`).
+  decisions as one consolidated view. Stack-critic
+  findings appear in their own section with S-prefixed
+  ids (`[S1]`, `[S2]`…) so the user knows to pass
+  `scope="stack"` on decide.
+- `action="decide" findingId=<n> verdict=<v>
+  scope=<"pr" | "stack">` — record the user's verdict
+  (`endorse | qualify | edit | dismiss | promote |
+  fix`). The two id spaces are independent: a finding
+  with id 3 in each scope gets two separate decisions.
 
 **Posting**
 
 - `action="post"` — send eligible findings to GitHub as
   a PR review (inline comments for line-located
   findings, body summary for file- and scope-level
-  findings).
+  findings). Stack findings whose `homePrNumber` matches
+  the cursor PR post alongside the per-PR review;
+  stack findings home to other PRs in the stack skip
+  with a clear reason (the user posts them by
+  navigating to the home PR and re-running post).
 
 **Stack navigation**
 
@@ -113,6 +136,15 @@ the right action.
 - `action="stack-next"` — re-load the next PR
   downstream.
 - `action="stack-prev"` — re-load the PR upstream.
+
+State across cursor moves: per-PR council run, judge
+run, critique run and decisions snapshot under
+`state.stackRuns[N]` when the user moves off PR N (if
+it has any review state), and rehydrate when N
+returns. Stack-critic state
+(`state.stackCritic`, `state.stackDecisions`) is
+session-global, not per-PR — one cross-PR run covers
+the whole stack.
 
 The council and critique summaries surface a retry hint
 at the top when a reviewer returned empty with warnings

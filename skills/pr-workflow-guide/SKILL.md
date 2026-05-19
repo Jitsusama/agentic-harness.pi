@@ -28,6 +28,8 @@ user oriented through a multi-round pipeline.
 
 ```
 load → council → judge → [critique?] → findings/decide × N → post
+           ↙                                                    ↗
+        (sweep stack PRs, then)  stack-critic  →  findings/decide  →  post
 ```
 
 Each step is a separate tool action. The user stays in
@@ -36,15 +38,17 @@ prose; you translate intent into calls.
 | Action | When to call |
 |---|---|
 | `load` | First action of any PR session. User said "review PR 42" or pasted a URL. |
-| `status` | User asks "where are we?", "what's loaded?", or "how much has this cost?". Read-only; surfaces the per-stage and total token/cost spend. |
+| `status` | User asks "where are we?", "what's loaded?", or "how much has this cost?". Read-only; surfaces the per-stage and total token/cost spend, including stack-critic state. |
 | `council-config` | User wants to set or change the reviewer roster. |
 | `council` | Round 1: fan out the roster. User said "run the review", "kick it off". |
 | `judge-config` | User wants to set or change the judge model. |
 | `judge` | Round 2: consolidate the council output. Run after `council`. |
 | `critique` | Round 3 (optional): roster pushes back on the judge. Only after the gate. |
-| `findings` | Show the current findings view (judge + critique + decisions). Read-only. |
-| `decide` | Round 4: record the user's verdict on one finding. |
-| `post` | Ship eligible findings to GitHub as a PR review. |
+| `stack-critic-config` | User wants to set the cross-PR stack critic reviewer (only once per session). |
+| `stack-critic` | Run cross-PR synthesis across the discovered stack. Requires judge findings on at least one PR. |
+| `findings` | Show the current findings view (judge + critique + decisions, plus stack-level findings if any). Read-only. |
+| `decide` | Round 4: record the user's verdict on one finding. Pass `scope="stack"` for stack-critic findings. |
+| `post` | Ship eligible findings to GitHub as a PR review. Stack findings home to the cursor PR post alongside per-PR findings. |
 | `stack` | Render the discovered PR stack with cursor highlighted. |
 | `stack-next` | Identify the PR downstream of the cursor and return its ref. |
 | `stack-prev` | Identify the PR upstream of the cursor and return its ref. |
@@ -229,9 +233,82 @@ pick and the action's prose includes the child count.
 Ask the user which fork to follow.
 
 Reviews don't currently follow the chain
-automatically; each PR is a separate review session.
-That's a deliberate scoping choice, not a bug: the
-council reviews the cursor PR's diff in isolation.
+automatically; each PR is a separate council /
+judge / critique session. That's intentional — each
+stage focuses on one diff at a time.
+
+State across cursor moves: when the user moves off a
+PR that has any council, judge, critique or decision
+state, those slots snapshot under `state.stackRuns[N]`
+automatically. When the cursor returns to N, the
+snapshot rehydrates. This means the user can sweep
+the stack without losing work.
+
+### Stack-aware review
+
+When the user wants to surface cross-PR observations
+(inconsistent error handling between layers,
+duplicated logic across the stack, API choices that
+only make sense if a downstream PR lands), reach for
+`stack-critic`.
+
+Workflow:
+
+1. Sweep the stack at least once: load each PR, run
+   council + judge, optionally critique. Each PR's
+   findings stash in `state.stackRuns` when the user
+   moves the cursor.
+2. Configure the stack-critic reviewer (once per
+   session):
+
+   ```
+   pr_workflow action=stack-critic-config stackCritic={
+     id: "stack-critic",
+     model: "anthropic:claude-opus-4"
+   }
+   ```
+
+3. Run it from any PR in the stack:
+
+   ```
+   pr_workflow action=stack-critic
+   ```
+
+   The critic sees each PR's title and consolidated
+   judge findings (live for the cursor PR;
+   snapshotted for off-cursor PRs).
+
+4. Stack findings appear in `findings` under a
+   'Stack-level findings (decide with scope=stack)'
+   section, with S-prefixed ids:
+
+   ```
+   [S1] [issue] Inconsistent retry semantics (home: #42; spans: 42, 43)
+      PR 42 retries 5xx; PR 43 retries any failure.
+      decision: pending
+   ```
+
+5. Decide on them with `scope="stack"`:
+
+   ```
+   pr_workflow action=decide findingId=1 verdict=endorse scope=stack
+   ```
+
+6. Post. Each stack finding lands on its `homePrNumber`.
+   Findings home to the cursor PR post in the same
+   call as per-PR findings. Findings home to other PRs
+   in the stack get skipped — navigate to the home PR
+   and re-run `post` to flush them.
+
+When NOT to run `stack-critic`:
+
+- The session has only one PR loaded (no stack). The
+  tool will refuse with 'No stack discovered'.
+- No PR in the stack has been judged yet. The tool
+  will refuse with 'No judge findings on any PR'. Run
+  judge on at least one PR first.
+- The user is in 'just this PR' mode and doesn't want
+  cross-PR feedback. Stack-critic findings can wait.
 
 ## Verdict reference
 

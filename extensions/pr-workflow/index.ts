@@ -52,6 +52,11 @@ import { runReviewer } from "./reviewer.js";
 import { createSpawnRunPi } from "./runpi-spawn.js";
 import { createGitHubPrSearch } from "./search.js";
 import { buildStack, type StackEntry } from "./stack.js";
+import {
+	configureStackCritic,
+	formatStackCriticSummary,
+	runStackCriticAction,
+} from "./stack-critic-action.js";
 import { formatStack, nextInStack, prevInStack } from "./stack-view.js";
 import { createPrWorkflowState } from "./state.js";
 import {
@@ -176,6 +181,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"stack-prev",
 					"council-retry",
 					"critique-retry",
+					"stack-critic-config",
+					"stack-critic",
 				] as const,
 				{
 					description:
@@ -195,7 +202,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"council-retry: re-run one reviewer in the most recent " +
 						"council run and substitute their output in place. " +
 						"critique-retry: re-run one reviewer in the most recent " +
-						"critique run and substitute their output in place.",
+						"critique run and substitute their output in place. " +
+						"stack-critic-config: set the reviewer that runs the " +
+						"cross-PR stack-critic. " +
+						"stack-critic: synthesize cross-PR findings across every " +
+						"PR in the discovered stack.",
 				},
 			),
 			pr: Type.Optional(
@@ -254,6 +265,36 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							"Judge reviewer config. Required for action=judge-config.",
 					},
 				),
+			),
+			stackCritic: Type.Optional(
+				Type.Object(
+					{
+						id: Type.String({
+							description: "Stable id for the stack-critic reviewer.",
+						}),
+						model: Type.Optional(
+							Type.String({
+								description:
+									"Pi --model value for the stack critic (e.g. anthropic:claude-opus-4).",
+							}),
+						),
+						tools: Type.Optional(
+							Type.Array(Type.String(), {
+								description: "Tool palette for the stack critic.",
+							}),
+						),
+					},
+					{
+						description:
+							"Stack-critic reviewer config. Required for action=stack-critic-config.",
+					},
+				),
+			),
+			scope: Type.Optional(
+				StringEnum(["pr", "stack"] as const, {
+					description:
+						"Which set of findings the decide action targets. 'pr' (default) hits the per-PR judge findings; 'stack' hits the stack-critic findings.",
+				}),
 			),
 			findingId: Type.Optional(
 				Type.Integer({
@@ -537,6 +578,63 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
+			if (params.action === "stack-critic-config") {
+				if (!params.stackCritic) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "stack-critic-config requires a `stackCritic` argument.",
+							},
+						],
+						details: { ok: false, error: "missing stackCritic argument" },
+						isError: true,
+					};
+				}
+				const result = configureStackCritic(state, {
+					stackCritic: params.stackCritic,
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				const sc = state.council.stackCritic;
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Stack critic set: ${sc?.id}${sc?.model ? ` (${sc.model})` : ""}`,
+						},
+					],
+					details: { ok: true, stackCritic: state.council.stackCritic },
+				};
+			}
+
+			if (params.action === "stack-critic") {
+				const { registry, runPi, extraExtensions } = getCouncilDeps();
+				const result = await runStackCriticAction({
+					state,
+					registry,
+					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{ type: "text", text: formatStackCriticSummary(result.run) },
+					],
+					details: { ok: true, run: result.run },
+				};
+			}
+
 			if (params.action === "findings") {
 				return {
 					content: [{ type: "text", text: formatFindingsView(state) }],
@@ -544,7 +642,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						ok: true,
 						judgeRunId: state.council.lastJudge?.id ?? null,
 						critiqueRunId: state.council.lastCritique?.id ?? null,
+						stackCriticRunId: state.stackCritic?.id ?? null,
 						decisionCount: state.council.decisions.size,
+						stackDecisionCount: state.stackDecisions.size,
 					},
 				};
 			}
@@ -582,6 +682,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					params.discussion,
 					params.reason,
 					params.instructions,
+					params.scope,
 				);
 				const result = decideFinding(state, input);
 				if (!result.ok) {
@@ -738,6 +839,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					`judge: ${state.council.judge?.id ?? "unset"}`,
 					`judge last run: ${state.council.lastJudge?.id ?? "none"}`,
 					`critique last run: ${state.council.lastCritique?.id ?? "none"}`,
+					`stack critic: ${state.council.stackCritic?.id ?? "unset"}`,
+					`stack critic last run: ${state.stackCritic?.id ?? "none"}`,
+					`stack findings: ${state.stackCritic?.findings.length ?? 0} (${state.stackDecisions.size} decided)`,
 					`stack snapshots: ${stackSnapshotSummary}`,
 					...renderUsageLines(breakdown),
 				];
@@ -950,19 +1054,20 @@ function buildDecideInput(
 	discussion: string | undefined,
 	reason: string | undefined,
 	instructions: string | undefined,
+	scope: "pr" | "stack" | undefined,
 ): DecideFindingInput {
 	switch (verdict) {
 		case "endorse":
-			return { findingId, verdict: "endorse" };
+			return { findingId, verdict: "endorse", scope };
 		case "qualify":
-			return { findingId, verdict: "qualify", note: note ?? "" };
+			return { findingId, verdict: "qualify", note: note ?? "", scope };
 		case "edit":
-			return { findingId, verdict: "edit", subject, discussion };
+			return { findingId, verdict: "edit", subject, discussion, scope };
 		case "dismiss":
-			return { findingId, verdict: "dismiss", reason };
+			return { findingId, verdict: "dismiss", reason, scope };
 		case "promote":
-			return { findingId, verdict: "promote" };
+			return { findingId, verdict: "promote", scope };
 		case "fix":
-			return { findingId, verdict: "fix", instructions };
+			return { findingId, verdict: "fix", instructions, scope };
 	}
 }

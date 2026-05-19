@@ -20,6 +20,7 @@ import type { CouncilRun } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { Stack } from "./stack.js";
+import type { StackCriticRun } from "./stack-critic.js";
 import type { FindingDecision } from "./synthesis.js";
 
 /**
@@ -56,6 +57,14 @@ export interface CouncilState {
 	roster: CouncilReviewer[];
 	/** Judge reviewer for round-2 consolidation. */
 	judge: CouncilReviewer | null;
+	/**
+	 * Stack critic reviewer (Phase 1 of stack-aware
+	 * review). Configured separately from the judge so
+	 * the user can pick a different model for cross-PR
+	 * pattern detection. `null` until the user runs
+	 * `stack-critic-config`.
+	 */
+	stackCritic: CouncilReviewer | null;
 	/** Most recent council run (null until one completes). */
 	lastRun: CouncilRun | null;
 	/** Most recent judge run (null until round 2 completes). */
@@ -101,6 +110,20 @@ export interface PrWorkflowState {
 	 * actually has runs or decisions to remember.
 	 */
 	stackRuns: Map<number, PrRunSnapshot>;
+	/**
+	 * Most recent stack-critic run. Cross-PR by nature,
+	 * so it lives at the top level rather than on any
+	 * single PR's slot.
+	 */
+	stackCritic: StackCriticRun | null;
+	/**
+	 * Decisions on stack-level findings, keyed by
+	 * finding id. Separate from per-PR
+	 * `council.decisions` so the two id spaces never
+	 * collide: a stack finding and a per-PR finding can
+	 * both be id 3 without confusion.
+	 */
+	stackDecisions: Map<number, FindingDecision>;
 }
 
 /** Construct the initial state for a fresh session. */
@@ -111,11 +134,14 @@ export function createPrWorkflowState(): PrWorkflowState {
 		council: {
 			roster: [],
 			judge: null,
+			stackCritic: null,
 			lastRun: null,
 			lastJudge: null,
 			lastCritique: null,
 			decisions: new Map(),
 		},
 		stackRuns: new Map(),
+		stackCritic: null,
+		stackDecisions: new Map(),
 	};
 }
