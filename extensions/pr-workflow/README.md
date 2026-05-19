@@ -107,10 +107,16 @@ name.
 On startup the extension emits a
 `neovim-pi:register-handler` event asking neovim-pi to
 route `buffer.uri.resolve` calls through its handler.
-When the event has no listener (neovim-pi not installed,
-not loaded yet, or doesn't speak this contract), the
-emit is a no-op and `pi://pr/...` URIs won't open in
-nvim. The agent can still construct URIs for use later.
+It also subscribes to `neovim-pi:ready` and re-emits on
+receipt so the handshake works regardless of which side
+loaded first. The cross-package contract is documented
+in neovim.pi's `doc/protocol.md`.
+
+When neovim-pi is absent (not installed, or doesn't
+speak this contract), both emits are no-ops and
+`pi://pr/...` URIs won't open in nvim. The agent can
+still construct URIs for use once a paired session is
+available.
 - `index.ts` — extension registration. Reads as a table of
   contents.
 

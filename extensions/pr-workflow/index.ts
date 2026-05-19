@@ -29,13 +29,19 @@ import { buildStack, type StackEntry } from "./stack.js";
 import { createPrWorkflowState } from "./state.js";
 
 /**
- * Event emitted to ask neovim-pi to install a buffer URI
- * handler. The neovim-pi extension subscribes; if it isn't
- * loaded the emit is a no-op and `pi://pr/...` URIs simply
- * won't open in nvim. The handler signature matches what
- * neovim-pi's `addMethod("buffer.uri.resolve", ...)` expects.
+ * Events used to register `pi://pr/...` URI handling with
+ * neovim-pi. The cross-package handshake is event-based
+ * because pi loads packages with isolated module roots.
+ *
+ * The protocol is documented in neovim.pi's
+ * `doc/protocol.md` under "Cross-package handler
+ * registration". Briefly: emit `register-handler` at init,
+ * also subscribe to `ready` and re-emit on receipt. That
+ * pair makes the handshake order-independent: whichever
+ * side loaded first, the registration eventually lands.
  */
 const NEOVIM_PI_REGISTER_HANDLER = "neovim-pi:register-handler";
+const NEOVIM_PI_READY = "neovim-pi:ready";
 
 export default function prWorkflow(pi: ExtensionAPI) {
 	const state = createPrWorkflowState();
@@ -55,9 +61,17 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			fetchFileContent(pi, owner, repo, ref, path),
 		);
 	};
-	pi.events.emit(NEOVIM_PI_REGISTER_HANDLER, {
+	const registration = {
 		method: "buffer.uri.resolve",
 		handler,
+	};
+	// Emit once at init in case neovim-pi loaded first and is
+	// already listening.
+	pi.events.emit(NEOVIM_PI_REGISTER_HANDLER, registration);
+	// Re-emit when neovim-pi reports ready, covering the case
+	// where it loaded after we did.
+	pi.events.on(NEOVIM_PI_READY, () => {
+		pi.events.emit(NEOVIM_PI_REGISTER_HANDLER, registration);
 	});
 
 	pi.registerTool({
