@@ -12,6 +12,14 @@ describe("createPrWorkflowState", () => {
 		expect(state.pr).toBeNull();
 	});
 
+	it("starts with no review-threads snapshot", () => {
+		// Threads are a per-PR concern but live on the
+		// top-level state. A fresh session has nothing
+		// fetched yet.
+		const state = createPrWorkflowState();
+		expect(state.threads).toBeNull();
+	});
+
 	it("starts with no stack-critic reviewer, run, or decisions", () => {
 		// Phase 1+2 of stack-aware review adds three slots
 		// to the council/state shape: a configurable stack

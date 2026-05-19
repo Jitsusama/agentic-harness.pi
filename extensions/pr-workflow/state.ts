@@ -124,6 +124,33 @@ export interface PrWorkflowState {
 	 * both be id 3 without confusion.
 	 */
 	stackDecisions: Map<number, FindingDecision>;
+	/**
+	 * Most recent review-threads snapshot for the
+	 * loaded PR. Populated by action=threads; consumed
+	 * by action=reply and action=resolve to translate
+	 * the user's display index into a thread id. Lives
+	 * on the top-level state because threads are a
+	 * per-PR concern but never need to survive cursor
+	 * moves: re-running `threads` after navigation is
+	 * cheap and avoids the staleness traps snapshots
+	 * would introduce.
+	 */
+	threads: ThreadsSnapshot | null;
+}
+
+/**
+ * The set of review threads fetched at a point in time,
+ * plus the metadata needed to detect drift.
+ *
+ * The display index is the position in `threads` (1-based
+ * for users; 0-based in code). Reply / resolve target this
+ * index, so re-running `threads` after merging upstream
+ * activity refreshes the index in one shot.
+ */
+export interface ThreadsSnapshot {
+	readonly prNumber: number;
+	readonly fetchedAt: string;
+	readonly threads: readonly import("./threads.js").ReviewThread[];
 }
 
 /** Construct the initial state for a fresh session. */
@@ -143,5 +170,6 @@ export function createPrWorkflowState(): PrWorkflowState {
 		stackRuns: new Map(),
 		stackCritic: null,
 		stackDecisions: new Map(),
+		threads: null,
 	};
 }
