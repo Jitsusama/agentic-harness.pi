@@ -60,6 +60,62 @@ prose; you translate intent into calls.
 | `fix-done` | Record that a commit landed for a queued fix. Requires `findingId` and `commitSha`. |
 | `fix-skip` | Abandon a queued fix with a reason. Requires `findingId` and `skipReason`. |
 
+## Reading the user's trajectory
+
+Before you start chaining actions, work out what kind of
+session this is. The user almost never says it directly;
+you infer it from the first prompt. Five common shapes,
+in rough order of frequency:
+
+| User's prose | Likely shape | Typical first move |
+|---|---|---|
+| "review pr N" / a URL | Deep review of someone else's PR | `load` → ask about council |
+| "let me see #N" (their own PR) | Addressing review feedback | `load` → `threads` |
+| "what does the council say about N" | Delegated review | `load` → propose council immediately |
+| "review what i have locally" | Self-review before pushing | `load` (local) → council → fix loop |
+| "someone pinged me; i don't know this code" | Pair-debug | `load` → read + narrate, no formal pipeline |
+
+The extension README lists the same five with more
+colour. Use the table here to pick a starting action;
+use the README's longer descriptions when the user
+asks "what shapes does this support?".
+
+### What changes per trajectory
+
+The user never picks a mode. You bias your defaults
+based on what you inferred:
+
+- **Auto-suggest council?** Yes for delegated and
+  self-review; ask first for deep review (some users
+  want to read uncoloured); no for pair-debug.
+- **How much inline context in `findings`?** Lean
+  toward terse for deep review (the user already read
+  the code) and verbose for delegated (the user is
+  trusting your eyes).
+- **What to suggest at Round 4 close?** Post for
+  trajectories 2 and 4; fix for trajectory 1; ask for
+  trajectory 3 (mix is normal); skip Round 4 entirely
+  for trajectory 5 (no formal pipeline ran).
+- **Where do mutations happen?** Self-review: edits in
+  the user's checkout. All others: edits go via
+  `fix-next`/main-loop/`fix-done` only when the user
+  asks for them; never auto.
+
+Users shift trajectories mid-session. Re-classify on
+prose cues without ceremony:
+
+- "actually let me read this myself" — delegated →
+  deep review. Stop pushing council-driven prompts,
+  open files in nvim.
+- "just fix the obvious stuff" — review → self-apply.
+  Queue blockers for fix instead of post.
+- "let's just ship what we have" — self-apply → post.
+  Promote remaining findings to comments instead of
+  fixes.
+
+Narrate the shift in one prose line ("OK, switching to
+fix-and-commit") and proceed. No mode-change ritual.
+
 ## When to call what
 
 ### Starting a session
@@ -566,5 +622,6 @@ distinction matters for calibration.
   excessive politeness in posted comments.
 - `github-cli-convention` — for any `gh` commands you
   run outside the tool (clone, fetch, etc).
-- `github-pr-review-guide` — broader review methodology
-  not specific to this tool.
+- `code-investigation-guide` — how to read a codebase
+  when the user wants to pair-debug an unfamiliar PR
+  before deciding what to say about it.
