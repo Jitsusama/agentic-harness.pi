@@ -218,6 +218,59 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
+			if (params.action === "judge-config") {
+				if (!params.judge) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "judge-config requires a `judge` argument.",
+							},
+						],
+						details: { ok: false, error: "missing judge argument" },
+						isError: true,
+					};
+				}
+				const result = configureJudge(state, { judge: params.judge });
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				const j = state.council.judge;
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Judge set: ${j?.id}${j?.model ? ` (${j.model})` : ""}`,
+						},
+					],
+					details: { ok: true, judge: state.council.judge },
+				};
+			}
+
+			if (params.action === "judge") {
+				const { registry, runPi } = getCouncilDeps();
+				const result = await runJudgeAction({
+					state,
+					registry,
+					dispatch: (opts) => runReviewer({ ...opts, runPi }),
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [{ type: "text", text: formatJudgeSummary(result.run) }],
+					details: { ok: true, run: result.run },
+				};
+			}
+
 			if (params.action === "status") {
 				const ref = state.pr
 					? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
@@ -227,6 +280,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					`pr: ${ref}`,
 					`council roster: ${state.council.roster.length} reviewer(s)`,
 					`council last run: ${state.council.lastRun?.id ?? "none"}`,
+					`judge: ${state.council.judge?.id ?? "unset"}`,
+					`judge last run: ${state.council.lastJudge?.id ?? "none"}`,
 				];
 				return {
 					content: [{ type: "text", text: lines.join("\n") }],

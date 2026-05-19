@@ -16,6 +16,7 @@ import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import type { PrMetadata } from "./fetch.js";
 import type { CouncilRun } from "./findings.js";
+import type { JudgeRun } from "./judge.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { Stack } from "./stack.js";
 
@@ -51,8 +52,12 @@ export interface ActivePr {
 export interface CouncilState {
 	/** Reviewers that will fan out on the next council action. */
 	roster: CouncilReviewer[];
+	/** Judge reviewer for round-2 consolidation. */
+	judge: CouncilReviewer | null;
 	/** Most recent council run (null until one completes). */
 	lastRun: CouncilRun | null;
+	/** Most recent judge run (null until round 2 completes). */
+	lastJudge: JudgeRun | null;
 }
 
 /** Top-level runtime state for the PR workflow. */
@@ -70,6 +75,6 @@ export function createPrWorkflowState(): PrWorkflowState {
 	return {
 		active: false,
 		pr: null,
-		council: { roster: [], lastRun: null },
+		council: { roster: [], judge: null, lastRun: null, lastJudge: null },
 	};
 }

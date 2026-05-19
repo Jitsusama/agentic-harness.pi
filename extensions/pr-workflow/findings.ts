@@ -51,6 +51,11 @@ export type FindingOrigin =
 			readonly kind: "council";
 			readonly runId: string;
 			readonly reviewerId: string;
+	  }
+	| {
+			readonly kind: "judge";
+			readonly runId: string;
+			readonly judgeReviewerId: string;
 	  };
 
 /** Lifecycle state. */
@@ -58,6 +63,17 @@ export type FindingState = "draft" | "promoted" | "dismissed";
 
 /** Severity. Orthogonal to label/decorations. */
 export type FindingSeverity = "critical" | "medium" | "minor";
+
+/**
+ * Cross-reviewer agreement metadata attached by the judge
+ * round. `raisedBy` lists the reviewer ids that surfaced
+ * the same finding; `sourceFindingIds` ties the
+ * consolidated finding back to the round-1 ids it merges.
+ */
+export interface FindingAgreement {
+	readonly raisedBy: readonly string[];
+	readonly sourceFindingIds: readonly number[];
+}
 
 /** A single observation. */
 export interface Finding {
@@ -72,6 +88,8 @@ export interface Finding {
 	readonly confidence?: number;
 	readonly origin: FindingOrigin;
 	readonly state: FindingState;
+	/** Cross-reviewer agreement; only set on judge output. */
+	readonly agreement?: FindingAgreement;
 }
 
 /** One reviewer's output from a single round. */
