@@ -26,9 +26,11 @@
  */
 
 import { Value } from "@sinclair/typebox/value";
+import type { CouncilDispatch } from "./council.js";
 import type { Finding, FindingLocation } from "./findings.js";
 import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
 import { StackCriticFinding, StackCriticOutput } from "./schemas.js";
+import type { WorktreeRegistry } from "./worktree.js";
 
 /**
  * A finding that talks about more than one PR in the
@@ -251,6 +253,75 @@ export function parseStackCriticOutput(
 	}
 
 	return { findings, warnings };
+}
+
+/** Options for `runStackCritic`. */
+export interface RunStackCriticOptions {
+	readonly runId: string;
+	readonly cursorPrNumber: number;
+	readonly perPr: readonly StackCriticPrContext[];
+	readonly reviewer: CouncilReviewer;
+	readonly target: {
+		readonly owner: string;
+		readonly repo: string;
+		readonly sha: string;
+	};
+	readonly registry: WorktreeRegistry;
+	readonly dispatch: CouncilDispatch;
+	readonly signal?: AbortSignal;
+	readonly now?: () => Date;
+}
+
+/**
+ * Run one stack-critic subagent: provision (or reuse)
+ * the cursor PR's worktree, dispatch a single pi
+ * subagent with the stack prompt, parse the result.
+ * Returns a `StackCriticRun` even when the subagent
+ * misbehaves so callers can inspect warnings.
+ */
+export async function runStackCritic(
+	options: RunStackCriticOptions,
+): Promise<StackCriticRun> {
+	const handle = await options.registry.ensure({
+		owner: options.target.owner,
+		repo: options.target.repo,
+		sha: options.target.sha,
+	});
+	const prompt = buildStackCriticPrompt({
+		cursorPrNumber: options.cursorPrNumber,
+		perPr: options.perPr,
+	});
+	const now = options.now ?? (() => new Date());
+	try {
+		const dispatched = await options.dispatch({
+			reviewer: options.reviewer,
+			prompt,
+			cwd: handle.path,
+			signal: options.signal,
+		});
+		const parsed = parseStackCriticOutput(dispatched.finalAssistantText, {
+			runId: options.runId,
+			reviewerId: options.reviewer.id,
+			startId: 1,
+		});
+		return {
+			id: options.runId,
+			startedAt: now().toISOString(),
+			reviewerId: options.reviewer.id,
+			findings: parsed.findings,
+			warnings: [...dispatched.warnings, ...parsed.warnings],
+			...(dispatched.usage ? { usage: dispatched.usage } : {}),
+		};
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		return {
+			id: options.runId,
+			startedAt: now().toISOString(),
+			reviewerId: options.reviewer.id,
+			findings: [],
+			warnings: [`Stack critic dispatch failed: ${message}`],
+		};
+	}
 }
 
 function extractJson(text: string): string | null {
