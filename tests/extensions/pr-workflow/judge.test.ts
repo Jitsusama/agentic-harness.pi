@@ -362,6 +362,44 @@ describe("runJudge", () => {
 		expect(result.consolidatedFindings.map((f) => f.id)).toEqual([4, 5]);
 	});
 
+	it("carries the judge subagent's usage block through to the JudgeRun", async () => {
+		// The judge is a single subagent so cost tracking
+		// attaches directly to the run envelope, not to a
+		// per-reviewer list.
+		const result = await runJudge({
+			runId: "judge-cost",
+			council: council(),
+			judge: JUDGE,
+			target: { owner: "o", repo: "r", sha: "abc" },
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async () => ({
+				reviewerId: "judge",
+				exitCode: 0,
+				finalAssistantText: "```json\n{}\n```",
+				stderr: "",
+				warnings: [],
+				usage: {
+					tokens: {
+						input: 500,
+						output: 60,
+						cacheRead: 0,
+						cacheWrite: 0,
+						total: 560,
+					},
+					cost: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						total: 0.0042,
+					},
+				},
+			}),
+		});
+		expect(result.usage?.tokens.total).toBe(560);
+		expect(result.usage?.cost.total).toBeCloseTo(0.0042);
+	});
+
 	it("surfaces dispatch warnings on the JudgeRun", async () => {
 		const result = await runJudge({
 			runId: "judge-1",

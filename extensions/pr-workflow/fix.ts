@@ -31,7 +31,11 @@
  */
 
 import type { Finding, FindingLocation } from "./findings.js";
-import type { RunPi } from "./reviewer.js";
+import {
+	extractUsageFromPiStream,
+	type ReviewerUsage,
+	type RunPi,
+} from "./reviewer.js";
 
 /** Structured output from one fix subagent. */
 export interface FixOutput {
@@ -62,8 +66,13 @@ export interface RunFixOptions {
 
 /** Result of one fix attempt. */
 export type RunFixResult =
-	| { ok: true; output: FixOutput; stderr: string }
-	| { ok: false; error: string; stderr?: string };
+	| {
+			ok: true;
+			output: FixOutput;
+			stderr: string;
+			usage?: ReviewerUsage;
+	  }
+	| { ok: false; error: string; stderr?: string; usage?: ReviewerUsage };
 
 /** Result of `parseFixOutput`. */
 export type ParseFixResult =
@@ -195,27 +204,41 @@ export async function runFix(options: RunFixOptions): Promise<RunFixResult> {
 		signal: options.signal,
 	});
 
+	const usage = extractUsageFromPiStream(result.stdout);
+
 	if (result.exitCode !== 0) {
 		const detail = result.stderr.trim() || `exit ${result.exitCode}`;
 		return {
 			ok: false,
 			error: `Fix subagent exit ${result.exitCode}: ${detail}`,
 			stderr: result.stderr,
+			...(usage ? { usage } : {}),
 		};
 	}
 
 	const parsed = parseFixOutput(result.stdout);
 	if (!parsed.ok) {
-		return { ok: false, error: parsed.error, stderr: result.stderr };
+		return {
+			ok: false,
+			error: parsed.error,
+			stderr: result.stderr,
+			...(usage ? { usage } : {}),
+		};
 	}
 	if (parsed.value.findingId !== options.finding.id) {
 		return {
 			ok: false,
 			error: `Subagent returned wrong finding id: expected ${options.finding.id}, got ${parsed.value.findingId} (mismatch).`,
 			stderr: result.stderr,
+			...(usage ? { usage } : {}),
 		};
 	}
-	return { ok: true, output: parsed.value, stderr: result.stderr };
+	return {
+		ok: true,
+		output: parsed.value,
+		stderr: result.stderr,
+		...(usage ? { usage } : {}),
+	};
 }
 
 function composeArgs(options: RunFixOptions): string[] {

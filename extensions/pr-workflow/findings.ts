@@ -16,6 +16,8 @@
  * fill in agreement, user position, promotion details.
  */
 
+import type { ReviewerUsage } from "./reviewer.js";
+
 /** A location in the PR. */
 export type FindingLocation =
 	| {
@@ -98,6 +100,12 @@ export interface ReviewerOutput {
 	readonly findings: Finding[];
 	/** Parse warnings, model errors, anything noteworthy. */
 	readonly warnings: string[];
+	/**
+	 * Token + cost totals for this reviewer's subagent
+	 * run. `undefined` when the dispatcher didn't surface
+	 * usage (older pi, fake runner, crashed dispatch).
+	 */
+	readonly usage?: ReviewerUsage;
 }
 
 /** A council run: the unit of state for a council invocation. */

@@ -362,6 +362,55 @@ describe("runCritique", () => {
 		expect(seen).toEqual(new Set(["/wt/abc"]));
 	});
 
+	it("carries each reviewer's usage block through to ReviewerCritiqueOutput", async () => {
+		// Critique fans out a roster like council does. Cost
+		// tracking is per reviewer so the status panel can
+		// attribute critique spend by model.
+		const dispatch = async (opts: {
+			reviewer: CouncilReviewer;
+			prompt: string;
+			cwd: string;
+		}) => ({
+			reviewerId: opts.reviewer.id,
+			exitCode: 0,
+			finalAssistantText: '```json\n{"critiques":[]}\n```',
+			stderr: "",
+			warnings: [],
+			usage: {
+				tokens: {
+					input: opts.reviewer.id === "fast" ? 50 : 75,
+					output: opts.reviewer.id === "fast" ? 5 : 7,
+					cacheRead: 0,
+					cacheWrite: 0,
+					total: opts.reviewer.id === "fast" ? 55 : 82,
+				},
+				cost: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					total: opts.reviewer.id === "fast" ? 0.0005 : 0.0008,
+				},
+			},
+		});
+		const result = await runCritique({
+			runId: "critique-cost",
+			council: council(),
+			judge: judge(),
+			roster: ROSTER,
+			target: { owner: "o", repo: "r", sha: "abc" },
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch,
+		});
+		const fast = result.reviewerOutputs.find((r) => r.reviewerId === "fast");
+		const skeptic = result.reviewerOutputs.find(
+			(r) => r.reviewerId === "skeptic",
+		);
+		expect(fast?.usage?.tokens.total).toBe(55);
+		expect(fast?.usage?.cost.total).toBeCloseTo(0.0005);
+		expect(skeptic?.usage?.tokens.total).toBe(82);
+	});
+
 	it("links to the judge run it critiques", async () => {
 		const { dispatch } = dispatchEcho();
 		const result = await runCritique({

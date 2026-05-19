@@ -56,6 +56,7 @@ import {
 	decideFinding,
 	formatFindingsView,
 } from "./synthesis.js";
+import { summarizeUsage, sumUsage, type UsageBreakdown } from "./usage.js";
 import { WorktreeRegistry } from "./worktree.js";
 import { createGitWorktreeProvider } from "./worktree-git.js";
 
@@ -586,6 +587,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
+				if (result.usage) {
+					state.council.fixUsage =
+						sumUsage([state.council.fixUsage ?? undefined, result.usage]) ??
+						null;
+				}
 				return {
 					content: [{ type: "text", text: formatFixSummary(result) }],
 					details: { ok: true, results: result.results },
@@ -670,6 +676,12 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				const ref = state.pr
 					? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
 					: "none";
+				const breakdown = summarizeUsage({
+					council: state.council.lastRun,
+					judge: state.council.lastJudge,
+					critique: state.council.lastCritique,
+					fix: state.council.fixUsage,
+				});
 				const lines = [
 					`active: ${state.active ? "yes" : "no"}`,
 					`pr: ${ref}`,
@@ -678,6 +690,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					`judge: ${state.council.judge?.id ?? "unset"}`,
 					`judge last run: ${state.council.lastJudge?.id ?? "none"}`,
 					`critique last run: ${state.council.lastCritique?.id ?? "none"}`,
+					...renderUsageLines(breakdown),
 				];
 				return {
 					content: [{ type: "text", text: lines.join("\n") }],
@@ -685,6 +698,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						active: state.active,
 						pr: state.pr,
 						council: state.council,
+						usage: breakdown,
 					},
 				};
 			}
@@ -847,6 +861,37 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			};
 		},
 	});
+}
+
+/**
+ * Format the cost summary lines for the status panel.
+ * Returns an empty list when no usage was recorded so the
+ * panel doesn't show a `usage: ...` line for a fresh
+ * session.
+ */
+function renderUsageLines(breakdown: UsageBreakdown): string[] {
+	if (breakdown.total === undefined) return [];
+	const lines: string[] = [];
+	lines.push("");
+	lines.push("usage:");
+	const stages: Array<[string, typeof breakdown.council]> = [
+		["council", breakdown.council],
+		["judge", breakdown.judge],
+		["critique", breakdown.critique],
+		["fix", breakdown.fix],
+	];
+	for (const [name, usage] of stages) {
+		if (usage === undefined) continue;
+		lines.push(`  ${name}: ${formatUsage(usage)}`);
+	}
+	lines.push(`  total: ${formatUsage(breakdown.total)}`);
+	return lines;
+}
+
+function formatUsage(usage: NonNullable<UsageBreakdown["total"]>): string {
+	const tokens = usage.tokens.total.toLocaleString("en-CA");
+	const cost = usage.cost.total.toFixed(4);
+	return `${tokens} tokens, $${cost}`;
 }
 
 function buildDecideInput(

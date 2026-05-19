@@ -22,7 +22,7 @@
 import type { CouncilDispatch, CouncilTarget } from "./council.js";
 import type { CouncilRun, FindingLocation } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
-import type { CouncilReviewer } from "./reviewer.js";
+import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
 import type { WorktreeRegistry } from "./worktree.js";
 
 /** Reviewer's stance on a single consolidated finding. */
@@ -41,6 +41,12 @@ export interface ReviewerCritiqueOutput {
 	readonly reviewerId: string;
 	readonly critiques: CritiqueEntry[];
 	readonly warnings: string[];
+	/**
+	 * Token + cost totals for this reviewer's critique
+	 * subagent. May be undefined when the dispatcher did
+	 * not surface usage.
+	 */
+	readonly usage?: ReviewerUsage;
 }
 
 /** Result of one critique round. */
@@ -300,6 +306,7 @@ export async function runCritique(
 			reviewerId: reviewer.id,
 			critiques: parsed.critiques,
 			warnings: [...dispatched.warnings, ...parsed.warnings],
+			...(dispatched.usage ? { usage: dispatched.usage } : {}),
 		};
 		return output;
 	});

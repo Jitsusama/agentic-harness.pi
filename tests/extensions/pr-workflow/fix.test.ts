@@ -282,6 +282,81 @@ describe("runFix", () => {
 		expect(args[modelIdx + 1]).toBe("anthropic:claude-opus-4");
 	});
 
+	it("surfaces token + cost usage from the assistant message_end events in stdout", async () => {
+		// Cost tracking needs the fix subagent's usage too,
+		// since it runs as a full pi subprocess just like
+		// council reviewers. The stdout still contains a
+		// trailing JSON object with the FixOutput shape
+		// (the existing parse contract) AND interleaved
+		// pi event lines that carry `usage`. The fix
+		// dispatcher extracts both.
+		const stdout = [
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "thinking..." }],
+					usage: {
+						input: 800,
+						output: 120,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 920,
+						cost: { total: 0.012 },
+					},
+				},
+			}),
+			JSON.stringify({
+				findingId: 17,
+				summary: "fixed",
+				modifiedFiles: ["lib/x.ts"],
+			}),
+		].join("\n");
+		const runPi: RunPi = vi.fn(async () => ({
+			stdout,
+			stderr: "",
+			exitCode: 0,
+		}));
+		const result = await runFix({
+			runPi,
+			model: "x",
+			tools: ["read"],
+			finding: lineFinding(),
+			worktreePath: "/tmp/w/17",
+		});
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.usage?.tokens.total).toBe(920);
+			expect(result.usage?.cost.total).toBeCloseTo(0.012);
+		}
+	});
+
+	it("leaves usage undefined when stdout has no message_end events", async () => {
+		// Today's fix tests stub stdout as a plain FixOutput
+		// JSON; we don't want them to suddenly require
+		// fabricating usage blocks. Absence is fine.
+		const runPi: RunPi = vi.fn(async () => ({
+			stdout: JSON.stringify({
+				findingId: 17,
+				summary: "ok",
+				modifiedFiles: [],
+			}),
+			stderr: "",
+			exitCode: 0,
+		}));
+		const result = await runFix({
+			runPi,
+			model: "x",
+			tools: ["read"],
+			finding: lineFinding(),
+			worktreePath: "/tmp/w/17",
+		});
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.usage).toBeUndefined();
+		}
+	});
+
 	it("rejects a parsed output whose findingId doesn't match the requested one", async () => {
 		// A subagent that returns the wrong finding id
 		// has lost the plot; refuse rather than apply

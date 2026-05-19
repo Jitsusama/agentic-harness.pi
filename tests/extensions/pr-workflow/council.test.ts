@@ -291,6 +291,93 @@ describe("runCouncil", () => {
 		{ timeout: 1000 },
 	);
 
+	it("carries each reviewer's usage block through to ReviewerOutput", async () => {
+		// Cost tracking lives at the ReviewerOutput level so
+		// the status panel can break down spend per reviewer.
+		// The orchestrator must not silently drop the usage
+		// that the dispatcher surfaced.
+		const dispatch: CouncilDispatch = async (opts) => ({
+			reviewerId: opts.reviewer.id,
+			exitCode: 0,
+			finalAssistantText: findingsJson([]),
+			stderr: "",
+			warnings: [],
+			usage: {
+				tokens: {
+					input: opts.reviewer.id === "fast" ? 100 : 200,
+					output: opts.reviewer.id === "fast" ? 10 : 20,
+					cacheRead: 0,
+					cacheWrite: 0,
+					total: opts.reviewer.id === "fast" ? 110 : 220,
+				},
+				cost: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					total: opts.reviewer.id === "fast" ? 0.001 : 0.002,
+				},
+			},
+		});
+		const run = await runCouncil({
+			runId: "run-usage",
+			target: TARGET,
+			reviewers: [REVIEWER_A, REVIEWER_B],
+			registry: new WorktreeRegistry(fakeWorktreeProvider()),
+			dispatch,
+		});
+		const fast = run.reviewerOutputs.find((r) => r.reviewerId === "fast");
+		const skeptic = run.reviewerOutputs.find((r) => r.reviewerId === "skeptic");
+		expect(fast?.usage?.tokens.total).toBe(110);
+		expect(fast?.usage?.cost.total).toBeCloseTo(0.001);
+		expect(skeptic?.usage?.tokens.total).toBe(220);
+		expect(skeptic?.usage?.cost.total).toBeCloseTo(0.002);
+	});
+
+	it("leaves usage undefined for reviewers whose dispatch crashed", async () => {
+		// A reviewer that never produced output also produced
+		// no usage. The orchestrator records a warning and
+		// omits usage rather than fabricating zeros that
+		// would skew per-reviewer averages.
+		const dispatch: CouncilDispatch = async (opts) => {
+			if (opts.reviewer.id === "skeptic") {
+				throw new Error("boom");
+			}
+			return {
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: findingsJson([]),
+				stderr: "",
+				warnings: [],
+				usage: {
+					tokens: {
+						input: 1,
+						output: 1,
+						cacheRead: 0,
+						cacheWrite: 0,
+						total: 2,
+					},
+					cost: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						total: 0.0001,
+					},
+				},
+			};
+		};
+		const run = await runCouncil({
+			runId: "run-mixed",
+			target: TARGET,
+			reviewers: [REVIEWER_A, REVIEWER_B],
+			registry: new WorktreeRegistry(fakeWorktreeProvider()),
+			dispatch,
+		});
+		const skeptic = run.reviewerOutputs.find((r) => r.reviewerId === "skeptic");
+		expect(skeptic?.usage).toBeUndefined();
+	});
+
 	it("returns a CouncilRun with stable id, startedAt, and target", async () => {
 		// The CouncilRun is the unit downstream consumers
 		// reference for "show me the last council pass".

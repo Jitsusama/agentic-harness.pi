@@ -121,6 +121,7 @@ export async function runCouncil(
 			reviewerId: reviewer.id,
 			findings: parsed.findings,
 			warnings: [...value.warnings, ...parsed.warnings],
+			...(value.usage ? { usage: value.usage } : {}),
 		});
 	}
 

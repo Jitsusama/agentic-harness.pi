@@ -36,7 +36,7 @@ prose; you translate intent into calls.
 | Action | When to call |
 |---|---|
 | `load` | First action of any PR session. User said "review PR 42" or pasted a URL. |
-| `status` | User asks "where are we?", "what's loaded?". Read-only. |
+| `status` | User asks "where are we?", "what's loaded?", or "how much has this cost?". Read-only; surfaces the per-stage and total token/cost spend. |
 | `council-config` | User wants to set or change the reviewer roster. |
 | `council` | Round 1: fan out the roster. User said "run the review", "kick it off". |
 | `judge-config` | User wants to set or change the judge model. |
@@ -255,6 +255,30 @@ _Raised by: fast, skeptic._
 Inline comments (line-located findings) post against
 the file/line. File- and scope-level findings collect
 in the review body summary.
+
+## Tracking cost
+
+`status` shows token + cost usage per stage and as a
+running total. The breakdown looks like:
+
+```
+usage:
+  council: 12,400 tokens, $0.1830
+  judge:    3,100 tokens, $0.0520
+  critique: 8,600 tokens, $0.1240
+  fix:      4,200 tokens, $0.0610
+  total:   28,300 tokens, $0.4200
+```
+
+Each stage reports the spend from its most recent run.
+`fix` is cumulative across every `fix` call since the
+session started (fix runs aren't persisted as artefacts
+the way council/judge/critique are).
+
+The figures come from pi's own `usage` events in the
+subagent JSON stream. When a stage hasn't run, its line
+is omitted. When no stage has run, the whole `usage:`
+block is omitted.
 
 ## Honest provenance
 

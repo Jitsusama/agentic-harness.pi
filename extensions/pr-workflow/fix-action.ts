@@ -20,8 +20,10 @@
 
 import type { Finding } from "./findings.js";
 import type { FixOutput, RunFixOptions } from "./fix.js";
+import type { ReviewerUsage } from "./reviewer.js";
 import type { PrWorkflowState } from "./state.js";
 import type { FindingDecision } from "./synthesis.js";
+import { sumUsage } from "./usage.js";
 
 /**
  * Boundary the action uses to dispatch one fix
@@ -31,8 +33,13 @@ import type { FindingDecision } from "./synthesis.js";
 export type RunFix = (
 	options: Omit<RunFixOptions, "runPi" | "tools">,
 ) => Promise<
-	| { ok: true; output: FixOutput; stderr: string }
-	| { ok: false; error: string; stderr?: string }
+	| { ok: true; output: FixOutput; stderr: string; usage?: ReviewerUsage }
+	| {
+			ok: false;
+			error: string;
+			stderr?: string;
+			usage?: ReviewerUsage;
+	  }
 >;
 
 /** Inputs to the action handler. */
@@ -57,6 +64,12 @@ export type RunFixActionResult =
 	| {
 			ok: true;
 			results: { succeeded: FixSucceeded[]; failed: FixFailed[] };
+			/**
+			 * Aggregate token + cost usage summed across every
+			 * fix in the run. Undefined when none surfaced
+			 * usage (older pi, fake runner).
+			 */
+			usage?: ReviewerUsage;
 	  }
 	| { ok: false; error: string };
 
@@ -93,6 +106,7 @@ export async function runFixAction(
 
 	const succeeded: FixSucceeded[] = [];
 	const failed: FixFailed[] = [];
+	const usages: ReviewerUsage[] = [];
 
 	// Serial — see module header. Workers share a worktree.
 	for (const { finding, decision } of queued) {
@@ -103,6 +117,7 @@ export async function runFixAction(
 			prTitle: state.pr.metadata?.title,
 			userInstructions: decision.instructions,
 		});
+		if (result.usage) usages.push(result.usage);
 		if (result.ok) {
 			succeeded.push({
 				findingId: finding.id,
@@ -114,7 +129,12 @@ export async function runFixAction(
 		}
 	}
 
-	return { ok: true, results: { succeeded, failed } };
+	const aggregate = sumUsage(usages);
+	return {
+		ok: true,
+		results: { succeeded, failed },
+		...(aggregate ? { usage: aggregate } : {}),
+	};
 }
 
 interface QueuedEntry {

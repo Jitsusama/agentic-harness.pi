@@ -219,6 +219,59 @@ describe("runFixAction", () => {
 		expect(order).toEqual([10, 10, 11, 11]);
 	});
 
+	it("aggregates per-fix usage into a run-level total", async () => {
+		// status panel needs an aggregate; summing usage at
+		// the action boundary keeps the aggregation logic out
+		// of UI code.
+		const state = withCouncilAndJudge([lineFinding(10), lineFinding(11)]);
+		decideFinding(state, { findingId: 10, verdict: "fix" });
+		decideFinding(state, { findingId: 11, verdict: "fix" });
+		const runFix = vi.fn(async (opts) => ({
+			ok: true,
+			output: {
+				findingId: opts.finding.id,
+				summary: "ok",
+				modifiedFiles: [],
+			},
+			stderr: "",
+			usage: {
+				tokens: {
+					input: 100,
+					output: 20,
+					cacheRead: 0,
+					cacheWrite: 0,
+					total: 120,
+				},
+				cost: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					total: 0.01,
+				},
+			},
+		})) as unknown as RunFix;
+		const result = await runFixAction({ state, runFix });
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.usage?.tokens.total).toBe(240);
+			expect(result.usage?.cost.total).toBeCloseTo(0.02);
+		}
+	});
+
+	it("omits usage when no fix surfaced a usage block", async () => {
+		// Backwards-compatible: a runFix that doesn't supply
+		// usage (older code path, fake) results in undefined
+		// aggregate.
+		const state = withCouncilAndJudge([lineFinding(10)]);
+		decideFinding(state, { findingId: 10, verdict: "fix" });
+		const result = await runFixAction({ state, runFix: okFixRun() });
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.usage).toBeUndefined();
+		}
+	});
+
 	it("uses the configured fix model when one is set", async () => {
 		const state = withCouncilAndJudge([lineFinding(10)]);
 		state.council.fixModel = "anthropic:claude-opus-4";

@@ -28,7 +28,7 @@ import type {
 	FindingLocation,
 	FindingSeverity,
 } from "./findings.js";
-import type { CouncilReviewer } from "./reviewer.js";
+import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
 import type { WorktreeRegistry } from "./worktree.js";
 
 /** Judge self-signal of confidence in the consolidation. */
@@ -45,6 +45,11 @@ export interface JudgeRun {
 	readonly selfSignal: JudgeSelfSignal | null;
 	readonly consolidatedFindings: Finding[];
 	readonly warnings: string[];
+	/**
+	 * Token + cost totals for the judge subagent. May be
+	 * undefined when the dispatcher didn't surface usage.
+	 */
+	readonly usage?: ReviewerUsage;
 }
 
 /** Inputs to `buildJudgePrompt`. */
@@ -287,6 +292,7 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 		selfSignal: parsed.selfSignal,
 		consolidatedFindings: parsed.findings,
 		warnings: [...dispatched.warnings, ...parsed.warnings],
+		...(dispatched.usage ? { usage: dispatched.usage } : {}),
 	};
 }
 
