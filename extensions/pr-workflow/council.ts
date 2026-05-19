@@ -62,6 +62,72 @@ export interface RunCouncilOptions {
 	readonly signal?: AbortSignal;
 }
 
+/** Options for a single-reviewer council dispatch. */
+export interface RunOneReviewerOptions {
+	readonly runId: string;
+	readonly target: CouncilTarget;
+	readonly reviewer: CouncilReviewer;
+	readonly registry: WorktreeRegistry;
+	readonly dispatch: CouncilDispatch;
+	readonly signal?: AbortSignal;
+	/**
+	 * Starting finding id. Findings get assigned ids
+	 * sequentially from this value. Callers retrying one
+	 * reviewer mid-run pass `max(existingIds) + 1` to
+	 * avoid collisions with un-retried output.
+	 */
+	readonly startId: number;
+}
+
+/**
+ * Run a single reviewer against `target`. Acquires the
+ * shared worktree, builds the prompt, dispatches, and
+ * parses output, all with the same resilience as
+ * `runCouncil` (rejections become warnings on the
+ * output). The caller decides where the resulting
+ * `ReviewerOutput` lands.
+ */
+export async function runOneCouncilReviewer(
+	options: RunOneReviewerOptions,
+): Promise<ReviewerOutput> {
+	const handle = await options.registry.ensure({
+		owner: options.target.owner,
+		repo: options.target.repo,
+		sha: options.target.sha,
+	});
+	const prompt = buildReviewerPrompt({
+		prTitle: options.target.title,
+		prDescription: options.target.description,
+		files: options.target.files,
+	});
+	try {
+		const value = await options.dispatch({
+			reviewer: options.reviewer,
+			prompt,
+			cwd: handle.path,
+			signal: options.signal,
+		});
+		const parsed = parseReviewerOutput(value.finalAssistantText, {
+			reviewerId: options.reviewer.id,
+			runId: options.runId,
+			startId: options.startId,
+		});
+		return {
+			reviewerId: options.reviewer.id,
+			findings: parsed.findings,
+			warnings: [...value.warnings, ...parsed.warnings],
+			...(value.usage ? { usage: value.usage } : {}),
+		};
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		return {
+			reviewerId: options.reviewer.id,
+			findings: [],
+			warnings: [`Reviewer dispatch failed: ${message}`],
+		};
+	}
+}
+
 /** Run round-1 fan-out against `target`. */
 export async function runCouncil(
 	options: RunCouncilOptions,

@@ -28,6 +28,7 @@ import { parsePrFileUri, prFileUri, resolvePrFile } from "./buffer.js";
 import {
 	configureCouncil,
 	formatCouncilSummary,
+	retryCouncilReviewer,
 	runCouncilAction,
 } from "./council-action.js";
 import { formatCritiqueSummary, runCritiqueAction } from "./critique-action.js";
@@ -169,6 +170,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"stack",
 					"stack-next",
 					"stack-prev",
+					"council-retry",
 				] as const,
 				{
 					description:
@@ -184,7 +186,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"post: send eligible findings to GitHub as a PR review. " +
 						"stack: render the discovered PR stack with cursor highlighted. " +
 						"stack-next: re-load the next PR downstream of the cursor. " +
-						"stack-prev: re-load the PR upstream of the cursor.",
+						"stack-prev: re-load the PR upstream of the cursor. " +
+						"council-retry: re-run one reviewer in the most recent " +
+						"council run and substitute their output in place.",
 				},
 			),
 			pr: Type.Optional(
@@ -248,6 +252,12 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				Type.Integer({
 					description:
 						"Finding id from the most-recent judge run. Required for action=decide.",
+				}),
+			),
+			reviewerId: Type.Optional(
+				Type.String({
+					description:
+						"Reviewer id from the active council roster. Required for action=council-retry.",
 				}),
 			),
 			verdict: Type.Optional(
@@ -333,6 +343,39 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					state,
 					registry,
 					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [{ type: "text", text: formatCouncilSummary(result.run) }],
+					details: { ok: true, run: result.run },
+				};
+			}
+
+			if (params.action === "council-retry") {
+				if (!params.reviewerId) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "council-retry requires a `reviewerId` argument.",
+							},
+						],
+						details: { ok: false, error: "missing reviewerId argument" },
+						isError: true,
+					};
+				}
+				const { registry, runPi, extraExtensions } = getCouncilDeps();
+				const result = await retryCouncilReviewer({
+					state,
+					registry,
+					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
+					reviewerId: params.reviewerId,
 				});
 				if (!result.ok) {
 					return {
