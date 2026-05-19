@@ -19,6 +19,7 @@ import {
 	Editor,
 	isKeyRelease,
 	Key,
+	type KeyId,
 	matchesKey,
 	type TUI,
 	truncateToWidth,
@@ -307,7 +308,7 @@ function createWorkspaceController(
 		if (views.length > 1) {
 			for (let i = 0; i < views.length; i++) {
 				const v = views[i];
-				if (v && matchesKey(data, v.key)) {
+				if (v && matchesKey(data, v.key as KeyId)) {
 					const target = i === getViewIndex(currentTab) ? 0 : i;
 					activeViewIndex.set(currentTab, target);
 					tui.requestRender();

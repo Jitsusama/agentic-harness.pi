@@ -7,7 +7,7 @@
  * keys and their Shift variants.
  */
 
-import { Key, matchesKey, parseKey } from "@mariozechner/pi-tui";
+import { Key, type KeyId, matchesKey, parseKey } from "@mariozechner/pi-tui";
 import type { KeyAction } from "./types.js";
 
 /**
@@ -69,10 +69,11 @@ export function isShiftEscape(data: string): boolean {
  *    terminals that send the literal `+` byte.
  */
 export function matchesActionKey(data: string, key: string): boolean {
-	if (matchesKey(data, key)) return true;
+	if (matchesKey(data, key as KeyId)) return true;
 	const baseKey = SHIFTED_SYMBOL_BASE[key];
 	if (baseKey) {
-		if (matchesKey(data, Key.shift(baseKey))) return true;
+		if (matchesKey(data, Key.shift(baseKey as Parameters<typeof Key.shift>[0])))
+			return true;
 		// This is a legacy fallback: some terminals send the raw character (e.g., "+" for Shift+=).
 		if (data === key) return true;
 	}
@@ -95,7 +96,9 @@ export function handleActionInput(
 ): ActionBarResult | null {
 	// Shift+letter = annotated variant of an action
 	for (const action of actions) {
-		if (matchesKey(data, Key.shift(action.key))) {
+		if (
+			matchesKey(data, Key.shift(action.key as Parameters<typeof Key.shift>[0]))
+		) {
 			return { type: "annotatedAction", key: action.key };
 		}
 	}

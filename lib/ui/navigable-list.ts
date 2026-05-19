@@ -56,7 +56,9 @@ import { CONTENT_INDENT, GLYPH } from "./types.js";
  *   width and applies `theme.fg(color, ...)` to each line.
  * - `string`: renderer prepends indent. Empty string = blank line.
  */
-export type DetailEntry = string | { text: string; color: string };
+export type DetailEntry =
+	| string
+	| { text: string; color: import("@mariozechner/pi-coding-agent").ThemeColor };
 
 /** A single item in a navigable list. */
 export interface NavigableItem {

@@ -228,7 +228,9 @@ export function handleTabInput(
 	}
 	// Ctrl+number jumps to tab N (Ctrl+1 = tab 0, etc.)
 	for (let n = 1; n <= Math.min(tabCount, 9); n++) {
-		if (matchesKey(data, Key.ctrl(String(n)))) {
+		if (
+			matchesKey(data, Key.ctrl(String(n) as Parameters<typeof Key.ctrl>[0]))
+		) {
 			return n - 1;
 		}
 	}

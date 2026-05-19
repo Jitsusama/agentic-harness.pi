@@ -129,10 +129,10 @@ export function handleScrollInput(
 		1,
 		Math.floor(budget * (1 - COARSE_SCROLL_OVERLAP_FRACTION)),
 	);
-	if (matchesKey(data, "pageup")) {
+	if (matchesKey(data, "pageUp")) {
 		return { ...state, vOffset: Math.max(0, state.vOffset - coarseStep) };
 	}
-	if (matchesKey(data, "pagedown")) {
+	if (matchesKey(data, "pageDown")) {
 		return {
 			...state,
 			vOffset: clampVScroll(state.vOffset + coarseStep, contentLength, budget),
