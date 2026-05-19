@@ -108,7 +108,12 @@ they all work independently.
 - Imports from pi use `@mariozechner/pi-coding-agent`,
   `@mariozechner/pi-ai` and `@mariozechner/pi-tui`. These
   are provided by pi at runtime; do not add them to
-  package.json.
+  `dependencies`. The matching `@earendil-works/*`
+  packages (and `typebox`) are installed as
+  `devDependencies` so `tsc` can resolve the imports;
+  `tsconfig.json` maps the `@mariozechner/*` specifiers
+  to the `@earendil-works/*` packages on disk. The
+  runtime contract is unchanged.
 
 ## Design Principles
 
@@ -291,6 +296,23 @@ reason to check before fixing. All code in `extensions/`,
 no warnings) before being committed. Fix the code to satisfy
 the linter rather than suppressing rules.
 
+## Typecheck
+
+A narrow `tsc --noEmit` runs in CI against
+`extensions/pr-workflow/**` and `lib/internal/github/**`
+(see `tsconfig.typecheck.json`):
+
+```sh
+pnpm typecheck       # narrow scope, CI-enforced
+pnpm typecheck:full  # full repo, informational only
+```
+
+New code in `extensions/pr-workflow/` MUST pass
+`pnpm typecheck`. Older extensions accumulated type debt
+before tsc was wired in; cleaning that up is a separate
+effort. When touching one of those extensions, treat its
+eventual inclusion in the typecheck scope as the goal.
+
 ## Testing
 
 Library code under `lib/` has unit tests written with vitest.
@@ -323,9 +345,12 @@ request via `.github/workflows/ci.yml`.
 ## What Not to Do
 
 - Do not add build tooling, bundlers or transpilation steps.
-- Do not add pi's own packages to package.json. They are
-  provided at runtime (`@mariozechner/pi-coding-agent`,
-  `@mariozechner/pi-ai`, `@mariozechner/pi-tui`).
+- Do not add pi's own packages to `dependencies`. They
+  are provided at runtime (`@mariozechner/pi-coding-agent`,
+  `@mariozechner/pi-ai`, `@mariozechner/pi-tui`). The
+  matching `@earendil-works/*` packages live in
+  `devDependencies` for typecheck only and must not be
+  imported under those names from production code.
   Third-party dependencies belong in the root
   `package.json`'s `dependencies`, not in extension-local
   package.json files. Library code lives in `lib/` and

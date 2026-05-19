@@ -118,18 +118,14 @@ function renderFile(file: DiffFile): string {
 }
 
 function renderHeader(file: DiffFile): string {
-	const status =
-		file.status === "renamed" && file.oldPath
-			? ` (renamed from ${file.oldPath})`
-			: ` (${file.status})`;
-	return `### ${file.path}${status}`;
+	return `### ${file.path} (${file.status})`;
 }
 
 function renderLine(line: DiffLine): string {
 	switch (line.type) {
-		case "add":
+		case "added":
 			return `+${line.content}`;
-		case "remove":
+		case "removed":
 			return `-${line.content}`;
 		default:
 			return ` ${line.content}`;

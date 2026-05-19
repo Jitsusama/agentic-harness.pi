@@ -1,0 +1,5 @@
+{
+	"extends": "./tsconfig.json",
+	"include": ["extensions/pr-workflow/**/*.ts", "lib/internal/github/**/*.ts"],
+	"exclude": ["node_modules", "dist", ".pi", ".worktrees"]
+}

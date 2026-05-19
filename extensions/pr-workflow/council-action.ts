@@ -155,9 +155,11 @@ function renderLocation(
 ): string {
 	switch (loc.kind) {
 		case "line":
-			return `(${loc.path}:${loc.line})`;
+			return loc.start === loc.end
+				? `(${loc.file}:${loc.start})`
+				: `(${loc.file}:${loc.start}-${loc.end})`;
 		case "file":
-			return `(${loc.path})`;
+			return `(${loc.file})`;
 		case "global":
 			return "(scope)";
 	}

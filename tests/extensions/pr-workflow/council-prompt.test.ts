@@ -24,7 +24,14 @@ function file(overrides: Partial<DiffFile> = {}): DiffFile {
 				newStart: 1,
 				newLines: 1,
 				header: "@@ -1,0 +1,1 @@",
-				lines: [{ type: "add", content: "console.log('hi');", newLine: 1 }],
+				lines: [
+					{
+						type: "added",
+						content: "console.log('hi');",
+						oldLineNumber: null,
+						newLineNumber: 1,
+					},
+				],
 			},
 		],
 		...overrides,
@@ -76,8 +83,18 @@ describe("buildReviewerPrompt", () => {
 							newLines: 1,
 							header: "@@ -1,1 +1,1 @@",
 							lines: [
-								{ type: "remove", content: "old line", oldLine: 1 },
-								{ type: "add", content: "new line", newLine: 1 },
+								{
+									type: "removed",
+									content: "old line",
+									oldLineNumber: 1,
+									newLineNumber: null,
+								},
+								{
+									type: "added",
+									content: "new line",
+									oldLineNumber: null,
+									newLineNumber: 1,
+								},
 							],
 						},
 					],

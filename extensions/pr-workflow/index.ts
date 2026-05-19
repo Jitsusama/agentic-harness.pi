@@ -220,26 +220,28 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				),
 			),
 			judge: Type.Optional(
-				Type.Object({
-					id: Type.String({
-						description: "Stable id for the judge reviewer.",
-					}),
-					model: Type.Optional(
-						Type.String({
-							description:
-								"Pi --model value for the judge (e.g. anthropic:claude-opus-4).",
+				Type.Object(
+					{
+						id: Type.String({
+							description: "Stable id for the judge reviewer.",
 						}),
-					),
-					tools: Type.Optional(
-						Type.Array(Type.String(), {
-							description: "Tool palette for the judge.",
-						}),
-					),
-				}),
-				{
-					description:
-						"Judge reviewer config. Required for action=judge-config.",
-				},
+						model: Type.Optional(
+							Type.String({
+								description:
+									"Pi --model value for the judge (e.g. anthropic:claude-opus-4).",
+							}),
+						),
+						tools: Type.Optional(
+							Type.Array(Type.String(), {
+								description: "Tool palette for the judge.",
+							}),
+						),
+					},
+					{
+						description:
+							"Judge reviewer config. Required for action=judge-config.",
+					},
+				),
 			),
 			findingId: Type.Optional(
 				Type.Integer({
@@ -305,7 +307,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}),
 			),
 		}),
-		async execute(_toolCallId, params) {
+		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			if (params.action === "council-config") {
 				const reviewers = params.reviewers ?? [];
 				const result = configureCouncil(state, { reviewers });
