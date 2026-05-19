@@ -1,24 +1,37 @@
 /**
  * Reviewer response parser.
  *
- * Real-world LLM output is messy. The parser extracts the
- * first plausible JSON block from a response, validates
- * each finding entry against the expected shape, and
- * returns the typed findings plus a list of warnings for
- * the caller to surface. One bad entry doesn't abort the
- * batch; we keep the good ones.
+ * Real-world LLM output is messy. The parser extracts
+ * the first plausible JSON block from a response,
+ * validates each finding entry against the shared
+ * `CouncilFinding` schema, and returns the typed
+ * findings plus a list of warnings for the caller to
+ * surface. One bad entry doesn't abort the batch; we
+ * keep the good ones.
  *
- * The parser is pure and synchronous. It owns id assignment
- * (sequential from `startId`) and origin stamping so callers
- * don't have to.
+ * The validation contract lives in `schemas.ts` so the
+ * subagent's `verify_output` tool and the parent's
+ * parser cannot drift: anything the subagent verifies
+ * green is something the parser will accept here.
+ *
+ * The parser is pure and synchronous. It owns id
+ * assignment (sequential from `startId`), origin
+ * stamping, category inference and the tiny bit of
+ * post-schema normalisation the schema can't express
+ * (whitespace-only strings).
  */
 
+import type { Static } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import type {
 	ConventionalLabel,
 	Finding,
-	FindingLocation,
 	FindingSeverity,
 } from "./findings.js";
+import { CouncilFinding } from "./schemas.js";
+
+/** Static type of one schema-valid council finding. */
+type CouncilFindingStatic = Static<typeof CouncilFinding>;
 
 /** Caller-supplied context for parsing. */
 export interface ParseContext {
@@ -35,27 +48,6 @@ export interface ParseResult {
 	readonly findings: Finding[];
 	readonly warnings: string[];
 }
-
-const VALID_LABELS: ReadonlySet<ConventionalLabel> = new Set([
-	"praise",
-	"nitpick",
-	"suggestion",
-	"issue",
-	"todo",
-	"question",
-	"thought",
-	"chore",
-	"note",
-	"typo",
-	"polish",
-	"quibble",
-]);
-
-const VALID_SEVERITIES: ReadonlySet<FindingSeverity> = new Set([
-	"critical",
-	"medium",
-	"minor",
-]);
 
 /**
  * Parse a reviewer's response into structured findings.
@@ -100,12 +92,18 @@ export function parseReviewerOutput(
 	let nextId = context.startId;
 
 	for (let i = 0; i < rawFindings.length; i++) {
-		const finding = toFinding(rawFindings[i], nextId, context);
-		if (finding === null) {
+		const raw = rawFindings[i];
+		if (!Value.Check(CouncilFinding, raw)) {
 			warnings.push(`Finding at index ${i} is malformed; skipped`);
 			continue;
 		}
-		findings.push(finding);
+		// Schema accepts " " as a string of length 1; we
+		// don't want that promoted into a real comment.
+		if (raw.subject.trim() === "" || raw.discussion.trim() === "") {
+			warnings.push(`Finding at index ${i} is malformed; skipped`);
+			continue;
+		}
+		findings.push(toFinding(raw, nextId, context));
 		nextId++;
 	}
 
@@ -132,60 +130,29 @@ function extractFindingsArray(parsed: unknown): unknown[] | null {
 	return record.findings;
 }
 
+/**
+ * Build the internal `Finding` from a schema-validated
+ * raw entry. The schema guarantees the input shape; this
+ * step stamps id, origin, state, defaults decorations
+ * and infers category from location.
+ */
 function toFinding(
-	raw: unknown,
+	raw: CouncilFindingStatic,
 	id: number,
 	context: ParseContext,
-): Finding | null {
-	if (typeof raw !== "object" || raw === null) return null;
-	const r = raw as Record<string, unknown>;
-
-	const location = toLocation(r.location);
-	if (location === null) return null;
-
-	const label = r.label;
-	if (
-		typeof label !== "string" ||
-		!VALID_LABELS.has(label as ConventionalLabel)
-	) {
-		return null;
-	}
-
-	const subject = r.subject;
-	if (typeof subject !== "string" || subject.trim().length === 0) return null;
-
-	const discussion = r.discussion;
-	if (typeof discussion !== "string" || discussion.trim().length === 0)
-		return null;
-
-	const decorations = Array.isArray(r.decorations)
-		? r.decorations.filter((d): d is string => typeof d === "string")
-		: [];
-
-	const severity =
-		typeof r.severity === "string" &&
-		VALID_SEVERITIES.has(r.severity as FindingSeverity)
-			? (r.severity as FindingSeverity)
-			: undefined;
-
-	const confidence =
-		typeof r.confidence === "number" && r.confidence >= 0 && r.confidence <= 1
-			? r.confidence
-			: undefined;
-
+): Finding {
 	const category: Finding["category"] =
-		location.kind === "global" ? "scope" : "file";
-
+		raw.location.kind === "global" ? "scope" : "file";
 	return {
 		id,
-		location,
-		label: label as ConventionalLabel,
-		decorations,
-		subject,
-		discussion,
+		location: raw.location,
+		label: raw.label as ConventionalLabel,
+		decorations: raw.decorations ?? [],
+		subject: raw.subject,
+		discussion: raw.discussion,
 		category,
-		severity,
-		confidence,
+		severity: raw.severity as FindingSeverity | undefined,
+		confidence: raw.confidence,
 		origin: {
 			kind: "council",
 			runId: context.runId,
@@ -193,29 +160,4 @@ function toFinding(
 		},
 		state: "draft",
 	};
-}
-
-function toLocation(raw: unknown): FindingLocation | null {
-	if (typeof raw !== "object" || raw === null) return null;
-	const r = raw as Record<string, unknown>;
-	const kind = r.kind;
-	if (kind === "global") return { kind: "global" };
-	if (kind === "file") {
-		if (typeof r.file !== "string") return null;
-		return { kind: "file", file: r.file };
-	}
-	if (kind === "line") {
-		if (typeof r.file !== "string") return null;
-		if (typeof r.start !== "number" || typeof r.end !== "number") return null;
-		const side = r.side;
-		if (side !== "old" && side !== "new" && side !== "both") return null;
-		return {
-			kind: "line",
-			file: r.file,
-			start: r.start,
-			end: r.end,
-			side,
-		};
-	}
-	return null;
 }

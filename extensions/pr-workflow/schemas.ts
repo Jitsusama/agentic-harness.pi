@@ -79,7 +79,7 @@ const FindingLocation = Type.Union([
 ]);
 
 /** A round-1 reviewer finding. */
-const CouncilFinding = Type.Object({
+export const CouncilFinding = Type.Object({
 	location: FindingLocation,
 	label: Label,
 	decorations: Type.Optional(Type.Array(Type.String())),
@@ -106,7 +106,7 @@ export type CouncilFindingsOutputT = Static<typeof CouncilFindingsOutput>;
  * captures the judge's confidence in its own
  * consolidation.
  */
-const JudgeFinding = Type.Object({
+export const JudgeFinding = Type.Object({
 	location: FindingLocation,
 	label: Label,
 	decorations: Type.Optional(Type.Array(Type.String())),
@@ -138,7 +138,7 @@ export type JudgeOutputT = Static<typeof JudgeOutput>;
  * Critique entry: a single reviewer's position on one of
  * the judge's consolidated findings.
  */
-const CritiqueEntry = Type.Object({
+export const CritiqueEntry = Type.Object({
 	findingId: Type.Integer({ minimum: 1 }),
 	position: Type.Union([
 		Type.Literal("agree"),
