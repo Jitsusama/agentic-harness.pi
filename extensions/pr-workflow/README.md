@@ -28,8 +28,9 @@ steering it from a menu.
 - **Multi-model review council.** Findings are produced by
   parallel calls to several models, then reduced through a
   judge round, surfaced to the user, and posted on approval.
-  Council mechanics live in `extensions/pr-workflow/council/`
-  once that capability scaffolds.
+  Council mechanics live in `council.ts` + `council-action.ts`
+  with the judge, critique and stack-critic stages each in
+  their own pair of files.
 - **Neovim is the code viewer.** When paired with a neovim
   via the `neovim-pi` extension, the agent can call
   `nvim_buffer_open` with `pi://pr/.../file/<sha>/<path>`
@@ -47,6 +48,118 @@ steering it from a menu.
 - **No global keymaps or autocmds.** Nothing in nvim is
   hijacked by default. Pi steers nvim via the documented
   companion protocol; the user always wins.
+
+## User Journeys
+
+These aren't modes the user picks. They're trajectories
+that emerge from prose: the agent reads the user's intent
+and adapts. The same session can move between trajectories
+without ceremony. The full design lives in the
+[project's design doc 08](../../../../localhost/documents/projects/proj-pi-pr-workflow/sidequests/pr-mode-redesign/designs/08-user-journeys.md);
+this section is the short version.
+
+### 1. Self-review before pushing
+
+> "review what i have locally"
+
+The user wants a second set of eyes on uncommitted work
+before opening a PR. The agent loads the local diff,
+runs the council in the background while the user reads
+in nvim, then enters the fix loop: each endorsed finding
+turns into an edit + commit through `commit-guardian`.
+Nothing gets posted; the terminal is a cleaner working
+tree.
+
+**Typical actions:** `load` (local) → `council` → `judge`
+→ `decide verdict=fix` for each → `fix-next` /
+`fix-done` loop.
+
+### 2. Deep review of someone else's PR
+
+> "review pr 1234"
+
+The user wants to read the whole change themselves and
+use the council as a sanity check. The agent loads the
+PR, opens the diff in nvim, fires the council in
+parallel. When the council finishes, the user triages
+findings (`endorse` what they agree with, `dismiss`
+false positives, `qualify` soft-disagreements, `edit`
+where wording can be sharpened) and posts the review.
+
+**Typical actions:** `load` → `council` → `judge` →
+(optionally `critique`) → `findings` → `decide` × N →
+`post`.
+
+### 3. Addressing review feedback on your own PR
+
+> "let me see #1234"
+
+The user is the PR author and has inbound comments to
+respond to. The agent fetches threads, walks them with
+the user, and either drafts a reply (`reply`) or pairs
+a fix-commit with a reply pointing at the commit sha.
+The two action families (`threads/reply/resolve` for
+inbound, `council/findings/decide/post/fix-*` for
+self-review) stay separate; see the "Two inboxes"
+section in `pr-workflow-guide`.
+
+**Typical actions:** `load` → `threads` → per thread,
+either `reply` + `resolve`, or main-loop edit →
+`commit-guardian` → `reply` referencing the sha →
+`resolve`.
+
+### 4. Delegated review with council
+
+> "i don't have time to read all of this; what does the council say?"
+
+The user wants the council to do the reading and surface
+a shortlist. The agent runs the council without
+requiring the user to walk the diff first; findings
+include more inline context so the user can decide each
+one without leaving the conversation. Reviewing the
+posted output still passes through Round 4: the user is
+the final decision-maker even when they didn't read the
+code.
+
+**Typical actions:** `load` → `council` → `judge` →
+`findings` → `decide` × N (with the user leaning on
+the agent's prose framing) → `post`.
+
+### 5. Pair-debugging unfamiliar code
+
+> "someone pinged me on this PR; i don't know this area"
+
+The user wants help orienting before forming an opinion.
+The agent reads the diff and surrounding code, narrates
+structure (file roster, the "heart" of the change,
+behavioural deltas) and finds the riskiest section. No
+council; no findings-as-a-list. The output might be one
+or two well-aimed comments posted manually, or just a
+reply to whoever pinged them.
+
+**Typical actions:** `load` → free-form reading +
+narration → maybe `threads` to see what's already been
+said → prose conversation, no formal pipeline.
+
+### Cross-trajectory invariants
+
+Five things stay true across every journey:
+
+- Prose is the entry point. There's no mode picker.
+- Council is never required. Trajectories 1, 2 and 4
+  use it; 3 and 5 typically don't.
+- Round 4 is non-negotiable when a council ran. The
+  user is always the final reviewer.
+- Surface shifts (pi ↔ nvim) happen mid-prose, not via
+  ceremony commands.
+- Inbound threads and self-review findings stay in
+  separate action families even when the user is
+  weaving between them in conversation.
+
+The agent's defaults shift per trajectory (whether to
+auto-suggest council, how much inline context to show
+in findings, what to recommend at Round 4's close).
+`pr-workflow-guide` covers the inference rules.
 
 ## Actions
 
@@ -293,11 +406,16 @@ available.
 - `index.ts` — extension registration. Reads as a table of
   contents.
 
-Subsequent capabilities live in their own subdirectories
-(e.g. `council/`, `findings/`, `companion/`, `post/`) and are
-wired into `index.ts` via named imports.
+Each capability is a pair of files: a pure data layer
+(`council.ts`, `judge.ts`, `critique.ts`, `stack-critic.ts`,
+`fix.ts`, `threads.ts`, `summary.ts`) and an action layer
+that wires it to the tool surface (`council-action.ts`,
+`judge-action.ts`, etc.). `index.ts` reads as a table of
+contents.
 
 ## Tests
 
-`tests/extensions/pr-workflow/` covers the state factory.
-Each new capability ships its own tests at the same depth.
+`tests/extensions/pr-workflow/` mirrors the source layout.
+Each capability ships its own test file at the same depth;
+pure-render modules are tested independently of orchestration
+so vitest doesn't have to resolve `pi-tui`.
