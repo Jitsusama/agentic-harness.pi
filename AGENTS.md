@@ -1,9 +1,13 @@
 ## What This Is
 
 A pi package: a collection of extensions and skills that other
-people install into their pi setup. There is no build step and
-no test suite. Pi compiles TypeScript at runtime. Third-party
-dependencies live in the root `package.json`.
+people install into their pi setup. There is no build step; pi
+compiles TypeScript at runtime. Library code is unit-tested
+with vitest under `tests/`. Third-party dependencies live in
+the root `package.json`.
+
+The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
+`package-lock.json` is gitignored to prevent drift.
 
 ## Structure
 
@@ -277,22 +281,45 @@ formatting. **Run the linter after making code changes and before
 committing:**
 
 ```sh
-npm run lint:fix    # auto-fix, then verify
-npm run lint        # confirm no remaining issues
+pnpm lint:fix    # auto-fix, then verify
+pnpm lint        # confirm no remaining issues
 ```
 
 Always run `lint:fix` first. Biome's auto-fixes are safe for
 this project (import ordering, formatting), so there's no
-reason to check before fixing. All code in `extensions/` and
-`lib/` must pass `npm run lint` cleanly (no errors, no
-warnings) before being committed. Fix the code to satisfy the
-linter rather than suppressing rules.
+reason to check before fixing. All code in `extensions/`,
+`lib/` and `tests/` must pass `pnpm lint` cleanly (no errors,
+no warnings) before being committed. Fix the code to satisfy
+the linter rather than suppressing rules.
 
-## Testing Changes
+## Testing
 
-Use `/reload` in a running pi session to pick up changes without
-restarting. Use `pi -e ./extensions/some-ext` to test a single
-extension in isolation.
+Library code under `lib/` has unit tests written with vitest.
+Specs live under `tests/` mirroring the source layout (e.g.
+`tests/lib/ui/badge.test.ts` exercises `lib/ui/badge.ts`).
+Run the suite with:
+
+```sh
+pnpm test            # one shot
+pnpm test:watch      # re-run on save
+pnpm test:coverage   # v8 coverage report
+```
+
+New library modules should ship with tests that assert
+**observable behaviour through the public API**, never
+internals. A test that would still pass after a legitimate
+refactor is a good test. A test that breaks when you rename a
+private helper is testing internals.
+
+Extension wiring (`renderCall`, `renderResult`, tool
+registration, pi-side gates) is generally not unit-tested
+because it depends on pi's runtime context. Exercise that
+live via `/reload` in a running pi session, or with
+`pi -e ./extensions/some-ext` to load a single extension in
+isolation.
+
+CI runs `pnpm lint` and `pnpm test` on every push and pull
+request via `.github/workflows/ci.yml`.
 
 ## What Not to Do
 

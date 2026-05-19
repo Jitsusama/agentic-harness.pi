@@ -1,48 +1,55 @@
 {
-  "name": "agentic-harness.pi",
-  "version": "0.1.0",
-  "description": "Collaborative coding workflows for pi: planning, TDD, git hygiene, and code investigation.",
-  "keywords": [
-    "pi-package"
-  ],
-  "license": "MIT",
-  "exports": {
-    "./guardian": "./lib/guardian/index.ts",
-    "./shell": "./lib/shell/index.ts",
-    "./ui": "./lib/ui/index.ts",
-    "./slack": "./lib/slack/index.ts",
-    "./slack/api": "./lib/slack/api/index.ts",
-    "./slack/auth": "./lib/slack/auth/index.ts",
-    "./slack/renderers": "./lib/slack/renderers/index.ts",
-    "./slack/resolvers": "./lib/slack/resolvers/index.ts",
-    "./google": "./lib/google/index.ts",
-    "./google/apis": "./lib/google/apis/index.ts",
-    "./google/auth": "./lib/google/auth/index.ts",
-    "./google/renderers": "./lib/google/renderers/index.ts",
-    "./web": "./lib/web/index.ts"
-  },
-  "scripts": {
-    "lint": "biome check extensions/ lib/",
-    "lint:fix": "biome check --write extensions/ lib/"
-  },
-  "pi": {
-    "extensions": [
-      "./extensions"
-    ],
-    "skills": [
-      "./skills"
-    ]
-  },
-  "dependencies": {
-    "@mozilla/readability": "^0.6.0",
-    "google-auth-library": "^9.14.2",
-    "googleapis": "^140.0.1",
-    "jsdom": "^28.1.0",
-    "puppeteer-core": "^24.38.0",
-    "sqlite3": "^5.1.7"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "2.4.6",
-    "@types/jsdom": "^28.0.0"
-  }
+	"name": "agentic-harness.pi",
+	"version": "0.1.0",
+	"description": "Collaborative coding workflows for pi: planning, TDD, git hygiene, and code investigation.",
+	"keywords": [
+		"pi-package"
+	],
+	"license": "MIT",
+	"exports": {
+		"./guardian": "./lib/guardian/index.ts",
+		"./shell": "./lib/shell/index.ts",
+		"./ui": "./lib/ui/index.ts",
+		"./slack": "./lib/slack/index.ts",
+		"./slack/api": "./lib/slack/api/index.ts",
+		"./slack/auth": "./lib/slack/auth/index.ts",
+		"./slack/renderers": "./lib/slack/renderers/index.ts",
+		"./slack/resolvers": "./lib/slack/resolvers/index.ts",
+		"./google": "./lib/google/index.ts",
+		"./google/apis": "./lib/google/apis/index.ts",
+		"./google/auth": "./lib/google/auth/index.ts",
+		"./google/renderers": "./lib/google/renderers/index.ts",
+		"./web": "./lib/web/index.ts"
+	},
+	"scripts": {
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:coverage": "vitest run --coverage"
+	},
+	"packageManager": "pnpm@9.15.0",
+	"pi": {
+		"extensions": [
+			"./extensions"
+		],
+		"skills": [
+			"./skills"
+		]
+	},
+	"dependencies": {
+		"@mozilla/readability": "^0.6.0",
+		"google-auth-library": "^9.14.2",
+		"googleapis": "^140.0.1",
+		"jsdom": "^28.1.0",
+		"puppeteer-core": "^24.38.0",
+		"sqlite3": "^5.1.7"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.4.6",
+		"@types/jsdom": "^28.0.0",
+		"@types/node": "^20.11.0",
+		"@vitest/coverage-v8": "^2.1.0",
+		"vitest": "^2.1.0"
+	}
 }
