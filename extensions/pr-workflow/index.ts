@@ -9,7 +9,7 @@
  * At this scaffold stage the extension registers a single
  * tool with one `load` action so the wiring is real but the
  * substantive behaviour (council, findings, post gates,
- * stacks, fix loop, neovim companion) lands in follow-up
+ * stacks, neovim companion) lands in follow-up
  * commits, one capability at a time, each with its own tests.
  *
  * No slash commands. No global keymaps. No auto-activation.
@@ -32,8 +32,6 @@ import {
 } from "./council-action.js";
 import { formatCritiqueSummary, runCritiqueAction } from "./critique-action.js";
 import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
-import { runFix } from "./fix.js";
-import { formatFixSummary, type RunFix, runFixAction } from "./fix-action.js";
 import {
 	configureJudge,
 	formatJudgeSummary,
@@ -56,7 +54,7 @@ import {
 	decideFinding,
 	formatFindingsView,
 } from "./synthesis.js";
-import { summarizeUsage, sumUsage, type UsageBreakdown } from "./usage.js";
+import { summarizeUsage, type UsageBreakdown } from "./usage.js";
 import { WorktreeRegistry } from "./worktree.js";
 import { createGitWorktreeProvider } from "./worktree-git.js";
 
@@ -162,8 +160,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"findings",
 					"decide",
 					"post",
-					"fix-config",
-					"fix",
 					"stack",
 					"stack-next",
 					"stack-prev",
@@ -180,8 +176,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"findings: render the round-4 view (judge + critique + user decisions). " +
 						"decide: record the user's verdict on a single finding. " +
 						"post: send eligible findings to GitHub as a PR review. " +
-						"fix-config: set the model for fix subagents (e.g. anthropic:claude-opus-4). " +
-						"fix: drain the fix queue — dispatch a coding subagent per finding verdict'd as `fix`. " +
 						"stack: render the discovered PR stack with cursor highlighted. " +
 						"stack-next: re-load the next PR downstream of the cursor. " +
 						"stack-prev: re-load the PR upstream of the cursor.",
@@ -298,13 +292,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			instructions: Type.Optional(
 				Type.String({
 					description:
-						"Used when verdict=fix. Optional user instructions forwarded to the fix subagent (e.g. style preferences).",
-				}),
-			),
-			model: Type.Optional(
-				Type.String({
-					description:
-						"Used by fix-config. Pi model identifier (e.g. anthropic:claude-opus-4) for fix subagents.",
+						"Used when verdict=fix. Optional free-form note describing how the user (or the main agent, on the user's behalf) plans to fix the finding. Persisted with the decision; not sent anywhere.",
 				}),
 			),
 		}),
@@ -546,58 +534,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
-			if (params.action === "fix-config") {
-				if (typeof params.model !== "string" || params.model.trim() === "") {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "fix-config requires a non-empty `model`.",
-							},
-						],
-						details: { ok: false, error: "missing model" },
-						isError: true,
-					};
-				}
-				state.council.fixModel = params.model;
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Fix model set to ${params.model}.`,
-						},
-					],
-					details: { ok: true },
-				};
-			}
-
-			if (params.action === "fix") {
-				const { runPi } = getCouncilDeps();
-				const fixRunner: RunFix = (opts) =>
-					runFix({
-						...opts,
-						runPi,
-						tools: ["read", "edit", "write", "grep", "glob", "ls"],
-					});
-				const result = await runFixAction({ state, runFix: fixRunner });
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				if (result.usage) {
-					state.council.fixUsage =
-						sumUsage([state.council.fixUsage ?? undefined, result.usage]) ??
-						null;
-				}
-				return {
-					content: [{ type: "text", text: formatFixSummary(result) }],
-					details: { ok: true, results: result.results },
-				};
-			}
-
 			if (params.action === "stack") {
 				if (state.pr === null) {
 					return {
@@ -680,7 +616,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					council: state.council.lastRun,
 					judge: state.council.lastJudge,
 					critique: state.council.lastCritique,
-					fix: state.council.fixUsage,
 				});
 				const lines = [
 					`active: ${state.active ? "yes" : "no"}`,
@@ -878,7 +813,6 @@ function renderUsageLines(breakdown: UsageBreakdown): string[] {
 		["council", breakdown.council],
 		["judge", breakdown.judge],
 		["critique", breakdown.critique],
-		["fix", breakdown.fix],
 	];
 	for (const [name, usage] of stages) {
 		if (usage === undefined) continue;

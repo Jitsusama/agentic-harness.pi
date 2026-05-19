@@ -18,7 +18,7 @@ import type { CritiqueRun } from "./critique.js";
 import type { PrMetadata } from "./fetch.js";
 import type { CouncilRun } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
-import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
+import type { CouncilReviewer } from "./reviewer.js";
 import type { Stack } from "./stack.js";
 import type { FindingDecision } from "./synthesis.js";
 
@@ -68,20 +68,6 @@ export interface CouncilState {
 	 * before posting.
 	 */
 	decisions: Map<number, FindingDecision>;
-	/**
-	 * Model to use for fix subagents. When null, fix
-	 * dispatchers fall back to pi's default model. Set
-	 * via `pr_workflow action=fix-config`.
-	 */
-	fixModel: string | null;
-	/**
-	 * Cumulative token + cost usage across every fix
-	 * action since the current PR was loaded. Fix runs
-	 * aren't persisted as artefacts (the queue is
-	 * drained ad-hoc), so the totals live on the
-	 * council state directly. Reset by `load`.
-	 */
-	fixUsage: ReviewerUsage | null;
 }
 
 /** Top-level runtime state for the PR workflow. */
@@ -106,8 +92,6 @@ export function createPrWorkflowState(): PrWorkflowState {
 			lastJudge: null,
 			lastCritique: null,
 			decisions: new Map(),
-			fixModel: null,
-			fixUsage: null,
 		},
 	};
 }

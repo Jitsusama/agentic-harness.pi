@@ -39,8 +39,11 @@ steering it from a menu.
 - **Stack-aware.** When the active PR is part of a stack, the
   council reasons across the whole stack, and post gates lay
   out the order of operations explicitly.
-- **Fix loop in the MVP.** "Address this and commit it" is a
-  first-class flow, not a follow-up feature.
+- **Self-applied fixes.** Findings the user wants to handle
+  themselves get verdicted `fix` and stay out of the posted
+  review. The main agent (or the user) does the edit in
+  the real checkout when ready; the worktree is
+  research-only.
 - **No global keymaps or autocmds.** Nothing in nvim is
   hijacked by default. Pi steers nvim via the documented
   companion protocol; the user always wins.
@@ -66,9 +69,9 @@ Early scaffold. The extension registers a single
   stays loaded with whatever succeeded and reports what
   didn't.
 
-Every other capability — council, findings, post, fix
-loop, stack overview, neovim companion wiring — lands in
-follow-up commits, each gated by tests.
+Every other capability — council, findings, post, stack
+overview, neovim companion wiring — lands in follow-up
+commits, each gated by tests.
 
 ## Files
 

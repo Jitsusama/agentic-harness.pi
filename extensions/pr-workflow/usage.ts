@@ -58,13 +58,17 @@ export function sumUsage(
  * Per-stage usage breakdown for the status panel. Each
  * field is undefined when no subagent in that stage
  * surfaced usage (or that stage hasn't run yet).
+ *
+ * Only the three research stages have subagents: council
+ * (round 1), judge (round 2) and critique (round 3).
+ * Round-4 decisions and applied edits happen in the main
+ * agent's loop, which tracks its own costs externally.
  */
 export interface UsageBreakdown {
 	readonly council: ReviewerUsage | undefined;
 	readonly judge: ReviewerUsage | undefined;
 	readonly critique: ReviewerUsage | undefined;
-	readonly fix: ReviewerUsage | undefined;
-	/** Sum of the four stages (undefined if all are undefined). */
+	/** Sum of the three stages (undefined if all are undefined). */
 	readonly total: ReviewerUsage | undefined;
 }
 
@@ -91,22 +95,17 @@ export function critiqueRunUsage(
 }
 
 /**
- * Build the four-stage breakdown the status panel
- * renders. `fixUsage` is supplied separately because fix
- * runs aren't persisted as a `*Run` artifact — the
- * extension accumulates them on `state.council.fixUsage`
- * directly.
+ * Build the three-stage breakdown the status panel
+ * renders.
  */
 export function summarizeUsage(input: {
 	readonly council: CouncilRun | null;
 	readonly judge: JudgeRun | null;
 	readonly critique: CritiqueRun | null;
-	readonly fix: ReviewerUsage | null;
 }): UsageBreakdown {
 	const council = councilRunUsage(input.council);
 	const judge = input.judge?.usage;
 	const critique = critiqueRunUsage(input.critique);
-	const fix = input.fix ?? undefined;
-	const total = sumUsage([council, judge, critique, fix]);
-	return { council, judge, critique, fix, total };
+	const total = sumUsage([council, judge, critique]);
+	return { council, judge, critique, total };
 }

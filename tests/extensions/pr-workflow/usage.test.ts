@@ -208,7 +208,7 @@ describe("critiqueRunUsage", () => {
 });
 
 describe("summarizeUsage", () => {
-	it("breaks down by stage and totals across all four", () => {
+	it("breaks down by stage and totals across all three", () => {
 		// status panel reads this directly; the breakdown
 		// lets the user see which stage was expensive, the
 		// total answers "what did this session cost?".
@@ -249,14 +249,12 @@ describe("summarizeUsage", () => {
 			],
 			warnings: [],
 		};
-		const fix = usage({ tokens: { total: 50 }, cost: { total: 0.005 } });
-		const breakdown = summarizeUsage({ council, judge, critique, fix });
+		const breakdown = summarizeUsage({ council, judge, critique });
 		expect(breakdown.council?.tokens.total).toBe(1000);
 		expect(breakdown.judge?.tokens.total).toBe(200);
 		expect(breakdown.critique?.tokens.total).toBe(100);
-		expect(breakdown.fix?.tokens.total).toBe(50);
-		expect(breakdown.total?.tokens.total).toBe(1350);
-		expect(breakdown.total?.cost.total).toBeCloseTo(0.135);
+		expect(breakdown.total?.tokens.total).toBe(1300);
+		expect(breakdown.total?.cost.total).toBeCloseTo(0.13);
 	});
 
 	it("reports total as undefined when every stage is null/undefined", () => {
@@ -264,7 +262,6 @@ describe("summarizeUsage", () => {
 			council: null,
 			judge: null,
 			critique: null,
-			fix: null,
 		});
 		expect(breakdown.total).toBeUndefined();
 	});

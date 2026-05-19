@@ -45,8 +45,6 @@ prose; you translate intent into calls.
 | `findings` | Show the current findings view (judge + critique + decisions). Read-only. |
 | `decide` | Round 4: record the user's verdict on one finding. |
 | `post` | Ship eligible findings to GitHub as a PR review. |
-| `fix-config` | Set the model used by fix subagents. |
-| `fix` | Drain the fix queue: dispatch a coding subagent per finding verdict'd as `fix`. |
 | `stack` | Render the discovered PR stack with cursor highlighted. |
 | `stack-next` | Identify the PR downstream of the cursor and return its ref. |
 | `stack-prev` | Identify the PR upstream of the cursor and return its ref. |
@@ -145,50 +143,42 @@ nothing endorsed/qualified/edited/promoted, push back
 on the user before calling `post`.
 
 Findings verdict'd as `fix` are intentionally excluded
-from the posted review (a fix supplants the comment).
-Mix `endorse`/`fix` freely on the same council run:
-posted comments and applied fixes are independent.
+from the posted review. They mean "I'll handle this
+myself, don't post a comment." Mix `endorse`/`fix`
+freely on the same council run: posted comments and
+self-applied fixes are independent.
 
 ### Applying fixes
 
-When the user wants the agent to MAKE the change rather
-than COMMENT on it:
+There is no `fix` action. Council, judge and critique
+do the *research* in a worktree (so the user's working
+tree stays clean), but the *edits* happen in the user's
+actual checkout, where you already are. Workflow:
 
 ```
 pr_workflow action=decide findingId=14 verdict=fix
 pr_workflow action=decide findingId=15 verdict=fix instructions="match existing helper-fn style"
-pr_workflow action=fix
 ```
 
-What `fix` does:
+The `verdict=fix` decision is a bookmark: the user is
+claiming the finding for themselves. The optional
+`instructions` field is a free-form note describing how
+the fix should land (for the user's reference or for
+you, the main agent, when they ask you to apply it).
 
-- Drains every finding verdict'd as `fix` since the
-  last council run.
-- Dispatches one coding subagent per finding into the
-  council's worktree.
-- Subagent reads, edits and writes files using its own
-  pi tools.
-- Returns a summary: which findings landed, which
-  failed, what files were touched.
+When the user wants you to apply a `fix`-verdict
+finding, just use your normal edit tools in their
+checkout. The finding's location and discussion tell you
+where and what; the user's instructions (if any) tell
+you how. Commit when they're satisfied.
 
-What `fix` does NOT do:
+When the user wants to apply the fix themselves, they
+open the relevant file in their editor and do it. The
+decision stays in `findings` as a record of intent.
 
-- It doesn't commit. The user reviews the diff in nvim
-  (or the worktree) and commits when satisfied via
-  normal git tooling.
-- It doesn't push. Pushing to someone else's branch is
-  an out-of-band action and intentionally manual.
-- It doesn't run tests automatically. Configurable
-  checks layer on in a follow-up.
-
-Optional `fix-config` before `fix` if the user wants a
-different model for fixing than for reviewing:
-
-```
-pr_workflow action=fix-config model="anthropic:claude-opus-4"
-```
-
-The fix model persists across `/reload`.
+Neither path involves the worktree the council ran in.
+That worktree exists for read-only research; nothing in
+the normal flow writes back to it.
 
 ### Navigating a stack
 
@@ -231,6 +221,7 @@ the finding correctly.
 | `edit` | `subject` and/or `discussion` | Replace the finding's text before posting. At least one field. |
 | `dismiss` | `reason` (optional but expected) | Drop. Does not post. |
 | `promote` | — | Explicit "include in posted review". Mostly redundant with endorse; use when the user wants to mark something as posting-bound without endorsing the prose. |
+| `fix` | `instructions` (optional) | "I'll handle this myself; don't post a comment." Bookmarks the finding for self-application. The main agent (or the user) does the edit in their real checkout when ready. |
 
 Don't ask the user to memorise these. Translate their
 intent: "drop it" → dismiss, "keep but tone it down" →
@@ -266,19 +257,19 @@ usage:
   council: 12,400 tokens, $0.1830
   judge:    3,100 tokens, $0.0520
   critique: 8,600 tokens, $0.1240
-  fix:      4,200 tokens, $0.0610
-  total:   28,300 tokens, $0.4200
+  total:   24,100 tokens, $0.3590
 ```
 
 Each stage reports the spend from its most recent run.
-`fix` is cumulative across every `fix` call since the
-session started (fix runs aren't persisted as artefacts
-the way council/judge/critique are).
-
 The figures come from pi's own `usage` events in the
 subagent JSON stream. When a stage hasn't run, its line
 is omitted. When no stage has run, the whole `usage:`
 block is omitted.
+
+Only the three research stages have subagents and so
+only they show up here. Round-4 decisions and any
+follow-up edits happen in the main agent's loop and
+feed pi's normal session-level cost reporting.
 
 ## Honest provenance
 
