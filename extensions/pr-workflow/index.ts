@@ -23,6 +23,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
+import { postReview } from "../../lib/internal/github/review-post.js";
 import { parsePrFileUri, prFileUri, resolvePrFile } from "./buffer.js";
 import {
 	configureCouncil,
@@ -37,6 +38,11 @@ import {
 	runJudgeAction,
 } from "./judge-action.js";
 import { loadPr } from "./load.js";
+import {
+	type PostReviewExec,
+	postReviewAction,
+	type ReviewEvent,
+} from "./post.js";
 import { runReviewer } from "./reviewer.js";
 import { createSpawnRunPi } from "./runpi-spawn.js";
 import { createGitHubPrSearch } from "./search.js";
@@ -151,6 +157,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"critique",
 					"findings",
 					"decide",
+					"post",
 				] as const,
 				{
 					description:
@@ -162,7 +169,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"judge: run round-2 consolidation against the most recent council run. " +
 						"critique: run round-3 critique — the roster pushes back on the judge's consolidated list. " +
 						"findings: render the round-4 view (judge + critique + user decisions). " +
-						"decide: record the user's verdict on a single finding.",
+						"decide: record the user's verdict on a single finding. " +
+						"post: send eligible findings to GitHub as a PR review.",
 				},
 			),
 			pr: Type.Optional(
@@ -257,6 +265,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				Type.String({
 					description:
 						"Used when verdict=dismiss. Explains why the finding was dropped.",
+				}),
+			),
+			event: Type.Optional(
+				StringEnum(["COMMENT", "APPROVE", "REQUEST_CHANGES"] as const, {
+					description:
+						"Review event sent to GitHub when action=post. Defaults to COMMENT.",
+				}),
+			),
+			body: Type.Optional(
+				Type.String({
+					description:
+						"Optional caller-supplied summary prefix prepended to the auto-generated review body.",
 				}),
 			),
 		}),
@@ -456,6 +476,44 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						},
 					],
 					details: { ok: true },
+				};
+			}
+
+			if (params.action === "post") {
+				const event: ReviewEvent = params.event ?? "COMMENT";
+				const exec: PostReviewExec = async ({
+					ref,
+					event: ev,
+					body,
+					comments,
+				}) => {
+					await postReview(pi, ref, ev, body, comments);
+				};
+				const result = await postReviewAction({
+					state,
+					event,
+					body: params.body,
+					exec,
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				const skippedSummary =
+					result.payload.skipped.length === 0
+						? ""
+						: ` (${result.payload.skipped.length} skipped)`;
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Review posted as ${event}: ${result.payload.includedFindingIds.length} finding(s)${skippedSummary}.`,
+						},
+					],
+					details: { ok: true, payload: result.payload },
 				};
 			}
 
