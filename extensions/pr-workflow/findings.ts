@@ -1,0 +1,91 @@
+/**
+ * Provider-agnostic finding data model.
+ *
+ * A finding is an internal observation about code at a
+ * location. It may or may not get promoted into a review
+ * thread; pi keeps the working list in memory and the user
+ * decides what posts.
+ *
+ * This module defines the types only. Production of findings
+ * (council, agent, import) and consumption (review draft,
+ * thread promotion) live in other modules.
+ *
+ * The shape mirrors design doc 11-review-data-model.md.
+ * Optional fields exist so early commits can produce
+ * findings with just the essentials and later commits can
+ * fill in agreement, user position, promotion details.
+ */
+
+/** A location in the PR. */
+export type FindingLocation =
+	| {
+			readonly kind: "line";
+			readonly file: string;
+			readonly start: number;
+			readonly end: number;
+			readonly side: "old" | "new" | "both";
+	  }
+	| { readonly kind: "file"; readonly file: string }
+	| { readonly kind: "global" };
+
+/** Conventional Comments labels. */
+export type ConventionalLabel =
+	| "praise"
+	| "nitpick"
+	| "suggestion"
+	| "issue"
+	| "todo"
+	| "question"
+	| "thought"
+	| "chore"
+	| "note"
+	| "typo"
+	| "polish"
+	| "quibble";
+
+/** Where the finding came from. */
+export type FindingOrigin =
+	| { readonly kind: "agent" }
+	| { readonly kind: "user"; readonly note?: string }
+	| {
+			readonly kind: "council";
+			readonly runId: string;
+			readonly reviewerId: string;
+	  };
+
+/** Lifecycle state. */
+export type FindingState = "draft" | "promoted" | "dismissed";
+
+/** Severity. Orthogonal to label/decorations. */
+export type FindingSeverity = "critical" | "medium" | "minor";
+
+/** A single observation. */
+export interface Finding {
+	readonly id: number;
+	readonly location: FindingLocation;
+	readonly label: ConventionalLabel;
+	readonly decorations: readonly string[];
+	readonly subject: string;
+	readonly discussion: string;
+	readonly category: "file" | "title" | "scope";
+	readonly severity?: FindingSeverity;
+	readonly confidence?: number;
+	readonly origin: FindingOrigin;
+	readonly state: FindingState;
+}
+
+/** One reviewer's output from a single round. */
+export interface ReviewerOutput {
+	readonly reviewerId: string;
+	readonly findings: Finding[];
+	/** Parse warnings, model errors, anything noteworthy. */
+	readonly warnings: string[];
+}
+
+/** A council run: the unit of state for a council invocation. */
+export interface CouncilRun {
+	readonly id: string;
+	readonly startedAt: string;
+	readonly target: { readonly kind: "diff"; readonly prNumber: number };
+	readonly reviewerOutputs: ReviewerOutput[];
+}
