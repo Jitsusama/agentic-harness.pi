@@ -21,6 +21,11 @@
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import type { ReviewComment } from "../../lib/internal/github/review-post.js";
 import type { Finding, FindingAgreement, FindingLocation } from "./findings.js";
+import type { PostGateOutcome } from "./post-gate-outcome.js";
+import type {
+	PostGateFindingLine,
+	PostGateSummary,
+} from "./post-gate-render.js";
 import type { StackFinding } from "./stack-critic.js";
 import type { PrWorkflowState } from "./state.js";
 import type { FindingDecision } from "./synthesis.js";
@@ -63,6 +68,15 @@ export type PostReviewExec = (input: {
 	comments: ReviewComment[];
 }) => Promise<void>;
 
+/**
+ * Confirmation gate boundary. Production wires this to
+ * `confirmPostGate`; tests inject deterministic
+ * approvals so they don't need the TUI.
+ */
+export type PostReviewGate = (
+	summary: PostGateSummary,
+) => Promise<PostGateOutcome>;
+
 /** Inputs to `postReviewAction`. */
 export interface PostReviewActionInput {
 	readonly state: PrWorkflowState;
@@ -70,6 +84,14 @@ export interface PostReviewActionInput {
 	/** Optional caller-supplied prefix prepended to the generated summary. */
 	readonly body?: string;
 	readonly exec: PostReviewExec;
+	/**
+	 * Optional confirmation gate. When supplied, the
+	 * action calls it after building the payload and
+	 * before invoking `exec`. A rejected outcome short-
+	 * circuits with `ok: false` and the gate's reason;
+	 * an approved outcome can override the body.
+	 */
+	readonly gate?: PostReviewGate;
 }
 
 /** Result of `postReviewAction`. */
@@ -239,7 +261,16 @@ export async function postReviewAction(
 		};
 	}
 
-	const summary = renderSummary(input.state, payload, input.body);
+	let summary = renderSummary(input.state, payload, input.body);
+	if (input.gate) {
+		const outcome = await input.gate(
+			buildGateSummary(input.state, input.event, payload, summary),
+		);
+		if (!outcome.approved) {
+			return { ok: false, error: outcome.reason };
+		}
+		summary = outcome.body;
+	}
 	try {
 		await input.exec({
 			ref: input.state.pr.reference,
@@ -252,6 +283,62 @@ export async function postReviewAction(
 		return { ok: false, error: `Post failed: ${message}` };
 	}
 	return { ok: true, payload: { ...payload, body: summary } };
+}
+
+/**
+ * Build the structured summary the gate renders.
+ *
+ * Lives next to the action so the body lookup logic
+ * (find a judge / stack-critic finding by id) stays
+ * close to the payload that produced the ids.
+ */
+function buildGateSummary(
+	state: PrWorkflowState,
+	event: ReviewEvent,
+	payload: ReviewPayload,
+	body: string,
+): PostGateSummary {
+	const judgeFindings = state.council.lastJudge?.consolidatedFindings ?? [];
+	const stackFindings = state.stackCritic?.findings ?? [];
+	const byId = new Map<number, Finding>();
+	for (const f of judgeFindings) byId.set(f.id, f);
+	const stackById = new Map<number, StackFinding>();
+	for (const f of stackFindings) stackById.set(f.id, f);
+
+	const lines: PostGateFindingLine[] = [];
+	for (const id of payload.includedFindingIds) {
+		const finding = byId.get(id);
+		if (!finding) continue;
+		lines.push({
+			id: finding.id,
+			label: finding.label,
+			subject: finding.subject,
+			location: renderLocationForBody(finding.location),
+		});
+	}
+	for (const id of payload.includedStackFindingIds) {
+		const finding = stackById.get(id);
+		if (!finding) continue;
+		lines.push({
+			id: finding.id,
+			label: finding.label,
+			subject: finding.subject,
+			location: `cross-PR · #${finding.homePrNumber}`,
+		});
+	}
+
+	return {
+		event,
+		body,
+		inlineCount: payload.comments.length,
+		bodyFindingCount:
+			payload.includedFindingIds.length +
+			payload.includedStackFindingIds.length -
+			payload.comments.length,
+		stackFindingCount: payload.includedStackFindingIds.length,
+		skippedCount: payload.skipped.length,
+		findings: lines,
+	};
 }
 
 function renderCommentBody(

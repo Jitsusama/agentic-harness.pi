@@ -56,9 +56,11 @@ import { persist, restore } from "./lifecycle.js";
 import { loadPr } from "./load.js";
 import {
 	type PostReviewExec,
+	type PostReviewGate,
 	postReviewAction,
 	type ReviewEvent,
 } from "./post.js";
+import { confirmPostGate } from "./post-gate.js";
 import { runReviewer } from "./reviewer.js";
 import { createSpawnRunPi } from "./runpi-spawn.js";
 import { createGitHubPrSearch } from "./search.js";
@@ -821,11 +823,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}) => {
 					await postReview(pi, ref, ev, body, comments);
 				};
+				const gate: PostReviewGate = (summary) => confirmPostGate(ctx, summary);
 				const result = await postReviewAction({
 					state,
 					event,
 					body: params.body,
 					exec,
+					gate,
 				});
 				if (!result.ok) {
 					return {
