@@ -599,10 +599,12 @@ export default function prWorkflow(pi: ExtensionAPI) {
 
 			if (params.action === "review") {
 				const { registry, runPi, extraExtensions } = getCouncilDeps();
+				const progress = createCouncilProgressReporter(ctx);
 				const result = await runStackReviewAction({
 					state,
 					registry,
 					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
+					progress,
 					fetchers: {
 						metadata: (reference) => fetchPrMetadata(pi, reference),
 						diff: async (reference) => {
