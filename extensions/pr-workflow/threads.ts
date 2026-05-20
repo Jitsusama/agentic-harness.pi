@@ -6,9 +6,11 @@
  * them keeps the parser easy to test without stubbing
  * process boundaries.
  *
- * Threads here are the GraphQL `PullRequestReviewThread`
- * nodes: the conversation roots that collect inline review
- * comments. Reply targets a thread; resolve closes it.
+ * Threads here combine GraphQL `PullRequestReviewThread`
+ * nodes (inline review conversations) with PR-level issue
+ * comments (review-level conversation comments). Reply and
+ * resolve only target inline review threads; review-level
+ * comments are listed for context.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -28,6 +30,7 @@ export interface ReviewThreadComment {
 /** A review thread on a pull request. */
 export interface ReviewThread {
 	readonly id: string;
+	readonly kind: "review-thread" | "review-level";
 	readonly isResolved: boolean;
 	readonly isOutdated: boolean;
 	/** Null for PR-level threads (not anchored to a file). */
@@ -56,6 +59,15 @@ const THREADS_QUERY = `query PrReviewThreads($owner: String!, $repo: String!, $n
               url
             }
           }
+        }
+      }
+      comments(first: 100) {
+        nodes {
+          id
+          author { login }
+          body
+          createdAt
+          url
         }
       }
     }
@@ -107,7 +119,18 @@ export function parseReviewThreads(raw: unknown): ReviewThread[] {
 	if (!Array.isArray(nodes)) {
 		throw new Error("Review threads: `nodes` is not an array");
 	}
-	return nodes.map(parseThreadNode);
+	const reviewLevelComments = pr.comments;
+	if (!isRecord(reviewLevelComments)) {
+		throw new Error("Review threads: `comments` missing");
+	}
+	const reviewLevelNodes = reviewLevelComments.nodes;
+	if (!Array.isArray(reviewLevelNodes)) {
+		throw new Error("Review threads: `comments.nodes` is not an array");
+	}
+	return [
+		...nodes.map(parseThreadNode),
+		...reviewLevelNodes.map(parseReviewLevelComment),
+	];
 }
 
 function parseThreadNode(node: unknown): ReviewThread {
@@ -124,11 +147,25 @@ function parseThreadNode(node: unknown): ReviewThread {
 	}
 	return {
 		id: expectString(node, "id"),
+		kind: "review-thread",
 		isResolved: expectBoolean(node, "isResolved"),
 		isOutdated: expectBoolean(node, "isOutdated"),
 		path: expectNullableString(node, "path"),
 		line: expectNullableNumber(node, "line"),
 		comments: commentNodes.map(parseCommentNode),
+	};
+}
+
+function parseReviewLevelComment(node: unknown): ReviewThread {
+	const comment = parseCommentNode(node);
+	return {
+		id: comment.id,
+		kind: "review-level",
+		isResolved: false,
+		isOutdated: false,
+		path: null,
+		line: null,
+		comments: [comment],
 	};
 }
 

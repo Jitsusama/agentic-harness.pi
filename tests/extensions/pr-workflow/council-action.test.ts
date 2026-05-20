@@ -119,6 +119,34 @@ describe("runCouncilAction", () => {
 		);
 	});
 
+	it("refuses to run when no judge is configured", async () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "2026-01-01T00:00:00Z",
+			metadata: prMetadata({
+				title: "Add foo",
+				url: "https://example/42",
+				author: "a",
+				base: { ref: "main", sha: "deadbeef" },
+				head: { ref: "feat", sha: "headsha1" },
+			}),
+			files: [],
+			stack: null,
+		};
+		state.council.roster = [{ id: "fast" }];
+
+		const result = await runCouncilAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async () => {
+				throw new Error("should not be called");
+			},
+		});
+
+		expect(expectFailure(result).error).toMatch(/judge|judge-config/i);
+	});
+
 	it("dispatches the configured roster, stamps the run, and stores it in state", async () => {
 		// On success: the roster fans out, findings come
 		// back, the CouncilRun lands in
@@ -139,6 +167,7 @@ describe("runCouncilAction", () => {
 			stack: null,
 		};
 		state.council.roster = [{ id: "fast" }];
+		state.council.judge = { id: "judge" };
 
 		const result = await runCouncilAction({
 			state,

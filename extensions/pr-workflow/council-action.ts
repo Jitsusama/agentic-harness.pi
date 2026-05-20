@@ -89,6 +89,19 @@ export async function runCouncilAction(
 				"Council roster is empty. Call pr_workflow action=council-config first.",
 		};
 	}
+	if (state.council.judge === null) {
+		// Running the council without a judge leaves the
+		// pipeline in a dead-end: `findings`, `decide`,
+		// `fix-next` and `post` all require a judge run.
+		// Phase 3 surfaced users getting stranded here, so
+		// we refuse upfront with a pointer to the fix.
+		return {
+			ok: false,
+			error:
+				"Judge not configured. Call pr_workflow action=judge-config " +
+				"before running the council so downstream actions stay reachable.",
+		};
+	}
 
 	const pr = state.pr;
 	const metadata = pr.metadata;

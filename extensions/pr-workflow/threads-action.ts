@@ -91,11 +91,13 @@ export function formatThreadsView(state: PrWorkflowState): string {
 		}
 		const flagText = flags.length > 0 ? ` (${flags.join(", ")})` : "";
 		const location =
-			t.path === null
-				? "(PR-level)"
-				: t.line === null
-					? t.path
-					: `${t.path}:${t.line}`;
+			t.kind === "review-level"
+				? "(review-level)"
+				: t.path === null
+					? "(PR-level)"
+					: t.line === null
+						? t.path
+						: `${t.path}:${t.line}`;
 		lines.push(`[T${i + 1}] ${location}${flagText}`);
 		const first = t.comments[0];
 		if (first !== undefined) {
@@ -131,6 +133,14 @@ export async function replyToThreadAction(input: {
 	if (!lookup.ok) {
 		return lookup;
 	}
+	if (lookup.thread.kind === "review-level") {
+		return {
+			ok: false,
+			error:
+				"Review-level comments don't support inline replies. " +
+				"Post a new top-level comment instead.",
+		};
+	}
 	if (body.trim().length === 0) {
 		return { ok: false, error: "Reply body is empty." };
 	}
@@ -156,6 +166,12 @@ export async function resolveThreadAction(input: {
 	const lookup = lookupThread(state, index);
 	if (!lookup.ok) {
 		return lookup;
+	}
+	if (lookup.thread.kind === "review-level") {
+		return {
+			ok: false,
+			error: "Review-level comments can't be resolved.",
+		};
 	}
 	let isResolved: boolean;
 	try {

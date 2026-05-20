@@ -20,20 +20,16 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { promptSingle } from "../../lib/ui/panel.js";
 import {
+	type ReplyGateOutcome,
+	type ResolveGateOutcome,
+	replyGateOutcome,
+	resolveGateOutcome,
+} from "./thread-gate-outcome.js";
+import {
 	renderReplyGateContent,
 	renderResolveGateContent,
 } from "./thread-gate-render.js";
 import type { ReviewThread } from "./threads.js";
-
-/** Outcome of the reply gate. The body may differ from input on redirect. */
-export type ReplyGateOutcome =
-	| { approved: true; body: string }
-	| { approved: false; reason: string };
-
-/** Outcome of the resolve gate. */
-export type ResolveGateOutcome =
-	| { approved: true }
-	| { approved: false; reason: string };
 
 const REJECT_ACTIONS = [{ key: "r", label: "Reject" }];
 
@@ -60,24 +56,7 @@ export async function confirmReplyGate(
 		actions: REJECT_ACTIONS,
 		redirectHint: "Replace the reply text…",
 	});
-	if (result === null) {
-		return { approved: false, reason: "User cancelled the thread reply." };
-	}
-	if (result.type === "action" && result.key === "r") {
-		return { approved: false, reason: "User rejected the thread reply." };
-	}
-	if (result.type === "redirect") {
-		const next = result.note.trim();
-		if (next.length === 0) {
-			return {
-				approved: false,
-				reason: "Redirected reply was empty.",
-			};
-		}
-		return { approved: true, body: next };
-	}
-	// `option` / unknown action keys: treat as approve with original body.
-	return { approved: true, body };
+	return replyGateOutcome(result, body);
 }
 
 /**
@@ -99,17 +78,5 @@ export async function confirmResolveGate(
 		content: renderResolveGateContent(thread),
 		actions: REJECT_ACTIONS,
 	});
-	if (result === null) {
-		return {
-			approved: false,
-			reason: "User cancelled the thread resolution.",
-		};
-	}
-	if (result.type === "action" && result.key === "r") {
-		return {
-			approved: false,
-			reason: "User rejected the thread resolution.",
-		};
-	}
-	return { approved: true };
+	return resolveGateOutcome(result);
 }

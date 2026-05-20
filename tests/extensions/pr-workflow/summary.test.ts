@@ -64,6 +64,7 @@ function judgeWith(findings: Finding[]): JudgeRun {
 function thread(overrides: Partial<ReviewThread> = {}): ReviewThread {
 	return {
 		id: "T1",
+		kind: "review-thread",
 		isResolved: false,
 		isOutdated: false,
 		path: "cache.ts",

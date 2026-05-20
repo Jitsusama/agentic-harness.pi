@@ -12,8 +12,12 @@
 import type { ContentRenderer } from "../../lib/ui/types.js";
 import type { ReviewThread } from "./threads.js";
 
-/** Format a thread's location as `path:line`, `path` or `(PR-level)`. */
+/**
+ * Format a thread's location as `path:line`, `path`,
+ * `(review-level)` or `(PR-level)` depending on shape.
+ */
 function locationLabel(thread: ReviewThread): string {
+	if (thread.kind === "review-level") return "(review-level)";
 	if (thread.path === null) return "(PR-level)";
 	if (thread.line === null) return thread.path;
 	return `${thread.path}:${thread.line}`;

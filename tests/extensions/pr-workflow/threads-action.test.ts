@@ -24,6 +24,7 @@ function activeState() {
 function thread(overrides: Partial<ReviewThread> = {}): ReviewThread {
 	return {
 		id: "T1",
+		kind: "review-thread",
 		isResolved: false,
 		isOutdated: false,
 		path: "src/foo.ts",
@@ -117,6 +118,32 @@ describe("formatThreadsView", () => {
 		expect(view).toMatch(/resolved/i);
 		expect(view).toMatch(/outdated/i);
 	});
+
+	it("labels review-level comments distinctly from file threads", () => {
+		const state = activeState();
+		state.threads = {
+			prNumber: 7,
+			fetchedAt: "now",
+			threads: [
+				thread({
+					id: "IC1",
+					kind: "review-level",
+					path: null,
+					line: null,
+					comments: [
+						{
+							id: "IC1",
+							author: "octocat",
+							body: "Looks good overall.",
+							createdAt: "2024-01-01T00:00:00Z",
+							url: "https://example.com/ic1",
+						},
+					],
+				}),
+			],
+		};
+		expect(formatThreadsView(state)).toContain("[T1] (review-level)");
+	});
 });
 
 describe("replyToThreadAction", () => {
@@ -186,6 +213,24 @@ describe("replyToThreadAction", () => {
 		expect(result.ok).toBe(false);
 		expect(sender).not.toHaveBeenCalled();
 	});
+
+	it("rejects replies to review-level comments", async () => {
+		const state = activeState();
+		state.threads = {
+			prNumber: 7,
+			fetchedAt: "now",
+			threads: [thread({ kind: "review-level", path: null, line: null })],
+		};
+		const sender = vi.fn();
+		const result = await replyToThreadAction({
+			state,
+			index: 1,
+			body: "thanks",
+			sender,
+		});
+		expect(result.ok).toBe(false);
+		expect(sender).not.toHaveBeenCalled();
+	});
 });
 
 describe("resolveThreadAction", () => {
@@ -234,5 +279,18 @@ describe("resolveThreadAction", () => {
 		const result = await resolveThreadAction({ state, index: 1, resolver });
 		expect(result.ok).toBe(true);
 		expect(resolver).toHaveBeenCalled();
+	});
+
+	it("rejects resolving review-level comments", async () => {
+		const state = activeState();
+		state.threads = {
+			prNumber: 7,
+			fetchedAt: "now",
+			threads: [thread({ kind: "review-level", path: null, line: null })],
+		};
+		const resolver = vi.fn();
+		const result = await resolveThreadAction({ state, index: 1, resolver });
+		expect(result.ok).toBe(false);
+		expect(resolver).not.toHaveBeenCalled();
 	});
 });
