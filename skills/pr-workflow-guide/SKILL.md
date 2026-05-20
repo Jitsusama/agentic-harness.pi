@@ -148,6 +148,16 @@ Model format rules (pi's `--model` flag):
 session default. Same field shape on `judge` and
 `stackCritic` config.
 
+The `tools` palette is an allowlist; reviewers can only
+call what you name. You do NOT need to list
+`verify_output` — the dispatcher always appends it so
+the subagent can self-validate its JSON before ending.
+Stick to the investigation tools the reviewer actually
+needs (`read`, `grep`, `glob`, `ls`, optionally `bash`).
+Omitting `tools` entirely makes pi fall back to all
+loaded tools, which also keeps `verify_output`
+accessible.
+
 Roster and judge persist across `/reload`. If a session
 already has them, mention them in your status update;
 don't re-prompt.

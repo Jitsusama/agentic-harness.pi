@@ -80,7 +80,66 @@ describe("runReviewer — argument composition", () => {
 			"anthropic/claude-sonnet-4-5",
 		);
 		expect(args).toContain("--tools");
-		expect(args[args.indexOf("--tools") + 1]).toBe("read,grep,glob,ls,bash");
+		expect(args[args.indexOf("--tools") + 1]).toBe(
+			"read,grep,glob,ls,bash,verify_output",
+		);
+	});
+
+	it("appends verify_output to a tools palette that doesn't already list it", async () => {
+		// Pi's --tools flag is an allowlist that applies to
+		// extension tools too. The reviewer prompt instructs
+		// the subagent to call verify_output, so the
+		// dispatcher must guarantee it's in the palette
+		// even when the caller forgets.
+		const { runPi, calls } = fakeRun({
+			stdout: assistantEvent(`{}`),
+		});
+		await runReviewer({
+			reviewer: { id: "narrow", tools: ["read"] },
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+		const args = calls[0].args;
+		expect(args[args.indexOf("--tools") + 1]).toBe("read,verify_output");
+	});
+
+	it("does not duplicate verify_output when the palette already includes it", async () => {
+		// Defensive: if a caller does include verify_output
+		// explicitly, the dispatcher should leave it where
+		// it sits and not append a second copy.
+		const { runPi, calls } = fakeRun({
+			stdout: assistantEvent(`{}`),
+		});
+		await runReviewer({
+			reviewer: {
+				id: "explicit",
+				tools: ["read", "verify_output", "grep"],
+			},
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+		const args = calls[0].args;
+		expect(args[args.indexOf("--tools") + 1]).toBe("read,verify_output,grep");
+	});
+
+	it("omits --tools entirely when the palette is empty so pi falls back to its default", async () => {
+		// Empty palette means "inherit pi's defaults" (all
+		// loaded tools). In that mode pi allows verify_output
+		// because it's part of the loaded pr-workflow-verify
+		// extension, so we don't need to force a --tools
+		// flag just to keep the verify path open.
+		const { runPi, calls } = fakeRun({
+			stdout: assistantEvent(`{}`),
+		});
+		await runReviewer({
+			reviewer: { id: "defaults" },
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+		expect(calls[0].args).not.toContain("--tools");
 	});
 
 	it("uses the worktree path as the subprocess cwd", async () => {

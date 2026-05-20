@@ -174,6 +174,17 @@ function summarizeStderr(stderr: string): string {
 	return "";
 }
 
+/**
+ * Tool name registered by the `pr-workflow-verify` sibling
+ * extension. Reviewer subagents call this tool to validate
+ * their JSON output before ending the run. Pi's `--tools`
+ * flag is an allowlist that applies to extension tools too,
+ * so the dispatcher must include this in any non-empty
+ * allowlist or the reviewer would be denied access to a
+ * tool the prompt instructs it to use.
+ */
+export const VERIFY_TOOL_NAME = "verify_output";
+
 function composeArgs(
 	reviewer: CouncilReviewer,
 	prompt: string,
@@ -187,7 +198,7 @@ function composeArgs(
 		args.push("--thinking", reviewer.thinkingLevel);
 	}
 	if (reviewer.tools && reviewer.tools.length > 0) {
-		args.push("--tools", reviewer.tools.join(","));
+		args.push("--tools", buildToolsAllowlist(reviewer.tools));
 	}
 	if (extraExtensions) {
 		for (const path of extraExtensions) {
@@ -196,6 +207,26 @@ function composeArgs(
 	}
 	args.push(prompt);
 	return args;
+}
+
+/**
+ * Build the comma-separated value for pi's `--tools` flag
+ * from a reviewer's configured palette. The verify tool is
+ * appended (deduplicated, preserving order) so the
+ * reviewer can always self-validate even when the user
+ * restricts the palette.
+ */
+function buildToolsAllowlist(palette: readonly string[]): string {
+	const tools: string[] = [];
+	for (const tool of palette) {
+		if (!tools.includes(tool)) {
+			tools.push(tool);
+		}
+	}
+	if (!tools.includes(VERIFY_TOOL_NAME)) {
+		tools.push(VERIFY_TOOL_NAME);
+	}
+	return tools.join(",");
 }
 
 /**
