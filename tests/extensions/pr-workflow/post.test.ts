@@ -4,6 +4,7 @@ import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
 import {
 	buildReviewPayload,
 	type PostReviewExec,
+	type PostReviewGate,
 	postReviewAction,
 } from "../../../extensions/pr-workflow/post.js";
 import type {
@@ -428,6 +429,63 @@ describe("postReviewAction", () => {
 		});
 		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
 		expect(arg.body).toContain("Custom summary up top");
+	});
+
+	it("calls the gate with a structured summary derived from the payload", async () => {
+		const state = withJudgeAndDecision();
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const gate: PostReviewGate = vi.fn(async (summary) => ({
+			approved: true as const,
+			body: summary.body,
+		}));
+
+		const result = await postReviewAction({
+			state,
+			event: "COMMENT",
+			exec,
+			gate,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(gate).toHaveBeenCalledTimes(1);
+		const gateMock = gate as unknown as ReturnType<typeof vi.fn>;
+		const arg = gateMock.mock.calls[0][0];
+		expect(arg.event).toBe("COMMENT");
+		expect(arg.inlineCount).toBe(1);
+		expect(arg.findings.map((f: { id: number }) => f.id)).toEqual([10]);
+	});
+
+	it("skips exec when the gate rejects and surfaces the gate reason", async () => {
+		const state = withJudgeAndDecision();
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const gate: PostReviewGate = vi.fn(async () => ({
+			approved: false as const,
+			reason: "User rejected the review post.",
+		}));
+
+		const result = await postReviewAction({
+			state,
+			event: "COMMENT",
+			exec,
+			gate,
+		});
+
+		expect(expectFailure(result).error).toMatch(/rejected/);
+		expect(exec).not.toHaveBeenCalled();
+	});
+
+	it("posts the body the gate returned when the user edited it inline", async () => {
+		const state = withJudgeAndDecision();
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const gate: PostReviewGate = vi.fn(async () => ({
+			approved: true as const,
+			body: "Hand-crafted review body.",
+		}));
+
+		await postReviewAction({ state, event: "COMMENT", exec, gate });
+
+		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(arg.body).toBe("Hand-crafted review body.");
 	});
 
 	it("surfaces exec failures as action errors", async () => {
