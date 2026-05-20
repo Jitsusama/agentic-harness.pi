@@ -41,9 +41,11 @@ prose; you translate intent into calls.
 | `summary` | User-facing "what's the state of this PR?" panel. Header + stack + threads + council + fix queue, composed from cached snapshots. Use when the user asks open questions like "where are we on this?" or comes back to a session after a break. Never fetches — if threads aren't cached the panel prompts to run `action=threads`. |
 | `council-config` | User wants to set or change the reviewer roster. |
 | `council` | Round 1: fan out the roster. User said "run the review", "kick it off". |
-| `council-all` | Same fan-out, but across every PR in the loaded stack concurrently. The cursor PR's run lands in `council.lastRun`; the rest stash under `stackRuns` and rehydrate on `stack-next` / `stack-prev`. Phase A of the stack-wide redesign — use when the user says "review the whole stack" or "do all of them". |
+| `council-all` | Same fan-out, but across every PR in the loaded stack concurrently. The cursor PR's run lands in `council.lastRun`; the rest stash under `stackRuns` and rehydrate on `stack-next` / `stack-prev`. Phase A of the stack-wide redesign — use when the user says "run council on the whole stack". |
 | `judge-config` | User wants to set or change the judge model. |
 | `judge` | Round 2: consolidate the council output. Run after `council`. |
+| `judge-all` | Run the configured judge across every stack PR that already has a council run. Use after `council-all` when the user wants the whole stack consolidated. |
+| `review-all` | Convenience wrapper: run `council-all`, then `judge-all`. Use when the user says "review the whole stack" or "do all of them". |
 | `critique` | Round 3 (optional): roster pushes back on the judge. Only after the gate. |
 | `stack-critic-config` | User wants to set the cross-PR stack critic reviewer (only once per session). |
 | `stack-critic` | Run cross-PR synthesis across the discovered stack. Requires judge findings on at least one PR. |
