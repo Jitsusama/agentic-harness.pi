@@ -82,12 +82,12 @@ describe("configureJudge", () => {
 	it("sets the judge reviewer in state", async () => {
 		const state = createPrWorkflowState();
 		const result = configureJudge(state, {
-			judge: { id: "j", model: "anthropic:claude-opus-4" },
+			judge: { id: "j", model: "anthropic/claude-opus-4-7" },
 		});
 		expect(result.ok).toBe(true);
 		expect(state.council.judge).toEqual({
 			id: "j",
-			model: "anthropic:claude-opus-4",
+			model: "anthropic/claude-opus-4-7",
 		});
 	});
 
@@ -130,7 +130,7 @@ describe("runJudgeAction", () => {
 	it("dispatches the judge, parses output, and stores the JudgeRun in state", async () => {
 		const state = withLoadedPr();
 		state.council.lastRun = withCouncilRun();
-		state.council.judge = { id: "j", model: "anthropic:claude-opus-4" };
+		state.council.judge = { id: "j", model: "anthropic/claude-opus-4-7" };
 
 		const result = await runJudgeAction({
 			state,

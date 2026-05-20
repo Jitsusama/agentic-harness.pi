@@ -298,7 +298,7 @@ describe("parseJudgeOutput", () => {
 describe("runJudge", () => {
 	const JUDGE: CouncilReviewer = {
 		id: "judge",
-		model: "anthropic:claude-opus-4",
+		model: "anthropic/claude-opus-4-7",
 	};
 
 	function fakeProvider(): WorktreeProvider {
