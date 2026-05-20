@@ -105,4 +105,84 @@ describe("validateOutput", () => {
 		});
 		expect(result.ok).toBe(true);
 	});
+
+	it("validates a stack-review payload and counts per-PR plus cross-PR findings", () => {
+		const result = validateOutput("stack-review", {
+			perPr: {
+				"101": [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "PR-specific issue",
+						discussion: "This belongs to PR #101.",
+					},
+				],
+				"102": [
+					{
+						location: { kind: "file", file: "task.go" },
+						label: "suggestion",
+						subject: "Another PR-specific issue",
+						discussion: "This belongs to PR #102.",
+					},
+				],
+			},
+			crossPr: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "Cross-PR ordering issue",
+					discussion: "PR #102 assumes a helper from PR #101 before it exists.",
+					homePrNumber: 101,
+					spans: [101, 102],
+				},
+			],
+		});
+		expect(result.ok).toBe(true);
+		if (result.ok) expect(result.count).toBe(3);
+	});
+
+	it("rejects stack-review maps keyed by non-PR numbers", () => {
+		const result = validateOutput("stack-review", {
+			perPr: {
+				main: [],
+			},
+			crossPr: [],
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors.some((e) => e.path.includes("main"))).toBe(true);
+		}
+	});
+
+	it("validates a stack-judge payload and counts per-PR plus cross-PR findings", () => {
+		const result = validateOutput("stack-judge", {
+			selfSignal: { confidence: "high", rationale: "Clean agreement." },
+			perPr: {
+				"101": [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "Consolidated per-PR issue",
+						discussion: "Judge synthesis for PR #101.",
+						raisedBy: ["fast"],
+						sourceFindingIds: [1],
+					},
+				],
+			},
+			crossPr: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "Consolidated cross-PR issue",
+					discussion: "Judge synthesis across PRs.",
+					homePrNumber: 101,
+					spans: [101, 102],
+					raisedBy: ["fast", "skeptic"],
+					sourceFindingIds: [3, 4],
+				},
+			],
+		});
+		expect(result.ok).toBe(true);
+		if (result.ok) expect(result.count).toBe(2);
+	});
 });

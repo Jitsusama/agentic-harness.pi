@@ -30,6 +30,11 @@
  *     agreement metadata).
  *   - `CritiqueOutput` — round 3 push-back from the
  *     reviewers on the judge's consolidation.
+ *   - `StackReviewOutput` — Phase B stack-wide reviewer
+ *     output, split into per-PR findings and cross-PR
+ *     findings.
+ *   - `StackJudgeOutput` — Phase B stack-wide judge
+ *     output, split the same way after consolidation.
  *
  * Keep this file authoritative. If a subagent's allowed
  * output shape changes, change it here first and
@@ -229,11 +234,70 @@ export const StackCriticOutput = Type.Object({
 export type StackCriticOutput = Static<typeof StackCriticOutput>;
 
 // ---------------------------------------------------------------------------
+// Stack-wide review (Phase B)
+// ---------------------------------------------------------------------------
+
+/** Object keys for PR-number-indexed finding maps. */
+export const PrNumberKey = Type.String({ pattern: "^[1-9][0-9]*$" });
+export type PrNumberKey = Static<typeof PrNumberKey>;
+
+/** Per-PR findings keyed by PR number. */
+export const PerPrCouncilFindings = Type.Record(
+	PrNumberKey,
+	Type.Array(CouncilFinding),
+);
+export type PerPrCouncilFindings = Static<typeof PerPrCouncilFindings>;
+
+/** Stack-wide reviewer output. */
+export const StackReviewOutput = Type.Object({
+	perPr: PerPrCouncilFindings,
+	crossPr: Type.Array(StackCriticFinding),
+});
+export type StackReviewOutput = Static<typeof StackReviewOutput>;
+
+/** Cross-PR consolidated finding from the stack judge. */
+export const StackJudgeCrossFinding = Type.Object({
+	location: FindingLocation,
+	label: ConventionalLabel,
+	decorations: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	subject: Type.String({ minLength: 1 }),
+	discussion: Type.String({ minLength: 1 }),
+	severity: Type.Optional(FindingSeverity),
+	confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+	homePrNumber: Type.Integer({ minimum: 1 }),
+	spans: Type.Array(Type.Integer({ minimum: 1 }), { minItems: 1 }),
+	raisedBy: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	sourceFindingIds: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }))),
+});
+export type StackJudgeCrossFinding = Static<typeof StackJudgeCrossFinding>;
+
+/** Per-PR judge findings keyed by PR number. */
+export const PerPrJudgeFindings = Type.Record(
+	PrNumberKey,
+	Type.Array(JudgeFinding),
+);
+export type PerPrJudgeFindings = Static<typeof PerPrJudgeFindings>;
+
+/** Stack-wide judge output. */
+export const StackJudgeOutput = Type.Object({
+	selfSignal: Type.Optional(JudgeSelfSignal),
+	perPr: PerPrJudgeFindings,
+	crossPr: Type.Array(StackJudgeCrossFinding),
+});
+export type StackJudgeOutput = Static<typeof StackJudgeOutput>;
+
+// ---------------------------------------------------------------------------
 // Stage registry
 // ---------------------------------------------------------------------------
 
 /** Stage names that key into the schema registry. */
-export type StageName = "council" | "judge" | "critique" | "stack-critic";
+export type StageName =
+	| "council"
+	| "judge"
+	| "critique"
+	| "stack-critic"
+	| "stack-review"
+	| "stack-judge";
 
 /**
  * Resolve a stage name to its schema. Used by the verify
@@ -250,5 +314,9 @@ export function getSchema(stage: StageName) {
 			return CritiqueOutput;
 		case "stack-critic":
 			return StackCriticOutput;
+		case "stack-review":
+			return StackReviewOutput;
+		case "stack-judge":
+			return StackJudgeOutput;
 	}
 }
