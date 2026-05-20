@@ -32,6 +32,10 @@ import {
 	retryCouncilReviewer,
 	runCouncilAction,
 } from "./council-action.js";
+import {
+	formatCouncilAllSummary,
+	runCouncilAllAction,
+} from "./council-all-action.js";
 import { createCouncilProgressReporter } from "./council-progress-render.js";
 import {
 	formatCritiqueSummary,
@@ -221,6 +225,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"status",
 					"council-config",
 					"council",
+					"council-all",
 					"judge-config",
 					"judge",
 					"critique",
@@ -250,6 +255,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"status: report current workflow state. " +
 						"council-config: set the multi-model review roster. " +
 						"council: run the configured roster against the loaded PR. " +
+						"council-all: fan the configured roster out across every PR " +
+						"in the loaded stack concurrently (Phase A of the stack-wide " +
+						"redesign). Cursor PR's run lands in council.lastRun; the rest " +
+						"stash under stackRuns and rehydrate on stack-next / stack-prev. " +
 						"judge-config: set the judge reviewer for round-2 consolidation. " +
 						"judge: run round-2 consolidation against the most recent council run. " +
 						"critique: run round-3 critique — the roster pushes back on the judge's consolidated list. " +
@@ -541,6 +550,35 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 				return {
 					content: [{ type: "text", text: formatCouncilSummary(result.run) }],
+					details: { ok: true, run: result.run },
+				};
+			}
+
+			if (params.action === "council-all") {
+				const { registry, runPi, extraExtensions } = getCouncilDeps();
+				const result = await runCouncilAllAction({
+					state,
+					registry,
+					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
+					fetchers: {
+						metadata: (reference) => fetchPrMetadata(pi, reference),
+						diff: async (reference) => {
+							const raw = await fetchDiff(pi, reference);
+							return parseDiff(raw);
+						},
+					},
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{ type: "text", text: formatCouncilAllSummary(result.run) },
+					],
 					details: { ok: true, run: result.run },
 				};
 			}
