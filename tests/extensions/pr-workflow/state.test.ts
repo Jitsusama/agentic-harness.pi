@@ -20,16 +20,13 @@ describe("createPrWorkflowState", () => {
 		expect(state.threads).toBeNull();
 	});
 
-	it("starts with no stack-critic reviewer, run, or decisions", () => {
-		// Phase 1+2 of stack-aware review adds three slots
-		// to the council/state shape: a configurable stack
-		// critic reviewer (separate from judge), the most
-		// recent run, and the decision map for stack-level
-		// findings. Fresh sessions should have none of them
-		// populated.
+	it("starts with no stack-level finding run or decisions", () => {
+		// Stack-aware review keeps cross-PR findings at the
+		// top level because they are not owned by any single
+		// cursor PR. Fresh sessions should have no run or
+		// stack-level decisions populated.
 		const state = createPrWorkflowState();
-		expect(state.council.stackCritic).toBeNull();
-		expect(state.stackCritic).toBeNull();
+		expect(state.stackFindingRun).toBeNull();
 		expect(state.stackDecisions.size).toBe(0);
 	});
 

@@ -89,7 +89,7 @@ export type DecisionResult = { ok: true } | { ok: false; error: string };
  * to `"pr"` (the per-PR judge findings in
  * `state.council.lastJudge`). `"stack"` routes the
  * decision to `state.stackDecisions` against the most
- * recent `state.stackCritic` run.
+ * recent `state.stackFindingRun` run.
  */
 export type DecideFindingScope = "pr" | "stack";
 
@@ -150,18 +150,20 @@ function lookupFinding(
 	scope: DecideFindingScope,
 ): DecisionResult {
 	if (scope === "stack") {
-		if (state.stackCritic === null) {
+		if (state.stackFindingRun === null) {
 			return {
 				ok: false,
 				error:
-					"No stack-critic run available. Run pr_workflow action=stack-critic first.",
+					"No cross-PR run available. Run pr_workflow action=cross-PR first.",
 			};
 		}
-		const exists = state.stackCritic.findings.some((f) => f.id === findingId);
+		const exists = state.stackFindingRun.findings.some(
+			(f) => f.id === findingId,
+		);
 		if (!exists) {
 			return {
 				ok: false,
-				error: `Unknown stack findingId ${findingId}: not in the most-recent stack-critic run.`,
+				error: `Unknown stack findingId ${findingId}: not in the most-recent cross-PR run.`,
 			};
 		}
 		return { ok: true };
@@ -263,7 +265,10 @@ export function formatFindingsView(state: PrWorkflowState): string {
 	if (judge === null) {
 		return "No findings yet. Run pr_workflow action=council, then action=judge.";
 	}
-	if (judge.consolidatedFindings.length === 0 && state.stackCritic === null) {
+	if (
+		judge.consolidatedFindings.length === 0 &&
+		state.stackFindingRun === null
+	) {
 		return "Judge consolidated 0 findings; nothing to decide on.";
 	}
 	const lines: string[] = [];
@@ -291,10 +296,13 @@ export function formatFindingsView(state: PrWorkflowState): string {
 		}
 		lines.push("");
 	}
-	if (state.stackCritic !== null && state.stackCritic.findings.length > 0) {
+	if (
+		state.stackFindingRun !== null &&
+		state.stackFindingRun.findings.length > 0
+	) {
 		lines.push("Stack-level findings (decide with scope=stack):");
 		lines.push("");
-		for (const finding of state.stackCritic.findings) {
+		for (const finding of state.stackFindingRun.findings) {
 			const decision = state.stackDecisions.get(finding.id) ?? null;
 			const display = applyEdit(finding, decision);
 			lines.push(

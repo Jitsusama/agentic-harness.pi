@@ -1,4 +1,4 @@
-/** Tests for the Phase B stack-wide review runtime action. */
+/** Tests for the stack-wide review runtime action. */
 
 import { describe, expect, it } from "vitest";
 import type { CouncilDispatch } from "../../../extensions/pr-workflow/council.js";
@@ -201,8 +201,8 @@ describe("runStackReviewAction", () => {
 		expect(
 			state.stackRuns.get(102)?.lastJudge?.consolidatedFindings[0]?.subject,
 		).toBe("stack mate issue");
-		expect(state.stackCritic?.findings[0]?.subject).toBe("cross issue");
-		expect(state.stackCritic?.findings[0]?.homePrNumber).toBe(101);
+		expect(state.stackFindingRun?.findings[0]?.subject).toBe("cross issue");
+		expect(state.stackFindingRun?.findings[0]?.homePrNumber).toBe(101);
 	});
 
 	it("degenerates to a single-PR stack when no stack is loaded", async () => {

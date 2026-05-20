@@ -31,7 +31,6 @@ const ALLOWED_STAGES: ReadonlyArray<StageName> = [
 	"council",
 	"judge",
 	"critique",
-	"stack-critic",
 	"stack-review",
 	"stack-judge",
 ];

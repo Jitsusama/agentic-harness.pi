@@ -29,7 +29,7 @@ steering it from a menu.
   parallel calls to several models, then reduced through a
   judge round, surfaced to the user, and posted on approval.
   Council mechanics live in `council.ts` + `council-action.ts`
-  with the judge, critique and stack-critic stages each in
+  with the judge, critique and review stages each in
   their own pair of files.
 - **Neovim is the code viewer.** When paired with a neovim
   via the `neovim-pi` extension, the agent can call
@@ -180,9 +180,9 @@ the right action.
 - `action="council-config"` — set the reviewer roster
   (id + model + tools).
 - `action="judge-config"` — set the judge model.
-- `action="stack-critic-config"` — set the stack-critic
-  reviewer (separate model for cross-PR pattern
-  detection).
+- `action="review"` — run the stack-wide review
+  pipeline: stack-aware council fan-out followed by
+  stack-aware judge.
 
 **Round 1 — fan-out**
 
@@ -211,21 +211,19 @@ the right action.
   entries reference judge findings by `findingId`, so
   substitution is direct.
 
-**Stack critic (cross-PR)**
+**Stack-wide review**
 
-- `action="stack-critic"` — once at least one PR in the
-  stack has been judged, run the stack-critic reviewer
-  to surface cross-PR findings (inconsistent error
-  handling, abstractions that shift between layers,
-  duplicated logic). Reads live + snapshotted judge
-  findings from across the stack. Each emitted finding
-  carries a `homePrNumber` (post destination) and
-  `spans` (every PR the finding refers to).
+- `action="review"` — run one stack-aware council
+  fan-out across every PR in the stack, then one
+  stack-aware judge. Per-PR findings are stored on the
+  cursor/snapshot path; cross-PR findings carry a
+  `homePrNumber` (post destination) and `spans` (every
+  PR the finding refers to).
 
 **Round 4 — user**
 
 - `action="findings"` — render judge + critique + user
-  decisions as one consolidated view. Stack-critic
+  decisions as one consolidated view. Cross-PR
   findings appear in their own section with S-prefixed
   ids (`[S1]`, `[S2]`…) so the user knows to pass
   `scope="stack"` on decide.
@@ -331,8 +329,8 @@ State across cursor moves: per-PR council run, judge
 run, critique run and decisions snapshot under
 `state.stackRuns[N]` when the user moves off PR N (if
 it has any review state), and rehydrate when N
-returns. Stack-critic state
-(`state.stackCritic`, `state.stackDecisions`) is
+returns. Cross-PR finding state
+(`state.stackFindingRun`, `state.stackDecisions`) is
 session-global, not per-PR — one cross-PR run covers
 the whole stack.
 
@@ -405,7 +403,7 @@ available.
   contents.
 
 Each capability is a pair of files: a pure data layer
-(`council.ts`, `judge.ts`, `critique.ts`, `stack-critic.ts`,
+(`council.ts`, `judge.ts`, `critique.ts`, `review.ts`,
 `fix.ts`, `threads.ts`, `summary.ts`) and an action layer
 that wires it to the tool surface (`council-action.ts`,
 `judge-action.ts`, etc.). `index.ts` reads as a table of

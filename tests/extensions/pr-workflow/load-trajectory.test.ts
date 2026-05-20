@@ -94,18 +94,18 @@ describe("suggestNextAfterLoad", () => {
 		expect(hints[0]?.rationale).toContain("2 of 2");
 	});
 
-	it("appends stack-critic when the PR is part of a stack", () => {
+	it("appends review when the PR is part of a stack", () => {
 		const state = loadedState();
 		if (state.pr) state.pr.stack = stackWith(3);
 		const hints = suggestNextAfterLoad(state);
-		expect(hints.some((h) => h.action === "stack-critic")).toBe(true);
+		expect(hints.some((h) => h.action === "review")).toBe(true);
 	});
 
-	it("does not suggest stack-critic for a single-PR 'stack'", () => {
+	it("does not suggest review for a single-PR 'stack'", () => {
 		const state = loadedState();
 		if (state.pr) state.pr.stack = stackWith(1);
 		const hints = suggestNextAfterLoad(state);
-		expect(hints.some((h) => h.action === "stack-critic")).toBe(false);
+		expect(hints.some((h) => h.action === "review")).toBe(false);
 	});
 
 	it("always falls through to threads as the last hint", () => {

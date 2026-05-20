@@ -1,16 +1,12 @@
 /**
- * Phase B stack-wide review action.
+ * Stack-wide review action.
  *
- * This action is the runtime bridge from the new stack
- * prompt/parser layer into the existing workflow state.
- * It runs one council fan-out over the whole stack, then
- * one stack judge. Per-PR judge findings are written into
- * the same cursor/snapshot slots the existing `findings`,
- * `decide`, `fix-next` and `post` flow already reads.
- * Cross-PR judge findings are written to the existing
- * stack-level finding slot so `scope=stack` decisions keep
- * working during the migration away from legacy
- * stack-critic.
+ * Runs one council fan-out over the whole stack, then one
+ * stack judge. Per-PR judge findings are written into the
+ * cursor/snapshot slots that `findings`, `decide`,
+ * `fix-next` and `post` already read. Cross-PR judge
+ * findings are written to the top-level finding slot used
+ * by `scope=stack` decisions.
  */
 
 import type { DiffFile } from "../../lib/internal/github/diff.js";
@@ -19,7 +15,7 @@ import type { CouncilDispatch } from "./council.js";
 import type { PrMetadata } from "./fetch.js";
 import type { JudgeRun } from "./judge.js";
 import type { CouncilReviewer } from "./reviewer.js";
-import type { StackCriticRun } from "./stack-critic.js";
+import type { StackFindingRun } from "./stack-findings.js";
 import {
 	buildStackJudgePrompt,
 	buildStackReviewPrompt,
@@ -208,14 +204,14 @@ export async function runStackReviewAction(
 		selfSignal: parsedJudge.selfSignal,
 		warnings: parsedJudge.warnings,
 	});
-	state.stackCritic = {
+	state.stackFindingRun = {
 		id: judgeRunId,
 		startedAt,
 		reviewerId: judge.id,
 		findings: parsedJudge.crossPr,
 		warnings: [...judged.warnings, ...parsedJudge.warnings],
 		...(judged.usage ? { usage: judged.usage } : {}),
-	} satisfies StackCriticRun;
+	} satisfies StackFindingRun;
 
 	return {
 		ok: true,

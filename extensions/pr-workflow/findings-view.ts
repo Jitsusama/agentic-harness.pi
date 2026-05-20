@@ -64,7 +64,7 @@ function renderLocation(finding: Finding): string {
  * round-4 surface.
  *
  * Returns one row per judge finding plus, when present,
- * a stack-critic section. Pre-flight messages (no judge
+ * a cross-PR section. Pre-flight messages (no judge
  * run, empty consolidated set) match the wall-of-text
  * variant so callers can swap modes without breaking
  * the agent's interpretation.
@@ -74,7 +74,10 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 	if (judge === null) {
 		return "No findings yet. Run pr_workflow action=council, then action=judge.";
 	}
-	if (judge.consolidatedFindings.length === 0 && state.stackCritic === null) {
+	if (
+		judge.consolidatedFindings.length === 0 &&
+		state.stackFindingRun === null
+	) {
 		return "Judge consolidated 0 findings; nothing to decide on.";
 	}
 
@@ -98,10 +101,13 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 		);
 	}
 
-	if (state.stackCritic !== null && state.stackCritic.findings.length > 0) {
+	if (
+		state.stackFindingRun !== null &&
+		state.stackFindingRun.findings.length > 0
+	) {
 		lines.push("");
 		lines.push("Stack-level findings (decide with scope=stack):");
-		for (const finding of state.stackCritic.findings) {
+		for (const finding of state.stackFindingRun.findings) {
 			const decision = state.stackDecisions.get(finding.id) ?? null;
 			const subject =
 				decision?.verdict === "edit" && decision.subject

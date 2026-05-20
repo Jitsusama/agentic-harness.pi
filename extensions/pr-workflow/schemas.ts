@@ -30,11 +30,10 @@
  *     agreement metadata).
  *   - `CritiqueOutput` — round 3 push-back from the
  *     reviewers on the judge's consolidation.
- *   - `StackReviewOutput` — Phase B stack-wide reviewer
- *     output, split into per-PR findings and cross-PR
- *     findings.
- *   - `StackJudgeOutput` — Phase B stack-wide judge
- *     output, split the same way after consolidation.
+ *   - `StackReviewOutput` — stack-wide reviewer output,
+ *     split into per-PR findings and cross-PR findings.
+ *   - `StackJudgeOutput` — stack-wide judge output, split
+ *     the same way after consolidation.
  *
  * Keep this file authoritative. If a subagent's allowed
  * output shape changes, change it here first and
@@ -202,19 +201,18 @@ export const CritiqueOutput = Type.Object({
 export type CritiqueOutput = Static<typeof CritiqueOutput>;
 
 // ---------------------------------------------------------------------------
-// Stack critic
+// Cross-PR review findings
 //
 // Cross-PR findings have the same core shape as judge
 // findings (location, label, subject, discussion,
-// severity, confidence) but no agreement metadata; they
-// have no upstream reviewer to consolidate. Two extra
-// fields are required: `homePrNumber` picks the post
-// destination, and `spans` lists every PR the finding
-// refers to (always non-empty).
+// severity, confidence) but no agreement metadata before
+// judge consolidation. Two extra fields are required:
+// `homePrNumber` picks the post destination, and `spans`
+// lists every PR the finding refers to (always non-empty).
 // ---------------------------------------------------------------------------
 
-/** A stack-critic finding. */
-export const StackCriticFinding = Type.Object({
+/** A cross-PR reviewer finding. */
+export const StackCrossFinding = Type.Object({
 	location: FindingLocation,
 	label: ConventionalLabel,
 	decorations: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
@@ -225,16 +223,10 @@ export const StackCriticFinding = Type.Object({
 	homePrNumber: Type.Integer({ minimum: 1 }),
 	spans: Type.Array(Type.Integer({ minimum: 1 }), { minItems: 1 }),
 });
-export type StackCriticFinding = Static<typeof StackCriticFinding>;
-
-/** Stack-critic output. */
-export const StackCriticOutput = Type.Object({
-	findings: Type.Array(StackCriticFinding),
-});
-export type StackCriticOutput = Static<typeof StackCriticOutput>;
+export type StackCrossFinding = Static<typeof StackCrossFinding>;
 
 // ---------------------------------------------------------------------------
-// Stack-wide review (Phase B)
+// Stack-wide review
 // ---------------------------------------------------------------------------
 
 /** Object keys for PR-number-indexed finding maps. */
@@ -251,7 +243,7 @@ export type PerPrCouncilFindings = Static<typeof PerPrCouncilFindings>;
 /** Stack-wide reviewer output. */
 export const StackReviewOutput = Type.Object({
 	perPr: PerPrCouncilFindings,
-	crossPr: Type.Array(StackCriticFinding),
+	crossPr: Type.Array(StackCrossFinding),
 });
 export type StackReviewOutput = Static<typeof StackReviewOutput>;
 
@@ -295,7 +287,6 @@ export type StageName =
 	| "council"
 	| "judge"
 	| "critique"
-	| "stack-critic"
 	| "stack-review"
 	| "stack-judge";
 
@@ -312,8 +303,6 @@ export function getSchema(stage: StageName) {
 			return JudgeOutput;
 		case "critique":
 			return CritiqueOutput;
-		case "stack-critic":
-			return StackCriticOutput;
 		case "stack-review":
 			return StackReviewOutput;
 		case "stack-judge":

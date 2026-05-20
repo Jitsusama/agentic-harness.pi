@@ -44,7 +44,7 @@ export type FindingOrigin =
 			readonly judgeReviewerId: string;
 	  }
 	| {
-			readonly kind: "stack-critic";
+			readonly kind: "cross-PR";
 			readonly runId: string;
 			readonly reviewerId: string;
 	  }

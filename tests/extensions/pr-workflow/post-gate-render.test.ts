@@ -59,7 +59,7 @@ describe("renderPostGateContent", () => {
 		expect(text).toContain("Variable shadowing");
 	});
 
-	it("surfaces the cross-PR finding count when stack-critic contributed", () => {
+	it("surfaces the cross-PR finding count when cross-PR contributed", () => {
 		const lines = renderPostGateContent(summary({ stackFindingCount: 3 }))(
 			fakeTheme(),
 			80,

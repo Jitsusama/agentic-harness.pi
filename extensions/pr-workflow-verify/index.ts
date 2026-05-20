@@ -31,8 +31,8 @@ export default function (pi: ExtensionAPI) {
 		label: "Verify Output",
 		description:
 			"Validate your final reviewer output against the schema for the " +
-			"named stage (council, judge, critique, stack-critic, " +
-			"stack-review, or stack-judge). Returns " +
+			"named stage (council, judge, critique, stack-review, or " +
+			"stack-judge). Returns " +
 			"ok: true with the parsed item count, or ok: false with a list of " +
 			"{path, message} errors. Call this before ending your run; if " +
 			"errors are reported, fix your output and call again until ok: true.",
@@ -42,13 +42,12 @@ export default function (pi: ExtensionAPI) {
 					Type.Literal("council"),
 					Type.Literal("judge"),
 					Type.Literal("critique"),
-					Type.Literal("stack-critic"),
 					Type.Literal("stack-review"),
 					Type.Literal("stack-judge"),
 				],
 				{
 					description:
-						"Which reviewer stage produced this output: council (round 1), judge (round 2), critique (round 3), stack-critic (legacy cross-PR synthesis), stack-review (Phase B stack-wide reviewer), or stack-judge (Phase B stack-wide judge).",
+						"Which reviewer stage produced this output: council (round 1), judge (round 2), critique (round 3), stack-review (stack-wide reviewer), or stack-judge (stack-wide judge).",
 				},
 			),
 			output: Type.Unknown({

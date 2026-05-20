@@ -9,7 +9,7 @@
  * extension code change.
  *
  * Phase 1 persisted config only (roster, judge,
- * stack-critic, loaded PR reference). Phase 2 expands
+ * loaded PR reference). Phase 2 expands
  * the snapshot to cover run history and Round-4
  * decisions so the fix loop survives `/reload`.
  *
@@ -30,7 +30,7 @@ import type { CritiqueRun } from "./critique.js";
 import type { CouncilRun } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { CouncilReviewer } from "./reviewer.js";
-import type { StackCriticRun } from "./stack-critic.js";
+import type { StackFindingRun } from "./stack-findings.js";
 import type {
 	PrRunSnapshot,
 	PrWorkflowState,
@@ -80,7 +80,6 @@ interface PersistedState {
 	// Phase 1 fields (also present on v0 entries):
 	readonly roster: readonly CouncilReviewer[];
 	readonly judge: CouncilReviewer | null;
-	readonly stackCritic: CouncilReviewer | null;
 	readonly prReference: PRReference | null;
 	readonly prLoadedAt: string | null;
 	// Phase 2 fields:
@@ -88,7 +87,7 @@ interface PersistedState {
 	readonly lastJudge: JudgeRun | null;
 	readonly lastCritique: CritiqueRun | null;
 	readonly decisions: readonly PersistedDecisionEntry[];
-	readonly stackCriticRun: StackCriticRun | null;
+	readonly stackFindingRun: StackFindingRun | null;
 	readonly stackDecisions: readonly PersistedDecisionEntry[];
 	readonly stackRuns: readonly PersistedPrRunSnapshot[];
 	readonly threads: ThreadsSnapshot | null;
@@ -151,14 +150,13 @@ function snapshot(state: PrWorkflowState): PersistedState {
 		version: SCHEMA_VERSION,
 		roster: state.council.roster,
 		judge: state.council.judge,
-		stackCritic: state.council.stackCritic,
 		prReference: state.pr?.reference ?? null,
 		prLoadedAt: state.pr?.loadedAt ?? null,
 		lastRun: state.council.lastRun,
 		lastJudge: state.council.lastJudge,
 		lastCritique: state.council.lastCritique,
 		decisions: serialiseDecisions(state.council.decisions),
-		stackCriticRun: state.stackCritic,
+		stackFindingRun: state.stackFindingRun,
 		stackDecisions: serialiseDecisions(state.stackDecisions),
 		stackRuns: serialiseStackRuns(state.stackRuns),
 		threads: state.threads,
@@ -180,10 +178,9 @@ export function persist(state: PrWorkflowState, pi: ExtensionAPI): void {
 
 /**
  * Restore the persisted slice into a fresh state.
- * No-op when nothing has been persisted yet. Forward-
- * compatible with v0 (Phase 1) entries: only the
- * fields v0 carried get hydrated; the rest stay at
- * their initial-state defaults.
+ * No-op when nothing has been persisted yet. Older v0
+ * entries only hydrate the fields they carried; the rest
+ * stay at their initial-state defaults.
  */
 export function restore(
 	state: PrWorkflowState,
@@ -193,13 +190,9 @@ export function restore(
 	const saved = getLastEntry<Partial<PersistedState>>(ctx, SESSION_KEY);
 	if (!saved) return;
 
-	// Phase 1 fields: always present on every recorded version.
+	// Baseline fields: present on every recorded version.
 	if (saved.roster) state.council.roster = [...saved.roster];
 	if (saved.judge !== undefined) state.council.judge = saved.judge;
-	if (saved.stackCritic !== undefined) {
-		state.council.stackCritic = saved.stackCritic;
-	}
-
 	if (saved.prReference && saved.prLoadedAt) {
 		state.pr = {
 			reference: saved.prReference,
@@ -210,7 +203,7 @@ export function restore(
 		};
 	}
 
-	// Phase 2 fields: only present on v2+ entries.
+	// Run-history fields: only present on v2+ entries.
 	if (saved.version === undefined) return;
 
 	if (saved.lastRun !== undefined) state.council.lastRun = saved.lastRun;
@@ -220,8 +213,8 @@ export function restore(
 	}
 	state.council.decisions = deserialiseDecisions(saved.decisions);
 
-	if (saved.stackCriticRun !== undefined) {
-		state.stackCritic = saved.stackCriticRun;
+	if (saved.stackFindingRun !== undefined) {
+		state.stackFindingRun = saved.stackFindingRun;
 	}
 	state.stackDecisions = deserialiseDecisions(saved.stackDecisions);
 	state.stackRuns = deserialiseStackRuns(saved.stackRuns);
