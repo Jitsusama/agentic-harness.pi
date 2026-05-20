@@ -54,7 +54,8 @@ export async function loadThreadsAction(input: {
 	const snapshot: ThreadsSnapshot = {
 		prNumber: state.pr.reference.number,
 		fetchedAt: (input.now ?? (() => new Date().toISOString()))(),
-		threads,
+		mutatedAt: null,
+		threads: [...threads],
 	};
 	state.threads = snapshot;
 	return { ok: true, snapshot };
@@ -127,6 +128,9 @@ export async function replyToThreadAction(input: {
 	index: number;
 	body: string;
 	sender: ThreadReplySender;
+	now?: () => string;
+	/** Login to attribute the locally-applied reply to. */
+	author?: string;
 }): Promise<Result<{ url: string }>> {
 	const { state, index, body, sender } = input;
 	const lookup = lookupThread(state, index);
@@ -153,7 +157,53 @@ export async function replyToThreadAction(input: {
 			error: `Failed to post reply: ${err instanceof Error ? err.message : String(err)}`,
 		};
 	}
+	applyReplyLocally(
+		state,
+		lookup.thread.id,
+		body,
+		url,
+		input.author,
+		input.now,
+	);
 	return { ok: true, url };
+}
+
+/**
+ * Append the new comment to the in-memory snapshot so
+ * `summary` and re-renders of the threads view stay
+ * consistent with what the user just posted, without
+ * paying for a refetch. The fetched-at timestamp stays
+ * frozen; `mutatedAt` advances so downstream callers
+ * can surface staleness if they care.
+ */
+function applyReplyLocally(
+	state: PrWorkflowState,
+	threadId: string,
+	body: string,
+	url: string,
+	author: string | undefined,
+	now: (() => string) | undefined,
+): void {
+	if (state.threads === null) return;
+	const snapshot = state.threads;
+	const index = snapshot.threads.findIndex((t) => t.id === threadId);
+	if (index < 0) return;
+	const at = (now ?? (() => new Date().toISOString()))();
+	const target = snapshot.threads[index];
+	snapshot.threads[index] = {
+		...target,
+		comments: [
+			...target.comments,
+			{
+				id: `local-${at}-${url}`,
+				author: author ?? "viewer",
+				body,
+				createdAt: at,
+				url,
+			},
+		],
+	};
+	snapshot.mutatedAt = at;
 }
 
 /** Resolve a thread, looked up by 1-based display index. */
@@ -161,6 +211,7 @@ export async function resolveThreadAction(input: {
 	state: PrWorkflowState;
 	index: number;
 	resolver: ThreadResolver;
+	now?: () => string;
 }): Promise<Result<{ isResolved: boolean }>> {
 	const { state, index, resolver } = input;
 	const lookup = lookupThread(state, index);
@@ -182,7 +233,25 @@ export async function resolveThreadAction(input: {
 			error: `Failed to resolve thread: ${err instanceof Error ? err.message : String(err)}`,
 		};
 	}
+	applyResolveLocally(state, lookup.thread.id, isResolved, input.now);
 	return { ok: true, isResolved };
+}
+
+function applyResolveLocally(
+	state: PrWorkflowState,
+	threadId: string,
+	isResolved: boolean,
+	now: (() => string) | undefined,
+): void {
+	if (state.threads === null) return;
+	const snapshot = state.threads;
+	const index = snapshot.threads.findIndex((t) => t.id === threadId);
+	if (index < 0) return;
+	snapshot.threads[index] = {
+		...snapshot.threads[index],
+		isResolved,
+	};
+	snapshot.mutatedAt = (now ?? (() => new Date().toISOString()))();
 }
 
 function lookupThread(

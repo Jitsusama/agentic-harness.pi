@@ -164,6 +164,7 @@ describe("formatPrSummary", () => {
 		state.threads = {
 			prNumber: 1234,
 			fetchedAt: "2026-05-19T00:00:00Z",
+			mutatedAt: null,
 			threads: [],
 		};
 		expect(formatPrSummary(state)).toContain("Threads: none on this PR");
@@ -174,6 +175,7 @@ describe("formatPrSummary", () => {
 		state.threads = {
 			prNumber: 1234,
 			fetchedAt: "2026-05-19T00:00:00Z",
+			mutatedAt: null,
 			threads: [
 				thread({ id: "T1" }),
 				thread({ id: "T2", isResolved: true }),
@@ -190,6 +192,7 @@ describe("formatPrSummary", () => {
 		state.threads = {
 			prNumber: 1234,
 			fetchedAt: "2026-05-19T00:00:00Z",
+			mutatedAt: null,
 			threads: [thread()],
 		};
 		const text = formatPrSummary(state);
@@ -197,6 +200,31 @@ describe("formatPrSummary", () => {
 		expect(text).toContain("cache.ts:12");
 		expect(text).toContain("@alice");
 		expect(text).toContain("shadows the imported module name");
+	});
+
+	it("labels the threads block with its fetched-at timestamp", () => {
+		const state = loadedState();
+		state.threads = {
+			prNumber: 1234,
+			fetchedAt: "2026-05-19T00:00:00Z",
+			mutatedAt: null,
+			threads: [thread()],
+		};
+		const text = formatPrSummary(state);
+		expect(text).toContain("cached 2026-05-19T00:00:00Z");
+		expect(text).toContain("re-run `action=threads` to refresh");
+	});
+
+	it("surfaces 'updated locally' when in-session mutations have happened", () => {
+		const state = loadedState();
+		state.threads = {
+			prNumber: 1234,
+			fetchedAt: "2026-05-19T00:00:00Z",
+			mutatedAt: "2026-05-19T10:00:00Z",
+			threads: [thread({ isResolved: true })],
+		};
+		const text = formatPrSummary(state);
+		expect(text).toContain("updated locally 2026-05-19T10:00:00Z");
 	});
 
 	it("caps the preview and tells the user how many were omitted", () => {
@@ -208,6 +236,7 @@ describe("formatPrSummary", () => {
 		state.threads = {
 			prNumber: 1234,
 			fetchedAt: "2026-05-19T00:00:00Z",
+			mutatedAt: null,
 			threads,
 		};
 		const text = formatPrSummary(state);

@@ -151,11 +151,19 @@ export interface PrWorkflowState {
  * for users; 0-based in code). Reply / resolve target this
  * index, so re-running `threads` after merging upstream
  * activity refreshes the index in one shot.
+ *
+ * In-session reply and resolve mutations update the
+ * snapshot in place (`mutatedAt` advances; the underlying
+ * thread gets the new comment or `isResolved` flag) so
+ * `summary` stays consistent with the actions the user
+ * just ran, without paying for a re-fetch.
  */
 export interface ThreadsSnapshot {
 	readonly prNumber: number;
 	readonly fetchedAt: string;
-	readonly threads: readonly import("./threads.js").ReviewThread[];
+	/** Most recent in-session mutation, or null when none. */
+	mutatedAt: string | null;
+	threads: import("./threads.js").ReviewThread[];
 }
 
 /** Construct the initial state for a fresh session. */

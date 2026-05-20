@@ -85,6 +85,7 @@ describe("formatThreadsView", () => {
 		state.threads = {
 			prNumber: 7,
 			fetchedAt: "now",
+			mutatedAt: null,
 			threads: [],
 		};
 		expect(formatThreadsView(state)).toMatch(/zero|no.*threads.*on/i);
@@ -95,6 +96,7 @@ describe("formatThreadsView", () => {
 		state.threads = {
 			prNumber: 7,
 			fetchedAt: "now",
+			mutatedAt: null,
 			threads: [thread(), thread({ id: "T2", path: "src/bar.ts", line: 20 })],
 		};
 		const view = formatThreadsView(state);
@@ -109,6 +111,7 @@ describe("formatThreadsView", () => {
 		state.threads = {
 			prNumber: 7,
 			fetchedAt: "now",
+			mutatedAt: null,
 			threads: [
 				thread({ isResolved: true }),
 				thread({ id: "T2", isOutdated: true }),
@@ -124,6 +127,7 @@ describe("formatThreadsView", () => {
 		state.threads = {
 			prNumber: 7,
 			fetchedAt: "now",
+			mutatedAt: null,
 			threads: [
 				thread({
 					id: "IC1",
@@ -165,6 +169,7 @@ describe("replyToThreadAction", () => {
 		state.threads = {
 			prNumber: 7,
 			fetchedAt: "now",
+			mutatedAt: null,
 			threads: [thread({ id: "TA" }), thread({ id: "TB" })],
 		};
 		const sender = vi.fn(async () => "https://example.com/new");
@@ -183,6 +188,7 @@ describe("replyToThreadAction", () => {
 		state.threads = {
 			prNumber: 7,
 			fetchedAt: "now",
+			mutatedAt: null,
 			threads: [thread()],
 		};
 		const sender = vi.fn();
@@ -196,11 +202,42 @@ describe("replyToThreadAction", () => {
 		expect(sender).not.toHaveBeenCalled();
 	});
 
+	it("appends the reply locally and stamps mutatedAt so summary stays consistent", async () => {
+		const state = activeState();
+		state.threads = {
+			prNumber: 7,
+			fetchedAt: "2026-05-19T00:00:00Z",
+			mutatedAt: null,
+			threads: [thread({ id: "TA" })],
+		};
+		const sender = vi.fn(async () => "https://example.com/new");
+
+		const result = await replyToThreadAction({
+			state,
+			index: 1,
+			body: "Thanks, will land in next commit.",
+			sender,
+			now: () => "2026-05-19T10:00:00Z",
+			author: "jitsusama",
+		});
+
+		expect(result.ok).toBe(true);
+		const target = state.threads.threads[0];
+		expect(target.comments).toHaveLength(2);
+		expect(target.comments[1]).toMatchObject({
+			author: "jitsusama",
+			body: "Thanks, will land in next commit.",
+			url: "https://example.com/new",
+		});
+		expect(state.threads.mutatedAt).toBe("2026-05-19T10:00:00Z");
+	});
+
 	it("rejects an empty body", async () => {
 		const state = activeState();
 		state.threads = {
 			prNumber: 7,
 			fetchedAt: "now",
+			mutatedAt: null,
 			threads: [thread()],
 		};
 		const sender = vi.fn();
@@ -219,6 +256,7 @@ describe("replyToThreadAction", () => {
 		state.threads = {
 			prNumber: 7,
 			fetchedAt: "now",
+			mutatedAt: null,
 			threads: [thread({ kind: "review-level", path: null, line: null })],
 		};
 		const sender = vi.fn();
@@ -247,6 +285,7 @@ describe("resolveThreadAction", () => {
 		state.threads = {
 			prNumber: 7,
 			fetchedAt: "now",
+			mutatedAt: null,
 			threads: [thread({ id: "TA" }), thread({ id: "TB" })],
 		};
 		const resolver = vi.fn(async () => true);
@@ -260,6 +299,7 @@ describe("resolveThreadAction", () => {
 		state.threads = {
 			prNumber: 7,
 			fetchedAt: "now",
+			mutatedAt: null,
 			threads: [thread()],
 		};
 		const resolver = vi.fn();
@@ -268,11 +308,34 @@ describe("resolveThreadAction", () => {
 		expect(resolver).not.toHaveBeenCalled();
 	});
 
+	it("flips isResolved locally and stamps mutatedAt on success", async () => {
+		const state = activeState();
+		state.threads = {
+			prNumber: 7,
+			fetchedAt: "2026-05-19T00:00:00Z",
+			mutatedAt: null,
+			threads: [thread({ id: "TA" })],
+		};
+		const resolver = vi.fn(async () => true);
+
+		const result = await resolveThreadAction({
+			state,
+			index: 1,
+			resolver,
+			now: () => "2026-05-19T10:01:00Z",
+		});
+
+		expect(result.ok).toBe(true);
+		expect(state.threads.threads[0].isResolved).toBe(true);
+		expect(state.threads.mutatedAt).toBe("2026-05-19T10:01:00Z");
+	});
+
 	it("warns but still resolves an already-resolved thread (idempotent)", async () => {
 		const state = activeState();
 		state.threads = {
 			prNumber: 7,
 			fetchedAt: "now",
+			mutatedAt: null,
 			threads: [thread({ isResolved: true })],
 		};
 		const resolver = vi.fn(async () => true);
@@ -286,6 +349,7 @@ describe("resolveThreadAction", () => {
 		state.threads = {
 			prNumber: 7,
 			fetchedAt: "now",
+			mutatedAt: null,
 			threads: [thread({ kind: "review-level", path: null, line: null })],
 		};
 		const resolver = vi.fn();
