@@ -91,6 +91,10 @@ import {
 	formatStackCriticSummary,
 	runStackCriticAction,
 } from "./stack-critic-action.js";
+import {
+	formatStackReviewActionSummary,
+	runStackReviewAction,
+} from "./stack-review-action.js";
 import { formatStack, nextInStack, prevInStack } from "./stack-view.js";
 import { createPrWorkflowState } from "./state.js";
 import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
@@ -237,6 +241,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"judge-config",
 					"judge-all",
 					"review-all",
+					"review",
 					"judge",
 					"critique",
 					"findings",
@@ -273,6 +278,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"judge: run round-2 consolidation against the most recent council run. " +
 						"judge-all: run the configured judge across every stack PR that " +
 						"has a council run. review-all: run council-all, then judge-all. " +
+						"review: run the Phase B stack-wide context review pipeline " +
+						"(one stack-aware council fan-out plus one stack-aware judge). " +
 						"critique: run round-3 critique — the roster pushes back on the judge's consolidated list. " +
 						"findings: render the round-4 view (judge + critique + user decisions). " +
 						"decide: record the user's verdict on a single finding. " +
@@ -727,6 +734,35 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 				return {
 					content: [{ type: "text", text: formatReviewAllSummary(result.run) }],
+					details: { ok: true, run: result.run },
+				};
+			}
+
+			if (params.action === "review") {
+				const { registry, runPi, extraExtensions } = getCouncilDeps();
+				const result = await runStackReviewAction({
+					state,
+					registry,
+					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
+					fetchers: {
+						metadata: (reference) => fetchPrMetadata(pi, reference),
+						diff: async (reference) => {
+							const raw = await fetchDiff(pi, reference);
+							return parseDiff(raw);
+						},
+					},
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{ type: "text", text: formatStackReviewActionSummary(result.run) },
+					],
 					details: { ok: true, run: result.run },
 				};
 			}

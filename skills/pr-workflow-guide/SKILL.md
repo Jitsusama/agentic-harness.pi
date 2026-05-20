@@ -45,7 +45,8 @@ prose; you translate intent into calls.
 | `judge-config` | User wants to set or change the judge model. |
 | `judge` | Round 2: consolidate the council output. Run after `council`. |
 | `judge-all` | Run the configured judge across every stack PR that already has a council run. Use after `council-all` when the user wants the whole stack consolidated. |
-| `review-all` | Convenience wrapper: run `council-all`, then `judge-all`. Use when the user says "review the whole stack" or "do all of them". |
+| `review-all` | Phase A compatibility wrapper: run `council-all`, then `judge-all`. Use when you want the old per-PR pipeline across the whole stack. |
+| `review` | Phase B stack-wide context review: one stack-aware council fan-out plus one stack-aware judge. Use first for "review the whole stack" or "do all of them" unless you explicitly need the old per-PR pipeline. |
 | `critique` | Round 3 (optional): roster pushes back on the judge. Only after the gate. |
 | `stack-critic-config` | User wants to set the cross-PR stack critic reviewer (only once per session). |
 | `stack-critic` | Run cross-PR synthesis across the discovered stack. Requires judge findings on at least one PR. |
