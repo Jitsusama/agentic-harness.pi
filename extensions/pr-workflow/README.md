@@ -54,9 +54,7 @@ steering it from a menu.
 These aren't modes the user picks. They're trajectories
 that emerge from prose: the agent reads the user's intent
 and adapts. The same session can move between trajectories
-without ceremony. The full design lives in the
-[project's design doc 08](../../../../localhost/documents/projects/proj-pi-pr-workflow/sidequests/pr-mode-redesign/designs/08-user-journeys.md);
-this section is the short version.
+without ceremony.
 
 ### 1. Self-review before pushing
 
