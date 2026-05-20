@@ -41,6 +41,7 @@ prose; you translate intent into calls.
 | `summary` | User-facing "what's the state of this PR?" panel. Header + stack + threads + council + fix queue, composed from cached snapshots. Use when the user asks open questions like "where are we on this?" or comes back to a session after a break. Never fetches — if threads aren't cached the panel prompts to run `action=threads`. |
 | `council-config` | User wants to set or change the reviewer roster. |
 | `council` | Round 1: fan out the roster. User said "run the review", "kick it off". |
+| `council-all` | Same fan-out, but across every PR in the loaded stack concurrently. The cursor PR's run lands in `council.lastRun`; the rest stash under `stackRuns` and rehydrate on `stack-next` / `stack-prev`. Phase A of the stack-wide redesign — use when the user says "review the whole stack" or "do all of them". |
 | `judge-config` | User wants to set or change the judge model. |
 | `judge` | Round 2: consolidate the council output. Run after `council`. |
 | `critique` | Round 3 (optional): roster pushes back on the judge. Only after the gate. |
