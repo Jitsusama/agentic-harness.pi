@@ -38,6 +38,7 @@ import {
 	runCritiqueAction,
 } from "./critique-action.js";
 import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
+import { formatCompactFindingsView } from "./findings-view.js";
 import {
 	formatFixQueueStatus,
 	nextFixAction,
@@ -468,6 +469,12 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"Reason the queued fix is being abandoned. Required for action=fix-skip; surfaced in the findings view.",
 				}),
 			),
+			verbose: Type.Optional(
+				Type.Boolean({
+					description:
+						"For action=findings: when true, render the full wall-of-text view (one paragraph per finding with discussion, critiques and original-versus-edited text). When omitted or false, render the compact one-row-per-finding index.",
+				}),
+			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (params.action === "council-config") {
@@ -750,8 +757,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "findings") {
+				const text = params.verbose
+					? formatFindingsView(state)
+					: formatCompactFindingsView(state);
 				return {
-					content: [{ type: "text", text: formatFindingsView(state) }],
+					content: [{ type: "text", text }],
 					details: {
 						ok: true,
 						judgeRunId: state.council.lastJudge?.id ?? null,

@@ -232,7 +232,7 @@ with the user. Translate intent to `decide` calls:
 
 | User says | Call |
 |---|---|
-| "show me the findings" | `action=findings` |
+| "show me the findings" | `action=findings` (compact one-row-per-finding index; pass `verbose:true` for the full discussion + critique text) |
 | "endorse #10" | `action=decide findingId=10 verdict=endorse` |
 | "dismiss #11, false positive" | `action=decide findingId=11 verdict=dismiss reason="false positive"` |
 | "soften #12 — non-blocking" | `action=decide findingId=12 verdict=qualify note="non-blocking, worth a follow-up"` |
