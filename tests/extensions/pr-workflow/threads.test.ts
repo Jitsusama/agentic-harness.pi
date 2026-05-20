@@ -28,6 +28,15 @@ function validResponse(): {
 						};
 					}>;
 				};
+				comments: {
+					nodes: Array<{
+						id: string;
+						author: { login: string } | null;
+						body: string;
+						createdAt: string;
+						url: string;
+					}>;
+				};
 			};
 		};
 	};
@@ -58,6 +67,7 @@ function validResponse(): {
 							},
 						],
 					},
+					comments: { nodes: [] },
 				},
 			},
 		},
@@ -77,6 +87,7 @@ describe("parseReviewThreads", () => {
 		const parsed = parseReviewThreads(raw);
 		expect(parsed).toHaveLength(1);
 		expect(parsed[0].id).toBe("T1");
+		expect(parsed[0].kind).toBe("review-thread");
 		expect(parsed[0].comments).toHaveLength(2);
 		expect(parsed[0].comments.map((c) => c.id)).toEqual(["C1", "C2"]);
 	});
@@ -109,10 +120,44 @@ describe("parseReviewThreads", () => {
 		expect(parsed[0].line).toBeNull();
 	});
 
-	it("returns an empty list when the PR has no threads", () => {
+	it("returns an empty list when the PR has no threads or review-level comments", () => {
 		const raw = validResponse();
 		raw.data.repository.pullRequest.reviewThreads.nodes = [];
+		raw.data.repository.pullRequest.comments.nodes = [];
 		expect(parseReviewThreads(raw)).toEqual([]);
+	});
+
+	it("merges PR review-level comments after inline review threads", () => {
+		const raw = validResponse();
+		raw.data.repository.pullRequest.comments.nodes.push({
+			id: "IC1",
+			author: { login: "maintainer" },
+			body: "Thanks for the detailed review.",
+			createdAt: "2024-01-03T00:00:00Z",
+			url: "https://github.com/o/r/pull/1#issuecomment-1",
+		});
+
+		const parsed = parseReviewThreads(raw);
+
+		expect(parsed).toHaveLength(2);
+		expect(parsed[0].kind).toBe("review-thread");
+		expect(parsed[1]).toMatchObject({
+			id: "IC1",
+			kind: "review-level",
+			isResolved: false,
+			isOutdated: false,
+			path: null,
+			line: null,
+		});
+		expect(parsed[1].comments).toEqual([
+			{
+				id: "IC1",
+				author: "maintainer",
+				body: "Thanks for the detailed review.",
+				createdAt: "2024-01-03T00:00:00Z",
+				url: "https://github.com/o/r/pull/1#issuecomment-1",
+			},
+		]);
 	});
 
 	it("throws when the PR is not found", () => {

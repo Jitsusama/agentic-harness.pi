@@ -9,6 +9,7 @@ import { fakeTheme } from "../../lib/ui/fake-theme.js";
 function thread(overrides: Partial<ReviewThread> = {}): ReviewThread {
 	return {
 		id: "T1",
+		kind: "review-thread",
 		isResolved: false,
 		isOutdated: false,
 		path: "src/foo.ts",
@@ -46,6 +47,14 @@ describe("renderReplyGateContent", () => {
 			"ack",
 		)(fakeTheme(), 80);
 		expect(lines.join("\n")).toContain("(PR-level)");
+	});
+
+	it("labels review-level comments distinctly", () => {
+		const lines = renderReplyGateContent(
+			thread({ kind: "review-level", path: null, line: null }),
+			"ack",
+		)(fakeTheme(), 80);
+		expect(lines.join("\n")).toContain("(review-level)");
 	});
 
 	it("labels file-level threads (path but no line)", () => {
