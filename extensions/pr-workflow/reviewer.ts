@@ -51,11 +51,21 @@ export interface RunPiResult {
 	readonly exitCode: number;
 }
 
+/** One pi `--mode json` stream event. */
+export type RunPiStreamEvent = Record<string, unknown>;
+
 /** Injectable subprocess runner. */
 export type RunPi = (opts: {
 	readonly args: string[];
 	readonly cwd: string;
 	readonly signal?: AbortSignal;
+	/**
+	 * Optional live-stream hook. Fires per parsed JSON
+	 * event line as the subprocess emits it. Errors
+	 * thrown inside the callback are swallowed so a
+	 * broken observer can't kill the run.
+	 */
+	readonly onEvent?: (event: RunPiStreamEvent) => void;
 }) => Promise<RunPiResult>;
 
 /** Inputs `runReviewer` needs to dispatch one pi process. */
@@ -79,6 +89,15 @@ export interface RunReviewerOptions {
 	 * these layer on top.
 	 */
 	readonly extraExtensions?: readonly string[];
+	/**
+	 * Live event hook forwarded to the subprocess
+	 * runner. The council orchestrator uses this to
+	 * translate the reviewer's per-line stream into
+	 * progress updates ("reading task.go", "running
+	 * bash…") so the user sees signal mid-flight instead
+	 * of dead air.
+	 */
+	readonly onEvent?: (event: RunPiStreamEvent) => void;
 }
 
 /** Token + cost figures for one reviewer subagent run. */
@@ -131,6 +150,7 @@ export async function runReviewer(
 		args,
 		cwd: options.cwd,
 		signal: options.signal,
+		onEvent: options.onEvent,
 	});
 
 	const { finalAssistantText, usage, warnings } = extractAssistantOutput(

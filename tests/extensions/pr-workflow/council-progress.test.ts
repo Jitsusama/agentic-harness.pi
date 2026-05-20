@@ -13,10 +13,17 @@ import { WorktreeRegistry } from "../../../extensions/pr-workflow/worktree.js";
 import { fakeProvider } from "./council.test-helpers.js";
 
 interface ProgressEvent {
-	readonly tag: "start" | "started" | "completed" | "failed" | "finish";
+	readonly tag:
+		| "start"
+		| "started"
+		| "activity"
+		| "completed"
+		| "failed"
+		| "finish";
 	readonly reviewerId?: string;
 	readonly findingCount?: number;
 	readonly error?: string;
+	readonly activity?: string;
 	readonly snapshot?: readonly CouncilProgressEntry[];
 }
 
@@ -31,6 +38,9 @@ function recorder(): {
 		},
 		reviewerStarted(reviewerId) {
 			events.push({ tag: "started", reviewerId });
+		},
+		reviewerActivity(reviewerId, activity) {
+			events.push({ tag: "activity", reviewerId, activity });
 		},
 		reviewerCompleted(reviewerId, output) {
 			events.push({
@@ -177,6 +187,40 @@ describe("CouncilProgress integration with runCouncil", () => {
 		expect(completed.map((e) => e.reviewerId)).toEqual(["fast"]);
 	});
 
+	it("forwards mid-flight tool events to reviewerActivity", async () => {
+		const { events, progress } = recorder();
+		const dispatch: CouncilDispatch = async ({ reviewer, onEvent }) => {
+			onEvent?.({
+				type: "tool_execution_start",
+				toolName: "read",
+				args: { path: "task.go" },
+			});
+			onEvent?.({
+				type: "tool_execution_start",
+				toolName: "grep",
+				args: { pattern: "Save" },
+			});
+			// Non-tool events shouldn't produce activity entries.
+			onEvent?.({ type: "message_end", message: {} });
+			return { ...findings("{}"), reviewerId: reviewer.id };
+		};
+
+		await runCouncil({
+			runId: "council-activity",
+			target,
+			reviewers: [roster[0]],
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch,
+			progress,
+		});
+
+		const activities = events.filter((e) => e.tag === "activity");
+		expect(activities).toHaveLength(2);
+		expect(activities[0]?.reviewerId).toBe("fast");
+		expect(activities[0]?.activity).toBe("reading task.go");
+		expect(activities[1]?.activity).toBe("grep Save");
+	});
+
 	it("survives a broken reporter without crashing the run", async () => {
 		const broken: CouncilProgress = {
 			start() {
@@ -184,6 +228,9 @@ describe("CouncilProgress integration with runCouncil", () => {
 			},
 			reviewerStarted() {
 				throw new Error("started broke");
+			},
+			reviewerActivity() {
+				throw new Error("activity broke");
 			},
 			reviewerCompleted() {
 				throw new Error("completed broke");

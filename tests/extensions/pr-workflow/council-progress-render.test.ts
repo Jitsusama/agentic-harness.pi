@@ -17,6 +17,7 @@ function entry(
 		findingCount: 0,
 		warnings: [],
 		error: "",
+		activity: "",
 		...overrides,
 	};
 }
