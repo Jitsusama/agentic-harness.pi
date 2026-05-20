@@ -139,6 +139,109 @@ describe("createSpawnRunPi", () => {
 		await expect(runPi({ args: [], cwd: "/tmp" })).rejects.toThrow(/ENOENT/);
 	});
 
+	it("streams each JSON event line to onEvent as it arrives", async () => {
+		const fake = makeFakeChild();
+		const events: Record<string, unknown>[] = [];
+		const runPi = createSpawnRunPi({
+			binary: "pi",
+			spawn: () => {
+				queueMicrotask(() => {
+					fake.stdout.write('{"type":"agent_start"}\n');
+					fake.stdout.write(
+						'{"type":"tool_execution_start","toolName":"read","args":{"path":"task.go"}}\n',
+					);
+					fake.stdout.end('{"type":"agent_end"}\n');
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+		await runPi({
+			args: [],
+			cwd: "/tmp",
+			onEvent: (event) => events.push(event),
+		});
+		expect(events).toHaveLength(3);
+		expect(events[0]?.type).toBe("agent_start");
+		expect(events[1]?.type).toBe("tool_execution_start");
+		expect(events[2]?.type).toBe("agent_end");
+	});
+
+	it("reassembles events split across multiple data chunks", async () => {
+		const fake = makeFakeChild();
+		const events: Record<string, unknown>[] = [];
+		const runPi = createSpawnRunPi({
+			binary: "pi",
+			spawn: () => {
+				queueMicrotask(() => {
+					fake.stdout.write('{"type":"tool_execu');
+					fake.stdout.write('tion_start","toolName":"read"');
+					fake.stdout.end(',"args":{}}\n');
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+		await runPi({
+			args: [],
+			cwd: "/tmp",
+			onEvent: (event) => events.push(event),
+		});
+		expect(events).toHaveLength(1);
+		expect(events[0]).toMatchObject({
+			type: "tool_execution_start",
+			toolName: "read",
+		});
+	});
+
+	it("skips malformed lines without throwing", async () => {
+		const fake = makeFakeChild();
+		const events: Record<string, unknown>[] = [];
+		const runPi = createSpawnRunPi({
+			binary: "pi",
+			spawn: () => {
+				queueMicrotask(() => {
+					fake.stdout.write("not json at all\n");
+					fake.stdout.end('{"type":"agent_end"}\n');
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+		const result = await runPi({
+			args: [],
+			cwd: "/tmp",
+			onEvent: (event) => events.push(event),
+		});
+		expect(events).toHaveLength(1);
+		expect(events[0]?.type).toBe("agent_end");
+		// Both lines still land in the final stdout buffer
+		// so downstream parsers see them.
+		expect(result.stdout).toContain("not json at all");
+	});
+
+	it("swallows observer errors so a broken callback can't kill the run", async () => {
+		const fake = makeFakeChild();
+		const runPi = createSpawnRunPi({
+			binary: "pi",
+			spawn: () => {
+				queueMicrotask(() => {
+					fake.stdout.end('{"type":"agent_end"}\n');
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+		const result = await runPi({
+			args: [],
+			cwd: "/tmp",
+			onEvent: () => {
+				throw new Error("observer broke");
+			},
+		});
+		expect(result.exitCode).toBe(0);
+	});
+
 	it("propagates AbortSignal cancellation by killing the child", async () => {
 		// The orchestrator wires its run-level AbortSignal
 		// down to each reviewer. When the user cancels the

@@ -73,7 +73,11 @@ export function createCouncilProgressReporter(
 			render();
 		},
 		reviewerStarted(reviewerId) {
-			updateEntry(reviewerId, { state: "running" });
+			updateEntry(reviewerId, { state: "running", activity: "" });
+			render();
+		},
+		reviewerActivity(reviewerId, activity) {
+			updateEntry(reviewerId, { activity });
 			render();
 		},
 		reviewerCompleted(reviewerId, output) {
@@ -81,11 +85,12 @@ export function createCouncilProgressReporter(
 				state: "complete",
 				findingCount: output.findings.length,
 				warnings: output.warnings,
+				activity: "",
 			});
 			render();
 		},
 		reviewerFailed(reviewerId, error) {
-			updateEntry(reviewerId, { state: "failed", error });
+			updateEntry(reviewerId, { state: "failed", error, activity: "" });
 			render();
 		},
 		finish() {
@@ -152,7 +157,9 @@ function widgetSubtext(entry: CouncilProgressEntry): string | undefined {
 		const noun = entry.findingCount === 1 ? "finding" : "findings";
 		return `${entry.findingCount} ${noun}`;
 	}
-	if (entry.state === "running") return "in flight";
+	if (entry.state === "running") {
+		return entry.activity.length > 0 ? entry.activity : "in flight";
+	}
 	if (entry.state === "pending") return "queued";
 	return undefined;
 }

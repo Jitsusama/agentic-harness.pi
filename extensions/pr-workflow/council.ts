@@ -30,6 +30,7 @@ import {
 	type CouncilProgressEntry,
 	NULL_PROGRESS,
 	safelyNotify,
+	summarizeStreamActivity,
 } from "./council-progress.js";
 import type { CouncilRun, ReviewerOutput } from "./findings.js";
 import { parseReviewerOutput } from "./parse.js";
@@ -154,6 +155,7 @@ export async function runCouncil(
 			findingCount: 0,
 			warnings: [],
 			error: "",
+			activity: "",
 		}),
 	);
 	safelyNotify(() => progress.start(startSnapshot), "start", progressWarnings);
@@ -181,11 +183,21 @@ export async function runCouncil(
 				`started(${reviewer.id})`,
 				progressWarnings,
 			);
+			const onEvent = (event: Record<string, unknown>): void => {
+				const activity = summarizeStreamActivity(event);
+				if (activity === null) return;
+				safelyNotify(
+					() => progress.reviewerActivity?.(reviewer.id, activity),
+					`activity(${reviewer.id})`,
+					progressWarnings,
+				);
+			};
 			return options.dispatch({
 				reviewer,
 				prompt,
 				cwd: handle.path,
 				signal: options.signal,
+				onEvent,
 			});
 		}),
 	);

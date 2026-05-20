@@ -39,6 +39,13 @@ export interface CouncilProgressEntry {
 	readonly warnings: readonly string[];
 	/** Error message when state is `failed`. Empty otherwise. */
 	readonly error: string;
+	/**
+	 * Short live-activity hint while `state` is
+	 * `running` (e.g. "reading task.go", "running
+	 * bash…"). Empty when no activity has been reported
+	 * or after the reviewer settles.
+	 */
+	readonly activity: string;
 }
 
 /** Observer notified as reviewers progress. */
@@ -52,6 +59,15 @@ export interface CouncilProgress {
 
 	/** A reviewer has begun dispatch (subprocess spawned). */
 	reviewerStarted(reviewerId: string): void;
+
+	/**
+	 * Mid-flight activity hint. Fires when the
+	 * reviewer's subagent calls a tool that's worth
+	 * surfacing in the UI (file read, bash, grep). The
+	 * orchestrator decides what counts; the reporter
+	 * just renders the latest one.
+	 */
+	reviewerActivity?(reviewerId: string, activity: string): void;
 
 	/** A reviewer has produced output (parsed successfully). */
 	reviewerCompleted(reviewerId: string, output: ReviewerOutput): void;
@@ -86,7 +102,80 @@ export function safelyNotify(
 export const NULL_PROGRESS: CouncilProgress = {
 	start() {},
 	reviewerStarted() {},
+	reviewerActivity() {},
 	reviewerCompleted() {},
 	reviewerFailed() {},
 	finish() {},
 };
+
+/**
+ * Translate one pi `--mode json` stream event into a
+ * short activity string for the UI.
+ *
+ * Returns `null` for events that don't move the
+ * reviewer's surface state (text deltas, message_end,
+ * etc) so the caller can skip notification without
+ * branching. Tool calls render as a verb + a short
+ * argument hint scraped from `args`; unknown tools
+ * still surface as `running <name>` so the reporter
+ * shows *something* rather than going silent during a
+ * long subagent tool turn.
+ */
+export function summarizeStreamActivity(event: unknown): string | null {
+	if (typeof event !== "object" || event === null) return null;
+	const e = event as Record<string, unknown>;
+	if (e.type !== "tool_execution_start") return null;
+	const toolName = typeof e.toolName === "string" ? e.toolName : "";
+	if (!toolName) return null;
+	const args =
+		typeof e.args === "object" && e.args !== null
+			? (e.args as Record<string, unknown>)
+			: {};
+	switch (toolName) {
+		case "read":
+		case "Read": {
+			const path =
+				typeof args.path === "string"
+					? args.path
+					: typeof args.file === "string"
+						? args.file
+						: "";
+			return path ? `reading ${trim(path, 40)}` : "reading";
+		}
+		case "grep":
+		case "Grep": {
+			const pattern =
+				typeof args.pattern === "string"
+					? args.pattern
+					: typeof args.query === "string"
+						? args.query
+						: "";
+			return pattern ? `grep ${trim(pattern, 40)}` : "grep";
+		}
+		case "glob":
+		case "Glob": {
+			const pattern = typeof args.pattern === "string" ? args.pattern : "";
+			return pattern ? `glob ${trim(pattern, 40)}` : "glob";
+		}
+		case "ls":
+		case "Ls": {
+			const path = typeof args.path === "string" ? args.path : "";
+			return path ? `ls ${trim(path, 40)}` : "ls";
+		}
+		case "bash":
+		case "Bash": {
+			const cmd = typeof args.command === "string" ? args.command : "";
+			return cmd ? `bash ${trim(cmd, 40)}` : "bash";
+		}
+		case "verify_output":
+			return "verifying output";
+		default:
+			return `running ${toolName}`;
+	}
+}
+
+function trim(s: string, max: number): string {
+	const clean = s.replace(/\s+/g, " ").trim();
+	if (clean.length <= max) return clean;
+	return `${clean.slice(0, max - 1)}…`;
+}
