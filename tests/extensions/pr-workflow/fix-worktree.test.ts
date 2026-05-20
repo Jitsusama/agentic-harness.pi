@@ -14,9 +14,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	cleanupFixWorktree,
 	createFixWorktreeProvisioner,
+	type FixWorktreeFs,
 	type FixWorktreeRequest,
 	fixWorktreePath,
+	listFixWorktrees,
 } from "../../../extensions/pr-workflow/fix-worktree.js";
 import type {
 	GitExec,
@@ -163,5 +166,180 @@ describe("createFixWorktreeProvisioner — reuse", () => {
 		expect(handle.path).toBe("/tmp/state/fix-worktrees/octocat-hello-world-42");
 		expect(handle.branch).toBe("feature/x");
 		expect(calls).toEqual([]);
+	});
+});
+
+function inMemoryFs(
+	initial: Record<string, { mtimeMs?: number; isDir?: boolean }> = {},
+): FixWorktreeFs & { removed: string[] } {
+	const paths: Record<string, { mtimeMs?: number; isDir?: boolean }> = {
+		...initial,
+	};
+	const removed: string[] = [];
+	return {
+		removed,
+		async listDirs(dir) {
+			const prefix = `${dir}/`;
+			const names = new Set<string>();
+			for (const key of Object.keys(paths)) {
+				if (!key.startsWith(prefix)) continue;
+				const rest = key.slice(prefix.length);
+				const first = rest.split("/")[0];
+				if (first && paths[`${prefix}${first}`]?.isDir !== false) {
+					names.add(first);
+				}
+			}
+			return Array.from(names);
+		},
+		async stat(p) {
+			const entry = paths[p];
+			if (!entry) return null;
+			return { mtimeMs: entry.mtimeMs ?? 0 };
+		},
+		async remove(p) {
+			removed.push(p);
+			for (const key of Object.keys(paths)) {
+				if (key === p || key.startsWith(`${p}/`)) delete paths[key];
+			}
+		},
+		async exists(p) {
+			return p in paths;
+		},
+	};
+}
+
+describe("listFixWorktrees", () => {
+	it("returns an empty list when the fix-worktrees directory is absent", async () => {
+		const fs = inMemoryFs();
+		expect(await listFixWorktrees("/tmp/state", fs)).toEqual([]);
+	});
+
+	it("enumerates owner-repo-number entries with mtimes", async () => {
+		const fs = inMemoryFs({
+			"/tmp/state/fix-worktrees/octocat-hello-world-42": { mtimeMs: 200 },
+			"/tmp/state/fix-worktrees/octocat-other-7": { mtimeMs: 100 },
+		});
+		const entries = await listFixWorktrees("/tmp/state", fs);
+		expect(entries).toHaveLength(2);
+		// Sorted oldest-first.
+		expect(entries[0]?.path).toBe("/tmp/state/fix-worktrees/octocat-other-7");
+		expect(entries[0]?.number).toBe(7);
+		expect(entries[0]?.repo).toBe("other");
+		expect(entries[1]?.owner).toBe("octocat");
+		expect(entries[1]?.repo).toBe("hello-world");
+		expect(entries[1]?.number).toBe(42);
+	});
+
+	it("ignores directories that don't match the slug shape", async () => {
+		const fs = inMemoryFs({
+			"/tmp/state/fix-worktrees/garbage-no-number": {},
+			"/tmp/state/fix-worktrees/missing-owner-7": { mtimeMs: 1 },
+			"/tmp/state/fix-worktrees/octocat-hello-world-99": { mtimeMs: 2 },
+		});
+		const entries = await listFixWorktrees("/tmp/state", fs);
+		const slugs = entries.map((e) => e.slug);
+		expect(slugs).toContain("missing-owner-7");
+		expect(slugs).toContain("octocat-hello-world-99");
+		expect(slugs).not.toContain("garbage-no-number");
+	});
+});
+
+describe("cleanupFixWorktree", () => {
+	const target = "/tmp/state/fix-worktrees/octocat-hello-world-42";
+
+	it("reports missing when the worktree path doesn't exist", async () => {
+		const fs = inMemoryFs();
+		const { exec, calls } = fakeExec();
+		const outcome = await cleanupFixWorktree(
+			{
+				stateDir: "/tmp/state",
+				owner: "octocat",
+				repo: "hello-world",
+				number: 42,
+			},
+			exec,
+			fs,
+		);
+		expect(outcome).toEqual({ status: "missing", path: target });
+		expect(calls).toEqual([]);
+	});
+
+	it("runs `git worktree remove` and reports the git method on success", async () => {
+		const fs = inMemoryFs({ [target]: { mtimeMs: 1 } });
+		const { exec, calls } = fakeExec();
+		const outcome = await cleanupFixWorktree(
+			{
+				stateDir: "/tmp/state",
+				owner: "octocat",
+				repo: "hello-world",
+				number: 42,
+			},
+			exec,
+			fs,
+		);
+		expect(outcome).toEqual({
+			status: "removed",
+			path: target,
+			method: "git",
+		});
+		expect(calls).toEqual([
+			{ args: ["worktree", "remove", target], cwd: target },
+		]);
+		expect(fs.removed).toEqual([]);
+	});
+
+	it("blocks when git refuses and force is not set", async () => {
+		const fs = inMemoryFs({ [target]: { mtimeMs: 1 } });
+		const { exec } = fakeExec({
+			[`worktree remove ${target}`]: {
+				exitCode: 128,
+				stdout: "",
+				stderr: "fatal: contains uncommitted changes",
+			},
+		});
+		const outcome = await cleanupFixWorktree(
+			{
+				stateDir: "/tmp/state",
+				owner: "octocat",
+				repo: "hello-world",
+				number: 42,
+			},
+			exec,
+			fs,
+		);
+		expect(outcome.status).toBe("blocked");
+		if (outcome.status === "blocked") {
+			expect(outcome.reason).toBe("fatal: contains uncommitted changes");
+			expect(outcome.hint).toContain("force:true");
+		}
+		expect(fs.removed).toEqual([]);
+	});
+
+	it("falls back to rm -rf when git refuses and force is true", async () => {
+		const fs = inMemoryFs({ [target]: { mtimeMs: 1 } });
+		const { exec } = fakeExec({
+			[`worktree remove ${target}`]: {
+				exitCode: 128,
+				stdout: "",
+				stderr: "fatal: refused",
+			},
+		});
+		const outcome = await cleanupFixWorktree(
+			{
+				stateDir: "/tmp/state",
+				owner: "octocat",
+				repo: "hello-world",
+				number: 42,
+				force: true,
+			},
+			exec,
+			fs,
+		);
+		expect(outcome).toEqual({
+			status: "removed",
+			path: target,
+			method: "force",
+		});
+		expect(fs.removed).toEqual([target]);
 	});
 });
