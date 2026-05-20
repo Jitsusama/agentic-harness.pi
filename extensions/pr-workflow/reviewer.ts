@@ -20,15 +20,29 @@
  * extension entry-point and uses node:child_process.
  */
 
-/** A reviewer config: identity, model, tool palette. */
+/** A reviewer config: identity, model, thinking level, tool palette. */
 export interface CouncilReviewer {
 	/** Stable id used in finding origin and result correlation. */
 	readonly id: string;
-	/** Pi `--model` value (e.g. "anthropic:claude-sonnet-4.5"). */
+	/**
+	 * Pi `--model` value. Either a bare model id
+	 * (`claude-opus-4-7`) or a `provider/model` pair
+	 * (`anthropic/claude-opus-4-7`). The colon form
+	 * `provider:model` is NOT accepted by pi's CLI; colons
+	 * are reserved for the `model:thinking` shorthand.
+	 */
 	readonly model?: string;
+	/**
+	 * Pi `--thinking` value: `off`, `low`, `medium`, or
+	 * `high`. Omit to inherit pi's session default.
+	 */
+	readonly thinkingLevel?: ReviewerThinkingLevel;
 	/** Pi `--tools` palette (e.g. ["read", "grep", "bash"]). */
 	readonly tools?: readonly string[];
 }
+
+/** Thinking levels accepted by pi's `--thinking` flag. */
+export type ReviewerThinkingLevel = "off" | "low" | "medium" | "high";
 
 /** Result of one pi subprocess invocation. */
 export interface RunPiResult {
@@ -125,6 +139,10 @@ export async function runReviewer(
 
 	if (result.exitCode !== 0) {
 		warnings.push(`Pi subprocess exited non-zero (exit ${result.exitCode})`);
+		const stderrSnippet = summarizeStderr(result.stderr);
+		if (stderrSnippet) {
+			warnings.push(`Pi stderr: ${stderrSnippet}`);
+		}
 	}
 
 	return {
@@ -137,6 +155,25 @@ export async function runReviewer(
 	};
 }
 
+const STDERR_SNIPPET_MAX = 240;
+
+/**
+ * Trim pi's stderr down to something fit for inline
+ * warning display. Keeps the first non-empty line so
+ * common errors like `Error: Model "..." not found.`
+ * surface without dumping a full traceback at the user.
+ */
+function summarizeStderr(stderr: string): string {
+	if (!stderr) return "";
+	const lines = stderr.split(/\r?\n/);
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		return truncate(trimmed, STDERR_SNIPPET_MAX);
+	}
+	return "";
+}
+
 function composeArgs(
 	reviewer: CouncilReviewer,
 	prompt: string,
@@ -145,6 +182,9 @@ function composeArgs(
 	const args: string[] = ["--mode", "json", "--no-session", "-p"];
 	if (reviewer.model) {
 		args.push("--model", reviewer.model);
+	}
+	if (reviewer.thinkingLevel) {
+		args.push("--thinking", reviewer.thinkingLevel);
 	}
 	if (reviewer.tools && reviewer.tools.length > 0) {
 		args.push("--tools", reviewer.tools.join(","));

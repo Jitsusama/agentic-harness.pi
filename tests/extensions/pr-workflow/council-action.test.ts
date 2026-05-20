@@ -43,14 +43,14 @@ describe("configureCouncil", () => {
 		state.council.roster = [{ id: "old", model: "x" }];
 		const result = configureCouncil(state, {
 			reviewers: [
-				{ id: "fast", model: "anthropic:claude-sonnet-4.5" },
-				{ id: "skeptic", model: "openai:gpt-5-codex" },
+				{ id: "fast", model: "anthropic/claude-sonnet-4-5" },
+				{ id: "skeptic", model: "openai/gpt-5-codex" },
 			],
 		});
 		expect(result.ok).toBe(true);
 		expect(state.council.roster).toEqual([
-			{ id: "fast", model: "anthropic:claude-sonnet-4.5" },
-			{ id: "skeptic", model: "openai:gpt-5-codex" },
+			{ id: "fast", model: "anthropic/claude-sonnet-4-5" },
+			{ id: "skeptic", model: "openai/gpt-5-codex" },
 		]);
 	});
 

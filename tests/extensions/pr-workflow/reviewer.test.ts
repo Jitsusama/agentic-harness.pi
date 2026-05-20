@@ -24,7 +24,7 @@ import {
 
 const REVIEWER: CouncilReviewer = {
 	id: "council-fast",
-	model: "anthropic:claude-sonnet-4.5",
+	model: "anthropic/claude-sonnet-4-5",
 	tools: ["read", "grep", "glob", "ls", "bash"],
 };
 
@@ -77,7 +77,7 @@ describe("runReviewer — argument composition", () => {
 		expect(args).toContain("--no-session");
 		expect(args).toContain("--model");
 		expect(args[args.indexOf("--model") + 1]).toBe(
-			"anthropic:claude-sonnet-4.5",
+			"anthropic/claude-sonnet-4-5",
 		);
 		expect(args).toContain("--tools");
 		expect(args[args.indexOf("--tools") + 1]).toBe("read,grep,glob,ls,bash");
@@ -184,6 +184,50 @@ describe("runReviewer — argument composition", () => {
 		const args = calls[0].args;
 		expect(args).not.toContain("--model");
 		expect(args).not.toContain("--tools");
+		expect(args).not.toContain("--thinking");
+	});
+
+	it("passes --thinking <level> when thinkingLevel is set", async () => {
+		// Each reviewer can request its own pi thinking
+		// level (off / low / medium / high). The dispatcher
+		// forwards it as `--thinking <level>` so pi runs the
+		// subagent at the requested depth instead of
+		// inheriting the parent session's default.
+		const { runPi, calls } = fakeRun({
+			stdout: assistantEvent(`{"findings": []}`),
+		});
+		await runReviewer({
+			reviewer: {
+				id: "deep",
+				model: "anthropic/claude-opus-4-7",
+				thinkingLevel: "high",
+			},
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+		const args = calls[0].args;
+		expect(args).toContain("--thinking");
+		expect(args[args.indexOf("--thinking") + 1]).toBe("high");
+	});
+
+	it("omits --thinking when thinkingLevel is not set", async () => {
+		// Reviewers without thinkingLevel inherit pi's
+		// session default; the dispatcher leaves the flag
+		// off entirely rather than forcing a level.
+		const { runPi, calls } = fakeRun({
+			stdout: assistantEvent(`{"findings": []}`),
+		});
+		await runReviewer({
+			reviewer: {
+				id: "default",
+				model: "anthropic/claude-sonnet-4-5",
+			},
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+		expect(calls[0].args).not.toContain("--thinking");
 	});
 });
 
@@ -518,6 +562,73 @@ describe("runReviewer — result extraction", () => {
 		expect(result.finalAssistantText).toBe("partial");
 		expect(result.warnings.some((w) => /exit 1|non-zero/i.test(w))).toBe(true);
 		expect(result.stderr).toContain("timeout");
+	});
+
+	it("surfaces the first line of pi's stderr in warnings on non-zero exit", async () => {
+		// Pi's actual error message (e.g. "Model X not
+		// found") is the most useful clue when a reviewer
+		// crashes. Without it the warnings dead-end at
+		// "exit 1" and the user has no way to diagnose.
+		// One line is enough: pi tracebacks tend to be
+		// noise after the first message.
+		const { runPi } = fakeRun({
+			stdout: "",
+			stderr:
+				'Error: Model "anthropic:claude-opus-4-7" not found. Use --list-models to see available models.\n  at resolveModel (/.../foo.js:42)\n',
+			exitCode: 1,
+		});
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+		const stderrWarning = result.warnings.find((w) =>
+			w.startsWith("Pi stderr:"),
+		);
+		expect(stderrWarning).toBeDefined();
+		expect(stderrWarning).toContain(
+			'Model "anthropic:claude-opus-4-7" not found',
+		);
+		expect(stderrWarning).not.toContain("resolveModel");
+	});
+
+	it("omits the stderr warning when stderr is empty even on non-zero exit", async () => {
+		// A subprocess that crashes without printing
+		// anything to stderr (rare but possible: signal
+		// kill, OOM, etc.) gets the exit-code warning but
+		// not a dangling "Pi stderr:" line.
+		const { runPi } = fakeRun({
+			stdout: "",
+			stderr: "",
+			exitCode: 137,
+		});
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+		expect(result.warnings.some((w) => w.startsWith("Pi stderr:"))).toBe(false);
+	});
+
+	it("does not surface stderr in warnings when exit code is 0", async () => {
+		// Pi sometimes prints to stderr on success (info
+		// banners, deprecation warnings). Only crash-time
+		// stderr earns a warning entry.
+		const { runPi } = fakeRun({
+			stdout: assistantEvent("{}"),
+			stderr: "pi: deprecation notice for tool foo",
+			exitCode: 0,
+		});
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+		expect(result.warnings.some((w) => w.startsWith("Pi stderr:"))).toBe(false);
+		expect(result.stderr).toContain("deprecation notice");
 	});
 
 	it("returns reviewerId from the input config so callers can correlate results", async () => {

@@ -131,11 +131,22 @@ them what you picked:
 
 ```
 pr_workflow action=council-config reviewers=[
-  { id: "fast",    model: "anthropic:claude-sonnet-4.5", tools: ["read","grep","glob","ls"] },
-  { id: "skeptic", model: "openai:gpt-5",                 tools: ["read","grep","glob","ls"] }
+  { id: "fast",    model: "anthropic/claude-sonnet-4-5", thinkingLevel: "low",    tools: ["read","grep","glob","ls"] },
+  { id: "skeptic", model: "openai/gpt-5",                thinkingLevel: "medium", tools: ["read","grep","glob","ls"] }
 ]
-pr_workflow action=judge-config judge={ id: "judge", model: "anthropic:claude-opus-4" }
+pr_workflow action=judge-config judge={ id: "judge", model: "anthropic/claude-opus-4-7", thinkingLevel: "high" }
 ```
+
+Model format rules (pi's `--model` flag):
+
+- Bare model id (`claude-opus-4-7`) — pi infers the provider.
+- `provider/model` with a **slash** (`anthropic/claude-opus-4-7`).
+- Never `provider:model` with a **colon** — pi reads `:` as a `model:thinkingLevel` separator and rejects the call.
+
+`thinkingLevel` is optional and accepts `off` / `low` /
+`medium` / `high`. Omit it to let pi fall back to its
+session default. Same field shape on `judge` and
+`stackCritic` config.
 
 Roster and judge persist across `/reload`. If a session
 already has them, mention them in your status update;
@@ -170,15 +181,27 @@ Otherwise skip to round 4.
 
 When the council or critique summary surfaces a retry
 hint ("reviewer X returned no findings with warnings"),
-offer the targeted retry, not a re-run of the whole
-round:
+read the warnings BEFORE proposing a retry. The result
+includes the `Pi stderr:` line whenever a reviewer's
+subprocess exited non-zero — that's pi's actual error
+message, and it tells you whether a retry will fix it.
+
+Common patterns:
+
+| Stderr says | Cause | Fix |
+|---|---|---|
+| `Error: Model "..." not found` | Wrong model id or colon-form `provider:model` | Re-run `council-config` with the corrected `model` (slash or bare). |
+| `Error: Provider "X" not found` | Slash form with an unknown provider | Use `pi --list-models` to find the right provider/model pair. |
+| `Error: Invalid thinking level` | Bad `thinkingLevel` value | Re-run config with `off` / `low` / `medium` / `high`. |
+| `API error: ... 401 ...` | Missing or expired key for that provider | Hand off to the user; pi can't fix auth from inside the tool. |
+| (no `Pi stderr:` line) | Reviewer produced output but no JSON block | Genuine candidate for `council-retry`. |
+
+Retry mechanics:
 
 ```
 pr_workflow action=council-retry reviewerId=skeptic
 pr_workflow action=critique-retry reviewerId=skeptic
 ```
-
-Rules:
 
 - Council retry allocates new finding ids past the
   current max. Existing decisions stay stable.
@@ -186,6 +209,9 @@ Rules:
   the judge's findings; nothing else moves.
 - Don't retry a reviewer who came back empty without
   warnings — that's a silent reviewer, not a crash.
+- Don't retry when the stderr line names a config
+  problem (model not found, bad thinking level). Fix
+  the config first, then re-run `council` from scratch.
 - Judge has no retry. `action=judge` is idempotent
   (overwrites `lastJudge`).
 
@@ -345,7 +371,8 @@ Workflow:
    ```
    pr_workflow action=stack-critic-config stackCritic={
      id: "stack-critic",
-     model: "anthropic:claude-opus-4"
+     model: "anthropic/claude-opus-4-7",
+     thinkingLevel: "high"
    }
    ```
 

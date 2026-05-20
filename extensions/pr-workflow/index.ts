@@ -262,7 +262,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						model: Type.Optional(
 							Type.String({
 								description:
-									"Pi --model value (e.g. anthropic:claude-sonnet-4.5).",
+									"Pi --model value: either a bare model id (claude-opus-4-7) or provider/model (anthropic/claude-opus-4-7). Slashes only; pi reads colons as a thinking-level separator.",
+							}),
+						),
+						thinkingLevel: Type.Optional(
+							StringEnum(["off", "low", "medium", "high"] as const, {
+								description:
+									"Pi --thinking value. Omit to inherit pi's session default.",
 							}),
 						),
 						tools: Type.Optional(
@@ -287,7 +293,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						model: Type.Optional(
 							Type.String({
 								description:
-									"Pi --model value for the judge (e.g. anthropic:claude-opus-4).",
+									"Pi --model value for the judge (e.g. anthropic/claude-opus-4-7).",
+							}),
+						),
+						thinkingLevel: Type.Optional(
+							StringEnum(["off", "low", "medium", "high"] as const, {
+								description:
+									"Pi --thinking value for the judge. Omit to inherit pi's session default.",
 							}),
 						),
 						tools: Type.Optional(
@@ -311,7 +323,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						model: Type.Optional(
 							Type.String({
 								description:
-									"Pi --model value for the stack critic (e.g. anthropic:claude-opus-4).",
+									"Pi --model value for the stack critic (e.g. anthropic/claude-opus-4-7).",
+							}),
+						),
+						thinkingLevel: Type.Optional(
+							StringEnum(["off", "low", "medium", "high"] as const, {
+								description:
+									"Pi --thinking value for the stack critic. Omit to inherit pi's session default.",
 							}),
 						),
 						tools: Type.Optional(

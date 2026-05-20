@@ -97,12 +97,12 @@ describe("configureStackCritic", () => {
 	it("sets the stack-critic reviewer in state", () => {
 		const state = createPrWorkflowState();
 		const result = configureStackCritic(state, {
-			stackCritic: { id: "sc", model: "anthropic:claude-opus-4" },
+			stackCritic: { id: "sc", model: "anthropic/claude-opus-4-7" },
 		});
 		expect(result.ok).toBe(true);
 		expect(state.council.stackCritic).toEqual({
 			id: "sc",
-			model: "anthropic:claude-opus-4",
+			model: "anthropic/claude-opus-4-7",
 		});
 	});
 
