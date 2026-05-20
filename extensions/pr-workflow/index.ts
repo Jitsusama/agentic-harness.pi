@@ -503,9 +503,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					],
 					details: { ok: true, roster: state.council.roster },
 				};
-				// Persist roster so /reload doesn't wipe the
-				// user's reviewer config. See lifecycle.ts.
-				// (Unreachable: persist is after return; moved.)
 			}
 
 			if (params.action === "council") {
@@ -1437,7 +1434,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			for (const line of formatLoadSuggestions(suggestedNext)) {
 				lines.push(line);
 			}
-			persist(state, pi);
+			// Persist is fired centrally by the `tool_result`
+			// handler at the bottom of this file — see there
+			// for why we don't sprinkle persist() calls per
+			// action.
 			return {
 				content: [{ type: "text", text: lines.join("\n") }],
 				details: { ok: true, pr: loaded, suggestedNext },
@@ -1455,13 +1455,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 		refreshPrStatusLine(ctx, state);
 	});
 
-	// Push the latest overview line after every tool call.
-	// pr-workflow actions are the only thing that moves the
-	// state surfaced in the indicator (loaded PR, judge
-	// findings, fix queue), so a per-tool refresh keeps it
-	// honest without a separate event bus.
+	// Push the latest overview line after every tool call,
+	// and re-persist the state slice while we're here. The
+	// status-line refresh is what motivated the hook (PR
+	// #198); persistence joins it because pr-workflow
+	// actions are the only thing that mutate the state
+	// either surface cares about, so a per-tool fire is
+	// both necessary and sufficient. Pi sequences event
+	// handlers, so a tool that mutates state in-handler
+	// has finished writing by the time we read it here.
 	pi.on("tool_result", async (_event, ctx) => {
 		refreshPrStatusLine(ctx, state);
+		persist(state, pi);
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {
