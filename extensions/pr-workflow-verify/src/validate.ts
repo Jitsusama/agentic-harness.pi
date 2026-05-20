@@ -32,6 +32,8 @@ const ALLOWED_STAGES: ReadonlyArray<StageName> = [
 	"judge",
 	"critique",
 	"stack-critic",
+	"stack-review",
+	"stack-judge",
 ];
 
 /**
@@ -66,6 +68,13 @@ export function validateOutput(
 		return { ok: false, errors };
 	}
 
+	if (stage === "stack-review" || stage === "stack-judge") {
+		const keyErrors = validatePerPrKeys(input);
+		if (keyErrors.length > 0) {
+			return { ok: false, errors: keyErrors };
+		}
+	}
+
 	const count = itemCount(stage, input);
 	return { ok: true, count };
 }
@@ -74,9 +83,40 @@ function itemCount(stage: StageName, input: unknown): number {
 	// The schema already passed, so `input` has the right
 	// shape for `stage`. The narrow casts here mirror what
 	// the schema enforced.
-	const obj = input as { findings?: unknown[]; critiques?: unknown[] };
+	const obj = input as {
+		findings?: unknown[];
+		critiques?: unknown[];
+		perPr?: Record<string, unknown[]>;
+		crossPr?: unknown[];
+	};
 	if (stage === "critique") {
 		return obj.critiques?.length ?? 0;
 	}
+	if (stage === "stack-review" || stage === "stack-judge") {
+		return perPrCount(obj.perPr) + (obj.crossPr?.length ?? 0);
+	}
 	return obj.findings?.length ?? 0;
+}
+
+function perPrCount(perPr: Record<string, unknown[]> | undefined): number {
+	if (!perPr) return 0;
+	return Object.values(perPr).reduce(
+		(sum, findings) => sum + findings.length,
+		0,
+	);
+}
+
+function validatePerPrKeys(input: unknown): ValidationError[] {
+	const obj = input as { perPr?: Record<string, unknown[]> };
+	const perPr = obj.perPr ?? {};
+	const errors: ValidationError[] = [];
+	for (const key of Object.keys(perPr)) {
+		if (!/^[1-9][0-9]*$/.test(key)) {
+			errors.push({
+				path: `/perPr/${key}`,
+				message: "perPr keys must be PR numbers encoded as strings",
+			});
+		}
+	}
+	return errors;
 }
