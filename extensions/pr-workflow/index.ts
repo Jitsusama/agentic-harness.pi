@@ -32,10 +32,6 @@ import {
 	retryCouncilReviewer,
 	runCouncilAction,
 } from "./council-action.js";
-import {
-	formatCouncilAllSummary,
-	runCouncilAllAction,
-} from "./council-all-action.js";
 import { createCouncilProgressReporter } from "./council-progress-render.js";
 import {
 	formatCritiqueSummary,
@@ -61,10 +57,6 @@ import {
 	formatJudgeSummary,
 	runJudgeAction,
 } from "./judge-action.js";
-import {
-	formatJudgeAllSummary,
-	runJudgeAllAction,
-} from "./judge-all-action.js";
 import { persist, restore } from "./lifecycle.js";
 import { loadPr } from "./load.js";
 import {
@@ -78,19 +70,10 @@ import {
 	type ReviewEvent,
 } from "./post.js";
 import { confirmPostGate } from "./post-gate.js";
-import {
-	formatReviewAllSummary,
-	runReviewAllAction,
-} from "./review-all-action.js";
 import { runReviewer } from "./reviewer.js";
 import { createSpawnRunPi } from "./runpi-spawn.js";
 import { createGitHubPrSearch } from "./search.js";
 import { buildStack, type StackEntry } from "./stack.js";
-import {
-	configureStackCritic,
-	formatStackCriticSummary,
-	runStackCriticAction,
-} from "./stack-critic-action.js";
 import {
 	formatStackReviewActionSummary,
 	runStackReviewAction,
@@ -237,10 +220,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"status",
 					"council-config",
 					"council",
-					"council-all",
 					"judge-config",
-					"judge-all",
-					"review-all",
 					"review",
 					"judge",
 					"critique",
@@ -252,8 +232,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"stack-prev",
 					"council-retry",
 					"critique-retry",
-					"stack-critic-config",
-					"stack-critic",
 					"threads",
 					"reply",
 					"resolve",
@@ -270,15 +248,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"status: report current workflow state. " +
 						"council-config: set the multi-model review roster. " +
 						"council: run the configured roster against the loaded PR. " +
-						"council-all: fan the configured roster out across every PR " +
-						"in the loaded stack concurrently (Phase A of the stack-wide " +
-						"redesign). Cursor PR's run lands in council.lastRun; the rest " +
-						"stash under stackRuns and rehydrate on stack-next / stack-prev. " +
 						"judge-config: set the judge reviewer for round-2 consolidation. " +
 						"judge: run round-2 consolidation against the most recent council run. " +
-						"judge-all: run the configured judge across every stack PR that " +
-						"has a council run. review-all: run council-all, then judge-all. " +
-						"review: run the Phase B stack-wide context review pipeline " +
+						"review: run the stack-wide context review pipeline " +
 						"(one stack-aware council fan-out plus one stack-aware judge). " +
 						"critique: run round-3 critique — the roster pushes back on the judge's consolidated list. " +
 						"findings: render the round-4 view (judge + critique + user decisions). " +
@@ -291,10 +263,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"council run and substitute their output in place. " +
 						"critique-retry: re-run one reviewer in the most recent " +
 						"critique run and substitute their output in place. " +
-						"stack-critic-config: set the reviewer that runs the " +
-						"cross-PR stack-critic. " +
-						"stack-critic: synthesize cross-PR findings across every " +
-						"PR in the discovered stack. " +
 						"threads: fetch the loaded PR's existing review threads. " +
 						"reply: post a reply to a thread by its [T#] index. " +
 						"resolve: resolve a thread by its [T#] index. " +
@@ -390,40 +358,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					},
 				),
 			),
-			stackCritic: Type.Optional(
-				Type.Object(
-					{
-						id: Type.String({
-							description: "Stable id for the stack-critic reviewer.",
-						}),
-						model: Type.Optional(
-							Type.String({
-								description:
-									"Pi --model value for the stack critic (e.g. anthropic/claude-opus-4-7).",
-							}),
-						),
-						thinkingLevel: Type.Optional(
-							StringEnum(["off", "low", "medium", "high"] as const, {
-								description:
-									"Pi --thinking value for the stack critic. Omit to inherit pi's session default.",
-							}),
-						),
-						tools: Type.Optional(
-							Type.Array(Type.String(), {
-								description: "Tool palette for the stack critic.",
-							}),
-						),
-					},
-					{
-						description:
-							"Stack-critic reviewer config. Required for action=stack-critic-config.",
-					},
-				),
-			),
 			scope: Type.Optional(
 				StringEnum(["pr", "stack"] as const, {
 					description:
-						"Which set of findings the decide action targets. 'pr' (default) hits the per-PR judge findings; 'stack' hits the stack-critic findings.",
+						"Which set of findings the decide action targets. 'pr' (default) hits the per-PR judge findings; 'stack' hits cross-PR findings from action=review.",
 				}),
 			),
 			findingId: Type.Optional(
@@ -573,35 +511,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
-			if (params.action === "council-all") {
-				const { registry, runPi, extraExtensions } = getCouncilDeps();
-				const result = await runCouncilAllAction({
-					state,
-					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
-					fetchers: {
-						metadata: (reference) => fetchPrMetadata(pi, reference),
-						diff: async (reference) => {
-							const raw = await fetchDiff(pi, reference);
-							return parseDiff(raw);
-						},
-					},
-				});
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [
-						{ type: "text", text: formatCouncilAllSummary(result.run) },
-					],
-					details: { ok: true, run: result.run },
-				};
-			}
-
 			if (params.action === "council-retry") {
 				if (!params.reviewerId) {
 					return {
@@ -684,56 +593,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 				return {
 					content: [{ type: "text", text: formatJudgeSummary(result.run) }],
-					details: { ok: true, run: result.run },
-				};
-			}
-
-			if (params.action === "judge-all") {
-				const { registry, runPi, extraExtensions } = getCouncilDeps();
-				const result = await runJudgeAllAction({
-					state,
-					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
-					fetchers: {
-						metadata: (reference) => fetchPrMetadata(pi, reference),
-					},
-				});
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [{ type: "text", text: formatJudgeAllSummary(result.run) }],
-					details: { ok: true, run: result.run },
-				};
-			}
-
-			if (params.action === "review-all") {
-				const { registry, runPi, extraExtensions } = getCouncilDeps();
-				const result = await runReviewAllAction({
-					state,
-					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
-					fetchers: {
-						metadata: (reference) => fetchPrMetadata(pi, reference),
-						diff: async (reference) => {
-							const raw = await fetchDiff(pi, reference);
-							return parseDiff(raw);
-						},
-					},
-				});
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [{ type: "text", text: formatReviewAllSummary(result.run) }],
 					details: { ok: true, run: result.run },
 				};
 			}
@@ -854,63 +713,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
-			if (params.action === "stack-critic-config") {
-				if (!params.stackCritic) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "stack-critic-config requires a `stackCritic` argument.",
-							},
-						],
-						details: { ok: false, error: "missing stackCritic argument" },
-						isError: true,
-					};
-				}
-				const result = configureStackCritic(state, {
-					stackCritic: params.stackCritic,
-				});
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				const sc = state.council.stackCritic;
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Stack critic set: ${sc?.id}${sc?.model ? ` (${sc.model})` : ""}`,
-						},
-					],
-					details: { ok: true, stackCritic: state.council.stackCritic },
-				};
-			}
-
-			if (params.action === "stack-critic") {
-				const { registry, runPi, extraExtensions } = getCouncilDeps();
-				const result = await runStackCriticAction({
-					state,
-					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
-				});
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [
-						{ type: "text", text: formatStackCriticSummary(result.run) },
-					],
-					details: { ok: true, run: result.run },
-				};
-			}
-
 			if (params.action === "findings") {
 				const text = params.verbose
 					? formatFindingsView(state)
@@ -921,7 +723,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						ok: true,
 						judgeRunId: state.council.lastJudge?.id ?? null,
 						critiqueRunId: state.council.lastCritique?.id ?? null,
-						stackCriticRunId: state.stackCritic?.id ?? null,
+						stackFindingRunId: state.stackFindingRun?.id ?? null,
 						decisionCount: state.council.decisions.size,
 						stackDecisionCount: state.stackDecisions.size,
 					},
@@ -1520,9 +1322,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					`judge: ${state.council.judge?.id ?? "unset"}`,
 					`judge last run: ${state.council.lastJudge?.id ?? "none"}`,
 					`critique last run: ${state.council.lastCritique?.id ?? "none"}`,
-					`stack critic: ${state.council.stackCritic?.id ?? "unset"}`,
-					`stack critic last run: ${state.stackCritic?.id ?? "none"}`,
-					`stack findings: ${state.stackCritic?.findings.length ?? 0} (${state.stackDecisions.size} decided)`,
+					`cross-PR finding run: ${state.stackFindingRun?.id ?? "none"}`,
+					`cross-PR findings: ${state.stackFindingRun?.findings.length ?? 0} (${state.stackDecisions.size} decided)`,
 					`stack snapshots: ${stackSnapshotSummary}`,
 					`threads: ${state.threads === null ? "not fetched" : `${state.threads.threads.length} (fetched ${state.threads.fetchedAt})`}`,
 					formatFixQueueStatus(state),
@@ -1708,7 +1509,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 
 	// Restore the persisted config slice on every session
 	// start: this is what makes `/reload` non-destructive
-	// for the user's roster, judge and stack-critic
+	// for the user's roster and judge
 	// configuration. See lifecycle.ts for what is and
 	// isn't persisted.
 	pi.on("session_start", async (_event, ctx) => {

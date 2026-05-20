@@ -38,8 +38,8 @@ export interface LoadSuggestion {
  * 3. **Judge has consolidated findings with pending
  *    decisions** → `findings`. The user is in the
  *    middle of Round 4.
- * 4. **Stack with siblings** → `stack-critic` as a
- *    secondary hint regardless of state above.
+ * 4. **Stack with siblings** → `review` as a secondary
+ *    hint regardless of state above.
  *
  * `threads` always rides as a fallback when no other
  * hint applies: it's the cheapest "what's already
@@ -82,8 +82,8 @@ export function suggestNextAfterLoad(state: PrWorkflowState): LoadSuggestion[] {
 
 	if (stack !== null && stack.entries.length > 1) {
 		hints.push({
-			action: "stack-critic",
-			rationale: `This PR is part of a ${stack.entries.length}-PR stack; a stack-critic run can spot cross-PR risks.`,
+			action: "review",
+			rationale: `This PR is part of a ${stack.entries.length}-PR stack; action=review can inspect PR boundaries and cross-PR risks together.`,
 		});
 	}
 

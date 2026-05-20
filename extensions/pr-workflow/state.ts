@@ -6,8 +6,8 @@
  * pipeline, neovim companion, stack awareness). The shape
  * grows as each capability is scaffolded.
  *
- * The reviewer config (roster, judge, stack-critic) and
- * the loaded PR reference are persisted to session
+ * The reviewer config (roster, judge) and the loaded PR
+ * reference are persisted to session
  * history by `lifecycle.ts`, so `/reload` doesn't wipe
  * them. Run output (council/judge/critique runs,
  * findings decisions, thread snapshots) intentionally
@@ -23,7 +23,7 @@ import type { CouncilRun } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { Stack } from "./stack.js";
-import type { StackCriticRun } from "./stack-critic.js";
+import type { StackFindingRun } from "./stack-findings.js";
 import type { FindingDecision } from "./synthesis.js";
 
 /**
@@ -62,14 +62,6 @@ export interface CouncilState {
 	roster: CouncilReviewer[];
 	/** Judge reviewer for round-2 consolidation. */
 	judge: CouncilReviewer | null;
-	/**
-	 * Stack critic reviewer (Phase 1 of stack-aware
-	 * review). Configured separately from the judge so
-	 * the user can pick a different model for cross-PR
-	 * pattern detection. `null` until the user runs
-	 * `stack-critic-config`.
-	 */
-	stackCritic: CouncilReviewer | null;
 	/** Most recent council run (null until one completes). */
 	lastRun: CouncilRun | null;
 	/** Most recent judge run (null until round 2 completes). */
@@ -116,11 +108,11 @@ export interface PrWorkflowState {
 	 */
 	stackRuns: Map<number, PrRunSnapshot>;
 	/**
-	 * Most recent stack-critic run. Cross-PR by nature,
-	 * so it lives at the top level rather than on any
-	 * single PR's slot.
+	 * Most recent stack-level finding run. Cross-PR by
+	 * nature, so it lives at the top level rather than on
+	 * any single PR's slot.
 	 */
-	stackCritic: StackCriticRun | null;
+	stackFindingRun: StackFindingRun | null;
 	/**
 	 * Decisions on stack-level findings, keyed by
 	 * finding id. Separate from per-PR
@@ -174,14 +166,13 @@ export function createPrWorkflowState(): PrWorkflowState {
 		council: {
 			roster: [],
 			judge: null,
-			stackCritic: null,
 			lastRun: null,
 			lastJudge: null,
 			lastCritique: null,
 			decisions: new Map(),
 		},
 		stackRuns: new Map(),
-		stackCritic: null,
+		stackFindingRun: null,
 		stackDecisions: new Map(),
 		threads: null,
 	};

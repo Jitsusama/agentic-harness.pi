@@ -26,7 +26,7 @@ import type {
 	PostGateFindingLine,
 	PostGateSummary,
 } from "./post-gate-render.js";
-import type { StackFinding } from "./stack-critic.js";
+import type { StackFinding } from "./stack-findings.js";
 import type { PrWorkflowState } from "./state.js";
 import type { FindingDecision } from "./synthesis.js";
 
@@ -161,9 +161,9 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 	}
 
 	const cursorPrNumber = state.pr?.reference.number ?? null;
-	const stackCritic = state.stackCritic;
-	if (stackCritic !== null) {
-		for (const finding of stackCritic.findings) {
+	const stackFindingRun = state.stackFindingRun;
+	if (stackFindingRun !== null) {
+		for (const finding of stackFindingRun.findings) {
 			if (cursorPrNumber === null || finding.homePrNumber !== cursorPrNumber) {
 				skipped.push({
 					findingId: finding.id,
@@ -289,7 +289,7 @@ export async function postReviewAction(
  * Build the structured summary the gate renders.
  *
  * Lives next to the action so the body lookup logic
- * (find a judge / stack-critic finding by id) stays
+ * (find a judge / cross-PR finding by id) stays
  * close to the payload that produced the ids.
  */
 function buildGateSummary(
@@ -299,7 +299,7 @@ function buildGateSummary(
 	body: string,
 ): PostGateSummary {
 	const judgeFindings = state.council.lastJudge?.consolidatedFindings ?? [];
-	const stackFindings = state.stackCritic?.findings ?? [];
+	const stackFindings = state.stackFindingRun?.findings ?? [];
 	const byId = new Map<number, Finding>();
 	for (const f of judgeFindings) byId.set(f.id, f);
 	const stackById = new Map<number, StackFinding>();
@@ -397,7 +397,7 @@ function renderSummary(
 	const stackSentence =
 		stackCount === 0
 			? ""
-			: ` Plus ${stackCount} cross-PR finding(s) from the stack-critic.`;
+			: ` Plus ${stackCount} cross-PR finding(s) from the cross-PR.`;
 	lines.push(
 		`Council review: ${payload.includedFindingIds.length} finding(s) posted, ${payload.skipped.length} skipped.${stackSentence}`,
 	);

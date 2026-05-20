@@ -67,6 +67,14 @@ describe("validateOutput", () => {
 		}
 	});
 
+	it("rejects the removed stack-critic stage", () => {
+		const result = validateOutput("stack-critic" as never, { findings: [] });
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toContain("unknown stage");
+		}
+	});
+
 	it("validates a judge payload using the judge schema", () => {
 		const result = validateOutput("judge", {
 			findings: [
@@ -86,22 +94,6 @@ describe("validateOutput", () => {
 	it("validates a critique payload using the critique schema", () => {
 		const result = validateOutput("critique", {
 			critiques: [{ findingId: 1, position: "agree", rationale: "ok" }],
-		});
-		expect(result.ok).toBe(true);
-	});
-
-	it("validates a stack-critic payload using the stack-critic schema", () => {
-		const result = validateOutput("stack-critic", {
-			findings: [
-				{
-					location: { kind: "global" },
-					label: "issue",
-					subject: "Inconsistent retry semantics across PRs",
-					discussion: "PR #1 retries on 5xx; PR #3 retries on any failure.",
-					homePrNumber: 1,
-					spans: [1, 3],
-				},
-			],
 		});
 		expect(result.ok).toBe(true);
 	});

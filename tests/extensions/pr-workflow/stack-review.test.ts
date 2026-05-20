@@ -1,12 +1,11 @@
 /**
- * Tests for Phase B stack-wide review prompt and parser
- * primitives. These are pure data-layer tests: no pi
+ * Tests for stack-wide review prompt and parser primitives. These are pure data-layer tests: no pi
  * subprocess, no worktree, no state mutation.
  */
 
 import { describe, expect, it } from "vitest";
 import type { Finding } from "../../../extensions/pr-workflow/findings.js";
-import type { StackFinding } from "../../../extensions/pr-workflow/stack-critic.js";
+import type { StackFinding } from "../../../extensions/pr-workflow/stack-findings.js";
 import {
 	buildStackJudgePrompt,
 	buildStackReviewPrompt,

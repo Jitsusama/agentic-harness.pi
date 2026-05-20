@@ -1,15 +1,12 @@
 /**
  * Stack-wide review prompt and parser primitives.
  *
- * Phase B changes the review shape from "run the same
- * single-PR council N times" to "review the stack as a
- * sequence of PRs, preserving per-PR findings and adding
- * first-class cross-PR findings".
+ * Reviewers see the stack as a sequence of PRs, preserving
+ * per-PR findings while adding first-class cross-PR
+ * findings.
  *
  * This module is deliberately pure. It does not spawn pi,
- * provision worktrees or mutate workflow state. It gives
- * the next action-wiring slice stable prompt builders and
- * parsers to call.
+ * provision worktrees or mutate workflow state.
  */
 
 import { Value } from "@sinclair/typebox/value";
@@ -22,14 +19,14 @@ import {
 	type JudgeFinding as JudgeFindingType,
 	JudgeSelfSignal,
 	type JudgeSelfSignal as JudgeSelfSignalType,
-	StackCriticFinding,
-	type StackCriticFinding as StackCriticFindingType,
+	StackCrossFinding,
+	type StackCrossFinding as StackCrossFindingType,
 	StackJudgeCrossFinding,
 	type StackJudgeCrossFinding as StackJudgeCrossFindingType,
 	StackJudgeOutput,
 	StackReviewOutput,
 } from "./schemas.js";
-import type { StackFinding } from "./stack-critic.js";
+import type { StackFinding } from "./stack-findings.js";
 
 /** One PR's full stack-review input. */
 export interface StackReviewPrInput {
@@ -303,7 +300,7 @@ function parseCrossPrReview(
 	const out: StackFinding[] = [];
 	for (let i = 0; i < raw.length; i++) {
 		const rawFinding = raw[i];
-		if (!Value.Check(StackCriticFinding, rawFinding)) {
+		if (!Value.Check(StackCrossFinding, rawFinding)) {
 			warnings.push(`crossPr finding at index ${i} is malformed; skipped`);
 			continue;
 		}
@@ -407,7 +404,7 @@ function toCouncilFinding(
 }
 
 function toStackReviewFinding(
-	raw: StackCriticFindingType,
+	raw: StackCrossFindingType,
 	id: number,
 	context: StackReviewParseContext,
 ): StackFinding {

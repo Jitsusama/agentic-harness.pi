@@ -8,9 +8,9 @@ import {
 	postReviewAction,
 } from "../../../extensions/pr-workflow/post.js";
 import type {
-	StackCriticRun,
 	StackFinding,
-} from "../../../extensions/pr-workflow/stack-critic.js";
+	StackFindingRun,
+} from "../../../extensions/pr-workflow/stack-findings.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import { expectFailure, prMetadata } from "./fixtures.js";
 
@@ -28,14 +28,14 @@ function stackFinding(
 		subject,
 		discussion: `discussion for ${subject}`,
 		category: "scope",
-		origin: { kind: "stack-critic", runId: "sc-1", reviewerId: "sc" },
+		origin: { kind: "cross-PR", runId: "sc-1", reviewerId: "sc" },
 		state: "draft",
 		homePrNumber,
 		spans,
 	};
 }
 
-function stackCriticRun(findings: StackFinding[]): StackCriticRun {
+function stackFindingRun(findings: StackFinding[]): StackFindingRun {
 	return {
 		id: "sc-1",
 		startedAt: "x",
@@ -503,7 +503,7 @@ describe("postReviewAction", () => {
 });
 
 describe("buildReviewPayload with stack findings", () => {
-	// Phase 2: stack-critic findings whose `homePrNumber`
+	// Phase 2: cross-PR findings whose `homePrNumber`
 	// matches the cursor PR get posted alongside per-PR
 	// findings, in the body section (they are scope-level
 	// by nature). Stack findings home to OTHER PRs in the
@@ -531,7 +531,7 @@ describe("buildReviewPayload with stack findings", () => {
 
 	it("posts a stack finding when its homePrNumber matches the cursor PR", () => {
 		const state = baseState();
-		state.stackCritic = stackCriticRun([
+		state.stackFindingRun = stackFindingRun([
 			stackFinding(1, "Inconsistent retries", 42, [42, 43]),
 		]);
 		state.stackDecisions.set(1, {
@@ -548,7 +548,7 @@ describe("buildReviewPayload with stack findings", () => {
 
 	it("skips a stack finding when its homePrNumber differs from the cursor PR", () => {
 		const state = baseState();
-		state.stackCritic = stackCriticRun([
+		state.stackFindingRun = stackFindingRun([
 			stackFinding(1, "Belongs on PR 43", 43, [42, 43]),
 		]);
 		state.stackDecisions.set(1, {
@@ -568,7 +568,7 @@ describe("buildReviewPayload with stack findings", () => {
 
 	it("skips pending and dismissed stack findings", () => {
 		const state = baseState();
-		state.stackCritic = stackCriticRun([
+		state.stackFindingRun = stackFindingRun([
 			stackFinding(1, "Pending", 42, [42]),
 			stackFinding(2, "Dismissed", 42, [42]),
 		]);
@@ -584,18 +584,18 @@ describe("buildReviewPayload with stack findings", () => {
 		expect(payload.skipped).toHaveLength(2);
 	});
 
-	it("leaves includedStackFindingIds empty when there is no stack-critic run", () => {
+	it("leaves includedStackFindingIds empty when there is no cross-PR run", () => {
 		const state = baseState();
 		const payload = buildReviewPayload(state);
 		expect(payload.includedStackFindingIds).toEqual([]);
 	});
 
 	it("posts a stack-only review when no per-PR findings are eligible", async () => {
-		// The user might run stack-critic without any
+		// The user might run cross-PR without any
 		// per-PR decisions on the current cursor. Should
 		// still post the cross-PR findings.
 		const state = baseState();
-		state.stackCritic = stackCriticRun([
+		state.stackFindingRun = stackFindingRun([
 			stackFinding(1, "Cross-PR pattern", 42, [42, 43]),
 		]);
 		state.stackDecisions.set(1, {

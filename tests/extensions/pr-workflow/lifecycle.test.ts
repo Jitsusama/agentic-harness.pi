@@ -26,7 +26,7 @@ import type {
 import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
 import { persist, restore } from "../../../extensions/pr-workflow/lifecycle.js";
 import type { CouncilReviewer } from "../../../extensions/pr-workflow/reviewer.js";
-import type { StackCriticRun } from "../../../extensions/pr-workflow/stack-critic.js";
+import type { StackFindingRun } from "../../../extensions/pr-workflow/stack-findings.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import type { FindingDecision } from "../../../extensions/pr-workflow/synthesis.js";
 import type { ReviewThread } from "../../../extensions/pr-workflow/threads.js";
@@ -134,7 +134,7 @@ function sampleCritiqueRun(): CritiqueRun {
 	};
 }
 
-function sampleStackCriticRun(): StackCriticRun {
+function sampleStackFindingRun(): StackFindingRun {
 	return {
 		id: "sc-1",
 		startedAt: "2026-05-20T14:15:00Z",
@@ -190,19 +190,18 @@ describe("pr-workflow lifecycle", () => {
 
 			expect(state.council.roster).toEqual([]);
 			expect(state.council.judge).toBeNull();
-			expect(state.council.stackCritic).toBeNull();
 			expect(state.pr).toBeNull();
 			expect(state.council.lastRun).toBeNull();
 			expect(state.council.lastJudge).toBeNull();
 			expect(state.council.lastCritique).toBeNull();
 			expect(state.council.decisions.size).toBe(0);
-			expect(state.stackCritic).toBeNull();
+			expect(state.stackFindingRun).toBeNull();
 			expect(state.stackDecisions.size).toBe(0);
 			expect(state.stackRuns.size).toBe(0);
 			expect(state.threads).toBeNull();
 		});
 
-		it("rehydrates roster, judge and stack-critic config", () => {
+		it("rehydrates roster and judge config", () => {
 			const entries: Entry[] = [];
 			const pi = makeApi(entries);
 			const ctx = makeCtx(entries);
@@ -210,7 +209,6 @@ describe("pr-workflow lifecycle", () => {
 			const source = createPrWorkflowState();
 			source.council.roster = [sampleReviewer("alpha")];
 			source.council.judge = sampleReviewer("judge");
-			source.council.stackCritic = sampleReviewer("critic");
 			persist(source, pi);
 
 			const restored = createPrWorkflowState();
@@ -218,7 +216,6 @@ describe("pr-workflow lifecycle", () => {
 
 			expect(restored.council.roster).toEqual([sampleReviewer("alpha")]);
 			expect(restored.council.judge).toEqual(sampleReviewer("judge"));
-			expect(restored.council.stackCritic).toEqual(sampleReviewer("critic"));
 		});
 
 		it("rehydrates the loaded PR reference with null derived data", () => {
@@ -303,20 +300,20 @@ describe("pr-workflow lifecycle", () => {
 			expect(restored.council.decisions.get(2)).toEqual(fixDecision(2));
 		});
 
-		it("rehydrates the stack-critic run and stack-level decisions", () => {
+		it("rehydrates the cross-PR run and stack-level decisions", () => {
 			const entries: Entry[] = [];
 			const pi = makeApi(entries);
 			const ctx = makeCtx(entries);
 
 			const source = createPrWorkflowState();
-			source.stackCritic = sampleStackCriticRun();
+			source.stackFindingRun = sampleStackFindingRun();
 			source.stackDecisions.set(101, endorseDecision(101));
 			persist(source, pi);
 
 			const restored = createPrWorkflowState();
 			restore(restored, pi, ctx);
 
-			expect(restored.stackCritic).toEqual(sampleStackCriticRun());
+			expect(restored.stackFindingRun).toEqual(sampleStackFindingRun());
 			expect(restored.stackDecisions.get(101)).toEqual(endorseDecision(101));
 		});
 
@@ -368,7 +365,7 @@ describe("pr-workflow lifecycle", () => {
 
 		it("treats a v0 (Phase 1) entry as config-only without crashing", () => {
 			// v0 entries lack a `version` field and only
-			// carry roster/judge/stackCritic/prReference.
+			// carry roster/judge/prReference.
 			// Restoring them must not throw or corrupt
 			// state for the fields they don't cover.
 			const entries: Entry[] = [
@@ -378,7 +375,7 @@ describe("pr-workflow lifecycle", () => {
 					data: {
 						roster: [sampleReviewer("alpha")],
 						judge: sampleReviewer("judge"),
-						stackCritic: null,
+						stackFindingRun: null,
 						prReference: null,
 						prLoadedAt: null,
 					},
@@ -410,7 +407,7 @@ describe("pr-workflow lifecycle", () => {
 			source.council.roster = [sampleReviewer("alpha")];
 			source.council.lastJudge = sampleJudgeRun();
 			source.council.decisions.set(1, endorseDecision(1));
-			source.stackCritic = sampleStackCriticRun();
+			source.stackFindingRun = sampleStackFindingRun();
 			source.stackDecisions.set(101, endorseDecision(101));
 			source.stackRuns.set(7, {
 				lastRun: null,
@@ -441,7 +438,7 @@ describe("pr-workflow lifecycle", () => {
 				fixDecision(1),
 			);
 			expect(restored.council.lastJudge).toEqual(sampleJudgeRun());
-			expect(restored.stackCritic).toEqual(sampleStackCriticRun());
+			expect(restored.stackFindingRun).toEqual(sampleStackFindingRun());
 		});
 	});
 });

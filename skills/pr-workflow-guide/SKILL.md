@@ -26,9 +26,8 @@ navigation).
 ## The pipeline at a glance
 
 ```
-load → council → judge → [critique?] → findings/decide × N → post
-           ↙                                                    ↗
-        (sweep stack PRs, then)  stack-critic  →  findings/decide  →  post
+load → review → findings/decide × N → post
+  ↳ just this PR: council → judge → [critique?] → findings/decide × N → post
 ```
 
 Each step is a separate tool action. The user stays in
@@ -41,17 +40,12 @@ prose; you translate intent into calls.
 | `summary` | User-facing "what's the state of this PR?" panel. Header + stack + threads + council + fix queue, composed from cached snapshots. Use when the user asks open questions like "where are we on this?" or comes back to a session after a break. Never fetches — if threads aren't cached the panel prompts to run `action=threads`. |
 | `council-config` | User wants to set or change the reviewer roster. |
 | `council` | Round 1: fan out the roster. User said "run the review", "kick it off". |
-| `council-all` | Same fan-out, but across every PR in the loaded stack concurrently. The cursor PR's run lands in `council.lastRun`; the rest stash under `stackRuns` and rehydrate on `stack-next` / `stack-prev`. Phase A of the stack-wide redesign — use when the user says "run council on the whole stack". |
 | `judge-config` | User wants to set or change the judge model. |
 | `judge` | Round 2: consolidate the council output. Run after `council`. |
-| `judge-all` | Run the configured judge across every stack PR that already has a council run. Use after `council-all` when the user wants the whole stack consolidated. |
-| `review-all` | Phase A compatibility wrapper: run `council-all`, then `judge-all`. Use when you want the old per-PR pipeline across the whole stack. |
-| `review` | Phase B stack-wide context review: one stack-aware council fan-out plus one stack-aware judge. Use first for "review the whole stack" or "do all of them" unless you explicitly need the old per-PR pipeline. |
+| `review` | Stack-wide context review: one stack-aware council fan-out plus one stack-aware judge. Use for "review the whole stack" or "do all of them". |
 | `critique` | Round 3 (optional): roster pushes back on the judge. Only after the gate. |
-| `stack-critic-config` | User wants to set the cross-PR stack critic reviewer (only once per session). |
-| `stack-critic` | Run cross-PR synthesis across the discovered stack. Requires judge findings on at least one PR. |
 | `findings` | Show the current findings view (judge + critique + decisions, plus stack-level findings if any). Read-only. |
-| `decide` | Round 4: record the user's verdict on one finding. Pass `scope="stack"` for stack-critic findings. |
+| `decide` | Round 4: record the user's verdict on one finding. Pass `scope="stack"` for cross-PR findings from `review`. |
 | `post` | Ship eligible findings to GitHub as a PR review. Stack findings home to the cursor PR post alongside per-PR findings. |
 | `stack` | Render the discovered PR stack with cursor highlighted. |
 | `stack-next` | Identify the PR downstream of the cursor and return its ref. |
@@ -153,8 +147,8 @@ Model format rules (pi's `--model` flag):
 
 `thinkingLevel` is optional and accepts `off` / `low` /
 `medium` / `high`. Omit it to let pi fall back to its
-session default. Same field shape on `judge` and
-`stackCritic` config.
+session default. Same field shape on reviewer and
+`judge` config.
 
 The `tools` palette is an allowlist; reviewers can only
 call what you name. You do NOT need to list
@@ -390,7 +384,7 @@ Stack navigation rules:
 
 ### Stack-aware review
 
-Reach for `stack-critic` when the user wants cross-PR
+Reach for `review` when the user wants cross-PR
 observations: inconsistent error handling between
 layers, duplicated logic across the stack, API
 choices that only make sense if a downstream PR
@@ -398,42 +392,26 @@ lands.
 
 Workflow:
 
-1. Sweep the stack at least once: load each PR, run
-   council + judge, optionally critique. Each PR's
-   findings stash in `state.stackRuns` when the user
-   moves the cursor.
-2. Configure the stack-critic reviewer (once per
-   session):
+1. Load any PR in the stack.
+2. Configure the council roster and judge if they are
+   not already set.
+3. Run:
 
    ```
-   pr_workflow action=stack-critic-config stackCritic={
-     id: "stack-critic",
-     model: "anthropic/claude-opus-4-7",
-     thinkingLevel: "high"
-   }
+   pr_workflow action=review
    ```
 
-3. Run it from any PR in the stack:
+   The stack-aware reviewers see every PR as a
+   separate section, preserving PR boundaries, and
+   return `perPr` plus `crossPr` findings. The judge
+   consolidates the same shape.
 
-   ```
-   pr_workflow action=stack-critic
-   ```
-
-   The critic sees each PR's title and consolidated
-   judge findings (live for the cursor PR;
-   snapshotted for off-cursor PRs).
-
-4. Stack findings appear in `findings` under a
+4. Per-PR findings appear in `findings` for the
+   cursor PR. Stack findings appear in a
    'Stack-level findings (decide with scope=stack)'
-   section, with S-prefixed ids:
+   section, with S-prefixed ids.
 
-   ```
-   [S1] [issue] Inconsistent retry semantics (home: #42; spans: 42, 43)
-      PR 42 retries 5xx; PR 43 retries any failure.
-      decision: pending
-   ```
-
-5. Decide on them with `scope="stack"`:
+5. Decide on cross-PR findings with `scope="stack"`:
 
    ```
    pr_workflow action=decide findingId=1 verdict=endorse scope=stack
@@ -445,15 +423,6 @@ Workflow:
    in the stack get skipped — navigate to the home PR
    and re-run `post` to flush them.
 
-When NOT to run `stack-critic`:
-
-- The session has only one PR loaded (no stack). The
-  tool will refuse with 'No stack discovered'.
-- No PR in the stack has been judged yet. The tool
-  will refuse with 'No judge findings on any PR'. Run
-  judge on at least one PR first.
-- The user is in 'just this PR' mode and doesn't want
-  cross-PR feedback. Stack-critic findings can wait.
 
 ## Existing threads
 
