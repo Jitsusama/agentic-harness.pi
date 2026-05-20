@@ -25,10 +25,17 @@ import {
 	recordFixSkip,
 	summarizeFixQueue,
 } from "./fix.js";
+import type { ProvisionFixWorktree } from "./fix-worktree.js";
 import type { PrWorkflowState } from "./state.js";
 
 /** Result tag every action returns. */
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
+
+/** Where the fix loop should run its edits and commits. */
+export interface FixWorktree {
+	readonly path: string;
+	readonly branch: string;
+}
 
 /**
  * Return the next pending fix and a human-readable
@@ -36,10 +43,26 @@ type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
  * reports `ok: true` with `context: null` and a summary
  * so the agent can say "queue done" without an error
  * path.
+ *
+ * When a `provision` function is supplied AND there's a
+ * pending fix AND the loaded PR has metadata (so we
+ * know the branch name), the action provisions a fix
+ * worktree and surfaces its path in both the structured
+ * result and the prose summary. If provisioning throws,
+ * the action still succeeds: the warning is folded into
+ * the summary so the agent sees it. The fix loop can
+ * still proceed in primary as a fallback.
  */
-export function nextFixAction(
+export async function nextFixAction(
 	state: PrWorkflowState,
-): Result<{ context: FixContext | null; summary: string }> {
+	provision?: ProvisionFixWorktree,
+): Promise<
+	Result<{
+		context: FixContext | null;
+		worktree: FixWorktree | null;
+		summary: string;
+	}>
+> {
 	if (state.pr === null) {
 		return { ok: false, error: "Load a PR before walking the fix queue." };
 	}
@@ -51,8 +74,26 @@ export function nextFixAction(
 	}
 	const counts = summarizeFixQueue(state);
 	const context = getNextFix(state);
-	const summary = formatNextFix(context, counts);
-	return { ok: true, context, summary };
+
+	let worktree: FixWorktree | null = null;
+	let worktreeError: string | null = null;
+	const meta = state.pr.metadata;
+	if (context !== null && provision && meta) {
+		try {
+			const handle = await provision({
+				owner: state.pr.reference.owner,
+				repo: state.pr.reference.repo,
+				number: state.pr.reference.number,
+				branch: meta.head.ref,
+			});
+			worktree = { path: handle.path, branch: handle.branch };
+		} catch (error) {
+			worktreeError = error instanceof Error ? error.message : String(error);
+		}
+	}
+
+	const summary = formatNextFix(context, counts, worktree, worktreeError);
+	return { ok: true, context, worktree, summary };
 }
 
 /**
@@ -101,6 +142,8 @@ export function formatFixQueueStatus(state: PrWorkflowState): string {
 function formatNextFix(
 	context: FixContext | null,
 	counts: { pending: number; committed: number; skipped: number },
+	worktree: FixWorktree | null,
+	worktreeError: string | null,
 ): string {
 	if (context === null) {
 		const handled = counts.committed + counts.skipped;
@@ -112,6 +155,18 @@ function formatNextFix(
 		`Next fix: finding ${context.findingId} — ${context.finding.subject}`,
 	);
 	lines.push(`Location: ${formatLocation(context.finding)}`);
+	if (worktree) {
+		// The agent must `cd` here before editing and
+		// committing. The branch is checked out so
+		// `git commit` and `git push` work without
+		// detached-HEAD gymnastics.
+		lines.push(`Worktree: ${worktree.path}  (branch ${worktree.branch})`);
+	} else if (worktreeError) {
+		lines.push(`Worktree provisioning failed: ${worktreeError}`);
+		lines.push(
+			"Fall back to editing in the primary checkout, or rerun once the underlying error is resolved.",
+		);
+	}
 	if (context.instructions) {
 		lines.push(`Instructions: ${context.instructions}`);
 	}
