@@ -10,6 +10,7 @@
 
 import type { CouncilDispatch } from "./council.js";
 import { runCouncil, runOneCouncilReviewer } from "./council.js";
+import type { CouncilProgress } from "./council-progress.js";
 import type { CouncilRun } from "./findings.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { PrWorkflowState } from "./state.js";
@@ -60,6 +61,8 @@ export interface RunCouncilActionInput {
 	readonly signal?: AbortSignal;
 	/** Override for tests; production uses `Date.now()`. */
 	readonly now?: () => Date;
+	/** Optional progress observer; forwarded to `runCouncil`. */
+	readonly progress?: CouncilProgress;
 }
 
 /** Result of a council action run. */
@@ -134,6 +137,7 @@ export async function runCouncilAction(
 		registry: input.registry,
 		dispatch: input.dispatch,
 		signal: input.signal,
+		progress: input.progress,
 	});
 	state.council.lastRun = run;
 	return { ok: true, run };
