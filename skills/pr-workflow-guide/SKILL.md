@@ -14,15 +14,14 @@ description: >
 
 # PR Workflow Guide
 
-The `pr_workflow` tool is a conversation-first surface for
-reviewing pull requests. The user talks; the agent calls
-the tool action by action; the panels and findings grow
-around the conversation rather than steering it from a
-menu.
+Drive the `pr_workflow` tool. The user speaks in prose;
+translate intent into `action=` calls. Panels and findings
+grow around the conversation, never the reverse.
 
-This skill teaches you (the agent) which action to call
-when, what state each action expects, and how to keep the
-user oriented through a multi-round pipeline.
+This skill covers: which action to call when, what state
+each expects, how trajectories shift defaults, and the
+back-half flows (fix loop, thread replies, stack
+navigation).
 
 ## The pipeline at a glance
 
@@ -62,10 +61,9 @@ prose; you translate intent into calls.
 
 ## Reading the user's trajectory
 
-Before you start chaining actions, work out what kind of
-session this is. The user almost never says it directly;
-you infer it from the first prompt. Five common shapes,
-in rough order of frequency:
+Classify the session from the first prompt before
+chaining actions. The user never names the shape; infer
+it. Five common shapes:
 
 | User's prose | Likely shape | Typical first move |
 |---|---|---|
@@ -75,15 +73,13 @@ in rough order of frequency:
 | "review what i have locally" | Self-review before pushing | `load` (local) → council → fix loop |
 | "someone pinged me; i don't know this code" | Pair-debug | `load` → read + narrate, no formal pipeline |
 
-The extension README lists the same five with more
-colour. Use the table here to pick a starting action;
-use the README's longer descriptions when the user
-asks "what shapes does this support?".
+Use the table above to pick a starting action. The
+extension README expands each shape with narrative; reach
+for it when the user asks "what does this support?".
 
 ### What changes per trajectory
 
-The user never picks a mode. You bias your defaults
-based on what you inferred:
+Bias your defaults based on the inferred shape:
 
 - **Auto-suggest council?** Yes for delegated and
   self-review; ask first for deep review (some users
@@ -101,20 +97,15 @@ based on what you inferred:
   `fix-next`/main-loop/`fix-done` only when the user
   asks for them; never auto.
 
-Users shift trajectories mid-session. Re-classify on
-prose cues without ceremony:
+Re-classify on shift cues without ceremony. Narrate the
+shift in one line ("OK, switching to fix-and-commit")
+and proceed.
 
-- "actually let me read this myself" — delegated →
-  deep review. Stop pushing council-driven prompts,
-  open files in nvim.
-- "just fix the obvious stuff" — review → self-apply.
-  Queue blockers for fix instead of post.
-- "let's just ship what we have" — self-apply → post.
-  Promote remaining findings to comments instead of
-  fixes.
-
-Narrate the shift in one prose line ("OK, switching to
-fix-and-commit") and proceed. No mode-change ritual.
+| Cue | Shift |
+|---|---|
+| "actually let me read this myself" | delegated → deep review; stop pushing council, open files in nvim |
+| "just fix the obvious stuff" | review → self-apply; queue blockers for fix instead of post |
+| "let's just ship what we have" | self-apply → post; promote remaining findings to comments |
 
 ## When to call what
 
@@ -126,18 +117,17 @@ User: "let's look at PR 42 in my-org/my-repo"
 pr_workflow action=load pr="my-org/my-repo#42"
 ```
 
-If they're already in a checkout and give a bare number,
-that works too: `pr="42"`.
+Bare numbers work inside a checkout: `pr="42"`.
 
-After `load`, the tool returns metadata + diff summary +
-stack info if any. Surface a short prose summary; don't
-dump JSON.
+`load` returns metadata + diff summary + stack info.
+Surface a short prose summary; don't dump JSON at the
+user.
 
 ### Configuring the council
 
-Default: ask the user once whether they have a roster
-they want to use. If they say "use whatever", pick a
-reasonable default and tell them what you picked:
+Ask once whether the user has a roster preference. If
+they defer ("use whatever"), pick a default and tell
+them what you picked:
 
 ```
 pr_workflow action=council-config reviewers=[
@@ -147,9 +137,9 @@ pr_workflow action=council-config reviewers=[
 pr_workflow action=judge-config judge={ id: "judge", model: "anthropic:claude-opus-4" }
 ```
 
-The roster and judge persist across `/reload`. If a
-session already has them set, don't re-prompt — just
-mention them in your status update.
+Roster and judge persist across `/reload`. If a session
+already has them, mention them in your status update;
+don't re-prompt.
 
 ### Running the rounds
 
@@ -158,8 +148,8 @@ pr_workflow action=council   # round 1
 pr_workflow action=judge     # round 2
 ```
 
-After `judge`, ALWAYS present the consolidated findings
-to the user in prose and ask the gate question:
+After `judge`, ALWAYS present findings in prose and ask
+the gate question:
 
 > Judge consolidated N findings: M critical, P medium, Q minor.
 > Self-rated {confidence} on the list.
@@ -167,7 +157,7 @@ to the user in prose and ask the gate question:
 > Want a critique pass (round 3 — the roster pushes back),
 > or jump straight to deciding what to post?
 
-The judge's self-signal informs your framing but doesn't
+The judge's self-signal informs your framing; it doesn't
 decide for the user. If they want critique:
 
 ```
@@ -178,48 +168,44 @@ Otherwise skip to round 4.
 
 ### When a reviewer crashes
 
-If the council or critique summary surfaces a retry
+When the council or critique summary surfaces a retry
 hint ("reviewer X returned no findings with warnings"),
-offer the user the targeted retry rather than re-running
-the whole round:
+offer the targeted retry, not a re-run of the whole
+round:
 
 ```
 pr_workflow action=council-retry reviewerId=skeptic
 pr_workflow action=critique-retry reviewerId=skeptic
 ```
 
-Council retry allocates new finding ids past the current
-max, so decisions the user already made on un-retried
-findings stay stable. Critique retry replaces the
-reviewer's positions on the judge's findings; nothing
-else moves. Do not call retry against a reviewer who
-legitimately came back empty (no warnings); that's a
-silent reviewer, not a crashed one.
+Rules:
 
-The judge has no retry primitive — re-running
-`action=judge` is itself idempotent (it overwrites
-`lastJudge`).
+- Council retry allocates new finding ids past the
+  current max. Existing decisions stay stable.
+- Critique retry replaces the reviewer's positions on
+  the judge's findings; nothing else moves.
+- Don't retry a reviewer who came back empty without
+  warnings — that's a silent reviewer, not a crash.
+- Judge has no retry. `action=judge` is idempotent
+  (overwrites `lastJudge`).
 
 ### Round 4: user synthesis
 
-Round 4 is conversation, not a panel. Loop through
-findings with the user. Useful patterns:
+Round 4 is conversation, not a panel. Walk findings
+with the user. Translate intent to `decide` calls:
 
-- "Show me the findings" → `action=findings`
-- "Endorse #10" → `action=decide findingId=10 verdict=endorse`
-- "Dismiss #11, it's a false positive" →
-  `action=decide findingId=11 verdict=dismiss reason="false positive"`
-- "Soften #12 — keep it but non-blocking" →
-  `action=decide findingId=12 verdict=qualify note="non-blocking, worth a follow-up"`
-- "Edit #13: change the subject to '…'" →
-  `action=decide findingId=13 verdict=edit subject="…"`
-- "Promote everything I endorsed" — make the calls
-  yourself one at a time; the API takes single
-  findingIds.
+| User says | Call |
+|---|---|
+| "show me the findings" | `action=findings` |
+| "endorse #10" | `action=decide findingId=10 verdict=endorse` |
+| "dismiss #11, false positive" | `action=decide findingId=11 verdict=dismiss reason="false positive"` |
+| "soften #12 — non-blocking" | `action=decide findingId=12 verdict=qualify note="non-blocking, worth a follow-up"` |
+| "edit #13: subject is '…'" | `action=decide findingId=13 verdict=edit subject="…"` |
+| "promote everything I endorsed" | call `decide` per finding; API takes single ids |
 
-You're allowed to suggest verdicts. The decision is the
-user's; your job is to keep momentum. If they're
-silent on a finding, ask.
+Suggest verdicts when the user is silent on a finding.
+Keep momentum; ask if you need direction. Final
+decision is theirs.
 
 ### Posting
 
@@ -231,25 +217,23 @@ pr_workflow action=post event=REQUEST_CHANGES body="Holding this one until X"
 
 The tool refuses empty reviews. If `findings` shows
 nothing endorsed/qualified/edited/promoted, push back
-on the user before calling `post`.
+before calling `post`.
 
-Findings verdict'd as `fix` are intentionally excluded
-from the posted review. They mean "I'll handle this
-myself, don't post a comment." Mix `endorse`/`fix`
-freely on the same council run: posted comments and
-self-applied fixes are independent.
+`fix`-verdicted findings are excluded from the posted
+review by design ("I'll handle this myself"). Mix
+`endorse` and `fix` freely on the same council run;
+posted comments and self-applied fixes are
+independent.
 
 ### Applying fixes
 
-Council, judge and critique do the *research* in a
-worktree (so the user's working tree stays clean), but
-the *edits* happen in the user's actual checkout, where
-you already are. The flow has two halves: deciding
-(`verdict="fix"`) and applying (`fix-next` → main-loop
-edits → `fix-done`).
+Council / judge / critique research in a worktree.
+Edits happen in the user's actual checkout where you
+are. Two halves: decide (`verdict="fix"`), then apply
+(`fix-next` → main-loop edits → `fix-done`).
 
-**Deciding.** First, mark the findings the user wants
-to address as fixes rather than comments:
+**Deciding.** Mark findings as fixes instead of
+comments:
 
 ```
 pr_workflow action=decide findingId=14 verdict=fix
@@ -284,11 +268,10 @@ Once the commit lands, record it:
 pr_workflow action=fix-done findingId=14 commitSha=a1b2c3d
 ```
 
-Loop back to `fix-next` for the next finding. When it
-returns a null context, the queue is done. The user is
-free to interrupt at any prose turn between `fix-next`
-and `fix-done` — the loop is in the agent, not the
-tool, so course-correction is free.
+Loop back to `fix-next` for the next finding. Null
+context means the queue is done. The user can
+interrupt at any prose turn between `fix-next` and
+`fix-done`; the loop is in the agent, not the tool.
 
 If the user changes their mind on a queued finding
 ("actually that's not worth fixing"), use `fix-skip`
@@ -302,28 +285,24 @@ The findings view renders the three terminal states
 inline: `queued for fix — <instructions>`,
 `✓ fixed in <sha>`, or `fix skipped — <reason>`.
 
-Things the loop does NOT do:
+The loop does NOT:
 
 - **Apply edits itself.** Edits live in your main loop
-  so the user can interrupt. The tool only supplies the
-  next finding's context and records outcomes.
-- **Run checks automatically.** The agent reads the
-  repo and decides what to run (lint, tests). The tool
-  doesn't carry a checks-config in v1.
-- **Push.** Pushing is the user's call after the queue
-  is done. `git push` works as normal.
-- **Cross-PR.** Stack-level fixes (`verdict=fix` on
-  stack findings) are out of scope for v1. Use
-  per-PR fixes only.
+  so the user can interrupt.
+- **Run checks automatically.** You read the repo and
+  decide what to run (lint, tests).
+- **Push.** Pushing is the user's call after the
+  queue empties.
+- **Cross-PR fix.** Stack findings can't take
+  `verdict=fix` in v1. Per-PR only.
 
-Neither half involves the worktree the council ran in.
-That worktree exists for read-only research; nothing in
-the normal flow writes back to it.
+The council's research worktree is read-only; nothing
+in the normal flow writes back to it.
 
 ### Navigating a stack
 
-When `load` reveals the PR is part of a stack, the
-user can navigate parent / child PRs:
+When `load` reveals a stack, the user can move between
+parent / child PRs:
 
 ```
 pr_workflow action=stack          # show the chain
@@ -331,38 +310,28 @@ pr_workflow action=stack-next     # "what's downstream?"
 pr_workflow action=stack-prev     # "what's upstream?"
 ```
 
-The `stack-next` and `stack-prev` actions do NOT
-re-load the new PR themselves. They return the
-adjacent PR's ref and tell you to call `load`. This
-is intentional: every significant state change goes
-through prose, so the user has a chance to intervene
-("hold on, before moving on, let's post the current
-findings first").
+Stack navigation rules:
 
-If the cursor has fan-out children (multiple
-downstream PRs), `stack-next` returns no automatic
-pick and the action's prose includes the child count.
-Ask the user which fork to follow.
-
-Reviews don't currently follow the chain
-automatically; each PR is a separate council /
-judge / critique session. That's intentional — each
-stage focuses on one diff at a time.
-
-State across cursor moves: when the user moves off a
-PR that has any council, judge, critique or decision
-state, those slots snapshot under `state.stackRuns[N]`
-automatically. When the cursor returns to N, the
-snapshot rehydrates. This means the user can sweep
-the stack without losing work.
+- `stack-next` / `stack-prev` return the adjacent
+  PR's ref; they don't re-load. Call `load` after.
+  This is intentional: every state change goes
+  through prose so the user can intervene.
+- Fan-out children: `stack-next` returns no
+  automatic pick and includes the child count. Ask
+  the user which fork to follow.
+- Reviews don't auto-follow the chain. Each PR is
+  its own council / judge / critique session.
+- State snapshots into `state.stackRuns[N]` when the
+  cursor moves off PR N and rehydrates on return.
+  The user can sweep the stack without losing work.
 
 ### Stack-aware review
 
-When the user wants to surface cross-PR observations
-(inconsistent error handling between layers,
-duplicated logic across the stack, API choices that
-only make sense if a downstream PR lands), reach for
-`stack-critic`.
+Reach for `stack-critic` when the user wants cross-PR
+observations: inconsistent error handling between
+layers, duplicated logic across the stack, API
+choices that only make sense if a downstream PR
+lands.
 
 Workflow:
 
@@ -424,16 +393,14 @@ When NOT to run `stack-critic`:
 
 ## Existing threads
 
-The pipeline above describes one direction: pi posts
-findings to GitHub. The reverse direction — reading
-what reviewers already left and responding — happens
-through three small actions.
+Threads are inbound feedback (humans or other AIs).
+Three actions handle them: `threads`, `reply`,
+`resolve`.
 
 ### Two inboxes, kept separate
 
-Threads and council findings are *two different
-streams of work*. Don't merge them into one mental
-model.
+Threads and council findings are two different streams
+of work. Don't merge them.
 
 | Threads | Council findings |
 |---|---|
@@ -442,96 +409,80 @@ model.
 | Close with `reply` + `resolve` | Close with `decide` + `post` or `fix` |
 | Action family: `threads`, `reply`, `resolve` | Action family: `council`, `judge`, `critique`, `findings`, `decide`, `post`, `fix-*` |
 
-The distinction matters because the work has
-different urgency. "Alice is waiting for a reply on
-T1" has a deadline. "The council noticed F3 might
-be a race" is optional. Merging them into one
-inbox would hide which is which.
+Urgency differs: "alice is waiting for a reply on T1"
+has a deadline; "the council noticed F3 might be a
+race" is optional. Merging them hides which is which.
 
-When the user asks an open question like "what's on
-this PR?" — run *both* and present them in two
-sections, not one merged list. When the user is in
-thread-mode ("address what alice said"), don't
-automatically run the council. When the user is in
-council-mode ("check this for me"), don't reach for
-thread tools unless they ask.
+Rules:
 
-The two streams can cross *in conversation* (the
-user might dismiss F5 because alice already raised
-it in T1, citing T1 in the dismissal reason). They
-should not cross *in the tool surface*. There is no
-`ingest-threads` action. There is no
-`findings.source = thread` field. The scenarios that
-led to keeping the two streams separate are walked
-in the project's design 19 (`council-vs-threads`).
+- Open question ("what's on this PR?") — run both,
+  present in two sections, not a merged list.
+- Thread-mode prose ("address what alice said") —
+  don't auto-run the council.
+- Council-mode prose ("check this for me") — don't
+  reach for thread tools unless asked.
+
+The two streams can cross in conversation (the user
+might dismiss F5 because alice already raised it in
+T1, citing T1 in the dismissal reason). They should
+not cross in the tool surface: no `ingest-threads`
+action, no `findings.source = thread` field.
 
 ### When to reach for thread actions
 
-- User: "what review comments are still open on this
-  PR?" → `action="threads"`. Render the result.
-- User: "reply to the second one saying I'll fix it in
-  a follow-up" → `action="reply" threadIndex=2
-  replyBody="I'll fix in a follow-up PR."`
-- User: "resolve the first thread" →
-  `action="resolve" threadIndex=1`.
+| User says | Call |
+|---|---|
+| "what review comments are still open?" | `action="threads"` |
+| "reply to the second one saying I'll fix in a follow-up" | `action="reply" threadIndex=2 replyBody="I'll fix in a follow-up PR."` |
+| "resolve the first thread" | `action="resolve" threadIndex=1` |
 
-The display index is 1-based and matches the `[T#]`
-label the tool renders. The snapshot is whatever the
-last `action="threads"` returned, so if you suspect
-upstream activity (the user just got a slack ping),
-re-run `threads` to refresh the index before replying.
+Index rules:
 
-Reply and resolve don't auto-update the snapshot. They
-post the mutation and return success; the next
-`threads` call will reflect the new state. If the user
-is about to do several replies, render `threads` once,
-call the mutations, then optionally re-run `threads`
-to confirm.
+- 1-based; matches the `[T#]` label the tool renders.
+- Snapshot is whatever `threads` last fetched. Re-run
+  `threads` to refresh before replying when you
+  suspect upstream activity (a slack ping, etc).
+- `reply` and `resolve` don't auto-refresh the
+  snapshot. They post the mutation; the next
+  `threads` call reflects the new state. For batched
+  replies, render `threads` once, call mutations,
+  then optionally re-run `threads` to confirm.
 
 ### Confirmation gates
 
-Both `reply` and `resolve` pause for an in-terminal
+`reply` and `resolve` both pause for an in-terminal
 confirmation panel before hitting GitHub. The panel
 renders the thread's existing comments alongside the
-proposed reply (or the resolution intent), so the user
-sees what they're approving before any mutation
-lands.
+proposed reply (or resolution intent).
 
-Key behaviour the user might rely on:
+Gate controls:
 
-- **Enter** approves and fires the mutation.
-- **`r`** rejects; the action returns a clean error and
+- **Enter** approves; mutation fires.
+- **`r`** rejects; action returns a clean error,
   nothing posts.
 - **Escape** cancels (same outcome as `r`).
-- **Shift+Escape** (reply only) opens an inline note
-  editor. Whatever the user types replaces the proposed
-  reply body. Useful when the user wants to tweak
-  wording without round-tripping back through prose.
+- **Shift+Escape** (reply only) opens an inline
+  editor; the typed body replaces the proposed reply.
 
-The agent's responsibility doesn't change: still draft
-the reply text in prose first, confirm in conversation,
-*then* call the tool. The gate is the second line of
-defense, not the first. If the user rejects or edits in
-the panel, surface that outcome back in prose so the
-conversation reflects what actually happened.
+Protocol stays the same regardless of the gate: draft
+in prose, confirm in conversation, *then* call the
+tool. The gate is a second line of defense, not the
+first. If the user rejects or edits in the panel,
+surface that outcome back in prose.
 
-The gate short-circuits to approved when running
-headless (no TUI). In that case the prose-level
-confirmation is the only gate, which matches how the
-agent operates in batch / CI contexts where there's no
-person to interact with a panel.
+Headless contexts (no TUI) short-circuit the gate to
+approved. The prose confirmation is the only gate in
+batch / CI runs.
 
-What NOT to use these for:
+Don't use these for:
 
 - Posting initial review comments — that's
-  `action="post"` and the rest of the pipeline.
-- Drafting wholesale rewrites of a thread — reply
-  appends; GitHub doesn't support editing someone
-  else's prior comments.
-- Walking the full reply history in detail — the tool
-  shows the first comment plus a 'more reply' count.
-  For deep history, point the user at the URL in the
-  rendered output.
+  `action="post"`.
+- Wholesale thread rewrites — reply appends; GitHub
+  doesn't support editing prior comments.
+- Walking deep reply history — the tool shows the
+  first comment plus a 'more reply' count. Point the
+  user at the URL for the rest.
 
 ## Verdict reference
 
@@ -547,10 +498,12 @@ the finding correctly.
 | `promote` | — | Explicit "include in posted review". Mostly redundant with endorse; use when the user wants to mark something as posting-bound without endorsing the prose. |
 | `fix` | `instructions` (optional) | "I'll handle this myself; don't post a comment." Bookmarks the finding for self-application. The main agent (or the user) does the edit in their real checkout when ready. |
 
-Don't ask the user to memorise these. Translate their
-intent: "drop it" → dismiss, "keep but tone it down" →
-qualify with note, "change the wording" → edit with
-subject/discussion.
+Translate intent; don't enumerate verdicts at the user:
+
+- "drop it" → dismiss
+- "keep but tone it down" → qualify with note
+- "change the wording" → edit with subject/discussion
+- "i'll fix it" → fix with optional instructions
 
 ## Posted comment format
 
@@ -597,20 +550,19 @@ feed pi's normal session-level cost reporting.
 
 ## Honest provenance
 
-Every finding traces back to which reviewers raised it
-(`agreement.raisedBy`). Don't strip that. Users can tell
-"two models agreed" from "one model speculated"; the
-distinction matters for calibration.
+Don't strip `agreement.raisedBy` when narrating
+findings. Users distinguish "two models agreed" from
+"one model speculated"; the distinction calibrates
+trust.
 
 ## When NOT to call the tool
 
-- The user asks about a PR conceptually ("what's the
-  best way to land a stacked PR?") — answer in prose;
-  don't load anything.
-- The user is replying to review feedback on their own
-  PR — that's `pr_reply`, not `pr_workflow`.
-- The user wants to write a self-review on their own
-  PR — that's `pr_annotate`.
+- Conceptual PR questions ("what's the best way to
+  land a stacked PR?") — answer in prose; don't load.
+- PR description / commit message rewrites — that's
+  editor work. Use `edit` / `write` directly.
+- CI failure or build-status questions —
+  `gh pr checks N` beats spinning up the workflow.
 
 ## Companion skills
 
