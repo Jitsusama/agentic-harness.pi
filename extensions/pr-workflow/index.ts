@@ -23,6 +23,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
+import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
 import { postReview } from "../../lib/internal/github/review-post.js";
 import { parsePrFileUri, prFileUri, resolvePrFile } from "./buffer.js";
 import {
@@ -46,7 +47,9 @@ import {
 	recordFixSkipAction,
 } from "./fix-action.js";
 import {
+	cleanupFixWorktree,
 	createFixWorktreeProvisioner,
+	listFixWorktrees,
 	type ProvisionFixWorktree,
 } from "./fix-worktree.js";
 import {
@@ -237,6 +240,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"fix-next",
 					"fix-done",
 					"fix-skip",
+					"fix-worktree-list",
+					"fix-worktree-cleanup",
 					"summary",
 				] as const,
 				{
@@ -276,6 +281,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"Requires findingId and commitSha. " +
 						"fix-skip: abandon a queued fix with a reason. " +
 						"Requires findingId and skipReason. " +
+						"fix-worktree-list: enumerate fix worktrees that " +
+						"have accumulated under the pr-workflow state dir. " +
+						"Read-only; no arguments. " +
+						"fix-worktree-cleanup: remove the fix worktree " +
+						"for a PR. Requires `pr` (owner/repo#number form " +
+						"or bare number when run inside a checkout). " +
+						"Pass force:true to delete uncommitted edits. " +
 						"summary: one-shot read-only view of the loaded PR " +
 						"(header, stack, threads, council, fix queue). " +
 						"Reads cached snapshots only — never fetches.",
@@ -477,6 +489,12 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				Type.Boolean({
 					description:
 						"For action=findings: when true, render the full wall-of-text view (one paragraph per finding with discussion, critiques and original-versus-edited text). When omitted or false, render the compact one-row-per-finding index.",
+				}),
+			),
+			force: Type.Optional(
+				Type.Boolean({
+					description:
+						"For action=fix-worktree-cleanup: when true, fall back to rm -rf after `git worktree remove` refuses (uncommitted edits, stale admin state). Default false leaves a blocked worktree in place and surfaces a hint.",
 				}),
 			),
 		}),
@@ -1224,6 +1242,113 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						findingId: params.findingId,
 						reason: params.skipReason.trim(),
 					},
+				};
+			}
+
+			if (params.action === "fix-worktree-list") {
+				const entries = await listFixWorktrees(prWorkflowStateDir());
+				if (entries.length === 0) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "No fix worktrees on disk.",
+							},
+						],
+						details: { ok: true, entries: [] },
+					};
+				}
+				const lines = [
+					`${entries.length} fix worktree${entries.length === 1 ? "" : "s"} on disk:`,
+					"",
+				];
+				for (const entry of entries) {
+					const ref = `${entry.owner}/${entry.repo}#${entry.number}`;
+					const when =
+						entry.mtimeMs === null
+							? "mtime unknown"
+							: `mtime ${new Date(entry.mtimeMs).toISOString()}`;
+					lines.push(`  ${ref}  (${when})`);
+					lines.push(`    ${entry.path}`);
+				}
+				lines.push("");
+				lines.push(
+					"Call action=fix-worktree-cleanup pr=<ref> to remove one. Pass force:true to drop uncommitted edits.",
+				);
+				return {
+					content: [{ type: "text", text: lines.join("\n") }],
+					details: { ok: true, entries },
+				};
+			}
+
+			if (params.action === "fix-worktree-cleanup") {
+				if (!params.pr) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "fix-worktree-cleanup requires a `pr` argument (owner/repo#number or a bare number inside a checkout).",
+							},
+						],
+						details: { ok: false, error: "missing pr argument" },
+						isError: true,
+					};
+				}
+				const loadedRef = state.pr?.reference;
+				const reference = parsePRReference(
+					params.pr,
+					loadedRef?.owner,
+					loadedRef?.repo,
+				);
+				if (reference === null) {
+					const error =
+						`Could not parse "${params.pr}" as a PR reference. ` +
+						"Expected a full URL, a short form (owner/repo#N), or a bare " +
+						"number with a PR already loaded so owner/repo can be inferred.";
+					return {
+						content: [{ type: "text", text: error }],
+						details: { ok: false, error },
+						isError: true,
+					};
+				}
+				const outcome = await cleanupFixWorktree({
+					stateDir: prWorkflowStateDir(),
+					owner: reference.owner,
+					repo: reference.repo,
+					number: reference.number,
+					force: params.force === true,
+				});
+				if (outcome.status === "missing") {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `No fix worktree at ${outcome.path}; nothing to remove.`,
+							},
+						],
+						details: { ok: true, outcome },
+					};
+				}
+				if (outcome.status === "blocked") {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Refused: ${outcome.reason}\n${outcome.hint}`,
+							},
+						],
+						details: { ok: false, outcome },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Removed ${outcome.path} (${outcome.method}).`,
+						},
+					],
+					details: { ok: true, outcome },
 				};
 			}
 

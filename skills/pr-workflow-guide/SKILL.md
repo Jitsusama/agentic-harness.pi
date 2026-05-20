@@ -58,6 +58,8 @@ prose; you translate intent into calls.
 | `fix-next` | Return the next finding queued for fix (verdict=fix) with no recorded outcome. Pure read. |
 | `fix-done` | Record that a commit landed for a queued fix. Requires `findingId` and `commitSha`. |
 | `fix-skip` | Abandon a queued fix with a reason. Requires `findingId` and `skipReason`. |
+| `fix-worktree-list` | Enumerate fix worktrees that have accumulated under the pr-workflow state dir. Read-only; no arguments. |
+| `fix-worktree-cleanup` | Remove the fix worktree for a PR. Requires `pr`; pass `force:true` to delete uncommitted edits. |
 
 ## Reading the user's trajectory
 
