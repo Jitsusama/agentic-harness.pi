@@ -57,6 +57,10 @@ import {
 import { persist, restore } from "./lifecycle.js";
 import { loadPr } from "./load.js";
 import {
+	formatLoadSuggestions,
+	suggestNextAfterLoad,
+} from "./load-trajectory.js";
+import {
 	type PostReviewExec,
 	type PostReviewGate,
 	postReviewAction,
@@ -1429,10 +1433,14 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				lines.push("");
 				lines.push(`Diff fetch failed: ${diffError}`);
 			}
+			const suggestedNext = suggestNextAfterLoad(state);
+			for (const line of formatLoadSuggestions(suggestedNext)) {
+				lines.push(line);
+			}
 			persist(state, pi);
 			return {
 				content: [{ type: "text", text: lines.join("\n") }],
-				details: { ok: true, pr: loaded },
+				details: { ok: true, pr: loaded, suggestedNext },
 			};
 		},
 	});

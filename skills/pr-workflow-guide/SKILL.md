@@ -65,17 +65,19 @@ Classify the session from the first prompt before
 chaining actions. The user never names the shape; infer
 it. Five common shapes:
 
-| User's prose | Likely shape | Typical first move |
+| User's prose | Shape | Call next |
 |---|---|---|
-| "review pr N" / a URL | Deep review of someone else's PR | `load` → ask about council |
-| "let me see #N" (their own PR) | Addressing review feedback | `load` → `threads` |
-| "what does the council say about N" | Delegated review | `load` → propose council immediately |
-| "review what i have locally" | Self-review before pushing | `load` (local) → council → fix loop |
-| "someone pinged me; i don't know this code" | Pair-debug | `load` → read + narrate, no formal pipeline |
+| "review pr N" / a URL | Deep review of someone else's PR | `load`, then ask the user whether they want a council. Don't auto-fire one. |
+| "let me see #N" (their own PR) | Addressing review feedback | `load`, then `threads`. Stop the menu instinct here — they want their existing thread inbox. |
+| "what does the council say about N" | Delegated review | `load`, then immediately `council`. The user explicitly asked for the multi-model take. |
+| "review what i have locally" | Self-review before pushing | `load` (local), then `council`, then run the fix loop with `fix-next`. |
+| "someone pinged me; i don't know this code" | Pair-debug | `load`, then read and narrate. No formal pipeline. |
 
-Use the table above to pick a starting action. The
-extension README expands each shape with narrative; reach
-for it when the user asks "what does this support?".
+These aren't hints. Pick a trajectory in your head before
+choosing the next action. `action=load` itself returns a
+`suggestedNext` array (rationale included); use it as a
+structural assist, not a substitute for the trajectory
+you inferred from the user's prose.
 
 ### What changes per trajectory
 
