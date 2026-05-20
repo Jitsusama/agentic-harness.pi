@@ -61,6 +61,10 @@ import {
 	formatJudgeSummary,
 	runJudgeAction,
 } from "./judge-action.js";
+import {
+	formatJudgeAllSummary,
+	runJudgeAllAction,
+} from "./judge-all-action.js";
 import { persist, restore } from "./lifecycle.js";
 import { loadPr } from "./load.js";
 import {
@@ -74,6 +78,10 @@ import {
 	type ReviewEvent,
 } from "./post.js";
 import { confirmPostGate } from "./post-gate.js";
+import {
+	formatReviewAllSummary,
+	runReviewAllAction,
+} from "./review-all-action.js";
 import { runReviewer } from "./reviewer.js";
 import { createSpawnRunPi } from "./runpi-spawn.js";
 import { createGitHubPrSearch } from "./search.js";
@@ -227,6 +235,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"council",
 					"council-all",
 					"judge-config",
+					"judge-all",
+					"review-all",
 					"judge",
 					"critique",
 					"findings",
@@ -261,6 +271,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"stash under stackRuns and rehydrate on stack-next / stack-prev. " +
 						"judge-config: set the judge reviewer for round-2 consolidation. " +
 						"judge: run round-2 consolidation against the most recent council run. " +
+						"judge-all: run the configured judge across every stack PR that " +
+						"has a council run. review-all: run council-all, then judge-all. " +
 						"critique: run round-3 critique — the roster pushes back on the judge's consolidated list. " +
 						"findings: render the round-4 view (judge + critique + user decisions). " +
 						"decide: record the user's verdict on a single finding. " +
@@ -665,6 +677,56 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 				return {
 					content: [{ type: "text", text: formatJudgeSummary(result.run) }],
+					details: { ok: true, run: result.run },
+				};
+			}
+
+			if (params.action === "judge-all") {
+				const { registry, runPi, extraExtensions } = getCouncilDeps();
+				const result = await runJudgeAllAction({
+					state,
+					registry,
+					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
+					fetchers: {
+						metadata: (reference) => fetchPrMetadata(pi, reference),
+					},
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [{ type: "text", text: formatJudgeAllSummary(result.run) }],
+					details: { ok: true, run: result.run },
+				};
+			}
+
+			if (params.action === "review-all") {
+				const { registry, runPi, extraExtensions } = getCouncilDeps();
+				const result = await runReviewAllAction({
+					state,
+					registry,
+					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
+					fetchers: {
+						metadata: (reference) => fetchPrMetadata(pi, reference),
+						diff: async (reference) => {
+							const raw = await fetchDiff(pi, reference);
+							return parseDiff(raw);
+						},
+					},
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [{ type: "text", text: formatReviewAllSummary(result.run) }],
 					details: { ok: true, run: result.run },
 				};
 			}
