@@ -3,9 +3,9 @@
  *
  * Pi reloads extensions on `/reload`, which wipes
  * in-memory state. lifecycle.ts re-hydrates the
- * reconfiguration-expensive bits — roster, judge,
- * stack-critic, loaded PR reference — from session
- * history.
+ * configuration AND the run history so the user can
+ * resume a Round-4 decision flow or a fix loop after
+ * a reload mid-session.
  *
  * These tests assert observable behaviour through the
  * persist/restore API. The wire format is an
@@ -18,9 +18,18 @@ import type {
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it } from "vitest";
+import type { CritiqueRun } from "../../../extensions/pr-workflow/critique.js";
+import type {
+	CouncilRun,
+	Finding,
+} from "../../../extensions/pr-workflow/findings.js";
+import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
 import { persist, restore } from "../../../extensions/pr-workflow/lifecycle.js";
 import type { CouncilReviewer } from "../../../extensions/pr-workflow/reviewer.js";
+import type { StackCriticRun } from "../../../extensions/pr-workflow/stack-critic.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
+import type { FindingDecision } from "../../../extensions/pr-workflow/synthesis.js";
+import type { ReviewThread } from "../../../extensions/pr-workflow/threads.js";
 import type { PRReference } from "../../../lib/internal/github/pr-reference.js";
 
 interface Entry {
@@ -61,6 +70,116 @@ function sampleRef(): PRReference {
 	};
 }
 
+function sampleFinding(id: number): Finding {
+	return {
+		id,
+		location: { kind: "file", file: "task.go" },
+		label: "issue",
+		decorations: [],
+		subject: `subject ${id}`,
+		discussion: `discussion ${id}`,
+		category: "file",
+		origin: { kind: "judge", runId: "j-1", judgeReviewerId: "judge" },
+		state: "draft",
+		agreement: { raisedBy: ["alpha"], sourceFindingIds: [id] },
+	};
+}
+
+function sampleCouncilRun(): CouncilRun {
+	return {
+		id: "c-1",
+		startedAt: "2026-05-20T14:00:00Z",
+		target: { kind: "diff", prNumber: 3 },
+		reviewerOutputs: [
+			{
+				reviewerId: "alpha",
+				findings: [sampleFinding(1)],
+				warnings: [],
+			},
+		],
+	};
+}
+
+function sampleJudgeRun(): JudgeRun {
+	return {
+		id: "j-1",
+		startedAt: "2026-05-20T14:05:00Z",
+		judgeReviewerId: "judge",
+		selfSignal: null,
+		consolidatedFindings: [sampleFinding(1), sampleFinding(2)],
+		warnings: [],
+	};
+}
+
+function sampleCritiqueRun(): CritiqueRun {
+	return {
+		id: "cr-1",
+		startedAt: "2026-05-20T14:10:00Z",
+		judgeRunId: "j-1",
+		reviewerOutputs: [
+			{
+				reviewerId: "alpha",
+				critiques: [
+					{
+						reviewerId: "alpha",
+						findingId: 1,
+						position: "agree",
+						rationale: "yes",
+					},
+				],
+				warnings: [],
+			},
+		],
+		warnings: [],
+	};
+}
+
+function sampleStackCriticRun(): StackCriticRun {
+	return {
+		id: "sc-1",
+		startedAt: "2026-05-20T14:15:00Z",
+		reviewerId: "critic",
+		findings: [{ ...sampleFinding(101), homePrNumber: 3, spans: [3, 4] }],
+		warnings: [],
+	};
+}
+
+function endorseDecision(findingId: number): FindingDecision {
+	return {
+		findingId,
+		verdict: "endorse",
+		decidedAt: "2026-05-20T14:20:00Z",
+	};
+}
+
+function fixDecision(findingId: number): FindingDecision {
+	return {
+		findingId,
+		verdict: "fix",
+		decidedAt: "2026-05-20T14:21:00Z",
+	};
+}
+
+function reviewThread(): ReviewThread {
+	return {
+		id: "T1",
+		kind: "review-thread",
+		isResolved: false,
+		isOutdated: false,
+		path: "task.go",
+		line: 10,
+		comments: [
+			{
+				id: "C1",
+				author: "reviewer",
+				body: "please reconsider",
+				createdAt: "2026-05-20T13:00:00Z",
+				url: "https://github.com/o/r/pull/3#discussion_r1",
+			},
+		],
+	};
+}
+
 describe("pr-workflow lifecycle", () => {
 	describe("restore", () => {
 		it("is a no-op when no entry has been written", () => {
@@ -73,6 +192,14 @@ describe("pr-workflow lifecycle", () => {
 			expect(state.council.judge).toBeNull();
 			expect(state.council.stackCritic).toBeNull();
 			expect(state.pr).toBeNull();
+			expect(state.council.lastRun).toBeNull();
+			expect(state.council.lastJudge).toBeNull();
+			expect(state.council.lastCritique).toBeNull();
+			expect(state.council.decisions.size).toBe(0);
+			expect(state.stackCritic).toBeNull();
+			expect(state.stackDecisions.size).toBe(0);
+			expect(state.stackRuns.size).toBe(0);
+			expect(state.threads).toBeNull();
 		});
 
 		it("rehydrates roster, judge and stack-critic config", () => {
@@ -115,9 +242,6 @@ describe("pr-workflow lifecycle", () => {
 			expect(restored.pr).not.toBeNull();
 			expect(restored.pr?.reference).toEqual(sampleRef());
 			expect(restored.pr?.loadedAt).toBe("2026-05-20T14:00:00.000Z");
-			// Derived data is re-fetched on next interaction,
-			// not persisted: keeps the wire format small and
-			// avoids schema drift on PrMetadata / DiffFile.
 			expect(restored.pr?.metadata).toBeNull();
 			expect(restored.pr?.files).toBeNull();
 			expect(restored.pr?.stack).toBeNull();
@@ -141,31 +265,183 @@ describe("pr-workflow lifecycle", () => {
 
 			expect(restored.council.roster).toEqual([sampleReviewer("new")]);
 		});
+
+		it("rehydrates the most recent council, judge and critique runs", () => {
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+			const ctx = makeCtx(entries);
+
+			const source = createPrWorkflowState();
+			source.council.lastRun = sampleCouncilRun();
+			source.council.lastJudge = sampleJudgeRun();
+			source.council.lastCritique = sampleCritiqueRun();
+			persist(source, pi);
+
+			const restored = createPrWorkflowState();
+			restore(restored, pi, ctx);
+
+			expect(restored.council.lastRun).toEqual(sampleCouncilRun());
+			expect(restored.council.lastJudge).toEqual(sampleJudgeRun());
+			expect(restored.council.lastCritique).toEqual(sampleCritiqueRun());
+		});
+
+		it("rehydrates per-PR Round-4 decisions across a reload", () => {
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+			const ctx = makeCtx(entries);
+
+			const source = createPrWorkflowState();
+			source.council.decisions.set(1, endorseDecision(1));
+			source.council.decisions.set(2, fixDecision(2));
+			persist(source, pi);
+
+			const restored = createPrWorkflowState();
+			restore(restored, pi, ctx);
+
+			expect(restored.council.decisions.size).toBe(2);
+			expect(restored.council.decisions.get(1)).toEqual(endorseDecision(1));
+			expect(restored.council.decisions.get(2)).toEqual(fixDecision(2));
+		});
+
+		it("rehydrates the stack-critic run and stack-level decisions", () => {
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+			const ctx = makeCtx(entries);
+
+			const source = createPrWorkflowState();
+			source.stackCritic = sampleStackCriticRun();
+			source.stackDecisions.set(101, endorseDecision(101));
+			persist(source, pi);
+
+			const restored = createPrWorkflowState();
+			restore(restored, pi, ctx);
+
+			expect(restored.stackCritic).toEqual(sampleStackCriticRun());
+			expect(restored.stackDecisions.get(101)).toEqual(endorseDecision(101));
+		});
+
+		it("rehydrates per-PR run snapshots stashed on cursor moves", () => {
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+			const ctx = makeCtx(entries);
+
+			const source = createPrWorkflowState();
+			source.stackRuns.set(7, {
+				lastRun: sampleCouncilRun(),
+				lastJudge: sampleJudgeRun(),
+				lastCritique: null,
+				decisions: new Map([[1, endorseDecision(1)]]),
+			});
+			persist(source, pi);
+
+			const restored = createPrWorkflowState();
+			restore(restored, pi, ctx);
+
+			const snap = restored.stackRuns.get(7);
+			expect(snap).toBeDefined();
+			expect(snap?.lastRun).toEqual(sampleCouncilRun());
+			expect(snap?.lastJudge).toEqual(sampleJudgeRun());
+			expect(snap?.decisions.get(1)).toEqual(endorseDecision(1));
+		});
+
+		it("rehydrates the threads snapshot", () => {
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+			const ctx = makeCtx(entries);
+
+			const source = createPrWorkflowState();
+			source.threads = {
+				prNumber: 3,
+				fetchedAt: "2026-05-20T13:30:00Z",
+				mutatedAt: null,
+				threads: [reviewThread()],
+			};
+			persist(source, pi);
+
+			const restored = createPrWorkflowState();
+			restore(restored, pi, ctx);
+
+			expect(restored.threads).not.toBeNull();
+			expect(restored.threads?.prNumber).toBe(3);
+			expect(restored.threads?.threads).toEqual([reviewThread()]);
+		});
+
+		it("treats a v0 (Phase 1) entry as config-only without crashing", () => {
+			// v0 entries lack a `version` field and only
+			// carry roster/judge/stackCritic/prReference.
+			// Restoring them must not throw or corrupt
+			// state for the fields they don't cover.
+			const entries: Entry[] = [
+				{
+					type: "custom",
+					customType: "pr-workflow",
+					data: {
+						roster: [sampleReviewer("alpha")],
+						judge: sampleReviewer("judge"),
+						stackCritic: null,
+						prReference: null,
+						prLoadedAt: null,
+					},
+				},
+			];
+			const pi = makeApi(entries);
+			const ctx = makeCtx(entries);
+
+			const restored = createPrWorkflowState();
+			restore(restored, pi, ctx);
+
+			expect(restored.council.roster).toEqual([sampleReviewer("alpha")]);
+			expect(restored.council.judge).toEqual(sampleReviewer("judge"));
+			expect(restored.council.lastRun).toBeNull();
+			expect(restored.council.lastJudge).toBeNull();
+			expect(restored.council.decisions.size).toBe(0);
+		});
 	});
 
 	describe("persist", () => {
-		it("does not write run output, decisions or thread snapshots", () => {
-			// Guard against accidentally persisting the
-			// expensive-to-serialize state (Map-keyed
-			// findings/decisions) when adding new fields.
-			// If this test fails, either intentionally widen
-			// the persisted shape or back the change out.
+		it("survives a JSON round-trip for the full state shape", () => {
+			// Maps and complex run shapes need explicit
+			// serialisation. This catches future drift where
+			// a new state field skips the conversion path.
 			const entries: Entry[] = [];
 			const pi = makeApi(entries);
 
-			const state = createPrWorkflowState();
-			state.council.roster = [sampleReviewer("alpha")];
-			persist(state, pi);
+			const source = createPrWorkflowState();
+			source.council.roster = [sampleReviewer("alpha")];
+			source.council.lastJudge = sampleJudgeRun();
+			source.council.decisions.set(1, endorseDecision(1));
+			source.stackCritic = sampleStackCriticRun();
+			source.stackDecisions.set(101, endorseDecision(101));
+			source.stackRuns.set(7, {
+				lastRun: null,
+				lastJudge: null,
+				lastCritique: null,
+				decisions: new Map([[1, fixDecision(1)]]),
+			});
+			persist(source, pi);
 
-			expect(entries).toHaveLength(1);
-			const written = entries[0]?.data as Record<string, unknown>;
-			expect(written).not.toHaveProperty("decisions");
-			expect(written).not.toHaveProperty("stackDecisions");
-			expect(written).not.toHaveProperty("stackRuns");
-			expect(written).not.toHaveProperty("threads");
-			expect(written).not.toHaveProperty("lastRun");
-			expect(written).not.toHaveProperty("lastJudge");
-			expect(written).not.toHaveProperty("lastCritique");
+			const written = entries[0]?.data;
+			const roundTripped = JSON.parse(JSON.stringify(written));
+
+			// Replace the in-memory entry with the JSON
+			// round-tripped copy and prove restore still
+			// works against it.
+			entries[0] = {
+				type: "custom",
+				customType: "pr-workflow",
+				data: roundTripped,
+			};
+
+			const restored = createPrWorkflowState();
+			restore(restored, pi, makeCtx(entries));
+
+			expect(restored.council.decisions.get(1)).toEqual(endorseDecision(1));
+			expect(restored.stackDecisions.get(101)).toEqual(endorseDecision(101));
+			expect(restored.stackRuns.get(7)?.decisions.get(1)).toEqual(
+				fixDecision(1),
+			);
+			expect(restored.council.lastJudge).toEqual(sampleJudgeRun());
+			expect(restored.stackCritic).toEqual(sampleStackCriticRun());
 		});
 	});
 });
