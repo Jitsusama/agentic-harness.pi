@@ -44,6 +44,10 @@ import {
 	recordFixSkipAction,
 } from "./fix-action.js";
 import {
+	createFixWorktreeProvisioner,
+	type ProvisionFixWorktree,
+} from "./fix-worktree.js";
+import {
 	configureJudge,
 	formatJudgeSummary,
 	runJudgeAction,
@@ -112,22 +116,25 @@ export default function prWorkflow(pi: ExtensionAPI) {
 		runPi: ReturnType<typeof createSpawnRunPi>;
 		extraExtensions: readonly string[];
 	} | null = null;
-	const getCouncilDeps = () => {
-		if (councilDeps !== null) return councilDeps;
-		const stateDir = join(
+	const prWorkflowStateDir = () =>
+		join(
 			process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"),
 			"pi",
 			"pr-workflow",
 		);
+	// The default resolver assumes the user's clone
+	// lives at ~/src/github.com/<owner>/<repo>. This
+	// matches the convention documented in personal
+	// AGENTS.md; a future commit makes it pluggable
+	// per workspace.
+	const resolveSourceRepo = async (req: { owner: string; repo: string }) =>
+		join(homedir(), "src", "github.com", req.owner, req.repo);
+
+	const getCouncilDeps = () => {
+		if (councilDeps !== null) return councilDeps;
 		const provider = createGitWorktreeProvider({
-			stateDir,
-			// The default resolver assumes the user's clone
-			// lives at ~/src/github.com/<owner>/<repo>. This
-			// matches the convention documented in personal
-			// AGENTS.md; a future commit makes it pluggable
-			// per workspace.
-			resolveSourceRepo: async (req) =>
-				join(homedir(), "src", "github.com", req.owner, req.repo),
+			stateDir: prWorkflowStateDir(),
+			resolveSourceRepo,
 		});
 		councilDeps = {
 			registry: new WorktreeRegistry(provider),
@@ -138,6 +145,22 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			extraExtensions: [resolveVerifyExtensionPath()],
 		};
 		return councilDeps;
+	};
+
+	// Fix worktrees: separate from council worktrees
+	// because the fix loop needs the branch checked out
+	// (commits, push) while council needs the SHA
+	// detached (read-only research). Built lazily so a
+	// session that never enters the fix loop never
+	// touches the state dir.
+	let fixProvision: ProvisionFixWorktree | null = null;
+	const getFixProvision = (): ProvisionFixWorktree => {
+		if (fixProvision !== null) return fixProvision;
+		fixProvision = createFixWorktreeProvisioner({
+			stateDir: prWorkflowStateDir(),
+			resolveSourceRepo,
+		});
+		return fixProvision;
 	};
 
 	// Ask neovim-pi (when present) to route pi://pr/.../file/...
@@ -234,9 +257,12 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"reply: post a reply to a thread by its [T#] index. " +
 						"resolve: resolve a thread by its [T#] index. " +
 						"fix-next: return the next finding queued for fix " +
-						"(verdict=fix) with no recorded outcome. The agent " +
-						"applies the edit in its main loop using normal tools " +
-						"so the user can interrupt at any point. " +
+						"(verdict=fix) with no recorded outcome. Includes a " +
+						"fix worktree path the agent must `cd` into before " +
+						"editing and committing, so the user's primary " +
+						"checkout stays untouched. The agent applies the " +
+						"edit in its main loop using normal tools so the " +
+						"user can interrupt at any point. " +
 						"fix-done: record a commit against a queued fix. " +
 						"Requires findingId and commitSha. " +
 						"fix-skip: abandon a queued fix with a reason. " +
@@ -1059,7 +1085,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "fix-next") {
-				const result = nextFixAction(state);
+				const result = await nextFixAction(state, getFixProvision());
 				if (!result.ok) {
 					return {
 						content: [{ type: "text", text: result.error }],
@@ -1072,6 +1098,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					details: {
 						ok: true,
 						context: result.context,
+						worktree: result.worktree,
 						done: result.context === null,
 					},
 				};

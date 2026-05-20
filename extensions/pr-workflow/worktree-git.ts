@@ -57,7 +57,7 @@ const PROVIDER_ID = "git";
 export function createGitWorktreeProvider(
 	config: GitWorktreeProviderConfig,
 ): WorktreeProvider {
-	const exec = config.exec ?? defaultExec;
+	const exec = config.exec ?? defaultGitExec;
 	const pathExists = config.pathExists ?? defaultPathExists;
 
 	return {
@@ -155,7 +155,13 @@ async function defaultPathExists(p: string): Promise<boolean> {
 	}
 }
 
-const defaultExec: GitExec = (args, cwd) =>
+/**
+ * Default git CLI runner used when no `exec` is
+ * supplied. Exported so the fix-worktree provisioner
+ * can reuse the same shell-out semantics without
+ * importing `node:child_process` itself.
+ */
+export const defaultGitExec: GitExec = (args, cwd) =>
 	new Promise((resolve) => {
 		execFile(
 			"git",

@@ -263,10 +263,15 @@ independent.
 
 ### Applying fixes
 
-Council / judge / critique research in a worktree.
-Edits happen in the user's actual checkout where you
-are. Two halves: decide (`verdict="fix"`), then apply
-(`fix-next` → main-loop edits → `fix-done`).
+Council / judge / critique research in a detached,
+SHA-keyed worktree. Edits happen in a separate fix
+worktree dedicated to the PR (PR-number-keyed, with
+the branch checked out) so commits land cleanly and
+the user's primary checkout stays untouched.
+
+Two halves: decide (`verdict="fix"`), then apply
+(`fix-next` → main-loop edits in the fix worktree →
+`fix-done`).
 
 **Deciding.** Mark findings as fixes instead of
 comments:
@@ -285,9 +290,23 @@ decision and shows up in `fix-next`.
 
 ```
 pr_workflow action=fix-next
-  → {findingId: 14, finding: {...}, instructions: "..."}
+  → {findingId: 14, finding: {...}, worktree: {path, branch}, instructions: "..."}
   or null if the queue is empty
 ```
+
+**Use the fix worktree.** `fix-next`'s prose summary
+includes a `Worktree: <path>  (branch <ref>)` line.
+Before reading, editing, running tests or committing,
+`cd` into that path. The branch is already checked
+out there. The user's primary checkout must not be
+touched by the fix loop.
+
+If `fix-next` reports `Worktree provisioning failed:
+...`, surface that error to the user and stop — do
+not silently fall back to the primary checkout.
+Resolve the underlying issue (often the branch is
+already checked out somewhere, or `origin/<branch>`
+doesn't exist) and re-run `fix-next`.
 
 Apply the edit using your normal tools (`read`, `edit`,
 `write`, `bash`). The finding's `location` tells you

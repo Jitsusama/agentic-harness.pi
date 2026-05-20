@@ -12,7 +12,7 @@ import {
 	type PrWorkflowState,
 } from "../../../extensions/pr-workflow/state.js";
 import { decideFinding } from "../../../extensions/pr-workflow/synthesis.js";
-import { expectFailure } from "./fixtures.js";
+import { expectFailure, prMetadata } from "./fixtures.js";
 
 function loadPr(state: PrWorkflowState): void {
 	state.pr = {
@@ -62,37 +62,37 @@ function judgedFinding(
 }
 
 describe("nextFixAction", () => {
-	it("fails when no PR is loaded", () => {
+	it("fails when no PR is loaded", async () => {
 		const state = createPrWorkflowState();
-		expectFailure(nextFixAction(state));
+		expectFailure(await nextFixAction(state));
 	});
 
-	it("fails when no judge run has happened", () => {
+	it("fails when no judge run has happened", async () => {
 		const state = createPrWorkflowState();
 		loadPr(state);
-		expectFailure(nextFixAction(state));
+		expectFailure(await nextFixAction(state));
 	});
 
-	it("returns a null context and a 'no fixes' summary when the queue is empty", () => {
+	it("returns a null context and a 'no fixes' summary when the queue is empty", async () => {
 		const state = createPrWorkflowState();
 		loadPr(state);
 		state.council.lastJudge = makeJudge([judgedFinding(1, "A")]);
 
-		const result = nextFixAction(state);
+		const result = await nextFixAction(state);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 		expect(result.context).toBeNull();
 		expect(result.summary).toMatch(/no fixes queued/i);
 	});
 
-	it("returns a 'queue done' summary when every fix has an outcome", () => {
+	it("returns a 'queue done' summary when every fix has an outcome", async () => {
 		const state = createPrWorkflowState();
 		loadPr(state);
 		state.council.lastJudge = makeJudge([judgedFinding(1, "A")]);
 		decideFinding(state, { findingId: 1, verdict: "fix" });
 		recordFixDoneAction({ state, findingId: 1, commitSha: "abc1234" });
 
-		const result = nextFixAction(state);
+		const result = await nextFixAction(state);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 		expect(result.context).toBeNull();
@@ -100,7 +100,7 @@ describe("nextFixAction", () => {
 		expect(result.summary).toMatch(/1 committed/);
 	});
 
-	it("returns the next fix with subject, location, and counts", () => {
+	it("returns the next fix with subject, location, and counts", async () => {
 		const state = createPrWorkflowState();
 		loadPr(state);
 		state.council.lastJudge = makeJudge([
@@ -114,7 +114,7 @@ describe("nextFixAction", () => {
 		});
 		decideFinding(state, { findingId: 2, verdict: "fix" });
 
-		const result = nextFixAction(state);
+		const result = await nextFixAction(state);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 		expect(result.context?.findingId).toBe(1);
@@ -124,18 +124,18 @@ describe("nextFixAction", () => {
 		expect(result.summary).toMatch(/2 pending/);
 	});
 
-	it("omits the instructions line when none were given", () => {
+	it("omits the instructions line when none were given", async () => {
 		const state = createPrWorkflowState();
 		loadPr(state);
 		state.council.lastJudge = makeJudge([judgedFinding(1, "Null deref")]);
 		decideFinding(state, { findingId: 1, verdict: "fix" });
 
-		const result = nextFixAction(state);
+		const result = await nextFixAction(state);
 		if (!result.ok) throw new Error("expected ok");
 		expect(result.summary).not.toContain("Instructions:");
 	});
 
-	it("renders file locations without line numbers when kind is 'file'", () => {
+	it("renders file locations without line numbers when kind is 'file'", async () => {
 		const state = createPrWorkflowState();
 		loadPr(state);
 		state.council.lastJudge = makeJudge([
@@ -145,10 +145,101 @@ describe("nextFixAction", () => {
 		]);
 		decideFinding(state, { findingId: 1, verdict: "fix" });
 
-		const result = nextFixAction(state);
+		const result = await nextFixAction(state);
 		if (!result.ok) throw new Error("expected ok");
 		expect(result.summary).toContain("Location: app.ts");
 		expect(result.summary).not.toContain("app.ts:");
+	});
+});
+
+describe("nextFixAction worktree provisioning", () => {
+	function loadPrWithMetadata(state: PrWorkflowState): void {
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "2026-01-01T00:00:00Z",
+			metadata: prMetadata({
+				head: { ref: "pr/widget", sha: "deadbeef" },
+			}),
+			files: null,
+			stack: null,
+		};
+	}
+
+	it("surfaces the worktree path in summary and result when provisioning succeeds", async () => {
+		const state = createPrWorkflowState();
+		loadPrWithMetadata(state);
+		state.council.lastJudge = makeJudge([judgedFinding(1, "Null deref")]);
+		decideFinding(state, { findingId: 1, verdict: "fix" });
+
+		const provision = async (req: {
+			owner: string;
+			repo: string;
+			number: number;
+			branch: string;
+		}) => ({
+			path: `/state/fix-worktrees/${req.owner}-${req.repo}-${req.number}`,
+			branch: req.branch,
+		});
+
+		const result = await nextFixAction(state, provision);
+		if (!result.ok) throw new Error("expected ok");
+		expect(result.worktree).toEqual({
+			path: "/state/fix-worktrees/o-r-42",
+			branch: "pr/widget",
+		});
+		expect(result.summary).toContain("/state/fix-worktrees/o-r-42");
+		expect(result.summary).toMatch(/Worktree:/);
+	});
+
+	it("surfaces a warning in the summary when provisioning fails, without erroring", async () => {
+		const state = createPrWorkflowState();
+		loadPrWithMetadata(state);
+		state.council.lastJudge = makeJudge([judgedFinding(1, "Null deref")]);
+		decideFinding(state, { findingId: 1, verdict: "fix" });
+
+		const provision = async () => {
+			throw new Error("git fetch failed: branch not on remote");
+		};
+
+		const result = await nextFixAction(state, provision);
+		if (!result.ok) throw new Error("expected ok");
+		expect(result.worktree).toBeNull();
+		expect(result.summary).toContain("branch not on remote");
+		expect(result.summary).toMatch(/Worktree provisioning failed/i);
+	});
+
+	it("omits worktree fields when no PR metadata is loaded", async () => {
+		const state = createPrWorkflowState();
+		loadPr(state); // metadata: null
+		state.council.lastJudge = makeJudge([judgedFinding(1, "Null deref")]);
+		decideFinding(state, { findingId: 1, verdict: "fix" });
+
+		const provision = async () => {
+			throw new Error("should not be called");
+		};
+
+		const result = await nextFixAction(state, provision);
+		if (!result.ok) throw new Error("expected ok");
+		expect(result.worktree).toBeNull();
+		expect(result.summary).not.toMatch(/Worktree/i);
+	});
+
+	it("does not call provision when the queue is empty", async () => {
+		const state = createPrWorkflowState();
+		loadPrWithMetadata(state);
+		state.council.lastJudge = makeJudge([judgedFinding(1, "A")]);
+		// no decideFinding: queue empty
+
+		let called = false;
+		const provision = async () => {
+			called = true;
+			throw new Error("should not be called");
+		};
+
+		const result = await nextFixAction(state, provision);
+		if (!result.ok) throw new Error("expected ok");
+		expect(called).toBe(false);
+		expect(result.worktree).toBeNull();
 	});
 });
 
