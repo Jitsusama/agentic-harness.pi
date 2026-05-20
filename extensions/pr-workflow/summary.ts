@@ -95,6 +95,23 @@ function stackLines(state: PrWorkflowState): string[] {
 	return lines;
 }
 
+/**
+ * Format a `cached <when>` / `updated locally <when>`
+ * label so the user knows whether the counts came from
+ * a fresh fetch or are reflecting in-session mutations
+ * on top of an older snapshot.
+ */
+function formatCacheLabel(snapshot: {
+	fetchedAt: string;
+	mutatedAt: string | null;
+}): string {
+	const base = `cached ${snapshot.fetchedAt}`;
+	if (snapshot.mutatedAt) {
+		return `${base} (updated locally ${snapshot.mutatedAt}; re-run \`action=threads\` to refresh)`;
+	}
+	return `${base} (re-run \`action=threads\` to refresh)`;
+}
+
 /** Threads section: counts + the first few open thread excerpts. */
 function threadsLines(state: PrWorkflowState): string[] {
 	if (state.threads === null) {
@@ -109,6 +126,7 @@ function threadsLines(state: PrWorkflowState): string[] {
 	}
 	const header = `Threads: ${open.length} open, ${resolved} resolved, ${outdated} outdated`;
 	const lines: string[] = ["", header];
+	lines.push(`  ${formatCacheLabel(state.threads)}`);
 	const PREVIEW_LIMIT = 3;
 	const previewable = open.slice(0, PREVIEW_LIMIT);
 	for (let i = 0; i < previewable.length; i += 1) {
