@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { CouncilDispatch } from "../../../extensions/pr-workflow/council.js";
+import type { CouncilProgress } from "../../../extensions/pr-workflow/council-progress.js";
 import type { CouncilReviewer } from "../../../extensions/pr-workflow/reviewer.js";
 import type { Stack } from "../../../extensions/pr-workflow/stack.js";
 import {
@@ -62,6 +63,29 @@ function fetchers() {
 
 function jsonBlock(value: unknown): string {
 	return ["```json", JSON.stringify(value), "```"].join("\n");
+}
+
+function progressRecorder(events: string[]): CouncilProgress {
+	return {
+		start(entries) {
+			events.push(`start:${entries.map((e) => e.reviewer.id).join(",")}`);
+		},
+		reviewerStarted(reviewerId) {
+			events.push(`started:${reviewerId}`);
+		},
+		reviewerActivity(reviewerId, activity) {
+			events.push(`activity:${reviewerId}:${activity}`);
+		},
+		reviewerCompleted(reviewerId, output) {
+			events.push(`completed:${reviewerId}:${output.findings.length}`);
+		},
+		reviewerFailed(reviewerId, error) {
+			events.push(`failed:${reviewerId}:${error}`);
+		},
+		finish() {
+			events.push("finish");
+		},
+	};
 }
 
 function dispatch(): CouncilDispatch {
@@ -205,6 +229,71 @@ describe("runStackReviewAction", () => {
 		expect(state.stackFindingRun?.findings[0]?.homePrNumber).toBe(101);
 	});
 
+	it("reports reviewer, activity and judge progress", async () => {
+		const state = buildState();
+		const events: string[] = [];
+		const result = await runStackReviewAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async ({ reviewer: r, onEvent }) => {
+				onEvent?.({
+					type: "tool_execution_start",
+					toolName: "read",
+					args: { path: "task.go" },
+				});
+				if (r.id === "judge") {
+					return {
+						reviewerId: r.id,
+						exitCode: 0,
+						finalAssistantText: jsonBlock({
+							perPr: { "101": [], "102": [] },
+							crossPr: [],
+						}),
+						stderr: "",
+						warnings: [],
+					};
+				}
+				return {
+					reviewerId: r.id,
+					exitCode: 0,
+					finalAssistantText: jsonBlock({
+						perPr: {
+							"101": [
+								{
+									location: { kind: "global" },
+									label: "issue",
+									subject: `issue ${r.id}`,
+									discussion: "d",
+								},
+							],
+							"102": [],
+						},
+						crossPr: [],
+					}),
+					stderr: "",
+					warnings: [],
+				};
+			},
+			fetchers: fetchers(),
+			progress: progressRecorder(events),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(events).toEqual([
+			"start:fast,skeptic,judge",
+			"started:fast",
+			"activity:fast:reading task.go",
+			"started:skeptic",
+			"activity:skeptic:reading task.go",
+			"completed:fast:1",
+			"completed:skeptic:1",
+			"started:judge",
+			"activity:judge:reading task.go",
+			"completed:judge:0",
+			"finish",
+		]);
+	});
+
 	it("degenerates to a single-PR stack when no stack is loaded", async () => {
 		const state = buildState([101]);
 		const result = await runStackReviewAction({
@@ -260,6 +349,9 @@ describe("formatStackReviewActionSummary", () => {
 		expect(text).toContain("cross-PR findings: 2");
 		expect(text).toContain("▶ PR #101: 1 finding");
 		expect(text).toContain("PR #102: 0 findings");
+		expect(text).toContain(
+			"action=stack-next / action=stack-prev returns the next PR ref",
+		);
 		expect(text).toContain("fast: skipped malformed finding");
 	});
 });

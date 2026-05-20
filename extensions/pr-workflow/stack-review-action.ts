@@ -12,10 +12,18 @@
 import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import type { CouncilDispatch } from "./council.js";
+import {
+	type CouncilProgress,
+	type CouncilProgressEntry,
+	NULL_PROGRESS,
+	safelyNotify,
+	summarizeStreamActivity,
+} from "./council-progress.js";
 import type { PrMetadata } from "./fetch.js";
+import type { Finding, ReviewerOutput } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { CouncilReviewer } from "./reviewer.js";
-import type { StackFindingRun } from "./stack-findings.js";
+import type { StackFinding, StackFindingRun } from "./stack-findings.js";
 import {
 	buildStackJudgePrompt,
 	buildStackReviewPrompt,
@@ -42,6 +50,8 @@ export interface RunStackReviewActionInput {
 	readonly dispatch: CouncilDispatch;
 	readonly fetchers: StackReviewFetchers;
 	readonly signal?: AbortSignal;
+	/** Optional observer for stack review fan-out and judge progress. */
+	readonly progress?: CouncilProgress;
 	readonly now?: () => Date;
 }
 
@@ -109,9 +119,21 @@ export async function runStackReviewAction(
 	const startedAt = now().toISOString();
 	const runId = `stack-review-${startedAt}`;
 	const cursorPrNumber = state.pr.reference.number;
+	const judge = state.council.judge;
+	const progress = input.progress ?? NULL_PROGRESS;
+	const progressWarnings: string[] = [];
+	const warnings: string[] = [];
+
+	safelyNotify(
+		() => progress.start(progressEntries(state.council.roster, judge)),
+		"start",
+		progressWarnings,
+	);
+
 	const resolved = await resolveStackPrs(state, input.fetchers);
 	const tip = resolved[resolved.length - 1];
 	if (!tip) {
+		safelyNotify(() => progress.finish(), "finish", progressWarnings);
 		return { ok: false, error: "No PR context available for review." };
 	}
 
@@ -127,19 +149,25 @@ export async function runStackReviewAction(
 	});
 
 	const settled = await Promise.allSettled(
-		state.council.roster.map((reviewer) =>
-			input.dispatch({
+		state.council.roster.map((reviewer) => {
+			safelyNotify(
+				() => progress.reviewerStarted(reviewer.id),
+				`started(${reviewer.id})`,
+				progressWarnings,
+			);
+			return input.dispatch({
 				reviewer,
 				prompt: reviewPrompt,
 				cwd: handle.path,
 				signal: input.signal,
-			}),
-		),
+				onEvent: (event) =>
+					notifyActivity(progress, progressWarnings, reviewer.id, event),
+			});
+		}),
 	);
 
 	let nextId = 1;
 	const reviewerOutputs: StackReviewerOutput[] = [];
-	const warnings: string[] = [];
 	for (let i = 0; i < settled.length; i++) {
 		const reviewer = state.council.roster[i];
 		const result = settled[i];
@@ -152,6 +180,11 @@ export async function runStackReviewAction(
 				crossPr: [],
 				warnings: [`Reviewer dispatch failed: ${message}`],
 			});
+			safelyNotify(
+				() => progress.reviewerFailed(reviewer.id, message),
+				`failed(${reviewer.id})`,
+				progressWarnings,
+			);
 			continue;
 		}
 		const parsed = parseStackReviewOutput(result.value.finalAssistantText, {
@@ -169,6 +202,12 @@ export async function runStackReviewAction(
 		for (const warning of output.warnings)
 			warnings.push(`${reviewer.id}: ${warning}`);
 		reviewerOutputs.push(output);
+		safelyNotify(
+			() =>
+				progress.reviewerCompleted(reviewer.id, reviewerProgressOutput(output)),
+			`completed(${reviewer.id})`,
+			progressWarnings,
+		);
 	}
 
 	const judgeRunId = `stack-judge-${startedAt}`;
@@ -177,12 +216,18 @@ export async function runStackReviewAction(
 		prs: resolved.map(toJudgePr),
 		reviewerOutputs,
 	});
-	const judge = state.council.judge;
+	safelyNotify(
+		() => progress.reviewerStarted(judge.id),
+		`started(${judge.id})`,
+		progressWarnings,
+	);
 	const judged = await input.dispatch({
 		reviewer: judge,
 		prompt: judgePrompt,
 		cwd: handle.path,
 		signal: input.signal,
+		onEvent: (event) =>
+			notifyActivity(progress, progressWarnings, judge.id, event),
 	});
 	const parsedJudge = parseStackJudgeOutput(judged.finalAssistantText, {
 		runId: judgeRunId,
@@ -192,6 +237,18 @@ export async function runStackReviewAction(
 	for (const warning of [...judged.warnings, ...parsedJudge.warnings]) {
 		warnings.push(`${judge.id}: ${warning}`);
 	}
+	safelyNotify(
+		() =>
+			progress.reviewerCompleted(
+				judge.id,
+				judgeProgressOutput(judge.id, parsedJudge.perPr, parsedJudge.crossPr, [
+					...judged.warnings,
+					...parsedJudge.warnings,
+				]),
+			),
+		`completed(${judge.id})`,
+		progressWarnings,
+	);
 
 	const reviewedPrs = writePerPrJudgeRuns({
 		state,
@@ -212,6 +269,9 @@ export async function runStackReviewAction(
 		warnings: [...judged.warnings, ...parsedJudge.warnings],
 		...(judged.usage ? { usage: judged.usage } : {}),
 	} satisfies StackFindingRun;
+
+	safelyNotify(() => progress.finish(), "finish", progressWarnings);
+	warnings.push(...progressWarnings);
 
 	return {
 		ok: true,
@@ -253,9 +313,100 @@ export function formatStackReviewActionSummary(
 		"Cursor PR findings are ready. Run action=findings to review them.",
 	);
 	lines.push(
-		"Stack mates are stashed; action=stack-next / action=stack-prev pulls their findings into the cursor slot.",
+		"Stack mates are stashed; action=stack-next / action=stack-prev returns the next PR ref, then action=load hydrates its findings.",
 	);
 	return lines.join("\n");
+}
+
+function progressEntries(
+	reviewers: readonly CouncilReviewer[],
+	judge: CouncilReviewer,
+): CouncilProgressEntry[] {
+	return [...reviewers, judge].map((reviewer) => ({
+		reviewer,
+		state: "pending",
+		findingCount: 0,
+		warnings: [],
+		error: "",
+		activity: "",
+	}));
+}
+
+function notifyActivity(
+	progress: CouncilProgress,
+	warnings: string[],
+	reviewerId: string,
+	event: unknown,
+): void {
+	const activity = summarizeStreamActivity(event);
+	if (activity === null) return;
+	safelyNotify(
+		() => progress.reviewerActivity?.(reviewerId, activity),
+		`activity(${reviewerId})`,
+		warnings,
+	);
+}
+
+function reviewerProgressOutput(output: StackReviewerOutput): ReviewerOutput {
+	return progressOutput(
+		output.reviewerId,
+		stackReviewerFindingCount(output),
+		output.warnings,
+	);
+}
+
+function judgeProgressOutput(
+	reviewerId: string,
+	perPr: ReadonlyMap<number, readonly Finding[]>,
+	crossPr: readonly StackFinding[],
+	warnings: readonly string[],
+): ReviewerOutput {
+	return progressOutput(
+		reviewerId,
+		stackJudgeFindingCount(perPr, crossPr),
+		warnings,
+	);
+}
+
+function progressOutput(
+	reviewerId: string,
+	findingCount: number,
+	warnings: readonly string[],
+): ReviewerOutput {
+	return {
+		reviewerId,
+		findings: Array.from({ length: findingCount }, (_, id) =>
+			placeholderFinding(id),
+		),
+		warnings: [...warnings],
+	};
+}
+
+function placeholderFinding(id: number): Finding {
+	return {
+		id,
+		location: { kind: "global" },
+		label: "note",
+		decorations: [],
+		subject: "progress placeholder",
+		discussion: "progress placeholder",
+		category: "scope",
+		origin: { kind: "user" },
+		state: "draft",
+	};
+}
+
+function stackReviewerFindingCount(output: StackReviewerOutput): number {
+	return stackJudgeFindingCount(output.perPr, output.crossPr);
+}
+
+function stackJudgeFindingCount(
+	perPr: ReadonlyMap<number, readonly unknown[]>,
+	crossPr: readonly unknown[],
+): number {
+	let count = crossPr.length;
+	for (const findings of perPr.values()) count += findings.length;
+	return count;
 }
 
 async function resolveStackPrs(
