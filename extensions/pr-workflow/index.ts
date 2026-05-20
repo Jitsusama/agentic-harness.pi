@@ -73,6 +73,7 @@ import {
 } from "./stack-critic-action.js";
 import { formatStack, nextInStack, prevInStack } from "./stack-view.js";
 import { createPrWorkflowState } from "./state.js";
+import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
 import { formatPrSummary } from "./summary.js";
 import {
 	type DecideFindingInput,
@@ -1433,8 +1434,27 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	// isn't persisted.
 	pi.on("session_start", async (_event, ctx) => {
 		restore(state, pi, ctx);
+		refreshPrStatusLine(ctx, state);
+	});
+
+	// Push the latest overview line after every tool call.
+	// pr-workflow actions are the only thing that moves the
+	// state surfaced in the indicator (loaded PR, judge
+	// findings, fix queue), so a per-tool refresh keeps it
+	// honest without a separate event bus.
+	pi.on("tool_result", async (_event, ctx) => {
+		refreshPrStatusLine(ctx, state);
+	});
+
+	pi.on("agent_end", async (_event, ctx) => {
+		refreshPrStatusLine(ctx, state);
 	});
 }
+
+// `clearPrStatusLine` is exported for symmetry; pi tears
+// down the status bar on session exit, so the extension
+// never needs to call it explicitly today.
+void clearPrStatusLine;
 
 /**
  * Format the cost summary lines for the status panel.
