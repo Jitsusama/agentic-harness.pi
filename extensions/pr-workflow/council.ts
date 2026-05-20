@@ -25,6 +25,12 @@
  */
 
 import type { DiffFile } from "../../lib/internal/github/diff.js";
+import {
+	type CouncilProgress,
+	type CouncilProgressEntry,
+	NULL_PROGRESS,
+	safelyNotify,
+} from "./council-progress.js";
 import type { CouncilRun, ReviewerOutput } from "./findings.js";
 import { parseReviewerOutput } from "./parse.js";
 import { buildReviewerPrompt } from "./prompts.js";
@@ -60,6 +66,12 @@ export interface RunCouncilOptions {
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly signal?: AbortSignal;
+	/**
+	 * Optional observer notified as each reviewer
+	 * starts, completes or fails. Lets the UI render
+	 * progress while a fan-out is in flight.
+	 */
+	readonly progress?: CouncilProgress;
 }
 
 /** Options for a single-reviewer council dispatch. */
@@ -132,6 +144,20 @@ export async function runOneCouncilReviewer(
 export async function runCouncil(
 	options: RunCouncilOptions,
 ): Promise<CouncilRun> {
+	const progress = options.progress ?? NULL_PROGRESS;
+	const progressWarnings: string[] = [];
+
+	const startSnapshot: CouncilProgressEntry[] = options.reviewers.map(
+		(reviewer) => ({
+			reviewer,
+			state: "pending",
+			findingCount: 0,
+			warnings: [],
+			error: "",
+		}),
+	);
+	safelyNotify(() => progress.start(startSnapshot), "start", progressWarnings);
+
 	const handle = await options.registry.ensure({
 		owner: options.target.owner,
 		repo: options.target.repo,
@@ -149,14 +175,19 @@ export async function runCouncil(
 	// until they're parsed, so we serialize id assignment
 	// AFTER results land — dispatch is still concurrent.
 	const settled = await Promise.allSettled(
-		options.reviewers.map((reviewer) =>
-			options.dispatch({
+		options.reviewers.map((reviewer) => {
+			safelyNotify(
+				() => progress.reviewerStarted(reviewer.id),
+				`started(${reviewer.id})`,
+				progressWarnings,
+			);
+			return options.dispatch({
 				reviewer,
 				prompt,
 				cwd: handle.path,
 				signal: options.signal,
-			}),
-		),
+			});
+		}),
 	);
 
 	let nextId = 1;
@@ -174,6 +205,11 @@ export async function runCouncil(
 				findings: [],
 				warnings: [`Reviewer dispatch failed: ${message}`],
 			});
+			safelyNotify(
+				() => progress.reviewerFailed(reviewer.id, message),
+				`failed(${reviewer.id})`,
+				progressWarnings,
+			);
 			continue;
 		}
 		const value = result.value;
@@ -183,12 +219,30 @@ export async function runCouncil(
 			startId: nextId,
 		});
 		nextId += parsed.findings.length;
-		reviewerOutputs.push({
+		const output: ReviewerOutput = {
 			reviewerId: reviewer.id,
 			findings: parsed.findings,
 			warnings: [...value.warnings, ...parsed.warnings],
 			...(value.usage ? { usage: value.usage } : {}),
-		});
+		};
+		reviewerOutputs.push(output);
+		safelyNotify(
+			() => progress.reviewerCompleted(reviewer.id, output),
+			`completed(${reviewer.id})`,
+			progressWarnings,
+		);
+	}
+
+	safelyNotify(() => progress.finish(), "finish", progressWarnings);
+
+	if (progressWarnings.length > 0) {
+		// Surface reporter failures as warnings on the
+		// first reviewer so the user notices, without
+		// derailing the actual run output.
+		const first = reviewerOutputs[0];
+		if (first) {
+			first.warnings.push(...progressWarnings);
+		}
 	}
 
 	return {

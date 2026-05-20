@@ -19,7 +19,7 @@
  *     (complete)    (running)     (pending)  (pending)    (pending)
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import type { Theme, ThemeColor } from "@mariozechner/pi-coding-agent";
 
 /** Possible state of a single stage. */
 export type StageState =
@@ -50,7 +50,7 @@ export interface PipelineProgressOptions {
 }
 
 /** Glyph and colour for each state. */
-const STATE_STYLE: Record<StageState, { glyph: string; color: string }> = {
+const STATE_STYLE: Record<StageState, { glyph: string; color: ThemeColor }> = {
 	pending: { glyph: "◇", color: "muted" },
 	running: { glyph: "◈", color: "accent" },
 	complete: { glyph: "✓", color: "success" },

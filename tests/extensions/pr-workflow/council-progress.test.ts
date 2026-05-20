@@ -1,0 +1,214 @@
+import { describe, expect, it } from "vitest";
+import type { CouncilDispatch } from "../../../extensions/pr-workflow/council.js";
+import { runCouncil } from "../../../extensions/pr-workflow/council.js";
+import type {
+	CouncilProgress,
+	CouncilProgressEntry,
+} from "../../../extensions/pr-workflow/council-progress.js";
+import type {
+	CouncilReviewer,
+	RunReviewerResult,
+} from "../../../extensions/pr-workflow/reviewer.js";
+import { WorktreeRegistry } from "../../../extensions/pr-workflow/worktree.js";
+import { fakeProvider } from "./council.test-helpers.js";
+
+interface ProgressEvent {
+	readonly tag: "start" | "started" | "completed" | "failed" | "finish";
+	readonly reviewerId?: string;
+	readonly findingCount?: number;
+	readonly error?: string;
+	readonly snapshot?: readonly CouncilProgressEntry[];
+}
+
+function recorder(): {
+	events: ProgressEvent[];
+	progress: CouncilProgress;
+} {
+	const events: ProgressEvent[] = [];
+	const progress: CouncilProgress = {
+		start(entries) {
+			events.push({ tag: "start", snapshot: entries });
+		},
+		reviewerStarted(reviewerId) {
+			events.push({ tag: "started", reviewerId });
+		},
+		reviewerCompleted(reviewerId, output) {
+			events.push({
+				tag: "completed",
+				reviewerId,
+				findingCount: output.findings.length,
+			});
+		},
+		reviewerFailed(reviewerId, error) {
+			events.push({ tag: "failed", reviewerId, error });
+		},
+		finish() {
+			events.push({ tag: "finish" });
+		},
+	};
+	return { events, progress };
+}
+
+const roster: CouncilReviewer[] = [
+	{ id: "fast", model: "anthropic/claude-haiku-4-5" },
+	{ id: "slow", model: "anthropic/claude-opus-4-7" },
+];
+
+const target = {
+	owner: "o",
+	repo: "r",
+	sha: "abc",
+	prNumber: 1,
+	title: "t",
+	description: "",
+	files: [],
+};
+
+function findings(text: string): RunReviewerResult {
+	return {
+		reviewerId: "",
+		exitCode: 0,
+		finalAssistantText: text,
+		stderr: "",
+		warnings: [],
+	};
+}
+
+describe("CouncilProgress integration with runCouncil", () => {
+	it("emits start, per-reviewer started+completed, and finish", async () => {
+		const { events, progress } = recorder();
+		const dispatch: CouncilDispatch = async ({ reviewer }) => ({
+			...findings(
+				JSON.stringify({
+					findings: [
+						{
+							location: { kind: "global" },
+							label: "issue",
+							subject: `s-${reviewer.id}`,
+							discussion: "d",
+						},
+					],
+				}),
+			),
+			reviewerId: reviewer.id,
+		});
+
+		await runCouncil({
+			runId: "council-1",
+			target,
+			reviewers: roster,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch,
+			progress,
+		});
+
+		const tags = events.map((e) => e.tag);
+		expect(tags[0]).toBe("start");
+		expect(tags[tags.length - 1]).toBe("finish");
+		expect(tags.filter((t) => t === "started")).toHaveLength(2);
+		expect(tags.filter((t) => t === "completed")).toHaveLength(2);
+
+		const completed = events.filter((e) => e.tag === "completed");
+		const ids = completed.map((e) => e.reviewerId).sort();
+		expect(ids).toEqual(["fast", "slow"]);
+		expect(completed.every((e) => e.findingCount === 1)).toBe(true);
+	});
+
+	it("reports the full roster as pending in the start snapshot", async () => {
+		const { events, progress } = recorder();
+		const dispatch: CouncilDispatch = async ({ reviewer }) => ({
+			...findings("{}"),
+			reviewerId: reviewer.id,
+		});
+		await runCouncil({
+			runId: "council-2",
+			target,
+			reviewers: roster,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch,
+			progress,
+		});
+
+		const start = events.find((e) => e.tag === "start");
+		expect(start?.snapshot).toBeDefined();
+		expect(start?.snapshot?.map((e) => e.reviewer.id)).toEqual([
+			"fast",
+			"slow",
+		]);
+		expect(start?.snapshot?.every((e) => e.state === "pending")).toBe(true);
+	});
+
+	it("reports a failed reviewer without aborting the rest", async () => {
+		const { events, progress } = recorder();
+		const dispatch: CouncilDispatch = async ({ reviewer }) => {
+			if (reviewer.id === "slow") {
+				throw new Error("dispatch boom");
+			}
+			return {
+				...findings(
+					JSON.stringify({
+						findings: [
+							{
+								location: { kind: "global" },
+								label: "issue",
+								subject: "s",
+								discussion: "d",
+							},
+						],
+					}),
+				),
+				reviewerId: reviewer.id,
+			};
+		};
+
+		await runCouncil({
+			runId: "council-3",
+			target,
+			reviewers: roster,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch,
+			progress,
+		});
+
+		const failed = events.find((e) => e.tag === "failed");
+		const completed = events.filter((e) => e.tag === "completed");
+		expect(failed?.reviewerId).toBe("slow");
+		expect(failed?.error).toMatch(/dispatch boom/);
+		expect(completed.map((e) => e.reviewerId)).toEqual(["fast"]);
+	});
+
+	it("survives a broken reporter without crashing the run", async () => {
+		const broken: CouncilProgress = {
+			start() {
+				throw new Error("start broke");
+			},
+			reviewerStarted() {
+				throw new Error("started broke");
+			},
+			reviewerCompleted() {
+				throw new Error("completed broke");
+			},
+			reviewerFailed() {
+				throw new Error("failed broke");
+			},
+			finish() {
+				throw new Error("finish broke");
+			},
+		};
+		const dispatch: CouncilDispatch = async ({ reviewer }) => ({
+			...findings("{}"),
+			reviewerId: reviewer.id,
+		});
+
+		const run = await runCouncil({
+			runId: "council-4",
+			target,
+			reviewers: roster,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch,
+			progress: broken,
+		});
+
+		expect(run.reviewerOutputs).toHaveLength(2);
+	});
+});

@@ -31,6 +31,7 @@ import {
 	retryCouncilReviewer,
 	runCouncilAction,
 } from "./council-action.js";
+import { createCouncilProgressReporter } from "./council-progress-render.js";
 import {
 	formatCritiqueSummary,
 	retryCritiqueReviewer,
@@ -497,10 +498,12 @@ export default function prWorkflow(pi: ExtensionAPI) {
 
 			if (params.action === "council") {
 				const { registry, runPi, extraExtensions } = getCouncilDeps();
+				const progress = createCouncilProgressReporter(ctx);
 				const result = await runCouncilAction({
 					state,
 					registry,
 					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
+					progress,
 				});
 				if (!result.ok) {
 					return {
