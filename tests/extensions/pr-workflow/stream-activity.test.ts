@@ -20,18 +20,11 @@ describe("summarizeStreamActivity", () => {
 		expect(summarizeStreamActivity("text")).toBeNull();
 	});
 
-	it("returns null for events that aren't tool starts", () => {
+	it("returns null for events that aren't tool lifecycle events", () => {
 		expect(
 			summarizeStreamActivity({ type: "message_end", message: {} }),
 		).toBeNull();
 		expect(summarizeStreamActivity({ type: "agent_start" })).toBeNull();
-		expect(
-			summarizeStreamActivity({
-				type: "tool_execution_end",
-				toolName: "read",
-				result: {},
-			}),
-		).toBeNull();
 	});
 
 	it("renders read with the file path", () => {
@@ -115,5 +108,27 @@ describe("summarizeStreamActivity", () => {
 				args: { json: "..." },
 			}),
 		).toBe("verifying output");
+	});
+
+	it("shows that a tool finished before the model-thinking gap", () => {
+		expect(
+			summarizeStreamActivity({
+				type: "tool_execution_end",
+				toolName: "read",
+				result: {},
+				isError: false,
+			}),
+		).toBe("finished reading; waiting for model");
+	});
+
+	it("surfaces failed tool completion", () => {
+		expect(
+			summarizeStreamActivity({
+				type: "tool_execution_end",
+				toolName: "verify_output",
+				result: {},
+				isError: true,
+			}),
+		).toBe("verifying output failed");
 	});
 });

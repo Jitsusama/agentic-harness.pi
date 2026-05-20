@@ -115,18 +115,21 @@ export const NULL_PROGRESS: CouncilProgress = {
  * Returns `null` for events that don't move the
  * reviewer's surface state (text deltas, message_end,
  * etc) so the caller can skip notification without
- * branching. Tool calls render as a verb + a short
- * argument hint scraped from `args`; unknown tools
- * still surface as `running <name>` so the reporter
- * shows *something* rather than going silent during a
- * long subagent tool turn.
+ * branching. Tool start events render as a verb + a
+ * short argument hint scraped from `args`; tool end
+ * events deliberately say the tool has finished so a
+ * long model-thinking gap doesn't look like a file read
+ * or verifier call is still running.
  */
 export function summarizeStreamActivity(event: unknown): string | null {
 	if (typeof event !== "object" || event === null) return null;
 	const e = event as Record<string, unknown>;
-	if (e.type !== "tool_execution_start") return null;
 	const toolName = typeof e.toolName === "string" ? e.toolName : "";
 	if (!toolName) return null;
+	if (e.type === "tool_execution_end") {
+		return summarizeToolEnd(toolName, e.isError === true);
+	}
+	if (e.type !== "tool_execution_start") return null;
 	const args =
 		typeof e.args === "object" && e.args !== null
 			? (e.args as Record<string, unknown>)
@@ -171,6 +174,35 @@ export function summarizeStreamActivity(event: unknown): string | null {
 			return "verifying output";
 		default:
 			return `running ${toolName}`;
+	}
+}
+
+function summarizeToolEnd(toolName: string, failed: boolean): string {
+	const action = toolEndAction(toolName);
+	return failed ? `${action} failed` : `finished ${action}; waiting for model`;
+}
+
+function toolEndAction(toolName: string): string {
+	switch (toolName) {
+		case "read":
+		case "Read":
+			return "reading";
+		case "grep":
+		case "Grep":
+			return "grep";
+		case "glob":
+		case "Glob":
+			return "glob";
+		case "ls":
+		case "Ls":
+			return "ls";
+		case "bash":
+		case "Bash":
+			return "bash";
+		case "verify_output":
+			return "verifying output";
+		default:
+			return toolName;
 	}
 }
 

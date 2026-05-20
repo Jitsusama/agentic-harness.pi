@@ -47,7 +47,7 @@ export function createCouncilProgressReporter(
 		ctx.ui.setStatus(STATUS_KEY, renderStatusLine(entries, theme));
 		ctx.ui.setWidget(WIDGET_KEY, (_tui, t) => ({
 			render(_width: number): string[] {
-				return renderWidgetLines(entries, t);
+				return renderCouncilWidgetLines(entries, t);
 			},
 			invalidate() {},
 		}));
@@ -133,7 +133,8 @@ function renderStatusLine(
 	return renderCouncilStatus(entries, theme);
 }
 
-function renderWidgetLines(
+/** Render the council progress widget lines. */
+export function renderCouncilWidgetLines(
 	entries: readonly CouncilProgressEntry[],
 	theme: Theme,
 ): string[] {
@@ -158,7 +159,7 @@ function widgetSubtext(entry: CouncilProgressEntry): string | undefined {
 		return `${entry.findingCount} ${noun}`;
 	}
 	if (entry.state === "running") {
-		return entry.activity.length > 0 ? entry.activity : "in flight";
+		return entry.activity.length > 0 ? `last: ${entry.activity}` : "in flight";
 	}
 	if (entry.state === "pending") return "queued";
 	return undefined;
