@@ -3,7 +3,10 @@ import type {
 	CouncilProgressEntry,
 	CouncilProgressState,
 } from "../../../extensions/pr-workflow/council-progress.js";
-import { renderCouncilStatus } from "../../../extensions/pr-workflow/council-progress-render.js";
+import {
+	renderCouncilStatus,
+	renderCouncilWidgetLines,
+} from "../../../extensions/pr-workflow/council-progress-render.js";
 import { fakeTheme } from "../../lib/ui/fake-theme.js";
 
 function entry(
@@ -21,6 +24,30 @@ function entry(
 		...overrides,
 	};
 }
+
+describe("renderCouncilWidgetLines", () => {
+	it("labels running activity as the last observed event", () => {
+		const lines = renderCouncilWidgetLines(
+			[entry("fast", "running", { activity: "reading main.go" })],
+			fakeTheme(),
+		);
+		expect(lines.join("\n")).toContain("last: reading main.go");
+	});
+
+	it("shows tool-end waiting state instead of implying the tool still runs", () => {
+		const lines = renderCouncilWidgetLines(
+			[
+				entry("skeptic", "running", {
+					activity: "finished verifying output; waiting for model",
+				}),
+			],
+			fakeTheme(),
+		);
+		expect(lines.join("\n")).toContain(
+			"last: finished verifying output; waiting for model",
+		);
+	});
+});
 
 describe("renderCouncilStatus", () => {
 	it("counts complete and total reviewers in the summary", () => {
