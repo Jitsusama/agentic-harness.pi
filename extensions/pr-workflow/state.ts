@@ -6,10 +6,13 @@
  * pipeline, neovim companion, stack awareness). The shape
  * grows as each capability is scaffolded.
  *
- * Everything lives in memory for the session; nothing is
- * written to disk by this module. Persistence helpers, when
- * needed, will live in a separate file and call into this
- * one.
+ * The reviewer config (roster, judge, stack-critic) and
+ * the loaded PR reference are persisted to session
+ * history by `lifecycle.ts`, so `/reload` doesn't wipe
+ * them. Run output (council/judge/critique runs,
+ * findings decisions, thread snapshots) intentionally
+ * does not persist: it's expensive to serialize and
+ * cheap to re-run after a reload.
  */
 
 import type { DiffFile } from "../../lib/internal/github/diff.js";
@@ -46,11 +49,13 @@ export interface ActivePr {
 /**
  * Council roster and the most recent run.
  *
- * The roster persists across `/reload` (held in session
- * state), so once the user picks reviewers they don't have
- * to reconfigure them every time. `lastRun` is the latest
- * round-1 fan-out; the post-gate and downstream rounds
- * (judge, critique, user synthesis) consult it.
+ * The roster persists across `/reload` via session
+ * history (see `lifecycle.ts`), so once the user picks
+ * reviewers they don't have to reconfigure them every
+ * time. `lastRun` is the latest round-1 fan-out and is
+ * not persisted: the post-gate and downstream rounds
+ * (judge, critique, user synthesis) consult it within a
+ * single pi session.
  */
 export interface CouncilState {
 	/** Reviewers that will fan out on the next council action. */

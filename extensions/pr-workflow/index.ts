@@ -48,6 +48,7 @@ import {
 	formatJudgeSummary,
 	runJudgeAction,
 } from "./judge-action.js";
+import { persist, restore } from "./lifecycle.js";
 import { loadPr } from "./load.js";
 import {
 	type PostReviewExec,
@@ -461,6 +462,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					],
 					details: { ok: true, roster: state.council.roster },
 				};
+				// Persist roster so /reload doesn't wipe the
+				// user's reviewer config. See lifecycle.ts.
+				// (Unreachable: persist is after return; moved.)
 			}
 
 			if (params.action === "council") {
@@ -1380,11 +1384,21 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				lines.push("");
 				lines.push(`Diff fetch failed: ${diffError}`);
 			}
+			persist(state, pi);
 			return {
 				content: [{ type: "text", text: lines.join("\n") }],
 				details: { ok: true, pr: loaded },
 			};
 		},
+	});
+
+	// Restore the persisted config slice on every session
+	// start: this is what makes `/reload` non-destructive
+	// for the user's roster, judge and stack-critic
+	// configuration. See lifecycle.ts for what is and
+	// isn't persisted.
+	pi.on("session_start", async (_event, ctx) => {
+		restore(state, pi, ctx);
 	});
 }
 
