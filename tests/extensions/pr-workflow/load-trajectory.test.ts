@@ -74,11 +74,21 @@ describe("suggestNextAfterLoad", () => {
 		expect(hints[0]?.action).toBe("council-config");
 	});
 
-	it("suggests council when a roster is configured but no judge has run", () => {
+	it("suggests judge-config when a roster is configured but no judge is configured", () => {
 		const state = loadedState();
 		state.council.roster = [
 			{ id: "fast", model: "x", tools: ["read"], thinkingLevel: undefined },
 		];
+		const hints = suggestNextAfterLoad(state);
+		expect(hints[0]?.action).toBe("judge-config");
+	});
+
+	it("suggests council when roster and judge are configured but no judge has run", () => {
+		const state = loadedState();
+		state.council.roster = [
+			{ id: "fast", model: "x", tools: ["read"], thinkingLevel: undefined },
+		];
+		state.council.judge = { id: "judge", model: "x" };
 		const hints = suggestNextAfterLoad(state);
 		expect(hints[0]?.action).toBe("council");
 	});

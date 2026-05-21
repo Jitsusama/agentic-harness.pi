@@ -33,8 +33,9 @@ export interface LoadSuggestion {
  * 1. **No roster configured** → `council-config` first.
  *    A fresh load can't run a council, so the highest
  *    leverage is configuring one.
- * 2. **Roster configured, no judge** → `council`. The
- *    user is one call away from a full review.
+ * 2. **Roster configured, no judge** → `judge-config`.
+ *    A council run now requires a configured judge so the
+ *    downstream pipeline stays reachable.
  * 3. **Judge has consolidated findings with pending
  *    decisions** → `findings`. The user is in the
  *    middle of Round 4.
@@ -72,10 +73,16 @@ export function suggestNextAfterLoad(state: PrWorkflowState): LoadSuggestion[] {
 				rationale:
 					"No reviewer roster yet. Configure one before running a council.",
 			});
+		} else if (council.judge === null) {
+			hints.push({
+				action: "judge-config",
+				rationale:
+					"Reviewer roster is configured. Configure a judge before running a council.",
+			});
 		} else if (judge === null) {
 			hints.push({
 				action: "council",
-				rationale: `Roster is configured (${council.roster.length} reviewers). Run the council on this PR.`,
+				rationale: `Roster and judge are configured (${council.roster.length} reviewers). Run the council on this PR.`,
 			});
 		}
 	}

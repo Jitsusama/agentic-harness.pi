@@ -452,6 +452,8 @@ describe("postReviewAction", () => {
 		const arg = gateMock.mock.calls[0][0];
 		expect(arg.event).toBe("COMMENT");
 		expect(arg.inlineCount).toBe(1);
+		expect(arg.body).toContain("finding(s) included");
+		expect(arg.body).not.toContain("finding(s) posted");
 		expect(arg.findings.map((f: { id: number }) => f.id)).toEqual([10]);
 	});
 
@@ -615,5 +617,7 @@ describe("buildReviewPayload with stack findings", () => {
 		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
 		expect(arg.body).toContain("Cross-PR pattern");
 		expect(arg.body).toMatch(/cross-PR finding/i);
+		expect(arg.body).toContain("cross-PR finding(s) included");
+		expect(arg.body).not.toContain("cross-PR finding(s) posted");
 	});
 });

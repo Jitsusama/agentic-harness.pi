@@ -395,11 +395,9 @@ function renderSummary(
 	}
 	const stackCount = payload.includedStackFindingIds.length;
 	const stackSentence =
-		stackCount === 0
-			? ""
-			: ` Plus ${stackCount} cross-PR finding(s) from the cross-PR.`;
+		stackCount === 0 ? "" : ` Plus ${stackCount} cross-PR finding(s) included.`;
 	lines.push(
-		`Council review: ${payload.includedFindingIds.length} finding(s) posted, ${payload.skipped.length} skipped.${stackSentence}`,
+		`Council review: ${payload.includedFindingIds.length} finding(s) included, ${payload.skipped.length} skipped.${stackSentence}`,
 	);
 	const judge = state.council.lastJudge;
 	if (judge !== null && judge.selfSignal !== null) {
