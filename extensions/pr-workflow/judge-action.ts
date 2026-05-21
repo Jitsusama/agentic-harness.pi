@@ -8,6 +8,7 @@
  */
 
 import type { CouncilDispatch } from "./council.js";
+import { rememberAllocatedFindings } from "./finding-ids.js";
 import { type JudgeRun, runJudge } from "./judge.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { PrWorkflowState } from "./state.js";
@@ -93,7 +94,9 @@ export async function runJudgeAction(
 		registry: input.registry,
 		dispatch: input.dispatch,
 		signal: input.signal,
+		startId: state.nextFindingId,
 	});
+	rememberAllocatedFindings(state, run.consolidatedFindings);
 	state.council.lastJudge = run;
 	state.council.lastCritique = null;
 	state.council.decisions = new Map();

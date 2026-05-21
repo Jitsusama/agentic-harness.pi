@@ -20,6 +20,7 @@ import {
 	summarizeStreamActivity,
 } from "./council-progress.js";
 import type { PrMetadata } from "./fetch.js";
+import { rememberAllocatedFindings } from "./finding-ids.js";
 import type { Finding, ReviewerOutput } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { CouncilReviewer } from "./reviewer.js";
@@ -166,7 +167,7 @@ export async function runStackReviewAction(
 		}),
 	);
 
-	let nextId = 1;
+	let nextId = state.nextFindingId;
 	const reviewerOutputs: StackReviewerOutput[] = [];
 	for (let i = 0; i < settled.length; i++) {
 		const reviewer = state.council.roster[i];
@@ -193,6 +194,7 @@ export async function runStackReviewAction(
 			startId: nextId,
 		});
 		nextId = nextIdAfterReviewer(nextId, parsed);
+		rememberStackReviewAllocation(state, parsed.perPr, parsed.crossPr);
 		const output: StackReviewerOutput = {
 			reviewerId: reviewer.id,
 			perPr: parsed.perPr,
@@ -234,6 +236,7 @@ export async function runStackReviewAction(
 		judgeReviewerId: judge.id,
 		startId: nextId,
 	});
+	rememberStackReviewAllocation(state, parsedJudge.perPr, parsedJudge.crossPr);
 	for (const warning of [...judged.warnings, ...parsedJudge.warnings]) {
 		warnings.push(`${judge.id}: ${warning}`);
 	}
@@ -465,6 +468,17 @@ function nextIdAfterReviewer(
 	let count = parsed.crossPr.length;
 	for (const findings of parsed.perPr.values()) count += findings.length;
 	return startId + count;
+}
+
+function rememberStackReviewAllocation(
+	state: PrWorkflowState,
+	perPr: ReadonlyMap<number, readonly Finding[]>,
+	crossPr: readonly Finding[],
+): void {
+	for (const findings of perPr.values()) {
+		rememberAllocatedFindings(state, findings);
+	}
+	rememberAllocatedFindings(state, crossPr);
 }
 
 function writePerPrJudgeRuns(input: {

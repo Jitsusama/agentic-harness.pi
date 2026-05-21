@@ -168,6 +168,7 @@ describe("runCouncilAction", () => {
 		};
 		state.council.roster = [{ id: "fast" }];
 		state.council.judge = { id: "judge" };
+		state.nextFindingId = 7;
 
 		const result = await runCouncilAction({
 			state,
@@ -195,6 +196,8 @@ describe("runCouncilAction", () => {
 		expect(run.target).toEqual({ kind: "diff", prNumber: 42 });
 		expect(run.reviewerOutputs).toHaveLength(1);
 		expect(run.reviewerOutputs[0].findings).toHaveLength(1);
+		expect(run.reviewerOutputs[0].findings[0]?.id).toBe(7);
+		expect(state.nextFindingId).toBe(8);
 	});
 
 	it("clears downstream judge state when a new council run lands", async () => {
@@ -423,15 +426,16 @@ describe("retryCouncilReviewer", () => {
 		);
 	});
 
-	it("substitutes the reviewer's output and allocates new ids past the existing max", async () => {
+	it("substitutes the reviewer's output and allocates from the session id sequence", async () => {
 		// Existing ids: fast=1, skeptic=4. Retry fast.
-		// New fast output should be assigned ids starting
-		// at max+1 = 5 so skeptic's id 4 (and any decision
-		// on it) stays valid.
+		// New fast output should be assigned from the
+		// session-global allocator so ids are never reused
+		// within the PR workflow session.
 		//
 		// Gaps in the id sequence are OK — the post stage
 		// reads ids out of state, not by iteration order.
 		const state = loadedState();
+		state.nextFindingId = 5;
 		state.council.lastRun = {
 			id: "council-1",
 			startedAt: "2026-01-01T00:00:00Z",
@@ -510,6 +514,7 @@ describe("retryCouncilReviewer", () => {
 		expect(fast?.findings).toHaveLength(1);
 		expect(fast?.findings[0].id).toBe(5);
 		expect(fast?.findings[0].subject).toBe("fresh take");
+		expect(state.nextFindingId).toBe(6);
 		// Skeptic's pre-existing finding untouched.
 		expect(skeptic?.findings[0].id).toBe(4);
 		expect(skeptic?.findings[0].subject).toBe("keep me");

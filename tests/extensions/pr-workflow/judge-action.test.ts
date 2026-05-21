@@ -168,6 +168,7 @@ describe("runJudgeAction", () => {
 
 	it("clears stale decisions and critiques when a new judge run lands", async () => {
 		const state = withLoadedPr();
+		state.nextFindingId = 2;
 		state.council.lastRun = withCouncilRun();
 		state.council.judge = { id: "j", model: "anthropic/claude-opus-4-7" };
 		state.council.decisions.set(2, {
@@ -214,6 +215,7 @@ describe("runJudgeAction", () => {
 
 		expect(result.ok).toBe(true);
 		expect(state.council.lastJudge?.consolidatedFindings[0]?.id).toBe(2);
+		expect(state.nextFindingId).toBe(3);
 		expect(state.council.decisions.size).toBe(0);
 		expect(state.council.lastCritique).toBeNull();
 	});

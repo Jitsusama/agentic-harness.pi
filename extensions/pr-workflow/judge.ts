@@ -74,6 +74,8 @@ export interface RunJudgeOptions {
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly signal?: AbortSignal;
+	/** First session-global finding id available to this judge run. */
+	readonly startId?: number;
 }
 
 /**
@@ -255,7 +257,7 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 
 	const prompt = buildJudgePrompt({ council: options.council });
 
-	const startId = nextIdAfterCouncil(options.council);
+	const startId = options.startId ?? nextIdAfterCouncil(options.council);
 
 	const dispatched = await options.dispatch({
 		reviewer: options.judge,

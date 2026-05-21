@@ -11,6 +11,7 @@
 import type { CouncilDispatch } from "./council.js";
 import { runCouncil, runOneCouncilReviewer } from "./council.js";
 import type { CouncilProgress } from "./council-progress.js";
+import { rememberAllocatedFindings } from "./finding-ids.js";
 import type { CouncilRun } from "./findings.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { PrWorkflowState } from "./state.js";
@@ -137,8 +138,12 @@ export async function runCouncilAction(
 		registry: input.registry,
 		dispatch: input.dispatch,
 		signal: input.signal,
+		startId: state.nextFindingId,
 		progress: input.progress,
 	});
+	for (const output of run.reviewerOutputs) {
+		rememberAllocatedFindings(state, output.findings);
+	}
 	state.council.lastRun = run;
 	state.council.lastJudge = null;
 	state.council.lastCritique = null;
@@ -208,13 +213,7 @@ export async function retryCouncilReviewer(
 		};
 	}
 
-	const maxId = lastRun.reviewerOutputs.reduce((max, output) => {
-		for (const f of output.findings) {
-			if (f.id > max) max = f.id;
-		}
-		return max;
-	}, 0);
-	const startId = maxId + 1;
+	const startId = state.nextFindingId;
 
 	const pr = state.pr;
 	const output = await runOneCouncilReviewer({
@@ -234,6 +233,7 @@ export async function retryCouncilReviewer(
 		signal: input.signal,
 		startId,
 	});
+	rememberAllocatedFindings(state, output.findings);
 	lastRun.reviewerOutputs[existingIndex] = output;
 	return { ok: true, run: lastRun };
 }
