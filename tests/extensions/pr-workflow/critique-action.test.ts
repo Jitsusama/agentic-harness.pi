@@ -35,7 +35,7 @@ function fakeProvider(requests?: WorktreeRequest[]): WorktreeProvider {
 	};
 }
 
-function consolidated(): Finding {
+function consolidated(overrides: Partial<Finding> = {}): Finding {
 	return {
 		id: 10,
 		location: { kind: "global" },
@@ -47,6 +47,7 @@ function consolidated(): Finding {
 		origin: { kind: "judge", runId: "j-1", judgeReviewerId: "j" },
 		state: "draft",
 		agreement: { raisedBy: ["fast", "skeptic"], sourceFindingIds: [1, 2] },
+		...overrides,
 	};
 }
 
@@ -171,6 +172,117 @@ describe("runCritiqueAction", () => {
 			sha: "headsha1",
 			branch: "feat",
 		});
+	});
+
+	it("critiques stack-review findings across every PR and cross-PR finding", async () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 102 },
+			loadedAt: "2026-01-01T00:00:00Z",
+			metadata: prMetadata({
+				title: "PR 102",
+				url: "u",
+				author: "a",
+				base: { ref: "f101", sha: "base" },
+				head: { ref: "f102", sha: "headsha2" },
+			}),
+			files: [],
+			stack: {
+				cursorIndex: 1,
+				cursorChildren: [],
+				entries: [
+					{
+						reference: { owner: "o", repo: "r", number: 101 },
+						title: "PR 101",
+						baseRefName: "main",
+						headRefName: "f101",
+					},
+					{
+						reference: { owner: "o", repo: "r", number: 102 },
+						title: "PR 102",
+						baseRefName: "f101",
+						headRefName: "f102",
+					},
+				],
+			},
+		};
+		state.council.roster = [{ id: "fast", model: "m-fast" }];
+		state.council.lastRun = null;
+		state.council.lastJudge = {
+			id: "stack-judge-pr-102",
+			startedAt: "2026-01-01T00:05:00Z",
+			judgeReviewerId: "judge",
+			selfSignal: null,
+			consolidatedFindings: [
+				consolidated({ id: 20, subject: "current PR finding" }),
+			],
+			warnings: [],
+		};
+		state.stackRuns.set(101, {
+			lastRun: null,
+			lastJudge: {
+				id: "stack-judge-pr-101",
+				startedAt: "2026-01-01T00:05:00Z",
+				judgeReviewerId: "judge",
+				selfSignal: null,
+				consolidatedFindings: [
+					consolidated({ id: 10, subject: "upstream PR finding" }),
+				],
+				warnings: [],
+			},
+			lastCritique: null,
+			decisions: new Map(),
+		});
+		state.stackFindingRun = {
+			id: "stack-judge",
+			startedAt: "2026-01-01T00:05:00Z",
+			reviewerId: "judge",
+			findings: [
+				{
+					...consolidated({ id: 30, subject: "cross PR finding" }),
+					homePrNumber: 102,
+					spans: [101, 102],
+				},
+			],
+			warnings: [],
+		};
+
+		const result = await runCritiqueAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async (opts) => {
+				expect(opts.prompt).toContain("upstream PR finding");
+				expect(opts.prompt).toContain("current PR finding");
+				expect(opts.prompt).toContain("cross PR finding");
+				return {
+					reviewerId: opts.reviewer.id,
+					exitCode: 0,
+					finalAssistantText: JSON.stringify({
+						critiques: [10, 20, 30].map((findingId) => ({
+							findingId,
+							position: "agree",
+							rationale: `r-${findingId}`,
+						})),
+					}),
+					stderr: "",
+					warnings: [],
+				};
+			},
+			now: () => new Date("2026-01-01T00:10:00Z"),
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.judge.consolidatedFindings.map((f) => f.id)).toEqual([
+			10, 20, 30,
+		]);
+		expect(result.run.id).toBe("stack-critique-2026-01-01T00:10:00.000Z");
+		expect(
+			result.run.reviewerOutputs[0]?.critiques.map((c) => c.findingId),
+		).toEqual([10, 20, 30]);
+		expect(state.council.lastCritique).toBe(result.run);
+		expect(state.stackRuns.get(101)?.lastCritique).toBe(result.run);
+		expect(state.stackFindingRun.critique).toBe(result.run);
 	});
 });
 

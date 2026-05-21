@@ -17,7 +17,12 @@ import {
 	runCritique,
 	runOneCritiqueReviewer,
 } from "./critique.js";
-import type { FindingLocation } from "./findings.js";
+import type {
+	CouncilRun,
+	Finding,
+	FindingLocation,
+	ReviewerOutput,
+} from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { PrWorkflowState } from "./state.js";
 import type { WorktreeRegistry } from "./worktree.js";
@@ -33,7 +38,7 @@ export interface RunCritiqueActionInput {
 
 /** Result of running the critique. */
 export type CritiqueActionResult =
-	| { ok: true; run: CritiqueRun }
+	| { ok: true; run: CritiqueRun; judge: JudgeRun }
 	| { ok: false; error: string };
 
 /**
@@ -46,6 +51,8 @@ export async function runCritiqueAction(
 ): Promise<CritiqueActionResult> {
 	const { state } = input;
 	if (state.council.lastRun === null) {
+		const stackCritique = await runStackCritiqueAction(input);
+		if (stackCritique !== null) return stackCritique;
 		return {
 			ok: false,
 			error: "No council run available. Call pr_workflow action=council first.",
@@ -90,7 +97,55 @@ export async function runCritiqueAction(
 		signal: input.signal,
 	});
 	state.council.lastCritique = run;
-	return { ok: true, run };
+	return { ok: true, run, judge: state.council.lastJudge };
+}
+
+async function runStackCritiqueAction(
+	input: RunCritiqueActionInput,
+): Promise<CritiqueActionResult | null> {
+	const { state } = input;
+	if (state.stackFindingRun === null) return null;
+	if (state.council.roster.length === 0) {
+		return {
+			ok: false,
+			error:
+				"Critique roster is empty. Configure reviewers via " +
+				"action=council-config first.",
+		};
+	}
+	if (state.pr === null || state.pr.metadata === null) {
+		return {
+			ok: false,
+			error: "PR is not fully loaded; reload before critiquing.",
+		};
+	}
+	const judge = combinedStackJudge(state);
+	if (judge === null) {
+		return {
+			ok: false,
+			error:
+				"Stack review findings are not loaded. Navigate the stack or rerun " +
+				"pr_workflow action=review before critiquing.",
+		};
+	}
+	const now = input.now ?? (() => new Date());
+	const run = await runCritique({
+		runId: `stack-critique-${now().toISOString()}`,
+		council: emptyCouncilForStackCritique(state),
+		judge,
+		roster: state.council.roster,
+		target: {
+			owner: state.pr.reference.owner,
+			repo: state.pr.reference.repo,
+			sha: state.pr.metadata.head.sha,
+			branch: state.pr.metadata.head.ref,
+		},
+		registry: input.registry,
+		dispatch: input.dispatch,
+		signal: input.signal,
+	});
+	rememberStackCritique(state, run);
+	return { ok: true, run, judge };
 }
 
 /** Inputs for `retryCritiqueReviewer`. */
@@ -134,6 +189,8 @@ export async function retryCritiqueReviewer(
 		};
 	}
 	if (state.council.lastRun === null) {
+		const stackRetry = await retryStackCritiqueReviewer(input);
+		if (stackRetry !== null) return stackRetry;
 		return {
 			ok: false,
 			error: "No council run available. Call pr_workflow action=council first.",
@@ -187,7 +244,126 @@ export async function retryCritiqueReviewer(
 		signal: input.signal,
 	});
 	lastCritique.reviewerOutputs[existingIndex] = output;
-	return { ok: true, run: lastCritique };
+	return { ok: true, run: lastCritique, judge: state.council.lastJudge };
+}
+
+async function retryStackCritiqueReviewer(
+	input: RetryCritiqueReviewerInput,
+): Promise<CritiqueActionResult | null> {
+	const { state, reviewerId } = input;
+	const stackCritique = state.stackFindingRun?.critique ?? null;
+	if (stackCritique === null) return null;
+	if (state.pr === null || state.pr.metadata === null) {
+		return {
+			ok: false,
+			error:
+				"PR is not fully loaded; reload before retrying a critique reviewer.",
+		};
+	}
+	const reviewer = state.council.roster.find((r) => r.id === reviewerId);
+	if (!reviewer) {
+		return {
+			ok: false,
+			error: `Reviewer "${reviewerId}" is not in the current council roster.`,
+		};
+	}
+	const existingIndex = stackCritique.reviewerOutputs.findIndex(
+		(o) => o.reviewerId === reviewerId,
+	);
+	if (existingIndex < 0) {
+		return {
+			ok: false,
+			error: `Reviewer "${reviewerId}" has no output in the last critique run.`,
+		};
+	}
+	const judge = combinedStackJudge(state);
+	if (judge === null) {
+		return {
+			ok: false,
+			error:
+				"Stack review findings are not loaded. Navigate the stack or rerun " +
+				"pr_workflow action=review before retrying critique.",
+		};
+	}
+	const output = await runOneCritiqueReviewer({
+		runId: stackCritique.id,
+		council: emptyCouncilForStackCritique(state),
+		judge,
+		reviewer,
+		target: {
+			owner: state.pr.reference.owner,
+			repo: state.pr.reference.repo,
+			sha: state.pr.metadata.head.sha,
+			branch: state.pr.metadata.head.ref,
+		},
+		registry: input.registry,
+		dispatch: input.dispatch,
+		signal: input.signal,
+	});
+	stackCritique.reviewerOutputs[existingIndex] = output;
+	rememberStackCritique(state, stackCritique);
+	return { ok: true, run: stackCritique, judge };
+}
+
+function combinedStackJudge(state: PrWorkflowState): JudgeRun | null {
+	const stackFindingRun = state.stackFindingRun;
+	if (state.pr === null || stackFindingRun === null) return null;
+	const findings: Finding[] = [];
+	for (const number of stackPrNumbers(state)) {
+		const judge = judgeForPr(state, number);
+		if (judge) findings.push(...judge.consolidatedFindings);
+	}
+	findings.push(...stackFindingRun.findings);
+	if (findings.length === 0) return null;
+	return {
+		id: `${stackFindingRun.id}-critique-target`,
+		startedAt: stackFindingRun.startedAt,
+		judgeReviewerId: stackFindingRun.reviewerId,
+		selfSignal: state.council.lastJudge?.selfSignal ?? null,
+		consolidatedFindings: findings,
+		warnings: [...stackFindingRun.warnings],
+	};
+}
+
+function stackPrNumbers(state: PrWorkflowState): number[] {
+	const current = state.pr?.reference.number;
+	const entries = state.pr?.stack?.entries ?? [];
+	const numbers = entries.map((entry) => entry.reference.number);
+	if (current !== undefined && !numbers.includes(current))
+		numbers.push(current);
+	return numbers;
+}
+
+function judgeForPr(state: PrWorkflowState, prNumber: number): JudgeRun | null {
+	if (state.pr?.reference.number === prNumber) return state.council.lastJudge;
+	return state.stackRuns.get(prNumber)?.lastJudge ?? null;
+}
+
+function emptyCouncilForStackCritique(state: PrWorkflowState): CouncilRun {
+	return {
+		id: `${state.stackFindingRun?.id ?? "stack-review"}-critique-source`,
+		startedAt: state.stackFindingRun?.startedAt ?? new Date(0).toISOString(),
+		target: { kind: "diff", prNumber: state.pr?.reference.number ?? 0 },
+		reviewerOutputs: state.council.roster.map(
+			(reviewer): ReviewerOutput => ({
+				reviewerId: reviewer.id,
+				findings: [],
+				warnings: [],
+			}),
+		),
+	};
+}
+
+function rememberStackCritique(state: PrWorkflowState, run: CritiqueRun): void {
+	state.council.lastCritique = run;
+	for (const number of stackPrNumbers(state)) {
+		if (state.pr?.reference.number === number) continue;
+		const snapshot = state.stackRuns.get(number);
+		if (snapshot) snapshot.lastCritique = run;
+	}
+	if (state.stackFindingRun) {
+		state.stackFindingRun = { ...state.stackFindingRun, critique: run };
+	}
 }
 
 /** Inputs to `formatCritiqueSummary`. */
