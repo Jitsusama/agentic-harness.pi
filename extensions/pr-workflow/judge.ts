@@ -70,7 +70,7 @@ export interface RunJudgeOptions {
 	readonly runId: string;
 	readonly council: CouncilRun;
 	readonly judge: CouncilReviewer;
-	readonly target: Pick<CouncilTarget, "owner" | "repo" | "sha">;
+	readonly target: Pick<CouncilTarget, "owner" | "repo" | "sha" | "branch">;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly signal?: AbortSignal;
@@ -253,6 +253,7 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 		owner: options.target.owner,
 		repo: options.target.repo,
 		sha: options.target.sha,
+		...(options.target.branch ? { branch: options.target.branch } : {}),
 	});
 
 	const prompt = buildJudgePrompt({ council: options.council });

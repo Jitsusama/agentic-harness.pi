@@ -106,6 +106,7 @@ export async function runJudgeAction(
 			owner: state.pr.reference.owner,
 			repo: state.pr.reference.repo,
 			sha: state.pr.metadata.head.sha,
+			branch: state.pr.metadata.head.ref,
 		},
 		registry: input.registry,
 		dispatch: input.dispatch,

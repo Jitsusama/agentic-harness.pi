@@ -13,12 +13,33 @@ import {
 	createPrWorkflowState,
 	type PrWorkflowState,
 } from "../../../extensions/pr-workflow/state.js";
-import { WorktreeRegistry } from "../../../extensions/pr-workflow/worktree.js";
+import {
+	type WorktreeProvider,
+	WorktreeRegistry,
+	type WorktreeRequest,
+} from "../../../extensions/pr-workflow/worktree.js";
 import { fakeProvider } from "./council.test-helpers.js";
 import { expectFailure, prMetadata } from "./fixtures.js";
 
 function reviewer(id: string): CouncilReviewer {
 	return { id, model: "anthropic/claude-haiku-4-5" };
+}
+
+function recordingProvider(requests: WorktreeRequest[]): WorktreeProvider {
+	return {
+		id: "recording",
+		async ensure(req) {
+			requests.push(req);
+			return {
+				path: `/wt/${req.sha}`,
+				sha: req.sha,
+				providerId: "recording",
+				reusable: true,
+				createdAt: new Date(0),
+			};
+		},
+		async release() {},
+	};
 }
 
 function buildState(stackNumbers: number[] = [101, 102]): PrWorkflowState {
@@ -243,6 +264,26 @@ describe("runStackReviewAction", () => {
 			id: "judge",
 			role: "judge",
 			model: "anthropic/claude-haiku-4-5",
+		});
+	});
+
+	it("passes the stack tip branch as a worktree hint", async () => {
+		const requests: WorktreeRequest[] = [];
+		const state = buildState([101, 102]);
+		const result = await runStackReviewAction({
+			state,
+			registry: new WorktreeRegistry(recordingProvider(requests)),
+			dispatch: dispatch(),
+			fetchers: fetchers(),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(requests).toHaveLength(1);
+		expect(requests[0]).toMatchObject({
+			owner: "o",
+			repo: "r",
+			sha: "sha-102",
+			branch: "f102",
 		});
 	});
 

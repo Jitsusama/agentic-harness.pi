@@ -10,6 +10,7 @@ import type { CouncilReviewer } from "../../../extensions/pr-workflow/reviewer.j
 import {
 	type WorktreeProvider,
 	WorktreeRegistry,
+	type WorktreeRequest,
 } from "../../../extensions/pr-workflow/worktree.js";
 
 /**
@@ -301,10 +302,11 @@ describe("runJudge", () => {
 		model: "anthropic/claude-opus-4-7",
 	};
 
-	function fakeProvider(): WorktreeProvider {
+	function fakeProvider(requests?: WorktreeRequest[]): WorktreeProvider {
 		return {
 			id: "fake",
 			async ensure(req) {
+				requests?.push(req);
 				return {
 					path: `/wt/${req.sha}`,
 					sha: req.sha,
@@ -364,6 +366,33 @@ describe("runJudge", () => {
 		expect(calls[0].cwd).toBe("/wt/abc");
 		expect(result.consolidatedFindings).toHaveLength(1);
 		expect(result.selfSignal?.confidence).toBe("high");
+	});
+
+	it("passes the PR head branch as a worktree hint", async () => {
+		const requests: WorktreeRequest[] = [];
+		const result = await runJudge({
+			runId: "judge-1",
+			council: council(),
+			judge: JUDGE,
+			target: { owner: "o", repo: "r", sha: "abc", branch: "feature/judge" },
+			registry: new WorktreeRegistry(fakeProvider(requests)),
+			dispatch: async () => ({
+				reviewerId: "judge",
+				exitCode: 0,
+				finalAssistantText: JSON.stringify({ findings: [] }),
+				stderr: "",
+				warnings: [],
+			}),
+		});
+
+		expect(result.warnings).toEqual([]);
+		expect(requests).toHaveLength(1);
+		expect(requests[0]).toMatchObject({
+			owner: "o",
+			repo: "r",
+			sha: "abc",
+			branch: "feature/judge",
+		});
 	});
 
 	it("allocates judge finding ids past the council's last round-1 id", async () => {
