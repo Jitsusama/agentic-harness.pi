@@ -29,7 +29,6 @@ import { parsePrFileUri, prFileUri, resolvePrFile } from "./buffer.js";
 import {
 	createCancellableDispatch,
 	formatCancellationOutcome,
-	formatCancellationStatus,
 	ReviewerCancellationRegistry,
 	type ReviewOperation,
 } from "./cancellation.js";
@@ -190,6 +189,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 		};
 		return councilDeps;
 	};
+	const progressControls = () => ({
+		cancelReviewer: (reviewerId: string) =>
+			formatCancellationOutcome(cancellations.cancel(reviewerId)),
+		cancelAll: () => formatCancellationOutcome(cancellations.cancel()),
+	});
 	const runWithCancellableReviewers = async <T>(
 		operation: ReviewOperation,
 		run: (deps: {
@@ -283,7 +287,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"stack-prev",
 					"council-retry",
 					"critique-retry",
-					"cancel",
 					"threads",
 					"reply",
 					"resolve",
@@ -315,9 +318,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"council run and substitute their output in place. " +
 						"critique-retry: re-run one reviewer in the most recent " +
 						"critique run and substitute their output in place. " +
-						"cancel: cancel an active reviewer subprocess. Pass " +
-						"reviewerId to cancel one reviewer; omit it to cancel all " +
-						"active reviewers in the current run. " +
 						"threads: fetch the loaded PR's existing review threads. " +
 						"reply: post a reply to a thread by its [T#] index. " +
 						"resolve: resolve a thread by its [T#] index. " +
@@ -428,7 +428,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			reviewerId: Type.Optional(
 				Type.String({
 					description:
-						"Reviewer id from the active council roster. Required for action=council-retry and action=critique-retry; optional for action=cancel to cancel just that reviewer.",
+						"Reviewer id from the active council roster. Required for action=council-retry and action=critique-retry.",
 				}),
 			),
 			verdict: Type.Optional(
@@ -520,15 +520,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (params.action === "cancel") {
-				const outcome = cancellations.cancel(params.reviewerId);
-				return {
-					content: [{ type: "text", text: formatCancellationOutcome(outcome) }],
-					details: outcome,
-					...(!outcome.ok ? { isError: true } : {}),
-				};
-			}
-
 			if (params.action === "council-config") {
 				let reviewers: readonly CouncilReviewer[] | undefined =
 					params.reviewers;
@@ -584,7 +575,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "council") {
-				const progress = createCouncilProgressReporter(ctx);
+				const progress = createCouncilProgressReporter(ctx, progressControls());
 				const result = await runWithCancellableReviewers(
 					"council",
 					({ registry, dispatch }) =>
@@ -720,7 +711,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "review") {
-				const progress = createCouncilProgressReporter(ctx);
+				const progress = createCouncilProgressReporter(ctx, progressControls());
 				const result = await runWithCancellableReviewers(
 					"review",
 					({ registry, dispatch }) =>
@@ -1445,7 +1436,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					`cross-PR findings: ${state.stackFindingRun?.findings.length ?? 0} (${state.stackDecisions.size} decided)`,
 					`stack snapshots: ${stackSnapshotSummary}`,
 					`threads: ${state.threads === null ? "not fetched" : `${state.threads.threads.length} (fetched ${state.threads.fetchedAt})`}`,
-					...formatCancellationStatus(cancellations),
 					formatFixQueueStatus(state),
 					...renderUsageLines(breakdown),
 				];

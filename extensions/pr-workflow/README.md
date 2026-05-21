@@ -161,7 +161,7 @@ in findings, what to recommend at Round 4's close).
 
 ## Actions
 
-One `pr_workflow` tool, 26 actions. The user drives the
+One `pr_workflow` tool, 25 actions. The user drives the
 flow conversationally; the agent translates intent into
 the right action.
 
@@ -276,17 +276,20 @@ distinct from every council reviewer id.
   entries reference judge findings by `findingId`, so
   substitution is direct.
 
-**Cancellation**
+**Live Progress Panel**
 
-- `action="cancel" reviewerId=<id>` — abort one active
-  reviewer subprocess in the current council, review,
-  judge or critique action. The action records that
-  reviewer as cancelled and keeps any other completed
-  reviewer output.
-- `action="cancel"` — abort every active reviewer
-  subprocess in the current run. Reviewers that start
-  after the request, such as a stack judge after fan-out,
-  inherit the cancellation immediately.
+Long-running reviewer actions open a focused progress
+panel while the tool is still running. This matters because
+normal prompts queue behind the active tool call; the panel
+is the interrupt surface that remains reachable mid-run.
+
+- Use ↑/↓ to select a reviewer.
+- Press `r` to cancel the selected reviewer. The run keeps
+  any completed reviewer output and records that reviewer
+  as cancelled.
+- Press Esc to cancel the whole active run. Reviewers that
+  start after the request, such as a stack judge after
+  fan-out, inherit the cancellation immediately.
 
 **Stack-wide review**
 

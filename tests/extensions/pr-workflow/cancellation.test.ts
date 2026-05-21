@@ -50,6 +50,24 @@ describe("ReviewerCancellationRegistry", () => {
 		run.end();
 	});
 
+	it("cancels a future reviewer in the active run by id", async () => {
+		const registry = new ReviewerCancellationRegistry();
+		const run = registry.beginRun("review");
+		const dispatch = createCancellableDispatch(run, successfulDispatch());
+
+		const outcome = registry.cancel("judge");
+
+		expect(outcome).toMatchObject({
+			ok: true,
+			mode: "one",
+			reviewerId: "judge",
+		});
+		await expect(
+			dispatch({ reviewer: { id: "judge" }, prompt: "p", cwd: "/tmp" }),
+		).rejects.toBeInstanceOf(ReviewerCancelledError);
+		run.end();
+	});
+
 	it("cancels all current and future reviewers in the active run", async () => {
 		const registry = new ReviewerCancellationRegistry();
 		const run = registry.beginRun("review");

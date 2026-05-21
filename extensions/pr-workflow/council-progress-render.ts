@@ -2,22 +2,24 @@
  * Production progress reporter for the council.
  *
  * Maintains an in-memory snapshot of every reviewer's
- * state and pushes it into pi's status line and widget
- * surfaces on each lifecycle event.
+ * state and pushes it into pi's status line and a focused
+ * progress panel on each lifecycle event.
  *
  * - The status line shows a one-glance summary
  *   (`✓2/3 pending=1`) so the user always knows
  *   whether anyone is still working.
- * - The widget is a vertical list with one line per
- *   reviewer: glyph, id, state, finding count when
- *   known, first warning when failed.
- *
- * The reporter is registered with `ctx.ui.setStatus`
- * and `ctx.ui.setWidget`; both surface clear on
- * `finish()` so a fresh run starts from a clean slate.
+ * - The focused panel lists each reviewer and lets the
+ *   user cancel the selected reviewer or the whole run
+ *   without queuing another prompt behind the active tool.
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import {
+	Key,
+	matchesKey,
+	type TUI,
+	truncateToWidth,
+} from "@mariozechner/pi-tui";
 import {
 	type PipelineStage,
 	renderPipelineProgressLines,
@@ -30,7 +32,12 @@ import type {
 } from "./council-progress.js";
 
 const STATUS_KEY = "pr-workflow:council";
-const WIDGET_KEY = "pr-workflow:council";
+
+/** Controls that let the live progress panel interrupt reviewers. */
+export interface CouncilProgressControls {
+	cancelReviewer(reviewerId: string): string;
+	cancelAll(): string;
+}
 
 /**
  * Build a context-bound progress reporter for the
@@ -39,23 +46,59 @@ const WIDGET_KEY = "pr-workflow:council";
  */
 export function createCouncilProgressReporter(
 	ctx: ExtensionContext,
+	controls?: CouncilProgressControls,
 ): CouncilProgress {
 	let entries: CouncilProgressEntry[] = [];
+	let panel: CouncilProgressPanel | null = null;
+	let closePanel: (() => void) | null = null;
 
 	const render = (): void => {
 		const theme = ctx.ui.theme;
 		ctx.ui.setStatus(STATUS_KEY, renderStatusLine(entries, theme));
-		ctx.ui.setWidget(WIDGET_KEY, (_tui, t) => ({
-			render(_width: number): string[] {
-				return renderCouncilWidgetLines(entries, t);
-			},
-			invalidate() {},
-		}));
+		panel?.setEntries(entries);
+	};
+
+	const showPanel = (): void => {
+		if (!ctx.hasUI || panel !== null) return;
+		void ctx.ui
+			.custom<void>(
+				(tui, theme, _kb, done) => {
+					const component = new CouncilProgressPanel(
+						tui,
+						theme,
+						entries,
+						controls,
+					);
+					panel = component;
+					closePanel = () => done();
+					return component;
+				},
+				{
+					overlay: true,
+					overlayOptions: {
+						anchor: "bottom-center",
+						width: "90%",
+						maxHeight: "70%",
+						margin: 1,
+					},
+				},
+			)
+			.finally(() => {
+				panel = null;
+				closePanel = null;
+			})
+			.catch(() => {
+				// If the panel cannot open or closes unexpectedly, the
+				// subprocess run should continue. The status line still
+				// shows non-interactive progress.
+			});
 	};
 
 	const clear = (): void => {
 		ctx.ui.setStatus(STATUS_KEY, undefined);
-		ctx.ui.setWidget(WIDGET_KEY, undefined);
+		closePanel?.();
+		closePanel = null;
+		panel = null;
 	};
 
 	const updateEntry = (
@@ -70,6 +113,7 @@ export function createCouncilProgressReporter(
 	return {
 		start(initial) {
 			entries = initial.map((entry) => ({ ...entry }));
+			showPanel();
 			render();
 		},
 		reviewerStarted(reviewerId) {
@@ -204,4 +248,135 @@ function countStates(
 		counts[entry.state] += 1;
 	}
 	return counts;
+}
+
+/** Focused progress panel that can cancel active reviewer subprocesses. */
+export class CouncilProgressPanel {
+	private entries: CouncilProgressEntry[];
+	private selectedIndex = 0;
+	private notice = "";
+
+	constructor(
+		private readonly tui: TUI,
+		private readonly theme: Theme,
+		entries: readonly CouncilProgressEntry[],
+		private readonly controls: CouncilProgressControls | undefined,
+	) {
+		this.entries = entries.map((entry) => ({ ...entry }));
+	}
+
+	setEntries(entries: readonly CouncilProgressEntry[]): void {
+		this.entries = entries.map((entry) => ({ ...entry }));
+		this.selectedIndex = clampSelection(
+			this.selectedIndex,
+			this.entries.length,
+		);
+		this.tui.requestRender();
+	}
+
+	handleInput(data: string): void {
+		if (matchesKey(data, Key.up)) {
+			this.selectedIndex = moveSelection(
+				this.selectedIndex,
+				this.entries.length,
+				-1,
+			);
+			this.tui.requestRender();
+			return;
+		}
+		if (matchesKey(data, Key.down)) {
+			this.selectedIndex = moveSelection(
+				this.selectedIndex,
+				this.entries.length,
+				1,
+			);
+			this.tui.requestRender();
+			return;
+		}
+		if (matchesKey(data, Key.escape)) {
+			this.notice = this.controls?.cancelAll() ?? "Cancellation unavailable.";
+			this.tui.requestRender();
+			return;
+		}
+		if (data === "r" || data === "R") {
+			this.cancelSelected();
+			this.tui.requestRender();
+		}
+	}
+
+	render(width: number): string[] {
+		const lines: string[] = [];
+		const add = (line: string) => lines.push(truncateToWidth(line, width));
+		add(this.theme.fg("accent", this.theme.bold("PR review progress")));
+		add(
+			this.theme.fg(
+				"dim",
+				"↑/↓ select · r cancel selected reviewer · Esc cancel run",
+			),
+		);
+		if (this.notice) add(this.theme.fg("warning", this.notice));
+		add("");
+		if (this.entries.length === 0) {
+			add(this.theme.fg("dim", "No reviewers in this run."));
+			return lines;
+		}
+		for (let i = 0; i < this.entries.length; i++) {
+			const entry = this.entries[i];
+			if (!entry) continue;
+			add(this.renderEntry(entry, i === this.selectedIndex));
+		}
+		return lines;
+	}
+
+	invalidate(): void {}
+
+	private cancelSelected(): void {
+		const entry = this.entries[this.selectedIndex];
+		if (!entry) {
+			this.notice = "No reviewer selected.";
+			return;
+		}
+		if (entry.state !== "running" && entry.state !== "pending") {
+			this.notice = `${entry.reviewer.id} is already ${entry.state}.`;
+			return;
+		}
+		this.notice =
+			this.controls?.cancelReviewer(entry.reviewer.id) ??
+			"Cancellation unavailable.";
+	}
+
+	private renderEntry(entry: CouncilProgressEntry, selected: boolean): string {
+		const cursor = selected ? "▸" : " ";
+		const status = entryStatus(entry, this.theme);
+		const activity = widgetSubtext(entry);
+		const model = entry.reviewer.model ? ` · ${entry.reviewer.model}` : "";
+		const suffix = activity ? ` · ${activity}` : "";
+		const line = `${cursor} ${status} ${entry.reviewer.id}${model}${suffix}`;
+		return selected ? this.theme.fg("accent", line) : line;
+	}
+}
+
+function entryStatus(entry: CouncilProgressEntry, theme: Theme): string {
+	switch (entry.state) {
+		case "pending":
+			return theme.fg("muted", "◇ pending");
+		case "running":
+			return theme.fg("accent", "◈ running");
+		case "complete":
+			return theme.fg("success", "✓ complete");
+		case "cancelled":
+			return theme.fg("dim", "· cancelled");
+		case "failed":
+			return theme.fg("error", "✕ failed");
+	}
+}
+
+function moveSelection(current: number, count: number, delta: number): number {
+	if (count === 0) return 0;
+	return (current + delta + count) % count;
+}
+
+function clampSelection(index: number, count: number): number {
+	if (count === 0) return 0;
+	return Math.min(index, count - 1);
 }

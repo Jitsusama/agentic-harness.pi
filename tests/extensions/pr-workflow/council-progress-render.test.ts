@@ -4,10 +4,19 @@ import type {
 	CouncilProgressState,
 } from "../../../extensions/pr-workflow/council-progress.js";
 import {
+	CouncilProgressPanel,
 	renderCouncilStatus,
 	renderCouncilWidgetLines,
 } from "../../../extensions/pr-workflow/council-progress-render.js";
 import { fakeTheme } from "../../lib/ui/fake-theme.js";
+
+function fakeTui() {
+	let renders = 0;
+	return {
+		tui: { requestRender: () => renders++ },
+		renderCount: () => renders,
+	};
+}
 
 function entry(
 	id: string,
@@ -46,6 +55,84 @@ describe("renderCouncilWidgetLines", () => {
 		expect(lines.join("\n")).toContain(
 			"last: finished verifying output; waiting for model",
 		);
+	});
+});
+
+describe("CouncilProgressPanel", () => {
+	it("cancels the selected reviewer without queueing a tool prompt", () => {
+		const calls: string[] = [];
+		const { tui } = fakeTui();
+		const panel = new CouncilProgressPanel(
+			tui as never,
+			fakeTheme(),
+			[entry("fast", "running"), entry("skeptic", "running")],
+			{
+				cancelReviewer(id) {
+					calls.push(`one:${id}`);
+					return `cancelled ${id}`;
+				},
+				cancelAll() {
+					calls.push("all");
+					return "cancelled all";
+				},
+			},
+		);
+
+		panel.handleInput("\x1b[B");
+		panel.handleInput("r");
+
+		expect(calls).toEqual(["one:skeptic"]);
+		expect(panel.render(80).join("\n")).toContain("cancelled skeptic");
+	});
+
+	it("cancels the whole run on Escape", () => {
+		const calls: string[] = [];
+		const { tui } = fakeTui();
+		const panel = new CouncilProgressPanel(
+			tui as never,
+			fakeTheme(),
+			[entry("fast", "running")],
+			{
+				cancelReviewer(id) {
+					calls.push(`one:${id}`);
+					return `cancelled ${id}`;
+				},
+				cancelAll() {
+					calls.push("all");
+					return "cancelled all";
+				},
+			},
+		);
+
+		panel.handleInput("\x1b");
+
+		expect(calls).toEqual(["all"]);
+		expect(panel.render(80).join("\n")).toContain("cancelled all");
+	});
+
+	it("does not cancel a reviewer that already completed", () => {
+		const calls: string[] = [];
+		const { tui } = fakeTui();
+		const panel = new CouncilProgressPanel(
+			tui as never,
+			fakeTheme(),
+			[entry("fast", "complete")],
+			{
+				cancelReviewer(id) {
+					calls.push(`one:${id}`);
+					return `cancelled ${id}`;
+				},
+				cancelAll() {
+					calls.push("all");
+					return "cancelled all";
+				},
+			},
+		);
+
+		panel.handleInput("r");
+
+		expect(calls).toEqual([]);
+		expect(panel.render(80).join("\n")).toContain("already complete");
 	});
 });
 
