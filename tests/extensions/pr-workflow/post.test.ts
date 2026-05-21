@@ -7,6 +7,7 @@ import {
 	type PostReviewGate,
 	postReviewAction,
 } from "../../../extensions/pr-workflow/post.js";
+import type { ConventionalLabel } from "../../../extensions/pr-workflow/schemas.js";
 import type {
 	StackFinding,
 	StackFindingRun,
@@ -206,7 +207,7 @@ describe("buildReviewPayload", () => {
 		);
 	});
 
-	it("renders comment bodies in Conventional Comments format with label + subject + discussion", async () => {
+	it("renders comment bodies in Conventional Comments format with emoji, label, subject and discussion", async () => {
 		const state = createPrWorkflowState();
 		state.council.lastJudge = judge([lineFinding(10, "Null deref")]);
 		state.council.decisions.set(10, {
@@ -216,10 +217,83 @@ describe("buildReviewPayload", () => {
 		});
 		const payload = buildReviewPayload(state);
 		const body = payload.comments[0].body;
-		// Conventional Comments: "**label:** subject"
-		expect(body).toMatch(/\*\*issue:\*\*\s+Null deref/);
-		// Discussion follows on a new line
+		expect(body).toMatch(/^⚠️ issue: Null deref\n\n/);
 		expect(body).toContain("discussion for Null deref");
+	});
+
+	it("renders inline decorations after the label in canonical order", async () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = judge([
+			lineFinding(10, "Extract helper", {
+				label: "suggestion",
+				decorations: ["non-blocking", "if-minor"],
+			}),
+		]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+		const payload = buildReviewPayload(state);
+		expect(payload.comments[0].body).toMatch(
+			/^💡 suggestion \(non-blocking, if-minor\): Extract helper\n\n/,
+		);
+	});
+
+	it("omits the decoration group cleanly when no decorations are present", async () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = judge([
+			lineFinding(10, "Clean summary", { label: "note", decorations: [] }),
+		]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+		const payload = buildReviewPayload(state);
+		expect(payload.comments[0].body).toMatch(/^📝 note: Clean summary\n\n/);
+		expect(payload.comments[0].body).not.toContain("():");
+	});
+
+	it("uses a deterministic emoji mapping for every schema label", async () => {
+		const emojis: Record<ConventionalLabel, string> = {
+			praise: "👏",
+			nitpick: "🔍",
+			suggestion: "💡",
+			issue: "⚠️",
+			todo: "✅",
+			question: "❓",
+			thought: "💭",
+			chore: "🧹",
+			note: "📝",
+			typo: "✏️",
+			polish: "✨",
+			quibble: "🤏",
+		};
+		const state = createPrWorkflowState();
+		state.council.lastJudge = judge(
+			Object.keys(emojis).map((label, index) =>
+				lineFinding(index + 1, `Finding ${label}`, {
+					label: label as ConventionalLabel,
+				}),
+			),
+		);
+		for (const finding of state.council.lastJudge.consolidatedFindings) {
+			state.council.decisions.set(finding.id, {
+				findingId: finding.id,
+				verdict: "endorse",
+				decidedAt: "x",
+			});
+		}
+		const payload = buildReviewPayload(state);
+		const headers = payload.comments.map(
+			(comment) => comment.body.split("\n", 1)[0],
+		);
+		expect(headers).toEqual(
+			Object.entries(emojis).map(
+				([label, emoji]) => `${emoji} ${label}: Finding ${label}`,
+			),
+		);
 	});
 
 	it("applies edit overrides to the posted body, not the original", async () => {
@@ -257,7 +331,7 @@ describe("buildReviewPayload", () => {
 		expect(body).toContain("non-blocking, worth a follow-up");
 	});
 
-	it("routes file and global findings into the body summary, not inline comments", async () => {
+	it("routes file and global findings into conventional body entries, not inline comments", async () => {
 		// GitHub's pull-review API only attaches inline
 		// comments to specific lines; file- and scope-
 		// level findings have nowhere to land. Put them
@@ -286,8 +360,9 @@ describe("buildReviewPayload", () => {
 		const payload = buildReviewPayload(state);
 		expect(payload.comments).toHaveLength(1);
 		expect(payload.comments[0].path).toBe("lib/x.ts");
-		expect(payload.body).toContain("File-wide");
-		expect(payload.body).toContain("About the PR overall");
+		expect(payload.body).toContain("💡 suggestion: File-wide");
+		expect(payload.body).toContain("💭 thought: About the PR overall");
+		expect(payload.body).not.toContain("[suggestion]");
 	});
 
 	it("translates side and start/end correctly for multi-line inline comments", async () => {
@@ -553,8 +628,9 @@ describe("buildReviewPayload with stack findings", () => {
 		});
 
 		const payload = buildReviewPayload(state);
-		expect(payload.body).toContain("Inconsistent retries");
+		expect(payload.body).toContain("⚠️ issue: Inconsistent retries");
 		expect(payload.body).toMatch(/spans|42.*43|cross-PR/i);
+		expect(payload.body).not.toContain("[issue]");
 		expect(payload.includedStackFindingIds).toEqual([1]);
 	});
 
