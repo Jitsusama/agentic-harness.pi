@@ -46,7 +46,7 @@ function recorder(): {
 			events.push({
 				tag: "completed",
 				reviewerId,
-				findingCount: output.findings.length,
+				findingCount: output.findings?.length ?? 0,
 			});
 		},
 		reviewerFailed(reviewerId, error) {

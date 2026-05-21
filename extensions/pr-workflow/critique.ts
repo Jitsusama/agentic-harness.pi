@@ -20,7 +20,14 @@
  */
 
 import { Value } from "@sinclair/typebox/value";
+import { isReviewerCancelledError } from "./cancellation.js";
 import type { CouncilDispatch, CouncilTarget } from "./council.js";
+import {
+	type CouncilProgress,
+	NULL_PROGRESS,
+	safelyNotify,
+	summarizeStreamActivity,
+} from "./council-progress.js";
 import type { CouncilRun, FindingLocation } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
@@ -95,6 +102,7 @@ export interface RunCritiqueOptions {
 	readonly target: Pick<CouncilTarget, "owner" | "repo" | "sha" | "branch">;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
 }
 
@@ -345,65 +353,144 @@ function extractJson(text: string): string | null {
 export async function runCritique(
 	options: RunCritiqueOptions,
 ): Promise<CritiqueRun> {
-	const handle = await options.registry.ensure({
-		owner: options.target.owner,
-		repo: options.target.repo,
-		sha: options.target.sha,
-		...(options.target.branch ? { branch: options.target.branch } : {}),
-	});
+	const progress = options.progress ?? NULL_PROGRESS;
+	const progressWarnings: string[] = [];
+	safelyNotify(
+		() =>
+			progress.start(
+				options.roster.map((reviewer) => ({
+					reviewer,
+					state: "pending",
+					findingCount: 0,
+					warnings: [],
+					error: "",
+					activity: "",
+				})),
+			),
+		"start",
+		progressWarnings,
+	);
 
-	const promises = options.roster.map(async (reviewer) => {
-		const prompt = buildCritiquePrompt({
-			reviewerId: reviewer.id,
-			council: options.council,
-			judge: options.judge,
+	try {
+		const handle = await options.registry.ensure({
+			owner: options.target.owner,
+			repo: options.target.repo,
+			sha: options.target.sha,
+			...(options.target.branch ? { branch: options.target.branch } : {}),
 		});
-		const dispatched = await options.dispatch({
-			reviewer,
-			prompt,
-			cwd: handle.path,
-			signal: options.signal,
-		});
-		const parsed = parseCritiqueOutput(dispatched.finalAssistantText, {
-			runId: options.runId,
-			reviewerId: reviewer.id,
-		});
-		const output: ReviewerCritiqueOutput = {
-			reviewerId: reviewer.id,
-			critiques: parsed.critiques,
-			warnings: [...dispatched.warnings, ...parsed.warnings],
-			...(dispatched.usage ? { usage: dispatched.usage } : {}),
-		};
-		return output;
-	});
 
-	const settled = await Promise.allSettled(promises);
-	const reviewerOutputs: ReviewerCritiqueOutput[] = [];
-	const runWarnings: string[] = [];
-	for (let i = 0; i < settled.length; i++) {
-		const result = settled[i];
-		if (result.status === "fulfilled") {
-			reviewerOutputs.push(result.value);
-		} else {
-			const reviewerId = options.roster[i].id;
-			const message =
-				result.reason instanceof Error
-					? result.reason.message
-					: String(result.reason);
-			reviewerOutputs.push({
-				reviewerId,
-				critiques: [],
-				warnings: [`Critique dispatch failed: ${message}`],
+		const promises = options.roster.map(async (reviewer) => {
+			safelyNotify(
+				() => progress.reviewerStarted(reviewer.id),
+				`started(${reviewer.id})`,
+				progressWarnings,
+			);
+			const prompt = buildCritiquePrompt({
+				reviewerId: reviewer.id,
+				council: options.council,
+				judge: options.judge,
 			});
-			runWarnings.push(`Reviewer ${reviewerId} threw: ${message}`);
-		}
-	}
+			try {
+				const dispatched = await options.dispatch({
+					reviewer,
+					prompt,
+					cwd: handle.path,
+					signal: options.signal,
+					onEvent: (event) => {
+						const activity = summarizeStreamActivity(event);
+						if (activity === null) return;
+						safelyNotify(
+							() => progress.reviewerActivity?.(reviewer.id, activity),
+							`activity(${reviewer.id})`,
+							progressWarnings,
+						);
+					},
+				});
+				const parsed = parseCritiqueOutput(dispatched.finalAssistantText, {
+					runId: options.runId,
+					reviewerId: reviewer.id,
+				});
+				const output: ReviewerCritiqueOutput = {
+					reviewerId: reviewer.id,
+					critiques: parsed.critiques,
+					warnings: [...dispatched.warnings, ...parsed.warnings],
+					...(dispatched.usage ? { usage: dispatched.usage } : {}),
+				};
+				safelyNotify(
+					() =>
+						progress.reviewerCompleted(reviewer.id, {
+							reviewerId: reviewer.id,
+							warnings: output.warnings,
+							completedLabel: critiqueCompletedLabel(output.critiques.length),
+							...(output.usage ? { usage: output.usage } : {}),
+						}),
+					`completed(${reviewer.id})`,
+					progressWarnings,
+				);
+				return output;
+			} catch (error) {
+				if (isReviewerCancelledError(error)) {
+					safelyNotify(
+						() => progress.reviewerCancelled?.(reviewer.id),
+						`cancelled(${reviewer.id})`,
+						progressWarnings,
+					);
+				} else {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					safelyNotify(
+						() => progress.reviewerFailed(reviewer.id, message),
+						`failed(${reviewer.id})`,
+						progressWarnings,
+					);
+				}
+				throw error;
+			}
+		});
 
-	return {
-		id: options.runId,
-		startedAt: new Date().toISOString(),
-		judgeRunId: options.judge.id,
-		reviewerOutputs,
-		warnings: runWarnings,
-	};
+		const settled = await Promise.allSettled(promises);
+		const reviewerOutputs: ReviewerCritiqueOutput[] = [];
+		const runWarnings: string[] = [];
+		for (let i = 0; i < settled.length; i++) {
+			const result = settled[i];
+			if (result.status === "fulfilled") {
+				reviewerOutputs.push(result.value);
+			} else {
+				const reviewerId = options.roster[i].id;
+				const cancelled = isReviewerCancelledError(result.reason);
+				const message = cancelled
+					? "Reviewer cancelled by user."
+					: result.reason instanceof Error
+						? result.reason.message
+						: String(result.reason);
+				reviewerOutputs.push({
+					reviewerId,
+					critiques: [],
+					warnings: [
+						cancelled ? message : `Critique dispatch failed: ${message}`,
+					],
+				});
+				runWarnings.push(
+					cancelled
+						? `Reviewer ${reviewerId} cancelled by user.`
+						: `Reviewer ${reviewerId} threw: ${message}`,
+				);
+			}
+		}
+
+		return {
+			id: options.runId,
+			startedAt: new Date().toISOString(),
+			judgeRunId: options.judge.id,
+			reviewerOutputs,
+			warnings: [...runWarnings, ...progressWarnings],
+		};
+	} finally {
+		safelyNotify(() => progress.finish(), "finish", progressWarnings);
+	}
+}
+
+function critiqueCompletedLabel(count: number): string {
+	const noun = count === 1 ? "critique" : "critiques";
+	return `${count} ${noun}`;
 }

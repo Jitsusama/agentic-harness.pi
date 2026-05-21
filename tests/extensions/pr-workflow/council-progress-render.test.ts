@@ -186,6 +186,29 @@ describe("CouncilProgressPanel", () => {
 });
 
 describe("createCouncilProgressReporter", () => {
+	it("uses display labels for non-council progress actions", () => {
+		const statuses: Array<string | undefined> = [];
+		const ctx = {
+			hasUI: false,
+			ui: {
+				theme: fakeTheme(),
+				setStatus(_key: string, value: string | undefined) {
+					statuses.push(value);
+				},
+				getEditorComponent: () => undefined,
+				setEditorComponent() {},
+			},
+		};
+		const reporter = createCouncilProgressReporter(ctx as never, undefined, {
+			statusLabel: "judge",
+		});
+
+		reporter.start([entry("judge", "pending")]);
+
+		expect(statuses[0]).toContain("judge");
+		expect(statuses[0]).not.toContain("council");
+	});
+
 	it("replaces the prompt editor while progress is active and restores it on finish", () => {
 		const previous = () => ({ render: () => [], invalidate() {} }) as never;
 		const installed: unknown[] = [];

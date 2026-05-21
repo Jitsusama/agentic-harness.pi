@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { CouncilProgress } from "../../../extensions/pr-workflow/council-progress.js";
 import {
 	buildCritiquePrompt,
 	type CritiqueParseContext,
@@ -445,6 +446,68 @@ describe("runCritique", () => {
 		expect(fast?.usage?.tokens.total).toBe(55);
 		expect(fast?.usage?.cost.total).toBeCloseTo(0.0005);
 		expect(skeptic?.usage?.tokens.total).toBe(82);
+	});
+
+	it("emits live progress and stream activity for critique reviewers", async () => {
+		const events: string[] = [];
+		const progress: CouncilProgress = {
+			start(entries) {
+				events.push(
+					`start:${entries.map((entry) => entry.reviewer.id).join(",")}`,
+				);
+			},
+			reviewerStarted(reviewerId) {
+				events.push(`started:${reviewerId}`);
+			},
+			reviewerActivity(reviewerId, activity) {
+				events.push(`activity:${reviewerId}:${activity}`);
+			},
+			reviewerCompleted(reviewerId, output) {
+				events.push(`completed:${reviewerId}:${output.completedLabel}`);
+			},
+			reviewerFailed(reviewerId, error) {
+				events.push(`failed:${reviewerId}:${error}`);
+			},
+			finish() {
+				events.push("finish");
+			},
+		};
+
+		await runCritique({
+			runId: "critique-progress",
+			council: council(),
+			judge: judge(),
+			roster: ROSTER,
+			target: { owner: "o", repo: "r", sha: "abc" },
+			registry: new WorktreeRegistry(fakeProvider()),
+			progress,
+			dispatch: async (opts) => {
+				opts.onEvent?.({
+					type: "tool_execution_start",
+					toolName: "grep",
+					args: { pattern: "finding" },
+				});
+				return {
+					reviewerId: opts.reviewer.id,
+					exitCode: 0,
+					finalAssistantText:
+						'```json\n{"critiques":[{"findingId":10,"position":"agree","rationale":"valid"}]}\n```',
+					stderr: "",
+					warnings: [],
+				};
+			},
+		});
+
+		expect(events).toEqual([
+			"start:fast,skeptic",
+			"started:fast",
+			"activity:fast:grep finding",
+			"started:skeptic",
+			"activity:skeptic:grep finding",
+			"completed:fast:1 critique",
+			"completed:skeptic:1 critique",
+			"finish",
+		]);
 	});
 
 	it("links to the judge run it critiques", async () => {

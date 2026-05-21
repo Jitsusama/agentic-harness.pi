@@ -19,8 +19,7 @@
  * can't take down a live council run.
  */
 
-import type { ReviewerOutput } from "./findings.js";
-import type { CouncilReviewer } from "./reviewer.js";
+import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
 
 /** Per-reviewer lifecycle state surfaced to the UI. */
 export type CouncilProgressState =
@@ -36,6 +35,8 @@ export interface CouncilProgressEntry {
 	readonly state: CouncilProgressState;
 	/** Findings parsed from this reviewer; populated after `complete`. */
 	readonly findingCount: number;
+	/** Custom completion text for non-finding stages such as critique. */
+	readonly completedLabel?: string;
 	/** Warnings reported by the dispatcher and parser. */
 	readonly warnings: readonly string[];
 	/** Error message when state is `failed`. Empty otherwise. */
@@ -47,6 +48,15 @@ export interface CouncilProgressEntry {
 	 * or after the reviewer settles.
 	 */
 	readonly activity: string;
+}
+
+/** Completed reviewer progress payload. */
+export interface CouncilProgressCompletion {
+	readonly reviewerId: string;
+	readonly findings?: readonly unknown[];
+	readonly warnings: readonly string[];
+	readonly usage?: ReviewerUsage;
+	readonly completedLabel?: string;
 }
 
 /** Observer notified as reviewers progress. */
@@ -71,7 +81,10 @@ export interface CouncilProgress {
 	reviewerActivity?(reviewerId: string, activity: string): void;
 
 	/** A reviewer has produced output (parsed successfully). */
-	reviewerCompleted(reviewerId: string, output: ReviewerOutput): void;
+	reviewerCompleted(
+		reviewerId: string,
+		output: CouncilProgressCompletion,
+	): void;
 
 	/** A reviewer was cancelled by the user. */
 	reviewerCancelled?(reviewerId: string): void;

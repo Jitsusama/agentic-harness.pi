@@ -46,9 +46,15 @@ export interface CouncilProgressControls {
  * council. Returns the observer the orchestrator will
  * notify.
  */
+export interface CouncilProgressDisplayOptions {
+	readonly statusLabel?: string;
+	readonly title?: string;
+}
+
 export function createCouncilProgressReporter(
 	ctx: ExtensionContext,
 	controls?: CouncilProgressControls,
+	display: CouncilProgressDisplayOptions = {},
 ): CouncilProgress {
 	let entries: CouncilProgressEntry[] = [];
 	let panel: CouncilProgressPanel | null = null;
@@ -57,7 +63,10 @@ export function createCouncilProgressReporter(
 
 	const render = (): void => {
 		const theme = ctx.ui.theme;
-		ctx.ui.setStatus(STATUS_KEY, renderStatusLine(entries, theme));
+		ctx.ui.setStatus(
+			STATUS_KEY,
+			renderStatusLine(entries, theme, display.statusLabel ?? "council"),
+		);
 		panel?.setEntries(entries);
 	};
 
@@ -70,6 +79,7 @@ export function createCouncilProgressReporter(
 				ctx.ui.theme,
 				entries,
 				controls,
+				display.title,
 			);
 			panel = component;
 			return component;
@@ -111,7 +121,8 @@ export function createCouncilProgressReporter(
 		reviewerCompleted(reviewerId, output) {
 			updateEntry(reviewerId, {
 				state: "complete",
-				findingCount: output.findings.length,
+				findingCount: output.findings?.length ?? 0,
+				completedLabel: output.completedLabel,
 				warnings: output.warnings,
 				activity: "",
 			});
@@ -147,6 +158,7 @@ export function createCouncilProgressReporter(
 export function renderCouncilStatus(
 	entries: readonly CouncilProgressEntry[],
 	theme: Theme,
+	label = "council",
 ): string {
 	const counts = countStates(entries);
 	const total = entries.length;
@@ -160,14 +172,15 @@ export function renderCouncilStatus(
 		detail.push(theme.fg("error", `failed=${counts.failed}`));
 	}
 	const tail = detail.length > 0 ? ` ${detail.join(" ")}` : "";
-	return `${theme.fg("accent", "council")} ${summary}${tail}`;
+	return `${theme.fg("accent", label)} ${summary}${tail}`;
 }
 
 function renderStatusLine(
 	entries: readonly CouncilProgressEntry[],
 	theme: Theme,
+	label: string,
 ): string {
-	return renderCouncilStatus(entries, theme);
+	return renderCouncilStatus(entries, theme, label);
 }
 
 /** Render the council progress widget lines. */
@@ -192,6 +205,7 @@ export function renderCouncilWidgetLines(
 
 function widgetSubtext(entry: CouncilProgressEntry): string | undefined {
 	if (entry.state === "complete") {
+		if (entry.completedLabel) return entry.completedLabel;
 		const noun = entry.findingCount === 1 ? "finding" : "findings";
 		return `${entry.findingCount} ${noun}`;
 	}
@@ -248,6 +262,7 @@ export class CouncilProgressPanel {
 		private readonly theme: Theme,
 		entries: readonly CouncilProgressEntry[],
 		private readonly controls: CouncilProgressControls | undefined,
+		private readonly title = "PR review progress",
 	) {
 		this.entries = entries.map((entry) => ({ ...entry }));
 	}
@@ -316,7 +331,7 @@ export class CouncilProgressPanel {
 		const lines: string[] = [];
 		const add = (line: string) => lines.push(truncateToWidth(line, width));
 		add(this.theme.fg("accent", "─".repeat(width)));
-		add(` ${this.theme.fg("accent", this.theme.bold("PR review progress"))}`);
+		add(` ${this.theme.fg("accent", this.theme.bold(this.title))}`);
 		add(
 			` ${this.theme.fg(
 				"dim",
