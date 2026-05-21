@@ -93,6 +93,31 @@ describe("CouncilProgressPanel", () => {
 		expect(panel.render(80).join("\n")).toContain("cancelled skeptic");
 	});
 
+	it("clears cancellation notices on the next progress update", () => {
+		const { tui } = fakeTui();
+		const panel = new CouncilProgressPanel(
+			tui as never,
+			fakeTheme(),
+			[entry("fast", "running")],
+			{
+				cancelReviewer(id) {
+					return `cancelled ${id}`;
+				},
+				cancelAll() {
+					return "cancelled all";
+				},
+			},
+		);
+
+		panel.handleInput("r");
+		expect(panel.render(80).join("\n")).toContain("cancelled fast");
+
+		panel.setEntries([entry("fast", "cancelled")]);
+
+		expect(panel.render(80).join("\n")).not.toContain("cancelled fast");
+		expect(panel.render(80).join("\n")).toContain("cancelled by user");
+	});
+
 	it("cancels the whole run on Escape", () => {
 		const calls: string[] = [];
 		const { tui } = fakeTui();
