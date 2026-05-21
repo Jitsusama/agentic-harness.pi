@@ -155,20 +155,51 @@ export async function runStackReviewAction(
 	});
 
 	const settled = await Promise.allSettled(
-		state.council.roster.map((reviewer) => {
+		state.council.roster.map(async (reviewer) => {
 			safelyNotify(
 				() => progress.reviewerStarted(reviewer.id),
 				`started(${reviewer.id})`,
 				progressWarnings,
 			);
-			return input.dispatch({
-				reviewer,
-				prompt: reviewPrompt,
-				cwd: handle.path,
-				signal: input.signal,
-				onEvent: (event) =>
-					notifyActivity(progress, progressWarnings, reviewer.id, event),
-			});
+			try {
+				const value = await input.dispatch({
+					reviewer,
+					prompt: reviewPrompt,
+					cwd: handle.path,
+					signal: input.signal,
+					onEvent: (event) =>
+						notifyActivity(progress, progressWarnings, reviewer.id, event),
+				});
+				const parsed = parseStackReviewOutput(value.finalAssistantText, {
+					runId,
+					reviewerId: reviewer.id,
+					startId: 0,
+				});
+				const output: StackReviewerOutput = {
+					reviewerId: reviewer.id,
+					perPr: parsed.perPr,
+					crossPr: parsed.crossPr,
+					warnings: [...value.warnings, ...parsed.warnings],
+				};
+				safelyNotify(
+					() =>
+						progress.reviewerCompleted(
+							reviewer.id,
+							reviewerProgressOutput(output),
+						),
+					`completed(${reviewer.id})`,
+					progressWarnings,
+				);
+				return value;
+			} catch (err) {
+				const message = errorMessage(err);
+				safelyNotify(
+					() => progress.reviewerFailed(reviewer.id, message),
+					`failed(${reviewer.id})`,
+					progressWarnings,
+				);
+				throw err;
+			}
 		}),
 	);
 
@@ -186,11 +217,6 @@ export async function runStackReviewAction(
 				crossPr: [],
 				warnings: [`Reviewer dispatch failed: ${message}`],
 			});
-			safelyNotify(
-				() => progress.reviewerFailed(reviewer.id, message),
-				`failed(${reviewer.id})`,
-				progressWarnings,
-			);
 			continue;
 		}
 		const parsed = parseStackReviewOutput(result.value.finalAssistantText, {
@@ -209,12 +235,6 @@ export async function runStackReviewAction(
 		for (const warning of output.warnings)
 			warnings.push(`${reviewer.id}: ${warning}`);
 		reviewerOutputs.push(output);
-		safelyNotify(
-			() =>
-				progress.reviewerCompleted(reviewer.id, reviewerProgressOutput(output)),
-			`completed(${reviewer.id})`,
-			progressWarnings,
-		);
 	}
 
 	const judgeRunId = `stack-judge-${startedAt}`;
