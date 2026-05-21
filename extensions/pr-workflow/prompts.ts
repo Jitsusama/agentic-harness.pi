@@ -12,6 +12,7 @@
  */
 
 import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
+import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import { CouncilFindingsOutput } from "./schemas.js";
 
 /** Inputs the reviewer needs to do its job. */
@@ -53,6 +54,8 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 			'(e.g. "non-blocking", "if-minor"). Optional severity is "critical", ' +
 			'"medium" or "minor". Optional confidence is a number 0.0 to 1.0.',
 	);
+
+	sections.push(reviewerOperatingRules());
 
 	sections.push("## PR title");
 	sections.push(input.prTitle || "(no title)");

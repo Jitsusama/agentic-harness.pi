@@ -23,6 +23,7 @@ import { Value } from "@sinclair/typebox/value";
 import type { CouncilDispatch, CouncilTarget } from "./council.js";
 import type { CouncilRun, FindingLocation } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
+import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
 import {
 	CritiqueEntry as CritiqueEntrySchema,
@@ -190,6 +191,8 @@ export function buildCritiquePrompt(input: BuildCritiquePromptInput): string {
 		"  - amplify: the finding is correct AND undersold; mark it more " +
 			"severe or blocking. Say why.",
 	);
+	lines.push("");
+	lines.push(reviewerOperatingRules());
 	lines.push("");
 	lines.push("Your round-1 findings (for recall):");
 	const own = input.council.reviewerOutputs.find(

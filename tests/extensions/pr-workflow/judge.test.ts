@@ -118,6 +118,18 @@ describe("buildJudgePrompt", () => {
 		expect(text).toMatch(/synthesize|consolidate|merge similar/i);
 	});
 
+	it("instructs judge tools to stay inside the worktree", async () => {
+		const text = buildJudgePrompt({ council: council() });
+		expect(text).toContain("current working directory");
+		expect(text).toContain("Stay inside");
+		expect(text).toContain("Do not search `/`");
+		expect(text).toContain("`/Users`");
+		expect(text).toContain("`$HOME`");
+		expect(text).toContain("Never run commands like `find /`");
+		expect(text).toContain("Do not roam the filesystem");
+		expect(text).toContain("`rg`");
+	});
+
 	it("embeds the judge JSON schema and instructs verify_output", async () => {
 		// The judge subagent gets pr-workflow-verify
 		// loaded so it can self-validate before ending.

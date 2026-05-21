@@ -137,6 +137,22 @@ describe("buildReviewerPrompt", () => {
 		expect(prompt).toMatch(/stage[=:].?["']?council/i);
 	});
 
+	it("instructs reviewer tools to stay inside the worktree", () => {
+		const prompt = buildReviewerPrompt({
+			prTitle: "x",
+			prDescription: "",
+			files: [file()],
+		});
+		expect(prompt).toContain("current working directory");
+		expect(prompt).toContain("Stay inside");
+		expect(prompt).toContain("Do not search `/`");
+		expect(prompt).toContain("`/Users`");
+		expect(prompt).toContain("`$HOME`");
+		expect(prompt).toContain("Never run commands like `find /`");
+		expect(prompt).toContain("Do not roam the filesystem");
+		expect(prompt).toContain("`rg`");
+	});
+
 	it("embeds the JSON schema for the council output", () => {
 		// The model is more reliable when it sees the
 		// schema it'll be validated against, not just a

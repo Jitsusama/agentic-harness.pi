@@ -153,6 +153,22 @@ describe("buildCritiquePrompt", () => {
 		expect(text).toContain("amplify");
 	});
 
+	it("instructs critique tools to stay inside the worktree", async () => {
+		const text = buildCritiquePrompt({
+			reviewerId: "fast",
+			council: council(),
+			judge: judge(),
+		});
+		expect(text).toContain("current working directory");
+		expect(text).toContain("Stay inside");
+		expect(text).toContain("Do not search `/`");
+		expect(text).toContain("`/Users`");
+		expect(text).toContain("`$HOME`");
+		expect(text).toContain("Never run commands like `find /`");
+		expect(text).toContain("Do not roam the filesystem");
+		expect(text).toContain("`rg`");
+	});
+
 	it("asks for a JSON block with a critiques array keyed by findingId", async () => {
 		const text = buildCritiquePrompt({
 			reviewerId: "fast",

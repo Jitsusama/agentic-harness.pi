@@ -22,6 +22,7 @@
 import { Value } from "@sinclair/typebox/value";
 import type { CouncilDispatch, CouncilTarget } from "./council.js";
 import type { CouncilRun, Finding, FindingLocation } from "./findings.js";
+import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
 import { JudgeFinding, JudgeOutput, JudgeSelfSignal } from "./schemas.js";
 import type { WorktreeRegistry } from "./worktree.js";
@@ -115,6 +116,8 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 		"- Favour keep over drop when uncertain. The user reviews next " +
 			"and will dismiss noise; you cannot resurface what you drop.",
 	);
+	lines.push("");
+	lines.push(reviewerOperatingRules());
 	lines.push("");
 	lines.push("Round 1 findings from the reviewers:");
 	for (const output of input.council.reviewerOutputs) {
