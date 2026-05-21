@@ -269,6 +269,7 @@ export async function runStackReviewAction(
 		warnings: [...judged.warnings, ...parsedJudge.warnings],
 		...(judged.usage ? { usage: judged.usage } : {}),
 	} satisfies StackFindingRun;
+	state.stackDecisions = new Map();
 
 	safelyNotify(() => progress.finish(), "finish", progressWarnings);
 	warnings.push(...progressWarnings);
@@ -489,12 +490,14 @@ function writePerPrJudgeRuns(input: {
 			warnings: [...input.warnings],
 		};
 		if (pr.reference.number === input.cursorPrNumber) {
+			input.state.council.lastRun = null;
 			input.state.council.lastJudge = judgeRun;
+			input.state.council.lastCritique = null;
+			input.state.council.decisions = new Map();
 		} else {
-			const prior = input.state.stackRuns.get(pr.reference.number);
 			input.state.stackRuns.set(
 				pr.reference.number,
-				mergeJudgeIntoSnapshot(prior, judgeRun),
+				replaceWithStackJudgeSnapshot(judgeRun),
 			);
 		}
 		results.push({
@@ -505,16 +508,12 @@ function writePerPrJudgeRuns(input: {
 	return results;
 }
 
-function mergeJudgeIntoSnapshot(
-	prior: PrRunSnapshot | undefined,
-	run: JudgeRun,
-): PrRunSnapshot {
-	const decisions = prior?.decisions ?? new Map<number, FindingDecision>();
+function replaceWithStackJudgeSnapshot(run: JudgeRun): PrRunSnapshot {
 	return {
-		lastRun: prior?.lastRun ?? null,
+		lastRun: null,
 		lastJudge: run,
-		lastCritique: prior?.lastCritique ?? null,
-		decisions,
+		lastCritique: null,
+		decisions: new Map<number, FindingDecision>(),
 	};
 }
 

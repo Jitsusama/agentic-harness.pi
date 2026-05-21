@@ -140,6 +140,9 @@ export async function runCouncilAction(
 		progress: input.progress,
 	});
 	state.council.lastRun = run;
+	state.council.lastJudge = null;
+	state.council.lastCritique = null;
+	state.council.decisions = new Map();
 	return { ok: true, run };
 }
 

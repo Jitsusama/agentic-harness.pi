@@ -165,6 +165,58 @@ describe("runJudgeAction", () => {
 		expect(state.council.lastJudge?.consolidatedFindings).toHaveLength(1);
 		expect(state.council.lastJudge?.selfSignal?.confidence).toBe("medium");
 	});
+
+	it("clears stale decisions and critiques when a new judge run lands", async () => {
+		const state = withLoadedPr();
+		state.council.lastRun = withCouncilRun();
+		state.council.judge = { id: "j", model: "anthropic/claude-opus-4-7" };
+		state.council.decisions.set(2, {
+			findingId: 2,
+			verdict: "fix",
+			decidedAt: "2026-05-20T15:00:00Z",
+			resolvedBy: {
+				commitSha: "abc1234",
+				recordedAt: "2026-05-20T15:05:00Z",
+			},
+		});
+		state.council.lastCritique = {
+			id: "critique-old",
+			startedAt: "2026-05-20T15:10:00Z",
+			judgeRunId: "judge-old",
+			reviewerOutputs: [],
+			warnings: [],
+		};
+
+		const result = await runJudgeAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async () => ({
+				reviewerId: "j",
+				exitCode: 0,
+				finalAssistantText: [
+					"```json",
+					JSON.stringify({
+						findings: [
+							{
+								location: { kind: "global" },
+								label: "issue",
+								subject: "new finding with reused id",
+								discussion: "d",
+							},
+						],
+					}),
+					"```",
+				].join("\n"),
+				stderr: "",
+				warnings: [],
+			}),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(state.council.lastJudge?.consolidatedFindings[0]?.id).toBe(2);
+		expect(state.council.decisions.size).toBe(0);
+		expect(state.council.lastCritique).toBeNull();
+	});
 });
 
 describe("formatJudgeSummary", () => {

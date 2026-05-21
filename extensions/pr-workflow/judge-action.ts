@@ -95,6 +95,8 @@ export async function runJudgeAction(
 		signal: input.signal,
 	});
 	state.council.lastJudge = run;
+	state.council.lastCritique = null;
+	state.council.decisions = new Map();
 	return { ok: true, run };
 }
 

@@ -196,6 +196,63 @@ describe("runCouncilAction", () => {
 		expect(run.reviewerOutputs).toHaveLength(1);
 		expect(run.reviewerOutputs[0].findings).toHaveLength(1);
 	});
+
+	it("clears downstream judge state when a new council run lands", async () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "2026-01-01T00:00:00Z",
+			metadata: prMetadata({
+				title: "Add foo",
+				url: "https://example/42",
+				author: "a",
+				base: { ref: "main", sha: "deadbeef" },
+				head: { ref: "feat", sha: "headsha1" },
+			}),
+			files: [],
+			stack: null,
+		};
+		state.council.roster = [{ id: "fast" }];
+		state.council.judge = { id: "judge" };
+		state.council.lastJudge = {
+			id: "old-judge",
+			startedAt: "2026-05-20T15:00:00Z",
+			judgeReviewerId: "judge",
+			selfSignal: null,
+			consolidatedFindings: [],
+			warnings: [],
+		};
+		state.council.lastCritique = {
+			id: "old-critique",
+			startedAt: "2026-05-20T15:05:00Z",
+			judgeRunId: "old-judge",
+			reviewerOutputs: [],
+			warnings: [],
+		};
+		state.council.decisions.set(1, {
+			findingId: 1,
+			verdict: "endorse",
+			decidedAt: "2026-05-20T15:10:00Z",
+		});
+
+		const result = await runCouncilAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async (opts) => ({
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: JSON.stringify({ findings: [] }),
+				stderr: "",
+				warnings: [],
+			}),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(state.council.lastRun).not.toBeNull();
+		expect(state.council.lastJudge).toBeNull();
+		expect(state.council.lastCritique).toBeNull();
+		expect(state.council.decisions.size).toBe(0);
+	});
 });
 
 describe("formatCouncilSummary", () => {
