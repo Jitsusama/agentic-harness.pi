@@ -42,7 +42,7 @@ import type { FindingDecision } from "./synthesis.js";
 const SESSION_KEY = "pr-workflow";
 
 /** Current wire-format version. Bump when adding/changing fields. */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * Map serialisation form. JSON.stringify on a Map
@@ -73,7 +73,8 @@ interface PersistedPrRunSnapshot {
  * Versioned so future restores can read older entries
  * without crashing. v2 carries every field; v0 (Phase 1
  * entries that lack a `version`) only carries the
- * config + PR reference slice.
+ * config + PR reference slice. v3 adds the session-global
+ * finding id allocator.
  */
 interface PersistedState {
 	readonly version: typeof SCHEMA_VERSION;
@@ -91,6 +92,8 @@ interface PersistedState {
 	readonly stackDecisions: readonly PersistedDecisionEntry[];
 	readonly stackRuns: readonly PersistedPrRunSnapshot[];
 	readonly threads: ThreadsSnapshot | null;
+	// Phase 3 fields:
+	readonly nextFindingId: number;
 }
 
 function serialiseDecisions(
@@ -141,6 +144,31 @@ function deserialiseStackRuns(
 	return map;
 }
 
+function inferNextFindingId(state: PrWorkflowState): number {
+	let next = 1;
+	for (const output of state.council.lastRun?.reviewerOutputs ?? []) {
+		for (const finding of output.findings)
+			next = Math.max(next, finding.id + 1);
+	}
+	for (const finding of state.council.lastJudge?.consolidatedFindings ?? []) {
+		next = Math.max(next, finding.id + 1);
+	}
+	for (const finding of state.stackFindingRun?.findings ?? []) {
+		next = Math.max(next, finding.id + 1);
+	}
+	for (const snapshot of state.stackRuns.values()) {
+		for (const output of snapshot.lastRun?.reviewerOutputs ?? []) {
+			for (const finding of output.findings) {
+				next = Math.max(next, finding.id + 1);
+			}
+		}
+		for (const finding of snapshot.lastJudge?.consolidatedFindings ?? []) {
+			next = Math.max(next, finding.id + 1);
+		}
+	}
+	return next;
+}
+
 /**
  * Snapshot the persisted slice of state. Pure: callers
  * own the side effect of writing it.
@@ -160,6 +188,7 @@ function snapshot(state: PrWorkflowState): PersistedState {
 		stackDecisions: serialiseDecisions(state.stackDecisions),
 		stackRuns: serialiseStackRuns(state.stackRuns),
 		threads: state.threads,
+		nextFindingId: state.nextFindingId,
 	};
 }
 
@@ -220,4 +249,6 @@ export function restore(
 	state.stackRuns = deserialiseStackRuns(saved.stackRuns);
 
 	if (saved.threads !== undefined) state.threads = saved.threads;
+
+	state.nextFindingId = saved.nextFindingId ?? inferNextFindingId(state);
 }

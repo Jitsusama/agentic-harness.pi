@@ -200,6 +200,7 @@ describe("runStackReviewAction guards", () => {
 describe("runStackReviewAction", () => {
 	it("runs stack-wide reviewers and writes per-PR plus cross-PR findings", async () => {
 		const state = buildState();
+		state.nextFindingId = 20;
 		const result = await runStackReviewAction({
 			state,
 			registry: new WorktreeRegistry(fakeProvider()),
@@ -216,6 +217,7 @@ describe("runStackReviewAction", () => {
 		]);
 		expect(result.run.crossPrFindingCount).toBe(1);
 		expect(state.council.lastJudge?.selfSignal?.confidence).toBe("high");
+		expect(state.council.lastJudge?.consolidatedFindings[0]?.id).toBe(22);
 		expect(state.council.lastJudge?.consolidatedFindings[0]?.subject).toBe(
 			"cursor issue",
 		);
@@ -223,10 +225,15 @@ describe("runStackReviewAction", () => {
 			"stack-judge",
 		);
 		expect(
+			state.stackRuns.get(102)?.lastJudge?.consolidatedFindings[0]?.id,
+		).toBe(23);
+		expect(
 			state.stackRuns.get(102)?.lastJudge?.consolidatedFindings[0]?.subject,
 		).toBe("stack mate issue");
+		expect(state.stackFindingRun?.findings[0]?.id).toBe(24);
 		expect(state.stackFindingRun?.findings[0]?.subject).toBe("cross issue");
 		expect(state.stackFindingRun?.findings[0]?.homePrNumber).toBe(101);
+		expect(state.nextFindingId).toBe(25);
 	});
 
 	it("clears decisions when stack review replaces visible findings", async () => {

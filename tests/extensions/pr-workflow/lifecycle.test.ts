@@ -363,6 +363,40 @@ describe("pr-workflow lifecycle", () => {
 			expect(restored.threads?.threads).toEqual([reviewThread()]);
 		});
 
+		it("rehydrates the session-global finding id allocator", () => {
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+			const ctx = makeCtx(entries);
+
+			const source = createPrWorkflowState();
+			source.nextFindingId = 42;
+			persist(source, pi);
+
+			const restored = createPrWorkflowState();
+			restore(restored, pi, ctx);
+
+			expect(restored.nextFindingId).toBe(42);
+		});
+
+		it("infers the next finding id from old run-history entries", () => {
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+			const ctx = makeCtx(entries);
+
+			const source = createPrWorkflowState();
+			source.council.lastJudge = sampleJudgeRun();
+			source.stackFindingRun = sampleStackFindingRun();
+			persist(source, pi);
+			if (entries[0]?.data && typeof entries[0].data === "object") {
+				delete (entries[0].data as { nextFindingId?: number }).nextFindingId;
+			}
+
+			const restored = createPrWorkflowState();
+			restore(restored, pi, ctx);
+
+			expect(restored.nextFindingId).toBe(102);
+		});
+
 		it("treats a v0 (Phase 1) entry as config-only without crashing", () => {
 			// v0 entries lack a `version` field and only
 			// carry roster/judge/prReference.

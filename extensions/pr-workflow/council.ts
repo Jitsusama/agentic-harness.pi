@@ -67,6 +67,8 @@ export interface RunCouncilOptions {
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly signal?: AbortSignal;
+	/** First session-global finding id available to this run. */
+	readonly startId?: number;
 	/**
 	 * Optional observer notified as each reviewer
 	 * starts, completes or fails. Lets the UI render
@@ -202,7 +204,7 @@ export async function runCouncil(
 		}),
 	);
 
-	let nextId = 1;
+	let nextId = options.startId ?? 1;
 	const reviewerOutputs: ReviewerOutput[] = [];
 	for (let i = 0; i < settled.length; i++) {
 		const reviewer = options.reviewers[i];

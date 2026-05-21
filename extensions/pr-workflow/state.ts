@@ -101,6 +101,8 @@ export interface PrWorkflowState {
 	pr: ActivePr | null;
 	/** Council configuration and history. */
 	council: CouncilState;
+	/** Next session-global finding id to allocate. */
+	nextFindingId: number;
 	/**
 	 * Per-PR run snapshots keyed by PR number. Populated
 	 * by `loadPr` when the cursor moves off a PR that
@@ -171,6 +173,7 @@ export function createPrWorkflowState(): PrWorkflowState {
 			lastCritique: null,
 			decisions: new Map(),
 		},
+		nextFindingId: 1,
 		stackRuns: new Map(),
 		stackFindingRun: null,
 		stackDecisions: new Map(),
