@@ -354,11 +354,20 @@ describe("postReviewAction", () => {
 			files: [],
 			stack: null,
 		};
-		state.council.lastJudge = judge([lineFinding(10, "Null deref")]);
+		state.council.lastJudge = judge([
+			lineFinding(10, "Null deref"),
+			lineFinding(11, "Duplicate"),
+		]);
 		state.council.decisions.set(10, {
 			findingId: 10,
 			verdict: "endorse",
 			decidedAt: "x",
+		});
+		state.council.decisions.set(11, {
+			findingId: 11,
+			verdict: "dismiss",
+			decidedAt: "x",
+			reason: "dismissed by user",
 		});
 		return state;
 	}
@@ -455,6 +464,7 @@ describe("postReviewAction", () => {
 		expect(arg.body).toContain("finding(s) included");
 		expect(arg.body).not.toContain("finding(s) posted");
 		expect(arg.findings.map((f: { id: number }) => f.id)).toEqual([10]);
+		expect(arg.skipped).toEqual([{ displayId: "11", reason: "dismiss" }]);
 	});
 
 	it("skips exec when the gate rejects and surfaces the gate reason", async () => {

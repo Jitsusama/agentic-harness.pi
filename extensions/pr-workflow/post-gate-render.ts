@@ -6,6 +6,7 @@
  * runtime.
  */
 
+import { contentWrapWidth, wordWrap } from "../../lib/ui/text-layout.js";
 import type { ContentRenderer } from "../../lib/ui/types.js";
 import type { ReviewEvent } from "./post.js";
 
@@ -17,6 +18,12 @@ export interface PostGateFindingLine {
 	readonly location: string;
 }
 
+/** One skipped finding line in the gate's listing. */
+export interface PostGateSkippedLine {
+	readonly displayId: string;
+	readonly reason: string;
+}
+
 /** Everything the post gate needs to render its content. */
 export interface PostGateSummary {
 	readonly event: ReviewEvent;
@@ -26,6 +33,7 @@ export interface PostGateSummary {
 	readonly stackFindingCount: number;
 	readonly skippedCount: number;
 	readonly findings: readonly PostGateFindingLine[];
+	readonly skipped: readonly PostGateSkippedLine[];
 }
 
 /**
@@ -38,8 +46,9 @@ export interface PostGateSummary {
 export function renderPostGateContent(
 	summary: PostGateSummary,
 ): ContentRenderer {
-	return (theme, _width) => {
+	return (theme, width) => {
 		const lines: string[] = [];
+		const wrapWidth = contentWrapWidth(width);
 
 		lines.push(theme.fg("accent", ` Review event: ${summary.event}`));
 
@@ -63,7 +72,7 @@ export function renderPostGateContent(
 		if (summary.body.length > 0) {
 			lines.push("");
 			lines.push(theme.fg("dim", " Review body:"));
-			for (const bodyLine of summary.body.split("\n")) {
+			for (const bodyLine of wordWrap(summary.body, wrapWidth - 1)) {
 				lines.push(` ${theme.fg("text", bodyLine)}`);
 			}
 		}
@@ -72,12 +81,24 @@ export function renderPostGateContent(
 			lines.push("");
 			lines.push(theme.fg("dim", " Findings:"));
 			for (const f of summary.findings) {
-				lines.push(
-					` ${theme.fg("accent", `[${f.id}]`)} ${theme.fg("text", `[${f.label}]`)} ${f.subject} ${theme.fg("dim", f.location)}`,
-				);
+				const raw = `[${f.id}] [${f.label}] ${f.subject} ${f.location}`;
+				pushWrapped(lines, wordWrap(raw, wrapWidth - 1));
+			}
+		}
+
+		if (summary.skipped.length > 0) {
+			lines.push("");
+			lines.push(theme.fg("dim", " Skipped:"));
+			for (const skipped of summary.skipped) {
+				const raw = `[${skipped.displayId}] ${skipped.reason}`;
+				pushWrapped(lines, wordWrap(raw, wrapWidth - 1));
 			}
 		}
 
 		return lines;
 	};
+}
+
+function pushWrapped(lines: string[], wrapped: readonly string[]): void {
+	for (const line of wrapped) lines.push(` ${line}`);
 }
