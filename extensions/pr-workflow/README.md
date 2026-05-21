@@ -186,6 +186,36 @@ the right action.
   pipeline: stack-aware council fan-out followed by
   stack-aware judge.
 
+### Worktree provider API
+
+Reviewer subagents receive a working tree path, not the
+user's checkout. By default, pr-workflow provisions that
+path with native `git worktree add --detach <sha>`. Private
+or workspace-specific packages can replace that behaviour
+without importing this extension by registering a provider
+over Pi's event bus.
+
+A provider implements the structural `WorktreeProvider`
+contract: `id`, optional `priority`, optional `canHandle`,
+`ensure(request)` and `release(handle)`. `ensure` receives
+`owner`, `repo`, `sha` and optional `branch`; it retrieves
+whatever refs it needs, creates the working tree and returns
+an absolute path in the handle. Higher-priority providers
+run before the native git fallback.
+
+Event names:
+
+- `pr-workflow:ready:v1` — emitted once the registration API
+  is ready. Payload has `registerWorktreeProvider(provider)`
+  and `listWorktreeProviders()`.
+- `pr-workflow:worktree-provider:register:v1` — emit a
+  provider directly. Use this as the load-order fallback
+  when the private extension may load after pr-workflow.
+
+Private extensions should both listen for `ready` and emit
+`register` during activation. That makes registration safe
+regardless of extension load order.
+
 ### Configuration defaults
 
 The extension ships with no built-in reviewer or judge

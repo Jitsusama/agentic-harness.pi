@@ -203,6 +203,26 @@ Roster and judge persist across `/reload`. If a session
 already has them, mention them in your status update;
 don't re-prompt.
 
+### Worktree providers
+
+Reviewer subagents run inside a working tree provisioned
+by pr-workflow. The public extension defaults to native
+`git worktree add --detach <sha>`. Private extensions can
+register provider implementations over Pi's event bus for
+workspace-specific checkout systems.
+
+Event names:
+
+- `pr-workflow:ready:v1`
+- `pr-workflow:worktree-provider:register:v1`
+
+A provider receives `{ owner, repo, sha, branch? }`,
+retrieves the ref however it needs, creates a working tree
+and returns a handle with an absolute `path`. Do not encode
+private workspace rules in this public skill; private
+packages own their provider implementation and any
+proprietary behaviour.
+
 ### Running the rounds
 
 ```

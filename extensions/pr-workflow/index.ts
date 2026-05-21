@@ -98,7 +98,13 @@ import {
 } from "./threads-action.js";
 import { summarizeUsage, type UsageBreakdown } from "./usage.js";
 import { resolveVerifyExtensionPath } from "./verify-path.js";
-import { WorktreeRegistry } from "./worktree.js";
+import {
+	isWorktreeProvider,
+	PR_WORKFLOW_READY,
+	PR_WORKFLOW_REGISTER_WORKTREE_PROVIDER,
+	WorktreeProviderBroker,
+	WorktreeRegistry,
+} from "./worktree.js";
 import { createGitWorktreeProvider } from "./worktree-git.js";
 
 /**
@@ -137,19 +143,36 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	// The default resolver assumes the user's clone
 	// lives at ~/src/github.com/<owner>/<repo>. This
 	// matches the convention documented in personal
-	// AGENTS.md; a future commit makes it pluggable
-	// per workspace.
+	// AGENTS.md. Proprietary/private packages can
+	// register a higher-priority provider over the event
+	// bridge without this public package knowing their
+	// workspace rules.
 	const resolveSourceRepo = async (req: { owner: string; repo: string }) =>
 		join(homedir(), "src", "github.com", req.owner, req.repo);
+	const worktreeProviders = new WorktreeProviderBroker(
+		createGitWorktreeProvider({
+			stateDir: prWorkflowStateDir(),
+			resolveSourceRepo,
+		}),
+	);
+	const registerWorktreeProvider = (provider: unknown): void => {
+		if (!isWorktreeProvider(provider)) return;
+		worktreeProviders.register(provider);
+	};
+	const worktreeApi = {
+		registerWorktreeProvider,
+		listWorktreeProviders: () => worktreeProviders.providerIds(),
+	};
+	pi.events.on(
+		PR_WORKFLOW_REGISTER_WORKTREE_PROVIDER,
+		registerWorktreeProvider,
+	);
+	pi.events.emit(PR_WORKFLOW_READY, worktreeApi);
 
 	const getCouncilDeps = () => {
 		if (councilDeps !== null) return councilDeps;
-		const provider = createGitWorktreeProvider({
-			stateDir: prWorkflowStateDir(),
-			resolveSourceRepo,
-		});
 		councilDeps = {
-			registry: new WorktreeRegistry(provider),
+			registry: new WorktreeRegistry(worktreeProviders),
 			runPi: createSpawnRunPi({ binary: "pi" }),
 			// Every reviewer subagent loads pr-workflow-verify
 			// so it can self-check its JSON output via the
@@ -1370,6 +1393,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				const lines = [
 					`active: ${state.active ? "yes" : "no"}`,
 					`pr: ${ref}`,
+					`worktree providers: ${worktreeProviders.providerIds().join(", ")}`,
 					`council roster: ${state.council.roster.length} reviewer(s)`,
 					`council last run: ${state.council.lastRun?.id ?? "none"}`,
 					`judge: ${state.council.judge?.id ?? "unset"}`,
