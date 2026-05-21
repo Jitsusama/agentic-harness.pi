@@ -84,6 +84,20 @@ function findings(text: string): RunReviewerResult {
 	};
 }
 
+function deferred<T>(): {
+	promise: Promise<T>;
+	resolve(value: T): void;
+	reject(reason: unknown): void;
+} {
+	let resolve!: (value: T) => void;
+	let reject!: (reason: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return { promise, resolve, reject };
+}
+
 describe("CouncilProgress integration with runCouncil", () => {
 	it("emits start, per-reviewer started+completed, and finish", async () => {
 		const { events, progress } = recorder();
@@ -122,6 +136,50 @@ describe("CouncilProgress integration with runCouncil", () => {
 		const ids = completed.map((e) => e.reviewerId).sort();
 		expect(ids).toEqual(["fast", "slow"]);
 		expect(completed.every((e) => e.findingCount === 1)).toBe(true);
+	});
+
+	it("reports a reviewer as complete as soon as that dispatch settles", async () => {
+		const { events, progress } = recorder();
+		const fast = deferred<RunReviewerResult>();
+		const slow = deferred<RunReviewerResult>();
+		const dispatch: CouncilDispatch = ({ reviewer }) =>
+			reviewer.id === "fast" ? fast.promise : slow.promise;
+
+		const run = runCouncil({
+			runId: "council-early-complete",
+			target,
+			reviewers: roster,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch,
+			progress,
+		});
+
+		for (let i = 0; i < 20; i++) {
+			if (events.some((event) => event.tag === "started")) break;
+			await Promise.resolve();
+		}
+
+		fast.resolve({
+			...findings(JSON.stringify({ findings: [] })),
+			reviewerId: "fast",
+		});
+		for (let i = 0; i < 20; i++) {
+			if (events.some((event) => event.tag === "completed")) break;
+			await Promise.resolve();
+		}
+
+		expect(
+			events.some(
+				(event) => event.tag === "completed" && event.reviewerId === "fast",
+			),
+		).toBe(true);
+		expect(events.some((event) => event.tag === "finish")).toBe(false);
+
+		slow.resolve({
+			...findings(JSON.stringify({ findings: [] })),
+			reviewerId: "slow",
+		});
+		await run;
 	});
 
 	it("reports the full roster as pending in the start snapshot", async () => {

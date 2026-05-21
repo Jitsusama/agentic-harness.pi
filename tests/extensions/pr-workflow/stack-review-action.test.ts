@@ -3,7 +3,10 @@
 import { describe, expect, it } from "vitest";
 import type { CouncilDispatch } from "../../../extensions/pr-workflow/council.js";
 import type { CouncilProgress } from "../../../extensions/pr-workflow/council-progress.js";
-import type { CouncilReviewer } from "../../../extensions/pr-workflow/reviewer.js";
+import type {
+	CouncilReviewer,
+	RunReviewerResult,
+} from "../../../extensions/pr-workflow/reviewer.js";
 import type { Stack } from "../../../extensions/pr-workflow/stack.js";
 import {
 	formatStackReviewActionSummary,
@@ -84,6 +87,20 @@ function fetchers() {
 
 function jsonBlock(value: unknown): string {
 	return ["```json", JSON.stringify(value), "```"].join("\n");
+}
+
+function deferred<T>(): {
+	promise: Promise<T>;
+	resolve(value: T): void;
+	reject(reason: unknown): void;
+} {
+	let resolve!: (value: T) => void;
+	let reject!: (reason: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return { promise, resolve, reject };
 }
 
 function progressRecorder(events: string[]): CouncilProgress {
@@ -330,6 +347,73 @@ describe("runStackReviewAction", () => {
 		expect(state.stackRuns.get(102)?.decisions.size).toBe(0);
 		expect(state.stackFindingRun?.findings[0]?.id).toBe(5);
 		expect(state.stackDecisions.size).toBe(0);
+	});
+
+	it("reports a stack reviewer as complete as soon as that dispatch settles", async () => {
+		const state = buildState();
+		const events: string[] = [];
+		const fast = deferred<RunReviewerResult>();
+		const skeptic = deferred<RunReviewerResult>();
+		const judge = deferred<RunReviewerResult>();
+		const result = runStackReviewAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: ({ reviewer: r }) => {
+				if (r.id === "fast") return fast.promise;
+				if (r.id === "skeptic") return skeptic.promise;
+				return judge.promise;
+			},
+			fetchers: fetchers(),
+			progress: progressRecorder(events),
+		});
+
+		for (let i = 0; i < 20 && !events.includes("started:fast"); i++) {
+			await Promise.resolve();
+		}
+
+		fast.resolve({
+			reviewerId: "fast",
+			exitCode: 0,
+			finalAssistantText: jsonBlock({
+				perPr: { "101": [], "102": [] },
+				crossPr: [],
+			}),
+			stderr: "",
+			warnings: [],
+		});
+		for (let i = 0; i < 20 && !events.includes("completed:fast:0"); i++) {
+			await Promise.resolve();
+		}
+
+		expect(events).toContain("completed:fast:0");
+		expect(events).not.toContain("started:judge");
+		expect(events).not.toContain("finish");
+
+		skeptic.resolve({
+			reviewerId: "skeptic",
+			exitCode: 0,
+			finalAssistantText: jsonBlock({
+				perPr: { "101": [], "102": [] },
+				crossPr: [],
+			}),
+			stderr: "",
+			warnings: [],
+		});
+		for (let i = 0; i < 20 && !events.includes("started:judge"); i++) {
+			await Promise.resolve();
+		}
+
+		judge.resolve({
+			reviewerId: "judge",
+			exitCode: 0,
+			finalAssistantText: jsonBlock({
+				perPr: { "101": [], "102": [] },
+				crossPr: [],
+			}),
+			stderr: "",
+			warnings: [],
+		});
+		expect((await result).ok).toBe(true);
 	});
 
 	it("reports reviewer, activity and judge progress", async () => {

@@ -182,7 +182,7 @@ export async function runCouncil(
 	// until they're parsed, so we serialize id assignment
 	// AFTER results land — dispatch is still concurrent.
 	const settled = await Promise.allSettled(
-		options.reviewers.map((reviewer) => {
+		options.reviewers.map(async (reviewer) => {
 			safelyNotify(
 				() => progress.reviewerStarted(reviewer.id),
 				`started(${reviewer.id})`,
@@ -197,13 +197,40 @@ export async function runCouncil(
 					progressWarnings,
 				);
 			};
-			return options.dispatch({
-				reviewer,
-				prompt,
-				cwd: handle.path,
-				signal: options.signal,
-				onEvent,
-			});
+			try {
+				const value = await options.dispatch({
+					reviewer,
+					prompt,
+					cwd: handle.path,
+					signal: options.signal,
+					onEvent,
+				});
+				const parsed = parseReviewerOutput(value.finalAssistantText, {
+					reviewerId: reviewer.id,
+					runId: options.runId,
+					startId: 0,
+				});
+				safelyNotify(
+					() =>
+						progress.reviewerCompleted(reviewer.id, {
+							reviewerId: reviewer.id,
+							findings: parsed.findings,
+							warnings: [...value.warnings, ...parsed.warnings],
+							...(value.usage ? { usage: value.usage } : {}),
+						}),
+					`completed(${reviewer.id})`,
+					progressWarnings,
+				);
+				return value;
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				safelyNotify(
+					() => progress.reviewerFailed(reviewer.id, message),
+					`failed(${reviewer.id})`,
+					progressWarnings,
+				);
+				throw err;
+			}
 		}),
 	);
 
@@ -222,11 +249,6 @@ export async function runCouncil(
 				findings: [],
 				warnings: [`Reviewer dispatch failed: ${message}`],
 			});
-			safelyNotify(
-				() => progress.reviewerFailed(reviewer.id, message),
-				`failed(${reviewer.id})`,
-				progressWarnings,
-			);
 			continue;
 		}
 		const value = result.value;
@@ -243,11 +265,6 @@ export async function runCouncil(
 			...(value.usage ? { usage: value.usage } : {}),
 		};
 		reviewerOutputs.push(output);
-		safelyNotify(
-			() => progress.reviewerCompleted(reviewer.id, output),
-			`completed(${reviewer.id})`,
-			progressWarnings,
-		);
 	}
 
 	safelyNotify(() => progress.finish(), "finish", progressWarnings);
