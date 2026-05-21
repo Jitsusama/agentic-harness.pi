@@ -325,7 +325,7 @@ describe("vocabulary schemas", () => {
 	// vocabularies live in one place; if a value moves
 	// in or out, only schemas.ts and these tests change.
 
-	it("ConventionalLabel accepts every Conventional Comment", () => {
+	it("ConventionalLabel accepts the core Conventional Comment labels", () => {
 		for (const label of [
 			"praise",
 			"nitpick",
@@ -336,17 +336,17 @@ describe("vocabulary schemas", () => {
 			"thought",
 			"chore",
 			"note",
-			"typo",
-			"polish",
-			"quibble",
 		]) {
 			expect(Value.Check(ConventionalLabel, label)).toBe(true);
 		}
 	});
 
-	it("ConventionalLabel rejects freeform strings", () => {
+	it("ConventionalLabel rejects freeform and expressive extension labels", () => {
 		expect(Value.Check(ConventionalLabel, "critical")).toBe(false);
 		expect(Value.Check(ConventionalLabel, "comment")).toBe(false);
+		expect(Value.Check(ConventionalLabel, "typo")).toBe(false);
+		expect(Value.Check(ConventionalLabel, "polish")).toBe(false);
+		expect(Value.Check(ConventionalLabel, "quibble")).toBe(false);
 	});
 
 	it("FindingSeverity has exactly three buckets", () => {

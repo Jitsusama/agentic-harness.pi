@@ -61,9 +61,6 @@ export const ConventionalLabel = Type.Union([
 	Type.Literal("thought"),
 	Type.Literal("chore"),
 	Type.Literal("note"),
-	Type.Literal("typo"),
-	Type.Literal("polish"),
-	Type.Literal("quibble"),
 ]);
 export type ConventionalLabel = Static<typeof ConventionalLabel>;
 

@@ -217,7 +217,7 @@ describe("buildReviewPayload", () => {
 		});
 		const payload = buildReviewPayload(state);
 		const body = payload.comments[0].body;
-		expect(body).toMatch(/^⚠️ issue: Null deref\n\n/);
+		expect(body).toMatch(/^issue: ⚠️ Null deref\n\n/);
 		expect(body).toContain("discussion for Null deref");
 	});
 
@@ -236,7 +236,7 @@ describe("buildReviewPayload", () => {
 		});
 		const payload = buildReviewPayload(state);
 		expect(payload.comments[0].body).toMatch(
-			/^💡 suggestion \(non-blocking, if-minor\): Extract helper\n\n/,
+			/^suggestion \(non-blocking, if-minor\): 💡 Extract helper\n\n/,
 		);
 	});
 
@@ -251,7 +251,7 @@ describe("buildReviewPayload", () => {
 			decidedAt: "x",
 		});
 		const payload = buildReviewPayload(state);
-		expect(payload.comments[0].body).toMatch(/^📝 note: Clean summary\n\n/);
+		expect(payload.comments[0].body).toMatch(/^note: 📝 Clean summary\n\n/);
 		expect(payload.comments[0].body).not.toContain("():");
 	});
 
@@ -266,9 +266,6 @@ describe("buildReviewPayload", () => {
 			thought: "💭",
 			chore: "🧹",
 			note: "📝",
-			typo: "✏️",
-			polish: "✨",
-			quibble: "🤏",
 		};
 		const state = createPrWorkflowState();
 		state.council.lastJudge = judge(
@@ -291,7 +288,7 @@ describe("buildReviewPayload", () => {
 		);
 		expect(headers).toEqual(
 			Object.entries(emojis).map(
-				([label, emoji]) => `${emoji} ${label}: Finding ${label}`,
+				([label, emoji]) => `${label}: ${emoji} Finding ${label}`,
 			),
 		);
 	});
@@ -360,8 +357,9 @@ describe("buildReviewPayload", () => {
 		const payload = buildReviewPayload(state);
 		expect(payload.comments).toHaveLength(1);
 		expect(payload.comments[0].path).toBe("lib/x.ts");
-		expect(payload.body).toContain("💡 suggestion: File-wide");
-		expect(payload.body).toContain("💭 thought: About the PR overall");
+		expect(payload.body).toContain("suggestion: 💡 File-wide");
+		expect(payload.body).toContain("thought: 💭 About the PR overall");
+		expect(payload.body).not.toContain("###");
 		expect(payload.body).not.toContain("[suggestion]");
 	});
 
@@ -628,8 +626,9 @@ describe("buildReviewPayload with stack findings", () => {
 		});
 
 		const payload = buildReviewPayload(state);
-		expect(payload.body).toContain("⚠️ issue: Inconsistent retries");
+		expect(payload.body).toContain("issue: ⚠️ Inconsistent retries");
 		expect(payload.body).toMatch(/spans|42.*43|cross-PR/i);
+		expect(payload.body).not.toContain("###");
 		expect(payload.body).not.toContain("[issue]");
 		expect(payload.includedStackFindingIds).toEqual([1]);
 	});
