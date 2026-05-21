@@ -98,6 +98,15 @@ describe("configureJudge", () => {
 		});
 		expect(expectFailure(result).error).toMatch(/judge id|empty|reviewer id/i);
 	});
+
+	it("rejects a judge id already used by a council reviewer", async () => {
+		const state = createPrWorkflowState();
+		state.council.roster = [{ id: "fast", model: "x" }];
+		const result = configureJudge(state, {
+			judge: { id: "fast", model: "y" },
+		});
+		expect(expectFailure(result).error).toMatch(/council reviewer|distinct/i);
+	});
 });
 
 describe("runJudgeAction", () => {

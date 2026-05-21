@@ -26,6 +26,7 @@ import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
 import { postReview } from "../../lib/internal/github/review-post.js";
 import { parsePrFileUri, prFileUri, resolvePrFile } from "./buffer.js";
+import { loadPrWorkflowConfig } from "./config.js";
 import {
 	configureCouncil,
 	formatCouncilSummary,
@@ -70,7 +71,7 @@ import {
 	type ReviewEvent,
 } from "./post.js";
 import { confirmPostGate } from "./post-gate.js";
-import { runReviewer } from "./reviewer.js";
+import { type CouncilReviewer, runReviewer } from "./reviewer.js";
 import { createSpawnRunPi } from "./runpi-spawn.js";
 import { createGitHubPrSearch } from "./search.js";
 import { buildStack, type StackEntry } from "./stack.js";
@@ -246,9 +247,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					description:
 						"load: attach a PR to the session. " +
 						"status: report current workflow state. " +
-						"council-config: set the multi-model review roster. " +
+						"council-config: set the multi-model review roster; omit reviewers to use config-file defaults. " +
 						"council: run the configured roster against the loaded PR. " +
-						"judge-config: set the judge reviewer for round-2 consolidation. " +
+						"judge-config: set the judge reviewer for round-2 consolidation; omit judge to use config-file defaults. " +
 						"judge: run round-2 consolidation against the most recent council run. " +
 						"review: run the stack-wide context review pipeline " +
 						"(one stack-aware council fan-out plus one stack-aware judge). " +
@@ -324,7 +325,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					}),
 					{
 						description:
-							"Roster of reviewers. Required for action=council-config.",
+							"Roster of reviewers. For action=council-config, omit to load reviewers from the pr-workflow config file.",
 					},
 				),
 			),
@@ -354,7 +355,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					},
 					{
 						description:
-							"Judge reviewer config. Required for action=judge-config.",
+							"Judge reviewer config. For action=judge-config, omit to load the judge from the pr-workflow config file.",
 					},
 				),
 			),
@@ -466,7 +467,32 @@ export default function prWorkflow(pi: ExtensionAPI) {
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (params.action === "council-config") {
-				const reviewers = params.reviewers ?? [];
+				let reviewers: readonly CouncilReviewer[] | undefined =
+					params.reviewers;
+				let sourcePath: string | null = null;
+				if (reviewers === undefined) {
+					const loaded = await loadPrWorkflowConfig();
+					if (!loaded.ok) {
+						const error =
+							`${loaded.error}\n` +
+							"Pass `reviewers` explicitly or create a config file with a top-level `reviewers` array.";
+						return {
+							content: [{ type: "text", text: error }],
+							details: { ok: false, error, configPath: loaded.path },
+							isError: true,
+						};
+					}
+					if (loaded.config.defaults.reviewers === undefined) {
+						const error = `No reviewers found in pr-workflow config at ${loaded.config.path}.`;
+						return {
+							content: [{ type: "text", text: error }],
+							details: { ok: false, error, configPath: loaded.config.path },
+							isError: true,
+						};
+					}
+					reviewers = [...loaded.config.defaults.reviewers];
+					sourcePath = loaded.config.path;
+				}
 				const result = configureCouncil(state, { reviewers });
 				if (!result.ok) {
 					return {
@@ -478,14 +504,19 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				const names = state.council.roster
 					.map((r) => `${r.id}${r.model ? ` (${r.model})` : ""}`)
 					.join(", ");
+				const source = sourcePath ? ` from ${sourcePath}` : "";
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Council roster set (${state.council.roster.length}): ${names}`,
+							text: `Council roster set${source} (${state.council.roster.length}): ${names}`,
 						},
 					],
-					details: { ok: true, roster: state.council.roster },
+					details: {
+						ok: true,
+						roster: state.council.roster,
+						...(sourcePath ? { configPath: sourcePath } : {}),
+					},
 				};
 			}
 
@@ -545,19 +576,32 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "judge-config") {
-				if (!params.judge) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "judge-config requires a `judge` argument.",
-							},
-						],
-						details: { ok: false, error: "missing judge argument" },
-						isError: true,
-					};
+				let judge: CouncilReviewer | undefined = params.judge;
+				let sourcePath: string | null = null;
+				if (judge === undefined) {
+					const loaded = await loadPrWorkflowConfig();
+					if (!loaded.ok) {
+						const error =
+							`${loaded.error}\n` +
+							"Pass `judge` explicitly or create a config file with a top-level `judge` object.";
+						return {
+							content: [{ type: "text", text: error }],
+							details: { ok: false, error, configPath: loaded.path },
+							isError: true,
+						};
+					}
+					if (loaded.config.defaults.judge === undefined) {
+						const error = `No judge found in pr-workflow config at ${loaded.config.path}.`;
+						return {
+							content: [{ type: "text", text: error }],
+							details: { ok: false, error, configPath: loaded.config.path },
+							isError: true,
+						};
+					}
+					judge = loaded.config.defaults.judge;
+					sourcePath = loaded.config.path;
 				}
-				const result = configureJudge(state, { judge: params.judge });
+				const result = configureJudge(state, { judge });
 				if (!result.ok) {
 					return {
 						content: [{ type: "text", text: result.error }],
@@ -566,14 +610,19 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					};
 				}
 				const j = state.council.judge;
+				const source = sourcePath ? ` from ${sourcePath}` : "";
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Judge set: ${j?.id}${j?.model ? ` (${j.model})` : ""}`,
+							text: `Judge set${source}: ${j?.id}${j?.model ? ` (${j.model})` : ""}`,
 						},
 					],
-					details: { ok: true, judge: state.council.judge },
+					details: {
+						ok: true,
+						judge: state.council.judge,
+						...(sourcePath ? { configPath: sourcePath } : {}),
+					},
 				};
 			}
 
