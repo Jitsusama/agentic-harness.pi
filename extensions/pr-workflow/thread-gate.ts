@@ -19,6 +19,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { promptSingle } from "../../lib/ui/panel.js";
+import { withHiddenWorking } from "./gate-working.js";
 import {
 	type ReplyGateOutcome,
 	type ResolveGateOutcome,
@@ -50,12 +51,14 @@ export async function confirmReplyGate(
 	if (!ctx.hasUI) {
 		return { approved: true, body };
 	}
-	const result = await promptSingle(ctx, {
-		title: "Reply to thread",
-		content: renderReplyGateContent(thread, body),
-		actions: REJECT_ACTIONS,
-		redirectHint: "Replace the reply text…",
-	});
+	const result = await withHiddenWorking(ctx, () =>
+		promptSingle(ctx, {
+			title: "Reply to thread",
+			content: renderReplyGateContent(thread, body),
+			actions: REJECT_ACTIONS,
+			redirectHint: "Replace the reply text…",
+		}),
+	);
 	return replyGateOutcome(result, body);
 }
 
@@ -73,10 +76,12 @@ export async function confirmResolveGate(
 	if (!ctx.hasUI) {
 		return { approved: true };
 	}
-	const result = await promptSingle(ctx, {
-		title: "Resolve thread",
-		content: renderResolveGateContent(thread),
-		actions: REJECT_ACTIONS,
-	});
+	const result = await withHiddenWorking(ctx, () =>
+		promptSingle(ctx, {
+			title: "Resolve thread",
+			content: renderResolveGateContent(thread),
+			actions: REJECT_ACTIONS,
+		}),
+	);
 	return resolveGateOutcome(result);
 }

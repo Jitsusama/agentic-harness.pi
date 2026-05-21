@@ -20,6 +20,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { promptSingle } from "../../lib/ui/panel.js";
+import { withHiddenWorking } from "./gate-working.js";
 import { type PostGateOutcome, postGateOutcome } from "./post-gate-outcome.js";
 import {
 	type PostGateSummary,
@@ -43,11 +44,13 @@ export async function confirmPostGate(
 	if (!ctx.hasUI) {
 		return { approved: true, body: summary.body };
 	}
-	const result = await promptSingle(ctx, {
-		title: `Post review (${summary.event})`,
-		content: renderPostGateContent(summary),
-		actions: REJECT_ACTIONS,
-		redirectHint: "Replace the review body…",
-	});
+	const result = await withHiddenWorking(ctx, () =>
+		promptSingle(ctx, {
+			title: `Post review (${summary.event})`,
+			content: renderPostGateContent(summary),
+			actions: REJECT_ACTIONS,
+			redirectHint: "Replace the review body…",
+		}),
+	);
 	return postGateOutcome(result, summary.body);
 }

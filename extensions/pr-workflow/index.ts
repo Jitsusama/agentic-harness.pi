@@ -889,11 +889,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					};
 				}
 				const ref = `${pick.reference.owner}/${pick.reference.repo}#${pick.reference.number}`;
+				const directionLabel =
+					params.action === "stack-next" ? "Downstream PR" : "Upstream PR";
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Next in stack: ${ref} (${pick.title}). Call action=load with pr="${ref}" to navigate.`,
+							text: `${directionLabel}: ${ref} (${pick.title}). Call action=load with pr="${ref}" to navigate.`,
 						},
 					],
 					details: { ok: true, target: pick, suggestedAction: "load" },
