@@ -688,6 +688,14 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "judge") {
+				const progress = createCouncilProgressReporter(
+					ctx,
+					progressControls(),
+					{
+						statusLabel: "judge",
+						title: "PR judge progress",
+					},
+				);
 				const result = await runWithCancellableReviewers(
 					"judge",
 					({ registry, dispatch }) =>
@@ -695,6 +703,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							state,
 							registry,
 							dispatch,
+							progress,
 						}),
 				);
 				if (!result.ok) {
@@ -711,7 +720,14 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "review") {
-				const progress = createCouncilProgressReporter(ctx, progressControls());
+				const progress = createCouncilProgressReporter(
+					ctx,
+					progressControls(),
+					{
+						statusLabel: "review",
+						title: "PR stack review progress",
+					},
+				);
 				const result = await runWithCancellableReviewers(
 					"review",
 					({ registry, dispatch }) =>
@@ -745,6 +761,14 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "critique") {
+				const progress = createCouncilProgressReporter(
+					ctx,
+					progressControls(),
+					{
+						statusLabel: "critique",
+						title: "PR critique progress",
+					},
+				);
 				const result = await runWithCancellableReviewers(
 					"critique",
 					({ registry, dispatch }) =>
@@ -752,6 +776,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							state,
 							registry,
 							dispatch,
+							progress,
 						}),
 				);
 				if (!result.ok) {

@@ -7,7 +7,9 @@
  * boundary injected so unit tests don't spawn pi.
  */
 
+import { isReviewerCancelledError } from "./cancellation.js";
 import type { CouncilDispatch } from "./council.js";
+import type { CouncilProgress } from "./council-progress.js";
 import { rememberAllocatedFindings } from "./finding-ids.js";
 import { type JudgeRun, runJudge } from "./judge.js";
 import {
@@ -58,6 +60,7 @@ export interface RunJudgeActionInput {
 	readonly state: PrWorkflowState;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
 	readonly now?: () => Date;
 }
@@ -98,21 +101,30 @@ export async function runJudgeAction(
 
 	const now = input.now ?? (() => new Date());
 	const runId = `judge-${now().toISOString()}`;
-	const run = await runJudge({
-		runId,
-		council: state.council.lastRun,
-		judge: state.council.judge,
-		target: {
-			owner: state.pr.reference.owner,
-			repo: state.pr.reference.repo,
-			sha: state.pr.metadata.head.sha,
-			branch: state.pr.metadata.head.ref,
-		},
-		registry: input.registry,
-		dispatch: input.dispatch,
-		signal: input.signal,
-		startId: state.nextFindingId,
-	});
+	let run: JudgeRun;
+	try {
+		run = await runJudge({
+			runId,
+			council: state.council.lastRun,
+			judge: state.council.judge,
+			target: {
+				owner: state.pr.reference.owner,
+				repo: state.pr.reference.repo,
+				sha: state.pr.metadata.head.sha,
+				branch: state.pr.metadata.head.ref,
+			},
+			registry: input.registry,
+			dispatch: input.dispatch,
+			progress: input.progress,
+			signal: input.signal,
+			startId: state.nextFindingId,
+		});
+	} catch (error) {
+		if (isReviewerCancelledError(error)) {
+			return { ok: false, error: `Judge cancelled: ${error.message}` };
+		}
+		throw error;
+	}
 	rememberAllocatedFindings(state, run.consolidatedFindings);
 	rememberParticipantIdentity(state, "judge", state.council.judge);
 	state.council.lastJudge = run;

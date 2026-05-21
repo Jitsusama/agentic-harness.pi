@@ -11,6 +11,7 @@
  */
 
 import type { CouncilDispatch } from "./council.js";
+import type { CouncilProgress } from "./council-progress.js";
 import {
 	type CritiqueRun,
 	type ReviewerCritiqueOutput,
@@ -32,6 +33,7 @@ export interface RunCritiqueActionInput {
 	readonly state: PrWorkflowState;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
 	readonly now?: () => Date;
 }
@@ -94,6 +96,7 @@ export async function runCritiqueAction(
 		},
 		registry: input.registry,
 		dispatch: input.dispatch,
+		progress: input.progress,
 		signal: input.signal,
 	});
 	state.council.lastCritique = run;
@@ -142,6 +145,7 @@ async function runStackCritiqueAction(
 		},
 		registry: input.registry,
 		dispatch: input.dispatch,
+		progress: input.progress,
 		signal: input.signal,
 	});
 	rememberStackCritique(state, run);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { CouncilProgress } from "../../../extensions/pr-workflow/council-progress.js";
 import type { CouncilRun } from "../../../extensions/pr-workflow/findings.js";
 import {
 	buildJudgePrompt,
@@ -482,6 +483,64 @@ describe("runJudge", () => {
 		});
 		expect(result.usage?.tokens.total).toBe(560);
 		expect(result.usage?.cost.total).toBeCloseTo(0.0042);
+	});
+
+	it("emits live progress and stream activity while the judge runs", async () => {
+		const events: string[] = [];
+		const progress: CouncilProgress = {
+			start(entries) {
+				events.push(
+					`start:${entries.map((entry) => entry.reviewer.id).join(",")}`,
+				);
+			},
+			reviewerStarted(reviewerId) {
+				events.push(`started:${reviewerId}`);
+			},
+			reviewerActivity(reviewerId, activity) {
+				events.push(`activity:${reviewerId}:${activity}`);
+			},
+			reviewerCompleted(reviewerId, output) {
+				events.push(`completed:${reviewerId}:${output.findings?.length ?? 0}`);
+			},
+			reviewerFailed(reviewerId, error) {
+				events.push(`failed:${reviewerId}:${error}`);
+			},
+			finish() {
+				events.push("finish");
+			},
+		};
+
+		await runJudge({
+			runId: "judge-progress",
+			council: council(),
+			judge: JUDGE,
+			target: { owner: "o", repo: "r", sha: "abc" },
+			registry: new WorktreeRegistry(fakeProvider()),
+			progress,
+			dispatch: async (opts) => {
+				opts.onEvent?.({
+					type: "tool_execution_start",
+					toolName: "read",
+					args: { path: "judge.ts" },
+				});
+				return {
+					reviewerId: opts.reviewer.id,
+					exitCode: 0,
+					finalAssistantText:
+						'```json\n{"findings":[{"location":{"kind":"global"},"label":"issue","subject":"A","discussion":"d"}]}\n```',
+					stderr: "",
+					warnings: [],
+				};
+			},
+		});
+
+		expect(events).toEqual([
+			"start:judge",
+			"started:judge",
+			"activity:judge:reading judge.ts",
+			"completed:judge:1",
+			"finish",
+		]);
 	});
 
 	it("surfaces dispatch warnings on the JudgeRun", async () => {

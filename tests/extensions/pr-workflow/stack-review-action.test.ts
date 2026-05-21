@@ -116,7 +116,7 @@ function progressRecorder(events: string[]): CouncilProgress {
 			events.push(`activity:${reviewerId}:${activity}`);
 		},
 		reviewerCompleted(reviewerId, output) {
-			events.push(`completed:${reviewerId}:${output.findings.length}`);
+			events.push(`completed:${reviewerId}:${output.findings?.length ?? 0}`);
 		},
 		reviewerCancelled(reviewerId) {
 			events.push(`cancelled:${reviewerId}`);

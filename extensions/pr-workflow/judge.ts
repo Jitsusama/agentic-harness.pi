@@ -20,7 +20,14 @@
  */
 
 import { Value } from "@sinclair/typebox/value";
+import { isReviewerCancelledError } from "./cancellation.js";
 import type { CouncilDispatch, CouncilTarget } from "./council.js";
+import {
+	type CouncilProgress,
+	NULL_PROGRESS,
+	safelyNotify,
+	summarizeStreamActivity,
+} from "./council-progress.js";
 import type { CouncilRun, Finding, FindingLocation } from "./findings.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
@@ -74,6 +81,7 @@ export interface RunJudgeOptions {
 	readonly target: Pick<CouncilTarget, "owner" | "repo" | "sha" | "branch">;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
 	/** First session-global finding id available to this judge run. */
 	readonly startId?: number;
@@ -252,39 +260,106 @@ export function parseJudgeOutput(
  * failure so callers can inspect warnings.
  */
 export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
-	const handle = await options.registry.ensure({
-		owner: options.target.owner,
-		repo: options.target.repo,
-		sha: options.target.sha,
-		...(options.target.branch ? { branch: options.target.branch } : {}),
-	});
+	const progress = options.progress ?? NULL_PROGRESS;
+	const progressWarnings: string[] = [];
+	safelyNotify(
+		() =>
+			progress.start([
+				{
+					reviewer: options.judge,
+					state: "pending",
+					findingCount: 0,
+					warnings: [],
+					error: "",
+					activity: "",
+				},
+			]),
+		"start",
+		progressWarnings,
+	);
+	try {
+		const handle = await options.registry.ensure({
+			owner: options.target.owner,
+			repo: options.target.repo,
+			sha: options.target.sha,
+			...(options.target.branch ? { branch: options.target.branch } : {}),
+		});
 
-	const prompt = buildJudgePrompt({ council: options.council });
+		const prompt = buildJudgePrompt({ council: options.council });
 
-	const startId = options.startId ?? nextIdAfterCouncil(options.council);
+		const startId = options.startId ?? nextIdAfterCouncil(options.council);
 
-	const dispatched = await options.dispatch({
-		reviewer: options.judge,
-		prompt,
-		cwd: handle.path,
-		signal: options.signal,
-	});
+		safelyNotify(
+			() => progress.reviewerStarted(options.judge.id),
+			`started(${options.judge.id})`,
+			progressWarnings,
+		);
+		const dispatched = await options.dispatch({
+			reviewer: options.judge,
+			prompt,
+			cwd: handle.path,
+			signal: options.signal,
+			onEvent: (event) => {
+				const activity = summarizeStreamActivity(event);
+				if (activity === null) return;
+				safelyNotify(
+					() => progress.reviewerActivity?.(options.judge.id, activity),
+					`activity(${options.judge.id})`,
+					progressWarnings,
+				);
+			},
+		});
 
-	const parsed = parseJudgeOutput(dispatched.finalAssistantText, {
-		runId: options.runId,
-		judgeReviewerId: options.judge.id,
-		startId,
-	});
+		const parsed = parseJudgeOutput(dispatched.finalAssistantText, {
+			runId: options.runId,
+			judgeReviewerId: options.judge.id,
+			startId,
+		});
+		const warnings = [
+			...dispatched.warnings,
+			...parsed.warnings,
+			...progressWarnings,
+		];
+		safelyNotify(
+			() =>
+				progress.reviewerCompleted(options.judge.id, {
+					reviewerId: options.judge.id,
+					findings: parsed.findings,
+					warnings,
+					...(dispatched.usage ? { usage: dispatched.usage } : {}),
+				}),
+			`completed(${options.judge.id})`,
+			progressWarnings,
+		);
 
-	return {
-		id: options.runId,
-		startedAt: new Date().toISOString(),
-		judgeReviewerId: options.judge.id,
-		selfSignal: parsed.selfSignal,
-		consolidatedFindings: parsed.findings,
-		warnings: [...dispatched.warnings, ...parsed.warnings],
-		...(dispatched.usage ? { usage: dispatched.usage } : {}),
-	};
+		return {
+			id: options.runId,
+			startedAt: new Date().toISOString(),
+			judgeReviewerId: options.judge.id,
+			selfSignal: parsed.selfSignal,
+			consolidatedFindings: parsed.findings,
+			warnings: [...warnings, ...progressWarnings],
+			...(dispatched.usage ? { usage: dispatched.usage } : {}),
+		};
+	} catch (error) {
+		if (isReviewerCancelledError(error)) {
+			safelyNotify(
+				() => progress.reviewerCancelled?.(options.judge.id),
+				`cancelled(${options.judge.id})`,
+				progressWarnings,
+			);
+		} else {
+			const message = error instanceof Error ? error.message : String(error);
+			safelyNotify(
+				() => progress.reviewerFailed(options.judge.id, message),
+				`failed(${options.judge.id})`,
+				progressWarnings,
+			);
+		}
+		throw error;
+	} finally {
+		safelyNotify(() => progress.finish(), "finish", progressWarnings);
+	}
 }
 
 function nextIdAfterCouncil(run: CouncilRun): number {
