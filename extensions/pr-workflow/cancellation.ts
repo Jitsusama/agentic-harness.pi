@@ -54,6 +54,7 @@ export type CancellationOutcome =
 interface ReviewRun {
 	readonly id: number;
 	readonly operation: ReviewOperation;
+	readonly cancelledReviewerIds: Set<string>;
 	cancelAllRequested: boolean;
 }
 
@@ -76,6 +77,7 @@ export class ReviewerCancellationRegistry {
 		const run: ReviewRun = {
 			id: this.nextRunId++,
 			operation,
+			cancelledReviewerIds: new Set(),
 			cancelAllRequested: false,
 		};
 		this.activeRun = run;
@@ -129,7 +131,9 @@ export class ReviewerCancellationRegistry {
 			else
 				parentSignal.addEventListener("abort", abortFromParent, { once: true });
 		}
-		if (run.cancelAllRequested) this.abortEntry(entry);
+		if (run.cancelAllRequested || run.cancelledReviewerIds.has(reviewer.id)) {
+			this.abortEntry(entry);
+		}
 		return {
 			signal: controller.signal,
 			wasCancelledByUser: () => entry.cancelledByUser,
@@ -143,18 +147,27 @@ export class ReviewerCancellationRegistry {
 
 	private cancelOne(reviewerId: string): CancellationOutcome {
 		const entry = this.active.get(reviewerId);
-		if (!entry) {
+		if (entry) {
+			this.abortEntry(entry);
 			return {
-				ok: false,
-				error: `No active reviewer "${reviewerId}" to cancel.`,
+				ok: true,
+				mode: "one",
+				reviewerId,
+				operation: entry.run.operation,
 			};
 		}
-		this.abortEntry(entry);
+		if (this.activeRun) {
+			this.activeRun.cancelledReviewerIds.add(reviewerId);
+			return {
+				ok: true,
+				mode: "one",
+				reviewerId,
+				operation: this.activeRun.operation,
+			};
+		}
 		return {
-			ok: true,
-			mode: "one",
-			reviewerId,
-			operation: entry.run.operation,
+			ok: false,
+			error: `No active reviewer "${reviewerId}" to cancel.`,
 		};
 	}
 
@@ -196,7 +209,7 @@ export interface RegisteredReviewProcess {
 	finish(): void;
 }
 
-/** Wrap a reviewer dispatcher so `action=cancel` can abort its subprocess. */
+/** Wrap a reviewer dispatcher so the live progress panel can abort it. */
 export function createCancellableDispatch(
 	run: ReviewRunHandle,
 	dispatch: CouncilDispatch,
@@ -231,21 +244,4 @@ export function formatCancellationOutcome(
 	const noun = outcome.count === 1 ? "reviewer" : "reviewers";
 	const operation = outcome.operation ? ` during ${outcome.operation}` : "";
 	return `Cancellation requested for ${outcome.count} active ${noun}${operation}.`;
-}
-
-/** Render current cancellation status for `action=status`. */
-export function formatCancellationStatus(
-	registry: ReviewerCancellationRegistry,
-): string[] {
-	const active = registry.listActive();
-	if (active.length === 0) return ["cancellable reviewers: none"];
-	const lines = [
-		`cancellable reviewers: ${active.length} (${registry.currentOperation() ?? "unknown"})`,
-	];
-	for (const entry of active) {
-		lines.push(
-			`  ${entry.reviewerId}: ${entry.operation}, started ${entry.startedAt}`,
-		);
-	}
-	return lines;
 }

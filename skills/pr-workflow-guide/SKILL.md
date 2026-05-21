@@ -44,7 +44,6 @@ prose; you translate intent into calls.
 | `judge` | Round 2: consolidate the council output. Run after `council`. |
 | `review` | Stack-wide context review: one stack-aware council fan-out plus one stack-aware judge. Use for "review the whole stack" or "do all of them". |
 | `critique` | Round 3 (optional): roster pushes back on the judge. Works after either `judge` or stack-wide `review`. |
-| `cancel` | Cancel an active reviewer subprocess. Pass `reviewerId` to cancel one; omit it to cancel the whole active run. |
 | `findings` | Show the current findings view (judge + critique + decisions, plus stack-level findings if any). Read-only. |
 | `decide` | Round 4: record the user's verdict on one finding. Pass `scope="stack"` for cross-PR findings from `review`. |
 | `post` | Ship eligible findings to GitHub as a PR review. Stack findings home to the cursor PR post alongside per-PR findings. |
@@ -275,19 +274,22 @@ pr_workflow action=council-retry reviewerId=skeptic
 pr_workflow action=critique-retry reviewerId=skeptic
 ```
 
-Cancellation mechanics:
+Cancellation mechanics happen in the live progress panel,
+not through another tool call. A prompt typed while
+`council`, `review`, `judge` or `critique` is still running
+queues behind that active tool, so it can't interrupt the
+stuck reviewer.
 
-```
-pr_workflow action=cancel reviewerId=skeptic  # cancel one stuck reviewer
-pr_workflow action=cancel                     # cancel the active run
-```
+When the progress panel is focused:
 
-Use `cancel` when a reviewer is clearly stuck or the user
-asks to stop burning tokens. Cancelling one reviewer keeps
-other reviewer output. Cancelling the run aborts every
-active reviewer and also cancels later subprocesses in the
-same action, such as the stack judge that would normally
-start after fan-out.
+- Use ↑/↓ to select a reviewer.
+- Press `r` to cancel the selected reviewer.
+- Press Esc to cancel the active run.
+
+Cancelling one reviewer keeps other reviewer output.
+Cancelling the run aborts every active reviewer and also
+cancels later subprocesses in the same action, such as the
+stack judge that would normally start after fan-out.
 
 - Council retry allocates new finding ids past the
   current max. Existing decisions stay stable.

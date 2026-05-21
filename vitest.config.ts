@@ -19,6 +19,9 @@ export default defineConfig({
 		// same imports work in tests without a separate
 		// alias in every file.
 		alias: {
+			"@mariozechner/pi-ai": "@earendil-works/pi-ai",
+			"@mariozechner/pi-coding-agent": "@earendil-works/pi-coding-agent",
+			"@mariozechner/pi-tui": "@earendil-works/pi-tui",
 			"@sinclair/typebox/value": "typebox/value",
 			"@sinclair/typebox/compile": "typebox/compile",
 			"@sinclair/typebox": "typebox",
