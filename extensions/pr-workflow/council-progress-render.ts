@@ -3,17 +3,19 @@
  *
  * Maintains an in-memory snapshot of every reviewer's
  * state and pushes it into pi's status line and a focused
- * progress panel on each lifecycle event.
+ * prompt-area panel on each lifecycle event.
  *
  * - The status line shows a one-glance summary
  *   (`✓2/3 pending=1`) so the user always knows
  *   whether anyone is still working.
- * - The focused panel lists each reviewer and lets the
- *   user cancel the selected reviewer or the whole run
- *   without queuing another prompt behind the active tool.
+ * - The focused panel replaces the prompt editor while
+ *   the tool runs, lists each reviewer and lets the user
+ *   cancel the selected reviewer or the whole run without
+ *   queuing another prompt behind the active tool.
  */
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import type { AutocompleteProvider } from "@mariozechner/pi-tui";
 import {
 	Key,
 	matchesKey,
@@ -50,7 +52,8 @@ export function createCouncilProgressReporter(
 ): CouncilProgress {
 	let entries: CouncilProgressEntry[] = [];
 	let panel: CouncilProgressPanel | null = null;
-	let closePanel: (() => void) | null = null;
+	let previousEditor: ReturnType<ExtensionContext["ui"]["getEditorComponent"]>;
+	let editorInstalled = false;
 
 	const render = (): void => {
 		const theme = ctx.ui.theme;
@@ -59,45 +62,26 @@ export function createCouncilProgressReporter(
 	};
 
 	const showPanel = (): void => {
-		if (!ctx.hasUI || panel !== null) return;
-		void ctx.ui
-			.custom<void>(
-				(tui, theme, _kb, done) => {
-					const component = new CouncilProgressPanel(
-						tui,
-						theme,
-						entries,
-						controls,
-					);
-					panel = component;
-					closePanel = () => done();
-					return component;
-				},
-				{
-					overlay: true,
-					overlayOptions: {
-						anchor: "bottom-center",
-						width: "90%",
-						maxHeight: "70%",
-						margin: 1,
-					},
-				},
-			)
-			.finally(() => {
-				panel = null;
-				closePanel = null;
-			})
-			.catch(() => {
-				// If the panel cannot open or closes unexpectedly, the
-				// subprocess run should continue. The status line still
-				// shows non-interactive progress.
-			});
+		if (!ctx.hasUI || editorInstalled) return;
+		previousEditor = ctx.ui.getEditorComponent();
+		ctx.ui.setEditorComponent((tui) => {
+			const component = new CouncilProgressPanel(
+				tui,
+				ctx.ui.theme,
+				entries,
+				controls,
+			);
+			panel = component;
+			return component;
+		});
+		editorInstalled = true;
 	};
 
 	const clear = (): void => {
 		ctx.ui.setStatus(STATUS_KEY, undefined);
-		closePanel?.();
-		closePanel = null;
+		if (editorInstalled) ctx.ui.setEditorComponent(previousEditor);
+		editorInstalled = false;
+		previousEditor = undefined;
 		panel = null;
 	};
 
@@ -252,6 +236,9 @@ function countStates(
 
 /** Focused progress panel that can cancel active reviewer subprocesses. */
 export class CouncilProgressPanel {
+	borderColor?: (str: string) => string;
+	onSubmit?: (text: string) => void;
+	onChange?: (text: string) => void;
 	private entries: CouncilProgressEntry[];
 	private selectedIndex = 0;
 	private notice = "";
@@ -273,6 +260,26 @@ export class CouncilProgressPanel {
 		);
 		this.tui.requestRender();
 	}
+
+	getText(): string {
+		return "";
+	}
+
+	setText(_text: string): void {}
+
+	addToHistory(_text: string): void {}
+
+	insertTextAtCursor(_text: string): void {}
+
+	getExpandedText(): string {
+		return "";
+	}
+
+	setAutocompleteProvider(_provider: AutocompleteProvider): void {}
+
+	setPaddingX(_padding: number): void {}
+
+	setAutocompleteMaxVisible(_maxVisible: number): void {}
 
 	handleInput(data: string): void {
 		if (matchesKey(data, Key.up)) {
@@ -307,17 +314,19 @@ export class CouncilProgressPanel {
 	render(width: number): string[] {
 		const lines: string[] = [];
 		const add = (line: string) => lines.push(truncateToWidth(line, width));
-		add(this.theme.fg("accent", this.theme.bold("PR review progress")));
+		add(this.theme.fg("accent", "─".repeat(width)));
+		add(` ${this.theme.fg("accent", this.theme.bold("PR review progress"))}`);
 		add(
-			this.theme.fg(
+			` ${this.theme.fg(
 				"dim",
 				"↑/↓ select · r cancel selected reviewer · Esc cancel run",
-			),
+			)}`,
 		);
-		if (this.notice) add(this.theme.fg("warning", this.notice));
+		if (this.notice) add(` ${this.theme.fg("warning", this.notice)}`);
 		add("");
 		if (this.entries.length === 0) {
-			add(this.theme.fg("dim", "No reviewers in this run."));
+			add(` ${this.theme.fg("dim", "No reviewers in this run.")}`);
+			add(this.theme.fg("accent", "─".repeat(width)));
 			return lines;
 		}
 		for (let i = 0; i < this.entries.length; i++) {
@@ -325,6 +334,7 @@ export class CouncilProgressPanel {
 			if (!entry) continue;
 			add(this.renderEntry(entry, i === this.selectedIndex));
 		}
+		add(this.theme.fg("accent", "─".repeat(width)));
 		return lines;
 	}
 

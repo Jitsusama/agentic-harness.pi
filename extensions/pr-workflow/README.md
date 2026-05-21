@@ -278,10 +278,11 @@ distinct from every council reviewer id.
 
 **Live Progress Panel**
 
-Long-running reviewer actions open a focused progress
-panel while the tool is still running. This matters because
-normal prompts queue behind the active tool call; the panel
-is the interrupt surface that remains reachable mid-run.
+Long-running reviewer actions replace the prompt editor
+with a focused progress panel while the tool is still
+running. This matters because normal prompts queue behind
+the active tool call; the prompt-area panel is the interrupt
+surface that remains reachable mid-run.
 
 - Use ↑/↓ to select a reviewer.
 - Press `r` to cancel the selected reviewer. The run keeps
