@@ -21,6 +21,7 @@ import type { CritiqueRun } from "./critique.js";
 import type { PrMetadata } from "./fetch.js";
 import type { CouncilRun } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
+import type { ParticipantIdentity } from "./participant-identities.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { Stack } from "./stack.js";
 import type { StackFindingRun } from "./stack-findings.js";
@@ -101,6 +102,8 @@ export interface PrWorkflowState {
 	pr: ActivePr | null;
 	/** Council configuration and history. */
 	council: CouncilState;
+	/** Participant ids already used to produce workflow output. */
+	participantIdentities: Map<string, ParticipantIdentity>;
 	/** Next session-global finding id to allocate. */
 	nextFindingId: number;
 	/**
@@ -173,6 +176,7 @@ export function createPrWorkflowState(): PrWorkflowState {
 			lastCritique: null,
 			decisions: new Map(),
 		},
+		participantIdentities: new Map(),
 		nextFindingId: 1,
 		stackRuns: new Map(),
 		stackFindingRun: null,

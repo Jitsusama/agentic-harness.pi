@@ -234,6 +234,16 @@ describe("runStackReviewAction", () => {
 		expect(state.stackFindingRun?.findings[0]?.subject).toBe("cross issue");
 		expect(state.stackFindingRun?.findings[0]?.homePrNumber).toBe(101);
 		expect(state.nextFindingId).toBe(25);
+		expect(state.participantIdentities.get("fast")).toEqual({
+			id: "fast",
+			role: "reviewer",
+			model: "anthropic/claude-haiku-4-5",
+		});
+		expect(state.participantIdentities.get("judge")).toEqual({
+			id: "judge",
+			role: "judge",
+			model: "anthropic/claude-haiku-4-5",
+		});
 	});
 
 	it("clears decisions when stack review replaces visible findings", async () => {

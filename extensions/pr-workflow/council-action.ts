@@ -13,6 +13,10 @@ import { runCouncil, runOneCouncilReviewer } from "./council.js";
 import type { CouncilProgress } from "./council-progress.js";
 import { rememberAllocatedFindings } from "./finding-ids.js";
 import type { CouncilRun } from "./findings.js";
+import {
+	assertParticipantIdentityAvailable,
+	rememberParticipantIdentities,
+} from "./participant-identities.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { PrWorkflowState } from "./state.js";
 import type { WorktreeRegistry } from "./worktree.js";
@@ -56,6 +60,14 @@ export function configureCouncil(
 			ok: false,
 			error: `Reviewer id "${judgeId}" is already used by the judge. Council reviewer ids and judge id must be distinct within a session.`,
 		};
+	}
+	for (const reviewer of input.reviewers) {
+		const identity = assertParticipantIdentityAvailable(
+			state,
+			"reviewer",
+			reviewer,
+		);
+		if (!identity.ok) return identity;
 	}
 	state.council.roster = input.reviewers.map((r) => ({ ...r }));
 	return { ok: true };
@@ -151,6 +163,7 @@ export async function runCouncilAction(
 	for (const output of run.reviewerOutputs) {
 		rememberAllocatedFindings(state, output.findings);
 	}
+	rememberParticipantIdentities(state, "reviewer", state.council.roster);
 	state.council.lastRun = run;
 	state.council.lastJudge = null;
 	state.council.lastCritique = null;
@@ -241,6 +254,7 @@ export async function retryCouncilReviewer(
 		startId,
 	});
 	rememberAllocatedFindings(state, output.findings);
+	rememberParticipantIdentities(state, "reviewer", [reviewer]);
 	lastRun.reviewerOutputs[existingIndex] = output;
 	return { ok: true, run: lastRun };
 }
