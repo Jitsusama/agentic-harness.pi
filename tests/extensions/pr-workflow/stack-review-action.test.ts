@@ -229,6 +229,51 @@ describe("runStackReviewAction", () => {
 		expect(state.stackFindingRun?.findings[0]?.homePrNumber).toBe(101);
 	});
 
+	it("clears decisions when stack review replaces visible findings", async () => {
+		const state = buildState();
+		state.council.decisions.set(3, {
+			findingId: 3,
+			verdict: "fix",
+			decidedAt: "2026-05-20T15:00:00Z",
+			resolvedBy: {
+				commitSha: "abc1234",
+				recordedAt: "2026-05-20T15:05:00Z",
+			},
+		});
+		state.stackRuns.set(102, {
+			lastRun: null,
+			lastJudge: null,
+			lastCritique: null,
+			decisions: new Map([
+				[4, { findingId: 4, verdict: "endorse", decidedAt: "old" }],
+			]),
+		});
+		state.stackDecisions.set(5, {
+			findingId: 5,
+			verdict: "dismiss",
+			decidedAt: "old",
+			reason: "stale",
+		});
+
+		const result = await runStackReviewAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: dispatch(),
+			fetchers: fetchers(),
+			now: () => new Date("2026-05-20T16:00:00Z"),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(state.council.lastJudge?.consolidatedFindings[0]?.id).toBe(3);
+		expect(state.council.decisions.size).toBe(0);
+		expect(
+			state.stackRuns.get(102)?.lastJudge?.consolidatedFindings[0]?.id,
+		).toBe(4);
+		expect(state.stackRuns.get(102)?.decisions.size).toBe(0);
+		expect(state.stackFindingRun?.findings[0]?.id).toBe(5);
+		expect(state.stackDecisions.size).toBe(0);
+	});
+
 	it("reports reviewer, activity and judge progress", async () => {
 		const state = buildState();
 		const events: string[] = [];
