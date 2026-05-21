@@ -6,6 +6,10 @@ import {
 import type { ReviewThread } from "../../../extensions/pr-workflow/threads.js";
 import { fakeTheme } from "../../lib/ui/fake-theme.js";
 
+function visibleLength(line: string): number {
+	return line.replace(/<[^>]+>/g, "").length;
+}
+
 function thread(overrides: Partial<ReviewThread> = {}): ReviewThread {
 	return {
 		id: "T1",
@@ -122,6 +126,31 @@ describe("renderReplyGateContent", () => {
 		expect(text).toContain("Fixed in a1b2c3d.");
 		expect(text).toContain("Also added a regression test.");
 	});
+
+	it("wraps long existing comments and reply text to the content width", () => {
+		const lines = renderReplyGateContent(
+			thread({
+				comments: [
+					{
+						id: "C1",
+						author: "octocat",
+						body: "This existing comment is long enough to wrap inside the reply confirmation panel before the edge.",
+						createdAt: "2024-01-01T00:00:00Z",
+						url: "https://example.com/c1",
+					},
+				],
+			}),
+			"This proposed reply is also long enough to wrap inside the confirmation panel before posting.",
+		)(fakeTheme(), 42);
+
+		expect(lines.every((line) => visibleLength(line) <= 42)).toBe(true);
+		expect(lines.some((line) => line.includes("@octocat:"))).toBe(true);
+		expect(lines.some((line) => line.includes("before the edge"))).toBe(true);
+		expect(lines.some((line) => line.includes("This proposed reply"))).toBe(
+			true,
+		);
+		expect(lines.some((line) => line.includes("before posting"))).toBe(true);
+	});
 });
 
 describe("renderResolveGateContent", () => {
@@ -154,5 +183,25 @@ describe("renderResolveGateContent", () => {
 			80,
 		);
 		expect(lines.join("\n")).toContain("(PR-level)");
+	});
+
+	it("wraps long existing comments to the content width", () => {
+		const lines = renderResolveGateContent(
+			thread({
+				comments: [
+					{
+						id: "C1",
+						author: "octocat",
+						body: "This resolve comment is long enough to wrap inside the confirmation panel before resolving.",
+						createdAt: "2024-01-01T00:00:00Z",
+						url: "https://example.com/c1",
+					},
+				],
+			}),
+		)(fakeTheme(), 42);
+
+		expect(lines.every((line) => visibleLength(line) <= 42)).toBe(true);
+		expect(lines.some((line) => line.includes("@octocat:"))).toBe(true);
+		expect(lines.some((line) => line.includes("before resolving"))).toBe(true);
 	});
 });

@@ -9,8 +9,9 @@
  * content area.
  */
 
+import { contentWrapWidth, wordWrap } from "../../lib/ui/text-layout.js";
 import type { ContentRenderer } from "../../lib/ui/types.js";
-import type { ReviewThread } from "./threads.js";
+import type { ReviewThread, ReviewThreadComment } from "./threads.js";
 
 /**
  * Format a thread's location as `path:line`, `path`,
@@ -42,8 +43,9 @@ export function renderReplyGateContent(
 	thread: ReviewThread,
 	body: string,
 ): ContentRenderer {
-	return (theme, _width) => {
+	return (theme, width) => {
 		const lines: string[] = [];
+		const wrapWidth = contentWrapWidth(width);
 		lines.push(theme.fg("accent", ` Thread @ ${locationLabel(thread)}`));
 		const flags = flagsLabel(thread);
 		if (flags.length > 0) {
@@ -51,14 +53,10 @@ export function renderReplyGateContent(
 		}
 		lines.push("");
 		lines.push(theme.fg("dim", " Existing comments:"));
-		for (const c of thread.comments) {
-			lines.push(` ${theme.fg("accent", `@${c.author}`)}: ${c.body}`);
-		}
+		pushComments(lines, thread.comments, wrapWidth);
 		lines.push("");
 		lines.push(theme.fg("dim", " Proposed reply:"));
-		for (const replyLine of body.split("\n")) {
-			lines.push(` ${theme.fg("text", replyLine)}`);
-		}
+		pushWrapped(lines, body, wrapWidth - 1);
 		return lines;
 	};
 }
@@ -72,8 +70,9 @@ export function renderReplyGateContent(
 export function renderResolveGateContent(
 	thread: ReviewThread,
 ): ContentRenderer {
-	return (theme, _width) => {
+	return (theme, width) => {
 		const lines: string[] = [];
+		const wrapWidth = contentWrapWidth(width);
 		lines.push(theme.fg("accent", ` Thread @ ${locationLabel(thread)}`));
 		const flags = flagsLabel(thread);
 		if (flags.length > 0) {
@@ -81,11 +80,25 @@ export function renderResolveGateContent(
 		}
 		lines.push("");
 		lines.push(theme.fg("dim", " Existing comments:"));
-		for (const c of thread.comments) {
-			lines.push(` ${theme.fg("accent", `@${c.author}`)}: ${c.body}`);
-		}
+		pushComments(lines, thread.comments, wrapWidth);
 		lines.push("");
 		lines.push(theme.fg("warning", " Mark thread resolved."));
 		return lines;
 	};
+}
+
+function pushComments(
+	lines: string[],
+	comments: readonly ReviewThreadComment[],
+	wrapWidth: number,
+): void {
+	for (const comment of comments) {
+		pushWrapped(lines, `@${comment.author}: ${comment.body}`, wrapWidth - 1);
+	}
+}
+
+function pushWrapped(lines: string[], text: string, wrapWidth: number): void {
+	for (const wrappedLine of wordWrap(text, wrapWidth)) {
+		lines.push(` ${wrappedLine}`);
+	}
 }
