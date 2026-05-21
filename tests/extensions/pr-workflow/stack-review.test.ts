@@ -74,6 +74,23 @@ describe("buildStackReviewPrompt", () => {
 		expect(prompt).toContain("perPr");
 		expect(prompt).toContain("crossPr");
 	});
+
+	it("instructs stack reviewer tools to stay inside the worktree", () => {
+		const prompt = buildStackReviewPrompt({
+			cursorPrNumber: 102,
+			prs: [
+				{ prNumber: 102, title: "Wire parser", description: "", files: [] },
+			],
+		});
+		expect(prompt).toContain("current working directory");
+		expect(prompt).toContain("Stay inside");
+		expect(prompt).toContain("Do not search `/`");
+		expect(prompt).toContain("`/Users`");
+		expect(prompt).toContain("`$HOME`");
+		expect(prompt).toContain("Never run commands like `find /`");
+		expect(prompt).toContain("Do not roam the filesystem");
+		expect(prompt).toContain("`rg`");
+	});
 });
 
 describe("parseStackReviewOutput", () => {
@@ -165,6 +182,24 @@ describe("buildStackJudgePrompt", () => {
 		expect(prompt).toContain("per-pr issue");
 		expect(prompt).toContain("homePrNumber=101; spans=101, 102");
 		expect(prompt).toContain('stage: "stack-judge"');
+	});
+
+	it("instructs stack judge tools to stay inside the worktree", async () => {
+		const prompt = buildStackJudgePrompt({
+			cursorPrNumber: 101,
+			prs: [{ prNumber: 101, title: "Add parser" }],
+			reviewerOutputs: [
+				{ reviewerId: "fast", perPr: new Map(), crossPr: [], warnings: [] },
+			],
+		});
+		expect(prompt).toContain("current working directory");
+		expect(prompt).toContain("Stay inside");
+		expect(prompt).toContain("Do not search `/`");
+		expect(prompt).toContain("`/Users`");
+		expect(prompt).toContain("`$HOME`");
+		expect(prompt).toContain("Never run commands like `find /`");
+		expect(prompt).toContain("Do not roam the filesystem");
+		expect(prompt).toContain("`rg`");
 	});
 });
 

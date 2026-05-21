@@ -12,6 +12,7 @@
 import { Value } from "@sinclair/typebox/value";
 import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
 import type { Finding, FindingLocation } from "./findings.js";
+import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import {
 	CouncilFinding,
 	type CouncilFinding as CouncilFindingType,
@@ -115,6 +116,7 @@ export function buildStackReviewPrompt(
 			"`homePrNumber` for the posting destination and `spans` listing " +
 			"every PR the finding refers to.",
 	);
+	sections.push(reviewerOperatingRules());
 	sections.push("## Stack");
 	for (const pr of input.prs) {
 		sections.push(renderPrForReview(pr, input.cursorPrNumber));
@@ -164,6 +166,7 @@ export function buildStackJudgePrompt(
 			"multiple PRs, in which case it belongs in `crossPr`.",
 	);
 	sections.push(`The cursor is PR #${input.cursorPrNumber}.`);
+	sections.push(reviewerOperatingRules());
 	sections.push("## Stack PRs");
 	for (const pr of input.prs) {
 		const cursor = pr.prNumber === input.cursorPrNumber ? " [cursor]" : "";
