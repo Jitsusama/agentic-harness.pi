@@ -35,6 +35,11 @@ describe("createPrWorkflowState", () => {
 		expect(state.nextFindingId).toBe(1);
 	});
 
+	it("starts with no locked participant identities", () => {
+		const state = createPrWorkflowState();
+		expect(state.participantIdentities.size).toBe(0);
+	});
+
 	it("returns an independent state object on every call", () => {
 		// State is created fresh each time so callers can't
 		// accidentally share a mutable singleton. Each session

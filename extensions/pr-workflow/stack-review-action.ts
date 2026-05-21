@@ -23,6 +23,10 @@ import type { PrMetadata } from "./fetch.js";
 import { rememberAllocatedFindings } from "./finding-ids.js";
 import type { Finding, ReviewerOutput } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
+import {
+	rememberParticipantIdentities,
+	rememberParticipantIdentity,
+} from "./participant-identities.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { StackFinding, StackFindingRun } from "./stack-findings.js";
 import {
@@ -272,6 +276,8 @@ export async function runStackReviewAction(
 		warnings: [...judged.warnings, ...parsedJudge.warnings],
 		...(judged.usage ? { usage: judged.usage } : {}),
 	} satisfies StackFindingRun;
+	rememberParticipantIdentities(state, "reviewer", state.council.roster);
+	rememberParticipantIdentity(state, "judge", judge);
 	state.stackDecisions = new Map();
 
 	safelyNotify(() => progress.finish(), "finish", progressWarnings);

@@ -82,6 +82,32 @@ describe("configureCouncil", () => {
 		});
 		expect(expectFailure(result).error).toMatch(/judge|distinct/i);
 	});
+
+	it("rejects reusing a locked reviewer id for a different identity", async () => {
+		const state = createPrWorkflowState();
+		state.participantIdentities.set("fast", {
+			id: "fast",
+			role: "reviewer",
+			model: "model-a",
+		});
+		const result = configureCouncil(state, {
+			reviewers: [{ id: "fast", model: "model-b" }],
+		});
+		expect(expectFailure(result).error).toMatch(/already used|new id/i);
+	});
+
+	it("allows reconfiguring a locked reviewer id with the same identity", async () => {
+		const state = createPrWorkflowState();
+		state.participantIdentities.set("fast", {
+			id: "fast",
+			role: "reviewer",
+			model: "model-a",
+		});
+		const result = configureCouncil(state, {
+			reviewers: [{ id: "fast", model: "model-a" }],
+		});
+		expect(result.ok).toBe(true);
+	});
 });
 
 describe("runCouncilAction", () => {
@@ -207,6 +233,10 @@ describe("runCouncilAction", () => {
 		expect(run.reviewerOutputs[0].findings).toHaveLength(1);
 		expect(run.reviewerOutputs[0].findings[0]?.id).toBe(7);
 		expect(state.nextFindingId).toBe(8);
+		expect(state.participantIdentities.get("fast")).toEqual({
+			id: "fast",
+			role: "reviewer",
+		});
 	});
 
 	it("clears downstream judge state when a new council run lands", async () => {

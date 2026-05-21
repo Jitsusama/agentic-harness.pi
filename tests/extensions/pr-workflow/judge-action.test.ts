@@ -107,6 +107,32 @@ describe("configureJudge", () => {
 		});
 		expect(expectFailure(result).error).toMatch(/council reviewer|distinct/i);
 	});
+
+	it("rejects reusing a locked judge id for a different identity", async () => {
+		const state = createPrWorkflowState();
+		state.participantIdentities.set("judge", {
+			id: "judge",
+			role: "judge",
+			model: "model-a",
+		});
+		const result = configureJudge(state, {
+			judge: { id: "judge", model: "model-b" },
+		});
+		expect(expectFailure(result).error).toMatch(/already used|new id/i);
+	});
+
+	it("allows reconfiguring a locked judge id with the same identity", async () => {
+		const state = createPrWorkflowState();
+		state.participantIdentities.set("judge", {
+			id: "judge",
+			role: "judge",
+			model: "model-a",
+		});
+		const result = configureJudge(state, {
+			judge: { id: "judge", model: "model-a" },
+		});
+		expect(result.ok).toBe(true);
+	});
 });
 
 describe("runJudgeAction", () => {
@@ -173,6 +199,11 @@ describe("runJudgeAction", () => {
 		expect(state.council.lastJudge).not.toBeNull();
 		expect(state.council.lastJudge?.consolidatedFindings).toHaveLength(1);
 		expect(state.council.lastJudge?.selfSignal?.confidence).toBe("medium");
+		expect(state.participantIdentities.get("j")).toEqual({
+			id: "j",
+			role: "judge",
+			model: "anthropic/claude-opus-4-7",
+		});
 	});
 
 	it("clears stale decisions and critiques when a new judge run lands", async () => {

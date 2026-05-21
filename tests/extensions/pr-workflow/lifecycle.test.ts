@@ -378,6 +378,31 @@ describe("pr-workflow lifecycle", () => {
 			expect(restored.nextFindingId).toBe(42);
 		});
 
+		it("rehydrates locked participant identities", () => {
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+			const ctx = makeCtx(entries);
+
+			const source = createPrWorkflowState();
+			source.participantIdentities.set("fast", {
+				id: "fast",
+				role: "reviewer",
+				model: "model-a",
+				tools: ["read"],
+			});
+			persist(source, pi);
+
+			const restored = createPrWorkflowState();
+			restore(restored, pi, ctx);
+
+			expect(restored.participantIdentities.get("fast")).toEqual({
+				id: "fast",
+				role: "reviewer",
+				model: "model-a",
+				tools: ["read"],
+			});
+		});
+
 		it("infers the next finding id from old run-history entries", () => {
 			const entries: Entry[] = [];
 			const pi = makeApi(entries);
@@ -443,6 +468,11 @@ describe("pr-workflow lifecycle", () => {
 			source.council.decisions.set(1, endorseDecision(1));
 			source.stackFindingRun = sampleStackFindingRun();
 			source.stackDecisions.set(101, endorseDecision(101));
+			source.participantIdentities.set("judge", {
+				id: "judge",
+				role: "judge",
+				model: "model-a",
+			});
 			source.stackRuns.set(7, {
 				lastRun: null,
 				lastJudge: null,
@@ -473,6 +503,11 @@ describe("pr-workflow lifecycle", () => {
 			);
 			expect(restored.council.lastJudge).toEqual(sampleJudgeRun());
 			expect(restored.stackFindingRun).toEqual(sampleStackFindingRun());
+			expect(restored.participantIdentities.get("judge")).toEqual({
+				id: "judge",
+				role: "judge",
+				model: "model-a",
+			});
 		});
 	});
 });

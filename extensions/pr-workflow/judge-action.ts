@@ -10,6 +10,10 @@
 import type { CouncilDispatch } from "./council.js";
 import { rememberAllocatedFindings } from "./finding-ids.js";
 import { type JudgeRun, runJudge } from "./judge.js";
+import {
+	assertParticipantIdentityAvailable,
+	rememberParticipantIdentity,
+} from "./participant-identities.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { PrWorkflowState } from "./state.js";
 import type { WorktreeRegistry } from "./worktree.js";
@@ -39,6 +43,12 @@ export function configureJudge(
 			error: `Judge id "${input.judge.id}" is already used by a council reviewer. Council reviewer ids and judge id must be distinct within a session.`,
 		};
 	}
+	const identity = assertParticipantIdentityAvailable(
+		state,
+		"judge",
+		input.judge,
+	);
+	if (!identity.ok) return identity;
 	state.council.judge = { ...input.judge };
 	return { ok: true };
 }
@@ -103,6 +113,7 @@ export async function runJudgeAction(
 		startId: state.nextFindingId,
 	});
 	rememberAllocatedFindings(state, run.consolidatedFindings);
+	rememberParticipantIdentity(state, "judge", state.council.judge);
 	state.council.lastJudge = run;
 	state.council.lastCritique = null;
 	state.council.decisions = new Map();

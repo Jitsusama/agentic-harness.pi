@@ -29,6 +29,7 @@ import { getLastEntry } from "../../lib/internal/state.js";
 import type { CritiqueRun } from "./critique.js";
 import type { CouncilRun } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
+import type { ParticipantIdentity } from "./participant-identities.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { StackFindingRun } from "./stack-findings.js";
 import type {
@@ -42,7 +43,7 @@ import type { FindingDecision } from "./synthesis.js";
 const SESSION_KEY = "pr-workflow";
 
 /** Current wire-format version. Bump when adding/changing fields. */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /**
  * Map serialisation form. JSON.stringify on a Map
@@ -74,7 +75,8 @@ interface PersistedPrRunSnapshot {
  * without crashing. v2 carries every field; v0 (Phase 1
  * entries that lack a `version`) only carries the
  * config + PR reference slice. v3 adds the session-global
- * finding id allocator.
+ * finding id allocator. v4 adds stable participant identity
+ * tracking for reviewer and judge ids that have produced output.
  */
 interface PersistedState {
 	readonly version: typeof SCHEMA_VERSION;
@@ -94,6 +96,8 @@ interface PersistedState {
 	readonly threads: ThreadsSnapshot | null;
 	// Phase 3 fields:
 	readonly nextFindingId: number;
+	// Phase 4 fields:
+	readonly participantIdentities: readonly ParticipantIdentity[];
 }
 
 function serialiseDecisions(
@@ -144,6 +148,21 @@ function deserialiseStackRuns(
 	return map;
 }
 
+function serialiseParticipantIdentities(
+	map: ReadonlyMap<string, ParticipantIdentity>,
+): ParticipantIdentity[] {
+	return Array.from(map.values());
+}
+
+function deserialiseParticipantIdentities(
+	entries: readonly ParticipantIdentity[] | undefined,
+): Map<string, ParticipantIdentity> {
+	const map = new Map<string, ParticipantIdentity>();
+	if (!entries) return map;
+	for (const entry of entries) map.set(entry.id, entry);
+	return map;
+}
+
 function inferNextFindingId(state: PrWorkflowState): number {
 	let next = 1;
 	for (const output of state.council.lastRun?.reviewerOutputs ?? []) {
@@ -189,6 +208,9 @@ function snapshot(state: PrWorkflowState): PersistedState {
 		stackRuns: serialiseStackRuns(state.stackRuns),
 		threads: state.threads,
 		nextFindingId: state.nextFindingId,
+		participantIdentities: serialiseParticipantIdentities(
+			state.participantIdentities,
+		),
 	};
 }
 
@@ -251,4 +273,7 @@ export function restore(
 	if (saved.threads !== undefined) state.threads = saved.threads;
 
 	state.nextFindingId = saved.nextFindingId ?? inferNextFindingId(state);
+	state.participantIdentities = deserialiseParticipantIdentities(
+		saved.participantIdentities,
+	);
 }
