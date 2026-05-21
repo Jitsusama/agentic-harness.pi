@@ -48,6 +48,7 @@ export interface CouncilTarget {
 	readonly owner: string;
 	readonly repo: string;
 	readonly sha: string;
+	readonly branch?: string;
 	readonly prNumber: number;
 	readonly title: string;
 	readonly description: string;
@@ -109,6 +110,7 @@ export async function runOneCouncilReviewer(
 		owner: options.target.owner,
 		repo: options.target.repo,
 		sha: options.target.sha,
+		...(options.target.branch ? { branch: options.target.branch } : {}),
 	});
 	const prompt = buildReviewerPrompt({
 		prTitle: options.target.title,
@@ -166,6 +168,7 @@ export async function runCouncil(
 		owner: options.target.owner,
 		repo: options.target.repo,
 		sha: options.target.sha,
+		...(options.target.branch ? { branch: options.target.branch } : {}),
 	});
 
 	const prompt = buildReviewerPrompt({

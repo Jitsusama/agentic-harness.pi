@@ -7,7 +7,10 @@ import {
 } from "../../../extensions/pr-workflow/council-action.js";
 import type { CouncilRun } from "../../../extensions/pr-workflow/findings.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
-import type { WorktreeProvider } from "../../../extensions/pr-workflow/worktree.js";
+import type {
+	WorktreeProvider,
+	WorktreeRequest,
+} from "../../../extensions/pr-workflow/worktree.js";
 import { WorktreeRegistry } from "../../../extensions/pr-workflow/worktree.js";
 import { expectFailure, prMetadata } from "./fixtures.js";
 
@@ -18,10 +21,11 @@ import { expectFailure, prMetadata } from "./fixtures.js";
  * is a thin shell over these; the meat is here.
  */
 
-function fakeProvider(): WorktreeProvider {
+function fakeProvider(requests?: WorktreeRequest[]): WorktreeProvider {
 	return {
 		id: "fake",
 		async ensure(req) {
+			requests?.push(req);
 			return {
 				path: `/wt/${req.sha}`,
 				sha: req.sha,
@@ -236,6 +240,47 @@ describe("runCouncilAction", () => {
 		expect(state.participantIdentities.get("fast")).toEqual({
 			id: "fast",
 			role: "reviewer",
+		});
+	});
+
+	it("passes the PR head branch as a worktree hint", async () => {
+		const requests: WorktreeRequest[] = [];
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "2026-01-01T00:00:00Z",
+			metadata: prMetadata({
+				title: "Add foo",
+				url: "https://example/42",
+				author: "a",
+				base: { ref: "main", sha: "deadbeef" },
+				head: { ref: "feature/worktree", sha: "headsha1" },
+			}),
+			files: [],
+			stack: null,
+		};
+		state.council.roster = [{ id: "fast" }];
+		state.council.judge = { id: "judge" };
+
+		const result = await runCouncilAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider(requests)),
+			dispatch: async (opts) => ({
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: JSON.stringify({ findings: [] }),
+				stderr: "",
+				warnings: [],
+			}),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(requests).toHaveLength(1);
+		expect(requests[0]).toMatchObject({
+			owner: "o",
+			repo: "r",
+			sha: "headsha1",
+			branch: "feature/worktree",
 		});
 	});
 

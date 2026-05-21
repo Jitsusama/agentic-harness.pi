@@ -91,7 +91,7 @@ export interface RunCritiqueOptions {
 	readonly council: CouncilRun;
 	readonly judge: JudgeRun;
 	readonly roster: readonly CouncilReviewer[];
-	readonly target: Pick<CouncilTarget, "owner" | "repo" | "sha">;
+	readonly target: Pick<CouncilTarget, "owner" | "repo" | "sha" | "branch">;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly signal?: AbortSignal;
@@ -103,7 +103,7 @@ export interface RunOneCritiqueReviewerOptions {
 	readonly council: CouncilRun;
 	readonly judge: JudgeRun;
 	readonly reviewer: CouncilReviewer;
-	readonly target: Pick<CouncilTarget, "owner" | "repo" | "sha">;
+	readonly target: Pick<CouncilTarget, "owner" | "repo" | "sha" | "branch">;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly signal?: AbortSignal;
@@ -124,6 +124,7 @@ export async function runOneCritiqueReviewer(
 		owner: options.target.owner,
 		repo: options.target.repo,
 		sha: options.target.sha,
+		...(options.target.branch ? { branch: options.target.branch } : {}),
 	});
 	const prompt = buildCritiquePrompt({
 		reviewerId: options.reviewer.id,
@@ -345,6 +346,7 @@ export async function runCritique(
 		owner: options.target.owner,
 		repo: options.target.repo,
 		sha: options.target.sha,
+		...(options.target.branch ? { branch: options.target.branch } : {}),
 	});
 
 	const promises = options.roster.map(async (reviewer) => {

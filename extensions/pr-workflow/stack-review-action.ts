@@ -146,6 +146,7 @@ export async function runStackReviewAction(
 		owner: tip.reference.owner,
 		repo: tip.reference.repo,
 		sha: tip.metadata.head.sha,
+		branch: tip.metadata.head.ref,
 	});
 
 	const reviewPrompt = buildStackReviewPrompt({

@@ -14,13 +14,15 @@ import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js"
 import {
 	type WorktreeProvider,
 	WorktreeRegistry,
+	type WorktreeRequest,
 } from "../../../extensions/pr-workflow/worktree.js";
 import { expectFailure, prMetadata } from "./fixtures.js";
 
-function fakeProvider(): WorktreeProvider {
+function fakeProvider(requests?: WorktreeRequest[]): WorktreeProvider {
 	return {
 		id: "fake",
 		async ensure(req) {
+			requests?.push(req);
 			return {
 				path: `/wt/${req.sha}`,
 				sha: req.sha,
@@ -144,6 +146,31 @@ describe("runCritiqueAction", () => {
 		expect(result.ok).toBe(true);
 		expect(state.council.lastCritique).not.toBeNull();
 		expect(state.council.lastCritique?.reviewerOutputs).toHaveLength(2);
+	});
+
+	it("passes the PR head branch as a worktree hint", async () => {
+		const requests: WorktreeRequest[] = [];
+		const state = withFullPipeline();
+		const result = await runCritiqueAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider(requests)),
+			dispatch: async (opts) => ({
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: JSON.stringify({ critiques: [] }),
+				stderr: "",
+				warnings: [],
+			}),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(requests).toHaveLength(1);
+		expect(requests[0]).toMatchObject({
+			owner: "o",
+			repo: "r",
+			sha: "headsha1",
+			branch: "feat",
+		});
 	});
 });
 
