@@ -182,10 +182,12 @@ describe("buildReviewerPrompt", () => {
 			files: [file()],
 		});
 		expect(prompt).toMatch(/JSON Schema/i);
-		// All twelve Conventional Comments labels appear
-		// in the schema's label enum.
+		// Core Conventional Comments labels appear in the schema's label enum.
 		expect(prompt).toContain("praise");
-		expect(prompt).toContain("quibble");
+		expect(prompt).toContain("note");
+		expect(prompt).not.toContain("typo");
+		expect(prompt).not.toContain("polish");
+		expect(prompt).not.toContain("quibble");
 	});
 
 	it("handles an empty file list without crashing", () => {

@@ -49,8 +49,8 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 	sections.push(
 		"Cover the spectrum: correctness, security, performance, API design, " +
 			"readability, test quality, naming. Use Conventional Comments labels: " +
-			"praise, nitpick, suggestion, issue, todo, question, thought, chore, note, " +
-			"typo, polish, quibble. Optional decorations are free-form short tags " +
+			"praise, nitpick, suggestion, issue, todo, question, thought, chore or note. " +
+			"Optional decorations are free-form short tags " +
 			'(e.g. "non-blocking", "if-minor"). Optional severity is "critical", ' +
 			'"medium" or "minor". Optional confidence is a number 0.0 to 1.0.',
 	);

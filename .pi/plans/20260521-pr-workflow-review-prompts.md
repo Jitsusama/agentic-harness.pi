@@ -2,7 +2,7 @@
 
 Improve `pr-workflow` review quality and posting tone.
 
-The reviewer subprocess prompts should explicitly tell reviewers to look for and load relevant project-level or user-level Pi skills that relate to code review and code quality. The review pipeline should also produce final GitHub comments that follow Conventional Comments more faithfully, including label emoji prefixes, and should keep the top-level review body friendly and sparse.
+The reviewer subprocess prompts should explicitly tell reviewers to look for and load relevant project-level or user-level Pi skills that relate to code review and code quality. The review pipeline should also produce final GitHub comments that follow Conventional Comments more faithfully, with labels first and emojis inside the subject, and should keep the top-level review body friendly and sparse.
 
 ## Skills to Follow
 
@@ -19,7 +19,7 @@ The reviewer subprocess prompts should explicitly tell reviewers to look for and
 - Reviewer subprocesses run as `pi --mode json --no-session -p ...` with the review worktree as `cwd` (`extensions/pr-workflow/reviewer.ts`). Project-level skills in that worktree, plus relevant user-level skills, should be discoverable to the subprocess through Pi's normal skill discovery.
 - The current round-1 prompt asks reviewers to cover a broad spectrum of concerns, but it does not tell them to inspect available skills or load quality/review-related project skills (`extensions/pr-workflow/prompts.ts`).
 - Stack review, judge and critique prompts all call `reviewerOperatingRules()` but currently use it only for filesystem/tool discipline (`extensions/pr-workflow/stack-review.ts`, `extensions/pr-workflow/judge.ts`, `extensions/pr-workflow/critique.ts`, `extensions/pr-workflow/prompt-operating-rules.ts`). This is the best shared place for general skill-loading guidance.
-- Current schemas accept the Conventional Comments labels, including `praise`, `nitpick`, `suggestion`, `issue`, `todo`, `question`, `thought`, `chore`, `note`, `typo`, `polish` and `quibble` (`extensions/pr-workflow/schemas.ts`).
+- Current schemas accept the core Conventional Comments labels: `praise`, `nitpick`, `suggestion`, `issue`, `todo`, `question`, `thought`, `chore` and `note` (`extensions/pr-workflow/schemas.ts`).
 - Current posting only partially follows Conventional Comments. Inline comments render as `**label:** subject`, which omits decorations and differs from the canonical `<label> [decorations]: <subject>` form. File/global/stack findings render into review-body headings (`extensions/pr-workflow/post.ts`).
 - The user clarified the desired fallback behaviour: try to fit findings into valid GitHub line ranges first. If no valid line range exists, top-level body text is acceptable as a fallback.
 - The user does not want hard-coded references to specific skill names. The prompt should generally direct reviewers to evaluate available project-level and user-level skills whose descriptions relate to reviewing code, code quality, testing, security, style, architecture or repository conventions.
@@ -34,7 +34,7 @@ Add a shared prompt section for skill discovery and review discipline, then wire
 
 Update review-post rendering so comments are closer to canonical Conventional Comments:
 
-- Use `<emoji> <label> [decorations]: <subject>` as the first line.
+- Use `<label> [decorations]: <emoji> <subject>` as the first line so the label remains the parseable prefix.
 - Include decorations when present.
 - Keep discussion as the body.
 - Preserve qualifier and provenance, but keep them visually secondary.
@@ -43,7 +43,7 @@ For top-level review bodies, keep the default body friendly and sparse. Inline f
 
 ## Proposed Label Emoji Mapping
 
-Use simple, readable emojis that reinforce the label without making comments noisy:
+Use simple, readable emojis that reinforce the core labels without making comments noisy:
 
 - `praise`: `👏`
 - `nitpick`: `🔍`
@@ -54,9 +54,6 @@ Use simple, readable emojis that reinforce the label without making comments noi
 - `thought`: `💭`
 - `chore`: `🧹`
 - `note`: `📝`
-- `typo`: `✏️`
-- `polish`: `✨`
-- `quibble`: `🤏`
 
 ## PR Breakdown
 
@@ -102,7 +99,7 @@ Use simple, readable emojis that reinforce the label without making comments noi
 
 - Add a small internal formatter, for example `renderConventionalCommentHeader(finding): string`.
 - The formatter takes a finding-like object with `label`, `decorations` and subject text.
-- It returns `<emoji> <label> (decorations): <subject>` when decorations exist and `<emoji> <label>: <subject>` otherwise.
+- It returns `<label> (decorations): <emoji> <subject>` when decorations exist and `<label>: <emoji> <subject>` otherwise.
 
 **Test Scenarios:**
 

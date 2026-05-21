@@ -50,9 +50,6 @@ const LABEL_EMOJI: Record<Finding["label"], string> = {
 	thought: "💭",
 	chore: "🧹",
 	note: "📝",
-	typo: "✏️",
-	polish: "✨",
-	quibble: "🤏",
 };
 
 interface ConventionalCommentHeaderInput {
@@ -245,11 +242,11 @@ function renderStackBodyEntry(
 			? `cross-PR: spans #${finding.spans[0]}`
 			: `cross-PR: spans #${finding.spans.join(", #")}`;
 	lines.push(
-		`### ${renderConventionalCommentHeader({
+		renderConventionalCommentHeader({
 			label: finding.label,
 			decorations: finding.decorations,
 			subject,
-		})}`,
+		}),
 	);
 	lines.push("");
 	lines.push(`_${spansSentence}_`);
@@ -418,11 +415,11 @@ function renderBodyEntry(finding: Finding, decision: FindingDecision): string {
 	const where = renderLocationForBody(finding.location);
 	const lines: string[] = [];
 	lines.push(
-		`### ${renderConventionalCommentHeader({
+		renderConventionalCommentHeader({
 			label: finding.label,
 			decorations: finding.decorations,
 			subject,
-		})}`,
+		}),
 	);
 	lines.push("");
 	lines.push(`_${where}_`);
@@ -444,7 +441,7 @@ function renderConventionalCommentHeader(
 	input: ConventionalCommentHeaderInput,
 ): string {
 	const decorations = renderDecorations(input.decorations);
-	return `${LABEL_EMOJI[input.label]} ${input.label}${decorations}: ${input.subject}`;
+	return `${input.label}${decorations}: ${LABEL_EMOJI[input.label]} ${input.subject}`;
 }
 
 function renderDecorations(decorations: readonly string[] | undefined): string {

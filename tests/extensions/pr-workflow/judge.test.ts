@@ -156,7 +156,10 @@ describe("buildJudgePrompt", () => {
 		expect(text).toMatch(/JSON Schema/i);
 		// Label vocabulary present (schema embedded).
 		expect(text).toContain("praise");
-		expect(text).toContain("quibble");
+		expect(text).toContain("note");
+		expect(text).not.toContain("typo");
+		expect(text).not.toContain("polish");
+		expect(text).not.toContain("quibble");
 	});
 });
 

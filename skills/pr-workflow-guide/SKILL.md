@@ -626,10 +626,11 @@ Translate intent; don't enumerate verdicts at the user:
 ## Posted comment format
 
 The tool renders comments in Conventional Comments
-format:
+format, with the label first so the header remains
+parseable:
 
 ```
-**issue:** Subject line
+issue (blocking): ⚠️ Subject line
 
 Discussion body.
 
@@ -640,7 +641,7 @@ _Raised by: fast, skeptic._
 
 Inline comments (line-located findings) post against
 the file/line. File- and scope-level findings collect
-in the review body summary.
+in the review body summary using the same header format.
 
 ## Tracking cost
 
