@@ -25,6 +25,7 @@
  */
 
 import type { DiffFile } from "../../lib/internal/github/diff.js";
+import { isReviewerCancelledError } from "./cancellation.js";
 import {
 	type CouncilProgress,
 	type CouncilProgressEntry,
@@ -223,12 +224,20 @@ export async function runCouncil(
 				);
 				return value;
 			} catch (err) {
-				const message = err instanceof Error ? err.message : String(err);
-				safelyNotify(
-					() => progress.reviewerFailed(reviewer.id, message),
-					`failed(${reviewer.id})`,
-					progressWarnings,
-				);
+				if (isReviewerCancelledError(err)) {
+					safelyNotify(
+						() => progress.reviewerCancelled?.(reviewer.id),
+						`cancelled(${reviewer.id})`,
+						progressWarnings,
+					);
+				} else {
+					const message = err instanceof Error ? err.message : String(err);
+					safelyNotify(
+						() => progress.reviewerFailed(reviewer.id, message),
+						`failed(${reviewer.id})`,
+						progressWarnings,
+					);
+				}
 				throw err;
 			}
 		}),
@@ -240,14 +249,18 @@ export async function runCouncil(
 		const reviewer = options.reviewers[i];
 		const result = settled[i];
 		if (result.status === "rejected") {
-			const message =
-				result.reason instanceof Error
+			const cancelled = isReviewerCancelledError(result.reason);
+			const message = cancelled
+				? "Reviewer cancelled by user."
+				: result.reason instanceof Error
 					? result.reason.message
 					: String(result.reason);
 			reviewerOutputs.push({
 				reviewerId: reviewer.id,
 				findings: [],
-				warnings: [`Reviewer dispatch failed: ${message}`],
+				warnings: [
+					cancelled ? message : `Reviewer dispatch failed: ${message}`,
+				],
 			});
 			continue;
 		}

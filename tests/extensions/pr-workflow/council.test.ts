@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ReviewerCancelledError } from "../../../extensions/pr-workflow/cancellation.js";
 import {
 	type CouncilDispatch,
 	runCouncil,
@@ -211,6 +212,52 @@ describe("runCouncil", () => {
 			runId: "council-2026-01-01",
 			reviewerId: "fast",
 		});
+	});
+
+	it("records cancelled reviewers without losing other outputs", async () => {
+		const events: string[] = [];
+		const dispatch: CouncilDispatch = async (opts) => {
+			if (opts.reviewer.id === "skeptic") {
+				throw new ReviewerCancelledError(opts.reviewer.id);
+			}
+			return {
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: findingsJson(["x"]),
+				stderr: "",
+				warnings: [],
+			};
+		};
+		const run = await runCouncil({
+			runId: "r",
+			target: TARGET,
+			reviewers: [REVIEWER_A, REVIEWER_B],
+			registry: new WorktreeRegistry(fakeWorktreeProvider()),
+			dispatch,
+			progress: {
+				start() {},
+				reviewerStarted(id) {
+					events.push(`started:${id}`);
+				},
+				reviewerCompleted(id) {
+					events.push(`completed:${id}`);
+				},
+				reviewerCancelled(id) {
+					events.push(`cancelled:${id}`);
+				},
+				reviewerFailed(id) {
+					events.push(`failed:${id}`);
+				},
+				finish() {},
+			},
+		});
+
+		const skeptic = run.reviewerOutputs.find((r) => r.reviewerId === "skeptic");
+		const fast = run.reviewerOutputs.find((r) => r.reviewerId === "fast");
+		expect(skeptic?.warnings).toEqual(["Reviewer cancelled by user."]);
+		expect(fast?.findings).toHaveLength(1);
+		expect(events).toContain("cancelled:skeptic");
+		expect(events).not.toContain("failed:skeptic");
 	});
 
 	it("continues collecting outputs when one reviewer fails", async () => {

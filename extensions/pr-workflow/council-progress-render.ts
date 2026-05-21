@@ -89,6 +89,14 @@ export function createCouncilProgressReporter(
 			});
 			render();
 		},
+		reviewerCancelled(reviewerId) {
+			updateEntry(reviewerId, {
+				state: "cancelled",
+				activity: "",
+				error: "cancelled by user",
+			});
+			render();
+		},
 		reviewerFailed(reviewerId, error) {
 			updateEntry(reviewerId, { state: "failed", error, activity: "" });
 			render();
@@ -119,6 +127,7 @@ export function renderCouncilStatus(
 	const detail: string[] = [];
 	if (counts.running > 0) detail.push(`running=${counts.running}`);
 	if (counts.pending > 0) detail.push(`pending=${counts.pending}`);
+	if (counts.cancelled > 0) detail.push(`cancelled=${counts.cancelled}`);
 	if (counts.failed > 0) {
 		detail.push(theme.fg("error", `failed=${counts.failed}`));
 	}
@@ -162,6 +171,7 @@ function widgetSubtext(entry: CouncilProgressEntry): string | undefined {
 		return entry.activity.length > 0 ? `last: ${entry.activity}` : "in flight";
 	}
 	if (entry.state === "pending") return "queued";
+	if (entry.state === "cancelled") return "cancelled by user";
 	return undefined;
 }
 
@@ -173,6 +183,8 @@ function stageStateFrom(state: CouncilProgressState): StageState {
 			return "running";
 		case "complete":
 			return "complete";
+		case "cancelled":
+			return "skipped";
 		case "failed":
 			return "failed";
 	}
@@ -185,6 +197,7 @@ function countStates(
 		pending: 0,
 		running: 0,
 		complete: 0,
+		cancelled: 0,
 		failed: 0,
 	};
 	for (const entry of entries) {

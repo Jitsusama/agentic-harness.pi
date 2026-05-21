@@ -66,6 +66,22 @@ describe("renderCouncilStatus", () => {
 		expect(line).toContain("running=2");
 	});
 
+	it("surfaces cancelled reviewers in the detail tail", () => {
+		const line = renderCouncilStatus(
+			[entry("a", "complete"), entry("b", "cancelled")],
+			fakeTheme(),
+		);
+		expect(line).toContain("cancelled=1");
+	});
+
+	it("renders cancelled reviewers as cancelled by user", () => {
+		const lines = renderCouncilWidgetLines(
+			[entry("slow", "cancelled")],
+			fakeTheme(),
+		);
+		expect(lines.join("\n")).toContain("cancelled by user");
+	});
+
 	it("surfaces a failed detail in the error colour", () => {
 		const line = renderCouncilStatus(
 			[entry("a", "complete"), entry("b", "failed", { error: "boom" })],
@@ -82,6 +98,7 @@ describe("renderCouncilStatus", () => {
 		expect(line).toContain("2/2 done");
 		expect(line).not.toContain("running=");
 		expect(line).not.toContain("pending=");
+		expect(line).not.toContain("cancelled=");
 		expect(line).not.toContain("failed=");
 	});
 

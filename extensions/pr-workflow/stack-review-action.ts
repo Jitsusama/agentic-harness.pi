@@ -11,6 +11,7 @@
 
 import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
+import { isReviewerCancelledError } from "./cancellation.js";
 import type { CouncilDispatch } from "./council.js";
 import {
 	type CouncilProgress,
@@ -192,12 +193,20 @@ export async function runStackReviewAction(
 				);
 				return value;
 			} catch (err) {
-				const message = errorMessage(err);
-				safelyNotify(
-					() => progress.reviewerFailed(reviewer.id, message),
-					`failed(${reviewer.id})`,
-					progressWarnings,
-				);
+				if (isReviewerCancelledError(err)) {
+					safelyNotify(
+						() => progress.reviewerCancelled?.(reviewer.id),
+						`cancelled(${reviewer.id})`,
+						progressWarnings,
+					);
+				} else {
+					const message = errorMessage(err);
+					safelyNotify(
+						() => progress.reviewerFailed(reviewer.id, message),
+						`failed(${reviewer.id})`,
+						progressWarnings,
+					);
+				}
 				throw err;
 			}
 		}),
@@ -209,13 +218,16 @@ export async function runStackReviewAction(
 		const reviewer = state.council.roster[i];
 		const result = settled[i];
 		if (result.status === "rejected") {
-			const message = errorMessage(result.reason);
-			warnings.push(`${reviewer.id}: Reviewer dispatch failed: ${message}`);
+			const cancelled = isReviewerCancelledError(result.reason);
+			const message = cancelled
+				? "Reviewer cancelled by user."
+				: `Reviewer dispatch failed: ${errorMessage(result.reason)}`;
+			warnings.push(`${reviewer.id}: ${message}`);
 			reviewerOutputs.push({
 				reviewerId: reviewer.id,
 				perPr: new Map(),
 				crossPr: [],
-				warnings: [`Reviewer dispatch failed: ${message}`],
+				warnings: [message],
 			});
 			continue;
 		}
@@ -248,14 +260,36 @@ export async function runStackReviewAction(
 		`started(${judge.id})`,
 		progressWarnings,
 	);
-	const judged = await input.dispatch({
-		reviewer: judge,
-		prompt: judgePrompt,
-		cwd: handle.path,
-		signal: input.signal,
-		onEvent: (event) =>
-			notifyActivity(progress, progressWarnings, judge.id, event),
-	});
+	let judged: Awaited<ReturnType<CouncilDispatch>>;
+	try {
+		judged = await input.dispatch({
+			reviewer: judge,
+			prompt: judgePrompt,
+			cwd: handle.path,
+			signal: input.signal,
+			onEvent: (event) =>
+				notifyActivity(progress, progressWarnings, judge.id, event),
+		});
+	} catch (error) {
+		if (isReviewerCancelledError(error)) {
+			safelyNotify(
+				() => progress.reviewerCancelled?.(judge.id),
+				`cancelled(${judge.id})`,
+				progressWarnings,
+			);
+		} else {
+			safelyNotify(
+				() => progress.reviewerFailed(judge.id, errorMessage(error)),
+				`failed(${judge.id})`,
+				progressWarnings,
+			);
+		}
+		safelyNotify(() => progress.finish(), "finish", progressWarnings);
+		const prefix = isReviewerCancelledError(error)
+			? "Stack review cancelled"
+			: "Stack review judge failed";
+		return { ok: false, error: `${prefix}: ${errorMessage(error)}` };
+	}
 	const parsedJudge = parseStackJudgeOutput(judged.finalAssistantText, {
 		runId: judgeRunId,
 		judgeReviewerId: judge.id,

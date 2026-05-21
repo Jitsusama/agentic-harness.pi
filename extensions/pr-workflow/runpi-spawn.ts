@@ -111,18 +111,26 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 
 			let settled = false;
 			let timedOut = false;
+			let stoppedBy: "abort" | "timeout" | null = null;
 			let killTimer: NodeJS.Timeout | null = null;
 			const clearKillTimer = (): void => {
 				if (killTimer) clearTimeout(killTimer);
 				killTimer = null;
 			};
 			const stopChild = (reason: "abort" | "timeout"): void => {
+				if (stoppedBy !== null) return;
+				stoppedBy = reason;
 				if (reason === "timeout" && !timedOut) {
 					timedOut = true;
 					stderrChunks.unshift(
 						Buffer.from(
 							`Pi subprocess timed out after ${timeoutMs}ms; sent SIGTERM.\n`,
 						),
+					);
+				}
+				if (reason === "abort") {
+					stderrChunks.unshift(
+						Buffer.from("Pi subprocess cancelled; sent SIGTERM.\n"),
 					);
 				}
 				terminateProcessTree(child, "SIGTERM");
@@ -168,11 +176,22 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 				resolve({
 					stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
 					stderr: Buffer.concat(stderrChunks).toString("utf-8"),
-					exitCode: code ?? 0,
+					exitCode: code ?? fallbackExitCode(stoppedBy),
 				});
 			});
 		});
 	};
+}
+
+function fallbackExitCode(reason: "abort" | "timeout" | null): number {
+	switch (reason) {
+		case "abort":
+			return 130;
+		case "timeout":
+			return 124;
+		case null:
+			return 0;
+	}
 }
 
 function terminateProcessTree(

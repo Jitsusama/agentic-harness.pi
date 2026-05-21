@@ -26,7 +26,15 @@ import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
 import { postReview } from "../../lib/internal/github/review-post.js";
 import { parsePrFileUri, prFileUri, resolvePrFile } from "./buffer.js";
+import {
+	createCancellableDispatch,
+	formatCancellationOutcome,
+	formatCancellationStatus,
+	ReviewerCancellationRegistry,
+	type ReviewOperation,
+} from "./cancellation.js";
 import { loadPrWorkflowConfig } from "./config.js";
+import type { CouncilDispatch } from "./council.js";
 import {
 	configureCouncil,
 	formatCouncilSummary,
@@ -149,6 +157,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	// workspace rules.
 	const resolveSourceRepo = async (req: { owner: string; repo: string }) =>
 		join(homedir(), "src", "github.com", req.owner, req.repo);
+	const cancellations = new ReviewerCancellationRegistry();
 	const worktreeProviders = new WorktreeProviderBroker(
 		createGitWorktreeProvider({
 			stateDir: prWorkflowStateDir(),
@@ -180,6 +189,24 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			extraExtensions: [resolveVerifyExtensionPath()],
 		};
 		return councilDeps;
+	};
+	const runWithCancellableReviewers = async <T>(
+		operation: ReviewOperation,
+		run: (deps: {
+			readonly registry: WorktreeRegistry;
+			readonly dispatch: CouncilDispatch;
+		}) => Promise<T>,
+	): Promise<T> => {
+		const { registry, runPi, extraExtensions } = getCouncilDeps();
+		const activeRun = cancellations.beginRun(operation);
+		const dispatch = createCancellableDispatch(activeRun, (opts) =>
+			runReviewer({ ...opts, runPi, extraExtensions }),
+		);
+		try {
+			return await run({ registry, dispatch });
+		} finally {
+			activeRun.end();
+		}
 	};
 
 	// Fix worktrees: separate from council worktrees
@@ -256,6 +283,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"stack-prev",
 					"council-retry",
 					"critique-retry",
+					"cancel",
 					"threads",
 					"reply",
 					"resolve",
@@ -287,6 +315,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"council run and substitute their output in place. " +
 						"critique-retry: re-run one reviewer in the most recent " +
 						"critique run and substitute their output in place. " +
+						"cancel: cancel an active reviewer subprocess. Pass " +
+						"reviewerId to cancel one reviewer; omit it to cancel all " +
+						"active reviewers in the current run. " +
 						"threads: fetch the loaded PR's existing review threads. " +
 						"reply: post a reply to a thread by its [T#] index. " +
 						"resolve: resolve a thread by its [T#] index. " +
@@ -397,7 +428,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			reviewerId: Type.Optional(
 				Type.String({
 					description:
-						"Reviewer id from the active council roster. Required for action=council-retry.",
+						"Reviewer id from the active council roster. Required for action=council-retry and action=critique-retry; optional for action=cancel to cancel just that reviewer.",
 				}),
 			),
 			verdict: Type.Optional(
@@ -489,6 +520,15 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (params.action === "cancel") {
+				const outcome = cancellations.cancel(params.reviewerId);
+				return {
+					content: [{ type: "text", text: formatCancellationOutcome(outcome) }],
+					details: outcome,
+					...(!outcome.ok ? { isError: true } : {}),
+				};
+			}
+
 			if (params.action === "council-config") {
 				let reviewers: readonly CouncilReviewer[] | undefined =
 					params.reviewers;
@@ -544,14 +584,17 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "council") {
-				const { registry, runPi, extraExtensions } = getCouncilDeps();
 				const progress = createCouncilProgressReporter(ctx);
-				const result = await runCouncilAction({
-					state,
-					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
-					progress,
-				});
+				const result = await runWithCancellableReviewers(
+					"council",
+					({ registry, dispatch }) =>
+						runCouncilAction({
+							state,
+							registry,
+							dispatch,
+							progress,
+						}),
+				);
 				if (!result.ok) {
 					return {
 						content: [{ type: "text", text: result.error }],
@@ -578,13 +621,17 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
-				const { registry, runPi, extraExtensions } = getCouncilDeps();
-				const result = await retryCouncilReviewer({
-					state,
-					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
-					reviewerId: params.reviewerId,
-				});
+				const reviewerId = params.reviewerId;
+				const result = await runWithCancellableReviewers(
+					"council-retry",
+					({ registry, dispatch }) =>
+						retryCouncilReviewer({
+							state,
+							registry,
+							dispatch,
+							reviewerId,
+						}),
+				);
 				if (!result.ok) {
 					return {
 						content: [{ type: "text", text: result.error }],
@@ -650,12 +697,15 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "judge") {
-				const { registry, runPi, extraExtensions } = getCouncilDeps();
-				const result = await runJudgeAction({
-					state,
-					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
-				});
+				const result = await runWithCancellableReviewers(
+					"judge",
+					({ registry, dispatch }) =>
+						runJudgeAction({
+							state,
+							registry,
+							dispatch,
+						}),
+				);
 				if (!result.ok) {
 					return {
 						content: [{ type: "text", text: result.error }],
@@ -670,21 +720,24 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "review") {
-				const { registry, runPi, extraExtensions } = getCouncilDeps();
 				const progress = createCouncilProgressReporter(ctx);
-				const result = await runStackReviewAction({
-					state,
-					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
-					progress,
-					fetchers: {
-						metadata: (reference) => fetchPrMetadata(pi, reference),
-						diff: async (reference) => {
-							const raw = await fetchDiff(pi, reference);
-							return parseDiff(raw);
-						},
-					},
-				});
+				const result = await runWithCancellableReviewers(
+					"review",
+					({ registry, dispatch }) =>
+						runStackReviewAction({
+							state,
+							registry,
+							dispatch,
+							progress,
+							fetchers: {
+								metadata: (reference) => fetchPrMetadata(pi, reference),
+								diff: async (reference) => {
+									const raw = await fetchDiff(pi, reference);
+									return parseDiff(raw);
+								},
+							},
+						}),
+				);
 				if (!result.ok) {
 					return {
 						content: [{ type: "text", text: result.error }],
@@ -701,12 +754,15 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "critique") {
-				const { registry, runPi, extraExtensions } = getCouncilDeps();
-				const result = await runCritiqueAction({
-					state,
-					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
-				});
+				const result = await runWithCancellableReviewers(
+					"critique",
+					({ registry, dispatch }) =>
+						runCritiqueAction({
+							state,
+							registry,
+							dispatch,
+						}),
+				);
 				if (!result.ok) {
 					return {
 						content: [{ type: "text", text: result.error }],
@@ -741,13 +797,17 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
-				const { registry, runPi, extraExtensions } = getCouncilDeps();
-				const result = await retryCritiqueReviewer({
-					state,
-					registry,
-					dispatch: (opts) => runReviewer({ ...opts, runPi, extraExtensions }),
-					reviewerId: params.reviewerId,
-				});
+				const reviewerId = params.reviewerId;
+				const result = await runWithCancellableReviewers(
+					"critique-retry",
+					({ registry, dispatch }) =>
+						retryCritiqueReviewer({
+							state,
+							registry,
+							dispatch,
+							reviewerId,
+						}),
+				);
 				if (!result.ok) {
 					return {
 						content: [{ type: "text", text: result.error }],
@@ -1385,6 +1445,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					`cross-PR findings: ${state.stackFindingRun?.findings.length ?? 0} (${state.stackDecisions.size} decided)`,
 					`stack snapshots: ${stackSnapshotSummary}`,
 					`threads: ${state.threads === null ? "not fetched" : `${state.threads.threads.length} (fetched ${state.threads.fetchedAt})`}`,
+					...formatCancellationStatus(cancellations),
 					formatFixQueueStatus(state),
 					...renderUsageLines(breakdown),
 				];

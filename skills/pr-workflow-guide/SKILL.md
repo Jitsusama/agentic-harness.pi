@@ -26,7 +26,7 @@ navigation).
 ## The pipeline at a glance
 
 ```
-load → review → findings/decide × N → post
+load → review → [critique?] → findings/decide × N → post
   ↳ just this PR: council → judge → [critique?] → findings/decide × N → post
 ```
 
@@ -43,7 +43,8 @@ prose; you translate intent into calls.
 | `judge-config` | User wants to set or change the judge model. Omit `judge` to load configured defaults. |
 | `judge` | Round 2: consolidate the council output. Run after `council`. |
 | `review` | Stack-wide context review: one stack-aware council fan-out plus one stack-aware judge. Use for "review the whole stack" or "do all of them". |
-| `critique` | Round 3 (optional): roster pushes back on the judge. Only after the gate. |
+| `critique` | Round 3 (optional): roster pushes back on the judge. Works after either `judge` or stack-wide `review`. |
+| `cancel` | Cancel an active reviewer subprocess. Pass `reviewerId` to cancel one; omit it to cancel the whole active run. |
 | `findings` | Show the current findings view (judge + critique + decisions, plus stack-level findings if any). Read-only. |
 | `decide` | Round 4: record the user's verdict on one finding. Pass `scope="stack"` for cross-PR findings from `review`. |
 | `post` | Ship eligible findings to GitHub as a PR review. Stack findings home to the cursor PR post alongside per-PR findings. |
@@ -274,6 +275,20 @@ pr_workflow action=council-retry reviewerId=skeptic
 pr_workflow action=critique-retry reviewerId=skeptic
 ```
 
+Cancellation mechanics:
+
+```
+pr_workflow action=cancel reviewerId=skeptic  # cancel one stuck reviewer
+pr_workflow action=cancel                     # cancel the active run
+```
+
+Use `cancel` when a reviewer is clearly stuck or the user
+asks to stop burning tokens. Cancelling one reviewer keeps
+other reviewer output. Cancelling the run aborts every
+active reviewer and also cancels later subprocesses in the
+same action, such as the stack judge that would normally
+start after fan-out.
+
 - Council retry allocates new finding ids past the
   current max. Existing decisions stay stable.
 - Critique retry replaces the reviewer's positions on
@@ -465,21 +480,30 @@ Workflow:
    return `perPr` plus `crossPr` findings. The judge
    consolidates the same shape.
 
-4. Per-PR findings appear in `findings` for the
+4. Ask whether the user wants critique. If they do, run:
+
+   ```
+   pr_workflow action=critique
+   ```
+
+   The critique target includes per-PR findings and
+   cross-PR findings from the stack review.
+
+5. Per-PR findings appear in `findings` for the
    cursor PR. Stack findings appear in a
    'Stack-level findings (decide with scope=stack)'
    section, with S-prefixed ids.
 
-5. Decide on cross-PR findings with `scope="stack"`:
+6. Decide on cross-PR findings with `scope="stack"`:
 
    ```
    pr_workflow action=decide findingId=1 verdict=endorse scope=stack
    ```
 
-6. Post. Each stack finding lands on its `homePrNumber`.
+7. Post. Each stack finding lands on its `homePrNumber`.
    Findings home to the cursor PR post in the same
    call as per-PR findings. Findings home to other PRs
-   in the stack get skipped — navigate to the home PR
+   in the stack get skipped. Navigate to the home PR
    and re-run `post` to flush them.
 
 
