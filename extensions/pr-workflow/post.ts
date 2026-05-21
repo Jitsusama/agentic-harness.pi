@@ -24,6 +24,7 @@ import type { Finding, FindingAgreement, FindingLocation } from "./findings.js";
 import type { PostGateOutcome } from "./post-gate-outcome.js";
 import type {
 	PostGateFindingLine,
+	PostGateSkippedLine,
 	PostGateSummary,
 } from "./post-gate-render.js";
 import type { StackFinding } from "./stack-findings.js";
@@ -327,6 +328,13 @@ function buildGateSummary(
 		});
 	}
 
+	const skipped: PostGateSkippedLine[] = payload.skipped.map((entry) => ({
+		displayId: entry.reason.startsWith("stack:")
+			? `S${entry.findingId}`
+			: String(entry.findingId),
+		reason: entry.reason,
+	}));
+
 	return {
 		event,
 		body,
@@ -338,6 +346,7 @@ function buildGateSummary(
 		stackFindingCount: payload.includedStackFindingIds.length,
 		skippedCount: payload.skipped.length,
 		findings: lines,
+		skipped,
 	};
 }
 

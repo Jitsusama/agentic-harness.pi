@@ -27,6 +27,7 @@ function summary(overrides: Partial<PostGateSummary> = {}): PostGateSummary {
 				location: "config.ts",
 			},
 		],
+		skipped: [],
 		...overrides,
 	};
 }
@@ -67,12 +68,21 @@ describe("renderPostGateContent", () => {
 		expect(lines.join("\n")).toContain("3 cross-PR");
 	});
 
-	it("surfaces the skipped count when findings were dropped", () => {
-		const lines = renderPostGateContent(summary({ skippedCount: 2 }))(
-			fakeTheme(),
-			80,
-		);
-		expect(lines.join("\n")).toMatch(/2 skipped/);
+	it("surfaces skipped findings with reasons", () => {
+		const lines = renderPostGateContent(
+			summary({
+				skippedCount: 2,
+				skipped: [
+					{ displayId: "14", reason: "dismissed by user" },
+					{ displayId: "S18", reason: "stack: queued for fix" },
+				],
+			}),
+		)(fakeTheme(), 80);
+		const text = lines.join("\n");
+		expect(text).toMatch(/2 skipped/);
+		expect(text).toContain("Skipped:");
+		expect(text).toContain("[14] dismissed by user");
+		expect(text).toContain("[S18] stack: queued for fix");
 	});
 
 	it("hides the cross-PR and skipped lines when zero", () => {
@@ -93,5 +103,36 @@ describe("renderPostGateContent", () => {
 		);
 		expect(approve.join("\n")).toContain("APPROVE");
 		expect(reject.join("\n")).toContain("REQUEST_CHANGES");
+	});
+
+	it("wraps long body and finding lines to the content width", () => {
+		const lines = renderPostGateContent(
+			summary({
+				body: "This is a very long review body line that should wrap before it reaches the edge of the confirmation panel.",
+				findings: [
+					{
+						id: 14,
+						label: "issue",
+						subject:
+							"This finding subject is intentionally long enough to require wrapping in the post gate",
+						location: "cache.ts:12-14",
+					},
+				],
+			}),
+		)(fakeTheme(), 40);
+
+		expect(
+			lines.every((line) => line.replace(/<[^>]+>/g, "").length <= 40),
+		).toBe(true);
+		expect(lines.some((line) => line.includes("This is a very long"))).toBe(
+			true,
+		);
+		expect(lines.some((line) => line.includes("confirmation panel"))).toBe(
+			true,
+		);
+		expect(lines.some((line) => line.includes("[14] [issue]"))).toBe(true);
+		expect(
+			lines.some((line) => line.includes("wrapping in the post gate")),
+		).toBe(true);
 	});
 });
