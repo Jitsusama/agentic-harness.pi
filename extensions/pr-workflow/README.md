@@ -178,11 +178,46 @@ the right action.
   snapshots only and never fetches. Use for "what's
   the state of this PR?" between scenarios.
 - `action="council-config"` — set the reviewer roster
-  (id + model + tools).
-- `action="judge-config"` — set the judge model.
+  (id + model + tools). Omit `reviewers` to load the
+  roster from a config file.
+- `action="judge-config"` — set the judge model. Omit
+  `judge` to load the judge from a config file.
 - `action="review"` — run the stack-wide review
   pipeline: stack-aware council fan-out followed by
   stack-aware judge.
+
+### Configuration defaults
+
+The extension ships with no built-in reviewer or judge
+defaults. Users can define them in JSON at the first
+available path:
+
+1. `$PR_WORKFLOW_CONFIG`
+2. `$XDG_CONFIG_HOME/pi/pr-workflow.json`
+3. `~/.config/pi/pr-workflow.json`
+
+Example:
+
+```json
+{
+  "reviewers": [
+    {
+      "id": "fast",
+      "model": "anthropic/claude-sonnet-4-5",
+      "thinkingLevel": "low",
+      "tools": ["read", "grep", "glob", "ls"]
+    }
+  ],
+  "judge": {
+    "id": "judge",
+    "model": "anthropic/claude-opus-4-7",
+    "thinkingLevel": "high"
+  }
+}
+```
+
+Reviewer ids must be unique, and the judge id must be
+distinct from every council reviewer id.
 
 **Round 1 — fan-out**
 

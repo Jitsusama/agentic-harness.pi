@@ -50,6 +50,13 @@ export function configureCouncil(
 		}
 		seen.add(r.id);
 	}
+	const judgeId = state.council.judge?.id;
+	if (judgeId && seen.has(judgeId)) {
+		return {
+			ok: false,
+			error: `Reviewer id "${judgeId}" is already used by the judge. Council reviewer ids and judge id must be distinct within a session.`,
+		};
+	}
 	state.council.roster = input.reviewers.map((r) => ({ ...r }));
 	return { ok: true };
 }

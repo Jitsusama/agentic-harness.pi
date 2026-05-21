@@ -38,9 +38,9 @@ prose; you translate intent into calls.
 | `load` | First action of any PR session. User said "review PR 42" or pasted a URL. |
 | `status` | Debug-y session dump: IDs, configs, raw counts, per-stage cost. Use when the user asks a low-level state question or you need to verify wiring. |
 | `summary` | User-facing "what's the state of this PR?" panel. Header + stack + threads + council + fix queue, composed from cached snapshots. Use when the user asks open questions like "where are we on this?" or comes back to a session after a break. Never fetches — if threads aren't cached the panel prompts to run `action=threads`. |
-| `council-config` | User wants to set or change the reviewer roster. |
+| `council-config` | User wants to set or change the reviewer roster. Omit `reviewers` to load configured defaults. |
 | `council` | Round 1: fan out the roster. User said "run the review", "kick it off". |
-| `judge-config` | User wants to set or change the judge model. |
+| `judge-config` | User wants to set or change the judge model. Omit `judge` to load configured defaults. |
 | `judge` | Round 2: consolidate the council output. Run after `council`. |
 | `review` | Stack-wide context review: one stack-aware council fan-out plus one stack-aware judge. Use for "review the whole stack" or "do all of them". |
 | `critique` | Round 3 (optional): roster pushes back on the judge. Only after the gate. |
@@ -128,8 +128,17 @@ user.
 ### Configuring the council
 
 Ask once whether the user has a roster preference. If
-they defer ("use whatever"), pick a default and tell
-them what you picked:
+they defer ("use whatever"), use configured defaults if
+they exist:
+
+```
+pr_workflow action=council-config
+pr_workflow action=judge-config
+```
+
+If no config file exists, ask for a roster instead of
+inventing built-in defaults. An explicit roster still
+works:
 
 ```
 pr_workflow action=council-config reviewers=[
@@ -159,6 +168,36 @@ needs (`read`, `grep`, `glob`, `ls`, optionally `bash`).
 Omitting `tools` entirely makes pi fall back to all
 loaded tools, which also keeps `verify_output`
 accessible.
+
+Configured defaults come from the first available path:
+
+1. `$PR_WORKFLOW_CONFIG`
+2. `$XDG_CONFIG_HOME/pi/pr-workflow.json`
+3. `~/.config/pi/pr-workflow.json`
+
+Use this JSON shape:
+
+```json
+{
+  "reviewers": [
+    {
+      "id": "fast",
+      "model": "anthropic/claude-sonnet-4-5",
+      "thinkingLevel": "low",
+      "tools": ["read", "grep", "glob", "ls"]
+    }
+  ],
+  "judge": {
+    "id": "judge",
+    "model": "anthropic/claude-opus-4-7",
+    "thinkingLevel": "high"
+  }
+}
+```
+
+There are no built-in reviewer defaults. Reviewer ids
+must be unique, and the judge id must be distinct from
+every council reviewer id within the session.
 
 Roster and judge persist across `/reload`. If a session
 already has them, mention them in your status update;

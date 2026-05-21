@@ -33,6 +33,12 @@ export function configureJudge(
 			error: "Judge id is empty: every finding needs a stamping reviewer id.",
 		};
 	}
+	if (state.council.roster.some((r) => r.id === input.judge.id)) {
+		return {
+			ok: false,
+			error: `Judge id "${input.judge.id}" is already used by a council reviewer. Council reviewer ids and judge id must be distinct within a session.`,
+		};
+	}
 	state.council.judge = { ...input.judge };
 	return { ok: true };
 }
