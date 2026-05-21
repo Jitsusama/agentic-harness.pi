@@ -1,6 +1,7 @@
 /** Tests for the stack-wide review runtime action. */
 
 import { describe, expect, it } from "vitest";
+import { ReviewerCancelledError } from "../../../extensions/pr-workflow/cancellation.js";
 import type { CouncilDispatch } from "../../../extensions/pr-workflow/council.js";
 import type { CouncilProgress } from "../../../extensions/pr-workflow/council-progress.js";
 import type {
@@ -116,6 +117,9 @@ function progressRecorder(events: string[]): CouncilProgress {
 		},
 		reviewerCompleted(reviewerId, output) {
 			events.push(`completed:${reviewerId}:${output.findings.length}`);
+		},
+		reviewerCancelled(reviewerId) {
+			events.push(`cancelled:${reviewerId}`);
 		},
 		reviewerFailed(reviewerId, error) {
 			events.push(`failed:${reviewerId}:${error}`);
@@ -414,6 +418,35 @@ describe("runStackReviewAction", () => {
 			warnings: [],
 		});
 		expect((await result).ok).toBe(true);
+	});
+
+	it("returns a clear error when the stack judge is cancelled", async () => {
+		const state = buildState();
+		const events: string[] = [];
+		const result = await runStackReviewAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async ({ reviewer: r }) => {
+				if (r.id === "judge") throw new ReviewerCancelledError(r.id);
+				return {
+					reviewerId: r.id,
+					exitCode: 0,
+					finalAssistantText: jsonBlock({
+						perPr: { "101": [], "102": [] },
+						crossPr: [],
+					}),
+					stderr: "",
+					warnings: [],
+				};
+			},
+			fetchers: fetchers(),
+			progress: progressRecorder(events),
+		});
+
+		expect(expectFailure(result).error).toContain("Stack review cancelled");
+		expect(events).toContain("cancelled:judge");
+		expect(events).toContain("finish");
+		expect(state.council.lastJudge).toBeNull();
 	});
 
 	it("reports reviewer, activity and judge progress", async () => {

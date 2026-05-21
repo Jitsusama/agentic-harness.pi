@@ -25,7 +25,7 @@ interface FakeChild {
 
 function makeFakeChild(): {
 	child: FakeChild;
-	emitClose: (code: number) => void;
+	emitClose: (code: number | null) => void;
 	emitError: (err: Error) => void;
 	stdout: PassThrough;
 	stderr: PassThrough;
@@ -293,6 +293,25 @@ describe("createSpawnRunPi", () => {
 		const result = await promise;
 		expect(killed).toBe(true);
 		expect(result.exitCode).toBe(143);
+		expect(result.stderr).toContain("cancelled");
+	});
+
+	it("uses a cancellation exit code when abort closes without a code", async () => {
+		const fake = makeFakeChild();
+		fake.child.kill = () => {
+			queueMicrotask(() => fake.emitClose(null));
+			return true;
+		};
+		const runPi = createSpawnRunPi({
+			binary: "pi",
+			spawn: () => fake.child as unknown as ChildProcess,
+		});
+		const ac = new AbortController();
+		const promise = runPi({ args: [], cwd: "/tmp", signal: ac.signal });
+		ac.abort();
+		const result = await promise;
+		expect(result.exitCode).toBe(130);
+		expect(result.stderr).toContain("cancelled");
 	});
 });
 

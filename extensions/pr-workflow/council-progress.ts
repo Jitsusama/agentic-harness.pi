@@ -27,6 +27,7 @@ export type CouncilProgressState =
 	| "pending"
 	| "running"
 	| "complete"
+	| "cancelled"
 	| "failed";
 
 /** Snapshot of a single reviewer's lifecycle. */
@@ -72,6 +73,9 @@ export interface CouncilProgress {
 	/** A reviewer has produced output (parsed successfully). */
 	reviewerCompleted(reviewerId: string, output: ReviewerOutput): void;
 
+	/** A reviewer was cancelled by the user. */
+	reviewerCancelled?(reviewerId: string): void;
+
 	/** A reviewer's dispatch threw. */
 	reviewerFailed(reviewerId: string, error: string): void;
 
@@ -104,6 +108,7 @@ export const NULL_PROGRESS: CouncilProgress = {
 	reviewerStarted() {},
 	reviewerActivity() {},
 	reviewerCompleted() {},
+	reviewerCancelled() {},
 	reviewerFailed() {},
 	finish() {},
 };
