@@ -1,5 +1,6 @@
 /** Cross-PR finding state shared by stack-aware review. */
 
+import type { CritiqueRun } from "./critique.js";
 import type { Finding } from "./findings.js";
 import type { ReviewerUsage } from "./reviewer.js";
 
@@ -24,4 +25,6 @@ export interface StackFindingRun {
 	readonly warnings: string[];
 	/** Token + cost totals when the dispatcher surfaces them. */
 	readonly usage?: ReviewerUsage;
+	/** Most recent critique run covering these cross-PR findings. */
+	readonly critique?: CritiqueRun;
 }

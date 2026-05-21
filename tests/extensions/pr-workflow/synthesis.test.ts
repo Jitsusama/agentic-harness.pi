@@ -206,6 +206,37 @@ describe("formatFindingsView", () => {
 		expect(text).toMatch(/1,\s*2,\s*3/);
 	});
 
+	it("shows stack critiques in the stack-level section", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([judgedFinding(10, "per-pr")]);
+		state.stackFindingRun = {
+			...stackFindingRun([stackFinding(1, "stacked", 1, [1, 2])]),
+			critique: {
+				id: "stack-critique",
+				startedAt: "2026-01-01T00:10:00Z",
+				judgeRunId: "stack-judge",
+				reviewerOutputs: [
+					{
+						reviewerId: "fast",
+						critiques: [
+							{
+								reviewerId: "fast",
+								findingId: 1,
+								position: "amplify",
+								rationale: "stack impact is worse",
+							},
+						],
+						warnings: [],
+					},
+				],
+				warnings: [],
+			},
+		};
+		const text = formatFindingsView(state);
+		expect(text).toMatch(/stacked[\s\S]*critique \[fast\]: amplify/);
+		expect(text).toContain("stack impact is worse");
+	});
+
 	it("shows stack decisions in the stack-level section", () => {
 		const state = createPrWorkflowState();
 		state.council.lastJudge = makeJudge([judgedFinding(10, "per-pr")]);

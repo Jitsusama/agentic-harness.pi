@@ -714,23 +714,14 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
-				const judge = state.council.lastJudge;
-				if (judge === null) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "Critique ran but judge state vanished.",
-							},
-						],
-						details: { ok: true, run: result.run },
-					};
-				}
 				return {
 					content: [
 						{
 							type: "text",
-							text: formatCritiqueSummary({ judge, critique: result.run }),
+							text: formatCritiqueSummary({
+								judge: result.judge,
+								critique: result.run,
+							}),
 						},
 					],
 					details: { ok: true, run: result.run },
@@ -764,23 +755,14 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
-				const judge = state.council.lastJudge;
-				if (judge === null) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "Critique retry succeeded but judge state vanished.",
-							},
-						],
-						details: { ok: true, run: result.run },
-					};
-				}
 				return {
 					content: [
 						{
 							type: "text",
-							text: formatCritiqueSummary({ judge, critique: result.run }),
+							text: formatCritiqueSummary({
+								judge: result.judge,
+								critique: result.run,
+							}),
 						},
 					],
 					details: { ok: true, run: result.run },

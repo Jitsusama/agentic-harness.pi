@@ -16,7 +16,7 @@
  * the verdict alone records the user's position.
  */
 
-import type { CritiquePosition } from "./critique.js";
+import type { CritiquePosition, CritiqueRun } from "./critique.js";
 import type { Finding, FindingLocation } from "./findings.js";
 import type { PrWorkflowState } from "./state.js";
 
@@ -309,6 +309,12 @@ export function formatFindingsView(state: PrWorkflowState): string {
 				`[S${finding.id}] [${finding.label}] ${display.subject} (home: #${finding.homePrNumber}; spans: ${finding.spans.join(", ")})`,
 			);
 			lines.push(`   ${display.discussion}`);
+			const critiquesForFinding = collectStackCritiques(state, finding.id);
+			for (const c of critiquesForFinding) {
+				lines.push(
+					`   critique [${c.reviewerId}]: ${c.position} — ${c.rationale}`,
+				);
+			}
 			lines.push(`   decision: ${renderDecision(decision)}`);
 			if (decision?.verdict === "edit") {
 				lines.push(`     original subject: ${finding.subject}`);
@@ -328,7 +334,31 @@ function collectCritiques(
 	position: CritiquePosition;
 	rationale: string;
 }[] {
-	const critique = state.council.lastCritique;
+	return collectCritiquesFromRun(state.council.lastCritique, findingId);
+}
+
+function collectStackCritiques(
+	state: PrWorkflowState,
+	findingId: number,
+): {
+	reviewerId: string;
+	position: CritiquePosition;
+	rationale: string;
+}[] {
+	return collectCritiquesFromRun(
+		state.stackFindingRun?.critique ?? null,
+		findingId,
+	);
+}
+
+function collectCritiquesFromRun(
+	critique: CritiqueRun | null,
+	findingId: number,
+): {
+	reviewerId: string;
+	position: CritiquePosition;
+	rationale: string;
+}[] {
 	if (critique === null) return [];
 	const out: {
 		reviewerId: string;
