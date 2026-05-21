@@ -7,6 +7,15 @@
 export function reviewerOperatingRules(): string {
 	return [
 		"## Workspace and tool-use rules",
+		"Evaluate the available Pi skills in your context before reviewing. " +
+			"Load any project-level or user-level SKILL.md files whose descriptions " +
+			"clearly relate to code review, code quality, testing, security, " +
+			"style, architecture or repository conventions. Prefer project-level " +
+			"skills when both project-level and user-level skills apply.",
+		"Apply the relevant skill instructions while reviewing. Do not name or " +
+			"assume specific skills; choose them from the available skill descriptions. " +
+			"If a relevant skill appears to exist but your tool palette prevents " +
+			"loading it, mention that limitation in your warnings.",
 		"You are already running inside the review worktree as your current " +
 			"working directory. Treat that directory as the whole workspace for " +
 			"this review.",

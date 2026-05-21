@@ -170,6 +170,22 @@ describe("buildCritiquePrompt", () => {
 		expect(text).toContain("`rg`");
 	});
 
+	it("instructs critique reviewers to load relevant review and quality skills generically", async () => {
+		const text = buildCritiquePrompt({
+			reviewerId: "fast",
+			council: council(),
+			judge: judge(),
+		});
+		expect(text).toContain("Pi skills");
+		expect(text).toContain("project-level");
+		expect(text).toContain("user-level");
+		expect(text).toContain("SKILL.md");
+		expect(text).toContain("code review");
+		expect(text).toContain("code quality");
+		expect(text).not.toContain("code-review-standard");
+		expect(text).not.toContain("comment-format");
+	});
+
 	it("asks for a JSON block with a critiques array keyed by findingId", async () => {
 		const text = buildCritiquePrompt({
 			reviewerId: "fast",

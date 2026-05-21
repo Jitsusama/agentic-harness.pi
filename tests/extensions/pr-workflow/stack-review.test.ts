@@ -91,6 +91,23 @@ describe("buildStackReviewPrompt", () => {
 		expect(prompt).toContain("Do not roam the filesystem");
 		expect(prompt).toContain("`rg`");
 	});
+
+	it("instructs stack reviewers to load relevant review and quality skills generically", () => {
+		const prompt = buildStackReviewPrompt({
+			cursorPrNumber: 102,
+			prs: [
+				{ prNumber: 102, title: "Wire parser", description: "", files: [] },
+			],
+		});
+		expect(prompt).toContain("Pi skills");
+		expect(prompt).toContain("project-level");
+		expect(prompt).toContain("user-level");
+		expect(prompt).toContain("SKILL.md");
+		expect(prompt).toContain("code review");
+		expect(prompt).toContain("code quality");
+		expect(prompt).not.toContain("code-review-standard");
+		expect(prompt).not.toContain("comment-format");
+	});
 });
 
 describe("parseStackReviewOutput", () => {
@@ -200,6 +217,24 @@ describe("buildStackJudgePrompt", () => {
 		expect(prompt).toContain("Never run commands like `find /`");
 		expect(prompt).toContain("Do not roam the filesystem");
 		expect(prompt).toContain("`rg`");
+	});
+
+	it("instructs stack judges to load relevant review and quality skills generically", async () => {
+		const prompt = buildStackJudgePrompt({
+			cursorPrNumber: 101,
+			prs: [{ prNumber: 101, title: "Add parser" }],
+			reviewerOutputs: [
+				{ reviewerId: "fast", perPr: new Map(), crossPr: [], warnings: [] },
+			],
+		});
+		expect(prompt).toContain("Pi skills");
+		expect(prompt).toContain("project-level");
+		expect(prompt).toContain("user-level");
+		expect(prompt).toContain("SKILL.md");
+		expect(prompt).toContain("code review");
+		expect(prompt).toContain("code quality");
+		expect(prompt).not.toContain("code-review-standard");
+		expect(prompt).not.toContain("comment-format");
 	});
 });
 
