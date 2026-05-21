@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+	isWorktreeProvider,
 	type WorktreeHandle,
 	type WorktreeProvider,
+	WorktreeProviderBroker,
 	WorktreeRegistry,
 	type WorktreeRequest,
 } from "../../../extensions/pr-workflow/worktree.js";
@@ -52,6 +54,89 @@ const REQ: WorktreeRequest = {
 	repo: "hello-world",
 	sha: "abc123",
 };
+
+describe("WorktreeProviderBroker", () => {
+	it("uses the highest-priority provider that can handle the request", async () => {
+		const fallback = fakeProvider();
+		const world = fakeProvider();
+		const broker = new WorktreeProviderBroker(fallback);
+		broker.register({
+			...world,
+			id: "world",
+			priority: 100,
+			canHandle: (req) => req.owner === "shop" && req.repo === "world",
+		});
+
+		const handle = await broker.ensure({
+			owner: "shop",
+			repo: "world",
+			sha: "abc123",
+		});
+
+		expect(handle.providerId).toBe("fake");
+		expect(world.ensured).toHaveLength(1);
+		expect(fallback.ensured).toHaveLength(0);
+	});
+
+	it("falls back when registered providers decline the request", async () => {
+		const fallback = fakeProvider();
+		const custom = fakeProvider();
+		const broker = new WorktreeProviderBroker(fallback);
+		broker.register({
+			...custom,
+			id: "world",
+			priority: 100,
+			canHandle: () => false,
+		});
+
+		await broker.ensure(REQ);
+
+		expect(custom.ensured).toHaveLength(0);
+		expect(fallback.ensured).toEqual([REQ]);
+	});
+
+	it("replaces providers with the same id", async () => {
+		const fallback = fakeProvider();
+		const first = fakeProvider();
+		const second = fakeProvider();
+		const broker = new WorktreeProviderBroker(fallback);
+		broker.register({ ...first, id: "custom", canHandle: () => true });
+		broker.register({ ...second, id: "custom", canHandle: () => true });
+
+		await broker.ensure(REQ);
+
+		expect(first.ensured).toHaveLength(0);
+		expect(second.ensured).toEqual([REQ]);
+		expect(broker.providerIds()).toEqual(["custom", "fake"]);
+	});
+
+	it("routes release to the provider that owns the handle", async () => {
+		const fallback = fakeProvider();
+		const custom = fakeProvider();
+		const broker = new WorktreeProviderBroker(fallback);
+		broker.register({ ...custom, id: "custom", canHandle: () => true });
+		const handle = await broker.ensure(REQ);
+		const owned = { ...handle, providerId: "custom" };
+
+		await broker.release(owned);
+
+		expect(custom.released).toEqual([owned]);
+		expect(fallback.released).toHaveLength(0);
+	});
+});
+
+describe("isWorktreeProvider", () => {
+	it("accepts structurally-valid event-bus providers", () => {
+		expect(isWorktreeProvider(fakeProvider())).toBe(true);
+	});
+
+	it("rejects invalid event-bus provider payloads", () => {
+		expect(isWorktreeProvider(null)).toBe(false);
+		expect(
+			isWorktreeProvider({ id: "bad", ensure: async () => undefined }),
+		).toBe(false);
+	});
+});
 
 describe("WorktreeRegistry", () => {
 	it("delegates ensure() to the provider and returns the handle", async () => {

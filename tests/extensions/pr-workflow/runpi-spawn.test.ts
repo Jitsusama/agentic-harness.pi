@@ -73,11 +73,17 @@ describe("createSpawnRunPi", () => {
 			command: string;
 			args: readonly string[];
 			cwd: string;
+			detached: boolean;
 		}> = [];
 		const runPi = createSpawnRunPi({
 			binary: "pi",
 			spawn: (command, args, opts) => {
-				calls.push({ command, args, cwd: String(opts?.cwd ?? "") });
+				calls.push({
+					command,
+					args,
+					cwd: String(opts?.cwd ?? ""),
+					detached: opts.detached === true,
+				});
 				queueMicrotask(() => {
 					fake.stdout.end("");
 					fake.stderr.end("");
@@ -100,6 +106,7 @@ describe("createSpawnRunPi", () => {
 			"prompt",
 		]);
 		expect(calls[0].cwd).toBe("/tmp/wt");
+		expect(calls[0].detached).toBe(true);
 	});
 
 	it("collects stdout, stderr and exit code into the RunPiResult", async () => {
@@ -240,6 +247,28 @@ describe("createSpawnRunPi", () => {
 			},
 		});
 		expect(result.exitCode).toBe(0);
+	});
+
+	it("times out a stuck subprocess and surfaces the timeout in stderr", async () => {
+		const fake = makeFakeChild();
+		const signals: Array<NodeJS.Signals | undefined> = [];
+		fake.child.kill = (signal) => {
+			signals.push(signal);
+			queueMicrotask(() => fake.emitClose(143));
+			return true;
+		};
+		const runPi = createSpawnRunPi({
+			binary: "pi",
+			spawn: () => fake.child as unknown as ChildProcess,
+			timeoutMs: 1,
+			killGraceMs: 50,
+		});
+
+		const result = await runPi({ args: [], cwd: "/tmp" });
+
+		expect(signals).toContain("SIGTERM");
+		expect(result.exitCode).toBe(143);
+		expect(result.stderr).toContain("timed out after 1ms");
 	});
 
 	it("propagates AbortSignal cancellation by killing the child", async () => {

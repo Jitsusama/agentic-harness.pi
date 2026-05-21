@@ -29,7 +29,17 @@ export interface SpawnRunPiConfig {
 	readonly binary: string;
 	/** Spawn function. Inject a fake for unit tests. */
 	readonly spawn?: SpawnFn;
+	/** Hard wall-clock limit for one subagent run. */
+	readonly timeoutMs?: number;
+	/** Delay between SIGTERM and SIGKILL when stopping a stuck child. */
+	readonly killGraceMs?: number;
 }
+
+/** Default wall-clock timeout for one reviewer subagent. */
+export const DEFAULT_RUN_PI_TIMEOUT_MS = 20 * 60 * 1000;
+
+/** Default grace period before escalating a stuck subprocess to SIGKILL. */
+export const DEFAULT_KILL_GRACE_MS = 5 * 1000;
 
 /**
  * Build a `RunPi` that spawns the pi binary as a child
@@ -37,6 +47,8 @@ export interface SpawnRunPiConfig {
  */
 export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 	const spawnFn = config.spawn ?? (nodeSpawn as SpawnFn);
+	const timeoutMs = config.timeoutMs ?? DEFAULT_RUN_PI_TIMEOUT_MS;
+	const killGraceMs = config.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
 
 	return async function runPi({ args, cwd, signal, onEvent }) {
 		return new Promise<{
@@ -46,6 +58,7 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 		}>((resolve, reject) => {
 			const child = spawnFn(config.binary, args, {
 				cwd,
+				detached: true,
 				stdio: ["ignore", "pipe", "pipe"],
 			});
 
@@ -97,13 +110,31 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 			});
 
 			let settled = false;
-			const abortHandler = () => {
-				try {
-					child.kill("SIGTERM");
-				} catch {
-					// Ignore: child may have already exited.
-				}
+			let timedOut = false;
+			let killTimer: NodeJS.Timeout | null = null;
+			const clearKillTimer = (): void => {
+				if (killTimer) clearTimeout(killTimer);
+				killTimer = null;
 			};
+			const stopChild = (reason: "abort" | "timeout"): void => {
+				if (reason === "timeout" && !timedOut) {
+					timedOut = true;
+					stderrChunks.unshift(
+						Buffer.from(
+							`Pi subprocess timed out after ${timeoutMs}ms; sent SIGTERM.\n`,
+						),
+					);
+				}
+				terminateProcessTree(child, "SIGTERM");
+				clearKillTimer();
+				killTimer = setTimeout(() => {
+					terminateProcessTree(child, "SIGKILL");
+				}, killGraceMs);
+				killTimer.unref?.();
+			};
+			const abortHandler = () => stopChild("abort");
+			const timeoutTimer = setTimeout(() => stopChild("timeout"), timeoutMs);
+			timeoutTimer.unref?.();
 			if (signal) {
 				if (signal.aborted) {
 					abortHandler();
@@ -115,6 +146,8 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 			child.once("error", (err) => {
 				if (settled) return;
 				settled = true;
+				clearTimeout(timeoutTimer);
+				clearKillTimer();
 				signal?.removeEventListener("abort", abortHandler);
 				reject(err);
 			});
@@ -122,6 +155,8 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 			child.on("close", (code) => {
 				if (settled) return;
 				settled = true;
+				clearTimeout(timeoutTimer);
+				clearKillTimer();
 				signal?.removeEventListener("abort", abortHandler);
 				// Flush any tail content that arrived without a
 				// trailing newline (pi normally terminates each
@@ -138,4 +173,24 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 			});
 		});
 	};
+}
+
+function terminateProcessTree(
+	child: ChildProcess,
+	signal: NodeJS.Signals,
+): void {
+	if (child.pid && process.platform !== "win32") {
+		try {
+			process.kill(-child.pid, signal);
+			return;
+		} catch {
+			// Fall back to killing the direct child below. This
+			// can happen in tests or if the process already exited.
+		}
+	}
+	try {
+		child.kill(signal);
+	} catch {
+		// Ignore: child may have already exited.
+	}
 }
