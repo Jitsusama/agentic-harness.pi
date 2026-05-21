@@ -66,6 +66,24 @@ export function suggestNextAfterLoad(state: PrWorkflowState): LoadSuggestion[] {
 		}
 	}
 
+	const stackFindingRun = state.stackFindingRun;
+	if (
+		stackFindingRun !== null &&
+		stackFindingRun.findings.length > 0 &&
+		!hints.some((hint) => hint.action === "findings")
+	) {
+		const pending = stackFindingRun.findings.filter(
+			(f) => !state.stackDecisions.has(f.id),
+		).length;
+		hints.push({
+			action: "findings",
+			rationale:
+				pending > 0
+					? `Resume stack review: ${pending} of ${stackFindingRun.findings.length} cross-PR findings still pending a decision.`
+					: `Stack review already exists with ${stackFindingRun.findings.length} cross-PR findings. Inspect findings before rerunning review.`,
+		});
+	}
+
 	if (hints.length === 0) {
 		if (council.roster.length === 0) {
 			hints.push({
@@ -87,7 +105,11 @@ export function suggestNextAfterLoad(state: PrWorkflowState): LoadSuggestion[] {
 		}
 	}
 
-	if (stack !== null && stack.entries.length > 1) {
+	if (
+		stack !== null &&
+		stack.entries.length > 1 &&
+		state.stackFindingRun === null
+	) {
 		hints.push({
 			action: "review",
 			rationale: `This PR is part of a ${stack.entries.length}-PR stack; action=review can inspect PR boundaries and cross-PR risks together.`,

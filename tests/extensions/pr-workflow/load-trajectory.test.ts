@@ -6,6 +6,7 @@ import {
 	suggestNextAfterLoad,
 } from "../../../extensions/pr-workflow/load-trajectory.js";
 import type { Stack } from "../../../extensions/pr-workflow/stack.js";
+import type { StackFindingRun } from "../../../extensions/pr-workflow/stack-findings.js";
 import {
 	createPrWorkflowState,
 	type PrWorkflowState,
@@ -63,6 +64,20 @@ function stackWith(count: number): Stack {
 	};
 }
 
+function stackFindings(ids: number[]): StackFindingRun {
+	return {
+		id: "stack-judge-1",
+		startedAt: "2026-01-01T00:00:00Z",
+		reviewerId: "judge",
+		warnings: [],
+		findings: ids.map((id) => ({
+			...finding(id),
+			homePrNumber: 1000,
+			spans: [1000, 1001],
+		})),
+	};
+}
+
 describe("suggestNextAfterLoad", () => {
 	it("returns no hints when no PR is loaded", () => {
 		expect(suggestNextAfterLoad(createPrWorkflowState())).toEqual([]);
@@ -109,6 +124,36 @@ describe("suggestNextAfterLoad", () => {
 		if (state.pr) state.pr.stack = stackWith(3);
 		const hints = suggestNextAfterLoad(state);
 		expect(hints.some((h) => h.action === "review")).toBe(true);
+	});
+
+	it("suggests findings instead of rerunning review when stack findings exist", () => {
+		const state = loadedState();
+		if (state.pr) state.pr.stack = stackWith(3);
+		state.stackFindingRun = stackFindings([40, 41]);
+		state.stackDecisions.set(40, {
+			findingId: 40,
+			verdict: "dismiss",
+			decidedAt: "2026-01-01T00:00:00Z",
+			reason: "duplicate",
+		});
+
+		const hints = suggestNextAfterLoad(state);
+
+		expect(hints[0]?.action).toBe("findings");
+		expect(hints[0]?.rationale).toContain("1 of 2 cross-PR");
+		expect(hints.some((h) => h.action === "review")).toBe(false);
+	});
+
+	it("does not duplicate findings hints when per-PR and stack findings both exist", () => {
+		const state = loadedState();
+		if (state.pr) state.pr.stack = stackWith(3);
+		state.council.lastJudge = judgeWith([finding(1)]);
+		state.stackFindingRun = stackFindings([40]);
+
+		const hints = suggestNextAfterLoad(state);
+
+		expect(hints.filter((h) => h.action === "findings")).toHaveLength(1);
+		expect(hints.some((h) => h.action === "review")).toBe(false);
 	});
 
 	it("does not suggest review for a single-PR 'stack'", () => {
