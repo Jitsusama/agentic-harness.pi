@@ -153,6 +153,22 @@ describe("buildReviewerPrompt", () => {
 		expect(prompt).toContain("`rg`");
 	});
 
+	it("instructs reviewers to load relevant review and quality skills generically", () => {
+		const prompt = buildReviewerPrompt({
+			prTitle: "x",
+			prDescription: "",
+			files: [file()],
+		});
+		expect(prompt).toContain("Pi skills");
+		expect(prompt).toContain("project-level");
+		expect(prompt).toContain("user-level");
+		expect(prompt).toContain("SKILL.md");
+		expect(prompt).toContain("code review");
+		expect(prompt).toContain("code quality");
+		expect(prompt).not.toContain("code-review-standard");
+		expect(prompt).not.toContain("comment-format");
+	});
+
 	it("embeds the JSON schema for the council output", () => {
 		// The model is more reliable when it sees the
 		// schema it'll be validated against, not just a

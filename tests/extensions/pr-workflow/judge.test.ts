@@ -131,6 +131,18 @@ describe("buildJudgePrompt", () => {
 		expect(text).toContain("`rg`");
 	});
 
+	it("instructs judges to load relevant review and quality skills generically", async () => {
+		const text = buildJudgePrompt({ council: council() });
+		expect(text).toContain("Pi skills");
+		expect(text).toContain("project-level");
+		expect(text).toContain("user-level");
+		expect(text).toContain("SKILL.md");
+		expect(text).toContain("code review");
+		expect(text).toContain("code quality");
+		expect(text).not.toContain("code-review-standard");
+		expect(text).not.toContain("comment-format");
+	});
+
 	it("embeds the judge JSON schema and instructs verify_output", async () => {
 		// The judge subagent gets pr-workflow-verify
 		// loaded so it can self-validate before ending.
