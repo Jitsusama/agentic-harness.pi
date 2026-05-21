@@ -87,7 +87,7 @@ Use simple, readable emojis that reinforce the label without making comments noi
 - Prompt wording stays generic and does not name specific skills.
 - Existing filesystem-roaming restrictions remain present.
 
-- [ ] **PR 2: Conventional Comment Rendering**
+- [x] **PR 2: Conventional Comment Rendering**
 
 **What it does:** Centralizes Conventional Comments rendering for posted comments and body fallback entries. Adds emoji prefixes and decoration rendering. Applies the same formatter to inline comments, file/global fallback body entries and stack fallback body entries.
 

@@ -40,6 +40,27 @@ const VALID_EVENTS: ReadonlySet<ReviewEvent> = new Set([
 	"REQUEST_CHANGES",
 ]);
 
+const LABEL_EMOJI: Record<Finding["label"], string> = {
+	praise: "👏",
+	nitpick: "🔍",
+	suggestion: "💡",
+	issue: "⚠️",
+	todo: "✅",
+	question: "❓",
+	thought: "💭",
+	chore: "🧹",
+	note: "📝",
+	typo: "✏️",
+	polish: "✨",
+	quibble: "🤏",
+};
+
+interface ConventionalCommentHeaderInput {
+	readonly label: Finding["label"];
+	readonly decorations?: readonly string[];
+	readonly subject: string;
+}
+
 /** Why a finding didn't post. */
 export interface SkippedFinding {
 	readonly findingId: number;
@@ -221,14 +242,27 @@ function renderStackBodyEntry(
 	const lines: string[] = [];
 	const spansSentence =
 		finding.spans.length === 1
-			? `(cross-PR: spans #${finding.spans[0]})`
-			: `(cross-PR: spans #${finding.spans.join(", #")})`;
-	lines.push(`### [${finding.label}] ${subject} ${spansSentence}`);
+			? `cross-PR: spans #${finding.spans[0]}`
+			: `cross-PR: spans #${finding.spans.join(", #")}`;
+	lines.push(
+		`### ${renderConventionalCommentHeader({
+			label: finding.label,
+			decorations: finding.decorations,
+			subject,
+		})}`,
+	);
+	lines.push("");
+	lines.push(`_${spansSentence}_`);
 	lines.push("");
 	lines.push(discussion);
 	if (decision.verdict === "qualify") {
 		lines.push("");
 		lines.push(`> Qualifier: ${decision.note}`);
+	}
+	const provenance = renderProvenance(finding.agreement);
+	if (provenance !== null) {
+		lines.push("");
+		lines.push(provenance);
 	}
 	return lines.join("\n");
 }
@@ -357,7 +391,13 @@ function renderCommentBody(
 	const subject = effectiveSubject(finding, decision);
 	const discussion = effectiveDiscussion(finding, decision);
 	const lines: string[] = [];
-	lines.push(`**${finding.label}:** ${subject}`);
+	lines.push(
+		renderConventionalCommentHeader({
+			label: finding.label,
+			decorations: finding.decorations,
+			subject,
+		}),
+	);
 	lines.push("");
 	lines.push(discussion);
 	if (decision.verdict === "qualify") {
@@ -377,7 +417,15 @@ function renderBodyEntry(finding: Finding, decision: FindingDecision): string {
 	const discussion = effectiveDiscussion(finding, decision);
 	const where = renderLocationForBody(finding.location);
 	const lines: string[] = [];
-	lines.push(`### [${finding.label}] ${subject} ${where}`);
+	lines.push(
+		`### ${renderConventionalCommentHeader({
+			label: finding.label,
+			decorations: finding.decorations,
+			subject,
+		})}`,
+	);
+	lines.push("");
+	lines.push(`_${where}_`);
 	lines.push("");
 	lines.push(discussion);
 	if (decision.verdict === "qualify") {
@@ -390,6 +438,20 @@ function renderBodyEntry(finding: Finding, decision: FindingDecision): string {
 		lines.push(provenance);
 	}
 	return lines.join("\n");
+}
+
+function renderConventionalCommentHeader(
+	input: ConventionalCommentHeaderInput,
+): string {
+	const decorations = renderDecorations(input.decorations);
+	return `${LABEL_EMOJI[input.label]} ${input.label}${decorations}: ${input.subject}`;
+}
+
+function renderDecorations(decorations: readonly string[] | undefined): string {
+	const normalized = (decorations ?? [])
+		.map((decoration) => decoration.trim())
+		.filter((decoration) => decoration.length > 0);
+	return normalized.length === 0 ? "" : ` (${normalized.join(", ")})`;
 }
 
 function renderSummary(
