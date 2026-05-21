@@ -258,6 +258,7 @@ export class CouncilProgressPanel {
 			this.selectedIndex,
 			this.entries.length,
 		);
+		this.notice = "";
 		this.tui.requestRender();
 	}
 
