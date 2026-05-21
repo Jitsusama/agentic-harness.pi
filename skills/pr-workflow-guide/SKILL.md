@@ -274,13 +274,13 @@ pr_workflow action=council-retry reviewerId=skeptic
 pr_workflow action=critique-retry reviewerId=skeptic
 ```
 
-Cancellation mechanics happen in the live progress panel,
-not through another tool call. A prompt typed while
-`council`, `review`, `judge` or `critique` is still running
-queues behind that active tool, so it can't interrupt the
-stuck reviewer.
+Cancellation mechanics happen in the live prompt-area
+progress panel, not through another tool call. A prompt
+typed while `council`, `review`, `judge` or `critique` is
+still running queues behind that active tool, so it can't
+interrupt the stuck reviewer.
 
-When the progress panel is focused:
+When the progress panel replaces the prompt editor:
 
 - Use ↑/↓ to select a reviewer.
 - Press `r` to cancel the selected reviewer.

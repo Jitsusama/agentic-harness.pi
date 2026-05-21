@@ -5,6 +5,7 @@ import type {
 } from "../../../extensions/pr-workflow/council-progress.js";
 import {
 	CouncilProgressPanel,
+	createCouncilProgressReporter,
 	renderCouncilStatus,
 	renderCouncilWidgetLines,
 } from "../../../extensions/pr-workflow/council-progress-render.js";
@@ -15,6 +16,13 @@ function fakeTui() {
 	return {
 		tui: { requestRender: () => renders++ },
 		renderCount: () => renders,
+	};
+}
+
+function plainTheme() {
+	return {
+		fg: (_colour: string, text: string) => text,
+		bold: (text: string) => text,
 	};
 }
 
@@ -110,6 +118,22 @@ describe("CouncilProgressPanel", () => {
 		expect(panel.render(80).join("\n")).toContain("cancelled all");
 	});
 
+	it("renders as a prompt-area panel with full-width borders", () => {
+		const { tui } = fakeTui();
+		const panel = new CouncilProgressPanel(
+			tui as never,
+			plainTheme() as never,
+			[entry("fast", "running")],
+			undefined,
+		);
+
+		const lines = panel.render(40);
+
+		expect(lines[0]).toContain("─".repeat(40));
+		expect(lines.at(-1)).toContain("─".repeat(40));
+		expect(lines.join("\n")).toContain("PR review progress");
+	});
+
 	it("does not cancel a reviewer that already completed", () => {
 		const calls: string[] = [];
 		const { tui } = fakeTui();
@@ -133,6 +157,34 @@ describe("CouncilProgressPanel", () => {
 
 		expect(calls).toEqual([]);
 		expect(panel.render(80).join("\n")).toContain("already complete");
+	});
+});
+
+describe("createCouncilProgressReporter", () => {
+	it("replaces the prompt editor while progress is active and restores it on finish", () => {
+		const previous = () => ({ render: () => [], invalidate() {} }) as never;
+		const installed: unknown[] = [];
+		const ctx = {
+			hasUI: true,
+			ui: {
+				theme: fakeTheme(),
+				setStatus() {},
+				getEditorComponent: () => previous,
+				setEditorComponent(factory: unknown) {
+					installed.push(factory);
+				},
+			},
+		};
+		const reporter = createCouncilProgressReporter(ctx as never, {
+			cancelReviewer: () => "cancelled one",
+			cancelAll: () => "cancelled all",
+		});
+
+		reporter.start([entry("fast", "pending")]);
+		reporter.finish();
+
+		expect(installed[0]).toEqual(expect.any(Function));
+		expect(installed[1]).toBe(previous);
 	});
 });
 
