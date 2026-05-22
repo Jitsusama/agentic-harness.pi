@@ -169,6 +169,24 @@ describe("buildReviewerPrompt", () => {
 		expect(prompt).not.toContain("comment-format");
 	});
 
+	it("defines the universal review quality bar and discovery method", () => {
+		const prompt = buildReviewerPrompt({
+			prTitle: "x",
+			prDescription: "",
+			files: [file()],
+		});
+		expect(prompt).toContain("Review quality standard");
+		expect(prompt).toContain("infrastructure as code");
+		expect(prompt).toContain("technical docs");
+		expect(prompt).toContain("A finding matters when");
+		expect(prompt).toContain(
+			"Review changed behaviour, not just changed lines",
+		);
+		expect(prompt).toContain("Do not flag pure preference");
+		expect(prompt).toContain("Council discovery objective");
+		expect(prompt).toContain("high recall without spam");
+	});
+
 	it("embeds the JSON schema for the council output", () => {
 		// The model is more reliable when it sees the
 		// schema it'll be validated against, not just a

@@ -31,6 +31,10 @@ import {
 import type { CouncilRun, FindingLocation } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
+import {
+	reviewCritiqueStandard,
+	reviewQualityStandard,
+} from "./review-quality-standard.js";
 import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
 import {
 	CritiqueEntry as CritiqueEntrySchema,
@@ -199,6 +203,10 @@ export function buildCritiquePrompt(input: BuildCritiquePromptInput): string {
 		"  - amplify: the finding is correct AND undersold; mark it more " +
 			"severe or blocking. Say why.",
 	);
+	lines.push("");
+	lines.push(reviewQualityStandard());
+	lines.push("");
+	lines.push(reviewCritiqueStandard());
 	lines.push("");
 	lines.push(reviewerOperatingRules());
 	lines.push("");

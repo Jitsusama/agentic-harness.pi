@@ -108,6 +108,21 @@ describe("buildStackReviewPrompt", () => {
 		expect(prompt).not.toContain("code-review-standard");
 		expect(prompt).not.toContain("comment-format");
 	});
+
+	it("defines stack review quality and cross-PR discovery criteria", () => {
+		const prompt = buildStackReviewPrompt({
+			cursorPrNumber: 102,
+			prs: [
+				{ prNumber: 102, title: "Wire parser", description: "", files: [] },
+			],
+		});
+		expect(prompt).toContain("Review quality standard");
+		expect(prompt).toContain("Stack-specific discovery objective");
+		expect(prompt).toContain("sequencing problems");
+		expect(prompt).toContain("hidden dependencies between PRs");
+		expect(prompt).toContain("Use cross-PR findings only when");
+		expect(prompt).toContain("where the comment is most actionable");
+	});
 });
 
 describe("parseStackReviewOutput", () => {
@@ -235,6 +250,21 @@ describe("buildStackJudgePrompt", () => {
 		expect(prompt).toContain("code quality");
 		expect(prompt).not.toContain("code-review-standard");
 		expect(prompt).not.toContain("comment-format");
+	});
+
+	it("defines stack judge curation without losing PR topology", async () => {
+		const prompt = buildStackJudgePrompt({
+			cursorPrNumber: 101,
+			prs: [{ prNumber: 101, title: "Add parser" }],
+			reviewerOutputs: [
+				{ reviewerId: "fast", perPr: new Map(), crossPr: [], warnings: [] },
+			],
+		});
+		expect(prompt).toContain("Judge synthesis objective");
+		expect(prompt).toContain("Stack-specific synthesis objective");
+		expect(prompt).toContain("Preserve the stack topology");
+		expect(prompt).toContain("do not duplicate the same conceptual issue");
+		expect(prompt).toContain("Assign `homePrNumber`");
 	});
 });
 

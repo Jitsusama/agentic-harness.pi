@@ -249,6 +249,20 @@ Example:
 Reviewer ids must be unique, and the judge id must be
 distinct from every council reviewer id.
 
+**Review standard**
+
+Every reviewer-like subprocess gets a built-in review
+standard before its role-specific instructions. The standard
+applies across application code, infrastructure as code,
+configuration, migrations and technical docs. It defines a
+finding as material when it identifies concrete risk to
+behaviour, correctness, security, privacy, data integrity,
+compatibility, operability, cost, test confidence,
+maintainability, reader understanding or relied-on local
+conventions. Subprocesses are also told to load relevant Pi
+skills so project and user conventions specialize that base
+standard.
+
 **Round 1 — fan-out**
 
 - `action="council"` — dispatch the roster against a

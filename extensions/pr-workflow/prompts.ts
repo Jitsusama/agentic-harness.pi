@@ -13,6 +13,10 @@
 
 import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
+import {
+	reviewDiscoveryStandard,
+	reviewQualityStandard,
+} from "./review-quality-standard.js";
 import { CouncilFindingsOutput } from "./schemas.js";
 
 /** Inputs the reviewer needs to do its job. */
@@ -55,6 +59,8 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 			'"medium" or "minor". Optional confidence is a number 0.0 to 1.0.',
 	);
 
+	sections.push(reviewQualityStandard());
+	sections.push(reviewDiscoveryStandard());
 	sections.push(reviewerOperatingRules());
 
 	sections.push("## PR title");

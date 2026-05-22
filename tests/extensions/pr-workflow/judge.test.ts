@@ -143,6 +143,16 @@ describe("buildJudgePrompt", () => {
 		expect(text).not.toContain("comment-format");
 	});
 
+	it("defines the judge quality bar for curating council findings", async () => {
+		const text = buildJudgePrompt({ council: council() });
+		expect(text).toContain("Review quality standard");
+		expect(text).toContain("Judge synthesis objective");
+		expect(text).toContain("small, high-signal candidate review");
+		expect(text).toContain("drop weak or taste-only findings");
+		expect(text).toContain("Downgrade speculative claims");
+		expect(text).toContain("excellent human review");
+	});
+
 	it("embeds the judge JSON schema and instructs verify_output", async () => {
 		// The judge subagent gets pr-workflow-verify
 		// loaded so it can self-validate before ending.
