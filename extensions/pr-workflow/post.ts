@@ -289,6 +289,12 @@ export async function postReviewAction(
 	if (input.state.pr === null) {
 		return { ok: false, error: "No PR loaded; call action=load first." };
 	}
+	if (input.state.pr.files === null) {
+		return {
+			ok: false,
+			error: "PR diff is not loaded. Run action=load before posting.",
+		};
+	}
 	const payload = buildReviewPayload(input.state);
 	if (
 		payload.includedFindingIds.length === 0 &&
