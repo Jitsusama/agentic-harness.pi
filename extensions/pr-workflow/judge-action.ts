@@ -16,6 +16,7 @@ import {
 	assertParticipantIdentityAvailable,
 	rememberParticipantIdentity,
 } from "./participant-identities.js";
+import type { ReviewContextProviderBroker } from "./review-context.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { PrWorkflowState } from "./state.js";
 import type { WorktreeRegistry } from "./worktree.js";
@@ -60,6 +61,7 @@ export interface RunJudgeActionInput {
 	readonly state: PrWorkflowState;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	readonly reviewContexts?: ReviewContextProviderBroker;
 	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
 	readonly now?: () => Date;
@@ -101,23 +103,30 @@ export async function runJudgeAction(
 
 	const now = input.now ?? (() => new Date());
 	const runId = `judge-${now().toISOString()}`;
+	const target = {
+		owner: state.pr.reference.owner,
+		repo: state.pr.reference.repo,
+		sha: state.pr.metadata.head.sha,
+		branch: state.pr.metadata.head.ref,
+	};
+	const promptAddendum = await input.reviewContexts?.promptAddendum({
+		...target,
+		prNumber: state.pr.reference.number,
+		stage: "judge",
+	});
 	let run: JudgeRun;
 	try {
 		run = await runJudge({
 			runId,
 			council: state.council.lastRun,
 			judge: state.council.judge,
-			target: {
-				owner: state.pr.reference.owner,
-				repo: state.pr.reference.repo,
-				sha: state.pr.metadata.head.sha,
-				branch: state.pr.metadata.head.ref,
-			},
+			target,
 			registry: input.registry,
 			dispatch: input.dispatch,
 			progress: input.progress,
 			signal: input.signal,
 			startId: state.nextFindingId,
+			...(promptAddendum ? { promptAddendum } : {}),
 		});
 	} catch (error) {
 		if (isReviewerCancelledError(error)) {

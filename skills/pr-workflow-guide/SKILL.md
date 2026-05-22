@@ -216,15 +216,19 @@ Event names:
 - `pr-workflow:ready:v1`
 - `pr-workflow:worktree-provider:register:v1`
 
-A provider receives `{ owner, repo, sha, branch? }`,
+A worktree provider receives `{ owner, repo, sha, branch? }`,
 retrieves the ref however it needs, creates a working tree
-and returns a handle with an absolute `path`. Providers may
-also expose `reviewPromptAddendum(request)` to inject
-workspace-specific review guidance into council, judge,
-stack review and critique prompts. Do not encode private
-workspace rules in this public skill; private packages own
-their provider implementation, prompt addenda and any
-proprietary behaviour.
+and returns a handle with an absolute `path`.
+
+Review guidance is a separate provider role. Private
+extensions may register review-context providers through
+`pr-workflow:review-context-provider:register:v1` or the
+`ready` payload. A review-context provider receives
+`{ owner, repo, prNumber, sha, branch?, stage }` and returns
+prompt guidance for council, judge, stack review or critique.
+Do not encode private workspace rules in this public skill;
+private packages own their worktree provider, review-context
+provider and any proprietary behaviour.
 
 ### Running the rounds
 

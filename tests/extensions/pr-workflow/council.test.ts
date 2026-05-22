@@ -158,13 +158,8 @@ describe("runCouncil", () => {
 		expect(cwds[0]).toBe("/wt/octo-demo/abc123");
 	});
 
-	it("adds provider review context to every reviewer prompt", async () => {
+	it("adds supplied review context to every reviewer prompt", async () => {
 		const prompts: string[] = [];
-		const provider: WorktreeProvider = {
-			...fakeWorktreeProvider(),
-			reviewPromptAddendum: () =>
-				"Check generated manifests with provider rules.",
-		};
 		const dispatch: CouncilDispatch = async (opts) => {
 			prompts.push(opts.prompt);
 			return {
@@ -180,15 +175,16 @@ describe("runCouncil", () => {
 			runId: "run-1",
 			target: TARGET,
 			reviewers: [REVIEWER_A, REVIEWER_B],
-			registry: new WorktreeRegistry(provider),
+			registry: new WorktreeRegistry(fakeWorktreeProvider()),
 			dispatch,
+			promptAddendum: "Check generated manifests with context rules.",
 		});
 
 		expect(prompts).toHaveLength(2);
 		expect(
 			prompts.every((prompt) => prompt.includes("Provider review context")),
 		).toBe(true);
-		expect(prompts.every((prompt) => prompt.includes("provider rules"))).toBe(
+		expect(prompts.every((prompt) => prompt.includes("context rules"))).toBe(
 			true,
 		);
 	});

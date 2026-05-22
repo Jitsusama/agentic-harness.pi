@@ -123,30 +123,6 @@ describe("WorktreeProviderBroker", () => {
 		expect(custom.released).toEqual([owned]);
 		expect(fallback.released).toHaveLength(0);
 	});
-
-	it("gets review prompt addenda from the provider selected for the request", async () => {
-		const fallback = {
-			...fakeProvider(),
-			reviewPromptAddendum: () => "fallback guidance",
-		};
-		const world = {
-			...fakeProvider(),
-			id: "world",
-			priority: 100,
-			canHandle: (req: WorktreeRequest) => req.owner === "shop",
-			reviewPromptAddendum: (req: WorktreeRequest) =>
-				`world guidance for ${req.owner}/${req.repo}`,
-		};
-		const broker = new WorktreeProviderBroker(fallback);
-		broker.register(world);
-
-		await expect(
-			broker.reviewPromptAddendum({ owner: "shop", repo: "world", sha: "a" }),
-		).resolves.toBe("world guidance for shop/world");
-		await expect(broker.reviewPromptAddendum(REQ)).resolves.toBe(
-			"fallback guidance",
-		);
-	});
 });
 
 describe("isWorktreeProvider", () => {
@@ -158,12 +134,6 @@ describe("isWorktreeProvider", () => {
 		expect(isWorktreeProvider(null)).toBe(false);
 		expect(
 			isWorktreeProvider({ id: "bad", ensure: async () => undefined }),
-		).toBe(false);
-		expect(
-			isWorktreeProvider({
-				...fakeProvider(),
-				reviewPromptAddendum: "not a function",
-			}),
 		).toBe(false);
 	});
 });
@@ -286,17 +256,5 @@ describe("WorktreeRegistry", () => {
 		expect(active).toHaveLength(2);
 		expect(active).toContain(a);
 		expect(active).toContain(b);
-	});
-
-	it("delegates review prompt addenda to its provider", async () => {
-		const provider = {
-			...fakeProvider(),
-			reviewPromptAddendum: (request: WorktreeRequest) =>
-				`extra context for ${request.owner}/${request.repo}`,
-		};
-		const registry = new WorktreeRegistry(provider);
-		await expect(registry.reviewPromptAddendum(REQ)).resolves.toBe(
-			"extra context for octocat/hello-world",
-		);
 	});
 });
