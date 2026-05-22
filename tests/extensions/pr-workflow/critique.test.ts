@@ -186,6 +186,20 @@ describe("buildCritiquePrompt", () => {
 		expect(text).not.toContain("comment-format");
 	});
 
+	it("defines critique as quality control over the judge", async () => {
+		const text = buildCritiquePrompt({
+			reviewerId: "fast",
+			council: council(),
+			judge: judge(),
+		});
+		expect(text).toContain("Review quality standard");
+		expect(text).toContain("Critique quality-control objective");
+		expect(text).toContain("Audit the judge's synthesis");
+		expect(text).toContain("material risks the judge dropped");
+		expect(text).toContain("weak findings it kept");
+		expect(text).toContain("judge produced a review the user should trust");
+	});
+
 	it("asks for a JSON block with a critiques array keyed by findingId", async () => {
 		const text = buildCritiquePrompt({
 			reviewerId: "fast",

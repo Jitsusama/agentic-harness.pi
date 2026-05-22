@@ -30,6 +30,10 @@ import {
 } from "./council-progress.js";
 import type { CouncilRun, Finding, FindingLocation } from "./findings.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
+import {
+	reviewQualityStandard,
+	reviewSynthesisStandard,
+} from "./review-quality-standard.js";
 import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
 import { JudgeFinding, JudgeOutput, JudgeSelfSignal } from "./schemas.js";
 import type { WorktreeRegistry } from "./worktree.js";
@@ -124,6 +128,10 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 		"- Favour keep over drop when uncertain. The user reviews next " +
 			"and will dismiss noise; you cannot resurface what you drop.",
 	);
+	lines.push("");
+	lines.push(reviewQualityStandard());
+	lines.push("");
+	lines.push(reviewSynthesisStandard());
 	lines.push("");
 	lines.push(reviewerOperatingRules());
 	lines.push("");
