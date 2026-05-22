@@ -17,8 +17,11 @@ import {
 	cleanupFixWorktree,
 	createFixWorktreeProvisioner,
 	type FixWorktreeFs,
+	type FixWorktreeProvider,
+	FixWorktreeProviderBroker,
 	type FixWorktreeRequest,
 	fixWorktreePath,
+	isFixWorktreeProvider,
 	listFixWorktrees,
 } from "../../../extensions/pr-workflow/fix-worktree.js";
 import type {
@@ -51,6 +54,108 @@ function fakeExec(scripted: Record<string, GitExecResult> = {}): {
 	};
 	return { exec, calls };
 }
+
+function fakeProvider(
+	overrides: Partial<FixWorktreeProvider> = {},
+): FixWorktreeProvider {
+	const id = overrides.id ?? "fake";
+	return {
+		id,
+		async provision(request) {
+			return {
+				path: `/provider/${id}/${request.owner}/${request.repo}/${request.number}`,
+				branch: request.branch,
+				providerId: id,
+			};
+		},
+		async list() {
+			return [
+				{
+					slug: "provider-entry",
+					path: "/provider/entry",
+					owner: "octocat",
+					repo: "hello-world",
+					number: 42,
+					mtimeMs: 1,
+				},
+			];
+		},
+		async cleanup(request) {
+			return {
+				status: "removed",
+				path: `/provider/${id}/${request.owner}/${request.repo}/${request.number}`,
+				method: "git",
+			};
+		},
+		...overrides,
+	};
+}
+
+describe("FixWorktreeProviderBroker", () => {
+	it("uses the highest-priority provider that can handle the request", async () => {
+		const fallback = fakeProvider({ id: "git" });
+		const world = fakeProvider({
+			id: "world",
+			priority: 100,
+			canHandle: (request) => request.owner === "shop",
+		});
+		const broker = new FixWorktreeProviderBroker(fallback);
+		broker.register(world);
+
+		const handle = await broker.provision({
+			owner: "shop",
+			repo: "world",
+			number: 7,
+			branch: "feature",
+		});
+
+		expect(handle.path).toBe("/provider/world/shop/world/7");
+		expect(broker.providerIds()).toEqual(["world", "git"]);
+	});
+
+	it("falls back when registered providers decline the request", async () => {
+		const fallback = fakeProvider({ id: "git" });
+		const custom = fakeProvider({
+			id: "custom",
+			priority: 100,
+			canHandle: () => false,
+		});
+		const broker = new FixWorktreeProviderBroker(fallback);
+		broker.register(custom);
+
+		const handle = await broker.provision(REQ);
+
+		expect(handle.path).toBe("/provider/git/octocat/hello-world/42");
+	});
+
+	it("routes cleanup to the matching provider", async () => {
+		const fallback = fakeProvider({ id: "git" });
+		const cleaned: string[] = [];
+		const custom = fakeProvider({
+			id: "custom",
+			priority: 100,
+			canHandle: (request) => request.repo === "hello-world",
+			async cleanup(request) {
+				cleaned.push(`${request.owner}/${request.repo}#${request.number}`);
+				return { status: "removed", path: "/custom", method: "git" };
+			},
+		});
+		const broker = new FixWorktreeProviderBroker(fallback);
+		broker.register(custom);
+
+		await broker.cleanup({ owner: "octocat", repo: "hello-world", number: 42 });
+
+		expect(cleaned).toEqual(["octocat/hello-world#42"]);
+	});
+
+	it("rejects invalid event-bus providers", () => {
+		expect(isFixWorktreeProvider(fakeProvider())).toBe(true);
+		expect(isFixWorktreeProvider(null)).toBe(false);
+		expect(
+			isFixWorktreeProvider({ id: "bad", provision: async () => ({}) }),
+		).toBe(false);
+	});
+});
 
 describe("fixWorktreePath", () => {
 	it("is keyed by PR number, not SHA, so it survives fixup commits", () => {

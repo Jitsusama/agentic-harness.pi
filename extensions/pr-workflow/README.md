@@ -203,7 +203,14 @@ whatever refs it needs, creates the working tree and returns
 an absolute path in the handle. Higher-priority providers
 run before the native git fallback.
 
-Review guidance is separate from worktree provisioning.
+Fix worktrees have their own provider role because the
+lifecycle is different: reviewers need detached, SHA-keyed
+research trees, while fixes need a persistent branch checkout
+where commits and pushes work normally. A `FixWorktreeProvider`
+implements `id`, optional `priority`, optional `canHandle`,
+`provision(request)`, `list()` and `cleanup(request)`.
+
+Review guidance is separate from both worktree provider roles.
 Private or workspace-specific packages can also register a
 `ReviewContextProvider` with `id`, optional `priority`,
 optional `canHandle` and `context(request)`. Matching review
@@ -216,12 +223,16 @@ Event names:
 - `pr-workflow:ready:v1` — emitted once the registration API
   is ready. Payload has `registerWorktreeProvider(provider)`,
   `listWorktreeProviders()`,
+  `registerFixWorktreeProvider(provider)`,
+  `listFixWorktreeProviders()`,
   `registerReviewContextProvider(provider)` and
   `listReviewContextProviders()`.
 - `pr-workflow:worktree-provider:register:v1` — emit a
-  worktree provider directly. Use this as the load-order
-  fallback when the private extension may load after
-  pr-workflow.
+  review worktree provider directly. Use this as the
+  load-order fallback when the private extension may load
+  after pr-workflow.
+- `pr-workflow:fix-worktree-provider:register:v1` — emit a
+  branch-checkout fix worktree provider directly.
 - `pr-workflow:review-context-provider:register:v1` — emit a
   review-context provider directly.
 

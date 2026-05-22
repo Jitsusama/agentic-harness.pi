@@ -55,10 +55,10 @@ import {
 	recordFixSkipAction,
 } from "./fix-action.js";
 import {
-	cleanupFixWorktree,
-	createFixWorktreeProvisioner,
-	listFixWorktrees,
-	type ProvisionFixWorktree,
+	createGitFixWorktreeProvider,
+	FixWorktreeProviderBroker,
+	isFixWorktreeProvider,
+	PR_WORKFLOW_REGISTER_FIX_WORKTREE_PROVIDER,
 } from "./fix-worktree.js";
 import {
 	configureJudge,
@@ -168,10 +168,20 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			resolveSourceRepo,
 		}),
 	);
+	const fixWorktreeProviders = new FixWorktreeProviderBroker(
+		createGitFixWorktreeProvider({
+			stateDir: prWorkflowStateDir(),
+			resolveSourceRepo,
+		}),
+	);
 	const reviewContextProviders = new ReviewContextProviderBroker();
 	const registerWorktreeProvider = (provider: unknown): void => {
 		if (!isWorktreeProvider(provider)) return;
 		worktreeProviders.register(provider);
+	};
+	const registerFixWorktreeProvider = (provider: unknown): void => {
+		if (!isFixWorktreeProvider(provider)) return;
+		fixWorktreeProviders.register(provider);
 	};
 	const registerReviewContextProvider = (provider: unknown): void => {
 		if (!isReviewContextProvider(provider)) return;
@@ -180,12 +190,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	const prWorkflowApi = {
 		registerWorktreeProvider,
 		listWorktreeProviders: () => worktreeProviders.providerIds(),
+		registerFixWorktreeProvider,
+		listFixWorktreeProviders: () => fixWorktreeProviders.providerIds(),
 		registerReviewContextProvider,
 		listReviewContextProviders: () => reviewContextProviders.providerIds(),
 	};
 	pi.events.on(
 		PR_WORKFLOW_REGISTER_WORKTREE_PROVIDER,
 		registerWorktreeProvider,
+	);
+	pi.events.on(
+		PR_WORKFLOW_REGISTER_FIX_WORKTREE_PROVIDER,
+		registerFixWorktreeProvider,
 	);
 	pi.events.on(
 		PR_WORKFLOW_REGISTER_REVIEW_CONTEXT_PROVIDER,
@@ -232,18 +248,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	// Fix worktrees: separate from council worktrees
 	// because the fix loop needs the branch checked out
 	// (commits, push) while council needs the SHA
-	// detached (read-only research). Built lazily so a
-	// session that never enters the fix loop never
-	// touches the state dir.
-	let fixProvision: ProvisionFixWorktree | null = null;
-	const getFixProvision = (): ProvisionFixWorktree => {
-		if (fixProvision !== null) return fixProvision;
-		fixProvision = createFixWorktreeProvisioner({
-			stateDir: prWorkflowStateDir(),
-			resolveSourceRepo,
-		});
-		return fixProvision;
-	};
+	// detached (read-only research).
 
 	// Ask neovim-pi (when present) to route pi://pr/.../file/...
 	// URIs through our resolver. The fetcher closes over `pi` so
@@ -1216,7 +1221,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "fix-next") {
-				const result = await nextFixAction(state, getFixProvision());
+				const result = await nextFixAction(state, (request) =>
+					fixWorktreeProviders.provision(request),
+				);
 				if (!result.ok) {
 					return {
 						content: [{ type: "text", text: result.error }],
@@ -1340,7 +1347,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.action === "fix-worktree-list") {
-				const entries = await listFixWorktrees(prWorkflowStateDir());
+				const entries = await fixWorktreeProviders.list();
 				if (entries.length === 0) {
 					return {
 						content: [
@@ -1405,8 +1412,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
-				const outcome = await cleanupFixWorktree({
-					stateDir: prWorkflowStateDir(),
+				const outcome = await fixWorktreeProviders.cleanup({
 					owner: reference.owner,
 					repo: reference.repo,
 					number: reference.number,
@@ -1474,6 +1480,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					`active: ${state.active ? "yes" : "no"}`,
 					`pr: ${ref}`,
 					`worktree providers: ${worktreeProviders.providerIds().join(", ")}`,
+					`fix worktree providers: ${fixWorktreeProviders.providerIds().join(", ")}`,
 					`council roster: ${state.council.roster.length} reviewer(s)`,
 					`council last run: ${state.council.lastRun?.id ?? "none"}`,
 					`judge: ${state.council.judge?.id ?? "unset"}`,
