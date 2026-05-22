@@ -123,6 +123,18 @@ describe("buildStackReviewPrompt", () => {
 		expect(prompt).toContain("Use cross-PR findings only when");
 		expect(prompt).toContain("where the comment is most actionable");
 	});
+
+	it("includes provider review context when supplied", () => {
+		const prompt = buildStackReviewPrompt({
+			cursorPrNumber: 102,
+			prs: [
+				{ prNumber: 102, title: "Wire parser", description: "", files: [] },
+			],
+			promptAddendum: "Preserve generated manifest ordering.",
+		});
+		expect(prompt).toContain("Provider review context");
+		expect(prompt).toContain("generated manifest ordering");
+	});
 });
 
 describe("parseStackReviewOutput", () => {
@@ -265,6 +277,19 @@ describe("buildStackJudgePrompt", () => {
 		expect(prompt).toContain("Preserve the stack topology");
 		expect(prompt).toContain("do not duplicate the same conceptual issue");
 		expect(prompt).toContain("Assign `homePrNumber`");
+	});
+
+	it("includes provider review context when supplied", async () => {
+		const prompt = buildStackJudgePrompt({
+			cursorPrNumber: 101,
+			prs: [{ prNumber: 101, title: "Add parser" }],
+			reviewerOutputs: [
+				{ reviewerId: "fast", perPr: new Map(), crossPr: [], warnings: [] },
+			],
+			promptAddendum: "Treat rollout flags as deployment boundaries.",
+		});
+		expect(prompt).toContain("Provider review context");
+		expect(prompt).toContain("rollout flags");
 	});
 });
 

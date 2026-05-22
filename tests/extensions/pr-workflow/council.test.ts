@@ -158,6 +158,41 @@ describe("runCouncil", () => {
 		expect(cwds[0]).toBe("/wt/octo-demo/abc123");
 	});
 
+	it("adds provider review context to every reviewer prompt", async () => {
+		const prompts: string[] = [];
+		const provider: WorktreeProvider = {
+			...fakeWorktreeProvider(),
+			reviewPromptAddendum: () =>
+				"Check generated manifests with provider rules.",
+		};
+		const dispatch: CouncilDispatch = async (opts) => {
+			prompts.push(opts.prompt);
+			return {
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: findingsJson([]),
+				stderr: "",
+				warnings: [],
+			};
+		};
+
+		await runCouncil({
+			runId: "run-1",
+			target: TARGET,
+			reviewers: [REVIEWER_A, REVIEWER_B],
+			registry: new WorktreeRegistry(provider),
+			dispatch,
+		});
+
+		expect(prompts).toHaveLength(2);
+		expect(
+			prompts.every((prompt) => prompt.includes("Provider review context")),
+		).toBe(true);
+		expect(prompts.every((prompt) => prompt.includes("provider rules"))).toBe(
+			true,
+		);
+	});
+
 	it("collects findings into a CouncilRun with non-colliding ids across reviewers", async () => {
 		// Two reviewers each return two findings. The
 		// orchestrator stitches them into one finding

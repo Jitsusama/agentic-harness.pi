@@ -153,6 +153,15 @@ describe("buildJudgePrompt", () => {
 		expect(text).toContain("excellent human review");
 	});
 
+	it("includes provider review context when supplied", async () => {
+		const text = buildJudgePrompt({
+			council: council(),
+			promptAddendum: "Prefer the monorepo's rollout-risk checklist.",
+		});
+		expect(text).toContain("Provider review context");
+		expect(text).toContain("rollout-risk checklist");
+	});
+
 	it("embeds the judge JSON schema and instructs verify_output", async () => {
 		// The judge subagent gets pr-workflow-verify
 		// loaded so it can self-validate before ending.

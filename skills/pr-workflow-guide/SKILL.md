@@ -218,9 +218,12 @@ Event names:
 
 A provider receives `{ owner, repo, sha, branch? }`,
 retrieves the ref however it needs, creates a working tree
-and returns a handle with an absolute `path`. Do not encode
-private workspace rules in this public skill; private
-packages own their provider implementation and any
+and returns a handle with an absolute `path`. Providers may
+also expose `reviewPromptAddendum(request)` to inject
+workspace-specific review guidance into council, judge,
+stack review and critique prompts. Do not encode private
+workspace rules in this public skill; private packages own
+their provider implementation, prompt addenda and any
 proprietary behaviour.
 
 ### Running the rounds

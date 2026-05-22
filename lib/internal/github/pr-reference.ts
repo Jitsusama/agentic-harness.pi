@@ -16,6 +16,8 @@ export interface PRReference {
 /** PR link patterns we recognize. */
 const GITHUB_URL_PATTERN =
 	/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/;
+const GRAPHITE_URL_PATTERN =
+	/^https?:\/\/app\.graphite\.com\/github\/pr\/([^/]+)\/([^/]+)\/(\d+)/;
 const SHORT_FORM_PATTERN = /^([^/]+)\/([^/#]+)#(\d+)$/;
 const NUMBER_ONLY_PATTERN = /^#?(\d+)$/;
 
@@ -24,6 +26,7 @@ const NUMBER_ONLY_PATTERN = /^#?(\d+)$/;
  *
  * Accepts:
  *   - Full URL: https://github.com/owner/repo/pull/123
+ *   - Graphite URL: https://app.graphite.com/github/pr/owner/repo/123
  *   - Short form: owner/repo#123
  *   - Number: #123 or 123 (requires defaultOwner/defaultRepo)
  *
@@ -42,6 +45,15 @@ export function parsePRReference(
 			owner: urlMatch[1],
 			repo: urlMatch[2],
 			number: Number.parseInt(urlMatch[3], 10),
+		};
+	}
+
+	const graphiteMatch = trimmed.match(GRAPHITE_URL_PATTERN);
+	if (graphiteMatch) {
+		return {
+			owner: graphiteMatch[1],
+			repo: graphiteMatch[2],
+			number: Number.parseInt(graphiteMatch[3], 10),
 		};
 	}
 

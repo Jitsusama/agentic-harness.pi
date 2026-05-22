@@ -45,6 +45,24 @@ describe("loadPr", () => {
 		});
 	});
 
+	it("attaches a PR parsed from a Graphite URL", () => {
+		// Graphite copies PR links in its own URL shape. They
+		// still identify a GitHub owner, repo and pull request
+		// number, so load should accept them directly.
+		const state = createPrWorkflowState();
+		const result = loadPr(state, {
+			input: "https://app.graphite.com/github/pr/shop/world/738025",
+			now: () => new Date("2026-05-18T01:00:00Z"),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(state.pr?.reference).toEqual({
+			owner: "shop",
+			repo: "world",
+			number: 738025,
+		});
+	});
+
 	it("attaches a PR parsed from a bare number when defaults are supplied", () => {
 		// Inside a checkout the user often just types "#42". Without
 		// repo defaults we can't resolve it; with them, we can.

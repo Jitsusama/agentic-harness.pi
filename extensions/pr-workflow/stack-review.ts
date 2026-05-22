@@ -46,6 +46,7 @@ export interface StackReviewPrInput {
 export interface BuildStackReviewPromptInput {
 	readonly cursorPrNumber: number;
 	readonly prs: readonly StackReviewPrInput[];
+	readonly promptAddendum?: string;
 }
 
 /** One reviewer's parsed stack-wide output. */
@@ -81,6 +82,7 @@ export interface BuildStackJudgePromptInput {
 	readonly cursorPrNumber: number;
 	readonly prs: readonly StackJudgePrContext[];
 	readonly reviewerOutputs: readonly StackReviewerOutput[];
+	readonly promptAddendum?: string;
 }
 
 /** Caller-supplied context for stack-judge parsing. */
@@ -123,6 +125,7 @@ export function buildStackReviewPrompt(
 	);
 	sections.push(reviewQualityStandard());
 	sections.push(stackReviewDiscoveryStandard());
+	pushPromptAddendum(sections, input.promptAddendum);
 	sections.push(reviewerOperatingRules());
 	sections.push("## Stack");
 	for (const pr of input.prs) {
@@ -175,6 +178,7 @@ export function buildStackJudgePrompt(
 	sections.push(`The cursor is PR #${input.cursorPrNumber}.`);
 	sections.push(reviewQualityStandard());
 	sections.push(stackReviewSynthesisStandard());
+	pushPromptAddendum(sections, input.promptAddendum);
 	sections.push(reviewerOperatingRules());
 	sections.push("## Stack PRs");
 	for (const pr of input.prs) {
@@ -202,6 +206,15 @@ export function buildStackJudgePrompt(
 			"fenced JSON block.",
 	);
 	return sections.join("\n\n");
+}
+
+function pushPromptAddendum(
+	sections: string[],
+	addendum: string | undefined,
+): void {
+	const trimmed = addendum?.trim();
+	if (trimmed === undefined || trimmed.length === 0) return;
+	sections.push(["## Provider review context", trimmed].join("\n\n"));
 }
 
 /** Parse one stack-wide reviewer response. */

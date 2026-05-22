@@ -143,16 +143,19 @@ export async function runStackReviewAction(
 		return { ok: false, error: "No PR context available for review." };
 	}
 
-	const handle = await input.registry.ensure({
+	const request = {
 		owner: tip.reference.owner,
 		repo: tip.reference.repo,
 		sha: tip.metadata.head.sha,
 		branch: tip.metadata.head.ref,
-	});
+	};
+	const handle = await input.registry.ensure(request);
+	const promptAddendum = await input.registry.reviewPromptAddendum(request);
 
 	const reviewPrompt = buildStackReviewPrompt({
 		cursorPrNumber,
 		prs: resolved.map(toPromptPr),
+		...(promptAddendum ? { promptAddendum } : {}),
 	});
 
 	const settled = await Promise.allSettled(
@@ -254,6 +257,7 @@ export async function runStackReviewAction(
 		cursorPrNumber,
 		prs: resolved.map(toJudgePr),
 		reviewerOutputs,
+		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	safelyNotify(
 		() => progress.reviewerStarted(judge.id),

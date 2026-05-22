@@ -200,6 +200,17 @@ describe("buildCritiquePrompt", () => {
 		expect(text).toContain("judge produced a review the user should trust");
 	});
 
+	it("includes provider review context when supplied", async () => {
+		const text = buildCritiquePrompt({
+			reviewerId: "fast",
+			council: council(),
+			judge: judge(),
+			promptAddendum: "Apply the service-owner escalation convention.",
+		});
+		expect(text).toContain("Provider review context");
+		expect(text).toContain("service-owner escalation convention");
+	});
+
 	it("asks for a JSON block with a critiques array keyed by findingId", async () => {
 		const text = buildCritiquePrompt({
 			reviewerId: "fast",

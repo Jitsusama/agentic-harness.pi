@@ -197,11 +197,18 @@ over Pi's event bus.
 
 A provider implements the structural `WorktreeProvider`
 contract: `id`, optional `priority`, optional `canHandle`,
-`ensure(request)` and `release(handle)`. `ensure` receives
-`owner`, `repo`, `sha` and optional `branch`; it retrieves
-whatever refs it needs, creates the working tree and returns
-an absolute path in the handle. Higher-priority providers
-run before the native git fallback.
+`ensure(request)`, `release(handle)` and optional
+`reviewPromptAddendum(request)`. `ensure` receives `owner`,
+`repo`, `sha` and optional `branch`; it retrieves whatever
+refs it needs, creates the working tree and returns an
+absolute path in the handle. Higher-priority providers run
+before the native git fallback.
+
+`reviewPromptAddendum` lets the selected provider add
+workspace-specific review guidance to council, judge, stack
+review and critique prompts. Keep proprietary or
+workspace-specific instructions in the provider package;
+pr-workflow keeps the generic review standard.
 
 Event names:
 
