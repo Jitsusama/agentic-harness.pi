@@ -24,6 +24,7 @@ export interface ReviewerPromptInput {
 	readonly prTitle: string;
 	readonly prDescription: string;
 	readonly files: DiffFile[];
+	readonly promptAddendum?: string;
 }
 
 /**
@@ -61,6 +62,7 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 
 	sections.push(reviewQualityStandard());
 	sections.push(reviewDiscoveryStandard());
+	pushPromptAddendum(sections, input.promptAddendum);
 	sections.push(reviewerOperatingRules());
 
 	sections.push("## PR title");
@@ -118,6 +120,15 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 	);
 
 	return sections.join("\n\n");
+}
+
+function pushPromptAddendum(
+	sections: string[],
+	addendum: string | undefined,
+): void {
+	const trimmed = addendum?.trim();
+	if (trimmed === undefined || trimmed.length === 0) return;
+	sections.push(["## Provider review context", trimmed].join("\n\n"));
 }
 
 function renderFile(file: DiffFile): string {

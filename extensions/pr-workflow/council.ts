@@ -107,16 +107,19 @@ export interface RunOneReviewerOptions {
 export async function runOneCouncilReviewer(
 	options: RunOneReviewerOptions,
 ): Promise<ReviewerOutput> {
-	const handle = await options.registry.ensure({
+	const request = {
 		owner: options.target.owner,
 		repo: options.target.repo,
 		sha: options.target.sha,
 		...(options.target.branch ? { branch: options.target.branch } : {}),
-	});
+	};
+	const handle = await options.registry.ensure(request);
+	const promptAddendum = await options.registry.reviewPromptAddendum(request);
 	const prompt = buildReviewerPrompt({
 		prTitle: options.target.title,
 		prDescription: options.target.description,
 		files: options.target.files,
+		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	try {
 		const value = await options.dispatch({
@@ -165,17 +168,20 @@ export async function runCouncil(
 	);
 	safelyNotify(() => progress.start(startSnapshot), "start", progressWarnings);
 
-	const handle = await options.registry.ensure({
+	const request = {
 		owner: options.target.owner,
 		repo: options.target.repo,
 		sha: options.target.sha,
 		...(options.target.branch ? { branch: options.target.branch } : {}),
-	});
+	};
+	const handle = await options.registry.ensure(request);
+	const promptAddendum = await options.registry.reviewPromptAddendum(request);
 
 	const prompt = buildReviewerPrompt({
 		prTitle: options.target.title,
 		prDescription: options.target.description,
 		files: options.target.files,
+		...(promptAddendum ? { promptAddendum } : {}),
 	});
 
 	// Each reviewer needs a contiguous slice of finding ids.

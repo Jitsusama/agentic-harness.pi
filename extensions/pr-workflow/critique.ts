@@ -83,6 +83,7 @@ export interface BuildCritiquePromptInput {
 	readonly reviewerId: string;
 	readonly council: CouncilRun;
 	readonly judge: JudgeRun;
+	readonly promptAddendum?: string;
 }
 
 /** Inputs to `parseCritiqueOutput`. */
@@ -133,16 +134,19 @@ export interface RunOneCritiqueReviewerOptions {
 export async function runOneCritiqueReviewer(
 	options: RunOneCritiqueReviewerOptions,
 ): Promise<ReviewerCritiqueOutput> {
-	const handle = await options.registry.ensure({
+	const request = {
 		owner: options.target.owner,
 		repo: options.target.repo,
 		sha: options.target.sha,
 		...(options.target.branch ? { branch: options.target.branch } : {}),
-	});
+	};
+	const handle = await options.registry.ensure(request);
+	const promptAddendum = await options.registry.reviewPromptAddendum(request);
 	const prompt = buildCritiquePrompt({
 		reviewerId: options.reviewer.id,
 		council: options.council,
 		judge: options.judge,
+		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	try {
 		const dispatched = await options.dispatch({
@@ -207,6 +211,7 @@ export function buildCritiquePrompt(input: BuildCritiquePromptInput): string {
 	lines.push(reviewQualityStandard());
 	lines.push("");
 	lines.push(reviewCritiqueStandard());
+	pushPromptAddendum(lines, input.promptAddendum);
 	lines.push("");
 	lines.push(reviewerOperatingRules());
 	lines.push("");
@@ -344,6 +349,18 @@ export function parseCritiqueOutput(
 	return { critiques, warnings };
 }
 
+function pushPromptAddendum(
+	lines: string[],
+	addendum: string | undefined,
+): void {
+	const trimmed = addendum?.trim();
+	if (trimmed === undefined || trimmed.length === 0) return;
+	lines.push("");
+	lines.push("## Provider review context");
+	lines.push("");
+	lines.push(trimmed);
+}
+
 function extractJson(text: string): string | null {
 	const fenced = text.match(/```json\s*\n([\s\S]*?)```/);
 	if (fenced) return fenced[1].trim();
@@ -380,12 +397,14 @@ export async function runCritique(
 	);
 
 	try {
-		const handle = await options.registry.ensure({
+		const request = {
 			owner: options.target.owner,
 			repo: options.target.repo,
 			sha: options.target.sha,
 			...(options.target.branch ? { branch: options.target.branch } : {}),
-		});
+		};
+		const handle = await options.registry.ensure(request);
+		const promptAddendum = await options.registry.reviewPromptAddendum(request);
 
 		const promises = options.roster.map(async (reviewer) => {
 			safelyNotify(
@@ -397,6 +416,7 @@ export async function runCritique(
 				reviewerId: reviewer.id,
 				council: options.council,
 				judge: options.judge,
+				...(promptAddendum ? { promptAddendum } : {}),
 			});
 			try {
 				const dispatched = await options.dispatch({

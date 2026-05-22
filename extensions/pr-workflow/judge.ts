@@ -61,6 +61,7 @@ export interface JudgeRun {
 /** Inputs to `buildJudgePrompt`. */
 export interface BuildJudgePromptInput {
 	readonly council: CouncilRun;
+	readonly promptAddendum?: string;
 }
 
 /** Inputs to `parseJudgeOutput`. */
@@ -132,6 +133,7 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 	lines.push(reviewQualityStandard());
 	lines.push("");
 	lines.push(reviewSynthesisStandard());
+	pushPromptAddendum(lines, input.promptAddendum);
 	lines.push("");
 	lines.push(reviewerOperatingRules());
 	lines.push("");
@@ -186,6 +188,18 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 			"surface the warnings.",
 	);
 	return lines.join("\n");
+}
+
+function pushPromptAddendum(
+	lines: string[],
+	addendum: string | undefined,
+): void {
+	const trimmed = addendum?.trim();
+	if (trimmed === undefined || trimmed.length === 0) return;
+	lines.push("");
+	lines.push("## Provider review context");
+	lines.push("");
+	lines.push(trimmed);
 }
 
 function renderLocation(loc: FindingLocation): string {
@@ -286,14 +300,19 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 		progressWarnings,
 	);
 	try {
-		const handle = await options.registry.ensure({
+		const request = {
 			owner: options.target.owner,
 			repo: options.target.repo,
 			sha: options.target.sha,
 			...(options.target.branch ? { branch: options.target.branch } : {}),
-		});
+		};
+		const handle = await options.registry.ensure(request);
+		const promptAddendum = await options.registry.reviewPromptAddendum(request);
 
-		const prompt = buildJudgePrompt({ council: options.council });
+		const prompt = buildJudgePrompt({
+			council: options.council,
+			...(promptAddendum ? { promptAddendum } : {}),
+		});
 
 		const startId = options.startId ?? nextIdAfterCouncil(options.council);
 

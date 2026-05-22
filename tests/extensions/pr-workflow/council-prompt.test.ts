@@ -187,6 +187,17 @@ describe("buildReviewerPrompt", () => {
 		expect(prompt).toContain("high recall without spam");
 	});
 
+	it("includes provider review context when supplied", () => {
+		const prompt = buildReviewerPrompt({
+			prTitle: "x",
+			prDescription: "",
+			files: [file()],
+			promptAddendum: "Use the repo's generated-code review rules.",
+		});
+		expect(prompt).toContain("Provider review context");
+		expect(prompt).toContain("generated-code review rules");
+	});
+
 	it("embeds the JSON schema for the council output", () => {
 		// The model is more reliable when it sees the
 		// schema it'll be validated against, not just a

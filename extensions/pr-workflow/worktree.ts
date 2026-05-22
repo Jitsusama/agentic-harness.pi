@@ -83,6 +83,14 @@ export interface WorktreeProvider {
 	 */
 	release(handle: WorktreeHandle): Promise<void>;
 
+	/**
+	 * Optional provider-owned review guidance for prompts
+	 * that inspect this worktree. Keep it generic: provider
+	 * packages own workspace-specific conventions while
+	 * pr-workflow owns the universal review standard.
+	 */
+	reviewPromptAddendum?(request: WorktreeRequest): string | Promise<string>;
+
 	/** Optional: list currently active handles. */
 	list?(): Promise<WorktreeHandle[]>;
 }
@@ -103,7 +111,10 @@ export function isWorktreeProvider(value: unknown): value is WorktreeProvider {
 		typeof record.id === "string" &&
 		typeof record.ensure === "function" &&
 		typeof record.release === "function" &&
-		(record.canHandle === undefined || typeof record.canHandle === "function")
+		(record.canHandle === undefined ||
+			typeof record.canHandle === "function") &&
+		(record.reviewPromptAddendum === undefined ||
+			typeof record.reviewPromptAddendum === "function")
 	);
 }
 
@@ -154,6 +165,11 @@ export class WorktreeProviderBroker implements WorktreeProvider {
 			if (provider.list) handles.push(...(await provider.list()));
 		}
 		return handles;
+	}
+
+	async reviewPromptAddendum(request: WorktreeRequest): Promise<string> {
+		const provider = await this.selectProvider(request);
+		return (await provider.reviewPromptAddendum?.(request)) ?? "";
 	}
 
 	private async selectProvider(
@@ -213,6 +229,11 @@ export class WorktreeRegistry {
 	/** Snapshot of currently-allocated handles. */
 	active(): WorktreeHandle[] {
 		return Array.from(this.active_.values());
+	}
+
+	/** Provider-owned review guidance for this worktree request. */
+	async reviewPromptAddendum(request: WorktreeRequest): Promise<string> {
+		return (await this.provider.reviewPromptAddendum?.(request)) ?? "";
 	}
 }
 
