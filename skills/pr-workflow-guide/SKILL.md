@@ -45,6 +45,7 @@ prose; you translate intent into calls.
 | `review` | Stack-wide context review: one stack-aware council fan-out plus one stack-aware judge. Use for "review the whole stack" or "do all of them". |
 | `critique` | Round 3 (optional): roster pushes back on the judge. Works after either `judge` or stack-wide `review`. |
 | `findings` | Show the current findings view (judge + critique + decisions, plus stack-level findings if any). Read-only. |
+| `add-finding` | Round 4: add a user-authored per-PR finding when synthesis surfaces a material comment the council missed. Follow with `decide` before posting. |
 | `decide` | Round 4: record the user's verdict on one finding. Pass `scope="stack"` for cross-PR findings from `review`. |
 | `post` | Ship eligible findings to GitHub as a PR review. Stack findings home to the cursor PR post alongside per-PR findings. |
 | `stack` | Render the discovered PR stack with cursor highlighted. |
@@ -329,6 +330,7 @@ with the user. Translate intent to `decide` calls:
 | "dismiss #11, false positive" | `action=decide findingId=11 verdict=dismiss reason="false positive"` |
 | "soften #12 — non-blocking" | `action=decide findingId=12 verdict=qualify note="non-blocking, worth a follow-up"` |
 | "edit #13: subject is '…'" | `action=decide findingId=13 verdict=edit subject="…"` |
+| "add this as a new inline comment" | `action=add-finding label=suggestion decorations=["blocking"] subject="..." discussion="..." file="path" start=47`, then `decide` the new id |
 | "promote everything I endorsed" | call `decide` per finding; API takes single ids |
 
 Suggest verdicts when the user is silent on a finding.

@@ -349,6 +349,13 @@ remains reachable mid-run.
   findings appear in their own section with S-prefixed
   ids (`[S1]`, `[S2]`…) so the user knows to pass
   `scope="stack"` on decide.
+- `action="add-finding" label=<label> subject="..."
+  discussion="..." [file="..." start=<line> end=<line>
+  side=<old|new|both>]` — add a user-authored finding
+  to the current per-PR review list. This is for synthesis
+  moments where the user notices a material comment that
+  the council missed. The finding remains pending until
+  the user records a normal `decide` verdict.
 - `action="decide" findingId=<n> verdict=<v>
   scope=<"pr" | "stack">` — record the user's verdict
   (`endorse | qualify | edit | dismiss | promote |

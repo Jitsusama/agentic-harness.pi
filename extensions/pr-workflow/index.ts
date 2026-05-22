@@ -71,6 +71,7 @@ import {
 	formatLoadSuggestions,
 	suggestNextAfterLoad,
 } from "./load-trajectory.js";
+import { addManualFindingAction } from "./manual-finding-action.js";
 import {
 	type PostReviewExec,
 	type PostReviewGate,
@@ -301,6 +302,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"judge",
 					"critique",
 					"findings",
+					"add-finding",
 					"decide",
 					"post",
 					"stack",
@@ -330,6 +332,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"(one stack-aware council fan-out plus one stack-aware judge). " +
 						"critique: run round-3 critique — the roster pushes back on the judge's consolidated list. " +
 						"findings: render the round-4 view (judge + critique + user decisions). " +
+						"add-finding: add a user-authored finding to the current PR findings list. " +
 						"decide: record the user's verdict on a single finding. " +
 						"post: send eligible findings to GitHub as a PR review. " +
 						"stack: render the discovered PR stack with cursor highlighted. " +
@@ -440,6 +443,70 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"Which set of findings the decide action targets. 'pr' (default) hits the per-PR judge findings; 'stack' hits cross-PR findings from action=review.",
 				}),
 			),
+			label: Type.Optional(
+				StringEnum(
+					[
+						"praise",
+						"nitpick",
+						"suggestion",
+						"issue",
+						"todo",
+						"question",
+						"thought",
+						"chore",
+						"note",
+					] as const,
+					{
+						description: "Conventional Comments label for action=add-finding.",
+					},
+				),
+			),
+			decorations: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"Conventional Comments decorations for action=add-finding, e.g. blocking or non-blocking.",
+				}),
+			),
+			severity: Type.Optional(
+				StringEnum(["critical", "medium", "minor"] as const, {
+					description: "Optional severity bucket for action=add-finding.",
+				}),
+			),
+			confidence: Type.Optional(
+				Type.Number({
+					description:
+						"Optional confidence score from 0 to 1 for action=add-finding.",
+				}),
+			),
+			file: Type.Optional(
+				Type.String({
+					description:
+						"File path for action=add-finding. With start/end this becomes an inline finding; without them it becomes a file-level finding.",
+				}),
+			),
+			start: Type.Optional(
+				Type.Integer({
+					description: "Start line for an action=add-finding inline comment.",
+				}),
+			),
+			end: Type.Optional(
+				Type.Integer({
+					description:
+						"End line for an action=add-finding inline comment. Defaults to start.",
+				}),
+			),
+			side: Type.Optional(
+				StringEnum(["old", "new", "both"] as const, {
+					description:
+						"Diff side for an action=add-finding inline comment. Defaults to new.",
+				}),
+			),
+			originNote: Type.Optional(
+				Type.String({
+					description:
+						"Optional private note stored on the user-origin finding for action=add-finding.",
+				}),
+			),
 			findingId: Type.Optional(
 				Type.Integer({
 					description:
@@ -470,13 +537,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			subject: Type.Optional(
 				Type.String({
 					description:
-						"Used when verdict=edit. Overrides the finding's subject before promotion.",
+						"Used by action=add-finding, and by verdict=edit to override the finding's subject before promotion.",
 				}),
 			),
 			discussion: Type.Optional(
 				Type.String({
 					description:
-						"Used when verdict=edit. Overrides the finding's discussion before promotion.",
+						"Used by action=add-finding, and by verdict=edit to override the finding's discussion before promotion.",
 				}),
 			),
 			reason: Type.Optional(
@@ -886,6 +953,77 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						decisionCount: state.council.decisions.size,
 						stackDecisionCount: state.stackDecisions.size,
 					},
+				};
+			}
+
+			if (params.action === "add-finding") {
+				if (!params.label) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "add-finding requires a `label` argument.",
+							},
+						],
+						details: { ok: false, error: "missing label" },
+						isError: true,
+					};
+				}
+				if (!params.subject) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "add-finding requires a `subject` argument.",
+							},
+						],
+						details: { ok: false, error: "missing subject" },
+						isError: true,
+					};
+				}
+				if (!params.discussion) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "add-finding requires a `discussion` argument.",
+							},
+						],
+						details: { ok: false, error: "missing discussion" },
+						isError: true,
+					};
+				}
+				const result = addManualFindingAction({
+					state,
+					label: params.label,
+					subject: params.subject,
+					discussion: params.discussion,
+					decorations: params.decorations,
+					severity: params.severity,
+					confidence: params.confidence,
+					file: params.file,
+					start: params.start,
+					end: params.end,
+					side: params.side,
+					originNote: params.originNote,
+				});
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								`Manual finding ${result.finding.id} added. ` +
+								`Run action=decide findingId=${result.finding.id} verdict=endorse to include it when posting.`,
+						},
+					],
+					details: { ok: true, finding: result.finding },
 				};
 			}
 
