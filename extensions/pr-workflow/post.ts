@@ -7,8 +7,9 @@
  *   - `buildReviewPayload(state)` — pure function. Picks
  *     findings worth posting (verdicts: endorse, qualify,
  *     edit, promote), renders bodies in Conventional
- *     Comments format, splits into inline comments
- *     (line-located) vs body summary (file/global).
+ *     Comments format, uses valid inline anchors when
+ *     available, and falls back to the body for file,
+ *     global or unanchorable line findings.
  *   - `postReviewAction({ state, event, body?, exec })`
  *     — refuses bad state, calls the injected exec
  *     boundary that wraps `gh api`.
@@ -18,6 +19,7 @@
  * need a real `gh` binary.
  */
 
+import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import type { ReviewComment } from "../../lib/internal/github/review-post.js";
 import type { Finding, FindingAgreement, FindingLocation } from "./findings.js";
@@ -139,6 +141,8 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 	const includedFindingIds: number[] = [];
 	const includedStackFindingIds: number[] = [];
 	const skipped: SkippedFinding[] = [];
+	const diffFiles = state.pr?.files ?? [];
+	const validateInlineAnchors = diffFiles.length > 0;
 
 	for (const finding of judge.consolidatedFindings) {
 		const decision = state.council.decisions.get(finding.id) ?? null;
@@ -161,7 +165,11 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 			continue;
 		}
 		const body = renderCommentBody(finding, decision);
-		if (finding.location.kind === "line") {
+		if (
+			finding.location.kind === "line" &&
+			(!validateInlineAnchors ||
+				hasValidInlineAnchor(finding.location, diffFiles))
+		) {
 			const comment: ReviewComment = {
 				path: finding.location.file,
 				line: finding.location.end,
@@ -293,7 +301,7 @@ export async function postReviewAction(
 		};
 	}
 
-	let summary = renderSummary(input.state, payload, input.body);
+	let summary = renderSummary(payload, input.body);
 	if (input.gate) {
 		const outcome = await input.gate(
 			buildGateSummary(input.state, input.event, payload, summary),
@@ -451,8 +459,38 @@ function renderDecorations(decorations: readonly string[] | undefined): string {
 	return normalized.length === 0 ? "" : ` (${normalized.join(", ")})`;
 }
 
+function hasValidInlineAnchor(
+	location: FindingLocation,
+	files: readonly DiffFile[],
+): boolean {
+	if (location.kind !== "line") return false;
+	if (location.start < 1 || location.end < location.start) return false;
+	const file = files.find((candidate) => candidate.path === location.file);
+	if (file === undefined) return false;
+	const side = location.side === "old" ? "old" : "new";
+	return file.hunks.some((hunk) =>
+		hunkContainsLineRange(hunk.lines, location.start, location.end, side),
+	);
+}
+
+function hunkContainsLineRange(
+	lines: readonly DiffLine[],
+	start: number,
+	end: number,
+	side: "old" | "new",
+): boolean {
+	const lineNumbers = new Set<number>();
+	for (const line of lines) {
+		const lineNumber = side === "old" ? line.oldLineNumber : line.newLineNumber;
+		if (lineNumber !== null) lineNumbers.add(lineNumber);
+	}
+	for (let lineNumber = start; lineNumber <= end; lineNumber++) {
+		if (!lineNumbers.has(lineNumber)) return false;
+	}
+	return true;
+}
+
 function renderSummary(
-	state: PrWorkflowState,
 	payload: ReviewPayload,
 	prefix: string | undefined,
 ): string {
@@ -461,25 +499,38 @@ function renderSummary(
 		lines.push(prefix.trim());
 		lines.push("");
 	}
-	const stackCount = payload.includedStackFindingIds.length;
-	const stackSentence =
-		stackCount === 0 ? "" : ` Plus ${stackCount} cross-PR finding(s) included.`;
-	lines.push(
-		`Council review: ${payload.includedFindingIds.length} finding(s) included, ${payload.skipped.length} skipped.${stackSentence}`,
-	);
-	const judge = state.council.lastJudge;
-	if (judge !== null && judge.selfSignal !== null) {
-		lines.push(
-			`Judge self-signal: ${judge.selfSignal.confidence} — ${judge.selfSignal.rationale}`,
-		);
-	}
+	lines.push(renderSparseReviewIntro(payload));
 	if (payload.body.length > 0) {
-		lines.push("");
-		lines.push("---");
 		lines.push("");
 		lines.push(payload.body);
 	}
 	return lines.join("\n");
+}
+
+function renderSparseReviewIntro(payload: ReviewPayload): string {
+	const inlineCount = payload.comments.length;
+	const bodyFindingCount = countBodyFindings(payload);
+	const inlineSentence = renderInlineSentence(inlineCount);
+	if (bodyFindingCount === 0) return inlineSentence;
+
+	const fallbackTarget = bodyFindingCount === 1 ? "one note" : "these notes";
+	const fallbackPronoun = bodyFindingCount === 1 ? "it" : "them";
+	const fallbackSentence = `I couldn't anchor ${fallbackTarget} inline, so I'm leaving ${fallbackPronoun} below.`;
+	if (inlineCount === 0) return `Thanks, ${fallbackSentence}`;
+	return `${inlineSentence} ${fallbackSentence}`;
+}
+
+function renderInlineSentence(inlineCount: number): string {
+	if (inlineCount === 1) return "Thanks, I left one inline comment.";
+	return `Thanks, I left ${inlineCount} inline comments.`;
+}
+
+function countBodyFindings(payload: ReviewPayload): number {
+	return (
+		payload.includedFindingIds.length +
+		payload.includedStackFindingIds.length -
+		payload.comments.length
+	);
 }
 
 function effectiveSubject(finding: Finding, decision: FindingDecision): string {

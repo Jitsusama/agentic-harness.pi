@@ -339,6 +339,12 @@ review by design ("I'll handle this myself"). Mix
 posted comments and self-applied fixes are
 independent.
 
+The generated top-level review body is intentionally
+sparse. Line findings post inline only when the loaded
+diff exposes a valid anchor; file-level, scope-level,
+stack-level and unanchorable line findings fall back to
+the body below a short explanation.
+
 ### Applying fixes
 
 Council / judge / critique research in a detached,
@@ -639,9 +645,10 @@ Discussion body.
 _Raised by: fast, skeptic._
 ```
 
-Inline comments (line-located findings) post against
-the file/line. File- and scope-level findings collect
-in the review body summary using the same header format.
+Inline comments post against valid file/line anchors in
+the loaded diff. File-level, scope-level, stack-level and
+unanchorable line findings collect in the review body
+using the same header format.
 
 ## Tracking cost
 

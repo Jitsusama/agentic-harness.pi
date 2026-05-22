@@ -13,6 +13,7 @@ import type {
 	StackFindingRun,
 } from "../../../extensions/pr-workflow/stack-findings.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
+import type { DiffFile } from "../../../lib/internal/github/diff.js";
 import { expectFailure, prMetadata } from "./fixtures.js";
 
 function stackFinding(
@@ -123,6 +124,60 @@ function judge(findings: Finding[]): JudgeRun {
 		selfSignal: { confidence: "high", rationale: "ok" },
 		consolidatedFindings: findings,
 		warnings: [],
+	};
+}
+
+function diffFile(path = "lib/x.ts"): DiffFile {
+	return {
+		path,
+		status: "modified",
+		additions: 3,
+		deletions: 0,
+		hunks: [
+			{
+				header: "@@ -8,3 +10,3 @@",
+				oldStart: 8,
+				oldCount: 3,
+				newStart: 10,
+				newCount: 3,
+				lines: [
+					{
+						type: "context",
+						content: "a",
+						oldLineNumber: 8,
+						newLineNumber: 10,
+					},
+					{
+						type: "added",
+						content: "b",
+						oldLineNumber: null,
+						newLineNumber: 11,
+					},
+					{
+						type: "context",
+						content: "c",
+						oldLineNumber: 9,
+						newLineNumber: 12,
+					},
+				],
+			},
+		],
+	};
+}
+
+function loadPr(state: ReturnType<typeof createPrWorkflowState>): void {
+	state.pr = {
+		reference: { owner: "o", repo: "r", number: 42 },
+		loadedAt: "x",
+		metadata: prMetadata({
+			title: "t",
+			url: "u",
+			author: "a",
+			base: { ref: "main", sha: "deadbeef" },
+			head: { ref: "feat", sha: "headsha1" },
+		}),
+		files: [diffFile()],
+		stack: null,
 	};
 }
 
@@ -390,6 +445,76 @@ describe("buildReviewPayload", () => {
 		});
 	});
 
+	it("keeps valid loaded PR line ranges as inline comments", async () => {
+		const state = createPrWorkflowState();
+		loadPr(state);
+		state.council.lastJudge = judge([lineFinding(10, "Anchored")]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+
+		const payload = buildReviewPayload(state);
+
+		expect(payload.comments).toHaveLength(1);
+		expect(payload.body).toBe("");
+	});
+
+	it("falls back to the review body when a line finding cannot anchor in the loaded diff", async () => {
+		const state = createPrWorkflowState();
+		loadPr(state);
+		state.council.lastJudge = judge([
+			lineFinding(10, "Off-hunk", {
+				location: {
+					kind: "line",
+					file: "lib/x.ts",
+					start: 90,
+					end: 90,
+					side: "new",
+				},
+			}),
+		]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+
+		const payload = buildReviewPayload(state);
+
+		expect(payload.comments).toEqual([]);
+		expect(payload.body).toContain("issue: ⚠️ Off-hunk");
+		expect(payload.body).toContain("(lib/x.ts:90-90)");
+		expect(payload.includedFindingIds).toEqual([10]);
+	});
+
+	it("falls back to the review body when a line range is not valid on the requested side", async () => {
+		const state = createPrWorkflowState();
+		loadPr(state);
+		state.council.lastJudge = judge([
+			lineFinding(10, "Old-side added line", {
+				location: {
+					kind: "line",
+					file: "lib/x.ts",
+					start: 11,
+					end: 11,
+					side: "old",
+				},
+			}),
+		]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+
+		const payload = buildReviewPayload(state);
+
+		expect(payload.comments).toEqual([]);
+		expect(payload.body).toContain("Old-side added line");
+	});
+
 	it("attributes findings by raisedBy in the comment body so reviewers see the model agreement", async () => {
 		// Honest provenance: a finding two models agreed
 		// on should look different from a single-model
@@ -414,19 +539,7 @@ describe("buildReviewPayload", () => {
 describe("postReviewAction", () => {
 	function withJudgeAndDecision() {
 		const state = createPrWorkflowState();
-		state.pr = {
-			reference: { owner: "o", repo: "r", number: 42 },
-			loadedAt: "x",
-			metadata: prMetadata({
-				title: "t",
-				url: "u",
-				author: "a",
-				base: { ref: "main", sha: "deadbeef" },
-				head: { ref: "feat", sha: "headsha1" },
-			}),
-			files: [],
-			stack: null,
-		};
+		loadPr(state);
 		state.council.lastJudge = judge([
 			lineFinding(10, "Null deref"),
 			lineFinding(11, "Duplicate"),
@@ -534,10 +647,46 @@ describe("postReviewAction", () => {
 		const arg = gateMock.mock.calls[0][0];
 		expect(arg.event).toBe("COMMENT");
 		expect(arg.inlineCount).toBe(1);
-		expect(arg.body).toContain("finding(s) included");
+		expect(arg.body).toContain("Thanks, I left one inline comment.");
+		expect(arg.body).not.toContain("finding(s) included");
 		expect(arg.body).not.toContain("finding(s) posted");
 		expect(arg.findings.map((f: { id: number }) => f.id)).toEqual([10]);
 		expect(arg.skipped).toEqual([{ displayId: "11", reason: "dismiss" }]);
+	});
+
+	it("keeps the generated top-level review body sparse and friendly", async () => {
+		const state = withJudgeAndDecision();
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+
+		await postReviewAction({ state, event: "COMMENT", exec });
+
+		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(arg.body).toBe("Thanks, I left one inline comment.");
+		expect(arg.body).not.toContain("Council review");
+		expect(arg.body).not.toContain("Judge self-signal");
+		expect(arg.body).not.toContain("skipped");
+	});
+
+	it("puts unanchored fallback findings below a short explanation", async () => {
+		const state = withJudgeAndDecision();
+		state.council.lastJudge = judge([
+			lineFinding(10, "Anchored"),
+			fileFinding(12, "File-wide"),
+		]);
+		state.council.decisions.set(12, {
+			findingId: 12,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+
+		await postReviewAction({ state, event: "COMMENT", exec });
+
+		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(arg.body).toContain("I left one inline comment");
+		expect(arg.body).toContain("couldn't anchor");
+		expect(arg.body).toContain("suggestion: 💡 File-wide");
+		expect(arg.body).not.toContain("Council review");
 	});
 
 	it("skips exec when the gate rejects and surfaces the gate reason", async () => {
@@ -701,8 +850,8 @@ describe("buildReviewPayload with stack findings", () => {
 		expect(exec).toHaveBeenCalled();
 		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
 		expect(arg.body).toContain("Cross-PR pattern");
-		expect(arg.body).toMatch(/cross-PR finding/i);
-		expect(arg.body).toContain("cross-PR finding(s) included");
+		expect(arg.body).toMatch(/couldn't anchor/i);
+		expect(arg.body).not.toContain("cross-PR finding(s) included");
 		expect(arg.body).not.toContain("cross-PR finding(s) posted");
 	});
 });
