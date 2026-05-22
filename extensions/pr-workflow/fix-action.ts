@@ -35,6 +35,7 @@ type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
 export interface FixWorktree {
 	readonly path: string;
 	readonly branch: string;
+	readonly providerId?: string;
 }
 
 /**
@@ -86,7 +87,11 @@ export async function nextFixAction(
 				number: state.pr.reference.number,
 				branch: meta.head.ref,
 			});
-			worktree = { path: handle.path, branch: handle.branch };
+			worktree = {
+				path: handle.path,
+				branch: handle.branch,
+				...(handle.providerId ? { providerId: handle.providerId } : {}),
+			};
 		} catch (error) {
 			worktreeError = error instanceof Error ? error.message : String(error);
 		}
@@ -164,7 +169,7 @@ function formatNextFix(
 	} else if (worktreeError) {
 		lines.push(`Worktree provisioning failed: ${worktreeError}`);
 		lines.push(
-			"Fall back to editing in the primary checkout, or rerun once the underlying error is resolved.",
+			"Do not edit a primary checkout as an automatic fallback. Resolve provisioning or ask the user where to apply the fix.",
 		);
 	}
 	if (context.instructions) {

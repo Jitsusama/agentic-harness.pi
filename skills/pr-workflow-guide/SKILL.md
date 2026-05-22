@@ -215,10 +215,17 @@ Event names:
 
 - `pr-workflow:ready:v1`
 - `pr-workflow:worktree-provider:register:v1`
+- `pr-workflow:fix-worktree-provider:register:v1`
 
-A worktree provider receives `{ owner, repo, sha, branch? }`,
-retrieves the ref however it needs, creates a working tree
-and returns a handle with an absolute `path`.
+A review worktree provider receives `{ owner, repo, sha,
+branch? }`, retrieves the ref however it needs, creates a
+working tree and returns a handle with an absolute `path`.
+
+Fix worktrees have a separate provider role because they need a
+persistent branch checkout for commits and pushes. A fix
+worktree provider receives `{ owner, repo, number, branch }`,
+returns a branch-checked-out `path`, and owns list/cleanup for
+its worktrees.
 
 Review guidance is a separate provider role. Private
 extensions may register review-context providers through
@@ -227,7 +234,7 @@ extensions may register review-context providers through
 `{ owner, repo, prNumber, sha, branch?, stage }` and returns
 prompt guidance for council, judge, stack review or critique.
 Do not encode private workspace rules in this public skill;
-private packages own their worktree provider, review-context
+private packages own their worktree providers, review-context
 provider and any proprietary behaviour.
 
 ### Running the rounds

@@ -28,6 +28,10 @@
 import * as path from "node:path";
 import { defaultGitExec, type GitExec } from "./worktree-git.js";
 
+/** Event name for registering fix-worktree providers. */
+export const PR_WORKFLOW_REGISTER_FIX_WORKTREE_PROVIDER =
+	"pr-workflow:fix-worktree-provider:register:v1";
+
 /** Filesystem operations the cleanup helpers need. */
 export interface FixWorktreeFs {
 	readonly listDirs: (dir: string) => Promise<string[]>;
@@ -36,13 +40,25 @@ export interface FixWorktreeFs {
 	readonly exists: (p: string) => Promise<boolean>;
 }
 
-/** What a caller wants a fix worktree for. */
-export interface FixWorktreeRequest {
+/** Common identity fields used when choosing a fix-worktree provider. */
+export interface FixWorktreeMatchRequest {
 	readonly owner: string;
 	readonly repo: string;
 	readonly number: number;
+	readonly branch?: string;
+}
+
+/** What a caller wants a fix worktree for. */
+export interface FixWorktreeRequest extends FixWorktreeMatchRequest {
 	/** PR head ref. Becomes the branch checked out. */
 	readonly branch: string;
+}
+
+/** What a caller wants cleaned up through the provider API. */
+export interface FixWorktreeProviderCleanupRequest
+	extends FixWorktreeMatchRequest {
+	/** Drop uncommitted edits if the provider supports force cleanup. */
+	readonly force?: boolean;
 }
 
 /** What the provisioner returns. */
@@ -51,6 +67,28 @@ export interface FixWorktreeHandle {
 	readonly path: string;
 	/** Branch checked out in the worktree. */
 	readonly branch: string;
+	/** Provider that owns this worktree. */
+	readonly providerId?: string;
+	/** Provider-specific cleanup marker. */
+	readonly marker?: string;
+}
+
+/** Plugin contract for branch-checked-out fix worktrees. */
+export interface FixWorktreeProvider {
+	readonly id: string;
+	readonly priority?: number;
+	canHandle?(request: FixWorktreeMatchRequest): boolean | Promise<boolean>;
+	provision(request: FixWorktreeRequest): Promise<FixWorktreeHandle>;
+	list(): Promise<FixWorktreeEntry[]>;
+	cleanup(
+		request: FixWorktreeProviderCleanupRequest,
+	): Promise<CleanupFixWorktreeOutcome>;
+}
+
+/** Public API pr-workflow emits over `pr-workflow:ready:v1`. */
+export interface PrWorkflowFixWorktreeApi {
+	registerFixWorktreeProvider(provider: FixWorktreeProvider): void;
+	listFixWorktreeProviders(): readonly string[];
 }
 
 /** Configuration for the provisioner. */
@@ -87,48 +125,148 @@ export function fixWorktreePath(
 }
 
 /**
- * Build a fix-worktree provisioner.
+ * Build the native git fallback fix-worktree provider.
  *
  * First call for a PR: `git fetch origin <branch>` then
  * `git worktree add <path> -B <branch> origin/<branch>`.
  * The `-B` form creates the branch if absent or resets
  * it if present.
  *
- * Subsequent calls: the path exists, so the provisioner
+ * Subsequent calls: the path exists, so the provider
  * returns the handle without touching git. This protects
  * in-progress fix commits from being reset by a
  * re-provisioning fetch.
  */
-export function createFixWorktreeProvisioner(
+export function createGitFixWorktreeProvider(
 	config: FixWorktreeProvisionerConfig,
-): ProvisionFixWorktree {
+): FixWorktreeProvider {
 	const exec = config.exec ?? defaultGitExec;
 	const pathExists = config.pathExists ?? defaultPathExists;
 
-	return async (request) => {
-		const target = fixWorktreePath(config.stateDir, request);
-		const source = await config.resolveSourceRepo(request);
+	return {
+		id: "git",
+		async provision(request) {
+			const target = fixWorktreePath(config.stateDir, request);
+			const source = await config.resolveSourceRepo(request);
 
-		if (await pathExists(target)) {
-			return { path: target, branch: request.branch };
-		}
+			if (await pathExists(target)) {
+				return { path: target, branch: request.branch, providerId: "git" };
+			}
 
-		await runOrThrow(exec, ["fetch", "origin", request.branch], source);
-		await runOrThrow(
-			exec,
-			[
-				"worktree",
-				"add",
-				target,
-				"-B",
-				request.branch,
-				`origin/${request.branch}`,
-			],
-			source,
-		);
+			await runOrThrow(exec, ["fetch", "origin", request.branch], source);
+			await runOrThrow(
+				exec,
+				[
+					"worktree",
+					"add",
+					target,
+					"-B",
+					request.branch,
+					`origin/${request.branch}`,
+				],
+				source,
+			);
 
-		return { path: target, branch: request.branch };
+			return { path: target, branch: request.branch, providerId: "git" };
+		},
+		async list() {
+			return listFixWorktrees(config.stateDir);
+		},
+		async cleanup(request) {
+			return cleanupFixWorktree(
+				{
+					stateDir: config.stateDir,
+					owner: request.owner,
+					repo: request.repo,
+					number: request.number,
+					...(request.force === undefined ? {} : { force: request.force }),
+				},
+				exec,
+			);
+		},
 	};
+}
+
+/** Build the native git fallback provisioner. */
+export function createFixWorktreeProvisioner(
+	config: FixWorktreeProvisionerConfig,
+): ProvisionFixWorktree {
+	const provider = createGitFixWorktreeProvider(config);
+	return (request) => provider.provision(request);
+}
+
+/** Runtime guard for event-bus fix-worktree providers. */
+export function isFixWorktreeProvider(
+	value: unknown,
+): value is FixWorktreeProvider {
+	if (typeof value !== "object" || value === null) return false;
+	const record = value as Record<string, unknown>;
+	return (
+		typeof record.id === "string" &&
+		typeof record.provision === "function" &&
+		typeof record.list === "function" &&
+		typeof record.cleanup === "function" &&
+		(record.canHandle === undefined || typeof record.canHandle === "function")
+	);
+}
+
+/** Selects the highest-priority matching fix-worktree provider. */
+export class FixWorktreeProviderBroker {
+	private readonly providers: FixWorktreeProvider[] = [];
+
+	constructor(private readonly fallback: FixWorktreeProvider) {}
+
+	register(provider: FixWorktreeProvider): void {
+		const existing = this.providers.findIndex((p) => p.id === provider.id);
+		if (existing >= 0) {
+			this.providers.splice(existing, 1, provider);
+		} else {
+			this.providers.push(provider);
+		}
+		this.providers.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+	}
+
+	providerIds(): readonly string[] {
+		return [...this.providers.map((p) => p.id), this.fallback.id];
+	}
+
+	async provision(request: FixWorktreeRequest): Promise<FixWorktreeHandle> {
+		return (await this.providerFor(request)).provision(request);
+	}
+
+	async list(): Promise<FixWorktreeEntry[]> {
+		const entries = await Promise.all([
+			...this.providers.map((provider) => provider.list()),
+			this.fallback.list(),
+		]);
+		return entries.flat().sort((a, b) => {
+			const left = a.mtimeMs ?? Number.POSITIVE_INFINITY;
+			const right = b.mtimeMs ?? Number.POSITIVE_INFINITY;
+			return left - right;
+		});
+	}
+
+	async cleanup(
+		request: FixWorktreeProviderCleanupRequest,
+	): Promise<CleanupFixWorktreeOutcome> {
+		return (await this.providerFor(request)).cleanup(request);
+	}
+
+	private async providerFor(
+		request: FixWorktreeMatchRequest,
+	): Promise<FixWorktreeProvider> {
+		for (const provider of this.providers) {
+			if (await providerMatches(provider, request)) return provider;
+		}
+		return this.fallback;
+	}
+}
+
+async function providerMatches(
+	provider: FixWorktreeProvider,
+	request: FixWorktreeMatchRequest,
+): Promise<boolean> {
+	return provider.canHandle ? provider.canHandle(request) : true;
 }
 
 async function defaultPathExists(p: string): Promise<boolean> {

@@ -206,6 +206,9 @@ describe("nextFixAction worktree provisioning", () => {
 		expect(result.worktree).toBeNull();
 		expect(result.summary).toContain("branch not on remote");
 		expect(result.summary).toMatch(/Worktree provisioning failed/i);
+		expect(result.summary).toContain(
+			"Do not edit a primary checkout as an automatic fallback",
+		);
 	});
 
 	it("omits worktree fields when no PR metadata is loaded", async () => {
