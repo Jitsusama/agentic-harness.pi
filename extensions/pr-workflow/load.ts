@@ -45,7 +45,8 @@ export function loadPr(
 			ok: false,
 			error:
 				`Could not parse "${input.input}" as a PR reference. ` +
-				"Expected a full URL (https://github.com/owner/repo/pull/N), " +
+				"Expected a GitHub URL (https://github.com/owner/repo/pull/N), " +
+				"a Graphite URL (https://app.graphite.com/github/pr/owner/repo/N), " +
 				"a short form (owner/repo#N), or a bare number with the " +
 				"workflow already loaded in a repo checkout.",
 		};
