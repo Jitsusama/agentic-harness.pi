@@ -334,10 +334,12 @@ remains reachable mid-run.
 **Posting**
 
 - `action="post"` — send eligible findings to GitHub as
-  a PR review (inline comments for line-located
-  findings, body summary for file- and scope-level
-  findings). Stack findings whose `homePrNumber` matches
-  the cursor PR post alongside the per-PR review;
+  a PR review. Line findings use inline comments only
+  when the loaded diff has a valid anchor; unanchorable
+  line findings, file findings, scope findings and stack
+  findings fall back to a sparse review body. Stack
+  findings whose `homePrNumber` matches the cursor PR
+  post alongside the per-PR review;
   stack findings home to other PRs in the stack skip
   with a clear reason (the user posts them by
   navigating to the home PR and re-running post).
