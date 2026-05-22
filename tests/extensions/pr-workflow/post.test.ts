@@ -592,6 +592,21 @@ describe("postReviewAction", () => {
 		expect(exec).not.toHaveBeenCalled();
 	});
 
+	it("refuses to post when the PR diff is not loaded", async () => {
+		const state = withJudgeAndDecision();
+		if (state.pr === null) throw new Error("expected loaded PR");
+		state.pr.files = null;
+		const exec: PostReviewExec = vi.fn();
+		const result = await postReviewAction({
+			state,
+			event: "COMMENT",
+			exec,
+		});
+
+		expect(expectFailure(result).error).toContain("PR diff is not loaded");
+		expect(exec).not.toHaveBeenCalled();
+	});
+
 	it("refuses to post when no findings are eligible — empty reviews are spam", async () => {
 		const state = withJudgeAndDecision();
 		state.council.decisions.clear();
