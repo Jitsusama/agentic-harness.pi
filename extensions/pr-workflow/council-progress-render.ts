@@ -262,7 +262,7 @@ export class CouncilProgressPanel {
 		private readonly theme: Theme,
 		entries: readonly CouncilProgressEntry[],
 		private readonly controls: CouncilProgressControls | undefined,
-		private readonly title = "PR review progress",
+		private readonly title = "PR Review Progress",
 	) {
 		this.entries = entries.map((entry) => ({ ...entry }));
 	}

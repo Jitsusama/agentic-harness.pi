@@ -156,7 +156,7 @@ describe("CouncilProgressPanel", () => {
 
 		expect(lines[0]).toContain("─".repeat(40));
 		expect(lines.at(-1)).toContain("─".repeat(40));
-		expect(lines.join("\n")).toContain("PR review progress");
+		expect(lines.join("\n")).toContain("PR Review Progress");
 	});
 
 	it("does not cancel a reviewer that already completed", () => {

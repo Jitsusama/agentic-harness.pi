@@ -53,7 +53,7 @@ export async function confirmReplyGate(
 	}
 	const result = await withHiddenWorking(ctx, () =>
 		promptSingle(ctx, {
-			title: "Reply to thread",
+			title: "Reply to Thread",
 			content: renderReplyGateContent(thread, body),
 			actions: REJECT_ACTIONS,
 			redirectHint: "Replace the reply text…",
@@ -78,7 +78,7 @@ export async function confirmResolveGate(
 	}
 	const result = await withHiddenWorking(ctx, () =>
 		promptSingle(ctx, {
-			title: "Resolve thread",
+			title: "Resolve Thread",
 			content: renderResolveGateContent(thread),
 			actions: REJECT_ACTIONS,
 		}),

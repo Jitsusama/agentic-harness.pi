@@ -716,7 +716,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					progressControls(),
 					{
 						statusLabel: "judge",
-						title: "PR judge progress",
+						title: "PR Judge Progress",
 					},
 				);
 				const result = await runWithCancellableReviewers(
@@ -749,7 +749,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					progressControls(),
 					{
 						statusLabel: "review",
-						title: "PR stack review progress",
+						title: "PR Stack Review Progress",
 					},
 				);
 				const result = await runWithCancellableReviewers(
@@ -791,7 +791,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					progressControls(),
 					{
 						statusLabel: "critique",
-						title: "PR critique progress",
+						title: "PR Critique Progress",
 					},
 				);
 				const result = await runWithCancellableReviewers(

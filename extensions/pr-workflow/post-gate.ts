@@ -46,7 +46,7 @@ export async function confirmPostGate(
 	}
 	const result = await withHiddenWorking(ctx, () =>
 		promptSingle(ctx, {
-			title: `Post review (${summary.event})`,
+			title: `Post Review (${summary.event})`,
 			content: renderPostGateContent(summary),
 			actions: REJECT_ACTIONS,
 			redirectHint: "Replace the review body…",
