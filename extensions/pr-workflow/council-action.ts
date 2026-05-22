@@ -17,6 +17,7 @@ import {
 	assertParticipantIdentityAvailable,
 	rememberParticipantIdentities,
 } from "./participant-identities.js";
+import type { ReviewContextProviderBroker } from "./review-context.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { PrWorkflowState } from "./state.js";
 import type { WorktreeRegistry } from "./worktree.js";
@@ -78,6 +79,7 @@ export interface RunCouncilActionInput {
 	readonly state: PrWorkflowState;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	readonly reviewContexts?: ReviewContextProviderBroker;
 	readonly signal?: AbortSignal;
 	/** Override for tests; production uses `Date.now()`. */
 	readonly now?: () => Date;
@@ -151,6 +153,15 @@ export async function runCouncilAction(
 		files,
 	};
 
+	const promptAddendum = await input.reviewContexts?.promptAddendum({
+		owner: target.owner,
+		repo: target.repo,
+		prNumber: target.prNumber,
+		sha: target.sha,
+		branch: target.branch,
+		stage: "council",
+	});
+
 	const run = await runCouncil({
 		runId,
 		target,
@@ -160,6 +171,7 @@ export async function runCouncilAction(
 		signal: input.signal,
 		startId: state.nextFindingId,
 		progress: input.progress,
+		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	for (const output of run.reviewerOutputs) {
 		rememberAllocatedFindings(state, output.findings);
@@ -177,6 +189,7 @@ export interface RetryCouncilReviewerInput {
 	readonly state: PrWorkflowState;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	readonly reviewContexts?: ReviewContextProviderBroker;
 	readonly reviewerId: string;
 	readonly signal?: AbortSignal;
 }
@@ -237,23 +250,33 @@ export async function retryCouncilReviewer(
 	const startId = state.nextFindingId;
 
 	const pr = state.pr;
+	const target = {
+		owner: pr.reference.owner,
+		repo: pr.reference.repo,
+		sha: metadata.head.sha,
+		branch: metadata.head.ref,
+		prNumber: pr.reference.number,
+		title: metadata.title,
+		description: "",
+		files: pr.files ?? [],
+	};
+	const promptAddendum = await input.reviewContexts?.promptAddendum({
+		owner: target.owner,
+		repo: target.repo,
+		prNumber: target.prNumber,
+		sha: target.sha,
+		branch: target.branch,
+		stage: "council",
+	});
 	const output = await runOneCouncilReviewer({
 		runId: lastRun.id,
-		target: {
-			owner: pr.reference.owner,
-			repo: pr.reference.repo,
-			sha: metadata.head.sha,
-			branch: metadata.head.ref,
-			prNumber: pr.reference.number,
-			title: metadata.title,
-			description: "",
-			files: pr.files ?? [],
-		},
+		target,
 		reviewer,
 		registry: input.registry,
 		dispatch: input.dispatch,
 		signal: input.signal,
 		startId,
+		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	rememberAllocatedFindings(state, output.findings);
 	rememberParticipantIdentities(state, "reviewer", [reviewer]);

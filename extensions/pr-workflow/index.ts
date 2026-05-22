@@ -78,6 +78,11 @@ import {
 	type ReviewEvent,
 } from "./post.js";
 import { confirmPostGate } from "./post-gate.js";
+import {
+	isReviewContextProvider,
+	PR_WORKFLOW_REGISTER_REVIEW_CONTEXT_PROVIDER,
+	ReviewContextProviderBroker,
+} from "./review-context.js";
 import { type CouncilReviewer, runReviewer } from "./reviewer.js";
 import { createSpawnRunPi } from "./runpi-spawn.js";
 import { createGitHubPrSearch } from "./search.js";
@@ -163,19 +168,30 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			resolveSourceRepo,
 		}),
 	);
+	const reviewContextProviders = new ReviewContextProviderBroker();
 	const registerWorktreeProvider = (provider: unknown): void => {
 		if (!isWorktreeProvider(provider)) return;
 		worktreeProviders.register(provider);
 	};
-	const worktreeApi = {
+	const registerReviewContextProvider = (provider: unknown): void => {
+		if (!isReviewContextProvider(provider)) return;
+		reviewContextProviders.register(provider);
+	};
+	const prWorkflowApi = {
 		registerWorktreeProvider,
 		listWorktreeProviders: () => worktreeProviders.providerIds(),
+		registerReviewContextProvider,
+		listReviewContextProviders: () => reviewContextProviders.providerIds(),
 	};
 	pi.events.on(
 		PR_WORKFLOW_REGISTER_WORKTREE_PROVIDER,
 		registerWorktreeProvider,
 	);
-	pi.events.emit(PR_WORKFLOW_READY, worktreeApi);
+	pi.events.on(
+		PR_WORKFLOW_REGISTER_REVIEW_CONTEXT_PROVIDER,
+		registerReviewContextProvider,
+	);
+	pi.events.emit(PR_WORKFLOW_READY, prWorkflowApi);
 
 	const getCouncilDeps = () => {
 		if (councilDeps !== null) return councilDeps;
@@ -583,6 +599,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							state,
 							registry,
 							dispatch,
+							reviewContexts: reviewContextProviders,
 							progress,
 						}),
 				);
@@ -620,6 +637,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							state,
 							registry,
 							dispatch,
+							reviewContexts: reviewContextProviders,
 							reviewerId,
 						}),
 				);
@@ -703,6 +721,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							state,
 							registry,
 							dispatch,
+							reviewContexts: reviewContextProviders,
 							progress,
 						}),
 				);
@@ -735,6 +754,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							state,
 							registry,
 							dispatch,
+							reviewContexts: reviewContextProviders,
 							progress,
 							fetchers: {
 								metadata: (reference) => fetchPrMetadata(pi, reference),
@@ -776,6 +796,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							state,
 							registry,
 							dispatch,
+							reviewContexts: reviewContextProviders,
 							progress,
 						}),
 				);
@@ -821,6 +842,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							state,
 							registry,
 							dispatch,
+							reviewContexts: reviewContextProviders,
 							reviewerId,
 						}),
 				);

@@ -71,6 +71,8 @@ export interface RunCouncilOptions {
 	readonly signal?: AbortSignal;
 	/** First session-global finding id available to this run. */
 	readonly startId?: number;
+	/** Provider or repository context appended to reviewer prompts. */
+	readonly promptAddendum?: string;
 	/**
 	 * Optional observer notified as each reviewer
 	 * starts, completes or fails. Lets the UI render
@@ -87,6 +89,8 @@ export interface RunOneReviewerOptions {
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly signal?: AbortSignal;
+	/** Provider or repository context appended to the reviewer prompt. */
+	readonly promptAddendum?: string;
 	/**
 	 * Starting finding id. Findings get assigned ids
 	 * sequentially from this value. Callers retrying one
@@ -107,19 +111,19 @@ export interface RunOneReviewerOptions {
 export async function runOneCouncilReviewer(
 	options: RunOneReviewerOptions,
 ): Promise<ReviewerOutput> {
-	const request = {
+	const handle = await options.registry.ensure({
 		owner: options.target.owner,
 		repo: options.target.repo,
 		sha: options.target.sha,
 		...(options.target.branch ? { branch: options.target.branch } : {}),
-	};
-	const handle = await options.registry.ensure(request);
-	const promptAddendum = await options.registry.reviewPromptAddendum(request);
+	});
 	const prompt = buildReviewerPrompt({
 		prTitle: options.target.title,
 		prDescription: options.target.description,
 		files: options.target.files,
-		...(promptAddendum ? { promptAddendum } : {}),
+		...(options.promptAddendum
+			? { promptAddendum: options.promptAddendum }
+			: {}),
 	});
 	try {
 		const value = await options.dispatch({
@@ -168,20 +172,20 @@ export async function runCouncil(
 	);
 	safelyNotify(() => progress.start(startSnapshot), "start", progressWarnings);
 
-	const request = {
+	const handle = await options.registry.ensure({
 		owner: options.target.owner,
 		repo: options.target.repo,
 		sha: options.target.sha,
 		...(options.target.branch ? { branch: options.target.branch } : {}),
-	};
-	const handle = await options.registry.ensure(request);
-	const promptAddendum = await options.registry.reviewPromptAddendum(request);
+	});
 
 	const prompt = buildReviewerPrompt({
 		prTitle: options.target.title,
 		prDescription: options.target.description,
 		files: options.target.files,
-		...(promptAddendum ? { promptAddendum } : {}),
+		...(options.promptAddendum
+			? { promptAddendum: options.promptAddendum }
+			: {}),
 	});
 
 	// Each reviewer needs a contiguous slice of finding ids.

@@ -88,6 +88,8 @@ export interface RunJudgeOptions {
 	readonly dispatch: CouncilDispatch;
 	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
+	/** Provider or repository context appended to the judge prompt. */
+	readonly promptAddendum?: string;
 	/** First session-global finding id available to this judge run. */
 	readonly startId?: number;
 }
@@ -300,18 +302,18 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 		progressWarnings,
 	);
 	try {
-		const request = {
+		const handle = await options.registry.ensure({
 			owner: options.target.owner,
 			repo: options.target.repo,
 			sha: options.target.sha,
 			...(options.target.branch ? { branch: options.target.branch } : {}),
-		};
-		const handle = await options.registry.ensure(request);
-		const promptAddendum = await options.registry.reviewPromptAddendum(request);
+		});
 
 		const prompt = buildJudgePrompt({
 			council: options.council,
-			...(promptAddendum ? { promptAddendum } : {}),
+			...(options.promptAddendum
+				? { promptAddendum: options.promptAddendum }
+				: {}),
 		});
 
 		const startId = options.startId ?? nextIdAfterCouncil(options.council);

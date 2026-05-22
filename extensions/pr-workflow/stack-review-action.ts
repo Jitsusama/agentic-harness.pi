@@ -28,6 +28,7 @@ import {
 	rememberParticipantIdentities,
 	rememberParticipantIdentity,
 } from "./participant-identities.js";
+import type { ReviewContextProviderBroker } from "./review-context.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { StackFinding, StackFindingRun } from "./stack-findings.js";
 import {
@@ -55,6 +56,7 @@ export interface RunStackReviewActionInput {
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly fetchers: StackReviewFetchers;
+	readonly reviewContexts?: ReviewContextProviderBroker;
 	readonly signal?: AbortSignal;
 	/** Optional observer for stack review fan-out and judge progress. */
 	readonly progress?: CouncilProgress;
@@ -150,12 +152,21 @@ export async function runStackReviewAction(
 		branch: tip.metadata.head.ref,
 	};
 	const handle = await input.registry.ensure(request);
-	const promptAddendum = await input.registry.reviewPromptAddendum(request);
+	const stackReviewAddendum = await input.reviewContexts?.promptAddendum({
+		...request,
+		prNumber: cursorPrNumber,
+		stage: "stack-review",
+	});
+	const stackJudgeAddendum = await input.reviewContexts?.promptAddendum({
+		...request,
+		prNumber: cursorPrNumber,
+		stage: "stack-judge",
+	});
 
 	const reviewPrompt = buildStackReviewPrompt({
 		cursorPrNumber,
 		prs: resolved.map(toPromptPr),
-		...(promptAddendum ? { promptAddendum } : {}),
+		...(stackReviewAddendum ? { promptAddendum: stackReviewAddendum } : {}),
 	});
 
 	const settled = await Promise.allSettled(
@@ -257,7 +268,7 @@ export async function runStackReviewAction(
 		cursorPrNumber,
 		prs: resolved.map(toJudgePr),
 		reviewerOutputs,
-		...(promptAddendum ? { promptAddendum } : {}),
+		...(stackJudgeAddendum ? { promptAddendum: stackJudgeAddendum } : {}),
 	});
 	safelyNotify(
 		() => progress.reviewerStarted(judge.id),

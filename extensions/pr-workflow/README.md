@@ -197,31 +197,37 @@ over Pi's event bus.
 
 A provider implements the structural `WorktreeProvider`
 contract: `id`, optional `priority`, optional `canHandle`,
-`ensure(request)`, `release(handle)` and optional
-`reviewPromptAddendum(request)`. `ensure` receives `owner`,
-`repo`, `sha` and optional `branch`; it retrieves whatever
-refs it needs, creates the working tree and returns an
-absolute path in the handle. Higher-priority providers run
-before the native git fallback.
+`ensure(request)` and `release(handle)`. `ensure` receives
+`owner`, `repo`, `sha` and optional `branch`; it retrieves
+whatever refs it needs, creates the working tree and returns
+an absolute path in the handle. Higher-priority providers
+run before the native git fallback.
 
-`reviewPromptAddendum` lets the selected provider add
-workspace-specific review guidance to council, judge, stack
-review and critique prompts. Keep proprietary or
-workspace-specific instructions in the provider package;
-pr-workflow keeps the generic review standard.
+Review guidance is separate from worktree provisioning.
+Private or workspace-specific packages can also register a
+`ReviewContextProvider` with `id`, optional `priority`,
+optional `canHandle` and `context(request)`. Matching review
+context providers contribute prompt addenda for council,
+judge, stack review and critique prompts while pr-workflow
+keeps the generic review standard.
 
 Event names:
 
 - `pr-workflow:ready:v1` — emitted once the registration API
-  is ready. Payload has `registerWorktreeProvider(provider)`
-  and `listWorktreeProviders()`.
+  is ready. Payload has `registerWorktreeProvider(provider)`,
+  `listWorktreeProviders()`,
+  `registerReviewContextProvider(provider)` and
+  `listReviewContextProviders()`.
 - `pr-workflow:worktree-provider:register:v1` — emit a
-  provider directly. Use this as the load-order fallback
-  when the private extension may load after pr-workflow.
+  worktree provider directly. Use this as the load-order
+  fallback when the private extension may load after
+  pr-workflow.
+- `pr-workflow:review-context-provider:register:v1` — emit a
+  review-context provider directly.
 
-Private extensions should both listen for `ready` and emit
-`register` during activation. That makes registration safe
-regardless of extension load order.
+Private extensions should listen for `ready` and emit direct
+`register` events during activation. That makes registration
+safe regardless of extension load order.
 
 ### Configuration defaults
 

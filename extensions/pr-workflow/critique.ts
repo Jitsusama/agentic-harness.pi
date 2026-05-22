@@ -109,6 +109,8 @@ export interface RunCritiqueOptions {
 	readonly dispatch: CouncilDispatch;
 	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
+	/** Provider or repository context appended to critique prompts. */
+	readonly promptAddendum?: string;
 }
 
 /** Inputs to `runOneCritiqueReviewer`. */
@@ -121,6 +123,8 @@ export interface RunOneCritiqueReviewerOptions {
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly signal?: AbortSignal;
+	/** Provider or repository context appended to the critique prompt. */
+	readonly promptAddendum?: string;
 }
 
 /**
@@ -134,19 +138,19 @@ export interface RunOneCritiqueReviewerOptions {
 export async function runOneCritiqueReviewer(
 	options: RunOneCritiqueReviewerOptions,
 ): Promise<ReviewerCritiqueOutput> {
-	const request = {
+	const handle = await options.registry.ensure({
 		owner: options.target.owner,
 		repo: options.target.repo,
 		sha: options.target.sha,
 		...(options.target.branch ? { branch: options.target.branch } : {}),
-	};
-	const handle = await options.registry.ensure(request);
-	const promptAddendum = await options.registry.reviewPromptAddendum(request);
+	});
 	const prompt = buildCritiquePrompt({
 		reviewerId: options.reviewer.id,
 		council: options.council,
 		judge: options.judge,
-		...(promptAddendum ? { promptAddendum } : {}),
+		...(options.promptAddendum
+			? { promptAddendum: options.promptAddendum }
+			: {}),
 	});
 	try {
 		const dispatched = await options.dispatch({
@@ -397,14 +401,12 @@ export async function runCritique(
 	);
 
 	try {
-		const request = {
+		const handle = await options.registry.ensure({
 			owner: options.target.owner,
 			repo: options.target.repo,
 			sha: options.target.sha,
 			...(options.target.branch ? { branch: options.target.branch } : {}),
-		};
-		const handle = await options.registry.ensure(request);
-		const promptAddendum = await options.registry.reviewPromptAddendum(request);
+		});
 
 		const promises = options.roster.map(async (reviewer) => {
 			safelyNotify(
@@ -416,7 +418,9 @@ export async function runCritique(
 				reviewerId: reviewer.id,
 				council: options.council,
 				judge: options.judge,
-				...(promptAddendum ? { promptAddendum } : {}),
+				...(options.promptAddendum
+					? { promptAddendum: options.promptAddendum }
+					: {}),
 			});
 			try {
 				const dispatched = await options.dispatch({

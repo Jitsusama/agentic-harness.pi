@@ -25,6 +25,7 @@ import type {
 	ReviewerOutput,
 } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
+import type { ReviewContextProviderBroker } from "./review-context.js";
 import type { PrWorkflowState } from "./state.js";
 import type { WorktreeRegistry } from "./worktree.js";
 
@@ -33,6 +34,7 @@ export interface RunCritiqueActionInput {
 	readonly state: PrWorkflowState;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	readonly reviewContexts?: ReviewContextProviderBroker;
 	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
 	readonly now?: () => Date;
@@ -83,21 +85,28 @@ export async function runCritiqueAction(
 
 	const now = input.now ?? (() => new Date());
 	const runId = `critique-${now().toISOString()}`;
+	const target = {
+		owner: state.pr.reference.owner,
+		repo: state.pr.reference.repo,
+		sha: state.pr.metadata.head.sha,
+		branch: state.pr.metadata.head.ref,
+	};
+	const promptAddendum = await input.reviewContexts?.promptAddendum({
+		...target,
+		prNumber: state.pr.reference.number,
+		stage: "critique",
+	});
 	const run = await runCritique({
 		runId,
 		council: state.council.lastRun,
 		judge: state.council.lastJudge,
 		roster: state.council.roster,
-		target: {
-			owner: state.pr.reference.owner,
-			repo: state.pr.reference.repo,
-			sha: state.pr.metadata.head.sha,
-			branch: state.pr.metadata.head.ref,
-		},
+		target,
 		registry: input.registry,
 		dispatch: input.dispatch,
 		progress: input.progress,
 		signal: input.signal,
+		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	state.council.lastCritique = run;
 	return { ok: true, run, judge: state.council.lastJudge };
@@ -132,21 +141,28 @@ async function runStackCritiqueAction(
 		};
 	}
 	const now = input.now ?? (() => new Date());
+	const target = {
+		owner: state.pr.reference.owner,
+		repo: state.pr.reference.repo,
+		sha: state.pr.metadata.head.sha,
+		branch: state.pr.metadata.head.ref,
+	};
+	const promptAddendum = await input.reviewContexts?.promptAddendum({
+		...target,
+		prNumber: state.pr.reference.number,
+		stage: "critique",
+	});
 	const run = await runCritique({
 		runId: `stack-critique-${now().toISOString()}`,
 		council: emptyCouncilForStackCritique(state),
 		judge,
 		roster: state.council.roster,
-		target: {
-			owner: state.pr.reference.owner,
-			repo: state.pr.reference.repo,
-			sha: state.pr.metadata.head.sha,
-			branch: state.pr.metadata.head.ref,
-		},
+		target,
 		registry: input.registry,
 		dispatch: input.dispatch,
 		progress: input.progress,
 		signal: input.signal,
+		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	rememberStackCritique(state, run);
 	return { ok: true, run, judge };
@@ -157,6 +173,7 @@ export interface RetryCritiqueReviewerInput {
 	readonly state: PrWorkflowState;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	readonly reviewContexts?: ReviewContextProviderBroker;
 	readonly reviewerId: string;
 	readonly signal?: AbortSignal;
 }
@@ -232,20 +249,27 @@ export async function retryCritiqueReviewer(
 	}
 
 	const pr = state.pr;
+	const target = {
+		owner: pr.reference.owner,
+		repo: pr.reference.repo,
+		sha: metadata.head.sha,
+		branch: metadata.head.ref,
+	};
+	const promptAddendum = await input.reviewContexts?.promptAddendum({
+		...target,
+		prNumber: pr.reference.number,
+		stage: "critique",
+	});
 	const output = await runOneCritiqueReviewer({
 		runId: lastCritique.id,
 		council: state.council.lastRun,
 		judge: state.council.lastJudge,
 		reviewer,
-		target: {
-			owner: pr.reference.owner,
-			repo: pr.reference.repo,
-			sha: metadata.head.sha,
-			branch: metadata.head.ref,
-		},
+		target,
 		registry: input.registry,
 		dispatch: input.dispatch,
 		signal: input.signal,
+		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	lastCritique.reviewerOutputs[existingIndex] = output;
 	return { ok: true, run: lastCritique, judge: state.council.lastJudge };
@@ -289,20 +313,27 @@ async function retryStackCritiqueReviewer(
 				"pr_workflow action=review before retrying critique.",
 		};
 	}
+	const target = {
+		owner: state.pr.reference.owner,
+		repo: state.pr.reference.repo,
+		sha: state.pr.metadata.head.sha,
+		branch: state.pr.metadata.head.ref,
+	};
+	const promptAddendum = await input.reviewContexts?.promptAddendum({
+		...target,
+		prNumber: state.pr.reference.number,
+		stage: "critique",
+	});
 	const output = await runOneCritiqueReviewer({
 		runId: stackCritique.id,
 		council: emptyCouncilForStackCritique(state),
 		judge,
 		reviewer,
-		target: {
-			owner: state.pr.reference.owner,
-			repo: state.pr.reference.repo,
-			sha: state.pr.metadata.head.sha,
-			branch: state.pr.metadata.head.ref,
-		},
+		target,
 		registry: input.registry,
 		dispatch: input.dispatch,
 		signal: input.signal,
+		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	stackCritique.reviewerOutputs[existingIndex] = output;
 	rememberStackCritique(state, stackCritique);
