@@ -157,6 +157,7 @@ export async function runOneCritiqueReviewer(
 			reviewer: options.reviewer,
 			prompt,
 			cwd: handle.path,
+			runId: options.runId,
 			signal: options.signal,
 		});
 		const parsed = parseCritiqueOutput(dispatched.finalAssistantText, {
@@ -428,6 +429,7 @@ export async function runCritique(
 					reviewer,
 					prompt,
 					cwd: handle.path,
+					runId: options.runId,
 					signal: options.signal,
 					onEvent: (event) => {
 						const activity = summarizeStreamActivity(event);

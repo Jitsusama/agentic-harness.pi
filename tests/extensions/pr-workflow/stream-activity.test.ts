@@ -15,6 +15,14 @@ import { describe, expect, it } from "vitest";
 import { summarizeStreamActivity } from "../../../extensions/pr-workflow/council-progress.js";
 
 describe("summarizeStreamActivity", () => {
+	it("passes through normalized supervisor activity events", () => {
+		expect(
+			summarizeStreamActivity({
+				type: "activity",
+				activity: "reading task.go",
+			}),
+		).toBe("reading task.go");
+	});
 	it("returns null for non-object events", () => {
 		expect(summarizeStreamActivity(null)).toBeNull();
 		expect(summarizeStreamActivity("text")).toBeNull();
