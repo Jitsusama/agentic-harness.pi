@@ -157,6 +157,7 @@ export async function runOneCouncilReviewer(
 export async function runCouncil(
 	options: RunCouncilOptions,
 ): Promise<CouncilRun> {
+	const startedAt = new Date().toISOString();
 	const progress = options.progress ?? NULL_PROGRESS;
 	const progressWarnings: string[] = [];
 
@@ -304,7 +305,7 @@ export async function runCouncil(
 
 	return {
 		id: options.runId,
-		startedAt: new Date().toISOString(),
+		startedAt,
 		target: { kind: "diff", prNumber: options.target.prNumber },
 		reviewerOutputs,
 	};

@@ -59,6 +59,7 @@ export function createCouncilProgressReporter(
 	let entries: CouncilProgressEntry[] = [];
 	let panel: CouncilProgressPanel | null = null;
 	let previousEditor: ReturnType<ExtensionContext["ui"]["getEditorComponent"]>;
+	let terminalInputUnsubscribe: (() => void) | undefined;
 	let editorInstalled = false;
 
 	const render = (): void => {
@@ -84,11 +85,18 @@ export function createCouncilProgressReporter(
 			panel = component;
 			return component;
 		});
+		terminalInputUnsubscribe = ctx.ui.onTerminalInput((data) => {
+			if (!matchesKey(data, Key.escape)) return undefined;
+			controls?.cancelAll();
+			return { consume: true };
+		});
 		editorInstalled = true;
 	};
 
 	const clear = (): void => {
 		ctx.ui.setStatus(STATUS_KEY, undefined);
+		terminalInputUnsubscribe?.();
+		terminalInputUnsubscribe = undefined;
 		if (editorInstalled) ctx.ui.setEditorComponent(previousEditor);
 		editorInstalled = false;
 		previousEditor = undefined;

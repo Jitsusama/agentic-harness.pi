@@ -217,6 +217,7 @@ describe("createCouncilProgressReporter", () => {
 			ui: {
 				theme: fakeTheme(),
 				setStatus() {},
+				onTerminalInput: () => () => {},
 				getEditorComponent: () => previous,
 				setEditorComponent(factory: unknown) {
 					installed.push(factory);
@@ -233,6 +234,47 @@ describe("createCouncilProgressReporter", () => {
 
 		expect(installed[0]).toEqual(expect.any(Function));
 		expect(installed[1]).toBe(previous);
+	});
+
+	it("registers an escape-key terminal fallback for cancelling the run", () => {
+		type TerminalHandler = (data: string) => { consume?: boolean } | undefined;
+		const terminalHandlers: TerminalHandler[] = [];
+		let unsubscribed = false;
+		let cancelAllCalls = 0;
+		const ctx = {
+			hasUI: true,
+			ui: {
+				theme: fakeTheme(),
+				setStatus() {},
+				onTerminalInput(handler: TerminalHandler) {
+					terminalHandlers.push(handler);
+					return () => {
+						unsubscribed = true;
+					};
+				},
+				getEditorComponent: () => undefined,
+				setEditorComponent() {},
+			},
+		};
+		const reporter = createCouncilProgressReporter(ctx as never, {
+			cancelReviewer: () => "cancelled one",
+			cancelAll: () => {
+				cancelAllCalls++;
+				return "cancelled all";
+			},
+		});
+
+		reporter.start([entry("fast", "running")]);
+
+		expect(terminalHandlers).toHaveLength(1);
+		const handleInput = terminalHandlers[0];
+		expect(handleInput("x")?.consume).toBeUndefined();
+		expect(handleInput("\x1b")?.consume).toBe(true);
+		expect(cancelAllCalls).toBe(1);
+
+		reporter.finish();
+
+		expect(unsubscribed).toBe(true);
 	});
 });
 

@@ -382,6 +382,7 @@ function extractJson(text: string): string | null {
 export async function runCritique(
 	options: RunCritiqueOptions,
 ): Promise<CritiqueRun> {
+	const startedAt = new Date().toISOString();
 	const progress = options.progress ?? NULL_PROGRESS;
 	const progressWarnings: string[] = [];
 	safelyNotify(
@@ -512,7 +513,7 @@ export async function runCritique(
 
 		return {
 			id: options.runId,
-			startedAt: new Date().toISOString(),
+			startedAt,
 			judgeRunId: options.judge.id,
 			reviewerOutputs,
 			warnings: [...runWarnings, ...progressWarnings],
