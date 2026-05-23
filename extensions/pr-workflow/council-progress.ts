@@ -142,6 +142,9 @@ export const NULL_PROGRESS: CouncilProgress = {
 export function summarizeStreamActivity(event: unknown): string | null {
 	if (typeof event !== "object" || event === null) return null;
 	const e = event as Record<string, unknown>;
+	if (e.type === "activity" && typeof e.activity === "string") {
+		return e.activity;
+	}
 	const toolName = typeof e.toolName === "string" ? e.toolName : "";
 	if (!toolName) return null;
 	if (e.type === "tool_execution_end") {

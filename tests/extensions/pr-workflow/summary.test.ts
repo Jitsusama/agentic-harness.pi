@@ -297,6 +297,39 @@ describe("formatPrSummary", () => {
 		expect(formatPrSummary(loadedState())).not.toContain("Fix queue");
 	});
 
+	it("renders supervised reviewer recovery counts when present", () => {
+		const state = loadedState();
+		state.reviewerRecovery = {
+			completed: [
+				{
+					runId: "run",
+					reviewerId: "fast",
+					state: "complete",
+					exitCode: 0,
+					finalAssistantText: "done",
+					warnings: [],
+					resultPath: "/tmp/result.json",
+				},
+			],
+			active: [],
+			stale: [
+				{
+					runId: "run",
+					reviewerId: "slow",
+					state: "running",
+					activity: "reading x",
+					updatedAt: "2026-01-01T00:00:00Z",
+				},
+			],
+			warnings: ["one stale reviewer was cancelled"],
+		};
+
+		const text = formatPrSummary(state);
+
+		expect(text).toContain("Reviewer recovery: 1 completed, 0 active, 1 stale");
+		expect(text).toContain("warning: one stale reviewer was cancelled");
+	});
+
 	it("renders the fix queue with counts when decisions exist", () => {
 		const state = loadedState();
 		state.council.lastJudge = judgeWith([judgedFinding(1, "A")]);

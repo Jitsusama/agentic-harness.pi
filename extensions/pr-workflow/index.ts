@@ -85,7 +85,9 @@ import {
 	ReviewContextProviderBroker,
 } from "./review-context.js";
 import { type CouncilReviewer, runReviewer } from "./reviewer.js";
-import { createSpawnRunPi } from "./runpi-spawn.js";
+import { ReviewerArtifactsStore } from "./reviewer-artifacts.js";
+import { recoverReviewerRuns } from "./reviewer-recovery.js";
+import { createSupervisorRunPi } from "./runpi-supervisor.js";
 import { createGitHubPrSearch } from "./search.js";
 import { buildStack, type StackEntry } from "./stack.js";
 import {
@@ -137,6 +139,29 @@ const NEOVIM_PI_READY = "neovim-pi:ready";
 
 export default function prWorkflow(pi: ExtensionAPI) {
 	const state = createPrWorkflowState();
+	const prWorkflowStateDir = () =>
+		join(
+			process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"),
+			"pi",
+			"pr-workflow",
+		);
+	const reviewerArtifacts = () =>
+		new ReviewerArtifactsStore(prWorkflowStateDir());
+	void recoverReviewerRuns(reviewerArtifacts()).then(
+		(summary) => {
+			state.reviewerRecovery = summary;
+		},
+		(error) => {
+			state.reviewerRecovery = {
+				completed: [],
+				active: [],
+				stale: [],
+				warnings: [
+					`Reviewer recovery failed: ${error instanceof Error ? error.message : String(error)}`,
+				],
+			};
+		},
+	);
 
 	// Production wiring for the council action. Built
 	// lazily on first use so a session that never runs
@@ -144,15 +169,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	// the state dir.
 	let councilDeps: {
 		registry: WorktreeRegistry;
-		runPi: ReturnType<typeof createSpawnRunPi>;
+		runPi: ReturnType<typeof createSupervisorRunPi>;
 		extraExtensions: readonly string[];
 	} | null = null;
-	const prWorkflowStateDir = () =>
-		join(
-			process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"),
-			"pi",
-			"pr-workflow",
-		);
 	// The default resolver assumes the user's clone
 	// lives at ~/src/github.com/<owner>/<repo>. This
 	// matches the convention documented in personal
@@ -214,7 +233,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 		if (councilDeps !== null) return councilDeps;
 		councilDeps = {
 			registry: new WorktreeRegistry(worktreeProviders),
-			runPi: createSpawnRunPi({ binary: "pi" }),
+			runPi: createSupervisorRunPi({
+				binary: "pi",
+				stateDir: prWorkflowStateDir(),
+			}),
 			// Every reviewer subagent loads pr-workflow-verify
 			// so it can self-check its JSON output via the
 			// verify_output tool before ending the run.

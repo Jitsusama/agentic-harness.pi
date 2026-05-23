@@ -23,6 +23,7 @@ import type { CouncilRun } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { ParticipantIdentity } from "./participant-identities.js";
 import type { CouncilReviewer } from "./reviewer.js";
+import type { RecoverySummary } from "./reviewer-recovery.js";
 import type { Stack } from "./stack.js";
 import type { StackFindingRun } from "./stack-findings.js";
 import type { FindingDecision } from "./synthesis.js";
@@ -138,6 +139,8 @@ export interface PrWorkflowState {
 	 * would introduce.
 	 */
 	threads: ThreadsSnapshot | null;
+	/** Last supervised reviewer recovery summary from extension activation. */
+	reviewerRecovery: RecoverySummary | null;
 }
 
 /**
@@ -182,5 +185,6 @@ export function createPrWorkflowState(): PrWorkflowState {
 		stackFindingRun: null,
 		stackDecisions: new Map(),
 		threads: null,
+		reviewerRecovery: null,
 	};
 }

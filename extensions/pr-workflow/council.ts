@@ -130,6 +130,7 @@ export async function runOneCouncilReviewer(
 			reviewer: options.reviewer,
 			prompt,
 			cwd: handle.path,
+			runId: options.runId,
 			signal: options.signal,
 		});
 		const parsed = parseReviewerOutput(value.finalAssistantText, {
@@ -214,6 +215,7 @@ export async function runCouncil(
 					reviewer,
 					prompt,
 					cwd: handle.path,
+					runId: options.runId,
 					signal: options.signal,
 					onEvent,
 				});

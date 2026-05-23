@@ -22,6 +22,16 @@
 
 import { ReviewerStreamParser } from "./reviewer-stream.js";
 
+/** File-backed artifacts emitted by a supervised reviewer run. */
+export interface ReviewerRunArtifacts {
+	readonly runDir: string;
+	readonly reviewerDir: string;
+	readonly eventsPath: string;
+	readonly stderrPath: string;
+	readonly progressPath: string;
+	readonly resultPath: string;
+}
+
 export { extractUsageFromPiStream } from "./reviewer-stream.js";
 
 /** A reviewer config: identity, model, thinking level, tool palette. */
@@ -50,9 +60,21 @@ export type ReviewerThinkingLevel = "off" | "low" | "medium" | "high";
 
 /** Result of one pi subprocess invocation. */
 export interface RunPiResult {
-	readonly stdout: string;
-	readonly stderr: string;
+	/** Raw stdout. Legacy runners may still return this; supervised runners should not. */
+	readonly stdout?: string;
+	/** Raw stderr. Legacy runners may still return this; supervised runners should prefer stderrTail. */
+	readonly stderr?: string;
 	readonly exitCode: number;
+	/** Extracted assistant output. Present for supervised, file-backed runners. */
+	readonly finalAssistantText?: string;
+	/** Extracted usage. Present when the stream carried usage data. */
+	readonly usage?: ReviewerUsage;
+	/** Runner-level warnings from streaming, supervision or recovery. */
+	readonly warnings?: readonly string[];
+	/** Bounded stderr tail fit for warnings and diagnostics. */
+	readonly stderrTail?: string;
+	/** Durable files backing this run, when available. */
+	readonly artifacts?: ReviewerRunArtifacts;
 }
 
 /** One pi `--mode json` stream event. */
@@ -62,6 +84,8 @@ export type RunPiStreamEvent = Record<string, unknown>;
 export type RunPi = (opts: {
 	readonly args: string[];
 	readonly cwd: string;
+	readonly runId?: string;
+	readonly reviewerId?: string;
 	readonly signal?: AbortSignal;
 	/**
 	 * Optional live-stream hook. Fires per parsed JSON
@@ -83,6 +107,8 @@ export interface RunReviewerOptions {
 	readonly signal?: AbortSignal;
 	/** Subprocess runner. Inject a fake for tests. */
 	readonly runPi: RunPi;
+	/** Durable run id used by supervised reviewer jobs. */
+	readonly runId?: string;
 	/**
 	 * Absolute paths of sibling extensions to inject
 	 * into the subagent via `--extension`. Used by the
@@ -153,18 +179,18 @@ export async function runReviewer(
 	const result = await options.runPi({
 		args,
 		cwd: options.cwd,
+		...(options.runId ? { runId: options.runId } : {}),
+		reviewerId: options.reviewer.id,
 		signal: options.signal,
 		onEvent: options.onEvent,
 	});
 
-	const parser = new ReviewerStreamParser();
-	parser.ingestChunk(result.stdout);
-	const parsed = parser.finish();
+	const parsed = extractRunPiOutput(result);
 	const warnings = [...parsed.warnings];
 
 	if (result.exitCode !== 0) {
 		warnings.push(`Pi subprocess exited non-zero (exit ${result.exitCode})`);
-		const stderrSnippet = summarizeStderr(result.stderr);
+		const stderrSnippet = summarizeStderr(parsed.stderr);
 		if (stderrSnippet) {
 			warnings.push(`Pi stderr: ${stderrSnippet}`);
 		}
@@ -174,9 +200,36 @@ export async function runReviewer(
 		reviewerId: options.reviewer.id,
 		exitCode: result.exitCode,
 		finalAssistantText: parsed.finalAssistantText,
-		stderr: result.stderr,
+		stderr: parsed.stderr,
 		warnings,
 		...(parsed.usage ? { usage: parsed.usage } : {}),
+	};
+}
+
+interface ExtractedRunPiOutput {
+	readonly finalAssistantText: string;
+	readonly usage?: ReviewerUsage;
+	readonly warnings: readonly string[];
+	readonly stderr: string;
+}
+
+function extractRunPiOutput(result: RunPiResult): ExtractedRunPiOutput {
+	if (result.finalAssistantText !== undefined) {
+		return {
+			finalAssistantText: result.finalAssistantText,
+			...(result.usage ? { usage: result.usage } : {}),
+			warnings: result.warnings ?? [],
+			stderr: result.stderrTail ?? result.stderr ?? "",
+		};
+	}
+	const parser = new ReviewerStreamParser();
+	parser.ingestChunk(result.stdout ?? "");
+	const parsed = parser.finish();
+	return {
+		finalAssistantText: parsed.finalAssistantText,
+		...(parsed.usage ? { usage: parsed.usage } : {}),
+		warnings: [...(result.warnings ?? []), ...parsed.warnings],
+		stderr: result.stderrTail ?? result.stderr ?? "",
 	};
 }
 

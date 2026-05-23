@@ -328,6 +328,7 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 			reviewer: options.judge,
 			prompt,
 			cwd: handle.path,
+			runId: options.runId,
 			signal: options.signal,
 			onEvent: (event) => {
 				const activity = summarizeStreamActivity(event);

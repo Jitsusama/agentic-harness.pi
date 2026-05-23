@@ -181,6 +181,7 @@ export async function runStackReviewAction(
 					reviewer,
 					prompt: reviewPrompt,
 					cwd: handle.path,
+					runId,
 					signal: input.signal,
 					onEvent: (event) =>
 						notifyActivity(progress, progressWarnings, reviewer.id, event),
@@ -281,6 +282,7 @@ export async function runStackReviewAction(
 			reviewer: judge,
 			prompt: judgePrompt,
 			cwd: handle.path,
+			runId: judgeRunId,
 			signal: input.signal,
 			onEvent: (event) =>
 				notifyActivity(progress, progressWarnings, judge.id, event),

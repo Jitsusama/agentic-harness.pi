@@ -173,6 +173,30 @@ function councilLines(state: PrWorkflowState): string[] {
 	return lines;
 }
 
+/** Recovery section: only rendered when supervised reviewer recovery has signal. */
+function reviewerRecoveryLines(state: PrWorkflowState): string[] {
+	const recovery = state.reviewerRecovery;
+	if (recovery === null) return [];
+	if (
+		recovery.completed.length === 0 &&
+		recovery.active.length === 0 &&
+		recovery.stale.length === 0 &&
+		recovery.warnings.length === 0
+	) {
+		return [];
+	}
+	const parts = [
+		`${recovery.completed.length} completed`,
+		`${recovery.active.length} active`,
+		`${recovery.stale.length} stale`,
+	];
+	const lines = ["", `Reviewer recovery: ${parts.join(", ")}`];
+	for (const warning of recovery.warnings.slice(0, 3)) {
+		lines.push(`  warning: ${warning}`);
+	}
+	return lines;
+}
+
 /** Fix queue section: only rendered when there's something to say. */
 function fixQueueLines(state: PrWorkflowState): string[] {
 	const queue = summarizeFixQueue(state);
@@ -215,6 +239,7 @@ export function formatPrSummary(state: PrWorkflowState): string {
 	for (const line of stackLines(state)) lines.push(line);
 	for (const line of threadsLines(state)) lines.push(line);
 	for (const line of councilLines(state)) lines.push(line);
+	for (const line of reviewerRecoveryLines(state)) lines.push(line);
 	for (const line of fixQueueLines(state)) lines.push(line);
 	return lines.join("\n");
 }
