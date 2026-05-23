@@ -29,7 +29,9 @@ export interface SupervisorRunPiConfig {
 	readonly idleTimeoutMs?: number;
 	readonly killGraceMs?: number;
 	readonly maxEventBytes?: number;
+	readonly maxEventRotations?: number;
 	readonly maxStderrBytes?: number;
+	readonly maxStderrRotations?: number;
 	readonly stderrTailBytes?: number;
 	readonly maxLineBytes?: number;
 	readonly maxAssistantTextBytes?: number;
@@ -49,7 +51,9 @@ const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_KILL_GRACE_MS = 5 * 1000;
 const DEFAULT_MAX_EVENT_BYTES = 10 * 1024 * 1024;
+const DEFAULT_MAX_EVENT_ROTATIONS = 3;
 const DEFAULT_MAX_STDERR_BYTES = 1024 * 1024;
+const DEFAULT_MAX_STDERR_ROTATIONS = 3;
 const DEFAULT_STDERR_TAIL_BYTES = 8 * 1024;
 const DEFAULT_MAX_LINE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_ASSISTANT_TEXT_BYTES = 512 * 1024;
@@ -211,7 +215,10 @@ function buildRequest(
 		idleTimeoutMs: config.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
 		killGraceMs: config.killGraceMs ?? DEFAULT_KILL_GRACE_MS,
 		maxEventBytes: config.maxEventBytes ?? DEFAULT_MAX_EVENT_BYTES,
+		maxEventRotations: config.maxEventRotations ?? DEFAULT_MAX_EVENT_ROTATIONS,
 		maxStderrBytes: config.maxStderrBytes ?? DEFAULT_MAX_STDERR_BYTES,
+		maxStderrRotations:
+			config.maxStderrRotations ?? DEFAULT_MAX_STDERR_ROTATIONS,
 		stderrTailBytes: config.stderrTailBytes ?? DEFAULT_STDERR_TAIL_BYTES,
 		maxLineBytes: config.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES,
 		maxAssistantTextBytes:

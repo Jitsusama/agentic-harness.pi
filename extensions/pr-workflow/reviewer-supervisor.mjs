@@ -6,10 +6,12 @@ import {
 	mkdir,
 	readFile,
 	rename,
+	rm,
 	stat,
 	writeFile,
 } from "node:fs/promises";
 import { dirname } from "node:path";
+import { createGzip } from "node:zlib";
 
 const requestPath = process.argv[2];
 if (!requestPath) {
@@ -34,8 +36,6 @@ let heartbeatTimer = null;
 let watchdogTimer = null;
 let stdoutTask = Promise.resolve();
 let stderrTask = Promise.resolve();
-let eventsLogCapped = false;
-let stderrLogCapped = false;
 
 await mkdir(request.paths.reviewerDir, { recursive: true });
 await writeJsonAtomic(request.paths.leasePath, lease("starting"));
@@ -96,19 +96,10 @@ process.once("SIGINT", () => stopChild("cancelled"));
 
 async function handleStdout(chunk) {
 	lastActivityAt = Date.now();
-	if (!eventsLogCapped) {
-		const appended = await appendCapped(
-			request.paths.eventsPath,
-			chunk,
-			request.maxEventBytes,
-		);
-		if (!appended) {
-			eventsLogCapped = true;
-			warn(
-				`Reviewer event log reached ${request.maxEventBytes} bytes; stopped writing events artifact.`,
-			);
-		}
-	}
+	await appendRotating(request.paths.eventsPath, chunk, {
+		maxBytes: request.maxEventBytes,
+		maxRotations: request.maxEventRotations ?? 3,
+	});
 	stdoutBuffer += chunk.toString("utf-8");
 	while (true) {
 		const newlineIndex = stdoutBuffer.indexOf("\n");
@@ -128,19 +119,10 @@ async function handleStderr(chunk) {
 		`${stderrTail}${chunk.toString("utf-8")}`,
 		request.stderrTailBytes,
 	);
-	if (!stderrLogCapped) {
-		const appended = await appendCapped(
-			request.paths.stderrPath,
-			chunk,
-			request.maxStderrBytes,
-		);
-		if (!appended) {
-			stderrLogCapped = true;
-			warn(
-				`Reviewer stderr log reached ${request.maxStderrBytes} bytes; stopped writing stderr artifact.`,
-			);
-		}
-	}
+	await appendRotating(request.paths.stderrPath, chunk, {
+		maxBytes: request.maxStderrBytes,
+		maxRotations: request.maxStderrRotations ?? 3,
+	});
 }
 
 async function ingestLine(line) {
@@ -442,12 +424,52 @@ function progress(state, activity) {
 	};
 }
 
-async function appendCapped(path, chunk, maxBytes) {
+async function appendRotating(path, chunk, options) {
 	await mkdir(dirname(path), { recursive: true });
 	const current = await size(path);
-	if (current + chunk.byteLength > maxBytes) return false;
+	if (current > 0 && current + chunk.byteLength > options.maxBytes) {
+		await rotateCompressed(path, options.maxRotations);
+	}
 	await appendFile(path, chunk);
-	return true;
+}
+
+async function rotateCompressed(path, maxRotations) {
+	for (let index = maxRotations; index >= 1; index--) {
+		const current = rotationPath(path, index);
+		const next = rotationPath(path, index + 1);
+		if (!(await exists(current))) continue;
+		if (index === maxRotations) {
+			await rm(current, { force: true });
+		} else {
+			await rename(current, next);
+		}
+	}
+	const first = rotationPath(path, 1);
+	const source = `${path}.${process.pid}.${Date.now()}.rotate`;
+	await rename(path, source);
+	await gzipFile(source, first);
+	await rm(source, { force: true });
+}
+
+async function gzipFile(source, destination) {
+	const input = await readFile(source);
+	const compressed = await gzipBuffer(input);
+	await writeFile(destination, compressed);
+}
+
+function gzipBuffer(input) {
+	return new Promise((resolve, reject) => {
+		const gzip = createGzip();
+		const chunks = [];
+		gzip.on("data", (chunk) => chunks.push(chunk));
+		gzip.once("error", reject);
+		gzip.once("end", () => resolve(Buffer.concat(chunks)));
+		gzip.end(input);
+	});
+}
+
+function rotationPath(path, index) {
+	return `${path}.${index}.gz`;
 }
 
 async function writeJsonAtomic(path, value) {
