@@ -284,6 +284,7 @@ export function parseJudgeOutput(
  * failure so callers can inspect warnings.
  */
 export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
+	const startedAt = new Date().toISOString();
 	const progress = options.progress ?? NULL_PROGRESS;
 	const progressWarnings: string[] = [];
 	safelyNotify(
@@ -363,7 +364,7 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 
 		return {
 			id: options.runId,
-			startedAt: new Date().toISOString(),
+			startedAt,
 			judgeReviewerId: options.judge.id,
 			selfSignal: parsed.selfSignal,
 			consolidatedFindings: parsed.findings,

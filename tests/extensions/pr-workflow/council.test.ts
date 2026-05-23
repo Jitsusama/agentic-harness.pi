@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ReviewerCancelledError } from "../../../extensions/pr-workflow/cancellation.js";
 import {
 	type CouncilDispatch,
@@ -461,22 +461,31 @@ describe("runCouncil", () => {
 		// reference for "show me the last council pass".
 		// Its envelope must be present even when reviewers
 		// returned no findings.
-		const dispatch: CouncilDispatch = async (opts) => ({
-			reviewerId: opts.reviewer.id,
-			exitCode: 0,
-			finalAssistantText: findingsJson([]),
-			stderr: "",
-			warnings: [],
-		});
-		const run = await runCouncil({
-			runId: "council-42",
-			target: TARGET,
-			reviewers: [REVIEWER_A],
-			registry: new WorktreeRegistry(fakeWorktreeProvider()),
-			dispatch,
-		});
-		expect(run.id).toBe("council-42");
-		expect(typeof run.startedAt).toBe("string");
-		expect(run.target).toEqual({ kind: "diff", prNumber: 42 });
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+			const dispatch: CouncilDispatch = async (opts) => {
+				vi.setSystemTime(new Date("2026-01-01T00:00:05.000Z"));
+				return {
+					reviewerId: opts.reviewer.id,
+					exitCode: 0,
+					finalAssistantText: findingsJson([]),
+					stderr: "",
+					warnings: [],
+				};
+			};
+			const run = await runCouncil({
+				runId: "council-42",
+				target: TARGET,
+				reviewers: [REVIEWER_A],
+				registry: new WorktreeRegistry(fakeWorktreeProvider()),
+				dispatch,
+			});
+			expect(run.id).toBe("council-42");
+			expect(run.startedAt).toBe("2026-01-01T00:00:00.000Z");
+			expect(run.target).toEqual({ kind: "diff", prNumber: 42 });
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
