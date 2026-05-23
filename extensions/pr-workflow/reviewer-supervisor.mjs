@@ -34,6 +34,8 @@ let heartbeatTimer = null;
 let watchdogTimer = null;
 let stdoutTask = Promise.resolve();
 let stderrTask = Promise.resolve();
+let eventsLogCapped = false;
+let stderrLogCapped = false;
 
 await mkdir(request.paths.reviewerDir, { recursive: true });
 await writeJsonAtomic(request.paths.leasePath, lease("starting"));
@@ -94,15 +96,18 @@ process.once("SIGINT", () => stopChild("cancelled"));
 
 async function handleStdout(chunk) {
 	lastActivityAt = Date.now();
-	if (
-		!(await appendCapped(
+	if (!eventsLogCapped) {
+		const appended = await appendCapped(
 			request.paths.eventsPath,
 			chunk,
 			request.maxEventBytes,
-		))
-	) {
-		stopChild("output-limit");
-		return;
+		);
+		if (!appended) {
+			eventsLogCapped = true;
+			warn(
+				`Reviewer event log reached ${request.maxEventBytes} bytes; stopped writing events artifact.`,
+			);
+		}
 	}
 	stdoutBuffer += chunk.toString("utf-8");
 	while (true) {
@@ -123,15 +128,18 @@ async function handleStderr(chunk) {
 		`${stderrTail}${chunk.toString("utf-8")}`,
 		request.stderrTailBytes,
 	);
-	if (
-		!(await appendCapped(
+	if (!stderrLogCapped) {
+		const appended = await appendCapped(
 			request.paths.stderrPath,
 			chunk,
 			request.maxStderrBytes,
-		))
-	) {
-		stopChild("output-limit");
-		return;
+		);
+		if (!appended) {
+			stderrLogCapped = true;
+			warn(
+				`Reviewer stderr log reached ${request.maxStderrBytes} bytes; stopped writing stderr artifact.`,
+			);
+		}
 	}
 }
 

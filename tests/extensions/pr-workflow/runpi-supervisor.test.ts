@@ -96,6 +96,36 @@ describe("createSupervisorRunPi", () => {
 		expect(result.usage?.tokens.total).toBe(3);
 		expect(result.artifacts?.resultPath).toContain("result.json");
 	});
+	it("continues after the events artifact reaches its cap", async () => {
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "noisy-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`for (let i = 0; i < 20; i++) process.stdout.write(JSON.stringify({type:"tool_execution_start",toolName:"read",args:{path:"file-" + i}})+"\\n");`,
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"still done"}]}})+"\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			binary: process.execPath,
+			stateDir,
+			maxEventBytes: 200,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: [childPath],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "noisy",
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(result.finalAssistantText).toBe("still done");
+		expect(result.warnings?.join("\n")).toContain("event log reached");
+	});
+
 	it("spawns the node supervisor and returns the durable result", async () => {
 		const stateDir = await tempStateDir();
 		const fake = makeFakeChild();
