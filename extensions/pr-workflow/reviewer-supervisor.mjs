@@ -24,8 +24,10 @@ const startedAt = new Date().toISOString();
 const warnings = [];
 let finalAssistantText = "";
 let usage;
+let verification;
 let stderrTail = "";
 let stdoutBuffer = "";
+const pendingVerifyCalls = new Map();
 let discardingOversizedLine = false;
 let child = null;
 let stoppedBy = null;
@@ -146,6 +148,7 @@ async function ingestLine(line) {
 		return;
 	}
 	captureAssistantMessage(event);
+	captureVerification(event);
 	const activity = summarizeActivity(event);
 	if (activity) {
 		await writeJsonAtomic(
@@ -227,6 +230,7 @@ async function finish(state, exitCode) {
 		exitCode,
 		finalAssistantText,
 		usage,
+		verification,
 		warnings,
 		stderrTail,
 		startedAt,
@@ -266,6 +270,57 @@ function captureAssistantMessage(event) {
 		finalAssistantText = truncateBytes(text, request.maxAssistantTextBytes);
 	const nextUsage = readUsage(message);
 	if (nextUsage !== undefined) usage = nextUsage;
+}
+
+function captureVerification(event) {
+	if (!event || typeof event !== "object") return;
+	const toolName = typeof event.toolName === "string" ? event.toolName : "";
+	if (toolName !== "verify_output") return;
+	const callId = typeof event.toolCallId === "string" ? event.toolCallId : "";
+	if (event.type === "tool_execution_start") {
+		if (callId) pendingVerifyCalls.set(callId, event.args);
+		return;
+	}
+	if (event.type !== "tool_execution_end") return;
+	const rawArgs = callId ? pendingVerifyCalls.get(callId) : undefined;
+	const args = rawArgs && typeof rawArgs === "object" ? rawArgs : {};
+	if (callId) pendingVerifyCalls.delete(callId);
+	const result =
+		event.result && typeof event.result === "object" ? event.result : {};
+	const details =
+		result.details && typeof result.details === "object" ? result.details : {};
+	const message = verifierMessage(result);
+	const ok = details.ok === true;
+	verification = {
+		called: true,
+		ok,
+		...(typeof args.stage === "string" ? { stage: args.stage } : {}),
+		...(typeof details.count === "number" ? { count: details.count } : {}),
+		...(Array.isArray(details.warnings) ? { warnings: details.warnings } : {}),
+		...(message ? { message } : {}),
+		...(ok && "output" in args
+			? { output: normalizedVerifierOutput(args.output) }
+			: {}),
+	};
+}
+
+function verifierMessage(result) {
+	const content = Array.isArray(result.content) ? result.content : [];
+	for (const part of content) {
+		if (part && typeof part === "object" && typeof part.text === "string") {
+			return part.text;
+		}
+	}
+	return "";
+}
+
+function normalizedVerifierOutput(output) {
+	if (typeof output !== "string") return output;
+	try {
+		return JSON.parse(output);
+	} catch {
+		return output;
+	}
 }
 
 function assistantMessage(event) {

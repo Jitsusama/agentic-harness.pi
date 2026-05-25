@@ -16,7 +16,7 @@
  * fill in agreement, user position, promotion details.
  */
 
-import type { ReviewerUsage } from "./reviewer.js";
+import type { ReviewerUsage, ReviewerVerification } from "./reviewer.js";
 import type {
 	ConventionalLabel,
 	FindingLocation,
@@ -110,6 +110,8 @@ export interface ReviewerOutput {
 	 * usage (older pi, fake runner, crashed dispatch).
 	 */
 	readonly usage?: ReviewerUsage;
+	/** Verification result reported by the subagent's verify_output tool. */
+	readonly verification?: ReviewerVerification;
 }
 
 /** A council run: the unit of state for a council invocation. */

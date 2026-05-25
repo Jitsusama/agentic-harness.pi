@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	type CouncilReviewer,
+	type ReviewerVerification,
 	type RunPi,
 	runReviewer,
 } from "../../../extensions/pr-workflow/reviewer.js";
@@ -42,6 +43,7 @@ function fakeRun(result: {
 	stdout?: string;
 	stderr?: string;
 	exitCode?: number;
+	verification?: ReviewerVerification;
 }): { runPi: RunPi; calls: Array<{ args: string[]; cwd: string }> } {
 	const calls: Array<{ args: string[]; cwd: string }> = [];
 	const runPi: RunPi = async (opts) => {
@@ -50,6 +52,7 @@ function fakeRun(result: {
 			stdout: result.stdout ?? "",
 			stderr: result.stderr ?? "",
 			exitCode: result.exitCode ?? 0,
+			...(result.verification ? { verification: result.verification } : {}),
 		};
 	};
 	return { runPi, calls };
@@ -505,6 +508,65 @@ describe("runReviewer — usage extraction", () => {
 });
 
 describe("runReviewer — result extraction", () => {
+	it("uses successful verify_output payload as the canonical final text", async () => {
+		const { runPi } = fakeRun({
+			stdout: assistantEvent("not parseable"),
+			verification: {
+				called: true,
+				ok: true,
+				stage: "council",
+				count: 1,
+				output: {
+					findings: [
+						{
+							location: { kind: "global" },
+							label: "issue",
+							subject: "Verified subject",
+							discussion: "Verified discussion",
+						},
+					],
+				},
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toContain("Verified subject");
+		expect(result.finalAssistantText).not.toContain("not parseable");
+		expect(result.verification?.ok).toBe(true);
+	});
+
+	it("ignores output that fails required self-verification", async () => {
+		const { runPi } = fakeRun({
+			stdout: assistantEvent(
+				'```json\n{"findings":[{"location":{"kind":"global"},"label":"issue","subject":"Unverified","discussion":"Nope"}]}\n```',
+			),
+			verification: {
+				called: true,
+				ok: false,
+				stage: "council",
+				message: "ok: false. 1 error against stage=council",
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toBe("");
+		expect(result.warnings.some((w) => w.includes("ignored"))).toBe(true);
+	});
+
 	it("returns the final assistant message text as finalAssistantText", async () => {
 		const { runPi } = fakeRun({
 			stdout: [

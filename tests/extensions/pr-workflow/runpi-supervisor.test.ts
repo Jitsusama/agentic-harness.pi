@@ -96,6 +96,43 @@ describe("createSupervisorRunPi", () => {
 		expect(result.usage?.tokens.total).toBe(3);
 		expect(result.artifacts?.resultPath).toContain("result.json");
 	});
+	it("captures successful verify_output calls and their canonical output", async () => {
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "verified-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`const args = { stage: "council", output: { findings: [{ location: { kind: "global" }, label: "note", subject: "Verified", discussion: "Ok" }] } };`,
+				`process.stdout.write(JSON.stringify({ type: "tool_execution_start", toolCallId: "verify-1", toolName: "verify_output", args }) + "\\n");`,
+				`process.stdout.write(JSON.stringify({ type: "tool_execution_end", toolCallId: "verify-1", toolName: "verify_output", result: { content: [{ type: "text", text: "ok: true. 1 item passed schema for stage=council." }], details: { ok: true, count: 1 } } }) + "\\n");`,
+				`process.stdout.write(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "not json" }] } }) + "\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			binary: process.execPath,
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: [childPath],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "verified",
+		});
+
+		expect(result.verification).toMatchObject({
+			called: true,
+			ok: true,
+			stage: "council",
+			count: 1,
+		});
+		expect(result.verification?.output).toMatchObject({
+			findings: [{ subject: "Verified" }],
+		});
+	});
+
 	it("rotates compressed event logs after the active artifact reaches its cap", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "noisy-child.mjs");

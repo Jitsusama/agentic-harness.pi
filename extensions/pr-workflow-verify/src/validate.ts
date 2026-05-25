@@ -20,12 +20,22 @@ export interface ValidationError {
 	readonly path: string;
 	/** Human-readable explanation from the schema engine. */
 	readonly message: string;
+	/** Concrete repair advice the subagent can apply on the next call. */
+	readonly hint?: string;
 }
 
 /** Result of validating one payload. */
 export type ValidateResult =
-	| { readonly ok: true; readonly count: number }
-	| { readonly ok: false; readonly errors: ValidationError[] };
+	| {
+			readonly ok: true;
+			readonly count: number;
+			readonly warnings?: readonly string[];
+	  }
+	| {
+			readonly ok: false;
+			readonly errors: ValidationError[];
+			readonly warnings?: readonly string[];
+	  };
 
 const ALLOWED_STAGES: ReadonlyArray<StageName> = [
 	"council",
@@ -53,29 +63,132 @@ export function validateOutput(
 				{
 					path: "",
 					message: `unknown stage "${String(stage)}"; allowed: ${ALLOWED_STAGES.join(", ")}`,
+					hint: "Use the exact stage name from your prompt.",
 				},
 			],
 		};
 	}
 
+	const normalized = normalizeInput(input);
+	if (!normalized.ok) {
+		return {
+			ok: false,
+			errors: [normalized.error],
+			warnings: normalized.warnings,
+		};
+	}
+	const candidate = normalized.value;
+
 	const schema = getSchema(stage);
-	if (!Value.Check(schema, input)) {
+	if (!Value.Check(schema, candidate)) {
 		const errors: ValidationError[] = [];
-		for (const error of Value.Errors(schema, input)) {
-			errors.push({ path: error.instancePath, message: error.message });
+		for (const error of Value.Errors(schema, candidate)) {
+			errors.push({
+				path: error.instancePath,
+				message: explainError(error.message, candidate),
+				hint: hintForError(error.instancePath, error.message, candidate, stage),
+			});
 		}
-		return { ok: false, errors };
+		return { ok: false, errors, warnings: normalized.warnings };
 	}
 
 	if (stage === "stack-review" || stage === "stack-judge") {
-		const keyErrors = validatePerPrKeys(input);
+		const keyErrors = validatePerPrKeys(candidate);
 		if (keyErrors.length > 0) {
-			return { ok: false, errors: keyErrors };
+			return { ok: false, errors: keyErrors, warnings: normalized.warnings };
 		}
 	}
 
-	const count = itemCount(stage, input);
-	return { ok: true, count };
+	const count = itemCount(stage, candidate);
+	return { ok: true, count, warnings: normalized.warnings };
+}
+
+type NormalizedInput =
+	| {
+			readonly ok: true;
+			readonly value: unknown;
+			readonly warnings?: readonly string[];
+	  }
+	| {
+			readonly ok: false;
+			readonly error: ValidationError;
+			readonly warnings?: readonly string[];
+	  };
+
+function normalizeInput(input: unknown): NormalizedInput {
+	if (typeof input !== "string") return { ok: true, value: input };
+	const trimmed = input.trim();
+	const warning =
+		"`output` was passed as a JSON string. I parsed it for this " +
+		"validation attempt, but the next call should pass the object itself: " +
+		'output: { "findings": [...] }, not output: "{...}".';
+	if (trimmed.length === 0) {
+		return {
+			ok: false,
+			warnings: [warning],
+			error: {
+				path: "/output",
+				message: "output is an empty string, not a JSON object",
+				hint: "Pass the object you intend to emit, not a string wrapper.",
+			},
+		};
+	}
+	try {
+		return { ok: true, value: JSON.parse(trimmed), warnings: [warning] };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return {
+			ok: false,
+			warnings: [warning],
+			error: {
+				path: "/output",
+				message: `output is a string and JSON.parse failed: ${message}`,
+				hint:
+					"Either pass the object directly to the tool, or fix the JSON string " +
+					"escaping before trying again. Do not wrap the final object in quotes.",
+			},
+		};
+	}
+}
+
+function explainError(message: string, input: unknown): string {
+	if (message === "must be object") {
+		return `must be object; received ${typeName(input)}`;
+	}
+	return message;
+}
+
+function hintForError(
+	path: string,
+	message: string,
+	input: unknown,
+	stage: StageName,
+): string | undefined {
+	if (path === "" && message === "must be object") {
+		return `Pass the top-level ${stage} output object itself, not prose, an array, null, or a JSON string.`;
+	}
+	if (path === "" && typeof input === "object" && input !== null) {
+		return expectedTopLevelHint(stage);
+	}
+	if (message.includes("Expected required property")) {
+		return "Add the required property at this path and verify again.";
+	}
+	return undefined;
+}
+
+function expectedTopLevelHint(stage: StageName): string {
+	if (stage === "critique")
+		return 'Expected top-level shape: { "critiques": [...] }.';
+	if (stage === "stack-review" || stage === "stack-judge") {
+		return 'Expected top-level shape: { "perPr": { "123": [...] }, "crossPr": [...] }.';
+	}
+	return 'Expected top-level shape: { "findings": [...] }.';
+}
+
+function typeName(value: unknown): string {
+	if (value === null) return "null";
+	if (Array.isArray(value)) return "array";
+	return typeof value;
 }
 
 function itemCount(stage: StageName, input: unknown): number {

@@ -44,6 +44,27 @@ describe("renderReviewThreadPromptContext", () => {
 		expect(text).toContain("amplify");
 	});
 
+	it("fences comment bodies without letting nested fences escape", () => {
+		const text = renderReviewThreadPromptContext({
+			threads: [
+				thread({
+					comments: [
+						{
+							id: "comment-1",
+							author: "reviewer",
+							body: "quoted ```code``` block",
+							createdAt: "2026-01-01T00:00:00Z",
+							url: "https://example.test/comment",
+						},
+					],
+				}),
+			],
+		});
+
+		expect(text).toContain("quoted `​``code`​`` block");
+		expect(text.match(/```text/g)).toHaveLength(1);
+	});
+
 	it("keeps the first comment and latest replies on long threads", () => {
 		const text = renderReviewThreadPromptContext({
 			threads: [
@@ -96,6 +117,25 @@ describe("loadReviewThreadPromptContext", () => {
 		expect(state.threads?.prNumber).toBe(42);
 		expect(state.threads?.threads).toHaveLength(1);
 		expect(state.threadContextWarning).toBeNull();
+	});
+
+	it("stores sanitized warnings when fetching threads fails", async () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "x",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+
+		const context = await loadReviewThreadPromptContext(state, async () => {
+			throw new Error("token secret-123 failed");
+		});
+
+		expect(context.warning).toContain("could not be fetched");
+		expect(context.warning).not.toContain("secret-123");
+		expect(state.threadContextWarning).toBe(context.warning);
 	});
 });
 

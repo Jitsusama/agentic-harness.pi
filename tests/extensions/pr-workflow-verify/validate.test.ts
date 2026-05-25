@@ -32,6 +32,39 @@ describe("validateOutput", () => {
 		}
 	});
 
+	it("parses stringified JSON with an actionable warning", () => {
+		const result = validateOutput(
+			"council",
+			JSON.stringify({
+				findings: [
+					{
+						location: { kind: "global" },
+						label: "note",
+						subject: "x",
+						discussion: "y",
+					},
+				],
+			}),
+		);
+
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.count).toBe(1);
+			expect(result.warnings?.[0]).toContain("object itself");
+		}
+	});
+
+	it("explains stringified JSON parse failures in repairable terms", () => {
+		const result = validateOutput("council", '{"findings": [');
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toBe("/output");
+			expect(result.errors[0].message).toContain("JSON.parse failed");
+			expect(result.errors[0].hint).toContain("pass the object directly");
+		}
+	});
+
 	it("returns ok: false with locatable errors for an invalid payload", () => {
 		// The subagent needs error rows it can act on:
 		// each error carries an instancePath pointing at

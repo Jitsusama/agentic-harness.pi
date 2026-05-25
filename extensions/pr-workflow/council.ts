@@ -148,6 +148,7 @@ export async function runOneCouncilReviewer(
 			findings: parsed.findings,
 			warnings: [...value.warnings, ...parsed.warnings],
 			...(value.usage ? { usage: value.usage } : {}),
+			...(value.verification ? { verification: value.verification } : {}),
 		};
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -297,6 +298,7 @@ export async function runCouncil(
 			findings: parsed.findings,
 			warnings: [...value.warnings, ...parsed.warnings],
 			...(value.usage ? { usage: value.usage } : {}),
+			...(value.verification ? { verification: value.verification } : {}),
 		};
 		reviewerOutputs.push(output);
 	}

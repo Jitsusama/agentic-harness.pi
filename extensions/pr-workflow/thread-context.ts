@@ -76,11 +76,12 @@ export async function loadReviewThreadPromptContextForReference(
 	}
 	try {
 		return { threads: await fetcher(reference) };
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
+	} catch {
 		return {
 			threads: [],
-			warning: `Existing review threads could not be fetched: ${message}`,
+			warning:
+				"Existing review threads could not be fetched. Retry action=threads " +
+				"or check the local logs for details.",
 		};
 	}
 }
@@ -185,7 +186,7 @@ function renderThread(thread: ReviewThread, index: number): string {
 	for (const comment of comments) {
 		lines.push(`  - ${comment.author} at ${comment.createdAt}:`);
 		lines.push("    ```text");
-		lines.push(`    ${truncate(comment.body)}`);
+		lines.push(`    ${sanitizeCommentBody(comment.body)}`);
 		lines.push("    ```");
 	}
 	if (thread.comments.length > comments.length) {
@@ -203,10 +204,18 @@ function selectComments(
 	return [comments[0], ...comments.slice(1 - MAX_PROMPT_COMMENTS_PER_THREAD)];
 }
 
+function sanitizeCommentBody(body: string): string {
+	return escapeFenceDelimiter(truncate(body));
+}
+
 function truncate(body: string): string {
 	const normalized = body.replace(/\s+/g, " ").trim();
 	if (normalized.length <= MAX_COMMENT_BODY_CHARS) return normalized;
 	return `${normalized.slice(0, MAX_COMMENT_BODY_CHARS - 1)}…`;
+}
+
+function escapeFenceDelimiter(body: string): string {
+	return body.replaceAll("```", "`\u200b``");
 }
 
 function threadUrl(thread: ReviewThread | undefined): string | null {

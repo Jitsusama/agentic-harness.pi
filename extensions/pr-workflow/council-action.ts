@@ -331,8 +331,9 @@ export function formatCouncilSummary(run: CouncilRun): string {
 	for (const output of run.reviewerOutputs) {
 		const count = output.findings.length;
 		const noun = count === 1 ? "finding" : "findings";
+		const verification = renderVerificationBadge(output.verification);
 		lines.push("");
-		lines.push(`▸ ${output.reviewerId} — ${count} ${noun}`);
+		lines.push(`▸ ${output.reviewerId} — ${count} ${noun}${verification}`);
 		for (const finding of output.findings) {
 			const loc = renderLocation(finding.location);
 			lines.push(`  • [${finding.label}] ${finding.subject}  ${loc}`);
@@ -342,6 +343,14 @@ export function formatCouncilSummary(run: CouncilRun): string {
 		}
 	}
 	return lines.join("\n");
+}
+
+function renderVerificationBadge(
+	verification: CouncilRun["reviewerOutputs"][number]["verification"],
+): string {
+	if (verification === undefined) return "";
+	if (verification.ok) return " — verified ✓";
+	return verification.called ? " — verification failed" : " — not verified";
 }
 
 function renderLocation(
