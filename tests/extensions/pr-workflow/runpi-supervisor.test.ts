@@ -129,6 +129,7 @@ describe("createSupervisorRunPi", () => {
 			count: 1,
 		});
 		expect(result.verification).not.toHaveProperty("output");
+		expect(result.verification?.canonicalText).toBe(true);
 		expect(result.finalAssistantText).toContain("Verified");
 		expect(result.finalAssistantText).not.toBe("not json");
 	});
@@ -159,6 +160,7 @@ describe("createSupervisorRunPi", () => {
 		});
 
 		expect(result.verification).not.toHaveProperty("output");
+		expect(result.verification?.canonicalText).toBe(true);
 		expect(result.finalAssistantText).toContain("Unkeyed");
 	});
 

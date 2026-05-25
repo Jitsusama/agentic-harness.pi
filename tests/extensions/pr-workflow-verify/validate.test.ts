@@ -160,6 +160,21 @@ describe("validateOutput", () => {
 		expect(result.ok).toBe(true);
 	});
 
+	it("rejects blank judge self-signal rationales", () => {
+		const result = validateOutput("judge", {
+			selfSignal: { confidence: "high", rationale: "   " },
+			findings: [],
+		});
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0]).toMatchObject({
+				path: "/selfSignal/rationale",
+				message: "must contain non-whitespace text",
+			});
+		}
+	});
+
 	it("validates a critique payload using the critique schema", () => {
 		const result = validateOutput("critique", {
 			critiques: [{ findingId: 1, position: "agree", rationale: "ok" }],

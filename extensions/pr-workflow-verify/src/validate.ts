@@ -224,11 +224,13 @@ function validateNonBlankText(
 		critiques?: unknown[];
 		perPr?: Record<string, unknown[]>;
 		crossPr?: unknown[];
+		selfSignal?: unknown;
 	};
 	if (stage === "critique") {
 		checkTextArray(errors, record.critiques ?? [], "/critiques", ["rationale"]);
 		return errors;
 	}
+	checkSelfSignal(errors, record, stage);
 	if (stage === "stack-review" || stage === "stack-judge") {
 		for (const [prNumber, findings] of Object.entries(record.perPr ?? {})) {
 			checkTextArray(errors, findings, `/perPr/${prNumber}`, [
@@ -247,6 +249,24 @@ function validateNonBlankText(
 		"discussion",
 	]);
 	return errors;
+}
+
+function checkSelfSignal(
+	errors: ValidationError[],
+	record: { readonly selfSignal?: unknown },
+	stage: StageName,
+): void {
+	if (stage !== "judge" && stage !== "stack-judge") return;
+	const selfSignal = record.selfSignal;
+	if (typeof selfSignal !== "object" || selfSignal === null) return;
+	const rationale = (selfSignal as Record<string, unknown>).rationale;
+	if (typeof rationale === "string" && rationale.trim() === "") {
+		errors.push({
+			path: "/selfSignal/rationale",
+			message: "must contain non-whitespace text",
+			hint: "Replace rationale with a concrete confidence explanation, not blanks.",
+		});
+	}
 }
 
 function checkTextArray(

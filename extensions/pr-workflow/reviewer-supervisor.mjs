@@ -229,7 +229,7 @@ async function finish(state, exitCode) {
 		reviewerId: request.reviewerId,
 		state,
 		exitCode,
-		finalAssistantText: canonicalVerifiedText() ?? finalAssistantText,
+		finalAssistantText: finalTextForResult(),
 		usage,
 		verification: verificationWithoutOutput(verification),
 		warnings,
@@ -340,12 +340,26 @@ function verifierMessage(result) {
 	return "";
 }
 
-function canonicalVerifiedText() {
-	if (!verification?.ok || !("output" in verification)) return null;
-	return truncateBytes(
-		JSON.stringify(verification.output, null, 2),
-		request.maxAssistantTextBytes,
-	);
+function finalTextForResult() {
+	if (!verification?.ok) return finalAssistantText;
+	if (!("output" in verification)) {
+		verification = {
+			...verification,
+			ok: false,
+			message:
+				"verify_output returned ok: true but the verified payload was not captured.",
+		};
+		return "";
+	}
+	const text = JSON.stringify(verification.output, null, 2);
+	if (Buffer.byteLength(text) > request.maxAssistantTextBytes) {
+		const message = `Reviewer verified output exceeded ${request.maxAssistantTextBytes} bytes; ignored`;
+		warn(message);
+		verification = { ...verification, ok: false, message };
+		return "";
+	}
+	verification = { ...verification, canonicalText: true };
+	return text;
 }
 
 function verificationWithoutOutput(value) {

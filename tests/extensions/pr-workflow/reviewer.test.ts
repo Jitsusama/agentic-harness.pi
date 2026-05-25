@@ -659,6 +659,7 @@ describe("runReviewer — result extraction", () => {
 				ok: true,
 				stage: "council",
 				count: 1,
+				canonicalText: true,
 			},
 		});
 

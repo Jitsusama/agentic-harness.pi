@@ -81,6 +81,8 @@ export interface ReviewerVerification {
 	readonly message?: string;
 	/** The output object from a successful verification. */
 	readonly output?: unknown;
+	/** Whether finalAssistantText was materialized from the verified payload. */
+	readonly canonicalText?: boolean;
 }
 
 export interface RunPiResult {
@@ -216,7 +218,9 @@ export async function runReviewer(
 	});
 
 	const parsed = extractRunPiOutput(result);
-	const requiresVerification = requiresVerifyExtension(options.extraExtensions);
+	const requiresVerification =
+		options.expectedVerificationStage !== undefined ||
+		requiresVerifyExtension(options.extraExtensions);
 	const verification =
 		parsed.verification ??
 		(requiresVerification
@@ -236,9 +240,11 @@ export async function runReviewer(
 	const verified = verificationForResult?.ok
 		? verifiedOutputText(verificationForResult.output)
 		: null;
+	const verifiedText = verified?.text ?? null;
 	const hasRunnerCanonicalText =
 		result.finalAssistantText !== undefined &&
 		verificationForResult?.ok === true &&
+		verificationForResult.canonicalText === true &&
 		verificationForResult.output === undefined &&
 		parsed.finalAssistantText.trim() !== "";
 	const warnings = [...parsed.warnings];
@@ -250,7 +256,11 @@ export async function runReviewer(
 			),
 		);
 	}
-	if (requiresVerification && verified === null && !hasRunnerCanonicalText) {
+	if (
+		requiresVerification &&
+		verifiedText === null &&
+		!hasRunnerCanonicalText
+	) {
 		warnings.push(verificationFailureWarning(verificationForResult));
 	}
 
@@ -266,9 +276,9 @@ export async function runReviewer(
 		reviewerId: options.reviewer.id,
 		exitCode: result.exitCode,
 		finalAssistantText:
-			requiresVerification && verified === null && !hasRunnerCanonicalText
+			requiresVerification && verifiedText === null && !hasRunnerCanonicalText
 				? ""
-				: (verified?.text ?? parsed.finalAssistantText),
+				: (verifiedText ?? parsed.finalAssistantText),
 		stderr: parsed.stderr,
 		warnings,
 		...(parsed.usage ? { usage: parsed.usage } : {}),
@@ -343,7 +353,7 @@ const MAX_VERIFIED_OUTPUT_BYTES = 512 * 1024;
 
 function verifiedOutputText(
 	output: unknown,
-): { readonly text: string; readonly warning?: string } | null {
+): { readonly text: string | null; readonly warning?: string } | null {
 	if (output === undefined) return null;
 	return truncateBytes(
 		JSON.stringify(output, null, 2),
@@ -361,22 +371,11 @@ function verificationWithoutOutput(
 function truncateBytes(
 	text: string,
 	maxBytes: number,
-): { readonly text: string; readonly warning?: string } {
+): { readonly text: string | null; readonly warning?: string } {
 	if (Buffer.byteLength(text) <= maxBytes) return { text };
-	let end = text.length;
-	while (end > 0) {
-		const candidate = text.slice(0, end);
-		if (Buffer.byteLength(candidate) <= maxBytes) {
-			return {
-				text: candidate,
-				warning: `Reviewer verified output exceeded ${maxBytes} bytes; truncated`,
-			};
-		}
-		end--;
-	}
 	return {
-		text: "",
-		warning: `Reviewer verified output exceeded ${maxBytes} bytes; truncated`,
+		text: null,
+		warning: `Reviewer verified output exceeded ${maxBytes} bytes; ignored`,
 	};
 }
 

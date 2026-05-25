@@ -242,8 +242,9 @@ function redactedMessage(message: string): string {
 	const cleaned = message
 		.replace(/github_pat_[A-Za-z0-9_]+/g, "[redacted-token]")
 		.replace(/gh[opsur]_[A-Za-z0-9_]+/g, "[redacted-token]")
-		.replace(/secret[-_A-Za-z0-9]*/gi, "[redacted-secret]")
-		.replace(/token[-_A-Za-z0-9]*/gi, "[redacted-token]")
+		.replace(/\bsecret[-_][A-Za-z0-9][A-Za-z0-9_-]*/gi, "[redacted-secret]")
+		.replace(/\btoken[-_][A-Za-z0-9][A-Za-z0-9_-]*/gi, "[redacted-token]")
+		.replace(/\b(secret|token)\s*[:=]\s*\S+/gi, "$1 [redacted]")
 		.replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
 		.replace(/https?:\/\/\S+/gi, "[redacted-url]")
 		.replace(/\s+/g, " ")

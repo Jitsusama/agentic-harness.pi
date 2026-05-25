@@ -269,6 +269,9 @@ export async function runStackReviewAction(
 			perPr: parsed.perPr,
 			crossPr: parsed.crossPr,
 			warnings: [...result.value.warnings, ...parsed.warnings],
+			...(result.value.verification
+				? { verification: result.value.verification }
+				: {}),
 		};
 		for (const warning of output.warnings)
 			warnings.push(`${reviewer.id}: ${warning}`);
