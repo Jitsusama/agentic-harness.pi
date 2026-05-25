@@ -539,7 +539,60 @@ describe("runReviewer — result extraction", () => {
 
 		expect(result.finalAssistantText).toContain("Verified subject");
 		expect(result.finalAssistantText).not.toContain("not parseable");
+		expect(result.finalAssistantText).not.toContain("```json");
 		expect(result.verification?.ok).toBe(true);
+	});
+
+	it("rejects verified payloads from the wrong stage", async () => {
+		const { runPi } = fakeRun({
+			stdout: assistantEvent(
+				'```json\n{"findings":[{"location":{"kind":"global"},"label":"issue","subject":"Wrong stage","discussion":"Nope"}]}\n```',
+			),
+			verification: {
+				called: true,
+				ok: true,
+				stage: "judge",
+				output: { findings: [] },
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			expectedVerificationStage: "council",
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toBe("");
+		expect(result.verification?.ok).toBe(false);
+		expect(result.warnings.join("\n")).toContain("wrong stage (judge)");
+	});
+
+	it("explains when verification succeeds but the payload was not captured", async () => {
+		const { runPi } = fakeRun({
+			stdout: assistantEvent("not parseable"),
+			verification: {
+				called: true,
+				ok: true,
+				stage: "council",
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			expectedVerificationStage: "council",
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toBe("");
+		expect(result.warnings.join("\n")).toContain(
+			"returned ok: true but the verified payload was not captured",
+		);
 	});
 
 	it("ignores output that fails required self-verification", async () => {

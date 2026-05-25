@@ -28,6 +28,7 @@ let verification;
 let stderrTail = "";
 let stdoutBuffer = "";
 const pendingVerifyCalls = new Map();
+let lastUnkeyedVerifyArgs;
 let discardingOversizedLine = false;
 let child = null;
 let stoppedBy = null;
@@ -278,17 +279,23 @@ function captureVerification(event) {
 	if (toolName !== "verify_output") return;
 	const callId = typeof event.toolCallId === "string" ? event.toolCallId : "";
 	if (event.type === "tool_execution_start") {
-		if (callId) pendingVerifyCalls.set(callId, event.args);
+		const args = objectValue(event.args);
+		if (callId) {
+			pendingVerifyCalls.set(callId, args);
+			trimPendingVerifyCalls();
+		} else {
+			lastUnkeyedVerifyArgs = args;
+		}
 		return;
 	}
 	if (event.type !== "tool_execution_end") return;
 	const rawArgs = callId ? pendingVerifyCalls.get(callId) : undefined;
-	const args = rawArgs && typeof rawArgs === "object" ? rawArgs : {};
+	const args =
+		rawArgs ?? objectValue(event.args) ?? lastUnkeyedVerifyArgs ?? {};
 	if (callId) pendingVerifyCalls.delete(callId);
-	const result =
-		event.result && typeof event.result === "object" ? event.result : {};
-	const details =
-		result.details && typeof result.details === "object" ? result.details : {};
+	else lastUnkeyedVerifyArgs = undefined;
+	const result = objectValue(event.result) ?? {};
+	const details = objectValue(result.details) ?? {};
 	const message = verifierMessage(result);
 	const ok = details.ok === true;
 	verification = {
@@ -302,6 +309,19 @@ function captureVerification(event) {
 			? { output: normalizedVerifierOutput(args.output) }
 			: {}),
 	};
+}
+
+function objectValue(value) {
+	return value && typeof value === "object" ? value : undefined;
+}
+
+function trimPendingVerifyCalls() {
+	const maxPendingVerifyCalls = 8;
+	while (pendingVerifyCalls.size > maxPendingVerifyCalls) {
+		const oldest = pendingVerifyCalls.keys().next().value;
+		if (oldest === undefined) return;
+		pendingVerifyCalls.delete(oldest);
+	}
 }
 
 function verifierMessage(result) {

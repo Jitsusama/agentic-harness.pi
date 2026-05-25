@@ -133,6 +133,36 @@ describe("createSupervisorRunPi", () => {
 		});
 	});
 
+	it("captures verifier output from unkeyed tool events", async () => {
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "unkeyed-verified-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`const args = { stage: "council", output: { findings: [{ location: { kind: "global" }, label: "note", subject: "Unkeyed", discussion: "Ok" }] } };`,
+				`process.stdout.write(JSON.stringify({ type: "tool_execution_start", toolName: "verify_output", args }) + "\\n");`,
+				`process.stdout.write(JSON.stringify({ type: "tool_execution_end", toolName: "verify_output", result: { content: [{ type: "text", text: "ok: true. 1 item passed schema for stage=council." }], details: { ok: true, count: 1 } } }) + "\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			binary: process.execPath,
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: [childPath],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "unkeyed",
+		});
+
+		expect(result.verification?.output).toMatchObject({
+			findings: [{ subject: "Unkeyed" }],
+		});
+	});
+
 	it("rotates compressed event logs after the active artifact reaches its cap", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "noisy-child.mjs");

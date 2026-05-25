@@ -196,7 +196,7 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 		"Before you finish your run, call the `verify_output` tool with " +
 			'stage: "judge" and `output` set to the object you intend to emit. ' +
 			"The tool returns `ok: true` with the parsed finding count, or `ok: " +
-			"false` with a list of {path, message} errors. If errors are reported, " +
+			"false` with a list of {path, message, hint} errors. If errors are reported, " +
 			"fix the offending fields and call `verify_output` again. Only emit " +
 			"your final fenced JSON block (and end the run) once the verifier " +
 			"returns `ok: true`. If the verifier keeps reporting the same error " +
@@ -347,6 +347,7 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 			cwd: handle.path,
 			runId: options.runId,
 			signal: options.signal,
+			expectedVerificationStage: "judge",
 			onEvent: (event) => {
 				const activity = summarizeStreamActivity(event);
 				if (activity === null) return;

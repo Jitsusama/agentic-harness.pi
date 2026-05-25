@@ -59,6 +59,13 @@ export interface CouncilReviewer {
 export type ReviewerThinkingLevel = "off" | "low" | "medium" | "high";
 
 /** Result of one pi subprocess invocation. */
+export type ReviewerVerificationStage =
+	| "council"
+	| "judge"
+	| "critique"
+	| "stack-review"
+	| "stack-judge";
+
 export interface ReviewerVerification {
 	/** Whether the reviewer called verify_output at least once. */
 	readonly called: boolean;
@@ -138,6 +145,8 @@ export interface RunReviewerOptions {
 	 * these layer on top.
 	 */
 	readonly extraExtensions?: readonly string[];
+	/** Expected stage the subagent must pass to verify_output. */
+	readonly expectedVerificationStage?: ReviewerVerificationStage;
 	/**
 	 * Live event hook forwarded to the subprocess
 	 * runner. The council orchestrator uses this to
@@ -209,19 +218,31 @@ export async function runReviewer(
 	const parsed = extractRunPiOutput(result);
 	const verification = parsed.verification;
 	const requiresVerification = requiresVerifyExtension(options.extraExtensions);
-	const verifiedText = verification?.ok
-		? verifiedOutputText(verification.output)
+	const verificationMismatch = verificationStageMismatch(
+		verification,
+		options.expectedVerificationStage,
+	);
+	const verificationForResult = verificationMismatch
+		? {
+				...verificationMismatch.verification,
+				ok: false,
+				message: verificationMismatch.message,
+			}
+		: verification;
+	const verifiedText = verificationForResult?.ok
+		? verifiedOutputText(verificationForResult.output)
 		: null;
 	const warnings = [...parsed.warnings];
-	if (verification?.warnings) {
+	if (verificationForResult?.warnings) {
 		warnings.push(
-			...verification.warnings.map(
+			...verificationForResult.warnings.map(
 				(warning) => `Reviewer verify_output warning: ${warning}`,
 			),
 		);
 	}
+	if (verificationMismatch) warnings.push(verificationMismatch.message);
 	if (requiresVerification && verifiedText === null) {
-		warnings.push(verificationFailureWarning(verification));
+		warnings.push(verificationFailureWarning(verificationForResult));
 	}
 
 	if (result.exitCode !== 0) {
@@ -242,7 +263,7 @@ export async function runReviewer(
 		stderr: parsed.stderr,
 		warnings,
 		...(parsed.usage ? { usage: parsed.usage } : {}),
-		...(verification ? { verification } : {}),
+		...(verificationForResult ? { verification: verificationForResult } : {}),
 	};
 }
 
@@ -284,9 +305,24 @@ function requiresVerifyExtension(
 	);
 }
 
+function verificationStageMismatch(
+	verification: ReviewerVerification | undefined,
+	expected: ReviewerVerificationStage | undefined,
+): { verification: ReviewerVerification; message: string } | null {
+	if (verification?.ok !== true || expected === undefined) return null;
+	if (verification.stage === expected) return null;
+	const actual = verification.stage ?? "missing";
+	return {
+		verification,
+		message:
+			"Reviewer output ignored because verify_output used the wrong stage " +
+			`(${actual}); expected ${expected}.`,
+	};
+}
+
 function verifiedOutputText(output: unknown): string | null {
 	if (output === undefined) return null;
-	return ["```json", JSON.stringify(output, null, 2), "```"].join("\n");
+	return JSON.stringify(output, null, 2);
 }
 
 function verificationFailureWarning(
@@ -294,6 +330,9 @@ function verificationFailureWarning(
 ): string {
 	if (verification === undefined || !verification.called) {
 		return "Reviewer output ignored because verify_output was not called.";
+	}
+	if (verification.ok && verification.output === undefined) {
+		return "Reviewer output ignored because verify_output returned ok: true but the verified payload was not captured.";
 	}
 	const suffix = verification.message ? ` ${verification.message}` : "";
 	return `Reviewer output ignored because verify_output did not return ok: true.${suffix}`;

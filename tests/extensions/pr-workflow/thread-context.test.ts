@@ -52,7 +52,7 @@ describe("renderReviewThreadPromptContext", () => {
 						{
 							id: "comment-1",
 							author: "reviewer",
-							body: "quoted ```code``` block",
+							body: "quoted ````code``` block",
 							createdAt: "2026-01-01T00:00:00Z",
 							url: "https://example.test/comment",
 						},
@@ -61,7 +61,7 @@ describe("renderReviewThreadPromptContext", () => {
 			],
 		});
 
-		expect(text).toContain("quoted `​``code`​`` block");
+		expect(text).toContain("quoted `​`​`​`code`​`​` block");
 		expect(text.match(/```text/g)).toHaveLength(1);
 	});
 
@@ -134,7 +134,9 @@ describe("loadReviewThreadPromptContext", () => {
 		});
 
 		expect(context.warning).toContain("could not be fetched");
+		expect(context.warning).toContain("Error");
 		expect(context.warning).not.toContain("secret-123");
+		expect(context.warning).not.toContain("local logs");
 		expect(state.threadContextWarning).toBe(context.warning);
 	});
 });

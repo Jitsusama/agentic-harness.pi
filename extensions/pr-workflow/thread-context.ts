@@ -76,12 +76,12 @@ export async function loadReviewThreadPromptContextForReference(
 	}
 	try {
 		return { threads: await fetcher(reference) };
-	} catch {
+	} catch (error) {
 		return {
 			threads: [],
 			warning:
-				"Existing review threads could not be fetched. Retry action=threads " +
-				"or check the local logs for details.",
+				"Existing review threads could not be fetched " +
+				`(${redactedFetchReason(error)}). Retry action=threads for details.`,
 		};
 	}
 }
@@ -215,7 +215,42 @@ function truncate(body: string): string {
 }
 
 function escapeFenceDelimiter(body: string): string {
-	return body.replaceAll("```", "`\u200b``");
+	return body.replace(/`{3,}/g, (run) => run.split("").join("\u200b"));
+}
+
+function redactedFetchReason(error: unknown): string {
+	const parts: string[] = [];
+	if (error instanceof Error && error.name) parts.push(error.name);
+	else parts.push("unknown error");
+	const record = typeof error === "object" && error !== null ? error : null;
+	const status =
+		numericProperty(record, "status") ?? numericProperty(record, "statusCode");
+	if (status !== undefined) parts.push(`status ${status}`);
+	const code = stringProperty(record, "code");
+	if (code !== undefined && /^[A-Z0-9_-]{1,40}$/.test(code)) {
+		parts.push(code);
+	}
+	return parts.join(", ");
+}
+
+function numericProperty(
+	record: object | null,
+	key: "status" | "statusCode",
+): number | undefined {
+	if (record === null || !(key in record)) return undefined;
+	const value = (record as Record<string, unknown>)[key];
+	return typeof value === "number" && Number.isFinite(value)
+		? value
+		: undefined;
+}
+
+function stringProperty(
+	record: object | null,
+	key: "code",
+): string | undefined {
+	if (record === null || !(key in record)) return undefined;
+	const value = (record as Record<string, unknown>)[key];
+	return typeof value === "string" ? value : undefined;
 }
 
 function threadUrl(thread: ReviewThread | undefined): string | null {

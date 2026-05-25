@@ -137,6 +137,7 @@ export async function runOneCouncilReviewer(
 			cwd: handle.path,
 			runId: options.runId,
 			signal: options.signal,
+			expectedVerificationStage: "council",
 		});
 		const parsed = parseReviewerOutput(value.finalAssistantText, {
 			reviewerId: options.reviewer.id,
@@ -226,6 +227,7 @@ export async function runCouncil(
 					cwd: handle.path,
 					runId: options.runId,
 					signal: options.signal,
+					expectedVerificationStage: "council",
 					onEvent,
 				});
 				const parsed = parseReviewerOutput(value.finalAssistantText, {

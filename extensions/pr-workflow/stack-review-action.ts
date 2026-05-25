@@ -193,6 +193,7 @@ export async function runStackReviewAction(
 					cwd: handle.path,
 					runId,
 					signal: input.signal,
+					expectedVerificationStage: "stack-review",
 					onEvent: (event) =>
 						notifyActivity(progress, progressWarnings, reviewer.id, event),
 				});
@@ -294,6 +295,7 @@ export async function runStackReviewAction(
 			cwd: handle.path,
 			runId: judgeRunId,
 			signal: input.signal,
+			expectedVerificationStage: "stack-judge",
 			onEvent: (event) =>
 				notifyActivity(progress, progressWarnings, judge.id, event),
 		});
