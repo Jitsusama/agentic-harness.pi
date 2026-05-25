@@ -822,6 +822,41 @@ describe("runReviewer — result extraction", () => {
 		expect(result.warnings.length).toBeGreaterThan(0);
 	});
 
+	it("surfaces verified payloads from non-zero reviewer runs with a warning", async () => {
+		const { runPi } = fakeRun({
+			exitCode: 1,
+			stderr: "model API timeout",
+			stdout: assistantEvent("partial prose"),
+			verification: {
+				called: true,
+				ok: true,
+				stage: "council",
+				output: {
+					findings: [
+						{
+							location: { kind: "global" },
+							label: "issue",
+							subject: "Verified despite exit",
+							discussion: "The verified payload is still usable.",
+						},
+					],
+				},
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			expectedVerificationStage: "council",
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toContain("Verified despite exit");
+		expect(result.warnings.some((w) => /exit 1|non-zero/i.test(w))).toBe(true);
+	});
+
 	it("surfaces a non-zero exitCode as a warning while still returning the captured text", async () => {
 		// A reviewer that crashed mid-stream still produced
 		// some output. The caller decides whether to use

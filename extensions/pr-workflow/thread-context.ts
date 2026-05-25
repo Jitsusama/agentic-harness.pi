@@ -244,6 +244,10 @@ function redactedMessage(message: string): string {
 		.replace(/gh[opsur]_[A-Za-z0-9_]+/g, "[redacted-token]")
 		.replace(/\bsecret[-_][A-Za-z0-9][A-Za-z0-9_-]*/gi, "[redacted-secret]")
 		.replace(/\btoken[-_][A-Za-z0-9][A-Za-z0-9_-]*/gi, "[redacted-token]")
+		.replace(
+			/\b([A-Za-z][A-Za-z0-9_-]*(?:secret|token)[A-Za-z0-9_-]*)\s*[:=]\s*\S+/gi,
+			"$1 [redacted]",
+		)
 		.replace(/\b(secret|token)\s*[:=]\s*\S+/gi, "$1 [redacted]")
 		.replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
 		.replace(/https?:\/\/\S+/gi, "[redacted-url]")

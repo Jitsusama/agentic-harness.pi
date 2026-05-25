@@ -162,6 +162,26 @@ describe("loadReviewThreadPromptContext", () => {
 		expect(context.warning).not.toContain("github_pat_");
 		expect(context.warning).not.toContain("ghr_");
 	});
+
+	it("redacts compound token and secret keys from fetch failure warnings", async () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "x",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+
+		const context = await loadReviewThreadPromptContext(state, async () => {
+			throw new Error("access_token=abc123 client_secret=def456");
+		});
+
+		expect(context.warning).toContain("access_token [redacted]");
+		expect(context.warning).toContain("client_secret [redacted]");
+		expect(context.warning).not.toContain("abc123");
+		expect(context.warning).not.toContain("def456");
+	});
 });
 
 describe("renderThreadRelation", () => {

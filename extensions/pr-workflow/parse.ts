@@ -102,6 +102,14 @@ export function parseReviewerOutput(
 	return { findings, warnings };
 }
 
+/**
+ * Extract the first balanced JSON object from reviewer text.
+ *
+ * Prefer a top-level plain JSON object when present, then fall back to the
+ * first object inside or after a ```json fence. The scanner tracks JSON string
+ * state so fence markers or braces quoted inside finding discussions do not
+ * truncate an otherwise valid payload.
+ */
 export function extractJson(text: string): string | null {
 	// Scan for the first balanced JSON object rather than
 	// trusting markdown fence delimiters. Finding discussions
