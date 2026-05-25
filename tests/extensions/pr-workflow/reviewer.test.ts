@@ -43,6 +43,7 @@ function fakeRun(result: {
 	stdout?: string;
 	stderr?: string;
 	exitCode?: number;
+	finalAssistantText?: string;
 	verification?: ReviewerVerification;
 }): { runPi: RunPi; calls: Array<{ args: string[]; cwd: string }> } {
 	const calls: Array<{ args: string[]; cwd: string }> = [];
@@ -52,6 +53,9 @@ function fakeRun(result: {
 			stdout: result.stdout ?? "",
 			stderr: result.stderr ?? "",
 			exitCode: result.exitCode ?? 0,
+			...(result.finalAssistantText !== undefined
+				? { finalAssistantText: result.finalAssistantText }
+				: {}),
 			...(result.verification ? { verification: result.verification } : {}),
 		};
 	};
@@ -636,6 +640,42 @@ describe("runReviewer — result extraction", () => {
 		expect(result.warnings.join("\n")).toContain(
 			"returned ok: true but the verified payload was not captured",
 		);
+	});
+
+	it("uses runner canonical text when verification metadata has been stripped", async () => {
+		const { runPi } = fakeRun({
+			finalAssistantText: JSON.stringify({
+				findings: [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "Canonical text",
+						discussion: "The supervisor already materialized this payload.",
+					},
+				],
+			}),
+			verification: {
+				called: true,
+				ok: true,
+				stage: "council",
+				count: 1,
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			expectedVerificationStage: "council",
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toContain("Canonical text");
+		expect(result.warnings.join("\n")).not.toContain(
+			"payload was not captured",
+		);
+		expect(result.verification).not.toHaveProperty("output");
 	});
 
 	it("records missing required self-verification as verification state", async () => {

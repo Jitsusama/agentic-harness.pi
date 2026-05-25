@@ -236,6 +236,11 @@ export async function runReviewer(
 	const verified = verificationForResult?.ok
 		? verifiedOutputText(verificationForResult.output)
 		: null;
+	const hasRunnerCanonicalText =
+		result.finalAssistantText !== undefined &&
+		verificationForResult?.ok === true &&
+		verificationForResult.output === undefined &&
+		parsed.finalAssistantText.trim() !== "";
 	const warnings = [...parsed.warnings];
 	if (verified?.warning) warnings.push(verified.warning);
 	if (verificationForResult?.warnings) {
@@ -245,7 +250,7 @@ export async function runReviewer(
 			),
 		);
 	}
-	if (requiresVerification && verified === null) {
+	if (requiresVerification && verified === null && !hasRunnerCanonicalText) {
 		warnings.push(verificationFailureWarning(verificationForResult));
 	}
 
@@ -261,7 +266,7 @@ export async function runReviewer(
 		reviewerId: options.reviewer.id,
 		exitCode: result.exitCode,
 		finalAssistantText:
-			requiresVerification && verified === null
+			requiresVerification && verified === null && !hasRunnerCanonicalText
 				? ""
 				: (verified?.text ?? parsed.finalAssistantText),
 		stderr: parsed.stderr,
