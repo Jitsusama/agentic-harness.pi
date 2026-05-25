@@ -12,6 +12,7 @@ import {
 	JudgeOutput,
 	JudgeSelfSignal,
 	StackCrossFinding,
+	ThreadRelation,
 } from "../../../extensions/pr-workflow/schemas.js";
 
 // The schema is the single source of truth for the
@@ -50,6 +51,11 @@ describe("CouncilFindingsOutput", () => {
 					discussion: "Two writers can interleave; needs a mutex.",
 					severity: "critical",
 					confidence: 0.9,
+					threadRelation: {
+						kind: "amplifies-existing",
+						threadIndex: 2,
+						rationale: "The existing thread misses the data-loss path.",
+					},
 				},
 			],
 		};
@@ -173,6 +179,27 @@ describe("CouncilFindingsOutput", () => {
 	});
 });
 
+describe("ThreadRelation", () => {
+	it("accepts supported relationships to existing threads", () => {
+		expect(
+			Value.Check(ThreadRelation, {
+				kind: "supports-existing",
+				threadIndex: 3,
+				rationale: "The failing test confirms the existing concern.",
+			}),
+		).toBe(true);
+	});
+
+	it("rejects unknown relation kinds", () => {
+		expect(
+			Value.Check(ThreadRelation, {
+				kind: "mentions-existing",
+				threadIndex: 1,
+			}),
+		).toBe(false);
+	});
+});
+
 describe("JudgeOutput", () => {
 	it("accepts a populated output with self-signal and agreement fields", () => {
 		const output = {
@@ -183,6 +210,10 @@ describe("JudgeOutput", () => {
 					label: "issue",
 					subject: "x",
 					discussion: "y",
+					threadRelation: {
+						kind: "supports-existing",
+						threadIndex: 1,
+					},
 					raisedBy: ["a", "b"],
 					sourceFindingIds: [1, 5],
 				},

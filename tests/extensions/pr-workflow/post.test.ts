@@ -534,6 +534,59 @@ describe("buildReviewPayload", () => {
 		expect(payload.comments[0].body).toContain("fast");
 		expect(payload.comments[0].body).toContain("skeptic");
 	});
+
+	it("skips findings that only duplicate an existing review thread", async () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = judge([
+			lineFinding(10, "Already covered", {
+				threadRelation: {
+					kind: "duplicates-existing",
+					threadIndex: 2,
+					rationale: "The existing thread covers the same bug.",
+				},
+			}),
+		]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+
+		const payload = buildReviewPayload(state);
+
+		expect(payload.comments).toEqual([]);
+		expect(payload.includedFindingIds).toEqual([]);
+		expect(payload.skipped).toEqual([
+			{
+				findingId: 10,
+				reason: "duplicates [T2]: The existing thread covers the same bug.",
+			},
+		]);
+	});
+
+	it("keeps thread relation notes when a finding adds evidence to a thread", async () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = judge([
+			lineFinding(10, "Thread has more impact", {
+				threadRelation: {
+					kind: "amplifies-existing",
+					threadIndex: 3,
+					rationale: "The existing thread misses the rollback failure.",
+				},
+			}),
+		]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+
+		const payload = buildReviewPayload(state);
+
+		expect(payload.comments[0].body).toContain(
+			"_Thread context: amplifies [T3]: The existing thread misses the rollback failure._",
+		);
+	});
 });
 
 describe("postReviewAction", () => {
@@ -662,21 +715,25 @@ describe("postReviewAction", () => {
 		const arg = gateMock.mock.calls[0][0];
 		expect(arg.event).toBe("COMMENT");
 		expect(arg.inlineCount).toBe(1);
-		expect(arg.body).toContain("Thanks, I left one inline comment.");
+		expect(arg.body).toContain(
+			"**GO WITH FIXES:** I'm posting 1 finding (1 inline).",
+		);
 		expect(arg.body).not.toContain("finding(s) included");
 		expect(arg.body).not.toContain("finding(s) posted");
 		expect(arg.findings.map((f: { id: number }) => f.id)).toEqual([10]);
 		expect(arg.skipped).toEqual([{ displayId: "11", reason: "dismiss" }]);
 	});
 
-	it("keeps the generated top-level review body sparse and friendly", async () => {
+	it("generates a verdict-style top-level review body", async () => {
 		const state = withJudgeAndDecision();
 		const exec: PostReviewExec = vi.fn(async () => undefined);
 
 		await postReviewAction({ state, event: "COMMENT", exec });
 
 		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(arg.body).toBe("Thanks, I left one inline comment.");
+		expect(arg.body).toBe(
+			"**GO WITH FIXES:** I'm posting 1 finding (1 inline). Prioritize Null deref.",
+		);
 		expect(arg.body).not.toContain("Council review");
 		expect(arg.body).not.toContain("Judge self-signal");
 		expect(arg.body).not.toContain("skipped");
@@ -698,8 +755,9 @@ describe("postReviewAction", () => {
 		await postReviewAction({ state, event: "COMMENT", exec });
 
 		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(arg.body).toContain("I left one inline comment");
-		expect(arg.body).toContain("couldn't anchor");
+		expect(arg.body).toContain(
+			"**GO WITH FIXES:** I'm posting 2 findings (1 inline, 1 in the review body).",
+		);
 		expect(arg.body).toContain("suggestion: 💡 File-wide");
 		expect(arg.body).not.toContain("Council review");
 	});
@@ -865,7 +923,7 @@ describe("buildReviewPayload with stack findings", () => {
 		expect(exec).toHaveBeenCalled();
 		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
 		expect(arg.body).toContain("Cross-PR pattern");
-		expect(arg.body).toMatch(/couldn't anchor/i);
+		expect(arg.body).toContain("**GO WITH FIXES:** I'm posting 1 finding");
 		expect(arg.body).not.toContain("cross-PR finding(s) included");
 		expect(arg.body).not.toContain("cross-PR finding(s) posted");
 	});

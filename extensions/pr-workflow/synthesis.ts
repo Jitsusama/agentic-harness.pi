@@ -19,6 +19,7 @@
 import type { CritiquePosition, CritiqueRun } from "./critique.js";
 import type { Finding, FindingLocation } from "./findings.js";
 import type { PrWorkflowState } from "./state.js";
+import { renderThreadRelation } from "./thread-context.js";
 
 /**
  * The user's verdict on a single consolidated finding.
@@ -281,6 +282,10 @@ export function formatFindingsView(state: PrWorkflowState): string {
 		const raisedBy = finding.agreement?.raisedBy ?? [];
 		if (raisedBy.length > 0) {
 			lines.push(`   raised by: ${raisedBy.join(", ")}`);
+		}
+		const relation = renderThreadRelation(finding.threadRelation);
+		if (relation !== null) {
+			lines.push(`   thread: ${relation}`);
 		}
 		lines.push(`   ${display.discussion}`);
 		const critiquesForFinding = collectCritiques(state, finding.id);

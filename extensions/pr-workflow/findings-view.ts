@@ -18,6 +18,7 @@
 import type { Finding } from "./findings.js";
 import type { PrWorkflowState } from "./state.js";
 import type { FindingDecision } from "./synthesis.js";
+import { renderThreadRelation } from "./thread-context.js";
 
 /**
  * One-character verdict marker for a decision.
@@ -96,8 +97,10 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 			decision?.verdict === "edit" && decision.subject
 				? decision.subject
 				: finding.subject;
+		const relation = renderThreadRelation(finding.threadRelation);
+		const thread = relation === null ? "" : ` · ${relation}`;
 		lines.push(
-			`[${finding.id}] ${verdictMarker(decision)} [${finding.label}] ${subject} (${renderLocation(finding)})`,
+			`[${finding.id}] ${verdictMarker(decision)} [${finding.label}] ${subject} (${renderLocation(finding)})${thread}`,
 		);
 	}
 

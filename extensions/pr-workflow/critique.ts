@@ -41,6 +41,11 @@ import {
 	CritiqueOutput,
 	type CritiquePosition,
 } from "./schemas.js";
+import {
+	type ReviewThreadPromptContext,
+	renderReviewThreadPromptContext,
+	renderThreadRelation,
+} from "./thread-context.js";
 import type { WorktreeRegistry } from "./worktree.js";
 
 // Vocabulary type lives in `schemas.ts`. Re-exported
@@ -83,6 +88,7 @@ export interface BuildCritiquePromptInput {
 	readonly reviewerId: string;
 	readonly council: CouncilRun;
 	readonly judge: JudgeRun;
+	readonly threadContext?: ReviewThreadPromptContext;
 	readonly promptAddendum?: string;
 }
 
@@ -107,6 +113,7 @@ export interface RunCritiqueOptions {
 	readonly target: Pick<CouncilTarget, "owner" | "repo" | "sha" | "branch">;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	readonly threadContext?: ReviewThreadPromptContext;
 	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
 	/** Provider or repository context appended to critique prompts. */
@@ -122,6 +129,7 @@ export interface RunOneCritiqueReviewerOptions {
 	readonly target: Pick<CouncilTarget, "owner" | "repo" | "sha" | "branch">;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	readonly threadContext?: ReviewThreadPromptContext;
 	readonly signal?: AbortSignal;
 	/** Provider or repository context appended to the critique prompt. */
 	readonly promptAddendum?: string;
@@ -148,6 +156,7 @@ export async function runOneCritiqueReviewer(
 		reviewerId: options.reviewer.id,
 		council: options.council,
 		judge: options.judge,
+		...(options.threadContext ? { threadContext: options.threadContext } : {}),
 		...(options.promptAddendum
 			? { promptAddendum: options.promptAddendum }
 			: {}),
@@ -216,6 +225,8 @@ export function buildCritiquePrompt(input: BuildCritiquePromptInput): string {
 	lines.push(reviewQualityStandard());
 	lines.push("");
 	lines.push(reviewCritiqueStandard());
+	lines.push("");
+	lines.push(renderReviewThreadPromptContext(input.threadContext));
 	pushPromptAddendum(lines, input.promptAddendum);
 	lines.push("");
 	lines.push(reviewerOperatingRules());
@@ -230,6 +241,8 @@ export function buildCritiquePrompt(input: BuildCritiquePromptInput): string {
 				`  [your id=${finding.id}] [${finding.label}] ${finding.subject} ${renderLocation(finding.location)}`,
 			);
 			lines.push(`    ${finding.discussion}`);
+			const relation = renderThreadRelation(finding.threadRelation);
+			if (relation !== null) lines.push(`    thread: ${relation}`);
 		}
 	} else {
 		lines.push("  (none)");
@@ -249,13 +262,17 @@ export function buildCritiquePrompt(input: BuildCritiquePromptInput): string {
 			`  [id=${finding.id}] [${finding.label}] ${finding.subject} ${renderLocation(finding.location)}${attribution}`,
 		);
 		lines.push(`    ${finding.discussion}`);
+		const relation = renderThreadRelation(finding.threadRelation);
+		if (relation !== null) lines.push(`    thread: ${relation}`);
 	}
 	lines.push("");
 	lines.push(
 		"Respond with a single fenced JSON block. No prose outside the block. " +
 			"Each critique entry references the consolidated finding by its " +
 			"`findingId`, names a `position`, and gives a one-to-two-sentence " +
-			"`rationale`.",
+			"`rationale`. The rationale should say what evidence proves the finding, " +
+			"what evidence disproves it or whether it merely repeats an existing " +
+			"thread such as [T3].",
 	);
 	lines.push("");
 	lines.push("## JSON Schema");
@@ -420,6 +437,9 @@ export async function runCritique(
 				reviewerId: reviewer.id,
 				council: options.council,
 				judge: options.judge,
+				...(options.threadContext
+					? { threadContext: options.threadContext }
+					: {}),
 				...(options.promptAddendum
 					? { promptAddendum: options.promptAddendum }
 					: {}),

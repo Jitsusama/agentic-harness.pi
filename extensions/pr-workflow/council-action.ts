@@ -20,6 +20,10 @@ import {
 import type { ReviewContextProviderBroker } from "./review-context.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { PrWorkflowState } from "./state.js";
+import {
+	loadReviewThreadPromptContext,
+	type ReviewThreadsFetcher,
+} from "./thread-context.js";
 import type { WorktreeRegistry } from "./worktree.js";
 
 /** Result of a state-mutating action handler. */
@@ -80,6 +84,7 @@ export interface RunCouncilActionInput {
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly reviewContexts?: ReviewContextProviderBroker;
+	readonly fetchThreads?: ReviewThreadsFetcher;
 	readonly signal?: AbortSignal;
 	/** Override for tests; production uses `Date.now()`. */
 	readonly now?: () => Date;
@@ -142,6 +147,11 @@ export async function runCouncilAction(
 	const now = input.now ?? (() => new Date());
 	const runId = `council-${now().toISOString()}`;
 
+	const threadContext = await loadReviewThreadPromptContext(
+		state,
+		input.fetchThreads,
+	);
+
 	const target = {
 		owner: pr.reference.owner,
 		repo: pr.reference.repo,
@@ -151,6 +161,7 @@ export async function runCouncilAction(
 		title: metadata.title,
 		description: "",
 		files,
+		threadContext,
 	};
 
 	const promptAddendum = await input.reviewContexts?.promptAddendum({
@@ -190,6 +201,7 @@ export interface RetryCouncilReviewerInput {
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly reviewContexts?: ReviewContextProviderBroker;
+	readonly fetchThreads?: ReviewThreadsFetcher;
 	readonly reviewerId: string;
 	readonly signal?: AbortSignal;
 }
@@ -250,6 +262,10 @@ export async function retryCouncilReviewer(
 	const startId = state.nextFindingId;
 
 	const pr = state.pr;
+	const threadContext = await loadReviewThreadPromptContext(
+		state,
+		input.fetchThreads,
+	);
 	const target = {
 		owner: pr.reference.owner,
 		repo: pr.reference.repo,
@@ -259,6 +275,7 @@ export async function retryCouncilReviewer(
 		title: metadata.title,
 		description: "",
 		files: pr.files ?? [],
+		threadContext,
 	};
 	const promptAddendum = await input.reviewContexts?.promptAddendum({
 		owner: target.owner,

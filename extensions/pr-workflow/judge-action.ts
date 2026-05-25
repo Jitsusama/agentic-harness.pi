@@ -19,6 +19,10 @@ import {
 import type { ReviewContextProviderBroker } from "./review-context.js";
 import type { CouncilReviewer } from "./reviewer.js";
 import type { PrWorkflowState } from "./state.js";
+import {
+	loadReviewThreadPromptContext,
+	type ReviewThreadsFetcher,
+} from "./thread-context.js";
 import type { WorktreeRegistry } from "./worktree.js";
 
 /** Result of a state-mutating action. */
@@ -62,6 +66,7 @@ export interface RunJudgeActionInput {
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly reviewContexts?: ReviewContextProviderBroker;
+	readonly fetchThreads?: ReviewThreadsFetcher;
 	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
 	readonly now?: () => Date;
@@ -109,11 +114,14 @@ export async function runJudgeAction(
 		sha: state.pr.metadata.head.sha,
 		branch: state.pr.metadata.head.ref,
 	};
-	const promptAddendum = await input.reviewContexts?.promptAddendum({
-		...target,
-		prNumber: state.pr.reference.number,
-		stage: "judge",
-	});
+	const [promptAddendum, threadContext] = await Promise.all([
+		input.reviewContexts?.promptAddendum({
+			...target,
+			prNumber: state.pr.reference.number,
+			stage: "judge",
+		}),
+		loadReviewThreadPromptContext(state, input.fetchThreads),
+	]);
 	let run: JudgeRun;
 	try {
 		run = await runJudge({
@@ -123,6 +131,7 @@ export async function runJudgeAction(
 			target,
 			registry: input.registry,
 			dispatch: input.dispatch,
+			threadContext,
 			progress: input.progress,
 			signal: input.signal,
 			startId: state.nextFindingId,

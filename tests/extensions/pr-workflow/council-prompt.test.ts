@@ -184,7 +184,8 @@ describe("buildReviewerPrompt", () => {
 		);
 		expect(prompt).toContain("Do not flag pure preference");
 		expect(prompt).toContain("Council discovery objective");
-		expect(prompt).toContain("high recall without spam");
+		expect(prompt).toContain("noisy discovery round");
+		expect(prompt).toContain("Useful noise has evidence");
 	});
 
 	it("includes provider review context when supplied", () => {

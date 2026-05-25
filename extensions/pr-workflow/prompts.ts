@@ -18,12 +18,17 @@ import {
 	reviewQualityStandard,
 } from "./review-quality-standard.js";
 import { CouncilFindingsOutput } from "./schemas.js";
+import {
+	type ReviewThreadPromptContext,
+	renderReviewThreadPromptContext,
+} from "./thread-context.js";
 
 /** Inputs the reviewer needs to do its job. */
 export interface ReviewerPromptInput {
 	readonly prTitle: string;
 	readonly prDescription: string;
 	readonly files: DiffFile[];
+	readonly threadContext?: ReviewThreadPromptContext;
 	readonly promptAddendum?: string;
 }
 
@@ -40,15 +45,28 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 
 	sections.push(
 		"You are a senior code reviewer participating in a multi-model code review " +
-			"council. Your job is to read the pull request below and report findings: " +
-			"things worth flagging to the author. Other reviewers will independently " +
-			"review the same PR; a judge will consolidate everyone's findings later.",
+			"council. Your round is the noisy, high-recall discovery pass. Read " +
+			"the pull request below, inspect the worktree with your tools and report " +
+			"findings the judge and critic should consider. Other reviewers will " +
+			"independently review the same PR; later phases will merge, falsify and " +
+			"filter the candidate list before anything posts.",
+	);
+
+	sections.push(
+		"Default to depth over restraint. Trace callers and callees, check nearby " +
+			"tests, verify framework or library semantics and use scoped searches under " +
+			"changed directories before you decide a risk is real. It's acceptable to " +
+			"surface uncertain material risks, but the uncertainty must come with the " +
+			"specific evidence you found and the condition that would prove or disprove " +
+			"the finding.",
 	);
 
 	sections.push(
 		"Be specific. Each finding must name an exact location (file, line range if " +
-			"applicable) and explain the concern in concrete terms. Cite the code you " +
-			"saw. Don't repeat what the diff already shows.",
+			"applicable) and explain the concern in concrete terms. Line findings must " +
+			"anchor to changed PR lines you verified from source, not stale line numbers " +
+			"or unchanged context. Cite the code you saw and the user, backend or " +
+			"operational impact. Don't repeat what the diff already shows.",
 	);
 
 	sections.push(
@@ -62,6 +80,7 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 
 	sections.push(reviewQualityStandard());
 	sections.push(reviewDiscoveryStandard());
+	sections.push(renderReviewThreadPromptContext(input.threadContext));
 	pushPromptAddendum(sections, input.promptAddendum);
 	sections.push(reviewerOperatingRules());
 
@@ -93,6 +112,16 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 	sections.push(
 		'Location kinds: "line" (file + start/end + side: "old"|"new"|"both"), ' +
 			'"file" (file only), or "global" (PR-level).',
+	);
+	sections.push(
+		"If a finding relates to an existing review thread, set optional " +
+			'`threadRelation`: use kind "duplicates-existing" only when the new ' +
+			"finding should not be posted because [T#] already covers it; use " +
+			'"supports-existing", "disputes-existing" or "amplifies-existing" ' +
+			"when you have fresh evidence that should substantiate, disprove or " +
+			"accentuate that thread. Include `threadIndex` with the numeric T index " +
+			"and a short `rationale`. Omit `threadRelation`, or use kind `new`, " +
+			"when no existing thread is relevant.",
 	);
 
 	sections.push("## JSON Schema");

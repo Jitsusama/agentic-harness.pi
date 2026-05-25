@@ -52,7 +52,8 @@ export function loadPr(
 		};
 	}
 
-	const previousNumber = state.pr?.reference.number ?? null;
+	const previousReference = state.pr?.reference ?? null;
+	const previousNumber = previousReference?.number ?? null;
 	if (
 		previousNumber !== null &&
 		previousNumber !== reference.number &&
@@ -84,6 +85,9 @@ export function loadPr(
 		files: null,
 		stack: null,
 	};
+	if (!sameReference(previousReference, reference)) {
+		state.threads = null;
+	}
 	return { ok: true };
 }
 
@@ -93,6 +97,18 @@ export function loadPr(
  * run, a judge result, a critique result, or a user
  * decision.
  */
+function sameReference(
+	left: NonNullable<PrWorkflowState["pr"]>["reference"] | null,
+	right: NonNullable<PrWorkflowState["pr"]>["reference"],
+): boolean {
+	return (
+		left !== null &&
+		left.owner === right.owner &&
+		left.repo === right.repo &&
+		left.number === right.number
+	);
+}
+
 function hasReviewState(council: CouncilState): boolean {
 	return (
 		council.lastRun !== null ||
