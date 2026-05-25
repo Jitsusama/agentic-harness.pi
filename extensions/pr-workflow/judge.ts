@@ -34,7 +34,11 @@ import {
 	reviewQualityStandard,
 	reviewSynthesisStandard,
 } from "./review-quality-standard.js";
-import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
+import type {
+	CouncilReviewer,
+	ReviewerUsage,
+	ReviewerVerification,
+} from "./reviewer.js";
 import { JudgeFinding, JudgeOutput, JudgeSelfSignal } from "./schemas.js";
 import {
 	type ReviewThreadPromptContext,
@@ -61,6 +65,8 @@ export interface JudgeRun {
 	 * undefined when the dispatcher didn't surface usage.
 	 */
 	readonly usage?: ReviewerUsage;
+	/** Result of the judge's verify_output calls, when observed. */
+	readonly verification?: ReviewerVerification;
 }
 
 /** Inputs to `buildJudgePrompt`. */
@@ -389,6 +395,9 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 			consolidatedFindings: parsed.findings,
 			warnings: [...warnings, ...progressWarnings],
 			...(dispatched.usage ? { usage: dispatched.usage } : {}),
+			...(dispatched.verification
+				? { verification: dispatched.verification }
+				: {}),
 		};
 	} catch (error) {
 		if (isReviewerCancelledError(error)) {

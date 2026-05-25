@@ -69,7 +69,7 @@ export function validateOutput(
 		};
 	}
 
-	const normalized = normalizeInput(input);
+	const normalized = normalizeInput(stage, input);
 	if (!normalized.ok) {
 		return {
 			ok: false,
@@ -83,13 +83,20 @@ export function validateOutput(
 	if (!Value.Check(schema, candidate)) {
 		const errors: ValidationError[] = [];
 		for (const error of Value.Errors(schema, candidate)) {
+			const path = error.instancePath;
+			const value = valueAtPath(candidate, path);
 			errors.push({
-				path: error.instancePath,
-				message: explainError(error.message, candidate),
-				hint: hintForError(error.instancePath, error.message, candidate, stage),
+				path,
+				message: explainError(error.message, value),
+				hint: hintForError(path, error.message, candidate, stage),
 			});
 		}
 		return { ok: false, errors, warnings: normalized.warnings };
+	}
+
+	const semanticErrors = validateNonBlankText(stage, candidate);
+	if (semanticErrors.length > 0) {
+		return { ok: false, errors: semanticErrors, warnings: normalized.warnings };
 	}
 
 	if (stage === "stack-review" || stage === "stack-judge") {
@@ -115,13 +122,13 @@ type NormalizedInput =
 			readonly warnings?: readonly string[];
 	  };
 
-function normalizeInput(input: unknown): NormalizedInput {
+function normalizeInput(stage: StageName, input: unknown): NormalizedInput {
 	if (typeof input !== "string") return { ok: true, value: input };
 	const trimmed = input.trim();
 	const warning =
 		"`output` was passed as a JSON string. I parsed it for this " +
 		"validation attempt, but the next call should pass the object itself: " +
-		'output: { "findings": [...] }, not output: "{...}".';
+		`${expectedTopLevelHint(stage)} Do not wrap it in quotes.`;
 	if (trimmed.length === 0) {
 		return {
 			ok: false,
@@ -189,6 +196,82 @@ function typeName(value: unknown): string {
 	if (value === null) return "null";
 	if (Array.isArray(value)) return "array";
 	return typeof value;
+}
+
+function valueAtPath(input: unknown, path: string): unknown {
+	if (path === "") return input;
+	let current = input;
+	for (const rawPart of path.split("/").slice(1)) {
+		const part = rawPart.replaceAll("~1", "/").replaceAll("~0", "~");
+		if (Array.isArray(current)) {
+			const index = Number(part);
+			current = Number.isInteger(index) ? current[index] : undefined;
+			continue;
+		}
+		if (typeof current === "object" && current !== null) {
+			current = (current as Record<string, unknown>)[part];
+			continue;
+		}
+		return undefined;
+	}
+	return current;
+}
+
+function validateNonBlankText(
+	stage: StageName,
+	input: unknown,
+): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const record = input as {
+		findings?: unknown[];
+		critiques?: unknown[];
+		perPr?: Record<string, unknown[]>;
+		crossPr?: unknown[];
+	};
+	if (stage === "critique") {
+		checkTextArray(errors, record.critiques ?? [], "/critiques", ["rationale"]);
+		return errors;
+	}
+	if (stage === "stack-review" || stage === "stack-judge") {
+		for (const [prNumber, findings] of Object.entries(record.perPr ?? {})) {
+			checkTextArray(errors, findings, `/perPr/${prNumber}`, [
+				"subject",
+				"discussion",
+			]);
+		}
+		checkTextArray(errors, record.crossPr ?? [], "/crossPr", [
+			"subject",
+			"discussion",
+		]);
+		return errors;
+	}
+	checkTextArray(errors, record.findings ?? [], "/findings", [
+		"subject",
+		"discussion",
+	]);
+	return errors;
+}
+
+function checkTextArray(
+	errors: ValidationError[],
+	items: unknown[],
+	path: string,
+	fields: readonly string[],
+): void {
+	for (let index = 0; index < items.length; index++) {
+		const item = items[index];
+		if (typeof item !== "object" || item === null) continue;
+		const record = item as Record<string, unknown>;
+		for (const field of fields) {
+			if (typeof record[field] === "string" && record[field].trim() === "") {
+				errors.push({
+					path: `${path}/${index}/${field}`,
+					message: "must contain non-whitespace text",
+					hint: `Replace ${field} with a concrete explanation, not blanks.`,
+				});
+			}
+		}
+	}
 }
 
 function itemCount(stage: StageName, input: unknown): number {

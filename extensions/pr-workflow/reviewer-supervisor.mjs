@@ -229,7 +229,7 @@ async function finish(state, exitCode) {
 		reviewerId: request.reviewerId,
 		state,
 		exitCode,
-		finalAssistantText,
+		finalAssistantText: canonicalVerifiedText() ?? finalAssistantText,
 		usage,
 		verification,
 		warnings,
@@ -334,11 +334,18 @@ function verifierMessage(result) {
 	return "";
 }
 
+function canonicalVerifiedText() {
+	if (!verification?.ok || !("output" in verification)) return null;
+	return JSON.stringify(verification.output, null, 2);
+}
+
 function normalizedVerifierOutput(output) {
 	if (typeof output !== "string") return output;
 	try {
 		return JSON.parse(output);
 	} catch {
+		// If the verifier accepted a non-JSON string for some future stage,
+		// keep the original value instead of failing the supervisor result.
 		return output;
 	}
 }

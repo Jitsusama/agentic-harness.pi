@@ -131,6 +131,8 @@ describe("createSupervisorRunPi", () => {
 		expect(result.verification?.output).toMatchObject({
 			findings: [{ subject: "Verified" }],
 		});
+		expect(result.finalAssistantText).toContain("Verified");
+		expect(result.finalAssistantText).not.toBe("not json");
 	});
 
 	it("captures verifier output from unkeyed tool events", async () => {

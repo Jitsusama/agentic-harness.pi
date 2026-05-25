@@ -220,17 +220,37 @@ function escapeFenceDelimiter(body: string): string {
 
 function redactedFetchReason(error: unknown): string {
 	const parts: string[] = [];
-	if (error instanceof Error && error.name) parts.push(error.name);
+	if (error instanceof Error && safeToken(error.name)) parts.push(error.name);
 	else parts.push("unknown error");
 	const record = typeof error === "object" && error !== null ? error : null;
 	const status =
-		numericProperty(record, "status") ?? numericProperty(record, "statusCode");
+		numericProperty(record, "status") ??
+		numericProperty(record, "statusCode") ??
+		numericProperty(objectProperty(record, "response"), "status");
 	if (status !== undefined) parts.push(`status ${status}`);
 	const code = stringProperty(record, "code");
-	if (code !== undefined && /^[A-Z0-9_-]{1,40}$/.test(code)) {
-		parts.push(code);
-	}
+	if (code !== undefined && safeToken(code)) parts.push(code);
+	const message = error instanceof Error ? redactedMessage(error.message) : "";
+	if (message) parts.push(message);
 	return parts.join(", ");
+}
+
+function redactedMessage(message: string): string {
+	const cleaned = message
+		.replace(/gh[opsu]_[A-Za-z0-9_]+/g, "[redacted-token]")
+		.replace(/secret[-_A-Za-z0-9]*/gi, "[redacted-secret]")
+		.replace(/token[-_A-Za-z0-9]*/gi, "[redacted-token]")
+		.replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+		.replace(/https?:\/\/\S+/gi, "[redacted-url]")
+		.replace(/\s+/g, " ")
+		.trim();
+	return cleaned.length > 120 ? `${cleaned.slice(0, 119)}…` : cleaned;
+}
+
+function objectProperty(record: object | null, key: "response"): object | null {
+	if (record === null || !(key in record)) return null;
+	const value = (record as Record<string, unknown>)[key];
+	return typeof value === "object" && value !== null ? value : null;
 }
 
 function numericProperty(
@@ -251,6 +271,10 @@ function stringProperty(
 	if (record === null || !(key in record)) return undefined;
 	const value = (record as Record<string, unknown>)[key];
 	return typeof value === "string" ? value : undefined;
+}
+
+function safeToken(value: string): boolean {
+	return /^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(value);
 }
 
 function threadUrl(thread: ReviewThread | undefined): string | null {

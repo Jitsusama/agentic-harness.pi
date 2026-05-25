@@ -508,6 +508,49 @@ describe("runReviewer — usage extraction", () => {
 });
 
 describe("runReviewer — result extraction", () => {
+	it("captures verify_output from the raw stdout stream", async () => {
+		const args = {
+			stage: "council",
+			output: {
+				findings: [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "Stream verified",
+						discussion: "Verified through stdout events.",
+					},
+				],
+			},
+		};
+		const { runPi } = fakeRun({
+			stdout: [
+				JSON.stringify({
+					type: "tool_execution_start",
+					toolName: "verify_output",
+					args,
+				}),
+				JSON.stringify({
+					type: "tool_execution_end",
+					toolName: "verify_output",
+					result: { details: { ok: true, count: 1 } },
+				}),
+				assistantEvent("not parseable"),
+			].join("\n"),
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			expectedVerificationStage: "council",
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toContain("Stream verified");
+		expect(result.verification?.ok).toBe(true);
+	});
+
 	it("uses successful verify_output payload as the canonical final text", async () => {
 		const { runPi } = fakeRun({
 			stdout: assistantEvent("not parseable"),
@@ -593,6 +636,27 @@ describe("runReviewer — result extraction", () => {
 		expect(result.warnings.join("\n")).toContain(
 			"returned ok: true but the verified payload was not captured",
 		);
+	});
+
+	it("records missing required self-verification as verification state", async () => {
+		const { runPi } = fakeRun({
+			stdout: assistantEvent(
+				'```json\n{"findings":[{"location":{"kind":"global"},"label":"issue","subject":"Unverified","discussion":"Nope"}]}\n```',
+			),
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			expectedVerificationStage: "council",
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toBe("");
+		expect(result.verification).toMatchObject({ called: false, ok: false });
+		expect(result.warnings.join("\n")).toContain("was not called");
 	});
 
 	it("ignores output that fails required self-verification", async () => {

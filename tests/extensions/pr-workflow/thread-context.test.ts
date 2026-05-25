@@ -129,12 +129,16 @@ describe("loadReviewThreadPromptContext", () => {
 			stack: null,
 		};
 
+		const error = new Error("GraphQL token secret-123 failed");
+		Object.assign(error, { response: { status: 403 }, code: "FORBIDDEN" });
 		const context = await loadReviewThreadPromptContext(state, async () => {
-			throw new Error("token secret-123 failed");
+			throw error;
 		});
 
 		expect(context.warning).toContain("could not be fetched");
 		expect(context.warning).toContain("Error");
+		expect(context.warning).toContain("status 403");
+		expect(context.warning).toContain("FORBIDDEN");
 		expect(context.warning).not.toContain("secret-123");
 		expect(context.warning).not.toContain("local logs");
 		expect(state.threadContextWarning).toBe(context.warning);

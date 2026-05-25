@@ -35,7 +35,11 @@ import {
 	reviewCritiqueStandard,
 	reviewQualityStandard,
 } from "./review-quality-standard.js";
-import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
+import type {
+	CouncilReviewer,
+	ReviewerUsage,
+	ReviewerVerification,
+} from "./reviewer.js";
 import {
 	CritiqueEntry as CritiqueEntrySchema,
 	CritiqueOutput,
@@ -72,6 +76,8 @@ export interface ReviewerCritiqueOutput {
 	 * not surface usage.
 	 */
 	readonly usage?: ReviewerUsage;
+	/** Result of the critique reviewer's verify_output calls, when observed. */
+	readonly verification?: ReviewerVerification;
 }
 
 /** Result of one critique round. */
@@ -179,6 +185,9 @@ export async function runOneCritiqueReviewer(
 			critiques: parsed.critiques,
 			warnings: [...dispatched.warnings, ...parsed.warnings],
 			...(dispatched.usage ? { usage: dispatched.usage } : {}),
+			...(dispatched.verification
+				? { verification: dispatched.verification }
+				: {}),
 		};
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -472,6 +481,9 @@ export async function runCritique(
 					critiques: parsed.critiques,
 					warnings: [...dispatched.warnings, ...parsed.warnings],
 					...(dispatched.usage ? { usage: dispatched.usage } : {}),
+					...(dispatched.verification
+						? { verification: dispatched.verification }
+						: {}),
 				};
 				safelyNotify(
 					() =>

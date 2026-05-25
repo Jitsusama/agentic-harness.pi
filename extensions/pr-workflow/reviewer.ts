@@ -216,8 +216,12 @@ export async function runReviewer(
 	});
 
 	const parsed = extractRunPiOutput(result);
-	const verification = parsed.verification;
 	const requiresVerification = requiresVerifyExtension(options.extraExtensions);
+	const verification =
+		parsed.verification ??
+		(requiresVerification
+			? { called: false, ok: false, message: "verify_output was not called." }
+			: undefined);
 	const verificationMismatch = verificationStageMismatch(
 		verification,
 		options.expectedVerificationStage,
@@ -240,7 +244,6 @@ export async function runReviewer(
 			),
 		);
 	}
-	if (verificationMismatch) warnings.push(verificationMismatch.message);
 	if (requiresVerification && verifiedText === null) {
 		warnings.push(verificationFailureWarning(verificationForResult));
 	}
@@ -293,7 +296,9 @@ function extractRunPiOutput(result: RunPiResult): ExtractedRunPiOutput {
 		...(parsed.usage ? { usage: parsed.usage } : {}),
 		warnings: [...(result.warnings ?? []), ...parsed.warnings],
 		stderr: result.stderrTail ?? result.stderr ?? "",
-		...(result.verification ? { verification: result.verification } : {}),
+		...((result.verification ?? parsed.verification)
+			? { verification: result.verification ?? parsed.verification }
+			: {}),
 	};
 }
 
@@ -333,6 +338,9 @@ function verificationFailureWarning(
 	}
 	if (verification.ok && verification.output === undefined) {
 		return "Reviewer output ignored because verify_output returned ok: true but the verified payload was not captured.";
+	}
+	if (verification.message?.startsWith("Reviewer output ignored")) {
+		return verification.message;
 	}
 	const suffix = verification.message ? ` ${verification.message}` : "";
 	return `Reviewer output ignored because verify_output did not return ok: true.${suffix}`;

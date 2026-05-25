@@ -88,6 +88,42 @@ describe("validateOutput", () => {
 		}
 	});
 
+	it("rejects whitespace-only text that parent parsers would drop", () => {
+		const result = validateOutput("critique", {
+			critiques: [{ findingId: 1, position: "agree", rationale: "   " }],
+		});
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0]).toMatchObject({
+				path: "/critiques/0/rationale",
+				message: "must contain non-whitespace text",
+			});
+		}
+	});
+
+	it("reports the nested value type for schema failures", () => {
+		const result = validateOutput("council", {
+			findings: [
+				{
+					location: "global",
+					label: "issue",
+					subject: "x",
+					discussion: "y",
+				},
+			],
+		});
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(
+				result.errors.some((error) =>
+					error.message.includes("received string"),
+				),
+			).toBe(true);
+		}
+	});
+
 	it("rejects an unknown stage name with a clear error", () => {
 		// Defensive: if the subagent passes a typo'd stage,
 		// we want a single error explaining the allowed
