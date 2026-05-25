@@ -37,6 +37,7 @@ prose; you translate intent into calls.
 |---|---|
 | `load` | First action of any PR session. User said "review PR 42" or pasted a URL. |
 | `status` | Debug-y session dump: IDs, configs, raw counts, per-stage cost. Use when the user asks a low-level state question or you need to verify wiring. |
+| `reset` | Clear the active PR, runs, decisions, threads and status line when the conversation has moved on to unrelated work. Keeps reviewer roster and judge config. Use before switching away from PR review or before loading an unrelated PR if stale status would mislead the user. |
 | `summary` | User-facing "what's the state of this PR?" panel. Header + stack + threads + council + fix queue, composed from cached snapshots. Use when the user asks open questions like "where are we on this?" or comes back to a session after a break. Never fetches — if threads aren't cached the panel prompts to run `action=threads`. |
 | `council-config` | User wants to set or change the reviewer roster. Omit `reviewers` to load configured defaults. |
 | `council` | Round 1: fan out the roster. User said "run the review", "kick it off". |
@@ -111,6 +112,27 @@ and proceed.
 | "let's just ship what we have" | self-apply → post; promote remaining findings to comments |
 
 ## When to call what
+
+### Resetting or switching context
+
+PR workflow status is sticky by design while a PR review is in progress, but
+it must not pretend the user is still working on an old PR after the
+conversation moves on. When the user says they're done, asks how to turn the PR
+workflow off, or switches to unrelated work, call:
+
+```
+pr_workflow action=reset
+```
+
+`reset` clears the loaded PR, council/judge/critique runs, decisions, thread
+snapshots, stack state, fix queue source data and status-line indicator. It
+keeps the reviewer roster and judge config so the next review can reuse the
+same setup. After reset, do not call `summary`, `findings`, `threads`, `post` or
+fix actions until a new `load` happens.
+
+When moving directly from one unrelated PR to another, prefer `reset` first if
+there is any chance stale findings, fix queue counts or thread indexes would
+confuse the user, then call `load` for the new PR.
 
 ### Starting a session
 

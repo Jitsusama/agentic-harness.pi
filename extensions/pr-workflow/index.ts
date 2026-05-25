@@ -95,7 +95,7 @@ import {
 	runStackReviewAction,
 } from "./stack-review-action.js";
 import { formatStack, nextInStack, prevInStack } from "./stack-view.js";
-import { createPrWorkflowState } from "./state.js";
+import { createPrWorkflowState, resetPrWorkflowSession } from "./state.js";
 import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
 import { formatPrSummary } from "./summary.js";
 import {
@@ -316,6 +316,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			action: StringEnum(
 				[
 					"load",
+					"reset",
 					"status",
 					"council-config",
 					"council",
@@ -345,6 +346,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				{
 					description:
 						"load: attach a PR to the session. " +
+						"reset: clear the active PR, runs, decisions and status line while keeping reviewer config. " +
 						"status: report current workflow state. " +
 						"council-config: set the multi-model review roster; omit reviewers to use config-file defaults. " +
 						"council: run the configured roster against the loaded PR. " +
@@ -1623,6 +1625,26 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				return {
 					content: [{ type: "text", text }],
 					details: { ok: true },
+				};
+			}
+
+			if (params.action === "reset") {
+				const previous = state.pr
+					? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
+					: "none";
+				resetPrWorkflowSession(state);
+				clearPrStatusLine(ctx);
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								"PR workflow session reset. " +
+								`Previous PR: ${previous}. ` +
+								"Reviewer roster and judge config were kept.",
+						},
+					],
+					details: { ok: true, previousPr: previous },
 				};
 			}
 

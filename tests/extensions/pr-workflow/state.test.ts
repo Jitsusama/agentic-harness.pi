@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
+import {
+	createPrWorkflowState,
+	resetPrWorkflowSession,
+} from "../../../extensions/pr-workflow/state.js";
 
 describe("createPrWorkflowState", () => {
 	it("starts disengaged with no PR loaded", () => {
@@ -38,6 +41,57 @@ describe("createPrWorkflowState", () => {
 	it("starts with no locked participant identities", () => {
 		const state = createPrWorkflowState();
 		expect(state.participantIdentities.size).toBe(0);
+	});
+
+	it("resets PR workspace state while preserving reviewer config", () => {
+		const state = createPrWorkflowState();
+		state.active = true;
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 12 },
+			loadedAt: "2026-01-01T00:00:00Z",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+		state.council.roster = [{ id: "fast" }];
+		state.council.judge = { id: "judge" };
+		state.council.lastRun = {
+			id: "run",
+			startedAt: "2026-01-01T00:00:00Z",
+			target: { kind: "diff", prNumber: 12 },
+			reviewerOutputs: [],
+		};
+		state.council.decisions.set(1, {
+			findingId: 1,
+			verdict: "endorse",
+			decidedAt: "2026-01-01T00:00:00Z",
+		});
+		state.nextFindingId = 42;
+		state.stackFindingRun = {
+			id: "stack",
+			startedAt: "2026-01-01T00:00:00Z",
+			reviewerId: "judge",
+			findings: [],
+			warnings: [],
+		};
+		state.threads = {
+			prNumber: 12,
+			fetchedAt: "2026-01-01T00:00:00Z",
+			mutatedAt: null,
+			threads: [],
+		};
+
+		resetPrWorkflowSession(state);
+
+		expect(state.active).toBe(false);
+		expect(state.pr).toBeNull();
+		expect(state.council.roster).toEqual([{ id: "fast" }]);
+		expect(state.council.judge).toEqual({ id: "judge" });
+		expect(state.council.lastRun).toBeNull();
+		expect(state.council.decisions.size).toBe(0);
+		expect(state.nextFindingId).toBe(1);
+		expect(state.stackFindingRun).toBeNull();
+		expect(state.threads).toBeNull();
 	});
 
 	it("returns an independent state object on every call", () => {
