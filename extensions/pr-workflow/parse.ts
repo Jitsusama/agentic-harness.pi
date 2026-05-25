@@ -108,6 +108,9 @@ function extractJson(text: string): string | null {
 	// can legitimately mention ``` inside JSON strings, and
 	// a non-greedy fenced-block regex would truncate those
 	// otherwise valid payloads.
+	const trimmedStart = text.search(/\S/);
+	if (trimmedStart === -1) return null;
+	if (text[trimmedStart] === "{") return balancedObject(text, trimmedStart);
 	const fenceStart = text.indexOf("```json");
 	const searchStart = fenceStart === -1 ? 0 : fenceStart;
 	const objectStart = text.indexOf("{", searchStart);

@@ -24,6 +24,7 @@ const DEFAULT_MAX_LINE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_ASSISTANT_TEXT_BYTES = 512 * 1024;
 const DEFAULT_MAX_WARNINGS = 20;
 const WARNING_PREVIEW_CHARS = 80;
+const MAX_PENDING_VERIFY_CALLS = 8;
 
 /**
  * Incrementally parses a reviewer pi JSON stream without
@@ -146,8 +147,12 @@ export class ReviewerStreamParser {
 		const callId = typeof e.toolCallId === "string" ? e.toolCallId : "";
 		if (e.type === "tool_execution_start") {
 			const args = objectValue(e.args);
-			if (callId && args) this.pendingVerifyCalls.set(callId, args);
-			else this.lastUnkeyedVerifyArgs = args;
+			if (callId && args) {
+				this.pendingVerifyCalls.set(callId, args);
+				this.trimPendingVerifyCalls();
+			} else {
+				this.lastUnkeyedVerifyArgs = args;
+			}
 			return;
 		}
 		if (e.type !== "tool_execution_end") return;
@@ -174,6 +179,14 @@ export class ReviewerStreamParser {
 				? { output: normalizedVerifierOutput(args.output) }
 				: {}),
 		};
+	}
+
+	private trimPendingVerifyCalls(): void {
+		while (this.pendingVerifyCalls.size > MAX_PENDING_VERIFY_CALLS) {
+			const oldest = this.pendingVerifyCalls.keys().next().value;
+			if (oldest === undefined) return;
+			this.pendingVerifyCalls.delete(oldest);
+		}
 	}
 
 	private truncateAssistantText(text: string): string {

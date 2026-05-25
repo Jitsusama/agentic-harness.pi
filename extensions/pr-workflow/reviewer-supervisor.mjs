@@ -303,7 +303,13 @@ function captureVerification(event) {
 		ok,
 		...(typeof args.stage === "string" ? { stage: args.stage } : {}),
 		...(typeof details.count === "number" ? { count: details.count } : {}),
-		...(Array.isArray(details.warnings) ? { warnings: details.warnings } : {}),
+		...(Array.isArray(details.warnings)
+			? {
+					warnings: details.warnings.filter(
+						(warning) => typeof warning === "string",
+					),
+				}
+			: {}),
 		...(message ? { message } : {}),
 		...(ok && "output" in args
 			? { output: normalizedVerifierOutput(args.output) }

@@ -143,6 +143,25 @@ describe("loadReviewThreadPromptContext", () => {
 		expect(context.warning).not.toContain("local logs");
 		expect(state.threadContextWarning).toBe(context.warning);
 	});
+
+	it("redacts GitHub token prefixes from fetch failure warnings", async () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "x",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+
+		const context = await loadReviewThreadPromptContext(state, async () => {
+			throw new Error("failed with github_pat_1234567890 and ghr_abcdef123456");
+		});
+
+		expect(context.warning).toContain("[redacted-token]");
+		expect(context.warning).not.toContain("github_pat_");
+		expect(context.warning).not.toContain("ghr_");
+	});
 });
 
 describe("renderThreadRelation", () => {

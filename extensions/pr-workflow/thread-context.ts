@@ -237,7 +237,8 @@ function redactedFetchReason(error: unknown): string {
 
 function redactedMessage(message: string): string {
 	const cleaned = message
-		.replace(/gh[opsu]_[A-Za-z0-9_]+/g, "[redacted-token]")
+		.replace(/github_pat_[A-Za-z0-9_]+/g, "[redacted-token]")
+		.replace(/gh[opsur]_[A-Za-z0-9_]+/g, "[redacted-token]")
 		.replace(/secret[-_A-Za-z0-9]*/gi, "[redacted-secret]")
 		.replace(/token[-_A-Za-z0-9]*/gi, "[redacted-token]")
 		.replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
