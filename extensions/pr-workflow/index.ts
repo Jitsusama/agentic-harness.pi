@@ -852,6 +852,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							registry,
 							dispatch,
 							reviewContexts: reviewContextProviders,
+							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							progress,
 							fetchers: {
 								metadata: (reference) => fetchPrMetadata(pi, reference),

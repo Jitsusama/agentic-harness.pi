@@ -42,6 +42,11 @@ import {
 } from "./stack-review.js";
 import type { PrRunSnapshot, PrWorkflowState } from "./state.js";
 import type { FindingDecision } from "./synthesis.js";
+import {
+	loadReviewThreadPromptContextForReference,
+	type ReviewThreadPromptContext,
+	type ReviewThreadsFetcher,
+} from "./thread-context.js";
 import type { WorktreeRegistry } from "./worktree.js";
 
 /** Helpers needed to resolve non-cursor PR context. */
@@ -57,6 +62,7 @@ export interface RunStackReviewActionInput {
 	readonly dispatch: CouncilDispatch;
 	readonly fetchers: StackReviewFetchers;
 	readonly reviewContexts?: ReviewContextProviderBroker;
+	readonly fetchThreads?: ReviewThreadsFetcher;
 	readonly signal?: AbortSignal;
 	/** Optional observer for stack review fan-out and judge progress. */
 	readonly progress?: CouncilProgress;
@@ -89,6 +95,7 @@ interface ResolvedPr {
 	readonly reference: PRReference;
 	readonly metadata: PrMetadata;
 	readonly files: readonly DiffFile[];
+	readonly threadContext?: ReviewThreadPromptContext;
 }
 
 /** Run stack-wide review and write results into workflow state. */
@@ -138,7 +145,10 @@ export async function runStackReviewAction(
 		progressWarnings,
 	);
 
-	const resolved = await resolveStackPrs(state, input.fetchers);
+	const resolved = await attachThreadContexts(
+		await resolveStackPrs(state, input.fetchers),
+		input.fetchThreads,
+	);
 	const tip = resolved[resolved.length - 1];
 	if (!tip) {
 		safelyNotify(() => progress.finish(), "finish", progressWarnings);
@@ -523,17 +533,38 @@ async function resolveStackPrs(
 	);
 }
 
+async function attachThreadContexts(
+	prs: readonly ResolvedPr[],
+	fetchThreads: ReviewThreadsFetcher | undefined,
+): Promise<ResolvedPr[]> {
+	if (fetchThreads === undefined) return [...prs];
+	return Promise.all(
+		prs.map(async (pr) => ({
+			...pr,
+			threadContext: await loadReviewThreadPromptContextForReference(
+				pr.reference,
+				fetchThreads,
+			),
+		})),
+	);
+}
+
 function toPromptPr(pr: ResolvedPr): StackReviewPrInput {
 	return {
 		prNumber: pr.reference.number,
 		title: pr.metadata.title,
 		description: pr.metadata.body,
 		files: pr.files,
+		...(pr.threadContext ? { threadContext: pr.threadContext } : {}),
 	};
 }
 
 function toJudgePr(pr: ResolvedPr): StackJudgePrContext {
-	return { prNumber: pr.reference.number, title: pr.metadata.title };
+	return {
+		prNumber: pr.reference.number,
+		title: pr.metadata.title,
+		...(pr.threadContext ? { threadContext: pr.threadContext } : {}),
+	};
 }
 
 function nextIdAfterReviewer(

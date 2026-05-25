@@ -4,6 +4,7 @@ import {
 	loadReviewThreadPromptContext,
 	renderReviewThreadPromptContext,
 	renderThreadRelation,
+	renderThreadRelationForGithub,
 } from "../../../extensions/pr-workflow/thread-context.js";
 import type { ReviewThread } from "../../../extensions/pr-workflow/threads.js";
 
@@ -36,9 +37,33 @@ describe("renderReviewThreadPromptContext", () => {
 		expect(text).toContain("[T1] src/auth.ts:12");
 		expect(text).toContain("reviewer at 2026-01-01T00:00:00Z");
 		expect(text).toContain("auth bypass");
+		expect(text).toContain("untrusted user-authored evidence");
+		expect(text).toContain("```text");
 		expect(text).toContain("substantiate");
 		expect(text).toContain("disprove");
 		expect(text).toContain("amplify");
+	});
+
+	it("keeps the first comment and latest replies on long threads", () => {
+		const text = renderReviewThreadPromptContext({
+			threads: [
+				thread({
+					comments: Array.from({ length: 5 }, (_, index) => ({
+						id: `comment-${index + 1}`,
+						author: "reviewer",
+						body: `comment ${index + 1}`,
+						createdAt: `2026-01-0${index + 1}T00:00:00Z`,
+						url: `https://example.test/comment-${index + 1}`,
+					})),
+				}),
+			],
+		});
+
+		expect(text).toContain("comment 1");
+		expect(text).not.toContain("comment 2");
+		expect(text).not.toContain("comment 3");
+		expect(text).toContain("comment 4");
+		expect(text).toContain("comment 5");
 	});
 
 	it("surfaces fetch warnings without failing prompt rendering", () => {
@@ -70,6 +95,7 @@ describe("loadReviewThreadPromptContext", () => {
 		expect(context.threads).toHaveLength(1);
 		expect(state.threads?.prNumber).toBe(42);
 		expect(state.threads?.threads).toHaveLength(1);
+		expect(state.threadContextWarning).toBeNull();
 	});
 });
 
@@ -83,5 +109,20 @@ describe("renderThreadRelation", () => {
 			}),
 		).toBe("disputes [T3]: The caller now guards this path.");
 		expect(renderThreadRelation({ kind: "new" })).toBeNull();
+	});
+
+	it("renders stable GitHub-facing relations", () => {
+		expect(
+			renderThreadRelationForGithub(
+				{
+					kind: "supports-existing",
+					threadIndex: 1,
+					rationale: "The failing test confirms it.",
+				},
+				[thread()],
+			),
+		).toBe(
+			"supports existing review thread (https://example.test/comment): The failing test confirms it.",
+		);
 	});
 });

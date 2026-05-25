@@ -87,6 +87,7 @@ export function loadPr(
 	};
 	if (!sameReference(previousReference, reference)) {
 		state.threads = null;
+		state.threadContextWarning = null;
 	}
 	return { ok: true };
 }

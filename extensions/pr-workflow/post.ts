@@ -32,7 +32,7 @@ import type {
 import type { StackFinding } from "./stack-findings.js";
 import type { PrWorkflowState } from "./state.js";
 import type { FindingDecision } from "./synthesis.js";
-import { renderThreadRelation } from "./thread-context.js";
+import { renderThreadRelationForGithub } from "./thread-context.js";
 
 /** Review event sent to GitHub. */
 export type ReviewEvent = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
@@ -165,14 +165,7 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 			});
 			continue;
 		}
-		if (finding.threadRelation?.kind === "duplicates-existing") {
-			skipped.push({
-				findingId: finding.id,
-				reason: duplicateThreadReason(finding),
-			});
-			continue;
-		}
-		const body = renderCommentBody(finding, decision);
+		const body = renderCommentBody(state, finding, decision);
 		if (
 			finding.location.kind === "line" &&
 			(!validateInlineAnchors ||
@@ -190,7 +183,7 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 				finding.location.side === "old" ? "LEFT" : "RIGHT";
 			inline.push(comment);
 		} else {
-			bodyLines.push(renderBodyEntry(finding, decision));
+			bodyLines.push(renderBodyEntry(state, finding, decision));
 		}
 		includedFindingIds.push(finding.id);
 	}
@@ -225,7 +218,7 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 				});
 				continue;
 			}
-			bodyLines.push(renderStackBodyEntry(finding, decision));
+			bodyLines.push(renderStackBodyEntry(state, finding, decision));
 			includedStackFindingIds.push(finding.id);
 		}
 	}
@@ -247,6 +240,7 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
  * readers know what else the finding refers to.
  */
 function renderStackBodyEntry(
+	state: PrWorkflowState,
 	finding: StackFinding,
 	decision: FindingDecision,
 ): string {
@@ -271,6 +265,11 @@ function renderStackBodyEntry(
 	if (decision.verdict === "qualify") {
 		lines.push("");
 		lines.push(`> Qualifier: ${decision.note}`);
+	}
+	const relation = renderThreadRelationNote(state, finding);
+	if (relation !== null) {
+		lines.push("");
+		lines.push(relation);
 	}
 	const provenance = renderProvenance(finding.agreement);
 	if (provenance !== null) {
@@ -315,7 +314,7 @@ export async function postReviewAction(
 		};
 	}
 
-	let summary = renderSummary(input.state, payload, input.body);
+	let summary = renderSummary(input.state, payload, input.body, input.event);
 	if (input.gate) {
 		const outcome = await input.gate(
 			buildGateSummary(input.state, input.event, payload, summary),
@@ -404,6 +403,7 @@ function buildGateSummary(
 }
 
 function renderCommentBody(
+	state: PrWorkflowState,
 	finding: Finding,
 	decision: FindingDecision,
 ): string {
@@ -423,7 +423,7 @@ function renderCommentBody(
 		lines.push("");
 		lines.push(`> Qualifier: ${decision.note}`);
 	}
-	const relation = renderThreadRelationNote(finding);
+	const relation = renderThreadRelationNote(state, finding);
 	if (relation !== null) {
 		lines.push("");
 		lines.push(relation);
@@ -436,7 +436,11 @@ function renderCommentBody(
 	return lines.join("\n");
 }
 
-function renderBodyEntry(finding: Finding, decision: FindingDecision): string {
+function renderBodyEntry(
+	state: PrWorkflowState,
+	finding: Finding,
+	decision: FindingDecision,
+): string {
 	const subject = effectiveSubject(finding, decision);
 	const discussion = effectiveDiscussion(finding, decision);
 	const where = renderLocationForBody(finding.location);
@@ -456,7 +460,7 @@ function renderBodyEntry(finding: Finding, decision: FindingDecision): string {
 		lines.push("");
 		lines.push(`> Qualifier: ${decision.note}`);
 	}
-	const relation = renderThreadRelationNote(finding);
+	const relation = renderThreadRelationNote(state, finding);
 	if (relation !== null) {
 		lines.push("");
 		lines.push(relation);
@@ -518,13 +522,14 @@ function renderSummary(
 	state: PrWorkflowState,
 	payload: ReviewPayload,
 	prefix: string | undefined,
+	event: ReviewEvent,
 ): string {
 	const lines: string[] = [];
 	if (prefix !== undefined && prefix.trim().length > 0) {
 		lines.push(prefix.trim());
 		lines.push("");
 	}
-	lines.push(renderReviewVerdictIntro(state, payload));
+	lines.push(renderReviewVerdictIntro(state, payload, event));
 	if (payload.body.length > 0) {
 		lines.push("");
 		lines.push(payload.body);
@@ -535,14 +540,15 @@ function renderSummary(
 function renderReviewVerdictIntro(
 	state: PrWorkflowState,
 	payload: ReviewPayload,
+	event: ReviewEvent,
 ): string {
 	const findings = includedFindings(state, payload);
-	const verdict = reviewVerdict(findings);
+	const verdict = reviewVerdict(findings, event);
 	const count = findings.length;
 	const noun = count === 1 ? "finding" : "findings";
 	const placement = renderCommentPlacement(payload);
-	const priority = renderPrioritySentence(findings);
-	const threads = renderThreadContextSentence(state, payload, findings);
+	const priority = verdict === "PASS" ? "" : renderPrioritySentence(findings);
+	const threads = renderThreadContextSentence(state, findings);
 	return [
 		`**${verdict}:** I'm posting ${count} ${noun}${placement}.`,
 		priority,
@@ -576,14 +582,23 @@ function includedFindings(
 	];
 }
 
-function reviewVerdict(findings: readonly Finding[]): string {
+function reviewVerdict(
+	findings: readonly Finding[],
+	event: ReviewEvent,
+): string {
+	if (event === "APPROVE") return "PASS";
+	if (event === "REQUEST_CHANGES") {
+		return findings.some((finding) => finding.severity === "critical")
+			? "BLOCK"
+			: "NEEDS REVIEW";
+	}
 	if (findings.some((finding) => finding.severity === "critical")) {
 		return "BLOCK";
 	}
 	if (findings.some((finding) => finding.severity === "medium")) {
 		return "NEEDS REVIEW";
 	}
-	return "GO WITH FIXES";
+	return findings.some(isActionableFinding) ? "GO WITH FIXES" : "PASS";
 }
 
 function renderCommentPlacement(payload: ReviewPayload): string {
@@ -606,18 +621,13 @@ function renderPrioritySentence(findings: readonly Finding[]): string {
 
 function renderThreadContextSentence(
 	state: PrWorkflowState,
-	payload: ReviewPayload,
 	findings: readonly Finding[],
 ): string {
-	const related = findings
-		.map((finding) => finding.threadRelation?.threadIndex)
-		.filter((index): index is number => typeof index === "number");
-	const duplicateRefs = duplicateThreadRefs(payload);
-	if (related.length > 0) {
-		return `I related this to existing ${formatThreadRefs(related)} instead of starting from scratch.`;
+	if (state.threadContextWarning !== null) {
+		return `Thread context warning: ${state.threadContextWarning}`;
 	}
-	if (duplicateRefs.length > 0) {
-		return `I skipped duplicate candidates already covered by ${formatThreadRefs(duplicateRefs)}.`;
+	if (findings.some((finding) => finding.threadRelation !== undefined)) {
+		return "I related this to existing review threads instead of starting from scratch.";
 	}
 	if ((state.threads?.threads.length ?? 0) > 0) {
 		return "I checked the existing review threads and avoided repeating them.";
@@ -625,16 +635,8 @@ function renderThreadContextSentence(
 	return "";
 }
 
-function duplicateThreadRefs(payload: ReviewPayload): number[] {
-	return payload.skipped.flatMap((entry) => {
-		const match = entry.reason.match(/\[T(\d+)\]/);
-		return match === null ? [] : [Number(match[1])];
-	});
-}
-
-function formatThreadRefs(indexes: readonly number[]): string {
-	const unique = [...new Set(indexes)].sort((a, b) => a - b);
-	return unique.map((index) => `[T${index}]`).join(", ");
+function isActionableFinding(finding: Finding): boolean {
+	return ["issue", "todo", "suggestion", "question"].includes(finding.label);
 }
 
 function countBodyFindings(payload: ReviewPayload): number {
@@ -662,14 +664,14 @@ function effectiveDiscussion(
 	return finding.discussion;
 }
 
-function duplicateThreadReason(finding: Finding): string {
-	const relation = renderThreadRelation(finding.threadRelation);
-	return relation === null ? "duplicates existing thread" : relation;
-}
-
-function renderThreadRelationNote(finding: Finding): string | null {
-	if (finding.threadRelation?.kind === "new") return null;
-	const relation = renderThreadRelation(finding.threadRelation);
+function renderThreadRelationNote(
+	state: PrWorkflowState,
+	finding: Finding,
+): string | null {
+	const relation = renderThreadRelationForGithub(
+		finding.threadRelation,
+		state.threads?.threads,
+	);
 	return relation === null ? null : `_Thread context: ${relation}_`;
 }
 

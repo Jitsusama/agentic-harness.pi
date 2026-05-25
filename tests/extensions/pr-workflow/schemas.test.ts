@@ -190,6 +190,18 @@ describe("ThreadRelation", () => {
 		).toBe(true);
 	});
 
+	it("rejects existing-thread relations without a thread index", () => {
+		expect(
+			Value.Check(ThreadRelation, {
+				kind: "duplicates-existing",
+			}),
+		).toBe(false);
+	});
+
+	it("accepts new relations without a thread index", () => {
+		expect(Value.Check(ThreadRelation, { kind: "new" })).toBe(true);
+	});
+
 	it("rejects unknown relation kinds", () => {
 		expect(
 			Value.Check(ThreadRelation, {

@@ -90,12 +90,25 @@ export const ThreadRelationKind = Type.Union([
 ]);
 export type ThreadRelationKind = Static<typeof ThreadRelationKind>;
 
+const ExistingThreadRelationKind = Type.Union([
+	Type.Literal("duplicates-existing"),
+	Type.Literal("supports-existing"),
+	Type.Literal("disputes-existing"),
+	Type.Literal("amplifies-existing"),
+]);
+
 /** Optional metadata tying a finding to an existing review thread. */
-export const ThreadRelation = Type.Object({
-	kind: ThreadRelationKind,
-	threadIndex: Type.Optional(Type.Integer({ minimum: 1 })),
-	rationale: Type.Optional(Type.String({ minLength: 1 })),
-});
+export const ThreadRelation = Type.Union([
+	Type.Object({
+		kind: Type.Literal("new"),
+		rationale: Type.Optional(Type.String({ minLength: 1 })),
+	}),
+	Type.Object({
+		kind: ExistingThreadRelationKind,
+		threadIndex: Type.Integer({ minimum: 1 }),
+		rationale: Type.Optional(Type.String({ minLength: 1 })),
+	}),
+]);
 export type ThreadRelation = Static<typeof ThreadRelation>;
 
 /** Where a finding points to. A three-variant discriminated union. */
@@ -237,6 +250,7 @@ export const StackCrossFinding = Type.Object({
 	discussion: Type.String({ minLength: 1 }),
 	severity: Type.Optional(FindingSeverity),
 	confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+	threadRelation: Type.Optional(ThreadRelation),
 	homePrNumber: Type.Integer({ minimum: 1 }),
 	spans: Type.Array(Type.Integer({ minimum: 1 }), { minItems: 1 }),
 });
@@ -273,6 +287,7 @@ export const StackJudgeCrossFinding = Type.Object({
 	discussion: Type.String({ minLength: 1 }),
 	severity: Type.Optional(FindingSeverity),
 	confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+	threadRelation: Type.Optional(ThreadRelation),
 	homePrNumber: Type.Integer({ minimum: 1 }),
 	spans: Type.Array(Type.Integer({ minimum: 1 }), { minItems: 1 }),
 	raisedBy: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),

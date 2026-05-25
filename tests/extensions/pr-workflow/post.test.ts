@@ -535,7 +535,7 @@ describe("buildReviewPayload", () => {
 		expect(payload.comments[0].body).toContain("skeptic");
 	});
 
-	it("skips findings that only duplicate an existing review thread", async () => {
+	it("does not let duplicate thread metadata override a user decision", async () => {
 		const state = createPrWorkflowState();
 		state.council.lastJudge = judge([
 			lineFinding(10, "Already covered", {
@@ -554,14 +554,9 @@ describe("buildReviewPayload", () => {
 
 		const payload = buildReviewPayload(state);
 
-		expect(payload.comments).toEqual([]);
-		expect(payload.includedFindingIds).toEqual([]);
-		expect(payload.skipped).toEqual([
-			{
-				findingId: 10,
-				reason: "duplicates [T2]: The existing thread covers the same bug.",
-			},
-		]);
+		expect(payload.comments).toHaveLength(1);
+		expect(payload.includedFindingIds).toEqual([10]);
+		expect(payload.skipped).toEqual([]);
 	});
 
 	it("keeps thread relation notes when a finding adds evidence to a thread", async () => {
@@ -584,8 +579,9 @@ describe("buildReviewPayload", () => {
 		const payload = buildReviewPayload(state);
 
 		expect(payload.comments[0].body).toContain(
-			"_Thread context: amplifies [T3]: The existing thread misses the rollback failure._",
+			"_Thread context: amplifies existing review thread: The existing thread misses the rollback failure._",
 		);
+		expect(payload.comments[0].body).not.toContain("[T3]");
 	});
 });
 
@@ -737,6 +733,35 @@ describe("postReviewAction", () => {
 		expect(arg.body).not.toContain("Council review");
 		expect(arg.body).not.toContain("Judge self-signal");
 		expect(arg.body).not.toContain("skipped");
+	});
+
+	it("keeps the summary verdict aligned with the GitHub review event", async () => {
+		const state = withJudgeAndDecision();
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+
+		await postReviewAction({ state, event: "APPROVE", exec });
+
+		let arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(arg.body).toContain("**PASS:**");
+		expect(arg.body).not.toContain("GO WITH FIXES");
+
+		await postReviewAction({ state, event: "REQUEST_CHANGES", exec });
+
+		arg = (exec as ReturnType<typeof vi.fn>).mock.calls[1][0];
+		expect(arg.body).toContain("**NEEDS REVIEW:**");
+	});
+
+	it("surfaces thread context fetch warnings in the review body", async () => {
+		const state = withJudgeAndDecision();
+		state.threadContextWarning =
+			"Existing review threads could not be fetched.";
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+
+		await postReviewAction({ state, event: "COMMENT", exec });
+
+		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(arg.body).toContain("Thread context warning");
+		expect(arg.body).toContain("could not be fetched");
 	});
 
 	it("puts unanchored fallback findings below a short explanation", async () => {
