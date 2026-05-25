@@ -389,6 +389,33 @@ describe("formatCouncilSummary", () => {
 		expect(text).toContain("exit 1");
 	});
 
+	it("shows reviewer verification state when it is available", async () => {
+		const run: CouncilRun = {
+			id: "council-1",
+			startedAt: "2026-01-01T00:00:00Z",
+			target: { kind: "diff", prNumber: 42 },
+			reviewerOutputs: [
+				{
+					reviewerId: "fast",
+					findings: [],
+					warnings: [],
+					verification: { called: true, ok: true, count: 0 },
+				},
+				{
+					reviewerId: "skeptic",
+					findings: [],
+					warnings: [],
+					verification: { called: true, ok: false },
+				},
+			],
+		};
+
+		const text = formatCouncilSummary(run);
+
+		expect(text).toContain("fast — 0 findings — verified ✓");
+		expect(text).toContain("skeptic — 0 findings — verification failed");
+	});
+
 	it("surfaces a retry hint for reviewers that came back empty with warnings", async () => {
 		// Empty-with-warnings is the classic 'reviewer
 		// crashed' shape; the user usually wants to retry

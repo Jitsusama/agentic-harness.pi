@@ -141,7 +141,7 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 		"Before you finish your run, call the `verify_output` tool with " +
 			'stage: "council" and `output` set to the object you intend to emit. ' +
 			"The tool returns `ok: true` with the parsed finding count, or `ok: false` " +
-			"with a list of {path, message} errors. If errors are reported, fix the " +
+			"with a list of {path, message, hint} errors. If errors are reported, fix the " +
 			"offending fields and call `verify_output` again. Only emit your final " +
 			"fenced JSON block (and end the run) once the verifier returns `ok: true`. " +
 			"If the verifier keeps reporting the same error after three attempts, " +

@@ -1,4 +1,8 @@
-import type { ReviewerUsage, RunPiStreamEvent } from "./reviewer.js";
+import type {
+	ReviewerUsage,
+	ReviewerVerification,
+	RunPiStreamEvent,
+} from "./reviewer.js";
 
 /** Limits that keep reviewer stream parsing bounded in memory. */
 export interface ReviewerStreamLimits {
@@ -13,12 +17,14 @@ export interface ReviewerStreamResult {
 	readonly usage?: ReviewerUsage;
 	readonly warnings: readonly string[];
 	readonly truncated: boolean;
+	readonly verification?: ReviewerVerification;
 }
 
 const DEFAULT_MAX_LINE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_ASSISTANT_TEXT_BYTES = 512 * 1024;
 const DEFAULT_MAX_WARNINGS = 20;
 const WARNING_PREVIEW_CHARS = 80;
+const MAX_PENDING_VERIFY_CALLS = 8;
 
 /**
  * Incrementally parses a reviewer pi JSON stream without
@@ -32,6 +38,12 @@ export class ReviewerStreamParser {
 	private usage: ReviewerUsage | undefined;
 	private readonly warnings: string[] = [];
 	private truncated = false;
+	private verification: ReviewerVerification | undefined;
+	private readonly pendingVerifyCalls = new Map<
+		string,
+		Record<string, unknown>
+	>();
+	private lastUnkeyedVerifyArgs: Record<string, unknown> | undefined;
 
 	constructor(limits: Partial<ReviewerStreamLimits> = {}) {
 		this.limits = {
@@ -72,6 +84,7 @@ export class ReviewerStreamParser {
 			...(this.usage ? { usage: this.usage } : {}),
 			warnings: [...this.warnings],
 			truncated: this.truncated,
+			...(this.verification ? { verification: this.verification } : {}),
 		};
 	}
 
@@ -112,6 +125,7 @@ export class ReviewerStreamParser {
 		}
 		if (typeof event !== "object" || event === null) return null;
 		this.captureAssistantMessage(event);
+		this.captureVerification(event);
 		return event as RunPiStreamEvent;
 	}
 
@@ -124,6 +138,55 @@ export class ReviewerStreamParser {
 		}
 		const usage = readUsage(message);
 		if (usage !== undefined) this.usage = usage;
+	}
+
+	private captureVerification(event: unknown): void {
+		if (typeof event !== "object" || event === null) return;
+		const e = event as Record<string, unknown>;
+		if (e.toolName !== "verify_output") return;
+		const callId = typeof e.toolCallId === "string" ? e.toolCallId : "";
+		if (e.type === "tool_execution_start") {
+			const args = objectValue(e.args);
+			if (callId && args) {
+				this.pendingVerifyCalls.set(callId, args);
+				this.trimPendingVerifyCalls();
+			} else {
+				this.lastUnkeyedVerifyArgs = args;
+			}
+			return;
+		}
+		if (e.type !== "tool_execution_end") return;
+		const args =
+			(callId ? this.pendingVerifyCalls.get(callId) : undefined) ??
+			objectValue(e.args) ??
+			this.lastUnkeyedVerifyArgs ??
+			{};
+		if (callId) this.pendingVerifyCalls.delete(callId);
+		else this.lastUnkeyedVerifyArgs = undefined;
+		const result = objectValue(e.result) ?? {};
+		const details = objectValue(result.details) ?? {};
+		const ok = details.ok === true;
+		this.verification = {
+			called: true,
+			ok,
+			...(typeof args.stage === "string" ? { stage: args.stage } : {}),
+			...(typeof details.count === "number" ? { count: details.count } : {}),
+			...(Array.isArray(details.warnings)
+				? { warnings: details.warnings.filter(isString) }
+				: {}),
+			...(verifierMessage(result) ? { message: verifierMessage(result) } : {}),
+			...(ok && "output" in args
+				? { output: normalizedVerifierOutput(args.output) }
+				: {}),
+		};
+	}
+
+	private trimPendingVerifyCalls(): void {
+		while (this.pendingVerifyCalls.size > MAX_PENDING_VERIFY_CALLS) {
+			const oldest = this.pendingVerifyCalls.keys().next().value;
+			if (oldest === undefined) return;
+			this.pendingVerifyCalls.delete(oldest);
+		}
 	}
 
 	private truncateAssistantText(text: string): string {
@@ -158,6 +221,36 @@ export function extractUsageFromPiStream(
 	const parser = new ReviewerStreamParser({ maxWarnings: 0 });
 	parser.ingestChunk(stdout);
 	return parser.finish().usage;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+	return typeof value === "object" && value !== null
+		? (value as Record<string, unknown>)
+		: undefined;
+}
+
+function verifierMessage(result: Record<string, unknown>): string {
+	const content = Array.isArray(result.content) ? result.content : [];
+	for (const part of content) {
+		if (typeof part !== "object" || part === null) continue;
+		const text = (part as Record<string, unknown>).text;
+		if (typeof text === "string") return text;
+	}
+	return "";
+}
+
+function normalizedVerifierOutput(output: unknown): unknown {
+	if (typeof output !== "string") return output;
+	try {
+		return JSON.parse(output);
+	} catch {
+		// Keep the original verifier argument when it is not JSON.
+		return output;
+	}
+}
+
+function isString(value: unknown): value is string {
+	return typeof value === "string";
 }
 
 function readAssistantMessage(event: unknown): Record<string, unknown> | null {

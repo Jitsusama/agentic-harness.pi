@@ -137,6 +137,7 @@ export async function runOneCouncilReviewer(
 			cwd: handle.path,
 			runId: options.runId,
 			signal: options.signal,
+			expectedVerificationStage: "council",
 		});
 		const parsed = parseReviewerOutput(value.finalAssistantText, {
 			reviewerId: options.reviewer.id,
@@ -148,6 +149,7 @@ export async function runOneCouncilReviewer(
 			findings: parsed.findings,
 			warnings: [...value.warnings, ...parsed.warnings],
 			...(value.usage ? { usage: value.usage } : {}),
+			...(value.verification ? { verification: value.verification } : {}),
 		};
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -225,6 +227,7 @@ export async function runCouncil(
 					cwd: handle.path,
 					runId: options.runId,
 					signal: options.signal,
+					expectedVerificationStage: "council",
 					onEvent,
 				});
 				const parsed = parseReviewerOutput(value.finalAssistantText, {
@@ -297,6 +300,7 @@ export async function runCouncil(
 			findings: parsed.findings,
 			warnings: [...value.warnings, ...parsed.warnings],
 			...(value.usage ? { usage: value.usage } : {}),
+			...(value.verification ? { verification: value.verification } : {}),
 		};
 		reviewerOutputs.push(output);
 	}

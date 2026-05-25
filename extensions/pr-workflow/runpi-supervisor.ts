@@ -44,6 +44,7 @@ interface SupervisorResultFile {
 	readonly usage?: RunPiResult["usage"];
 	readonly warnings?: readonly string[];
 	readonly stderrTail?: string;
+	readonly verification?: RunPiResult["verification"];
 	readonly artifacts?: RunPiResult["artifacts"];
 }
 
@@ -175,6 +176,9 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 							...(result.usage ? { usage: result.usage } : {}),
 							warnings: [...warnings, ...(result.warnings ?? [])],
 							stderrTail: result.stderrTail ?? stderrTail,
+							...(result.verification
+								? { verification: result.verification }
+								: {}),
 							...(result.artifacts ? { artifacts: result.artifacts } : {}),
 						};
 					}

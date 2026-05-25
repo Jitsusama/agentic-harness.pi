@@ -91,6 +91,56 @@ describe("parseReviewerOutput", () => {
 		expect(result.warnings).toEqual([]);
 	});
 
+	it("parses canonical plain JSON whose strings contain nested json fences", () => {
+		const text = JSON.stringify({
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "Nested json fence",
+					discussion: 'This mentions ```json {"x":1} ``` inside JSON.',
+				},
+			],
+		});
+
+		const result = parseReviewerOutput(text, {
+			reviewerId: "r1",
+			runId: "run-1",
+			startId: 1,
+		});
+
+		expect(result.warnings).toEqual([]);
+		expect(result.findings).toHaveLength(1);
+		expect(result.findings[0].discussion).toContain("```json");
+	});
+
+	it("parses fenced JSON whose strings contain nested code fences", () => {
+		const text = [
+			"```json",
+			JSON.stringify({
+				findings: [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "Nested fence",
+						discussion: "This mentions ```inside``` the JSON string.",
+					},
+				],
+			}),
+			"```",
+		].join("\n");
+
+		const result = parseReviewerOutput(text, {
+			reviewerId: "r1",
+			runId: "run-1",
+			startId: 1,
+		});
+
+		expect(result.warnings).toEqual([]);
+		expect(result.findings).toHaveLength(1);
+		expect(result.findings[0].discussion).toContain("```inside```");
+	});
+
 	it("issues sequential ids starting from startId", () => {
 		// The session keeps a monotonic id sequence so
 		// findings can be referenced by number later. The

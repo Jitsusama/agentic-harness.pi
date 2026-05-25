@@ -24,8 +24,11 @@ const startedAt = new Date().toISOString();
 const warnings = [];
 let finalAssistantText = "";
 let usage;
+let verification;
 let stderrTail = "";
 let stdoutBuffer = "";
+const pendingVerifyCalls = new Map();
+let lastUnkeyedVerifyArgs;
 let discardingOversizedLine = false;
 let child = null;
 let stoppedBy = null;
@@ -146,6 +149,7 @@ async function ingestLine(line) {
 		return;
 	}
 	captureAssistantMessage(event);
+	captureVerification(event);
 	const activity = summarizeActivity(event);
 	if (activity) {
 		await writeJsonAtomic(
@@ -225,8 +229,9 @@ async function finish(state, exitCode) {
 		reviewerId: request.reviewerId,
 		state,
 		exitCode,
-		finalAssistantText,
+		finalAssistantText: finalTextForResult(),
 		usage,
+		verification: verificationWithoutOutput(verification),
 		warnings,
 		stderrTail,
 		startedAt,
@@ -266,6 +271,112 @@ function captureAssistantMessage(event) {
 		finalAssistantText = truncateBytes(text, request.maxAssistantTextBytes);
 	const nextUsage = readUsage(message);
 	if (nextUsage !== undefined) usage = nextUsage;
+}
+
+function captureVerification(event) {
+	if (!event || typeof event !== "object") return;
+	const toolName = typeof event.toolName === "string" ? event.toolName : "";
+	if (toolName !== "verify_output") return;
+	const callId = typeof event.toolCallId === "string" ? event.toolCallId : "";
+	if (event.type === "tool_execution_start") {
+		const args = objectValue(event.args);
+		if (callId) {
+			pendingVerifyCalls.set(callId, args);
+			trimPendingVerifyCalls();
+		} else {
+			lastUnkeyedVerifyArgs = args;
+		}
+		return;
+	}
+	if (event.type !== "tool_execution_end") return;
+	const rawArgs = callId ? pendingVerifyCalls.get(callId) : undefined;
+	const args =
+		rawArgs ?? objectValue(event.args) ?? lastUnkeyedVerifyArgs ?? {};
+	if (callId) pendingVerifyCalls.delete(callId);
+	else lastUnkeyedVerifyArgs = undefined;
+	const result = objectValue(event.result) ?? {};
+	const details = objectValue(result.details) ?? {};
+	const message = verifierMessage(result);
+	const ok = details.ok === true;
+	verification = {
+		called: true,
+		ok,
+		...(typeof args.stage === "string" ? { stage: args.stage } : {}),
+		...(typeof details.count === "number" ? { count: details.count } : {}),
+		...(Array.isArray(details.warnings)
+			? {
+					warnings: details.warnings.filter(
+						(warning) => typeof warning === "string",
+					),
+				}
+			: {}),
+		...(message ? { message } : {}),
+		...(ok && "output" in args
+			? { output: normalizedVerifierOutput(args.output) }
+			: {}),
+	};
+}
+
+function objectValue(value) {
+	return value && typeof value === "object" ? value : undefined;
+}
+
+function trimPendingVerifyCalls() {
+	const maxPendingVerifyCalls = 8;
+	while (pendingVerifyCalls.size > maxPendingVerifyCalls) {
+		const oldest = pendingVerifyCalls.keys().next().value;
+		if (oldest === undefined) return;
+		pendingVerifyCalls.delete(oldest);
+	}
+}
+
+function verifierMessage(result) {
+	const content = Array.isArray(result.content) ? result.content : [];
+	for (const part of content) {
+		if (part && typeof part === "object" && typeof part.text === "string") {
+			return part.text;
+		}
+	}
+	return "";
+}
+
+function finalTextForResult() {
+	if (!verification?.ok) return finalAssistantText;
+	if (!("output" in verification)) {
+		verification = {
+			...verification,
+			ok: false,
+			message:
+				"verify_output returned ok: true but the verified payload was not captured.",
+		};
+		return "";
+	}
+	const text = JSON.stringify(verification.output, null, 2);
+	if (Buffer.byteLength(text) > request.maxAssistantTextBytes) {
+		const message = `Reviewer verified output exceeded ${request.maxAssistantTextBytes} bytes; ignored`;
+		warn(message);
+		verification = { ...verification, ok: false, message };
+		return "";
+	}
+	verification = { ...verification, canonicalText: true };
+	return text;
+}
+
+function verificationWithoutOutput(value) {
+	if (!value || typeof value !== "object" || !("output" in value)) return value;
+	const { output: _output, ...rest } = value;
+	return rest;
+}
+
+function normalizedVerifierOutput(output) {
+	if (typeof output !== "string") return output;
+	try {
+		return JSON.parse(output);
+	} catch {
+		// If the verifier accepted a non-JSON string for some future stage,
+		// keep the original value instead of failing the supervisor result.
+		return output;
+	}
 }
 
 function assistantMessage(event) {

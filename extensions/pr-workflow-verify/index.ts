@@ -34,8 +34,10 @@ export default function (pi: ExtensionAPI) {
 			"named stage (council, judge, critique, stack-review, or " +
 			"stack-judge). Returns " +
 			"ok: true with the parsed item count, or ok: false with a list of " +
-			"{path, message} errors. Call this before ending your run; if " +
-			"errors are reported, fix your output and call again until ok: true.",
+			"{path, message, hint} errors. Pass output as the object itself; " +
+			"stringified JSON is parsed with a warning so you can recover. Call " +
+			"this before ending your run; if errors are reported, fix your " +
+			"output and call again until ok: true.",
 		parameters: Type.Object({
 			stage: Type.Union(
 				[
@@ -58,21 +60,25 @@ export default function (pi: ExtensionAPI) {
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const result = validateOutput(params.stage, params.output);
 			if (result.ok) {
+				const lines = [
+					`ok: true. ${result.count} item${result.count === 1 ? "" : "s"} passed schema for stage=${params.stage}.`,
+					...renderWarnings(result.warnings),
+				];
 				return {
-					content: [
-						{
-							type: "text",
-							text: `ok: true. ${result.count} item${result.count === 1 ? "" : "s"} passed schema for stage=${params.stage}.`,
-						},
-					],
+					content: [{ type: "text", text: lines.join("\n") }],
 					details: result,
 				};
 			}
 			const lines = [
 				`ok: false. ${result.errors.length} error${result.errors.length === 1 ? "" : "s"} against stage=${params.stage}:`,
-				...result.errors.map(
-					(e) => `  ${e.path === "" ? "(root)" : e.path}: ${e.message}`,
-				),
+				...renderWarnings(result.warnings),
+				...result.errors.flatMap((e) => {
+					const path = e.path === "" ? "(root)" : e.path;
+					const rows = [`  ${path}: ${e.message}`];
+					if (e.hint) rows.push(`    fix: ${e.hint}`);
+					return rows;
+				}),
+				"Call verify_output again with the corrected object before emitting your final JSON block.",
 			];
 			return {
 				content: [{ type: "text", text: lines.join("\n") }],
@@ -81,4 +87,8 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 	});
+}
+
+function renderWarnings(warnings: readonly string[] | undefined): string[] {
+	return (warnings ?? []).map((warning) => `warning: ${warning}`);
 }

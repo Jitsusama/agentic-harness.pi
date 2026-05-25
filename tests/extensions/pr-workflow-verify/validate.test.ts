@@ -32,6 +32,39 @@ describe("validateOutput", () => {
 		}
 	});
 
+	it("parses stringified JSON with an actionable warning", () => {
+		const result = validateOutput(
+			"council",
+			JSON.stringify({
+				findings: [
+					{
+						location: { kind: "global" },
+						label: "note",
+						subject: "x",
+						discussion: "y",
+					},
+				],
+			}),
+		);
+
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.count).toBe(1);
+			expect(result.warnings?.[0]).toContain("object itself");
+		}
+	});
+
+	it("explains stringified JSON parse failures in repairable terms", () => {
+		const result = validateOutput("council", '{"findings": [');
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toBe("/output");
+			expect(result.errors[0].message).toContain("JSON.parse failed");
+			expect(result.errors[0].hint).toContain("pass the object directly");
+		}
+	});
+
 	it("returns ok: false with locatable errors for an invalid payload", () => {
 		// The subagent needs error rows it can act on:
 		// each error carries an instancePath pointing at
@@ -51,6 +84,42 @@ describe("validateOutput", () => {
 			expect(result.errors.length).toBeGreaterThan(0);
 			expect(
 				result.errors.some((e) => e.path.includes("subject") && e.message),
+			).toBe(true);
+		}
+	});
+
+	it("rejects whitespace-only text that parent parsers would drop", () => {
+		const result = validateOutput("critique", {
+			critiques: [{ findingId: 1, position: "agree", rationale: "   " }],
+		});
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0]).toMatchObject({
+				path: "/critiques/0/rationale",
+				message: "must contain non-whitespace text",
+			});
+		}
+	});
+
+	it("reports the nested value type for schema failures", () => {
+		const result = validateOutput("council", {
+			findings: [
+				{
+					location: "global",
+					label: "issue",
+					subject: "x",
+					discussion: "y",
+				},
+			],
+		});
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(
+				result.errors.some((error) =>
+					error.message.includes("received string"),
+				),
 			).toBe(true);
 		}
 	});
@@ -89,6 +158,21 @@ describe("validateOutput", () => {
 			],
 		});
 		expect(result.ok).toBe(true);
+	});
+
+	it("rejects blank judge self-signal rationales", () => {
+		const result = validateOutput("judge", {
+			selfSignal: { confidence: "high", rationale: "   " },
+			findings: [],
+		});
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0]).toMatchObject({
+				path: "/selfSignal/rationale",
+				message: "must contain non-whitespace text",
+			});
+		}
 	});
 
 	it("validates a critique payload using the critique schema", () => {

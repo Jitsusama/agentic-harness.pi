@@ -12,12 +12,14 @@
 import { Value } from "@sinclair/typebox/value";
 import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
 import type { Finding, FindingLocation } from "./findings.js";
+import { extractJson } from "./parse.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import {
 	reviewQualityStandard,
 	stackReviewDiscoveryStandard,
 	stackReviewSynthesisStandard,
 } from "./review-quality-standard.js";
+import type { ReviewerVerification } from "./reviewer.js";
 import {
 	CouncilFinding,
 	type CouncilFinding as CouncilFindingType,
@@ -61,6 +63,8 @@ export interface StackReviewerOutput {
 	readonly perPr: Map<number, Finding[]>;
 	readonly crossPr: StackFinding[];
 	readonly warnings: string[];
+	/** Result of this reviewer's verify_output calls, when observed. */
+	readonly verification?: ReviewerVerification;
 }
 
 /** Caller-supplied context for stack-review parsing. */
@@ -159,8 +163,10 @@ export function buildStackReviewPrompt(
 	sections.push(
 		"Before you finish your run, call the `verify_output` tool with " +
 			'stage: "stack-review" and `output` set to the object you intend ' +
-			"to emit. Fix any reported errors, verify again, then emit the final " +
-			"fenced JSON block.",
+			"to emit. The tool returns `ok: true` with the parsed item count, " +
+			"or `ok: false` with a list of {path, message, hint} errors. " +
+			"Fix any reported errors, verify again, then emit the final fenced " +
+			"JSON block.",
 	);
 	return sections.join("\n\n");
 }
@@ -212,8 +218,10 @@ export function buildStackJudgePrompt(
 	sections.push(
 		"Before you finish your run, call the `verify_output` tool with " +
 			'stage: "stack-judge" and `output` set to the object you intend ' +
-			"to emit. Fix any reported errors, verify again, then emit the final " +
-			"fenced JSON block.",
+			"to emit. The tool returns `ok: true` with the parsed item count, " +
+			"or `ok: false` with a list of {path, message, hint} errors. " +
+			"Fix any reported errors, verify again, then emit the final fenced " +
+			"JSON block.",
 	);
 	return sections.join("\n\n");
 }
@@ -611,14 +619,6 @@ function liftAgreement(
 	const sids = sourceFindingIds ?? [];
 	if (rb.length === 0 && sids.length === 0) return null;
 	return { raisedBy: [...rb], sourceFindingIds: [...sids] };
-}
-
-function extractJson(text: string): string | null {
-	const fenced = text.match(/```json\s*\n([\s\S]*?)```/);
-	if (fenced) return fenced[1].trim();
-	const objectStart = text.indexOf("{");
-	if (objectStart === -1) return null;
-	return text.slice(objectStart);
 }
 
 function parseJson(

@@ -102,17 +102,57 @@ export function parseReviewerOutput(
 	return { findings, warnings };
 }
 
-function extractJson(text: string): string | null {
-	// Prefer fenced ```json blocks since they're the
-	// instructed format. Fall back to the first balanced
-	// object so plain JSON responses still parse.
-	const fenced = text.match(/```json\s*\n([\s\S]*?)```/);
-	if (fenced) {
-		return fenced[1].trim();
-	}
-	const objectStart = text.indexOf("{");
+/**
+ * Extract the first balanced JSON object from reviewer text.
+ *
+ * Prefer a top-level plain JSON object when present, then fall back to the
+ * first object inside or after a ```json fence. The scanner tracks JSON string
+ * state so fence markers or braces quoted inside finding discussions do not
+ * truncate an otherwise valid payload.
+ */
+export function extractJson(text: string): string | null {
+	// Scan for the first balanced JSON object rather than
+	// trusting markdown fence delimiters. Finding discussions
+	// can legitimately mention ``` inside JSON strings, and
+	// a non-greedy fenced-block regex would truncate those
+	// otherwise valid payloads.
+	const trimmedStart = text.search(/\S/);
+	if (trimmedStart === -1) return null;
+	if (text[trimmedStart] === "{") return balancedObject(text, trimmedStart);
+	const fenceStart = text.indexOf("```json");
+	const searchStart = fenceStart === -1 ? 0 : fenceStart;
+	const objectStart = text.indexOf("{", searchStart);
 	if (objectStart === -1) return null;
-	return text.slice(objectStart);
+	return balancedObject(text, objectStart);
+}
+
+function balancedObject(text: string, start: number): string | null {
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+	for (let i = start; i < text.length; i++) {
+		const char = text[i];
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+			} else if (char === "\\") {
+				escaped = true;
+			} else if (char === '"') {
+				inString = false;
+			}
+			continue;
+		}
+		if (char === '"') {
+			inString = true;
+			continue;
+		}
+		if (char === "{") depth++;
+		else if (char === "}") {
+			depth--;
+			if (depth === 0) return text.slice(start, i + 1).trim();
+		}
+	}
+	return null;
 }
 
 function extractFindingsArray(parsed: unknown): unknown[] | null {

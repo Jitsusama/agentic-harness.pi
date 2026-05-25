@@ -44,6 +44,27 @@ describe("renderReviewThreadPromptContext", () => {
 		expect(text).toContain("amplify");
 	});
 
+	it("fences comment bodies without letting nested fences escape", () => {
+		const text = renderReviewThreadPromptContext({
+			threads: [
+				thread({
+					comments: [
+						{
+							id: "comment-1",
+							author: "reviewer",
+							body: "quoted ````code``` block",
+							createdAt: "2026-01-01T00:00:00Z",
+							url: "https://example.test/comment",
+						},
+					],
+				}),
+			],
+		});
+
+		expect(text).toContain("quoted `​`​`​`code`​`​` block");
+		expect(text.match(/```text/g)).toHaveLength(1);
+	});
+
 	it("keeps the first comment and latest replies on long threads", () => {
 		const text = renderReviewThreadPromptContext({
 			threads: [
@@ -96,6 +117,70 @@ describe("loadReviewThreadPromptContext", () => {
 		expect(state.threads?.prNumber).toBe(42);
 		expect(state.threads?.threads).toHaveLength(1);
 		expect(state.threadContextWarning).toBeNull();
+	});
+
+	it("stores sanitized warnings when fetching threads fails", async () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "x",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+
+		const error = new Error("GraphQL token secret-123 failed");
+		Object.assign(error, { response: { status: 403 }, code: "FORBIDDEN" });
+		const context = await loadReviewThreadPromptContext(state, async () => {
+			throw error;
+		});
+
+		expect(context.warning).toContain("could not be fetched");
+		expect(context.warning).toContain("Error");
+		expect(context.warning).toContain("status 403");
+		expect(context.warning).toContain("FORBIDDEN");
+		expect(context.warning).not.toContain("secret-123");
+		expect(context.warning).not.toContain("local logs");
+		expect(state.threadContextWarning).toBe(context.warning);
+	});
+
+	it("redacts GitHub token prefixes from fetch failure warnings", async () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "x",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+
+		const context = await loadReviewThreadPromptContext(state, async () => {
+			throw new Error("failed with github_pat_1234567890 and ghr_abcdef123456");
+		});
+
+		expect(context.warning).toContain("[redacted-token]");
+		expect(context.warning).not.toContain("github_pat_");
+		expect(context.warning).not.toContain("ghr_");
+	});
+
+	it("redacts compound token and secret keys from fetch failure warnings", async () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "x",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+
+		const context = await loadReviewThreadPromptContext(state, async () => {
+			throw new Error("access_token=abc123 client_secret=def456");
+		});
+
+		expect(context.warning).toContain("access_token [redacted]");
+		expect(context.warning).toContain("client_secret [redacted]");
+		expect(context.warning).not.toContain("abc123");
+		expect(context.warning).not.toContain("def456");
 	});
 });
 

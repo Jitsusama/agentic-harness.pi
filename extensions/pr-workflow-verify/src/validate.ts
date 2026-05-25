@@ -20,12 +20,22 @@ export interface ValidationError {
 	readonly path: string;
 	/** Human-readable explanation from the schema engine. */
 	readonly message: string;
+	/** Concrete repair advice the subagent can apply on the next call. */
+	readonly hint?: string;
 }
 
 /** Result of validating one payload. */
 export type ValidateResult =
-	| { readonly ok: true; readonly count: number }
-	| { readonly ok: false; readonly errors: ValidationError[] };
+	| {
+			readonly ok: true;
+			readonly count: number;
+			readonly warnings?: readonly string[];
+	  }
+	| {
+			readonly ok: false;
+			readonly errors: ValidationError[];
+			readonly warnings?: readonly string[];
+	  };
 
 const ALLOWED_STAGES: ReadonlyArray<StageName> = [
 	"council",
@@ -53,29 +63,232 @@ export function validateOutput(
 				{
 					path: "",
 					message: `unknown stage "${String(stage)}"; allowed: ${ALLOWED_STAGES.join(", ")}`,
+					hint: "Use the exact stage name from your prompt.",
 				},
 			],
 		};
 	}
 
+	const normalized = normalizeInput(stage, input);
+	if (!normalized.ok) {
+		return {
+			ok: false,
+			errors: [normalized.error],
+			warnings: normalized.warnings,
+		};
+	}
+	const candidate = normalized.value;
+
 	const schema = getSchema(stage);
-	if (!Value.Check(schema, input)) {
+	if (!Value.Check(schema, candidate)) {
 		const errors: ValidationError[] = [];
-		for (const error of Value.Errors(schema, input)) {
-			errors.push({ path: error.instancePath, message: error.message });
+		for (const error of Value.Errors(schema, candidate)) {
+			const path = error.instancePath;
+			const value = valueAtPath(candidate, path);
+			errors.push({
+				path,
+				message: explainError(error.message, value),
+				hint: hintForError(path, value, candidate, stage),
+			});
 		}
-		return { ok: false, errors };
+		return { ok: false, errors, warnings: normalized.warnings };
+	}
+
+	const semanticErrors = validateNonBlankText(stage, candidate);
+	if (semanticErrors.length > 0) {
+		return { ok: false, errors: semanticErrors, warnings: normalized.warnings };
 	}
 
 	if (stage === "stack-review" || stage === "stack-judge") {
-		const keyErrors = validatePerPrKeys(input);
+		const keyErrors = validatePerPrKeys(candidate);
 		if (keyErrors.length > 0) {
-			return { ok: false, errors: keyErrors };
+			return { ok: false, errors: keyErrors, warnings: normalized.warnings };
 		}
 	}
 
-	const count = itemCount(stage, input);
-	return { ok: true, count };
+	const count = itemCount(stage, candidate);
+	return { ok: true, count, warnings: normalized.warnings };
+}
+
+type NormalizedInput =
+	| {
+			readonly ok: true;
+			readonly value: unknown;
+			readonly warnings?: readonly string[];
+	  }
+	| {
+			readonly ok: false;
+			readonly error: ValidationError;
+			readonly warnings?: readonly string[];
+	  };
+
+function normalizeInput(stage: StageName, input: unknown): NormalizedInput {
+	if (typeof input !== "string") return { ok: true, value: input };
+	const trimmed = input.trim();
+	const warning =
+		"`output` was passed as a JSON string. I parsed it for this " +
+		"validation attempt, but the next call should pass the object itself: " +
+		`${expectedTopLevelHint(stage)} Do not wrap it in quotes.`;
+	if (trimmed.length === 0) {
+		return {
+			ok: false,
+			warnings: [warning],
+			error: {
+				path: "/output",
+				message: "output is an empty string, not a JSON object",
+				hint: "Pass the object you intend to emit, not a string wrapper.",
+			},
+		};
+	}
+	try {
+		return { ok: true, value: JSON.parse(trimmed), warnings: [warning] };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return {
+			ok: false,
+			warnings: [warning],
+			error: {
+				path: "/output",
+				message: `output is a string and JSON.parse failed: ${message}`,
+				hint:
+					"Either pass the object directly to the tool, or fix the JSON string " +
+					"escaping before trying again. Do not wrap the final object in quotes.",
+			},
+		};
+	}
+}
+
+function explainError(message: string, input: unknown): string {
+	return `${message}; received ${typeName(input)}`;
+}
+
+function hintForError(
+	path: string,
+	value: unknown,
+	input: unknown,
+	stage: StageName,
+): string | undefined {
+	if (path === "" && (typeof input !== "object" || input === null)) {
+		return `Pass the top-level ${stage} output object itself, not prose, an array, null, or a JSON string.`;
+	}
+	if (path === "" && typeof input === "object" && input !== null) {
+		return expectedTopLevelHint(stage);
+	}
+	if (value === undefined) {
+		return "Add the required property at this path and verify again.";
+	}
+	return undefined;
+}
+
+function expectedTopLevelHint(stage: StageName): string {
+	if (stage === "critique")
+		return 'Expected top-level shape: { "critiques": [...] }.';
+	if (stage === "stack-review" || stage === "stack-judge") {
+		return 'Expected top-level shape: { "perPr": { "123": [...] }, "crossPr": [...] }.';
+	}
+	return 'Expected top-level shape: { "findings": [...] }.';
+}
+
+function typeName(value: unknown): string {
+	if (value === null) return "null";
+	if (Array.isArray(value)) return "array";
+	return typeof value;
+}
+
+function valueAtPath(input: unknown, path: string): unknown {
+	if (path === "") return input;
+	let current = input;
+	for (const rawPart of path.split("/").slice(1)) {
+		const part = rawPart.replaceAll("~1", "/").replaceAll("~0", "~");
+		if (Array.isArray(current)) {
+			const index = Number(part);
+			current = Number.isInteger(index) ? current[index] : undefined;
+			continue;
+		}
+		if (typeof current === "object" && current !== null) {
+			current = (current as Record<string, unknown>)[part];
+			continue;
+		}
+		return undefined;
+	}
+	return current;
+}
+
+function validateNonBlankText(
+	stage: StageName,
+	input: unknown,
+): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const record = input as {
+		findings?: unknown[];
+		critiques?: unknown[];
+		perPr?: Record<string, unknown[]>;
+		crossPr?: unknown[];
+		selfSignal?: unknown;
+	};
+	if (stage === "critique") {
+		checkTextArray(errors, record.critiques ?? [], "/critiques", ["rationale"]);
+		return errors;
+	}
+	checkSelfSignal(errors, record, stage);
+	if (stage === "stack-review" || stage === "stack-judge") {
+		for (const [prNumber, findings] of Object.entries(record.perPr ?? {})) {
+			checkTextArray(errors, findings, `/perPr/${prNumber}`, [
+				"subject",
+				"discussion",
+			]);
+		}
+		checkTextArray(errors, record.crossPr ?? [], "/crossPr", [
+			"subject",
+			"discussion",
+		]);
+		return errors;
+	}
+	checkTextArray(errors, record.findings ?? [], "/findings", [
+		"subject",
+		"discussion",
+	]);
+	return errors;
+}
+
+function checkSelfSignal(
+	errors: ValidationError[],
+	record: { readonly selfSignal?: unknown },
+	stage: StageName,
+): void {
+	if (stage !== "judge" && stage !== "stack-judge") return;
+	const selfSignal = record.selfSignal;
+	if (typeof selfSignal !== "object" || selfSignal === null) return;
+	const rationale = (selfSignal as Record<string, unknown>).rationale;
+	if (typeof rationale === "string" && rationale.trim() === "") {
+		errors.push({
+			path: "/selfSignal/rationale",
+			message: "must contain non-whitespace text",
+			hint: "Replace rationale with a concrete confidence explanation, not blanks.",
+		});
+	}
+}
+
+function checkTextArray(
+	errors: ValidationError[],
+	items: unknown[],
+	path: string,
+	fields: readonly string[],
+): void {
+	for (let index = 0; index < items.length; index++) {
+		const item = items[index];
+		if (typeof item !== "object" || item === null) continue;
+		const record = item as Record<string, unknown>;
+		for (const field of fields) {
+			if (typeof record[field] === "string" && record[field].trim() === "") {
+				errors.push({
+					path: `${path}/${index}/${field}`,
+					message: "must contain non-whitespace text",
+					hint: `Replace ${field} with a concrete explanation, not blanks.`,
+				});
+			}
+		}
+	}
 }
 
 function itemCount(stage: StageName, input: unknown): number {

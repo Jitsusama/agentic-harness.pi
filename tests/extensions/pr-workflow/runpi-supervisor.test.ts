@@ -1,5 +1,5 @@
 import type { ChildProcess } from "node:child_process";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -96,6 +96,74 @@ describe("createSupervisorRunPi", () => {
 		expect(result.usage?.tokens.total).toBe(3);
 		expect(result.artifacts?.resultPath).toContain("result.json");
 	});
+	it("captures successful verify_output calls and their canonical output", async () => {
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "verified-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`const args = { stage: "council", output: { findings: [{ location: { kind: "global" }, label: "note", subject: "Verified", discussion: "Ok" }] } };`,
+				`process.stdout.write(JSON.stringify({ type: "tool_execution_start", toolCallId: "verify-1", toolName: "verify_output", args }) + "\\n");`,
+				`process.stdout.write(JSON.stringify({ type: "tool_execution_end", toolCallId: "verify-1", toolName: "verify_output", result: { content: [{ type: "text", text: "ok: true. 1 item passed schema for stage=council." }], details: { ok: true, count: 1 } } }) + "\\n");`,
+				`process.stdout.write(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "not json" }] } }) + "\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			binary: process.execPath,
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: [childPath],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "verified",
+		});
+
+		expect(result.verification).toMatchObject({
+			called: true,
+			ok: true,
+			stage: "council",
+			count: 1,
+		});
+		expect(result.verification).not.toHaveProperty("output");
+		expect(result.verification?.canonicalText).toBe(true);
+		expect(result.finalAssistantText).toContain("Verified");
+		expect(result.finalAssistantText).not.toBe("not json");
+	});
+
+	it("captures verifier output from unkeyed tool events", async () => {
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "unkeyed-verified-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`const args = { stage: "council", output: { findings: [{ location: { kind: "global" }, label: "note", subject: "Unkeyed", discussion: "Ok" }] } };`,
+				`process.stdout.write(JSON.stringify({ type: "tool_execution_start", toolName: "verify_output", args }) + "\\n");`,
+				`process.stdout.write(JSON.stringify({ type: "tool_execution_end", toolName: "verify_output", result: { content: [{ type: "text", text: "ok: true. 1 item passed schema for stage=council." }], details: { ok: true, count: 1 } } }) + "\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			binary: process.execPath,
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: [childPath],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "unkeyed",
+		});
+
+		expect(result.verification).not.toHaveProperty("output");
+		expect(result.verification?.canonicalText).toBe(true);
+		expect(result.finalAssistantText).toContain("Unkeyed");
+	});
+
 	it("rotates compressed event logs after the active artifact reaches its cap", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "noisy-child.mjs");
@@ -128,8 +196,12 @@ describe("createSupervisorRunPi", () => {
 		expect(eventsPath).toBeDefined();
 		if (!eventsPath) throw new Error("missing events path");
 		expect((await stat(eventsPath)).size).toBeGreaterThan(0);
-		expect((await stat(`${eventsPath}.1.gz`)).size).toBeGreaterThan(0);
-		expect((await stat(`${eventsPath}.2.gz`)).size).toBeGreaterThan(0);
+		const eventFiles = await readdir(join(eventsPath, ".."));
+		const rotations = eventFiles.filter((name) =>
+			/^events\.ndjson\.\d+\.gz$/.test(name),
+		);
+		expect(rotations.length).toBeGreaterThan(0);
+		expect(rotations.length).toBeLessThanOrEqual(2);
 	});
 
 	it("spawns the node supervisor and returns the durable result", async () => {

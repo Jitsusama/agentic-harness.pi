@@ -77,10 +77,11 @@ export async function loadReviewThreadPromptContextForReference(
 	try {
 		return { threads: await fetcher(reference) };
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
 		return {
 			threads: [],
-			warning: `Existing review threads could not be fetched: ${message}`,
+			warning:
+				"Existing review threads could not be fetched " +
+				`(${redactedFetchReason(error)}). Retry action=threads for details.`,
 		};
 	}
 }
@@ -185,7 +186,7 @@ function renderThread(thread: ReviewThread, index: number): string {
 	for (const comment of comments) {
 		lines.push(`  - ${comment.author} at ${comment.createdAt}:`);
 		lines.push("    ```text");
-		lines.push(`    ${truncate(comment.body)}`);
+		lines.push(`    ${sanitizeCommentBody(comment.body)}`);
 		lines.push("    ```");
 	}
 	if (thread.comments.length > comments.length) {
@@ -203,10 +204,86 @@ function selectComments(
 	return [comments[0], ...comments.slice(1 - MAX_PROMPT_COMMENTS_PER_THREAD)];
 }
 
+function sanitizeCommentBody(body: string): string {
+	return escapeFenceDelimiter(truncate(body));
+}
+
 function truncate(body: string): string {
 	const normalized = body.replace(/\s+/g, " ").trim();
 	if (normalized.length <= MAX_COMMENT_BODY_CHARS) return normalized;
 	return `${normalized.slice(0, MAX_COMMENT_BODY_CHARS - 1)}…`;
+}
+
+function escapeFenceDelimiter(body: string): string {
+	return body.replace(/`{3,}/g, (run) => run.split("").join("\u200b"));
+}
+
+function redactedFetchReason(error: unknown): string {
+	const parts: string[] = [];
+	if (error instanceof Error && safeToken(error.name)) parts.push(error.name);
+	else parts.push("unknown error");
+	const record = typeof error === "object" && error !== null ? error : null;
+	const status =
+		numericProperty(record, "status") ??
+		numericProperty(record, "statusCode") ??
+		numericProperty(objectProperty(record, "response"), "status");
+	if (status !== undefined) parts.push(`status ${status}`);
+	const code = stringProperty(record, "code");
+	if (code !== undefined && safeToken(code)) parts.push(code);
+	const message = error instanceof Error ? redactedMessage(error.message) : "";
+	if (message) parts.push(message);
+	return parts.join(", ");
+}
+
+function redactedMessage(message: string): string {
+	// Defence in depth for prompt-facing diagnostics, not a general-purpose
+	// secret scrubber. Keep adding specific token shapes we know can appear in
+	// GitHub/HTTP errors, and continue avoiding raw exception text elsewhere.
+	const cleaned = message
+		.replace(/github_pat_[A-Za-z0-9_]+/g, "[redacted-token]")
+		.replace(/gh[opsur]_[A-Za-z0-9_]+/g, "[redacted-token]")
+		.replace(/\bsecret[-_][A-Za-z0-9][A-Za-z0-9_-]*/gi, "[redacted-secret]")
+		.replace(/\btoken[-_][A-Za-z0-9][A-Za-z0-9_-]*/gi, "[redacted-token]")
+		.replace(
+			/\b([A-Za-z][A-Za-z0-9_-]*(?:secret|token)[A-Za-z0-9_-]*)\s*[:=]\s*\S+/gi,
+			"$1 [redacted]",
+		)
+		.replace(/\b(secret|token)\s*[:=]\s*\S+/gi, "$1 [redacted]")
+		.replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+		.replace(/https?:\/\/\S+/gi, "[redacted-url]")
+		.replace(/\s+/g, " ")
+		.trim();
+	return cleaned.length > 120 ? `${cleaned.slice(0, 119)}…` : cleaned;
+}
+
+function objectProperty(record: object | null, key: "response"): object | null {
+	if (record === null || !(key in record)) return null;
+	const value = (record as Record<string, unknown>)[key];
+	return typeof value === "object" && value !== null ? value : null;
+}
+
+function numericProperty(
+	record: object | null,
+	key: "status" | "statusCode",
+): number | undefined {
+	if (record === null || !(key in record)) return undefined;
+	const value = (record as Record<string, unknown>)[key];
+	return typeof value === "number" && Number.isFinite(value)
+		? value
+		: undefined;
+}
+
+function stringProperty(
+	record: object | null,
+	key: "code",
+): string | undefined {
+	if (record === null || !(key in record)) return undefined;
+	const value = (record as Record<string, unknown>)[key];
+	return typeof value === "string" ? value : undefined;
+}
+
+function safeToken(value: string): boolean {
+	return /^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(value);
 }
 
 function threadUrl(thread: ReviewThread | undefined): string | null {

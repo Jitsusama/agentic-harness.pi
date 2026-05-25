@@ -29,12 +29,17 @@ import {
 	summarizeStreamActivity,
 } from "./council-progress.js";
 import type { CouncilRun, Finding, FindingLocation } from "./findings.js";
+import { extractJson } from "./parse.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import {
 	reviewQualityStandard,
 	reviewSynthesisStandard,
 } from "./review-quality-standard.js";
-import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
+import type {
+	CouncilReviewer,
+	ReviewerUsage,
+	ReviewerVerification,
+} from "./reviewer.js";
 import { JudgeFinding, JudgeOutput, JudgeSelfSignal } from "./schemas.js";
 import {
 	type ReviewThreadPromptContext,
@@ -61,6 +66,8 @@ export interface JudgeRun {
 	 * undefined when the dispatcher didn't surface usage.
 	 */
 	readonly usage?: ReviewerUsage;
+	/** Result of the judge's verify_output calls, when observed. */
+	readonly verification?: ReviewerVerification;
 }
 
 /** Inputs to `buildJudgePrompt`. */
@@ -196,7 +203,7 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 		"Before you finish your run, call the `verify_output` tool with " +
 			'stage: "judge" and `output` set to the object you intend to emit. ' +
 			"The tool returns `ok: true` with the parsed finding count, or `ok: " +
-			"false` with a list of {path, message} errors. If errors are reported, " +
+			"false` with a list of {path, message, hint} errors. If errors are reported, " +
 			"fix the offending fields and call `verify_output` again. Only emit " +
 			"your final fenced JSON block (and end the run) once the verifier " +
 			"returns `ok: true`. If the verifier keeps reporting the same error " +
@@ -347,6 +354,7 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 			cwd: handle.path,
 			runId: options.runId,
 			signal: options.signal,
+			expectedVerificationStage: "judge",
 			onEvent: (event) => {
 				const activity = summarizeStreamActivity(event);
 				if (activity === null) return;
@@ -388,6 +396,9 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 			consolidatedFindings: parsed.findings,
 			warnings: [...warnings, ...progressWarnings],
 			...(dispatched.usage ? { usage: dispatched.usage } : {}),
+			...(dispatched.verification
+				? { verification: dispatched.verification }
+				: {}),
 		};
 	} catch (error) {
 		if (isReviewerCancelledError(error)) {
@@ -418,14 +429,6 @@ function nextIdAfterCouncil(run: CouncilRun): number {
 		}
 	}
 	return max + 1;
-}
-
-function extractJson(text: string): string | null {
-	const fenced = text.match(/```json\s*\n([\s\S]*?)```/);
-	if (fenced) return fenced[1].trim();
-	const objectStart = text.indexOf("{");
-	if (objectStart === -1) return null;
-	return text.slice(objectStart);
 }
 
 function toSelfSignal(raw: unknown): JudgeSelfSignal | null {

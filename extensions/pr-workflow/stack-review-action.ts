@@ -193,6 +193,7 @@ export async function runStackReviewAction(
 					cwd: handle.path,
 					runId,
 					signal: input.signal,
+					expectedVerificationStage: "stack-review",
 					onEvent: (event) =>
 						notifyActivity(progress, progressWarnings, reviewer.id, event),
 				});
@@ -268,6 +269,9 @@ export async function runStackReviewAction(
 			perPr: parsed.perPr,
 			crossPr: parsed.crossPr,
 			warnings: [...result.value.warnings, ...parsed.warnings],
+			...(result.value.verification
+				? { verification: result.value.verification }
+				: {}),
 		};
 		for (const warning of output.warnings)
 			warnings.push(`${reviewer.id}: ${warning}`);
@@ -294,6 +298,7 @@ export async function runStackReviewAction(
 			cwd: handle.path,
 			runId: judgeRunId,
 			signal: input.signal,
+			expectedVerificationStage: "stack-judge",
 			onEvent: (event) =>
 				notifyActivity(progress, progressWarnings, judge.id, event),
 		});

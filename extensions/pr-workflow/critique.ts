@@ -30,12 +30,17 @@ import {
 } from "./council-progress.js";
 import type { CouncilRun, FindingLocation } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
+import { extractJson } from "./parse.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import {
 	reviewCritiqueStandard,
 	reviewQualityStandard,
 } from "./review-quality-standard.js";
-import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
+import type {
+	CouncilReviewer,
+	ReviewerUsage,
+	ReviewerVerification,
+} from "./reviewer.js";
 import {
 	CritiqueEntry as CritiqueEntrySchema,
 	CritiqueOutput,
@@ -72,6 +77,8 @@ export interface ReviewerCritiqueOutput {
 	 * not surface usage.
 	 */
 	readonly usage?: ReviewerUsage;
+	/** Result of the critique reviewer's verify_output calls, when observed. */
+	readonly verification?: ReviewerVerification;
 }
 
 /** Result of one critique round. */
@@ -168,6 +175,7 @@ export async function runOneCritiqueReviewer(
 			cwd: handle.path,
 			runId: options.runId,
 			signal: options.signal,
+			expectedVerificationStage: "critique",
 		});
 		const parsed = parseCritiqueOutput(dispatched.finalAssistantText, {
 			runId: options.runId,
@@ -178,6 +186,9 @@ export async function runOneCritiqueReviewer(
 			critiques: parsed.critiques,
 			warnings: [...dispatched.warnings, ...parsed.warnings],
 			...(dispatched.usage ? { usage: dispatched.usage } : {}),
+			...(dispatched.verification
+				? { verification: dispatched.verification }
+				: {}),
 		};
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -290,7 +301,7 @@ export function buildCritiquePrompt(input: BuildCritiquePromptInput): string {
 		"Before you finish your run, call the `verify_output` tool with " +
 			'stage: "critique" and `output` set to the object you intend ' +
 			"to emit. The tool returns `ok: true` with the parsed entry count, or " +
-			"`ok: false` with a list of {path, message} errors. If errors are " +
+			"`ok: false` with a list of {path, message, hint} errors. If errors are " +
 			"reported, fix the offending fields and call `verify_output` again. " +
 			"Only emit your final fenced JSON block (and end the run) once the " +
 			"verifier returns `ok: true`. If the verifier keeps reporting the " +
@@ -383,14 +394,6 @@ function pushPromptAddendum(
 	lines.push(trimmed);
 }
 
-function extractJson(text: string): string | null {
-	const fenced = text.match(/```json\s*\n([\s\S]*?)```/);
-	if (fenced) return fenced[1].trim();
-	const objectStart = text.indexOf("{");
-	if (objectStart === -1) return null;
-	return text.slice(objectStart);
-}
-
 /**
  * Fan out the roster across one shared worktree. Each
  * reviewer's pi subagent runs concurrently. Errors are
@@ -451,6 +454,7 @@ export async function runCritique(
 					cwd: handle.path,
 					runId: options.runId,
 					signal: options.signal,
+					expectedVerificationStage: "critique",
 					onEvent: (event) => {
 						const activity = summarizeStreamActivity(event);
 						if (activity === null) return;
@@ -470,6 +474,9 @@ export async function runCritique(
 					critiques: parsed.critiques,
 					warnings: [...dispatched.warnings, ...parsed.warnings],
 					...(dispatched.usage ? { usage: dispatched.usage } : {}),
+					...(dispatched.verification
+						? { verification: dispatched.verification }
+						: {}),
 				};
 				safelyNotify(
 					() =>

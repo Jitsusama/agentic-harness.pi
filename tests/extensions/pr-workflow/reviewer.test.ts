@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	type CouncilReviewer,
+	type ReviewerVerification,
 	type RunPi,
 	runReviewer,
 } from "../../../extensions/pr-workflow/reviewer.js";
@@ -42,6 +43,8 @@ function fakeRun(result: {
 	stdout?: string;
 	stderr?: string;
 	exitCode?: number;
+	finalAssistantText?: string;
+	verification?: ReviewerVerification;
 }): { runPi: RunPi; calls: Array<{ args: string[]; cwd: string }> } {
 	const calls: Array<{ args: string[]; cwd: string }> = [];
 	const runPi: RunPi = async (opts) => {
@@ -50,6 +53,10 @@ function fakeRun(result: {
 			stdout: result.stdout ?? "",
 			stderr: result.stderr ?? "",
 			exitCode: result.exitCode ?? 0,
+			...(result.finalAssistantText !== undefined
+				? { finalAssistantText: result.finalAssistantText }
+				: {}),
+			...(result.verification ? { verification: result.verification } : {}),
 		};
 	};
 	return { runPi, calls };
@@ -505,6 +512,219 @@ describe("runReviewer — usage extraction", () => {
 });
 
 describe("runReviewer — result extraction", () => {
+	it("captures verify_output from the raw stdout stream", async () => {
+		const args = {
+			stage: "council",
+			output: {
+				findings: [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "Stream verified",
+						discussion: "Verified through stdout events.",
+					},
+				],
+			},
+		};
+		const { runPi } = fakeRun({
+			stdout: [
+				JSON.stringify({
+					type: "tool_execution_start",
+					toolName: "verify_output",
+					args,
+				}),
+				JSON.stringify({
+					type: "tool_execution_end",
+					toolName: "verify_output",
+					result: { details: { ok: true, count: 1 } },
+				}),
+				assistantEvent("not parseable"),
+			].join("\n"),
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			expectedVerificationStage: "council",
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toContain("Stream verified");
+		expect(result.verification?.ok).toBe(true);
+	});
+
+	it("uses successful verify_output payload as the canonical final text", async () => {
+		const { runPi } = fakeRun({
+			stdout: assistantEvent("not parseable"),
+			verification: {
+				called: true,
+				ok: true,
+				stage: "council",
+				count: 1,
+				output: {
+					findings: [
+						{
+							location: { kind: "global" },
+							label: "issue",
+							subject: "Verified subject",
+							discussion: "Verified discussion",
+						},
+					],
+				},
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toContain("Verified subject");
+		expect(result.finalAssistantText).not.toContain("not parseable");
+		expect(result.finalAssistantText).not.toContain("```json");
+		expect(result.verification?.ok).toBe(true);
+	});
+
+	it("rejects verified payloads from the wrong stage", async () => {
+		const { runPi } = fakeRun({
+			stdout: assistantEvent(
+				'```json\n{"findings":[{"location":{"kind":"global"},"label":"issue","subject":"Wrong stage","discussion":"Nope"}]}\n```',
+			),
+			verification: {
+				called: true,
+				ok: true,
+				stage: "judge",
+				output: { findings: [] },
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			expectedVerificationStage: "council",
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toBe("");
+		expect(result.verification?.ok).toBe(false);
+		expect(result.warnings.join("\n")).toContain("wrong stage (judge)");
+	});
+
+	it("explains when verification succeeds but the payload was not captured", async () => {
+		const { runPi } = fakeRun({
+			stdout: assistantEvent("not parseable"),
+			verification: {
+				called: true,
+				ok: true,
+				stage: "council",
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			expectedVerificationStage: "council",
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toBe("");
+		expect(result.warnings.join("\n")).toContain(
+			"returned ok: true but the verified payload was not captured",
+		);
+	});
+
+	it("uses runner canonical text when verification metadata has been stripped", async () => {
+		const { runPi } = fakeRun({
+			finalAssistantText: JSON.stringify({
+				findings: [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "Canonical text",
+						discussion: "The supervisor already materialized this payload.",
+					},
+				],
+			}),
+			verification: {
+				called: true,
+				ok: true,
+				stage: "council",
+				count: 1,
+				canonicalText: true,
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			expectedVerificationStage: "council",
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toContain("Canonical text");
+		expect(result.warnings.join("\n")).not.toContain(
+			"payload was not captured",
+		);
+		expect(result.verification).not.toHaveProperty("output");
+	});
+
+	it("records missing required self-verification as verification state", async () => {
+		const { runPi } = fakeRun({
+			stdout: assistantEvent(
+				'```json\n{"findings":[{"location":{"kind":"global"},"label":"issue","subject":"Unverified","discussion":"Nope"}]}\n```',
+			),
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			expectedVerificationStage: "council",
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toBe("");
+		expect(result.verification).toMatchObject({ called: false, ok: false });
+		expect(result.warnings.join("\n")).toContain("was not called");
+	});
+
+	it("ignores output that fails required self-verification", async () => {
+		const { runPi } = fakeRun({
+			stdout: assistantEvent(
+				'```json\n{"findings":[{"location":{"kind":"global"},"label":"issue","subject":"Unverified","discussion":"Nope"}]}\n```',
+			),
+			verification: {
+				called: true,
+				ok: false,
+				stage: "council",
+				message: "ok: false. 1 error against stage=council",
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toBe("");
+		expect(result.warnings.some((w) => w.includes("ignored"))).toBe(true);
+	});
+
 	it("returns the final assistant message text as finalAssistantText", async () => {
 		const { runPi } = fakeRun({
 			stdout: [
@@ -600,6 +820,41 @@ describe("runReviewer — result extraction", () => {
 		});
 		expect(result.finalAssistantText).toBe("ok");
 		expect(result.warnings.length).toBeGreaterThan(0);
+	});
+
+	it("surfaces verified payloads from non-zero reviewer runs with a warning", async () => {
+		const { runPi } = fakeRun({
+			exitCode: 1,
+			stderr: "model API timeout",
+			stdout: assistantEvent("partial prose"),
+			verification: {
+				called: true,
+				ok: true,
+				stage: "council",
+				output: {
+					findings: [
+						{
+							location: { kind: "global" },
+							label: "issue",
+							subject: "Verified despite exit",
+							discussion: "The verified payload is still usable.",
+						},
+					],
+				},
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			expectedVerificationStage: "council",
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toContain("Verified despite exit");
+		expect(result.warnings.some((w) => /exit 1|non-zero/i.test(w))).toBe(true);
 	});
 
 	it("surfaces a non-zero exitCode as a warning while still returning the captured text", async () => {

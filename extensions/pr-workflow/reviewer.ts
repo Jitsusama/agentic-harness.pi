@@ -59,6 +59,32 @@ export interface CouncilReviewer {
 export type ReviewerThinkingLevel = "off" | "low" | "medium" | "high";
 
 /** Result of one pi subprocess invocation. */
+export type ReviewerVerificationStage =
+	| "council"
+	| "judge"
+	| "critique"
+	| "stack-review"
+	| "stack-judge";
+
+export interface ReviewerVerification {
+	/** Whether the reviewer called verify_output at least once. */
+	readonly called: boolean;
+	/** Whether the last verify_output call returned ok: true. */
+	readonly ok: boolean;
+	/** Stage passed to verify_output, when available. */
+	readonly stage?: string;
+	/** Count returned by the verifier on success. */
+	readonly count?: number;
+	/** Verifier warning rows, such as stringified-output coercion. */
+	readonly warnings?: readonly string[];
+	/** Human-readable result text from the verifier. */
+	readonly message?: string;
+	/** The output object from a successful verification. */
+	readonly output?: unknown;
+	/** Whether finalAssistantText was materialized from the verified payload. */
+	readonly canonicalText?: boolean;
+}
+
 export interface RunPiResult {
 	/** Raw stdout. Legacy runners may still return this; supervised runners should not. */
 	readonly stdout?: string;
@@ -73,6 +99,8 @@ export interface RunPiResult {
 	readonly warnings?: readonly string[];
 	/** Bounded stderr tail fit for warnings and diagnostics. */
 	readonly stderrTail?: string;
+	/** Result of the reviewer's verify_output calls, when observed. */
+	readonly verification?: ReviewerVerification;
 	/** Durable files backing this run, when available. */
 	readonly artifacts?: ReviewerRunArtifacts;
 }
@@ -119,6 +147,8 @@ export interface RunReviewerOptions {
 	 * these layer on top.
 	 */
 	readonly extraExtensions?: readonly string[];
+	/** Expected stage the subagent must pass to verify_output. */
+	readonly expectedVerificationStage?: ReviewerVerificationStage;
 	/**
 	 * Live event hook forwarded to the subprocess
 	 * runner. The council orchestrator uses this to
@@ -161,6 +191,8 @@ export interface RunReviewerResult {
 	 * carried no usage block (older pi, fake runners).
 	 */
 	readonly usage?: ReviewerUsage;
+	/** Result of the reviewer's verify_output calls, when observed. */
+	readonly verification?: ReviewerVerification;
 }
 
 /**
@@ -186,7 +218,51 @@ export async function runReviewer(
 	});
 
 	const parsed = extractRunPiOutput(result);
+	const requiresVerification =
+		options.expectedVerificationStage !== undefined ||
+		requiresVerifyExtension(options.extraExtensions);
+	const verification =
+		parsed.verification ??
+		(requiresVerification
+			? { called: false, ok: false, message: "verify_output was not called." }
+			: undefined);
+	const verificationMismatch = verificationStageMismatch(
+		verification,
+		options.expectedVerificationStage,
+	);
+	const verificationForResult = verificationMismatch
+		? {
+				...verificationMismatch.verification,
+				ok: false,
+				message: verificationMismatch.message,
+			}
+		: verification;
+	const verified = verificationForResult?.ok
+		? verifiedOutputText(verificationForResult.output)
+		: null;
+	const verifiedText = verified?.text ?? null;
+	const hasRunnerCanonicalText =
+		result.finalAssistantText !== undefined &&
+		verificationForResult?.ok === true &&
+		verificationForResult.canonicalText === true &&
+		verificationForResult.output === undefined &&
+		parsed.finalAssistantText.trim() !== "";
 	const warnings = [...parsed.warnings];
+	if (verified?.warning) warnings.push(verified.warning);
+	if (verificationForResult?.warnings) {
+		warnings.push(
+			...verificationForResult.warnings.map(
+				(warning) => `Reviewer verify_output warning: ${warning}`,
+			),
+		);
+	}
+	if (
+		requiresVerification &&
+		verifiedText === null &&
+		!hasRunnerCanonicalText
+	) {
+		warnings.push(verificationFailureWarning(verificationForResult));
+	}
 
 	if (result.exitCode !== 0) {
 		warnings.push(`Pi subprocess exited non-zero (exit ${result.exitCode})`);
@@ -199,10 +275,16 @@ export async function runReviewer(
 	return {
 		reviewerId: options.reviewer.id,
 		exitCode: result.exitCode,
-		finalAssistantText: parsed.finalAssistantText,
+		finalAssistantText:
+			requiresVerification && verifiedText === null && !hasRunnerCanonicalText
+				? ""
+				: (verifiedText ?? parsed.finalAssistantText),
 		stderr: parsed.stderr,
 		warnings,
 		...(parsed.usage ? { usage: parsed.usage } : {}),
+		...(verificationForResult
+			? { verification: verificationWithoutOutput(verificationForResult) }
+			: {}),
 	};
 }
 
@@ -211,6 +293,7 @@ interface ExtractedRunPiOutput {
 	readonly usage?: ReviewerUsage;
 	readonly warnings: readonly string[];
 	readonly stderr: string;
+	readonly verification?: ReviewerVerification;
 }
 
 function extractRunPiOutput(result: RunPiResult): ExtractedRunPiOutput {
@@ -220,6 +303,7 @@ function extractRunPiOutput(result: RunPiResult): ExtractedRunPiOutput {
 			...(result.usage ? { usage: result.usage } : {}),
 			warnings: result.warnings ?? [],
 			stderr: result.stderrTail ?? result.stderr ?? "",
+			...(result.verification ? { verification: result.verification } : {}),
 		};
 	}
 	const parser = new ReviewerStreamParser();
@@ -230,7 +314,85 @@ function extractRunPiOutput(result: RunPiResult): ExtractedRunPiOutput {
 		...(parsed.usage ? { usage: parsed.usage } : {}),
 		warnings: [...(result.warnings ?? []), ...parsed.warnings],
 		stderr: result.stderrTail ?? result.stderr ?? "",
+		...((result.verification ?? parsed.verification)
+			? { verification: result.verification ?? parsed.verification }
+			: {}),
 	};
+}
+
+function requiresVerifyExtension(
+	extraExtensions: readonly string[] | undefined,
+): boolean {
+	return (extraExtensions ?? []).some(isVerifyExtensionPath);
+}
+
+function isVerifyExtensionPath(path: string): boolean {
+	const normalized = path.replaceAll("\\", "/").replace(/\/+$/, "");
+	return (
+		normalized.endsWith("/pr-workflow-verify") ||
+		normalized.endsWith("/pr-workflow-verify/index.ts")
+	);
+}
+
+function verificationStageMismatch(
+	verification: ReviewerVerification | undefined,
+	expected: ReviewerVerificationStage | undefined,
+): { verification: ReviewerVerification; message: string } | null {
+	if (verification?.ok !== true || expected === undefined) return null;
+	if (verification.stage === expected) return null;
+	const actual = verification.stage ?? "missing";
+	return {
+		verification,
+		message:
+			"Reviewer output ignored because verify_output used the wrong stage " +
+			`(${actual}); expected ${expected}.`,
+	};
+}
+
+const MAX_VERIFIED_OUTPUT_BYTES = 512 * 1024;
+
+function verifiedOutputText(
+	output: unknown,
+): { readonly text: string | null; readonly warning?: string } | null {
+	if (output === undefined) return null;
+	return truncateBytes(
+		JSON.stringify(output, null, 2),
+		MAX_VERIFIED_OUTPUT_BYTES,
+	);
+}
+
+function verificationWithoutOutput(
+	verification: ReviewerVerification,
+): ReviewerVerification {
+	const { output: _output, ...rest } = verification;
+	return rest;
+}
+
+function truncateBytes(
+	text: string,
+	maxBytes: number,
+): { readonly text: string | null; readonly warning?: string } {
+	if (Buffer.byteLength(text) <= maxBytes) return { text };
+	return {
+		text: null,
+		warning: `Reviewer verified output exceeded ${maxBytes} bytes; ignored`,
+	};
+}
+
+function verificationFailureWarning(
+	verification: ReviewerVerification | undefined,
+): string {
+	if (verification === undefined || !verification.called) {
+		return "Reviewer output ignored because verify_output was not called.";
+	}
+	if (verification.ok && verification.output === undefined) {
+		return "Reviewer output ignored because verify_output returned ok: true but the verified payload was not captured.";
+	}
+	if (verification.message?.startsWith("Reviewer output ignored")) {
+		return verification.message;
+	}
+	const suffix = verification.message ? ` ${verification.message}` : "";
+	return `Reviewer output ignored because verify_output did not return ok: true.${suffix}`;
 }
 
 const STDERR_SNIPPET_MAX = 240;
