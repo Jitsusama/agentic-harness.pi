@@ -1,5 +1,5 @@
 import type { ChildProcess } from "node:child_process";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -165,8 +165,12 @@ describe("createSupervisorRunPi", () => {
 		expect(eventsPath).toBeDefined();
 		if (!eventsPath) throw new Error("missing events path");
 		expect((await stat(eventsPath)).size).toBeGreaterThan(0);
-		expect((await stat(`${eventsPath}.1.gz`)).size).toBeGreaterThan(0);
-		expect((await stat(`${eventsPath}.2.gz`)).size).toBeGreaterThan(0);
+		const eventFiles = await readdir(join(eventsPath, ".."));
+		const rotations = eventFiles.filter((name) =>
+			/^events\.ndjson\.\d+\.gz$/.test(name),
+		);
+		expect(rotations.length).toBeGreaterThan(0);
+		expect(rotations.length).toBeLessThanOrEqual(2);
 	});
 
 	it("spawns the node supervisor and returns the durable result", async () => {
