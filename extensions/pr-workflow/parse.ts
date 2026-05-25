@@ -145,6 +145,7 @@ function toFinding(
 		category,
 		severity: raw.severity,
 		confidence: raw.confidence,
+		threadRelation: raw.threadRelation,
 		origin: {
 			kind: "council",
 			runId: context.runId,

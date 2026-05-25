@@ -694,6 +694,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							registry,
 							dispatch,
 							reviewContexts: reviewContextProviders,
+							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							progress,
 						}),
 				);
@@ -732,6 +733,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							registry,
 							dispatch,
 							reviewContexts: reviewContextProviders,
+							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							reviewerId,
 						}),
 				);
@@ -816,6 +818,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							registry,
 							dispatch,
 							reviewContexts: reviewContextProviders,
+							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							progress,
 						}),
 				);
@@ -849,6 +852,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							registry,
 							dispatch,
 							reviewContexts: reviewContextProviders,
+							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							progress,
 							fetchers: {
 								metadata: (reference) => fetchPrMetadata(pi, reference),
@@ -891,6 +895,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							registry,
 							dispatch,
 							reviewContexts: reviewContextProviders,
+							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							progress,
 						}),
 				);
@@ -937,6 +942,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							registry,
 							dispatch,
 							reviewContexts: reviewContextProviders,
+							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							reviewerId,
 						}),
 				);

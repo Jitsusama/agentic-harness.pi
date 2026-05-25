@@ -139,6 +139,8 @@ export interface PrWorkflowState {
 	 * would introduce.
 	 */
 	threads: ThreadsSnapshot | null;
+	/** Most recent warning from attempting to fetch existing review threads. */
+	threadContextWarning: string | null;
 	/** Last supervised reviewer recovery summary from extension activation. */
 	reviewerRecovery: RecoverySummary | null;
 }
@@ -185,6 +187,7 @@ export function createPrWorkflowState(): PrWorkflowState {
 		stackFindingRun: null,
 		stackDecisions: new Map(),
 		threads: null,
+		threadContextWarning: null,
 		reviewerRecovery: null,
 	};
 }

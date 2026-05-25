@@ -150,7 +150,7 @@ describe("buildJudgePrompt", () => {
 		expect(text).toContain("small, high-signal candidate review");
 		expect(text).toContain("drop weak or taste-only findings");
 		expect(text).toContain("Downgrade speculative claims");
-		expect(text).toContain("excellent human review");
+		expect(text).toContain("candidate review, not the final truth");
 	});
 
 	it("includes provider review context when supplied", async () => {
@@ -201,6 +201,10 @@ describe("parseJudgeOutput", () => {
 						label: "issue",
 						subject: "Missing null check",
 						discussion: "consolidated",
+						threadRelation: {
+							kind: "amplifies-existing",
+							threadIndex: 4,
+						},
 						raisedBy: ["fast", "skeptic"],
 						sourceFindingIds: [1, 3],
 					},
@@ -216,6 +220,10 @@ describe("parseJudgeOutput", () => {
 		expect(result.findings).toHaveLength(1);
 		const f = result.findings[0];
 		expect(f.subject).toBe("Missing null check");
+		expect(f.threadRelation).toEqual({
+			kind: "amplifies-existing",
+			threadIndex: 4,
+		});
 		expect(f.agreement?.raisedBy).toEqual(["fast", "skeptic"]);
 		expect(f.agreement?.sourceFindingIds).toEqual([1, 3]);
 	});

@@ -32,6 +32,7 @@ import type {
 import type { StackFinding } from "./stack-findings.js";
 import type { PrWorkflowState } from "./state.js";
 import type { FindingDecision } from "./synthesis.js";
+import { renderThreadRelationForGithub } from "./thread-context.js";
 
 /** Review event sent to GitHub. */
 export type ReviewEvent = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
@@ -164,7 +165,7 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 			});
 			continue;
 		}
-		const body = renderCommentBody(finding, decision);
+		const body = renderCommentBody(state, finding, decision);
 		if (
 			finding.location.kind === "line" &&
 			(!validateInlineAnchors ||
@@ -182,7 +183,7 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 				finding.location.side === "old" ? "LEFT" : "RIGHT";
 			inline.push(comment);
 		} else {
-			bodyLines.push(renderBodyEntry(finding, decision));
+			bodyLines.push(renderBodyEntry(state, finding, decision));
 		}
 		includedFindingIds.push(finding.id);
 	}
@@ -217,7 +218,7 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 				});
 				continue;
 			}
-			bodyLines.push(renderStackBodyEntry(finding, decision));
+			bodyLines.push(renderStackBodyEntry(state, finding, decision));
 			includedStackFindingIds.push(finding.id);
 		}
 	}
@@ -239,6 +240,7 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
  * readers know what else the finding refers to.
  */
 function renderStackBodyEntry(
+	state: PrWorkflowState,
 	finding: StackFinding,
 	decision: FindingDecision,
 ): string {
@@ -263,6 +265,11 @@ function renderStackBodyEntry(
 	if (decision.verdict === "qualify") {
 		lines.push("");
 		lines.push(`> Qualifier: ${decision.note}`);
+	}
+	const relation = renderThreadRelationNote(state, finding);
+	if (relation !== null) {
+		lines.push("");
+		lines.push(relation);
 	}
 	const provenance = renderProvenance(finding.agreement);
 	if (provenance !== null) {
@@ -307,7 +314,7 @@ export async function postReviewAction(
 		};
 	}
 
-	let summary = renderSummary(payload, input.body);
+	let summary = renderSummary(input.state, payload, input.body, input.event);
 	if (input.gate) {
 		const outcome = await input.gate(
 			buildGateSummary(input.state, input.event, payload, summary),
@@ -396,6 +403,7 @@ function buildGateSummary(
 }
 
 function renderCommentBody(
+	state: PrWorkflowState,
 	finding: Finding,
 	decision: FindingDecision,
 ): string {
@@ -415,6 +423,11 @@ function renderCommentBody(
 		lines.push("");
 		lines.push(`> Qualifier: ${decision.note}`);
 	}
+	const relation = renderThreadRelationNote(state, finding);
+	if (relation !== null) {
+		lines.push("");
+		lines.push(relation);
+	}
 	const provenance = renderProvenance(finding.agreement);
 	if (provenance !== null) {
 		lines.push("");
@@ -423,7 +436,11 @@ function renderCommentBody(
 	return lines.join("\n");
 }
 
-function renderBodyEntry(finding: Finding, decision: FindingDecision): string {
+function renderBodyEntry(
+	state: PrWorkflowState,
+	finding: Finding,
+	decision: FindingDecision,
+): string {
 	const subject = effectiveSubject(finding, decision);
 	const discussion = effectiveDiscussion(finding, decision);
 	const where = renderLocationForBody(finding.location);
@@ -442,6 +459,11 @@ function renderBodyEntry(finding: Finding, decision: FindingDecision): string {
 	if (decision.verdict === "qualify") {
 		lines.push("");
 		lines.push(`> Qualifier: ${decision.note}`);
+	}
+	const relation = renderThreadRelationNote(state, finding);
+	if (relation !== null) {
+		lines.push("");
+		lines.push(relation);
 	}
 	const provenance = renderProvenance(finding.agreement);
 	if (provenance !== null) {
@@ -497,15 +519,17 @@ function hunkContainsLineRange(
 }
 
 function renderSummary(
+	state: PrWorkflowState,
 	payload: ReviewPayload,
 	prefix: string | undefined,
+	event: ReviewEvent,
 ): string {
 	const lines: string[] = [];
 	if (prefix !== undefined && prefix.trim().length > 0) {
 		lines.push(prefix.trim());
 		lines.push("");
 	}
-	lines.push(renderSparseReviewIntro(payload));
+	lines.push(renderReviewVerdictIntro(state, payload, event));
 	if (payload.body.length > 0) {
 		lines.push("");
 		lines.push(payload.body);
@@ -513,22 +537,106 @@ function renderSummary(
 	return lines.join("\n");
 }
 
-function renderSparseReviewIntro(payload: ReviewPayload): string {
-	const inlineCount = payload.comments.length;
-	const bodyFindingCount = countBodyFindings(payload);
-	const inlineSentence = renderInlineSentence(inlineCount);
-	if (bodyFindingCount === 0) return inlineSentence;
-
-	const fallbackTarget = bodyFindingCount === 1 ? "one note" : "these notes";
-	const fallbackPronoun = bodyFindingCount === 1 ? "it" : "them";
-	const fallbackSentence = `I couldn't anchor ${fallbackTarget} inline, so I'm leaving ${fallbackPronoun} below.`;
-	if (inlineCount === 0) return `Thanks, ${fallbackSentence}`;
-	return `${inlineSentence} ${fallbackSentence}`;
+function renderReviewVerdictIntro(
+	state: PrWorkflowState,
+	payload: ReviewPayload,
+	event: ReviewEvent,
+): string {
+	const findings = includedFindings(state, payload);
+	const verdict = reviewVerdict(findings, event);
+	const count = findings.length;
+	const noun = count === 1 ? "finding" : "findings";
+	const placement = renderCommentPlacement(payload);
+	const priority = verdict === "PASS" ? "" : renderPrioritySentence(findings);
+	const threads = renderThreadContextSentence(state, findings);
+	return [
+		`**${verdict}:** I'm posting ${count} ${noun}${placement}.`,
+		priority,
+		threads,
+	]
+		.filter((part) => part.length > 0)
+		.join(" ");
 }
 
-function renderInlineSentence(inlineCount: number): string {
-	if (inlineCount === 1) return "Thanks, I left one inline comment.";
-	return `Thanks, I left ${inlineCount} inline comments.`;
+function includedFindings(
+	state: PrWorkflowState,
+	payload: ReviewPayload,
+): Finding[] {
+	const byId = new Map<number, Finding>();
+	for (const finding of state.council.lastJudge?.consolidatedFindings ?? []) {
+		byId.set(finding.id, finding);
+	}
+	const stackById = new Map<number, StackFinding>();
+	for (const finding of state.stackFindingRun?.findings ?? []) {
+		stackById.set(finding.id, finding);
+	}
+	return [
+		...payload.includedFindingIds.flatMap((id) => {
+			const finding = byId.get(id);
+			return finding === undefined ? [] : [finding];
+		}),
+		...payload.includedStackFindingIds.flatMap((id) => {
+			const finding = stackById.get(id);
+			return finding === undefined ? [] : [finding];
+		}),
+	];
+}
+
+function reviewVerdict(
+	findings: readonly Finding[],
+	event: ReviewEvent,
+): string {
+	if (event === "APPROVE") return "PASS";
+	if (event === "REQUEST_CHANGES") {
+		return findings.some((finding) => finding.severity === "critical")
+			? "BLOCK"
+			: "NEEDS REVIEW";
+	}
+	if (findings.some((finding) => finding.severity === "critical")) {
+		return "BLOCK";
+	}
+	if (findings.some((finding) => finding.severity === "medium")) {
+		return "NEEDS REVIEW";
+	}
+	return findings.some(isActionableFinding) ? "GO WITH FIXES" : "PASS";
+}
+
+function renderCommentPlacement(payload: ReviewPayload): string {
+	const inline = payload.comments.length;
+	const body = countBodyFindings(payload);
+	const parts: string[] = [];
+	if (inline > 0) parts.push(`${inline} inline`);
+	if (body > 0) parts.push(`${body} in the review body`);
+	return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
+}
+
+function renderPrioritySentence(findings: readonly Finding[]): string {
+	const priority =
+		findings.find((finding) => finding.severity === "critical") ??
+		findings.find((finding) => finding.severity === "medium") ??
+		findings[0];
+	if (priority === undefined) return "";
+	return `Prioritize ${priority.subject}.`;
+}
+
+function renderThreadContextSentence(
+	state: PrWorkflowState,
+	findings: readonly Finding[],
+): string {
+	if (state.threadContextWarning !== null) {
+		return `Thread context warning: ${state.threadContextWarning}`;
+	}
+	if (findings.some((finding) => finding.threadRelation !== undefined)) {
+		return "I related this to existing review threads instead of starting from scratch.";
+	}
+	if ((state.threads?.threads.length ?? 0) > 0) {
+		return "I checked the existing review threads and avoided repeating them.";
+	}
+	return "";
+}
+
+function isActionableFinding(finding: Finding): boolean {
+	return ["issue", "todo", "suggestion", "question"].includes(finding.label);
 }
 
 function countBodyFindings(payload: ReviewPayload): number {
@@ -554,6 +662,17 @@ function effectiveDiscussion(
 		return decision.discussion;
 	}
 	return finding.discussion;
+}
+
+function renderThreadRelationNote(
+	state: PrWorkflowState,
+	finding: Finding,
+): string | null {
+	const relation = renderThreadRelationForGithub(
+		finding.threadRelation,
+		state.threads?.threads,
+	);
+	return relation === null ? null : `_Thread context: ${relation}_`;
 }
 
 function renderProvenance(

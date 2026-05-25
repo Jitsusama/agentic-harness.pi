@@ -29,6 +29,11 @@ describe("parseReviewerOutput", () => {
 					discussion: "The handler can receive null when X happens.",
 					severity: "critical",
 					confidence: 0.9,
+					threadRelation: {
+						kind: "supports-existing",
+						threadIndex: 2,
+						rationale: "Matches the existing auth thread.",
+					},
 				},
 			],
 		});
@@ -44,6 +49,11 @@ describe("parseReviewerOutput", () => {
 		expect(f.subject).toBe("Null pointer risk");
 		expect(f.label).toBe("issue");
 		expect(f.severity).toBe("critical");
+		expect(f.threadRelation).toEqual({
+			kind: "supports-existing",
+			threadIndex: 2,
+			rationale: "Matches the existing auth thread.",
+		});
 		expect(f.location).toEqual({
 			kind: "line",
 			file: "src/foo.ts",

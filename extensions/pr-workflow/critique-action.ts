@@ -27,6 +27,10 @@ import type {
 import type { JudgeRun } from "./judge.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
 import type { PrWorkflowState } from "./state.js";
+import {
+	loadReviewThreadPromptContext,
+	type ReviewThreadsFetcher,
+} from "./thread-context.js";
 import type { WorktreeRegistry } from "./worktree.js";
 
 /** Inputs for `runCritiqueAction`. */
@@ -35,6 +39,7 @@ export interface RunCritiqueActionInput {
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly reviewContexts?: ReviewContextProviderBroker;
+	readonly fetchThreads?: ReviewThreadsFetcher;
 	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
 	readonly now?: () => Date;
@@ -91,11 +96,14 @@ export async function runCritiqueAction(
 		sha: state.pr.metadata.head.sha,
 		branch: state.pr.metadata.head.ref,
 	};
-	const promptAddendum = await input.reviewContexts?.promptAddendum({
-		...target,
-		prNumber: state.pr.reference.number,
-		stage: "critique",
-	});
+	const [promptAddendum, threadContext] = await Promise.all([
+		input.reviewContexts?.promptAddendum({
+			...target,
+			prNumber: state.pr.reference.number,
+			stage: "critique",
+		}),
+		loadReviewThreadPromptContext(state, input.fetchThreads),
+	]);
 	const run = await runCritique({
 		runId,
 		council: state.council.lastRun,
@@ -104,6 +112,7 @@ export async function runCritiqueAction(
 		target,
 		registry: input.registry,
 		dispatch: input.dispatch,
+		threadContext,
 		progress: input.progress,
 		signal: input.signal,
 		...(promptAddendum ? { promptAddendum } : {}),
@@ -147,11 +156,14 @@ async function runStackCritiqueAction(
 		sha: state.pr.metadata.head.sha,
 		branch: state.pr.metadata.head.ref,
 	};
-	const promptAddendum = await input.reviewContexts?.promptAddendum({
-		...target,
-		prNumber: state.pr.reference.number,
-		stage: "critique",
-	});
+	const [promptAddendum, threadContext] = await Promise.all([
+		input.reviewContexts?.promptAddendum({
+			...target,
+			prNumber: state.pr.reference.number,
+			stage: "critique",
+		}),
+		loadReviewThreadPromptContext(state, input.fetchThreads),
+	]);
 	const run = await runCritique({
 		runId: `stack-critique-${now().toISOString()}`,
 		council: emptyCouncilForStackCritique(state),
@@ -160,6 +172,7 @@ async function runStackCritiqueAction(
 		target,
 		registry: input.registry,
 		dispatch: input.dispatch,
+		threadContext,
 		progress: input.progress,
 		signal: input.signal,
 		...(promptAddendum ? { promptAddendum } : {}),
@@ -174,6 +187,7 @@ export interface RetryCritiqueReviewerInput {
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
 	readonly reviewContexts?: ReviewContextProviderBroker;
+	readonly fetchThreads?: ReviewThreadsFetcher;
 	readonly reviewerId: string;
 	readonly signal?: AbortSignal;
 }
@@ -255,11 +269,14 @@ export async function retryCritiqueReviewer(
 		sha: metadata.head.sha,
 		branch: metadata.head.ref,
 	};
-	const promptAddendum = await input.reviewContexts?.promptAddendum({
-		...target,
-		prNumber: pr.reference.number,
-		stage: "critique",
-	});
+	const [promptAddendum, threadContext] = await Promise.all([
+		input.reviewContexts?.promptAddendum({
+			...target,
+			prNumber: pr.reference.number,
+			stage: "critique",
+		}),
+		loadReviewThreadPromptContext(state, input.fetchThreads),
+	]);
 	const output = await runOneCritiqueReviewer({
 		runId: lastCritique.id,
 		council: state.council.lastRun,
@@ -268,6 +285,7 @@ export async function retryCritiqueReviewer(
 		target,
 		registry: input.registry,
 		dispatch: input.dispatch,
+		threadContext,
 		signal: input.signal,
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
@@ -319,11 +337,14 @@ async function retryStackCritiqueReviewer(
 		sha: state.pr.metadata.head.sha,
 		branch: state.pr.metadata.head.ref,
 	};
-	const promptAddendum = await input.reviewContexts?.promptAddendum({
-		...target,
-		prNumber: state.pr.reference.number,
-		stage: "critique",
-	});
+	const [promptAddendum, threadContext] = await Promise.all([
+		input.reviewContexts?.promptAddendum({
+			...target,
+			prNumber: state.pr.reference.number,
+			stage: "critique",
+		}),
+		loadReviewThreadPromptContext(state, input.fetchThreads),
+	]);
 	const output = await runOneCritiqueReviewer({
 		runId: stackCritique.id,
 		council: emptyCouncilForStackCritique(state),
@@ -332,6 +353,7 @@ async function retryStackCritiqueReviewer(
 		target,
 		registry: input.registry,
 		dispatch: input.dispatch,
+		threadContext,
 		signal: input.signal,
 		...(promptAddendum ? { promptAddendum } : {}),
 	});

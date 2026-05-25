@@ -17,6 +17,7 @@ import {
 	createPrWorkflowState,
 	type PrWorkflowState,
 } from "../../../extensions/pr-workflow/state.js";
+import type { ReviewThread } from "../../../extensions/pr-workflow/threads.js";
 import {
 	type WorktreeProvider,
 	WorktreeRegistry,
@@ -83,6 +84,26 @@ function fetchers() {
 				head: { ref: `f${ref.number}`, sha: `sha-${ref.number}` },
 			}),
 		diff: async () => [],
+	};
+}
+
+function reviewThread(prNumber: number): ReviewThread {
+	return {
+		id: `thread-${prNumber}`,
+		kind: "review-thread",
+		isResolved: false,
+		isOutdated: false,
+		path: "src/example.ts",
+		line: 10,
+		comments: [
+			{
+				id: `comment-${prNumber}`,
+				author: "reviewer",
+				body: `thread body ${prNumber}`,
+				createdAt: "2026-01-01T00:00:00Z",
+				url: `https://example.test/${prNumber}`,
+			},
+		],
 	};
 }
 
@@ -286,6 +307,34 @@ describe("runStackReviewAction", () => {
 			role: "judge",
 			model: "anthropic/claude-haiku-4-5",
 		});
+	});
+
+	it("passes existing review threads into stack review prompts", async () => {
+		const state = buildState([101, 102]);
+		const seenPrompts: string[] = [];
+		const result = await runStackReviewAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async ({ reviewer: r, prompt }) => {
+				seenPrompts.push(prompt);
+				return dispatch()({
+					reviewer: r,
+					prompt,
+					cwd: "/wt/sha-102",
+					runId: "test",
+				});
+			},
+			fetchers: fetchers(),
+			fetchThreads: async (ref) => [reviewThread(ref.number)],
+		});
+
+		expect(result.ok).toBe(true);
+		expect(
+			seenPrompts.some((prompt) => prompt.includes("[T1] src/example.ts:10")),
+		).toBe(true);
+		expect(
+			seenPrompts.some((prompt) => prompt.includes("thread body 102")),
+		).toBe(true);
 	});
 
 	it("passes the stack tip branch as a worktree hint", async () => {

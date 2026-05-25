@@ -36,6 +36,11 @@ import {
 } from "./review-quality-standard.js";
 import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
 import { JudgeFinding, JudgeOutput, JudgeSelfSignal } from "./schemas.js";
+import {
+	type ReviewThreadPromptContext,
+	renderReviewThreadPromptContext,
+	renderThreadRelation,
+} from "./thread-context.js";
 import type { WorktreeRegistry } from "./worktree.js";
 
 // Judge self-signal lives in schemas.ts as the
@@ -61,6 +66,7 @@ export interface JudgeRun {
 /** Inputs to `buildJudgePrompt`. */
 export interface BuildJudgePromptInput {
 	readonly council: CouncilRun;
+	readonly threadContext?: ReviewThreadPromptContext;
 	readonly promptAddendum?: string;
 }
 
@@ -86,6 +92,7 @@ export interface RunJudgeOptions {
 	readonly target: Pick<CouncilTarget, "owner" | "repo" | "sha" | "branch">;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	readonly threadContext?: ReviewThreadPromptContext;
 	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
 	/** Provider or repository context appended to the judge prompt. */
@@ -135,6 +142,8 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 	lines.push(reviewQualityStandard());
 	lines.push("");
 	lines.push(reviewSynthesisStandard());
+	lines.push("");
+	lines.push(renderReviewThreadPromptContext(input.threadContext));
 	pushPromptAddendum(lines, input.promptAddendum);
 	lines.push("");
 	lines.push(reviewerOperatingRules());
@@ -153,6 +162,8 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 				`  [id=${finding.id}] [${finding.label}] ${finding.subject} ${loc}`,
 			);
 			lines.push(`    ${finding.discussion}`);
+			const relation = renderThreadRelation(finding.threadRelation);
+			if (relation !== null) lines.push(`    thread: ${relation}`);
 		}
 	}
 	lines.push("");
@@ -163,8 +174,11 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 			"plus optional decorations, severity, confidence) matches round 1. " +
 			"On top of that the judge attaches optional `raisedBy` (list of " +
 			"reviewer ids that surfaced this point) and `sourceFindingIds` (the " +
-			"round-1 ids you consolidated). Omit those two fields for a finding " +
-			"the judge surfaced on its own.",
+			"round-1 ids you consolidated). Preserve `threadRelation` when a " +
+			"finding substantiates, disputes or amplifies an existing thread; drop " +
+			"findings that merely duplicate an existing thread unless there is new " +
+			"evidence the author should see. Omit `raisedBy` and " +
+			"`sourceFindingIds` for a finding the judge surfaced on its own.",
 	);
 	lines.push("");
 	lines.push("## JSON Schema");
@@ -312,6 +326,9 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 
 		const prompt = buildJudgePrompt({
 			council: options.council,
+			...(options.threadContext
+				? { threadContext: options.threadContext }
+				: {}),
 			...(options.promptAddendum
 				? { promptAddendum: options.promptAddendum }
 				: {}),
@@ -445,6 +462,7 @@ function toJudgedFinding(
 		category,
 		severity: raw.severity,
 		confidence: raw.confidence,
+		threadRelation: raw.threadRelation,
 		origin: {
 			kind: "judge",
 			runId: context.runId,

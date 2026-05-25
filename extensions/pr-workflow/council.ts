@@ -42,6 +42,7 @@ import type {
 	RunReviewerOptions,
 	RunReviewerResult,
 } from "./reviewer.js";
+import type { ReviewThreadPromptContext } from "./thread-context.js";
 import type { WorktreeRegistry } from "./worktree.js";
 
 /** Target a council run inspects. */
@@ -54,6 +55,7 @@ export interface CouncilTarget {
 	readonly title: string;
 	readonly description: string;
 	readonly files: DiffFile[];
+	readonly threadContext?: ReviewThreadPromptContext;
 }
 
 /** Injectable reviewer-dispatch function. */
@@ -121,6 +123,9 @@ export async function runOneCouncilReviewer(
 		prTitle: options.target.title,
 		prDescription: options.target.description,
 		files: options.target.files,
+		...(options.target.threadContext
+			? { threadContext: options.target.threadContext }
+			: {}),
 		...(options.promptAddendum
 			? { promptAddendum: options.promptAddendum }
 			: {}),
@@ -185,6 +190,9 @@ export async function runCouncil(
 		prTitle: options.target.title,
 		prDescription: options.target.description,
 		files: options.target.files,
+		...(options.target.threadContext
+			? { threadContext: options.target.threadContext }
+			: {}),
 		...(options.promptAddendum
 			? { promptAddendum: options.promptAddendum }
 			: {}),

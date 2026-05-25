@@ -21,13 +21,19 @@ import type {
 	ConventionalLabel,
 	FindingLocation,
 	FindingSeverity,
+	ThreadRelation,
 } from "./schemas.js";
 
 // Vocabulary types live in `schemas.ts` as the single
 // source of truth. Re-exported here so the ~30 call
 // sites that already `import type { ... } from
 // "./findings.js"` keep working without churn.
-export type { ConventionalLabel, FindingLocation, FindingSeverity };
+export type {
+	ConventionalLabel,
+	FindingLocation,
+	FindingSeverity,
+	ThreadRelation,
+};
 
 /** Where the finding came from. */
 export type FindingOrigin =
@@ -86,6 +92,8 @@ export interface Finding {
 	readonly confidence?: number;
 	readonly origin: FindingOrigin;
 	readonly state: FindingState;
+	/** Relation to an existing review thread, when one shaped the finding. */
+	readonly threadRelation?: ThreadRelation;
 	/** Cross-reviewer agreement; only set on judge output. */
 	readonly agreement?: FindingAgreement;
 }

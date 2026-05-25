@@ -21,9 +21,12 @@ export function reviewQualityStandard(): string {
 			"control flow, callers, callees, ownership boundaries, failure paths, " +
 			"boundary values, idempotency, concurrency, migrations, configuration, " +
 			"docs and tests when they are relevant to the change.",
-		"Verify assumptions with scoped inspection before flagging. If the " +
-			"available context is insufficient, make uncertainty explicit and use a " +
-			"question instead of presenting speculation as fact.",
+		"Verify assumptions with scoped inspection before flagging. Read the " +
+			"actual source before trusting line numbers, trace relevant callers and " +
+			"callees, check existing tests when test coverage affects the claim and " +
+			"validate language, framework or library semantics instead of guessing. If " +
+			"the available context is insufficient, make uncertainty explicit and use " +
+			"a question instead of presenting speculation as fact.",
 		"Do not flag pure preference, generic cleanliness or alternative designs " +
 			"unless they create real cognitive load, conflict with established local " +
 			"patterns or plausibly increase future change risk.",
@@ -36,9 +39,14 @@ export function reviewQualityStandard(): string {
 export function reviewDiscoveryStandard(): string {
 	return [
 		"## Council discovery objective",
-		"Optimize for high recall without spam. Surface material findings the " +
-			"judge and user should consider, even if you're not certain they should " +
-			"be posted. Do not emit notes that merely prove you read the diff.",
+		"Optimize for high recall. This is the noisy discovery round, not the " +
+			"posting round. Surface material findings the judge, critic and user " +
+			"should consider, even if you're not certain they should be posted. Do not " +
+			"emit notes that merely prove you read the diff.",
+		"Useful noise has evidence. If a finding is uncertain, include what you " +
+			"checked, why the risk is plausible and what would prove or disprove it. " +
+			"Don't suppress a potentially important issue just because the later " +
+			"filtering phases might reject it.",
 		"For each finding, explain why it matters to the author now. Prefer " +
 			"specific evidence, affected scenarios and concrete next steps over broad " +
 			"advice like 'add tests' or 'clean this up'.",
@@ -75,9 +83,13 @@ export function reviewSynthesisStandard(): string {
 			"to questions, upgrade understated concrete risks, and rewrite subjects " +
 			"so they explain the author-visible impact rather than the implementation " +
 			"detail alone.",
-		"Only keep findings that you would be comfortable asking the user to post " +
-			"after they review them. The final list should feel like an excellent " +
-			"human review, not a transcript of every model observation.",
+		"Keep uncertain but high-impact findings when the evidence trail is strong " +
+			"enough for the critic and user to adjudicate. Drop low-impact uncertainty, " +
+			"taste-only advice and findings that only restate an existing review thread " +
+			"without adding proof, correction or stronger impact framing.",
+		"The output is a candidate review, not the final truth. It should be small " +
+			"enough for the user to judge, but it must not silently bury material risks " +
+			"that the critic can still falsify.",
 	].join("\n\n");
 }
 
@@ -103,14 +115,17 @@ export function stackReviewSynthesisStandard(): string {
 export function reviewCritiqueStandard(): string {
 	return [
 		"## Critique quality-control objective",
-		"Audit the judge's synthesis against the review quality standard. Look for " +
-			"material risks the judge dropped, weak findings it kept, unlike findings " +
-			"it over-merged, local conventions it ignored, evidence it lost, and " +
-			"severity or certainty it misstated.",
+		"Audit the judge's synthesis like a high-precision critic. For every " +
+			"finding, try to prove it from source, disprove it from source and decide " +
+			"whether the PR actually introduced the risk. Most weak, theoretical or " +
+			"duplicative findings should be filtered out before they reach the author.",
+		"Look for material risks the judge dropped, weak findings it kept, unlike " +
+			"findings it over-merged, local conventions it ignored, evidence it lost, " +
+			"existing threads it repeated, and severity or certainty it misstated.",
 		"Use `agree` when the finding is worth keeping as-is, `disagree` when it " +
-			"should not survive, `qualify` when it needs narrower wording or lower " +
-			"severity, and `amplify` when the evidence shows higher impact than the " +
-			"judge expressed.",
+			"should not survive or only duplicates an existing thread, `qualify` when " +
+			"it needs narrower wording or lower severity, and `amplify` when the " +
+			"evidence shows higher impact than the judge expressed.",
 		"Do not relitigate every preference from round 1. Focus on whether the " +
 			"judge produced a review the user should trust.",
 	].join("\n\n");

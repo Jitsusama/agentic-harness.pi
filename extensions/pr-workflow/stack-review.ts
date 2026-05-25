@@ -33,6 +33,11 @@ import {
 	StackReviewOutput,
 } from "./schemas.js";
 import type { StackFinding } from "./stack-findings.js";
+import {
+	type ReviewThreadPromptContext,
+	renderReviewThreadPromptContext,
+	renderThreadRelation,
+} from "./thread-context.js";
 
 /** One PR's full stack-review input. */
 export interface StackReviewPrInput {
@@ -40,6 +45,7 @@ export interface StackReviewPrInput {
 	readonly title: string;
 	readonly description: string;
 	readonly files: readonly DiffFile[];
+	readonly threadContext?: ReviewThreadPromptContext;
 }
 
 /** Inputs to `buildStackReviewPrompt`. */
@@ -75,6 +81,7 @@ export interface StackReviewParseResult {
 export interface StackJudgePrContext {
 	readonly prNumber: number;
 	readonly title: string;
+	readonly threadContext?: ReviewThreadPromptContext;
 }
 
 /** Inputs to `buildStackJudgePrompt`. */
@@ -184,6 +191,9 @@ export function buildStackJudgePrompt(
 	for (const pr of input.prs) {
 		const cursor = pr.prNumber === input.cursorPrNumber ? " [cursor]" : "";
 		sections.push(`- PR #${pr.prNumber}${cursor}: ${pr.title}`);
+		if (pr.threadContext !== undefined) {
+			sections.push(renderReviewThreadPromptContext(pr.threadContext));
+		}
 	}
 	sections.push("## Reviewer findings");
 	for (const output of input.reviewerOutputs) {
@@ -419,6 +429,7 @@ function toCouncilFinding(
 		category: categoryFor(raw.location),
 		severity: raw.severity,
 		confidence: raw.confidence,
+		threadRelation: raw.threadRelation,
 		origin: {
 			kind: "stack-review",
 			runId: context.runId,
@@ -461,6 +472,7 @@ function toJudgeFinding(
 		category: categoryFor(raw.location),
 		severity: raw.severity,
 		confidence: raw.confidence,
+		threadRelation: raw.threadRelation,
 		origin: {
 			kind: "stack-judge",
 			runId: context.runId,
@@ -487,6 +499,7 @@ function toStackJudgeFinding(
 		category: categoryFor(raw.location),
 		severity: raw.severity,
 		confidence: raw.confidence,
+		threadRelation: raw.threadRelation,
 		origin: {
 			kind: "stack-judge",
 			runId: context.runId,
@@ -509,6 +522,9 @@ function renderPrForReview(
 	if (pr.description.trim() !== "") {
 		sections.push("#### PR description");
 		sections.push(pr.description.trim());
+	}
+	if (pr.threadContext !== undefined) {
+		sections.push(renderReviewThreadPromptContext(pr.threadContext));
 	}
 	sections.push("#### Diff");
 	if (pr.files.length === 0) {
@@ -544,7 +560,9 @@ function renderReviewerForJudge(output: StackReviewerOutput): string {
 }
 
 function renderFindingForPrompt(finding: Finding): string {
-	return `  [id=${finding.id}] [${finding.label}] ${finding.subject} ${renderLocation(finding.location)}\n    ${finding.discussion}`;
+	const relation = renderThreadRelation(finding.threadRelation);
+	const thread = relation === null ? "" : `\n    thread: ${relation}`;
+	return `  [id=${finding.id}] [${finding.label}] ${finding.subject} ${renderLocation(finding.location)}\n    ${finding.discussion}${thread}`;
 }
 
 function renderStackFindingForPrompt(finding: StackFinding): string {
