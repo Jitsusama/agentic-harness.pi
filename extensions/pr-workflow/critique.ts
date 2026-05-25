@@ -30,6 +30,7 @@ import {
 } from "./council-progress.js";
 import type { CouncilRun, FindingLocation } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
+import { extractJson } from "./parse.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import {
 	reviewCritiqueStandard,
@@ -391,14 +392,6 @@ function pushPromptAddendum(
 	lines.push("## Provider review context");
 	lines.push("");
 	lines.push(trimmed);
-}
-
-function extractJson(text: string): string | null {
-	const fenced = text.match(/```json\s*\n([\s\S]*?)```/);
-	if (fenced) return fenced[1].trim();
-	const objectStart = text.indexOf("{");
-	if (objectStart === -1) return null;
-	return text.slice(objectStart);
 }
 
 /**

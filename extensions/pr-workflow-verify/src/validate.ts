@@ -88,7 +88,7 @@ export function validateOutput(
 			errors.push({
 				path,
 				message: explainError(error.message, value),
-				hint: hintForError(path, error.message, candidate, stage),
+				hint: hintForError(path, value, candidate, stage),
 			});
 		}
 		return { ok: false, errors, warnings: normalized.warnings };
@@ -159,25 +159,22 @@ function normalizeInput(stage: StageName, input: unknown): NormalizedInput {
 }
 
 function explainError(message: string, input: unknown): string {
-	if (message === "must be object") {
-		return `must be object; received ${typeName(input)}`;
-	}
-	return message;
+	return `${message}; received ${typeName(input)}`;
 }
 
 function hintForError(
 	path: string,
-	message: string,
+	value: unknown,
 	input: unknown,
 	stage: StageName,
 ): string | undefined {
-	if (path === "" && message === "must be object") {
+	if (path === "" && (typeof input !== "object" || input === null)) {
 		return `Pass the top-level ${stage} output object itself, not prose, an array, null, or a JSON string.`;
 	}
 	if (path === "" && typeof input === "object" && input !== null) {
 		return expectedTopLevelHint(stage);
 	}
-	if (message.includes("Expected required property")) {
+	if (value === undefined) {
 		return "Add the required property at this path and verify again.";
 	}
 	return undefined;

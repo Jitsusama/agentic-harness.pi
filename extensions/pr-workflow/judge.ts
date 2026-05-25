@@ -29,6 +29,7 @@ import {
 	summarizeStreamActivity,
 } from "./council-progress.js";
 import type { CouncilRun, Finding, FindingLocation } from "./findings.js";
+import { extractJson } from "./parse.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import {
 	reviewQualityStandard,
@@ -428,14 +429,6 @@ function nextIdAfterCouncil(run: CouncilRun): number {
 		}
 	}
 	return max + 1;
-}
-
-function extractJson(text: string): string | null {
-	const fenced = text.match(/```json\s*\n([\s\S]*?)```/);
-	if (fenced) return fenced[1].trim();
-	const objectStart = text.indexOf("{");
-	if (objectStart === -1) return null;
-	return text.slice(objectStart);
 }
 
 function toSelfSignal(raw: unknown): JudgeSelfSignal | null {

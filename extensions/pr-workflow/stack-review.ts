@@ -12,6 +12,7 @@
 import { Value } from "@sinclair/typebox/value";
 import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
 import type { Finding, FindingLocation } from "./findings.js";
+import { extractJson } from "./parse.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import {
 	reviewQualityStandard,
@@ -611,14 +612,6 @@ function liftAgreement(
 	const sids = sourceFindingIds ?? [];
 	if (rb.length === 0 && sids.length === 0) return null;
 	return { raisedBy: [...rb], sourceFindingIds: [...sids] };
-}
-
-function extractJson(text: string): string | null {
-	const fenced = text.match(/```json\s*\n([\s\S]*?)```/);
-	if (fenced) return fenced[1].trim();
-	const objectStart = text.indexOf("{");
-	if (objectStart === -1) return null;
-	return text.slice(objectStart);
 }
 
 function parseJson(

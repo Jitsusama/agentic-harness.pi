@@ -233,10 +233,11 @@ export async function runReviewer(
 				message: verificationMismatch.message,
 			}
 		: verification;
-	const verifiedText = verificationForResult?.ok
+	const verified = verificationForResult?.ok
 		? verifiedOutputText(verificationForResult.output)
 		: null;
 	const warnings = [...parsed.warnings];
+	if (verified?.warning) warnings.push(verified.warning);
 	if (verificationForResult?.warnings) {
 		warnings.push(
 			...verificationForResult.warnings.map(
@@ -244,7 +245,7 @@ export async function runReviewer(
 			),
 		);
 	}
-	if (requiresVerification && verifiedText === null) {
+	if (requiresVerification && verified === null) {
 		warnings.push(verificationFailureWarning(verificationForResult));
 	}
 
@@ -260,13 +261,15 @@ export async function runReviewer(
 		reviewerId: options.reviewer.id,
 		exitCode: result.exitCode,
 		finalAssistantText:
-			requiresVerification && verifiedText === null
+			requiresVerification && verified === null
 				? ""
-				: (verifiedText ?? parsed.finalAssistantText),
+				: (verified?.text ?? parsed.finalAssistantText),
 		stderr: parsed.stderr,
 		warnings,
 		...(parsed.usage ? { usage: parsed.usage } : {}),
-		...(verificationForResult ? { verification: verificationForResult } : {}),
+		...(verificationForResult
+			? { verification: verificationWithoutOutput(verificationForResult) }
+			: {}),
 	};
 }
 
@@ -305,8 +308,14 @@ function extractRunPiOutput(result: RunPiResult): ExtractedRunPiOutput {
 function requiresVerifyExtension(
 	extraExtensions: readonly string[] | undefined,
 ): boolean {
-	return (extraExtensions ?? []).some((path) =>
-		path.includes("pr-workflow-verify"),
+	return (extraExtensions ?? []).some(isVerifyExtensionPath);
+}
+
+function isVerifyExtensionPath(path: string): boolean {
+	const normalized = path.replaceAll("\\", "/").replace(/\/+$/, "");
+	return (
+		normalized.endsWith("/pr-workflow-verify") ||
+		normalized.endsWith("/pr-workflow-verify/index.ts")
 	);
 }
 
@@ -325,9 +334,45 @@ function verificationStageMismatch(
 	};
 }
 
-function verifiedOutputText(output: unknown): string | null {
+const MAX_VERIFIED_OUTPUT_BYTES = 512 * 1024;
+
+function verifiedOutputText(
+	output: unknown,
+): { readonly text: string; readonly warning?: string } | null {
 	if (output === undefined) return null;
-	return JSON.stringify(output, null, 2);
+	return truncateBytes(
+		JSON.stringify(output, null, 2),
+		MAX_VERIFIED_OUTPUT_BYTES,
+	);
+}
+
+function verificationWithoutOutput(
+	verification: ReviewerVerification,
+): ReviewerVerification {
+	const { output: _output, ...rest } = verification;
+	return rest;
+}
+
+function truncateBytes(
+	text: string,
+	maxBytes: number,
+): { readonly text: string; readonly warning?: string } {
+	if (Buffer.byteLength(text) <= maxBytes) return { text };
+	let end = text.length;
+	while (end > 0) {
+		const candidate = text.slice(0, end);
+		if (Buffer.byteLength(candidate) <= maxBytes) {
+			return {
+				text: candidate,
+				warning: `Reviewer verified output exceeded ${maxBytes} bytes; truncated`,
+			};
+		}
+		end--;
+	}
+	return {
+		text: "",
+		warning: `Reviewer verified output exceeded ${maxBytes} bytes; truncated`,
+	};
 }
 
 function verificationFailureWarning(

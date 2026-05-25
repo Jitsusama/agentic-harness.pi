@@ -231,7 +231,7 @@ async function finish(state, exitCode) {
 		exitCode,
 		finalAssistantText: canonicalVerifiedText() ?? finalAssistantText,
 		usage,
-		verification,
+		verification: verificationWithoutOutput(verification),
 		warnings,
 		stderrTail,
 		startedAt,
@@ -342,7 +342,16 @@ function verifierMessage(result) {
 
 function canonicalVerifiedText() {
 	if (!verification?.ok || !("output" in verification)) return null;
-	return JSON.stringify(verification.output, null, 2);
+	return truncateBytes(
+		JSON.stringify(verification.output, null, 2),
+		request.maxAssistantTextBytes,
+	);
+}
+
+function verificationWithoutOutput(value) {
+	if (!value || typeof value !== "object" || !("output" in value)) return value;
+	const { output: _output, ...rest } = value;
+	return rest;
 }
 
 function normalizedVerifierOutput(output) {

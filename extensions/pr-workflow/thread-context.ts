@@ -236,6 +236,9 @@ function redactedFetchReason(error: unknown): string {
 }
 
 function redactedMessage(message: string): string {
+	// Defence in depth for prompt-facing diagnostics, not a general-purpose
+	// secret scrubber. Keep adding specific token shapes we know can appear in
+	// GitHub/HTTP errors, and continue avoiding raw exception text elsewhere.
 	const cleaned = message
 		.replace(/github_pat_[A-Za-z0-9_]+/g, "[redacted-token]")
 		.replace(/gh[opsur]_[A-Za-z0-9_]+/g, "[redacted-token]")

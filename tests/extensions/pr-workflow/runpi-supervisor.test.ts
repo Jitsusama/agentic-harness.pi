@@ -128,9 +128,7 @@ describe("createSupervisorRunPi", () => {
 			stage: "council",
 			count: 1,
 		});
-		expect(result.verification?.output).toMatchObject({
-			findings: [{ subject: "Verified" }],
-		});
+		expect(result.verification).not.toHaveProperty("output");
 		expect(result.finalAssistantText).toContain("Verified");
 		expect(result.finalAssistantText).not.toBe("not json");
 	});
@@ -160,9 +158,8 @@ describe("createSupervisorRunPi", () => {
 			reviewerId: "unkeyed",
 		});
 
-		expect(result.verification?.output).toMatchObject({
-			findings: [{ subject: "Unkeyed" }],
-		});
+		expect(result.verification).not.toHaveProperty("output");
+		expect(result.finalAssistantText).toContain("Unkeyed");
 	});
 
 	it("rotates compressed event logs after the active artifact reaches its cap", async () => {

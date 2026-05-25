@@ -102,7 +102,7 @@ export function parseReviewerOutput(
 	return { findings, warnings };
 }
 
-function extractJson(text: string): string | null {
+export function extractJson(text: string): string | null {
 	// Scan for the first balanced JSON object rather than
 	// trusting markdown fence delimiters. Finding discussions
 	// can legitimately mention ``` inside JSON strings, and
