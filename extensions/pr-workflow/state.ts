@@ -191,3 +191,27 @@ export function createPrWorkflowState(): PrWorkflowState {
 		reviewerRecovery: null,
 	};
 }
+
+/**
+ * Clear the active review workspace while preserving reviewer configuration.
+ *
+ * This is the explicit "I'm done with that PR" transition. It removes the
+ * loaded PR, run history, decisions, thread snapshots and status-line source
+ * data, but leaves roster/judge config and recovery diagnostics intact so the
+ * next PR can reuse the user's setup.
+ */
+export function resetPrWorkflowSession(state: PrWorkflowState): void {
+	state.active = false;
+	state.pr = null;
+	state.council.lastRun = null;
+	state.council.lastJudge = null;
+	state.council.lastCritique = null;
+	state.council.decisions = new Map();
+	state.participantIdentities = new Map();
+	state.nextFindingId = 1;
+	state.stackRuns = new Map();
+	state.stackFindingRun = null;
+	state.stackDecisions = new Map();
+	state.threads = null;
+	state.threadContextWarning = null;
+}

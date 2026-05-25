@@ -4,6 +4,7 @@ import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
 import {
 	createPrWorkflowState,
 	type PrWorkflowState,
+	resetPrWorkflowSession,
 } from "../../../extensions/pr-workflow/state.js";
 import { renderPrStatusLine } from "../../../extensions/pr-workflow/status-line.js";
 import { decideFinding } from "../../../extensions/pr-workflow/synthesis.js";
@@ -86,5 +87,14 @@ describe("renderPrStatusLine", () => {
 		state.council.lastJudge = judgeWith([finding(1)]);
 		const line = renderPrStatusLine(state, fakeTheme());
 		expect(line).not.toMatch(/\d+Q/);
+	});
+
+	it("disappears after the workflow session is reset", () => {
+		const state = loadedState();
+		state.council.lastJudge = judgeWith([finding(1)]);
+
+		resetPrWorkflowSession(state);
+
+		expect(renderPrStatusLine(state, fakeTheme())).toBeUndefined();
 	});
 });
