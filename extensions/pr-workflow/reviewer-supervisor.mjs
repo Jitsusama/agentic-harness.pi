@@ -298,10 +298,20 @@ function captureVerification(event) {
 	const details = objectValue(result.details) ?? {};
 	const message = verifierMessage(result);
 	const ok = details.ok === true;
+	// Per-stage verify extensions emit `stage` on
+	// `details`; older `args.stage` is honoured as a
+	// fallback for any callers still on the single-tool
+	// shape.
+	const stage =
+		typeof details.stage === "string"
+			? details.stage
+			: typeof args.stage === "string"
+				? args.stage
+				: undefined;
 	verification = {
 		called: true,
 		ok,
-		...(typeof args.stage === "string" ? { stage: args.stage } : {}),
+		...(stage !== undefined ? { stage } : {}),
 		...(typeof details.count === "number" ? { count: details.count } : {}),
 		...(Array.isArray(details.warnings)
 			? {

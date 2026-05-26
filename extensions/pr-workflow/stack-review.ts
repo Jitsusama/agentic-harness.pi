@@ -31,8 +31,6 @@ import {
 	type StackCrossFinding as StackCrossFindingType,
 	StackJudgeCrossFinding,
 	type StackJudgeCrossFinding as StackJudgeCrossFindingType,
-	StackJudgeOutput,
-	StackReviewOutput,
 } from "./schemas.js";
 import type { StackFinding } from "./stack-findings.js";
 import {
@@ -144,29 +142,12 @@ export function buildStackReviewPrompt(
 	}
 	sections.push("## Output format");
 	sections.push(
-		"Reply with a fenced JSON block. No prose outside the block. The JSON " +
-			"object must have `perPr` and `crossPr`. `perPr` is an object keyed " +
-			"by PR number as a string. Include every PR key, using an empty array " +
-			"when that PR has no findings. `crossPr` is an array of findings " +
-			"with `homePrNumber` and non-empty `spans`.",
-	);
-	sections.push("## JSON Schema");
-	sections.push(
-		"Your output must match this JSON Schema exactly. The same schema is " +
-			"used by the `verify_output` tool you'll call below and by the parent " +
-			"parser, so anything that passes the verifier will be accepted.",
-	);
-	sections.push(
-		["```json", JSON.stringify(StackReviewOutput, null, 2), "```"].join("\n"),
-	);
-	sections.push("## Self-verify before ending");
-	sections.push(
-		"Before you finish your run, call the `verify_output` tool with " +
-			'stage: "stack-review" and `output` set to the object you intend ' +
-			"to emit. The tool returns `ok: true` with the parsed item count, " +
-			"or `ok: false` with a list of {path, message, hint} errors. " +
-			"Fix any reported errors, verify again, then emit the final fenced " +
-			"JSON block.",
+		"Follow the `pr-workflow-stack-review-output` skill for your output " +
+			"contract: the JSON shape (`perPr` per-PR keys plus `crossPr` with " +
+			"`homePrNumber`/`spans`), discipline rules and the `verify_output` " +
+			"self-check protocol. The skill is loaded into this subagent. Rely on " +
+			"`verify_output`'s feedback to converge on a valid payload before " +
+			"ending your run.",
 	);
 	return sections.join("\n\n");
 }
@@ -205,23 +186,14 @@ export function buildStackJudgePrompt(
 	for (const output of input.reviewerOutputs) {
 		sections.push(renderReviewerForJudge(output));
 	}
-	sections.push("## JSON Schema");
+	sections.push("## Output format");
 	sections.push(
-		"Your output must match this JSON Schema exactly. The same schema is " +
-			"used by the `verify_output` tool you'll call below and by the parent " +
-			"parser, so anything that passes the verifier will be accepted.",
-	);
-	sections.push(
-		["```json", JSON.stringify(StackJudgeOutput, null, 2), "```"].join("\n"),
-	);
-	sections.push("## Self-verify before ending");
-	sections.push(
-		"Before you finish your run, call the `verify_output` tool with " +
-			'stage: "stack-judge" and `output` set to the object you intend ' +
-			"to emit. The tool returns `ok: true` with the parsed item count, " +
-			"or `ok: false` with a list of {path, message, hint} errors. " +
-			"Fix any reported errors, verify again, then emit the final fenced " +
-			"JSON block.",
+		"Follow the `pr-workflow-stack-judge-output` skill for your output " +
+			"contract: the JSON shape (optional `selfSignal` plus `perPr`/`crossPr` " +
+			"with attribution fields), the membership rule and the " +
+			"`verify_output` self-check protocol. The skill is loaded into this " +
+			"subagent. Rely on `verify_output`'s feedback to converge on a valid " +
+			"payload before ending your run.",
 	);
 	return sections.join("\n\n");
 }

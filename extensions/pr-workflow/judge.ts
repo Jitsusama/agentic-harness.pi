@@ -40,7 +40,7 @@ import type {
 	ReviewerUsage,
 	ReviewerVerification,
 } from "./reviewer.js";
-import { JudgeFinding, JudgeOutput, JudgeSelfSignal } from "./schemas.js";
+import { JudgeFinding, JudgeSelfSignal } from "./schemas.js";
 import {
 	type ReviewThreadPromptContext,
 	renderReviewThreadPromptContext,
@@ -175,40 +175,12 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 	}
 	lines.push("");
 	lines.push(
-		"Respond with a single fenced JSON block. No prose outside the block. " +
-			"The object has an optional `selfSignal` and a `findings` array. " +
-			"Each finding's core shape (location, label, subject, discussion, " +
-			"plus optional decorations, severity, confidence) matches round 1. " +
-			"On top of that the judge attaches optional `raisedBy` (list of " +
-			"reviewer ids that surfaced this point) and `sourceFindingIds` (the " +
-			"round-1 ids you consolidated). Preserve `threadRelation` when a " +
-			"finding substantiates, disputes or amplifies an existing thread; drop " +
-			"findings that merely duplicate an existing thread unless there is new " +
-			"evidence the author should see. Omit `raisedBy` and " +
-			"`sourceFindingIds` for a finding the judge surfaced on its own.",
-	);
-	lines.push("");
-	lines.push("## JSON Schema");
-	lines.push(
-		"Your output must match this JSON Schema exactly. The same schema is " +
-			"used by the `verify_output` tool you'll call below and by the parent " +
-			"parser, so anything that passes the verifier will be accepted.",
-	);
-	lines.push("```json");
-	lines.push(JSON.stringify(JudgeOutput, null, 2));
-	lines.push("```");
-	lines.push("");
-	lines.push("## Self-verify before ending");
-	lines.push(
-		"Before you finish your run, call the `verify_output` tool with " +
-			'stage: "judge" and `output` set to the object you intend to emit. ' +
-			"The tool returns `ok: true` with the parsed finding count, or `ok: " +
-			"false` with a list of {path, message, hint} errors. If errors are reported, " +
-			"fix the offending fields and call `verify_output` again. Only emit " +
-			"your final fenced JSON block (and end the run) once the verifier " +
-			"returns `ok: true`. If the verifier keeps reporting the same error " +
-			"after three attempts, emit your best attempt and the parent will " +
-			"surface the warnings.",
+		"Follow the `pr-workflow-judge-output` skill for your output contract: " +
+			"the JSON shape (optional `selfSignal` plus `findings`), attribution " +
+			"fields (`raisedBy`, `sourceFindingIds`), `threadRelation` semantics " +
+			"and the `verify_output` self-check protocol. The skill is loaded " +
+			"into this subagent. Rely on `verify_output`'s feedback to converge on " +
+			"a valid payload before ending your run.",
 	);
 	return lines.join("\n");
 }

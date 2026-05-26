@@ -39,16 +39,17 @@ function file(overrides: Partial<DiffFile> = {}): DiffFile {
 
 describe("buildReviewerPrompt", () => {
 	it("instructs the reviewer to output JSON only", () => {
-		// The reviewer's response gets parsed as JSON, so
-		// the prompt must explicitly forbid prose-only
-		// responses and demand a fenced JSON block.
+		// The reviewer's response gets parsed as JSON. The
+		// prompt body still mentions JSON output, but the
+		// exact shape and verify protocol live in the
+		// pr-workflow-council-output skill that gets loaded
+		// into the subagent.
 		const prompt = buildReviewerPrompt({
 			prTitle: "Add foo",
 			prDescription: "Adds the foo handler",
 			files: [file()],
 		});
 		expect(prompt.toLowerCase()).toContain("json");
-		expect(prompt).toMatch(/```json/);
 	});
 
 	it("includes the PR title and description as context", () => {
@@ -106,35 +107,32 @@ describe("buildReviewerPrompt", () => {
 		expect(prompt).toContain("-old line");
 	});
 
-	it("documents the finding schema so the model knows what to emit", () => {
-		// The prompt must teach the reviewer the shape of
-		// a Finding so the parser has something to parse.
-		// We assert the load-bearing keys, not the exact prose.
+	it("points the reviewer at the council-output skill for the contract", () => {
+		// The output shape (location kinds, label vocabulary,
+		// threadRelation, etc.) lives in the skill so the
+		// schema source of truth doesn't drift across the
+		// prompt body. The prompt only needs to name the
+		// skill and the subagent loads it via --skill.
 		const prompt = buildReviewerPrompt({
 			prTitle: "x",
 			prDescription: "",
 			files: [file()],
 		});
-		for (const key of ["label", "subject", "discussion", "location"]) {
-			expect(prompt).toContain(key);
-		}
+		expect(prompt).toContain("pr-workflow-council-output");
 	});
 
 	it("instructs the reviewer to call verify_output before ending", () => {
 		// Council reviewer subagents get the
-		// pr-workflow-verify extension injected so they can
-		// validate their JSON against the schema. The prompt
-		// must teach the model to USE that tool, otherwise
-		// the self-correction loop never starts.
+		// pr-workflow-council-verify extension injected so
+		// they can validate their JSON against the schema.
+		// The prompt body names the tool; the council-output
+		// skill teaches the protocol in detail.
 		const prompt = buildReviewerPrompt({
 			prTitle: "x",
 			prDescription: "",
 			files: [file()],
 		});
 		expect(prompt).toContain("verify_output");
-		// The tool needs the stage so the prompt has to
-		// tell the model which schema to validate against.
-		expect(prompt).toMatch(/stage[=:].?["']?council/i);
 	});
 
 	it("instructs reviewer tools to stay inside the worktree", () => {
@@ -199,20 +197,18 @@ describe("buildReviewerPrompt", () => {
 		expect(prompt).toContain("generated-code review rules");
 	});
 
-	it("embeds the JSON schema for the council output", () => {
-		// The model is more reliable when it sees the
-		// schema it'll be validated against, not just a
-		// hand-rolled example. We pin the load-bearing
-		// schema markers rather than the whole stringified
-		// JSON to keep this resilient to TypeBox version
-		// formatting changes.
+	it("keeps Conventional Comments labels in the role narrative", () => {
+		// The schema is taught by the council-output skill,
+		// but the prompt body still names the label
+		// vocabulary in the discovery instructions so the
+		// reviewer thinks in those terms from the start and
+		// not just at output time. Pin the canonical labels
+		// and confirm the deprecated ones are absent.
 		const prompt = buildReviewerPrompt({
 			prTitle: "x",
 			prDescription: "",
 			files: [file()],
 		});
-		expect(prompt).toMatch(/JSON Schema/i);
-		// Core Conventional Comments labels appear in the schema's label enum.
 		expect(prompt).toContain("praise");
 		expect(prompt).toContain("note");
 		expect(prompt).not.toContain("typo");

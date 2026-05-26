@@ -104,9 +104,12 @@ describe("buildJudgePrompt", () => {
 		expect(text).toMatch(/\b3\b/);
 	});
 
-	it("instructs the judge to emit a JSON block with selfSignal + findings + agreement metadata", async () => {
+	it("names the judge-output contract fields in the role narrative", async () => {
+		// The exact JSON shape lives in the
+		// pr-workflow-judge-output skill, but the prompt
+		// body still names the attribution fields so the
+		// judge thinks about them while consolidating.
 		const text = buildJudgePrompt({ council: council() });
-		expect(text).toContain("```json");
 		expect(text).toContain("selfSignal");
 		expect(text).toMatch(/raisedBy/i);
 		expect(text).toMatch(/sourceFindingIds/i);
@@ -162,23 +165,15 @@ describe("buildJudgePrompt", () => {
 		expect(text).toContain("rollout-risk checklist");
 	});
 
-	it("embeds the judge JSON schema and instructs verify_output", async () => {
-		// The judge subagent gets pr-workflow-verify
-		// loaded so it can self-validate before ending.
-		// The prompt must teach the model to USE the tool
-		// and embed the schema it's being validated
-		// against. We pin load-bearing markers, not exact
-		// JSON formatting.
+	it("references the judge-output skill and the verify_output tool", async () => {
+		// The judge subagent gets pr-workflow-judge-verify
+		// loaded so it can self-validate before ending. The
+		// pr-workflow-judge-output skill teaches the
+		// protocol; the prompt body just names both so the
+		// model knows where to look.
 		const text = buildJudgePrompt({ council: council() });
 		expect(text).toContain("verify_output");
-		expect(text).toMatch(/stage[=:].?["']?judge/i);
-		expect(text).toMatch(/JSON Schema/i);
-		// Label vocabulary present (schema embedded).
-		expect(text).toContain("praise");
-		expect(text).toContain("note");
-		expect(text).not.toContain("typo");
-		expect(text).not.toContain("polish");
-		expect(text).not.toContain("quibble");
+		expect(text).toContain("pr-workflow-judge-output");
 	});
 });
 

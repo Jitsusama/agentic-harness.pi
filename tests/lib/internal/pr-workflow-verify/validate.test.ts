@@ -1,16 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { validateOutput } from "../../../extensions/pr-workflow-verify/src/validate.js";
+import {
+	councilContract,
+	critiqueContract,
+	judgeContract,
+	stackJudgeContract,
+	stackReviewContract,
+} from "../../../../lib/internal/pr-workflow-verify/contracts";
+import {
+	type StageContract,
+	type ValidateResult,
+	validateOutput,
+} from "../../../../lib/internal/pr-workflow-verify/validate";
 
-// validate() is the pure core of the verify tool: it
-// takes a stage name and arbitrary JSON-like input, runs
-// schema validation, and returns either ok: true with the
-// finding count or ok: false with locatable error rows.
-// The tool wrapper adds nothing material on top; testing
-// here covers the substance.
+// validate() is the pure core of the verify tool: each
+// per-stage extension binds one StageContract (schema,
+// item counter, semantic checks) and passes input
+// through validateOutput. The tool wrapper adds nothing
+// material on top; testing here covers the substance.
+
+const contracts: Record<string, StageContract> = {
+	council: councilContract,
+	judge: judgeContract,
+	critique: critiqueContract,
+	"stack-review": stackReviewContract,
+	"stack-judge": stackJudgeContract,
+};
+
+function validate(stage: string, input: unknown): ValidateResult {
+	const contract = contracts[stage];
+	if (!contract) throw new Error(`no test contract for stage ${stage}`);
+	return validateOutput(contract, input);
+}
 
 describe("validateOutput", () => {
 	it("returns ok: true and the finding count for a valid council payload", () => {
-		const result = validateOutput("council", {
+		const result = validate("council", {
 			findings: [
 				{
 					location: { kind: "global" },
@@ -33,7 +57,7 @@ describe("validateOutput", () => {
 	});
 
 	it("parses stringified JSON with an actionable warning", () => {
-		const result = validateOutput(
+		const result = validate(
 			"council",
 			JSON.stringify({
 				findings: [
@@ -55,7 +79,7 @@ describe("validateOutput", () => {
 	});
 
 	it("explains stringified JSON parse failures in repairable terms", () => {
-		const result = validateOutput("council", '{"findings": [');
+		const result = validate("council", '{"findings": [');
 
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -69,7 +93,7 @@ describe("validateOutput", () => {
 		// The subagent needs error rows it can act on:
 		// each error carries an instancePath pointing at
 		// the offending field and a human-readable message.
-		const result = validateOutput("council", {
+		const result = validate("council", {
 			findings: [
 				{
 					location: { kind: "global" },
@@ -89,7 +113,7 @@ describe("validateOutput", () => {
 	});
 
 	it("rejects whitespace-only text that parent parsers would drop", () => {
-		const result = validateOutput("critique", {
+		const result = validate("critique", {
 			critiques: [{ findingId: 1, position: "agree", rationale: "   " }],
 		});
 
@@ -103,7 +127,7 @@ describe("validateOutput", () => {
 	});
 
 	it("reports the nested value type for schema failures", () => {
-		const result = validateOutput("council", {
+		const result = validate("council", {
 			findings: [
 				{
 					location: "global",
@@ -124,28 +148,8 @@ describe("validateOutput", () => {
 		}
 	});
 
-	it("rejects an unknown stage name with a clear error", () => {
-		// Defensive: if the subagent passes a typo'd stage,
-		// we want a single error explaining the allowed
-		// values, not a crash.
-		const result = validateOutput("counsel" as never, { findings: [] });
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.errors.length).toBe(1);
-			expect(result.errors[0].message).toContain("unknown stage");
-		}
-	});
-
-	it("rejects the removed stack-critic stage", () => {
-		const result = validateOutput("stack-critic" as never, { findings: [] });
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.errors[0].message).toContain("unknown stage");
-		}
-	});
-
 	it("validates a judge payload using the judge schema", () => {
-		const result = validateOutput("judge", {
+		const result = validate("judge", {
 			findings: [
 				{
 					location: { kind: "global" },
@@ -161,7 +165,7 @@ describe("validateOutput", () => {
 	});
 
 	it("rejects blank judge self-signal rationales", () => {
-		const result = validateOutput("judge", {
+		const result = validate("judge", {
 			selfSignal: { confidence: "high", rationale: "   " },
 			findings: [],
 		});
@@ -176,14 +180,14 @@ describe("validateOutput", () => {
 	});
 
 	it("validates a critique payload using the critique schema", () => {
-		const result = validateOutput("critique", {
+		const result = validate("critique", {
 			critiques: [{ findingId: 1, position: "agree", rationale: "ok" }],
 		});
 		expect(result.ok).toBe(true);
 	});
 
 	it("validates a stack-review payload and counts per-PR plus cross-PR findings", () => {
-		const result = validateOutput("stack-review", {
+		const result = validate("stack-review", {
 			perPr: {
 				"101": [
 					{
@@ -218,7 +222,7 @@ describe("validateOutput", () => {
 	});
 
 	it("rejects stack-review maps keyed by non-PR numbers", () => {
-		const result = validateOutput("stack-review", {
+		const result = validate("stack-review", {
 			perPr: {
 				main: [],
 			},
@@ -231,7 +235,7 @@ describe("validateOutput", () => {
 	});
 
 	it("validates a stack-judge payload and counts per-PR plus cross-PR findings", () => {
-		const result = validateOutput("stack-judge", {
+		const result = validate("stack-judge", {
 			selfSignal: { confidence: "high", rationale: "Clean agreement." },
 			perPr: {
 				"101": [
