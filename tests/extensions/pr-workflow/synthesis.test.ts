@@ -406,6 +406,43 @@ describe("decideFinding", () => {
 		}
 	});
 
+	it("rejects whitespace-only subject overrides so they can't blank the posted header", async () => {
+		// Without normalization, `verdict=edit, label=nitpick,
+		// subject=""` would pass validation (label
+		// satisfies the "at least one" check) and the
+		// empty subject would survive into the posted
+		// header. Edit fields should be normalized at the
+		// boundary.
+		const state = withJudge();
+		const result = decideFinding(state, {
+			findingId: 10,
+			verdict: "edit",
+			label: "nitpick",
+			subject: "   ",
+		});
+		expect(result.ok).toBe(true);
+		const decision = state.council.decisions.get(10);
+		if (decision?.verdict === "edit") {
+			expect(decision.subject).toBeUndefined();
+			expect(decision.label).toBe("nitpick");
+		}
+	});
+
+	it("rejects whitespace-only discussion overrides the same way", async () => {
+		const state = withJudge();
+		const result = decideFinding(state, {
+			findingId: 10,
+			verdict: "edit",
+			label: "nitpick",
+			discussion: "\n\t  ",
+		});
+		expect(result.ok).toBe(true);
+		const decision = state.council.decisions.get(10);
+		if (decision?.verdict === "edit") {
+			expect(decision.discussion).toBeUndefined();
+		}
+	});
+
 	it("records subject, discussion and label together when all three are edited", async () => {
 		const state = withJudge();
 		const result = decideFinding(state, {

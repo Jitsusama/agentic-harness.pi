@@ -754,6 +754,31 @@ describe("postReviewAction", () => {
 		expect(arg.body).not.toContain("skipped");
 	});
 
+	it("applies edited labels to the review-body verdict and priority sentence", async () => {
+		// An issue-to-nitpick edit should change both the
+		// individual inline header AND the body verdict
+		// line; otherwise the body still says GO WITH
+		// FIXES while the only comment is a nitpick.
+		const state = withJudgeAndDecision();
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "edit",
+			label: "nitpick",
+			subject: "Style polish",
+			decidedAt: "x",
+		});
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+
+		await postReviewAction({ state, event: "COMMENT", exec });
+
+		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(arg.body).toContain("**PASS:**");
+		expect(arg.body).not.toContain("GO WITH FIXES");
+		// Priority sentence reflects the edited subject,
+		// not the original.
+		expect(arg.body).not.toContain("Prioritize Null deref");
+	});
+
 	it("keeps the summary verdict aligned with the GitHub review event", async () => {
 		const state = withJudgeAndDecision();
 		const exec: PostReviewExec = vi.fn(async () => undefined);

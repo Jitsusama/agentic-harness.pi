@@ -221,6 +221,20 @@ function validateInput(input: DecideFindingInput): DecisionResult {
 	return { ok: true };
 }
 
+/**
+ * Collapse a whitespace-only override to `undefined`
+ * so it doesn't survive into the posted header. The
+ * "at least one of" rule in `validateInput` already
+ * trims to decide whether a field counts as provided;
+ * `effectiveSubject` and friends only fall back to the
+ * original when the override is nullish, so an empty
+ * string would otherwise blank the comment.
+ */
+function normalizeOverride(value: string | undefined): string | undefined {
+	if (typeof value !== "string") return undefined;
+	return value.trim().length === 0 ? undefined : value;
+}
+
 function buildDecision(
 	input: DecideFindingInput,
 	decidedAt: string,
@@ -239,8 +253,8 @@ function buildDecision(
 			return {
 				findingId: input.findingId,
 				verdict: "edit",
-				subject: input.subject,
-				discussion: input.discussion,
+				subject: normalizeOverride(input.subject),
+				discussion: normalizeOverride(input.discussion),
 				label: input.label,
 				decidedAt,
 			};
@@ -283,7 +297,7 @@ export function formatFindingsView(state: PrWorkflowState): string {
 	const lines: string[] = [];
 	for (const finding of judge.consolidatedFindings) {
 		const decision = state.council.decisions.get(finding.id) ?? null;
-		const display = applyEdit(finding, decision);
+		const display = effectiveFinding(finding, decision);
 		lines.push(
 			`[${finding.id}] [${display.label}] ${display.subject} ${renderLocation(finding.location)}`,
 		);
@@ -314,7 +328,7 @@ export function formatFindingsView(state: PrWorkflowState): string {
 		lines.push("");
 		for (const finding of state.stackFindingRun.findings) {
 			const decision = state.stackDecisions.get(finding.id) ?? null;
-			const display = applyEdit(finding, decision);
+			const display = effectiveFinding(finding, decision);
 			lines.push(
 				`[S${finding.id}] [${display.label}] ${display.subject} (home: #${finding.homePrNumber}; spans: ${finding.spans.join(", ")})`,
 			);
@@ -407,21 +421,28 @@ function pushEditOriginals(
 	}
 }
 
-function applyEdit(
-	finding: Finding,
+/**
+ * Project a finding through any `edit` decision the
+ * user recorded against it. Returns a same-shape
+ * finding with `subject`, `discussion` and `label`
+ * replaced by the user's overrides where present.
+ *
+ * Every downstream consumer (the wall-of-text view,
+ * the compact view, the posted Conventional Comments
+ * header, the review-body verdict path) reads from
+ * the projected finding so a single rule—“the user's
+ * edit wins”—lives in one place.
+ */
+export function effectiveFinding<T extends Finding>(
+	finding: T,
 	decision: FindingDecision | null,
-): { subject: string; discussion: string; label: ConventionalLabel } {
-	if (decision?.verdict === "edit") {
-		return {
-			subject: decision.subject ?? finding.subject,
-			discussion: decision.discussion ?? finding.discussion,
-			label: decision.label ?? finding.label,
-		};
-	}
+): T {
+	if (decision?.verdict !== "edit") return finding;
 	return {
-		subject: finding.subject,
-		discussion: finding.discussion,
-		label: finding.label,
+		...finding,
+		subject: decision.subject ?? finding.subject,
+		discussion: decision.discussion ?? finding.discussion,
+		label: decision.label ?? finding.label,
 	};
 }
 

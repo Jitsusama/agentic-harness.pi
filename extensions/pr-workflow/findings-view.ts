@@ -17,7 +17,7 @@
 
 import type { Finding } from "./findings.js";
 import type { PrWorkflowState } from "./state.js";
-import type { FindingDecision } from "./synthesis.js";
+import { effectiveFinding, type FindingDecision } from "./synthesis.js";
 import { renderThreadRelation } from "./thread-context.js";
 
 /**
@@ -46,24 +46,6 @@ export function verdictMarker(decision: FindingDecision | null): string {
 			if (decision.skipped) return "—";
 			return "*";
 	}
-}
-
-/**
- * Pick the displayed subject and label for a finding
- * row, preferring the user's `edit` overrides when
- * they exist.
- */
-function displayFields(
-	finding: Finding,
-	decision: FindingDecision | null,
-): { subject: string; label: Finding["label"] } {
-	if (decision?.verdict === "edit") {
-		return {
-			subject: decision.subject ?? finding.subject,
-			label: decision.label ?? finding.label,
-		};
-	}
-	return { subject: finding.subject, label: finding.label };
 }
 
 function renderLocation(finding: Finding): string {
@@ -111,7 +93,7 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 
 	for (const finding of judge.consolidatedFindings) {
 		const decision = state.council.decisions.get(finding.id) ?? null;
-		const { subject, label } = displayFields(finding, decision);
+		const { subject, label } = effectiveFinding(finding, decision);
 		const relation = renderThreadRelation(finding.threadRelation);
 		const thread = relation === null ? "" : ` · ${relation}`;
 		lines.push(
@@ -127,7 +109,7 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 		lines.push("Stack-level findings (decide with scope=stack):");
 		for (const finding of state.stackFindingRun.findings) {
 			const decision = state.stackDecisions.get(finding.id) ?? null;
-			const { subject, label } = displayFields(finding, decision);
+			const { subject, label } = effectiveFinding(finding, decision);
 			lines.push(
 				`[S${finding.id}] ${verdictMarker(decision)} [${label}] ${subject} (home: #${finding.homePrNumber})`,
 			);
