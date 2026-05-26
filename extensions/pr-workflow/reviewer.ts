@@ -58,14 +58,6 @@ export interface CouncilReviewer {
 /** Thinking levels accepted by pi's `--thinking` flag. */
 export type ReviewerThinkingLevel = "off" | "low" | "medium" | "high";
 
-/** Result of one pi subprocess invocation. */
-export type ReviewerVerificationStage =
-	| "council"
-	| "judge"
-	| "critique"
-	| "stack-review"
-	| "stack-judge";
-
 export interface ReviewerVerification {
 	/** Whether the reviewer called verify_output at least once. */
 	readonly called: boolean;
@@ -147,8 +139,23 @@ export interface RunReviewerOptions {
 	 * these layer on top.
 	 */
 	readonly extraExtensions?: readonly string[];
-	/** Expected stage the subagent must pass to verify_output. */
-	readonly expectedVerificationStage?: ReviewerVerificationStage;
+	/**
+	 * Whether the engine should enforce that the subagent
+	 * called `verify_output` and got `ok: true` before
+	 * accepting the run. Set this when injecting a verify
+	 * extension via `extraExtensions`; otherwise the
+	 * subagent's output is taken as-is. Defaults to
+	 * `false`.
+	 */
+	readonly requiresVerification?: boolean;
+	/**
+	 * Optional stage label the subagent must echo back
+	 * through `verify_output`. When set, a stage mismatch
+	 * is treated as verification failure even if the tool
+	 * returned `ok: true`. Opaque to the engine; callers
+	 * choose their own stage vocabulary.
+	 */
+	readonly expectedVerificationStage?: string;
 	/**
 	 * Live event hook forwarded to the subprocess
 	 * runner. The council orchestrator uses this to
@@ -218,9 +225,7 @@ export async function runReviewer(
 	});
 
 	const parsed = extractRunPiOutput(result);
-	const requiresVerification =
-		options.expectedVerificationStage !== undefined ||
-		requiresVerifyExtension(options.extraExtensions);
+	const requiresVerification = options.requiresVerification === true;
 	const verification =
 		parsed.verification ??
 		(requiresVerification
@@ -320,23 +325,9 @@ function extractRunPiOutput(result: RunPiResult): ExtractedRunPiOutput {
 	};
 }
 
-function requiresVerifyExtension(
-	extraExtensions: readonly string[] | undefined,
-): boolean {
-	return (extraExtensions ?? []).some(isVerifyExtensionPath);
-}
-
-function isVerifyExtensionPath(path: string): boolean {
-	const normalized = path.replaceAll("\\", "/").replace(/\/+$/, "");
-	return (
-		normalized.endsWith("/pr-workflow-verify") ||
-		normalized.endsWith("/pr-workflow-verify/index.ts")
-	);
-}
-
 function verificationStageMismatch(
 	verification: ReviewerVerification | undefined,
-	expected: ReviewerVerificationStage | undefined,
+	expected: string | undefined,
 ): { verification: ReviewerVerification; message: string } | null {
 	if (verification?.ok !== true || expected === undefined) return null;
 	if (verification.stage === expected) return null;

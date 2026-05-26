@@ -260,7 +260,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 		const { registry, runPi, extraExtensions } = getCouncilDeps();
 		const activeRun = cancellations.beginRun(operation);
 		const dispatch = createCancellableDispatch(activeRun, (opts) =>
-			runReviewer({ ...opts, runPi, extraExtensions }),
+			// pr-workflow always injects pr-workflow-verify, so
+			// every reviewer subagent is expected to call
+			// verify_output before ending. Setting the flag here
+			// rather than at each call site keeps verification
+			// enforcement tied to the extension injection that
+			// makes it possible.
+			runReviewer({
+				...opts,
+				runPi,
+				extraExtensions,
+				requiresVerification: true,
+			}),
 		);
 		try {
 			return await run({ registry, dispatch });
