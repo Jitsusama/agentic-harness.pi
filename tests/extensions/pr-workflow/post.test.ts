@@ -366,6 +366,25 @@ describe("buildReviewPayload", () => {
 		expect(body).not.toContain("discussion for Original");
 	});
 
+	it("applies an edited label to the posted Conventional Comments header", async () => {
+		// `lineFinding` defaults to label=issue. The
+		// user reclassifies it as a nitpick on the way
+		// out; the posted header must reflect the new
+		// label, not the original.
+		const state = createPrWorkflowState();
+		state.council.lastJudge = judge([lineFinding(10, "Style nit")]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "edit",
+			label: "nitpick",
+			decidedAt: "x",
+		});
+		const payload = buildReviewPayload(state);
+		const header = payload.comments[0].body.split("\n", 1)[0];
+		expect(header.startsWith("nitpick:")).toBe(true);
+		expect(header).not.toMatch(/^issue:/);
+	});
+
 	it("includes the qualify note inline so the reviewer can see how the finding was softened", async () => {
 		// Distinguishes "I think this might be an issue"
 		// from "this IS an issue". The note carries the
@@ -878,6 +897,23 @@ describe("buildReviewPayload with stack findings", () => {
 		expect(payload.body).not.toContain("###");
 		expect(payload.body).not.toContain("[issue]");
 		expect(payload.includedStackFindingIds).toEqual([1]);
+	});
+
+	it("applies an edited label to a posted stack finding header", () => {
+		const state = baseState();
+		state.stackFindingRun = stackFindingRun([
+			stackFinding(1, "Cross-PR pattern", 42, [42, 43]),
+		]);
+		state.stackDecisions.set(1, {
+			findingId: 1,
+			verdict: "edit",
+			label: "suggestion",
+			decidedAt: "x",
+		});
+
+		const payload = buildReviewPayload(state);
+		expect(payload.body).toContain("suggestion:");
+		expect(payload.body).not.toMatch(/^issue:/m);
 	});
 
 	it("skips a stack finding when its homePrNumber differs from the cursor PR", () => {

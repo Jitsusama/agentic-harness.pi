@@ -48,6 +48,24 @@ export function verdictMarker(decision: FindingDecision | null): string {
 	}
 }
 
+/**
+ * Pick the displayed subject and label for a finding
+ * row, preferring the user's `edit` overrides when
+ * they exist.
+ */
+function displayFields(
+	finding: Finding,
+	decision: FindingDecision | null,
+): { subject: string; label: Finding["label"] } {
+	if (decision?.verdict === "edit") {
+		return {
+			subject: decision.subject ?? finding.subject,
+			label: decision.label ?? finding.label,
+		};
+	}
+	return { subject: finding.subject, label: finding.label };
+}
+
 function renderLocation(finding: Finding): string {
 	const loc = finding.location;
 	switch (loc.kind) {
@@ -93,14 +111,11 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 
 	for (const finding of judge.consolidatedFindings) {
 		const decision = state.council.decisions.get(finding.id) ?? null;
-		const subject =
-			decision?.verdict === "edit" && decision.subject
-				? decision.subject
-				: finding.subject;
+		const { subject, label } = displayFields(finding, decision);
 		const relation = renderThreadRelation(finding.threadRelation);
 		const thread = relation === null ? "" : ` · ${relation}`;
 		lines.push(
-			`[${finding.id}] ${verdictMarker(decision)} [${finding.label}] ${subject} (${renderLocation(finding)})${thread}`,
+			`[${finding.id}] ${verdictMarker(decision)} [${label}] ${subject} (${renderLocation(finding)})${thread}`,
 		);
 	}
 
@@ -112,12 +127,9 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 		lines.push("Stack-level findings (decide with scope=stack):");
 		for (const finding of state.stackFindingRun.findings) {
 			const decision = state.stackDecisions.get(finding.id) ?? null;
-			const subject =
-				decision?.verdict === "edit" && decision.subject
-					? decision.subject
-					: finding.subject;
+			const { subject, label } = displayFields(finding, decision);
 			lines.push(
-				`[S${finding.id}] ${verdictMarker(decision)} [${finding.label}] ${subject} (home: #${finding.homePrNumber})`,
+				`[S${finding.id}] ${verdictMarker(decision)} [${label}] ${subject} (home: #${finding.homePrNumber})`,
 			);
 		}
 	}

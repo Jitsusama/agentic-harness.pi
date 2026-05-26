@@ -246,6 +246,7 @@ function renderStackBodyEntry(
 ): string {
 	const subject = effectiveSubject(finding, decision);
 	const discussion = effectiveDiscussion(finding, decision);
+	const label = effectiveLabel(finding, decision);
 	const lines: string[] = [];
 	const spansSentence =
 		finding.spans.length === 1
@@ -253,7 +254,7 @@ function renderStackBodyEntry(
 			: `cross-PR: spans #${finding.spans.join(", #")}`;
 	lines.push(
 		renderConventionalCommentHeader({
-			label: finding.label,
+			label,
 			decorations: finding.decorations,
 			subject,
 		}),
@@ -362,20 +363,22 @@ function buildGateSummary(
 	for (const id of payload.includedFindingIds) {
 		const finding = byId.get(id);
 		if (!finding) continue;
+		const decision = state.council.decisions.get(id) ?? null;
 		lines.push({
 			id: finding.id,
-			label: finding.label,
-			subject: finding.subject,
+			label: decision ? effectiveLabel(finding, decision) : finding.label,
+			subject: decision ? effectiveSubject(finding, decision) : finding.subject,
 			location: renderLocationForBody(finding.location),
 		});
 	}
 	for (const id of payload.includedStackFindingIds) {
 		const finding = stackById.get(id);
 		if (!finding) continue;
+		const decision = state.stackDecisions.get(id) ?? null;
 		lines.push({
 			id: finding.id,
-			label: finding.label,
-			subject: finding.subject,
+			label: decision ? effectiveLabel(finding, decision) : finding.label,
+			subject: decision ? effectiveSubject(finding, decision) : finding.subject,
 			location: `cross-PR · #${finding.homePrNumber}`,
 		});
 	}
@@ -409,10 +412,11 @@ function renderCommentBody(
 ): string {
 	const subject = effectiveSubject(finding, decision);
 	const discussion = effectiveDiscussion(finding, decision);
+	const label = effectiveLabel(finding, decision);
 	const lines: string[] = [];
 	lines.push(
 		renderConventionalCommentHeader({
-			label: finding.label,
+			label,
 			decorations: finding.decorations,
 			subject,
 		}),
@@ -443,11 +447,12 @@ function renderBodyEntry(
 ): string {
 	const subject = effectiveSubject(finding, decision);
 	const discussion = effectiveDiscussion(finding, decision);
+	const label = effectiveLabel(finding, decision);
 	const where = renderLocationForBody(finding.location);
 	const lines: string[] = [];
 	lines.push(
 		renderConventionalCommentHeader({
-			label: finding.label,
+			label,
 			decorations: finding.decorations,
 			subject,
 		}),
@@ -662,6 +667,16 @@ function effectiveDiscussion(
 		return decision.discussion;
 	}
 	return finding.discussion;
+}
+
+function effectiveLabel(
+	finding: Finding,
+	decision: FindingDecision,
+): Finding["label"] {
+	if (decision.verdict === "edit" && typeof decision.label === "string") {
+		return decision.label;
+	}
+	return finding.label;
 }
 
 function renderThreadRelationNote(

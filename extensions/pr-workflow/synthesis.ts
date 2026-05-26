@@ -17,7 +17,11 @@
  */
 
 import type { CritiquePosition, CritiqueRun } from "./critique.js";
-import type { Finding, FindingLocation } from "./findings.js";
+import type {
+	ConventionalLabel,
+	Finding,
+	FindingLocation,
+} from "./findings.js";
 import type { PrWorkflowState } from "./state.js";
 import { renderThreadRelation } from "./thread-context.js";
 
@@ -43,6 +47,7 @@ export type FindingDecision =
 			readonly verdict: "edit";
 			readonly subject?: string;
 			readonly discussion?: string;
+			readonly label?: ConventionalLabel;
 			readonly decidedAt: string;
 	  }
 	| {
@@ -105,6 +110,7 @@ export type DecideFindingInput = WithScope<
 			verdict: "edit";
 			subject?: string;
 			discussion?: string;
+			label?: ConventionalLabel;
 	  }
 	| { findingId: number; verdict: "dismiss"; reason?: string }
 	| { findingId: number; verdict: "promote" }
@@ -203,11 +209,12 @@ function validateInput(input: DecideFindingInput): DecisionResult {
 		const discussionGiven =
 			typeof input.discussion === "string" &&
 			input.discussion.trim().length > 0;
-		if (!subjectGiven && !discussionGiven) {
+		const labelGiven = typeof input.label === "string";
+		if (!subjectGiven && !discussionGiven && !labelGiven) {
 			return {
 				ok: false,
 				error:
-					"edit verdict requires at least one of `subject` or `discussion`.",
+					"edit verdict requires at least one of `subject`, `discussion` or `label`.",
 			};
 		}
 	}
@@ -234,6 +241,7 @@ function buildDecision(
 				verdict: "edit",
 				subject: input.subject,
 				discussion: input.discussion,
+				label: input.label,
 				decidedAt,
 			};
 		case "dismiss":
@@ -277,7 +285,7 @@ export function formatFindingsView(state: PrWorkflowState): string {
 		const decision = state.council.decisions.get(finding.id) ?? null;
 		const display = applyEdit(finding, decision);
 		lines.push(
-			`[${finding.id}] [${finding.label}] ${display.subject} ${renderLocation(finding.location)}`,
+			`[${finding.id}] [${display.label}] ${display.subject} ${renderLocation(finding.location)}`,
 		);
 		const raisedBy = finding.agreement?.raisedBy ?? [];
 		if (raisedBy.length > 0) {
@@ -295,10 +303,7 @@ export function formatFindingsView(state: PrWorkflowState): string {
 			);
 		}
 		lines.push(`   decision: ${renderDecision(decision)}`);
-		if (decision?.verdict === "edit") {
-			lines.push(`     original subject: ${finding.subject}`);
-			lines.push(`     original discussion: ${finding.discussion}`);
-		}
+		pushEditOriginals(lines, finding, decision);
 		lines.push("");
 	}
 	if (
@@ -311,7 +316,7 @@ export function formatFindingsView(state: PrWorkflowState): string {
 			const decision = state.stackDecisions.get(finding.id) ?? null;
 			const display = applyEdit(finding, decision);
 			lines.push(
-				`[S${finding.id}] [${finding.label}] ${display.subject} (home: #${finding.homePrNumber}; spans: ${finding.spans.join(", ")})`,
+				`[S${finding.id}] [${display.label}] ${display.subject} (home: #${finding.homePrNumber}; spans: ${finding.spans.join(", ")})`,
 			);
 			lines.push(`   ${display.discussion}`);
 			const critiquesForFinding = collectStackCritiques(state, finding.id);
@@ -321,10 +326,7 @@ export function formatFindingsView(state: PrWorkflowState): string {
 				);
 			}
 			lines.push(`   decision: ${renderDecision(decision)}`);
-			if (decision?.verdict === "edit") {
-				lines.push(`     original subject: ${finding.subject}`);
-				lines.push(`     original discussion: ${finding.discussion}`);
-			}
+			pushEditOriginals(lines, finding, decision);
 			lines.push("");
 		}
 	}
@@ -383,17 +385,44 @@ function collectCritiquesFromRun(
 	return out;
 }
 
+/**
+ * Render the pre-edit field values under a decision so
+ * the user can see what they changed from. Only emits a
+ * line for fields the decision actually overrode.
+ */
+function pushEditOriginals(
+	lines: string[],
+	finding: Finding,
+	decision: FindingDecision | null,
+): void {
+	if (decision?.verdict !== "edit") return;
+	if (typeof decision.subject === "string") {
+		lines.push(`     original subject: ${finding.subject}`);
+	}
+	if (typeof decision.discussion === "string") {
+		lines.push(`     original discussion: ${finding.discussion}`);
+	}
+	if (typeof decision.label === "string") {
+		lines.push(`     original label: ${finding.label}`);
+	}
+}
+
 function applyEdit(
 	finding: Finding,
 	decision: FindingDecision | null,
-): { subject: string; discussion: string } {
+): { subject: string; discussion: string; label: ConventionalLabel } {
 	if (decision?.verdict === "edit") {
 		return {
 			subject: decision.subject ?? finding.subject,
 			discussion: decision.discussion ?? finding.discussion,
+			label: decision.label ?? finding.label,
 		};
 	}
-	return { subject: finding.subject, discussion: finding.discussion };
+	return {
+		subject: finding.subject,
+		discussion: finding.discussion,
+		label: finding.label,
+	};
 }
 
 function renderDecision(decision: FindingDecision | null): string {

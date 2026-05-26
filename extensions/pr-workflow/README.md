@@ -361,6 +361,10 @@ remains reachable mid-run.
   (`endorse | qualify | edit | dismiss | promote |
   fix`). The two id spaces are independent: a finding
   with id 3 in each scope gets two separate decisions.
+  `verdict="edit"` accepts any combination of
+  `subject`, `discussion` and `label` (at least one
+  required); unspecified fields fall through to the
+  original finding.
 
 **Posting**
 
