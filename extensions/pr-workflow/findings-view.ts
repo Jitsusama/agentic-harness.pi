@@ -17,7 +17,7 @@
 
 import type { Finding } from "./findings.js";
 import type { PrWorkflowState } from "./state.js";
-import type { FindingDecision } from "./synthesis.js";
+import { effectiveFinding, type FindingDecision } from "./synthesis.js";
 import { renderThreadRelation } from "./thread-context.js";
 
 /**
@@ -93,14 +93,11 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 
 	for (const finding of judge.consolidatedFindings) {
 		const decision = state.council.decisions.get(finding.id) ?? null;
-		const subject =
-			decision?.verdict === "edit" && decision.subject
-				? decision.subject
-				: finding.subject;
+		const { subject, label } = effectiveFinding(finding, decision);
 		const relation = renderThreadRelation(finding.threadRelation);
 		const thread = relation === null ? "" : ` · ${relation}`;
 		lines.push(
-			`[${finding.id}] ${verdictMarker(decision)} [${finding.label}] ${subject} (${renderLocation(finding)})${thread}`,
+			`[${finding.id}] ${verdictMarker(decision)} [${label}] ${subject} (${renderLocation(finding)})${thread}`,
 		);
 	}
 
@@ -112,12 +109,9 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 		lines.push("Stack-level findings (decide with scope=stack):");
 		for (const finding of state.stackFindingRun.findings) {
 			const decision = state.stackDecisions.get(finding.id) ?? null;
-			const subject =
-				decision?.verdict === "edit" && decision.subject
-					? decision.subject
-					: finding.subject;
+			const { subject, label } = effectiveFinding(finding, decision);
 			lines.push(
-				`[S${finding.id}] ${verdictMarker(decision)} [${finding.label}] ${subject} (home: #${finding.homePrNumber})`,
+				`[S${finding.id}] ${verdictMarker(decision)} [${label}] ${subject} (home: #${finding.homePrNumber})`,
 			);
 		}
 	}

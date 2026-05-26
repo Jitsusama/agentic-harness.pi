@@ -47,6 +47,7 @@ import {
 	runCritiqueAction,
 } from "./critique-action.js";
 import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
+import type { ConventionalLabel } from "./findings.js";
 import { formatCompactFindingsView } from "./findings-view.js";
 import {
 	formatFixQueueStatus,
@@ -481,7 +482,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"note",
 					] as const,
 					{
-						description: "Conventional Comments label for action=add-finding.",
+						description:
+							"Conventional Comments label. Required for action=add-finding; also accepted on verdict=edit to reclassify a finding (e.g. demote `issue` to `nitpick`).",
 					},
 				),
 			),
@@ -561,13 +563,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			subject: Type.Optional(
 				Type.String({
 					description:
-						"Used by action=add-finding, and by verdict=edit to override the finding's subject before promotion.",
+						"Used by action=add-finding, and by verdict=edit to override the finding's subject before promotion. With verdict=edit, may be combined with `discussion` and/or `label`; at least one must be provided.",
 				}),
 			),
 			discussion: Type.Optional(
 				Type.String({
 					description:
-						"Used by action=add-finding, and by verdict=edit to override the finding's discussion before promotion.",
+						"Used by action=add-finding, and by verdict=edit to override the finding's discussion before promotion. With verdict=edit, may be combined with `subject` and/or `label`; at least one must be provided.",
 				}),
 			),
 			reason: Type.Optional(
@@ -1091,6 +1093,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					params.reason,
 					params.instructions,
 					params.scope,
+					params.label,
 				);
 				const result = decideFinding(state, input);
 				if (!result.ok) {
@@ -1932,6 +1935,7 @@ function buildDecideInput(
 	reason: string | undefined,
 	instructions: string | undefined,
 	scope: "pr" | "stack" | undefined,
+	label: ConventionalLabel | undefined,
 ): DecideFindingInput {
 	switch (verdict) {
 		case "endorse":
@@ -1939,7 +1943,14 @@ function buildDecideInput(
 		case "qualify":
 			return { findingId, verdict: "qualify", note: note ?? "", scope };
 		case "edit":
-			return { findingId, verdict: "edit", subject, discussion, scope };
+			return {
+				findingId,
+				verdict: "edit",
+				subject,
+				discussion,
+				label,
+				scope,
+			};
 		case "dismiss":
 			return { findingId, verdict: "dismiss", reason, scope };
 		case "promote":

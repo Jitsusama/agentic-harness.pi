@@ -31,7 +31,7 @@ import type {
 } from "./post-gate-render.js";
 import type { StackFinding } from "./stack-findings.js";
 import type { PrWorkflowState } from "./state.js";
-import type { FindingDecision } from "./synthesis.js";
+import { effectiveFinding, type FindingDecision } from "./synthesis.js";
 import { renderThreadRelationForGithub } from "./thread-context.js";
 
 /** Review event sent to GitHub. */
@@ -244,8 +244,7 @@ function renderStackBodyEntry(
 	finding: StackFinding,
 	decision: FindingDecision,
 ): string {
-	const subject = effectiveSubject(finding, decision);
-	const discussion = effectiveDiscussion(finding, decision);
+	const { subject, discussion, label } = effectiveFinding(finding, decision);
 	const lines: string[] = [];
 	const spansSentence =
 		finding.spans.length === 1
@@ -253,7 +252,7 @@ function renderStackBodyEntry(
 			: `cross-PR: spans #${finding.spans.join(", #")}`;
 	lines.push(
 		renderConventionalCommentHeader({
-			label: finding.label,
+			label,
 			decorations: finding.decorations,
 			subject,
 		}),
@@ -362,21 +361,29 @@ function buildGateSummary(
 	for (const id of payload.includedFindingIds) {
 		const finding = byId.get(id);
 		if (!finding) continue;
+		const projected = effectiveFinding(
+			finding,
+			state.council.decisions.get(id) ?? null,
+		);
 		lines.push({
-			id: finding.id,
-			label: finding.label,
-			subject: finding.subject,
-			location: renderLocationForBody(finding.location),
+			id: projected.id,
+			label: projected.label,
+			subject: projected.subject,
+			location: renderLocationForBody(projected.location),
 		});
 	}
 	for (const id of payload.includedStackFindingIds) {
 		const finding = stackById.get(id);
 		if (!finding) continue;
+		const projected = effectiveFinding(
+			finding,
+			state.stackDecisions.get(id) ?? null,
+		);
 		lines.push({
-			id: finding.id,
-			label: finding.label,
-			subject: finding.subject,
-			location: `cross-PR · #${finding.homePrNumber}`,
+			id: projected.id,
+			label: projected.label,
+			subject: projected.subject,
+			location: `cross-PR · #${projected.homePrNumber}`,
 		});
 	}
 
@@ -407,12 +414,11 @@ function renderCommentBody(
 	finding: Finding,
 	decision: FindingDecision,
 ): string {
-	const subject = effectiveSubject(finding, decision);
-	const discussion = effectiveDiscussion(finding, decision);
+	const { subject, discussion, label } = effectiveFinding(finding, decision);
 	const lines: string[] = [];
 	lines.push(
 		renderConventionalCommentHeader({
-			label: finding.label,
+			label,
 			decorations: finding.decorations,
 			subject,
 		}),
@@ -441,13 +447,12 @@ function renderBodyEntry(
 	finding: Finding,
 	decision: FindingDecision,
 ): string {
-	const subject = effectiveSubject(finding, decision);
-	const discussion = effectiveDiscussion(finding, decision);
+	const { subject, discussion, label } = effectiveFinding(finding, decision);
 	const where = renderLocationForBody(finding.location);
 	const lines: string[] = [];
 	lines.push(
 		renderConventionalCommentHeader({
-			label: finding.label,
+			label,
 			decorations: finding.decorations,
 			subject,
 		}),
@@ -558,6 +563,13 @@ function renderReviewVerdictIntro(
 		.join(" ");
 }
 
+/**
+ * Build the list of findings the review body summary
+ * sees. Each finding is projected through its recorded
+ * decision so the verdict line, priority sentence and
+ * actionable-label check observe the user's edits
+ * instead of the raw council output.
+ */
 function includedFindings(
 	state: PrWorkflowState,
 	payload: ReviewPayload,
@@ -573,11 +585,15 @@ function includedFindings(
 	return [
 		...payload.includedFindingIds.flatMap((id) => {
 			const finding = byId.get(id);
-			return finding === undefined ? [] : [finding];
+			if (finding === undefined) return [];
+			return [
+				effectiveFinding(finding, state.council.decisions.get(id) ?? null),
+			];
 		}),
 		...payload.includedStackFindingIds.flatMap((id) => {
 			const finding = stackById.get(id);
-			return finding === undefined ? [] : [finding];
+			if (finding === undefined) return [];
+			return [effectiveFinding(finding, state.stackDecisions.get(id) ?? null)];
 		}),
 	];
 }
@@ -645,23 +661,6 @@ function countBodyFindings(payload: ReviewPayload): number {
 		payload.includedStackFindingIds.length -
 		payload.comments.length
 	);
-}
-
-function effectiveSubject(finding: Finding, decision: FindingDecision): string {
-	if (decision.verdict === "edit" && typeof decision.subject === "string") {
-		return decision.subject;
-	}
-	return finding.subject;
-}
-
-function effectiveDiscussion(
-	finding: Finding,
-	decision: FindingDecision,
-): string {
-	if (decision.verdict === "edit" && typeof decision.discussion === "string") {
-		return decision.discussion;
-	}
-	return finding.discussion;
 }
 
 function renderThreadRelationNote(

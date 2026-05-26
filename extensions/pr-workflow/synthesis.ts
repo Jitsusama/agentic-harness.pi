@@ -17,7 +17,11 @@
  */
 
 import type { CritiquePosition, CritiqueRun } from "./critique.js";
-import type { Finding, FindingLocation } from "./findings.js";
+import type {
+	ConventionalLabel,
+	Finding,
+	FindingLocation,
+} from "./findings.js";
 import type { PrWorkflowState } from "./state.js";
 import { renderThreadRelation } from "./thread-context.js";
 
@@ -43,6 +47,7 @@ export type FindingDecision =
 			readonly verdict: "edit";
 			readonly subject?: string;
 			readonly discussion?: string;
+			readonly label?: ConventionalLabel;
 			readonly decidedAt: string;
 	  }
 	| {
@@ -105,6 +110,7 @@ export type DecideFindingInput = WithScope<
 			verdict: "edit";
 			subject?: string;
 			discussion?: string;
+			label?: ConventionalLabel;
 	  }
 	| { findingId: number; verdict: "dismiss"; reason?: string }
 	| { findingId: number; verdict: "promote" }
@@ -203,15 +209,30 @@ function validateInput(input: DecideFindingInput): DecisionResult {
 		const discussionGiven =
 			typeof input.discussion === "string" &&
 			input.discussion.trim().length > 0;
-		if (!subjectGiven && !discussionGiven) {
+		const labelGiven = typeof input.label === "string";
+		if (!subjectGiven && !discussionGiven && !labelGiven) {
 			return {
 				ok: false,
 				error:
-					"edit verdict requires at least one of `subject` or `discussion`.",
+					"edit verdict requires at least one of `subject`, `discussion` or `label`.",
 			};
 		}
 	}
 	return { ok: true };
+}
+
+/**
+ * Collapse a whitespace-only override to `undefined`
+ * so it doesn't survive into the posted header. The
+ * "at least one of" rule in `validateInput` already
+ * trims to decide whether a field counts as provided;
+ * `effectiveSubject` and friends only fall back to the
+ * original when the override is nullish, so an empty
+ * string would otherwise blank the comment.
+ */
+function normalizeOverride(value: string | undefined): string | undefined {
+	if (typeof value !== "string") return undefined;
+	return value.trim().length === 0 ? undefined : value;
 }
 
 function buildDecision(
@@ -232,8 +253,9 @@ function buildDecision(
 			return {
 				findingId: input.findingId,
 				verdict: "edit",
-				subject: input.subject,
-				discussion: input.discussion,
+				subject: normalizeOverride(input.subject),
+				discussion: normalizeOverride(input.discussion),
+				label: input.label,
 				decidedAt,
 			};
 		case "dismiss":
@@ -275,9 +297,9 @@ export function formatFindingsView(state: PrWorkflowState): string {
 	const lines: string[] = [];
 	for (const finding of judge.consolidatedFindings) {
 		const decision = state.council.decisions.get(finding.id) ?? null;
-		const display = applyEdit(finding, decision);
+		const display = effectiveFinding(finding, decision);
 		lines.push(
-			`[${finding.id}] [${finding.label}] ${display.subject} ${renderLocation(finding.location)}`,
+			`[${finding.id}] [${display.label}] ${display.subject} ${renderLocation(finding.location)}`,
 		);
 		const raisedBy = finding.agreement?.raisedBy ?? [];
 		if (raisedBy.length > 0) {
@@ -295,10 +317,7 @@ export function formatFindingsView(state: PrWorkflowState): string {
 			);
 		}
 		lines.push(`   decision: ${renderDecision(decision)}`);
-		if (decision?.verdict === "edit") {
-			lines.push(`     original subject: ${finding.subject}`);
-			lines.push(`     original discussion: ${finding.discussion}`);
-		}
+		pushEditOriginals(lines, finding, decision);
 		lines.push("");
 	}
 	if (
@@ -309,9 +328,9 @@ export function formatFindingsView(state: PrWorkflowState): string {
 		lines.push("");
 		for (const finding of state.stackFindingRun.findings) {
 			const decision = state.stackDecisions.get(finding.id) ?? null;
-			const display = applyEdit(finding, decision);
+			const display = effectiveFinding(finding, decision);
 			lines.push(
-				`[S${finding.id}] [${finding.label}] ${display.subject} (home: #${finding.homePrNumber}; spans: ${finding.spans.join(", ")})`,
+				`[S${finding.id}] [${display.label}] ${display.subject} (home: #${finding.homePrNumber}; spans: ${finding.spans.join(", ")})`,
 			);
 			lines.push(`   ${display.discussion}`);
 			const critiquesForFinding = collectStackCritiques(state, finding.id);
@@ -321,10 +340,7 @@ export function formatFindingsView(state: PrWorkflowState): string {
 				);
 			}
 			lines.push(`   decision: ${renderDecision(decision)}`);
-			if (decision?.verdict === "edit") {
-				lines.push(`     original subject: ${finding.subject}`);
-				lines.push(`     original discussion: ${finding.discussion}`);
-			}
+			pushEditOriginals(lines, finding, decision);
 			lines.push("");
 		}
 	}
@@ -383,17 +399,51 @@ function collectCritiquesFromRun(
 	return out;
 }
 
-function applyEdit(
+/**
+ * Render the pre-edit field values under a decision so
+ * the user can see what they changed from. Only emits a
+ * line for fields the decision actually overrode.
+ */
+function pushEditOriginals(
+	lines: string[],
 	finding: Finding,
 	decision: FindingDecision | null,
-): { subject: string; discussion: string } {
-	if (decision?.verdict === "edit") {
-		return {
-			subject: decision.subject ?? finding.subject,
-			discussion: decision.discussion ?? finding.discussion,
-		};
+): void {
+	if (decision?.verdict !== "edit") return;
+	if (typeof decision.subject === "string") {
+		lines.push(`     original subject: ${finding.subject}`);
 	}
-	return { subject: finding.subject, discussion: finding.discussion };
+	if (typeof decision.discussion === "string") {
+		lines.push(`     original discussion: ${finding.discussion}`);
+	}
+	if (typeof decision.label === "string") {
+		lines.push(`     original label: ${finding.label}`);
+	}
+}
+
+/**
+ * Project a finding through any `edit` decision the
+ * user recorded against it. Returns a same-shape
+ * finding with `subject`, `discussion` and `label`
+ * replaced by the user's overrides where present.
+ *
+ * Every downstream consumer (the wall-of-text view,
+ * the compact view, the posted Conventional Comments
+ * header, the review-body verdict path) reads from
+ * the projected finding so a single rule—“the user's
+ * edit wins”—lives in one place.
+ */
+export function effectiveFinding<T extends Finding>(
+	finding: T,
+	decision: FindingDecision | null,
+): T {
+	if (decision?.verdict !== "edit") return finding;
+	return {
+		...finding,
+		subject: decision.subject ?? finding.subject,
+		discussion: decision.discussion ?? finding.discussion,
+		label: decision.label ?? finding.label,
+	};
 }
 
 function renderDecision(decision: FindingDecision | null): string {

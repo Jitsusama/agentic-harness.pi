@@ -120,6 +120,19 @@ describe("formatCompactFindingsView", () => {
 		expect(text).not.toContain("[1] · [issue] original");
 	});
 
+	it("reflects an edited label in the row", () => {
+		const state = loadedState();
+		state.council.lastJudge = judgeWith([lineFinding(1, "subject")]);
+		decideFinding(state, {
+			findingId: 1,
+			verdict: "edit",
+			label: "nitpick",
+		});
+		const text = formatCompactFindingsView(state);
+		expect(text).toContain("[nitpick]");
+		expect(text).not.toContain("[issue]");
+	});
+
 	it("includes a legend and pointer to verbose mode", () => {
 		const state = loadedState();
 		state.council.lastJudge = judgeWith([lineFinding(1, "x")]);

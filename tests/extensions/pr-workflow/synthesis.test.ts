@@ -187,6 +187,22 @@ describe("formatFindingsView", () => {
 		expect(text).toContain("Original subject");
 	});
 
+	it("shows edited labels with the original retained for context", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([judgedFinding(10, "Subject")]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "edit",
+			label: "nitpick",
+			decidedAt: "2026-01-01T00:20:00Z",
+		});
+		const text = formatFindingsView(state);
+		expect(text).toContain("[nitpick]");
+		// Original label retained somewhere so the user
+		// can see what they changed from.
+		expect(text).toMatch(/original label:\s*issue/i);
+	});
+
 	it("appends a stack-level findings section when a cross-PR run is present", () => {
 		// Stack findings render with an S-prefix on the
 		// id (e.g. [S1]) so the user can pass scope=stack
@@ -359,13 +375,90 @@ describe("decideFinding", () => {
 		expect(expectFailure(result).error).toMatch(/note|qualify/i);
 	});
 
-	it("requires at least one of subject/discussion on edit", async () => {
+	it("requires at least one of subject, discussion or label on edit", async () => {
 		const state = withJudge();
 		const result = decideFinding(state, {
 			findingId: 10,
 			verdict: "edit",
 		});
-		expect(expectFailure(result).error).toMatch(/subject|discussion|edit/i);
+		expect(expectFailure(result).error).toMatch(
+			/subject|discussion|label|edit/i,
+		);
+	});
+
+	it("accepts an edit decision that only overrides the label", async () => {
+		// A user reclassifying an `issue` as a `nitpick`
+		// shouldn't have to re-type the subject just to
+		// keep validation happy. Label alone is enough.
+		const state = withJudge();
+		const result = decideFinding(state, {
+			findingId: 10,
+			verdict: "edit",
+			label: "nitpick",
+		});
+		expect(result.ok).toBe(true);
+		const decision = state.council.decisions.get(10);
+		expect(decision?.verdict).toBe("edit");
+		if (decision?.verdict === "edit") {
+			expect(decision.label).toBe("nitpick");
+			expect(decision.subject).toBeUndefined();
+			expect(decision.discussion).toBeUndefined();
+		}
+	});
+
+	it("rejects whitespace-only subject overrides so they can't blank the posted header", async () => {
+		// Without normalization, `verdict=edit, label=nitpick,
+		// subject=""` would pass validation (label
+		// satisfies the "at least one" check) and the
+		// empty subject would survive into the posted
+		// header. Edit fields should be normalized at the
+		// boundary.
+		const state = withJudge();
+		const result = decideFinding(state, {
+			findingId: 10,
+			verdict: "edit",
+			label: "nitpick",
+			subject: "   ",
+		});
+		expect(result.ok).toBe(true);
+		const decision = state.council.decisions.get(10);
+		if (decision?.verdict === "edit") {
+			expect(decision.subject).toBeUndefined();
+			expect(decision.label).toBe("nitpick");
+		}
+	});
+
+	it("rejects whitespace-only discussion overrides the same way", async () => {
+		const state = withJudge();
+		const result = decideFinding(state, {
+			findingId: 10,
+			verdict: "edit",
+			label: "nitpick",
+			discussion: "\n\t  ",
+		});
+		expect(result.ok).toBe(true);
+		const decision = state.council.decisions.get(10);
+		if (decision?.verdict === "edit") {
+			expect(decision.discussion).toBeUndefined();
+		}
+	});
+
+	it("records subject, discussion and label together when all three are edited", async () => {
+		const state = withJudge();
+		const result = decideFinding(state, {
+			findingId: 10,
+			verdict: "edit",
+			subject: "Sharper",
+			discussion: "Tighter",
+			label: "suggestion",
+		});
+		expect(result.ok).toBe(true);
+		const decision = state.council.decisions.get(10);
+		if (decision?.verdict === "edit") {
+			expect(decision.subject).toBe("Sharper");
+			expect(decision.discussion).toBe("Tighter");
+			expect(decision.label).toBe("suggestion");
+		}
 	});
 
 	it("refuses to record decisions before a judge run exists — there's nothing to decide on", async () => {
@@ -427,6 +520,24 @@ describe("decideFinding", () => {
 				scope: "stack",
 			});
 			expect(expectFailure(result).error).toMatch(/unknown|not in/i);
+		});
+
+		it("records a label-only edit against a stack finding", () => {
+			const state = createPrWorkflowState();
+			state.stackFindingRun = stackFindingRun([
+				stackFinding(1, "cross-pr", 2, [1, 2]),
+			]);
+			const result = decideFinding(state, {
+				findingId: 1,
+				verdict: "edit",
+				label: "suggestion",
+				scope: "stack",
+			});
+			expect(result.ok).toBe(true);
+			const decision = state.stackDecisions.get(1);
+			if (decision?.verdict === "edit") {
+				expect(decision.label).toBe("suggestion");
+			}
 		});
 
 		it("stack decisions are independent from per-PR decisions on the same id", () => {
