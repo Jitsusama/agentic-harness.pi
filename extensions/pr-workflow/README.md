@@ -273,6 +273,27 @@ Example:
 Reviewer ids must be unique, and the judge id must be
 distinct from every council reviewer id.
 
+### State directory
+
+Reviewer artifacts, supervised stream logs, fix-worktree
+admin state and other persistent files live under:
+
+```
+${XDG_STATE_HOME:-~/.local/state}/pi/agentic-harness.pi/pr-workflow/
+```
+
+The `agentic-harness.pi/` segment scopes state to this pi
+package so it doesn't collide with other pi extension
+packages installed in the same user account. Sibling
+extensions in this package each get their own peer
+directory.
+
+Earlier versions of this extension stored state at
+`${XDG_STATE_HOME:-~/.local/state}/pi/pr-workflow/` (no
+package segment). That path is abandoned; any leftover
+artifacts under the old location are inert and safe to
+delete.
+
 **Review standard**
 
 Every reviewer-like subprocess gets a built-in review

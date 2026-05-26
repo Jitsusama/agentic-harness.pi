@@ -25,6 +25,7 @@ import { Type } from "@sinclair/typebox";
 import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
 import { postReview } from "../../lib/internal/github/review-post.js";
+import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { parsePrFileUri, prFileUri, resolvePrFile } from "./buffer.js";
 import {
 	createCancellableDispatch,
@@ -140,12 +141,7 @@ const NEOVIM_PI_READY = "neovim-pi:ready";
 
 export default function prWorkflow(pi: ExtensionAPI) {
 	const state = createPrWorkflowState();
-	const prWorkflowStateDir = () =>
-		join(
-			process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"),
-			"pi",
-			"pr-workflow",
-		);
+	const prWorkflowStateDir = () => packageStateDir("pr-workflow");
 	const reviewerArtifacts = () =>
 		new ReviewerArtifactsStore(prWorkflowStateDir());
 	void recoverReviewerRuns(reviewerArtifacts()).then(
