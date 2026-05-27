@@ -26,6 +26,13 @@ import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
 import { postReview } from "../../lib/internal/github/review-post.js";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
+import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
+import { recoverReviewerRuns } from "../../lib/subagent/recovery.js";
+import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.js";
+import {
+	type CouncilReviewer,
+	runReviewer,
+} from "../../lib/subagent/subagent.js";
 import { parsePrFileUri, prFileUri, resolvePrFile } from "./buffer.js";
 import {
 	createCancellableDispatch,
@@ -86,10 +93,6 @@ import {
 	PR_WORKFLOW_REGISTER_REVIEW_CONTEXT_PROVIDER,
 	ReviewContextProviderBroker,
 } from "./review-context.js";
-import { type CouncilReviewer, runReviewer } from "./reviewer.js";
-import { ReviewerArtifactsStore } from "./reviewer-artifacts.js";
-import { recoverReviewerRuns } from "./reviewer-recovery.js";
-import { createSupervisorRunPi } from "./runpi-supervisor.js";
 import { createGitHubPrSearch } from "./search.js";
 import { buildStack, type StackEntry } from "./stack.js";
 import {

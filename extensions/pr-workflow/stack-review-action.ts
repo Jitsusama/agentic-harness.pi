@@ -11,6 +11,7 @@
 
 import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
+import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import { isReviewerCancelledError } from "./cancellation.js";
 import type { CouncilDispatch } from "./council.js";
 import {
@@ -29,7 +30,6 @@ import {
 	rememberParticipantIdentity,
 } from "./participant-identities.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
-import type { CouncilReviewer } from "./reviewer.js";
 import type { StackFinding, StackFindingRun } from "./stack-findings.js";
 import {
 	buildStackJudgePrompt,

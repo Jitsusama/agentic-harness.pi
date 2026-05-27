@@ -17,8 +17,8 @@
 
 import { expect } from "vitest";
 import type { PrMetadata } from "../../../extensions/pr-workflow/fetch.js";
-import type { ReviewerUsage } from "../../../extensions/pr-workflow/reviewer.js";
 import type { DiffHunk, DiffLine } from "../../../lib/internal/github/diff.js";
+import type { ReviewerUsage } from "../../../lib/subagent/subagent.js";
 
 /** Build a complete `PrMetadata` from partial overrides. */
 export function prMetadata(overrides: Partial<PrMetadata> = {}): PrMetadata {

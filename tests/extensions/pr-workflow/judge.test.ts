@@ -7,12 +7,12 @@ import {
 	parseJudgeOutput,
 	runJudge,
 } from "../../../extensions/pr-workflow/judge.js";
-import type { CouncilReviewer } from "../../../extensions/pr-workflow/reviewer.js";
 import {
 	type WorktreeProvider,
 	WorktreeRegistry,
 	type WorktreeRequest,
 } from "../../../extensions/pr-workflow/worktree.js";
+import type { CouncilReviewer } from "../../../lib/subagent/subagent.js";
 
 /**
  * The judge round consolidates round-1 reviewer outputs

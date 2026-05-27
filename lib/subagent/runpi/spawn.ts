@@ -14,7 +14,7 @@ import {
 	spawn as nodeSpawn,
 	type SpawnOptions,
 } from "node:child_process";
-import type { RunPi } from "./reviewer.js";
+import type { RunPi } from "../subagent.js";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
 export type SpawnFn = (

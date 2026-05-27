@@ -1,8 +1,8 @@
 /** Cross-PR finding state shared by stack-aware review. */
 
+import type { ReviewerUsage } from "../../lib/subagent/subagent.js";
 import type { CritiqueRun } from "./critique.js";
 import type { Finding } from "./findings.js";
-import type { ReviewerUsage } from "./reviewer.js";
 
 /**
  * A finding that talks about more than one PR in a

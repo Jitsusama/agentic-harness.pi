@@ -20,6 +20,11 @@
  */
 
 import { Value } from "@sinclair/typebox/value";
+import type {
+	CouncilReviewer,
+	ReviewerUsage,
+	ReviewerVerification,
+} from "../../lib/subagent/subagent.js";
 import { isReviewerCancelledError } from "./cancellation.js";
 import type { CouncilDispatch, CouncilTarget } from "./council.js";
 import {
@@ -35,11 +40,6 @@ import {
 	reviewQualityStandard,
 	reviewSynthesisStandard,
 } from "./review-quality-standard.js";
-import type {
-	CouncilReviewer,
-	ReviewerUsage,
-	ReviewerVerification,
-} from "./reviewer.js";
 import { JudgeFinding, JudgeSelfSignal } from "./schemas.js";
 import {
 	type ReviewThreadPromptContext,

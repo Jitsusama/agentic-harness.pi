@@ -24,6 +24,10 @@ from internal files.
   authentication and renderers.
 - **[`web/`](web/)** — Web search and page reading via
   headless Chrome.
+- **[`subagent/`](subagent/)** — Subagent engine for
+  running pi as a child process: spec/job composition,
+  fleet fan-out, durable supervisor runs, stream parsing,
+  artifact recovery and the verify-pack protocol.
 
 ## Internal Modules
 

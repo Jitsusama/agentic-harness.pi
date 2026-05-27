@@ -1,26 +1,28 @@
 /**
- * Reviewer subagent dispatcher.
+ * Subagent dispatcher.
  *
- * Each council reviewer runs as a separate pi process
+ * Each subagent runs as a separate pi process
  * (`pi --mode json --no-session -p ...`) so it has its
  * own context window, its own model, its own tools, and
- * its own working directory (a PR worktree). That's what
- * gives reviewers the ability to investigate: read whole
- * files, grep, run tests, follow imports. A single
- * `complete()` call can't do that.
+ * its own working directory. That's what gives subagents
+ * the ability to investigate: read whole files, grep, run
+ * tests, follow imports. A single `complete()` call can't
+ * do that.
  *
- * This module is the per-reviewer dispatcher. The council
- * orchestrator (next commit) coordinates multiple
- * reviewers, hands them worktree paths and prompts, and
- * collects their outputs.
+ * This module is the per-subagent dispatcher. Higher-level
+ * orchestrators (the pr-workflow council, the
+ * subagent-workflow tool) compose multiple subagents,
+ * feed them prompts plus working directories and collect
+ * their outputs.
  *
  * The actual subprocess spawn is behind an injectable
  * `runPi` so unit tests can verify the args without
- * shelling out. A production-side `runPi` lives in the
- * extension entry-point and uses node:child_process.
+ * shelling out. Production callers compose one of the
+ * `runpi/*` runners (spawn for fire-and-forget, supervisor
+ * for durable runs).
  */
 
-import { ReviewerStreamParser } from "./reviewer-stream.js";
+import { ReviewerStreamParser } from "./stream.js";
 
 /** File-backed artifacts emitted by a supervised reviewer run. */
 export interface ReviewerRunArtifacts {
@@ -32,7 +34,7 @@ export interface ReviewerRunArtifacts {
 	readonly resultPath: string;
 }
 
-export { extractUsageFromPiStream } from "./reviewer-stream.js";
+export { extractUsageFromPiStream } from "./stream.js";
 
 /**
  * A subagent spec: identity, model, thinking level, tool
@@ -139,6 +141,23 @@ export interface RunReviewerOptions {
 	readonly prompt: string;
 	/** Working directory for the subprocess (worktree path). */
 	readonly cwd: string;
+	/**
+	 * Optional system prompt forwarded to pi via
+	 * `--system-prompt`. Callers use this to set the
+	 * subagent's persona, baseline instructions or
+	 * voice before the user prompt arrives. When omitted,
+	 * pi falls back to its session default.
+	 */
+	readonly systemPrompt?: string;
+	/**
+	 * When true, ask pi to ignore every form of ambient
+	 * inheritance (`--no-skills --no-context-files
+	 * --no-extensions`). The subagent then sees only the
+	 * `extraExtensions`, `extraSkills` and prompts the
+	 * caller passes in. Used for clean-slate fleet runs
+	 * where the user's local pi setup must not bleed in.
+	 */
+	readonly isolated?: boolean;
 	/** Cancellation hook; propagates to the subprocess. */
 	readonly signal?: AbortSignal;
 	/** Subprocess runner. Inject a fake for tests. */
@@ -234,12 +253,14 @@ export interface RunReviewerResult {
 export async function runReviewer(
 	options: RunReviewerOptions,
 ): Promise<RunReviewerResult> {
-	const args = composeArgs(
-		options.reviewer,
-		options.prompt,
-		options.extraExtensions,
-		options.extraSkills,
-	);
+	const args = composeArgs({
+		spec: options.reviewer,
+		prompt: options.prompt,
+		systemPrompt: options.systemPrompt,
+		isolated: options.isolated,
+		extraExtensions: options.extraExtensions,
+		extraSkills: options.extraSkills,
+	});
 	const result = await options.runPi({
 		args,
 		cwd: options.cwd,
@@ -441,33 +462,50 @@ function summarizeStderr(stderr: string): string {
  */
 export const VERIFY_TOOL_NAME = "verify_output";
 
-function composeArgs(
-	reviewer: CouncilReviewer,
-	prompt: string,
-	extraExtensions: readonly string[] | undefined,
-	extraSkills: readonly string[] | undefined,
-): string[] {
+interface ComposeArgsInput {
+	readonly spec: SubagentSpec;
+	readonly prompt: string;
+	readonly systemPrompt?: string;
+	readonly isolated?: boolean;
+	readonly extraExtensions?: readonly string[];
+	readonly extraSkills?: readonly string[];
+}
+
+function composeArgs(input: ComposeArgsInput): string[] {
 	const args: string[] = ["--mode", "json", "--no-session", "-p"];
-	if (reviewer.model) {
-		args.push("--model", reviewer.model);
+	if (input.spec.model) {
+		args.push("--model", input.spec.model);
 	}
-	if (reviewer.thinkingLevel) {
-		args.push("--thinking", reviewer.thinkingLevel);
+	if (input.spec.thinkingLevel) {
+		args.push("--thinking", input.spec.thinkingLevel);
 	}
-	if (reviewer.tools && reviewer.tools.length > 0) {
-		args.push("--tools", buildToolsAllowlist(reviewer.tools));
+	if (input.spec.tools && input.spec.tools.length > 0) {
+		args.push("--tools", buildToolsAllowlist(input.spec.tools));
 	}
-	if (extraExtensions) {
-		for (const path of extraExtensions) {
+	if (input.systemPrompt) {
+		args.push("--system-prompt", input.systemPrompt);
+	}
+	if (input.isolated) {
+		// Pi's three flags together strip every form of
+		// ambient inheritance: package- and user-scoped
+		// skills, AGENTS.md context files and auto-
+		// discovered extensions. Callers that pass
+		// extraExtensions or extraSkills get those layered
+		// back on top by the flags below; nothing else
+		// loads.
+		args.push("--no-skills", "--no-context-files", "--no-extensions");
+	}
+	if (input.extraExtensions) {
+		for (const path of input.extraExtensions) {
 			args.push("--extension", path);
 		}
 	}
-	if (extraSkills) {
-		for (const path of extraSkills) {
+	if (input.extraSkills) {
+		for (const path of input.extraSkills) {
 			args.push("--skill", path);
 		}
 	}
-	args.push(prompt);
+	args.push(input.prompt);
 	return args;
 }
 
@@ -493,4 +531,216 @@ function buildToolsAllowlist(palette: readonly string[]): string {
 
 function truncate(s: string, max: number): string {
 	return s.length <= max ? s : `${s.slice(0, max)}...`;
+}
+
+// ---------------------------------------------------------------------------
+// New (engine-public) API surface
+// ---------------------------------------------------------------------------
+//
+// The library publishes a small composite API on top of
+// the flat `RunReviewerOptions`/`runReviewer` legacy used
+// by pr-workflow. New consumers should prefer the
+// `SubagentJob` + `runSubagent` shape; the legacy names
+// remain so the existing pr-workflow callsites keep
+// working unchanged. The two converge once pr-workflow
+// migrates its callsites.
+
+/**
+ * A bundle of (extension, skill) paths that teach a
+ * subagent its output contract and let it self-validate.
+ * The extension registers the `verify_output` tool; the
+ * companion skill (when present) carries the protocol
+ * prose. Verify packs live next to their consumers; the
+ * library treats them opaquely.
+ */
+export interface VerifyPack {
+	/** Absolute path to the verify extension's entry file. */
+	readonly extensionPath: string;
+	/** Absolute path to the companion skill, when present. */
+	readonly skillPath?: string;
+}
+
+/**
+ * The work to do for one subagent run, without the
+ * ambient infrastructure (runner, signal, event hook).
+ * Callers compose a job, pair it with a {@link SubagentSpec}
+ * and pass both to {@link runSubagent}.
+ */
+export interface SubagentJob {
+	/** Optional `--system-prompt` text. */
+	readonly systemPrompt?: string;
+	/** User prompt passed as the final positional arg. */
+	readonly userPrompt: string;
+	/** Working directory for the subprocess. */
+	readonly cwd: string;
+	/**
+	 * When true, strip ambient inheritance via
+	 * `--no-skills --no-context-files --no-extensions`.
+	 * Defaults to `false`; callers that want a clean slate
+	 * opt in explicitly.
+	 */
+	readonly isolated?: boolean;
+	/** Absolute paths to inject via `--extension`. */
+	readonly extraExtensions?: readonly string[];
+	/** Absolute paths to inject via `--skill`. */
+	readonly extraSkills?: readonly string[];
+	/**
+	 * Verify pack. When set the engine injects the
+	 * extension (and skill, when present) and enforces
+	 * that `verify_output` was called and returned
+	 * `ok: true` before accepting the run.
+	 */
+	readonly verify?: VerifyPack;
+}
+
+/** Token + cost figures for one subagent run. */
+export type SubagentUsage = ReviewerUsage;
+
+/** Verify-output outcome surfaced on a subagent run result. */
+export type SubagentVerification = ReviewerVerification;
+
+/** Result of one subagent's run. */
+export interface SubagentRunResult {
+	readonly subagentId: string;
+	readonly exitCode: number;
+	readonly finalAssistantText: string;
+	readonly stderr: string;
+	readonly warnings: readonly string[];
+	readonly usage?: SubagentUsage;
+	readonly verification?: SubagentVerification;
+}
+
+/**
+ * Run one subagent. Thin wrapper over {@link runReviewer}
+ * that takes the composite (spec, job, runtime) shape
+ * exported by the library. New consumers should call this
+ * function instead of `runReviewer`.
+ */
+export async function runSubagent(opts: {
+	readonly spec: SubagentSpec;
+	readonly job: SubagentJob;
+	readonly runPi: RunPi;
+	readonly runId?: string;
+	readonly signal?: AbortSignal;
+	readonly onEvent?: (event: RunPiStreamEvent) => void;
+}): Promise<SubagentRunResult> {
+	const { job, verify } = { job: opts.job, verify: opts.job.verify };
+	const extraExtensions = [
+		...(job.extraExtensions ?? []),
+		...(verify ? [verify.extensionPath] : []),
+	];
+	const extraSkills = [
+		...(job.extraSkills ?? []),
+		...(verify?.skillPath ? [verify.skillPath] : []),
+	];
+	const result = await runReviewer({
+		reviewer: opts.spec,
+		prompt: job.userPrompt,
+		cwd: job.cwd,
+		...(job.systemPrompt ? { systemPrompt: job.systemPrompt } : {}),
+		...(job.isolated ? { isolated: true } : {}),
+		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
+		...(extraSkills.length > 0 ? { extraSkills } : {}),
+		...(verify ? { requiresVerification: true } : {}),
+		runPi: opts.runPi,
+		...(opts.runId ? { runId: opts.runId } : {}),
+		...(opts.signal ? { signal: opts.signal } : {}),
+		...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
+	});
+	return {
+		subagentId: result.reviewerId,
+		exitCode: result.exitCode,
+		finalAssistantText: result.finalAssistantText,
+		stderr: result.stderr,
+		warnings: result.warnings,
+		...(result.usage ? { usage: result.usage } : {}),
+		...(result.verification ? { verification: result.verification } : {}),
+	};
+}
+
+/** Result of one fleet fan-out: per-subagent results and aggregate warnings. */
+export interface FleetResult {
+	readonly results: readonly SubagentRunResult[];
+	readonly warnings: readonly string[];
+}
+
+/**
+ * Fan one job per subagent out in parallel. Each
+ * (spec, job) pair runs as its own pi process; failures
+ * become warnings on their own result rather than aborting
+ * the fleet. Callers that need progress observability
+ * thread an `onEvent` per assignment through the
+ * `assignments` array.
+ *
+ * Both non-zero exits (captured by `runSubagent` itself)
+ * and pre-flight spawn errors (a rejected promise from
+ * `runSubagent`) are contained: a rejected assignment
+ * becomes a synthesized result carrying the error message
+ * as a warning so successful siblings still surface.
+ */
+export async function runFleet(opts: {
+	readonly assignments: ReadonlyArray<{
+		readonly spec: SubagentSpec;
+		readonly job: SubagentJob;
+		readonly onEvent?: (event: RunPiStreamEvent) => void;
+	}>;
+	readonly runPi: RunPi;
+	readonly runId?: string;
+	readonly signal?: AbortSignal;
+}): Promise<FleetResult> {
+	const settled = await Promise.allSettled(
+		opts.assignments.map((assignment) =>
+			runSubagent({
+				spec: assignment.spec,
+				job: assignment.job,
+				runPi: opts.runPi,
+				...(opts.runId ? { runId: opts.runId } : {}),
+				...(opts.signal ? { signal: opts.signal } : {}),
+				...(assignment.onEvent ? { onEvent: assignment.onEvent } : {}),
+			}),
+		),
+	);
+	const results = settled.map((outcome, index) =>
+		outcome.status === "fulfilled"
+			? outcome.value
+			: synthesizeRejectedResult(opts.assignments[index].spec, outcome.reason),
+	);
+	const warnings: string[] = [];
+	for (const r of results) {
+		for (const w of r.warnings) warnings.push(`${r.subagentId}: ${w}`);
+	}
+	return { results, warnings };
+}
+
+function synthesizeRejectedResult(
+	spec: SubagentSpec,
+	reason: unknown,
+): SubagentRunResult {
+	const message = reason instanceof Error ? reason.message : String(reason);
+	return {
+		subagentId: spec.id,
+		exitCode: -1,
+		finalAssistantText: "",
+		stderr: "",
+		warnings: [`subagent failed to start: ${message}`],
+	};
+}
+
+/**
+ * Canonical prose instructing a subagent how to use
+ * `verify_output`: call it before ending, retry on
+ * `ok: false`, end when `ok: true`. Returned as a single
+ * paragraph so callers can drop it into a prompt body.
+ * Pairs with whichever {@link VerifyPack} the caller
+ * injects — the engine doesn't know which tool name is in
+ * use beyond the convention that it's `verify_output`.
+ */
+export function verifyProtocolInstruction(): string {
+	return [
+		"Before ending your run, call the `verify_output` tool with your",
+		"final structured output as `output`. If the tool returns `ok: false`,",
+		"read the errors, fix your output and call `verify_output` again.",
+		"End your run only when the most recent `verify_output` call returned",
+		"`ok: true`. Do not skip this step \u2014 the parent rejects unverified runs.",
+	].join(" ");
 }

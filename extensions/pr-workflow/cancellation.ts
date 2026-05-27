@@ -1,5 +1,5 @@
+import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import type { CouncilDispatch } from "./council.js";
-import type { CouncilReviewer } from "./reviewer.js";
 
 /** Human-facing label for a cancellable reviewer run. */
 export type ReviewOperation =

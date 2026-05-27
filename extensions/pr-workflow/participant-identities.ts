@@ -1,6 +1,6 @@
 /** Stable reviewer identity tracking for user-facing finding origins. */
 
-import type { CouncilReviewer } from "./reviewer.js";
+import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import type { PrWorkflowState } from "./state.js";
 
 /** Role a participant id was used for. */

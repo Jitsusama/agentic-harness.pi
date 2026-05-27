@@ -26,11 +26,11 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import { getLastEntry } from "../../lib/internal/state.js";
+import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import type { CritiqueRun } from "./critique.js";
 import type { CouncilRun } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { ParticipantIdentity } from "./participant-identities.js";
-import type { CouncilReviewer } from "./reviewer.js";
 import type { StackFindingRun } from "./stack-findings.js";
 import type {
 	PrRunSnapshot,

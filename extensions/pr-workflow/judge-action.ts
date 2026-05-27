@@ -7,6 +7,7 @@
  * boundary injected so unit tests don't spawn pi.
  */
 
+import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import { isReviewerCancelledError } from "./cancellation.js";
 import type { CouncilDispatch } from "./council.js";
 import type { CouncilProgress } from "./council-progress.js";
@@ -17,7 +18,6 @@ import {
 	rememberParticipantIdentity,
 } from "./participant-identities.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
-import type { CouncilReviewer } from "./reviewer.js";
 import type { PrWorkflowState } from "./state.js";
 import {
 	loadReviewThreadPromptContext,

@@ -4,10 +4,6 @@ import { describe, expect, it } from "vitest";
 import { ReviewerCancelledError } from "../../../extensions/pr-workflow/cancellation.js";
 import type { CouncilDispatch } from "../../../extensions/pr-workflow/council.js";
 import type { CouncilProgress } from "../../../extensions/pr-workflow/council-progress.js";
-import type {
-	CouncilReviewer,
-	RunReviewerResult,
-} from "../../../extensions/pr-workflow/reviewer.js";
 import type { Stack } from "../../../extensions/pr-workflow/stack.js";
 import {
 	formatStackReviewActionSummary,
@@ -23,6 +19,10 @@ import {
 	WorktreeRegistry,
 	type WorktreeRequest,
 } from "../../../extensions/pr-workflow/worktree.js";
+import type {
+	CouncilReviewer,
+	RunReviewerResult,
+} from "../../../lib/subagent/subagent.js";
 import { fakeProvider } from "./council.test-helpers.js";
 import { expectFailure, prMetadata } from "./fixtures.js";
 
