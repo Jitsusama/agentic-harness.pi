@@ -14,5 +14,10 @@ external packages. These modules may change without notice.
   part of the public `lib/guardian/` contract: commit
   message parsing and the entity review gate used by
   `commit-guardian`.
+- **`package-state-dir.ts`** — resolve the on-disk state
+  directory for one extension in this package. Honours
+  `XDG_STATE_HOME`; scopes everything under
+  `pi/agentic-harness.pi/<extension>/` so multiple pi
+  packages on the same machine don't collide.
 - **`state.ts`** — session state helpers: entry persistence,
   plan directory resolution and context filtering.
