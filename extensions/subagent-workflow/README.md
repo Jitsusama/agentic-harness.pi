@@ -80,6 +80,61 @@ user. `totalUsage` lets it confirm spend.
   when omitted so durable supervisor artifacts always
   have somewhere to land.
 
+## Default extensions and skills
+
+Other pi extensions can register paths that should be
+loaded into *every* subagent in the session, regardless
+of per-job `isolated` settings or `extraExtensions`
+values. Use this for credentials helpers, telemetry
+hooks, or org-wide setup that every subagent needs.
+
+Two events make this work, mirroring the bidirectional
+`pr-workflow:ready:v1` handshake used elsewhere in the
+package. Listening to *both* is the load-order-safe
+pattern: it covers extensions that activate before this
+one AND extensions that activate after.
+
+```ts
+import type { SubagentWorkflowApi } from "./index.js";
+
+const EXTENSION_PATH = "/abs/path/to/creds.ts";
+
+// (1) If we activated AFTER subagent-workflow, the ready
+// event already fired. Emit the register event directly
+// — subagent-workflow's listener is still subscribed.
+pi.events.emit(
+  "subagent-workflow:register-default-extension:v1",
+  EXTENSION_PATH,
+);
+
+// (2) If we activated BEFORE subagent-workflow, the
+// emit above hit nothing. Listen for ready and call the
+// API method then.
+pi.events.on(
+  "subagent-workflow:ready:v1",
+  (api: SubagentWorkflowApi) => {
+    api.registerDefaultExtension(EXTENSION_PATH);
+  },
+);
+```
+
+The registry dedupes by path so doing both is safe —
+the path lands once regardless of which event delivers
+it. Same shape exists for skills:
+`subagent-workflow:register-default-skill:v1` carries an
+absolute `SKILL.md` path.
+
+Direct imports from `agentic-harness.pi/subagent`
+(`registerSubagentDefaultExtension`,
+`registerSubagentDefaultSkill`) are also supported for
+package-internal callers and tests.
+
+Registered paths reach the subagent via pi's
+`--extension` / `--skill` flags, which are honoured even
+under `isolated: true` (i.e. alongside `--no-extensions`).
+That's the point of the hook — a clean-slate subagent
+that still has the bits it absolutely needs.
+
 ## Progress panel
 
 When pi has a TUI, the tool installs a focused panel

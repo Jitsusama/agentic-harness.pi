@@ -40,6 +40,35 @@ with crash recovery). The legacy `runReviewer` shape (one
 flat options bag, used by pr-workflow's existing
 callsites) remains exported during the migration.
 
+## Always-load defaults
+
+The engine keeps a process-global registry of extensions
+and skills that should be present in every subagent run:
+
+```ts
+import {
+  registerSubagentDefaultExtension,
+  registerSubagentDefaultSkill,
+} from "agentic-harness.pi/subagent";
+
+registerSubagentDefaultExtension("/abs/path/to/creds.ts");
+registerSubagentDefaultSkill("/abs/path/to/SKILL.md");
+```
+
+`runReviewer` (and therefore `runSubagent` / `runFleet`)
+prepends the registered paths onto the per-call
+`extraExtensions` / `extraSkills` arrays before composing
+argv. Duplicates are coalesced. The defaults survive an
+`isolated: true` job because pi honours `--extension` /
+`--skill` injections even after `--no-extensions` /
+`--no-skills`.
+
+The registry is process-global because pi loads every
+extension into one Node process. Pi extensions can also
+listen for the `subagent-workflow:ready:v1` event and
+register via the `SubagentWorkflowApi` object the event
+carries — see the `subagent-workflow` extension.
+
 ## Verify packs
 
 When a job carries a `verify: VerifyPack`, the engine

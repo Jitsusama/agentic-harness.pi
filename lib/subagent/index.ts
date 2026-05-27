@@ -29,6 +29,13 @@
 
 // Durable artifacts and recovery (supervisor path).
 export { ReviewerArtifactsStore } from "./artifacts.js";
+// Engine-wide always-load defaults.
+export {
+	clearSubagentDefaults,
+	getSubagentDefaults,
+	registerSubagentDefaultExtension,
+	registerSubagentDefaultSkill,
+} from "./defaults.js";
 export {
 	type RecoveredReviewerProgress,
 	type RecoveredReviewerResult,

@@ -40,6 +40,10 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
+import {
+	registerSubagentDefaultExtension,
+	registerSubagentDefaultSkill,
+} from "../../lib/subagent/defaults.js";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.js";
 import {
 	FleetCancellationRegistry,
@@ -52,6 +56,64 @@ import {
 	type FleetAssignment,
 	formatFleetSummary,
 } from "./run.js";
+
+/**
+ * Event the extension emits once on activation. Carries
+ * a {@link SubagentWorkflowApi} so other pi extensions
+ * can register defaults without importing this package's
+ * internals.
+ *
+ * Late-binding extensions that activate AFTER this one
+ * miss the emit. They can still register defaults by
+ * emitting {@link SUBAGENT_WORKFLOW_REGISTER_DEFAULT_EXTENSION}
+ * or {@link SUBAGENT_WORKFLOW_REGISTER_DEFAULT_SKILL}
+ * directly — the listeners stay subscribed for the
+ * lifetime of the session. Mirrors the bidirectional
+ * `pr-workflow:ready:v1` + `pr-workflow:*-provider:register:v1`
+ * handshake used elsewhere in the package.
+ */
+export const SUBAGENT_WORKFLOW_READY = "subagent-workflow:ready:v1";
+
+/**
+ * Reverse-registration event. Listened to from extension
+ * activation; payload is the absolute extension path to
+ * inject into every subagent. Use this when listening for
+ * {@link SUBAGENT_WORKFLOW_READY} isn't enough because
+ * your extension may activate after this one.
+ */
+export const SUBAGENT_WORKFLOW_REGISTER_DEFAULT_EXTENSION =
+	"subagent-workflow:register-default-extension:v1";
+
+/**
+ * Reverse-registration event for default skills. Payload
+ * is the absolute path to a `SKILL.md` file. Same
+ * load-order-safe motivation as
+ * {@link SUBAGENT_WORKFLOW_REGISTER_DEFAULT_EXTENSION}.
+ */
+export const SUBAGENT_WORKFLOW_REGISTER_DEFAULT_SKILL =
+	"subagent-workflow:register-default-skill:v1";
+
+/**
+ * Public hook surface for other pi extensions. Delivered
+ * via the {@link SUBAGENT_WORKFLOW_READY} event. The two
+ * methods are thin wrappers around the engine-wide
+ * registry in `lib/subagent/defaults.ts`; calling them
+ * from one extension makes the registered path available
+ * to every subagent that any consumer spawns for the rest
+ * of the session.
+ */
+export interface SubagentWorkflowApi {
+	/**
+	 * Inject this extension into every subagent. Absolute
+	 * path to a `.ts`, `.mjs`, or directory-with-`index.ts`.
+	 */
+	registerDefaultExtension(path: string): void;
+	/**
+	 * Inject this skill into every subagent. Absolute path
+	 * to a `SKILL.md` file.
+	 */
+	registerDefaultSkill(path: string): void;
+}
 
 export default function subagentWorkflow(pi: ExtensionAPI) {
 	const stateDir = () => packageStateDir("subagent-workflow");
@@ -67,6 +129,42 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			formatFleetCancellation(cancellations.cancel(subagentId)),
 		cancelAll: () => formatFleetCancellation(cancellations.cancel()),
 	});
+
+	// Announce the registration hook for other pi
+	// extensions. A Shopify-style credentials helper that
+	// listens here can drop an extension path into the
+	// engine-wide registry so even `isolated: true`
+	// subagents inherit auth without the user having to
+	// thread `extraExtensions` through every job.
+	//
+	// Two-way handshake: extensions that activate BEFORE
+	// this one listen for SUBAGENT_WORKFLOW_READY and use
+	// the API; extensions that activate AFTER this one
+	// missed the emit and instead fire the reverse register
+	// events below. The listeners stay subscribed for the
+	// session, so timing never matters once both extensions
+	// have activated.
+	const registerDefaultExtensionFromEvent = (payload: unknown): void => {
+		if (typeof payload !== "string") return;
+		registerSubagentDefaultExtension(payload);
+	};
+	const registerDefaultSkillFromEvent = (payload: unknown): void => {
+		if (typeof payload !== "string") return;
+		registerSubagentDefaultSkill(payload);
+	};
+	pi.events.on(
+		SUBAGENT_WORKFLOW_REGISTER_DEFAULT_EXTENSION,
+		registerDefaultExtensionFromEvent,
+	);
+	pi.events.on(
+		SUBAGENT_WORKFLOW_REGISTER_DEFAULT_SKILL,
+		registerDefaultSkillFromEvent,
+	);
+	const api: SubagentWorkflowApi = {
+		registerDefaultExtension: registerSubagentDefaultExtension,
+		registerDefaultSkill: registerSubagentDefaultSkill,
+	};
+	pi.events.emit(SUBAGENT_WORKFLOW_READY, api);
 
 	pi.registerTool({
 		name: "subagent",
