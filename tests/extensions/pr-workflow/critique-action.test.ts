@@ -394,6 +394,51 @@ describe("formatCritiqueSummary", () => {
 		const text = formatCritiqueSummary({ judge, critique });
 		expect(text).toMatch(/critique-retry reviewerId=skeptic/);
 	});
+
+	it("swaps the per-reviewer retry hint for a session-level advisory when the runtime is stale", async () => {
+		// When pi was updated mid-session, every reviewer
+		// fails with the same `ENOENT` on a path inside
+		// `.pi/pkg/pi-X.Y.Z/`. Suggesting `critique-retry`
+		// for each one is misleading — no retry will succeed
+		// until pi is restarted. Replace the hint with a
+		// single "restart pi" advisory at the top.
+		const judge: JudgeRun = {
+			id: "j-1",
+			startedAt: "2026-01-01T00:05:00Z",
+			judgeReviewerId: "j",
+			selfSignal: null,
+			consolidatedFindings: [consolidated()],
+			warnings: [],
+		};
+		const critique: CritiqueRun = {
+			id: "critique-1",
+			startedAt: "2026-01-01T00:10:00Z",
+			judgeRunId: "j-1",
+			reviewerOutputs: [
+				{
+					reviewerId: "opus",
+					critiques: [],
+					warnings: [
+						"Pi subprocess exited non-zero (exit 1)",
+						"Pi runtime stale: subagent crashed loading `/Users/x/.pi/pkg/pi-0.75.3/package.json`, which no longer exists. Restart pi to recover.",
+					],
+				},
+				{
+					reviewerId: "gpt",
+					critiques: [],
+					warnings: [
+						"Pi subprocess exited non-zero (exit 1)",
+						"Pi runtime stale: subagent crashed loading `/Users/x/.pi/pkg/pi-0.75.3/package.json`, which no longer exists. Restart pi to recover.",
+					],
+				},
+			],
+			warnings: [],
+		};
+		const text = formatCritiqueSummary({ judge, critique });
+		expect(text).toMatch(/Pi runtime stale/);
+		expect(text).toMatch(/restart pi/i);
+		expect(text).not.toMatch(/critique-retry/);
+	});
 });
 
 describe("retryCritiqueReviewer", () => {

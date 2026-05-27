@@ -969,3 +969,80 @@ describe("runReviewer — result extraction", () => {
 		expect(result.reviewerId).toBe("council-skeptic");
 	});
 });
+
+describe("runReviewer — stale runtime detection", () => {
+	it("refuses to spawn when the captured pi binary path is gone", async () => {
+		// Pi was updated (nix gc, brew upgrade) mid-session.
+		// The currently-running binary path no longer exists
+		// on disk, so any subagent we spawn will hit ENOENT
+		// loading parent-derived extension paths. Better to
+		// short-circuit with a clear advisory than to burn a
+		// retry-loop cycle producing the same crash.
+		const { runPi, calls } = fakeRun({ stdout: assistantEvent("{}") });
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+			checkRuntime: () => ({
+				path: "/nix/store/old-pi/bin/pi",
+				message:
+					"Pi runtime stale: the running pi binary at " +
+					"`/nix/store/old-pi/bin/pi` no longer exists. Restart pi.",
+			}),
+		});
+		expect(calls).toHaveLength(0);
+		expect(result.exitCode).toBe(127);
+		expect(result.finalAssistantText).toBe("");
+		expect(result.warnings.some((w) => w.startsWith("Pi runtime stale:"))).toBe(
+			true,
+		);
+		expect(result.stderr).toContain("/nix/store/old-pi/bin/pi");
+	});
+
+	it("detects the stale-install ENOENT shape in spawned stderr and adds a clear warning", async () => {
+		// The pre-dispatch probe can miss paths it doesn't
+		// know about (extension resolution, native binaries).
+		// As a defensive layer, match the canonical ENOENT
+		// shape post-spawn so the dispatcher still surfaces
+		// a restart advisory instead of a generic retry hint.
+		const { runPi } = fakeRun({
+			stdout: "",
+			stderr: [
+				"node:fs:440",
+				"Error: ENOENT: no such file or directory, open '/Users/x/.pi/pkg/pi-0.75.3/package.json'",
+			].join("\n"),
+			exitCode: 1,
+		});
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+		const stale = result.warnings.find((w) =>
+			w.startsWith("Pi runtime stale:"),
+		);
+		expect(stale).toBeDefined();
+		expect(stale).toContain("/Users/x/.pi/pkg/pi-0.75.3");
+		expect(stale).toMatch(/restart pi/i);
+	});
+
+	it("leaves an unrelated ENOENT stderr untouched (no false positive)", async () => {
+		const { runPi } = fakeRun({
+			stdout: "",
+			stderr:
+				"Error: ENOENT: no such file or directory, open '/tmp/missing.json'",
+			exitCode: 1,
+		});
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+		expect(result.warnings.some((w) => w.startsWith("Pi runtime stale:"))).toBe(
+			false,
+		);
+	});
+});

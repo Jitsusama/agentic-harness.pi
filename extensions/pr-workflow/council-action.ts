@@ -8,6 +8,7 @@
  * formatting — lives in pure functions for testability.
  */
 
+import { STALE_RUNTIME_WARNING_PREFIX } from "../../lib/subagent/health.js";
 import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import type { CouncilDispatch } from "./council.js";
 import { runCouncil, runOneCouncilReviewer } from "./council.js";
@@ -310,21 +311,31 @@ export function formatCouncilSummary(run: CouncilRun): string {
 	lines.push(`Council run ${run.id} on PR #${run.target.prNumber}`);
 	lines.push(`Started: ${run.startedAt}`);
 
-	// Reviewers that produced warnings AND zero findings
-	// are the most likely candidates for `council-retry`:
-	// the warning explains why they came back empty
-	// (crash, parse failure, etc.). Flag them at the top
-	// so the user sees the suggestion before scrolling.
-	const retryCandidates = run.reviewerOutputs.filter(
-		(o) => o.findings.length === 0 && o.warnings.length > 0,
-	);
-	if (retryCandidates.length > 0) {
+	// When the pi runtime is stale every reviewer fails
+	// identically and no retry will succeed until pi is
+	// restarted. Surface a single session-level advisory
+	// and suppress the misleading per-reviewer retry hint.
+	const staleAdvisory = findStaleRuntimeAdvisory(run.reviewerOutputs);
+	if (staleAdvisory) {
 		lines.push("");
-		for (const c of retryCandidates) {
-			lines.push(
-				`⚠ ${c.reviewerId} returned no findings with warnings; ` +
-					`consider \`pr_workflow action=council-retry reviewerId=${c.reviewerId}\`.`,
-			);
+		lines.push(`⚠ ${staleAdvisory}`);
+	} else {
+		// Reviewers that produced warnings AND zero findings
+		// are the most likely candidates for `council-retry`:
+		// the warning explains why they came back empty
+		// (crash, parse failure, etc.). Flag them at the top
+		// so the user sees the suggestion before scrolling.
+		const retryCandidates = run.reviewerOutputs.filter(
+			(o) => o.findings.length === 0 && o.warnings.length > 0,
+		);
+		if (retryCandidates.length > 0) {
+			lines.push("");
+			for (const c of retryCandidates) {
+				lines.push(
+					`⚠ ${c.reviewerId} returned no findings with warnings; ` +
+						`consider \`pr_workflow action=council-retry reviewerId=${c.reviewerId}\`.`,
+				);
+			}
 		}
 	}
 
@@ -343,6 +354,25 @@ export function formatCouncilSummary(run: CouncilRun): string {
 		}
 	}
 	return lines.join("\n");
+}
+
+/**
+ * Return the first stale-runtime advisory found across
+ * every reviewer's warnings, or null if none.
+ *
+ * The same `Pi runtime stale: ...` message lands on every
+ * reviewer (the parent's runtime is one path for all of
+ * them), so picking the first match is correct.
+ */
+function findStaleRuntimeAdvisory(
+	outputs: readonly CouncilRun["reviewerOutputs"][number][],
+): string | null {
+	for (const output of outputs) {
+		for (const warning of output.warnings) {
+			if (warning.startsWith(STALE_RUNTIME_WARNING_PREFIX)) return warning;
+		}
+	}
+	return null;
 }
 
 function renderVerificationBadge(

@@ -449,6 +449,41 @@ describe("formatCouncilSummary", () => {
 		const text = formatCouncilSummary(run);
 		expect(text).not.toMatch(/council-retry/);
 	});
+
+	it("swaps the per-reviewer retry hint for a session-level advisory when the runtime is stale", async () => {
+		// When pi was updated mid-session, every reviewer
+		// fails with the same `ENOENT` on a path inside
+		// `.pi/pkg/pi-X.Y.Z/`. Suggesting `council-retry`
+		// for each one is misleading — no retry will succeed
+		// until pi is restarted.
+		const run: CouncilRun = {
+			id: "council-1",
+			startedAt: "2026-01-01T00:00:00Z",
+			target: { kind: "diff", prNumber: 42 },
+			reviewerOutputs: [
+				{
+					reviewerId: "opus",
+					findings: [],
+					warnings: [
+						"Pi subprocess exited non-zero (exit 1)",
+						"Pi runtime stale: subagent crashed loading `/Users/x/.pi/pkg/pi-0.75.3/package.json`, which no longer exists. Restart pi to recover.",
+					],
+				},
+				{
+					reviewerId: "gpt",
+					findings: [],
+					warnings: [
+						"Pi subprocess exited non-zero (exit 1)",
+						"Pi runtime stale: subagent crashed loading `/Users/x/.pi/pkg/pi-0.75.3/package.json`, which no longer exists. Restart pi to recover.",
+					],
+				},
+			],
+		};
+		const text = formatCouncilSummary(run);
+		expect(text).toMatch(/Pi runtime stale/);
+		expect(text).toMatch(/restart pi/i);
+		expect(text).not.toMatch(/council-retry/);
+	});
 });
 
 describe("retryCouncilReviewer", () => {
