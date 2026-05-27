@@ -117,10 +117,16 @@ export interface FleetSubagentResult {
 	 */
 	readonly error?: string;
 	/**
-	 * Full captured stderr from the failed subagent.
-	 * Present on `state: "failed"` when the child process
-	 * wrote anything to stderr. Larger than `error` and
-	 * preserved verbatim for diagnostic UIs.
+	 * Bounded stderr tail captured from the failed
+	 * subagent. Present on `state: "failed"` when the
+	 * child process wrote anything to stderr. The
+	 * supervised path (used by every fleet run) caps this
+	 * at the supervisor's `DEFAULT_STDERR_TAIL_BYTES`
+	 * window (8 KB by default), so on long-running
+	 * failures only the most recent bytes survive here.
+	 * The full stderr stream is preserved on disk at
+	 * `<runDir>/reviewers/<id>/stderr.log`; read that when
+	 * truncation matters.
 	 */
 	readonly stderr?: string;
 	readonly usage?: SubagentUsage;
@@ -244,8 +250,9 @@ async function runOneAssignment(
 			//
 			// stderrTail is inlined into `error` so the calling
 			// agent can act on the reason without spelunking on
-			// disk. The verbatim stderr is preserved on the
-			// result for diagnostic UIs that want the full text.
+			// disk. The bounded stderr tail is preserved on the
+			// result for diagnostic UIs; the full untruncated
+			// stream is on disk at <runDir>/reviewers/<id>/stderr.log.
 			const stderrTail = summarizeStderrTail(result.stderr);
 			const message = stderrTail
 				? `pi exited with code ${result.exitCode}: ${stderrTail}`
@@ -376,8 +383,10 @@ function aggregateUsage(
  * Failed subagents get their own line with a short reason
  * inline so the user (and the calling agent) can see WHY
  * a run failed without opening the supervisor's on-disk
- * artifacts. The full stderr stays on the per-subagent
- * result for tools that want it verbatim.
+ * artifacts. The bounded stderr tail stays on the
+ * per-subagent result for diagnostic UIs; the full
+ * untruncated stream is on disk at the supervisor's
+ * `<runDir>/reviewers/<id>/stderr.log`.
  */
 export function formatFleetSummary(result: FleetRunResult): string {
 	const total = result.results.length;
