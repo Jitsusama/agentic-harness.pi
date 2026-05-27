@@ -80,6 +80,42 @@ user. `totalUsage` lets it confirm spend.
   when omitted so durable supervisor artifacts always
   have somewhere to land.
 
+## Default extensions and skills
+
+Other pi extensions can register paths that should be
+loaded into *every* subagent in the session, regardless
+of per-job `isolated` settings or `extraExtensions`
+values. Use this for credentials helpers, telemetry
+hooks, or org-wide setup that every subagent needs.
+
+The canonical surface is an event the extension emits
+on activation:
+
+```ts
+import type { SubagentWorkflowApi } from "./index.js";
+
+pi.events.on(
+  "subagent-workflow:ready:v1",
+  (api: SubagentWorkflowApi) => {
+    api.registerDefaultExtension("/abs/path/to/creds.ts");
+    api.registerDefaultSkill("/abs/path/to/SKILL.md");
+  },
+);
+```
+
+The event fires synchronously during this extension's
+activation, so listeners that register against it before
+pi finishes booting will see it. Late-binding listeners
+are welcome to call the registration functions directly
+from `agentic-harness.pi/subagent` (`registerSubagentDefaultExtension`,
+`registerSubagentDefaultSkill`).
+
+Registered paths reach the subagent via pi's
+`--extension` / `--skill` flags, which are honoured even
+under `isolated: true` (i.e. alongside `--no-extensions`).
+That's the point of the hook — a clean-slate subagent
+that still has the bits it absolutely needs.
+
 ## Progress panel
 
 When pi has a TUI, the tool installs a focused panel

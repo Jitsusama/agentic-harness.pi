@@ -137,6 +137,43 @@ tool palette instead. Inheritance plus a narrow palette
 costs almost nothing compared to losing every guardian
 for speed.
 
+## Always-load defaults
+
+Some extensions need to be present in *every* subagent
+regardless of isolation — credentials helpers, telemetry
+hooks, organization-wide setup. Threading these into each
+job's `extraExtensions` array by hand defeats the point.
+The engine keeps a process-global registry that any pi
+extension can populate once at activation; every later
+subagent run picks them up automatically.
+
+For an outside pi extension to register defaults, listen
+for the `subagent-workflow:ready:v1` event and call the
+api:
+
+```ts
+pi.events.on("subagent-workflow:ready:v1", (api) => {
+  api.registerDefaultExtension("/abs/path/to/creds.ts");
+  api.registerDefaultSkill("/abs/path/to/SKILL.md");
+});
+```
+
+For package-internal callers, import the functions from
+`agentic-harness.pi/subagent` directly.
+
+Registered defaults survive `isolated: true`: pi honours
+explicit `--extension` and `--skill` flags even after
+`--no-extensions` / `--no-skills`. That's the whole
+premise of the hook — a clean-slate subagent that still
+has the bits it actually needs.
+
+Symptom to recognise when the hook is missing: a fleet
+that all-fails on the first run with no obvious reason.
+From v2 onwards each failure surfaces a stderr tail in
+the summary (`✗ {id}: pi exited with code 1: …`); if
+you see a credentials or configuration error there,
+registering the relevant extension as a default fixes it.
+
 ## Cost and cancellation etiquette
 
 Fleet runs are expensive — N subprocesses, N context

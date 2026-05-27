@@ -22,7 +22,19 @@
  * for durable runs).
  */
 
+import { getSubagentDefaults } from "./defaults.js";
 import { ReviewerStreamParser } from "./stream.js";
+
+function dedupePaths(paths: readonly string[]): string[] {
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const p of paths) {
+		if (seen.has(p)) continue;
+		seen.add(p);
+		out.push(p);
+	}
+	return out;
+}
 
 /** File-backed artifacts emitted by a supervised reviewer run. */
 export interface ReviewerRunArtifacts {
@@ -253,13 +265,30 @@ export interface RunReviewerResult {
 export async function runReviewer(
 	options: RunReviewerOptions,
 ): Promise<RunReviewerResult> {
+	// Engine-wide defaults registered by other extensions
+	// (credentials helpers, telemetry hooks, anything that
+	// should be present in every subagent regardless of
+	// isolation) are prepended here so they survive an
+	// `isolated: true` flag without each call site having
+	// to remember to thread them through. Per-call inputs
+	// keep their own entries when the same path was also
+	// registered as a default.
+	const defaults = getSubagentDefaults();
+	const extraExtensions = dedupePaths([
+		...defaults.extensions,
+		...(options.extraExtensions ?? []),
+	]);
+	const extraSkills = dedupePaths([
+		...defaults.skills,
+		...(options.extraSkills ?? []),
+	]);
 	const args = composeArgs({
 		spec: options.reviewer,
 		prompt: options.prompt,
 		systemPrompt: options.systemPrompt,
 		isolated: options.isolated,
-		extraExtensions: options.extraExtensions,
-		extraSkills: options.extraSkills,
+		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
+		...(extraSkills.length > 0 ? { extraSkills } : {}),
 	});
 	const result = await options.runPi({
 		args,
