@@ -2,10 +2,12 @@
 	"extends": "./tsconfig.json",
 	"include": [
 		"extensions/pr-workflow/**/*.ts",
+		"extensions/subagent-workflow/**/*.ts",
 		"lib/internal/github/**/*.ts",
 		"lib/internal/pr-workflow-verify/**/*.ts",
 		"lib/subagent/**/*.ts",
 		"tests/extensions/pr-workflow/**/*.ts",
+		"tests/extensions/subagent-workflow/**/*.ts",
 		"tests/lib/internal/pr-workflow-verify/**/*.ts",
 		"tests/lib/subagent/**/*.ts"
 	],
