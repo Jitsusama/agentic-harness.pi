@@ -108,8 +108,45 @@ export interface FleetSubagentResult {
 	readonly finalAssistantText: string;
 	readonly warnings: readonly string[];
 	readonly state: "complete" | "cancelled" | "failed";
+	/**
+	 * Short human-readable failure reason. For `state:
+	 * "failed"` it includes the exit code plus a tail of
+	 * stderr (typically the last few non-blank lines) so
+	 * a caller can act on the reason without opening the
+	 * supervisor's on-disk artifacts.
+	 */
 	readonly error?: string;
+	/**
+	 * Bounded stderr tail captured from the failed
+	 * subagent. Present on `state: "failed"` when the
+	 * child process wrote anything to stderr. The
+	 * supervised path (used by every fleet run) caps this
+	 * at the supervisor's `DEFAULT_STDERR_TAIL_BYTES`
+	 * window (8 KB by default), so on long-running
+	 * failures only the most recent bytes survive here.
+	 * The full stderr stream is preserved on disk at
+	 * `<runDir>/reviewers/<id>/stderr.log`; read that when
+	 * truncation matters.
+	 */
+	readonly stderr?: string;
 	readonly usage?: SubagentUsage;
+}
+
+/** Last non-blank stderr lines, capped, for inline display in `error`. */
+const STDERR_SUMMARY_LINES = 3;
+const STDERR_SUMMARY_CHARS = 240;
+
+export function summarizeStderrTail(stderr: string): string {
+	if (!stderr) return "";
+	const lines = stderr
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0);
+	if (lines.length === 0) return "";
+	const tail = lines.slice(-STDERR_SUMMARY_LINES).join(" — ");
+	return tail.length > STDERR_SUMMARY_CHARS
+		? `${tail.slice(0, STDERR_SUMMARY_CHARS - 3)}...`
+		: tail;
 }
 
 /** Aggregate output of a fleet run. */
@@ -210,7 +247,16 @@ async function runOneAssignment(
 			// etc.). `runSubagent` captures the exit code on the
 			// result rather than throwing, so the fleet has to
 			// translate that into a failed state explicitly.
-			const message = `pi exited with code ${result.exitCode}`;
+			//
+			// stderrTail is inlined into `error` so the calling
+			// agent can act on the reason without spelunking on
+			// disk. The bounded stderr tail is preserved on the
+			// result for diagnostic UIs; the full untruncated
+			// stream is on disk at <runDir>/reviewers/<id>/stderr.log.
+			const stderrTail = summarizeStderrTail(result.stderr);
+			const message = stderrTail
+				? `pi exited with code ${result.exitCode}: ${stderrTail}`
+				: `pi exited with code ${result.exitCode}`;
 			safelyNotify(
 				() => progress.subagentFailed(assignment.spec.id, message),
 				"subagentFailed",
@@ -222,6 +268,7 @@ async function runOneAssignment(
 				warnings: result.warnings,
 				state: "failed",
 				error: message,
+				...(result.stderr ? { stderr: result.stderr } : {}),
 				...(result.usage ? { usage: result.usage } : {}),
 			};
 		}
@@ -328,27 +375,40 @@ function aggregateUsage(
 }
 
 /**
- * Render the run's outcome as a one-paragraph summary
+ * Render the run's outcome as a multi-line summary
  * suitable for the tool's text response. The structured
  * `details` payload carries the full per-subagent text;
- * this is for the inline conversation transcript.
+ * this view is for the inline conversation transcript.
+ *
+ * Failed subagents get their own line with a short reason
+ * inline so the user (and the calling agent) can see WHY
+ * a run failed without opening the supervisor's on-disk
+ * artifacts. The bounded stderr tail stays on the
+ * per-subagent result for diagnostic UIs; the full
+ * untruncated stream is on disk at the supervisor's
+ * `<runDir>/reviewers/<id>/stderr.log`.
  */
 export function formatFleetSummary(result: FleetRunResult): string {
 	const total = result.results.length;
 	const complete = result.results.filter((r) => r.state === "complete").length;
-	const failed = result.results.filter((r) => r.state === "failed").length;
+	const failures = result.results.filter((r) => r.state === "failed");
 	const cancelled = result.results.filter(
 		(r) => r.state === "cancelled",
 	).length;
-	const parts: string[] = [
+	const headerParts: string[] = [
 		`Fleet ${result.runId}: ${complete}/${total} complete`,
 	];
-	if (failed > 0) parts.push(`${failed} failed`);
-	if (cancelled > 0) parts.push(`${cancelled} cancelled`);
+	if (failures.length > 0) headerParts.push(`${failures.length} failed`);
+	if (cancelled > 0) headerParts.push(`${cancelled} cancelled`);
 	if (result.totalUsage) {
-		parts.push(
+		headerParts.push(
 			`${result.totalUsage.tokens.total.toLocaleString()} tokens, $${result.totalUsage.cost.total.toFixed(4)}`,
 		);
 	}
-	return parts.join(" · ");
+	const lines: string[] = [headerParts.join(" · ")];
+	for (const failure of failures) {
+		const reason = failure.error ?? "unknown failure";
+		lines.push(`  ✗ ${failure.id}: ${reason}`);
+	}
+	return lines.join("\n");
 }

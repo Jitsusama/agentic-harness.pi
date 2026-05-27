@@ -9,6 +9,7 @@ import {
 	dispatchFleet,
 	type FleetAssignment,
 	formatFleetSummary,
+	summarizeStderrTail,
 } from "../../../extensions/subagent-workflow/run";
 import type {
 	RunPi,
@@ -299,6 +300,66 @@ describe("dispatchFleet", () => {
 		expect(events.some((e) => e.startsWith("failed:bad-exit:"))).toBe(true);
 	});
 
+	it("inlines a stderr tail into the failure reason and preserves the full text", async () => {
+		// The previous test confirmed exit-code propagation;
+		// this one pins the new contract: an LLM caller acting
+		// on the failed result must see *why* (e.g. missing
+		// API key, unknown flag) directly in `error` without
+		// having to open the supervisor's on-disk stderr file.
+		// The raw text is also preserved on the result for
+		// diagnostic UIs that want it verbatim.
+		const cancellations = new FleetCancellationRegistry();
+		const { progress, events } = recordingProgress();
+		const stderr =
+			"No API key found for anthropic.\n\nUse /login to log into a provider via OAuth or API key.\n";
+		const runPi: RunPi = async () => ({
+			exitCode: 1,
+			lines: [],
+			finalAssistantText: "",
+			stderr,
+			warnings: [],
+		});
+		const result = await dispatchFleet({
+			runId: "r-stderr",
+			assignments: [assignment("unauth").assignment],
+			runPi,
+			cancellations,
+			progress,
+		});
+		const failure = result.results[0];
+		expect(failure.state).toBe("failed");
+		expect(failure.error).toMatch(/exited with code 1/);
+		expect(failure.error).toMatch(/No API key found for anthropic/);
+		expect(failure.stderr).toBe(stderr);
+		expect(
+			events.some((e) => e.includes("failed:unauth:") && e.includes("API key")),
+		).toBe(true);
+	});
+
+	it("omits `stderr` when the child wrote nothing to stderr", async () => {
+		// Spending a field on an empty string would noise up
+		// the structured payload. Only attach `stderr` when
+		// there's something worth attaching.
+		const cancellations = new FleetCancellationRegistry();
+		const runPi: RunPi = async () => ({
+			exitCode: 1,
+			lines: [],
+			finalAssistantText: "",
+			stderr: "",
+			warnings: [],
+		});
+		const result = await dispatchFleet({
+			runId: "r-quiet",
+			assignments: [assignment("quiet-fail").assignment],
+			runPi,
+			cancellations,
+		});
+		const failure = result.results[0];
+		expect(failure.state).toBe("failed");
+		expect(failure.error).toBe("pi exited with code 1");
+		expect(failure.stderr).toBeUndefined();
+	});
+
 	it("rejects duplicate subagent ids before dispatch", async () => {
 		// The cancellation registry keys active subagents by
 		// id; duplicates would silently overwrite each other
@@ -445,7 +506,7 @@ describe("buildAssignment", () => {
 });
 
 describe("formatFleetSummary", () => {
-	it("includes counts and usage in a one-line summary", () => {
+	it("includes counts and usage in the header line", () => {
 		const summary = formatFleetSummary({
 			runId: "fleet-abc",
 			results: [
@@ -456,10 +517,92 @@ describe("formatFleetSummary", () => {
 			totalUsage: makeUsage(1000, 250),
 			warnings: [],
 		});
-		expect(summary).toContain("fleet-abc");
-		expect(summary).toContain("1/3 complete");
-		expect(summary).toContain("1 failed");
-		expect(summary).toContain("1 cancelled");
-		expect(summary).toContain("1,250 tokens");
+		const header = summary.split("\n")[0];
+		expect(header).toContain("fleet-abc");
+		expect(header).toContain("1/3 complete");
+		expect(header).toContain("1 failed");
+		expect(header).toContain("1 cancelled");
+		expect(header).toContain("1,250 tokens");
+	});
+
+	it("renders a per-failure line with the failure reason", () => {
+		// The header tells the user how many failed; the
+		// per-failure lines tell them WHY. Each failure shows
+		// its id and the human-readable error so the user
+		// doesn't have to inspect the details payload to
+		// understand the run.
+		const summary = formatFleetSummary({
+			runId: "fleet-xyz",
+			results: [
+				{ id: "a", finalAssistantText: "", warnings: [], state: "complete" },
+				{
+					id: "b",
+					finalAssistantText: "",
+					warnings: [],
+					state: "failed",
+					error: "pi exited with code 1: No API key found for anthropic.",
+				},
+				{
+					id: "c",
+					finalAssistantText: "",
+					warnings: [],
+					state: "failed",
+					error: "pi exited with code 124: timeout",
+				},
+			],
+			warnings: [],
+		});
+		const lines = summary.split("\n");
+		expect(lines).toHaveLength(3);
+		expect(lines[1]).toContain("b");
+		expect(lines[1]).toContain("No API key found");
+		expect(lines[2]).toContain("c");
+		expect(lines[2]).toContain("timeout");
+	});
+
+	it("falls back to a generic reason when a failure has no error string", () => {
+		// `error` is documented as optional. The summary still
+		// names the subagent and labels the line as a failure;
+		// it just can't tell the user why.
+		const summary = formatFleetSummary({
+			runId: "fleet-q",
+			results: [
+				{ id: "silent", finalAssistantText: "", warnings: [], state: "failed" },
+			],
+			warnings: [],
+		});
+		const lines = summary.split("\n");
+		expect(lines[1]).toContain("silent");
+		expect(lines[1]).toMatch(/unknown failure/);
+	});
+});
+
+describe("summarizeStderrTail", () => {
+	it("returns the last few non-blank lines joined with separators", () => {
+		// A multi-line stderr should boil down to the last
+		// non-blank lines, joined for inline display. Blank
+		// lines (common in pi's error output) are dropped so
+		// they don't waste the character budget.
+		const stderr = "line one\n\nline two\n\nline three\nline four\nline five\n";
+		const tail = summarizeStderrTail(stderr);
+		expect(tail).toContain("line five");
+		expect(tail).toContain("line four");
+		expect(tail).toContain("line three");
+		expect(tail).not.toContain("line one");
+	});
+
+	it("returns an empty string for empty input", () => {
+		expect(summarizeStderrTail("")).toBe("");
+		expect(summarizeStderrTail("\n\n\n")).toBe("");
+	});
+
+	it("truncates very long tails so they fit inline", () => {
+		// The cap is there to keep the summary line readable
+		// in the TUI; the verbatim text is still on the
+		// result for callers that want the rest.
+		const long = "x".repeat(1000);
+		const tail = summarizeStderrTail(long);
+		expect(tail.length).toBeLessThanOrEqual(240);
+		expect(tail.endsWith("...")).toBe(true);
 	});
 });
