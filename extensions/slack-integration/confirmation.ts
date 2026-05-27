@@ -31,6 +31,38 @@ export interface TableParam {
 /** Reject action shown in every confirmation gate. */
 const REJECT_ACTION: KeyAction[] = [{ key: "r", label: "Reject" }];
 
+/**
+ * Serial queue tail for confirmation gates.
+ *
+ * Pi's `ctx.ui.custom` supports one active component at a
+ * time. When the agent fires several Slack write calls in
+ * one turn, their handlers run concurrently and each tries
+ * to mount its own gate — the first wins the UI and the
+ * rest either hang or silently bypass review. We funnel
+ * every gate prompt through this Promise chain so gates
+ * appear strictly one after another, in the order the
+ * tool calls arrived.
+ *
+ * The queue resets to a resolved promise once the chain
+ * settles so a long-running session doesn't accumulate a
+ * deep then-chain in memory.
+ */
+let gateQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Run a single gate prompt with exclusive access to the UI.
+ *
+ * Subsequent callers wait for the in-flight gate to settle
+ * (resolve or reject) before their prompt mounts. Errors
+ * from one gate never poison the queue for the next caller.
+ */
+export async function runGate<T>(fn: () => Promise<T>): Promise<T> {
+	const previous = gateQueue;
+	const next = previous.then(fn, fn);
+	gateQueue = next.catch(() => undefined);
+	return next;
+}
+
 /** Result from a confirmation gate. */
 export type ConfirmResult<T> =
 	| { approved: true; data: T }
@@ -55,27 +87,29 @@ export async function confirmSendMessage(
 
 	const context = `Send message to ${conversationName}:\n${text.slice(0, 200)}`;
 
-	const result = await promptSingle(ctx, {
-		content: (theme, width) => {
-			const lines = [
-				theme.fg("accent", theme.bold(" Send Slack Message")),
-				"",
-				` ${theme.fg("muted", "To:")} ${conversationName}`,
-				"",
-			];
-			for (const line of renderMarkdown(text, theme, width)) {
-				lines.push(line);
-			}
-			if (table) {
-				lines.push("");
-				for (const line of renderTablePreview(table, theme, width)) {
+	const result = await runGate(() =>
+		promptSingle(ctx, {
+			content: (theme, width) => {
+				const lines = [
+					theme.fg("accent", theme.bold(" Send Slack Message")),
+					"",
+					` ${theme.fg("muted", "To:")} ${conversationName}`,
+					"",
+				];
+				for (const line of renderMarkdown(text, theme, width)) {
 					lines.push(line);
 				}
-			}
-			return lines;
-		},
-		actions: REJECT_ACTION,
-	});
+				if (table) {
+					lines.push("");
+					for (const line of renderTablePreview(table, theme, width)) {
+						lines.push(line);
+					}
+				}
+				return lines;
+			},
+			actions: REJECT_ACTION,
+		}),
+	);
 
 	if (!result) return null;
 
@@ -115,28 +149,30 @@ export async function confirmEditMessage(
 
 	const context = `Edit message ${ts} in ${conversationName}:\n${text.slice(0, 200)}`;
 
-	const result = await promptSingle(ctx, {
-		content: (theme, width) => {
-			const lines = [
-				theme.fg("accent", theme.bold(" Edit Slack Message")),
-				"",
-				` ${theme.fg("muted", "In:")} ${conversationName}`,
-				` ${theme.fg("muted", "Message:")} ${ts}`,
-				"",
-			];
-			for (const line of renderMarkdown(text, theme, width)) {
-				lines.push(line);
-			}
-			if (table) {
-				lines.push("");
-				for (const line of renderTablePreview(table, theme, width)) {
+	const result = await runGate(() =>
+		promptSingle(ctx, {
+			content: (theme, width) => {
+				const lines = [
+					theme.fg("accent", theme.bold(" Edit Slack Message")),
+					"",
+					` ${theme.fg("muted", "In:")} ${conversationName}`,
+					` ${theme.fg("muted", "Message:")} ${ts}`,
+					"",
+				];
+				for (const line of renderMarkdown(text, theme, width)) {
 					lines.push(line);
 				}
-			}
-			return lines;
-		},
-		actions: REJECT_ACTION,
-	});
+				if (table) {
+					lines.push("");
+					for (const line of renderTablePreview(table, theme, width)) {
+						lines.push(line);
+					}
+				}
+				return lines;
+			},
+			actions: REJECT_ACTION,
+		}),
+	);
 
 	if (!result) return null;
 
@@ -171,28 +207,30 @@ export async function confirmReply(
 
 	const context = `Reply in ${conversationName} thread ${threadTs}:\n${text.slice(0, 200)}`;
 
-	const result = await promptSingle(ctx, {
-		content: (theme, width) => {
-			const lines = [
-				theme.fg("accent", theme.bold(" Reply to Thread")),
-				"",
-				` ${theme.fg("muted", "In:")} ${conversationName}`,
-				` ${theme.fg("muted", "Thread:")} ${threadTs}`,
-				"",
-			];
-			for (const line of renderMarkdown(text, theme, width)) {
-				lines.push(line);
-			}
-			if (table) {
-				lines.push("");
-				for (const line of renderTablePreview(table, theme, width)) {
+	const result = await runGate(() =>
+		promptSingle(ctx, {
+			content: (theme, width) => {
+				const lines = [
+					theme.fg("accent", theme.bold(" Reply to Thread")),
+					"",
+					` ${theme.fg("muted", "In:")} ${conversationName}`,
+					` ${theme.fg("muted", "Thread:")} ${threadTs}`,
+					"",
+				];
+				for (const line of renderMarkdown(text, theme, width)) {
 					lines.push(line);
 				}
-			}
-			return lines;
-		},
-		actions: REJECT_ACTION,
-	});
+				if (table) {
+					lines.push("");
+					for (const line of renderTablePreview(table, theme, width)) {
+						lines.push(line);
+					}
+				}
+				return lines;
+			},
+			actions: REJECT_ACTION,
+		}),
+	);
 
 	if (!result) return null;
 
@@ -227,33 +265,35 @@ export async function confirmUploadFile(
 
 	const context = `Upload ${files.length === 1 ? files[0].name : `${files.length} files`} to ${conversationName}`;
 
-	const result = await promptSingle(ctx, {
-		content: (theme, width) => {
-			const lines = [
-				theme.fg("accent", theme.bold(" Upload File")),
-				"",
-				` ${theme.fg("muted", "To:")} ${conversationName}`,
-			];
-			if (threadTs) {
-				lines.push(` ${theme.fg("muted", "Thread:")} ${threadTs}`);
-			}
-			lines.push("");
-			for (const f of files) {
-				lines.push(
-					` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
-				);
-			}
-			if (text) {
-				lines.push("");
-				lines.push(` ${theme.fg("muted", "Comment:")}`);
-				for (const line of renderMarkdown(text, theme, width)) {
-					lines.push(line);
+	const result = await runGate(() =>
+		promptSingle(ctx, {
+			content: (theme, width) => {
+				const lines = [
+					theme.fg("accent", theme.bold(" Upload File")),
+					"",
+					` ${theme.fg("muted", "To:")} ${conversationName}`,
+				];
+				if (threadTs) {
+					lines.push(` ${theme.fg("muted", "Thread:")} ${threadTs}`);
 				}
-			}
-			return lines;
-		},
-		actions: REJECT_ACTION,
-	});
+				lines.push("");
+				for (const f of files) {
+					lines.push(
+						` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
+					);
+				}
+				if (text) {
+					lines.push("");
+					lines.push(` ${theme.fg("muted", "Comment:")}`);
+					for (const line of renderMarkdown(text, theme, width)) {
+						lines.push(line);
+					}
+				}
+				return lines;
+			},
+			actions: REJECT_ACTION,
+		}),
+	);
 
 	if (!result) return null;
 
@@ -413,48 +453,54 @@ export async function confirmSendThread(
 		: ` Send Thread to ${conversationName}`;
 	const context = action;
 
-	const result = await promptTabbed(ctx, {
-		title,
-		items: messages.map((msg, i) => ({
-			label: `M${i + 1}`,
-			views: [
-				{
-					key: "1",
-					label: "Message",
-					content: (theme, width) => {
-						const lines: string[] = [];
-						const role = isReplyMode
-							? `Reply ${i + 1} of ${messages.length} (in thread ${parentTs})`
-							: i === 0
-								? "Thread parent"
-								: `Reply ${i}`;
-						lines.push(` ${theme.fg("muted", role)}`);
-						lines.push("");
-						for (const line of renderMarkdown(msg.text, theme, width)) {
-							lines.push(line);
-						}
-						if (msg.table) {
+	const result = await runGate(() =>
+		promptTabbed(ctx, {
+			title,
+			items: messages.map((msg, i) => ({
+				label: `M${i + 1}`,
+				views: [
+					{
+						key: "1",
+						label: "Message",
+						content: (theme, width) => {
+							const lines: string[] = [];
+							const role = isReplyMode
+								? `Reply ${i + 1} of ${messages.length} (in thread ${parentTs})`
+								: i === 0
+									? "Thread parent"
+									: `Reply ${i}`;
+							lines.push(` ${theme.fg("muted", role)}`);
 							lines.push("");
-							for (const line of renderTablePreview(msg.table, theme, width)) {
+							for (const line of renderMarkdown(msg.text, theme, width)) {
 								lines.push(line);
 							}
-						}
-						if (msg.files?.length) {
-							lines.push("");
-							for (const f of msg.files) {
-								lines.push(
-									` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
-								);
+							if (msg.table) {
+								lines.push("");
+								for (const line of renderTablePreview(
+									msg.table,
+									theme,
+									width,
+								)) {
+									lines.push(line);
+								}
 							}
-						}
-						return lines;
+							if (msg.files?.length) {
+								lines.push("");
+								for (const f of msg.files) {
+									lines.push(
+										` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
+									);
+								}
+							}
+							return lines;
+						},
 					},
-				},
-			],
-		})),
-		actions: REJECT_ACTION,
-		autoResolve: true,
-	});
+				],
+			})),
+			actions: REJECT_ACTION,
+			autoResolve: true,
+		}),
+	);
 
 	if (!result) return null;
 
@@ -501,16 +547,18 @@ export async function confirmReaction(
 	const verb = action === "add" ? "Add" : "Remove";
 	const context = `${verb} :${emoji}: reaction in ${conversationName}`;
 
-	const result = await promptSingle(ctx, {
-		content: (theme) => [
-			theme.fg("accent", theme.bold(` ${verb} Reaction`)),
-			"",
-			` ${theme.fg("muted", "In:")} ${conversationName}`,
-			` ${theme.fg("muted", "Message:")} ${ts}`,
-			` ${theme.fg("muted", "Emoji:")} :${emoji}:`,
-		],
-		actions: REJECT_ACTION,
-	});
+	const result = await runGate(() =>
+		promptSingle(ctx, {
+			content: (theme) => [
+				theme.fg("accent", theme.bold(` ${verb} Reaction`)),
+				"",
+				` ${theme.fg("muted", "In:")} ${conversationName}`,
+				` ${theme.fg("muted", "Message:")} ${ts}`,
+				` ${theme.fg("muted", "Emoji:")} :${emoji}:`,
+			],
+			actions: REJECT_ACTION,
+		}),
+	);
 
 	if (!result) return null;
 
