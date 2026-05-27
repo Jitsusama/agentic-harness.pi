@@ -147,16 +147,29 @@ The engine keeps a process-global registry that any pi
 extension can populate once at activation; every later
 subagent run picks them up automatically.
 
-For an outside pi extension to register defaults, listen
-for the `subagent-workflow:ready:v1` event and call the
-api:
+Outside pi extensions register defaults through a
+two-way handshake. Use both directions so timing of
+extension activation never matters:
 
 ```ts
+const EXT = "/abs/path/to/creds.ts";
+
+// Covers "we activated AFTER subagent-workflow".
+pi.events.emit(
+  "subagent-workflow:register-default-extension:v1",
+  EXT,
+);
+
+// Covers "we activated BEFORE subagent-workflow".
 pi.events.on("subagent-workflow:ready:v1", (api) => {
-  api.registerDefaultExtension("/abs/path/to/creds.ts");
-  api.registerDefaultSkill("/abs/path/to/SKILL.md");
+  api.registerDefaultExtension(EXT);
 });
 ```
+
+The registry dedupes by path, so both paths firing the
+same entry is safe. The skill equivalent is
+`subagent-workflow:register-default-skill:v1` with a
+`SKILL.md` path payload.
 
 For package-internal callers, import the functions from
 `agentic-harness.pi/subagent` directly.
