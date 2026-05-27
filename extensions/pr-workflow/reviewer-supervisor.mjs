@@ -50,9 +50,13 @@ child = spawn(request.binary, request.args, {
 	stdio: ["ignore", "pipe", "pipe"],
 	env: {
 		...process.env,
-		PR_WORKFLOW_RUN_ID: request.runId,
-		PR_WORKFLOW_REVIEWER_ID: request.reviewerId,
-		PR_WORKFLOW_SUPERVISOR: "1",
+		// The supervisor speaks the subagent engine's env
+		// vocabulary. pr-workflow is one consumer; the same
+		// names will travel with the supervisor when it
+		// moves into `lib/subagent/runpi/`.
+		SUBAGENT_RUN_ID: request.runId,
+		SUBAGENT_ID: request.reviewerId,
+		SUBAGENT_SUPERVISOR: "1",
 	},
 });
 

@@ -34,8 +34,15 @@ export interface ReviewerRunArtifacts {
 
 export { extractUsageFromPiStream } from "./reviewer-stream.js";
 
-/** A reviewer config: identity, model, thinking level, tool palette. */
-export interface CouncilReviewer {
+/**
+ * A subagent spec: identity, model, thinking level, tool
+ * palette. This is the per-job input the engine reads; the
+ * pr-workflow council layer uses the same shape to
+ * describe one reviewer slot. The runner moves into
+ * `lib/subagent/` in a later step, and the `CouncilReviewer`
+ * alias below is retired then.
+ */
+export interface SubagentSpec {
 	/** Stable id used in finding origin and result correlation. */
 	readonly id: string;
 	/**
@@ -54,6 +61,15 @@ export interface CouncilReviewer {
 	/** Pi `--tools` palette (e.g. ["read", "grep", "bash"]). */
 	readonly tools?: readonly string[];
 }
+
+/**
+ * Legacy alias for {@link SubagentSpec}. Retained so the
+ * pr-workflow internals don't churn during the engine
+ * extraction; removed once the engine lifts into
+ * `lib/subagent/` and pr-workflow imports `SubagentSpec`
+ * directly.
+ */
+export type CouncilReviewer = SubagentSpec;
 
 /** Thinking levels accepted by pi's `--thinking` flag. */
 export type ReviewerThinkingLevel = "off" | "low" | "medium" | "high";
