@@ -19,7 +19,8 @@
 		"./google/apis": "./lib/google/apis/index.ts",
 		"./google/auth": "./lib/google/auth/index.ts",
 		"./google/renderers": "./lib/google/renderers/index.ts",
-		"./web": "./lib/web/index.ts"
+		"./web": "./lib/web/index.ts",
+		"./subagent": "./lib/subagent/index.ts"
 	},
 	"scripts": {
 		"lint": "biome check .",

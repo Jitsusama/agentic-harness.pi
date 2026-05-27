@@ -25,12 +25,12 @@ import type {
 } from "../../../extensions/pr-workflow/findings.js";
 import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
 import { persist, restore } from "../../../extensions/pr-workflow/lifecycle.js";
-import type { CouncilReviewer } from "../../../extensions/pr-workflow/reviewer.js";
 import type { StackFindingRun } from "../../../extensions/pr-workflow/stack-findings.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import type { FindingDecision } from "../../../extensions/pr-workflow/synthesis.js";
 import type { ReviewThread } from "../../../extensions/pr-workflow/threads.js";
 import type { PRReference } from "../../../lib/internal/github/pr-reference.js";
+import type { CouncilReviewer } from "../../../lib/subagent/subagent.js";
 
 interface Entry {
 	type: string;

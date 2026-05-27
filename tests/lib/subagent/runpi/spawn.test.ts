@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSpawnRunPi } from "../../../extensions/pr-workflow/runpi-spawn.js";
+import { createSpawnRunPi } from "../../../../lib/subagent/runpi/spawn.js";
 
 /**
  * `createSpawnRunPi` wraps `node:child_process.spawn` into

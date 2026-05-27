@@ -1,10 +1,10 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { ReviewerUsage } from "./reviewer.js";
 import type {
 	ReviewerArtifactsStore,
 	ReviewerTerminalState,
-} from "./reviewer-artifacts.js";
+} from "./artifacts.js";
+import type { ReviewerUsage } from "./subagent.js";
 
 /** Compact recovered result for a supervised reviewer job. */
 export interface RecoveredReviewerResult {

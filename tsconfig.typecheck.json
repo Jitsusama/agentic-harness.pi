@@ -4,8 +4,10 @@
 		"extensions/pr-workflow/**/*.ts",
 		"lib/internal/github/**/*.ts",
 		"lib/internal/pr-workflow-verify/**/*.ts",
+		"lib/subagent/**/*.ts",
 		"tests/extensions/pr-workflow/**/*.ts",
-		"tests/lib/internal/pr-workflow-verify/**/*.ts"
+		"tests/lib/internal/pr-workflow-verify/**/*.ts",
+		"tests/lib/subagent/**/*.ts"
 	],
 	"exclude": ["node_modules", "dist", ".pi", ".worktrees"]
 }

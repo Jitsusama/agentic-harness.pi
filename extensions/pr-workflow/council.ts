@@ -25,6 +25,12 @@
  */
 
 import type { DiffFile } from "../../lib/internal/github/diff.js";
+import type {
+	CouncilReviewer,
+	RunPi,
+	RunReviewerOptions,
+	RunReviewerResult,
+} from "../../lib/subagent/subagent.js";
 import { isReviewerCancelledError } from "./cancellation.js";
 import {
 	type CouncilProgress,
@@ -36,12 +42,6 @@ import {
 import type { CouncilRun, ReviewerOutput } from "./findings.js";
 import { parseReviewerOutput } from "./parse.js";
 import { buildReviewerPrompt } from "./prompts.js";
-import type {
-	CouncilReviewer,
-	RunPi,
-	RunReviewerOptions,
-	RunReviewerResult,
-} from "./reviewer.js";
 import type { ReviewThreadPromptContext } from "./thread-context.js";
 import type { WorktreeRegistry } from "./worktree.js";
 

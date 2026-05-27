@@ -4,7 +4,7 @@ import {
 	type ReviewerVerification,
 	type RunPi,
 	runReviewer,
-} from "../../../extensions/pr-workflow/reviewer.js";
+} from "../../../lib/subagent/subagent.js";
 
 /**
  * `runReviewer` spawns a separate pi process as a full

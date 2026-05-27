@@ -10,7 +10,10 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { CouncilReviewer, ReviewerThinkingLevel } from "./reviewer.js";
+import type {
+	CouncilReviewer,
+	ReviewerThinkingLevel,
+} from "../../lib/subagent/subagent.js";
 
 const CONFIG_ENV_VAR = "PR_WORKFLOW_CONFIG";
 const CONFIG_FILENAME = "pr-workflow.json";

@@ -5,11 +5,11 @@ import type {
 	CouncilProgress,
 	CouncilProgressEntry,
 } from "../../../extensions/pr-workflow/council-progress.js";
+import { WorktreeRegistry } from "../../../extensions/pr-workflow/worktree.js";
 import type {
 	CouncilReviewer,
 	RunReviewerResult,
-} from "../../../extensions/pr-workflow/reviewer.js";
-import { WorktreeRegistry } from "../../../extensions/pr-workflow/worktree.js";
+} from "../../../lib/subagent/subagent.js";
 import { fakeProvider } from "./council.test-helpers.js";
 
 interface ProgressEvent {

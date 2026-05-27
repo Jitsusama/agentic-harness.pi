@@ -4,11 +4,11 @@ import {
 	type CouncilDispatch,
 	runCouncil,
 } from "../../../extensions/pr-workflow/council.js";
-import type { CouncilReviewer } from "../../../extensions/pr-workflow/reviewer.js";
 import {
 	type WorktreeProvider,
 	WorktreeRegistry,
 } from "../../../extensions/pr-workflow/worktree.js";
+import type { CouncilReviewer } from "../../../lib/subagent/subagent.js";
 
 /**
  * `runCouncil` composes everything below it:

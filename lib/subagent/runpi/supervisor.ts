@@ -5,11 +5,8 @@ import {
 } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import type { RunPi, RunPiResult } from "./reviewer.js";
-import {
-	ReviewerArtifactsStore,
-	type ReviewerRunPaths,
-} from "./reviewer-artifacts.js";
+import { ReviewerArtifactsStore, type ReviewerRunPaths } from "../artifacts.js";
+import type { RunPi, RunPiResult } from "../subagent.js";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
 export type SupervisorSpawnFn = (
@@ -66,7 +63,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 	const store = new ReviewerArtifactsStore(config.stateDir);
 	const supervisorPath =
 		config.supervisorPath ??
-		fileURLToPath(new URL("./reviewer-supervisor.mjs", import.meta.url));
+		fileURLToPath(new URL("./supervisor.mjs", import.meta.url));
 	const nodeBinary = config.nodeBinary ?? process.execPath;
 
 	return async function runPi({

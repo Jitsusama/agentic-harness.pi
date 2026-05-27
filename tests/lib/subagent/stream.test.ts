@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	extractUsageFromPiStream,
 	ReviewerStreamParser,
-} from "../../../extensions/pr-workflow/reviewer-stream.js";
+} from "../../../lib/subagent/stream.js";
 
 function assistantEvent(text: string, usage?: unknown): string {
 	return JSON.stringify({

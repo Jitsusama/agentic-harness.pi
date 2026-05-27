@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { CritiqueRun } from "../../../extensions/pr-workflow/critique.js";
 import type { CouncilRun } from "../../../extensions/pr-workflow/findings.js";
 import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
-import type { ReviewerUsage } from "../../../extensions/pr-workflow/reviewer.js";
 import {
 	councilRunUsage,
 	critiqueRunUsage,
 	summarizeUsage,
 	sumUsage,
 } from "../../../extensions/pr-workflow/usage.js";
+import type { ReviewerUsage } from "../../../lib/subagent/subagent.js";
 
 /**
  * `sumUsage` is the workhorse for cost reporting. The

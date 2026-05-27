@@ -9,10 +9,10 @@
  * are skipped, never coerced to zero.
  */
 
+import type { ReviewerUsage } from "../../lib/subagent/subagent.js";
 import type { CritiqueRun } from "./critique.js";
 import type { CouncilRun } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
-import type { ReviewerUsage } from "./reviewer.js";
 
 /**
  * Sum a list of usage blocks element-wise. Returns

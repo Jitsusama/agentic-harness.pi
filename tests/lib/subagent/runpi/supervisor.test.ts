@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { ReviewerArtifactsStore } from "../../../extensions/pr-workflow/reviewer-artifacts.js";
-import { createSupervisorRunPi } from "../../../extensions/pr-workflow/runpi-supervisor.js";
+import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.js";
+import { createSupervisorRunPi } from "../../../../lib/subagent/runpi/supervisor.js";
 
 interface FakeChild {
 	stdout: Readable;

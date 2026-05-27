@@ -19,7 +19,10 @@
  * can't take down a live council run.
  */
 
-import type { CouncilReviewer, ReviewerUsage } from "./reviewer.js";
+import type {
+	CouncilReviewer,
+	ReviewerUsage,
+} from "../../lib/subagent/subagent.js";
 
 /** Per-reviewer lifecycle state surfaced to the UI. */
 export type CouncilProgressState =

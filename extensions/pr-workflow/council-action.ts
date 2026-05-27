@@ -8,6 +8,7 @@
  * formatting — lives in pure functions for testability.
  */
 
+import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import type { CouncilDispatch } from "./council.js";
 import { runCouncil, runOneCouncilReviewer } from "./council.js";
 import type { CouncilProgress } from "./council-progress.js";
@@ -18,7 +19,6 @@ import {
 	rememberParticipantIdentities,
 } from "./participant-identities.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
-import type { CouncilReviewer } from "./reviewer.js";
 import type { PrWorkflowState } from "./state.js";
 import {
 	loadReviewThreadPromptContext,

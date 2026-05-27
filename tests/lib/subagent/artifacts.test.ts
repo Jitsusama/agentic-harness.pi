@@ -2,7 +2,7 @@ import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ReviewerArtifactsStore } from "../../../extensions/pr-workflow/reviewer-artifacts.js";
+import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.js";
 
 async function tempStore(): Promise<ReviewerArtifactsStore> {
 	return new ReviewerArtifactsStore(

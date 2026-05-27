@@ -11,6 +11,7 @@
 
 import { Value } from "@sinclair/typebox/value";
 import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
+import type { ReviewerVerification } from "../../lib/subagent/subagent.js";
 import type { Finding, FindingLocation } from "./findings.js";
 import { extractJson } from "./parse.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
@@ -19,7 +20,6 @@ import {
 	stackReviewDiscoveryStandard,
 	stackReviewSynthesisStandard,
 } from "./review-quality-standard.js";
-import type { ReviewerVerification } from "./reviewer.js";
 import {
 	CouncilFinding,
 	type CouncilFinding as CouncilFindingType,

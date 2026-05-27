@@ -8,7 +8,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { ReviewerRunArtifacts } from "./reviewer.js";
+import type { ReviewerRunArtifacts } from "./subagent.js";
 
 /** Terminal lifecycle states persisted by supervised reviewer runs. */
 export type ReviewerTerminalState =

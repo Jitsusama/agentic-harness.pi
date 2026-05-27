@@ -11,11 +11,11 @@ import type {
 	Finding,
 } from "../../../extensions/pr-workflow/findings.js";
 import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
-import type { CouncilReviewer } from "../../../extensions/pr-workflow/reviewer.js";
 import {
 	type WorktreeProvider,
 	WorktreeRegistry,
 } from "../../../extensions/pr-workflow/worktree.js";
+import type { CouncilReviewer } from "../../../lib/subagent/subagent.js";
 
 /**
  * Round 3 — critique.

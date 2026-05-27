@@ -16,7 +16,10 @@
  * fill in agreement, user position, promotion details.
  */
 
-import type { ReviewerUsage, ReviewerVerification } from "./reviewer.js";
+import type {
+	ReviewerUsage,
+	ReviewerVerification,
+} from "../../lib/subagent/subagent.js";
 import type {
 	ConventionalLabel,
 	FindingLocation,
