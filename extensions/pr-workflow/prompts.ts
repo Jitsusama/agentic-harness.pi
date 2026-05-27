@@ -17,7 +17,6 @@ import {
 	reviewDiscoveryStandard,
 	reviewQualityStandard,
 } from "./review-quality-standard.js";
-import { CouncilFindingsOutput } from "./schemas.js";
 import {
 	type ReviewThreadPromptContext,
 	renderReviewThreadPromptContext,
@@ -103,49 +102,11 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 
 	sections.push("## Output format");
 	sections.push(
-		"Reply with a fenced JSON block. No prose outside the block. The JSON object " +
-			'must have a "findings" array. Each finding must include "location", ' +
-			'"label", "subject" and "discussion"; "decorations", "severity" and ' +
-			'"confidence" are optional. If you have nothing to flag, return ' +
-			'{"findings": []}.',
-	);
-	sections.push(
-		'Location kinds: "line" (file + start/end + side: "old"|"new"|"both"), ' +
-			'"file" (file only), or "global" (PR-level).',
-	);
-	sections.push(
-		"If a finding relates to an existing review thread, set optional " +
-			'`threadRelation`: use kind "duplicates-existing" only when the new ' +
-			"finding should not be posted because [T#] already covers it; use " +
-			'"supports-existing", "disputes-existing" or "amplifies-existing" ' +
-			"when you have fresh evidence that should substantiate, disprove or " +
-			"accentuate that thread. Include `threadIndex` with the numeric T index " +
-			"and a short `rationale`. Omit `threadRelation`, or use kind `new`, " +
-			"when no existing thread is relevant.",
-	);
-
-	sections.push("## JSON Schema");
-	sections.push(
-		"Your output must match this JSON Schema exactly. The same schema is used " +
-			"by the `verify_output` tool you'll call below and by the parent parser, " +
-			"so anything that passes the verifier will be accepted.",
-	);
-	sections.push(
-		["```json", JSON.stringify(CouncilFindingsOutput, null, 2), "```"].join(
-			"\n",
-		),
-	);
-
-	sections.push("## Self-verify before ending");
-	sections.push(
-		"Before you finish your run, call the `verify_output` tool with " +
-			'stage: "council" and `output` set to the object you intend to emit. ' +
-			"The tool returns `ok: true` with the parsed finding count, or `ok: false` " +
-			"with a list of {path, message, hint} errors. If errors are reported, fix the " +
-			"offending fields and call `verify_output` again. Only emit your final " +
-			"fenced JSON block (and end the run) once the verifier returns `ok: true`. " +
-			"If the verifier keeps reporting the same error after three attempts, " +
-			"emit your best attempt and the parent will surface the warnings.",
+		"Follow the `pr-workflow-council-output` skill for your output contract: " +
+			"the JSON shape, location kinds, threadRelation vocabulary and the " +
+			"`verify_output` self-check protocol. The skill is loaded into this " +
+			"subagent. Do not invent a different shape; rely on `verify_output`'s " +
+			"feedback to converge on a valid payload before ending your run.",
 	);
 
 	return sections.join("\n\n");

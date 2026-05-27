@@ -154,7 +154,7 @@ function progressRecorder(events: string[]): CouncilProgress {
 function dispatch(): CouncilDispatch {
 	return async ({ reviewer: r, prompt, cwd }) => {
 		if (r.id === "judge") {
-			expect(prompt).toContain('stage: "stack-judge"');
+			expect(prompt).toContain("pr-workflow-stack-judge-output");
 			expect(cwd).toContain("sha-102");
 			return {
 				reviewerId: r.id,
@@ -198,7 +198,7 @@ function dispatch(): CouncilDispatch {
 				warnings: [],
 			};
 		}
-		expect(prompt).toContain('stage: "stack-review"');
+		expect(prompt).toContain("pr-workflow-stack-review-output");
 		expect(prompt).toContain("### PR #101 [cursor]: PR 101");
 		expect(prompt).toContain("### PR #102: PR 102");
 		return {

@@ -211,36 +211,37 @@ describe("buildCritiquePrompt", () => {
 		expect(text).toContain("service-owner escalation convention");
 	});
 
-	it("asks for a JSON block with a critiques array keyed by findingId", async () => {
+	it("lists the allowed critique positions in the role narrative", async () => {
+		// The full shape lives in the
+		// pr-workflow-critique-output skill. The prompt
+		// body still has to name the `position` vocabulary
+		// so the reviewer applies the right verdict to each
+		// finding while reading.
 		const text = buildCritiquePrompt({
 			reviewerId: "fast",
 			council: council(),
 			judge: judge(),
 		});
-		expect(text).toContain("```json");
-		expect(text).toContain("critiques");
-		expect(text).toContain("findingId");
-		expect(text).toContain("position");
+		expect(text).toMatch(/agree/);
+		expect(text).toMatch(/disagree/);
+		expect(text).toMatch(/qualify/);
+		expect(text).toMatch(/amplify/);
 	});
 
-	it("embeds the critique JSON schema and instructs verify_output", async () => {
-		// The critique subagent gets pr-workflow-verify
-		// loaded so it can self-validate before ending.
-		// The prompt must teach the model to use the tool
-		// and embed the schema it's being validated
-		// against.
+	it("references the critique-output skill and the verify_output tool", async () => {
+		// The critique subagent gets
+		// pr-workflow-critique-verify loaded so it can
+		// self-validate before ending. The
+		// pr-workflow-critique-output skill teaches the
+		// protocol; the prompt body just names both so the
+		// model knows where to look.
 		const text = buildCritiquePrompt({
 			reviewerId: "fast",
 			council: council(),
 			judge: judge(),
 		});
 		expect(text).toContain("verify_output");
-		expect(text).toMatch(/stage[=:].?["']?critique/i);
-		expect(text).toMatch(/JSON Schema/i);
-		// All four critique positions appear in the
-		// embedded schema's enum.
-		expect(text).toContain("amplify");
-		expect(text).toContain("qualify");
+		expect(text).toContain("pr-workflow-critique-output");
 	});
 });
 

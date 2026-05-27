@@ -496,17 +496,49 @@ at the top when a reviewer returned empty with warnings
 the suggested follow-up action before scrolling through
 the rest of the output.
 
-## Sibling Extensions
+## Verify Packs
 
-- [`pr-workflow-verify`](../pr-workflow-verify/) registers
-  a `verify_output` tool that reviewer subagents call to
-  self-validate their JSON against the same TypeBox
-  schemas the parent will parse against. The parent
-  resolves this extension's absolute path (via
-  `verify-path.ts`) and injects it into every reviewer
-  subagent through `pi --extension <path>`. Schemas live
-  in [`schemas.ts`](./schemas.ts) and are the single
-  source of truth for both sides.
+Each reviewer stage gets its own one-file verify extension
+plus a companion skill. The extension registers a
+`verify_output` tool that the subagent calls to validate
+its JSON against the stage's schema; the skill teaches the
+output contract and the verify protocol.
+
+The pack entry points live under
+[`lib/internal/pr-workflow-verify/packs/`](../../lib/internal/pr-workflow-verify/packs/),
+not under `extensions/`. Pi auto-discovers `.ts` files
+directly under `extensions/`, and all five packs register
+the same `verify_output` tool with different stage
+schemas; auto-loading them would collide on tool name or
+make the active verifier depend on load order. The
+resolver injects the right pack into a reviewer subagent
+via `--extension`; nothing else loads them.
+
+- [`packs/council.ts`](../../lib/internal/pr-workflow-verify/packs/council.ts)
+  with skill
+  [`pr-workflow-council-output`](../../skills/pr-workflow-council-output/SKILL.md).
+- [`packs/judge.ts`](../../lib/internal/pr-workflow-verify/packs/judge.ts)
+  with skill
+  [`pr-workflow-judge-output`](../../skills/pr-workflow-judge-output/SKILL.md).
+- [`packs/critique.ts`](../../lib/internal/pr-workflow-verify/packs/critique.ts)
+  with skill
+  [`pr-workflow-critique-output`](../../skills/pr-workflow-critique-output/SKILL.md).
+- [`packs/stack-review.ts`](../../lib/internal/pr-workflow-verify/packs/stack-review.ts)
+  with skill
+  [`pr-workflow-stack-review-output`](../../skills/pr-workflow-stack-review-output/SKILL.md).
+- [`packs/stack-judge.ts`](../../lib/internal/pr-workflow-verify/packs/stack-judge.ts)
+  with skill
+  [`pr-workflow-stack-judge-output`](../../skills/pr-workflow-stack-judge-output/SKILL.md).
+
+The parent resolves the per-stage pack via
+[`verify-packs.ts`](./verify-packs.ts) and injects it into
+each reviewer subagent through `pi --extension <path>`
+plus `pi --skill <path>`. Schemas live in
+[`schemas.ts`](./schemas.ts) and are the single source of
+truth; the per-stage packs and the parent parser both read
+from there. Shared validation plumbing lives alongside the
+packs in
+[`lib/internal/pr-workflow-verify/`](../../lib/internal/pr-workflow-verify/).
 
 ## Files
 

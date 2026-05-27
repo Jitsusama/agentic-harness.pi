@@ -19,5 +19,12 @@ external packages. These modules may change without notice.
   `XDG_STATE_HOME`; scopes everything under
   `pi/agentic-harness.pi/<extension>/` so multiple pi
   packages on the same machine don't collide.
+- **`pr-workflow-verify/`** — shared validator, semantic
+  check helpers, stage contracts and the registration
+  helper used by the five `pr-workflow-{stage}-verify`
+  sibling extensions. Stage contracts pair a schema with a
+  stage-specific item counter and semantic checks; the
+  validator is pure and parameterised so the same engine
+  drives every stage.
 - **`state.ts`** — session state helpers: entry persistence,
   plan directory resolution and context filtering.

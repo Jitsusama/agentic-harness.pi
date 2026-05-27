@@ -114,7 +114,7 @@ import {
 	resolveThreadAction,
 } from "./threads-action.js";
 import { summarizeUsage, type UsageBreakdown } from "./usage.js";
-import { resolveVerifyExtensionPath } from "./verify-path.js";
+import { resolveVerifyPack } from "./verify-packs.js";
 import {
 	isWorktreeProvider,
 	PR_WORKFLOW_READY,
@@ -167,7 +167,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	let councilDeps: {
 		registry: WorktreeRegistry;
 		runPi: ReturnType<typeof createSupervisorRunPi>;
-		extraExtensions: readonly string[];
 	} | null = null;
 	// The default resolver assumes the user's clone
 	// lives at ~/src/github.com/<owner>/<repo>. This
@@ -234,10 +233,6 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				binary: "pi",
 				stateDir: prWorkflowStateDir(),
 			}),
-			// Every reviewer subagent loads pr-workflow-verify
-			// so it can self-check its JSON output via the
-			// verify_output tool before ending the run.
-			extraExtensions: [resolveVerifyExtensionPath()],
 		};
 		return councilDeps;
 	};
@@ -253,22 +248,25 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			readonly dispatch: CouncilDispatch;
 		}) => Promise<T>,
 	): Promise<T> => {
-		const { registry, runPi, extraExtensions } = getCouncilDeps();
+		const { registry, runPi } = getCouncilDeps();
 		const activeRun = cancellations.beginRun(operation);
-		const dispatch = createCancellableDispatch(activeRun, (opts) =>
-			// pr-workflow always injects pr-workflow-verify, so
-			// every reviewer subagent is expected to call
-			// verify_output before ending. Setting the flag here
-			// rather than at each call site keeps verification
-			// enforcement tied to the extension injection that
-			// makes it possible.
-			runReviewer({
+		const dispatch = createCancellableDispatch(activeRun, (opts) => {
+			// Each stage gets its own verify pack: a sibling
+			// extension that registers the stage-specific
+			// `verify_output` tool plus a skill that teaches
+			// the contract. Setting requiresVerification when
+			// (and only when) a pack is loaded keeps
+			// enforcement tied to the extension+skill that
+			// makes verification possible.
+			const pack = resolveVerifyPack(opts.expectedVerificationStage);
+			return runReviewer({
 				...opts,
 				runPi,
-				extraExtensions,
-				requiresVerification: true,
-			}),
-		);
+				extraExtensions: pack ? [pack.extensionPath] : undefined,
+				extraSkills: pack?.skillPath ? [pack.skillPath] : undefined,
+				requiresVerification: pack !== undefined,
+			});
+		});
 		try {
 			return await run({ registry, dispatch });
 		} finally {

@@ -70,9 +70,14 @@ describe("buildStackReviewPrompt", () => {
 		expect(prompt).toContain("### PR #101: Add parser");
 		expect(prompt).toContain("### PR #102 [cursor]: Wire parser");
 		expect(prompt).toContain("+parse()");
-		expect(prompt).toContain('stage: "stack-review"');
+		// The contract lives in the stack-review-output
+		// skill; the prompt body still references the
+		// per-PR / cross-PR concepts and the skill name so
+		// the reviewer knows where to look for shape
+		// details.
 		expect(prompt).toContain("perPr");
 		expect(prompt).toContain("crossPr");
+		expect(prompt).toContain("pr-workflow-stack-review-output");
 	});
 
 	it("instructs stack reviewer tools to stay inside the worktree", () => {
@@ -225,7 +230,10 @@ describe("buildStackJudgePrompt", () => {
 		expect(prompt).toContain("PR #101:");
 		expect(prompt).toContain("per-pr issue");
 		expect(prompt).toContain("homePrNumber=101; spans=101, 102");
-		expect(prompt).toContain('stage: "stack-judge"');
+		// The stack-judge contract lives in its skill; the
+		// prompt body just names the skill so the judge
+		// loads the protocol from there.
+		expect(prompt).toContain("pr-workflow-stack-judge-output");
 	});
 
 	it("instructs stack judge tools to stay inside the worktree", async () => {

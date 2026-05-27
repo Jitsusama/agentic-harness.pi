@@ -43,7 +43,6 @@ import type {
 } from "./reviewer.js";
 import {
 	CritiqueEntry as CritiqueEntrySchema,
-	CritiqueOutput,
 	type CritiquePosition,
 } from "./schemas.js";
 import {
@@ -278,35 +277,11 @@ export function buildCritiquePrompt(input: BuildCritiquePromptInput): string {
 	}
 	lines.push("");
 	lines.push(
-		"Respond with a single fenced JSON block. No prose outside the block. " +
-			"Each critique entry references the consolidated finding by its " +
-			"`findingId`, names a `position`, and gives a one-to-two-sentence " +
-			"`rationale`. The rationale should say what evidence proves the finding, " +
-			"what evidence disproves it or whether it merely repeats an existing " +
-			"thread such as [T3].",
-	);
-	lines.push("");
-	lines.push("## JSON Schema");
-	lines.push(
-		"Your output must match this JSON Schema exactly. The same schema is " +
-			"used by the `verify_output` tool you'll call below and by the parent " +
-			"parser, so anything that passes the verifier will be accepted.",
-	);
-	lines.push("```json");
-	lines.push(JSON.stringify(CritiqueOutput, null, 2));
-	lines.push("```");
-	lines.push("");
-	lines.push("## Self-verify before ending");
-	lines.push(
-		"Before you finish your run, call the `verify_output` tool with " +
-			'stage: "critique" and `output` set to the object you intend ' +
-			"to emit. The tool returns `ok: true` with the parsed entry count, or " +
-			"`ok: false` with a list of {path, message, hint} errors. If errors are " +
-			"reported, fix the offending fields and call `verify_output` again. " +
-			"Only emit your final fenced JSON block (and end the run) once the " +
-			"verifier returns `ok: true`. If the verifier keeps reporting the " +
-			"same error after three attempts, emit your best attempt and the " +
-			"parent will surface the warnings.",
+		"Follow the `pr-workflow-critique-output` skill for your output " +
+			"contract: the JSON shape, `position` vocabulary, rationale " +
+			"requirements and the `verify_output` self-check protocol. The skill " +
+			"is loaded into this subagent. Rely on `verify_output`'s feedback to " +
+			"converge on a valid payload before ending your run.",
 	);
 	return lines.join("\n");
 }

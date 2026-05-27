@@ -140,6 +140,14 @@ export interface RunReviewerOptions {
 	 */
 	readonly extraExtensions?: readonly string[];
 	/**
+	 * Absolute paths of skill files to inject into the
+	 * subagent via `--skill`. Used to teach the subagent
+	 * its output contract without baking the prose into
+	 * the prompt body. Loads in addition to whatever the
+	 * user's pi setup auto-discovers.
+	 */
+	readonly extraSkills?: readonly string[];
+	/**
 	 * Whether the engine should enforce that the subagent
 	 * called `verify_output` and got `ok: true` before
 	 * accepting the run. Set this when injecting a verify
@@ -214,6 +222,7 @@ export async function runReviewer(
 		options.reviewer,
 		options.prompt,
 		options.extraExtensions,
+		options.extraSkills,
 	);
 	const result = await options.runPi({
 		args,
@@ -420,6 +429,7 @@ function composeArgs(
 	reviewer: CouncilReviewer,
 	prompt: string,
 	extraExtensions: readonly string[] | undefined,
+	extraSkills: readonly string[] | undefined,
 ): string[] {
 	const args: string[] = ["--mode", "json", "--no-session", "-p"];
 	if (reviewer.model) {
@@ -434,6 +444,11 @@ function composeArgs(
 	if (extraExtensions) {
 		for (const path of extraExtensions) {
 			args.push("--extension", path);
+		}
+	}
+	if (extraSkills) {
+		for (const path of extraSkills) {
+			args.push("--skill", path);
 		}
 	}
 	args.push(prompt);
