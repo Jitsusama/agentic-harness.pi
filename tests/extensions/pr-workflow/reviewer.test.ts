@@ -548,6 +548,7 @@ describe("runReviewer — result extraction", () => {
 			cwd: "/tmp/wt",
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			expectedVerificationStage: "council",
+			requiresVerification: true,
 			runPi,
 		});
 
@@ -581,6 +582,7 @@ describe("runReviewer — result extraction", () => {
 			prompt: "p",
 			cwd: "/tmp/wt",
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			requiresVerification: true,
 			runPi,
 		});
 
@@ -609,6 +611,7 @@ describe("runReviewer — result extraction", () => {
 			cwd: "/tmp/wt",
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			expectedVerificationStage: "council",
+			requiresVerification: true,
 			runPi,
 		});
 
@@ -633,6 +636,7 @@ describe("runReviewer — result extraction", () => {
 			cwd: "/tmp/wt",
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			expectedVerificationStage: "council",
+			requiresVerification: true,
 			runPi,
 		});
 
@@ -669,6 +673,7 @@ describe("runReviewer — result extraction", () => {
 			cwd: "/tmp/wt",
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			expectedVerificationStage: "council",
+			requiresVerification: true,
 			runPi,
 		});
 
@@ -692,6 +697,7 @@ describe("runReviewer — result extraction", () => {
 			cwd: "/tmp/wt",
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			expectedVerificationStage: "council",
+			requiresVerification: true,
 			runPi,
 		});
 
@@ -718,6 +724,7 @@ describe("runReviewer — result extraction", () => {
 			prompt: "p",
 			cwd: "/tmp/wt",
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
+			requiresVerification: true,
 			runPi,
 		});
 
@@ -850,6 +857,7 @@ describe("runReviewer — result extraction", () => {
 			cwd: "/tmp/wt",
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			expectedVerificationStage: "council",
+			requiresVerification: true,
 			runPi,
 		});
 
