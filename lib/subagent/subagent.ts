@@ -23,6 +23,17 @@
  */
 
 import { getSubagentDefaults } from "./defaults.js";
+import { checkSubagentRuntime, detectStaleInstallInStderr } from "./health.js";
+
+/**
+ * Synthetic exit code used when `runReviewer` short-
+ * circuits because the captured pi binary path is gone.
+ * 127 is the POSIX convention for "command not found";
+ * downstream code that inspects exit codes treats it
+ * the same as any other non-zero failure.
+ */
+const STALE_RUNTIME_EXIT_CODE = 127;
+
 import { ReviewerStreamParser } from "./stream.js";
 
 function dedupePaths(paths: readonly string[]): string[] {
@@ -147,6 +158,19 @@ export type RunPi = (opts: {
 }) => Promise<RunPiResult>;
 
 /** Inputs `runReviewer` needs to dispatch one pi process. */
+/**
+ * Pre-dispatch health probe injected into `runReviewer`.
+ *
+ * Returns a structured error when the running pi binary
+ * has disappeared from disk (typical cause: pi upgraded
+ * mid-session and the old nix store entry was garbage-
+ * collected). Returns `null` when dispatch is safe.
+ */
+export type SubagentRuntimeCheck = () => {
+	readonly path: string;
+	readonly message: string;
+} | null;
+
 export interface RunReviewerOptions {
 	readonly reviewer: CouncilReviewer;
 	/** Prompt text passed as the final positional arg. */
@@ -220,6 +244,13 @@ export interface RunReviewerOptions {
 	 * of dead air.
 	 */
 	readonly onEvent?: (event: RunPiStreamEvent) => void;
+	/**
+	 * Runtime health probe. Defaults to the module-level
+	 * `checkSubagentRuntime` bound to `process.execPath`.
+	 * Tests inject a fake to exercise the stale-runtime
+	 * short-circuit without touching the real binary.
+	 */
+	readonly checkRuntime?: SubagentRuntimeCheck;
 }
 
 /** Token + cost figures for one reviewer subagent run. */
@@ -265,6 +296,24 @@ export interface RunReviewerResult {
 export async function runReviewer(
 	options: RunReviewerOptions,
 ): Promise<RunReviewerResult> {
+	// Refuse to spawn when pi was updated or removed
+	// mid-session — the parent's argv-derived extension
+	// paths point at a directory that no longer exists and
+	// every subagent will crash with the same ENOENT.
+	// Short-circuit with a clear advisory so the
+	// dispatcher can suppress the misleading retry hint.
+	const runtimeCheck = options.checkRuntime ?? checkSubagentRuntime;
+	const runtimeError = runtimeCheck();
+	if (runtimeError !== null) {
+		return {
+			reviewerId: options.reviewer.id,
+			exitCode: STALE_RUNTIME_EXIT_CODE,
+			finalAssistantText: "",
+			stderr: runtimeError.message,
+			warnings: [runtimeError.message],
+		};
+	}
+
 	// Engine-wide defaults registered by other extensions
 	// (credentials helpers, telemetry hooks, anything that
 	// should be present in every subagent regardless of
@@ -350,6 +399,13 @@ export async function runReviewer(
 		if (stderrSnippet) {
 			warnings.push(`Pi stderr: ${stderrSnippet}`);
 		}
+		// Defensive second layer: if the child's stderr
+		// carries the canonical stale-install ENOENT shape,
+		// add the actionable advisory so downstream summary
+		// renderers can swap the per-reviewer retry hint for
+		// a session-level "restart pi" message.
+		const staleMessage = detectStaleInstallInStderr(parsed.stderr);
+		if (staleMessage) warnings.push(staleMessage);
 	}
 
 	return {

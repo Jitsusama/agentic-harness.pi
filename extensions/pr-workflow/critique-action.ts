@@ -10,6 +10,7 @@
  * boundary injected so unit tests don't spawn pi.
  */
 
+import { STALE_RUNTIME_WARNING_PREFIX } from "../../lib/subagent/health.js";
 import type { CouncilDispatch } from "./council.js";
 import type { CouncilProgress } from "./council-progress.js";
 import {
@@ -442,20 +443,32 @@ export function formatCritiqueSummary(
 	lines.push(`Critique run ${input.critique.id}`);
 	lines.push(`Reviewers: ${input.critique.reviewerOutputs.length}`);
 
-	// Empty-with-warnings is the classic 'reviewer
-	// crashed' shape. Flag retry candidates up front so
-	// the user sees the suggestion before scrolling
-	// through per-finding positions.
-	const retryCandidates = input.critique.reviewerOutputs.filter(
-		(o) => o.critiques.length === 0 && o.warnings.length > 0,
+	// When the pi runtime is stale every reviewer fails
+	// identically and no retry will succeed until pi is
+	// restarted. Surface a single session-level advisory
+	// and suppress the misleading per-reviewer retry hint.
+	const staleAdvisory = collectStaleRuntimeAdvisory(
+		input.critique.reviewerOutputs,
 	);
-	if (retryCandidates.length > 0) {
+	if (staleAdvisory) {
 		lines.push("");
-		for (const c of retryCandidates) {
-			lines.push(
-				`⚠ ${c.reviewerId} returned no critiques with warnings; ` +
-					`consider \`pr_workflow action=critique-retry reviewerId=${c.reviewerId}\`.`,
-			);
+		lines.push(`⚠ ${staleAdvisory}`);
+	} else {
+		// Empty-with-warnings is the classic 'reviewer
+		// crashed' shape. Flag retry candidates up front so
+		// the user sees the suggestion before scrolling
+		// through per-finding positions.
+		const retryCandidates = input.critique.reviewerOutputs.filter(
+			(o) => o.critiques.length === 0 && o.warnings.length > 0,
+		);
+		if (retryCandidates.length > 0) {
+			lines.push("");
+			for (const c of retryCandidates) {
+				lines.push(
+					`⚠ ${c.reviewerId} returned no critiques with warnings; ` +
+						`consider \`pr_workflow action=critique-retry reviewerId=${c.reviewerId}\`.`,
+				);
+			}
 		}
 	}
 
@@ -486,6 +499,28 @@ export function formatCritiqueSummary(
 		for (const w of allWarnings) lines.push(`  ! ${w}`);
 	}
 	return lines.join("\n");
+}
+
+/**
+ * Return the first stale-runtime advisory found across
+ * every reviewer's warnings, or null if none.
+ *
+ * `runReviewer` emits warnings prefixed with
+ * `STALE_RUNTIME_WARNING_PREFIX` ("Pi runtime stale:")
+ * when the running pi binary is gone or the subagent's
+ * stderr carries the canonical ENOENT shape. The same
+ * advisory text shows up on every reviewer so picking
+ * the first one is correct.
+ */
+function collectStaleRuntimeAdvisory(
+	outputs: readonly ReviewerCritiqueOutput[],
+): string | null {
+	for (const output of outputs) {
+		for (const warning of output.warnings) {
+			if (warning.startsWith(STALE_RUNTIME_WARNING_PREFIX)) return warning;
+		}
+	}
+	return null;
 }
 
 function collectWarnings(outputs: readonly ReviewerCritiqueOutput[]): string[] {
