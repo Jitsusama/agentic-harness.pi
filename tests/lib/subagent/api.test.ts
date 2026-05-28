@@ -21,13 +21,27 @@ interface FakeRunPi {
 		readonly args: readonly string[];
 		readonly cwd: string;
 		readonly reviewerId: string;
+		readonly timeoutMs: number | undefined;
+		readonly idleTimeoutMs: number | undefined;
 	}>;
 }
 
 function fakeRunPi(result?: Partial<RunPiResult>): FakeRunPi {
 	const calls: FakeRunPi["calls"] = [];
-	const runPi: RunPi = async ({ args, cwd, reviewerId }) => {
-		calls.push({ args, cwd, reviewerId: reviewerId ?? "" });
+	const runPi: RunPi = async ({
+		args,
+		cwd,
+		reviewerId,
+		timeoutMs,
+		idleTimeoutMs,
+	}) => {
+		calls.push({
+			args,
+			cwd,
+			reviewerId: reviewerId ?? "",
+			timeoutMs,
+			idleTimeoutMs,
+		});
 		return {
 			exitCode: 0,
 			lines: [],
@@ -120,6 +134,47 @@ describe("runSubagent", () => {
 		expect(args).toContain("--skill /abs/output.skill");
 		expect(result.verification?.called).toBe(false);
 		expect(result.verification?.ok).toBe(false);
+	});
+
+	it("forwards per-job timeout overrides to the runner", async () => {
+		// The middle forwarding hop (job → reviewer → runner)
+		// is the production path: the fleet tool's
+		// `buildAssignment` populates `SubagentJob`,
+		// `runSubagent` calls `runReviewer`, and
+		// `runReviewer` invokes the injected `runPi`. Pin
+		// the values so a future refactor that drops the
+		// fields silently fails the test instead of
+		// silently failing the user's long-running
+		// benchmark personas.
+		const fake = fakeRunPi();
+		await runSubagent({
+			spec: { id: "long" },
+			job: {
+				userPrompt: "bench",
+				cwd: "/tmp/long",
+				timeoutMs: 45 * 60 * 1000,
+				idleTimeoutMs: 15 * 60 * 1000,
+			},
+			runPi: fake.runPi,
+		});
+		expect(fake.calls[0].timeoutMs).toBe(45 * 60 * 1000);
+		expect(fake.calls[0].idleTimeoutMs).toBe(15 * 60 * 1000);
+	});
+
+	it("omits timeout overrides from the runner opts when the job omits them", async () => {
+		// `undefined` means "use the runner's configured
+		// default". The forwarding chain must propagate
+		// absence as absence, not coerce to a value, so the
+		// supervisor falls back to the constructor-level
+		// defaults a long-lived runner was built with.
+		const fake = fakeRunPi();
+		await runSubagent({
+			spec: { id: "default" },
+			job: { userPrompt: "p", cwd: "/tmp/default" },
+			runPi: fake.runPi,
+		});
+		expect(fake.calls[0].timeoutMs).toBeUndefined();
+		expect(fake.calls[0].idleTimeoutMs).toBeUndefined();
 	});
 
 	it("maps reviewerId onto subagentId in the result", async () => {

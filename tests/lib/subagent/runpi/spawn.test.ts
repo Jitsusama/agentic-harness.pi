@@ -296,6 +296,34 @@ describe("createSpawnRunPi", () => {
 		expect(result.stderr).toContain("cancelled");
 	});
 
+	it("prefers per-call timeoutMs over the constructor default", async () => {
+		// The spawn-backed runner is non-supervising, so the
+		// only knob it honours is the wall-clock cap. A
+		// per-call value must override the constructor's
+		// configured default; otherwise the fleet tool's
+		// per-job override would silently no-op for any
+		// caller still on the spawn runner.
+		const fake = makeFakeChild();
+		const signals: Array<NodeJS.Signals | undefined> = [];
+		fake.child.kill = (signal) => {
+			signals.push(signal);
+			queueMicrotask(() => fake.emitClose(143));
+			return true;
+		};
+		const runPi = createSpawnRunPi({
+			binary: "pi",
+			spawn: () => fake.child as unknown as ChildProcess,
+			timeoutMs: 60_000,
+			killGraceMs: 50,
+		});
+
+		const result = await runPi({ args: [], cwd: "/tmp", timeoutMs: 1 });
+
+		expect(signals).toContain("SIGTERM");
+		expect(result.exitCode).toBe(143);
+		expect(result.stderr).toContain("timed out after 1ms");
+	});
+
 	it("uses a cancellation exit code when abort closes without a code", async () => {
 		const fake = makeFakeChild();
 		fake.child.kill = () => {
