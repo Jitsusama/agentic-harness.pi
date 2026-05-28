@@ -324,6 +324,63 @@ describe("createSpawnRunPi", () => {
 		expect(result.stderr).toContain("timed out after 1ms");
 	});
 
+	it("warns when idleTimeoutMs is set on the non-supervising runner", async () => {
+		// The spawn runner has no supervisor protocol and
+		// therefore no idle clock. Silently dropping an
+		// idle override would let a caller think they'd
+		// extended the idle ceiling when in fact only the
+		// wall clock applies. Surface a warning through
+		// the existing warnings channel so the caller can
+		// see the no-op without runtime surprise.
+		const fake = makeFakeChild();
+		const runPi = createSpawnRunPi({
+			binary: "pi",
+			spawn: () => {
+				queueMicrotask(() => {
+					fake.stdout.end('{"type":"agent_end"}\n');
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: "/tmp",
+			idleTimeoutMs: 5 * 60 * 1000,
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(result.warnings ?? []).toContainEqual(
+			expect.stringMatching(/idleTimeoutMs.*ignored.*wall-clock only/i),
+		);
+	});
+
+	it("emits no idleTimeoutMs warning when the caller leaves it unset", async () => {
+		// The warning is opt-in feedback; runs that don't
+		// touch the field should land on a clean warnings
+		// array (or omit the field entirely, since the
+		// channel is optional).
+		const fake = makeFakeChild();
+		const runPi = createSpawnRunPi({
+			binary: "pi",
+			spawn: () => {
+				queueMicrotask(() => {
+					fake.stdout.end('{"type":"agent_end"}\n');
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+
+		const result = await runPi({ args: [], cwd: "/tmp" });
+
+		const idleWarnings = (result.warnings ?? []).filter((w) =>
+			/idleTimeoutMs/.test(w),
+		);
+		expect(idleWarnings).toHaveLength(0);
+	});
+
 	it("uses a cancellation exit code when abort closes without a code", async () => {
 		const fake = makeFakeChild();
 		fake.child.kill = () => {

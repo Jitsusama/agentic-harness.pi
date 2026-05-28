@@ -14,7 +14,7 @@ import {
 	spawn as nodeSpawn,
 	type SpawnOptions,
 } from "node:child_process";
-import type { RunPi } from "../subagent.js";
+import type { RunPi, RunPiResult } from "../subagent.js";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
 export type SpawnFn = (
@@ -56,13 +56,25 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 		signal,
 		onEvent,
 		timeoutMs: callTimeoutMs,
+		idleTimeoutMs,
 	}) {
 		const timeoutMs = callTimeoutMs ?? configTimeoutMs;
-		return new Promise<{
-			stdout: string;
-			stderr: string;
-			exitCode: number;
-		}>((resolve, reject) => {
+		// The spawn runner has no supervisor protocol and
+		// therefore no idle clock. Honouring `idleTimeoutMs`
+		// here would be a lie; silently dropping it would let
+		// a caller think they'd extended the idle ceiling.
+		// Surface the no-op through the warnings channel so
+		// the caller sees the contract mismatch without
+		// runtime surprise. Supervised callers (the fleet
+		// tool, pr-workflow) never land here — this guard
+		// catches non-supervising library consumers.
+		const preWarnings: string[] = [];
+		if (idleTimeoutMs !== undefined) {
+			preWarnings.push(
+				`idleTimeoutMs (${idleTimeoutMs}ms) ignored: the spawn-backed RunPi is wall-clock only. Only timeoutMs (${timeoutMs}ms) applies.`,
+			);
+		}
+		return new Promise<RunPiResult>((resolve, reject) => {
 			const child = spawnFn(config.binary, args, {
 				cwd,
 				detached: true,
@@ -184,6 +196,7 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 					stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
 					stderr: Buffer.concat(stderrChunks).toString("utf-8"),
 					exitCode: code ?? fallbackExitCode(stoppedBy),
+					...(preWarnings.length > 0 ? { warnings: preWarnings } : {}),
 				});
 			});
 		});

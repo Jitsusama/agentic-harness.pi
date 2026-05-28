@@ -241,9 +241,10 @@ export type RunPi = (opts: {
 	 * events before declaring the child stuck. Overrides
 	 * the runner's configured default. Set high when the
 	 * subagent issues long-running bash commands that don't
-	 * stream progress (deploys, benchmarks). Ignored by
-	 * runners that don't supervise (e.g. the raw spawn
-	 * runner).
+	 * stream progress (deploys, benchmarks). Non-supervising
+	 * runners (e.g. the raw spawn runner) ignore the value
+	 * and surface a one-line warning on the result so the
+	 * caller knows the override didn't apply.
 	 */
 	readonly idleTimeoutMs?: number;
 }) => Promise<RunPiResult>;
