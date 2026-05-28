@@ -88,7 +88,9 @@ export function validateOutput(
 			warnings: normalized.warnings,
 		};
 	}
-	const candidate = normalized.value;
+	const severityResult = normalizeFindingSeverities(normalized.value);
+	const candidate = severityResult.value;
+	const warnings = mergeWarnings(normalized.warnings, severityResult.warnings);
 
 	if (!Value.Check(contract.schema, candidate)) {
 		const errors: ValidationError[] = [];
@@ -101,7 +103,7 @@ export function validateOutput(
 				hint: hintForError(contract, path, value, candidate),
 			});
 		}
-		return { ok: false, errors, warnings: normalized.warnings };
+		return { ok: false, errors, warnings };
 	}
 
 	const semanticErrors = contract.semanticChecks?.(candidate) ?? [];
@@ -109,12 +111,131 @@ export function validateOutput(
 		return {
 			ok: false,
 			errors: [...semanticErrors],
-			warnings: normalized.warnings,
+			warnings,
 		};
 	}
 
 	const count = contract.itemCount(candidate);
-	return { ok: true, count, warnings: normalized.warnings };
+	return { ok: true, count, warnings };
+}
+
+/**
+ * Alias map from common severity vocabularies to the
+ * canonical `critical / medium / minor` set. Models like
+ * grok-4.3 emit `"required"` for blocking findings; the
+ * schema rejects anything outside the canonical union.
+ * Normalizing here means vocabulary mismatch never blocks
+ * an otherwise-valid finding.
+ */
+const SEVERITY_ALIASES: ReadonlyMap<string, FindingSeverity> = new Map<
+	string,
+	FindingSeverity
+>([
+	["critical", "critical"],
+	["required", "critical"],
+	["blocking", "critical"],
+	["block", "critical"],
+	["high", "critical"],
+	["medium", "medium"],
+	["moderate", "medium"],
+	["normal", "medium"],
+	["minor", "minor"],
+	["low", "minor"],
+	["optional", "minor"],
+	["non-blocking", "minor"],
+	["nonblocking", "minor"],
+	["nice-to-have", "minor"],
+	["info", "minor"],
+	["informational", "minor"],
+]);
+
+type FindingSeverity = "critical" | "medium" | "minor";
+
+interface SeverityNormalization {
+	readonly value: unknown;
+	readonly warnings: readonly string[];
+}
+
+/**
+ * Walk every finding-shaped path in the parsed input and
+ * normalize the optional `severity` field. Unknown values
+ * are dropped from the finding (severity is optional) and
+ * surfaced as warnings so the parent process can flag the
+ * reviewer in its summary.
+ *
+ * The walk is shape-aware rather than recursive on every
+ * key so we don't accidentally rewrite a `severity` field
+ * nested inside an unrelated structure.
+ */
+function normalizeFindingSeverities(input: unknown): SeverityNormalization {
+	if (typeof input !== "object" || input === null) {
+		return { value: input, warnings: [] };
+	}
+	const warnings: string[] = [];
+	const record = input as Record<string, unknown>;
+	const clone: Record<string, unknown> = { ...record };
+
+	if (Array.isArray(record.findings)) {
+		clone.findings = record.findings.map((item, index) =>
+			normalizeSeverityOnFinding(item, `/findings/${index}`, warnings),
+		);
+	}
+	if (Array.isArray(record.crossPr)) {
+		clone.crossPr = record.crossPr.map((item, index) =>
+			normalizeSeverityOnFinding(item, `/crossPr/${index}`, warnings),
+		);
+	}
+	if (
+		record.perPr &&
+		typeof record.perPr === "object" &&
+		!Array.isArray(record.perPr)
+	) {
+		const perPr = record.perPr as Record<string, unknown>;
+		const clonedPerPr: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(perPr)) {
+			if (Array.isArray(value)) {
+				clonedPerPr[key] = value.map((item, index) =>
+					normalizeSeverityOnFinding(item, `/perPr/${key}/${index}`, warnings),
+				);
+			} else {
+				clonedPerPr[key] = value;
+			}
+		}
+		clone.perPr = clonedPerPr;
+	}
+
+	return { value: clone, warnings };
+}
+
+function normalizeSeverityOnFinding(
+	item: unknown,
+	path: string,
+	warnings: string[],
+): unknown {
+	if (typeof item !== "object" || item === null) return item;
+	const record = item as Record<string, unknown>;
+	if (!("severity" in record)) return item;
+	const raw = record.severity;
+	if (typeof raw !== "string") return item;
+	const alias = SEVERITY_ALIASES.get(raw.trim().toLowerCase());
+	if (alias === undefined) {
+		warnings.push(
+			`Dropped unrecognized severity "${raw}" at ${path}; ` +
+				"use one of critical, medium, minor.",
+		);
+		const { severity: _drop, ...rest } = record;
+		return rest;
+	}
+	if (alias === raw) return item;
+	return { ...record, severity: alias };
+}
+
+function mergeWarnings(
+	a: readonly string[] | undefined,
+	b: readonly string[] | undefined,
+): readonly string[] | undefined {
+	const combined = [...(a ?? []), ...(b ?? [])];
+	return combined.length > 0 ? combined : undefined;
 }
 
 type NormalizedInput =

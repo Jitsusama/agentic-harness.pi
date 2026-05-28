@@ -34,7 +34,14 @@ Optional decorations:
 
 - `decorations` — free-form short tags
   (e.g. `"non-blocking"`, `"if-minor"`).
-- `severity` — `"critical"`, `"medium"` or `"minor"`.
+- `severity` — `"critical"`, `"medium"` or `"minor"`. The
+  parent process also accepts the common aliases
+  `"required"`/`"blocking"`/`"high"` (mapped to
+  `"critical"`) and
+  `"non-blocking"`/`"nice-to-have"`/`"info"`/`"low"`
+  (mapped to `"minor"`); unknown values are dropped with
+  a warning rather than rejecting the finding. Use the
+  canonical set when you can.
 - `confidence` — a number 0.0 to 1.0.
 - `threadRelation` — see
   [Existing review threads](#existing-review-threads).
