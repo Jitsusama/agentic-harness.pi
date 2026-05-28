@@ -41,6 +41,7 @@ import {
 	reviewSynthesisStandard,
 } from "./review-quality-standard.js";
 import { JudgeFinding, JudgeSelfSignal } from "./schemas.js";
+import { normalizeFindingSeverities } from "./severity-normalize.js";
 import {
 	type ReviewThreadPromptContext,
 	renderReviewThreadPromptContext,
@@ -261,12 +262,13 @@ export function parseJudgeOutput(
 			warnings: ["Judge JSON top-level was not an object"],
 		};
 	}
-	const record = parsed as Record<string, unknown>;
+	const severityNormalization = normalizeFindingSeverities(parsed);
+	const record = severityNormalization.value as Record<string, unknown>;
 	const selfSignal = toSelfSignal(record.selfSignal);
 	const rawFindings = Array.isArray(record.findings) ? record.findings : [];
 
 	const findings: Finding[] = [];
-	const warnings: string[] = [];
+	const warnings: string[] = [...severityNormalization.warnings];
 	let nextId = context.startId;
 	for (let i = 0; i < rawFindings.length; i++) {
 		const raw = rawFindings[i];
@@ -526,9 +528,18 @@ function autoInheritLineLocation(
 	if (lineSources.length === 0) {
 		return { location: raw.location };
 	}
+	const side = lineSources[0].side;
+	if (lineSources.some((s) => s.side !== side)) {
+		// Sources disagree on diff side. Picking one would
+		// silently anchor the consolidated finding to the
+		// wrong half of the diff and possibly synthesize a
+		// range that doesn't exist on either side. Leave
+		// the judge's file-kind alone; the user can split
+		// or edit if they want a specific line range.
+		return { location: raw.location };
+	}
 	const start = Math.min(...lineSources.map((s) => s.start));
 	const end = Math.max(...lineSources.map((s) => s.end));
-	const side = lineSources[0].side;
 	return {
 		location: {
 			kind: "line",

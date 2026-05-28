@@ -447,8 +447,9 @@ function renderBodyEntry(
 	finding: Finding,
 	decision: FindingDecision,
 ): string {
-	const { subject, discussion, label } = effectiveFinding(finding, decision);
-	const where = renderLocationForBody(finding.location);
+	const projected = effectiveFinding(finding, decision);
+	const { subject, discussion, label } = projected;
+	const where = renderLocationForBody(projected.location);
 	const lines: string[] = [];
 	lines.push(
 		renderConventionalCommentHeader({

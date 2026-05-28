@@ -508,6 +508,43 @@ describe("buildReviewPayload", () => {
 		expect(payload.includedFindingIds).toEqual([10]);
 	});
 
+	it("renders the edited location in body fallback when a user overrides the line", async () => {
+		// Council finding [28]: when an `edit` decision
+		// changes the location to a range that still misses
+		// the diff, the body fallback should show the NEW
+		// (edited) location, not the original.
+		const state = createPrWorkflowState();
+		loadPr(state);
+		state.council.lastJudge = judge([
+			lineFinding(10, "Off-hunk", {
+				location: {
+					kind: "line",
+					file: "lib/x.ts",
+					start: 90,
+					end: 90,
+					side: "new",
+				},
+			}),
+		]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "edit",
+			decidedAt: "x",
+			location: {
+				kind: "line",
+				file: "lib/other.ts",
+				start: 1,
+				end: 1,
+				side: "new",
+			},
+		});
+
+		const payload = buildReviewPayload(state);
+
+		expect(payload.body).toContain("lib/other.ts:1-1");
+		expect(payload.body).not.toContain("lib/x.ts:90-90");
+	});
+
 	it("falls back to the review body when a line range is not valid on the requested side", async () => {
 		const state = createPrWorkflowState();
 		loadPr(state);

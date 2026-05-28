@@ -306,6 +306,49 @@ describe("parseJudgeOutput", () => {
 			});
 		});
 
+		it("keeps file-kind when sources disagree on diff side", () => {
+			// Sources on different sides would synthesize a
+			// span that doesn't exist on either side. Auto-
+			// inherit refuses so the user sees the file-kind
+			// and can decide explicitly.
+			const text = [
+				"```json",
+				JSON.stringify({
+					findings: [
+						{
+							location: { kind: "file", file: "serve.go" },
+							label: "issue",
+							subject: "s",
+							discussion: "d",
+							sourceFindingIds: [1, 2],
+						},
+					],
+				}),
+				"```",
+			].join("\n");
+			const sources: Finding[] = [
+				reviewerLineFinding(1, "serve.go", 50, 60),
+				{
+					...reviewerLineFinding(2, "serve.go", 70, 75),
+					location: {
+						kind: "line",
+						file: "serve.go",
+						start: 70,
+						end: 75,
+						side: "old",
+					},
+				},
+			];
+			const result = parseJudgeOutput(text, {
+				...CTX,
+				sourceFindings: sources,
+			});
+			expect(result.findings[0].location).toEqual({
+				kind: "file",
+				file: "serve.go",
+			});
+		});
+
 		it("keeps file-kind when any source is global-kind", () => {
 			const text = [
 				"```json",

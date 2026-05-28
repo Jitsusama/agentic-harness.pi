@@ -14,6 +14,7 @@ import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
 import type { ReviewerVerification } from "../../lib/subagent/subagent.js";
 import type { Finding, FindingLocation } from "./findings.js";
 import { extractJson } from "./parse.js";
+import { hasValidInlineAnchor } from "./post.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import {
 	reviewQualityStandard,
@@ -32,6 +33,7 @@ import {
 	StackJudgeCrossFinding,
 	type StackJudgeCrossFinding as StackJudgeCrossFindingType,
 } from "./schemas.js";
+import { normalizeFindingSeverities } from "./severity-normalize.js";
 import type { StackFinding } from "./stack-findings.js";
 import {
 	type ReviewThreadPromptContext,
@@ -70,6 +72,13 @@ export interface StackReviewParseContext {
 	readonly runId: string;
 	readonly reviewerId: string;
 	readonly startId: number;
+	/**
+	 * Loaded diffs per PR number, keyed for anchor
+	 * validation. When supplied, line-kind findings in
+	 * `perPr[N]` whose anchor doesn't match the diff for
+	 * PR N emit a warning. Omit to skip the check.
+	 */
+	readonly diffsByPr?: ReadonlyMap<number, readonly DiffFile[]>;
 }
 
 /** Result of `parseStackReviewOutput`. */
@@ -225,8 +234,9 @@ export function parseStackReviewOutput(
 			"Stack reviewer JSON top-level was not an object",
 		]);
 	}
-	const record = parsed.value as Record<string, unknown>;
-	const warnings: string[] = [];
+	const severityNormalization = normalizeFindingSeverities(parsed.value);
+	const record = severityNormalization.value as Record<string, unknown>;
+	const warnings: string[] = [...severityNormalization.warnings];
 	const ids = { next: context.startId };
 	const perPr = parsePerPrCouncil(record.perPr, context, warnings, ids);
 	const crossPr = parseCrossPrReview(record.crossPr, context, warnings, ids);
@@ -247,11 +257,12 @@ export function parseStackJudgeOutput(
 	if (typeof parsed.value !== "object" || parsed.value === null) {
 		return emptyJudgeParse(["Stack judge JSON top-level was not an object"]);
 	}
-	const record = parsed.value as Record<string, unknown>;
+	const severityNormalization = normalizeFindingSeverities(parsed.value);
+	const record = severityNormalization.value as Record<string, unknown>;
 	const selfSignal = Value.Check(JudgeSelfSignal, record.selfSignal)
 		? record.selfSignal
 		: null;
-	const warnings: string[] = [];
+	const warnings: string[] = [...severityNormalization.warnings];
 	const ids = { next: context.startId };
 	const perPr = parsePerPrJudge(record.perPr, context, warnings, ids);
 	const crossPr = parseCrossPrJudge(record.crossPr, context, warnings, ids);
@@ -276,6 +287,7 @@ function parsePerPrCouncil(
 			warnings.push(`perPr[${key}] was not an array; skipped`);
 			continue;
 		}
+		const diffFiles = context.diffsByPr?.get(prNumber);
 		const parsed: Finding[] = [];
 		for (let i = 0; i < findings.length; i++) {
 			const rawFinding = findings[i];
@@ -294,7 +306,16 @@ function parsePerPrCouncil(
 				);
 				continue;
 			}
-			parsed.push(toCouncilFinding(rawFinding, ids.next, context));
+			const finding = toCouncilFinding(rawFinding, ids.next, context);
+			if (diffFiles && diffFiles.length > 0) {
+				const anchorWarning = stackLineAnchorWarning(
+					prNumber,
+					finding,
+					diffFiles,
+				);
+				if (anchorWarning) warnings.push(anchorWarning);
+			}
+			parsed.push(finding);
 			ids.next++;
 		}
 		out.set(prNumber, parsed);
@@ -603,6 +624,28 @@ function parseJson(
 		const message = error instanceof Error ? error.message : String(error);
 		return { ok: false, warning: `${label} JSON failed to parse: ${message}` };
 	}
+}
+
+/**
+ * Mirror of `parse.ts`'s anchor warning for stack-review
+ * per-PR findings. Routes the warning through the
+ * stack-review warnings list so the user sees it in the
+ * stack-review summary instead of having to dig through
+ * state.
+ */
+function stackLineAnchorWarning(
+	prNumber: number,
+	finding: Finding,
+	diffFiles: readonly DiffFile[],
+): string | null {
+	if (finding.location.kind !== "line") return null;
+	if (hasValidInlineAnchor(finding.location, diffFiles)) return null;
+	const { file, start, end } = finding.location;
+	return (
+		`PR #${prNumber} finding ${finding.id} anchors at ${file}:${start}-${end} ` +
+		"but those lines are not in the PR diff hunks; it will degrade to a " +
+		"body comment. Use `verdict=edit` with the correct line range to fix."
+	);
 }
 
 function parsePrKey(key: string, warnings: string[]): number | null {

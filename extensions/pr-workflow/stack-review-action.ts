@@ -149,6 +149,7 @@ export async function runStackReviewAction(
 		await resolveStackPrs(state, input.fetchers),
 		input.fetchThreads,
 	);
+	const diffsByPr = buildDiffsByPr(resolved);
 	const tip = resolved[resolved.length - 1];
 	if (!tip) {
 		safelyNotify(() => progress.finish(), "finish", progressWarnings);
@@ -201,6 +202,7 @@ export async function runStackReviewAction(
 					runId,
 					reviewerId: reviewer.id,
 					startId: 0,
+					diffsByPr,
 				});
 				const output: StackReviewerOutput = {
 					reviewerId: reviewer.id,
@@ -261,6 +263,7 @@ export async function runStackReviewAction(
 			runId,
 			reviewerId: reviewer.id,
 			startId: nextId,
+			diffsByPr,
 		});
 		nextId = nextIdAfterReviewer(nextId, parsed);
 		rememberStackReviewAllocation(state, parsed.perPr, parsed.crossPr);
@@ -487,6 +490,23 @@ function renderReviewerVerificationLines(
  * slice matches what `action=council` would have written
  * for a non-stack run.
  */
+/**
+ * Build a `prNumber → diffFiles` lookup the stack-review
+ * parser uses to validate per-PR line anchors. One entry
+ * per resolved PR; empty `files` are omitted because the
+ * parser skips its check when the array is empty.
+ */
+function buildDiffsByPr(
+	resolved: readonly ResolvedPr[],
+): ReadonlyMap<number, readonly DiffFile[]> {
+	const out = new Map<number, readonly DiffFile[]>();
+	for (const pr of resolved) {
+		if (pr.files.length === 0) continue;
+		out.set(pr.reference.number, pr.files);
+	}
+	return out;
+}
+
 function preserveCouncilForCursor(
 	state: PrWorkflowState,
 	runId: string,
@@ -509,6 +529,14 @@ function preserveCouncilForCursor(
 		target: { kind: "diff", prNumber: cursorPrNumber },
 		reviewerOutputs: flatOutputs,
 	};
+	// A prior per-PR run's judge, critique and decisions
+	// would shadow the fresh reviewer output we just
+	// persisted. Clear them so `action=judge` starts from
+	// the new council instead of resurrecting stale
+	// consolidations.
+	state.council.lastJudge = null;
+	state.council.lastCritique = null;
+	state.council.decisions = new Map();
 }
 
 function progressEntries(

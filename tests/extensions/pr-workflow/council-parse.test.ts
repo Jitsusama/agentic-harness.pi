@@ -440,6 +440,32 @@ describe("parseReviewerOutput", () => {
 		expect(result.warnings).toEqual([]);
 	});
 
+	it("normalizes alias severities at parse-time so verify-passed findings survive", () => {
+		// Defense in depth for finding [24]: the verify pack
+		// normalizes severity before its schema check, but
+		// the subagent emits the raw text, so the parent must
+		// normalize too or strict CouncilFinding rejects the
+		// finding as malformed.
+		const text = JSON.stringify({
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "x",
+					discussion: "y",
+					severity: "required",
+				},
+			],
+		});
+		const result = parseReviewerOutput(text, {
+			reviewerId: "r1",
+			runId: "run-1",
+			startId: 1,
+		});
+		expect(result.findings).toHaveLength(1);
+		expect(result.findings[0].severity).toBe("critical");
+	});
+
 	it("skips the diff check when diffFiles isn't supplied", () => {
 		const text = JSON.stringify({
 			findings: [

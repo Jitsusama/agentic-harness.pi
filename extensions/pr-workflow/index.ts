@@ -1151,9 +1151,15 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					};
 				}
 				const payload = buildReviewPayload(state);
+				const diffLoaded = (state.pr?.files?.length ?? 0) > 0;
 				return {
-					content: [{ type: "text", text: formatPreviewPostSummary(payload) }],
-					details: { ok: true, payload },
+					content: [
+						{
+							type: "text",
+							text: formatPreviewPostSummary(payload, diffLoaded),
+						},
+					],
+					details: { ok: true, payload, diffLoaded },
 				};
 			}
 
@@ -1968,8 +1974,18 @@ function renderUsageLines(breakdown: UsageBreakdown): string[] {
  * the post-action's one-line summary but framed as a
  * dry run and surfaces the skip reasons inline so the
  * user can fix locations before actually posting.
+ *
+ * When the diff isn't loaded the inline-vs-body split is
+ * provisional: `buildReviewPayload` skips the anchor
+ * check and counts every line-kind finding as inline,
+ * which doesn't match what GitHub will accept. The hint
+ * tells the user to call `action=load` first if they
+ * want a faithful preview.
  */
-function formatPreviewPostSummary(payload: ReviewPayload): string {
+function formatPreviewPostSummary(
+	payload: ReviewPayload,
+	diffLoaded: boolean,
+): string {
 	const inline = payload.comments.length;
 	const included = payload.includedFindingIds.length;
 	const stack = payload.includedStackFindingIds.length;
@@ -1981,6 +1997,12 @@ function formatPreviewPostSummary(payload: ReviewPayload): string {
 	lines.push(
 		`  inline comments: ${inline}; body entries: ${bodyBound}; skipped: ${payload.skipped.length}.`,
 	);
+	if (!diffLoaded) {
+		lines.push(
+			"  ! diff not loaded; the inline/body split is provisional. " +
+				"Call action=load to fetch the diff for a faithful preview.",
+		);
+	}
 	if (payload.skipped.length > 0) {
 		lines.push("");
 		lines.push("Skipped findings:");

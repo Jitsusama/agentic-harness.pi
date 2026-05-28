@@ -307,11 +307,19 @@ function resolveLocationOverride(
 	if (!hasLocationOverride(override)) {
 		return { ok: true, location: original };
 	}
+	if (override.file !== undefined && override.file.trim().length === 0) {
+		return {
+			ok: false,
+			error:
+				"`file` override must be a non-empty path; omit it to inherit the original file.",
+		};
+	}
+	const overrideFile = override.file?.trim();
 	const originalFile =
 		original.kind === "line" || original.kind === "file"
 			? original.file
 			: undefined;
-	const file = override.file ?? originalFile;
+	const file = overrideFile ?? originalFile;
 	const hasLineFields =
 		override.start !== undefined || override.end !== undefined;
 	if (override.side !== undefined && !SIDES.has(override.side)) {
@@ -349,8 +357,8 @@ function resolveLocationOverride(
 			override.side ?? (original.kind === "line" ? original.side : "new");
 		return { ok: true, location: { kind: "line", file, start, end, side } };
 	}
-	if (override.file !== undefined) {
-		return { ok: true, location: { kind: "file", file: override.file } };
+	if (overrideFile !== undefined) {
+		return { ok: true, location: { kind: "file", file: overrideFile } };
 	}
 	// Side-only override: only meaningful on a line-kind
 	// finding. Mirrors add-finding's "side only applies to
