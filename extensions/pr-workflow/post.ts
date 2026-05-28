@@ -534,7 +534,13 @@ function hunkContainsLineRange(
 	return true;
 }
 
-function renderSummary(
+/**
+ * Build the wrapped review body the gate displays and
+ * `post` sends to GitHub. Exposed so `preview-post`
+ * `verbose:true` can show the same text without
+ * duplicating the framing logic.
+ */
+export function renderSummary(
 	state: PrWorkflowState,
 	payload: ReviewPayload,
 	prefix: string | undefined,

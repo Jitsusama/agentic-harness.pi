@@ -142,8 +142,8 @@ export function renderAliasNormalizationSummary(
 	if (aliasCounts.size === 0) return null;
 	const parts: string[] = [];
 	for (const [raw, count] of aliasCounts) {
-		const canonical = SEVERITY_ALIASES.get(raw.toLowerCase());
-		if (!canonical || canonical === raw) continue;
+		const canonical = SEVERITY_ALIASES.get(raw);
+		if (canonical === undefined || canonical === raw) continue;
 		parts.push(`${raw}→${canonical} (×${count})`);
 	}
 	if (parts.length === 0) return null;
@@ -171,6 +171,10 @@ function normalizeSeverityOnFinding(
 		return rest;
 	}
 	if (alias === raw) return item;
-	aliasCounts.set(raw, (aliasCounts.get(raw) ?? 0) + 1);
+	// Key the alias counter by the canonicalized form so
+	// the summary renderer's lookup matches and case- or
+	// whitespace-different aliases collapse into one entry.
+	const key = raw.trim().toLowerCase();
+	aliasCounts.set(key, (aliasCounts.get(key) ?? 0) + 1);
 	return { ...record, severity: alias };
 }

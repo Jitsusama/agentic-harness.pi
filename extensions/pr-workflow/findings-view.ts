@@ -75,13 +75,21 @@ function renderCritiqueSummary(
 	findingId: number,
 ): string {
 	if (critique === null) return "";
-	const counts = { agree: 0, disagree: 0, qualify: 0, amplify: 0 };
+	// Count at most one position per reviewer so a roster
+	// that emits two critique entries for the same finding
+	// (uncommon but not schema-forbidden) doesn't inflate
+	// the "3 agree" line. The reviewer's first position on
+	// this finding wins.
+	const seen = new Map<string, "agree" | "disagree" | "qualify" | "amplify">();
 	for (const output of critique.reviewerOutputs) {
 		for (const entry of output.critiques) {
 			if (entry.findingId !== findingId) continue;
-			counts[entry.position]++;
+			if (seen.has(output.reviewerId)) continue;
+			seen.set(output.reviewerId, entry.position);
 		}
 	}
+	const counts = { agree: 0, disagree: 0, qualify: 0, amplify: 0 };
+	for (const position of seen.values()) counts[position]++;
 	const nonAgree = counts.disagree + counts.qualify + counts.amplify;
 	if (nonAgree === 0) return "";
 	const parts: string[] = [];

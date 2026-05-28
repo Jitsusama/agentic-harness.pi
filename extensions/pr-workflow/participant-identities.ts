@@ -93,17 +93,27 @@ function* iterateFindings(state: PrWorkflowState): Iterable<Finding> {
 
 function findingAttributedTo(finding: Finding, id: string): boolean {
 	const origin = finding.origin;
+	let matched = false;
 	switch (origin.kind) {
 		case "council":
 		case "cross-PR":
 		case "stack-review":
-			return origin.reviewerId === id;
+			matched = origin.reviewerId === id;
+			break;
 		case "judge":
 		case "stack-judge":
-			return origin.judgeReviewerId === id;
-		default:
-			return false;
+			matched = origin.judgeReviewerId === id;
+			break;
 	}
+	if (matched) return true;
+	// Judge findings record the consolidating reviewers'
+	// ids in `agreement.raisedBy`. A lock release that
+	// missed those would lie about whether old findings
+	// still reference the freed id.
+	if (finding.agreement?.raisedBy.includes(id)) {
+		return true;
+	}
+	return false;
 }
 
 /** Remember that the participant id has now produced workflow output. */

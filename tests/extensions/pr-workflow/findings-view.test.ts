@@ -261,6 +261,44 @@ describe("formatCompactFindingsView", () => {
 		expect(text).not.toContain("crit:");
 	});
 
+	it("counts at most one position per reviewer in the critique summary", () => {
+		// A reviewer that emits two critique entries on
+		// the same finding (uncommon, not schema-forbidden)
+		// must not inflate the count. The first position
+		// wins.
+		const state = loadedState();
+		state.council.lastJudge = judgeWith([lineFinding(1, "x")]);
+		state.council.lastCritique = {
+			id: "crit-1",
+			startedAt: "now",
+			judgeRunId: "j-1",
+			warnings: [],
+			reviewerOutputs: [
+				{
+					reviewerId: "opus",
+					warnings: [],
+					critiques: [
+						{
+							reviewerId: "opus",
+							findingId: 1,
+							position: "disagree",
+							rationale: "r1",
+						},
+						{
+							reviewerId: "opus",
+							findingId: 1,
+							position: "disagree",
+							rationale: "r2",
+						},
+					],
+				},
+			],
+		};
+		const text = formatCompactFindingsView(state);
+		expect(text).toContain("crit: 1 disagree");
+		expect(text).not.toContain("2 disagree");
+	});
+
 	it("renders the skip reason inline next to a fix-skipped finding", () => {
 		// Without this, users see the — marker and have to
 		// dig through verbose:true to learn why the fix was

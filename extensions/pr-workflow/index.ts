@@ -89,6 +89,7 @@ import {
 	postReviewAction,
 	type ReviewEvent,
 	type ReviewPayload,
+	renderSummary,
 } from "./post.js";
 import { confirmPostGate } from "./post-gate.js";
 import {
@@ -404,12 +405,12 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"fix-worktree-cleanup: remove the fix worktree " +
 						"for a PR. Requires `pr` (owner/repo#number form " +
 						"or bare number when run inside a checkout). " +
+						"Pass force:true to delete uncommitted edits. " +
 						"release-identity-lock: drop a participant id from " +
 						"the lock map so council-config or judge-config can " +
 						"re-use it with a different model. Old findings keep " +
 						"their attribution string but reference the freed id; " +
 						"use only when you accept that audit ambiguity. " +
-						"Pass force:true to delete uncommitted edits. " +
 						"summary: one-shot read-only view of the loaded PR " +
 						"(header, stack, threads, council, fix queue). " +
 						"Reads cached snapshots only — never fetches.",
@@ -1159,8 +1160,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 				const payload = buildReviewPayload(state);
 				const diffLoaded = (state.pr?.files?.length ?? 0) > 0;
+				const event: ReviewEvent = params.event ?? "COMMENT";
+				const wrappedBody = renderSummary(state, payload, params.body, event);
 				const text = params.verbose
-					? formatPreviewPostVerbose(payload, diffLoaded)
+					? formatPreviewPostVerbose(payload, diffLoaded, wrappedBody)
 					: formatPreviewPostSummary(payload, diffLoaded);
 				return {
 					content: [{ type: "text", text }],
@@ -2084,12 +2087,17 @@ function formatPreviewPostSummary(
 function formatPreviewPostVerbose(
 	payload: ReviewPayload,
 	diffLoaded: boolean,
+	wrappedBody: string,
 ): string {
 	const lines: string[] = [formatPreviewPostSummary(payload, diffLoaded)];
 	lines.push("");
 	lines.push("## Review body");
 	lines.push("");
-	lines.push(payload.body.trim().length === 0 ? "(empty)" : payload.body);
+	// `post` sends the body that `renderSummary` wraps
+	// around `payload.body` (verdict intro + prefix +
+	// thread context). Mirror that here so what users
+	// preview matches what GitHub receives.
+	lines.push(wrappedBody.trim().length === 0 ? "(empty)" : wrappedBody);
 	if (payload.comments.length > 0) {
 		lines.push("");
 		lines.push(`## Inline comments (${payload.comments.length})`);
