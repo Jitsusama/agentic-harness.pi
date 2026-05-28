@@ -440,6 +440,50 @@ describe("parseReviewerOutput", () => {
 		expect(result.warnings).toEqual([]);
 	});
 
+	it("summarizes alias remappings in the warnings list", () => {
+		// One-shot summary lets operators see which models
+		// emit which vocabularies without scrolling through
+		// silent drop warnings. Aggregates per raw value
+		// across the whole payload.
+		const text = JSON.stringify({
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "a",
+					discussion: "b",
+					severity: "required",
+				},
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "c",
+					discussion: "d",
+					severity: "required",
+				},
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "e",
+					discussion: "f",
+					severity: "high",
+				},
+			],
+		});
+		const result = parseReviewerOutput(text, {
+			reviewerId: "r1",
+			runId: "run-1",
+			startId: 1,
+		});
+		expect(
+			result.warnings.some(
+				(w) =>
+					w.includes("required\u2192critical (\u00d72)") &&
+					w.includes("high\u2192critical (\u00d71)"),
+			),
+		).toBe(true);
+	});
+
 	it("normalizes alias severities at parse-time so verify-passed findings survive", () => {
 		// Defense in depth for finding [24]: the verify pack
 		// normalizes severity before its schema check, but

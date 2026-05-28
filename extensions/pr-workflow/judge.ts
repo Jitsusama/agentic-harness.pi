@@ -43,7 +43,10 @@ import {
 	reviewSynthesisStandard,
 } from "./review-quality-standard.js";
 import { JudgeFinding, JudgeSelfSignal } from "./schemas.js";
-import { normalizeFindingSeverities } from "./severity-normalize.js";
+import {
+	normalizeFindingSeverities,
+	renderAliasNormalizationSummary,
+} from "./severity-normalize.js";
 import {
 	type ReviewThreadPromptContext,
 	renderReviewThreadPromptContext,
@@ -281,6 +284,10 @@ export function parseJudgeOutput(
 
 	const findings: Finding[] = [];
 	const warnings: string[] = [...severityNormalization.warnings];
+	const aliasSummary = renderAliasNormalizationSummary(
+		severityNormalization.aliasCounts,
+	);
+	if (aliasSummary !== null) warnings.push(aliasSummary);
 	let nextId = context.startId;
 	for (let i = 0; i < rawFindings.length; i++) {
 		const raw = rawFindings[i];
