@@ -400,6 +400,11 @@ export function formatStackReviewActionSummary(
 		const noun = pr.findingCount === 1 ? "finding" : "findings";
 		lines.push(`${marker} PR #${pr.prNumber}: ${pr.findingCount} ${noun}`);
 	}
+	const reviewerLines = renderReviewerVerificationLines(run.reviewerOutputs);
+	if (reviewerLines.length > 0) {
+		lines.push("");
+		lines.push(...reviewerLines);
+	}
 	if (run.warnings.length > 0) {
 		lines.push("");
 		lines.push("Warnings:");
@@ -413,6 +418,41 @@ export function formatStackReviewActionSummary(
 		"Stack mates are stashed; action=stack-next / action=stack-prev returns the next PR ref, then action=load hydrates its findings.",
 	);
 	return lines.join("\n");
+}
+
+/**
+ * Render one summary line per reviewer when verification
+ * state is available, plus a follow-up reason line for any
+ * reviewer that didn't verify cleanly. Mirrors the per-
+ * reviewer rendering on the per-PR council summary so the
+ * stack-wide view doesn't bury silent failures.
+ */
+function renderReviewerVerificationLines(
+	outputs: readonly StackReviewerOutput[],
+): string[] {
+	const lines: string[] = [];
+	for (const output of outputs) {
+		const verification = output.verification;
+		if (verification === undefined) continue;
+		const badge = verification.ok
+			? "verified ✓"
+			: verification.called
+				? "verification failed"
+				: "not verified";
+		lines.push(`▸ ${output.reviewerId} — ${badge}`);
+		if (verification.ok) continue;
+		if (!verification.called) {
+			lines.push("  ! verify_output not called");
+			continue;
+		}
+		const message = verification.message?.trim();
+		lines.push(
+			message
+				? `  ! verify_output failed: ${message}`
+				: "  ! verify_output failed",
+		);
+	}
+	return lines;
 }
 
 function progressEntries(

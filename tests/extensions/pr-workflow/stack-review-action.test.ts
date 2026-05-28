@@ -623,4 +623,50 @@ describe("formatStackReviewActionSummary", () => {
 		);
 		expect(text).toContain("fast: skipped malformed finding");
 	});
+
+	it("surfaces per-reviewer verify_output failures with their message", () => {
+		const text = formatStackReviewActionSummary({
+			id: "stack-review-1",
+			startedAt: "2026-05-20T16:00:00Z",
+			cursorPrNumber: 101,
+			reviewedPrs: [{ prNumber: 101, findingCount: 0 }],
+			crossPrFindingCount: 0,
+			reviewerOutputs: [
+				{
+					reviewerId: "opus",
+					perPr: new Map(),
+					crossPr: [],
+					warnings: [],
+					verification: { called: true, ok: true, count: 0 },
+				},
+				{
+					reviewerId: "grok",
+					perPr: new Map(),
+					crossPr: [],
+					warnings: [],
+					verification: {
+						called: true,
+						ok: false,
+						message:
+							"ok: false. 8 errors against stage=stack-review:\n  /perPr/769188/0/severity: must be equal to constant",
+					},
+				},
+				{
+					reviewerId: "gpt",
+					perPr: new Map(),
+					crossPr: [],
+					warnings: [],
+					verification: { called: false, ok: false },
+				},
+			],
+			warnings: [],
+		});
+
+		expect(text).toContain("opus — verified ✓");
+		expect(text).toContain("grok — verification failed");
+		expect(text).toContain("verify_output failed");
+		expect(text).toContain("8 errors against stage=stack-review");
+		expect(text).toContain("gpt — not verified");
+		expect(text).toContain("verify_output not called");
+	});
 });

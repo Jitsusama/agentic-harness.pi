@@ -463,6 +463,55 @@ describe("formatCouncilSummary", () => {
 		expect(text).toContain("skeptic — 0 findings — verification failed");
 	});
 
+	it("surfaces the verify_output message when a reviewer failed validation", async () => {
+		// A reviewer that crashed verify needs the actual
+		// failure reason visible at the top level, not buried
+		// under retry guesswork.
+		const run: CouncilRun = {
+			id: "council-1",
+			startedAt: "2026-01-01T00:00:00Z",
+			target: { kind: "diff", prNumber: 42 },
+			reviewerOutputs: [
+				{
+					reviewerId: "grok",
+					findings: [],
+					warnings: [],
+					verification: {
+						called: true,
+						ok: false,
+						message:
+							"ok: false. 8 errors against stage=stack-review:\n  /perPr/769188/0/severity: must be equal to constant",
+					},
+				},
+			],
+		};
+
+		const text = formatCouncilSummary(run);
+
+		expect(text).toContain("verify_output failed");
+		expect(text).toContain("8 errors against stage=stack-review");
+	});
+
+	it("names the failure mode when verify_output was never called", async () => {
+		const run: CouncilRun = {
+			id: "council-1",
+			startedAt: "2026-01-01T00:00:00Z",
+			target: { kind: "diff", prNumber: 42 },
+			reviewerOutputs: [
+				{
+					reviewerId: "grok",
+					findings: [],
+					warnings: [],
+					verification: { called: false, ok: false },
+				},
+			],
+		};
+
+		const text = formatCouncilSummary(run);
+
+		expect(text).toContain("verify_output not called");
+	});
+
 	it("surfaces a retry hint for reviewers that came back empty with warnings", async () => {
 		// Empty-with-warnings is the classic 'reviewer
 		// crashed' shape; the user usually wants to retry
