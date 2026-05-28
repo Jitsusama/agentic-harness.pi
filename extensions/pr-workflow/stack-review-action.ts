@@ -309,6 +309,13 @@ export async function runStackReviewAction(
 				`cancelled(${judge.id})`,
 				progressWarnings,
 			);
+			preserveCouncilForCursor(
+				state,
+				runId,
+				startedAt,
+				cursorPrNumber,
+				reviewerOutputs,
+			);
 		} else {
 			safelyNotify(
 				() => progress.reviewerFailed(judge.id, errorMessage(error)),
@@ -317,10 +324,19 @@ export async function runStackReviewAction(
 			);
 		}
 		safelyNotify(() => progress.finish(), "finish", progressWarnings);
-		const prefix = isReviewerCancelledError(error)
-			? "Stack review cancelled"
-			: "Stack review judge failed";
-		return { ok: false, error: `${prefix}: ${errorMessage(error)}` };
+		if (isReviewerCancelledError(error)) {
+			return {
+				ok: false,
+				error:
+					`Stack review cancelled at the judge phase: ${errorMessage(error)}. ` +
+					"Council output for the cursor PR is preserved; call " +
+					"action=judge to resume from the already-completed reviewers.",
+			};
+		}
+		return {
+			ok: false,
+			error: `Stack review judge failed: ${errorMessage(error)}`,
+		};
 	}
 	const parsedJudge = parseStackJudgeOutput(judged.finalAssistantText, {
 		runId: judgeRunId,
@@ -453,6 +469,46 @@ function renderReviewerVerificationLines(
 		);
 	}
 	return lines;
+}
+
+/**
+ * On judge-phase cancellation, persist the per-PR slice
+ * of the cursor's reviewer outputs to
+ * `state.council.lastRun`. The user can then call
+ * `action=judge` against the preserved council run
+ * instead of paying for the (often 5-15 minute) reviewer
+ * fan-out again.
+ *
+ * The mapping from `StackReviewerOutput` (perPr +
+ * crossPr) to `ReviewerOutput` (flat findings list) is
+ * intentionally cursor-only: stack mates and cross-PR
+ * findings belong to the stack-wide pipeline that the
+ * judge would have consolidated. Persisting the cursor's
+ * slice matches what `action=council` would have written
+ * for a non-stack run.
+ */
+function preserveCouncilForCursor(
+	state: PrWorkflowState,
+	runId: string,
+	startedAt: string,
+	cursorPrNumber: number,
+	reviewerOutputs: readonly StackReviewerOutput[],
+): void {
+	const flatOutputs = reviewerOutputs.map((output) => {
+		const findings = output.perPr.get(cursorPrNumber) ?? [];
+		return {
+			reviewerId: output.reviewerId,
+			findings: [...findings],
+			warnings: [...output.warnings],
+			...(output.verification ? { verification: output.verification } : {}),
+		} satisfies ReviewerOutput;
+	});
+	state.council.lastRun = {
+		id: runId,
+		startedAt,
+		target: { kind: "diff", prNumber: cursorPrNumber },
+		reviewerOutputs: flatOutputs,
+	};
 }
 
 function progressEntries(

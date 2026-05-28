@@ -498,6 +498,61 @@ describe("runStackReviewAction", () => {
 		expect(state.council.lastJudge).toBeNull();
 	});
 
+	it("preserves completed reviewer output for the cursor PR when judge is cancelled", async () => {
+		// The biggest cost of stack-review is the council
+		// fan-out. When the judge phase gets cancelled the
+		// reviewer work shouldn't be thrown away — the user
+		// can call action=judge against the preserved
+		// council output to finish the round.
+		const state = buildState();
+		const result = await runStackReviewAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async ({ reviewer: r }) => {
+				if (r.id === "judge") throw new ReviewerCancelledError(r.id);
+				return {
+					reviewerId: r.id,
+					exitCode: 0,
+					finalAssistantText: jsonBlock({
+						perPr: {
+							"101": [
+								{
+									location: { kind: "global" },
+									label: "issue",
+									subject: `cursor ${r.id}`,
+									discussion: "d",
+								},
+							],
+							"102": [],
+						},
+						crossPr: [],
+					}),
+					stderr: "",
+					warnings: [],
+				};
+			},
+			fetchers: fetchers(),
+		});
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.error).toMatch(/council.*preserved/i);
+			expect(result.error).toContain("action=judge");
+		}
+		expect(state.council.lastRun).not.toBeNull();
+		expect(state.council.lastRun?.reviewerOutputs).toHaveLength(2);
+		const reviewerIds =
+			state.council.lastRun?.reviewerOutputs.map((o) => o.reviewerId) ?? [];
+		expect(reviewerIds).toEqual(["fast", "skeptic"]);
+		const fastFindings =
+			state.council.lastRun?.reviewerOutputs.find(
+				(o) => o.reviewerId === "fast",
+			)?.findings ?? [];
+		expect(fastFindings).toHaveLength(1);
+		expect(fastFindings[0].subject).toBe("cursor fast");
+		expect(state.stackFindingRun).toBeNull();
+	});
+
 	it("reports reviewer, activity and judge progress", async () => {
 		const state = buildState();
 		const events: string[] = [];
