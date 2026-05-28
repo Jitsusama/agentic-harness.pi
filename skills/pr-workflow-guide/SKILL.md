@@ -352,6 +352,7 @@ with the user. Translate intent to `decide` calls:
 | "dismiss #11, false positive" | `action=decide findingId=11 verdict=dismiss reason="false positive"` |
 | "soften #12 — non-blocking" | `action=decide findingId=12 verdict=qualify note="non-blocking, worth a follow-up"` |
 | "edit #13: subject is '…'" | `action=decide findingId=13 verdict=edit subject="…"` |
+| "edit #13: anchor at serve.go:200-210" | `action=decide findingId=13 verdict=edit file="serve.go" start=200 end=210` (location overrides accept `file`, `start`, `end`, `side`; partial overrides inherit the rest from the original) |
 | "add this as a new inline comment" | `action=add-finding label=suggestion decorations=["blocking"] subject="..." discussion="..." file="path" start=47`, then `decide` the new id |
 | "promote everything I endorsed" | call `decide` per finding; API takes single ids |
 

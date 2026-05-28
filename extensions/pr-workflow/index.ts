@@ -521,24 +521,25 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			file: Type.Optional(
 				Type.String({
 					description:
-						"File path for action=add-finding. With start/end this becomes an inline finding; without them it becomes a file-level finding.",
+						"File path. For action=add-finding: with start/end becomes an inline finding, without them becomes a file-level finding. For action=decide verdict=edit: swaps the finding's file (with start/end becomes a line finding on the new file; without them drops to a file-kind location).",
 				}),
 			),
 			start: Type.Optional(
 				Type.Integer({
-					description: "Start line for an action=add-finding inline comment.",
+					description:
+						"Start line. For action=add-finding: inline comment start. For action=decide verdict=edit: overrides the finding's line range (file is inherited from the original when not also supplied).",
 				}),
 			),
 			end: Type.Optional(
 				Type.Integer({
 					description:
-						"End line for an action=add-finding inline comment. Defaults to start.",
+						"End line. Defaults to `start`. Used by action=add-finding and action=decide verdict=edit.",
 				}),
 			),
 			side: Type.Optional(
 				StringEnum(["old", "new", "both"] as const, {
 					description:
-						"Diff side for an action=add-finding inline comment. Defaults to new.",
+						"Diff side. Defaults to `new`. Used by action=add-finding and action=decide verdict=edit; only meaningful on line-kind findings.",
 				}),
 			),
 			originNote: Type.Optional(
@@ -577,13 +578,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			subject: Type.Optional(
 				Type.String({
 					description:
-						"Used by action=add-finding, and by verdict=edit to override the finding's subject before promotion. With verdict=edit, may be combined with `discussion` and/or `label`; at least one must be provided.",
+						"Used by action=add-finding, and by verdict=edit to override the finding's subject before promotion. With verdict=edit, may be combined with `discussion`, `label` and/or location overrides (`file`, `start`, `end`, `side`); at least one must be provided.",
 				}),
 			),
 			discussion: Type.Optional(
 				Type.String({
 					description:
-						"Used by action=add-finding, and by verdict=edit to override the finding's discussion before promotion. With verdict=edit, may be combined with `subject` and/or `label`; at least one must be provided.",
+						"Used by action=add-finding, and by verdict=edit to override the finding's discussion before promotion. With verdict=edit, may be combined with `subject`, `label` and/or location overrides; at least one must be provided.",
 				}),
 			),
 			reason: Type.Optional(
@@ -1098,17 +1099,21 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
-				const input = buildDecideInput(
-					params.findingId,
-					params.verdict,
-					params.note,
-					params.subject,
-					params.discussion,
-					params.reason,
-					params.instructions,
-					params.scope,
-					params.label,
-				);
+				const input = buildDecideInput({
+					findingId: params.findingId,
+					verdict: params.verdict,
+					note: params.note,
+					subject: params.subject,
+					discussion: params.discussion,
+					reason: params.reason,
+					instructions: params.instructions,
+					scope: params.scope,
+					label: params.label,
+					file: params.file,
+					start: params.start,
+					end: params.end,
+					side: params.side,
+				});
 				const result = decideFinding(state, input);
 				if (!result.ok) {
 					return {
@@ -1940,36 +1945,52 @@ function formatUsage(usage: NonNullable<UsageBreakdown["total"]>): string {
 	return `${tokens} tokens, $${cost}`;
 }
 
-function buildDecideInput(
-	findingId: number,
-	verdict: "endorse" | "qualify" | "edit" | "dismiss" | "promote" | "fix",
-	note: string | undefined,
-	subject: string | undefined,
-	discussion: string | undefined,
-	reason: string | undefined,
-	instructions: string | undefined,
-	scope: "pr" | "stack" | undefined,
-	label: ConventionalLabel | undefined,
-): DecideFindingInput {
+interface BuildDecideInputArgs {
+	findingId: number;
+	verdict: "endorse" | "qualify" | "edit" | "dismiss" | "promote" | "fix";
+	note: string | undefined;
+	subject: string | undefined;
+	discussion: string | undefined;
+	reason: string | undefined;
+	instructions: string | undefined;
+	scope: "pr" | "stack" | undefined;
+	label: ConventionalLabel | undefined;
+	file: string | undefined;
+	start: number | undefined;
+	end: number | undefined;
+	side: "old" | "new" | "both" | undefined;
+}
+
+function buildDecideInput(args: BuildDecideInputArgs): DecideFindingInput {
+	const { findingId, verdict, scope } = args;
 	switch (verdict) {
 		case "endorse":
 			return { findingId, verdict: "endorse", scope };
 		case "qualify":
-			return { findingId, verdict: "qualify", note: note ?? "", scope };
+			return { findingId, verdict: "qualify", note: args.note ?? "", scope };
 		case "edit":
 			return {
 				findingId,
 				verdict: "edit",
-				subject,
-				discussion,
-				label,
+				subject: args.subject,
+				discussion: args.discussion,
+				label: args.label,
+				file: args.file,
+				start: args.start,
+				end: args.end,
+				side: args.side,
 				scope,
 			};
 		case "dismiss":
-			return { findingId, verdict: "dismiss", reason, scope };
+			return { findingId, verdict: "dismiss", reason: args.reason, scope };
 		case "promote":
 			return { findingId, verdict: "promote", scope };
 		case "fix":
-			return { findingId, verdict: "fix", instructions, scope };
+			return {
+				findingId,
+				verdict: "fix",
+				instructions: args.instructions,
+				scope,
+			};
 	}
 }

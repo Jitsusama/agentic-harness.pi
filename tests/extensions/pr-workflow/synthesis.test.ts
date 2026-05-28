@@ -12,6 +12,7 @@ import type {
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import {
 	decideFinding,
+	effectiveFinding,
 	formatFindingsView,
 } from "../../../extensions/pr-workflow/synthesis.js";
 import { expectFailure } from "./fixtures.js";
@@ -459,6 +460,204 @@ describe("decideFinding", () => {
 			expect(decision.discussion).toBe("Tighter");
 			expect(decision.label).toBe("suggestion");
 		}
+	});
+
+	describe("edit with location overrides", () => {
+		function stateWithLocatedFinding(
+			location: Finding["location"],
+		): ReturnType<typeof createPrWorkflowState> {
+			const state = createPrWorkflowState();
+			state.council.lastJudge = makeJudge([
+				{
+					...judgedFinding(10, "original"),
+					location,
+				},
+			]);
+			return state;
+		}
+
+		it("accepts an edit that only overrides the line range", async () => {
+			// The user shouldn't have to dismiss-and-re-add
+			// just to fix a wrong line number.
+			const state = stateWithLocatedFinding({
+				kind: "file",
+				file: "serve.go",
+			});
+			const result = decideFinding(state, {
+				findingId: 10,
+				verdict: "edit",
+				start: 100,
+				end: 110,
+			});
+			expect(result.ok).toBe(true);
+		});
+
+		it("promotes a file-kind finding to line-kind with inherited file", async () => {
+			const state = stateWithLocatedFinding({
+				kind: "file",
+				file: "serve.go",
+			});
+			decideFinding(state, {
+				findingId: 10,
+				verdict: "edit",
+				start: 100,
+				end: 110,
+			});
+			const projected = effectiveFinding(
+				state.council.lastJudge?.consolidatedFindings[0] as Finding,
+				state.council.decisions.get(10) ?? null,
+			);
+			expect(projected.location).toEqual({
+				kind: "line",
+				file: "serve.go",
+				start: 100,
+				end: 110,
+				side: "new",
+			});
+		});
+
+		it("defaults end to start when only start is supplied", async () => {
+			const state = stateWithLocatedFinding({
+				kind: "line",
+				file: "serve.go",
+				start: 1,
+				end: 1,
+				side: "new",
+			});
+			decideFinding(state, {
+				findingId: 10,
+				verdict: "edit",
+				start: 50,
+			});
+			const projected = effectiveFinding(
+				state.council.lastJudge?.consolidatedFindings[0] as Finding,
+				state.council.decisions.get(10) ?? null,
+			);
+			expect(projected.location).toEqual({
+				kind: "line",
+				file: "serve.go",
+				start: 50,
+				end: 50,
+				side: "new",
+			});
+		});
+
+		it("swaps the file and drops the line range when only file is supplied", async () => {
+			const state = stateWithLocatedFinding({
+				kind: "line",
+				file: "serve.go",
+				start: 10,
+				end: 20,
+				side: "new",
+			});
+			decideFinding(state, {
+				findingId: 10,
+				verdict: "edit",
+				file: "executor.go",
+			});
+			const projected = effectiveFinding(
+				state.council.lastJudge?.consolidatedFindings[0] as Finding,
+				state.council.decisions.get(10) ?? null,
+			);
+			expect(projected.location).toEqual({
+				kind: "file",
+				file: "executor.go",
+			});
+		});
+
+		it("changes only side on an existing line-kind finding", async () => {
+			const state = stateWithLocatedFinding({
+				kind: "line",
+				file: "serve.go",
+				start: 10,
+				end: 20,
+				side: "new",
+			});
+			decideFinding(state, {
+				findingId: 10,
+				verdict: "edit",
+				side: "old",
+			});
+			const projected = effectiveFinding(
+				state.council.lastJudge?.consolidatedFindings[0] as Finding,
+				state.council.decisions.get(10) ?? null,
+			);
+			expect(projected.location).toEqual({
+				kind: "line",
+				file: "serve.go",
+				start: 10,
+				end: 20,
+				side: "old",
+			});
+		});
+
+		it("swaps file and replaces line range together", async () => {
+			const state = stateWithLocatedFinding({
+				kind: "line",
+				file: "serve.go",
+				start: 10,
+				end: 20,
+				side: "new",
+			});
+			decideFinding(state, {
+				findingId: 10,
+				verdict: "edit",
+				file: "executor.go",
+				start: 5,
+				end: 5,
+			});
+			const projected = effectiveFinding(
+				state.council.lastJudge?.consolidatedFindings[0] as Finding,
+				state.council.decisions.get(10) ?? null,
+			);
+			expect(projected.location).toEqual({
+				kind: "line",
+				file: "executor.go",
+				start: 5,
+				end: 5,
+				side: "new",
+			});
+		});
+
+		it("rejects start without a file the finding could inherit", async () => {
+			const state = stateWithLocatedFinding({ kind: "global" });
+			const result = decideFinding(state, {
+				findingId: 10,
+				verdict: "edit",
+				start: 10,
+			});
+			expect(expectFailure(result).error).toMatch(/file/i);
+		});
+
+		it("rejects side-only override on a non-line finding", async () => {
+			const state = stateWithLocatedFinding({
+				kind: "file",
+				file: "serve.go",
+			});
+			const result = decideFinding(state, {
+				findingId: 10,
+				verdict: "edit",
+				side: "old",
+			});
+			expect(expectFailure(result).error).toMatch(/line|side/i);
+		});
+
+		it("rejects end < start", async () => {
+			const state = stateWithLocatedFinding({
+				kind: "line",
+				file: "serve.go",
+				start: 1,
+				end: 1,
+				side: "new",
+			});
+			const result = decideFinding(state, {
+				findingId: 10,
+				verdict: "edit",
+				start: 50,
+				end: 10,
+			});
+			expect(expectFailure(result).error).toMatch(/end|start/i);
+		});
 	});
 
 	it("refuses to record decisions before a judge run exists — there's nothing to decide on", async () => {

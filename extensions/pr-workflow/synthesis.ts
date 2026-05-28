@@ -22,8 +22,11 @@ import type {
 	Finding,
 	FindingLocation,
 } from "./findings.js";
+import type { FindingSide } from "./schemas.js";
 import type { PrWorkflowState } from "./state.js";
 import { renderThreadRelation } from "./thread-context.js";
+
+const SIDES: ReadonlySet<FindingSide> = new Set(["old", "new", "both"]);
 
 /**
  * The user's verdict on a single consolidated finding.
@@ -48,6 +51,8 @@ export type FindingDecision =
 			readonly subject?: string;
 			readonly discussion?: string;
 			readonly label?: ConventionalLabel;
+			/** Optional location override applied to the finding's `location`. */
+			readonly location?: FindingLocation;
 			readonly decidedAt: string;
 	  }
 	| {
@@ -111,6 +116,11 @@ export type DecideFindingInput = WithScope<
 			subject?: string;
 			discussion?: string;
 			label?: ConventionalLabel;
+			/** Inline location-override fields, flattened to mirror `add-finding`. */
+			file?: string;
+			start?: number;
+			end?: number;
+			side?: FindingSide;
 	  }
 	| { findingId: number; verdict: "dismiss"; reason?: string }
 	| { findingId: number; verdict: "promote" }
@@ -132,11 +142,16 @@ export function decideFinding(
 	const lookup = lookupFinding(state, input.findingId, scope);
 	if (!lookup.ok) return lookup;
 
-	const validation = validateInput(input);
+	const validation = validateInput(state, input);
 	if (!validation.ok) return validation;
 
 	const decidedAt = now().toISOString();
-	const decision: FindingDecision = buildDecision(input, decidedAt);
+	const original = findOriginalFinding(state, input);
+	const decision: FindingDecision = buildDecision(
+		input,
+		decidedAt,
+		original?.location,
+	);
 	if (scope === "stack") {
 		state.stackDecisions.set(input.findingId, decision);
 	} else {
@@ -193,7 +208,10 @@ function lookupFinding(
 	return { ok: true };
 }
 
-function validateInput(input: DecideFindingInput): DecisionResult {
+function validateInput(
+	state: PrWorkflowState,
+	input: DecideFindingInput,
+): DecisionResult {
 	if (input.verdict === "qualify") {
 		if (input.note.trim().length === 0) {
 			return {
@@ -210,15 +228,143 @@ function validateInput(input: DecideFindingInput): DecisionResult {
 			typeof input.discussion === "string" &&
 			input.discussion.trim().length > 0;
 		const labelGiven = typeof input.label === "string";
-		if (!subjectGiven && !discussionGiven && !labelGiven) {
+		const locationGiven = hasLocationOverride(input);
+		if (!subjectGiven && !discussionGiven && !labelGiven && !locationGiven) {
 			return {
 				ok: false,
 				error:
-					"edit verdict requires at least one of `subject`, `discussion` or `label`.",
+					"edit verdict requires at least one of `subject`, `discussion`, `label` or a location override (`file`, `start`, `end`, `side`).",
 			};
+		}
+		if (locationGiven) {
+			const original = findOriginalFinding(state, input);
+			if (original) {
+				const locationCheck = resolveLocationOverride(original.location, input);
+				if (!locationCheck.ok) return locationCheck;
+			}
 		}
 	}
 	return { ok: true };
+}
+
+interface LocationOverrideInput {
+	readonly file?: string;
+	readonly start?: number;
+	readonly end?: number;
+	readonly side?: FindingSide;
+}
+
+function hasLocationOverride(input: LocationOverrideInput): boolean {
+	return (
+		input.file !== undefined ||
+		input.start !== undefined ||
+		input.end !== undefined ||
+		input.side !== undefined
+	);
+}
+
+function findOriginalFinding(
+	state: PrWorkflowState,
+	input: DecideFindingInput,
+): Finding | null {
+	const scope: DecideFindingScope = input.scope ?? "pr";
+	if (scope === "stack") {
+		return (
+			state.stackFindingRun?.findings.find((f) => f.id === input.findingId) ??
+			null
+		);
+	}
+	return (
+		state.council.lastJudge?.consolidatedFindings.find(
+			(f) => f.id === input.findingId,
+		) ?? null
+	);
+}
+
+/**
+ * Apply a partial location patch on top of an existing
+ * finding location.
+ *
+ *   - `start` (with or without `end`/`side`) projects to
+ *     line-kind. The file is taken from the override or
+ *     inherited from the original; if neither is
+ *     available we reject.
+ *   - `file` alone drops to file-kind on the new file,
+ *     discarding any prior line range.
+ *   - `side` alone is only valid when the original is
+ *     line-kind; mirrors the `add-finding` constraint
+ *     that side only applies to line locations.
+ *   - An empty patch returns the original location.
+ *
+ * `end` defaults to `start`; `side` defaults to the
+ * original's `side` when the result is line-kind, or
+ * `"new"` when promoting a non-line finding.
+ */
+function resolveLocationOverride(
+	original: FindingLocation,
+	override: LocationOverrideInput,
+): { ok: true; location: FindingLocation } | { ok: false; error: string } {
+	if (!hasLocationOverride(override)) {
+		return { ok: true, location: original };
+	}
+	const originalFile =
+		original.kind === "line" || original.kind === "file"
+			? original.file
+			: undefined;
+	const file = override.file ?? originalFile;
+	const hasLineFields =
+		override.start !== undefined || override.end !== undefined;
+	if (override.side !== undefined && !SIDES.has(override.side)) {
+		return { ok: false, error: `Unknown finding side: ${override.side}` };
+	}
+	if (hasLineFields) {
+		if (!file) {
+			return {
+				ok: false,
+				error:
+					"Line override requires a `file`; the original finding has none to inherit.",
+			};
+		}
+		const start = override.start;
+		if (start === undefined || !Number.isInteger(start) || start < 1) {
+			return {
+				ok: false,
+				error: "Line override requires a positive integer `start`.",
+			};
+		}
+		const end = override.end ?? start;
+		if (!Number.isInteger(end) || end < 1) {
+			return {
+				ok: false,
+				error: "Line override `end` must be a positive integer.",
+			};
+		}
+		if (end < start) {
+			return {
+				ok: false,
+				error: "Line override `end` must be greater than or equal to `start`.",
+			};
+		}
+		const side =
+			override.side ?? (original.kind === "line" ? original.side : "new");
+		return { ok: true, location: { kind: "line", file, start, end, side } };
+	}
+	if (override.file !== undefined) {
+		return { ok: true, location: { kind: "file", file: override.file } };
+	}
+	// Side-only override: only meaningful on a line-kind
+	// finding. Mirrors add-finding's "side only applies to
+	// line findings" rule.
+	if (original.kind !== "line") {
+		return {
+			ok: false,
+			error: "`side` override only applies to line findings.",
+		};
+	}
+	return {
+		ok: true,
+		location: { ...original, side: override.side ?? original.side },
+	};
 }
 
 /**
@@ -235,9 +381,18 @@ function normalizeOverride(value: string | undefined): string | undefined {
 	return value.trim().length === 0 ? undefined : value;
 }
 
+function maybeLocation(
+	original: FindingLocation,
+	override: LocationOverrideInput,
+): { location?: FindingLocation } {
+	const resolved = resolveLocationOverride(original, override);
+	return resolved.ok ? { location: resolved.location } : {};
+}
+
 function buildDecision(
 	input: DecideFindingInput,
 	decidedAt: string,
+	originalLocation: FindingLocation | undefined,
 ): FindingDecision {
 	switch (input.verdict) {
 		case "endorse":
@@ -256,6 +411,9 @@ function buildDecision(
 				subject: normalizeOverride(input.subject),
 				discussion: normalizeOverride(input.discussion),
 				label: input.label,
+				...(hasLocationOverride(input) && originalLocation
+					? maybeLocation(originalLocation, input)
+					: {}),
 				decidedAt,
 			};
 		case "dismiss":
@@ -419,6 +577,9 @@ function pushEditOriginals(
 	if (typeof decision.label === "string") {
 		lines.push(`     original label: ${finding.label}`);
 	}
+	if (decision.location !== undefined) {
+		lines.push(`     original location: ${renderLocation(finding.location)}`);
+	}
 }
 
 /**
@@ -443,6 +604,7 @@ export function effectiveFinding<T extends Finding>(
 		subject: decision.subject ?? finding.subject,
 		discussion: decision.discussion ?? finding.discussion,
 		label: decision.label ?? finding.label,
+		location: decision.location ?? finding.location,
 	};
 }
 
