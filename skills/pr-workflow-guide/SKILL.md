@@ -48,6 +48,7 @@ prose; you translate intent into calls.
 | `findings` | Show the current findings view (judge + critique + decisions, plus stack-level findings if any). Read-only. |
 | `add-finding` | Round 4: add a user-authored per-PR finding when synthesis surfaces a material comment the council missed. Follow with `decide` before posting. |
 | `decide` | Round 4: record the user's verdict on one finding. Pass `scope="stack"` for cross-PR findings from `review`. |
+| `preview-post` | Dry run: build the same payload `post` would, without firing the gate or contacting GitHub. Use to inspect inline-vs-body distribution before posting. |
 | `post` | Ship eligible findings to GitHub as a PR review. Stack findings home to the cursor PR post alongside per-PR findings. |
 | `stack` | Render the discovered PR stack with cursor highlighted. |
 | `stack-next` | Identify the PR downstream of the cursor and return its ref. |
@@ -359,6 +360,16 @@ with the user. Translate intent to `decide` calls:
 Suggest verdicts when the user is silent on a finding.
 Keep momentum; ask if you need direction. Final
 decision is theirs.
+
+**Body-bound marker.** `findings` (the compact view)
+renders `(→body)` next to any line-kind finding whose
+anchor won't match the loaded PR diff. At post time
+those findings silently degrade to body comments;
+seeing the marker at decide time lets the user fix
+the location via `verdict=edit start=N end=M` (or
+`file=...`) before posting. Call `action=preview-post`
+to see the same inline-vs-body distribution the post
+gate would show, without firing the gate.
 
 ### Posting
 

@@ -15,7 +15,9 @@
  * full text matters.
  */
 
+import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { Finding } from "./findings.js";
+import { hasValidInlineAnchor } from "./post.js";
 import type { PrWorkflowState } from "./state.js";
 import { effectiveFinding, type FindingDecision } from "./synthesis.js";
 import { renderThreadRelation } from "./thread-context.js";
@@ -61,6 +63,22 @@ function renderLocation(finding: Finding): string {
 }
 
 /**
+ * Render `(→body)` when a line-kind finding's anchor
+ * won't match the loaded PR diff at post time. Returns
+ * an empty string for findings that anchor cleanly, for
+ * non-line findings (already body-bound by nature), and
+ * when the diff isn't loaded (we can't know yet).
+ */
+function renderBodyBoundMarker(
+	finding: Finding,
+	diffFiles: readonly DiffFile[] | null,
+): string {
+	if (finding.location.kind !== "line") return "";
+	if (diffFiles === null || diffFiles.length === 0) return "";
+	return hasValidInlineAnchor(finding.location, diffFiles) ? "" : " (→body)";
+}
+
+/**
  * Render the compact one-row-per-finding view of the
  * round-4 surface.
  *
@@ -91,13 +109,17 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 	);
 	lines.push("");
 
+	const diffFiles = state.pr?.files ?? null;
+
 	for (const finding of judge.consolidatedFindings) {
 		const decision = state.council.decisions.get(finding.id) ?? null;
-		const { subject, label } = effectiveFinding(finding, decision);
+		const projected = effectiveFinding(finding, decision);
+		const { subject, label } = projected;
 		const relation = renderThreadRelation(finding.threadRelation);
 		const thread = relation === null ? "" : ` · ${relation}`;
+		const bodyBound = renderBodyBoundMarker(projected, diffFiles);
 		lines.push(
-			`[${finding.id}] ${verdictMarker(decision)} [${label}] ${subject} (${renderLocation(finding)})${thread}`,
+			`[${finding.id}] ${verdictMarker(decision)} [${label}] ${subject} (${renderLocation(projected)})${thread}${bodyBound}`,
 		);
 	}
 

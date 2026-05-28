@@ -82,10 +82,12 @@ import {
 } from "./load-trajectory.js";
 import { addManualFindingAction } from "./manual-finding-action.js";
 import {
+	buildReviewPayload,
 	type PostReviewExec,
 	type PostReviewGate,
 	postReviewAction,
 	type ReviewEvent,
+	type ReviewPayload,
 } from "./post.js";
 import { confirmPostGate } from "./post-gate.js";
 import {
@@ -336,6 +338,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"findings",
 					"add-finding",
 					"decide",
+					"preview-post",
 					"post",
 					"stack",
 					"stack-next",
@@ -366,6 +369,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"critique: run round-3 critique — the roster pushes back on the judge's consolidated list. " +
 						"findings: render the round-4 view (judge + critique + user decisions). " +
 						"add-finding: add a user-authored finding to the current PR findings list. " +
+						"preview-post: dry-run the post payload — returns the same " +
+						"review body + inline comments + skipped findings that `post` " +
+						"would build, without firing the gate or contacting GitHub. " +
+						"Use to preview which findings will degrade to body before posting. " +
 						"decide: record the user's verdict on a single finding. " +
 						"post: send eligible findings to GitHub as a PR review. " +
 						"stack: render the discovered PR stack with cursor highlighted. " +
@@ -1130,6 +1137,23 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						},
 					],
 					details: { ok: true },
+				};
+			}
+
+			if (params.action === "preview-post") {
+				if (state.pr === null) {
+					return {
+						content: [
+							{ type: "text", text: "No PR loaded; call action=load first." },
+						],
+						details: { ok: false, error: "no pr loaded" },
+						isError: true,
+					};
+				}
+				const payload = buildReviewPayload(state);
+				return {
+					content: [{ type: "text", text: formatPreviewPostSummary(payload) }],
+					details: { ok: true, payload },
 				};
 			}
 
@@ -1937,6 +1961,34 @@ function renderUsageLines(breakdown: UsageBreakdown): string[] {
 	}
 	lines.push(`  total: ${formatUsage(breakdown.total)}`);
 	return lines;
+}
+
+/**
+ * Prose summary for the `preview-post` action. Mirrors
+ * the post-action's one-line summary but framed as a
+ * dry run and surfaces the skip reasons inline so the
+ * user can fix locations before actually posting.
+ */
+function formatPreviewPostSummary(payload: ReviewPayload): string {
+	const inline = payload.comments.length;
+	const included = payload.includedFindingIds.length;
+	const stack = payload.includedStackFindingIds.length;
+	const bodyBound = included + stack - inline;
+	const lines: string[] = [];
+	lines.push(
+		`Preview: ${included} per-PR finding(s) + ${stack} stack finding(s) ready to post.`,
+	);
+	lines.push(
+		`  inline comments: ${inline}; body entries: ${bodyBound}; skipped: ${payload.skipped.length}.`,
+	);
+	if (payload.skipped.length > 0) {
+		lines.push("");
+		lines.push("Skipped findings:");
+		for (const skip of payload.skipped) {
+			lines.push(`  - [${skip.findingId}] ${skip.reason}`);
+		}
+	}
+	return lines.join("\n");
 }
 
 function formatUsage(usage: NonNullable<UsageBreakdown["total"]>): string {
