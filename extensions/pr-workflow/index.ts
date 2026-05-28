@@ -81,6 +81,7 @@ import {
 	suggestNextAfterLoad,
 } from "./load-trajectory.js";
 import { addManualFindingAction } from "./manual-finding-action.js";
+import { hasFindingsForParticipant } from "./participant-identities.js";
 import {
 	buildReviewPayload,
 	type PostReviewExec,
@@ -353,6 +354,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"fix-skip",
 					"fix-worktree-list",
 					"fix-worktree-cleanup",
+					"release-identity-lock",
 					"summary",
 				] as const,
 				{
@@ -402,6 +404,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"fix-worktree-cleanup: remove the fix worktree " +
 						"for a PR. Requires `pr` (owner/repo#number form " +
 						"or bare number when run inside a checkout). " +
+						"release-identity-lock: drop a participant id from " +
+						"the lock map so council-config or judge-config can " +
+						"re-use it with a different model. Old findings keep " +
+						"their attribution string but reference the freed id; " +
+						"use only when you accept that audit ambiguity. " +
 						"Pass force:true to delete uncommitted edits. " +
 						"summary: one-shot read-only view of the loaded PR " +
 						"(header, stack, threads, council, fix queue). " +
@@ -564,7 +571,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			reviewerId: Type.Optional(
 				Type.String({
 					description:
-						"Reviewer id from the active council roster. Required for action=council-retry and action=critique-retry.",
+						"Reviewer id from the active council roster. Required for action=council-retry, action=critique-retry and action=release-identity-lock.",
 				}),
 			),
 			verdict: Type.Optional(
@@ -1670,6 +1677,52 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
+			if (params.action === "release-identity-lock") {
+				const id = params.reviewerId?.trim();
+				if (!id) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "release-identity-lock requires `reviewerId`.",
+							},
+						],
+						details: { ok: false, error: "missing reviewerId" },
+						isError: true,
+					};
+				}
+				const existing = state.participantIdentities.get(id);
+				if (!existing) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Participant id "${id}" is not currently locked; nothing to release.`,
+							},
+						],
+						details: { ok: true, released: false },
+					};
+				}
+				state.participantIdentities.delete(id);
+				const stillReferenced = hasFindingsForParticipant(state, id);
+				const note = stillReferenced
+					? " Findings from the previous identity remain in state with their original " +
+						"attribution string."
+					: "";
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								`Released identity lock for "${id}". ` +
+								"Next council-config or judge-config call may bind a new model to that id." +
+								note,
+						},
+					],
+					details: { ok: true, released: true, stillReferenced },
+				};
+			}
+
 			if (params.action === "summary") {
 				const text = formatPrSummary(state);
 				return {
@@ -1959,9 +2012,18 @@ function renderUsageLines(breakdown: UsageBreakdown): string[] {
 		["judge", breakdown.judge],
 		["critique", breakdown.critique],
 	];
-	for (const [name, usage] of stages) {
-		if (usage === undefined) continue;
-		lines.push(`  ${name}: ${formatUsage(usage)}`);
+	for (const [name, stage] of stages) {
+		if (stage.total === undefined) continue;
+		lines.push(`  ${name}: ${formatUsage(stage.total)}`);
+		// Show the per-reviewer breakdown only when more than
+		// one reviewer contributed; a single-reviewer stage
+		// (judge in the common case) would just duplicate the
+		// total line.
+		if (stage.perReviewer.length > 1) {
+			for (const entry of stage.perReviewer) {
+				lines.push(`    ${entry.reviewerId}: ${formatUsage(entry.usage)}`);
+			}
+		}
 	}
 	lines.push(`  total: ${formatUsage(breakdown.total)}`);
 	return lines;

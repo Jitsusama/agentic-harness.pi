@@ -54,10 +54,22 @@ export function sumUsage(
 	return { tokens, cost };
 }
 
+/** One reviewer's usage within a stage. */
+export interface ReviewerUsageEntry {
+	readonly reviewerId: string;
+	readonly usage: ReviewerUsage;
+}
+
+/** Per-stage usage with the per-reviewer breakdown. */
+export interface StageUsage {
+	readonly total: ReviewerUsage | undefined;
+	readonly perReviewer: readonly ReviewerUsageEntry[];
+}
+
 /**
  * Per-stage usage breakdown for the status panel. Each
- * field is undefined when no subagent in that stage
- * surfaced usage (or that stage hasn't run yet).
+ * stage carries an aggregate plus the per-reviewer list
+ * so callers can render either summary or breakdown.
  *
  * Only the three research stages have subagents: council
  * (round 1), judge (round 2) and critique (round 3).
@@ -65,38 +77,67 @@ export function sumUsage(
  * agent's loop, which tracks its own costs externally.
  */
 export interface UsageBreakdown {
-	readonly council: ReviewerUsage | undefined;
-	readonly judge: ReviewerUsage | undefined;
-	readonly critique: ReviewerUsage | undefined;
+	readonly council: StageUsage;
+	readonly judge: StageUsage;
+	readonly critique: StageUsage;
 	/** Sum of the three stages (undefined if all are undefined). */
 	readonly total: ReviewerUsage | undefined;
 }
 
 /**
- * Collect usage from a council run by summing every
- * reviewer output's usage block.
+ * Collect usage from a council run with the per-reviewer
+ * breakdown intact, plus the stage total.
  */
-export function councilRunUsage(
-	run: CouncilRun | null,
-): ReviewerUsage | undefined {
-	if (run === null) return undefined;
-	return sumUsage(run.reviewerOutputs.map((r) => r.usage));
+export function councilRunUsage(run: CouncilRun | null): StageUsage {
+	if (run === null) return { total: undefined, perReviewer: [] };
+	const perReviewer = collectPerReviewer(
+		run.reviewerOutputs.map((r) => ({
+			reviewerId: r.reviewerId,
+			usage: r.usage,
+		})),
+	);
+	return {
+		total: sumUsage(perReviewer.map((e) => e.usage)),
+		perReviewer,
+	};
 }
 
 /**
- * Collect usage from a critique run by summing every
- * reviewer output's usage block.
+ * Collect usage from a critique run with the per-reviewer
+ * breakdown intact.
  */
-export function critiqueRunUsage(
-	run: CritiqueRun | null,
-): ReviewerUsage | undefined {
-	if (run === null) return undefined;
-	return sumUsage(run.reviewerOutputs.map((r) => r.usage));
+export function critiqueRunUsage(run: CritiqueRun | null): StageUsage {
+	if (run === null) return { total: undefined, perReviewer: [] };
+	const perReviewer = collectPerReviewer(
+		run.reviewerOutputs.map((r) => ({
+			reviewerId: r.reviewerId,
+			usage: r.usage,
+		})),
+	);
+	return {
+		total: sumUsage(perReviewer.map((e) => e.usage)),
+		perReviewer,
+	};
+}
+
+function collectPerReviewer(
+	entries: ReadonlyArray<{
+		reviewerId: string;
+		usage: ReviewerUsage | undefined;
+	}>,
+): ReviewerUsageEntry[] {
+	const out: ReviewerUsageEntry[] = [];
+	for (const entry of entries) {
+		if (entry.usage === undefined) continue;
+		out.push({ reviewerId: entry.reviewerId, usage: entry.usage });
+	}
+	return out;
 }
 
 /**
  * Build the three-stage breakdown the status panel
- * renders.
+ * renders. Judge is a single-reviewer stage so its
+ * per-reviewer list is at most one entry.
  */
 export function summarizeUsage(input: {
 	readonly council: CouncilRun | null;
@@ -104,8 +145,18 @@ export function summarizeUsage(input: {
 	readonly critique: CritiqueRun | null;
 }): UsageBreakdown {
 	const council = councilRunUsage(input.council);
-	const judge = input.judge?.usage;
+	const judge: StageUsage = input.judge?.usage
+		? {
+				total: input.judge.usage,
+				perReviewer: [
+					{
+						reviewerId: input.judge.judgeReviewerId,
+						usage: input.judge.usage,
+					},
+				],
+			}
+		: { total: undefined, perReviewer: [] };
 	const critique = critiqueRunUsage(input.critique);
-	const total = sumUsage([council, judge, critique]);
+	const total = sumUsage([council.total, judge.total, critique.total]);
 	return { council, judge, critique, total };
 }

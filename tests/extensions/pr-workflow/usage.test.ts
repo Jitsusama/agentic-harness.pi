@@ -141,8 +141,10 @@ describe("sumUsage", () => {
 });
 
 describe("councilRunUsage", () => {
-	it("returns undefined for a null run", () => {
-		expect(councilRunUsage(null)).toBeUndefined();
+	it("returns empty stage usage for a null run", () => {
+		const stage = councilRunUsage(null);
+		expect(stage.total).toBeUndefined();
+		expect(stage.perReviewer).toEqual([]);
 	});
 
 	it("sums every reviewer output's usage", () => {
@@ -166,11 +168,14 @@ describe("councilRunUsage", () => {
 			],
 		};
 		const result = councilRunUsage(run);
-		expect(result?.tokens.total).toBe(300);
-		expect(result?.cost.total).toBeCloseTo(0.03);
+		expect(result.total?.tokens.total).toBe(300);
+		expect(result.total?.cost.total).toBeCloseTo(0.03);
+		expect(result.perReviewer.map((e) => e.reviewerId)).toEqual(["a", "b"]);
+		expect(result.perReviewer[0].usage.tokens.total).toBe(100);
+		expect(result.perReviewer[1].usage.tokens.total).toBe(200);
 	});
 
-	it("returns undefined when no reviewer surfaced usage", () => {
+	it("reports empty stage usage when no reviewer surfaced usage", () => {
 		const run: CouncilRun = {
 			id: "r",
 			startedAt: "x",
@@ -180,7 +185,9 @@ describe("councilRunUsage", () => {
 				{ reviewerId: "b", findings: [], warnings: [] },
 			],
 		};
-		expect(councilRunUsage(run)).toBeUndefined();
+		const stage = councilRunUsage(run);
+		expect(stage.total).toBeUndefined();
+		expect(stage.perReviewer).toEqual([]);
 	});
 });
 
@@ -206,7 +213,9 @@ describe("critiqueRunUsage", () => {
 			],
 			warnings: [],
 		};
-		expect(critiqueRunUsage(run)?.tokens.total).toBe(100);
+		const result = critiqueRunUsage(run);
+		expect(result.total?.tokens.total).toBe(100);
+		expect(result.perReviewer.map((e) => e.reviewerId)).toEqual(["a", "b"]);
 	});
 });
 
@@ -252,9 +261,10 @@ describe("summarizeUsage", () => {
 			warnings: [],
 		};
 		const breakdown = summarizeUsage({ council, judge, critique });
-		expect(breakdown.council?.tokens.total).toBe(1000);
-		expect(breakdown.judge?.tokens.total).toBe(200);
-		expect(breakdown.critique?.tokens.total).toBe(100);
+		expect(breakdown.council.total?.tokens.total).toBe(1000);
+		expect(breakdown.judge.total?.tokens.total).toBe(200);
+		expect(breakdown.judge.perReviewer).toHaveLength(1);
+		expect(breakdown.critique.total?.tokens.total).toBe(100);
 		expect(breakdown.total?.tokens.total).toBe(1300);
 		expect(breakdown.total?.cost.total).toBeCloseTo(0.13);
 	});

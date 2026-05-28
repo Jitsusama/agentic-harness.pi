@@ -48,7 +48,8 @@ export function assertParticipantIdentityAvailable(
 		ok: false,
 		error:
 			`Participant id "${reviewer.id}" was already used for ${describeParticipant(existing)}. ` +
-			`Use a new id for ${describeParticipant(next)} so finding origins stay stable within the session.`,
+			`Use a new id for ${describeParticipant(next)} so finding origins stay stable within the session, ` +
+			`or call action=release-identity-lock reviewerId=${reviewer.id} to accept the audit ambiguity.`,
 	};
 }
 
