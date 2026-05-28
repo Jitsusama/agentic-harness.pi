@@ -16,6 +16,7 @@
  */
 
 import type { DiffFile } from "../../lib/internal/github/diff.js";
+import type { CritiqueRun } from "./critique.js";
 import type { Finding } from "./findings.js";
 import { hasValidInlineAnchor } from "./post.js";
 import type { PrWorkflowState } from "./state.js";
@@ -60,6 +61,61 @@ function renderLocation(finding: Finding): string {
 		case "global":
 			return "scope";
 	}
+}
+
+/**
+ * Compact one-glance critique summary next to a judge
+ * finding. Shows `crit: 3 agree, 1 disagree` style so the
+ * user knows the round-3 roster pushed back without
+ * jumping to `verbose:true`. Suppresses entries where
+ * everyone agrees (the default; no value in restating).
+ */
+function renderCritiqueSummary(
+	critique: CritiqueRun | null,
+	findingId: number,
+): string {
+	if (critique === null) return "";
+	// Count at most one position per reviewer so a roster
+	// that emits two critique entries for the same finding
+	// (uncommon but not schema-forbidden) doesn't inflate
+	// the "3 agree" line. The reviewer's first position on
+	// this finding wins.
+	const seen = new Map<string, "agree" | "disagree" | "qualify" | "amplify">();
+	for (const output of critique.reviewerOutputs) {
+		for (const entry of output.critiques) {
+			if (entry.findingId !== findingId) continue;
+			if (seen.has(output.reviewerId)) continue;
+			seen.set(output.reviewerId, entry.position);
+		}
+	}
+	const counts = { agree: 0, disagree: 0, qualify: 0, amplify: 0 };
+	for (const position of seen.values()) counts[position]++;
+	const nonAgree = counts.disagree + counts.qualify + counts.amplify;
+	if (nonAgree === 0) return "";
+	const parts: string[] = [];
+	if (counts.agree > 0) parts.push(`${counts.agree} agree`);
+	if (counts.disagree > 0) parts.push(`${counts.disagree} disagree`);
+	if (counts.qualify > 0) parts.push(`${counts.qualify} qualify`);
+	if (counts.amplify > 0) parts.push(`${counts.amplify} amplify`);
+	return ` · crit: ${parts.join(", ")}`;
+}
+
+/**
+ * Render the fix-skip reason inline when the finding
+ * was abandoned. The reason already lives on the
+ * decision (`fix-skip` requires it) but the compact view
+ * doesn't surface it; users see the `—` marker and have
+ * to dig through `verbose:true` to learn why. Render
+ * `— note: <reason>` after the location so the
+ * abandoned-fix audit trail is in one place.
+ */
+function renderSkipReason(decision: FindingDecision | null): string {
+	if (decision === null) return "";
+	if (decision.verdict !== "fix") return "";
+	if (!decision.skipped) return "";
+	const reason = decision.skipped.reason.trim();
+	if (reason.length === 0) return "";
+	return ` — note: ${reason}`;
 }
 
 /**
@@ -118,8 +174,13 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 		const relation = renderThreadRelation(finding.threadRelation);
 		const thread = relation === null ? "" : ` · ${relation}`;
 		const bodyBound = renderBodyBoundMarker(projected, diffFiles);
+		const critique = renderCritiqueSummary(
+			state.council.lastCritique,
+			finding.id,
+		);
+		const skipReason = renderSkipReason(decision);
 		lines.push(
-			`[${finding.id}] ${verdictMarker(decision)} [${label}] ${subject} (${renderLocation(projected)})${thread}${bodyBound}`,
+			`[${finding.id}] ${verdictMarker(decision)} [${label}] ${subject} (${renderLocation(projected)})${thread}${bodyBound}${critique}${skipReason}`,
 		);
 	}
 

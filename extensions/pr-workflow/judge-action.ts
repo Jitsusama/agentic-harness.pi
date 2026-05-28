@@ -136,6 +136,9 @@ export async function runJudgeAction(
 			signal: input.signal,
 			startId: state.nextFindingId,
 			...(promptAddendum ? { promptAddendum } : {}),
+			...(state.pr.files && state.pr.files.length > 0
+				? { diffFiles: state.pr.files }
+				: {}),
 		});
 	} catch (error) {
 		if (isReviewerCancelledError(error)) {

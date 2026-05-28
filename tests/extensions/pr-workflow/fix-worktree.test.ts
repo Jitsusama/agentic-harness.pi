@@ -232,7 +232,10 @@ describe("createFixWorktreeProvisioner — first run", () => {
 		await expect(provision(REQ)).rejects.toThrow(/couldn't find remote ref/);
 	});
 
-	it("throws when worktree add fails", async () => {
+	it("rewrites the worktree-collision error with recovery options", async () => {
+		// Git's terse "already checked out" message left
+		// the user stuck. Rewrite into actionable hints
+		// (cleanup, switch primary, or fix-skip).
 		const { exec } = fakeExec({
 			"worktree add /tmp/state/fix-worktrees/octocat-hello-world-42 -B feature/x origin/feature/x":
 				{
@@ -248,7 +251,30 @@ describe("createFixWorktreeProvisioner — first run", () => {
 			pathExists: async () => false,
 		});
 
-		await expect(provision(REQ)).rejects.toThrow(/already checked out/);
+		await expect(provision(REQ)).rejects.toThrow(
+			/fix-worktree-cleanup pr=octocat\/hello-world#42/,
+		);
+		await expect(provision(REQ)).rejects.toThrow(/fix-skip/);
+	});
+
+	it("passes through other worktree-add failures unchanged", async () => {
+		const { exec } = fakeExec({
+			"worktree add /tmp/state/fix-worktrees/octocat-hello-world-42 -B feature/x origin/feature/x":
+				{
+					exitCode: 128,
+					stdout: "",
+					stderr: "fatal: disk is full",
+				},
+		});
+		const provision = createFixWorktreeProvisioner({
+			stateDir: "/tmp/state",
+			resolveSourceRepo: async () => "/src/octocat/hello-world",
+			exec,
+			pathExists: async () => false,
+		});
+
+		await expect(provision(REQ)).rejects.toThrow(/disk is full/);
+		await expect(provision(REQ)).rejects.not.toThrow(/fix-worktree-cleanup/);
 	});
 });
 

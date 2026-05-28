@@ -26,7 +26,10 @@ import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { Finding } from "./findings.js";
 import { hasValidInlineAnchor } from "./post.js";
 import { CouncilFinding } from "./schemas.js";
-import { normalizeFindingSeverities } from "./severity-normalize.js";
+import {
+	normalizeFindingSeverities,
+	renderAliasNormalizationSummary,
+} from "./severity-normalize.js";
 
 /** Caller-supplied context for parsing. */
 export interface ParseContext {
@@ -83,6 +86,9 @@ export function parseReviewerOutput(
 
 	const severityNormalization = normalizeFindingSeverities(parsed);
 	parsed = severityNormalization.value;
+	const aliasSummary = renderAliasNormalizationSummary(
+		severityNormalization.aliasCounts,
+	);
 
 	const rawFindings = extractFindingsArray(parsed);
 	if (rawFindings === null) {
@@ -118,6 +124,7 @@ export function parseReviewerOutput(
 	}
 
 	warnings.push(...severityNormalization.warnings);
+	if (aliasSummary !== null) warnings.push(aliasSummary);
 	return { findings, warnings };
 }
 

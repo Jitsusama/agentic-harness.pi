@@ -33,7 +33,10 @@ import {
 	StackJudgeCrossFinding,
 	type StackJudgeCrossFinding as StackJudgeCrossFindingType,
 } from "./schemas.js";
-import { normalizeFindingSeverities } from "./severity-normalize.js";
+import {
+	normalizeFindingSeverities,
+	renderAliasNormalizationSummary,
+} from "./severity-normalize.js";
 import type { StackFinding } from "./stack-findings.js";
 import {
 	type ReviewThreadPromptContext,
@@ -237,6 +240,10 @@ export function parseStackReviewOutput(
 	const severityNormalization = normalizeFindingSeverities(parsed.value);
 	const record = severityNormalization.value as Record<string, unknown>;
 	const warnings: string[] = [...severityNormalization.warnings];
+	const aliasSummary = renderAliasNormalizationSummary(
+		severityNormalization.aliasCounts,
+	);
+	if (aliasSummary !== null) warnings.push(aliasSummary);
 	const ids = { next: context.startId };
 	const perPr = parsePerPrCouncil(record.perPr, context, warnings, ids);
 	const crossPr = parseCrossPrReview(record.crossPr, context, warnings, ids);
@@ -263,6 +270,10 @@ export function parseStackJudgeOutput(
 		? record.selfSignal
 		: null;
 	const warnings: string[] = [...severityNormalization.warnings];
+	const stackAliasSummary = renderAliasNormalizationSummary(
+		severityNormalization.aliasCounts,
+	);
+	if (stackAliasSummary !== null) warnings.push(stackAliasSummary);
 	const ids = { next: context.startId };
 	const perPr = parsePerPrJudge(record.perPr, context, warnings, ids);
 	const crossPr = parseCrossPrJudge(record.crossPr, context, warnings, ids);

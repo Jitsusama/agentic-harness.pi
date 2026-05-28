@@ -61,6 +61,8 @@ const SEVERITY_ALIASES: ReadonlyMap<string, FindingSeverity> = new Map<
 export interface SeverityNormalization {
 	readonly value: unknown;
 	readonly warnings: readonly string[];
+	/** Per-alias count of values that were mapped. */
+	readonly aliasCounts: ReadonlyMap<string, number>;
 }
 
 /**
@@ -74,20 +76,31 @@ export function normalizeFindingSeverities(
 	input: unknown,
 ): SeverityNormalization {
 	if (typeof input !== "object" || input === null) {
-		return { value: input, warnings: [] };
+		return { value: input, warnings: [], aliasCounts: new Map() };
 	}
 	const warnings: string[] = [];
+	const aliasCounts = new Map<string, number>();
 	const record = input as Record<string, unknown>;
 	const clone: Record<string, unknown> = { ...record };
 
 	if (Array.isArray(record.findings)) {
 		clone.findings = record.findings.map((item, index) =>
-			normalizeSeverityOnFinding(item, `/findings/${index}`, warnings),
+			normalizeSeverityOnFinding(
+				item,
+				`/findings/${index}`,
+				warnings,
+				aliasCounts,
+			),
 		);
 	}
 	if (Array.isArray(record.crossPr)) {
 		clone.crossPr = record.crossPr.map((item, index) =>
-			normalizeSeverityOnFinding(item, `/crossPr/${index}`, warnings),
+			normalizeSeverityOnFinding(
+				item,
+				`/crossPr/${index}`,
+				warnings,
+				aliasCounts,
+			),
 		);
 	}
 	if (
@@ -100,7 +113,12 @@ export function normalizeFindingSeverities(
 		for (const [key, value] of Object.entries(perPr)) {
 			if (Array.isArray(value)) {
 				clonedPerPr[key] = value.map((item, index) =>
-					normalizeSeverityOnFinding(item, `/perPr/${key}/${index}`, warnings),
+					normalizeSeverityOnFinding(
+						item,
+						`/perPr/${key}/${index}`,
+						warnings,
+						aliasCounts,
+					),
 				);
 			} else {
 				clonedPerPr[key] = value;
@@ -109,13 +127,34 @@ export function normalizeFindingSeverities(
 		clone.perPr = clonedPerPr;
 	}
 
-	return { value: clone, warnings };
+	return { value: clone, warnings, aliasCounts };
+}
+
+/**
+ * Render a one-shot summary of the alias remappings the
+ * normalizer applied, suitable for the parser warnings
+ * list. Returns `null` when no aliases were touched so
+ * callers can skip emitting a noise-only warning.
+ */
+export function renderAliasNormalizationSummary(
+	aliasCounts: ReadonlyMap<string, number>,
+): string | null {
+	if (aliasCounts.size === 0) return null;
+	const parts: string[] = [];
+	for (const [raw, count] of aliasCounts) {
+		const canonical = SEVERITY_ALIASES.get(raw);
+		if (canonical === undefined || canonical === raw) continue;
+		parts.push(`${raw}→${canonical} (×${count})`);
+	}
+	if (parts.length === 0) return null;
+	return `Normalized non-canonical severities: ${parts.join(", ")}.`;
 }
 
 function normalizeSeverityOnFinding(
 	item: unknown,
 	path: string,
 	warnings: string[],
+	aliasCounts: Map<string, number>,
 ): unknown {
 	if (typeof item !== "object" || item === null) return item;
 	const record = item as Record<string, unknown>;
@@ -132,5 +171,10 @@ function normalizeSeverityOnFinding(
 		return rest;
 	}
 	if (alias === raw) return item;
+	// Key the alias counter by the canonicalized form so
+	// the summary renderer's lookup matches and case- or
+	// whitespace-different aliases collapse into one entry.
+	const key = raw.trim().toLowerCase();
+	aliasCounts.set(key, (aliasCounts.get(key) ?? 0) + 1);
 	return { ...record, severity: alias };
 }

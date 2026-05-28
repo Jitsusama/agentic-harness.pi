@@ -81,6 +81,7 @@ import {
 	suggestNextAfterLoad,
 } from "./load-trajectory.js";
 import { addManualFindingAction } from "./manual-finding-action.js";
+import { hasFindingsForParticipant } from "./participant-identities.js";
 import {
 	buildReviewPayload,
 	type PostReviewExec,
@@ -88,6 +89,7 @@ import {
 	postReviewAction,
 	type ReviewEvent,
 	type ReviewPayload,
+	renderSummary,
 } from "./post.js";
 import { confirmPostGate } from "./post-gate.js";
 import {
@@ -353,6 +355,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"fix-skip",
 					"fix-worktree-list",
 					"fix-worktree-cleanup",
+					"release-identity-lock",
 					"summary",
 				] as const,
 				{
@@ -403,6 +406,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"for a PR. Requires `pr` (owner/repo#number form " +
 						"or bare number when run inside a checkout). " +
 						"Pass force:true to delete uncommitted edits. " +
+						"release-identity-lock: drop a participant id from " +
+						"the lock map so council-config or judge-config can " +
+						"re-use it with a different model. Old findings keep " +
+						"their attribution string but reference the freed id; " +
+						"use only when you accept that audit ambiguity. " +
 						"summary: one-shot read-only view of the loaded PR " +
 						"(header, stack, threads, council, fix queue). " +
 						"Reads cached snapshots only — never fetches.",
@@ -564,7 +572,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			reviewerId: Type.Optional(
 				Type.String({
 					description:
-						"Reviewer id from the active council roster. Required for action=council-retry and action=critique-retry.",
+						"Reviewer id from the active council roster. Required for action=council-retry, action=critique-retry and action=release-identity-lock.",
 				}),
 			),
 			verdict: Type.Optional(
@@ -645,7 +653,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			verbose: Type.Optional(
 				Type.Boolean({
 					description:
-						"For action=findings: when true, render the full wall-of-text view (one paragraph per finding with discussion, critiques and original-versus-edited text). When omitted or false, render the compact one-row-per-finding index.",
+						"For action=findings: when true, render the full wall-of-text view (one paragraph per finding with discussion, critiques and original-versus-edited text). When omitted or false, render the compact one-row-per-finding index. For action=preview-post: when true, also render the actual review body markdown and per-comment inline payload that `post` would send.",
 				}),
 			),
 			force: Type.Optional(
@@ -1152,13 +1160,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 				const payload = buildReviewPayload(state);
 				const diffLoaded = (state.pr?.files?.length ?? 0) > 0;
+				const event: ReviewEvent = params.event ?? "COMMENT";
+				const wrappedBody = renderSummary(state, payload, params.body, event);
+				const text = params.verbose
+					? formatPreviewPostVerbose(payload, diffLoaded, wrappedBody)
+					: formatPreviewPostSummary(payload, diffLoaded);
 				return {
-					content: [
-						{
-							type: "text",
-							text: formatPreviewPostSummary(payload, diffLoaded),
-						},
-					],
+					content: [{ type: "text", text }],
 					details: { ok: true, payload, diffLoaded },
 				};
 			}
@@ -1672,6 +1680,52 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			}
 
+			if (params.action === "release-identity-lock") {
+				const id = params.reviewerId?.trim();
+				if (!id) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "release-identity-lock requires `reviewerId`.",
+							},
+						],
+						details: { ok: false, error: "missing reviewerId" },
+						isError: true,
+					};
+				}
+				const existing = state.participantIdentities.get(id);
+				if (!existing) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Participant id "${id}" is not currently locked; nothing to release.`,
+							},
+						],
+						details: { ok: true, released: false },
+					};
+				}
+				state.participantIdentities.delete(id);
+				const stillReferenced = hasFindingsForParticipant(state, id);
+				const note = stillReferenced
+					? " Findings from the previous identity remain in state with their original " +
+						"attribution string."
+					: "";
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								`Released identity lock for "${id}". ` +
+								"Next council-config or judge-config call may bind a new model to that id." +
+								note,
+						},
+					],
+					details: { ok: true, released: true, stillReferenced },
+				};
+			}
+
 			if (params.action === "summary") {
 				const text = formatPrSummary(state);
 				return {
@@ -1961,9 +2015,18 @@ function renderUsageLines(breakdown: UsageBreakdown): string[] {
 		["judge", breakdown.judge],
 		["critique", breakdown.critique],
 	];
-	for (const [name, usage] of stages) {
-		if (usage === undefined) continue;
-		lines.push(`  ${name}: ${formatUsage(usage)}`);
+	for (const [name, stage] of stages) {
+		if (stage.total === undefined) continue;
+		lines.push(`  ${name}: ${formatUsage(stage.total)}`);
+		// Show the per-reviewer breakdown only when more than
+		// one reviewer contributed; a single-reviewer stage
+		// (judge in the common case) would just duplicate the
+		// total line.
+		if (stage.perReviewer.length > 1) {
+			for (const entry of stage.perReviewer) {
+				lines.push(`    ${entry.reviewerId}: ${formatUsage(entry.usage)}`);
+			}
+		}
 	}
 	lines.push(`  total: ${formatUsage(breakdown.total)}`);
 	return lines;
@@ -2008,6 +2071,44 @@ function formatPreviewPostSummary(
 		lines.push("Skipped findings:");
 		for (const skip of payload.skipped) {
 			lines.push(`  - [${skip.findingId}] ${skip.reason}`);
+		}
+	}
+	return lines.join("\n");
+}
+
+/**
+ * Verbose preview output: same summary header as the
+ * default, plus the actual review body markdown and a
+ * compact list of every inline comment the post step
+ * would send. Use this before `action=post` when you
+ * want to read what GitHub will receive rather than
+ * trust the inline/body counts.
+ */
+function formatPreviewPostVerbose(
+	payload: ReviewPayload,
+	diffLoaded: boolean,
+	wrappedBody: string,
+): string {
+	const lines: string[] = [formatPreviewPostSummary(payload, diffLoaded)];
+	lines.push("");
+	lines.push("## Review body");
+	lines.push("");
+	// `post` sends the body that `renderSummary` wraps
+	// around `payload.body` (verdict intro + prefix +
+	// thread context). Mirror that here so what users
+	// preview matches what GitHub receives.
+	lines.push(wrappedBody.trim().length === 0 ? "(empty)" : wrappedBody);
+	if (payload.comments.length > 0) {
+		lines.push("");
+		lines.push(`## Inline comments (${payload.comments.length})`);
+		for (const comment of payload.comments) {
+			const loc =
+				comment.startLine !== undefined && comment.startLine !== comment.line
+					? `${comment.path}:${comment.startLine}-${comment.line}`
+					: `${comment.path}:${comment.line}`;
+			lines.push("");
+			lines.push(`### ${loc} (${comment.side})`);
+			lines.push(comment.body);
 		}
 	}
 	return lines.join("\n");

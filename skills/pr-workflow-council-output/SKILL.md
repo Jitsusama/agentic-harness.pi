@@ -52,11 +52,22 @@ Optional decorations:
   `side`: `"old"` | `"new"` | `"both"`. Anchor only to
   lines that appear in the PR diff hunks; the prompt
   lists the anchorable line ranges per file under
-  **Anchorable line ranges**. The parent process warns
-  when a line finding falls outside those ranges — the
-  finding survives but will silently degrade to a body
-  comment unless the user fixes the range. Stale line
-  numbers and lines outside any hunk are not valid
+  **Anchorable line ranges**. Each row reads:
+
+  ```
+  path/to/file.ts: new 12-34, 50-78 | old 12-34
+  ```
+
+  The `new ...` ranges are valid line numbers on the
+  right side of the diff (added or context lines, set
+  `side: "new"`). The `old ...` ranges are valid on the
+  left side (removed or context lines, set
+  `side: "old"`). Either segment is omitted when that
+  side has no anchorable lines. The parent process warns
+  when a line finding falls outside the listed ranges —
+  the finding survives but will silently degrade to a
+  body comment unless the user fixes the range. Stale
+  line numbers and lines outside any hunk are not valid
   anchors.
 - `"file"` — has `file` only.
 - `"global"` — PR-level finding, no `file`.

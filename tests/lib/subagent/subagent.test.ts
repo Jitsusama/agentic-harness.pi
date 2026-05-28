@@ -1108,7 +1108,7 @@ describe("runReviewer — timeout validation", () => {
 		).rejects.toThrow(/expected a finite integer/);
 	});
 
-	it("rejects values above the 2-hour ceiling", async () => {
+	it("rejects values above the 8-hour ceiling", async () => {
 		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
 		await expect(
 			runReviewer({
@@ -1116,9 +1116,22 @@ describe("runReviewer — timeout validation", () => {
 				prompt: "p",
 				cwd: "/tmp/wt",
 				runPi,
-				timeoutMs: 3 * 60 * 60 * 1000,
+				timeoutMs: 9 * 60 * 60 * 1000,
 			}),
 		).rejects.toThrow(/exceeds the.*ceiling/);
+	});
+
+	it("accepts a 6-hour timeout (within the 8-hour ceiling)", async () => {
+		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+			timeoutMs: 6 * 60 * 60 * 1000,
+			idleTimeoutMs: 6 * 60 * 60 * 1000,
+		});
+		expect(result.finalAssistantText).toBe("ok");
 	});
 
 	it("rejects idleTimeoutMs greater than timeoutMs", async () => {
