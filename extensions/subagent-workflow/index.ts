@@ -241,6 +241,20 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 								"Absolute skill paths to inject via --skill. Use to teach the subagent an output contract or methodology without baking it into the prompt.",
 						}),
 					),
+					timeoutMs: Type.Optional(
+						Type.Integer({
+							minimum: 1000,
+							description:
+								"Hard wall-clock timeout in milliseconds for this subagent. Overrides the runner's default (20 minutes). Use for jobs that legitimately run longer — deep investigations, soak tests, multi-step deploys. Per-job override; siblings keep the default.",
+						}),
+					),
+					idleTimeoutMs: Type.Optional(
+						Type.Integer({
+							minimum: 1000,
+							description:
+								"Idle timeout in milliseconds: how long the supervisor waits between progress events before declaring the child stuck. Overrides the runner's default (5 minutes). Bump this when the subagent's natural workflow contains long bash commands that stay silent on stdout (benchmark runs, git pushes against large mirrors, gcloud deploys). Per-job override; siblings keep the default.",
+						}),
+					),
 					verify: Type.Optional(
 						Type.Object(
 							{

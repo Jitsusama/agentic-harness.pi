@@ -155,6 +155,24 @@ export type RunPi = (opts: {
 	 * broken observer can't kill the run.
 	 */
 	readonly onEvent?: (event: RunPiStreamEvent) => void;
+	/**
+	 * Per-call hard wall-clock timeout in milliseconds.
+	 * Overrides the runner's configured default. Use for
+	 * one-off long-running subagents (soak tests, recovery
+	 * runs) without bumping the global default.
+	 */
+	readonly timeoutMs?: number;
+	/**
+	 * Per-call idle timeout in milliseconds: how long the
+	 * supervisor will wait between supervisor protocol
+	 * events before declaring the child stuck. Overrides
+	 * the runner's configured default. Set high when the
+	 * subagent issues long-running bash commands that don't
+	 * stream progress (deploys, benchmarks). Ignored by
+	 * runners that don't supervise (e.g. the raw spawn
+	 * runner).
+	 */
+	readonly idleTimeoutMs?: number;
 }) => Promise<RunPiResult>;
 
 /** Inputs `runReviewer` needs to dispatch one pi process. */
@@ -244,6 +262,20 @@ export interface RunReviewerOptions {
 	 * of dead air.
 	 */
 	readonly onEvent?: (event: RunPiStreamEvent) => void;
+	/**
+	 * Per-call hard wall-clock timeout in milliseconds.
+	 * Forwarded to `runPi`. Overrides the runner's
+	 * configured default for this one call.
+	 */
+	readonly timeoutMs?: number;
+	/**
+	 * Per-call idle timeout in milliseconds. Forwarded to
+	 * `runPi`. Overrides the runner's configured default
+	 * for this one call. Use when the subagent will issue
+	 * long-running bash commands that stay silent on
+	 * stdout.
+	 */
+	readonly idleTimeoutMs?: number;
 	/**
 	 * Runtime health probe. Defaults to the module-level
 	 * `checkSubagentRuntime` bound to `process.execPath`.
@@ -346,6 +378,12 @@ export async function runReviewer(
 		reviewerId: options.reviewer.id,
 		signal: options.signal,
 		onEvent: options.onEvent,
+		...(options.timeoutMs !== undefined
+			? { timeoutMs: options.timeoutMs }
+			: {}),
+		...(options.idleTimeoutMs !== undefined
+			? { idleTimeoutMs: options.idleTimeoutMs }
+			: {}),
 	});
 
 	const parsed = extractRunPiOutput(result);
@@ -676,6 +714,24 @@ export interface SubagentJob {
 	 * `ok: true` before accepting the run.
 	 */
 	readonly verify?: VerifyPack;
+	/**
+	 * Hard wall-clock timeout in milliseconds for this
+	 * job's subprocess. Overrides the runner's configured
+	 * default. Use for jobs that are expected to run
+	 * longer than the global ceiling (deep investigations,
+	 * soak tests, multi-step deploys).
+	 */
+	readonly timeoutMs?: number;
+	/**
+	 * Idle timeout in milliseconds for this job: how long
+	 * the supervisor will wait between supervisor protocol
+	 * events before declaring the child stuck. Overrides
+	 * the runner's configured default. Bump this when the
+	 * subagent's natural workflow contains long bash
+	 * commands that stream no progress (gsperf bench runs,
+	 * git pushes against a large mirror, gcloud deploys).
+	 */
+	readonly idleTimeoutMs?: number;
 }
 
 /** Token + cost figures for one subagent run. */
@@ -727,6 +783,10 @@ export async function runSubagent(opts: {
 		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
 		...(extraSkills.length > 0 ? { extraSkills } : {}),
 		...(verify ? { requiresVerification: true } : {}),
+		...(job.timeoutMs !== undefined ? { timeoutMs: job.timeoutMs } : {}),
+		...(job.idleTimeoutMs !== undefined
+			? { idleTimeoutMs: job.idleTimeoutMs }
+			: {}),
 		runPi: opts.runPi,
 		...(opts.runId ? { runId: opts.runId } : {}),
 		...(opts.signal ? { signal: opts.signal } : {}),

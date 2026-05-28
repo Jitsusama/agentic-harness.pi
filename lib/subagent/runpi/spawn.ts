@@ -47,10 +47,17 @@ export const DEFAULT_KILL_GRACE_MS = 5 * 1000;
  */
 export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 	const spawnFn = config.spawn ?? (nodeSpawn as SpawnFn);
-	const timeoutMs = config.timeoutMs ?? DEFAULT_RUN_PI_TIMEOUT_MS;
+	const configTimeoutMs = config.timeoutMs ?? DEFAULT_RUN_PI_TIMEOUT_MS;
 	const killGraceMs = config.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
 
-	return async function runPi({ args, cwd, signal, onEvent }) {
+	return async function runPi({
+		args,
+		cwd,
+		signal,
+		onEvent,
+		timeoutMs: callTimeoutMs,
+	}) {
+		const timeoutMs = callTimeoutMs ?? configTimeoutMs;
 		return new Promise<{
 			stdout: string;
 			stderr: string;
