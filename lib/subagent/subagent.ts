@@ -34,6 +34,79 @@ import { checkSubagentRuntime, detectStaleInstallInStderr } from "./health.js";
  */
 const STALE_RUNTIME_EXIT_CODE = 127;
 
+/**
+ * Lower bound on per-call timeout overrides. Mirrors the
+ * tool schema's `Type.Integer({ minimum: 1000 })` so the
+ * library boundary applies the same floor regardless of
+ * which entry point fires (the fleet tool, pr-workflow,
+ * a direct library consumer).
+ */
+const MIN_TIMEOUT_MS = 1000;
+
+/**
+ * Upper bound on per-call timeout overrides. Two hours is
+ * already past anything any reviewer or fleet persona
+ * legitimately needs, and stays well below Node's
+ * 32-bit-signed-int timer ceiling (~24.8 days) where
+ * `setTimeout` silently coerces back to 1 ms.
+ */
+const MAX_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Validate a per-call timeout override at the library
+ * boundary. Throws when the value is not a finite
+ * integer, sits below the floor or exceeds the ceiling.
+ * Callers that pass `undefined` are leaving the runner
+ * default in place and skip the check.
+ */
+function validateTimeout(field: string, value: number | undefined): void {
+	if (value === undefined) return;
+	if (
+		typeof value !== "number" ||
+		!Number.isFinite(value) ||
+		!Number.isInteger(value)
+	) {
+		throw new Error(
+			`Invalid ${field}: expected a finite integer in milliseconds, got ${String(value)}.`,
+		);
+	}
+	if (value < MIN_TIMEOUT_MS) {
+		throw new Error(
+			`Invalid ${field}: ${value} ms is below the ${MIN_TIMEOUT_MS} ms floor.`,
+		);
+	}
+	if (value > MAX_TIMEOUT_MS) {
+		throw new Error(
+			`Invalid ${field}: ${value} ms exceeds the ${MAX_TIMEOUT_MS} ms ceiling.`,
+		);
+	}
+}
+
+/**
+ * Validate the timeout pair as a whole. `idleTimeoutMs`
+ * higher than `timeoutMs` would let the wall-clock cap
+ * fire first regardless of how patient the idle ceiling
+ * is — a footgun for someone who only bumps one column
+ * of the sizing table. Caught here so library callers
+ * see the same error the tool schema would have raised.
+ */
+function validateTimeoutPair(
+	timeoutMs: number | undefined,
+	idleTimeoutMs: number | undefined,
+): void {
+	validateTimeout("timeoutMs", timeoutMs);
+	validateTimeout("idleTimeoutMs", idleTimeoutMs);
+	if (
+		timeoutMs !== undefined &&
+		idleTimeoutMs !== undefined &&
+		idleTimeoutMs > timeoutMs
+	) {
+		throw new Error(
+			`Invalid timeout pair: idleTimeoutMs (${idleTimeoutMs} ms) exceeds timeoutMs (${timeoutMs} ms); the wall clock would fire first.`,
+		);
+	}
+}
+
 import { ReviewerStreamParser } from "./stream.js";
 
 function dedupePaths(paths: readonly string[]): string[] {
@@ -328,6 +401,17 @@ export interface RunReviewerResult {
 export async function runReviewer(
 	options: RunReviewerOptions,
 ): Promise<RunReviewerResult> {
+	// Per-call timeout overrides arrive as opaque numbers
+	// from the public API (library consumers and the fleet
+	// tool). The schema enforces a floor at the tool
+	// boundary, but the library is also a public entry
+	// point: pr-workflow's reviewers and any future caller
+	// land here directly. Validate once at the boundary so
+	// nonsense values (NaN, negatives, idle > wall) never
+	// reach the runner where they'd kill the child or
+	// silently bypass the ceiling.
+	validateTimeoutPair(options.timeoutMs, options.idleTimeoutMs);
+
 	// Refuse to spawn when pi was updated or removed
 	// mid-session — the parent's argv-derived extension
 	// paths point at a directory that no longer exists and

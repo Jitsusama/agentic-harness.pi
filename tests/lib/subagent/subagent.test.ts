@@ -1046,3 +1046,126 @@ describe("runReviewer — stale runtime detection", () => {
 		);
 	});
 });
+
+describe("runReviewer — timeout validation", () => {
+	// Per-call timeout overrides are public library input.
+	// The tool schema enforces `minimum: 1000` at the fleet
+	// boundary, but pr-workflow and any future library
+	// consumer land in `runReviewer` directly. Validation
+	// at the library boundary keeps the contract consistent
+	// across entry points and turns nonsense values into
+	// loud, early errors instead of supervisor confusion.
+
+	it("rejects timeoutMs below the floor with a clear error", async () => {
+		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
+		await expect(
+			runReviewer({
+				reviewer: REVIEWER,
+				prompt: "p",
+				cwd: "/tmp/wt",
+				runPi,
+				timeoutMs: 500,
+			}),
+		).rejects.toThrow(/Invalid timeoutMs.*below the 1000 ms floor/);
+	});
+
+	it("rejects negative idleTimeoutMs with a clear error", async () => {
+		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
+		await expect(
+			runReviewer({
+				reviewer: REVIEWER,
+				prompt: "p",
+				cwd: "/tmp/wt",
+				runPi,
+				idleTimeoutMs: -1,
+			}),
+		).rejects.toThrow(/Invalid idleTimeoutMs/);
+	});
+
+	it("rejects non-finite timeout values", async () => {
+		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
+		await expect(
+			runReviewer({
+				reviewer: REVIEWER,
+				prompt: "p",
+				cwd: "/tmp/wt",
+				runPi,
+				timeoutMs: Number.POSITIVE_INFINITY,
+			}),
+		).rejects.toThrow(/expected a finite integer/);
+	});
+
+	it("rejects non-integer timeout values", async () => {
+		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
+		await expect(
+			runReviewer({
+				reviewer: REVIEWER,
+				prompt: "p",
+				cwd: "/tmp/wt",
+				runPi,
+				timeoutMs: 1500.5,
+			}),
+		).rejects.toThrow(/expected a finite integer/);
+	});
+
+	it("rejects values above the 2-hour ceiling", async () => {
+		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
+		await expect(
+			runReviewer({
+				reviewer: REVIEWER,
+				prompt: "p",
+				cwd: "/tmp/wt",
+				runPi,
+				timeoutMs: 3 * 60 * 60 * 1000,
+			}),
+		).rejects.toThrow(/exceeds the.*ceiling/);
+	});
+
+	it("rejects idleTimeoutMs greater than timeoutMs", async () => {
+		// The wall clock would fire first regardless of how
+		// patient the idle ceiling is. Catching the
+		// inconsistency at the boundary surfaces the bug a
+		// reader would only notice by watching their soak
+		// run die at the 20-minute mark.
+		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
+		await expect(
+			runReviewer({
+				reviewer: REVIEWER,
+				prompt: "p",
+				cwd: "/tmp/wt",
+				runPi,
+				timeoutMs: 5 * 60 * 1000,
+				idleTimeoutMs: 10 * 60 * 1000,
+			}),
+		).rejects.toThrow(
+			/idleTimeoutMs.*exceeds timeoutMs.*wall clock would fire first/,
+		);
+	});
+
+	it("accepts valid timeout pairs within the bounds", async () => {
+		// Sanity check: legitimate long-running overrides
+		// pass validation untouched. The runner sees the
+		// values; the library doesn't mutate them.
+		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+			timeoutMs: 45 * 60 * 1000,
+			idleTimeoutMs: 15 * 60 * 1000,
+		});
+		expect(result.exitCode).toBe(0);
+	});
+
+	it("accepts undefined overrides (runner default applies)", async () => {
+		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+		expect(result.exitCode).toBe(0);
+	});
+});
