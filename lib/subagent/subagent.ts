@@ -44,13 +44,14 @@ const STALE_RUNTIME_EXIT_CODE = 127;
 const MIN_TIMEOUT_MS = 1000;
 
 /**
- * Upper bound on per-call timeout overrides. Two hours is
- * already past anything any reviewer or fleet persona
- * legitimately needs, and stays well below Node's
+ * Upper bound on per-call timeout overrides. Eight hours
+ * covers overnight benchmark soaks, long deep-investigation
+ * personas and the slowest reviewer at xhigh thinking on a
+ * stack of meaningful PRs. Stays well below Node's
  * 32-bit-signed-int timer ceiling (~24.8 days) where
  * `setTimeout` silently coerces back to 1 ms.
  */
-const MAX_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+const MAX_TIMEOUT_MS = 8 * 60 * 60 * 1000;
 
 /**
  * Validate a per-call timeout override at the library

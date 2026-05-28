@@ -154,18 +154,27 @@ export function createGitFixWorktreeProvider(
 			}
 
 			await runOrThrow(exec, ["fetch", "origin", request.branch], source);
-			await runOrThrow(
-				exec,
-				[
-					"worktree",
-					"add",
-					target,
-					"-B",
-					request.branch,
-					`origin/${request.branch}`,
-				],
-				source,
-			);
+			try {
+				await runOrThrow(
+					exec,
+					[
+						"worktree",
+						"add",
+						target,
+						"-B",
+						request.branch,
+						`origin/${request.branch}`,
+					],
+					source,
+				);
+			} catch (error) {
+				throw rewriteWorktreeCollision(
+					error,
+					request.owner,
+					request.repo,
+					request.number,
+				);
+			}
 
 			return { path: target, branch: request.branch, providerId: "git" };
 		},
@@ -185,6 +194,35 @@ export function createGitFixWorktreeProvider(
 			);
 		},
 	};
+}
+
+/**
+ * Translate git's terse worktree-collision message into
+ * an actionable hint. When the branch is already checked
+ * out elsewhere (the primary checkout, a stale worktree,
+ * or another active session) the user needs to know
+ * how to recover — not just that git refused.
+ */
+function rewriteWorktreeCollision(
+	error: unknown,
+	owner: string,
+	repo: string,
+	number: number,
+): Error {
+	const message = error instanceof Error ? error.message : String(error);
+	if (!/already used by worktree|already checked out/i.test(message)) {
+		return error instanceof Error ? error : new Error(message);
+	}
+	return new Error(
+		`Could not provision a fix worktree for ${owner}/${repo}#${number}: ` +
+			"the branch is already checked out elsewhere. " +
+			"Options: (1) call pr_workflow action=fix-worktree-cleanup pr=" +
+			`${owner}/${repo}#${number} to remove a stale worktree, ` +
+			"(2) switch the primary checkout to a different branch, or " +
+			"(3) apply the fix in the existing checkout and use " +
+			"fix-skip to record the outcome. " +
+			`Original git error: ${message}`,
+	);
 }
 
 /** Build the native git fallback provisioner. */
