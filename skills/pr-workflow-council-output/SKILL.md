@@ -34,7 +34,14 @@ Optional decorations:
 
 - `decorations` — free-form short tags
   (e.g. `"non-blocking"`, `"if-minor"`).
-- `severity` — `"critical"`, `"medium"` or `"minor"`.
+- `severity` — `"critical"`, `"medium"` or `"minor"`. The
+  parent process also accepts the common aliases
+  `"required"`/`"blocking"`/`"high"` (mapped to
+  `"critical"`) and
+  `"non-blocking"`/`"nice-to-have"`/`"info"`/`"low"`
+  (mapped to `"minor"`); unknown values are dropped with
+  a warning rather than rejecting the finding. Use the
+  canonical set when you can.
 - `confidence` — a number 0.0 to 1.0.
 - `threadRelation` — see
   [Existing review threads](#existing-review-threads).
@@ -43,8 +50,13 @@ Optional decorations:
 
 - `"line"` — has `file`, `start`, `end` and
   `side`: `"old"` | `"new"` | `"both"`. Anchor only to
-  changed PR lines you verified from source. Stale line
-  numbers and unchanged context lines are not valid
+  lines that appear in the PR diff hunks; the prompt
+  lists the anchorable line ranges per file under
+  **Anchorable line ranges**. The parent process warns
+  when a line finding falls outside those ranges — the
+  finding survives but will silently degrade to a body
+  comment unless the user fixes the range. Stale line
+  numbers and lines outside any hunk are not valid
   anchors.
 - `"file"` — has `file` only.
 - `"global"` — PR-level finding, no `file`.

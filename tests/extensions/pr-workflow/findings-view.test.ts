@@ -10,6 +10,32 @@ import {
 	type PrWorkflowState,
 } from "../../../extensions/pr-workflow/state.js";
 import { decideFinding } from "../../../extensions/pr-workflow/synthesis.js";
+import type { DiffFile } from "../../../lib/internal/github/diff.js";
+
+function diffFile(path: string, newStart: number, newEnd: number): DiffFile {
+	const lines = Array.from({ length: newEnd - newStart + 1 }, (_, offset) => ({
+		type: "context" as const,
+		content: "x",
+		oldLineNumber: newStart + offset,
+		newLineNumber: newStart + offset,
+	}));
+	return {
+		path,
+		status: "modified",
+		additions: 1,
+		deletions: 0,
+		hunks: [
+			{
+				header: `@@ -${newStart},${lines.length} +${newStart},${lines.length} @@`,
+				oldStart: newStart,
+				oldCount: lines.length,
+				newStart,
+				newCount: lines.length,
+				lines,
+			},
+		],
+	};
+}
 
 function loadedState(): PrWorkflowState {
 	const state = createPrWorkflowState();
@@ -139,5 +165,58 @@ describe("formatCompactFindingsView", () => {
 		const text = formatCompactFindingsView(state);
 		expect(text).toContain("Legend:");
 		expect(text).toContain("verbose:true");
+	});
+
+	function withDiff(state: PrWorkflowState, file: DiffFile): void {
+		if (state.pr === null) throw new Error("loadedState should populate pr");
+		state.pr = { ...state.pr, files: [file] };
+	}
+
+	it("marks a line-kind finding whose lines fall outside the diff hunks as body-bound", () => {
+		// Finding points at lines 12-14 of a.ts. Diff only
+		// touches lines 100-110, so this finding would
+		// silently degrade to a body comment at post time;
+		// the user needs to see that at decide time.
+		const state = loadedState();
+		withDiff(state, diffFile("a.ts", 100, 110));
+		state.council.lastJudge = judgeWith([lineFinding(1, "off-diff")]);
+		const text = formatCompactFindingsView(state);
+		expect(text).toContain("→body");
+	});
+
+	it("does not mark a line-kind finding whose anchor matches the diff", () => {
+		const state = loadedState();
+		withDiff(state, diffFile("a.ts", 10, 20));
+		state.council.lastJudge = judgeWith([lineFinding(1, "on-diff")]);
+		const text = formatCompactFindingsView(state);
+		expect(text).not.toContain("→body");
+	});
+
+	it("omits the marker for file-kind findings (those are body-bound by nature)", () => {
+		const state = loadedState();
+		withDiff(state, diffFile("a.ts", 10, 20));
+		const fileFinding: Finding = {
+			...lineFinding(1, "file scope"),
+			location: { kind: "file", file: "a.ts" },
+		};
+		state.council.lastJudge = judgeWith([fileFinding]);
+		const text = formatCompactFindingsView(state);
+		expect(text).not.toContain("→body");
+	});
+
+	it("reflects an edited location when checking anchorability", () => {
+		// User edits the location to point at the actual
+		// diff hunks; the marker should disappear.
+		const state = loadedState();
+		withDiff(state, diffFile("a.ts", 100, 110));
+		state.council.lastJudge = judgeWith([lineFinding(1, "orig")]);
+		decideFinding(state, {
+			findingId: 1,
+			verdict: "edit",
+			start: 105,
+			end: 105,
+		});
+		const text = formatCompactFindingsView(state);
+		expect(text).not.toContain("→body");
 	});
 });

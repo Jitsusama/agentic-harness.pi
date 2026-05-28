@@ -107,6 +107,48 @@ describe("buildReviewerPrompt", () => {
 		expect(prompt).toContain("-old line");
 	});
 
+	it("renders new-side anchorable line ranges separately from old-side", () => {
+		// Council finding [26]: don't mix old- and new-side
+		// line numbers in the same range list. Reviewers need
+		// to know which side a number refers to so they pick
+		// the right `side` for the finding.
+		const prompt = buildReviewerPrompt({
+			prTitle: "x",
+			prDescription: "",
+			files: [
+				file({
+					path: "src/b.ts",
+					hunks: [
+						{
+							oldStart: 5,
+							oldCount: 1,
+							newStart: 5,
+							newCount: 1,
+							header: "@@ -5,1 +5,1 @@",
+							lines: [
+								{
+									type: "removed",
+									content: "old",
+									oldLineNumber: 5,
+									newLineNumber: null,
+								},
+								{
+									type: "added",
+									content: "new",
+									oldLineNumber: null,
+									newLineNumber: 5,
+								},
+							],
+						},
+					],
+				}),
+			],
+		});
+		expect(prompt).toContain("## Anchorable line ranges");
+		expect(prompt).toContain("src/b.ts:");
+		expect(prompt).toMatch(/src\/b\.ts:.*new 5.*old 5/);
+	});
+
 	it("points the reviewer at the council-output skill for the contract", () => {
 		// The output shape (location kinds, label vocabulary,
 		// threadRelation, etc.) lives in the skill so the

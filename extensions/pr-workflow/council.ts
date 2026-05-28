@@ -143,6 +143,7 @@ export async function runOneCouncilReviewer(
 			reviewerId: options.reviewer.id,
 			runId: options.runId,
 			startId: options.startId,
+			diffFiles: options.target.files,
 		});
 		return {
 			reviewerId: options.reviewer.id,
@@ -234,6 +235,7 @@ export async function runCouncil(
 					reviewerId: reviewer.id,
 					runId: options.runId,
 					startId: 0,
+					diffFiles: options.target.files,
 				});
 				safelyNotify(
 					() =>
@@ -293,6 +295,7 @@ export async function runCouncil(
 			reviewerId: reviewer.id,
 			runId: options.runId,
 			startId: nextId,
+			diffFiles: options.target.files,
 		});
 		nextId += parsed.findings.length;
 		const output: ReviewerOutput = {

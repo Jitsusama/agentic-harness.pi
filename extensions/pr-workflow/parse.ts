@@ -22,8 +22,11 @@
  */
 
 import { Value } from "@sinclair/typebox/value";
+import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { Finding } from "./findings.js";
+import { hasValidInlineAnchor } from "./post.js";
 import { CouncilFinding } from "./schemas.js";
+import { normalizeFindingSeverities } from "./severity-normalize.js";
 
 /** Caller-supplied context for parsing. */
 export interface ParseContext {
@@ -33,6 +36,15 @@ export interface ParseContext {
 	readonly runId: string;
 	/** Id to assign the first finding; subsequent get startId + 1, ... */
 	readonly startId: number;
+	/**
+	 * Loaded PR diff. When supplied, line-kind findings whose
+	 * anchor doesn't fall inside any hunk surface a warning so
+	 * the user can fix the line range (via `verdict=edit
+	 * start=N end=M`) before posting. The finding is kept
+	 * either way — dropping it silently would be worse than
+	 * leaving it body-bound.
+	 */
+	readonly diffFiles?: readonly DiffFile[];
 }
 
 /** Parse result: typed findings plus parse warnings. */
@@ -69,6 +81,9 @@ export function parseReviewerOutput(
 		};
 	}
 
+	const severityNormalization = normalizeFindingSeverities(parsed);
+	parsed = severityNormalization.value;
+
 	const rawFindings = extractFindingsArray(parsed);
 	if (rawFindings === null) {
 		return {
@@ -95,11 +110,30 @@ export function parseReviewerOutput(
 			warnings.push(`Finding at index ${i} is malformed; skipped`);
 			continue;
 		}
-		findings.push(toFinding(raw, nextId, context));
+		const finding = toFinding(raw, nextId, context);
+		const anchorWarning = checkLineAnchor(finding, context.diffFiles);
+		if (anchorWarning) warnings.push(anchorWarning);
+		findings.push(finding);
 		nextId++;
 	}
 
+	warnings.push(...severityNormalization.warnings);
 	return { findings, warnings };
+}
+
+function checkLineAnchor(
+	finding: Finding,
+	diffFiles: readonly DiffFile[] | undefined,
+): string | null {
+	if (finding.location.kind !== "line") return null;
+	if (diffFiles === undefined || diffFiles.length === 0) return null;
+	if (hasValidInlineAnchor(finding.location, diffFiles)) return null;
+	const { file, start, end } = finding.location;
+	return (
+		`Finding ${finding.id} anchors at ${file}:${start}-${end} but those ` +
+		"lines are not in the PR diff hunks; it will degrade to a body " +
+		"comment. Use `verdict=edit` with the correct line range to fix."
+	);
 }
 
 /**

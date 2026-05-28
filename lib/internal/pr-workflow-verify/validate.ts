@@ -20,6 +20,7 @@
 
 import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { normalizeFindingSeverities } from "../../../extensions/pr-workflow/severity-normalize.js";
 
 /** One row of validation feedback for the subagent. */
 export interface ValidationError {
@@ -88,7 +89,9 @@ export function validateOutput(
 			warnings: normalized.warnings,
 		};
 	}
-	const candidate = normalized.value;
+	const severityResult = normalizeFindingSeverities(normalized.value);
+	const candidate = severityResult.value;
+	const warnings = mergeWarnings(normalized.warnings, severityResult.warnings);
 
 	if (!Value.Check(contract.schema, candidate)) {
 		const errors: ValidationError[] = [];
@@ -101,7 +104,7 @@ export function validateOutput(
 				hint: hintForError(contract, path, value, candidate),
 			});
 		}
-		return { ok: false, errors, warnings: normalized.warnings };
+		return { ok: false, errors, warnings };
 	}
 
 	const semanticErrors = contract.semanticChecks?.(candidate) ?? [];
@@ -109,12 +112,20 @@ export function validateOutput(
 		return {
 			ok: false,
 			errors: [...semanticErrors],
-			warnings: normalized.warnings,
+			warnings,
 		};
 	}
 
 	const count = contract.itemCount(candidate);
-	return { ok: true, count, warnings: normalized.warnings };
+	return { ok: true, count, warnings };
+}
+
+function mergeWarnings(
+	a: readonly string[] | undefined,
+	b: readonly string[] | undefined,
+): readonly string[] | undefined {
+	const combined = [...(a ?? []), ...(b ?? [])];
+	return combined.length > 0 ? combined : undefined;
 }
 
 type NormalizedInput =

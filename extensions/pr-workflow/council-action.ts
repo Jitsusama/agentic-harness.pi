@@ -345,6 +345,10 @@ export function formatCouncilSummary(run: CouncilRun): string {
 		const verification = renderVerificationBadge(output.verification);
 		lines.push("");
 		lines.push(`▸ ${output.reviewerId} — ${count} ${noun}${verification}`);
+		const verifyReason = renderVerificationFailureReason(output.verification);
+		if (verifyReason) {
+			lines.push(`  ! ${verifyReason}`);
+		}
 		for (const finding of output.findings) {
 			const loc = renderLocation(finding.location);
 			lines.push(`  • [${finding.label}] ${finding.subject}  ${loc}`);
@@ -381,6 +385,22 @@ function renderVerificationBadge(
 	if (verification === undefined) return "";
 	if (verification.ok) return " — verified ✓";
 	return verification.called ? " — verification failed" : " — not verified";
+}
+
+/**
+ * Expand the verification badge into a concrete failure
+ * reason when the reviewer's verify_output stage didn't
+ * land cleanly. Surfaces the actual schema message so the
+ * user doesn't have to dig through state to know whether a
+ * reviewer crashed structurally or never reported in.
+ */
+function renderVerificationFailureReason(
+	verification: CouncilRun["reviewerOutputs"][number]["verification"],
+): string | null {
+	if (verification === undefined || verification.ok) return null;
+	if (!verification.called) return "verify_output not called";
+	const message = verification.message?.trim();
+	return message ? `verify_output failed: ${message}` : "verify_output failed";
 }
 
 function renderLocation(

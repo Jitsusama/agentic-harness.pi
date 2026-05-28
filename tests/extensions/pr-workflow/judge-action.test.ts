@@ -108,7 +108,7 @@ describe("configureJudge", () => {
 		expect(expectFailure(result).error).toMatch(/council reviewer|distinct/i);
 	});
 
-	it("rejects reusing a locked judge id for a different identity", async () => {
+	it("replaces a locked judge id when no findings reference it", async () => {
 		const state = createPrWorkflowState();
 		state.participantIdentities.set("judge", {
 			id: "judge",
@@ -118,7 +118,45 @@ describe("configureJudge", () => {
 		const result = configureJudge(state, {
 			judge: { id: "judge", model: "model-b" },
 		});
-		expect(expectFailure(result).error).toMatch(/already used|new id/i);
+		expect(result.ok).toBe(true);
+		expect(state.participantIdentities.get("judge")).toBeUndefined();
+	});
+
+	it("still rejects a locked judge id when findings reference it", async () => {
+		const state = createPrWorkflowState();
+		state.participantIdentities.set("judge", {
+			id: "judge",
+			role: "judge",
+			model: "model-a",
+		});
+		state.council.lastJudge = {
+			id: "j-1",
+			startedAt: "2026-05-28T00:00:00Z",
+			judgeReviewerId: "judge",
+			selfSignal: null,
+			warnings: [],
+			consolidatedFindings: [
+				{
+					id: 1,
+					location: { kind: "global" },
+					label: "issue",
+					decorations: [],
+					subject: "x",
+					discussion: "y",
+					category: "file",
+					origin: {
+						kind: "judge",
+						runId: "j-1",
+						judgeReviewerId: "judge",
+					},
+					state: "draft",
+				},
+			],
+		};
+		const result = configureJudge(state, {
+			judge: { id: "judge", model: "model-b" },
+		});
+		expect(expectFailure(result).error).toMatch(/already used/i);
 	});
 
 	it("allows reconfiguring a locked judge id with the same identity", async () => {

@@ -87,19 +87,6 @@ describe("configureCouncil", () => {
 		expect(expectFailure(result).error).toMatch(/judge|distinct/i);
 	});
 
-	it("rejects reusing a locked reviewer id for a different identity", async () => {
-		const state = createPrWorkflowState();
-		state.participantIdentities.set("fast", {
-			id: "fast",
-			role: "reviewer",
-			model: "model-a",
-		});
-		const result = configureCouncil(state, {
-			reviewers: [{ id: "fast", model: "model-b" }],
-		});
-		expect(expectFailure(result).error).toMatch(/already used|new id/i);
-	});
-
 	it("allows reconfiguring a locked reviewer id with the same identity", async () => {
 		const state = createPrWorkflowState();
 		state.participantIdentities.set("fast", {
@@ -111,6 +98,66 @@ describe("configureCouncil", () => {
 			reviewers: [{ id: "fast", model: "model-a" }],
 		});
 		expect(result.ok).toBe(true);
+	});
+
+	it("replaces a locked reviewer id when no findings reference it", async () => {
+		// Re-running council-config after a failed run that
+		// produced zero findings should not fail because of
+		// the identity lock. Audit honesty is only meaningful
+		// when findings exist.
+		const state = createPrWorkflowState();
+		state.participantIdentities.set("fast", {
+			id: "fast",
+			role: "reviewer",
+			model: "model-a",
+			thinkingLevel: "xhigh",
+		});
+		const result = configureCouncil(state, {
+			reviewers: [{ id: "fast", model: "model-a", thinkingLevel: "high" }],
+		});
+		expect(result.ok).toBe(true);
+		expect(state.participantIdentities.get("fast")).toBeUndefined();
+	});
+
+	it("still rejects a locked reviewer id when findings reference it", async () => {
+		const state = createPrWorkflowState();
+		state.participantIdentities.set("fast", {
+			id: "fast",
+			role: "reviewer",
+			model: "model-a",
+		});
+		state.council.lastRun = {
+			id: "run-1",
+			startedAt: "2026-05-28T00:00:00Z",
+			target: { kind: "diff", prNumber: 1 },
+			reviewerOutputs: [
+				{
+					reviewerId: "fast",
+					warnings: [],
+					findings: [
+						{
+							id: 1,
+							location: { kind: "global" },
+							label: "issue",
+							decorations: [],
+							subject: "x",
+							discussion: "y",
+							category: "file",
+							origin: {
+								kind: "council",
+								runId: "run-1",
+								reviewerId: "fast",
+							},
+							state: "draft",
+						},
+					],
+				},
+			],
+		};
+		const result = configureCouncil(state, {
+			reviewers: [{ id: "fast", model: "model-b" }],
+		});
+		expect(expectFailure(result).error).toMatch(/already used/i);
 	});
 });
 
@@ -414,6 +461,55 @@ describe("formatCouncilSummary", () => {
 
 		expect(text).toContain("fast — 0 findings — verified ✓");
 		expect(text).toContain("skeptic — 0 findings — verification failed");
+	});
+
+	it("surfaces the verify_output message when a reviewer failed validation", async () => {
+		// A reviewer that crashed verify needs the actual
+		// failure reason visible at the top level, not buried
+		// under retry guesswork.
+		const run: CouncilRun = {
+			id: "council-1",
+			startedAt: "2026-01-01T00:00:00Z",
+			target: { kind: "diff", prNumber: 42 },
+			reviewerOutputs: [
+				{
+					reviewerId: "grok",
+					findings: [],
+					warnings: [],
+					verification: {
+						called: true,
+						ok: false,
+						message:
+							"ok: false. 8 errors against stage=stack-review:\n  /perPr/769188/0/severity: must be equal to constant",
+					},
+				},
+			],
+		};
+
+		const text = formatCouncilSummary(run);
+
+		expect(text).toContain("verify_output failed");
+		expect(text).toContain("8 errors against stage=stack-review");
+	});
+
+	it("names the failure mode when verify_output was never called", async () => {
+		const run: CouncilRun = {
+			id: "council-1",
+			startedAt: "2026-01-01T00:00:00Z",
+			target: { kind: "diff", prNumber: 42 },
+			reviewerOutputs: [
+				{
+					reviewerId: "grok",
+					findings: [],
+					warnings: [],
+					verification: { called: false, ok: false },
+				},
+			],
+		};
+
+		const text = formatCouncilSummary(run);
+
+		expect(text).toContain("verify_output not called");
 	});
 
 	it("surfaces a retry hint for reviewers that came back empty with warnings", async () => {

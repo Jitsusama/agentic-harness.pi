@@ -179,6 +179,80 @@ describe("validateOutput", () => {
 		}
 	});
 
+	it("normalizes alias severities into the canonical set before checking", () => {
+		// Grok consistently emits `severity: "required"`,
+		// which isn't in the canonical union. Severity is
+		// optional in the contract; vocabulary mismatch must
+		// not reject the whole finding.
+		const result = validate("council", {
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "x",
+					discussion: "y",
+					severity: "required",
+				},
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "a",
+					discussion: "b",
+					severity: "non-blocking",
+				},
+			],
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("drops unrecognized severities with a warning rather than rejecting", () => {
+		const result = validate("council", {
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject: "x",
+					discussion: "y",
+					severity: "weird-grok-string",
+				},
+			],
+		});
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(
+				result.warnings?.some((w) => w.includes("weird-grok-string")),
+			).toBe(true);
+		}
+	});
+
+	it("normalizes severity on stack-review per-PR and cross-PR findings", () => {
+		const result = validate("stack-review", {
+			perPr: {
+				"123": [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "x",
+						discussion: "y",
+						severity: "required",
+					},
+				],
+			},
+			crossPr: [
+				{
+					location: { kind: "global" },
+					homePrNumber: 123,
+					spans: [123, 456],
+					label: "issue",
+					subject: "x",
+					discussion: "y",
+					severity: "blocking",
+				},
+			],
+		});
+		expect(result.ok).toBe(true);
+	});
+
 	it("validates a critique payload using the critique schema", () => {
 		const result = validate("critique", {
 			critiques: [{ findingId: 1, position: "agree", rationale: "ok" }],

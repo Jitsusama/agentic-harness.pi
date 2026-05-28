@@ -498,6 +498,61 @@ describe("runStackReviewAction", () => {
 		expect(state.council.lastJudge).toBeNull();
 	});
 
+	it("preserves completed reviewer output for the cursor PR when judge is cancelled", async () => {
+		// The biggest cost of stack-review is the council
+		// fan-out. When the judge phase gets cancelled the
+		// reviewer work shouldn't be thrown away — the user
+		// can call action=judge against the preserved
+		// council output to finish the round.
+		const state = buildState();
+		const result = await runStackReviewAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch: async ({ reviewer: r }) => {
+				if (r.id === "judge") throw new ReviewerCancelledError(r.id);
+				return {
+					reviewerId: r.id,
+					exitCode: 0,
+					finalAssistantText: jsonBlock({
+						perPr: {
+							"101": [
+								{
+									location: { kind: "global" },
+									label: "issue",
+									subject: `cursor ${r.id}`,
+									discussion: "d",
+								},
+							],
+							"102": [],
+						},
+						crossPr: [],
+					}),
+					stderr: "",
+					warnings: [],
+				};
+			},
+			fetchers: fetchers(),
+		});
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.error).toMatch(/council.*preserved/i);
+			expect(result.error).toContain("action=judge");
+		}
+		expect(state.council.lastRun).not.toBeNull();
+		expect(state.council.lastRun?.reviewerOutputs).toHaveLength(2);
+		const reviewerIds =
+			state.council.lastRun?.reviewerOutputs.map((o) => o.reviewerId) ?? [];
+		expect(reviewerIds).toEqual(["fast", "skeptic"]);
+		const fastFindings =
+			state.council.lastRun?.reviewerOutputs.find(
+				(o) => o.reviewerId === "fast",
+			)?.findings ?? [];
+		expect(fastFindings).toHaveLength(1);
+		expect(fastFindings[0].subject).toBe("cursor fast");
+		expect(state.stackFindingRun).toBeNull();
+	});
+
 	it("reports reviewer, activity and judge progress", async () => {
 		const state = buildState();
 		const events: string[] = [];
@@ -622,5 +677,51 @@ describe("formatStackReviewActionSummary", () => {
 			"action=stack-next / action=stack-prev returns the next PR ref",
 		);
 		expect(text).toContain("fast: skipped malformed finding");
+	});
+
+	it("surfaces per-reviewer verify_output failures with their message", () => {
+		const text = formatStackReviewActionSummary({
+			id: "stack-review-1",
+			startedAt: "2026-05-20T16:00:00Z",
+			cursorPrNumber: 101,
+			reviewedPrs: [{ prNumber: 101, findingCount: 0 }],
+			crossPrFindingCount: 0,
+			reviewerOutputs: [
+				{
+					reviewerId: "opus",
+					perPr: new Map(),
+					crossPr: [],
+					warnings: [],
+					verification: { called: true, ok: true, count: 0 },
+				},
+				{
+					reviewerId: "grok",
+					perPr: new Map(),
+					crossPr: [],
+					warnings: [],
+					verification: {
+						called: true,
+						ok: false,
+						message:
+							"ok: false. 8 errors against stage=stack-review:\n  /perPr/769188/0/severity: must be equal to constant",
+					},
+				},
+				{
+					reviewerId: "gpt",
+					perPr: new Map(),
+					crossPr: [],
+					warnings: [],
+					verification: { called: false, ok: false },
+				},
+			],
+			warnings: [],
+		});
+
+		expect(text).toContain("opus — verified ✓");
+		expect(text).toContain("grok — verification failed");
+		expect(text).toContain("verify_output failed");
+		expect(text).toContain("8 errors against stage=stack-review");
+		expect(text).toContain("gpt — not verified");
+		expect(text).toContain("verify_output not called");
 	});
 });

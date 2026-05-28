@@ -149,6 +149,7 @@ export async function runStackReviewAction(
 		await resolveStackPrs(state, input.fetchers),
 		input.fetchThreads,
 	);
+	const diffsByPr = buildDiffsByPr(resolved);
 	const tip = resolved[resolved.length - 1];
 	if (!tip) {
 		safelyNotify(() => progress.finish(), "finish", progressWarnings);
@@ -201,6 +202,7 @@ export async function runStackReviewAction(
 					runId,
 					reviewerId: reviewer.id,
 					startId: 0,
+					diffsByPr,
 				});
 				const output: StackReviewerOutput = {
 					reviewerId: reviewer.id,
@@ -261,6 +263,7 @@ export async function runStackReviewAction(
 			runId,
 			reviewerId: reviewer.id,
 			startId: nextId,
+			diffsByPr,
 		});
 		nextId = nextIdAfterReviewer(nextId, parsed);
 		rememberStackReviewAllocation(state, parsed.perPr, parsed.crossPr);
@@ -309,6 +312,13 @@ export async function runStackReviewAction(
 				`cancelled(${judge.id})`,
 				progressWarnings,
 			);
+			preserveCouncilForCursor(
+				state,
+				runId,
+				startedAt,
+				cursorPrNumber,
+				reviewerOutputs,
+			);
 		} else {
 			safelyNotify(
 				() => progress.reviewerFailed(judge.id, errorMessage(error)),
@@ -317,10 +327,19 @@ export async function runStackReviewAction(
 			);
 		}
 		safelyNotify(() => progress.finish(), "finish", progressWarnings);
-		const prefix = isReviewerCancelledError(error)
-			? "Stack review cancelled"
-			: "Stack review judge failed";
-		return { ok: false, error: `${prefix}: ${errorMessage(error)}` };
+		if (isReviewerCancelledError(error)) {
+			return {
+				ok: false,
+				error:
+					`Stack review cancelled at the judge phase: ${errorMessage(error)}. ` +
+					"Council output for the cursor PR is preserved; call " +
+					"action=judge to resume from the already-completed reviewers.",
+			};
+		}
+		return {
+			ok: false,
+			error: `Stack review judge failed: ${errorMessage(error)}`,
+		};
 	}
 	const parsedJudge = parseStackJudgeOutput(judged.finalAssistantText, {
 		runId: judgeRunId,
@@ -400,6 +419,11 @@ export function formatStackReviewActionSummary(
 		const noun = pr.findingCount === 1 ? "finding" : "findings";
 		lines.push(`${marker} PR #${pr.prNumber}: ${pr.findingCount} ${noun}`);
 	}
+	const reviewerLines = renderReviewerVerificationLines(run.reviewerOutputs);
+	if (reviewerLines.length > 0) {
+		lines.push("");
+		lines.push(...reviewerLines);
+	}
 	if (run.warnings.length > 0) {
 		lines.push("");
 		lines.push("Warnings:");
@@ -413,6 +437,106 @@ export function formatStackReviewActionSummary(
 		"Stack mates are stashed; action=stack-next / action=stack-prev returns the next PR ref, then action=load hydrates its findings.",
 	);
 	return lines.join("\n");
+}
+
+/**
+ * Render one summary line per reviewer when verification
+ * state is available, plus a follow-up reason line for any
+ * reviewer that didn't verify cleanly. Mirrors the per-
+ * reviewer rendering on the per-PR council summary so the
+ * stack-wide view doesn't bury silent failures.
+ */
+function renderReviewerVerificationLines(
+	outputs: readonly StackReviewerOutput[],
+): string[] {
+	const lines: string[] = [];
+	for (const output of outputs) {
+		const verification = output.verification;
+		if (verification === undefined) continue;
+		const badge = verification.ok
+			? "verified ✓"
+			: verification.called
+				? "verification failed"
+				: "not verified";
+		lines.push(`▸ ${output.reviewerId} — ${badge}`);
+		if (verification.ok) continue;
+		if (!verification.called) {
+			lines.push("  ! verify_output not called");
+			continue;
+		}
+		const message = verification.message?.trim();
+		lines.push(
+			message
+				? `  ! verify_output failed: ${message}`
+				: "  ! verify_output failed",
+		);
+	}
+	return lines;
+}
+
+/**
+ * On judge-phase cancellation, persist the per-PR slice
+ * of the cursor's reviewer outputs to
+ * `state.council.lastRun`. The user can then call
+ * `action=judge` against the preserved council run
+ * instead of paying for the (often 5-15 minute) reviewer
+ * fan-out again.
+ *
+ * The mapping from `StackReviewerOutput` (perPr +
+ * crossPr) to `ReviewerOutput` (flat findings list) is
+ * intentionally cursor-only: stack mates and cross-PR
+ * findings belong to the stack-wide pipeline that the
+ * judge would have consolidated. Persisting the cursor's
+ * slice matches what `action=council` would have written
+ * for a non-stack run.
+ */
+/**
+ * Build a `prNumber → diffFiles` lookup the stack-review
+ * parser uses to validate per-PR line anchors. One entry
+ * per resolved PR; empty `files` are omitted because the
+ * parser skips its check when the array is empty.
+ */
+function buildDiffsByPr(
+	resolved: readonly ResolvedPr[],
+): ReadonlyMap<number, readonly DiffFile[]> {
+	const out = new Map<number, readonly DiffFile[]>();
+	for (const pr of resolved) {
+		if (pr.files.length === 0) continue;
+		out.set(pr.reference.number, pr.files);
+	}
+	return out;
+}
+
+function preserveCouncilForCursor(
+	state: PrWorkflowState,
+	runId: string,
+	startedAt: string,
+	cursorPrNumber: number,
+	reviewerOutputs: readonly StackReviewerOutput[],
+): void {
+	const flatOutputs = reviewerOutputs.map((output) => {
+		const findings = output.perPr.get(cursorPrNumber) ?? [];
+		return {
+			reviewerId: output.reviewerId,
+			findings: [...findings],
+			warnings: [...output.warnings],
+			...(output.verification ? { verification: output.verification } : {}),
+		} satisfies ReviewerOutput;
+	});
+	state.council.lastRun = {
+		id: runId,
+		startedAt,
+		target: { kind: "diff", prNumber: cursorPrNumber },
+		reviewerOutputs: flatOutputs,
+	};
+	// A prior per-PR run's judge, critique and decisions
+	// would shadow the fresh reviewer output we just
+	// persisted. Clear them so `action=judge` starts from
+	// the new council instead of resurrecting stale
+	// consolidations.
+	state.council.lastJudge = null;
+	state.council.lastCritique = null;
+	state.council.decisions = new Map();
 }
 
 function progressEntries(

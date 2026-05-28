@@ -30,6 +30,19 @@ round 1:
 - `location`, `label`, `subject`, `discussion` — required.
 - `decorations`, `severity`, `confidence` — optional.
 
+### Location preservation
+
+When the round-1 findings you are consolidating all
+anchor to specific lines in the same file, your
+consolidated finding's location must be `"line"` with
+`start`/`end` covering the source range. Collapsing to
+`"file"` discards the specificity GitHub needs to post
+inline and the parent process will restore the broadest
+line span from sources automatically; collapsing to
+`"global"` is taken as deliberate ("this is
+scope-wide"). Only choose `"file"`-kind when the
+sources genuinely disagree on where the issue lives.
+
 The judge adds two optional attribution fields:
 
 - `raisedBy` — list of round-1 reviewer ids that surfaced

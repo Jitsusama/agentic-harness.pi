@@ -1,6 +1,7 @@
 /** Stable reviewer identity tracking for user-facing finding origins. */
 
 import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
+import type { Finding } from "./findings.js";
 import type { PrWorkflowState } from "./state.js";
 
 /** Role a participant id was used for. */
@@ -23,6 +24,12 @@ export type ParticipantIdentityResult =
 /**
  * Ensure a participant id has not already been used for a
  * different reviewer or judge identity in this workflow session.
+ *
+ * A locked id whose previous incarnation never produced a
+ * finding can be replaced silently: the audit trail only
+ * matters when there's actual output to attribute. The lock
+ * is released as a side effect so the next successful run
+ * re-locks with the new identity.
  */
 export function assertParticipantIdentityAvailable(
 	state: PrWorkflowState,
@@ -33,12 +40,69 @@ export function assertParticipantIdentityAvailable(
 	if (!existing) return { ok: true };
 	const next = participantIdentity(role, reviewer);
 	if (sameParticipantIdentity(existing, next)) return { ok: true };
+	if (!hasFindingsForParticipant(state, reviewer.id)) {
+		state.participantIdentities.delete(reviewer.id);
+		return { ok: true };
+	}
 	return {
 		ok: false,
 		error:
 			`Participant id "${reviewer.id}" was already used for ${describeParticipant(existing)}. ` +
 			`Use a new id for ${describeParticipant(next)} so finding origins stay stable within the session.`,
 	};
+}
+
+/**
+ * Walk every recorded finding in the workflow state and
+ * report whether any was attributed to the given
+ * participant id. Used to decide whether an identity lock
+ * can be released safely on reconfiguration.
+ */
+export function hasFindingsForParticipant(
+	state: PrWorkflowState,
+	id: string,
+): boolean {
+	for (const finding of iterateFindings(state)) {
+		if (findingAttributedTo(finding, id)) return true;
+	}
+	return false;
+}
+
+function* iterateFindings(state: PrWorkflowState): Iterable<Finding> {
+	const council = state.council;
+	if (council.lastRun) {
+		for (const output of council.lastRun.reviewerOutputs) {
+			yield* output.findings;
+		}
+	}
+	if (council.lastJudge) yield* council.lastJudge.consolidatedFindings;
+	if (council.lastCritique) {
+		// Critique doesn't add findings, only positions. Skip.
+	}
+	for (const snapshot of state.stackRuns.values()) {
+		if (snapshot.lastRun) {
+			for (const output of snapshot.lastRun.reviewerOutputs) {
+				yield* output.findings;
+			}
+		}
+		if (snapshot.lastJudge) yield* snapshot.lastJudge.consolidatedFindings;
+	}
+	if (state.stackFindingRun) yield* state.stackFindingRun.findings;
+}
+
+function findingAttributedTo(finding: Finding, id: string): boolean {
+	const origin = finding.origin;
+	switch (origin.kind) {
+		case "council":
+		case "cross-PR":
+		case "stack-review":
+			return origin.reviewerId === id;
+		case "judge":
+		case "stack-judge":
+			return origin.judgeReviewerId === id;
+		default:
+			return false;
+	}
 }
 
 /** Remember that the participant id has now produced workflow output. */

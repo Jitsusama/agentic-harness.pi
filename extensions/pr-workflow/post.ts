@@ -166,21 +166,21 @@ export function buildReviewPayload(state: PrWorkflowState): ReviewPayload {
 			continue;
 		}
 		const body = renderCommentBody(state, finding, decision);
+		const location = effectiveFinding(finding, decision).location;
 		if (
-			finding.location.kind === "line" &&
-			(!validateInlineAnchors ||
-				hasValidInlineAnchor(finding.location, diffFiles))
+			location.kind === "line" &&
+			(!validateInlineAnchors || hasValidInlineAnchor(location, diffFiles))
 		) {
 			const comment: ReviewComment = {
-				path: finding.location.file,
-				line: finding.location.end,
+				path: location.file,
+				line: location.end,
 				body,
 			};
-			if (finding.location.start !== finding.location.end) {
-				(comment as { startLine: number }).startLine = finding.location.start;
+			if (location.start !== location.end) {
+				(comment as { startLine: number }).startLine = location.start;
 			}
 			(comment as { side: string }).side =
-				finding.location.side === "old" ? "LEFT" : "RIGHT";
+				location.side === "old" ? "LEFT" : "RIGHT";
 			inline.push(comment);
 		} else {
 			bodyLines.push(renderBodyEntry(state, finding, decision));
@@ -447,8 +447,9 @@ function renderBodyEntry(
 	finding: Finding,
 	decision: FindingDecision,
 ): string {
-	const { subject, discussion, label } = effectiveFinding(finding, decision);
-	const where = renderLocationForBody(finding.location);
+	const projected = effectiveFinding(finding, decision);
+	const { subject, discussion, label } = projected;
+	const where = renderLocationForBody(projected.location);
 	const lines: string[] = [];
 	lines.push(
 		renderConventionalCommentHeader({
@@ -492,7 +493,17 @@ function renderDecorations(decorations: readonly string[] | undefined): string {
 	return normalized.length === 0 ? "" : ` (${normalized.join(", ")})`;
 }
 
-function hasValidInlineAnchor(
+/**
+ * Decide whether a line-kind finding location anchors
+ * cleanly to a PR diff. Returns false for non-line
+ * locations, ranges with invalid start/end ordering,
+ * files not in the diff, or line ranges that don't fall
+ * inside any hunk of the file. Used at both post time
+ * (to decide between inline comment and body fallback)
+ * and decide time (to warn the user about findings that
+ * would silently degrade to body).
+ */
+export function hasValidInlineAnchor(
 	location: FindingLocation,
 	files: readonly DiffFile[],
 ): boolean {

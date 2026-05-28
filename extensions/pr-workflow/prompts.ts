@@ -91,6 +91,19 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 		sections.push(input.prDescription.trim());
 	}
 
+	if (input.files.length > 0) {
+		sections.push("## Anchorable line ranges");
+		sections.push(
+			"Line-kind findings should anchor to the lines listed below. " +
+				"Findings whose `start`/`end` falls outside the listed ranges " +
+				"are kept but post as body comments instead of inline; the " +
+				"parent process emits a warning so the user can fix the range. " +
+				"Use `file`- or `global`-kind for issues that span the file or " +
+				"scope as a whole.",
+		);
+		sections.push(renderAnchorableLineRanges(input.files));
+	}
+
 	sections.push("## Diff");
 	if (input.files.length === 0) {
 		sections.push("(no files changed)");
@@ -119,6 +132,71 @@ function pushPromptAddendum(
 	const trimmed = addendum?.trim();
 	if (trimmed === undefined || trimmed.length === 0) return;
 	sections.push(["## Provider review context", trimmed].join("\n\n"));
+}
+
+/**
+ * Compact, per-file summary of which lines in the diff
+ * a line-kind finding can anchor to. Reviewers see this
+ * BEFORE the full diff so the anchorable surface is
+ * explicit.
+ *
+ * The summary lists new-side ranges by default (most
+ * findings anchor to added or modified code on the
+ * RIGHT). When a file only changes on the old side (pure
+ * deletion), the line is annotated `side=old`. Files
+ * with no hunks (renames, mode changes) are omitted.
+ */
+function renderAnchorableLineRanges(files: readonly DiffFile[]): string {
+	const lines: string[] = [];
+	for (const file of files) {
+		const newRanges = anchorableRangesFor(file, "new");
+		const oldRanges = anchorableRangesFor(file, "old");
+		const parts: string[] = [];
+		if (newRanges.length > 0) {
+			parts.push(`new ${newRanges.join(", ")}`);
+		}
+		if (oldRanges.length > 0) {
+			parts.push(`old ${oldRanges.join(", ")}`);
+		}
+		if (parts.length === 0) continue;
+		lines.push(`${file.path}: ${parts.join(" | ")}`);
+	}
+	return lines.length === 0 ? "(no anchorable lines)" : lines.join("\n");
+}
+
+/**
+ * Collapse a file's hunks into a list of `start-end`
+ * strings on the requested diff side. Adjacent hunks that
+ * touch are merged so the output stays short.
+ */
+function anchorableRangesFor(file: DiffFile, side: "old" | "new"): string[] {
+	const rawRanges: Array<{ start: number; end: number }> = [];
+	for (const hunk of file.hunks) {
+		const lineNumbers: number[] = [];
+		for (const line of hunk.lines) {
+			const lineNumber =
+				side === "old" ? line.oldLineNumber : line.newLineNumber;
+			if (lineNumber !== null) lineNumbers.push(lineNumber);
+		}
+		if (lineNumbers.length === 0) continue;
+		rawRanges.push({
+			start: Math.min(...lineNumbers),
+			end: Math.max(...lineNumbers),
+		});
+	}
+	rawRanges.sort((a, b) => a.start - b.start);
+	const merged: Array<{ start: number; end: number }> = [];
+	for (const range of rawRanges) {
+		const tail = merged[merged.length - 1];
+		if (tail && range.start <= tail.end + 1) {
+			tail.end = Math.max(tail.end, range.end);
+		} else {
+			merged.push({ ...range });
+		}
+	}
+	return merged.map((r) =>
+		r.start === r.end ? `${r.start}` : `${r.start}-${r.end}`,
+	);
 }
 
 function renderFile(file: DiffFile): string {
