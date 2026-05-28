@@ -645,7 +645,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			verbose: Type.Optional(
 				Type.Boolean({
 					description:
-						"For action=findings: when true, render the full wall-of-text view (one paragraph per finding with discussion, critiques and original-versus-edited text). When omitted or false, render the compact one-row-per-finding index.",
+						"For action=findings: when true, render the full wall-of-text view (one paragraph per finding with discussion, critiques and original-versus-edited text). When omitted or false, render the compact one-row-per-finding index. For action=preview-post: when true, also render the actual review body markdown and per-comment inline payload that `post` would send.",
 				}),
 			),
 			force: Type.Optional(
@@ -1152,13 +1152,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 				const payload = buildReviewPayload(state);
 				const diffLoaded = (state.pr?.files?.length ?? 0) > 0;
+				const text = params.verbose
+					? formatPreviewPostVerbose(payload, diffLoaded)
+					: formatPreviewPostSummary(payload, diffLoaded);
 				return {
-					content: [
-						{
-							type: "text",
-							text: formatPreviewPostSummary(payload, diffLoaded),
-						},
-					],
+					content: [{ type: "text", text }],
 					details: { ok: true, payload, diffLoaded },
 				};
 			}
@@ -2008,6 +2006,39 @@ function formatPreviewPostSummary(
 		lines.push("Skipped findings:");
 		for (const skip of payload.skipped) {
 			lines.push(`  - [${skip.findingId}] ${skip.reason}`);
+		}
+	}
+	return lines.join("\n");
+}
+
+/**
+ * Verbose preview output: same summary header as the
+ * default, plus the actual review body markdown and a
+ * compact list of every inline comment the post step
+ * would send. Use this before `action=post` when you
+ * want to read what GitHub will receive rather than
+ * trust the inline/body counts.
+ */
+function formatPreviewPostVerbose(
+	payload: ReviewPayload,
+	diffLoaded: boolean,
+): string {
+	const lines: string[] = [formatPreviewPostSummary(payload, diffLoaded)];
+	lines.push("");
+	lines.push("## Review body");
+	lines.push("");
+	lines.push(payload.body.trim().length === 0 ? "(empty)" : payload.body);
+	if (payload.comments.length > 0) {
+		lines.push("");
+		lines.push(`## Inline comments (${payload.comments.length})`);
+		for (const comment of payload.comments) {
+			const loc =
+				comment.startLine !== undefined && comment.startLine !== comment.line
+					? `${comment.path}:${comment.startLine}-${comment.line}`
+					: `${comment.path}:${comment.line}`;
+			lines.push("");
+			lines.push(`### ${loc} (${comment.side})`);
+			lines.push(comment.body);
 		}
 	}
 	return lines.join("\n");

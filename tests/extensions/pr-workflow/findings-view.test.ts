@@ -202,6 +202,7 @@ describe("formatCompactFindingsView", () => {
 			id: "crit-1",
 			startedAt: "now",
 			judgeRunId: "j-1",
+			warnings: [],
 			reviewerOutputs: [
 				{
 					reviewerId: "opus",
@@ -240,6 +241,7 @@ describe("formatCompactFindingsView", () => {
 			id: "crit-1",
 			startedAt: "now",
 			judgeRunId: "j-1",
+			warnings: [],
 			reviewerOutputs: [
 				{
 					reviewerId: "opus",
