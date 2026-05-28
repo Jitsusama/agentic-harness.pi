@@ -250,6 +250,16 @@ Rough guidance:
 | Benchmark / deploy run with paced internal work | 15 min          | 45 min      |
 | Soak or recovery journey, multi-iteration      | 30 min          | 90 min      |
 
+**Always bump both columns together.** The two ceilings
+compose: whichever fires first kills the child. If you
+set `idleTimeoutMs` above the supervisor's 20-minute
+wall-clock default and leave `timeoutMs` unset, the
+wall clock fires first and the patient idle ceiling
+never gets a chance to apply. The library rejects the
+pair outright when `idleTimeoutMs > timeoutMs`; the
+table above keeps wall-clock comfortably above idle so
+that invariant holds.
+
 If you can't predict the bash duration, ask the persona
 to narrate progress (`echo` between steps, `tee` per-
 iteration output) so the supervisor sees activity. The
