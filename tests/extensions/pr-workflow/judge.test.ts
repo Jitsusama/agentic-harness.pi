@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { CouncilProgress } from "../../../extensions/pr-workflow/council-progress.js";
-import type { CouncilRun } from "../../../extensions/pr-workflow/findings.js";
+import type {
+	CouncilRun,
+	Finding,
+} from "../../../extensions/pr-workflow/findings.js";
 import {
 	buildJudgePrompt,
 	type JudgeParseContext,
@@ -183,6 +186,158 @@ describe("parseJudgeOutput", () => {
 		judgeReviewerId: "judge",
 		startId: 100,
 	};
+
+	describe("line-location auto-inherit from sources", () => {
+		function reviewerLineFinding(
+			id: number,
+			file: string,
+			start: number,
+			end: number,
+		): Finding {
+			return {
+				id,
+				location: { kind: "line", file, start, end, side: "new" },
+				label: "issue",
+				decorations: [],
+				subject: "x",
+				discussion: "y",
+				category: "file",
+				origin: { kind: "council", runId: "r-1", reviewerId: "r" },
+				state: "draft",
+			};
+		}
+
+		it("upgrades file-kind judge findings to line-kind when sources all share a file", () => {
+			const text = [
+				"```json",
+				JSON.stringify({
+					findings: [
+						{
+							location: { kind: "file", file: "serve.go" },
+							label: "issue",
+							subject: "s",
+							discussion: "d",
+							sourceFindingIds: [1, 2],
+						},
+					],
+				}),
+				"```",
+			].join("\n");
+			const result = parseJudgeOutput(text, {
+				...CTX,
+				sourceFindings: [
+					reviewerLineFinding(1, "serve.go", 50, 60),
+					reviewerLineFinding(2, "serve.go", 70, 75),
+				],
+			});
+			expect(result.findings[0].location).toEqual({
+				kind: "line",
+				file: "serve.go",
+				start: 50,
+				end: 75,
+				side: "new",
+			});
+			expect(
+				result.warnings.some((w) => w.toLowerCase().includes("inherited")),
+			).toBe(true);
+		});
+
+		it("keeps file-kind when sources span different files", () => {
+			const text = [
+				"```json",
+				JSON.stringify({
+					findings: [
+						{
+							location: { kind: "file", file: "serve.go" },
+							label: "issue",
+							subject: "s",
+							discussion: "d",
+							sourceFindingIds: [1, 2],
+						},
+					],
+				}),
+				"```",
+			].join("\n");
+			const result = parseJudgeOutput(text, {
+				...CTX,
+				sourceFindings: [
+					reviewerLineFinding(1, "serve.go", 50, 60),
+					reviewerLineFinding(2, "executor.go", 70, 75),
+				],
+			});
+			expect(result.findings[0].location).toEqual({
+				kind: "file",
+				file: "serve.go",
+			});
+		});
+
+		it("leaves judge-supplied line locations alone", () => {
+			const text = [
+				"```json",
+				JSON.stringify({
+					findings: [
+						{
+							location: {
+								kind: "line",
+								file: "serve.go",
+								start: 1,
+								end: 5,
+								side: "new",
+							},
+							label: "issue",
+							subject: "s",
+							discussion: "d",
+							sourceFindingIds: [1],
+						},
+					],
+				}),
+				"```",
+			].join("\n");
+			const result = parseJudgeOutput(text, {
+				...CTX,
+				sourceFindings: [reviewerLineFinding(1, "serve.go", 100, 200)],
+			});
+			expect(result.findings[0].location).toEqual({
+				kind: "line",
+				file: "serve.go",
+				start: 1,
+				end: 5,
+				side: "new",
+			});
+		});
+
+		it("keeps file-kind when any source is global-kind", () => {
+			const text = [
+				"```json",
+				JSON.stringify({
+					findings: [
+						{
+							location: { kind: "file", file: "serve.go" },
+							label: "issue",
+							subject: "s",
+							discussion: "d",
+							sourceFindingIds: [1, 2],
+						},
+					],
+				}),
+				"```",
+			].join("\n");
+			const result = parseJudgeOutput(text, {
+				...CTX,
+				sourceFindings: [
+					reviewerLineFinding(1, "serve.go", 50, 60),
+					{
+						...reviewerLineFinding(2, "serve.go", 70, 75),
+						location: { kind: "global" },
+					},
+				],
+			});
+			expect(result.findings[0].location).toEqual({
+				kind: "file",
+				file: "serve.go",
+			});
+		});
+	});
 
 	it("extracts selfSignal and consolidated findings from a fenced JSON block", async () => {
 		const text = [

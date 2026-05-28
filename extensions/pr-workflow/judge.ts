@@ -82,6 +82,14 @@ export interface JudgeParseContext {
 	readonly runId: string;
 	readonly judgeReviewerId: string;
 	readonly startId: number;
+	/**
+	 * Council reviewer findings the judge consolidated.
+	 * Used to auto-inherit line-kind locations when the
+	 * judge collapses sources that all anchored to the
+	 * same file. Pass an empty array (or omit) when no
+	 * inheritance should be attempted.
+	 */
+	readonly sourceFindings?: readonly Finding[];
 }
 
 /** Output of `parseJudgeOutput`. */
@@ -144,6 +152,14 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 	lines.push(
 		"- Favour keep over drop when uncertain. The user reviews next " +
 			"and will dismiss noise; you cannot resurface what you drop.",
+	);
+	lines.push(
+		"- Preserve source line locations. When the findings you are " +
+			"consolidating anchor to specific lines in the same file, the " +
+			"consolidated finding's location is line-kind with start/end " +
+			"covering the sources. Collapsing to file-kind discards the " +
+			"specificity GitHub needs to post inline; only do it when sources " +
+			"genuinely disagree on where the issue lives.",
 	);
 	lines.push("");
 	lines.push(reviewQualityStandard());
@@ -263,7 +279,9 @@ export function parseJudgeOutput(
 			warnings.push(`Judge finding at index ${i} is malformed; skipped`);
 			continue;
 		}
-		findings.push(toJudgedFinding(raw, nextId, context));
+		const inherited = autoInheritLineLocation(raw, context);
+		if (inherited.warning) warnings.push(inherited.warning);
+		findings.push(toJudgedFinding(raw, inherited.location, nextId, context));
 		nextId++;
 	}
 
@@ -342,6 +360,9 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 			runId: options.runId,
 			judgeReviewerId: options.judge.id,
 			startId,
+			sourceFindings: options.council.reviewerOutputs.flatMap(
+				(output) => output.findings,
+			),
 		});
 		const warnings = [
 			...dispatched.warnings,
@@ -418,6 +439,7 @@ function toSelfSignal(raw: unknown): JudgeSelfSignal | null {
  */
 function toJudgedFinding(
 	raw: JudgeFinding,
+	location: FindingLocation,
 	id: number,
 	context: JudgeParseContext,
 ): Finding {
@@ -425,11 +447,11 @@ function toJudgedFinding(
 		throw new Error("unreachable: caller filters whitespace-only entries");
 	}
 	const category: Finding["category"] =
-		raw.location.kind === "global" ? "scope" : "file";
+		location.kind === "global" ? "scope" : "file";
 	const agreement = liftAgreement(raw.raisedBy, raw.sourceFindingIds);
 	return {
 		id,
-		location: raw.location,
+		location,
 		label: raw.label,
 		decorations: raw.decorations ?? [],
 		subject: raw.subject,
@@ -445,6 +467,77 @@ function toJudgedFinding(
 		},
 		state: "draft",
 		...(agreement !== null ? { agreement } : {}),
+	};
+}
+
+/**
+ * Restore line-kind locations the judge collapsed to
+ * file-kind when every source finding cited in
+ * `sourceFindingIds` already anchored to the same file
+ * with line numbers.
+ *
+ * The collapse is the most common cause of findings
+ * degrading to body comments at post time: the judge
+ * sees five line-kind sources, picks the broadest unit
+ * (the file) and drops the specificity. Parent-side
+ * inheritance keeps the lines while letting the judge
+ * focus on consolidating discussion.
+ *
+ * Only `file`-kind judge locations qualify for upgrade.
+ * `global`-kind is treated as deliberate (the judge
+ * explicitly said "this is a scope-wide concern");
+ * `line`-kind is the judge's own anchor and wins.
+ * Mixed-file sources or any non-line source leaves the
+ * judge's choice in place.
+ */
+function autoInheritLineLocation(
+	raw: JudgeFinding,
+	context: JudgeParseContext,
+): { location: FindingLocation; warning?: string } {
+	if (raw.location.kind !== "file") {
+		return { location: raw.location };
+	}
+	const sourceIds = raw.sourceFindingIds ?? [];
+	if (sourceIds.length === 0) {
+		return { location: raw.location };
+	}
+	const sources = context.sourceFindings ?? [];
+	const byId = new Map(sources.map((f) => [f.id, f]));
+	type LineSide = "old" | "new" | "both";
+	const lineSources: Array<{
+		start: number;
+		end: number;
+		side: LineSide;
+	}> = [];
+	for (const sourceId of sourceIds) {
+		const source = byId.get(sourceId);
+		if (!source || source.location.kind !== "line") {
+			return { location: raw.location };
+		}
+		if (source.location.file !== raw.location.file) {
+			return { location: raw.location };
+		}
+		lineSources.push({
+			start: source.location.start,
+			end: source.location.end,
+			side: source.location.side,
+		});
+	}
+	if (lineSources.length === 0) {
+		return { location: raw.location };
+	}
+	const start = Math.min(...lineSources.map((s) => s.start));
+	const end = Math.max(...lineSources.map((s) => s.end));
+	const side = lineSources[0].side;
+	return {
+		location: {
+			kind: "line",
+			file: raw.location.file,
+			start,
+			end,
+			side,
+		},
+		warning: `Judge finding collapsed to file-kind on ${raw.location.file}; inherited line range ${start}-${end} from sources ${sourceIds.join(", ")}.`,
 	};
 }
 

@@ -50,8 +50,13 @@ Optional decorations:
 
 - `"line"` — has `file`, `start`, `end` and
   `side`: `"old"` | `"new"` | `"both"`. Anchor only to
-  changed PR lines you verified from source. Stale line
-  numbers and unchanged context lines are not valid
+  lines that appear in the PR diff hunks; the prompt
+  lists the anchorable line ranges per file under
+  **Anchorable line ranges**. The parent process warns
+  when a line finding falls outside those ranges — the
+  finding survives but will silently degrade to a body
+  comment unless the user fixes the range. Stale line
+  numbers and lines outside any hunk are not valid
   anchors.
 - `"file"` — has `file` only.
 - `"global"` — PR-level finding, no `file`.

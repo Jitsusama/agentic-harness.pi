@@ -1,5 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { parseReviewerOutput } from "../../../extensions/pr-workflow/parse.js";
+import type { DiffFile } from "../../../lib/internal/github/diff.js";
+
+function diffFile(path: string, newStart: number, newEnd: number): DiffFile {
+	const lines = Array.from({ length: newEnd - newStart + 1 }, (_, offset) => ({
+		type: "context" as const,
+		content: "x",
+		oldLineNumber: newStart + offset,
+		newLineNumber: newStart + offset,
+	}));
+	return {
+		path,
+		status: "modified",
+		additions: 1,
+		deletions: 0,
+		hunks: [
+			{
+				header: `@@ -${newStart},${lines.length} +${newStart},${lines.length} @@`,
+				oldStart: newStart,
+				oldCount: lines.length,
+				newStart,
+				newCount: lines.length,
+				lines,
+			},
+		],
+	};
+}
 
 /**
  * Reviewers return findings as JSON. Real LLM output is
@@ -357,5 +383,85 @@ describe("parseReviewerOutput", () => {
 			"file",
 			"scope",
 		]);
+	});
+
+	it("warns when a line-kind finding anchors outside the loaded diff hunks", () => {
+		const text = JSON.stringify({
+			findings: [
+				{
+					location: {
+						kind: "line",
+						file: "serve.go",
+						start: 200,
+						end: 210,
+						side: "new",
+					},
+					label: "issue",
+					subject: "off-diff",
+					discussion: "This finding points outside the changed lines.",
+				},
+			],
+		});
+		const result = parseReviewerOutput(text, {
+			reviewerId: "r1",
+			runId: "run-1",
+			startId: 1,
+			diffFiles: [diffFile("serve.go", 10, 50)],
+		});
+		expect(result.findings).toHaveLength(1);
+		expect(
+			result.warnings.some((w) => w.includes("serve.go") && w.includes("200")),
+		).toBe(true);
+	});
+
+	it("does not warn when a line-kind finding anchors inside the diff hunks", () => {
+		const text = JSON.stringify({
+			findings: [
+				{
+					location: {
+						kind: "line",
+						file: "serve.go",
+						start: 15,
+						end: 18,
+						side: "new",
+					},
+					label: "issue",
+					subject: "on-diff",
+					discussion: "OK",
+				},
+			],
+		});
+		const result = parseReviewerOutput(text, {
+			reviewerId: "r1",
+			runId: "run-1",
+			startId: 1,
+			diffFiles: [diffFile("serve.go", 10, 50)],
+		});
+		expect(result.warnings).toEqual([]);
+	});
+
+	it("skips the diff check when diffFiles isn't supplied", () => {
+		const text = JSON.stringify({
+			findings: [
+				{
+					location: {
+						kind: "line",
+						file: "serve.go",
+						start: 200,
+						end: 210,
+						side: "new",
+					},
+					label: "issue",
+					subject: "x",
+					discussion: "y",
+				},
+			],
+		});
+		const result = parseReviewerOutput(text, {
+			reviewerId: "r1",
+			runId: "run-1",
+			startId: 1,
+		});
+		expect(result.warnings).toEqual([]);
 	});
 });

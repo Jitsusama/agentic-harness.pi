@@ -91,6 +91,17 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 		sections.push(input.prDescription.trim());
 	}
 
+	if (input.files.length > 0) {
+		sections.push("## Anchorable line ranges");
+		sections.push(
+			"Line-kind findings must anchor to lines listed below. The " +
+				"verify pass rejects line locations outside these ranges; " +
+				"pick `file`- or `global`-kind for issues that span the file " +
+				"or scope as a whole.",
+		);
+		sections.push(renderAnchorableLineRanges(input.files));
+	}
+
 	sections.push("## Diff");
 	if (input.files.length === 0) {
 		sections.push("(no files changed)");
@@ -119,6 +130,61 @@ function pushPromptAddendum(
 	const trimmed = addendum?.trim();
 	if (trimmed === undefined || trimmed.length === 0) return;
 	sections.push(["## Provider review context", trimmed].join("\n\n"));
+}
+
+/**
+ * Compact, per-file summary of which lines in the diff
+ * a line-kind finding can anchor to. Reviewers see this
+ * BEFORE the full diff so the anchorable surface is
+ * explicit.
+ *
+ * Each file gets one line: `path: 47-89, 245-260`,
+ * collapsing contiguous hunks into a single range. Files
+ * with no hunks (renames, mode changes) are omitted.
+ */
+function renderAnchorableLineRanges(files: readonly DiffFile[]): string {
+	const lines: string[] = [];
+	for (const file of files) {
+		const ranges = anchorableRangesFor(file);
+		if (ranges.length === 0) continue;
+		lines.push(`${file.path}: ${ranges.join(", ")}`);
+	}
+	return lines.length === 0 ? "(no anchorable lines)" : lines.join("\n");
+}
+
+/**
+ * Collapse a file's hunks into a list of
+ * `start-end` strings on the new-side line numbers.
+ * Adjacent hunks that touch are merged so the output
+ * stays short.
+ */
+function anchorableRangesFor(file: DiffFile): string[] {
+	const rawRanges: Array<{ start: number; end: number }> = [];
+	for (const hunk of file.hunks) {
+		const lineNumbers: number[] = [];
+		for (const line of hunk.lines) {
+			const lineNumber = line.newLineNumber ?? line.oldLineNumber;
+			if (lineNumber !== null) lineNumbers.push(lineNumber);
+		}
+		if (lineNumbers.length === 0) continue;
+		rawRanges.push({
+			start: Math.min(...lineNumbers),
+			end: Math.max(...lineNumbers),
+		});
+	}
+	rawRanges.sort((a, b) => a.start - b.start);
+	const merged: Array<{ start: number; end: number }> = [];
+	for (const range of rawRanges) {
+		const tail = merged[merged.length - 1];
+		if (tail && range.start <= tail.end + 1) {
+			tail.end = Math.max(tail.end, range.end);
+		} else {
+			merged.push({ ...range });
+		}
+	}
+	return merged.map((r) =>
+		r.start === r.end ? `${r.start}` : `${r.start}-${r.end}`,
+	);
 }
 
 function renderFile(file: DiffFile): string {
