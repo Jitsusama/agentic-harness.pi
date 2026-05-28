@@ -87,19 +87,6 @@ describe("configureCouncil", () => {
 		expect(expectFailure(result).error).toMatch(/judge|distinct/i);
 	});
 
-	it("rejects reusing a locked reviewer id for a different identity", async () => {
-		const state = createPrWorkflowState();
-		state.participantIdentities.set("fast", {
-			id: "fast",
-			role: "reviewer",
-			model: "model-a",
-		});
-		const result = configureCouncil(state, {
-			reviewers: [{ id: "fast", model: "model-b" }],
-		});
-		expect(expectFailure(result).error).toMatch(/already used|new id/i);
-	});
-
 	it("allows reconfiguring a locked reviewer id with the same identity", async () => {
 		const state = createPrWorkflowState();
 		state.participantIdentities.set("fast", {
@@ -111,6 +98,66 @@ describe("configureCouncil", () => {
 			reviewers: [{ id: "fast", model: "model-a" }],
 		});
 		expect(result.ok).toBe(true);
+	});
+
+	it("replaces a locked reviewer id when no findings reference it", async () => {
+		// Re-running council-config after a failed run that
+		// produced zero findings should not fail because of
+		// the identity lock. Audit honesty is only meaningful
+		// when findings exist.
+		const state = createPrWorkflowState();
+		state.participantIdentities.set("fast", {
+			id: "fast",
+			role: "reviewer",
+			model: "model-a",
+			thinkingLevel: "xhigh",
+		});
+		const result = configureCouncil(state, {
+			reviewers: [{ id: "fast", model: "model-a", thinkingLevel: "high" }],
+		});
+		expect(result.ok).toBe(true);
+		expect(state.participantIdentities.get("fast")).toBeUndefined();
+	});
+
+	it("still rejects a locked reviewer id when findings reference it", async () => {
+		const state = createPrWorkflowState();
+		state.participantIdentities.set("fast", {
+			id: "fast",
+			role: "reviewer",
+			model: "model-a",
+		});
+		state.council.lastRun = {
+			id: "run-1",
+			startedAt: "2026-05-28T00:00:00Z",
+			target: { kind: "diff", prNumber: 1 },
+			reviewerOutputs: [
+				{
+					reviewerId: "fast",
+					warnings: [],
+					findings: [
+						{
+							id: 1,
+							location: { kind: "global" },
+							label: "issue",
+							decorations: [],
+							subject: "x",
+							discussion: "y",
+							category: "file",
+							origin: {
+								kind: "council",
+								runId: "run-1",
+								reviewerId: "fast",
+							},
+							state: "draft",
+						},
+					],
+				},
+			],
+		};
+		const result = configureCouncil(state, {
+			reviewers: [{ id: "fast", model: "model-b" }],
+		});
+		expect(expectFailure(result).error).toMatch(/already used/i);
 	});
 });
 
