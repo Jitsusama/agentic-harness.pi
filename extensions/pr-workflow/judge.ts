@@ -20,6 +20,7 @@
  */
 
 import { Value } from "@sinclair/typebox/value";
+import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type {
 	CouncilReviewer,
 	ReviewerUsage,
@@ -35,6 +36,7 @@ import {
 } from "./council-progress.js";
 import type { CouncilRun, Finding, FindingLocation } from "./findings.js";
 import { extractJson } from "./parse.js";
+import { hasValidInlineAnchor } from "./post.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import {
 	reviewQualityStandard,
@@ -91,6 +93,14 @@ export interface JudgeParseContext {
 	 * inheritance should be attempted.
 	 */
 	readonly sourceFindings?: readonly Finding[];
+	/**
+	 * PR diff used to validate line anchors. When supplied,
+	 * line-kind findings whose `start`/`end` falls outside
+	 * the diff emit a warning so the user sees the
+	 * degrade-to-body risk before `action=post`. Omit to
+	 * skip the check (same contract as the council parser).
+	 */
+	readonly diffFiles?: readonly DiffFile[];
 }
 
 /** Output of `parseJudgeOutput`. */
@@ -115,6 +125,8 @@ export interface RunJudgeOptions {
 	readonly promptAddendum?: string;
 	/** First session-global finding id available to this judge run. */
 	readonly startId?: number;
+	/** Diff used to validate line anchors on judge findings. */
+	readonly diffFiles?: readonly DiffFile[];
 }
 
 /**
@@ -283,7 +295,12 @@ export function parseJudgeOutput(
 		}
 		const inherited = autoInheritLineLocation(raw, context);
 		if (inherited.warning) warnings.push(inherited.warning);
-		findings.push(toJudgedFinding(raw, inherited.location, nextId, context));
+		const finding = toJudgedFinding(raw, inherited.location, nextId, context);
+		if (context.diffFiles && context.diffFiles.length > 0) {
+			const anchorWarning = judgeLineAnchorWarning(finding, context.diffFiles);
+			if (anchorWarning) warnings.push(anchorWarning);
+		}
+		findings.push(finding);
 		nextId++;
 	}
 
@@ -365,6 +382,7 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 			sourceFindings: options.council.reviewerOutputs.flatMap(
 				(output) => output.findings,
 			),
+			...(options.diffFiles ? { diffFiles: options.diffFiles } : {}),
 		});
 		const warnings = [
 			...dispatched.warnings,
@@ -424,6 +442,28 @@ function nextIdAfterCouncil(run: CouncilRun): number {
 		}
 	}
 	return max + 1;
+}
+
+/**
+ * Mirror of the council parser's anchor warning for the
+ * judge. When the judge emits or inherits a line-kind
+ * location that falls outside the diff hunks, the post
+ * step will silently degrade it to a body comment. Surface
+ * that early so the user can `verdict=edit` the location
+ * before posting.
+ */
+function judgeLineAnchorWarning(
+	finding: Finding,
+	diffFiles: readonly DiffFile[],
+): string | null {
+	if (finding.location.kind !== "line") return null;
+	if (hasValidInlineAnchor(finding.location, diffFiles)) return null;
+	const { file, start, end } = finding.location;
+	return (
+		`Judge finding ${finding.id} anchors at ${file}:${start}-${end} ` +
+		"but those lines are not in the PR diff hunks; it will degrade to a " +
+		"body comment. Use `verdict=edit` with the correct line range to fix."
+	);
 }
 
 function toSelfSignal(raw: unknown): JudgeSelfSignal | null {

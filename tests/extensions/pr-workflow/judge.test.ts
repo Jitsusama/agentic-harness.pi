@@ -187,6 +187,105 @@ describe("parseJudgeOutput", () => {
 		startId: 100,
 	};
 
+	describe("line-anchor warnings", () => {
+		function diffFile(
+			path: string,
+			newStart: number,
+			newEnd: number,
+		): import("../../../lib/internal/github/diff.js").DiffFile {
+			const lines = Array.from(
+				{ length: newEnd - newStart + 1 },
+				(_, offset) => ({
+					type: "context" as const,
+					content: "x",
+					oldLineNumber: newStart + offset,
+					newLineNumber: newStart + offset,
+				}),
+			);
+			return {
+				path,
+				status: "modified",
+				additions: 1,
+				deletions: 0,
+				hunks: [
+					{
+						header: `@@ -${newStart},${lines.length} +${newStart},${lines.length} @@`,
+						oldStart: newStart,
+						oldCount: lines.length,
+						newStart,
+						newCount: lines.length,
+						lines,
+					},
+				],
+			};
+		}
+
+		it("warns when a judge line-kind finding anchors outside the diff", () => {
+			// Mirrors the council parser's anchor check so the
+			// user sees the degrade-to-body risk before post.
+			const text = [
+				"```json",
+				JSON.stringify({
+					findings: [
+						{
+							location: {
+								kind: "line",
+								file: "serve.go",
+								start: 999,
+								end: 999,
+								side: "new",
+							},
+							label: "issue",
+							subject: "s",
+							discussion: "d",
+						},
+					],
+				}),
+				"```",
+			].join("\n");
+			const result = parseJudgeOutput(text, {
+				...CTX,
+				diffFiles: [diffFile("serve.go", 1, 50)],
+			});
+			expect(result.findings).toHaveLength(1);
+			expect(
+				result.warnings.some(
+					(w) =>
+						w.includes("serve.go:999-999") &&
+						w.includes("degrade to a body comment"),
+				),
+			).toBe(true);
+		});
+
+		it("stays silent when the line anchor is inside the diff hunks", () => {
+			const text = [
+				"```json",
+				JSON.stringify({
+					findings: [
+						{
+							location: {
+								kind: "line",
+								file: "serve.go",
+								start: 10,
+								end: 15,
+								side: "new",
+							},
+							label: "issue",
+							subject: "s",
+							discussion: "d",
+						},
+					],
+				}),
+				"```",
+			].join("\n");
+			const result = parseJudgeOutput(text, {
+				...CTX,
+				diffFiles: [diffFile("serve.go", 1, 50)],
+			});
+			expect(result.warnings).toEqual([]);
+		});
+	});
+
 	describe("line-location auto-inherit from sources", () => {
 		function reviewerLineFinding(
 			id: number,
