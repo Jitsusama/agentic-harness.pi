@@ -210,6 +210,71 @@ If a fleet would dispatch more than ~5 jobs, ask first.
 "Want me to run security + performance + readability on
 this module, or scope it down?" gives the user an exit.
 
+## Long-running personas
+
+The supervisor enforces two ceilings on every subagent
+run: a 20-minute hard wall-clock cap (`timeoutMs`) and a
+5-minute idle ceiling (`idleTimeoutMs`) between supervisor
+progress events. The idle ceiling is the one that bites
+first in practice. A subagent that issues a single
+long-running bash command — a benchmark that paces work
+internally, a `gcloud` deploy that ssh-then-scps in
+silence, a `git push` against a large mirror — stays
+invisible to the supervisor for the whole duration and
+gets a SIGTERM at the 5-minute mark. The symptom looks
+like `✗ {id}: pi exited with code 143` with a half-
+finished workflow on disk.
+
+Every job accepts optional per-call overrides:
+
+- **`timeoutMs`** — hard wall-clock cap in milliseconds.
+  Bump this when the work legitimately runs longer than
+  20 minutes (soak tests, recovery journeys, deep
+  multi-step deploys).
+- **`idleTimeoutMs`** — gap between supervisor protocol
+  events before the child is declared stuck, in
+  milliseconds. Bump this when the subagent will sit on
+  one bash command that produces no intermediate output.
+
+Overrides are per-job. Short-lived siblings in the same
+fleet keep the tight defaults, so a stuck reviewer in
+that slot still fails fast.
+
+Size the override against the longest single bash
+command the persona will issue, then add headroom.
+Rough guidance:
+
+| Workload                                       | `idleTimeoutMs` | `timeoutMs` |
+|------------------------------------------------|-----------------|-------------|
+| Read-only investigation (default)              | unset           | unset       |
+| Benchmark / deploy run with paced internal work | 15 min          | 45 min      |
+| Soak or recovery journey, multi-iteration      | 30 min          | 90 min      |
+
+If you can't predict the bash duration, ask the persona
+to narrate progress (`echo` between steps, `tee` per-
+iteration output) so the supervisor sees activity. The
+idle clock resets on every supervisor event.
+
+Example — a benchmark persona that paces 100 pushes over
+several minutes:
+
+```ts
+subagent({
+  jobs: [
+    {
+      id: "baseline-bench",
+      cwd: "/tmp/run",
+      systemPrompt: "You are a perf engineer establishing a baseline …",
+      userPrompt: "Run gsperf against production, capture results.",
+      tools: ["read", "write", "bash"],
+      isolated: false,
+      idleTimeoutMs: 15 * 60 * 1000,  // 15 min between supervisor events
+      timeoutMs: 45 * 60 * 1000,       // 45 min wall-clock cap
+    },
+  ],
+});
+```
+
 ## Worked example 1 — three-persona project audit
 
 User asks: "Take a look at `src/auth/` from a few
