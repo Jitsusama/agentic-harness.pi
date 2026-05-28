@@ -34,6 +34,79 @@ import { checkSubagentRuntime, detectStaleInstallInStderr } from "./health.js";
  */
 const STALE_RUNTIME_EXIT_CODE = 127;
 
+/**
+ * Lower bound on per-call timeout overrides. Mirrors the
+ * tool schema's `Type.Integer({ minimum: 1000 })` so the
+ * library boundary applies the same floor regardless of
+ * which entry point fires (the fleet tool, pr-workflow,
+ * a direct library consumer).
+ */
+const MIN_TIMEOUT_MS = 1000;
+
+/**
+ * Upper bound on per-call timeout overrides. Two hours is
+ * already past anything any reviewer or fleet persona
+ * legitimately needs, and stays well below Node's
+ * 32-bit-signed-int timer ceiling (~24.8 days) where
+ * `setTimeout` silently coerces back to 1 ms.
+ */
+const MAX_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Validate a per-call timeout override at the library
+ * boundary. Throws when the value is not a finite
+ * integer, sits below the floor or exceeds the ceiling.
+ * Callers that pass `undefined` are leaving the runner
+ * default in place and skip the check.
+ */
+function validateTimeout(field: string, value: number | undefined): void {
+	if (value === undefined) return;
+	if (
+		typeof value !== "number" ||
+		!Number.isFinite(value) ||
+		!Number.isInteger(value)
+	) {
+		throw new Error(
+			`Invalid ${field}: expected a finite integer in milliseconds, got ${String(value)}.`,
+		);
+	}
+	if (value < MIN_TIMEOUT_MS) {
+		throw new Error(
+			`Invalid ${field}: ${value} ms is below the ${MIN_TIMEOUT_MS} ms floor.`,
+		);
+	}
+	if (value > MAX_TIMEOUT_MS) {
+		throw new Error(
+			`Invalid ${field}: ${value} ms exceeds the ${MAX_TIMEOUT_MS} ms ceiling.`,
+		);
+	}
+}
+
+/**
+ * Validate the timeout pair as a whole. `idleTimeoutMs`
+ * higher than `timeoutMs` would let the wall-clock cap
+ * fire first regardless of how patient the idle ceiling
+ * is — a footgun for someone who only bumps one column
+ * of the sizing table. Caught here so library callers
+ * see the same error the tool schema would have raised.
+ */
+function validateTimeoutPair(
+	timeoutMs: number | undefined,
+	idleTimeoutMs: number | undefined,
+): void {
+	validateTimeout("timeoutMs", timeoutMs);
+	validateTimeout("idleTimeoutMs", idleTimeoutMs);
+	if (
+		timeoutMs !== undefined &&
+		idleTimeoutMs !== undefined &&
+		idleTimeoutMs > timeoutMs
+	) {
+		throw new Error(
+			`Invalid timeout pair: idleTimeoutMs (${idleTimeoutMs} ms) exceeds timeoutMs (${timeoutMs} ms); the wall clock would fire first.`,
+		);
+	}
+}
+
 import { ReviewerStreamParser } from "./stream.js";
 
 function dedupePaths(paths: readonly string[]): string[] {
@@ -155,6 +228,25 @@ export type RunPi = (opts: {
 	 * broken observer can't kill the run.
 	 */
 	readonly onEvent?: (event: RunPiStreamEvent) => void;
+	/**
+	 * Per-call hard wall-clock timeout in milliseconds.
+	 * Overrides the runner's configured default. Use for
+	 * one-off long-running subagents (soak tests, recovery
+	 * runs) without bumping the global default.
+	 */
+	readonly timeoutMs?: number;
+	/**
+	 * Per-call idle timeout in milliseconds: how long the
+	 * supervisor will wait between supervisor protocol
+	 * events before declaring the child stuck. Overrides
+	 * the runner's configured default. Set high when the
+	 * subagent issues long-running bash commands that don't
+	 * stream progress (deploys, benchmarks). Non-supervising
+	 * runners (e.g. the raw spawn runner) ignore the value
+	 * and surface a one-line warning on the result so the
+	 * caller knows the override didn't apply.
+	 */
+	readonly idleTimeoutMs?: number;
 }) => Promise<RunPiResult>;
 
 /** Inputs `runReviewer` needs to dispatch one pi process. */
@@ -245,6 +337,20 @@ export interface RunReviewerOptions {
 	 */
 	readonly onEvent?: (event: RunPiStreamEvent) => void;
 	/**
+	 * Per-call hard wall-clock timeout in milliseconds.
+	 * Forwarded to `runPi`. Overrides the runner's
+	 * configured default for this one call.
+	 */
+	readonly timeoutMs?: number;
+	/**
+	 * Per-call idle timeout in milliseconds. Forwarded to
+	 * `runPi`. Overrides the runner's configured default
+	 * for this one call. Use when the subagent will issue
+	 * long-running bash commands that stay silent on
+	 * stdout.
+	 */
+	readonly idleTimeoutMs?: number;
+	/**
 	 * Runtime health probe. Defaults to the module-level
 	 * `checkSubagentRuntime` bound to `process.execPath`.
 	 * Tests inject a fake to exercise the stale-runtime
@@ -296,6 +402,17 @@ export interface RunReviewerResult {
 export async function runReviewer(
 	options: RunReviewerOptions,
 ): Promise<RunReviewerResult> {
+	// Per-call timeout overrides arrive as opaque numbers
+	// from the public API (library consumers and the fleet
+	// tool). The schema enforces a floor at the tool
+	// boundary, but the library is also a public entry
+	// point: pr-workflow's reviewers and any future caller
+	// land here directly. Validate once at the boundary so
+	// nonsense values (NaN, negatives, idle > wall) never
+	// reach the runner where they'd kill the child or
+	// silently bypass the ceiling.
+	validateTimeoutPair(options.timeoutMs, options.idleTimeoutMs);
+
 	// Refuse to spawn when pi was updated or removed
 	// mid-session — the parent's argv-derived extension
 	// paths point at a directory that no longer exists and
@@ -346,6 +463,12 @@ export async function runReviewer(
 		reviewerId: options.reviewer.id,
 		signal: options.signal,
 		onEvent: options.onEvent,
+		...(options.timeoutMs !== undefined
+			? { timeoutMs: options.timeoutMs }
+			: {}),
+		...(options.idleTimeoutMs !== undefined
+			? { idleTimeoutMs: options.idleTimeoutMs }
+			: {}),
 	});
 
 	const parsed = extractRunPiOutput(result);
@@ -676,6 +799,24 @@ export interface SubagentJob {
 	 * `ok: true` before accepting the run.
 	 */
 	readonly verify?: VerifyPack;
+	/**
+	 * Hard wall-clock timeout in milliseconds for this
+	 * job's subprocess. Overrides the runner's configured
+	 * default. Use for jobs that are expected to run
+	 * longer than the global ceiling (deep investigations,
+	 * soak tests, multi-step deploys).
+	 */
+	readonly timeoutMs?: number;
+	/**
+	 * Idle timeout in milliseconds for this job: how long
+	 * the supervisor will wait between supervisor protocol
+	 * events before declaring the child stuck. Overrides
+	 * the runner's configured default. Bump this when the
+	 * subagent's natural workflow contains long bash
+	 * commands that stream no progress (gsperf bench runs,
+	 * git pushes against a large mirror, gcloud deploys).
+	 */
+	readonly idleTimeoutMs?: number;
 }
 
 /** Token + cost figures for one subagent run. */
@@ -727,6 +868,10 @@ export async function runSubagent(opts: {
 		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
 		...(extraSkills.length > 0 ? { extraSkills } : {}),
 		...(verify ? { requiresVerification: true } : {}),
+		...(job.timeoutMs !== undefined ? { timeoutMs: job.timeoutMs } : {}),
+		...(job.idleTimeoutMs !== undefined
+			? { idleTimeoutMs: job.idleTimeoutMs }
+			: {}),
 		runPi: opts.runPi,
 		...(opts.runId ? { runId: opts.runId } : {}),
 		...(opts.signal ? { signal: opts.signal } : {}),

@@ -79,6 +79,15 @@ user. `totalUsage` lets it confirm spend.
 - **No `runId` required.** The extension generates one
   when omitted so durable supervisor artifacts always
   have somewhere to land.
+- **Per-job timeout overrides.** The supervisor enforces
+  a 20-minute wall-clock cap and a 5-minute idle ceiling
+  by default. Jobs that issue long-running bash commands
+  with no intermediate output (benchmarks, deploys,
+  pushes against large mirrors) override either or both
+  via the optional `timeoutMs` and `idleTimeoutMs` fields,
+  both in milliseconds. Overrides are per-job; short-
+  lived siblings keep the tight defaults. The skill
+  covers when to reach for them.
 
 ## Default extensions and skills
 

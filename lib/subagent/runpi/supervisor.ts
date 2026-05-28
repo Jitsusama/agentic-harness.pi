@@ -73,6 +73,8 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 		onEvent,
 		runId,
 		reviewerId,
+		timeoutMs,
+		idleTimeoutMs,
 	}) {
 		const effectiveRunId = runId ?? `reviewer-${Date.now()}`;
 		const effectiveReviewerId = reviewerId ?? "reviewer";
@@ -81,13 +83,22 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 			effectiveReviewerId,
 		);
 		const root = store.rootPaths(effectiveRunId);
-		const request = buildRequest(config, paths, root.cancelPath, {
-			runId: effectiveRunId,
-			reviewerId: effectiveReviewerId,
-			binary: config.binary,
-			args,
-			cwd,
-		});
+		const request = buildRequest(
+			config,
+			paths,
+			root.cancelPath,
+			{
+				runId: effectiveRunId,
+				reviewerId: effectiveReviewerId,
+				binary: config.binary,
+				args,
+				cwd,
+			},
+			{
+				...(timeoutMs !== undefined ? { timeoutMs } : {}),
+				...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
+			},
+		);
 		await store.writeJsonAtomic(paths.requestPath, request);
 
 		return new Promise<RunPiResult>((resolve, reject) => {
@@ -205,6 +216,10 @@ function buildRequest(
 		readonly args: readonly string[];
 		readonly cwd: string;
 	},
+	overrides: {
+		readonly timeoutMs?: number;
+		readonly idleTimeoutMs?: number;
+	} = {},
 ): unknown {
 	return {
 		schemaVersion: 1,
@@ -212,8 +227,11 @@ function buildRequest(
 		parentPid: process.pid,
 		paths,
 		runCancelPath,
-		timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-		idleTimeoutMs: config.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
+		timeoutMs: overrides.timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+		idleTimeoutMs:
+			overrides.idleTimeoutMs ??
+			config.idleTimeoutMs ??
+			DEFAULT_IDLE_TIMEOUT_MS,
 		killGraceMs: config.killGraceMs ?? DEFAULT_KILL_GRACE_MS,
 		maxEventBytes: config.maxEventBytes ?? DEFAULT_MAX_EVENT_BYTES,
 		maxEventRotations: config.maxEventRotations ?? DEFAULT_MAX_EVENT_ROTATIONS,

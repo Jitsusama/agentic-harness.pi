@@ -59,6 +59,8 @@ export interface ToolJobInput {
 		readonly extensionPath: string;
 		readonly skillPath?: string;
 	};
+	readonly timeoutMs?: number;
+	readonly idleTimeoutMs?: number;
 }
 
 /**
@@ -97,6 +99,10 @@ export function buildAssignment(job: ToolJobInput): FleetAssignment {
 							}
 						: { extensionPath: job.verify.extensionPath },
 				}
+			: {}),
+		...(job.timeoutMs !== undefined ? { timeoutMs: job.timeoutMs } : {}),
+		...(job.idleTimeoutMs !== undefined
+			? { idleTimeoutMs: job.idleTimeoutMs }
 			: {}),
 	};
 	return { spec, job: jobPayload };

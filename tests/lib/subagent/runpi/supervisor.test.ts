@@ -320,6 +320,116 @@ describe("createSupervisorRunPi", () => {
 		).toBe(true);
 	});
 
+	it("prefers per-call timeout overrides over config defaults", async () => {
+		// Long-running personas (gsperf bench runs, gcloud
+		// deploys) need to push the idle and wall-clock
+		// ceilings up without nudging the global default that
+		// short-lived siblings benefit from. The runner reads
+		// per-call overrides off the `RunPi` opts and writes
+		// them into the supervisor request JSON, where the
+		// node supervisor honours them on each run.
+		const stateDir = await tempStateDir();
+		const fake = makeFakeChild();
+		let captured: { timeoutMs?: number; idleTimeoutMs?: number } = {};
+		const runPi = createSupervisorRunPi({
+			binary: "pi",
+			nodeBinary: "node",
+			supervisorPath: "/pkg/reviewer-supervisor.mjs",
+			stateDir,
+			idleTimeoutMs: 1_000,
+			timeoutMs: 2_000,
+			spawn: (_command, args) => {
+				queueMicrotask(async () => {
+					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
+					captured = {
+						timeoutMs: request.timeoutMs,
+						idleTimeoutMs: request.idleTimeoutMs,
+					};
+					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
+						request.paths.resultPath,
+						{
+							exitCode: 0,
+							finalAssistantText: "done",
+							warnings: [],
+							stderrTail: "",
+						},
+					);
+					fake.stdout.end(
+						`${JSON.stringify({ type: "terminal", resultPath: request.paths.resultPath })}\n`,
+					);
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+
+		await runPi({
+			args: [],
+			cwd: "/tmp",
+			runId: "run",
+			reviewerId: "long",
+			timeoutMs: 45 * 60 * 1000,
+			idleTimeoutMs: 15 * 60 * 1000,
+		});
+
+		expect(captured).toEqual({
+			timeoutMs: 45 * 60 * 1000,
+			idleTimeoutMs: 15 * 60 * 1000,
+		});
+	});
+
+	it("falls back to config-level timeouts when the call omits them", async () => {
+		// Per-call overrides are opt-in. When absent the
+		// runner's configured defaults win; when those are
+		// also absent the module-level constants apply. This
+		// keeps existing callers (pr-workflow, the fleet tool
+		// without per-job overrides) on their current
+		// behaviour.
+		const stateDir = await tempStateDir();
+		const fake = makeFakeChild();
+		let captured: { timeoutMs?: number; idleTimeoutMs?: number } = {};
+		const runPi = createSupervisorRunPi({
+			binary: "pi",
+			nodeBinary: "node",
+			supervisorPath: "/pkg/reviewer-supervisor.mjs",
+			stateDir,
+			idleTimeoutMs: 7_777,
+			timeoutMs: 8_888,
+			spawn: (_command, args) => {
+				queueMicrotask(async () => {
+					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
+					captured = {
+						timeoutMs: request.timeoutMs,
+						idleTimeoutMs: request.idleTimeoutMs,
+					};
+					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
+						request.paths.resultPath,
+						{
+							exitCode: 0,
+							finalAssistantText: "done",
+							warnings: [],
+							stderrTail: "",
+						},
+					);
+					fake.stdout.end(
+						`${JSON.stringify({ type: "terminal", resultPath: request.paths.resultPath })}\n`,
+					);
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+
+		await runPi({
+			args: [],
+			cwd: "/tmp",
+			runId: "run",
+			reviewerId: "default",
+		});
+
+		expect(captured).toEqual({ timeoutMs: 8_888, idleTimeoutMs: 7_777 });
+	});
+
 	it("writes a durable reviewer cancellation request on abort", async () => {
 		const stateDir = await tempStateDir();
 		const fake = makeFakeChild();
