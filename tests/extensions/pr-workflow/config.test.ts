@@ -101,6 +101,22 @@ describe("parsePrWorkflowConfig", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) expect(result.error).toMatch(/thinkingLevel/i);
 	});
+
+	it("accepts the full pi thinking-level set", () => {
+		for (const level of [
+			"off",
+			"minimal",
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+		] as const) {
+			const result = parsePrWorkflowConfig({
+				reviewers: [{ id: "fast", thinkingLevel: level }],
+			});
+			expect(result.ok, `level ${level} should parse`).toBe(true);
+		}
+	});
 });
 
 describe("loadPrWorkflowConfig", () => {

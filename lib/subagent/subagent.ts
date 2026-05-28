@@ -170,7 +170,13 @@ export interface SubagentSpec {
 export type CouncilReviewer = SubagentSpec;
 
 /** Thinking levels accepted by pi's `--thinking` flag. */
-export type ReviewerThinkingLevel = "off" | "low" | "medium" | "high";
+export type ReviewerThinkingLevel =
+	| "off"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh";
 
 export interface ReviewerVerification {
 	/** Whether the reviewer called verify_output at least once. */

@@ -422,10 +422,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							}),
 						),
 						thinkingLevel: Type.Optional(
-							StringEnum(["off", "low", "medium", "high"] as const, {
-								description:
-									"Pi --thinking value. Omit to inherit pi's session default.",
-							}),
+							StringEnum(
+								["off", "minimal", "low", "medium", "high", "xhigh"] as const,
+								{
+									description:
+										"Pi --thinking value. Omit to inherit pi's session default.",
+								},
+							),
 						),
 						tools: Type.Optional(
 							Type.Array(Type.String(), {
@@ -453,10 +456,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							}),
 						),
 						thinkingLevel: Type.Optional(
-							StringEnum(["off", "low", "medium", "high"] as const, {
-								description:
-									"Pi --thinking value for the judge. Omit to inherit pi's session default.",
-							}),
+							StringEnum(
+								["off", "minimal", "low", "medium", "high", "xhigh"] as const,
+								{
+									description:
+										"Pi --thinking value for the judge. Omit to inherit pi's session default.",
+								},
+							),
 						),
 						tools: Type.Optional(
 							Type.Array(Type.String(), {

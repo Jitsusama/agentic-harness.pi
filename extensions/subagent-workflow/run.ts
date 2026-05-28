@@ -17,6 +17,7 @@
  */
 
 import type {
+	ReviewerThinkingLevel,
 	RunPi,
 	SubagentJob,
 	SubagentRunResult,
@@ -47,7 +48,7 @@ export interface FleetAssignment {
 export interface ToolJobInput {
 	readonly id: string;
 	readonly model?: string;
-	readonly thinkingLevel?: "off" | "low" | "medium" | "high";
+	readonly thinkingLevel?: ReviewerThinkingLevel;
 	readonly tools?: readonly string[];
 	readonly cwd: string;
 	readonly systemPrompt?: string;

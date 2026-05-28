@@ -20,9 +20,11 @@ const CONFIG_FILENAME = "pr-workflow.json";
 const CONFIG_DIR = "pi";
 const THINKING_LEVELS: ReadonlySet<string> = new Set([
 	"off",
+	"minimal",
 	"low",
 	"medium",
 	"high",
+	"xhigh",
 ]);
 
 /** Reviewer defaults loaded from a config file. */
