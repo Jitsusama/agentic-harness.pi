@@ -3,16 +3,16 @@
  *
  * A tracker and a reminder for test-driven development, not a
  * turnstile. The agent drives one discrete red-green-refactor
- * loop at a time through the tdd_phase tool, attesting each
+ * loop at a time through the tdd_loop tool, attesting each
  * transition. The machine advances only when the attestation
  * carries the justification the step requires, and otherwise
  * hands back guidance and changes nothing. There are no user
  * prompts: the human's surface is the passive glyph scoreboard.
  *
  * The extension interprets nothing about the outside world. It
- * never reads code, test output or file paths; the one guardrail
- * it enforces is the agent's own contract, which is what stays
- * robust across every language.
+ * never reads code, test output or file paths; it tracks the
+ * agent's own attestation, the one contract that stays robust
+ * across every language.
  */
 
 import { StringEnum } from "@mariozechner/pi-ai";

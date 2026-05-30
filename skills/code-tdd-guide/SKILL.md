@@ -4,7 +4,7 @@ description: >
   Test-driven development methodology. Red-green-refactor
   cycle, when to stub, how to validate failure reasons,
   commit cadence. Use when implementing with TDD, writing
-  tests first or driving the tdd_phase loop.
+  tests first or driving the tdd_loop tool.
 ---
 
 # Test-Driven Development
@@ -133,19 +133,18 @@ Infer what counts as a test file from the project:
 
 If you can't determine the convention, ask.
 
-## The tdd_phase Loop
+## The tdd_loop Tool
 
-The `tdd_phase` tool tracks one red-green-refactor loop at a
+The `tdd_loop` tool tracks one red-green-refactor loop at a
 time. It is a tracker and a reminder, not a gate. It never
 interrupts the user and it never blocks your file writes. You
-drive it, and the only human-facing surface is a small glyph on
-the status line that shows where the loop is.
+drive it, and the only human-facing surface is a small glyph and
+the phase name on the status line.
 
 Run **one loop per increment**. Open a loop when you're ready
 for the next single behaviour, take it through to green and
-refactor, then close it before you open the next. Resist
-batching several behaviours into one loop: the discipline lives
-in the size of the step.
+refactor, then close it before you open the next. Keep each loop
+to one behaviour rather than batching several together.
 
 Each transition carries a short justification: a phrase, an
 assertion line, a one-line reflection. The machine advances only
@@ -156,11 +155,17 @@ guidance, do what it names and try the transition again.
 
 ### The Transitions
 
-- **start** (`behaviour`): the single behaviour you want, named
-  as the exported thing you want to exist. Opens the loop.
-- **write** (`interface`): the exported surface the test binds
-  to. You're authoring the test now; bind it to the public
-  interface, never the internals.
+The classic three steps expand into the tool's transitions. Red
+becomes `plan`, `write` and `red`; the loop then closes with
+`done` after `refactor`. Every loop passes through `refactor` to
+reach `done`, even as a no-op when there's nothing to change.
+
+- **plan** (`behaviour`): what the code should do, in one
+  phrase, named after the symbol you wish existed. Opens the
+  loop into the `plan` phase.
+- **write** (`interface`): the exact exported surface the test
+  imports and calls. Bind the test to the public interface,
+  never the internals.
 - **red** (`failure`, `failureKind`): the failure you saw when
   you ran the test. A compile or missing-symbol error is
   `failureKind: "other"` and is not a real red, so stub a
@@ -170,19 +175,20 @@ guidance, do what it names and try the transition again.
 - **green** (`pass`): the passing result you saw. Write the
   minimum code to pass. Do not touch the test to make it green.
 - **refactor**: no justification needed. Improve the design with
-  the tests staying green.
+  the tests staying green. Required on the way to `done`.
 - **done** (`reflection`): a one-line note on what you
   reconsidered about the internal and external design. Closes
   the loop and returns to rest.
 - **abandon** (`reason`): leave the loop early. Use this when
-  the user steers you elsewhere; don't leave a loop dangling
-  silently.
+  the user steers you elsewhere, or when a loop can't be
+  satisfied; don't leave one dangling silently.
 
 ### Attest Red Honestly
 
-The one rule worth repeating: attest red honestly. The whole
-value of red is proving the test fails for the reason you think.
-A `TypeError` or a missing symbol is not that proof. When you
+Attest red honestly. The whole value of red is proving the test
+fails for the reason you think. A `TypeError` or a missing
+symbol is not that proof; it is `failureKind: "other"`. When you
 hit one, stub just enough skeleton to get a real assertion
-failure, then attest the real red. The tool tracks this through
-the verification step, but the honesty is yours to supply.
+failure, then attest the real red with `failureKind:
+"assertion"`. The tool records the kind you report; it never
+reads your test output, so report it straight.
