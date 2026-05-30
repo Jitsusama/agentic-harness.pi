@@ -564,7 +564,8 @@ are active.
 
 Only panel height toggles remain as global shortcuts. All
 other features are accessed via slash commands (`/plan`,
-`/tdd`, `/pr-review`, `/pr-reply`).
+`/pr-review`, `/pr-reply`) or, for the TDD loop, the
+`tdd_loop` tool.
 
 | Shortcut | Extension | Action |
 |---|---|---|
@@ -646,12 +647,9 @@ confirmation gates.
 
 #### TDD Mode
 
-| Context | Key | Action |
-|---|---|---|
-| Phase transition gate | `m` | Move to next phase |
-| Phase transition gate | `s` | Stay in current phase |
-| Refactor gate | `a` | Approve refactoring |
-| Refactor gate | `r` | Reject refactoring |
+The TDD workflow has no keybindings. The agent drives it through
+the `tdd_loop` tool, and the only human-facing surface is the
+passive glyph scoreboard on the status line.
 
 #### PR Annotate (Vet Workspace)
 

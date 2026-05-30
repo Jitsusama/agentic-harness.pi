@@ -1,155 +1,84 @@
 /**
- * Manages the TDD mode lifecycle: activation, deactivation,
- * toggling, advancing through phases, and persisting state
- * across sessions.
+ * Persistence and the live scoreboard. persist and restore
+ * carry the loop across a `/reload` by round-tripping through
+ * session history; they touch no UI so they stay unit-testable.
+ * updateScoreboard is the one live surface: it paints the
+ * status line and the widget through the running theme.
  */
 
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { getLastEntry } from "../../lib/internal/state.js";
-import {
-	PHASE_COLORS,
-	PHASE_GLYPH,
-	type TddPhase,
-	type TddState,
-} from "./state.js";
+import { initialState, type Phase } from "./machine.js";
+import { renderStatus, renderWidget } from "./render.js";
+import type { TddState } from "./state.js";
 
-/** Shape of TDD data written to session history. */
-interface PersistedState {
-	enabled?: boolean;
-	phase?: TddPhase;
-	cycle?: number;
-	planFile?: string | null;
-	testDescription?: string | null;
+/** Width fallback when the terminal width is unknown. */
+const DEFAULT_WIDTH = 80;
+
+/** The phases a persisted entry may legitimately carry. */
+const PHASES: Phase[] = ["idle", "plan", "write", "red", "green", "refactor"];
+
+/** The session-history shape of a persisted loop. */
+interface PersistedLoop {
+	phase?: Phase;
+	assertionFailure?: boolean;
+	behaviour?: string | null;
+	iteration?: number;
 }
 
-function updateUI(state: TddState, ctx: ExtensionContext): void {
-	if (!state.enabled) {
-		ctx.ui.setStatus("tdd-workflow", undefined);
-		ctx.ui.setWidget("tdd-test", undefined);
+/** Save the current loop to session history. */
+export function persist(state: TddState, pi: ExtensionAPI): void {
+	const loop = state.loop;
+	pi.appendEntry("tdd-workflow", {
+		phase: loop.phase,
+		assertionFailure: loop.assertionFailure,
+		behaviour: loop.behaviour,
+		iteration: loop.iteration,
+	});
+}
+
+/**
+ * Whether a persisted entry is a loop this version understands.
+ * A legacy gated entry carries an `enabled` flag; a current entry
+ * carries a known phase. A current entry missing a later-added
+ * field is still ours, so it is rehydrated rather than dropped.
+ */
+function isLoopEntry(saved: PersistedLoop): boolean {
+	if ("enabled" in saved) {
+		return false;
+	}
+	return (
+		typeof saved.phase === "string" &&
+		(PHASES as string[]).includes(saved.phase)
+	);
+}
+
+/** Rehydrate the loop from session history, or start fresh. */
+export function restore(state: TddState, ctx: ExtensionContext): void {
+	const saved = getLastEntry<PersistedLoop>(ctx, "tdd-workflow");
+	if (!saved || !isLoopEntry(saved)) {
+		state.loop = initialState();
 		return;
 	}
+	state.loop = {
+		phase: saved.phase ?? "idle",
+		assertionFailure: saved.assertionFailure ?? false,
+		behaviour: saved.behaviour ?? null,
+		iteration: saved.iteration ?? 0,
+	};
+}
 
-	const color = PHASE_COLORS[state.phase];
-	const theme = ctx.ui.theme;
-	ctx.ui.setStatus(
-		"tdd-workflow",
-		`${theme.fg(color, PHASE_GLYPH)} ${theme.fg("muted", "TDD")}`,
+/** Repaint the status line and the widget from the current loop. */
+export function updateScoreboard(state: TddState, ctx: ExtensionContext): void {
+	ctx.ui.setStatus("tdd-workflow", renderStatus(state.loop, ctx.ui.theme));
+	const width = process.stdout.columns || DEFAULT_WIDTH;
+	ctx.ui.setWidget(
+		"tdd-loop",
+		state.loop.phase !== "idle"
+			? renderWidget(state.loop, ctx.ui.theme, width)
+			: undefined,
 	);
-
-	const desc = state.testDescription;
-
-	ctx.ui.setWidget("tdd-test", (_tui, theme) => {
-		const coloredGlyph = theme.fg(color, PHASE_GLYPH);
-		const label = desc
-			? `${coloredGlyph} ${theme.fg("dim", desc)}`
-			: coloredGlyph;
-		return {
-			render(width: number): string[] {
-				const truncated = truncateToWidth(label, width);
-				const pad = Math.max(0, width - visibleWidth(truncated));
-				return [`${" ".repeat(pad)}${truncated}`];
-			},
-		};
-	});
-}
-
-/** Save TDD state to the session history. */
-export function persist(state: TddState, pi: ExtensionAPI): void {
-	pi.appendEntry("tdd-workflow", {
-		enabled: state.enabled,
-		phase: state.phase,
-		cycle: state.cycle,
-		planFile: state.planFile,
-		testDescription: state.testDescription,
-	});
-}
-
-/** Enter TDD mode: reset to RED phase, cycle 1. */
-export function activate(
-	state: TddState,
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-	testDescription: string | null,
-): void {
-	state.enabled = true;
-	state.phase = "red";
-	state.cycle = 1;
-	state.testDescription = testDescription;
-
-	updateUI(state, ctx);
-	persist(state, pi);
-}
-
-/** Exit TDD mode and clear state. */
-export function deactivate(
-	state: TddState,
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-): void {
-	state.enabled = false;
-	state.testDescription = null;
-	updateUI(state, ctx);
-	persist(state, pi);
-}
-
-/** Toggle TDD mode on or off with user notification. */
-export function toggle(
-	state: TddState,
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-	plan?: string,
-): void {
-	if (state.enabled) {
-		deactivate(state, pi, ctx);
-		ctx.ui.notify("TDD mode off.");
-	} else {
-		if (plan) {
-			state.planFile = plan;
-		}
-		activate(state, pi, ctx, null);
-		ctx.ui.notify("TDD mode on.");
-	}
-}
-
-/** Move to the given phase within the current cycle. */
-export function advance(
-	state: TddState,
-	next: TddPhase,
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-): void {
-	state.phase = next;
-	updateUI(state, ctx);
-	persist(state, pi);
-}
-
-/** Complete the current cycle and start the next one in RED. */
-export function nextCycle(
-	state: TddState,
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-	testDescription: string | null,
-): void {
-	state.cycle++;
-	state.phase = "red";
-	state.testDescription = testDescription;
-	updateUI(state, ctx);
-	persist(state, pi);
-}
-
-/** Restore TDD state from the session history. */
-export function restore(state: TddState, ctx: ExtensionContext): void {
-	const saved = getLastEntry<PersistedState>(ctx, "tdd-workflow");
-	if (saved) {
-		state.enabled = saved.enabled ?? false;
-		state.phase = saved.phase ?? "red";
-		state.cycle = saved.cycle ?? 1;
-		state.planFile = saved.planFile ?? null;
-		state.testDescription = saved.testDescription ?? null;
-	}
-	updateUI(state, ctx);
 }

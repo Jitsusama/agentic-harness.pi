@@ -6,7 +6,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type {
+	ContextEvent,
+	ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
 
 /** Default directory for plan files, relative to the project root. */
 export const DEFAULT_PLAN_DIR = ".pi/plans";
@@ -54,6 +57,16 @@ export function getLastEntry<T>(
 	return last?.data;
 }
 
+/** Whether a message is a custom context entry tagged with the given type. */
+function isTaggedContext(message: unknown, customType: string): boolean {
+	return (
+		typeof message === "object" &&
+		message !== null &&
+		"customType" in message &&
+		message.customType === customType
+	);
+}
+
 /**
  * Returns a context handler that strips messages with the given
  * customType when the extension is inactive.
@@ -62,13 +75,10 @@ export function getLastEntry<T>(
  *   pi.on("context", filterContext("my-context", () => enabled));
  */
 export function filterContext(customType: string, isActive: () => boolean) {
-	return async (event: { messages: unknown[] }) => {
+	return async (event: ContextEvent) => {
 		if (isActive()) return;
 		return {
-			messages: event.messages.filter((m) => {
-				if (typeof m !== "object" || m === null) return true;
-				return !("customType" in m && m.customType === customType);
-			}),
+			messages: event.messages.filter((m) => !isTaggedContext(m, customType)),
 		};
 	};
 }
