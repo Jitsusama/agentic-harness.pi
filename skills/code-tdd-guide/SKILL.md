@@ -138,8 +138,9 @@ If you can't determine the convention, ask.
 The `tdd_loop` tool tracks one red-green-refactor loop at a
 time. It is a tracker and a reminder, not a gate. It never
 interrupts the user and it never blocks your file writes. You
-drive it, and the only human-facing surface is a small glyph and
-the phase name on the status line.
+drive it, and the human-facing surface stays passive: the status
+line names the phase beside a glyph, and while a loop is running
+a small widget shows the iteration and the behaviour under test.
 
 Run **one loop per increment**. Open a loop when you're ready
 for the next single behaviour, take it through to green and
