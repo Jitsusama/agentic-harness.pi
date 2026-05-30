@@ -6,9 +6,9 @@
  * transition is allowed only when the agent supplies the
  * justification the gate requires; otherwise the reducer
  * refuses and hands back guidance. The machine never inspects
- * code, test output or file paths. It enforces the agent's own
- * contract, which is the one guardrail that stays robust across
- * every language.
+ * code, test output or file paths. It tracks the agent's own
+ * attestation, which is the one contract that stays robust
+ * across every language.
  */
 
 /** Where a loop sits in the red-green-refactor cycle. */
@@ -20,37 +20,34 @@ export type FailureKind = "assertion" | "other";
 /** The live state of one discrete TDD loop. */
 export interface LoopState {
 	phase: Phase;
-	redVerified: boolean;
+	assertionFailure: boolean;
 	behaviour: string | null;
-	loop: number;
-	engaged: boolean;
+	iteration: number;
 }
 
 /** The resting state: no loop in play. */
 export function initialState(): LoopState {
 	return {
 		phase: "idle",
-		redVerified: false,
+		assertionFailure: false,
 		behaviour: null,
-		loop: 0,
-		engaged: false,
+		iteration: 0,
 	};
 }
 
-/** Close the active loop back to idle while staying engaged this session. */
+/** Close the active loop back to idle, keeping the iteration count. */
 function rest(state: LoopState): LoopState {
 	return {
 		phase: "idle",
-		redVerified: false,
+		assertionFailure: false,
 		behaviour: null,
-		loop: state.loop,
-		engaged: true,
+		iteration: state.iteration,
 	};
 }
 
 /** The transitions the agent can attest. */
 export type TransitionAction =
-	| "start"
+	| "plan"
 	| "write"
 	| "red"
 	| "green"
@@ -91,8 +88,8 @@ export function transition(
 	input: TransitionInput,
 ): TransitionResult {
 	switch (input.action) {
-		case "start":
-			return start(state, input);
+		case "plan":
+			return plan(state, input);
 		case "write":
 			return write(state, input);
 		case "red":
@@ -105,13 +102,18 @@ export function transition(
 			return done(state, input);
 		case "abandon":
 			return abandon(state, input);
+		default:
+			return refuse(
+				`Unknown transition. Drive the loop with plan, write, red, ` +
+					`green, refactor, done or abandon.`,
+			);
 	}
 }
 
-function start(state: LoopState, input: TransitionInput): TransitionResult {
+function plan(state: LoopState, input: TransitionInput): TransitionResult {
 	if (state.phase !== "idle") {
 		return refuse(
-			`Finish or abandon the current loop before starting another. You're in ${state.phase}.`,
+			`Finish or abandon the current loop before planning another. You're in ${state.phase}.`,
 		);
 	}
 	if (!input.behaviour) {
@@ -122,17 +124,17 @@ function start(state: LoopState, input: TransitionInput): TransitionResult {
 	}
 	return advance({
 		phase: "plan",
-		redVerified: false,
+		assertionFailure: false,
 		behaviour: input.behaviour,
-		loop: state.loop + 1,
-		engaged: true,
+		iteration: state.iteration + 1,
 	});
 }
 
 function write(state: LoopState, input: TransitionInput): TransitionResult {
 	if (state.phase !== "plan") {
 		return refuse(
-			`Writing the test follows planning. You're in ${state.phase}, not plan.`,
+			`Writing the test follows plan. You're in ${state.phase}, not plan. ` +
+				`Go forward, or abandon to redo.`,
 		);
 	}
 	if (!input.interface) {
@@ -153,24 +155,30 @@ function red(state: LoopState, input: TransitionInput): TransitionResult {
 	if (!input.failure) {
 		return refuse("Run the test and report the failure before moving to red.");
 	}
+	if (!input.failureKind) {
+		return refuse(
+			"Say whether the failure was an assertion or other (a compile or " +
+				"missing-symbol error). Only a real assertion clears the way to green.",
+		);
+	}
 	return advance({
 		...state,
 		phase: "red",
-		redVerified: input.failureKind === "assertion",
+		assertionFailure: input.failureKind === "assertion",
 	});
 }
 
 function green(state: LoopState, input: TransitionInput): TransitionResult {
-	if (state.phase !== "red" || !state.redVerified) {
+	if (state.phase !== "red" || !state.assertionFailure) {
 		return refuse(
-			"You haven't seen a real red yet. Get a clean assertion failure " +
-				"before you claim the test passes.",
+			"You haven't seen a real red yet. Stub a minimal skeleton, re-run, " +
+				"and call red again with failureKind 'assertion' before green.",
 		);
 	}
 	if (!input.pass) {
 		return refuse("Report the passing result before moving to green.");
 	}
-	return advance({ ...state, phase: "green", redVerified: false });
+	return advance({ ...state, phase: "green", assertionFailure: false });
 }
 
 function refactor(state: LoopState): TransitionResult {
@@ -185,7 +193,8 @@ function refactor(state: LoopState): TransitionResult {
 function done(state: LoopState, input: TransitionInput): TransitionResult {
 	if (state.phase !== "refactor") {
 		return refuse(
-			`Close the loop from the refactor phase, not ${state.phase}.`,
+			`Close the loop from the refactor phase, not ${state.phase}. ` +
+				`Pass through refactor first, even as a no-op.`,
 		);
 	}
 	if (!input.reflection) {
@@ -199,7 +208,7 @@ function done(state: LoopState, input: TransitionInput): TransitionResult {
 
 function abandon(state: LoopState, input: TransitionInput): TransitionResult {
 	if (state.phase === "idle") {
-		return refuse("There's no loop to abandon.");
+		return refuse("There's no loop to abandon. Plan one when you're ready.");
 	}
 	if (!input.reason) {
 		return refuse("Give a reason for leaving the loop before you abandon it.");

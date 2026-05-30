@@ -18,13 +18,15 @@ import type { TddState } from "./state.js";
 /** Width fallback when the terminal width is unknown. */
 const DEFAULT_WIDTH = 80;
 
+/** The phases a persisted entry may legitimately carry. */
+const PHASES: Phase[] = ["idle", "plan", "write", "red", "green", "refactor"];
+
 /** The session-history shape of a persisted loop. */
 interface PersistedLoop {
 	phase?: Phase;
-	redVerified?: boolean;
+	assertionFailure?: boolean;
 	behaviour?: string | null;
-	loop?: number;
-	engaged?: boolean;
+	iteration?: number;
 }
 
 /** Save the current loop to session history. */
@@ -32,26 +34,40 @@ export function persist(state: TddState, pi: ExtensionAPI): void {
 	const loop = state.loop;
 	pi.appendEntry("tdd-workflow", {
 		phase: loop.phase,
-		redVerified: loop.redVerified,
+		assertionFailure: loop.assertionFailure,
 		behaviour: loop.behaviour,
-		loop: loop.loop,
-		engaged: loop.engaged,
+		iteration: loop.iteration,
 	});
+}
+
+/**
+ * Whether a persisted entry is a loop this version understands.
+ * A legacy gated entry carries an `enabled` flag; a current entry
+ * carries a known phase. A current entry missing a later-added
+ * field is still ours, so it is rehydrated rather than dropped.
+ */
+function isLoopEntry(saved: PersistedLoop): boolean {
+	if ("enabled" in saved) {
+		return false;
+	}
+	return (
+		typeof saved.phase === "string" &&
+		(PHASES as string[]).includes(saved.phase)
+	);
 }
 
 /** Rehydrate the loop from session history, or start fresh. */
 export function restore(state: TddState, ctx: ExtensionContext): void {
 	const saved = getLastEntry<PersistedLoop>(ctx, "tdd-workflow");
-	if (!saved || typeof saved.engaged !== "boolean") {
+	if (!saved || !isLoopEntry(saved)) {
 		state.loop = initialState();
 		return;
 	}
 	state.loop = {
 		phase: saved.phase ?? "idle",
-		redVerified: saved.redVerified ?? false,
+		assertionFailure: saved.assertionFailure ?? false,
 		behaviour: saved.behaviour ?? null,
-		loop: saved.loop ?? 0,
-		engaged: saved.engaged,
+		iteration: saved.iteration ?? 0,
 	};
 }
 
@@ -61,7 +77,7 @@ export function updateScoreboard(state: TddState, ctx: ExtensionContext): void {
 	const width = process.stdout.columns || DEFAULT_WIDTH;
 	ctx.ui.setWidget(
 		"tdd-loop",
-		state.loop.behaviour
+		state.loop.phase !== "idle"
 			? renderWidget(state.loop, ctx.ui.theme, width)
 			: undefined,
 	);

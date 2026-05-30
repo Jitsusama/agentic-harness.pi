@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	initialState,
 	type LoopState,
+	type TransitionAction,
 	transition,
 } from "../../../extensions/tdd-workflow/machine.js";
 
@@ -9,41 +10,38 @@ import {
 function loop(overrides: Partial<LoopState> = {}): LoopState {
 	return {
 		phase: "plan",
-		redVerified: false,
+		assertionFailure: false,
 		behaviour: "rejects an empty cart",
-		loop: 1,
-		engaged: true,
+		iteration: 1,
 		...overrides,
 	};
 }
 
-/** The resting state after a loop closes: idle, but still engaged this session. */
-function rested(loopCount = 1): LoopState {
+/** The resting state after a loop closes: idle, keeping the iteration count. */
+function rested(iteration = 1): LoopState {
 	return {
 		phase: "idle",
-		redVerified: false,
+		assertionFailure: false,
 		behaviour: null,
-		loop: loopCount,
-		engaged: true,
+		iteration,
 	};
 }
 
 describe("initialState", () => {
-	it("starts idle, not engaged, at loop zero", () => {
+	it("starts idle at iteration zero", () => {
 		expect(initialState()).toEqual({
 			phase: "idle",
-			redVerified: false,
+			assertionFailure: false,
 			behaviour: null,
-			loop: 0,
-			engaged: false,
+			iteration: 0,
 		});
 	});
 });
 
-describe("transition: start", () => {
+describe("transition: plan", () => {
 	it("opens a loop in plan from idle when a behaviour is named", () => {
 		const result = transition(initialState(), {
-			action: "start",
+			action: "plan",
 			behaviour: "rejects an empty cart",
 		});
 
@@ -51,18 +49,17 @@ describe("transition: start", () => {
 			ok: true,
 			state: {
 				phase: "plan",
-				redVerified: false,
+				assertionFailure: false,
 				behaviour: "rejects an empty cart",
-				loop: 1,
-				engaged: true,
+				iteration: 1,
 			},
 		});
 	});
 
-	it("refuses to start without a behaviour, leaving state untouched", () => {
+	it("refuses to plan without a behaviour, leaving state untouched", () => {
 		const state = initialState();
 
-		const result = transition(state, { action: "start" });
+		const result = transition(state, { action: "plan" });
 
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -71,9 +68,9 @@ describe("transition: start", () => {
 		expect(state).toEqual(initialState());
 	});
 
-	it("refuses to start a new loop while one is already active", () => {
+	it("refuses to plan a new loop while one is already active", () => {
 		const result = transition(loop({ phase: "red" }), {
-			action: "start",
+			action: "plan",
 			behaviour: "some other behaviour",
 		});
 
@@ -120,7 +117,7 @@ describe("transition: red", () => {
 
 		expect(result).toEqual({
 			ok: true,
-			state: loop({ phase: "red", redVerified: false }),
+			state: loop({ phase: "red", assertionFailure: false }),
 		});
 	});
 
@@ -133,12 +130,12 @@ describe("transition: red", () => {
 
 		expect(result).toEqual({
 			ok: true,
-			state: loop({ phase: "red", redVerified: true }),
+			state: loop({ phase: "red", assertionFailure: true }),
 		});
 	});
 
 	it("upgrades an unverified red to verified on a later assertion failure", () => {
-		const result = transition(loop({ phase: "red", redVerified: false }), {
+		const result = transition(loop({ phase: "red", assertionFailure: false }), {
 			action: "red",
 			failure: "expected EmptyCartError, got nil",
 			failureKind: "assertion",
@@ -146,7 +143,7 @@ describe("transition: red", () => {
 
 		expect(result).toEqual({
 			ok: true,
-			state: loop({ phase: "red", redVerified: true }),
+			state: loop({ phase: "red", assertionFailure: true }),
 		});
 	});
 
@@ -159,6 +156,18 @@ describe("transition: red", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
 			expect(result.guidance).toMatch(/failure/i);
+		}
+	});
+
+	it("refuses to enter red without saying the failure kind", () => {
+		const result = transition(loop({ phase: "write" }), {
+			action: "red",
+			failure: "expected EmptyCartError, got nil",
+		});
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.guidance).toMatch(/assertion|other|kind/i);
 		}
 	});
 
@@ -175,7 +184,7 @@ describe("transition: red", () => {
 
 describe("transition: green", () => {
 	it("passes from a verified red when the passing result is reported", () => {
-		const result = transition(loop({ phase: "red", redVerified: true }), {
+		const result = transition(loop({ phase: "red", assertionFailure: true }), {
 			action: "green",
 			pass: "1 example, 0 failures",
 		});
@@ -183,8 +192,8 @@ describe("transition: green", () => {
 		expect(result).toEqual({ ok: true, state: loop({ phase: "green" }) });
 	});
 
-	it("refuses to pass from an unverified red", () => {
-		const result = transition(loop({ phase: "red", redVerified: false }), {
+	it("refuses to pass from an unverified red, naming the recovery", () => {
+		const result = transition(loop({ phase: "red", assertionFailure: false }), {
 			action: "green",
 			pass: "1 example, 0 failures",
 		});
@@ -192,11 +201,12 @@ describe("transition: green", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
 			expect(result.guidance).toMatch(/real red|assertion/i);
+			expect(result.guidance).toMatch(/red again|failureKind/i);
 		}
 	});
 
 	it("refuses to pass without reporting the passing result", () => {
-		const result = transition(loop({ phase: "red", redVerified: true }), {
+		const result = transition(loop({ phase: "red", assertionFailure: true }), {
 			action: "green",
 		});
 
@@ -252,7 +262,7 @@ describe("transition: done", () => {
 
 describe("transition: abandon", () => {
 	it("drops an active loop back to idle with a reason", () => {
-		const result = transition(loop({ phase: "red", redVerified: true }), {
+		const result = transition(loop({ phase: "red", assertionFailure: true }), {
 			action: "abandon",
 			reason: "The increment was too big, so I'm splitting it.",
 		});
@@ -276,5 +286,18 @@ describe("transition: abandon", () => {
 		});
 
 		expect(result.ok).toBe(false);
+	});
+});
+
+describe("transition: unknown action", () => {
+	it("refuses an unrecognized action with guidance instead of throwing", () => {
+		const result = transition(initialState(), {
+			action: "frobnicate" as unknown as TransitionAction,
+		});
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.guidance).toMatch(/unknown|plan|write/i);
+		}
 	});
 });

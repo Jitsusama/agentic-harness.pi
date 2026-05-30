@@ -17,28 +17,30 @@ function stateWith(overrides: Partial<LoopState> = {}): { loop: LoopState } {
 	return {
 		loop: {
 			phase: "plan",
-			redVerified: false,
+			assertionFailure: false,
 			behaviour: "rejects an empty cart",
-			loop: 1,
-			engaged: true,
+			iteration: 1,
 			...overrides,
 		},
 	};
 }
 
 describe("buildTddContext", () => {
-	it("injects the phase, the behaviour and the standing discipline", () => {
-		const context = buildTddContext(stateWith({ phase: "write" }));
+	it("reports the iteration, phase and behaviour, not the discipline", () => {
+		const context = buildTddContext(
+			stateWith({ phase: "write", iteration: 2 }),
+		);
 		expect(context).toBeDefined();
 		const content = context?.message.content ?? "";
 		expect(content).toContain("write");
+		expect(content).toContain("2");
 		expect(content).toContain("rejects an empty cart");
-		expect(content).toContain("exported surface");
+		expect(content).not.toContain("exported surface");
 		expect(context?.message.customType).toBe("tdd-workflow-context");
 		expect(context?.message.display).toBe(false);
 	});
 
-	it("stays silent when no loop has been engaged", () => {
+	it("stays silent when no loop is active", () => {
 		expect(buildTddContext(createTddState())).toBeUndefined();
 	});
 

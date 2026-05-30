@@ -52,10 +52,9 @@ describe("tdd-workflow lifecycle", () => {
 		const source = createTddState();
 		source.loop = {
 			phase: "red",
-			redVerified: true,
+			assertionFailure: true,
 			behaviour: "rejects an empty cart",
-			loop: 3,
-			engaged: true,
+			iteration: 3,
 		};
 
 		persist(source, makeApi(entries));
@@ -65,7 +64,7 @@ describe("tdd-workflow lifecycle", () => {
 		expect(restored.loop).toEqual(source.loop);
 	});
 
-	it("ignores a legacy entry that predates the loop shape", () => {
+	it("ignores a legacy gated entry that predates the loop shape", () => {
 		const entries: Entry[] = [
 			{
 				type: "custom",
@@ -76,5 +75,27 @@ describe("tdd-workflow lifecycle", () => {
 		const state = createTddState();
 		restore(state, makeCtx(entries));
 		expect(state.loop).toEqual(initialState());
+	});
+
+	it("preserves a live loop entry that is missing a later field", () => {
+		const entries: Entry[] = [
+			{
+				type: "custom",
+				customType: "tdd-workflow",
+				data: {
+					phase: "red",
+					behaviour: "rejects an empty cart",
+					iteration: 2,
+				},
+			},
+		];
+		const state = createTddState();
+		restore(state, makeCtx(entries));
+		expect(state.loop).toEqual({
+			phase: "red",
+			assertionFailure: false,
+			behaviour: "rejects an empty cart",
+			iteration: 2,
+		});
 	});
 });

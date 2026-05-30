@@ -1,23 +1,23 @@
 /**
- * The persistent context the agent carries between turns: the
- * current phase, the behaviour under test and the standing
- * discipline for that phase, so the discipline survives a long
- * autonomous run. A companion filter strips this context once
- * the loop is no longer active, so a stale reminder never
- * lingers after the loop closes.
+ * The persistent context the agent carries between turns: just
+ * where the loop is. It reports the iteration, the phase and the
+ * behaviour under test, so the agent never loses the thread on a
+ * long autonomous run. It deliberately does not re-issue the
+ * phase discipline every turn; that reminder rides the transition
+ * reply, at the moment the agent asks for it. A companion filter
+ * strips this context once the loop is no longer active.
  */
 
 import { filterContext } from "../../lib/internal/state.js";
-import { disciplineFor } from "./discipline.js";
 import type { LoopState } from "./machine.js";
 import type { TddState } from "./state.js";
 
 /** The customType tag for the injected TDD context message. */
 const CONTEXT_TYPE = "tdd-workflow-context";
 
-/** Whether a loop is live: engaged this session and past idle. */
+/** Whether a loop is live: past idle, with a transition in play. */
 function isActiveLoop(loop: LoopState): boolean {
-	return loop.engaged && loop.phase !== "idle";
+	return loop.phase !== "idle";
 }
 
 /** Build the standing TDD context, or nothing when no loop is active. */
@@ -26,11 +26,10 @@ export function buildTddContext(state: TddState) {
 	if (!isActiveLoop(loop)) {
 		return;
 	}
-	const lines = [`TDD loop, ${loop.phase} phase.`];
+	const lines = [`TDD loop ${loop.iteration}, ${loop.phase} phase.`];
 	if (loop.behaviour) {
 		lines.push(`Increment under test: ${loop.behaviour}.`);
 	}
-	lines.push(disciplineFor(loop.phase));
 	return {
 		message: {
 			customType: CONTEXT_TYPE,

@@ -5,10 +5,9 @@ import type { LoopState } from "../../../extensions/tdd-workflow/machine.js";
 function loop(overrides: Partial<LoopState> = {}): LoopState {
 	return {
 		phase: "plan",
-		redVerified: false,
+		assertionFailure: false,
 		behaviour: null,
-		loop: 1,
-		engaged: true,
+		iteration: 1,
 		...overrides,
 	};
 }
@@ -23,10 +22,10 @@ describe("visualState", () => {
 	});
 
 	it("splits red by whether the failure was a verified assertion", () => {
-		expect(visualState(loop({ phase: "red", redVerified: false }))).toBe(
+		expect(visualState(loop({ phase: "red", assertionFailure: false }))).toBe(
 			"red-unverified",
 		);
-		expect(visualState(loop({ phase: "red", redVerified: true }))).toBe(
+		expect(visualState(loop({ phase: "red", assertionFailure: true }))).toBe(
 			"red-verified",
 		);
 	});
@@ -36,10 +35,14 @@ describe("glyph", () => {
 	it("fills the circle as the test materializes, then transforms", () => {
 		expect(glyph("idle")).toEqual({ char: "\u25cc", token: "dim" });
 		expect(glyph("plan")).toEqual({ char: "\u25cb", token: "warning" });
-		expect(glyph("write")).toEqual({ char: "\u25d0", token: "warning" });
-		expect(glyph("red-unverified")).toEqual({ char: "\u25d0", token: "error" });
+		expect(glyph("write")).toEqual({ char: "\u25d4", token: "warning" });
+		expect(glyph("red-unverified")).toEqual({ char: "\u25d1", token: "error" });
 		expect(glyph("red-verified")).toEqual({ char: "\u25cf", token: "error" });
 		expect(glyph("green")).toEqual({ char: "\u2713", token: "success" });
 		expect(glyph("refactor")).toEqual({ char: "\u25c6", token: "accent" });
+	});
+
+	it("gives write and red-unverified distinct shapes, not just colours", () => {
+		expect(glyph("write").char).not.toBe(glyph("red-unverified").char);
 	});
 });

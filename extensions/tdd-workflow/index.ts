@@ -17,7 +17,7 @@
 
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { disciplineFor } from "./discipline.js";
 import { persist, restore, updateScoreboard } from "./lifecycle.js";
@@ -34,24 +34,24 @@ export default function tddMode(pi: ExtensionAPI) {
 	const state = createTddState();
 
 	pi.registerTool({
-		name: "tdd_phase",
-		label: "TDD Phase",
+		name: "tdd_loop",
+		label: "TDD Loop",
 		description:
 			"Drive one discrete red-green-refactor loop by attesting each transition.",
 		promptSnippet:
-			"Drive TDD as discrete loops with tdd_phase: start, write, red, green, " +
-			"refactor, done. Each transition needs a short justification. Read the " +
-			"code-tdd-guide skill for the methodology.",
+			"Drive TDD as discrete loops with tdd_loop: plan, write, red, green, " +
+			"refactor, done, and abandon to bail out. Each transition needs a short " +
+			"justification. Read the code-tdd-guide skill for the methodology.",
 		promptGuidelines: [
-			"Run one loop per increment: start with the single behaviour you want, then close it with done before starting another.",
-			"Each transition carries its own justification: start needs the behaviour, write needs the exported surface, red needs the failure you saw, green needs the passing result, done needs a one-line design reflection.",
+			"Run one loop per increment: plan the single behaviour you want, then close it with done before planning another.",
+			"Each transition carries its own justification: plan needs the behaviour, write needs the exported surface, red needs the failure you saw and its kind, green needs the passing result, done needs a one-line design reflection.",
 			"Attest red honestly. A compile or missing-symbol error is failureKind 'other' and is not a real red, so stub a minimal skeleton, re-run, and call red again with the assertion failure (failureKind 'assertion') before you go green.",
-			"A refused transition hands back guidance and changes nothing. Read it, do the work it names, then try again. There is no user prompt to wait on.",
+			"A refused transition hands back guidance and changes nothing. Read it, do the work it names, then try again, or abandon the loop if you need out. There is no user prompt to wait on.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(
 				[
-					"start",
+					"plan",
 					"write",
 					"red",
 					"green",
@@ -64,23 +64,25 @@ export default function tddMode(pi: ExtensionAPI) {
 			behaviour: Type.Optional(
 				Type.String({
 					description:
-						"start: the single behaviour under test, named as the exported thing you want to exist.",
+						"plan: what the code should do, in one phrase, named after the symbol you wish existed.",
 				}),
 			),
 			interface: Type.Optional(
 				Type.String({
-					description: "write: the exported surface this test binds to.",
+					description:
+						"write: the exact exported surface the test imports and calls.",
 				}),
 			),
 			failure: Type.Optional(
 				Type.String({
-					description: "red: the failure you saw when you ran the test.",
+					description:
+						"red: the failure you saw when you ran the test. Always pair with failureKind.",
 				}),
 			),
 			failureKind: Type.Optional(
 				StringEnum(["assertion", "other"] as const, {
 					description:
-						"red: 'assertion' for a real assertion failure, 'other' for a compile or missing-symbol error.",
+						"red: 'assertion' for a real assertion failure, 'other' for a compile or missing-symbol error. Required on red.",
 				}),
 			),
 			pass: Type.Optional(
@@ -146,7 +148,7 @@ export default function tddMode(pi: ExtensionAPI) {
 				reason?: string;
 			};
 			const action = a.action ?? "?";
-			let text = theme.fg("toolTitle", theme.bold("tdd_phase "));
+			let text = theme.fg("toolTitle", theme.bold("tdd_loop "));
 			text += theme.fg("text", action);
 
 			const note =
@@ -157,15 +159,13 @@ export default function tddMode(pi: ExtensionAPI) {
 				a.reflection ??
 				a.reason;
 			if (note) {
-				const room =
+				const room = Math.max(
+					0,
 					(process.stdout.columns || DEFAULT_WIDTH) -
-					CALL_PREFIX_WIDTH -
-					action.length;
-				const snippet =
-					note.length > room
-						? `${note.slice(0, Math.max(0, room - 1))}…`
-						: note;
-				text += theme.fg("dim", `: ${snippet}`);
+						CALL_PREFIX_WIDTH -
+						action.length,
+				);
+				text += theme.fg("dim", `: ${truncateToWidth(note, room)}`);
 			}
 			return new Text(text, 0, 0);
 		},
@@ -185,10 +185,7 @@ export default function tddMode(pi: ExtensionAPI) {
 
 			const firstLine = message.split("\n")[0] ?? "";
 			const maxWidth = process.stdout.columns || DEFAULT_WIDTH;
-			const truncated =
-				firstLine.length > maxWidth - 4
-					? `${firstLine.slice(0, maxWidth - 5)}…`
-					: firstLine;
+			const truncated = truncateToWidth(firstLine, Math.max(0, maxWidth - 4));
 
 			if (d?.ok === false) {
 				return new Text(theme.fg("warning", `↩ ${truncated}`), 0, 0);
