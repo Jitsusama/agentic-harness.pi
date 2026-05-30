@@ -7,5 +7,6 @@ reasons and commit cadence.
 Activates when implementing features with tests or discussing
 testing.
 
-Pairs with the [tdd-workflow extension](../../extensions/tdd-workflow/)
-for phase enforcement.
+Pairs with the [tdd-workflow extension](../../extensions/tdd-workflow/),
+which tracks the loop and reminds the agent of each phase's
+discipline.

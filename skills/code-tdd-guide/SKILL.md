@@ -4,10 +4,43 @@ description: >
   Test-driven development methodology. Red-green-refactor
   cycle, when to stub, how to validate failure reasons,
   commit cadence. Use when implementing with TDD, writing
-  tests first or entering the tdd_phase workflow.
+  tests first or driving the tdd_phase loop.
 ---
 
 # Test-Driven Development
+
+TDD is a design discipline, not a testing chore. You write the
+test first because the test is where you decide what the code
+looks like from the outside, before any implementation can talk
+you out of a clean shape. The tests you keep are a description
+of intent and a description of the exported interface, and
+nothing more than that.
+
+## What the Tests Are For
+
+Hold these in mind through every loop. They are why the cycle
+is shaped the way it is.
+
+- **Tests drive the design.** Writing the test first makes you
+  use the interface before it exists, so you feel its shape
+  from the caller's side. When calling it is awkward, the
+  design is wrong, so you fix the design, not the test.
+- **Tests reflect intent.** Each test names a behaviour you
+  want, in the language of the domain. A reader should be able
+  to learn what the code is for by reading its tests.
+- **Tests bind to the exported surface only.** Test the public
+  interface, never the internals. A test that reaches into
+  private structure freezes an implementation detail and breaks
+  during refactors that should not concern it. If something
+  internal feels like it needs its own test, that is a sign it
+  wants to be its own unit with its own exported surface.
+- **Friction is a signal.** When a test is hard to write, with
+  heavy setup, awkward mocking or contortions to observe a
+  result, the design is telling you something. Step back and
+  reshape the interface before you push through.
+- **Growth follows real needs.** Add code only when a test that
+  reflects a real consumer need demands it. Do not build for
+  futures you imagine. Build for the increment in front of you.
 
 ## The Cycle
 
@@ -38,16 +71,15 @@ Run the tests. They must pass.
 
 ### 3. Refactor
 
-With green tests as your safety net, it's time to improve
-the design. Call `tdd_refactor` with your suggestions: only
-real refactoring opportunities, not "skip" or "no changes"
-options. The tool has its own Done page for that.
+With green tests as your safety net, improve the design. This is
+the moment to step back and reconsider both the internal shape
+and the exported interface, now that a real consumer need exists
+and a passing test proves the behaviour. Restructure for
+clarity; keep the behaviour, and keep the tests green. Do the
+refactoring with your normal editing tools.
 
-The tool presents a tabbed review where the user can approve,
-reject or add their own. Apply what gets approved, run tests,
-then call `tdd_refactor` again with new suggestions (or empty
-if you don't see anything more). Keep looping until the user
-selects nothing. Only then signal `done`.
+When you're satisfied, close the loop with a one-line reflection
+on what you reconsidered.
 
 ## Test Ordering
 
@@ -59,8 +91,8 @@ one new capability that the existing code doesn't have yet.
 This usually means the simplest, most degenerate cases come
 first (nil input, empty collection, missing resource) because
 they force the minimum viable skeleton: a constructor, a
-method signature, a return type. The happy path — the primary
-success case — often comes **later** because it requires the
+method signature, a return type. The happy path, the primary
+success case, often comes **later** because it requires the
 most machinery to work.
 
 **Do not follow the plan's scenario grouping as the
@@ -76,9 +108,9 @@ to make this pass?" If the answer is "almost everything",
 it comes later. If the answer is "a constructor and a
 zero-value return", it comes first.
 
-## After Refactor: Commit
+## Closing the Loop: Commit
 
-Each red-green-refactor cycle produces one atomic commit. The
+Each red-green-refactor loop produces one atomic commit. The
 test and implementation go together because they're one unit
 of work.
 
@@ -101,61 +133,56 @@ Infer what counts as a test file from the project:
 
 If you can't determine the convention, ask.
 
-## TDD Phase Tool
+## The tdd_phase Loop
 
-The `tdd_phase` tool tracks the red-green-refactor cycle.
-Call it to signal phase transitions so the status display and
-enforcement stay in sync with what you're doing.
+The `tdd_phase` tool tracks one red-green-refactor loop at a
+time. It is a tracker and a reminder, not a gate. It never
+interrupts the user and it never blocks your file writes. You
+drive it, and the only human-facing surface is a small glyph on
+the status line that shows where the loop is.
 
-### When to Signal
+Run **one loop per increment**. Open a loop when you're ready
+for the next single behaviour, take it through to green and
+refactor, then close it before you open the next. Resist
+batching several behaviours into one loop: the discipline lives
+in the size of the step.
 
-- **start**: when the user wants TDD or a plan specifies it.
-  Confirm with the user before activating. Describe the first
-  test in the `context` parameter.
-- **red**: at the start of each new test within an active TDD
-  session. Describe what specific behaviour is being tested in
-  the `context` parameter.
-- **green**: when the test fails for the right reason (an
-  assertion failure, not a syntax or import error). You are
-  now clear to write implementation.
-- **refactor**: when tests pass with minimum implementation.
-  Restructure for clarity without changing behaviour.
-- **done**: when refactoring is complete. This advances to the
-  next cycle. If you know the next test, describe it in
-  `context`.
-- **stop**: when the user redirects away from TDD or when
-  all planned tests are complete.
+Each transition carries a short justification: a phrase, an
+assertion line, a one-line reflection. The machine advances only
+when that justification is present and the move makes sense from
+where the loop is. Otherwise it hands back a line of guidance
+and changes nothing. There's no prompt to answer; read the
+guidance, do what it names and try the transition again.
 
-### Summary Parameter
+### The Transitions
 
-Every phase transition (except `start`) shows a confirmation
-gate to the user. Always provide a `summary` describing what
-you accomplished in the current phase. Be specific:
+- **start** (`behaviour`): the single behaviour you want, named
+  as the exported thing you want to exist. Opens the loop.
+- **write** (`interface`): the exported surface the test binds
+  to. You're authoring the test now; bind it to the public
+  interface, never the internals.
+- **red** (`failure`, `failureKind`): the failure you saw when
+  you ran the test. A compile or missing-symbol error is
+  `failureKind: "other"` and is not a real red, so stub a
+  minimal skeleton, re-run, and call `red` again with the
+  assertion failure (`failureKind: "assertion"`). Only a
+  verified assertion red clears the way to green.
+- **green** (`pass`): the passing result you saw. Write the
+  minimum code to pass. Do not touch the test to make it green.
+- **refactor**: no justification needed. Improve the design with
+  the tests staying green.
+- **done** (`reflection`): a one-line note on what you
+  reconsidered about the internal and external design. Closes
+  the loop and returns to rest.
+- **abandon** (`reason`): leave the loop early. Use this when
+  the user steers you elsewhere; don't leave a loop dangling
+  silently.
 
-- **red → green**: Include the test failure output: the
-  assertion message and what it expected vs. got. The user
-  needs to see that the test fails for the right reason.
-- **green → refactor**: Include the test pass confirmation
-  and a brief note on what implementation was added.
-- **refactor → done**: Describe what was cleaned up.
-- **stop**: Summarize where things stand.
+### Attest Red Honestly
 
-### One Test at a Time
-
-Focus on a single test per cycle. Even if you can see multiple
-tests that need writing, describe and implement one at a time.
-The `context` parameter should name the specific behaviour
-under test; it's displayed to the user so they know what
-you're working on.
-
-### Leaving TDD
-
-If the user steers you toward something outside the TDD cycle
-(e.g., "fix that config file", "let's look at something else"),
-call `tdd_phase` with action `stop` before proceeding. Do not
-leave TDD mode silently.
-
-### Manual Override
-
-The `/tdd` command and `Ctrl+Alt+T` shortcut also toggle TDD
-mode directly.
+The one rule worth repeating: attest red honestly. The whole
+value of red is proving the test fails for the reason you think.
+A `TypeError` or a missing symbol is not that proof. When you
+hit one, stub just enough skeleton to get a real assertion
+failure, then attest the real red. The tool tracks this through
+the verification step, but the honesty is yours to supply.
