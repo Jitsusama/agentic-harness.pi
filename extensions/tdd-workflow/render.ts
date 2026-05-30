@@ -1,7 +1,8 @@
 /**
  * The scoreboard's two rendered surfaces: a compact status-line
- * indicator that names the phase, and a wider widget line that
- * adds the iteration and the behaviour under test. Both read the
+ * indicator with a constant TDD label, and a wider widget line
+ * that carries the phase, the iteration and the behaviour under
+ * test. Both read the
  * loop's glyph and colour from the pure glyph vocabulary and
  * paint with the live theme. They produce strings only; lifecycle
  * owns the actual setStatus and setWidget calls. Neither renders
@@ -16,7 +17,16 @@ import type { LoopState } from "./machine.js";
 /** Columns reserved for the glyph and the space that follows it. */
 const GLYPH_COLS = 2;
 
-/** The status-line indicator: the phase glyph and its name, or nothing at idle. */
+/** The constant status-line label while a loop runs. */
+const STATUS_LABEL = "TDD";
+
+/**
+ * The status-line indicator: the phase glyph and a constant TDD
+ * label, or nothing at idle. The label stays put so the line
+ * doesn't shift from step to step; the glyph carries the phase
+ * through its shape and colour. The per-step detail lives in the
+ * widget.
+ */
 export function renderStatus(
 	state: LoopState,
 	theme: Theme,
@@ -25,7 +35,7 @@ export function renderStatus(
 		return undefined;
 	}
 	const { char, token } = glyph(visualState(state));
-	return `${theme.fg(token, char)} ${theme.fg("muted", state.phase)}`;
+	return `${theme.fg(token, char)} ${theme.fg("muted", STATUS_LABEL)}`;
 }
 
 /**

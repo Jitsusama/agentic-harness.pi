@@ -22,16 +22,18 @@ describe("renderStatus", () => {
 		expect(renderStatus(idle, fakeTheme())).toBeUndefined();
 	});
 
-	it("names the phase beside the glyph in its colour token", () => {
+	it("shows a constant TDD label beside the phase-coloured glyph", () => {
 		const red = renderStatus(
 			loop({ phase: "red", assertionFailure: true }),
 			fakeTheme(),
 		);
 		expect(red).toContain("<error>\u25cf</error>");
-		expect(red).toContain("red");
+		expect(red).toContain("TDD");
+		expect(red).not.toContain("red");
 		const green = renderStatus(loop({ phase: "green" }), fakeTheme());
 		expect(green).toContain("<success>\u2713</success>");
-		expect(green).toContain("green");
+		expect(green).toContain("TDD");
+		expect(green).not.toContain("green");
 	});
 });
 
