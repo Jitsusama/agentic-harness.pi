@@ -80,8 +80,21 @@ export interface RunCouncilOptions {
 	 */
 	readonly charterFor?: (reviewerId: string) => string | undefined;
 	readonly signal?: AbortSignal;
-	/** First session-global finding id available to this run. */
+	/**
+	 * First session-global finding id available to this run.
+	 * Used only when `allocate` is absent (the fake-runner and
+	 * older tests). Production passes `allocate` instead so
+	 * concurrent runs can't snapshot the same starting id.
+	 */
 	readonly startId?: number;
+	/**
+	 * Reserve a contiguous block of `count` finding ids and
+	 * return its first id. Called synchronously per reviewer
+	 * once the fan-out has settled, so two runs sharing one
+	 * session never overlap: the first run's loop drains and
+	 * advances the session counter before the second's begins.
+	 */
+	readonly allocate?: (count: number) => number;
 	/** Provider or repository context appended to reviewer prompts. */
 	readonly promptAddendum?: string;
 	/**
@@ -111,11 +124,17 @@ export interface RunOneReviewerOptions {
 	readonly promptAddendum?: string;
 	/**
 	 * Starting finding id. Findings get assigned ids
-	 * sequentially from this value. Callers retrying one
-	 * reviewer mid-run pass `max(existingIds) + 1` to
-	 * avoid collisions with un-retried output.
+	 * sequentially from this value. Used only when `allocate`
+	 * is absent.
 	 */
 	readonly startId: number;
+	/**
+	 * Reserve a contiguous block of `count` finding ids and
+	 * return its first id. Called synchronously once the
+	 * reviewer output is parsed, so a retry concurrent with
+	 * another run never overlaps ids.
+	 */
+	readonly allocate?: (count: number) => number;
 }
 
 /**
@@ -157,10 +176,17 @@ export async function runOneCouncilReviewer(
 			expectedVerificationStage: "council",
 			...(charter ? { systemPrompt: charter } : {}),
 		});
+		const counted = parseReviewerOutput(value.finalAssistantText, {
+			reviewerId: options.reviewer.id,
+			runId: options.runId,
+			startId: 0,
+			diffFiles: options.target.files,
+		});
+		const base = options.allocate?.(counted.findings.length) ?? options.startId;
 		const parsed = parseReviewerOutput(value.finalAssistantText, {
 			reviewerId: options.reviewer.id,
 			runId: options.runId,
-			startId: options.startId,
+			startId: base,
 			diffFiles: options.target.files,
 		});
 		return {
@@ -290,6 +316,17 @@ export async function runCouncil(
 	);
 
 	let nextId = options.startId ?? 1;
+	// Allocate ids at assignment time. When `allocate` is
+	// present it reads-and-advances the live session counter
+	// synchronously, so concurrent runs get disjoint blocks;
+	// otherwise we fall back to the local `startId` sequence.
+	const allocate =
+		options.allocate ??
+		((count: number): number => {
+			const start = nextId;
+			nextId += count;
+			return start;
+		});
 	const reviewerOutputs: ReviewerOutput[] = [];
 	for (let i = 0; i < settled.length; i++) {
 		const reviewer = options.reviewers[i];
@@ -311,13 +348,22 @@ export async function runCouncil(
 			continue;
 		}
 		const value = result.value;
+		// Parse once to learn the count, reserve that many ids,
+		// then parse again from the reserved base so finding ids
+		// and their origins carry the session-global numbers.
+		const counted = parseReviewerOutput(value.finalAssistantText, {
+			reviewerId: reviewer.id,
+			runId: options.runId,
+			startId: 0,
+			diffFiles: options.target.files,
+		});
+		const base = allocate(counted.findings.length);
 		const parsed = parseReviewerOutput(value.finalAssistantText, {
 			reviewerId: reviewer.id,
 			runId: options.runId,
-			startId: nextId,
+			startId: base,
 			diffFiles: options.target.files,
 		});
-		nextId += parsed.findings.length;
 		const output: ReviewerOutput = {
 			reviewerId: reviewer.id,
 			findings: parsed.findings,

@@ -144,8 +144,18 @@ export interface RunJudgeOptions {
 	readonly charter?: string;
 	/** Provider or repository context appended to the judge prompt. */
 	readonly promptAddendum?: string;
-	/** First session-global finding id available to this judge run. */
+	/**
+	 * First session-global finding id available to this judge
+	 * run. Used only when `allocate` is absent.
+	 */
 	readonly startId?: number;
+	/**
+	 * Reserve a contiguous block of `count` finding ids and
+	 * return its first id. Called synchronously once the judge
+	 * output is parsed, so a judge run concurrent with another
+	 * run never overlaps ids.
+	 */
+	readonly allocate?: (count: number) => number;
 	/** Diff used to validate line anchors on judge findings. */
 	readonly diffFiles?: readonly DiffFile[];
 }
@@ -361,8 +371,6 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 				: {}),
 		});
 
-		const startId = options.startId ?? nextIdAfterCouncil(options.council);
-
 		safelyNotify(
 			() => progress.reviewerStarted(options.judge.id),
 			`started(${options.judge.id})`,
@@ -387,13 +395,27 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 			},
 		});
 
+		const sourceFindings = options.council.reviewerOutputs.flatMap(
+			(output) => output.findings,
+		);
+		// Parse once to count, reserve that many ids at
+		// assignment time, then parse from the reserved base.
+		const counted = parseJudgeOutput(dispatched.finalAssistantText, {
+			runId: options.runId,
+			judgeReviewerId: options.judge.id,
+			startId: 0,
+			sourceFindings,
+			...(options.diffFiles ? { diffFiles: options.diffFiles } : {}),
+		});
+		const startId =
+			options.allocate?.(counted.findings.length) ??
+			options.startId ??
+			nextIdAfterCouncil(options.council);
 		const parsed = parseJudgeOutput(dispatched.finalAssistantText, {
 			runId: options.runId,
 			judgeReviewerId: options.judge.id,
 			startId,
-			sourceFindings: options.council.reviewerOutputs.flatMap(
-				(output) => output.findings,
-			),
+			sourceFindings,
 			...(options.diffFiles ? { diffFiles: options.diffFiles } : {}),
 		});
 		const warnings = [

@@ -679,6 +679,30 @@ describe("postReviewAction", () => {
 		expect(call.comments).toHaveLength(1);
 	});
 
+	it("posts to the PR captured before the gate, even if state.pr is swapped during the gate await", async () => {
+		const state = withJudgeAndDecision();
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+		// Simulate a concurrent action=load landing while the
+		// post gate is open: the gate yields, another PR is
+		// swapped in, then the user approves. The post must
+		// still target the PR the user reviewed.
+		const gate: PostReviewGate = vi.fn(async (summary) => {
+			if (state.pr !== null) {
+				state.pr.reference = { owner: "o", repo: "r", number: 999 };
+			}
+			return { approved: true as const, body: summary.body };
+		});
+		const result = await postReviewAction({
+			state,
+			event: "COMMENT",
+			exec,
+			gate,
+		});
+		expect(result.ok).toBe(true);
+		const call = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(call.ref).toEqual({ owner: "o", repo: "r", number: 42 });
+	});
+
 	it("refuses to post when no PR is loaded", async () => {
 		const state = createPrWorkflowState();
 		state.council.lastJudge = judge([lineFinding(10, "x")]);

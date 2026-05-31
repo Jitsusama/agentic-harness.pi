@@ -11,7 +11,7 @@ import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import { isReviewerCancelledError } from "./cancellation.js";
 import type { CouncilDispatch } from "./council.js";
 import type { CouncilProgress } from "./council-progress.js";
-import { rememberAllocatedFindings } from "./finding-ids.js";
+import { reserveFindingIds } from "./finding-ids.js";
 import { type JudgePersonaExhibit, type JudgeRun, runJudge } from "./judge.js";
 import {
 	assertParticipantIdentityAvailable,
@@ -129,6 +129,9 @@ export async function runJudgeAction(
 
 	const now = input.now ?? (() => new Date());
 	const runId = `judge-${now().toISOString()}`;
+	// Pin to the PR this judge run started on; a concurrent
+	// action=load must not redirect where the run lands.
+	const pinnedPrNumber = state.pr.reference.number;
 	const target = {
 		owner: state.pr.reference.owner,
 		repo: state.pr.reference.repo,
@@ -156,7 +159,7 @@ export async function runJudgeAction(
 			threadContext,
 			progress: input.progress,
 			signal: input.signal,
-			startId: state.nextFindingId,
+			allocate: (count) => reserveFindingIds(state, count),
 			...(promptAddendum ? { promptAddendum } : {}),
 			...(input.judgeCharter ? { charter: input.judgeCharter } : {}),
 			...(input.personaExhibits && input.personaExhibits.length > 0
@@ -172,12 +175,39 @@ export async function runJudgeAction(
 		}
 		throw error;
 	}
-	rememberAllocatedFindings(state, run.consolidatedFindings);
 	rememberParticipantIdentity(state, "judge", state.council.judge);
-	state.council.lastJudge = run;
-	state.council.lastCritique = null;
-	state.council.decisions = new Map();
+	commitJudgeRun(state, pinnedPrNumber, run);
 	return { ok: true, run };
+}
+
+/**
+ * Land a finished judge run on the PR it started on.
+ *
+ * If the cursor is still there, the run becomes the live
+ * `council.lastJudge` and clears the downstream critique +
+ * decisions. If the user navigated away, the run merges
+ * into that PR's `stackRuns` slot alongside its council
+ * run, so the consolidated findings rehydrate on return
+ * rather than clobbering the PR now under the cursor.
+ */
+function commitJudgeRun(
+	state: PrWorkflowState,
+	pinnedPrNumber: number,
+	run: JudgeRun,
+): void {
+	if (state.pr?.reference.number === pinnedPrNumber) {
+		state.council.lastJudge = run;
+		state.council.lastCritique = null;
+		state.council.decisions = new Map();
+		return;
+	}
+	const existing = state.stackRuns.get(pinnedPrNumber);
+	state.stackRuns.set(pinnedPrNumber, {
+		lastRun: existing?.lastRun ?? null,
+		lastJudge: run,
+		lastCritique: null,
+		decisions: new Map(),
+	});
 }
 
 /** Render a `JudgeRun` as a multi-line summary. */

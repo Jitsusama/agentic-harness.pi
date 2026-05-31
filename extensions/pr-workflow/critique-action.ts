@@ -101,6 +101,9 @@ export async function runCritiqueAction(
 
 	const now = input.now ?? (() => new Date());
 	const runId = `critique-${now().toISOString()}`;
+	// Pin to the PR this critique started on so a concurrent
+	// action=load can't redirect where the run lands.
+	const pinnedPrNumber = state.pr.reference.number;
 	const target = {
 		owner: state.pr.reference.owner,
 		repo: state.pr.reference.repo,
@@ -131,7 +134,12 @@ export async function runCritiqueAction(
 		charterFor: (id) => charters.get(id),
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
-	state.council.lastCritique = run;
+	if (state.pr?.reference.number === pinnedPrNumber) {
+		state.council.lastCritique = run;
+	} else {
+		const existing = state.stackRuns.get(pinnedPrNumber);
+		if (existing) existing.lastCritique = run;
+	}
 	return { ok: true, run, judge: state.council.lastJudge };
 }
 
