@@ -1,66 +1,66 @@
-# Plan Mode Extension
+# Plan Workflow Extension
 
-Read-only investigation mode for collaborative planning. When
-it's active, tools are restricted so the agent can only read
-code and write to the plan directory.
+Collaborative planning as a persistent, staged workflow, anchored
+on a living document. Not a one-shot gate.
 
 The [planning-guide skill](../../skills/planning-guide/) teaches
-the methodology. This extension enforces the guardrails.
+the methodology and the document format. This extension keeps the
+stage state, paints the scoreboard, enforces the one read-only
+guardrail, and routes the plan document to a durable home. It is
+a tracker, not a turnstile: it never prompts the user.
 
-## Activation
+## The Stages
 
-The agent activates plan mode via the `plan_mode` tool when it
-detects planning intent, after confirming with you. The skill
-guides when to activate and deactivate.
+A plan moves through three working stages and two terminal ones,
+driven by the `plan` tool. Returning to `think` is how a plan is
+reopened when discovery invalidates it.
 
-You can also toggle plan mode manually:
+| Action | From → To | Posture |
+|---|---|---|
+| `think` | idle/plan/build → think | Read-only: dig and debate |
+| `draft` | think → plan | Read-only except the plan document |
+| `build` | plan → build | Writes allowed |
+| `conclude` | active → concluded | Terminal: the document is the record |
+| `retire` | active → retired | Terminal, with a reason |
 
-| Method | Description |
-|--------|-------------|
-| `/plan` | Toggle plan mode |
-| `Ctrl+Alt+P` | Toggle plan mode |
-| `--plan` flag | Start session in plan mode |
+Questions are plain conversation; there is no interview tool.
 
-## Worktree Isolation
+## The Document Is the Source of Truth
 
-When the agent provides a `repos` parameter during activation,
-plan mode creates a git worktree in each listed repository so
-implementation happens in isolated working trees. This prevents
-collisions when multiple pi sessions operate on the same
-repository. Use `"."` for the current repo, or absolute paths
-for additional repositories the plan will touch.
+The plan is a real markdown file with a small YAML front-matter
+floor (`id`, `stage`, `updated`, `sessions`) and standard
+checkboxes for progress. Only those two things are parsed;
+everything else is the author's prose.
 
-Worktrees are created at each repo's current HEAD. Branch
-creation happens later, during implementation, following the
-`git-branch-convention` skill. All worktrees for the same plan
-share a timestamp-based name so they're identifiable as a group.
+Because the document holds the state, a plan survives a
+`/reload`, a `/resume`, and a cold start in a brand-new session.
+On restore the document on disk wins over any cached pointer, so
+the state can never drift. `/plan-attach <path|id>` re-adopts a
+plan from a fresh session, and the `sessions` list is maintained
+automatically.
 
-Planning stays in the main tree (read-only investigation doesn't
-need isolation). When the plan is written and you choose to
-implement, the agent receives the worktree paths and the
-absolute path to the plan file. It cds into each worktree to
-implement.
+## The Only Guardrail
 
-The `/plan` command and `Ctrl+Alt+P` shortcut activate without
-worktrees. Use the `plan_mode` tool with a `repos` parameter
-for worktree isolation.
+While a plan is in its read-only stages (`think`, `plan`), the
+agent may not implement: code writes and git-mutating commands
+are blocked, with the single exception of writing the plan
+document. This block is agent-facing, never a user prompt, and it
+is the whole of what "do not build while we are still thinking"
+means. Once the plan moves to `build`, everything is allowed.
 
-Worktree cleanup is manual: the generated plan includes a
-cleanup section with the commands to remove the worktrees and
-branches after the work is merged or abandoned.
+## Routing
 
-## Commands
+The document is written to a durable location anchored to the
+**main** worktree root, so a plan started inside a linked
+worktree is never reaped with it. A downstream extension can
+register a router through the [plan-routing library](../../lib/plan-routing/)
+to send plans into a custom home; the durable default is just the
+fallback.
 
-| Command | Description |
-|---------|-------------|
-| `/plan` | Toggle plan mode on/off |
-| `/plan-dir [path]` | Show or set the plan output directory |
+## Status Display
 
-## Configuration
-
-Plans are written to `.pi/plans/` by default. You can override
-this with `/plan-dir <path>` or in `.pi/settings.json`:
-
-```json
-{ "planDir": "docs/plans" }
-```
+While a plan is active, the status line shows a constant `Plan`
+label beside a glyph that carries the stage through its shape and
+colour (`○` think, `◐` plan, `●` build, `✓` concluded, `⊘`
+retired). A widget alongside it shows the stage, the checkbox
+progress and the plan's title. Both fall silent at idle.

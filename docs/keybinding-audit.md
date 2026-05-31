@@ -639,11 +639,10 @@ confirmation gates.
 
 #### Plan Mode
 
-| Context | Key | Action |
-|---|---|---|
-| Plan completion gate | `i` | Implement (leave plan mode) |
-| Plan completion gate | `s` | Stay in planning |
-| Plan interview | `1` | Switch to Question view |
+The plan workflow has no keybindings. The agent drives it through
+the `plan` tool, and the only human-facing surfaces are the
+passive scoreboard and the `/plan` and `/plan-attach` commands.
+There is no completion gate and no interview.
 
 #### TDD Mode
 
