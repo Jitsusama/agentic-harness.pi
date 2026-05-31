@@ -37,8 +37,13 @@ export function extractBody(
 	entityPart: string,
 ): string | null {
 	// Heredoc: --body-file - <<'DELIM'\nbody\nDELIM
+	// The `m` flag makes `$` match the end of the delimiter line
+	// rather than only the end of the whole string, so trailing
+	// shell tokens after the closing delimiter (e.g. `&& git push`)
+	// no longer defeat the match. The commit path's extractMessage
+	// already carries this flag; the two must stay in lockstep.
 	const heredoc = fullCommand.match(
-		/<<-?\s*['"]?(\w+)['"]?\s*\n([\s\S]*?)\n\1\s*$/,
+		/<<-?\s*['"]?(\w+)['"]?\s*\n([\s\S]*?)\n\1\s*$/m,
 	);
 	if (heredoc) return heredoc[2] ?? null;
 
