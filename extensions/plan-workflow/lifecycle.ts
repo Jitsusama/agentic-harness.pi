@@ -166,6 +166,20 @@ function reviseDocOnDisk(
 	}
 }
 
+/** Whether a stage is terminal: the plan has ended. */
+function isTerminal(stage: Stage): boolean {
+	return stage === "concluded" || stage === "retired";
+}
+
+/** Forget the active plan, returning the cache to a fresh slate. */
+function clearPlan(state: PlanState): void {
+	state.planPath = null;
+	state.planId = null;
+	state.title = null;
+	state.done = 0;
+	state.total = 0;
+}
+
 function sessionId(ctx: ExtensionContext): string | null {
 	try {
 		return ctx.sessionManager.getSessionId?.() ?? null;
@@ -193,6 +207,7 @@ export async function applyTransition(
 	);
 	if (!result.ok) return { ok: false, guidance: result.guidance };
 
+	const priorStage = state.stage;
 	const newStage = result.state.stage;
 	const now = new Date();
 	const session = sessionId(ctx);
@@ -207,6 +222,11 @@ export async function applyTransition(
 			session,
 			now,
 		);
+	} else if (params.action === "think" && isTerminal(priorStage)) {
+		// Thinking after a terminal stage opens a fresh plan: forget the
+		// old document so the next draft writes a new one, and leave the
+		// concluded or retired document untouched on disk.
+		clearPlan(state);
 	} else if (state.planPath) {
 		reviseDocOnDisk(state.planPath, {
 			stage: newStage,
@@ -328,6 +348,20 @@ export function restore(
 		state.stage = "idle";
 	}
 	updateScoreboard(state, ctx);
+}
+
+/**
+ * Re-read the active plan document and repaint the scoreboard
+ * only when the stage, progress or title actually changed. This
+ * is what makes a checkbox edit show up live: the document is the
+ * source of truth, so the safe move is always to re-read it.
+ */
+export function syncFromDoc(state: PlanState, ctx: ExtensionContext): void {
+	if (!state.planPath) return;
+	const before = `${state.stage}|${state.done}|${state.total}|${state.title}`;
+	refreshFromDoc(state);
+	const after = `${state.stage}|${state.done}|${state.total}|${state.title}`;
+	if (after !== before) updateScoreboard(state, ctx);
 }
 
 /** Repaint the status line and the widget from the current state. */

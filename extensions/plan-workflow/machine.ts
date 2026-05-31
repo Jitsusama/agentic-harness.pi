@@ -107,14 +107,11 @@ function think(state: PlanLoop, input: TransitionInput): TransitionResult {
 	if (state.stage === "think") {
 		return refuse("Already thinking. Draft the plan when you're ready.");
 	}
-	if (
-		state.stage === "idle" ||
-		state.stage === "plan" ||
-		state.stage === "build"
-	) {
-		return advance("think");
-	}
-	return refuse("This plan is concluded. Start a fresh one.");
+	// From idle or a terminal stage this opens a fresh plan; from plan
+	// or build it reopens the current one to replan. Either way the
+	// stage becomes think; the lifecycle layer decides which document
+	// the next draft writes to.
+	return advance("think");
 }
 
 function draft(state: PlanLoop): TransitionResult {

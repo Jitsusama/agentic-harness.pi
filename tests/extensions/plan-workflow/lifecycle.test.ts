@@ -11,6 +11,7 @@ import {
 	hydrateFromDoc,
 	persist,
 	restore,
+	syncFromDoc,
 	updateScoreboard,
 } from "../../../extensions/plan-workflow/lifecycle.js";
 import { createPlanState } from "../../../extensions/plan-workflow/state.js";
@@ -27,6 +28,7 @@ afterEach(() => {
 interface Captured {
 	status?: string;
 	widget?: string[];
+	widgetCalls?: number;
 }
 
 function makeCtx(
@@ -47,6 +49,7 @@ function makeCtx(
 			},
 			setWidget: (_key: string, value?: string[]) => {
 				captured.widget = value;
+				captured.widgetCalls = (captured.widgetCalls ?? 0) + 1;
 			},
 		},
 	} as unknown as ExtensionContext;
@@ -148,16 +151,56 @@ describe("persist", () => {
 	});
 });
 
+describe("syncFromDoc", () => {
+	it("repaints when a checkbox edit changes the progress", () => {
+		const file = path.join(tmp, "p.md");
+		fs.writeFileSync(file, PLAN_AT_BUILD); // 1 of 2 checked
+		const captured: Captured = { widgetCalls: 0 };
+		const state = createPlanState();
+		state.stage = "build";
+		state.planPath = file;
+		state.planId = "PLAN-20260530-a3f";
+		state.title = "Title Here";
+		state.done = 1;
+		state.total = 2;
+
+		fs.writeFileSync(
+			file,
+			PLAN_AT_BUILD.replace("- [ ] still open", "- [x] still open"),
+		);
+		syncFromDoc(state, makeCtx([], tmp, captured));
+
+		expect(state.done).toBe(2);
+		expect(captured.widgetCalls).toBe(1);
+	});
+
+	it("does not repaint when nothing changed", () => {
+		const file = path.join(tmp, "p.md");
+		fs.writeFileSync(file, PLAN_AT_BUILD);
+		const captured: Captured = { widgetCalls: 0 };
+		const state = createPlanState();
+		state.stage = "build";
+		state.planPath = file;
+		state.planId = "PLAN-20260530-a3f";
+		state.title = "Title Here";
+		state.done = 1;
+		state.total = 2;
+
+		syncFromDoc(state, makeCtx([], tmp, captured));
+		expect(captured.widgetCalls).toBe(0);
+	});
+});
+
 describe("updateScoreboard", () => {
 	it("paints nothing at idle", () => {
-		const captured: Captured = {};
+		const captured: Captured = { widgetCalls: 0 };
 		updateScoreboard(createPlanState(), makeCtx([], tmp, captured));
 		expect(captured.status).toBeUndefined();
 		expect(captured.widget).toBeUndefined();
 	});
 
 	it("paints the status and widget while active", () => {
-		const captured: Captured = {};
+		const captured: Captured = { widgetCalls: 0 };
 		const state = createPlanState();
 		state.stage = "build";
 		state.title = "Workflow";
@@ -192,5 +235,31 @@ describe("applyTransition", () => {
 		expect(result.ok).toBe(true);
 		expect(state.stage).toBe("think");
 		expect(captured.status).toBeDefined();
+	});
+
+	it("starts a fresh plan when thinking after a terminal stage", async () => {
+		const file = path.join(tmp, "old.md");
+		fs.writeFileSync(
+			file,
+			`---\nid: PLAN-20260530-old\nstage: concluded\nupdated: 2026-05-30\nsessions: []\n---\n# Old Plan\n`,
+		);
+		const state = createPlanState();
+		state.stage = "concluded";
+		state.planPath = file;
+		state.planId = "PLAN-20260530-old";
+
+		const result = await applyTransition(
+			state,
+			makeApi([]),
+			makeCtx([], tmp, {}),
+			{ action: "think", note: "a brand new effort" },
+		);
+
+		expect(result.ok).toBe(true);
+		expect(state.stage).toBe("think");
+		expect(state.planPath).toBeNull();
+		expect(state.planId).toBeNull();
+		// The concluded document is left untouched, not revived to think.
+		expect(fs.readFileSync(file, "utf-8")).toContain("stage: concluded");
 	});
 });

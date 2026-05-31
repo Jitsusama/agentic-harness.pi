@@ -27,12 +27,13 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { enforcePlan } from "./enforce.js";
+import { enforcePlan, isPlanDocWrite } from "./enforce.js";
 import {
 	applyTransition,
 	attach,
 	listPlans,
 	restore,
+	syncFromDoc,
 	type TransitionParams,
 } from "./lifecycle.js";
 import { formatPlanList } from "./render.js";
@@ -194,6 +195,19 @@ export default function planWorkflow(pi: ExtensionAPI) {
 				ctx.cwd,
 			),
 	);
+
+	// Keep the scoreboard live: the document is the source of truth,
+	// so re-read it the instant an edit lands on it, and again at the
+	// end of every turn as a backstop for any other change.
+	pi.on("tool_result", async (event, ctx) => {
+		if (isPlanDocWrite(event.toolName, event.input, state.planPath, ctx.cwd)) {
+			syncFromDoc(state, ctx);
+		}
+	});
+
+	pi.on("turn_end", async (_event, ctx) => {
+		syncFromDoc(state, ctx);
+	});
 
 	pi.on("before_agent_start", async () => buildPlanContext(state));
 

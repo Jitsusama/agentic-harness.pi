@@ -54,13 +54,13 @@ describe("transition: think", () => {
 		expect(result.ok).toBe(false);
 	});
 
-	it("refuses to think from a terminal stage", () => {
-		expect(transition(at("concluded"), { action: "think", note: "x" }).ok).toBe(
-			false,
-		);
-		expect(transition(at("retired"), { action: "think", note: "x" }).ok).toBe(
-			false,
-		);
+	it("starts a fresh plan from a terminal stage instead of dead-ending", () => {
+		expect(
+			transition(at("concluded"), { action: "think", note: "next effort" }),
+		).toEqual({ ok: true, state: { stage: "think" } });
+		expect(
+			transition(at("retired"), { action: "think", note: "next effort" }),
+		).toEqual({ ok: true, state: { stage: "think" } });
 	});
 });
 
