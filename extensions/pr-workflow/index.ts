@@ -1069,6 +1069,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						title: "PR Critique Progress",
 					},
 				);
+				const critiqueCharters = await loadCharterResolver();
+				for (const e of critiqueCharters.errors) {
+					ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
+				}
 				const result = await runWithCancellableReviewers(
 					"critique",
 					({ registry, dispatch }) =>
@@ -1078,6 +1082,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							dispatch,
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+							resolveCharter: critiqueCharters.resolve,
 							progress,
 						}),
 				);
@@ -1116,6 +1121,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					};
 				}
 				const reviewerId = params.reviewerId;
+				const critiqueCharters = await loadCharterResolver();
+				for (const e of critiqueCharters.errors) {
+					ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
+				}
 				const result = await runWithCancellableReviewers(
 					"critique-retry",
 					({ registry, dispatch }) =>
@@ -1125,6 +1134,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							dispatch,
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+							resolveCharter: critiqueCharters.resolve,
 							reviewerId,
 						}),
 				);

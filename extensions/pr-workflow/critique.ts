@@ -124,6 +124,14 @@ export interface RunCritiqueOptions {
 	readonly signal?: AbortSignal;
 	/** Provider or repository context appended to critique prompts. */
 	readonly promptAddendum?: string;
+	/**
+	 * Resolve a reviewer's standing charter by id, forwarded to the
+	 * critique subagent as its system prompt. Critique reuses the
+	 * reviewer personas: the lens rides as the charter while the
+	 * critique hat (take a position on each finding) lives in the
+	 * task prompt.
+	 */
+	readonly charterFor?: (reviewerId: string) => string | undefined;
 }
 
 /** Inputs to `runOneCritiqueReviewer`. */
@@ -139,6 +147,13 @@ export interface RunOneCritiqueReviewerOptions {
 	readonly signal?: AbortSignal;
 	/** Provider or repository context appended to the critique prompt. */
 	readonly promptAddendum?: string;
+	/**
+	 * Resolve the reviewer's standing charter by id, forwarded as
+	 * the critique subagent's system prompt. Same contract as
+	 * {@link RunCritiqueOptions.charterFor}; the retry path honours
+	 * it so a retried critique keeps its persona lens.
+	 */
+	readonly charterFor?: (reviewerId: string) => string | undefined;
 }
 
 /**
@@ -167,6 +182,7 @@ export async function runOneCritiqueReviewer(
 			? { promptAddendum: options.promptAddendum }
 			: {}),
 	});
+	const charter = options.charterFor?.(options.reviewer.id);
 	try {
 		const dispatched = await options.dispatch({
 			reviewer: options.reviewer,
@@ -175,6 +191,7 @@ export async function runOneCritiqueReviewer(
 			runId: options.runId,
 			signal: options.signal,
 			expectedVerificationStage: "critique",
+			...(charter ? { systemPrompt: charter } : {}),
 		});
 		const parsed = parseCritiqueOutput(dispatched.finalAssistantText, {
 			runId: options.runId,
@@ -422,6 +439,7 @@ export async function runCritique(
 					? { promptAddendum: options.promptAddendum }
 					: {}),
 			});
+			const charter = options.charterFor?.(reviewer.id);
 			try {
 				const dispatched = await options.dispatch({
 					reviewer,
@@ -430,6 +448,7 @@ export async function runCritique(
 					runId: options.runId,
 					signal: options.signal,
 					expectedVerificationStage: "critique",
+					...(charter ? { systemPrompt: charter } : {}),
 					onEvent: (event) => {
 						const activity = summarizeStreamActivity(event);
 						if (activity === null) return;

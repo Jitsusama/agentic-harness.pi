@@ -40,8 +40,10 @@ export interface ConfigureCouncilInput {
  * that references a persona is resolved through `resolveCharter`;
  * reviewers with no persona, or whose persona resolves to nothing,
  * are absent from the map and dispatch without a system prompt.
+ * Exported so the council and critique actions build the map the
+ * same way — critique reuses the same personas.
  */
-function buildCharterMap(
+export function buildCharterMap(
 	roster: readonly PrWorkflowReviewerEntry[],
 	resolveCharter?: (personaId: string) => string | undefined,
 ): Map<string, string> {
