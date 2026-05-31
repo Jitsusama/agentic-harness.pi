@@ -141,7 +141,10 @@ document is not bookkeeping you do at the end; it is how the
 workflow knows where the work stands.
 
 When resuming, trust the checkboxes: the checked items are done,
-the unchecked are what remain.
+the unchecked are what remain. To find a plan to resume in a
+fresh session, `/plan list` shows the plans in the plan home,
+newest first, with their stage and progress; `/plan-attach`
+re-adopts the one you pick.
 
 ## Deviating From the Plan
 
