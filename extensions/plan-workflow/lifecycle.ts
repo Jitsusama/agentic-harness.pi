@@ -327,8 +327,9 @@ interface PersistedPointer {
 /**
  * Restore the active plan on session start. Reads the pointer
  * from history, then rehydrates from the document on disk, which
- * wins over the cached stage. A vanished document drops the
- * session back to idle.
+ * wins over the cached stage. A vanished document, or one whose
+ * plan has already concluded or retired, drops the session back
+ * to idle: a finished plan is not resurrected as the active one.
  */
 export function restore(
 	state: PlanState,
@@ -342,9 +343,11 @@ export function restore(
 	}
 	state.planPath = saved.planPath;
 	refreshFromDoc(state);
-	if (!state.planId) {
-		// Document gone: forget the pointer and rest at idle.
-		state.planPath = null;
+	if (!state.planId || isTerminal(state.stage)) {
+		// No live plan to restore: the document is gone, or its plan has
+		// already concluded or retired. Keep any document as the record
+		// and start the session with no active plan.
+		clearPlan(state);
 		state.stage = "idle";
 	}
 	updateScoreboard(state, ctx);
@@ -364,16 +367,29 @@ export function syncFromDoc(state: PlanState, ctx: ExtensionContext): void {
 	if (after !== before) updateScoreboard(state, ctx);
 }
 
-/** Repaint the status line and the widget from the current state. */
+/**
+ * Repaint the status line and the widget from the current state.
+ * The scoreboard belongs to a plan that is being worked, so it
+ * shows only the active stages (think, plan, build); idle and the
+ * terminal stages clear it. A concluded or retired plan lives on
+ * in its document and in `/plan list`, not in the live indicator.
+ */
 export function updateScoreboard(
 	state: PlanState,
 	ctx: ExtensionContext,
 ): void {
-	ctx.ui.setStatus("plan-workflow", renderStatus(state.stage, ctx.ui.theme));
+	const live =
+		state.stage === "think" ||
+		state.stage === "plan" ||
+		state.stage === "build";
+	ctx.ui.setStatus(
+		"plan-workflow",
+		live ? renderStatus(state.stage, ctx.ui.theme) : undefined,
+	);
 	const width = process.stdout.columns || DEFAULT_WIDTH;
 	ctx.ui.setWidget(
 		"plan-workflow",
-		state.stage === "idle"
+		!live
 			? undefined
 			: renderWidget(
 					{

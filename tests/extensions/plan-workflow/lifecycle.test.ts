@@ -113,6 +113,27 @@ describe("restore", () => {
 		expect(captured.status).toBeDefined();
 	});
 
+	it("drops to idle when the restored plan is already concluded", () => {
+		const file = path.join(tmp, "done.md");
+		fs.writeFileSync(
+			file,
+			`---\nid: PLAN-20260530-don\nstage: concluded\nupdated: 2026-05-30\nsessions: []\n---\n# Done Work\n`,
+		);
+		const entries = [
+			{
+				type: "custom",
+				customType: "plan-workflow",
+				data: { planPath: file, stage: "concluded" },
+			},
+		];
+		const captured: Captured = { widgetCalls: 0 };
+		const state = createPlanState();
+		restore(state, makeApi([]), makeCtx(entries, tmp, captured));
+		expect(state.stage).toBe("idle");
+		expect(state.planPath).toBeNull();
+		expect(captured.status).toBeUndefined();
+	});
+
 	it("drops to idle when the document has vanished", () => {
 		const entries = [
 			{
@@ -209,6 +230,20 @@ describe("updateScoreboard", () => {
 		updateScoreboard(state, makeCtx([], tmp, captured));
 		expect(captured.status).toBeDefined();
 		expect(captured.widget).toBeDefined();
+	});
+
+	it("clears the board for a terminal stage, like idle", () => {
+		for (const stage of ["concluded", "retired"] as const) {
+			const captured: Captured = { widgetCalls: 0 };
+			const state = createPlanState();
+			state.stage = stage;
+			state.title = "Finished Work";
+			state.done = 3;
+			state.total = 3;
+			updateScoreboard(state, makeCtx([], tmp, captured));
+			expect(captured.status).toBeUndefined();
+			expect(captured.widget).toBeUndefined();
+		}
 	});
 });
 
