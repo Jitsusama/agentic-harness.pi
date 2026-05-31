@@ -10,6 +10,7 @@
 import {
 	extractBody,
 	extractFlag,
+	matchHeredocs,
 	quote,
 	splitAtCommand,
 } from "../../shell/parse.js";
@@ -95,12 +96,9 @@ export function rebuildGhCommand(config: GhRebuildConfig): string {
  * reconstructs the command from parsed flags drops it.
  */
 export function extractHeredocSuffix(command: string): string | null {
-	const opener = command.match(/<<-?\s*['"]?(\w+)['"]?\s*\n/);
-	if (!opener) return null;
-	const delim = opener[1];
-	const closer = command.match(new RegExp(`\\n${delim}[ \\t]*(?:\\n|$)`));
-	if (!closer || closer.index === undefined) return null;
-	const afterDelim = command.slice(closer.index + closer[0].length);
+	const heredoc = matchHeredocs(command)[0];
+	if (!heredoc) return null;
+	const afterDelim = command.slice(heredoc.index + heredoc.length);
 	const trimmed = afterDelim.trim();
 	return trimmed.length > 0 ? trimmed : null;
 }

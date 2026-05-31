@@ -6,7 +6,7 @@
  * parsing lives in lib/shell/.
  */
 
-import { splitAtCommand } from "../../shell/parse.js";
+import { matchHeredocs, splitAtCommand } from "../../shell/parse.js";
 
 const COMMIT_HEREDOC_DELIM = "__COMMIT_MSG__";
 
@@ -20,9 +20,8 @@ const HEREDOC_OPERATOR = /<<-?\s*['"]?\w+['"]?/;
  *   heredoc:  git commit -F- <<'EOF'\nmessage\nEOF
  *   -m flag:  git commit -m "message" or -am "message"
  *
- * The heredoc regex carries the `m` flag so `$` matches
- * end-of-line, which lets us recognise heredocs even when
- * the bash invocation chains more commands afterwards
+ * The shared `matchHeredocs` primitive recognises heredocs even
+ * when the bash invocation chains more commands afterwards
  * (`...EOF && echo done`).
  *
  * When a heredoc operator is present but body extraction
@@ -34,10 +33,8 @@ const HEREDOC_OPERATOR = /<<-?\s*['"]?\w+['"]?/;
  * once attribution-interceptor's rewrite kicks in.
  */
 export function extractMessage(command: string): string | null {
-	const heredoc = command.match(
-		/<<-?\s*['"]?(\w+)['"]?\s*\n([\s\S]*?)\n\1\s*$/m,
-	);
-	if (heredoc) return heredoc[2] ?? null;
+	const heredoc = matchHeredocs(command)[0];
+	if (heredoc) return heredoc.body;
 
 	if (HEREDOC_OPERATOR.test(command)) return null;
 
