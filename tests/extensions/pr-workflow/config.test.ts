@@ -70,6 +70,46 @@ describe("parsePrWorkflowConfig", () => {
 		});
 	});
 
+	it("derives the reviewer id from persona when id is omitted", () => {
+		const result = parsePrWorkflowConfig({
+			reviewers: [{ persona: "escalation", model: "anthropic/x" }],
+		});
+		if (!result.ok) throw new Error(result.error);
+		const reviewer = result.defaults.reviewers?.[0];
+		expect(reviewer?.id).toBe("escalation");
+		expect(reviewer?.persona).toBe("escalation");
+	});
+
+	it("keeps id and persona distinct when both are given", () => {
+		const result = parsePrWorkflowConfig({
+			reviewers: [
+				{ id: "escalation-fast", persona: "escalation", model: "a" },
+				{ id: "escalation-deep", persona: "escalation", model: "b" },
+			],
+		});
+		if (!result.ok) throw new Error(result.error);
+		const reviewers = result.defaults.reviewers ?? [];
+		// Same persona, two distinct reviewer ids: no collision.
+		expect(reviewers.map((r) => r.id)).toEqual([
+			"escalation-fast",
+			"escalation-deep",
+		]);
+		expect(reviewers.every((r) => r.persona === "escalation")).toBe(true);
+	});
+
+	it("still accepts an id-only reviewer with no persona", () => {
+		const result = parsePrWorkflowConfig({ reviewers: [{ id: "plain" }] });
+		if (!result.ok) throw new Error(result.error);
+		const reviewer = result.defaults.reviewers?.[0];
+		expect(reviewer?.id).toBe("plain");
+		expect(reviewer?.persona).toBeUndefined();
+	});
+
+	it("rejects a reviewer with neither id nor persona", () => {
+		const result = parsePrWorkflowConfig({ reviewers: [{ model: "a" }] });
+		expect(result.ok).toBe(false);
+	});
+
 	it("rejects an empty config instead of inventing defaults", () => {
 		const result = parsePrWorkflowConfig({});
 		expect(result.ok).toBe(false);
