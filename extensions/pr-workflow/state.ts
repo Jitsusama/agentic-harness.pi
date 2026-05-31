@@ -19,6 +19,7 @@ import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import type { RecoverySummary } from "../../lib/subagent/recovery.js";
 import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
+import type { PrWorkflowReviewerEntry } from "./config.js";
 import type { CritiqueRun } from "./critique.js";
 import type { PrMetadata } from "./fetch.js";
 import type { CouncilRun } from "./findings.js";
@@ -61,7 +62,7 @@ export interface ActivePr {
  */
 export interface CouncilState {
 	/** Reviewers that will fan out on the next council action. */
-	roster: CouncilReviewer[];
+	roster: PrWorkflowReviewerEntry[];
 	/** Judge reviewer for round-2 consolidation. */
 	judge: CouncilReviewer | null;
 	/** Most recent council run (null until one completes). */
