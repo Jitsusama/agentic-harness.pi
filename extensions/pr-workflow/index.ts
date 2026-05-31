@@ -134,6 +134,7 @@ import {
 	confirmReplyGate,
 	confirmResolveGate,
 } from "./thread-gate.js";
+import { describeReplyOutcome } from "./thread-reply-outcome.js";
 import { fetchReviewThreads, replyToThread, resolveThread } from "./threads.js";
 import {
 	formatThreadsView,
@@ -1595,20 +1596,16 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
+				const reply = {
+					threadIndex: params.threadIndex,
+					url: result.url,
+					body: replyBodyToPost,
+				};
 				if (!alsoResolve) {
+					const outcome = describeReplyOutcome(reply, undefined);
 					return {
-						content: [
-							{
-								type: "text",
-								text: `Reply posted to [T${params.threadIndex}]: ${result.url}`,
-							},
-						],
-						details: {
-							ok: true,
-							url: result.url,
-							threadIndex: params.threadIndex,
-							body: replyBodyToPost,
-						},
+						content: [{ type: "text", text: outcome.text }],
+						details: outcome.details,
 					};
 				}
 				// The combined gate (or its headless bypass) already covered
@@ -1618,40 +1615,15 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					index: params.threadIndex,
 					resolver: (threadId) => resolveThread(pi, threadId),
 				});
-				if (!resolved.ok) {
-					return {
-						content: [
-							{
-								type: "text",
-								text:
-									`Reply posted to [T${params.threadIndex}]: ${result.url}, ` +
-									`but resolving failed: ${resolved.error}`,
-							},
-						],
-						details: {
-							ok: true,
-							url: result.url,
-							threadIndex: params.threadIndex,
-							body: replyBodyToPost,
-							resolved: false,
-							resolveError: resolved.error,
-						},
-					};
-				}
+				const outcome = describeReplyOutcome(
+					reply,
+					resolved.ok
+						? { ok: true, isResolved: resolved.isResolved }
+						: { ok: false, error: resolved.error },
+				);
 				return {
-					content: [
-						{
-							type: "text",
-							text: `Replied to and resolved [T${params.threadIndex}]: ${result.url}`,
-						},
-					],
-					details: {
-						ok: true,
-						url: result.url,
-						threadIndex: params.threadIndex,
-						body: replyBodyToPost,
-						resolved: resolved.isResolved,
-					},
+					content: [{ type: "text", text: outcome.text }],
+					details: outcome.details,
 				};
 			}
 
