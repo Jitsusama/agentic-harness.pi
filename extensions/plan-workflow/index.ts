@@ -1,12 +1,23 @@
 /**
  * Plan Workflow Extension
  *
- * Read-only investigation mode for collaborative planning.
- * When active, tools are restricted and writes are only allowed
- * to the plan directory.
+ * Collaborative planning as a persistent, staged workflow rather
+ * than a one-shot gate. A plan moves through think (read-only:
+ * dig and debate), plan (draft the document) and build
+ * (implement), and can return to think to replan. The plan
+ * document is the single source of truth: it survives reloads,
+ * resumes and cold starts, and the workflow rehydrates from it.
  *
- * The planning skill teaches the methodology. This extension
- * enforces the guardrails.
+ * It is a tracker, not a turnstile. The only thing it blocks is
+ * the agent implementing while a plan is still read-only, and
+ * that block is agent-facing, never a human prompt. Questions
+ * are plain conversation; there is no interview tool.
+ *
+ * The planning skill teaches the methodology and the document
+ * format. This extension keeps the state, the scoreboard and the
+ * read-only guardrail. Plan-file destination is decided by the
+ * routing event (see lib/plan-routing), so a personal setup can
+ * route plans into its own home.
  */
 
 import { StringEnum } from "@mariozechner/pi-ai";
@@ -14,272 +25,167 @@ import type {
 	ExtensionAPI,
 	ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { enforcePlanMode } from "./enforce.js";
-import { showPlanInterview } from "./interview.js";
-import { activate, deactivate, restore, toggle } from "./lifecycle.js";
-import { createPlanState } from "./state.js";
+import { enforcePlan } from "./enforce.js";
 import {
-	buildPlanContext,
-	offerImplementationTransition,
-	planContextFilter,
-} from "./transitions.js";
+	applyTransition,
+	attach,
+	restore,
+	type TransitionParams,
+} from "./lifecycle.js";
+import { createPlanState } from "./state.js";
+import { buildPlanContext, planContextFilter } from "./transitions.js";
 
-export default function planMode(pi: ExtensionAPI) {
+/** Width fallback for render helpers when the terminal width is unknown. */
+const DEFAULT_WIDTH = 80;
+/** Columns the call line reserves before the note snippet. */
+const CALL_PREFIX_WIDTH = 14;
+
+export default function planWorkflow(pi: ExtensionAPI) {
 	const state = createPlanState();
 
-	pi.registerFlag("plan", {
-		description: "Start in plan mode (read-only investigation)",
-		type: "boolean",
-		default: false,
-	});
-
 	pi.registerTool({
-		name: "plan_mode",
-		label: "Plan Mode",
-		description: "Activate or deactivate plan mode (read-only investigation)",
+		name: "plan",
+		label: "Plan",
+		description:
+			"Drive collaborative planning through its stages: think, draft, build, conclude, retire.",
 		promptSnippet:
-			"Toggle plan mode for read-only investigation. Read the plan-workflow skill for methodology.",
+			"Drive planning with the plan tool: think (read-only: dig and " +
+			"debate), draft (write the plan document), build (implement). " +
+			"Questions are plain conversation; there is no interview tool. " +
+			"Read the planning skill for methodology.",
+		promptGuidelines: [
+			"Start with think and dig hard before forming a view. Debate the problem: surface tradeoffs, float alternatives, push back. Ask the user only when something genuinely blocks you, in plain conversation, one thing at a time.",
+			"Move to draft once the shape is agreed; the document is the living source of truth, so keep it current. Move to build to implement against it, checking off work and logging discoveries as you go.",
+			"Return to think (replan) when discovery invalidates the plan. A change to the spirit or approach needs the user's consent; smaller changes you just make and record.",
+			"A refused transition returns guidance and changes nothing. There is no human gate and no approval prompt.",
+		],
 		parameters: Type.Object({
-			action: StringEnum(["activate", "deactivate"] as const, {
-				description: "Whether to activate or deactivate plan mode",
-			}),
-			repos: Type.Optional(
+			action: StringEnum(
+				["think", "draft", "build", "conclude", "retire"] as const,
+				{ description: "The stage transition to make." },
+			),
+			note: Type.Optional(
 				Type.String({
 					description:
-						"Comma-separated repository paths to create worktrees in. " +
-						"Use a single dot for the current repo. Each gets its own " +
-						"worktree so implementation happens in isolated working " +
-						"trees. Only used with activate.",
+						"think: what this plan is about, or what sent you back to thinking.",
+				}),
+			),
+			title: Type.Optional(
+				Type.String({
+					description:
+						"draft: the plan's human title. It becomes the document's H1.",
+				}),
+			),
+			reason: Type.Optional(
+				Type.String({
+					description: "retire: why the plan is being abandoned.",
 				}),
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (params.action === "activate") {
-				if (state.enabled) {
-					return {
-						content: [{ type: "text", text: "Plan mode is already active." }],
-					};
-				}
-				const reposRaw = params.repos as string | undefined;
-				const repos = reposRaw
-					? reposRaw
-							.split(",")
-							.map((r: string) => r.trim())
-							.filter(Boolean)
-					: undefined;
-				const result = await activate(state, pi, ctx, repos);
-
-				const parts = [
-					`Plan mode activated. Writes restricted to ${state.planDir}/.`,
-					"Read-only investigation is now enforced.",
-				];
-				for (const wt of state.worktrees) {
-					parts.push(`Worktree: ${wt.worktreePath}`);
-				}
-				for (const failed of result.failedRepos) {
-					parts.push(
-						`WARNING: Failed to create worktree for ${failed}. Check the path exists and is a git repository.`,
-					);
-				}
-
+			const result = await applyTransition(
+				state,
+				pi,
+				ctx,
+				params as TransitionParams,
+			);
+			if (!result.ok) {
 				return {
-					content: [{ type: "text", text: parts.join(" ") }],
+					content: [{ type: "text", text: result.guidance }],
+					details: { ok: false, guidance: result.guidance },
 				};
 			}
-
-			if (!state.enabled) {
-				return {
-					content: [{ type: "text", text: "Plan mode is not active." }],
-				};
-			}
-			deactivate(state, pi, ctx);
+			const text = result.planPath
+				? `In ${state.stage}: ${result.message}\nPlan: ${result.planPath}`
+				: `In ${state.stage}: ${result.message}`;
 			return {
-				content: [
-					{
-						type: "text",
-						text: "Plan mode deactivated. All tools restored.",
-					},
-				],
-			};
-		},
-	});
-
-	const PlanQuestionSchema = Type.Object({
-		id: Type.String({ description: "Unique identifier for this question" }),
-		question: Type.String({
-			description: "The question to ask. Supports markdown.",
-		}),
-		context: Type.Optional(
-			Type.String({
-				description:
-					"Why this question matters for the plan. Supports markdown.",
-			}),
-		),
-	});
-
-	pi.registerTool({
-		name: "plan_interview",
-		label: "Plan Interview",
-		description:
-			"Present planning questions as a tabbed interview. The user answers, skips, or adds their own. Loop until no questions remain.",
-		promptSnippet:
-			"Present planning questions as a tabbed interview during plan mode.",
-		promptGuidelines: [
-			"Use plan_interview only for genuine questions that need the user's input: decisions, preferences, scope calls, trade-off choices.",
-			"Do NOT use plan_interview to present analysis, explain findings, summarize research or propose approaches. Those are normal conversation.",
-			"Loop: call plan_interview, process answers, call again with follow-ups. Stop when you have no more questions and the user adds none.",
-			"Only include genuine questions: never include 'no questions' or 'skip' options. The tool has its own Done page.",
-		],
-		parameters: Type.Object({
-			questions: Type.Array(PlanQuestionSchema, {
-				description:
-					"Questions to ask. May be empty: the user can still add their own.",
-			}),
-		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const result = await showPlanInterview(ctx, params.questions);
-
-			if (!result) {
-				return {
-					content: [{ type: "text", text: "Cancelled." }],
-					details: { cancelled: true },
-				};
-			}
-
-			if (result.allPassed) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: "No questions answered and none added. Proceed with planning.",
-						},
-					],
-					details: { answers: [], satisfied: true },
-				};
-			}
-
-			const lines: string[] = [];
-
-			for (const a of result.answers) {
-				lines.push(`Q: ${a.question}`);
-				lines.push(`A: ${a.answer}`);
-				lines.push("");
-			}
-
-			for (const uq of result.userQuestions) {
-				lines.push(`User question: ${uq}`);
-				lines.push("");
-			}
-
-			if (result.userQuestions.length > 0) {
-				lines.push(
-					"Answer the user's questions, then call plan_interview again with any follow-up questions.",
-				);
-			} else {
-				lines.push(
-					"Process these answers. Call plan_interview again if you have follow-up questions, or proceed with the plan.",
-				);
-			}
-
-			return {
-				content: [{ type: "text", text: lines.join("\n") }],
-				details: {
-					answers: result.answers.map((a) => ({
-						id: a.id,
-						question: a.question,
-					})),
-					userQuestions: result.userQuestions,
-				},
+				content: [{ type: "text", text }],
+				details: { ok: true, stage: state.stage, planPath: result.planPath },
 			};
 		},
 
 		renderCall(args, theme) {
-			const a = args as { questions?: { id: string }[] };
-			const count = a.questions?.length ?? 0;
-			let text = theme.fg("toolTitle", theme.bold("plan_interview "));
-			text += theme.fg(
-				"muted",
-				count > 0 ? `${count} question${count !== 1 ? "s" : ""}` : "open floor",
-			);
+			const a = args as {
+				action?: string;
+				note?: string;
+				title?: string;
+				reason?: string;
+			};
+			const action = a.action ?? "";
+			let text = theme.fg("toolTitle", theme.bold("plan "));
+			text += theme.fg("text", action);
+			const note = a.title ?? a.note ?? a.reason;
+			if (note) {
+				const room = Math.max(
+					0,
+					(process.stdout.columns || DEFAULT_WIDTH) -
+						CALL_PREFIX_WIDTH -
+						action.length,
+				);
+				text += theme.fg("dim", `: ${truncateToWidth(note, room)}`);
+			}
 			return new Text(text, 0, 0);
 		},
 
 		renderResult(result, _options, theme) {
 			const d = result.details as
-				| {
-						answers?: { id: string; question: string }[];
-						userQuestions?: string[];
-						satisfied?: boolean;
-						cancelled?: boolean;
-				  }
+				| { ok?: boolean; stage?: string; guidance?: string }
 				| undefined;
-			if (!d) {
-				const t = result.content?.[0];
-				return new Text(t && "text" in t ? t.text : "", 0, 0);
+			if (d && d.ok === false) {
+				return new Text(theme.fg("warning", d.guidance ?? "Refused"), 0, 0);
 			}
-			if (d.cancelled) {
-				return new Text(theme.fg("warning", "Cancelled"), 0, 0);
-			}
-			if (d.satisfied) {
-				return new Text(
-					theme.fg("success", "✓ No questions: proceeding"),
-					0,
-					0,
-				);
-			}
-			const lines: string[] = [];
-			for (const a of d.answers ?? []) {
-				lines.push(`${theme.fg("success", "✓")} ${a.question}`);
-			}
-			for (const uq of d.userQuestions ?? []) {
-				lines.push(`${theme.fg("accent", "?")} ${uq}`);
-			}
-			return new Text(lines.join("\n"), 0, 0);
+			const first =
+				result.content?.[0] && "text" in result.content[0]
+					? result.content[0].text.split("\n")[0]
+					: "";
+			return new Text(theme.fg("success", first), 0, 0);
 		},
 	});
 
 	pi.registerCommand("plan", {
-		description: "Toggle plan mode (read-only investigation)",
-		handler: async (_args, ctx) => toggle(state, pi, ctx),
+		description: "Show the active plan",
+		handler: async (_args, ctx) => {
+			ctx.ui.notify(
+				state.planPath
+					? `Plan ${state.planId} (${state.stage}) → ${state.planPath}`
+					: "No active plan.",
+				"info",
+			);
+		},
 	});
 
-	pi.registerCommand("plan-dir", {
-		description: "Show or set the plan directory for this session",
+	pi.registerCommand("plan-attach", {
+		description: "Attach to an existing plan by path or id",
 		handler: async (args, ctx) => {
-			if (!args?.trim()) {
-				ctx.ui.notify(`Plan directory: ${state.planDir}`, "info");
+			const ref = args?.trim();
+			if (!ref) {
+				ctx.ui.notify("Usage: /plan-attach <path|id>", "warning");
 				return;
 			}
-			state.planDir = args.trim();
-			pi.appendEntry("plan-workflow", {
-				enabled: state.enabled,
-				planDir: state.planDir,
-			});
-			ctx.ui.notify(`Plan directory: ${state.planDir}`, "info");
+			const ok = await attach(state, pi, ctx, ref);
+			ctx.ui.notify(
+				ok
+					? `Attached ${state.planId} (${state.stage}).`
+					: `No plan found for "${ref}".`,
+				ok ? "info" : "warning",
+			);
 		},
 	});
 
 	pi.on(
 		"tool_call",
-		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
-			return enforcePlanMode(
+		async (event, ctx): Promise<ToolCallEventResult | undefined> =>
+			enforcePlan(
 				state,
 				event.toolName,
 				event.input as Record<string, unknown>,
 				ctx.cwd,
-			);
-		},
+			),
 	);
 
-	pi.on("agent_end", async (_event, ctx) => {
-		await offerImplementationTransition(state, pi, ctx);
-	});
-
-	pi.on("before_agent_start", async () => {
-		return buildPlanContext(state);
-	});
+	pi.on("before_agent_start", async () => buildPlanContext(state));
 
 	pi.on("context", planContextFilter(state));
 
