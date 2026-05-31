@@ -176,7 +176,8 @@ type MutablePrWorkflowConfigDefaults = {
 	judge?: PrWorkflowReviewerEntry;
 };
 
-type ReviewerParseResult =
+/** Outcome of normalizing one raw reviewer entry. */
+export type ReviewerParseResult =
 	| { ok: true; reviewer: PrWorkflowReviewerEntry }
 	| { ok: false; error: string };
 
@@ -205,7 +206,18 @@ function parseReviewers(
 	return { ok: true, reviewers };
 }
 
-function parseReviewer(value: unknown, path: string): ReviewerParseResult {
+/**
+ * Normalize one raw reviewer entry — from the config file or the
+ * tool's `reviewers` array — into a {@link PrWorkflowReviewerEntry}.
+ * Derives the reviewer id from `id` or, failing that, the persona
+ * id, and validates that one of the two is present. Exported so the
+ * tool path and the config-file path share one normalization and
+ * cannot drift apart.
+ */
+export function parseReviewer(
+	value: unknown,
+	path: string,
+): ReviewerParseResult {
 	if (!isRecord(value))
 		return { ok: false, error: `${path} must be an object` };
 

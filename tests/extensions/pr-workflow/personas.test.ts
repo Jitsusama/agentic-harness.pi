@@ -6,6 +6,7 @@ import {
 	loadPersonas,
 	parsePersona,
 	personasDir,
+	serializePersona,
 } from "../../../extensions/pr-workflow/personas.js";
 
 const tempDirs: string[] = [];
@@ -125,11 +126,40 @@ describe("loadPersonas", () => {
 		expect(personas.map((p) => p.id)).toEqual(["keep"]);
 	});
 
+	it("ignores a README.md alongside the personas", async () => {
+		const dir = await personaDir({
+			"keep.md": persona("Keep", "a lens", "Charter."),
+			"README.md": "# Personas\n\nNot a persona, just docs.",
+		});
+		const { personas, errors } = await loadPersonas(dir);
+		expect(personas.map((p) => p.id)).toEqual(["keep"]);
+		expect(errors).toEqual([]);
+	});
+
 	it("treats a missing directory as empty, not an error", async () => {
 		const { personas, errors } = await loadPersonas(
 			join(tmpdir(), "pr-workflow-personas-does-not-exist-zzz"),
 		);
 		expect(personas).toEqual([]);
 		expect(errors).toEqual([]);
+	});
+});
+
+describe("serializePersona", () => {
+	it("round-trips through parsePersona", () => {
+		const text = serializePersona({
+			name: "Privilege Escalation Hunter",
+			description: "Reads every diff as a path to higher privilege.",
+			charter: "Hunt escalation.\nTrace every new capability.",
+		});
+		const result = parsePersona("escalation", text);
+		if (!result.ok) throw new Error(`expected ok, got: ${result.error}`);
+		expect(result.persona.name).toBe("Privilege Escalation Hunter");
+		expect(result.persona.description).toBe(
+			"Reads every diff as a path to higher privilege.",
+		);
+		expect(result.persona.charter).toBe(
+			"Hunt escalation.\nTrace every new capability.",
+		);
 	});
 });

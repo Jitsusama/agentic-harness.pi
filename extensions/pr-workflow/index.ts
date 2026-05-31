@@ -40,7 +40,11 @@ import {
 	ReviewerCancellationRegistry,
 	type ReviewOperation,
 } from "./cancellation.js";
-import { loadPrWorkflowConfig } from "./config.js";
+import {
+	loadPrWorkflowConfig,
+	type PrWorkflowReviewerEntry,
+	parseReviewer,
+} from "./config.js";
 import type { CouncilDispatch } from "./council.js";
 import {
 	configureCouncil,
@@ -82,6 +86,13 @@ import {
 } from "./load-trajectory.js";
 import { addManualFindingAction } from "./manual-finding-action.js";
 import { hasFindingsForParticipant } from "./participant-identities.js";
+import {
+	addPersona,
+	editPersona,
+	formatPersonaList,
+	type PersonaWrite,
+	removePersona,
+} from "./persona-action.js";
 import { loadPersonas, personasDir } from "./personas.js";
 import {
 	buildReviewPayload,
@@ -163,6 +174,42 @@ async function loadCharterResolver(): Promise<{
 	const { personas, errors } = await loadPersonas(personasDir());
 	const byId = new Map(personas.map((p) => [p.id, p.charter]));
 	return { resolve: (id) => byId.get(id), errors };
+}
+
+/**
+ * Validate that a persona-add/persona-edit call carries the four
+ * fields a persona needs (id, name, description, charter), all
+ * non-empty, and assemble them into a {@link PersonaWrite}. On a
+ * missing field it returns an error naming what is absent; on
+ * success it returns the assembled write, narrowed to defined
+ * strings.
+ */
+function requirePersonaWrite(params: {
+	persona?: string;
+	name?: string;
+	description?: string;
+	charter?: string;
+}): { ok: true; write: PersonaWrite } | { ok: false; error: string } {
+	const filled = (value: string | undefined): value is string =>
+		value !== undefined && value.trim() !== "";
+	const { persona, name, description, charter } = params;
+	const missing: string[] = [];
+	if (!filled(persona)) missing.push("persona (id)");
+	if (!filled(name)) missing.push("name");
+	if (!filled(description)) missing.push("description");
+	if (!filled(charter)) missing.push("charter");
+	if (
+		!filled(persona) ||
+		!filled(name) ||
+		!filled(description) ||
+		!filled(charter)
+	) {
+		return {
+			ok: false,
+			error: `Persona write requires: ${missing.join(", ")}.`,
+		};
+	}
+	return { ok: true, write: { id: persona, name, description, charter } };
 }
 
 export default function prWorkflow(pi: ExtensionAPI) {
@@ -376,6 +423,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"fix-worktree-cleanup",
 					"release-identity-lock",
 					"summary",
+					"personas",
+					"persona-add",
+					"persona-edit",
+					"persona-remove",
 				] as const,
 				{
 					description:
@@ -432,7 +483,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"use only when you accept that audit ambiguity. " +
 						"summary: one-shot read-only view of the loaded PR " +
 						"(header, stack, threads, council, fix queue). " +
-						"Reads cached snapshots only — never fetches.",
+						"Reads cached snapshots only — never fetches. " +
+						"personas: list the persona library (id, name, description). " +
+						"persona-add: create a new persona file from persona (id), " +
+						"name, description and charter; refuses to overwrite. " +
+						"persona-edit: rewrite an existing persona in place; same " +
+						"fields; refuses if it does not exist. " +
+						"persona-remove: delete the persona named by persona (id).",
 				},
 			),
 			pr: Type.Optional(
@@ -446,9 +503,22 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			reviewers: Type.Optional(
 				Type.Array(
 					Type.Object({
-						id: Type.String({
-							description: "Stable reviewer id used in finding origin.",
-						}),
+						persona: Type.Optional(
+							Type.String({
+								description:
+									"Persona id (a file stem in the personas dir) whose " +
+									"charter becomes this reviewer's standing system prompt. " +
+									"The reviewer id defaults to the persona id; set an " +
+									"explicit id to run the same persona at two mechanism settings.",
+							}),
+						),
+						id: Type.Optional(
+							Type.String({
+								description:
+									"Stable reviewer id used in finding origin. Defaults to " +
+									"the persona id when a persona is given; required when it is not.",
+							}),
+						),
 						model: Type.Optional(
 							Type.String({
 								description:
@@ -509,6 +579,32 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							"Judge reviewer config. For action=judge-config, omit to load the judge from the pr-workflow config file.",
 					},
 				),
+			),
+			persona: Type.Optional(
+				Type.String({
+					description:
+						"Persona id (the file-name stem). Required for persona-add, " +
+						"persona-edit and persona-remove.",
+				}),
+			),
+			name: Type.Optional(
+				Type.String({
+					description:
+						"Persona display name (frontmatter). Required for persona-add and persona-edit.",
+				}),
+			),
+			description: Type.Optional(
+				Type.String({
+					description:
+						"Event description, or — for persona-add/persona-edit — the persona's one-line description (frontmatter).",
+				}),
+			),
+			charter: Type.Optional(
+				Type.String({
+					description:
+						"Persona charter prose (the file body): the lens only, no " +
+						"output-contract scaffolding. Required for persona-add and persona-edit.",
+				}),
 			),
 			scope: Type.Optional(
 				StringEnum(["pr", "stack"] as const, {
@@ -684,8 +780,28 @@ export default function prWorkflow(pi: ExtensionAPI) {
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (params.action === "council-config") {
-				let reviewers: readonly CouncilReviewer[] | undefined =
-					params.reviewers;
+				let reviewers: readonly PrWorkflowReviewerEntry[] | undefined;
+				if (params.reviewers !== undefined) {
+					// Normalize tool-supplied reviewers through the same
+					// parser the config file uses, so persona-only entries
+					// get their id derived and both paths validate alike.
+					const normalized: PrWorkflowReviewerEntry[] = [];
+					for (let i = 0; i < params.reviewers.length; i += 1) {
+						const parsed = parseReviewer(
+							params.reviewers[i],
+							`reviewers[${i}]`,
+						);
+						if (!parsed.ok) {
+							return {
+								content: [{ type: "text", text: parsed.error }],
+								details: { ok: false, error: parsed.error },
+								isError: true,
+							};
+						}
+						normalized.push(parsed.reviewer);
+					}
+					reviewers = normalized;
+				}
 				let sourcePath: string | null = null;
 				if (reviewers === undefined) {
 					const loaded = await loadPrWorkflowConfig();
@@ -1760,6 +1876,82 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				return {
 					content: [{ type: "text", text }],
 					details: { ok: true },
+				};
+			}
+
+			if (params.action === "personas") {
+				const loaded = await loadPersonas(personasDir());
+				return {
+					content: [{ type: "text", text: formatPersonaList(loaded) }],
+					details: {
+						ok: true,
+						personas: loaded.personas.map((p) => ({
+							id: p.id,
+							name: p.name,
+							description: p.description,
+						})),
+						errors: loaded.errors,
+					},
+				};
+			}
+
+			if (params.action === "persona-add" || params.action === "persona-edit") {
+				const validated = requirePersonaWrite(params);
+				if (!validated.ok) {
+					return {
+						content: [{ type: "text", text: validated.error }],
+						details: { ok: false, error: validated.error },
+						isError: true,
+					};
+				}
+				const write = validated.write;
+				const dir = personasDir();
+				const result =
+					params.action === "persona-add"
+						? await addPersona(dir, write)
+						: await editPersona(dir, write);
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				const verb = params.action === "persona-add" ? "Created" : "Updated";
+				return {
+					content: [
+						{
+							type: "text",
+							text: `${verb} persona "${write.id}" in ${dir}.`,
+						},
+					],
+					details: { ok: true, id: write.id, dir },
+				};
+			}
+
+			if (params.action === "persona-remove") {
+				if (params.persona === undefined || params.persona.trim() === "") {
+					const error = "persona-remove requires a `persona` (id) argument.";
+					return {
+						content: [{ type: "text", text: error }],
+						details: { ok: false, error },
+						isError: true,
+					};
+				}
+				const dir = personasDir();
+				const result = await removePersona(dir, params.persona);
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{ type: "text", text: `Removed persona "${params.persona}".` },
+					],
+					details: { ok: true, id: params.persona },
 				};
 			}
 

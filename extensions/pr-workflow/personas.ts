@@ -18,6 +18,7 @@ import { basename, join } from "node:path";
 const PERSONAS_DIR_ENV_VAR = "PR_WORKFLOW_PERSONAS_DIR";
 const CONFIG_DIR = "pi";
 const PERSONAS_DIRNAME = "personas";
+const FRONTMATTER_FENCE = "---";
 
 /**
  * Resolve the directory pr-workflow reads personas from. It sits
@@ -79,6 +80,30 @@ export function parsePersona(id: string, text: string): ParsePersonaResult {
 	return { ok: true, persona: { id, name, description, charter } };
 }
 
+/** The writable fields of a persona: identity plus charter, no id. */
+export interface PersonaDraft {
+	readonly name: string;
+	readonly description: string;
+	readonly charter: string;
+}
+
+/**
+ * Render a persona draft into the markdown-with-frontmatter form
+ * {@link parsePersona} reads back. The inverse of parsing: name
+ * and description become frontmatter fields, the charter becomes
+ * the body. The round-trip is lossless for the flat fields a
+ * persona uses.
+ */
+export function serializePersona(draft: PersonaDraft): string {
+	return [
+		FRONTMATTER_FENCE,
+		`name: ${draft.name}`,
+		`description: ${draft.description}`,
+		FRONTMATTER_FENCE,
+		`${draft.charter.trim()}\n`,
+	].join("\n");
+}
+
 /** One persona file that failed to parse, with its reason. */
 export interface PersonaLoadError {
 	readonly id: string;
@@ -92,6 +117,10 @@ export interface LoadedPersonas {
 }
 
 const PERSONA_FILE_SUFFIX = ".md";
+// A README.md is documentation a user may keep beside their
+// personas; it is not a persona and must not surface as a parse
+// error. Other .md files are personas.
+const README_FILENAME = "readme.md";
 
 /**
  * Load every persona file (`*.md`) from `dir`, deriving each id
@@ -110,7 +139,11 @@ export async function loadPersonas(dir: string): Promise<LoadedPersonas> {
 		}
 		throw error;
 	}
-	const files = entries.filter((name) => name.endsWith(PERSONA_FILE_SUFFIX));
+	const files = entries.filter(
+		(name) =>
+			name.endsWith(PERSONA_FILE_SUFFIX) &&
+			name.toLowerCase() !== README_FILENAME,
+	);
 	const personas: Persona[] = [];
 	const errors: PersonaLoadError[] = [];
 	for (const file of files) {
@@ -128,8 +161,6 @@ export async function loadPersonas(dir: string): Promise<LoadedPersonas> {
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 	return error instanceof Error && "code" in error;
 }
-
-const FRONTMATTER_FENCE = "---";
 
 type SplitResult =
 	| { ok: true; fields: Record<string, string>; body: string }
