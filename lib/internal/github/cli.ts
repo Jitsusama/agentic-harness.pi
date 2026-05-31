@@ -47,6 +47,8 @@ export interface GhRebuildConfig {
 	readonly body: string;
 	/** Heredoc delimiter. */
 	readonly heredocDelim: string;
+	/** Shell tokens after the closing delimiter (e.g. `&& git push`). */
+	readonly suffix?: string | null;
 }
 
 /** Rebuild a gh command with an edited body. */
@@ -73,7 +75,34 @@ export function rebuildGhCommand(config: GhRebuildConfig): string {
 		config.heredocDelim,
 	].join("\n");
 
-	return config.prefix ? `${config.prefix} && ${heredoc}` : heredoc;
+	// Trailing tokens after the original closing delimiter (a
+	// `&& git push`, say) are not flags we parse, so they must be
+	// reattached verbatim or they would silently vanish from the
+	// rewritten command.
+	const withSuffix = config.suffix ? `${heredoc}\n${config.suffix}` : heredoc;
+
+	return config.prefix ? `${config.prefix} && ${withSuffix}` : withSuffix;
+}
+
+/**
+ * Extract shell tokens that follow a heredoc's closing
+ * delimiter. Returns null when the command has no heredoc or
+ * nothing trails the delimiter line.
+ *
+ * The closing delimiter is the first line equal to the heredoc
+ * word; anything after that line (a `&& git push`, a `;`, a
+ * redirect) is the suffix. Without preserving it, a rebuild that
+ * reconstructs the command from parsed flags drops it.
+ */
+export function extractHeredocSuffix(command: string): string | null {
+	const opener = command.match(/<<-?\s*['"]?(\w+)['"]?\s*\n/);
+	if (!opener) return null;
+	const delim = opener[1];
+	const closer = command.match(new RegExp(`\\n${delim}[ \\t]*(?:\\n|$)`));
+	if (!closer || closer.index === undefined) return null;
+	const afterDelim = command.slice(closer.index + closer[0].length);
+	const trimmed = afterDelim.trim();
+	return trimmed.length > 0 ? trimmed : null;
 }
 
 /**
@@ -114,6 +143,8 @@ export interface PrCommand {
 	readonly prNumber: string | null;
 	/** Extra flags to preserve (--draft, --base, etc.) */
 	readonly extraFlags: string[];
+	/** Shell tokens after the heredoc closing delimiter (e.g. `&& git push`). */
+	readonly suffix: string | null;
 }
 
 /**
@@ -141,10 +172,20 @@ export function parsePrCommand(command: string): PrCommand | null {
 			? extractEntityNumber(prPart, /\bgh\s+pr\s+edit\s+(\d+)\b/)
 			: null;
 	const extraFlags = extractPrExtraFlags(prPart);
+	const suffix = extractHeredocSuffix(command);
 
 	if (!body) return null;
 
-	return { action, title, body, prefix, prPart, prNumber, extraFlags };
+	return {
+		action,
+		title,
+		body,
+		prefix,
+		prPart,
+		prNumber,
+		extraFlags,
+		suffix,
+	};
 }
 
 /** Extract PR-specific flags to preserve. */
@@ -185,6 +226,8 @@ export interface IssueCommand {
 	readonly issueNumber: string | null;
 	/** Extra flags to preserve (--label, --assignee, etc.) */
 	readonly extraFlags: string[];
+	/** Shell tokens after the heredoc closing delimiter (e.g. `&& git push`). */
+	readonly suffix: string | null;
 }
 
 /**
@@ -212,10 +255,20 @@ export function parseIssueCommand(command: string): IssueCommand | null {
 			? extractEntityNumber(issuePart, /\bgh\s+issue\s+edit\s+(\d+)\b/)
 			: null;
 	const extraFlags = extractIssueExtraFlags(issuePart);
+	const suffix = extractHeredocSuffix(command);
 
 	if (!body) return null;
 
-	return { action, title, body, prefix, issuePart, issueNumber, extraFlags };
+	return {
+		action,
+		title,
+		body,
+		prefix,
+		issuePart,
+		issueNumber,
+		extraFlags,
+		suffix,
+	};
 }
 
 /** Extract issue-specific flags to preserve. */
