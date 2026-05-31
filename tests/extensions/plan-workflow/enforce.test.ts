@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { enforcePlan } from "../../../extensions/plan-workflow/enforce.js";
+import {
+	enforcePlan,
+	isPlanDocWrite,
+} from "../../../extensions/plan-workflow/enforce.js";
 import {
 	createPlanState,
 	type PlanState,
@@ -57,6 +60,19 @@ describe("enforcePlan", () => {
 			CWD,
 		);
 		expect(result?.block).toBe(true);
+	});
+
+	it("detects an edit or write that targets the active plan document", () => {
+		const plan = "/repo/.pi/plans/p.md";
+		expect(isPlanDocWrite("edit", { path: ".pi/plans/p.md" }, plan, CWD)).toBe(
+			true,
+		);
+		expect(isPlanDocWrite("write", { path: plan }, plan, CWD)).toBe(true);
+		expect(isPlanDocWrite("edit", { path: "src/b.ts" }, plan, CWD)).toBe(false);
+		expect(isPlanDocWrite("bash", { command: "sed -i" }, plan, CWD)).toBe(
+			false,
+		);
+		expect(isPlanDocWrite("edit", { path: plan }, null, CWD)).toBe(false);
 	});
 
 	it("lets everything through once building", () => {

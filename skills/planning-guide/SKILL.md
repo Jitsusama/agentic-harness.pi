@@ -40,7 +40,9 @@ You drive transitions with the `plan` tool:
 
 - `think` opens a plan from idle, with a `note` on what it is
   about. It also reopens a plan from `plan` or `build` when
-  discovery sends you back to the drawing board (replan).
+  discovery sends you back to the drawing board (replan), and
+  after a plan has concluded or retired it simply opens the next
+  one, so you are never stuck once a plan ends.
 - `draft` moves think to plan and creates the document, with a
   `title` that becomes its H1.
 - `build` moves plan to build once the document is drafted.
@@ -138,7 +140,9 @@ resume in a different session days later. While building, check
 off `- [ ]` to `- [x]` as you finish each increment, and write
 what you discover into Discovery & Deviations. Updating the
 document is not bookkeeping you do at the end; it is how the
-workflow knows where the work stands.
+workflow knows where the work stands, and the scoreboard tracks
+it live, so progress climbs as you check items off rather than
+waiting on a stage change.
 
 When resuming, trust the checkboxes: the checked items are done,
 the unchecked are what remain. To find a plan to resume in a

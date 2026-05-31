@@ -21,6 +21,24 @@ function isReadOnly(stage: PlanState["stage"]): boolean {
 	return stage === "think" || stage === "plan";
 }
 
+/**
+ * Whether a tool call is an edit or write that targets the active
+ * plan document. Shared by enforcement (which allows it through
+ * the read-only guard) and the live-refresh trigger (which
+ * repaints the scoreboard when the document changes).
+ */
+export function isPlanDocWrite(
+	toolName: string,
+	input: Record<string, unknown>,
+	planPath: string | null,
+	cwd: string,
+): boolean {
+	if (!planPath) return false;
+	if (toolName !== "write" && toolName !== "edit") return false;
+	const resolved = path.resolve(cwd, String(input.path ?? ""));
+	return resolved === path.resolve(planPath);
+}
+
 /** Check a tool call against the active stage's restrictions. */
 export function enforcePlan(
 	state: PlanState,
@@ -31,10 +49,7 @@ export function enforcePlan(
 	if (!isReadOnly(state.stage)) return;
 
 	if (toolName === "write" || toolName === "edit") {
-		const resolved = path.resolve(cwd, String(input.path ?? ""));
-		if (state.planPath && resolved === path.resolve(state.planPath)) {
-			return;
-		}
+		if (isPlanDocWrite(toolName, input, state.planPath, cwd)) return;
 		return {
 			block: true,
 			reason: `Plan workflow (${state.stage}): writes are limited to the plan document. Move to build to implement.`,

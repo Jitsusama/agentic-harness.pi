@@ -12,12 +12,14 @@ a tracker, not a turnstile: it never prompts the user.
 ## The Stages
 
 A plan moves through three working stages and two terminal ones,
-driven by the `plan` tool. Returning to `think` is how a plan is
-reopened when discovery invalidates it.
+driven by the `plan` tool. Returning to `think` from `plan` or
+`build` reopens a plan when discovery invalidates it; `think`
+from a terminal stage starts a fresh plan, so the workflow is
+never wedged after one ends.
 
 | Action | From → To | Posture |
 |---|---|---|
-| `think` | idle/plan/build → think | Read-only: dig and debate |
+| `think` | idle/plan/build/terminal → think | Read-only: dig and debate |
 | `draft` | think → plan | Read-only except the plan document |
 | `build` | plan → build | Writes allowed |
 | `conclude` | active → concluded | Terminal: the document is the record |
@@ -71,3 +73,9 @@ label beside a glyph that carries the stage through its shape and
 colour (`○` think, `◐` plan, `●` build, `✓` concluded, `⊘`
 retired). A widget alongside it shows the stage, the checkbox
 progress and the plan's title. Both fall silent at idle.
+
+The widget tracks the document live: because the document is the
+source of truth, the scoreboard re-reads it the instant an edit
+lands on the plan file (and again at the end of each turn as a
+backstop), so checkbox progress climbs as you check items off,
+not just on a stage transition.
