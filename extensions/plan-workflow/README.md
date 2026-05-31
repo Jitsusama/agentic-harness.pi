@@ -35,9 +35,16 @@ everything else is the author's prose.
 Because the document holds the state, a plan survives a
 `/reload`, a `/resume`, and a cold start in a brand-new session.
 On restore the document on disk wins over any cached pointer, so
-the state can never drift. `/plan-attach <path|id>` re-adopts a
-plan from a fresh session, and the `sessions` list is maintained
+the state can never drift. `/plan list` shows the plans in your
+plan home (newest first, with stage and progress) so you can
+find one to resume, and `/plan-attach <path|id>` re-adopts it
+from a fresh session. The `sessions` list is maintained
 automatically.
+
+The listing walks down from the plan home, so per-project
+subfolders are covered, and it stays cheap over a large tree: it
+skips dot and vendor directories, probes only each file's head,
+and reads a document in full only once it looks like a plan.
 
 ## The Only Guardrail
 

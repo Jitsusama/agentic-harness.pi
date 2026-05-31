@@ -19,6 +19,7 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { getLastEntry } from "../../lib/internal/state.js";
 import { disciplineFor } from "./discipline.js";
+import { findPlans, type PlanSummary } from "./discovery.js";
 import { type Stage, transition } from "./machine.js";
 import {
 	extractTitle,
@@ -246,6 +247,26 @@ export async function attach(
 	updateScoreboard(state, ctx);
 	persist(state, pi);
 	return true;
+}
+
+/**
+ * List every plan at or below the resolved plan root, newest
+ * first. The root is the directory a plan would be written to
+ * now, consulting any registered router, so a personal home is
+ * covered as well as the durable default.
+ */
+export async function listPlans(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+): Promise<PlanSummary[]> {
+	const fallback = await fallbackPlanDir(pi, ctx);
+	const common = await gitCommonDir(pi);
+	const repoRoot = common ? path.dirname(common) : null;
+	const root = await resolvePlanDir(
+		{ id: "", title: "", cwd: ctx.cwd, repoRoot },
+		fallback,
+	);
+	return findPlans(root);
 }
 
 /** Resolve a plan reference to a file path: a direct path, or an id prefix. */

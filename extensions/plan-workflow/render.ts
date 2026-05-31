@@ -10,10 +10,24 @@
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
+import type { PlanSummary } from "./discovery.js";
 import type { Stage } from "./machine.js";
 
 /** Columns reserved for the glyph and the space after it. */
 const GLYPH_COLS = 2;
+
+/** Render plan summaries as aligned plain-text rows for `/plan list`. */
+export function formatPlanList(plans: PlanSummary[]): string {
+	const idWidth = Math.max(...plans.map((p) => p.id.length));
+	const stageWidth = Math.max(...plans.map((p) => p.stage.length));
+	return plans
+		.map((p) => {
+			const progress = p.total > 0 ? `${p.done}/${p.total}` : "-";
+			const title = p.title ?? "(untitled)";
+			return `${p.id.padEnd(idWidth)}  ${p.stage.padEnd(stageWidth)}  ${progress.padStart(5)}  ${title}`;
+		})
+		.join("\n");
+}
 
 /** The constant status-line label while a plan is active. */
 const STATUS_LABEL = "Plan";

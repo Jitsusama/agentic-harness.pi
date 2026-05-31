@@ -31,9 +31,11 @@ import { enforcePlan } from "./enforce.js";
 import {
 	applyTransition,
 	attach,
+	listPlans,
 	restore,
 	type TransitionParams,
 } from "./lifecycle.js";
+import { formatPlanList } from "./render.js";
 import { createPlanState } from "./state.js";
 import { buildPlanContext, planContextFilter } from "./transitions.js";
 
@@ -145,8 +147,16 @@ export default function planWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("plan", {
-		description: "Show the active plan",
-		handler: async (_args, ctx) => {
+		description: "Show the active plan, or `/plan list` to discover plans",
+		handler: async (args, ctx) => {
+			if (args?.trim() === "list") {
+				const plans = await listPlans(pi, ctx);
+				ctx.ui.notify(
+					plans.length ? formatPlanList(plans) : "No plans found.",
+					"info",
+				);
+				return;
+			}
 			ctx.ui.notify(
 				state.planPath
 					? `Plan ${state.planId} (${state.stage}) → ${state.planPath}`
