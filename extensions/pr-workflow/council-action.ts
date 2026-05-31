@@ -20,6 +20,7 @@ import {
 	rememberParticipantIdentities,
 } from "./participant-identities.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
+import { composeRunAddendum } from "./run-intent.js";
 import type { PrWorkflowState } from "./state.js";
 import {
 	loadReviewThreadPromptContext,
@@ -118,6 +119,13 @@ export interface RunCouncilActionInput {
 	 * through this to build the per-reviewer system prompt.
 	 */
 	readonly resolveCharter?: (personaId: string) => string | undefined;
+	/**
+	 * The user's per-run intent: the focus for this council run,
+	 * merged into the prompt addendum alongside any provider review
+	 * context. Standing lens lives in the persona charter; this is
+	 * the poke for this one run.
+	 */
+	readonly intent?: string;
 	readonly signal?: AbortSignal;
 	/** Override for tests; production uses `Date.now()`. */
 	readonly now?: () => Date;
@@ -197,7 +205,7 @@ export async function runCouncilAction(
 		threadContext,
 	};
 
-	const promptAddendum = await input.reviewContexts?.promptAddendum({
+	const providerAddendum = await input.reviewContexts?.promptAddendum({
 		owner: target.owner,
 		repo: target.repo,
 		prNumber: target.prNumber,
@@ -205,6 +213,7 @@ export async function runCouncilAction(
 		branch: target.branch,
 		stage: "council",
 	});
+	const promptAddendum = composeRunAddendum(providerAddendum, input.intent);
 
 	// Resolve each reviewer's persona to a charter up front, keyed
 	// by reviewer id. The map is the council's filesystem-free view
@@ -247,6 +256,8 @@ export interface RetryCouncilReviewerInput {
 	 * {@link RunCouncilActionInput.resolveCharter}.
 	 */
 	readonly resolveCharter?: (personaId: string) => string | undefined;
+	/** The user's per-run intent for this retry; see {@link RunCouncilActionInput.intent}. */
+	readonly intent?: string;
 	readonly reviewerId: string;
 	readonly signal?: AbortSignal;
 }
@@ -322,7 +333,7 @@ export async function retryCouncilReviewer(
 		files: pr.files ?? [],
 		threadContext,
 	};
-	const promptAddendum = await input.reviewContexts?.promptAddendum({
+	const providerAddendum = await input.reviewContexts?.promptAddendum({
 		owner: target.owner,
 		repo: target.repo,
 		prNumber: target.prNumber,
@@ -330,6 +341,7 @@ export async function retryCouncilReviewer(
 		branch: target.branch,
 		stage: "council",
 	});
+	const promptAddendum = composeRunAddendum(providerAddendum, input.intent);
 	const charters = buildCharterMap([reviewer], input.resolveCharter);
 	const output = await runOneCouncilReviewer({
 		runId: lastRun.id,

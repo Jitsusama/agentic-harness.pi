@@ -607,6 +607,16 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"output-contract scaffolding. Required for persona-add and persona-edit.",
 				}),
 			),
+			intent: Type.Optional(
+				Type.String({
+					description:
+						"Per-run focus for a council, judge or critique run — " +
+						"e.g. 'look hardest at the auth changes' or 'be stricter " +
+						"this pass'. Merged into the run's prompt addendum. The " +
+						"standing lens lives in each reviewer's persona charter; " +
+						"this is the per-run poke and does not persist.",
+				}),
+			),
 			scope: Type.Optional(
 				StringEnum(["pr", "stack"] as const, {
 					description:
@@ -870,6 +880,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							resolveCharter: charters.resolve,
+							...(params.intent ? { intent: params.intent } : {}),
 							progress,
 						}),
 				);
@@ -914,6 +925,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							resolveCharter: charters.resolve,
+							...(params.intent ? { intent: params.intent } : {}),
 							reviewerId,
 						}),
 				);
@@ -1001,6 +1013,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							judgeCharter,
+							...(params.intent ? { intent: params.intent } : {}),
 							progress,
 						}),
 				);
@@ -1083,6 +1096,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							resolveCharter: critiqueCharters.resolve,
+							...(params.intent ? { intent: params.intent } : {}),
 							progress,
 						}),
 				);
@@ -1135,6 +1149,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							resolveCharter: critiqueCharters.resolve,
+							...(params.intent ? { intent: params.intent } : {}),
 							reviewerId,
 						}),
 				);

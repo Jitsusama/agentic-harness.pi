@@ -18,6 +18,7 @@ import {
 	rememberParticipantIdentity,
 } from "./participant-identities.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
+import { composeRunAddendum } from "./run-intent.js";
 import type { PrWorkflowState } from "./state.js";
 import {
 	loadReviewThreadPromptContext,
@@ -76,6 +77,13 @@ export interface RunJudgeActionInput {
 	 * it from `judge.md` or the built-in default.
 	 */
 	readonly judgeCharter?: string;
+	/**
+	 * The user's per-run intent for this judge run (e.g. "be
+	 * stricter", "the migration is the risky part"), merged into
+	 * the prompt addendum. The judge's law lives in its charter;
+	 * this is the per-run knob.
+	 */
+	readonly intent?: string;
 }
 
 /** Result of running the judge. */
@@ -120,7 +128,7 @@ export async function runJudgeAction(
 		sha: state.pr.metadata.head.sha,
 		branch: state.pr.metadata.head.ref,
 	};
-	const [promptAddendum, threadContext] = await Promise.all([
+	const [providerAddendum, threadContext] = await Promise.all([
 		input.reviewContexts?.promptAddendum({
 			...target,
 			prNumber: state.pr.reference.number,
@@ -128,6 +136,7 @@ export async function runJudgeAction(
 		}),
 		loadReviewThreadPromptContext(state, input.fetchThreads),
 	]);
+	const promptAddendum = composeRunAddendum(providerAddendum, input.intent);
 	let run: JudgeRun;
 	try {
 		run = await runJudge({

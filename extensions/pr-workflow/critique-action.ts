@@ -28,6 +28,7 @@ import type {
 } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
+import { composeRunAddendum } from "./run-intent.js";
 import type { PrWorkflowState } from "./state.js";
 import {
 	loadReviewThreadPromptContext,
@@ -51,6 +52,8 @@ export interface RunCritiqueActionInput {
 	 * critique reuses the same personas.
 	 */
 	readonly resolveCharter?: (personaId: string) => string | undefined;
+	/** The user's per-run intent for this critique run, merged into the prompt addendum. */
+	readonly intent?: string;
 }
 
 /** Result of running the critique. */
@@ -104,7 +107,7 @@ export async function runCritiqueAction(
 		sha: state.pr.metadata.head.sha,
 		branch: state.pr.metadata.head.ref,
 	};
-	const [promptAddendum, threadContext] = await Promise.all([
+	const [providerAddendum, threadContext] = await Promise.all([
 		input.reviewContexts?.promptAddendum({
 			...target,
 			prNumber: state.pr.reference.number,
@@ -112,6 +115,7 @@ export async function runCritiqueAction(
 		}),
 		loadReviewThreadPromptContext(state, input.fetchThreads),
 	]);
+	const promptAddendum = composeRunAddendum(providerAddendum, input.intent);
 	const charters = buildCharterMap(state.council.roster, input.resolveCharter);
 	const run = await runCritique({
 		runId,
@@ -205,6 +209,8 @@ export interface RetryCritiqueReviewerInput {
 	 * keeps its persona lens. Same contract as the council retry.
 	 */
 	readonly resolveCharter?: (personaId: string) => string | undefined;
+	/** The user's per-run intent for this retry, merged into the prompt addendum. */
+	readonly intent?: string;
 }
 
 /**
@@ -284,7 +290,7 @@ export async function retryCritiqueReviewer(
 		sha: metadata.head.sha,
 		branch: metadata.head.ref,
 	};
-	const [promptAddendum, threadContext] = await Promise.all([
+	const [providerAddendum, threadContext] = await Promise.all([
 		input.reviewContexts?.promptAddendum({
 			...target,
 			prNumber: pr.reference.number,
@@ -292,6 +298,7 @@ export async function retryCritiqueReviewer(
 		}),
 		loadReviewThreadPromptContext(state, input.fetchThreads),
 	]);
+	const promptAddendum = composeRunAddendum(providerAddendum, input.intent);
 	const charters = buildCharterMap([reviewer], input.resolveCharter);
 	const output = await runOneCritiqueReviewer({
 		runId: lastCritique.id,
