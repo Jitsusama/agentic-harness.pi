@@ -146,6 +146,42 @@ describe("drift guard", () => {
 		expect(resolver).not.toHaveBeenCalled();
 	});
 
+	it("does not apply the reply to a snapshot swapped in during the send", async () => {
+		// The reply passes the pre-send drift guard, then a sibling
+		// threads refetch swaps state.threads while the network send
+		// is in flight. The local-apply must not mutate the fresh
+		// snapshot (which never saw this reply targeted at it).
+		const state = activeState();
+		await loadThreadsAction({
+			state,
+			fetcher: async () => [thread({ id: "TA" })],
+		});
+		const captured = {
+			threadId: "TA",
+			version: state.threads?.version ?? 0,
+		};
+		const sender = vi.fn(async () => {
+			// Concurrent refetch lands mid-send.
+			await loadThreadsAction({
+				state,
+				fetcher: async () => [thread({ id: "TA" })],
+			});
+			return "https://example.com/new";
+		});
+		const freshVersionBefore = 0;
+		await replyToThreadAction({
+			state,
+			index: 1,
+			body: "thanks",
+			sender,
+			expect: captured,
+		});
+		// The fresh snapshot has exactly one comment (the original);
+		// the reply must not have been appended to it.
+		expect(state.threads?.threads[0].comments).toHaveLength(1);
+		void freshVersionBefore;
+	});
+
 	it("omitting expect keeps the legacy index-only behaviour", async () => {
 		const state = activeState();
 		await loadThreadsAction({

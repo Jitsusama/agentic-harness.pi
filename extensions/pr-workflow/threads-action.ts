@@ -198,14 +198,21 @@ export async function replyToThreadAction(input: {
 			error: `Failed to post reply: ${err instanceof Error ? err.message : String(err)}`,
 		};
 	}
-	applyReplyLocally(
-		state,
-		lookup.thread.id,
-		body,
-		url,
-		input.author,
-		input.now,
-	);
+	// The remote reply used the captured thread id, so it landed
+	// correctly. But the snapshot may have been swapped by a
+	// refetch while the send was in flight; only touch the local
+	// cache when it's still the snapshot we targeted, so we never
+	// poison a fresh snapshot that never saw this reply.
+	if (checkDrift(state, index, input.expect) === null) {
+		applyReplyLocally(
+			state,
+			lookup.thread.id,
+			body,
+			url,
+			input.author,
+			input.now,
+		);
+	}
 	return { ok: true, url };
 }
 
@@ -282,7 +289,12 @@ export async function resolveThreadAction(input: {
 			error: `Failed to resolve thread: ${err instanceof Error ? err.message : String(err)}`,
 		};
 	}
-	applyResolveLocally(state, lookup.thread.id, isResolved, input.now);
+	// Only touch the local cache if the snapshot didn't get
+	// swapped during the resolve round-trip (see the reply path
+	// for the same reasoning).
+	if (checkDrift(state, index, input.expect) === null) {
+		applyResolveLocally(state, lookup.thread.id, isResolved, input.now);
+	}
 	return { ok: true, isResolved };
 }
 
