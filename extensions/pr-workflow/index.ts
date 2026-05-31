@@ -129,7 +129,11 @@ import {
 	auditThreadsAction,
 	formatThreadAudit,
 } from "./thread-audit-action.js";
-import { confirmReplyGate, confirmResolveGate } from "./thread-gate.js";
+import {
+	confirmReplyAndResolveGate,
+	confirmReplyGate,
+	confirmResolveGate,
+} from "./thread-gate.js";
 import { fetchReviewThreads, replyToThread, resolveThread } from "./threads.js";
 import {
 	formatThreadsView,
@@ -475,7 +479,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"critique-retry: re-run one reviewer in the most recent " +
 						"critique run and substitute their output in place. " +
 						"threads: fetch the loaded PR's existing review threads. " +
-						"reply: post a reply to a thread by its [T#] index. " +
+						"reply: post a reply to a thread by its [T#] index; pass " +
+						"resolve=true to reply and resolve in one combined gate. " +
 						"resolve: resolve a thread by its [T#] index. " +
 						"fix-next: return the next finding queued for fix " +
 						"(verdict=fix) with no recorded outcome. Includes a " +
@@ -785,6 +790,15 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				Type.String({
 					description:
 						"The reply body to post to the targeted thread. Required for action=reply.",
+				}),
+			),
+			resolve: Type.Optional(
+				Type.Boolean({
+					description:
+						"For action=reply: when true, resolve the thread in the same " +
+						"step as the reply, behind a single combined gate. Defaults " +
+						"to false (reply only). Use this to avoid the two-gate dance " +
+						"when you reply and immediately close a thread.",
 				}),
 			),
 			commitSha: Type.Optional(
@@ -1546,43 +1560,30 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
+				const alsoResolve = params.resolve === true;
 				const threadForGate = state.threads?.threads[params.threadIndex - 1];
-				if (threadForGate === undefined) {
-					const result = await replyToThreadAction({
-						state,
-						index: params.threadIndex,
-						body: params.replyBody,
-						sender: (threadId, body) => replyToThread(pi, threadId, body),
-					});
-					return {
-						content: [
-							{
-								type: "text",
-								text: result.ok ? "Reply posted." : result.error,
-							},
-						],
-						details: result.ok
-							? { ok: true, url: result.url }
-							: { ok: false, error: result.error },
-						isError: !result.ok,
-					};
-				}
-				const gate = await confirmReplyGate(
-					ctx,
-					threadForGate,
-					params.replyBody,
-				);
-				if (!gate.approved) {
-					return {
-						content: [{ type: "text", text: gate.reason }],
-						details: { ok: false, error: gate.reason },
-						isError: true,
-					};
+				let replyBodyToPost = params.replyBody;
+				if (threadForGate !== undefined) {
+					const gate = alsoResolve
+						? await confirmReplyAndResolveGate(
+								ctx,
+								threadForGate,
+								params.replyBody,
+							)
+						: await confirmReplyGate(ctx, threadForGate, params.replyBody);
+					if (!gate.approved) {
+						return {
+							content: [{ type: "text", text: gate.reason }],
+							details: { ok: false, error: gate.reason },
+							isError: true,
+						};
+					}
+					replyBodyToPost = gate.body;
 				}
 				const result = await replyToThreadAction({
 					state,
 					index: params.threadIndex,
-					body: gate.body,
+					body: replyBodyToPost,
 					sender: (threadId, body) => replyToThread(pi, threadId, body),
 				});
 				if (!result.ok) {
@@ -1592,18 +1593,62 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
+				if (!alsoResolve) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Reply posted to [T${params.threadIndex}]: ${result.url}`,
+							},
+						],
+						details: {
+							ok: true,
+							url: result.url,
+							threadIndex: params.threadIndex,
+							body: replyBodyToPost,
+						},
+					};
+				}
+				// The combined gate (or its headless bypass) already covered
+				// the resolution, so resolve without a second gate.
+				const resolved = await resolveThreadAction({
+					state,
+					index: params.threadIndex,
+					resolver: (threadId) => resolveThread(pi, threadId),
+				});
+				if (!resolved.ok) {
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									`Reply posted to [T${params.threadIndex}]: ${result.url}, ` +
+									`but resolving failed: ${resolved.error}`,
+							},
+						],
+						details: {
+							ok: true,
+							url: result.url,
+							threadIndex: params.threadIndex,
+							body: replyBodyToPost,
+							resolved: false,
+							resolveError: resolved.error,
+						},
+					};
+				}
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Reply posted to [T${params.threadIndex}]: ${result.url}`,
+							text: `Replied to and resolved [T${params.threadIndex}]: ${result.url}`,
 						},
 					],
 					details: {
 						ok: true,
 						url: result.url,
 						threadIndex: params.threadIndex,
-						body: gate.body,
+						body: replyBodyToPost,
+						resolved: resolved.isResolved,
 					},
 				};
 			}

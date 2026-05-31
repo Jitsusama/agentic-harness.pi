@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	renderReplyAndResolveGateContent,
 	renderReplyGateContent,
 	renderResolveGateContent,
 } from "../../../extensions/pr-workflow/thread-gate-render.js";
@@ -30,6 +31,21 @@ function thread(overrides: Partial<ReviewThread> = {}): ReviewThread {
 		...overrides,
 	};
 }
+
+describe("renderReplyAndResolveGateContent", () => {
+	it("shows the reply and an explicit resolve intent in one gate", () => {
+		const lines = renderReplyAndResolveGateContent(
+			thread(),
+			"Handled downstream in #123.",
+		)(fakeTheme(), 80);
+		const text = lines.join("\n");
+		// The existing comment and the proposed reply are both present.
+		expect(text).toContain("Could this be simpler?");
+		expect(text).toContain("Handled downstream in #123.");
+		// And the gate states it will also resolve — the whole point.
+		expect(text).toMatch(/resolv/i);
+	});
+});
 
 describe("renderReplyGateContent", () => {
 	it("renders thread location, existing comment and proposed reply", () => {

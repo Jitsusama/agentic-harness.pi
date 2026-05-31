@@ -780,8 +780,17 @@ action, no `findings.source = thread` field.
 |---|---|
 | "what review comments are still open?" | `action="threads"` |
 | "reply to the second one saying I'll fix in a follow-up" | `action="reply" threadIndex=2 replyBody="I'll fix in a follow-up PR."` |
+| "reply and resolve the first one" | `action="reply" threadIndex=1 replyBody="Done." resolve=true` |
 | "resolve the first thread" | `action="resolve" threadIndex=1` |
 | "which of these did the stack already handle?" | `action="audit-threads"` |
+
+**Reply and resolve in one step.** When the user wants
+to reply *and* close a thread — the common case for "done,
+fixed in X" — pass `resolve=true` to `reply`. It posts the
+reply and resolves the thread behind a **single** combined
+gate, instead of making the user approve a reply gate and
+then a resolve gate. Prefer this over two separate calls
+whenever the reply is also the close-out.
 
 ### Auditing inbound threads against the stack
 

@@ -62,6 +62,38 @@ export function renderReplyGateContent(
 }
 
 /**
+ * Pure renderer for the combined reply-and-resolve gate.
+ *
+ * One gate, both effects: shows the thread, the proposed
+ * reply, and an explicit line stating the thread will be
+ * resolved once the reply posts. Replaces the two-gate dance
+ * (reply, then resolve) with a single approval.
+ */
+export function renderReplyAndResolveGateContent(
+	thread: ReviewThread,
+	body: string,
+): ContentRenderer {
+	return (theme, width) => {
+		const lines: string[] = [];
+		const wrapWidth = contentWrapWidth(width);
+		lines.push(theme.fg("accent", ` Thread @ ${locationLabel(thread)}`));
+		const flags = flagsLabel(thread);
+		if (flags.length > 0) {
+			lines.push(theme.fg("dim", `  ${flags}`));
+		}
+		lines.push("");
+		lines.push(theme.fg("dim", " Existing comments:"));
+		pushComments(lines, thread.comments, wrapWidth);
+		lines.push("");
+		lines.push(theme.fg("dim", " Proposed reply:"));
+		pushWrapped(lines, body, wrapWidth - 1);
+		lines.push("");
+		lines.push(theme.fg("warning", " Then mark the thread resolved."));
+		return lines;
+	};
+}
+
+/**
  * Pure renderer for the resolve gate's content area.
  *
  * Shows the thread header, existing comments, and an
