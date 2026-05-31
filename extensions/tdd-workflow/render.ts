@@ -49,12 +49,13 @@ export function renderWidget(
 ): string[] {
 	const { char, token } = glyph(visualState(state));
 	const colouredGlyph = theme.fg(token, char);
-	const label = `${state.phase} \u00b7${state.iteration}`;
+	const label = `${state.phase} \u00b7 ${state.iteration}`;
 	const prefix = `${colouredGlyph} ${theme.fg("muted", label)}`;
 	if (!state.behaviour) {
-		return [prefix];
+		return [truncateToWidth(prefix, width)];
 	}
 	const room = Math.max(0, width - GLYPH_COLS - (label.length + 1));
 	const behaviour = truncateToWidth(state.behaviour, room);
-	return [`${prefix} ${theme.fg("dim", behaviour)}`];
+	const line = `${prefix} ${theme.fg("dim", behaviour)}`;
+	return [truncateToWidth(line, width)];
 }

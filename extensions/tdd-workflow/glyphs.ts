@@ -1,13 +1,13 @@
 /**
  * The visual vocabulary of the scoreboard: one glyph per state
- * of the loop. The circle fills monotonically as the test
- * materializes (empty, quarter, half, full), so every build-up
- * state is a distinct shape and the progression reads without
- * colour. At green the shape turns to a check and at refactor to
- * a diamond: these two deliberately leave the circle family
- * because they are a different kind of activity, not another
- * notch of the same build-up. Fill encodes progress, colour
- * reinforces meaning, and shape alone keeps the states apart.
+ * of the loop. The circle fills monotonically across the five
+ * build-up states (empty, quarter, half, three-quarter, full),
+ * so every state is a distinct shape and the progression reads
+ * without colour. Green is the full circle: the test is
+ * complete. Refactor leaves the circle family for a diamond
+ * because it is a different kind of activity, not another notch
+ * of the same build-up. Fill encodes progress, colour reinforces
+ * meaning, and shape alone keeps the states apart.
  */
 
 import type { LoopState } from "./machine.js";
@@ -48,8 +48,8 @@ const GLYPHS: Record<VisualState, Glyph> = {
 	plan: { char: "\u25cb", token: "warning" },
 	write: { char: "\u25d4", token: "warning" },
 	"red-unverified": { char: "\u25d1", token: "error" },
-	"red-verified": { char: "\u25cf", token: "error" },
-	green: { char: "\u2713", token: "success" },
+	"red-verified": { char: "\u25d5", token: "error" },
+	green: { char: "\u25cf", token: "success" },
 	refactor: { char: "\u25c6", token: "accent" },
 };
 
