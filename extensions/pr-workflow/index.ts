@@ -174,11 +174,24 @@ const NEOVIM_PI_READY = "neovim-pi:ready";
  */
 async function loadCharterResolver(): Promise<{
 	resolve: (personaId: string) => string | undefined;
+	/** Persona identity (name + description) by id, for judge exhibits. */
+	meta: (
+		personaId: string,
+	) => { name: string; description: string } | undefined;
 	errors: readonly { id: string; error: string }[];
 }> {
 	const { personas, errors } = await loadPersonas(personasDir());
-	const byId = new Map(personas.map((p) => [p.id, p.charter]));
-	return { resolve: (id) => byId.get(id), errors };
+	const byId = new Map(personas.map((p) => [p.id, p]));
+	return {
+		resolve: (id) => byId.get(id)?.charter,
+		meta: (id) => {
+			const persona = byId.get(id);
+			return persona
+				? { name: persona.name, description: persona.description }
+				: undefined;
+		},
+		errors,
+	};
 }
 
 /**
@@ -1013,6 +1026,20 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					},
 				);
 				const judgeCharter = await resolveJudgeCharter(personasDir());
+				const judgeCharters = await loadCharterResolver();
+				const personaExhibits = state.council.roster.flatMap((reviewer) => {
+					if (reviewer.persona === undefined) return [];
+					const meta = judgeCharters.meta(reviewer.persona);
+					return meta
+						? [
+								{
+									reviewerId: reviewer.id,
+									name: meta.name,
+									description: meta.description,
+								},
+							]
+						: [];
+				});
 				const result = await runWithCancellableReviewers(
 					"judge",
 					({ registry, dispatch }) =>
@@ -1023,6 +1050,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							judgeCharter,
+							...(personaExhibits.length > 0 ? { personaExhibits } : {}),
 							...(params.intent ? { intent: params.intent } : {}),
 							progress,
 						}),

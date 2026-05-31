@@ -72,11 +72,25 @@ export interface JudgeRun {
 	readonly verification?: ReviewerVerification;
 }
 
+/** One council reviewer's persona, surfaced to the judge as an exhibit. */
+export interface JudgePersonaExhibit {
+	readonly reviewerId: string;
+	readonly name: string;
+	readonly description: string;
+}
+
 /** Inputs to `buildJudgePrompt`. */
 export interface BuildJudgePromptInput {
 	readonly council: CouncilRun;
 	readonly threadContext?: ReviewThreadPromptContext;
 	readonly promptAddendum?: string;
+	/**
+	 * The personas the council reviewers wore, keyed to their
+	 * reviewer ids. Rendered as exhibits so the judge knows which
+	 * lens produced each finding — to weigh, never to adopt. Empty
+	 * or omitted when no reviewer wore a persona.
+	 */
+	readonly personaExhibits?: readonly JudgePersonaExhibit[];
 }
 
 /** Inputs to `parseJudgeOutput`. */
@@ -157,6 +171,7 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 	lines.push("");
 	lines.push(reviewerOperatingRules());
 	lines.push("");
+	pushPersonaExhibits(lines, input.personaExhibits);
 	lines.push("Round 1 findings from the reviewers:");
 	for (const output of input.council.reviewerOutputs) {
 		lines.push("");
@@ -185,6 +200,25 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 			"a valid payload before ending your run.",
 	);
 	return lines.join("\n");
+}
+
+function pushPersonaExhibits(
+	lines: string[],
+	exhibits: readonly JudgePersonaExhibit[] | undefined,
+): void {
+	if (exhibits === undefined || exhibits.length === 0) return;
+	lines.push("## Persona exhibits");
+	lines.push(
+		"Each reviewer below wore a persona — a lens. These are " +
+			"exhibits: weigh what each lens surfaced, but do NOT adopt any " +
+			"of them. You hold no lens of your own.",
+	);
+	for (const exhibit of exhibits) {
+		lines.push(
+			`- ${exhibit.reviewerId} — ${exhibit.name}: ${exhibit.description}`,
+		);
+	}
+	lines.push("");
 }
 
 function pushPromptAddendum(

@@ -210,6 +210,27 @@ If a fleet would dispatch more than ~5 jobs, ask first.
 "Want me to run security + performance + readability on
 this module, or scope it down?" gives the user an exit.
 
+## Finding the results on disk
+
+Each fleet run is durable. The tool's text summary ends
+with the run directory and a per-subagent path to each
+result:
+
+```
+full output: <stateDir>/subagent-workflow/runs/<runId>
+  security  → .../runs/<runId>/reviewers/security/result.json
+  perf      → .../runs/<runId>/reviewers/perf/result.json
+```
+
+The `details` payload carries the same paths structurally
+(`runDir`, and `resultPath` per subagent), so you can
+read a subagent's full output back with the plain `read`
+tool without re-running anything. Reach for this when a
+subagent's final assistant text was long and the summary
+truncated it, or when the user asks to see one persona's
+full reasoning after the fact. The result JSON holds the
+complete final text, exit status and usage.
+
 ## Long-running personas
 
 The supervisor enforces two ceilings on every subagent

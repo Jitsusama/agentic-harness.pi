@@ -164,6 +164,32 @@ describe("buildJudgePrompt", () => {
 		expect(charter).toContain("candidate review, not the final truth");
 	});
 
+	it("renders the council personas as exhibits when supplied", async () => {
+		// The judge must know which lens produced each finding — to
+		// weigh, never to adopt. Persona name + description appear,
+		// keyed to the reviewer id.
+		const text = buildJudgePrompt({
+			council: council(),
+			personaExhibits: [
+				{
+					reviewerId: "esc",
+					name: "Escalation Hunter",
+					description: "Reads every diff as a path to higher privilege.",
+				},
+			],
+		});
+		expect(text).toContain("esc");
+		expect(text).toContain("Escalation Hunter");
+		expect(text).toContain("path to higher privilege");
+		// The judge weighs exhibits; it must not adopt a lens.
+		expect(text).toMatch(/exhibit|lens|do not adopt|weigh/i);
+	});
+
+	it("omits the exhibits block when no persona is supplied", async () => {
+		const text = buildJudgePrompt({ council: council() });
+		expect(text).not.toMatch(/persona exhibit/i);
+	});
+
 	it("includes provider review context when supplied", async () => {
 		const text = buildJudgePrompt({
 			council: council(),

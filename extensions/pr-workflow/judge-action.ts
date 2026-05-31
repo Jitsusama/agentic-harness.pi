@@ -12,7 +12,7 @@ import { isReviewerCancelledError } from "./cancellation.js";
 import type { CouncilDispatch } from "./council.js";
 import type { CouncilProgress } from "./council-progress.js";
 import { rememberAllocatedFindings } from "./finding-ids.js";
-import { type JudgeRun, runJudge } from "./judge.js";
+import { type JudgePersonaExhibit, type JudgeRun, runJudge } from "./judge.js";
 import {
 	assertParticipantIdentityAvailable,
 	rememberParticipantIdentity,
@@ -84,6 +84,13 @@ export interface RunJudgeActionInput {
 	 * this is the per-run knob.
 	 */
 	readonly intent?: string;
+	/**
+	 * The personas the council reviewers wore, as exhibits for the
+	 * judge (who said what, through which lens). The tool builds
+	 * this from the roster and the persona library; the judge weighs
+	 * them but never adopts one.
+	 */
+	readonly personaExhibits?: readonly JudgePersonaExhibit[];
 }
 
 /** Result of running the judge. */
@@ -152,6 +159,9 @@ export async function runJudgeAction(
 			startId: state.nextFindingId,
 			...(promptAddendum ? { promptAddendum } : {}),
 			...(input.judgeCharter ? { charter: input.judgeCharter } : {}),
+			...(input.personaExhibits && input.personaExhibits.length > 0
+				? { personaExhibits: input.personaExhibits }
+				: {}),
 			...(state.pr.files && state.pr.files.length > 0
 				? { diffFiles: state.pr.files }
 				: {}),
