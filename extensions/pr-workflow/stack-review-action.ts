@@ -67,6 +67,14 @@ export interface RunStackReviewActionInput {
 	/** Optional observer for stack review fan-out and judge progress. */
 	readonly progress?: CouncilProgress;
 	readonly now?: () => Date;
+	/**
+	 * The judge's standing charter (its law), supplied as the stack
+	 * judge's system prompt. The tool resolves it from `judge.md`
+	 * (or the built-in default) so the stack judge and the per-PR
+	 * judge share one editable law. When omitted, the stack judge
+	 * prompt inlines its generic framing as before.
+	 */
+	readonly judgeCharter?: string;
 }
 
 /** Per-PR result summary for the user-facing action output. */
@@ -287,6 +295,7 @@ export async function runStackReviewAction(
 		prs: resolved.map(toJudgePr),
 		reviewerOutputs,
 		...(stackJudgeAddendum ? { promptAddendum: stackJudgeAddendum } : {}),
+		...(input.judgeCharter ? { charterGoverned: true } : {}),
 	});
 	safelyNotify(
 		() => progress.reviewerStarted(judge.id),
@@ -301,6 +310,7 @@ export async function runStackReviewAction(
 			cwd: handle.path,
 			runId: judgeRunId,
 			signal: input.signal,
+			...(input.judgeCharter ? { systemPrompt: input.judgeCharter } : {}),
 			expectedVerificationStage: "stack-judge",
 			onEvent: (event) =>
 				notifyActivity(progress, progressWarnings, judge.id, event),

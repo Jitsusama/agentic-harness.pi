@@ -104,6 +104,14 @@ export interface BuildStackJudgePromptInput {
 	readonly prs: readonly StackJudgePrContext[];
 	readonly reviewerOutputs: readonly StackReviewerOutput[];
 	readonly promptAddendum?: string;
+	/**
+	 * True when the judge charter (its law) governs this run as the
+	 * subagent's system prompt. When set, the prompt omits the
+	 * generic judge-identity opener the charter now owns, keeping
+	 * only the stack-specific task. The per-PR judge and the stack
+	 * judge then share one editable law (`judge.md`).
+	 */
+	readonly charterGoverned?: boolean;
 }
 
 /** Caller-supplied context for stack-judge parsing. */
@@ -169,20 +177,31 @@ export function buildStackJudgePrompt(
 	input: BuildStackJudgePromptInput,
 ): string {
 	const sections: string[] = [];
-	sections.push(
-		"You are the judge for a stack-wide multi-reviewer council. You receive " +
-			"reviewer findings split by PR plus cross-PR findings. Consolidate " +
-			"per-PR findings independently, then consolidate cross-PR findings.",
-	);
-	sections.push(
-		"Synthesize, do not concatenate. Similar findings from multiple " +
-			"reviewers become one consolidated finding with `raisedBy` and " +
-			"`sourceFindingIds`. Keep PR membership intact: a finding under " +
-			'PR #101 must stay under `perPr["101"]` unless it truly spans ' +
-			"multiple PRs, in which case it belongs in `crossPr`.",
-	);
+	// The judge's identity, no-persona stance and the shared
+	// review-quality standard are its charter, supplied as the
+	// subagent's system prompt (see judge-charter.ts). When the
+	// charter governs the run, this prompt carries only the
+	// stack-specific task; without it, the generic framing is
+	// inlined so the prompt stands alone (backward compatible).
+	if (!input.charterGoverned) {
+		sections.push(
+			"You are the judge for a stack-wide multi-reviewer council. You " +
+				"receive reviewer findings split by PR plus cross-PR findings. " +
+				"Consolidate per-PR findings independently, then consolidate " +
+				"cross-PR findings.",
+		);
+		sections.push(
+			"Synthesize, do not concatenate. Similar findings from multiple " +
+				"reviewers become one consolidated finding with `raisedBy` and " +
+				"`sourceFindingIds`. Keep PR membership intact: a finding under " +
+				'PR #101 must stay under `perPr["101"]` unless it truly spans ' +
+				"multiple PRs, in which case it belongs in `crossPr`.",
+		);
+	}
 	sections.push(`The cursor is PR #${input.cursorPrNumber}.`);
-	sections.push(reviewQualityStandard());
+	if (!input.charterGoverned) {
+		sections.push(reviewQualityStandard());
+	}
 	sections.push(stackReviewSynthesisStandard());
 	pushPromptAddendum(sections, input.promptAddendum);
 	sections.push(reviewerOperatingRules());

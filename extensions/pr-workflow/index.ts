@@ -1091,6 +1091,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						title: "PR Stack Review Progress",
 					},
 				);
+				const stackJudgeCharter = await resolveJudgeCharter(personasDir());
 				const result = await runWithCancellableReviewers(
 					"review",
 					({ registry, dispatch }) =>
@@ -1101,6 +1102,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							progress,
+							judgeCharter: stackJudgeCharter,
 							fetchers: {
 								metadata: (reference) => fetchPrMetadata(pi, reference),
 								diff: async (reference) => {
