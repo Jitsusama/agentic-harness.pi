@@ -16,6 +16,7 @@
  * `lib/subagent/`.
  */
 
+import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
 import type {
 	ReviewerThinkingLevel,
 	RunPi,
@@ -137,6 +138,14 @@ export interface FleetSubagentResult {
 	 */
 	readonly stderr?: string;
 	readonly usage?: SubagentUsage;
+	/**
+	 * On-disk path to this subagent's durable `result.json`
+	 * (full `finalAssistantText`, exit code, usage). Set when
+	 * the caller resolves it from the artifact store. Lets a
+	 * reader open the complete output directly instead of
+	 * parsing it back out of the tool's `details` payload.
+	 */
+	readonly resultPath?: string;
 }
 
 /** Last non-blank stderr lines, capped, for inline display in `error`. */
@@ -162,6 +171,13 @@ export interface FleetRunResult {
 	readonly results: readonly FleetSubagentResult[];
 	readonly totalUsage?: SubagentUsage;
 	readonly warnings: readonly string[];
+	/**
+	 * On-disk directory holding this run's durable artifacts
+	 * (one `reviewers/<id>/` subdir per subagent). Set when the
+	 * caller resolves it from the artifact store, so the run's
+	 * full output is discoverable without spelunking.
+	 */
+	readonly runDir?: string;
 }
 
 /** Inputs the orchestrator needs to dispatch a fleet. */
@@ -395,6 +411,30 @@ function aggregateUsage(
  * untruncated stream is on disk at the supervisor's
  * `<runDir>/reviewers/<id>/stderr.log`.
  */
+/**
+ * Enrich a fleet result with the on-disk paths of its durable
+ * artifacts: the run directory and each subagent's `result.json`,
+ * derived from the artifact store under `stateDir`. Callers read
+ * the full output directly from these paths rather than parsing it
+ * out of the payload. Pure: it constructs path strings and touches
+ * no filesystem, so a missing run dir surfaces only when a caller
+ * reads it.
+ */
+export function locateArtifacts(
+	stateDir: string,
+	result: FleetRunResult,
+): FleetRunResult {
+	const store = new ReviewerArtifactsStore(stateDir);
+	return {
+		...result,
+		runDir: store.rootPaths(result.runId).runDir,
+		results: result.results.map((r) => ({
+			...r,
+			resultPath: store.paths(result.runId, r.id).resultPath,
+		})),
+	};
+}
+
 export function formatFleetSummary(result: FleetRunResult): string {
 	const total = result.results.length;
 	const complete = result.results.filter((r) => r.state === "complete").length;
@@ -416,6 +456,16 @@ export function formatFleetSummary(result: FleetRunResult): string {
 	for (const failure of failures) {
 		const reason = failure.error ?? "unknown failure";
 		lines.push(`  ✗ ${failure.id}: ${reason}`);
+	}
+	// Surface where the full per-subagent output lives. Without this
+	// the summary reads as the whole result, when in fact each
+	// subagent's complete text is on disk (and in the tool's details
+	// payload). Point the reader at the durable artifacts.
+	if (result.runDir) {
+		lines.push(`  full output: ${result.runDir}`);
+		for (const r of result.results) {
+			if (r.resultPath) lines.push(`    ${r.id} → ${r.resultPath}`);
+		}
 	}
 	return lines.join("\n");
 }

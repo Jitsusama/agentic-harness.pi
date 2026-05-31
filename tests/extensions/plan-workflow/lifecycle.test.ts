@@ -59,6 +59,9 @@ function makeApi(entries: unknown[]): ExtensionAPI {
 	return {
 		appendEntry: (customType: string, data: unknown) =>
 			entries.push({ type: "custom", customType, data }),
+		// createDoc probes git to resolve a plans dir; fail the probe so
+		// it falls back to the cwd-based plans dir under the tmp root.
+		exec: async () => ({ exitCode: 1, stdout: "", stderr: "" }),
 	} as unknown as ExtensionAPI;
 }
 
@@ -296,5 +299,101 @@ describe("applyTransition", () => {
 		expect(state.planId).toBeNull();
 		// The concluded document is left untouched, not revived to think.
 		expect(fs.readFileSync(file, "utf-8")).toContain("stage: concluded");
+	});
+
+	// PB1: replanning an active plan (think -> draft again) must rewrite
+	// the existing document, not fork a duplicate with a new id.
+	it("resumes the active plan on draft instead of forking a new one", async () => {
+		const state = createPlanState();
+		const api = makeApi([]);
+		const ctx = makeCtx([], tmp, {});
+
+		await applyTransition(state, api, ctx, {
+			action: "think",
+			note: "first pass",
+		});
+		await applyTransition(state, api, ctx, {
+			action: "draft",
+			title: "Original Plan",
+		});
+		const originalPath = state.planPath;
+		const originalId = state.planId;
+		expect(originalPath).not.toBeNull();
+
+		// Replan: go back to think (keeps the active plan), then draft again.
+		await applyTransition(state, api, ctx, {
+			action: "think",
+			note: "reconsider",
+		});
+		await applyTransition(state, api, ctx, {
+			action: "draft",
+			title: "Original Plan",
+		});
+
+		// Same document, same id: no fork.
+		expect(state.planPath).toBe(originalPath);
+		expect(state.planId).toBe(originalId);
+		// Exactly one plan file exists in the plans dir.
+		const planDir = path.dirname(originalPath as string);
+		const planFiles = fs.readdirSync(planDir).filter((f) => f.endsWith(".md"));
+		expect(planFiles).toHaveLength(1);
+	});
+
+	// PB2: a transition must not carry a deleted plan pointer forward.
+	it("resets to idle when the tracked plan file has vanished mid-session", async () => {
+		const state = createPlanState();
+		const api = makeApi([]);
+		const ctx = makeCtx([], tmp, {});
+
+		await applyTransition(state, api, ctx, {
+			action: "think",
+			note: "start",
+		});
+		await applyTransition(state, api, ctx, {
+			action: "draft",
+			title: "Doomed Plan",
+		});
+		const planPath = state.planPath as string;
+		expect(planPath).not.toBeNull();
+
+		// The document disappears out from under the tool.
+		fs.rmSync(planPath);
+
+		// Next transition must not act on the dead pointer; it rests at idle.
+		const result = await applyTransition(state, api, ctx, {
+			action: "build",
+		});
+		expect(result.ok).toBe(false);
+		expect(state.planPath).toBeNull();
+		expect(state.stage).toBe("idle");
+	});
+
+	// PB2 is action-agnostic: the guard fires before the machine for
+	// ANY transition, not just build. Proving a non-build action also
+	// rests at idle kills the mutation `&& params.action === "build"`.
+	it("resets to idle on a non-build transition when the file has vanished", async () => {
+		const state = createPlanState();
+		const api = makeApi([]);
+		const ctx = makeCtx([], tmp, {});
+
+		await applyTransition(state, api, ctx, { action: "think", note: "start" });
+		await applyTransition(state, api, ctx, {
+			action: "draft",
+			title: "Doomed Plan",
+		});
+		await applyTransition(state, api, ctx, { action: "build" });
+		const planPath = state.planPath as string;
+		expect(planPath).not.toBeNull();
+
+		fs.rmSync(planPath);
+
+		// conclude, not build: the guard must still catch the dead pointer.
+		const result = await applyTransition(state, api, ctx, {
+			action: "conclude",
+		});
+		expect(result.ok).toBe(false);
+		expect(result.guidance).toMatch(/gone from disk|idle/i);
+		expect(state.planPath).toBeNull();
+		expect(state.stage).toBe("idle");
 	});
 });

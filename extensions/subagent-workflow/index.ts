@@ -55,6 +55,7 @@ import {
 	dispatchFleet,
 	type FleetAssignment,
 	formatFleetSummary,
+	locateArtifacts,
 } from "./run.js";
 
 /**
@@ -306,9 +307,13 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				progress,
 				...(signal ? { signal } : {}),
 			});
+			// Decorate the result with on-disk artifact paths so the full
+			// per-subagent output is discoverable from the summary and the
+			// details payload, not buried in the supervisor's state dir.
+			const located = locateArtifacts(stateDir(), result);
 			return {
-				content: [{ type: "text", text: formatFleetSummary(result) }],
-				details: { ok: true, ...result },
+				content: [{ type: "text", text: formatFleetSummary(located) }],
+				details: { ok: true, ...located },
 			};
 		},
 	});
