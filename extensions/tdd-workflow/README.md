@@ -55,11 +55,13 @@ and no language-specific heuristic.
 
 ## Status Display
 
-The status line names the current phase beside a phase-coloured
-glyph; while a loop runs, a widget adds the iteration and the
+While a loop runs, the status line shows a constant `TDD` label
+beside a phase-coloured glyph, so the line stays put from step to
+step; the glyph carries the phase through its shape and colour. A
+widget alongside it spells out the phase, the iteration and the
 behaviour under test. Both fall silent at idle. The glyph fills
 monotonically as the test materializes and changes shape at green
-and refactor, so the state reads without colour:
+and refactor, so the phase reads without colour:
 
 | State | Glyph | Colour |
 |---|---|---|
