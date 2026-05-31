@@ -367,4 +367,33 @@ describe("applyTransition", () => {
 		expect(state.planPath).toBeNull();
 		expect(state.stage).toBe("idle");
 	});
+
+	// PB2 is action-agnostic: the guard fires before the machine for
+	// ANY transition, not just build. Proving a non-build action also
+	// rests at idle kills the mutation `&& params.action === "build"`.
+	it("resets to idle on a non-build transition when the file has vanished", async () => {
+		const state = createPlanState();
+		const api = makeApi([]);
+		const ctx = makeCtx([], tmp, {});
+
+		await applyTransition(state, api, ctx, { action: "think", note: "start" });
+		await applyTransition(state, api, ctx, {
+			action: "draft",
+			title: "Doomed Plan",
+		});
+		await applyTransition(state, api, ctx, { action: "build" });
+		const planPath = state.planPath as string;
+		expect(planPath).not.toBeNull();
+
+		fs.rmSync(planPath);
+
+		// conclude, not build: the guard must still catch the dead pointer.
+		const result = await applyTransition(state, api, ctx, {
+			action: "conclude",
+		});
+		expect(result.ok).toBe(false);
+		expect(result.guidance).toMatch(/gone from disk|idle/i);
+		expect(state.planPath).toBeNull();
+		expect(state.stage).toBe("idle");
+	});
 });

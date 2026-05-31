@@ -16,6 +16,7 @@
  * `lib/subagent/`.
  */
 
+import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
 import type {
 	ReviewerThinkingLevel,
 	RunPi,
@@ -410,6 +411,30 @@ function aggregateUsage(
  * untruncated stream is on disk at the supervisor's
  * `<runDir>/reviewers/<id>/stderr.log`.
  */
+/**
+ * Enrich a fleet result with the on-disk paths of its durable
+ * artifacts: the run directory and each subagent's `result.json`,
+ * derived from the artifact store under `stateDir`. Callers read
+ * the full output directly from these paths rather than parsing it
+ * out of the payload. Pure: it constructs path strings and touches
+ * no filesystem, so a missing run dir surfaces only when a caller
+ * reads it.
+ */
+export function locateArtifacts(
+	stateDir: string,
+	result: FleetRunResult,
+): FleetRunResult {
+	const store = new ReviewerArtifactsStore(stateDir);
+	return {
+		...result,
+		runDir: store.rootPaths(result.runId).runDir,
+		results: result.results.map((r) => ({
+			...r,
+			resultPath: store.paths(result.runId, r.id).resultPath,
+		})),
+	};
+}
+
 export function formatFleetSummary(result: FleetRunResult): string {
 	const total = result.results.length;
 	const complete = result.results.filter((r) => r.state === "complete").length;

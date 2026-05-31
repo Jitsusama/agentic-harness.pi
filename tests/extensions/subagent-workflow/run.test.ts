@@ -9,6 +9,7 @@ import {
 	dispatchFleet,
 	type FleetAssignment,
 	formatFleetSummary,
+	locateArtifacts,
 	summarizeStderrTail,
 } from "../../../extensions/subagent-workflow/run";
 import type {
@@ -643,6 +644,54 @@ describe("formatFleetSummary", () => {
 		});
 		expect(summary.split("\n")).toHaveLength(1);
 		expect(summary).not.toContain("full output");
+	});
+});
+
+describe("locateArtifacts", () => {
+	const base = {
+		runId: "fleet-xyz",
+		warnings: [],
+		results: [
+			{
+				id: "alpha",
+				finalAssistantText: "a",
+				warnings: [],
+				state: "complete" as const,
+			},
+			{
+				id: "beta",
+				finalAssistantText: "b",
+				warnings: [],
+				state: "complete" as const,
+			},
+		],
+	};
+
+	it("derives the run dir and each subagent's result path from the store", () => {
+		const located = locateArtifacts("/state", base);
+		// The run dir hangs off the state dir, keyed by run id.
+		expect(located.runDir).toContain("fleet-xyz");
+		expect(located.runDir).toContain("/state");
+		// Each subagent gets its own result.json under reviewers/<id>.
+		expect(located.results[0].resultPath).toContain("alpha");
+		expect(located.results[0].resultPath).toContain("result.json");
+		expect(located.results[1].resultPath).toContain("beta");
+		// The result.json lives beneath the run dir.
+		expect(
+			located.results[0].resultPath?.startsWith(located.runDir ?? ""),
+		).toBe(true);
+	});
+
+	it("preserves the original fields and per-subagent identity", () => {
+		const located = locateArtifacts("/state", base);
+		expect(located.runId).toBe("fleet-xyz");
+		expect(located.results).toHaveLength(2);
+		expect(located.results[0].id).toBe("alpha");
+		expect(located.results[0].finalAssistantText).toBe("a");
+		// Distinct subagents get distinct result paths.
+		expect(located.results[0].resultPath).not.toBe(
+			located.results[1].resultPath,
+		);
 	});
 });
 
