@@ -3,6 +3,7 @@ import { ReviewerCancelledError } from "../../../extensions/pr-workflow/cancella
 import {
 	type CouncilDispatch,
 	runCouncil,
+	runOneCouncilReviewer,
 } from "../../../extensions/pr-workflow/council.js";
 import {
 	type WorktreeProvider,
@@ -156,6 +157,34 @@ describe("runCouncil", () => {
 		});
 		expect(new Set(cwds).size).toBe(1);
 		expect(cwds[0]).toBe("/wt/octo-demo/abc123");
+	});
+
+	it("passes each reviewer's resolved charter as the system prompt", async () => {
+		// The persona charter is the reviewer's standing identity.
+		// It arrives as the system prompt; reviewers with no charter
+		// dispatch without one, exactly as before personas existed.
+		const systemPrompts = new Map<string, string | undefined>();
+		const dispatch: CouncilDispatch = async (opts) => {
+			systemPrompts.set(opts.reviewer.id, opts.systemPrompt);
+			return {
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: findingsJson([]),
+				stderr: "",
+				warnings: [],
+			};
+		};
+		await runCouncil({
+			runId: "run-1",
+			target: TARGET,
+			reviewers: [REVIEWER_A, REVIEWER_B],
+			registry: new WorktreeRegistry(fakeWorktreeProvider()),
+			dispatch,
+			charterFor: (id) =>
+				id === "fast" ? "You review fast and shallow." : undefined,
+		});
+		expect(systemPrompts.get("fast")).toBe("You review fast and shallow.");
+		expect(systemPrompts.get("skeptic")).toBeUndefined();
 	});
 
 	it("adds supplied review context to every reviewer prompt", async () => {
@@ -487,5 +516,36 @@ describe("runCouncil", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+describe("runOneCouncilReviewer", () => {
+	it("passes the resolved charter as the system prompt on a retry", async () => {
+		// A single-reviewer retry must keep the reviewer's persona
+		// voice; the charter resolves the same way as in a fan-out.
+		let captured: string | undefined;
+		let called = false;
+		const dispatch: CouncilDispatch = async (opts) => {
+			captured = opts.systemPrompt;
+			called = true;
+			return {
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: findingsJson([]),
+				stderr: "",
+				warnings: [],
+			};
+		};
+		await runOneCouncilReviewer({
+			runId: "run-1",
+			target: TARGET,
+			reviewer: REVIEWER_A,
+			registry: new WorktreeRegistry(fakeWorktreeProvider()),
+			dispatch,
+			startId: 1,
+			charterFor: (id) => (id === "fast" ? "Fast lens charter." : undefined),
+		});
+		expect(called).toBe(true);
+		expect(captured).toBe("Fast lens charter.");
 	});
 });
