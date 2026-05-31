@@ -1,53 +1,50 @@
 /**
- * Plan mode enforcement: intercepts tool calls to keep the
- * agent read-only.
+ * Stage-aware enforcement. While a plan is in its read-only
+ * stages (think and plan), the agent may not implement: code
+ * writes and git-mutating commands are blocked, with the one
+ * exception of writing the active plan document. Once the plan
+ * moves to build, everything is allowed. idle and the terminal
+ * stages do not interfere at all.
  *
- * Blocks writes outside the plan directory and git-mutating
- * commands. Reads, searches and plan-dir writes are allowed
- * through.
+ * This blocks the agent, never the human: it returns an
+ * agent-facing reason, never a prompt. It is the one thing the
+ * workflow guards, and it is what "do not implement while we are
+ * still thinking" means in practice.
  */
 
 import * as path from "node:path";
 import type { ToolCallEventResult } from "@mariozechner/pi-coding-agent";
-import type { PlanState } from "./state.js";
-import { GIT_MUTATING } from "./state.js";
+import { GIT_MUTATING, type PlanState } from "./state.js";
 
-/**
- * Check a tool call against plan mode restrictions.
- * Returns a block result if the action is disallowed.
- */
-export function enforcePlanMode(
+/** Whether a stage forbids implementation (code writes, git mutation). */
+function isReadOnly(stage: PlanState["stage"]): boolean {
+	return stage === "think" || stage === "plan";
+}
+
+/** Check a tool call against the active stage's restrictions. */
+export function enforcePlan(
 	state: PlanState,
 	toolName: string,
 	input: Record<string, unknown>,
 	cwd: string,
 ): ToolCallEventResult | undefined {
-	if (!state.enabled) return;
+	if (!isReadOnly(state.stage)) return;
 
 	if (toolName === "write" || toolName === "edit") {
-		const filePath = String(input.path ?? "");
-		const resolved = path.resolve(cwd, filePath);
-		const resolvedPlanDir = path.resolve(cwd, state.planDir);
-		const inPlanDir =
-			resolved.startsWith(resolvedPlanDir + path.sep) ||
-			resolved === resolvedPlanDir;
-
-		if (inPlanDir) {
-			state.wroteToPlanDir = true;
-			state.lastPlanFile = resolved;
+		const resolved = path.resolve(cwd, String(input.path ?? ""));
+		if (state.planPath && resolved === path.resolve(state.planPath)) {
 			return;
 		}
-
 		return {
 			block: true,
-			reason: `Plan mode: writes restricted to ${state.planDir}/. Exit with /plan first.`,
+			reason: `Plan workflow (${state.stage}): writes are limited to the plan document. Move to build to implement.`,
 		};
 	}
 
 	if (toolName === "bash" && GIT_MUTATING.test(String(input.command ?? ""))) {
 		return {
 			block: true,
-			reason: "Plan mode: git-mutating command blocked. Exit with /plan first.",
+			reason: `Plan workflow (${state.stage}): git-mutating command blocked. Move to build first.`,
 		};
 	}
 }

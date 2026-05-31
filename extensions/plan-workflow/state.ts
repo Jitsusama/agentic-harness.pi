@@ -1,53 +1,40 @@
 /**
- * Defines the runtime state shape for plan mode, along with
- * sensible defaults and constants used throughout the extension.
+ * Runtime state for the plan workflow. This is a cache derived
+ * from the plan document, which is the real source of truth: the
+ * stage and the displayed detail are refreshed from the document
+ * on every transition and on restore. Nothing here is
+ * authoritative on its own.
  */
 
-import { DEFAULT_PLAN_DIR } from "../../lib/internal/state.js";
-import type { PlanWorktree } from "./worktree.js";
+import type { Stage } from "./machine.js";
 
-/** Runtime state for plan mode. */
+/** The in-memory view of the active plan. */
 export interface PlanState {
-	enabled: boolean;
-	planDir: string;
-	wroteToPlanDir: boolean;
-	savedTools: string[] | null;
-	/** Worktrees created for this plan, one per repository. */
-	worktrees: PlanWorktree[];
-	/** Absolute path to the most recently written plan file. */
-	lastPlanFile: string | null;
+	/** Current stage, mirrored from the document's front-matter. */
+	stage: Stage;
+	/** Absolute path to the active plan document, or null when none. */
+	planPath: string | null;
+	/** The active plan's id, mirrored for quick reference. */
+	planId: string | null;
+	/** The active plan's title (its H1), for the widget. */
+	title: string | null;
+	/** Checkbox progress from the document body, for the widget. */
+	done: number;
+	total: number;
 }
 
-/** Tools available during plan mode (read-only + plan-dir writes). */
-export const PLAN_TOOLS = [
-	"read",
-	"write",
-	"bash",
-	"grep",
-	"find",
-	"ls",
-	"ask",
-	"plan_mode",
-	"plan_interview",
-	"slack",
-	"google",
-	"web_search",
-	"web_read",
-	"vault",
-];
-
-/** Git-mutating bash commands: blocked in plan mode. */
+/** Git-mutating bash commands: blocked while planning. */
 export const GIT_MUTATING =
 	/\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|stash|cherry-pick|revert|tag)\b/i;
 
-/** Create the initial plan mode state. */
+/** A fresh, idle plan state with nothing attached. */
 export function createPlanState(): PlanState {
 	return {
-		enabled: false,
-		planDir: DEFAULT_PLAN_DIR,
-		wroteToPlanDir: false,
-		savedTools: null,
-		worktrees: [],
-		lastPlanFile: null,
+		stage: "idle",
+		planPath: null,
+		planId: null,
+		title: null,
+		done: 0,
+		total: 0,
 	};
 }

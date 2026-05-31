@@ -1,181 +1,199 @@
 ---
 name: planning-guide
 description: >
-  Collaborative planning methodology. Codebase investigation,
-  clarifying questions and structured plan creation. Use when
-  entering plan_mode, designing before building or architecting
-  a solution. Pairs with planning-dev-format when planning code
-  work.
+  The single planning skill: how to plan collaboratively and how
+  to structure the living plan document. Covers the staged plan
+  workflow (think, draft, build), debating before deciding, the
+  front-matter contract, the recommended sections, checkbox
+  progress and deviation. Use when planning, designing before
+  building, driving the plan tool, or writing a plan file. Works
+  for code, investigation, writing and ops plans alike. Follow
+  the user's prose standard for any text in the plan.
 ---
 
-# Collaborative Planning
+# Planning
 
-## Flow
+Planning is where you think a problem through and debate it
+before touching code. It is a conversation, not an intake form.
+You dig hard, you argue for the best shape, and you leave with a
+living document that captures the spirit of the work and tracks
+its own progress.
 
-1. **Understand the goal**: what are we trying to accomplish and why.
-2. **Investigate**: read the relevant code, understand the current state.
-3. **Ask questions**: use `plan_interview` when you have
-   genuine questions that need the user's input. Loop until
-   you have no more and the user adds none.
-4. **Summarize findings**: present what you learned, concisely.
-5. **Propose an approach**: high-level strategy, invite feedback.
-6. **Iterate**: refine through conversation until aligned.
-7. **Write the plan**: structured markdown file.
-   - **If planning code work:** Load the `planning-dev-format` skill for
-     guidance on plan structure (interfaces, data flow, test scenarios).
+The `plan` tool drives the workflow. The plan document is the
+single source of truth: it survives reloads, resumes and cold
+starts, and the workflow rehydrates from it. The tool is a
+tracker, not a gate. It never prompts the user; it only reflects
+where the work is and reminds you of the posture for each stage.
 
-## Interview vs. Conversation
+## The Stages
 
-`plan_interview` is for **questions that need the user's
-input** — decisions, preferences, scope calls, trade-off
-choices. If you're presenting analysis, explaining findings,
-summarizing what you learned, or proposing an approach, that's
-**conversation** — write it as a normal response.
+A plan moves through three working stages and two terminal ones.
 
-The test: if the user could meaningfully skip the item or
-pass on it, it's a question. If they'd be confused by a
-"Pass" button because you're explaining something to them,
-it's conversation.
+- **think** (read-only): dig and debate. No implementing.
+- **plan** (read-only except the plan document): draft the
+  document.
+- **build** (writes allowed): implement against the plan.
+- **concluded** / **retired**: terminal. The document is the
+  record.
 
-## Plan File Naming
+You drive transitions with the `plan` tool:
 
-Name plan files with a condensed ISO 8601 date prefix
-followed by a short, descriptive slug:
+- `think` opens a plan from idle, with a `note` on what it is
+  about. It also reopens a plan from `plan` or `build` when
+  discovery sends you back to the drawing board (replan).
+- `draft` moves think to plan and creates the document, with a
+  `title` that becomes its H1.
+- `build` moves plan to build once the document is drafted.
+- `conclude` closes a finished plan; `retire` abandons one with
+  a `reason`.
 
+A refused transition hands back guidance and changes nothing.
+There is no approval prompt.
+
+## Think: Dig, Then Debate
+
+Investigate before you form a view. Read the code, trace the
+flow, understand the current state. Only once you have dug should
+you start shaping an approach.
+
+Then debate. Surface tradeoffs. Float alternatives and say which
+you prefer and why. Push back where you disagree. Work the
+problem high level first, because a change up top invalidates the
+detail below it. Take one thread at a time rather than a wall of
+parallel points.
+
+Ask the user only when something genuinely blocks you, and ask in
+plain conversation, one question at a time. There is no interview
+tool and no batch of questions. If you are explaining, analyzing
+or proposing, that is conversation, not a question.
+
+## The Plan Document
+
+The document is what you carry out of planning. Aim for a proper
+markdown file that reads well on its own, with just enough
+structure that the workflow can parse it.
+
+### The parsed contract
+
+Only two things are ever parsed, so only two things are load
+bearing. Everything else is your prose.
+
+1. **Front-matter**: a small YAML block at the top.
+
+```yaml
+---
+id: PLAN-20260530-a3f
+stage: build
+updated: 2026-05-31
+sessions:
+  - 019e7a4b-516e-7911-a1ff-6d5383f7fa64
+---
 ```
-YYYYMMDD-descriptive-slug.md
-```
 
-Examples:
-- `20260329-slack-pagination.md`
-- `20260329-plan-conventions.md`
+The `id` is stable and assigned once; the H1 is the friendly
+name and can change freely. `stage`, `updated` and `sessions`
+are maintained by the workflow as you transition, so you rarely
+touch them by hand.
 
-The date prefix ensures plans sort chronologically in a
-directory listing. The slug should be specific enough to
-identify the plan at a glance without opening it.
+2. **Checkboxes**: standard GitHub task-list items (`- [ ]` and
+   `- [x]`) anywhere in the body. These are the progress.
 
-## Plan File Format
+### Recommended sections
+
+These are a starting shape, not a cage. Reshape them to fit the
+work; the parser never reads section headings.
 
 ```markdown
-## Goal
+# A Readable Title
 
-What we're trying to accomplish and why.
-
-## Skills to Follow
-
-Reference skills the implementer should load (for dev plans).
+## Spirit
+The stable north star: why this work exists and what good looks
+like. This is the part that must survive every deviation.
 
 ## Context
-
-Relevant existing code, architecture, constraints discovered
-during investigation.
+What framing the problem surfaced. Constraints. What is in and
+out of scope.
 
 ## Approach
+The shape you settled on and the decisions behind it, each with
+its rationale.
 
-High-level strategy. Why this approach over alternatives.
-
-## Progress
-
-Steps use checkboxes. Find the first unchecked step;
-that's where to start. After completing a step, check it
-off and commit the plan file update with the implementation
-work. Do not start the next step until the current one is
-checked off.
-
-## Steps
-
-- [ ] First step: small enough for one TDD cycle / one commit.
-- [ ] Second step.
-- [ ] ...
+## Work
+- [ ] First increment, sequenced so each step forces the least
+- [ ] Next increment
 
 ## Open Questions
+- [ ] Anything still unresolved
 
-Anything unresolved that might affect implementation.
-
-## Risks
-
-Known risks and how we'll mitigate them.
+## Discovery & Deviations
+An append-only, dated log. When the work surfaces something that
+changes the plan, it lands here with the decision and the consent
+behind it.
 ```
 
-For dev plans, the "Skills to Follow" section names the skills
-the implementer should load (e.g., `code-tdd-guide`,
-`code-style-standard` and any prose style guides). See `planning-dev-format`
-for the full list and structure.
+## Progress and Keeping It Current
 
-## Step Granularity
+The document must always reflect reality, because the work may
+resume in a different session days later. While building, check
+off `- [ ]` to `- [x]` as you finish each increment, and write
+what you discover into Discovery & Deviations. Updating the
+document is not bookkeeping you do at the end; it is how the
+workflow knows where the work stands.
 
-Each step should be:
-- Small enough for one TDD cycle (one test + implementation).
-- Small enough for one atomic commit.
-- Independently verifiable; you can run tests after each step.
-- Clearly described; someone reading just the step knows what to do.
+When resuming, trust the checkboxes: the checked items are done,
+the unchecked are what remain.
 
-## Progress Tracking
+## Deviating From the Plan
 
-The plan file is the single source of truth for what's done
-and what's left. Implementation may happen in a different
-session, possibly days later, so the plan must be
-self-explanatory at all times.
+When build surfaces something the plan did not foresee, the
+response depends on what changes.
 
-**Before starting:** read the plan file. Find the first
-unchecked step. That's where you begin.
+- A change to the **spirit or the approach** needs the user's
+  consent. Stop, explain what you found and what you would
+  change, and get their agreement before proceeding.
+- Anything **smaller**, you just do, and record it in Discovery &
+  Deviations so the document stays honest.
 
-**After completing a step:** update the plan file immediately.
-Check off the step (`- [x]`), then commit the plan file
-update alongside the implementation work. Do not start the
-next step until the current one is checked off. This is not
-optional.
+If the plan is genuinely wrong, reopen it: transition back to
+`think` with a note on what changed, rework the approach, then
+redraft.
 
-**If a step turns out wrong:** don't silently skip it. Update
-the plan: rewrite the step, add new ones, remove obsolete
-ones. The plan should always reflect reality, not the
-original optimistic guess. See "Deviating from the Plan"
-below.
+## Where Plans Live
 
-**If you're resuming someone else's work:** the checked-off
-steps tell you what's done. The unchecked steps tell you
-what's left. Trust the checkboxes; don't re-investigate
-completed work unless something looks wrong.
+The workflow writes the document to a durable location anchored
+to the main worktree root, so a plan started inside a linked
+worktree does not vanish when that worktree is removed. A
+personal setup can route plans into its own home by registering
+a router (see the plan-routing library); the package default is
+just the fallback.
 
-## Deviating from the Plan
+## Granularity
 
-When the implementer discovers that the plan needs to change
-(a step doesn't make sense any more, the order should shift,
-a new step is needed, or the approach itself is wrong), they
-must stop and communicate with the user before proceeding.
-Explain what changed, why the plan no longer fits and what
-you'd propose instead. Don't silently deviate; get buy-in
-first, then update the plan to reflect the new direction.
+Size each Work item so it is:
 
-## Plan Mode Tool
+- Small enough for one increment or one commit.
+- Independently verifiable.
+- Clear enough that someone reading only that line knows what to
+  do.
 
-The `plan_mode` tool activates read-only enforcement: you
-can't modify files outside the plan directory until plan mode
-is deactivated.
+## For Code Plans
 
-When the user's intent suggests investigation or planning
-(e.g., "let's plan this", "I want to understand the codebase
-first", "let's think about this before building"):
+A plan gives context and direction, not implementation. It
+explains what to build and why; the how is decided while
+building, under TDD. So a code plan is most useful when it
+captures:
 
-1. Confirm with the user that they want plan mode.
-2. Identify which repositories the work will touch.
-3. Call `plan_mode` with action `activate` and the `repos`
-   parameter listing those paths (use `"."` for the current
-   repo). This creates a worktree in each repository so
-   implementation happens in isolated working trees.
-4. Investigate, collaborate, write the plan.
-5. When the plan is written, a transition gate appears.
-   Choosing to implement deactivates plan mode. The
-   implementation prompt includes the worktree paths;
-   cd into each worktree to implement.
+- **Skills to follow**: name them rather than restating them
+  (for example `code-tdd-guide`, `code-style-standard`, the
+  prose standard). The implementer loads them.
+- **Interfaces**: the exported surface and how it is called,
+  with signatures and what it returns.
+- **Data shapes**: what flows through the system and why it is
+  shaped that way.
+- **Test scenarios**: a flat coverage checklist of behaviours to
+  verify, not full test code and not a TDD order. More scenarios
+  emerge while building.
 
-Worktrees are created at each repo's current HEAD. Branch
-creation happens later, during implementation, following
-the `git-branch-convention` skill.
-
-When worktree isolation isn't needed (quick investigations,
-plans that won't lead to implementation), omit the `repos`
-parameter. Plan mode will activate without worktrees.
-
-The `/plan` command and `Ctrl+Alt+P` shortcut also toggle
-plan mode directly (without worktrees).
+Keep complete implementation code, complete test code and
+step-by-step procedures out of the plan. If you are writing the
+body of a method, you have stopped planning and started coding.

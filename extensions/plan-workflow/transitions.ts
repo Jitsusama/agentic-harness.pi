@@ -1,124 +1,50 @@
 /**
- * Handles plan mode transitions: the confirmation gate shown
- * when the agent finishes a turn, context injection into the
- * system prompt, and filtering out stale context.
+ * Context injection and filtering. While a plan is active, a
+ * small factual note rides the system prompt so the agent always
+ * knows the stage, the plan and where the document lives. It
+ * carries facts only, not discipline: the stage discipline is
+ * delivered once, on the transition that enters the stage, so it
+ * never turns into a per-turn nag. When the plan goes idle or
+ * terminal, the stale note is filtered out.
  */
 
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
 import { filterContext } from "../../lib/internal/state.js";
-import { promptSingle } from "../../lib/ui/panel.js";
-import { deactivate } from "./lifecycle.js";
 import type { PlanState } from "./state.js";
 
-/**
- * After the agent writes to the plan directory, offer
- * transition options: implement or stay in planning.
- */
-export async function offerImplementationTransition(
-	state: PlanState,
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-): Promise<void> {
-	if (!state.enabled || !ctx.hasUI || !state.wroteToPlanDir) return;
-	state.wroteToPlanDir = false;
+/** The custom type tagging plan-workflow context messages. */
+const CONTEXT_TYPE = "plan-workflow-context";
 
-	const result = await promptSingle(ctx, {
-		content: (theme) => [theme.fg("text", ` Plan written → ${state.planDir}`)],
-	});
-
-	if (!result) return;
-
-	if (result.type === "redirect") {
-		deactivate(state, pi, ctx);
-		pi.sendUserMessage(result.note, { deliverAs: "followUp" });
-		return;
-	}
-
-	// Enter = implement
-	deactivate(state, pi, ctx);
-
-	if (result.note) {
-		pi.sendUserMessage(result.note, { deliverAs: "followUp" });
-		return;
-	}
-
-	pi.sendUserMessage(buildImplementationPrompt(state), {
-		deliverAs: "followUp",
-	});
+/** Stages where the plan is actively being worked. */
+function isActive(state: PlanState): boolean {
+	return (
+		state.stage === "think" || state.stage === "plan" || state.stage === "build"
+	);
 }
 
-/**
- * Inject planning context into the agent's system prompt.
- */
+/** Build the standing context note, or nothing when no plan is active. */
 export function buildPlanContext(state: PlanState) {
-	if (!state.enabled) return;
+	if (!isActive(state)) return;
 
-	const lines = [
-		"[PLAN MODE: read-only investigation]",
-		"",
-		"Investigate the codebase and collaborate toward an",
-		"implementation plan. Do not modify code files.",
-		"",
-		"Use plan_interview for questions that need user input.",
-		"Use normal conversation for explanations, analysis and",
-		"proposals.",
-		"",
-		`Write plan files to: ${state.planDir}/`,
-	];
-
-	if (state.worktrees.length > 0) {
-		lines.push("");
-		lines.push("Worktrees prepared for implementation:");
-		for (const wt of state.worktrees) {
-			lines.push(`  ${wt.repoPath} → ${wt.worktreePath}`);
-		}
+	const lines = [`[PLAN WORKFLOW: ${state.stage}]`];
+	if (state.planId) {
+		lines.push(
+			`Plan ${state.planId} "${state.title ?? "untitled"}" — ${state.done}/${state.total} checked.`,
+		);
 	}
-
-	lines.push("");
-	lines.push(
-		"When the plan is ready and the user is satisfied, offer",
-		"to transition to implementation.",
-	);
+	if (state.planPath) {
+		lines.push(`Source of truth: ${state.planPath}`);
+	}
 
 	return {
 		message: {
-			customType: "plan-workflow-context",
+			customType: CONTEXT_TYPE,
 			content: lines.join("\n"),
 			display: false,
 		},
 	};
 }
 
-/**
- * Create a context filter that removes stale plan-workflow context
- * when plan mode is not active.
- */
+/** Strip stale plan context once the plan is no longer active. */
 export function planContextFilter(state: PlanState) {
-	return filterContext("plan-workflow-context", () => state.enabled);
-}
-
-/**
- * Build the implementation prompt, including the plan file
- * path and worktree locations when available.
- */
-function buildImplementationPrompt(state: PlanState): string {
-	const parts: string[] = [];
-
-	if (state.lastPlanFile) {
-		parts.push(`Read the plan at ${state.lastPlanFile}.`);
-	}
-
-	if (state.worktrees.length > 0) {
-		parts.push("Worktrees for this plan:");
-		for (const wt of state.worktrees) {
-			parts.push(`  ${wt.worktreePath}`);
-		}
-		parts.push("cd into the worktree to implement.");
-	}
-
-	parts.push("Start with step 1.");
-	return parts.join("\n");
+	return filterContext(CONTEXT_TYPE, () => isActive(state));
 }
