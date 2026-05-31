@@ -68,11 +68,16 @@ fallback.
 
 ## Status Display
 
-While a plan is active, the status line shows a constant `Plan`
-label beside a glyph that carries the stage through its shape and
-colour (`○` think, `◐` plan, `●` build, `✓` concluded, `⊘`
-retired). A widget alongside it shows the stage, the checkbox
-progress and the plan's title. Both fall silent at idle.
+While a plan is being worked, the status line shows a constant
+`Plan` label beside a glyph that carries the stage through its
+shape and colour (`○` think, `◐` plan, `●` build). A widget
+alongside it shows the stage, the checkbox progress and the
+plan's title. The scoreboard belongs to a plan in progress, so
+it clears at idle and the moment a plan concludes or retires; the
+finished plan lives on in its document and in `/plan list`, not
+in the live indicator. This also means a reload after concluding
+comes back to a clean slate, rather than resurrecting the
+finished plan.
 
 The widget tracks the document live: because the document is the
 source of truth, the scoreboard re-reads it the instant an edit
