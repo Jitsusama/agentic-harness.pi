@@ -19,9 +19,9 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { disciplineFor } from "./discipline.js";
 import { persist, restore, updateScoreboard } from "./lifecycle.js";
 import { transition } from "./machine.js";
+import { formatTransitionReply } from "./reply.js";
 import { createTddState } from "./state.js";
 import { buildTddContext, tddContextFilter } from "./transitions.js";
 
@@ -115,12 +115,13 @@ export default function tddMode(pi: ExtensionAPI) {
 			});
 
 			if (!result.ok) {
+				const message = formatTransitionReply(result, state.loop.phase);
 				return {
-					content: [{ type: "text", text: result.guidance }],
+					content: [{ type: "text", text: message }],
 					details: {
 						ok: false,
 						phase: state.loop.phase,
-						message: result.guidance,
+						message,
 					},
 				};
 			}
@@ -130,7 +131,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			updateScoreboard(state, ctx);
 
 			const phase = result.state.phase;
-			const message = `In ${phase}: ${disciplineFor(phase)}`;
+			const message = formatTransitionReply(result);
 			return {
 				content: [{ type: "text", text: message }],
 				details: { ok: true, phase, message },
