@@ -40,6 +40,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
+import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
 import {
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
@@ -54,8 +55,31 @@ import {
 	buildAssignment,
 	dispatchFleet,
 	type FleetAssignment,
+	type FleetRunResult,
 	formatFleetSummary,
 } from "./run.js";
+
+/**
+ * Enrich a fleet result with the on-disk paths of its durable
+ * artifacts. Resolves each subagent's `result.json` and the run
+ * directory from the artifact store so callers can read the full
+ * output directly rather than parsing it out of the payload.
+ */
+function locateArtifacts(
+	stateDir: string,
+	result: FleetRunResult,
+): FleetRunResult {
+	const store = new ReviewerArtifactsStore(stateDir);
+	const runDir = store.rootPaths(result.runId).runDir;
+	return {
+		...result,
+		runDir,
+		results: result.results.map((r) => ({
+			...r,
+			resultPath: store.paths(result.runId, r.id).resultPath,
+		})),
+	};
+}
 
 /**
  * Event the extension emits once on activation. Carries
@@ -306,9 +330,13 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				progress,
 				...(signal ? { signal } : {}),
 			});
+			// Decorate the result with on-disk artifact paths so the full
+			// per-subagent output is discoverable from the summary and the
+			// details payload, not buried in the supervisor's state dir.
+			const located = locateArtifacts(stateDir(), result);
 			return {
-				content: [{ type: "text", text: formatFleetSummary(result) }],
-				details: { ok: true, ...result },
+				content: [{ type: "text", text: formatFleetSummary(located) }],
+				details: { ok: true, ...located },
 			};
 		},
 	});

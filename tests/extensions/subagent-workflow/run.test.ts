@@ -607,6 +607,43 @@ describe("formatFleetSummary", () => {
 		expect(lines[1]).toContain("silent");
 		expect(lines[1]).toMatch(/unknown failure/);
 	});
+
+	it("surfaces the run dir and per-subagent result paths when located", () => {
+		// Without these pointers the summary reads as the whole
+		// result; in fact each subagent's full output is on disk.
+		const summary = formatFleetSummary({
+			runId: "fleet-loc",
+			runDir: "/state/runs/fleet-loc",
+			results: [
+				{
+					id: "alpha",
+					finalAssistantText: "long output",
+					warnings: [],
+					state: "complete",
+					resultPath: "/state/runs/fleet-loc/reviewers/alpha/result.json",
+				},
+			],
+			warnings: [],
+		});
+		expect(summary).toContain("full output: /state/runs/fleet-loc");
+		expect(summary).toContain(
+			"alpha → /state/runs/fleet-loc/reviewers/alpha/result.json",
+		);
+	});
+
+	it("omits the location block when no run dir is resolved", () => {
+		// Backward compatible: results without runDir (older
+		// callers, tests) render exactly as before.
+		const summary = formatFleetSummary({
+			runId: "fleet-bare",
+			results: [
+				{ id: "a", finalAssistantText: "", warnings: [], state: "complete" },
+			],
+			warnings: [],
+		});
+		expect(summary.split("\n")).toHaveLength(1);
+		expect(summary).not.toContain("full output");
+	});
 });
 
 describe("summarizeStderrTail", () => {

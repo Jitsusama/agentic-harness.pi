@@ -137,6 +137,14 @@ export interface FleetSubagentResult {
 	 */
 	readonly stderr?: string;
 	readonly usage?: SubagentUsage;
+	/**
+	 * On-disk path to this subagent's durable `result.json`
+	 * (full `finalAssistantText`, exit code, usage). Set when
+	 * the caller resolves it from the artifact store. Lets a
+	 * reader open the complete output directly instead of
+	 * parsing it back out of the tool's `details` payload.
+	 */
+	readonly resultPath?: string;
 }
 
 /** Last non-blank stderr lines, capped, for inline display in `error`. */
@@ -162,6 +170,13 @@ export interface FleetRunResult {
 	readonly results: readonly FleetSubagentResult[];
 	readonly totalUsage?: SubagentUsage;
 	readonly warnings: readonly string[];
+	/**
+	 * On-disk directory holding this run's durable artifacts
+	 * (one `reviewers/<id>/` subdir per subagent). Set when the
+	 * caller resolves it from the artifact store, so the run's
+	 * full output is discoverable without spelunking.
+	 */
+	readonly runDir?: string;
 }
 
 /** Inputs the orchestrator needs to dispatch a fleet. */
@@ -416,6 +431,16 @@ export function formatFleetSummary(result: FleetRunResult): string {
 	for (const failure of failures) {
 		const reason = failure.error ?? "unknown failure";
 		lines.push(`  ✗ ${failure.id}: ${reason}`);
+	}
+	// Surface where the full per-subagent output lives. Without this
+	// the summary reads as the whole result, when in fact each
+	// subagent's complete text is on disk (and in the tool's details
+	// payload). Point the reader at the durable artifacts.
+	if (result.runDir) {
+		lines.push(`  full output: ${result.runDir}`);
+		for (const r of result.results) {
+			if (r.resultPath) lines.push(`    ${r.id} → ${r.resultPath}`);
+		}
 	}
 	return lines.join("\n");
 }
