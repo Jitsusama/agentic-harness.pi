@@ -27,6 +27,7 @@ import {
 	resolveGateOutcome,
 } from "./thread-gate-outcome.js";
 import {
+	renderReplyAndResolveGateContent,
 	renderReplyGateContent,
 	renderResolveGateContent,
 } from "./thread-gate-render.js";
@@ -55,6 +56,38 @@ export async function confirmReplyGate(
 		promptSingle(ctx, {
 			title: "Reply to Thread",
 			content: renderReplyGateContent(thread, body),
+			actions: REJECT_ACTIONS,
+			redirectHint: "Replace the reply text…",
+		}),
+	);
+	return replyGateOutcome(result, body);
+}
+
+/**
+ * Present the combined reply-and-resolve gate and wait for the
+ * user's call. One approval covers both the reply and the
+ * resolution, so the user no longer pays two gates to do what
+ * is conceptually one action.
+ *
+ * Enter approves with the proposed body unchanged and both
+ * effects fire. `r` rejects (nothing fires). Escape cancels.
+ * Shift + Escape opens the note editor; the entered note
+ * replaces the reply body, same as the reply-only gate. The
+ * resolution is implied by the gate's identity — there is no
+ * separate yes/no on it.
+ */
+export async function confirmReplyAndResolveGate(
+	ctx: ExtensionContext,
+	thread: ReviewThread,
+	body: string,
+): Promise<ReplyGateOutcome> {
+	if (!ctx.hasUI) {
+		return { approved: true, body };
+	}
+	const result = await withHiddenWorking(ctx, () =>
+		promptSingle(ctx, {
+			title: "Reply & Resolve Thread",
+			content: renderReplyAndResolveGateContent(thread, body),
 			actions: REJECT_ACTIONS,
 			redirectHint: "Replace the reply text…",
 		}),

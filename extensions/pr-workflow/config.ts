@@ -27,10 +27,22 @@ const THINKING_LEVELS: ReadonlySet<string> = new Set([
 	"xhigh",
 ]);
 
+/**
+ * A council reviewer as written in the config file. It is the
+ * engine spec plus an optional `persona`: the id of the charter
+ * the reviewer wears. When `persona` is given and `id` is omitted,
+ * the persona id doubles as the reviewer id; when both are given
+ * they stay distinct, so the same persona can run more than once
+ * with different mechanisms without an id collision.
+ */
+export interface PrWorkflowReviewerEntry extends CouncilReviewer {
+	readonly persona?: string;
+}
+
 /** Reviewer defaults loaded from a config file. */
 export interface PrWorkflowConfigDefaults {
-	readonly reviewers?: readonly CouncilReviewer[];
-	readonly judge?: CouncilReviewer;
+	readonly reviewers?: readonly PrWorkflowReviewerEntry[];
+	readonly judge?: PrWorkflowReviewerEntry;
 }
 
 /** Successful config load result. */
@@ -160,16 +172,17 @@ export function parsePrWorkflowConfig(
 }
 
 type MutablePrWorkflowConfigDefaults = {
-	reviewers?: CouncilReviewer[];
-	judge?: CouncilReviewer;
+	reviewers?: PrWorkflowReviewerEntry[];
+	judge?: PrWorkflowReviewerEntry;
 };
 
-type ReviewerParseResult =
-	| { ok: true; reviewer: CouncilReviewer }
+/** Outcome of normalizing one raw reviewer entry. */
+export type ReviewerParseResult =
+	| { ok: true; reviewer: PrWorkflowReviewerEntry }
 	| { ok: false; error: string };
 
 type ReviewersParseResult =
-	| { ok: true; reviewers: CouncilReviewer[] }
+	| { ok: true; reviewers: PrWorkflowReviewerEntry[] }
 	| { ok: false; error: string };
 
 function parseReviewers(
@@ -193,16 +206,46 @@ function parseReviewers(
 	return { ok: true, reviewers };
 }
 
-function parseReviewer(value: unknown, path: string): ReviewerParseResult {
+/**
+ * Normalize one raw reviewer entry — from the config file or the
+ * tool's `reviewers` array — into a {@link PrWorkflowReviewerEntry}.
+ * Derives the reviewer id from `id` or, failing that, the persona
+ * id, and validates that one of the two is present. Exported so the
+ * tool path and the config-file path share one normalization and
+ * cannot drift apart.
+ */
+export function parseReviewer(
+	value: unknown,
+	path: string,
+): ReviewerParseResult {
 	if (!isRecord(value))
 		return { ok: false, error: `${path} must be an object` };
-	const id = readRequiredString(value, "id", path);
-	if (!id.ok) return id;
-	if (id.value.trim() === "") {
-		return { ok: false, error: `${path}.id must not be empty` };
+
+	const persona = readOptionalString(value, "persona", path);
+	if (!persona.ok) return persona;
+	if (persona.value !== undefined && persona.value.trim() === "") {
+		return { ok: false, error: `${path}.persona must not be empty` };
 	}
 
-	const reviewer: MutableCouncilReviewer = { id: id.value };
+	// The reviewer id is `id` when present, else the persona id.
+	// One of the two must be given: the id is the finding-origin
+	// tag, the artifact key and the retry target, so it cannot be
+	// absent, but a persona-only entry supplies it for free.
+	const explicitId = readOptionalString(value, "id", path);
+	if (!explicitId.ok) return explicitId;
+	if (explicitId.value !== undefined && explicitId.value.trim() === "") {
+		return { ok: false, error: `${path}.id must not be empty` };
+	}
+	const id = explicitId.value ?? persona.value;
+	if (id === undefined) {
+		return {
+			ok: false,
+			error: `${path} must have an id or a persona`,
+		};
+	}
+
+	const reviewer: MutableReviewerEntry = { id };
+	if (persona.value !== undefined) reviewer.persona = persona.value;
 	const model = readOptionalString(value, "model", path);
 	if (!model.ok) return model;
 	if (model.value !== undefined) reviewer.model = model.value;
@@ -220,16 +263,13 @@ function parseReviewer(value: unknown, path: string): ReviewerParseResult {
 	return { ok: true, reviewer };
 }
 
-type MutableCouncilReviewer = {
+type MutableReviewerEntry = {
 	id: string;
+	persona?: string;
 	model?: string;
 	thinkingLevel?: ReviewerThinkingLevel;
 	tools?: readonly string[];
 };
-
-type StringReadResult =
-	| { ok: true; value: string }
-	| { ok: false; error: string };
 
 type OptionalStringReadResult =
 	| { ok: true; value?: string }
@@ -242,18 +282,6 @@ type OptionalThinkingLevelReadResult =
 type OptionalStringArrayReadResult =
 	| { ok: true; value?: readonly string[] }
 	| { ok: false; error: string };
-
-function readRequiredString(
-	object: Record<string, unknown>,
-	key: string,
-	path: string,
-): StringReadResult {
-	const value = object[key];
-	if (typeof value !== "string") {
-		return { ok: false, error: `${path}.${key} must be a string` };
-	}
-	return { ok: true, value };
-}
 
 function readOptionalString(
 	object: Record<string, unknown>,

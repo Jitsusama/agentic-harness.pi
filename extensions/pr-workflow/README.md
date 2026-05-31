@@ -161,9 +161,9 @@ in findings, what to recommend at Round 4's close).
 
 ## Actions
 
-One `pr_workflow` tool, 25 actions. The user drives the
-flow conversationally; the agent translates intent into
-the right action.
+One `pr_workflow` tool. The user drives the flow
+conversationally; the agent translates intent into the
+right action.
 
 **Setup**
 
@@ -178,10 +178,16 @@ the right action.
   snapshots only and never fetches. Use for "what's
   the state of this PR?" between scenarios.
 - `action="council-config"` — set the reviewer roster
-  (id + model + tools). Omit `reviewers` to load the
-  roster from a config file.
+  (persona or id + model + tools). Omit `reviewers` to
+  load the roster from a config file. A reviewer entry
+  may name a `persona` (see Personas below).
 - `action="judge-config"` — set the judge model. Omit
-  `judge` to load the judge from a config file.
+  `judge` to load the judge from a config file. The
+  judge takes no persona; its charter is its law.
+- `action="personas"` / `"persona-add"` /
+  `"persona-edit"` / `"persona-remove"` — list and
+  manage the persona library (one markdown file per
+  persona; see Personas below).
 - `action="review"` — run the stack-wide review
   pipeline: stack-aware council fan-out followed by
   stack-aware judge.
@@ -256,6 +262,12 @@ Example:
 {
   "reviewers": [
     {
+      "persona": "escalation",
+      "model": "anthropic/claude-opus-4-7",
+      "thinkingLevel": "high",
+      "tools": ["read", "grep", "glob", "ls"]
+    },
+    {
       "id": "fast",
       "model": "anthropic/claude-sonnet-4-5",
       "thinkingLevel": "low",
@@ -271,7 +283,38 @@ Example:
 ```
 
 Reviewer ids must be unique, and the judge id must be
-distinct from every council reviewer id.
+distinct from every council reviewer id. A reviewer entry
+may carry a `persona` instead of, or alongside, an `id`;
+when `id` is omitted the persona id doubles as it.
+
+### Personas
+
+A persona is a reviewer's standing charter — one markdown
+file with YAML frontmatter (`name`, `description`) and a
+prose body (the lens). The body becomes the reviewer
+subagent's system prompt; model, thinking and tools stay
+in the config entry. Personas are read from the first
+available directory:
+
+1. `$PR_WORKFLOW_PERSONAS_DIR`
+2. `$XDG_CONFIG_HOME/pi/personas`
+3. `~/.config/pi/personas`
+
+The file-name stem is the persona id. CRUD is filesystem
+ops, exposed through the `personas` / `persona-add` /
+`persona-edit` / `persona-remove` actions; the config
+file stays read-only. `README.md` and `judge.md` in that
+directory are not treated as reviewer personas — the
+first is documentation, the second is the judge's law
+charter (loaded separately; overrides the built-in
+default when present). A seeded palette ships under
+`examples/personas/`.
+
+The charter holds the **lens only**. The output contract
+and diff-reading rules are wrapped on at dispatch, so a
+persona file never repeats them. Per-run focus rides the
+`intent` argument on `council` / `judge` / `critique`,
+not the persona.
 
 ### State directory
 

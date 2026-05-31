@@ -40,7 +40,11 @@ import {
 	ReviewerCancellationRegistry,
 	type ReviewOperation,
 } from "./cancellation.js";
-import { loadPrWorkflowConfig } from "./config.js";
+import {
+	loadPrWorkflowConfig,
+	type PrWorkflowReviewerEntry,
+	parseReviewer,
+} from "./config.js";
 import type { CouncilDispatch } from "./council.js";
 import {
 	configureCouncil,
@@ -74,6 +78,7 @@ import {
 	formatJudgeSummary,
 	runJudgeAction,
 } from "./judge-action.js";
+import { resolveJudgeCharter } from "./judge-charter.js";
 import { persist, restore } from "./lifecycle.js";
 import { loadPr } from "./load.js";
 import {
@@ -82,6 +87,14 @@ import {
 } from "./load-trajectory.js";
 import { addManualFindingAction } from "./manual-finding-action.js";
 import { hasFindingsForParticipant } from "./participant-identities.js";
+import {
+	addPersona,
+	editPersona,
+	formatPersonaList,
+	type PersonaWrite,
+	removePersona,
+} from "./persona-action.js";
+import { loadPersonas, personasDir } from "./personas.js";
 import {
 	buildReviewPayload,
 	type PostReviewExec,
@@ -112,7 +125,16 @@ import {
 	decideFinding,
 	formatFindingsView,
 } from "./synthesis.js";
-import { confirmReplyGate, confirmResolveGate } from "./thread-gate.js";
+import {
+	auditThreadsAction,
+	formatThreadAudit,
+} from "./thread-audit-action.js";
+import {
+	confirmReplyAndResolveGate,
+	confirmReplyGate,
+	confirmResolveGate,
+} from "./thread-gate.js";
+import { describeReplyOutcome } from "./thread-reply-outcome.js";
 import { fetchReviewThreads, replyToThread, resolveThread } from "./threads.js";
 import {
 	formatThreadsView,
@@ -145,6 +167,73 @@ import { createGitWorktreeProvider } from "./worktree-git.js";
  */
 const NEOVIM_PI_REGISTER_HANDLER = "neovim-pi:register-handler";
 const NEOVIM_PI_READY = "neovim-pi:ready";
+
+/**
+ * Load the persona library from disk and return a synchronous
+ * resolver from persona id to charter prose. The council action
+ * needs a sync resolver (it maps the roster inline), so the
+ * filesystem read happens once here, up front, per run. A bad
+ * persona file is skipped, not fatal: the load returns its error
+ * list, which the caller surfaces as a warning while the rest of
+ * the roster proceeds.
+ */
+async function loadCharterResolver(): Promise<{
+	resolve: (personaId: string) => string | undefined;
+	/** Persona identity (name + description) by id, for judge exhibits. */
+	meta: (
+		personaId: string,
+	) => { name: string; description: string } | undefined;
+	errors: readonly { id: string; error: string }[];
+}> {
+	const { personas, errors } = await loadPersonas(personasDir());
+	const byId = new Map(personas.map((p) => [p.id, p]));
+	return {
+		resolve: (id) => byId.get(id)?.charter,
+		meta: (id) => {
+			const persona = byId.get(id);
+			return persona
+				? { name: persona.name, description: persona.description }
+				: undefined;
+		},
+		errors,
+	};
+}
+
+/**
+ * Validate that a persona-add/persona-edit call carries the four
+ * fields a persona needs (id, name, description, charter), all
+ * non-empty, and assemble them into a {@link PersonaWrite}. On a
+ * missing field it returns an error naming what is absent; on
+ * success it returns the assembled write, narrowed to defined
+ * strings.
+ */
+function requirePersonaWrite(params: {
+	persona?: string;
+	name?: string;
+	description?: string;
+	charter?: string;
+}): { ok: true; write: PersonaWrite } | { ok: false; error: string } {
+	const filled = (value: string | undefined): value is string =>
+		value !== undefined && value.trim() !== "";
+	const { persona, name, description, charter } = params;
+	const missing: string[] = [];
+	if (!filled(persona)) missing.push("persona (id)");
+	if (!filled(name)) missing.push("name");
+	if (!filled(description)) missing.push("description");
+	if (!filled(charter)) missing.push("charter");
+	if (
+		!filled(persona) ||
+		!filled(name) ||
+		!filled(description) ||
+		!filled(charter)
+	) {
+		return {
+			ok: false,
+			error: `Persona write requires: ${missing.join(", ")}.`,
+		};
+	}
+	return { ok: true, write: { id: persona, name, description, charter } };
+}
 
 export default function prWorkflow(pi: ExtensionAPI) {
 	const state = createPrWorkflowState();
@@ -357,6 +446,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"fix-worktree-cleanup",
 					"release-identity-lock",
 					"summary",
+					"personas",
+					"persona-add",
+					"persona-edit",
+					"persona-remove",
+					"audit-threads",
 				] as const,
 				{
 					description:
@@ -386,7 +480,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"critique-retry: re-run one reviewer in the most recent " +
 						"critique run and substitute their output in place. " +
 						"threads: fetch the loaded PR's existing review threads. " +
-						"reply: post a reply to a thread by its [T#] index. " +
+						"reply: post a reply to a thread by its [T#] index; pass " +
+						"resolve=true to reply and resolve in one combined gate. " +
 						"resolve: resolve a thread by its [T#] index. " +
 						"fix-next: return the next finding queued for fix " +
 						"(verdict=fix) with no recorded outcome. Includes a " +
@@ -413,7 +508,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"use only when you accept that audit ambiguity. " +
 						"summary: one-shot read-only view of the loaded PR " +
 						"(header, stack, threads, council, fix queue). " +
-						"Reads cached snapshots only — never fetches.",
+						"Reads cached snapshots only — never fetches. " +
+						"personas: list the persona library (id, name, description). " +
+						"persona-add: create a new persona file from persona (id), " +
+						"name, description and charter; refuses to overwrite. " +
+						"persona-edit: rewrite an existing persona in place; same " +
+						"fields; refuses if it does not exist. " +
+						"persona-remove: delete the persona named by persona (id). " +
+						"audit-threads: stack-aware advisory audit of inbound review " +
+						"threads — for each unresolved thread, judge whether the PR " +
+						"diff or another PR in the stack already addresses it. Never " +
+						"posts; informs the user's reply. Uses the configured judge " +
+						"as the auditor.",
 				},
 			),
 			pr: Type.Optional(
@@ -427,9 +533,22 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			reviewers: Type.Optional(
 				Type.Array(
 					Type.Object({
-						id: Type.String({
-							description: "Stable reviewer id used in finding origin.",
-						}),
+						persona: Type.Optional(
+							Type.String({
+								description:
+									"Persona id (a file stem in the personas dir) whose " +
+									"charter becomes this reviewer's standing system prompt. " +
+									"The reviewer id defaults to the persona id; set an " +
+									"explicit id to run the same persona at two mechanism settings.",
+							}),
+						),
+						id: Type.Optional(
+							Type.String({
+								description:
+									"Stable reviewer id used in finding origin. Defaults to " +
+									"the persona id when a persona is given; required when it is not.",
+							}),
+						),
 						model: Type.Optional(
 							Type.String({
 								description:
@@ -490,6 +609,42 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							"Judge reviewer config. For action=judge-config, omit to load the judge from the pr-workflow config file.",
 					},
 				),
+			),
+			persona: Type.Optional(
+				Type.String({
+					description:
+						"Persona id (the file-name stem). Required for persona-add, " +
+						"persona-edit and persona-remove.",
+				}),
+			),
+			name: Type.Optional(
+				Type.String({
+					description:
+						"Persona display name (frontmatter). Required for persona-add and persona-edit.",
+				}),
+			),
+			description: Type.Optional(
+				Type.String({
+					description:
+						"Event description, or — for persona-add/persona-edit — the persona's one-line description (frontmatter).",
+				}),
+			),
+			charter: Type.Optional(
+				Type.String({
+					description:
+						"Persona charter prose (the file body): the lens only, no " +
+						"output-contract scaffolding. Required for persona-add and persona-edit.",
+				}),
+			),
+			intent: Type.Optional(
+				Type.String({
+					description:
+						"Per-run focus for a council, judge or critique run — " +
+						"e.g. 'look hardest at the auth changes' or 'be stricter " +
+						"this pass'. Merged into the run's prompt addendum. The " +
+						"standing lens lives in each reviewer's persona charter; " +
+						"this is the per-run poke and does not persist.",
+				}),
 			),
 			scope: Type.Optional(
 				StringEnum(["pr", "stack"] as const, {
@@ -638,6 +793,15 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"The reply body to post to the targeted thread. Required for action=reply.",
 				}),
 			),
+			resolve: Type.Optional(
+				Type.Boolean({
+					description:
+						"For action=reply: when true, resolve the thread in the same " +
+						"step as the reply, behind a single combined gate. Defaults " +
+						"to false (reply only). Use this to avoid the two-gate dance " +
+						"when you reply and immediately close a thread.",
+				}),
+			),
 			commitSha: Type.Optional(
 				Type.String({
 					description:
@@ -665,8 +829,28 @@ export default function prWorkflow(pi: ExtensionAPI) {
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (params.action === "council-config") {
-				let reviewers: readonly CouncilReviewer[] | undefined =
-					params.reviewers;
+				let reviewers: readonly PrWorkflowReviewerEntry[] | undefined;
+				if (params.reviewers !== undefined) {
+					// Normalize tool-supplied reviewers through the same
+					// parser the config file uses, so persona-only entries
+					// get their id derived and both paths validate alike.
+					const normalized: PrWorkflowReviewerEntry[] = [];
+					for (let i = 0; i < params.reviewers.length; i += 1) {
+						const parsed = parseReviewer(
+							params.reviewers[i],
+							`reviewers[${i}]`,
+						);
+						if (!parsed.ok) {
+							return {
+								content: [{ type: "text", text: parsed.error }],
+								details: { ok: false, error: parsed.error },
+								isError: true,
+							};
+						}
+						normalized.push(parsed.reviewer);
+					}
+					reviewers = normalized;
+				}
 				let sourcePath: string | null = null;
 				if (reviewers === undefined) {
 					const loaded = await loadPrWorkflowConfig();
@@ -720,6 +904,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 
 			if (params.action === "council") {
 				const progress = createCouncilProgressReporter(ctx, progressControls());
+				const charters = await loadCharterResolver();
+				for (const e of charters.errors) {
+					ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
+				}
 				const result = await runWithCancellableReviewers(
 					"council",
 					({ registry, dispatch }) =>
@@ -729,6 +917,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							dispatch,
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+							resolveCharter: charters.resolve,
+							...(params.intent ? { intent: params.intent } : {}),
 							progress,
 						}),
 				);
@@ -759,6 +949,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					};
 				}
 				const reviewerId = params.reviewerId;
+				const charters = await loadCharterResolver();
+				for (const e of charters.errors) {
+					ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
+				}
 				const result = await runWithCancellableReviewers(
 					"council-retry",
 					({ registry, dispatch }) =>
@@ -768,6 +962,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							dispatch,
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+							resolveCharter: charters.resolve,
+							...(params.intent ? { intent: params.intent } : {}),
 							reviewerId,
 						}),
 				);
@@ -844,6 +1040,21 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						title: "PR Judge Progress",
 					},
 				);
+				const judgeCharter = await resolveJudgeCharter(personasDir());
+				const judgeCharters = await loadCharterResolver();
+				const personaExhibits = state.council.roster.flatMap((reviewer) => {
+					if (reviewer.persona === undefined) return [];
+					const meta = judgeCharters.meta(reviewer.persona);
+					return meta
+						? [
+								{
+									reviewerId: reviewer.id,
+									name: meta.name,
+									description: meta.description,
+								},
+							]
+						: [];
+				});
 				const result = await runWithCancellableReviewers(
 					"judge",
 					({ registry, dispatch }) =>
@@ -853,6 +1064,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							dispatch,
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+							judgeCharter,
+							...(personaExhibits.length > 0 ? { personaExhibits } : {}),
+							...(params.intent ? { intent: params.intent } : {}),
 							progress,
 						}),
 				);
@@ -878,6 +1092,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						title: "PR Stack Review Progress",
 					},
 				);
+				const stackJudgeCharter = await resolveJudgeCharter(personasDir());
 				const result = await runWithCancellableReviewers(
 					"review",
 					({ registry, dispatch }) =>
@@ -888,6 +1103,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
 							progress,
+							judgeCharter: stackJudgeCharter,
 							fetchers: {
 								metadata: (reference) => fetchPrMetadata(pi, reference),
 								diff: async (reference) => {
@@ -921,6 +1137,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						title: "PR Critique Progress",
 					},
 				);
+				const critiqueCharters = await loadCharterResolver();
+				for (const e of critiqueCharters.errors) {
+					ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
+				}
 				const result = await runWithCancellableReviewers(
 					"critique",
 					({ registry, dispatch }) =>
@@ -930,6 +1150,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							dispatch,
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+							resolveCharter: critiqueCharters.resolve,
+							...(params.intent ? { intent: params.intent } : {}),
 							progress,
 						}),
 				);
@@ -968,6 +1190,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					};
 				}
 				const reviewerId = params.reviewerId;
+				const critiqueCharters = await loadCharterResolver();
+				for (const e of critiqueCharters.errors) {
+					ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
+				}
 				const result = await runWithCancellableReviewers(
 					"critique-retry",
 					({ registry, dispatch }) =>
@@ -977,6 +1203,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							dispatch,
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+							resolveCharter: critiqueCharters.resolve,
+							...(params.intent ? { intent: params.intent } : {}),
 							reviewerId,
 						}),
 				);
@@ -1335,43 +1563,30 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
+				const alsoResolve = params.resolve === true;
 				const threadForGate = state.threads?.threads[params.threadIndex - 1];
-				if (threadForGate === undefined) {
-					const result = await replyToThreadAction({
-						state,
-						index: params.threadIndex,
-						body: params.replyBody,
-						sender: (threadId, body) => replyToThread(pi, threadId, body),
-					});
-					return {
-						content: [
-							{
-								type: "text",
-								text: result.ok ? "Reply posted." : result.error,
-							},
-						],
-						details: result.ok
-							? { ok: true, url: result.url }
-							: { ok: false, error: result.error },
-						isError: !result.ok,
-					};
-				}
-				const gate = await confirmReplyGate(
-					ctx,
-					threadForGate,
-					params.replyBody,
-				);
-				if (!gate.approved) {
-					return {
-						content: [{ type: "text", text: gate.reason }],
-						details: { ok: false, error: gate.reason },
-						isError: true,
-					};
+				let replyBodyToPost = params.replyBody;
+				if (threadForGate !== undefined) {
+					const gate = alsoResolve
+						? await confirmReplyAndResolveGate(
+								ctx,
+								threadForGate,
+								params.replyBody,
+							)
+						: await confirmReplyGate(ctx, threadForGate, params.replyBody);
+					if (!gate.approved) {
+						return {
+							content: [{ type: "text", text: gate.reason }],
+							details: { ok: false, error: gate.reason },
+							isError: true,
+						};
+					}
+					replyBodyToPost = gate.body;
 				}
 				const result = await replyToThreadAction({
 					state,
 					index: params.threadIndex,
-					body: gate.body,
+					body: replyBodyToPost,
 					sender: (threadId, body) => replyToThread(pi, threadId, body),
 				});
 				if (!result.ok) {
@@ -1381,19 +1596,34 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
+				const reply = {
+					threadIndex: params.threadIndex,
+					url: result.url,
+					body: replyBodyToPost,
+				};
+				if (!alsoResolve) {
+					const outcome = describeReplyOutcome(reply, undefined);
+					return {
+						content: [{ type: "text", text: outcome.text }],
+						details: outcome.details,
+					};
+				}
+				// The combined gate (or its headless bypass) already covered
+				// the resolution, so resolve without a second gate.
+				const resolved = await resolveThreadAction({
+					state,
+					index: params.threadIndex,
+					resolver: (threadId) => resolveThread(pi, threadId),
+				});
+				const outcome = describeReplyOutcome(
+					reply,
+					resolved.ok
+						? { ok: true, isResolved: resolved.isResolved }
+						: { ok: false, error: resolved.error },
+				);
 				return {
-					content: [
-						{
-							type: "text",
-							text: `Reply posted to [T${params.threadIndex}]: ${result.url}`,
-						},
-					],
-					details: {
-						ok: true,
-						url: result.url,
-						threadIndex: params.threadIndex,
-						body: gate.body,
-					},
+					content: [{ type: "text", text: outcome.text }],
+					details: outcome.details,
 				};
 			}
 
@@ -1731,6 +1961,127 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				return {
 					content: [{ type: "text", text }],
 					details: { ok: true },
+				};
+			}
+
+			if (params.action === "personas") {
+				const loaded = await loadPersonas(personasDir());
+				return {
+					content: [{ type: "text", text: formatPersonaList(loaded) }],
+					details: {
+						ok: true,
+						personas: loaded.personas.map((p) => ({
+							id: p.id,
+							name: p.name,
+							description: p.description,
+						})),
+						errors: loaded.errors,
+					},
+				};
+			}
+
+			if (params.action === "persona-add" || params.action === "persona-edit") {
+				const validated = requirePersonaWrite(params);
+				if (!validated.ok) {
+					return {
+						content: [{ type: "text", text: validated.error }],
+						details: { ok: false, error: validated.error },
+						isError: true,
+					};
+				}
+				const write = validated.write;
+				const dir = personasDir();
+				const result =
+					params.action === "persona-add"
+						? await addPersona(dir, write)
+						: await editPersona(dir, write);
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				const verb = params.action === "persona-add" ? "Created" : "Updated";
+				return {
+					content: [
+						{
+							type: "text",
+							text: `${verb} persona "${write.id}" in ${dir}.`,
+						},
+					],
+					details: { ok: true, id: write.id, dir },
+				};
+			}
+
+			if (params.action === "persona-remove") {
+				if (params.persona === undefined || params.persona.trim() === "") {
+					const error = "persona-remove requires a `persona` (id) argument.";
+					return {
+						content: [{ type: "text", text: error }],
+						details: { ok: false, error },
+						isError: true,
+					};
+				}
+				const dir = personasDir();
+				const result = await removePersona(dir, params.persona);
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{ type: "text", text: `Removed persona "${params.persona}".` },
+					],
+					details: { ok: true, id: params.persona },
+				};
+			}
+
+			if (params.action === "audit-threads") {
+				if (state.council.judge === null) {
+					const error =
+						"No judge configured to act as the auditor. Call " +
+						"pr_workflow action=judge-config first.";
+					return {
+						content: [{ type: "text", text: error }],
+						details: { ok: false, error },
+						isError: true,
+					};
+				}
+				const auditor = state.council.judge;
+				const result = await runWithCancellableReviewers(
+					"audit-threads",
+					({ registry, dispatch }) =>
+						auditThreadsAction({
+							state,
+							registry,
+							dispatch,
+							auditor,
+							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+						}),
+				);
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: formatThreadAudit(result.verdicts, result.indexById),
+						},
+					],
+					details: {
+						ok: true,
+						verdicts: result.verdicts,
+						warnings: result.warnings,
+					},
 				};
 			}
 

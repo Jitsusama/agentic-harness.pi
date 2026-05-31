@@ -9,7 +9,7 @@
  */
 
 import { STALE_RUNTIME_WARNING_PREFIX } from "../../lib/subagent/health.js";
-import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
+import type { PrWorkflowReviewerEntry } from "./config.js";
 import type { CouncilDispatch } from "./council.js";
 import { runCouncil, runOneCouncilReviewer } from "./council.js";
 import type { CouncilProgress } from "./council-progress.js";
@@ -20,6 +20,7 @@ import {
 	rememberParticipantIdentities,
 } from "./participant-identities.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
+import { composeRunAddendum } from "./run-intent.js";
 import type { PrWorkflowState } from "./state.js";
 import {
 	loadReviewThreadPromptContext,
@@ -32,7 +33,31 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 
 /** Inputs for `configureCouncil`. */
 export interface ConfigureCouncilInput {
-	readonly reviewers: readonly CouncilReviewer[];
+	readonly reviewers: readonly PrWorkflowReviewerEntry[];
+}
+
+/**
+ * Build a reviewer-id → charter map for a roster. Each reviewer
+ * that references a persona is resolved through `resolveCharter`;
+ * reviewers with no persona, or whose persona resolves to nothing,
+ * are absent from the map and dispatch without a system prompt.
+ * Exported so the council and critique actions build the map the
+ * same way — critique reuses the same personas.
+ */
+export function buildCharterMap(
+	roster: readonly PrWorkflowReviewerEntry[],
+	resolveCharter?: (personaId: string) => string | undefined,
+): Map<string, string> {
+	const charters = new Map<string, string>();
+	if (!resolveCharter) return charters;
+	for (const reviewer of roster) {
+		if (reviewer.persona === undefined) continue;
+		const charter = resolveCharter(reviewer.persona);
+		if (charter !== undefined && charter !== "") {
+			charters.set(reviewer.id, charter);
+		}
+	}
+	return charters;
 }
 
 /**
@@ -86,6 +111,21 @@ export interface RunCouncilActionInput {
 	readonly dispatch: CouncilDispatch;
 	readonly reviewContexts?: ReviewContextProviderBroker;
 	readonly fetchThreads?: ReviewThreadsFetcher;
+	/**
+	 * Resolve a persona id to its charter prose. Injected so the
+	 * action stays testable without reading persona files; the
+	 * tool layer supplies a resolver backed by the persona
+	 * directory. The action maps each roster reviewer's `persona`
+	 * through this to build the per-reviewer system prompt.
+	 */
+	readonly resolveCharter?: (personaId: string) => string | undefined;
+	/**
+	 * The user's per-run intent: the focus for this council run,
+	 * merged into the prompt addendum alongside any provider review
+	 * context. Standing lens lives in the persona charter; this is
+	 * the poke for this one run.
+	 */
+	readonly intent?: string;
 	readonly signal?: AbortSignal;
 	/** Override for tests; production uses `Date.now()`. */
 	readonly now?: () => Date;
@@ -165,7 +205,7 @@ export async function runCouncilAction(
 		threadContext,
 	};
 
-	const promptAddendum = await input.reviewContexts?.promptAddendum({
+	const providerAddendum = await input.reviewContexts?.promptAddendum({
 		owner: target.owner,
 		repo: target.repo,
 		prNumber: target.prNumber,
@@ -173,6 +213,12 @@ export async function runCouncilAction(
 		branch: target.branch,
 		stage: "council",
 	});
+	const promptAddendum = composeRunAddendum(providerAddendum, input.intent);
+
+	// Resolve each reviewer's persona to a charter up front, keyed
+	// by reviewer id. The map is the council's filesystem-free view
+	// of the personas; reviewers with no persona simply aren't in it.
+	const charters = buildCharterMap(state.council.roster, input.resolveCharter);
 
 	const run = await runCouncil({
 		runId,
@@ -183,6 +229,7 @@ export async function runCouncilAction(
 		signal: input.signal,
 		startId: state.nextFindingId,
 		progress: input.progress,
+		charterFor: (id) => charters.get(id),
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	for (const output of run.reviewerOutputs) {
@@ -203,6 +250,14 @@ export interface RetryCouncilReviewerInput {
 	readonly dispatch: CouncilDispatch;
 	readonly reviewContexts?: ReviewContextProviderBroker;
 	readonly fetchThreads?: ReviewThreadsFetcher;
+	/**
+	 * Resolve a persona id to its charter, so a retried reviewer
+	 * keeps its persona voice. Same contract as
+	 * {@link RunCouncilActionInput.resolveCharter}.
+	 */
+	readonly resolveCharter?: (personaId: string) => string | undefined;
+	/** The user's per-run intent for this retry; see {@link RunCouncilActionInput.intent}. */
+	readonly intent?: string;
 	readonly reviewerId: string;
 	readonly signal?: AbortSignal;
 }
@@ -278,7 +333,7 @@ export async function retryCouncilReviewer(
 		files: pr.files ?? [],
 		threadContext,
 	};
-	const promptAddendum = await input.reviewContexts?.promptAddendum({
+	const providerAddendum = await input.reviewContexts?.promptAddendum({
 		owner: target.owner,
 		repo: target.repo,
 		prNumber: target.prNumber,
@@ -286,6 +341,8 @@ export async function retryCouncilReviewer(
 		branch: target.branch,
 		stage: "council",
 	});
+	const promptAddendum = composeRunAddendum(providerAddendum, input.intent);
+	const charters = buildCharterMap([reviewer], input.resolveCharter);
 	const output = await runOneCouncilReviewer({
 		runId: lastRun.id,
 		target,
@@ -294,6 +351,7 @@ export async function retryCouncilReviewer(
 		dispatch: input.dispatch,
 		signal: input.signal,
 		startId,
+		charterFor: (id) => charters.get(id),
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	rememberAllocatedFindings(state, output.findings);

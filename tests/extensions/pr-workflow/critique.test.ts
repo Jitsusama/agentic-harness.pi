@@ -5,6 +5,7 @@ import {
 	type CritiqueParseContext,
 	parseCritiqueOutput,
 	runCritique,
+	runOneCritiqueReviewer,
 } from "../../../extensions/pr-workflow/critique.js";
 import type {
 	CouncilRun,
@@ -564,5 +565,65 @@ describe("runCritique", () => {
 			dispatch,
 		});
 		expect(result.judgeRunId).toBe("j-1");
+	});
+
+	it("forwards each reviewer's charter as the critique system prompt", async () => {
+		// Critique reuses the reviewer personas: the lens rides as
+		// the charter (system prompt) while the critique hat is the
+		// task. A reviewer with no charter critiques without one.
+		const seen = new Map<string, string | undefined>();
+		const dispatch = async (opts: {
+			reviewer: CouncilReviewer;
+			systemPrompt?: string;
+		}) => {
+			seen.set(opts.reviewer.id, opts.systemPrompt);
+			return {
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: '```json\n{"critiques":[]}\n```',
+				stderr: "",
+				warnings: [],
+			};
+		};
+		await runCritique({
+			runId: "critique-1",
+			council: council(),
+			judge: judge(),
+			roster: ROSTER,
+			target: { owner: "o", repo: "r", sha: "abc" },
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch,
+			charterFor: (id) => (id === "fast" ? "Fast lens charter." : undefined),
+		});
+		expect(seen.get("fast")).toBe("Fast lens charter.");
+		expect(seen.get("skeptic")).toBeUndefined();
+	});
+
+	it("runOneCritiqueReviewer keeps the charter on a retry", async () => {
+		let captured: string | undefined;
+		const dispatch = async (opts: {
+			reviewer: CouncilReviewer;
+			systemPrompt?: string;
+		}) => {
+			captured = opts.systemPrompt;
+			return {
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: '```json\n{"critiques":[]}\n```',
+				stderr: "",
+				warnings: [],
+			};
+		};
+		await runOneCritiqueReviewer({
+			runId: "critique-1",
+			council: council(),
+			judge: judge(),
+			reviewer: { id: "fast", model: "m-fast" },
+			target: { owner: "o", repo: "r", sha: "abc" },
+			registry: new WorktreeRegistry(fakeProvider()),
+			dispatch,
+			charterFor: (id) => (id === "fast" ? "Fast lens charter." : undefined),
+		});
+		expect(captured).toBe("Fast lens charter.");
 	});
 });

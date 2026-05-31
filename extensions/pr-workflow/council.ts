@@ -70,6 +70,15 @@ export interface RunCouncilOptions {
 	readonly reviewers: readonly CouncilReviewer[];
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	/**
+	 * Resolve a reviewer's standing charter (its persona prose)
+	 * by reviewer id. The charter rides to the subagent as the
+	 * system prompt. Injected so the council stays
+	 * filesystem-free: the action layer reads persona files and
+	 * supplies this. Reviewers with no charter dispatch without
+	 * a system prompt, exactly as before personas existed.
+	 */
+	readonly charterFor?: (reviewerId: string) => string | undefined;
 	readonly signal?: AbortSignal;
 	/** First session-global finding id available to this run. */
 	readonly startId?: number;
@@ -90,6 +99,13 @@ export interface RunOneReviewerOptions {
 	readonly reviewer: CouncilReviewer;
 	readonly registry: WorktreeRegistry;
 	readonly dispatch: CouncilDispatch;
+	/**
+	 * Resolve the reviewer's standing charter by id, forwarded
+	 * to the subagent as its system prompt. Same contract as
+	 * {@link RunCouncilOptions.charterFor}; the retry path honours
+	 * it so a retried reviewer keeps its persona voice.
+	 */
+	readonly charterFor?: (reviewerId: string) => string | undefined;
 	readonly signal?: AbortSignal;
 	/** Provider or repository context appended to the reviewer prompt. */
 	readonly promptAddendum?: string;
@@ -130,6 +146,7 @@ export async function runOneCouncilReviewer(
 			? { promptAddendum: options.promptAddendum }
 			: {}),
 	});
+	const charter = options.charterFor?.(options.reviewer.id);
 	try {
 		const value = await options.dispatch({
 			reviewer: options.reviewer,
@@ -138,6 +155,7 @@ export async function runOneCouncilReviewer(
 			runId: options.runId,
 			signal: options.signal,
 			expectedVerificationStage: "council",
+			...(charter ? { systemPrompt: charter } : {}),
 		});
 		const parsed = parseReviewerOutput(value.finalAssistantText, {
 			reviewerId: options.reviewer.id,
@@ -221,6 +239,7 @@ export async function runCouncil(
 					progressWarnings,
 				);
 			};
+			const charter = options.charterFor?.(reviewer.id);
 			try {
 				const value = await options.dispatch({
 					reviewer,
@@ -230,6 +249,7 @@ export async function runCouncil(
 					signal: options.signal,
 					expectedVerificationStage: "council",
 					onEvent,
+					...(charter ? { systemPrompt: charter } : {}),
 				});
 				const parsed = parseReviewerOutput(value.finalAssistantText, {
 					reviewerId: reviewer.id,

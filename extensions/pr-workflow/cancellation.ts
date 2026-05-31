@@ -8,7 +8,8 @@ export type ReviewOperation =
 	| "judge"
 	| "review"
 	| "critique"
-	| "critique-retry";
+	| "critique-retry"
+	| "audit-threads";
 
 /** Error thrown when the user cancels a reviewer subprocess. */
 export class ReviewerCancelledError extends Error {

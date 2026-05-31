@@ -47,9 +47,11 @@ The tool returns:
 ```ts
 {
   runId: string,
+  runDir?: string,
   results: Array<{
     id: string,
     finalAssistantText: string,
+    resultPath?: string,
     warnings: string[],
     state: "complete" | "cancelled" | "failed",
     error?: string,
@@ -63,6 +65,16 @@ The tool returns:
 The host agent reads `results[*].finalAssistantText` to
 synthesize, compare, or hand the outputs back to the
 user. `totalUsage` lets it confirm spend.
+
+Each run is durable on disk. `runDir` is the run's root
+and each result's `resultPath` points at that subagent's
+`result.json`; the text summary prints both. Read a
+subagent's full output back with the plain `read` tool
+when the summary truncated a long `finalAssistantText`,
+without re-running the fleet. Both fields are present
+only when the run directory resolved (it always does in
+normal operation); older callers that ignore them keep
+working.
 
 ## Defaults
 

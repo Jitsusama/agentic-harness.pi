@@ -299,6 +299,28 @@ describe("buildStackJudgePrompt", () => {
 		expect(prompt).toContain("Provider review context");
 		expect(prompt).toContain("rollout flags");
 	});
+
+	it("drops the generic identity opener when a charter governs the run", () => {
+		const base = {
+			cursorPrNumber: 101,
+			prs: [{ prNumber: 101, title: "Add parser" }],
+			reviewerOutputs: [
+				{ reviewerId: "fast", perPr: new Map(), crossPr: [], warnings: [] },
+			],
+		};
+		const withoutCharter = buildStackJudgePrompt(base);
+		const withCharter = buildStackJudgePrompt({
+			...base,
+			charterGoverned: true,
+		});
+		// The charter (system prompt) now owns the generic judge
+		// identity, so the user prompt must not repeat it.
+		expect(withoutCharter).toContain("You are the judge for a stack-wide");
+		expect(withCharter).not.toContain("You are the judge for a stack-wide");
+		// But the stack-specific task survives either way.
+		expect(withCharter).toContain("Stack-specific synthesis objective");
+		expect(withCharter).toContain("pr-workflow-stack-judge-output");
+	});
 });
 
 describe("parseStackJudgeOutput", () => {

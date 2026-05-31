@@ -387,6 +387,53 @@ describe("runCouncilAction", () => {
 		expect(state.council.lastCritique).toBeNull();
 		expect(state.council.decisions.size).toBe(0);
 	});
+
+	it("resolves each roster persona to a charter system prompt", async () => {
+		// A reviewer that references a persona dispatches with that
+		// persona's charter as its system prompt, resolved through
+		// the injected resolveCharter. A reviewer with no persona
+		// dispatches without one.
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "2026-01-01T00:00:00Z",
+			metadata: prMetadata({
+				title: "Add foo",
+				url: "https://example/42",
+				author: "a",
+				base: { ref: "main", sha: "deadbeef" },
+				head: { ref: "feat", sha: "headsha1" },
+			}),
+			files: [],
+			stack: null,
+		};
+		state.council.roster = [
+			{ id: "esc", persona: "escalation" },
+			{ id: "plain" },
+		];
+		state.council.judge = { id: "judge" };
+
+		const seen = new Map<string, string | undefined>();
+		const result = await runCouncilAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			resolveCharter: (personaId) =>
+				personaId === "escalation" ? "Hunt escalation." : undefined,
+			dispatch: async (opts) => {
+				seen.set(opts.reviewer.id, opts.systemPrompt);
+				return {
+					reviewerId: opts.reviewer.id,
+					exitCode: 0,
+					finalAssistantText: JSON.stringify({ findings: [] }),
+					stderr: "",
+					warnings: [],
+				};
+			},
+		});
+		expect(result.ok).toBe(true);
+		expect(seen.get("esc")).toBe("Hunt escalation.");
+		expect(seen.get("plain")).toBeUndefined();
+	});
 });
 
 describe("formatCouncilSummary", () => {
@@ -760,5 +807,36 @@ describe("retryCouncilReviewer", () => {
 		// Skeptic's pre-existing finding untouched.
 		expect(skeptic?.findings[0].id).toBe(4);
 		expect(skeptic?.findings[0].subject).toBe("keep me");
+	});
+
+	it("keeps the reviewer's persona charter on a retry", async () => {
+		const state = loadedState();
+		state.council.roster = [{ id: "fast", persona: "escalation" }];
+		state.council.lastRun = {
+			id: "council-1",
+			startedAt: "2026-01-01T00:00:00Z",
+			target: { kind: "diff", prNumber: 42 },
+			reviewerOutputs: [{ reviewerId: "fast", findings: [], warnings: [] }],
+		};
+		let captured: string | undefined;
+		const result = await retryCouncilReviewer({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			resolveCharter: (personaId) =>
+				personaId === "escalation" ? "Hunt escalation." : undefined,
+			dispatch: async (opts) => {
+				captured = opts.systemPrompt;
+				return {
+					reviewerId: opts.reviewer.id,
+					exitCode: 0,
+					finalAssistantText: JSON.stringify({ findings: [] }),
+					stderr: "",
+					warnings: [],
+				};
+			},
+			reviewerId: "fast",
+		});
+		expect(result.ok).toBe(true);
+		expect(captured).toBe("Hunt escalation.");
 	});
 });

@@ -39,8 +39,10 @@ prose; you translate intent into calls.
 | `status` | Debug-y session dump: IDs, configs, raw counts, per-stage cost. Use when the user asks a low-level state question or you need to verify wiring. |
 | `reset` | Clear the active PR, runs, decisions, threads and status line when the conversation has moved on to unrelated work. Keeps reviewer roster and judge config. Use before switching away from PR review or before loading an unrelated PR if stale status would mislead the user. |
 | `summary` | User-facing "what's the state of this PR?" panel. Header + stack + threads + council + fix queue, composed from cached snapshots. Use when the user asks open questions like "where are we on this?" or comes back to a session after a break. Never fetches — if threads aren't cached the panel prompts to run `action=threads`. |
-| `council-config` | User wants to set or change the reviewer roster. Omit `reviewers` to load configured defaults. |
-| `council` | Round 1: fan out the roster. User said "run the review", "kick it off". |
+| `council-config` | User wants to set or change the reviewer roster. Omit `reviewers` to load configured defaults. Reviewer entries may name a `persona`. |
+| `personas` | List the persona library (id, name, description). Use when the user asks "what lenses do I have?" or before proposing a roster. |
+| `persona-add` / `persona-edit` / `persona-remove` | Manage one persona file. `add`/`edit` take `persona` (id), `name`, `description`, `charter`. `remove` takes `persona`. |
+| `council` | Round 1: fan out the roster. User said "run the review", "kick it off". Optional `intent` aims this run. |
 | `judge-config` | User wants to set or change the judge model. Omit `judge` to load configured defaults. |
 | `judge` | Round 2: consolidate the council output. Run after `council`. |
 | `review` | Stack-wide context review: one stack-aware council fan-out plus one stack-aware judge. Use for "review the whole stack" or "do all of them". |
@@ -111,6 +113,67 @@ and proceed.
 | "actually let me read this myself" | delegated → deep review; stop pushing council, open files in nvim |
 | "just fix the obvious stuff" | review → self-apply; queue blockers for fix instead of post |
 | "let's just ship what we have" | self-apply → post; promote remaining findings to comments |
+
+## Three user flows
+
+The tool is ownership-blind: the same actions serve every
+flow. What differs is the **action chain** and where it
+exits. Recognize which flow the user is in and follow its
+shape; don't announce the flow, just move through it.
+
+### Flow 1 — reviewing someone else's PR (or stack)
+
+**Goal:** produce a high-signal review and post it back.
+
+**Chain:** `load` → (propose a roster, `council-config`)
+→ `council` → `judge` → optionally `critique` →
+`findings` → `decide` per finding → `preview-post` →
+`post` (event `COMMENT`, or `APPROVE` / `REQUEST_CHANGES`
+when the user is explicit). For a stack, use `review` in
+place of `council`+`judge`, walk it with `stack-next` /
+`stack-prev`, and `decide scope="stack"` on cross-PR
+findings.
+
+**Exit:** the review lands on GitHub. The user reviews
+your candidate list first — you propose, they dispose.
+
+### Flow 2 — reviewing your own PR before you ship
+
+**Goal:** catch your own problems; mostly fix, rarely
+post.
+
+**Chain:** `load` your PR → `council` → `judge` →
+`findings`, then `decide verdict="fix"` on what you'll
+address. Work the fix queue: `fix-next` hands you a
+worktree to `cd` into, you edit and commit in your main
+loop, then `fix-done` with the sha (or `fix-skip`).
+Blockers you won't fix now can `post` as notes-to-self,
+but the centre of gravity is the fix loop, not the
+review body.
+
+**Exit:** the findings are fixed and committed; little or
+nothing posts. The "review" was a private quality gate.
+
+### Flow 3 — responding to reviews on your own PR
+
+**Goal:** work through inbound reviewer threads —
+understand, reply, fix, resolve.
+
+**Chain:** `load` → `threads` (renders inbound threads
+as `[T1]`, `[T2]`…) → for each: discuss with the user,
+then `reply` and/or queue a `fix`, and `resolve` once
+settled. When the diff already answers a reviewer's
+worry — especially across a stack — say so in the reply
+rather than changing code. (The stack-aware thread audit,
+when present, flags exactly these myopic threads.)
+
+**Exit:** every inbound thread is replied to and
+resolved; fixes that threads demanded are committed.
+
+Flows compose and switch mid-session. A user reviewing
+their own PR (flow 2) may decide to post the leftovers
+(flow 1's tail); a reviewer (flow 1) may get a reply and
+slide into flow 3. Follow the trajectory cues above.
 
 ## When to call what
 
@@ -205,6 +268,12 @@ Use this JSON shape:
 {
   "reviewers": [
     {
+      "persona": "escalation",
+      "model": "anthropic/claude-opus-4-7",
+      "thinkingLevel": "high",
+      "tools": ["read", "grep", "glob", "ls"]
+    },
+    {
       "id": "fast",
       "model": "anthropic/claude-sonnet-4-5",
       "thinkingLevel": "low",
@@ -219,13 +288,113 @@ Use this JSON shape:
 }
 ```
 
-There are no built-in reviewer defaults. Reviewer ids
-must be unique, and the judge id must be distinct from
-every council reviewer id within the session.
+A reviewer entry references a persona by id (`persona`)
+or stands alone with an `id`; one of the two is required.
+With a persona and no `id`, the persona id doubles as the
+reviewer id. There are no built-in reviewer defaults.
+Reviewer ids must be unique, and the judge id must be
+distinct from every council reviewer id within the
+session. The judge takes no persona.
 
 Roster and judge persist across `/reload`. If a session
 already has them, mention them in your status update;
 don't re-prompt.
+
+### Personas: the standing lens
+
+A reviewer entry can name a **persona** instead of (or
+alongside) an `id`. A persona is a charter — a markdown
+file with YAML frontmatter (`name`, `description`) and a
+prose body that says what this reviewer notices and cares
+about. The body rides to the subagent as its system
+prompt; the model, thinking level and tools stay in the
+config entry. The persona is the *standing lens*; the
+mechanism is how hard it looks.
+
+```
+pr_workflow action=council-config reviewers=[
+  { persona: "escalation", model: "anthropic/claude-opus-4-7", thinkingLevel: "high" },
+  { persona: "contracts",  model: "openai/gpt-5",             thinkingLevel: "medium" }
+]
+```
+
+The reviewer id defaults to the persona id, so findings
+carry `escalation` / `contracts` as their origin. Give an
+explicit `id` to run the **same persona twice** at
+different mechanism settings (a fast escalation pass and
+a deep one):
+
+```
+pr_workflow action=council-config reviewers=[
+  { id: "esc-fast", persona: "escalation", model: "anthropic/claude-sonnet-4-5", thinkingLevel: "low" },
+  { id: "esc-deep", persona: "escalation", model: "anthropic/claude-opus-4-7",   thinkingLevel: "high" }
+]
+```
+
+Personas live in a directory beside `pr-workflow.json`:
+`$PR_WORKFLOW_PERSONAS_DIR`, then
+`$XDG_CONFIG_HOME/pi/personas`, then
+`~/.config/pi/personas`. One `.md` per persona; the
+file-name stem is the id. Manage them through the tool:
+
+```
+pr_workflow action=personas          # list the library
+pr_workflow action=persona-add    persona="escalation" name="..." description="..." charter="..."
+pr_workflow action=persona-edit   persona="escalation" name="..." description="..." charter="..."
+pr_workflow action=persona-remove persona="escalation"
+```
+
+The charter is the **lens only** — the disposition, what
+to notice. Do NOT put the output contract or diff-reading
+rules in it; the extension wraps those on at dispatch. A
+seeded palette (escalation, contracts, operability) ships
+under `examples/personas/` in the extension.
+
+The **judge never wears a persona**. It holds no lens: it
+consolidates the reviewers' findings and adjudicates
+their personas as exhibits. Its charter is its law, loaded
+from a `judge.md` in the personas directory when present,
+else a built-in default. There is no judge library — one
+charter. Critique **reuses** the reviewer personas: a
+critiquing reviewer keeps its lens (the charter) while
+taking a position on each finding (the task).
+
+### Per-run intent: the poke
+
+Where a persona is the standing lens, `intent` is the
+focus for **one run**. Pass it on `council`, `judge` or
+`critique` to aim the pass without editing any persona:
+
+```
+pr_workflow action=council intent="look hardest at the auth changes"
+pr_workflow action=judge   intent="be stricter this pass; the migration is the risky part"
+```
+
+Intent does not persist — it is the per-run knob. The
+persona stays itself across runs; the intent shifts.
+
+### Composing a roster (the iterative play)
+
+Roster composition is a **conversation, not a gate**.
+When the user wants a review but hasn't named a roster,
+don't silently default and don't dump a wall of options.
+Read the diff, then propose a small roster aimed at what
+the change actually risks, naming the lens for each:
+
+> This PR widens an auth scope and adds a migration. I'd
+> run **escalation** (the scope change is the risk),
+> **contracts** (the migration changes a stored shape)
+> and **operability** (the rollout). Want me to add or
+> swap anything?
+
+Then take nudges in prose ("add something for test
+coverage", "drop operability, this is internal-only") and
+adjust. If the right lens does not exist yet, **conceive
+one inline**: draft a charter, create it with
+`persona-add`, and include it in the roster — don't make
+the user leave the conversation to author a file. Keep
+the tool dumb; the judgement about who should review is
+yours and the user's.
 
 ### Worktree providers
 
@@ -611,7 +780,62 @@ action, no `findings.source = thread` field.
 |---|---|
 | "what review comments are still open?" | `action="threads"` |
 | "reply to the second one saying I'll fix in a follow-up" | `action="reply" threadIndex=2 replyBody="I'll fix in a follow-up PR."` |
+| "reply and resolve the first one" | `action="reply" threadIndex=1 replyBody="Done." resolve=true` |
 | "resolve the first thread" | `action="resolve" threadIndex=1` |
+| "which of these did the stack already handle?" | `action="audit-threads"` |
+
+**Reply and resolve in one step.** When the user wants
+to reply *and* close a thread — the common case for "done,
+fixed in X" — pass `resolve=true` to `reply`. It posts the
+reply and resolves the thread behind a **single** combined
+gate, instead of making the user approve a reply gate and
+then a resolve gate. Prefer this over two separate calls
+whenever the reply is also the close-out.
+
+### Auditing inbound threads against the stack
+
+When the user is working through inbound review threads on
+their own PR (flow 3), a reviewer may have flagged a gap
+that a later PR in the stack — or the PR's own later
+commits — already closes. `audit-threads` reads every
+unresolved inline thread against the diff and the stack
+and returns an **advisory** verdict per thread:
+
+- **addressed** — the diff or stack already does what the
+  reviewer asked (cite where).
+- **valid** — the concern stands.
+- **unclear** — can't tell from what's available.
+
+It uses the configured judge as the auditor (configure
+one first if needed) and **never posts on its own** — it
+informs the user's own reply. Use it before working a
+long inbound thread list, especially on a stacked PR, to
+skip re-litigating settled ground:
+
+```
+pr_workflow action=audit-threads
+```
+
+For an *addressed* thread the auditor also drafts the
+reply that would close it — a sentence or two pointing
+the reviewer at the PR or change that handles their
+concern. The advisory surfaces each draft with the
+thread's display index and the one-step command to send
+it:
+
+```
+  [T2] PR #43 renames the field downstream.
+    draft reply: Renamed downstream in #43 — closing here.
+    to send: reply threadIndex=2 replyBody="…" resolve=true
+```
+
+So the loop is: audit → read the verdict → send the draft
+(edited as you like) with `reply … resolve=true`, which
+posts and resolves behind the single combined gate. The
+draft is advisory: edit or discard it freely. For *valid*
+threads there is no draft — the concern stands and the
+code, not a reply, is what changes.
+
 
 Index rules:
 

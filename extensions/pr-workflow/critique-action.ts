@@ -12,6 +12,7 @@
 
 import { STALE_RUNTIME_WARNING_PREFIX } from "../../lib/subagent/health.js";
 import type { CouncilDispatch } from "./council.js";
+import { buildCharterMap } from "./council-action.js";
 import type { CouncilProgress } from "./council-progress.js";
 import {
 	type CritiqueRun,
@@ -27,6 +28,7 @@ import type {
 } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
+import { composeRunAddendum } from "./run-intent.js";
 import type { PrWorkflowState } from "./state.js";
 import {
 	loadReviewThreadPromptContext,
@@ -44,6 +46,14 @@ export interface RunCritiqueActionInput {
 	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
 	readonly now?: () => Date;
+	/**
+	 * Resolve a persona id to its charter, so critique reviewers
+	 * keep their persona lens. Same contract as the council action;
+	 * critique reuses the same personas.
+	 */
+	readonly resolveCharter?: (personaId: string) => string | undefined;
+	/** The user's per-run intent for this critique run, merged into the prompt addendum. */
+	readonly intent?: string;
 }
 
 /** Result of running the critique. */
@@ -97,7 +107,7 @@ export async function runCritiqueAction(
 		sha: state.pr.metadata.head.sha,
 		branch: state.pr.metadata.head.ref,
 	};
-	const [promptAddendum, threadContext] = await Promise.all([
+	const [providerAddendum, threadContext] = await Promise.all([
 		input.reviewContexts?.promptAddendum({
 			...target,
 			prNumber: state.pr.reference.number,
@@ -105,6 +115,8 @@ export async function runCritiqueAction(
 		}),
 		loadReviewThreadPromptContext(state, input.fetchThreads),
 	]);
+	const promptAddendum = composeRunAddendum(providerAddendum, input.intent);
+	const charters = buildCharterMap(state.council.roster, input.resolveCharter);
 	const run = await runCritique({
 		runId,
 		council: state.council.lastRun,
@@ -116,6 +128,7 @@ export async function runCritiqueAction(
 		threadContext,
 		progress: input.progress,
 		signal: input.signal,
+		charterFor: (id) => charters.get(id),
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	state.council.lastCritique = run;
@@ -191,6 +204,13 @@ export interface RetryCritiqueReviewerInput {
 	readonly fetchThreads?: ReviewThreadsFetcher;
 	readonly reviewerId: string;
 	readonly signal?: AbortSignal;
+	/**
+	 * Resolve a persona id to its charter, so a retried critique
+	 * keeps its persona lens. Same contract as the council retry.
+	 */
+	readonly resolveCharter?: (personaId: string) => string | undefined;
+	/** The user's per-run intent for this retry, merged into the prompt addendum. */
+	readonly intent?: string;
 }
 
 /**
@@ -270,7 +290,7 @@ export async function retryCritiqueReviewer(
 		sha: metadata.head.sha,
 		branch: metadata.head.ref,
 	};
-	const [promptAddendum, threadContext] = await Promise.all([
+	const [providerAddendum, threadContext] = await Promise.all([
 		input.reviewContexts?.promptAddendum({
 			...target,
 			prNumber: pr.reference.number,
@@ -278,6 +298,8 @@ export async function retryCritiqueReviewer(
 		}),
 		loadReviewThreadPromptContext(state, input.fetchThreads),
 	]);
+	const promptAddendum = composeRunAddendum(providerAddendum, input.intent);
+	const charters = buildCharterMap([reviewer], input.resolveCharter);
 	const output = await runOneCritiqueReviewer({
 		runId: lastCritique.id,
 		council: state.council.lastRun,
@@ -288,6 +310,7 @@ export async function retryCritiqueReviewer(
 		dispatch: input.dispatch,
 		threadContext,
 		signal: input.signal,
+		charterFor: (id) => charters.get(id),
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	lastCritique.reviewerOutputs[existingIndex] = output;
