@@ -125,6 +125,10 @@ import {
 	decideFinding,
 	formatFindingsView,
 } from "./synthesis.js";
+import {
+	auditThreadsAction,
+	formatThreadAudit,
+} from "./thread-audit-action.js";
 import { confirmReplyGate, confirmResolveGate } from "./thread-gate.js";
 import { fetchReviewThreads, replyToThread, resolveThread } from "./threads.js";
 import {
@@ -428,6 +432,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"persona-add",
 					"persona-edit",
 					"persona-remove",
+					"audit-threads",
 				] as const,
 				{
 					description:
@@ -490,7 +495,12 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"name, description and charter; refuses to overwrite. " +
 						"persona-edit: rewrite an existing persona in place; same " +
 						"fields; refuses if it does not exist. " +
-						"persona-remove: delete the persona named by persona (id).",
+						"persona-remove: delete the persona named by persona (id). " +
+						"audit-threads: stack-aware advisory audit of inbound review " +
+						"threads — for each unresolved thread, judge whether the PR " +
+						"diff or another PR in the stack already addresses it. Never " +
+						"posts; informs the user's reply. Uses the configured judge " +
+						"as the auditor.",
 				},
 			),
 			pr: Type.Optional(
@@ -1980,6 +1990,46 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						{ type: "text", text: `Removed persona "${params.persona}".` },
 					],
 					details: { ok: true, id: params.persona },
+				};
+			}
+
+			if (params.action === "audit-threads") {
+				if (state.council.judge === null) {
+					const error =
+						"No judge configured to act as the auditor. Call " +
+						"pr_workflow action=judge-config first.";
+					return {
+						content: [{ type: "text", text: error }],
+						details: { ok: false, error },
+						isError: true,
+					};
+				}
+				const auditor = state.council.judge;
+				const result = await runWithCancellableReviewers(
+					"audit-threads",
+					({ registry, dispatch }) =>
+						auditThreadsAction({
+							state,
+							registry,
+							dispatch,
+							auditor,
+							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+						}),
+				);
+				if (!result.ok) {
+					return {
+						content: [{ type: "text", text: result.error }],
+						details: { ok: false, error: result.error },
+						isError: true,
+					};
+				}
+				return {
+					content: [{ type: "text", text: formatThreadAudit(result.verdicts) }],
+					details: {
+						ok: true,
+						verdicts: result.verdicts,
+						warnings: result.warnings,
+					},
 				};
 			}
 

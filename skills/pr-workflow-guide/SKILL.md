@@ -781,6 +781,36 @@ action, no `findings.source = thread` field.
 | "what review comments are still open?" | `action="threads"` |
 | "reply to the second one saying I'll fix in a follow-up" | `action="reply" threadIndex=2 replyBody="I'll fix in a follow-up PR."` |
 | "resolve the first thread" | `action="resolve" threadIndex=1` |
+| "which of these did the stack already handle?" | `action="audit-threads"` |
+
+### Auditing inbound threads against the stack
+
+When the user is working through inbound review threads on
+their own PR (flow 3), a reviewer may have flagged a gap
+that a later PR in the stack — or the PR's own later
+commits — already closes. `audit-threads` reads every
+unresolved inline thread against the diff and the stack
+and returns an **advisory** verdict per thread:
+
+- **addressed** — the diff or stack already does what the
+  reviewer asked (cite where).
+- **valid** — the concern stands.
+- **unclear** — can't tell from what's available.
+
+It uses the configured judge as the auditor (configure
+one first if needed) and **never posts or drafts
+replies** — it informs the user's own reply. Use it
+before working a long inbound thread list, especially on
+a stacked PR, to skip re-litigating settled ground:
+
+```
+pr_workflow action=audit-threads
+```
+
+The verdicts feed your reply: for an *addressed* thread,
+reply pointing at the PR or commit that handles it,
+rather than changing code.
+
 
 Index rules:
 
