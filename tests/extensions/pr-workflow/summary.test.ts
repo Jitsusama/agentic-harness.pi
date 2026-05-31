@@ -165,6 +165,7 @@ describe("formatPrSummary", () => {
 			prNumber: 1234,
 			fetchedAt: "2026-05-19T00:00:00Z",
 			mutatedAt: null,
+			version: 1,
 			threads: [],
 		};
 		expect(formatPrSummary(state)).toContain("Threads: none on this PR");
@@ -176,6 +177,7 @@ describe("formatPrSummary", () => {
 			prNumber: 1234,
 			fetchedAt: "2026-05-19T00:00:00Z",
 			mutatedAt: null,
+			version: 1,
 			threads: [
 				thread({ id: "T1" }),
 				thread({ id: "T2", isResolved: true }),
@@ -193,6 +195,7 @@ describe("formatPrSummary", () => {
 			prNumber: 1234,
 			fetchedAt: "2026-05-19T00:00:00Z",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread()],
 		};
 		const text = formatPrSummary(state);
@@ -208,6 +211,7 @@ describe("formatPrSummary", () => {
 			prNumber: 1234,
 			fetchedAt: "2026-05-19T00:00:00Z",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread()],
 		};
 		const text = formatPrSummary(state);
@@ -221,6 +225,7 @@ describe("formatPrSummary", () => {
 			prNumber: 1234,
 			fetchedAt: "2026-05-19T00:00:00Z",
 			mutatedAt: "2026-05-19T10:00:00Z",
+			version: 1,
 			threads: [thread({ isResolved: true })],
 		};
 		const text = formatPrSummary(state);
@@ -237,6 +242,7 @@ describe("formatPrSummary", () => {
 			prNumber: 1234,
 			fetchedAt: "2026-05-19T00:00:00Z",
 			mutatedAt: null,
+			version: 1,
 			threads,
 		};
 		const text = formatPrSummary(state);

@@ -56,7 +56,7 @@ export async function loadReviewThreadPromptContext(
 		state.threadContextWarning = context.warning;
 		return context;
 	}
-	state.threads = toSnapshot(reference.number, context.threads);
+	state.threads = toSnapshot(state, reference.number, context.threads);
 	state.threadContextWarning = null;
 	return context;
 }
@@ -157,13 +157,16 @@ function rememberThreadWarning(
 }
 
 function toSnapshot(
+	state: PrWorkflowState,
 	prNumber: number,
 	threads: readonly ReviewThread[],
 ): ThreadsSnapshot {
+	state.threadsVersionSeq += 1;
 	return {
 		prNumber,
 		fetchedAt: new Date().toISOString(),
 		mutatedAt: null,
+		version: state.threadsVersionSeq,
 		threads: [...threads],
 	};
 }

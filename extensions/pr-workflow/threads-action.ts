@@ -51,10 +51,12 @@ export async function loadThreadsAction(input: {
 			error: `Failed to fetch threads: ${err instanceof Error ? err.message : String(err)}`,
 		};
 	}
+	state.threadsVersionSeq += 1;
 	const snapshot: ThreadsSnapshot = {
 		prNumber: state.pr.reference.number,
 		fetchedAt: (input.now ?? (() => new Date().toISOString()))(),
 		mutatedAt: null,
+		version: state.threadsVersionSeq,
 		threads: [...threads],
 	};
 	state.threads = snapshot;
@@ -122,6 +124,39 @@ function truncate(text: string, max: number): string {
 	return `${collapsed.slice(0, max - 1)}\u2026`;
 }
 
+/**
+ * Identity a reply or resolve captured when the user
+ * targeted a thread. The action re-checks it against the
+ * live snapshot before firing so a concurrent refetch or
+ * sibling mutation can't redirect the action to a
+ * different thread.
+ */
+export interface ThreadActionExpectation {
+	readonly threadId: string;
+	readonly version: number;
+}
+
+/**
+ * Capture the drift guard for the thread at a 1-based
+ * display index: its id plus the live snapshot version.
+ * Returns undefined when no snapshot or no thread sits
+ * there, so a caller can target an absent thread and let
+ * the action report the out-of-range error. Callers grab
+ * this before any await (a gate, a network send) and hand
+ * it back to the action so a concurrent refetch can't
+ * redirect the action to a different thread.
+ */
+export function captureThreadExpectation(
+	state: PrWorkflowState,
+	index: number,
+): ThreadActionExpectation | undefined {
+	const snapshot = state.threads;
+	if (snapshot === null) return undefined;
+	const thread = snapshot.threads[index - 1];
+	if (thread === undefined) return undefined;
+	return { threadId: thread.id, version: snapshot.version };
+}
+
 /** Post a reply to a thread, looked up by 1-based display index. */
 export async function replyToThreadAction(input: {
 	state: PrWorkflowState;
@@ -131,11 +166,17 @@ export async function replyToThreadAction(input: {
 	now?: () => string;
 	/** Login to attribute the locally-applied reply to. */
 	author?: string;
+	/** Drift guard captured when the user targeted the thread. */
+	expect?: ThreadActionExpectation;
 }): Promise<Result<{ url: string }>> {
 	const { state, index, body, sender } = input;
 	const lookup = lookupThread(state, index);
 	if (!lookup.ok) {
 		return lookup;
+	}
+	const drift = checkDrift(state, index, input.expect);
+	if (drift !== null) {
+		return { ok: false, error: drift };
 	}
 	if (lookup.thread.kind === "review-level") {
 		return {
@@ -204,6 +245,8 @@ function applyReplyLocally(
 		],
 	};
 	snapshot.mutatedAt = at;
+	state.threadsVersionSeq += 1;
+	snapshot.version = state.threadsVersionSeq;
 }
 
 /** Resolve a thread, looked up by 1-based display index. */
@@ -212,11 +255,17 @@ export async function resolveThreadAction(input: {
 	index: number;
 	resolver: ThreadResolver;
 	now?: () => string;
+	/** Drift guard captured when the user targeted the thread. */
+	expect?: ThreadActionExpectation;
 }): Promise<Result<{ isResolved: boolean }>> {
 	const { state, index, resolver } = input;
 	const lookup = lookupThread(state, index);
 	if (!lookup.ok) {
 		return lookup;
+	}
+	const drift = checkDrift(state, index, input.expect);
+	if (drift !== null) {
+		return { ok: false, error: drift };
 	}
 	if (lookup.thread.kind === "review-level") {
 		return {
@@ -252,6 +301,42 @@ function applyResolveLocally(
 		isResolved,
 	};
 	snapshot.mutatedAt = (now ?? (() => new Date().toISOString()))();
+	state.threadsVersionSeq += 1;
+	snapshot.version = state.threadsVersionSeq;
+}
+
+/**
+ * Compare the live snapshot against the identity the user
+ * targeted. Returns an error message when the snapshot
+ * version moved or the captured thread id no longer sits at
+ * the targeted index, else null. A missing expectation skips
+ * the check (legacy callers that target and act atomically).
+ */
+function checkDrift(
+	state: PrWorkflowState,
+	index: number,
+	expect: ThreadActionExpectation | undefined,
+): string | null {
+	if (expect === undefined) return null;
+	const snapshot = state.threads;
+	if (snapshot === null) {
+		return "Threads were cleared since you targeted this reply. Re-run action=threads.";
+	}
+	if (snapshot.version !== expect.version) {
+		return (
+			`Threads changed since you targeted [T${index}] ` +
+			`(snapshot v${expect.version} → v${snapshot.version}). ` +
+			"Re-run action=threads and retry."
+		);
+	}
+	const atIndex = snapshot.threads[index - 1];
+	if (atIndex === undefined || atIndex.id !== expect.threadId) {
+		return (
+			`Thread [T${index}] no longer points at the thread you targeted. ` +
+			"Re-run action=threads and retry."
+		);
+	}
+	return null;
 }
 
 function lookupThread(

@@ -137,6 +137,7 @@ import {
 import { describeReplyOutcome } from "./thread-reply-outcome.js";
 import { fetchReviewThreads, replyToThread, resolveThread } from "./threads.js";
 import {
+	captureThreadExpectation,
 	formatThreadsView,
 	loadThreadsAction,
 	replyToThreadAction,
@@ -1565,6 +1566,14 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 				const alsoResolve = params.resolve === true;
 				const threadForGate = state.threads?.threads[params.threadIndex - 1];
+				// Capture the targeted thread's identity and the snapshot
+				// version before the gate await, so a concurrent refetch or
+				// sibling mutation during the gate can't redirect the reply
+				// to a different thread.
+				const replyExpectation = captureThreadExpectation(
+					state,
+					params.threadIndex,
+				);
 				let replyBodyToPost = params.replyBody;
 				if (threadForGate !== undefined) {
 					const gate = alsoResolve
@@ -1588,6 +1597,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					index: params.threadIndex,
 					body: replyBodyToPost,
 					sender: (threadId, body) => replyToThread(pi, threadId, body),
+					...(replyExpectation ? { expect: replyExpectation } : {}),
 				});
 				if (!result.ok) {
 					return {
@@ -1641,6 +1651,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					};
 				}
 				const threadForGate = state.threads?.threads[params.threadIndex - 1];
+				// Capture identity + version before the gate await for
+				// the same reason as reply: the gate yields, and a
+				// concurrent refetch must not redirect the resolve.
+				const resolveExpectation = captureThreadExpectation(
+					state,
+					params.threadIndex,
+				);
 				if (threadForGate !== undefined) {
 					const gate = await confirmResolveGate(ctx, threadForGate);
 					if (!gate.approved) {
@@ -1655,6 +1672,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					state,
 					index: params.threadIndex,
 					resolver: (threadId) => resolveThread(pi, threadId),
+					...(resolveExpectation ? { expect: resolveExpectation } : {}),
 				});
 				if (!result.ok) {
 					return {

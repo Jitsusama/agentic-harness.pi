@@ -78,6 +78,7 @@ describe("createPrWorkflowState", () => {
 			prNumber: 12,
 			fetchedAt: "2026-01-01T00:00:00Z",
 			mutatedAt: null,
+			version: 1,
 			threads: [],
 		};
 
