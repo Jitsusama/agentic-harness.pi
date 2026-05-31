@@ -38,10 +38,6 @@ import type { CouncilRun, Finding, FindingLocation } from "./findings.js";
 import { extractJson } from "./parse.js";
 import { hasValidInlineAnchor } from "./post.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
-import {
-	reviewQualityStandard,
-	reviewSynthesisStandard,
-} from "./review-quality-standard.js";
 import { JudgeFinding, JudgeSelfSignal } from "./schemas.js";
 import {
 	normalizeFindingSeverities,
@@ -124,6 +120,14 @@ export interface RunJudgeOptions {
 	readonly threadContext?: ReviewThreadPromptContext;
 	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
+	/**
+	 * The judge's standing charter (its law), passed to the
+	 * subagent as its system prompt. The action resolves it from
+	 * `judge.md` or the built-in default; absent it, the judge runs
+	 * without a system prompt (the charter lived in the user prompt
+	 * before this seam existed).
+	 */
+	readonly charter?: string;
 	/** Provider or repository context appended to the judge prompt. */
 	readonly promptAddendum?: string;
 	/** First session-global finding id available to this judge run. */
@@ -141,47 +145,13 @@ export interface RunJudgeOptions {
  * documented inline in JSON so the model echoes it.
  */
 export function buildJudgePrompt(input: BuildJudgePromptInput): string {
+	// The judge's identity, no-persona stance, synthesis discipline
+	// and the review standards are its standing charter, supplied as
+	// the subagent's system prompt (see judge-charter.ts). This
+	// prompt carries only the per-run task: the findings to
+	// consolidate, the thread/provider context, and the output
+	// contract pointer.
 	const lines: string[] = [];
-	lines.push(
-		"You are the judge in a multi-reviewer code-review council. " +
-			"You receive each reviewer's findings on the same pull request " +
-			"and must synthesize them into ONE consolidated list. Merge " +
-			"similar findings, tighten prose, and reconcile conflicting " +
-			"decorations.",
-	);
-	lines.push("");
-	lines.push("Discipline:");
-	lines.push(
-		"- Synthesize, do not concatenate. Two reviewers raising the " +
-			"same issue become ONE consolidated finding listing both in " +
-			"`raisedBy`.",
-	);
-	lines.push(
-		"- Priority order: Security → Correctness → Architecture → " +
-			"Performance → API stability → Tests → Style.",
-	);
-	lines.push(
-		"- Cap `praise` findings at 2–3 across the whole consolidated " +
-			"list. Suggestion overload (>8 on a single file) is a smell; " +
-			"prefer dropping noise to keeping it.",
-	);
-	lines.push(
-		"- Favour keep over drop when uncertain. The user reviews next " +
-			"and will dismiss noise; you cannot resurface what you drop.",
-	);
-	lines.push(
-		"- Preserve source line locations. When the findings you are " +
-			"consolidating anchor to specific lines in the same file, the " +
-			"consolidated finding's location is line-kind with start/end " +
-			"covering the sources. Collapsing to file-kind discards the " +
-			"specificity GitHub needs to post inline; only do it when sources " +
-			"genuinely disagree on where the issue lives.",
-	);
-	lines.push("");
-	lines.push(reviewQualityStandard());
-	lines.push("");
-	lines.push(reviewSynthesisStandard());
-	lines.push("");
 	lines.push(renderReviewThreadPromptContext(input.threadContext));
 	pushPromptAddendum(lines, input.promptAddendum);
 	lines.push("");
@@ -371,6 +341,7 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 			runId: options.runId,
 			signal: options.signal,
 			expectedVerificationStage: "judge",
+			...(options.charter ? { systemPrompt: options.charter } : {}),
 			onEvent: (event) => {
 				const activity = summarizeStreamActivity(event);
 				if (activity === null) return;

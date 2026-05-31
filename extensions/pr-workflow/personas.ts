@@ -117,10 +117,12 @@ export interface LoadedPersonas {
 }
 
 const PERSONA_FILE_SUFFIX = ".md";
-// A README.md is documentation a user may keep beside their
-// personas; it is not a persona and must not surface as a parse
-// error. Other .md files are personas.
-const README_FILENAME = "readme.md";
+// Filenames that live in the personas directory but are not
+// reviewer personas, so the loader must not parse them: README.md
+// is documentation, and judge.md is the judge's law charter, which
+// is plain prose loaded separately (see judge-charter.ts). Both
+// would otherwise surface as spurious parse errors.
+const NON_PERSONA_FILENAMES = new Set(["readme.md", "judge.md"]);
 
 /**
  * Load every persona file (`*.md`) from `dir`, deriving each id
@@ -142,7 +144,7 @@ export async function loadPersonas(dir: string): Promise<LoadedPersonas> {
 	const files = entries.filter(
 		(name) =>
 			name.endsWith(PERSONA_FILE_SUFFIX) &&
-			name.toLowerCase() !== README_FILENAME,
+			!NON_PERSONA_FILENAMES.has(name.toLowerCase()),
 	);
 	const personas: Persona[] = [];
 	const errors: PersonaLoadError[] = [];

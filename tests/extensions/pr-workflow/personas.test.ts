@@ -136,6 +136,16 @@ describe("loadPersonas", () => {
 		expect(errors).toEqual([]);
 	});
 
+	it("ignores judge.md — the judge charter loads separately", async () => {
+		const dir = await personaDir({
+			"keep.md": persona("Keep", "a lens", "Charter."),
+			"judge.md": "Plain-prose judge law, no frontmatter.",
+		});
+		const { personas, errors } = await loadPersonas(dir);
+		expect(personas.map((p) => p.id)).toEqual(["keep"]);
+		expect(errors).toEqual([]);
+	});
+
 	it("treats a missing directory as empty, not an error", async () => {
 		const { personas, errors } = await loadPersonas(
 			join(tmpdir(), "pr-workflow-personas-does-not-exist-zzz"),

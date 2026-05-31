@@ -78,6 +78,7 @@ import {
 	formatJudgeSummary,
 	runJudgeAction,
 } from "./judge-action.js";
+import { resolveJudgeCharter } from "./judge-charter.js";
 import { persist, restore } from "./lifecycle.js";
 import { loadPr } from "./load.js";
 import {
@@ -989,6 +990,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						title: "PR Judge Progress",
 					},
 				);
+				const judgeCharter = await resolveJudgeCharter(personasDir());
 				const result = await runWithCancellableReviewers(
 					"judge",
 					({ registry, dispatch }) =>
@@ -998,6 +1000,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							dispatch,
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+							judgeCharter,
 							progress,
 						}),
 				);

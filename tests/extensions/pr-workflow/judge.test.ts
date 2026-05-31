@@ -10,6 +10,7 @@ import {
 	parseJudgeOutput,
 	runJudge,
 } from "../../../extensions/pr-workflow/judge.js";
+import { defaultJudgeCharter } from "../../../extensions/pr-workflow/judge-charter.js";
 import {
 	type WorktreeProvider,
 	WorktreeRegistry,
@@ -120,9 +121,11 @@ describe("buildJudgePrompt", () => {
 
 	it("instructs the judge to synthesize, not concatenate", async () => {
 		// Design doc 12 §Prompt baseline — "Active
-		// Synthesis" pattern. Wording is load-bearing.
-		const text = buildJudgePrompt({ council: council() });
-		expect(text).toMatch(/synthesize|consolidate|merge similar/i);
+		// Synthesis" pattern. Wording is load-bearing. The judge's
+		// synthesis discipline now lives in its standing charter
+		// (the system prompt), not the per-run task prompt.
+		const charter = defaultJudgeCharter();
+		expect(charter).toMatch(/synthesize|consolidate|merge similar/i);
 	});
 
 	it("instructs judge tools to stay inside the worktree", async () => {
@@ -150,13 +153,15 @@ describe("buildJudgePrompt", () => {
 	});
 
 	it("defines the judge quality bar for curating council findings", async () => {
-		const text = buildJudgePrompt({ council: council() });
-		expect(text).toContain("Review quality standard");
-		expect(text).toContain("Judge synthesis objective");
-		expect(text).toContain("small, high-signal candidate review");
-		expect(text).toContain("drop weak or taste-only findings");
-		expect(text).toContain("Downgrade speculative claims");
-		expect(text).toContain("candidate review, not the final truth");
+		// The quality bar and synthesis objective are standing law,
+		// now carried by the judge charter rather than the task prompt.
+		const charter = defaultJudgeCharter();
+		expect(charter).toContain("Review quality standard");
+		expect(charter).toContain("Judge synthesis objective");
+		expect(charter).toContain("small, high-signal candidate review");
+		expect(charter).toContain("drop weak or taste-only findings");
+		expect(charter).toContain("Downgrade speculative claims");
+		expect(charter).toContain("candidate review, not the final truth");
 	});
 
 	it("includes provider review context when supplied", async () => {

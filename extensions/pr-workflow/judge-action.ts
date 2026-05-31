@@ -70,6 +70,12 @@ export interface RunJudgeActionInput {
 	readonly progress?: CouncilProgress;
 	readonly signal?: AbortSignal;
 	readonly now?: () => Date;
+	/**
+	 * The judge's standing charter (its law), forwarded to the
+	 * judge subagent as its system prompt. The tool layer resolves
+	 * it from `judge.md` or the built-in default.
+	 */
+	readonly judgeCharter?: string;
 }
 
 /** Result of running the judge. */
@@ -136,6 +142,7 @@ export async function runJudgeAction(
 			signal: input.signal,
 			startId: state.nextFindingId,
 			...(promptAddendum ? { promptAddendum } : {}),
+			...(input.judgeCharter ? { charter: input.judgeCharter } : {}),
 			...(state.pr.files && state.pr.files.length > 0
 				? { diffFiles: state.pr.files }
 				: {}),
