@@ -82,6 +82,7 @@ import {
 } from "./load-trajectory.js";
 import { addManualFindingAction } from "./manual-finding-action.js";
 import { hasFindingsForParticipant } from "./participant-identities.js";
+import { loadPersonas, personasDir } from "./personas.js";
 import {
 	buildReviewPayload,
 	type PostReviewExec,
@@ -145,6 +146,24 @@ import { createGitWorktreeProvider } from "./worktree-git.js";
  */
 const NEOVIM_PI_REGISTER_HANDLER = "neovim-pi:register-handler";
 const NEOVIM_PI_READY = "neovim-pi:ready";
+
+/**
+ * Load the persona library from disk and return a synchronous
+ * resolver from persona id to charter prose. The council action
+ * needs a sync resolver (it maps the roster inline), so the
+ * filesystem read happens once here, up front, per run. A bad
+ * persona file is skipped, not fatal: the load returns its error
+ * list, which the caller surfaces as a warning while the rest of
+ * the roster proceeds.
+ */
+async function loadCharterResolver(): Promise<{
+	resolve: (personaId: string) => string | undefined;
+	errors: readonly { id: string; error: string }[];
+}> {
+	const { personas, errors } = await loadPersonas(personasDir());
+	const byId = new Map(personas.map((p) => [p.id, p.charter]));
+	return { resolve: (id) => byId.get(id), errors };
+}
 
 export default function prWorkflow(pi: ExtensionAPI) {
 	const state = createPrWorkflowState();
@@ -720,6 +739,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 
 			if (params.action === "council") {
 				const progress = createCouncilProgressReporter(ctx, progressControls());
+				const charters = await loadCharterResolver();
+				for (const e of charters.errors) {
+					ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
+				}
 				const result = await runWithCancellableReviewers(
 					"council",
 					({ registry, dispatch }) =>
@@ -729,6 +752,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							dispatch,
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+							resolveCharter: charters.resolve,
 							progress,
 						}),
 				);
@@ -759,6 +783,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					};
 				}
 				const reviewerId = params.reviewerId;
+				const charters = await loadCharterResolver();
+				for (const e of charters.errors) {
+					ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
+				}
 				const result = await runWithCancellableReviewers(
 					"council-retry",
 					({ registry, dispatch }) =>
@@ -768,6 +796,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							dispatch,
 							reviewContexts: reviewContextProviders,
 							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+							resolveCharter: charters.resolve,
 							reviewerId,
 						}),
 				);
