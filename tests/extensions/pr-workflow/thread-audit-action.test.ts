@@ -167,6 +167,26 @@ describe("formatThreadAudit", () => {
 		expect(text).toContain("[T_v] still open");
 	});
 
+	it("renders the display index and a ready-to-send draft when given a map", () => {
+		const text = formatThreadAudit(
+			[
+				{
+					threadId: "T_a",
+					disposition: "addressed",
+					rationale: "stack does it",
+					draftReply: "Handled in #43.",
+				},
+			],
+			new Map([["T_a", 2]]),
+		);
+		// The actionable display index, not the raw thread id.
+		expect(text).toContain("[T2]");
+		// The draft reply is surfaced so the user can post it.
+		expect(text).toContain("Handled in #43.");
+		// And it points at how to act on it in one step.
+		expect(text).toMatch(/reply|resolve/i);
+	});
+
 	it("says so when there is nothing to report", () => {
 		expect(formatThreadAudit([])).toMatch(/no unresolved/i);
 	});

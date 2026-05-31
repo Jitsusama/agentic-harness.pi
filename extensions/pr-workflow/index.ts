@@ -2099,7 +2099,12 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					};
 				}
 				return {
-					content: [{ type: "text", text: formatThreadAudit(result.verdicts) }],
+					content: [
+						{
+							type: "text",
+							text: formatThreadAudit(result.verdicts, result.indexById),
+						},
+					],
 					details: {
 						ok: true,
 						verdicts: result.verdicts,

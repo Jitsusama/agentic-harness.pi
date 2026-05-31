@@ -58,6 +58,56 @@ describe("parseThreadAuditOutput", () => {
 		expect(out.verdicts[1].disposition).toBe("valid");
 	});
 
+	it("carries an optional draft reply on an addressed verdict", () => {
+		const out = parseThreadAuditOutput(
+			block({
+				verdicts: [
+					{
+						threadId: "T_kwabc",
+						disposition: "addressed",
+						rationale: "PR #43 downstream renames the field as asked.",
+						draftReply: "Renamed downstream in #43 — closing here.",
+					},
+				],
+			}),
+		);
+		expect(out.warnings).toEqual([]);
+		expect(out.verdicts[0].draftReply).toBe(
+			"Renamed downstream in #43 — closing here.",
+		);
+	});
+
+	it("leaves draftReply undefined when the model omits it", () => {
+		const out = parseThreadAuditOutput(
+			block({
+				verdicts: [
+					{
+						threadId: "T_x",
+						disposition: "valid",
+						rationale: "Still missing.",
+					},
+				],
+			}),
+		);
+		expect(out.verdicts[0].draftReply).toBeUndefined();
+	});
+
+	it("ignores a blank draft reply rather than carrying empty text", () => {
+		const out = parseThreadAuditOutput(
+			block({
+				verdicts: [
+					{
+						threadId: "T_x",
+						disposition: "addressed",
+						rationale: "Handled.",
+						draftReply: "   ",
+					},
+				],
+			}),
+		);
+		expect(out.verdicts[0].draftReply).toBeUndefined();
+	});
+
 	it("warns and yields nothing when there is no JSON block", () => {
 		const out = parseThreadAuditOutput("I could not produce JSON.");
 		expect(out.verdicts).toEqual([]);

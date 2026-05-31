@@ -36,7 +36,13 @@ export interface AuditThreadsActionInput {
 
 /** Outcome of the audit action. */
 export type AuditThreadsActionResult =
-	| { ok: true; verdicts: ThreadAuditVerdict[]; warnings: string[] }
+	| {
+			ok: true;
+			verdicts: ThreadAuditVerdict[];
+			/** Thread id to 1-based display index in the full snapshot. */
+			indexById: Map<string, number>;
+			warnings: string[];
+	  }
 	| { ok: false; error: string };
 
 /**
@@ -68,8 +74,14 @@ export async function auditThreadsAction(
 		(t) => t.kind === "review-thread" && !t.isResolved,
 	);
 	if (threads.length === 0) {
-		return { ok: true, verdicts: [], warnings: [] };
+		return { ok: true, verdicts: [], indexById: new Map(), warnings: [] };
 	}
+
+	// reply/resolve target the 1-based position in the FULL snapshot,
+	// not the filtered audit set, so map ids to that index.
+	const indexById = new Map<string, number>(
+		loaded.snapshot.threads.map((t, i) => [t.id, i + 1]),
+	);
 
 	const stack = buildStackEntries(state);
 	const prompt = buildThreadAuditPrompt({ threads, stack });
@@ -92,6 +104,7 @@ export async function auditThreadsAction(
 	return {
 		ok: true,
 		verdicts: parsed.verdicts,
+		indexById,
 		warnings: [...dispatched.warnings, ...parsed.warnings],
 	};
 }
@@ -110,9 +123,16 @@ function buildStackEntries(state: PrWorkflowState): ThreadAuditStackEntry[] {
  * Render the advisory audit as human-readable text: the threads
  * the diff or stack already addresses, surfaced first, then the
  * ones still valid, then the unclear ones, each with its rationale.
+ *
+ * When `indexById` maps a thread id to its 1-based display index,
+ * the line is labelled `[T#]` (the actionable index the reply and
+ * resolve actions take) instead of the raw id, and any `addressed`
+ * draft reply is surfaced with a one-step `reply … resolve=true`
+ * hint so the user can close the thread without composing.
  */
 export function formatThreadAudit(
 	verdicts: readonly ThreadAuditVerdict[],
+	indexById?: ReadonlyMap<string, number>,
 ): string {
 	if (verdicts.length === 0) {
 		return "No unresolved inbound threads to audit.";
@@ -133,7 +153,18 @@ export function formatThreadAudit(
 		if (group.length === 0) continue;
 		lines.push(heading[disposition]);
 		for (const v of group) {
-			lines.push(`  [${v.threadId}] ${v.rationale}`);
+			const index = indexById?.get(v.threadId);
+			const label = index !== undefined ? `T${index}` : v.threadId;
+			lines.push(`  [${label}] ${v.rationale}`);
+			if (v.draftReply !== undefined) {
+				lines.push(`    draft reply: ${v.draftReply}`);
+				if (index !== undefined) {
+					lines.push(
+						`    to send: reply threadIndex=${index} ` +
+							`replyBody="…" resolve=true`,
+					);
+				}
+			}
 		}
 		lines.push("");
 	}

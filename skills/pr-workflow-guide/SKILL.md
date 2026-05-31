@@ -807,18 +807,34 @@ and returns an **advisory** verdict per thread:
 - **unclear** — can't tell from what's available.
 
 It uses the configured judge as the auditor (configure
-one first if needed) and **never posts or drafts
-replies** — it informs the user's own reply. Use it
-before working a long inbound thread list, especially on
-a stacked PR, to skip re-litigating settled ground:
+one first if needed) and **never posts on its own** — it
+informs the user's own reply. Use it before working a
+long inbound thread list, especially on a stacked PR, to
+skip re-litigating settled ground:
 
 ```
 pr_workflow action=audit-threads
 ```
 
-The verdicts feed your reply: for an *addressed* thread,
-reply pointing at the PR or commit that handles it,
-rather than changing code.
+For an *addressed* thread the auditor also drafts the
+reply that would close it — a sentence or two pointing
+the reviewer at the PR or change that handles their
+concern. The advisory surfaces each draft with the
+thread's display index and the one-step command to send
+it:
+
+```
+  [T2] PR #43 renames the field downstream.
+    draft reply: Renamed downstream in #43 — closing here.
+    to send: reply threadIndex=2 replyBody="…" resolve=true
+```
+
+So the loop is: audit → read the verdict → send the draft
+(edited as you like) with `reply … resolve=true`, which
+posts and resolves behind the single combined gate. The
+draft is advisory: edit or discard it freely. For *valid*
+threads there is no draft — the concern stands and the
+code, not a reply, is what changes.
 
 
 Index rules:

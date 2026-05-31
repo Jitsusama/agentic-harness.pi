@@ -34,6 +34,7 @@ const ThreadAuditVerdictSchema = Type.Object({
 	threadId: Type.String({ minLength: 1 }),
 	disposition: ThreadAuditDisposition,
 	rationale: Type.String({ minLength: 1 }),
+	draftReply: Type.Optional(Type.String()),
 });
 
 /** One thread's advisory audit verdict. */
@@ -41,6 +42,13 @@ export interface ThreadAuditVerdict {
 	readonly threadId: string;
 	readonly disposition: ThreadAuditDisposition;
 	readonly rationale: string;
+	/**
+	 * A ready-to-send reply the user can post (and resolve) as-is,
+	 * supplied by the auditor mainly for `addressed` threads. Absent
+	 * when the auditor offers no draft. Advisory: the user edits or
+	 * discards it; the audit still never posts on its own.
+	 */
+	readonly draftReply?: string;
 }
 
 /** Outcome of parsing an audit subagent's response. */
@@ -111,12 +119,21 @@ export function buildThreadAuditPrompt(
 		sections.push(renderThreadForAudit(thread));
 	}
 	sections.push(
+		"For an `addressed` thread, also draft the reply the user could " +
+			"post to close it: one or two sentences pointing the reviewer at " +
+			"the PR or change that handles their concern. Put it in " +
+			"`draftReply`. The user posts or edits it; you never post. Omit " +
+			"`draftReply` for `valid` and `unclear` threads, where there is " +
+			"nothing to close yet.",
+	);
+	sections.push(
 		"## Output format\n" +
 			"Return one fenced ```json block: " +
 			'{ "verdicts": [ { "threadId": "<id>", "disposition": ' +
 			'"addressed"|"valid"|"unclear", "rationale": "<one or two ' +
-			'sentences citing the diff or stack>" } ] }. One verdict per ' +
-			"thread, keyed by the thread id shown above.",
+			'sentences citing the diff or stack>", "draftReply": "<reply to ' +
+			'post, addressed threads only; omit otherwise>" } ] }. One ' +
+			"verdict per thread, keyed by the thread id shown above.",
 	);
 	return sections.join("\n\n");
 }
@@ -180,10 +197,15 @@ export function parseThreadAuditOutput(text: string): ThreadAuditParseResult {
 			warnings.push(`Audit verdict at index ${i} is malformed; skipped`);
 			continue;
 		}
+		const draftReply =
+			typeof raw.draftReply === "string" && raw.draftReply.trim() !== ""
+				? raw.draftReply
+				: undefined;
 		verdicts.push({
 			threadId: raw.threadId,
 			disposition: raw.disposition,
 			rationale: raw.rationale,
+			...(draftReply !== undefined ? { draftReply } : {}),
 		});
 	}
 	return { verdicts, warnings };
