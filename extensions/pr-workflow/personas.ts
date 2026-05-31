@@ -11,6 +11,33 @@
  * wrapped on at dispatch.
  */
 
+import { readdir, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
+
+const PERSONAS_DIR_ENV_VAR = "PR_WORKFLOW_PERSONAS_DIR";
+const CONFIG_DIR = "pi";
+const PERSONAS_DIRNAME = "personas";
+
+/**
+ * Resolve the directory pr-workflow reads personas from. It sits
+ * beside `pr-workflow.json`: an explicit
+ * `PR_WORKFLOW_PERSONAS_DIR` wins, then `$XDG_CONFIG_HOME/pi/`
+ * `personas`, then `~/.config/pi/personas`.
+ */
+export function personasDir(
+	env: NodeJS.ProcessEnv = process.env,
+	home = homedir(),
+): string {
+	const explicit = env[PERSONAS_DIR_ENV_VAR];
+	if (explicit && explicit.trim() !== "") return explicit;
+	const xdg = env.XDG_CONFIG_HOME;
+	if (xdg && xdg.trim() !== "") {
+		return join(xdg, CONFIG_DIR, PERSONAS_DIRNAME);
+	}
+	return join(home, ".config", CONFIG_DIR, PERSONAS_DIRNAME);
+}
+
 /** A parsed persona: identity plus the charter prose. */
 export interface Persona {
 	/** Stable id, derived from the file name. */
@@ -50,6 +77,56 @@ export function parsePersona(id: string, text: string): ParsePersonaResult {
 		return { ok: false, error: "persona body (charter) is empty" };
 	}
 	return { ok: true, persona: { id, name, description, charter } };
+}
+
+/** One persona file that failed to parse, with its reason. */
+export interface PersonaLoadError {
+	readonly id: string;
+	readonly error: string;
+}
+
+/** The outcome of loading a persona directory. */
+export interface LoadedPersonas {
+	readonly personas: readonly Persona[];
+	readonly errors: readonly PersonaLoadError[];
+}
+
+const PERSONA_FILE_SUFFIX = ".md";
+
+/**
+ * Load every persona file (`*.md`) from `dir`, deriving each id
+ * from its filename stem and parsing it. Personas come back sorted
+ * by id; files that fail to parse surface as per-file errors
+ * rather than aborting the load. A missing directory is empty, not
+ * an error — a user who has authored no personas is normal.
+ */
+export async function loadPersonas(dir: string): Promise<LoadedPersonas> {
+	let entries: string[];
+	try {
+		entries = await readdir(dir);
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			return { personas: [], errors: [] };
+		}
+		throw error;
+	}
+	const files = entries.filter((name) => name.endsWith(PERSONA_FILE_SUFFIX));
+	const personas: Persona[] = [];
+	const errors: PersonaLoadError[] = [];
+	for (const file of files) {
+		const id = basename(file, PERSONA_FILE_SUFFIX);
+		const text = await readFile(join(dir, file), "utf8");
+		const result = parsePersona(id, text);
+		if (result.ok) personas.push(result.persona);
+		else errors.push({ id, error: result.error });
+	}
+	personas.sort((a, b) => a.id.localeCompare(b.id));
+	errors.sort((a, b) => a.id.localeCompare(b.id));
+	return { personas, errors };
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+	return error instanceof Error && "code" in error;
 }
 
 const FRONTMATTER_FENCE = "---";
