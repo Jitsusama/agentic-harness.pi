@@ -201,6 +201,23 @@ export async function applyTransition(
 	ctx: ExtensionContext,
 	params: TransitionParams,
 ): Promise<ApplyResult> {
+	// PB2: if the tracked plan file has vanished from disk, the cached
+	// pointer is dead. Forget it and rest at idle before the machine
+	// runs, so a transition can never carry a deleted document forward.
+	// The caller can start fresh with think/draft.
+	if (state.planPath && !fs.existsSync(state.planPath)) {
+		clearPlan(state);
+		state.stage = "idle";
+		updateScoreboard(state, ctx);
+		persist(state, pi);
+		return {
+			ok: false,
+			guidance:
+				"The active plan document is gone from disk. Reset to idle; " +
+				"start a new plan with think, or attach an existing one.",
+		};
+	}
+
 	const result = transition(
 		{ stage: state.stage },
 		{ action: params.action, note: params.note, reason: params.reason },
@@ -213,15 +230,28 @@ export async function applyTransition(
 	const session = sessionId(ctx);
 
 	if (params.action === "draft") {
-		await createDoc(
-			state,
-			pi,
-			ctx,
-			params.title?.trim() || "Untitled Plan",
-			newStage,
-			session,
-			now,
-		);
+		// PB1: drafting while a live plan is already tracked is a
+		// replan-in-place (the machine permits draft only from think,
+		// and think keeps the active planPath when replanning). Revise
+		// the existing document instead of minting a duplicate; only
+		// create when there is no active plan to resume.
+		if (state.planPath) {
+			reviseDocOnDisk(state.planPath, {
+				stage: newStage,
+				date: now,
+				session: session ?? undefined,
+			});
+		} else {
+			await createDoc(
+				state,
+				pi,
+				ctx,
+				params.title?.trim() || "Untitled Plan",
+				newStage,
+				session,
+				now,
+			);
+		}
 	} else if (params.action === "think" && isTerminal(priorStage)) {
 		// Thinking after a terminal stage opens a fresh plan: forget the
 		// old document so the next draft writes a new one, and leave the
