@@ -7,8 +7,8 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerGuardian } from "../../lib/guardian/register.js";
-import { issueGuardian } from "./review.js";
+import { createIssueGuardian } from "./review.js";
 
 export default function issueGuardianExtension(pi: ExtensionAPI) {
-	registerGuardian(pi, issueGuardian, { name: "issue" });
+	registerGuardian(pi, createIssueGuardian(pi), { name: "issue" });
 }

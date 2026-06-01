@@ -37,8 +37,8 @@ describe("glyph", () => {
 		expect(glyph("plan")).toEqual({ char: "\u25cb", token: "warning" });
 		expect(glyph("write")).toEqual({ char: "\u25d4", token: "warning" });
 		expect(glyph("red-unverified")).toEqual({ char: "\u25d1", token: "error" });
-		expect(glyph("red-verified")).toEqual({ char: "\u25cf", token: "error" });
-		expect(glyph("green")).toEqual({ char: "\u2713", token: "success" });
+		expect(glyph("red-verified")).toEqual({ char: "\u25d5", token: "error" });
+		expect(glyph("green")).toEqual({ char: "\u25cf", token: "success" });
 		expect(glyph("refactor")).toEqual({ char: "\u25c6", token: "accent" });
 	});
 

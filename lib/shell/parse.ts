@@ -7,6 +7,51 @@
  * nothing about specific CLI tools.
  */
 
+/** A single heredoc found in a command. */
+export interface HeredocMatch {
+	/** The delimiter word (e.g. `EOF`). */
+	readonly delim: string;
+	/** The body between the opening line and the closing delimiter. */
+	readonly body: string;
+	/** Whether the delimiter was quoted (`<<'EOF'`) or bare (`<<EOF`). */
+	readonly quoted: boolean;
+	/** Start offset of the whole heredoc within the command. */
+	readonly index: number;
+	/** Length of the whole heredoc match. */
+	readonly length: number;
+}
+
+/**
+ * Find every heredoc in a command, in order.
+ *
+ * One primitive backs all heredoc handling so the four call
+ * sites cannot drift apart again (the `m`-flag bug in commit
+ * `9be69db` was exactly that drift). The closing delimiter must
+ * sit on its own line with only trailing horizontal whitespace,
+ * so a delimiter word appearing inside the body is not mistaken
+ * for the end.
+ */
+export function matchHeredocs(command: string): HeredocMatch[] {
+	// Group 1: optional quote around the delimiter. Group 2: the
+	// delimiter word. Group 3: the body. The closing delimiter is
+	// matched via a backreference to group 2 and must sit on its
+	// own line (`\n\2`) with only trailing horizontal whitespace
+	// before the line end, anchored by `$` under `/m`.
+	const HEREDOC = /<<-?\s*(['"]?)(\w+)\1\s*\n([\s\S]*?)\n\2[ \t]*$/gm;
+	const matches: HeredocMatch[] = [];
+	for (const match of command.matchAll(HEREDOC)) {
+		if (match.index === undefined) continue;
+		matches.push({
+			delim: match[2] ?? "",
+			body: match[3] ?? "",
+			quoted: match[1] !== "",
+			index: match.index,
+			length: match[0].length,
+		});
+	}
+	return matches;
+}
+
 /** Extract a --flag value from a command string (quoted or unquoted). */
 export function extractFlag(command: string, flag: string): string | null {
 	// Double-quoted: --flag "value with spaces"
@@ -37,10 +82,8 @@ export function extractBody(
 	entityPart: string,
 ): string | null {
 	// Heredoc: --body-file - <<'DELIM'\nbody\nDELIM
-	const heredoc = fullCommand.match(
-		/<<-?\s*['"]?(\w+)['"]?\s*\n([\s\S]*?)\n\1\s*$/,
-	);
-	if (heredoc) return heredoc[2] ?? null;
+	const heredoc = matchHeredocs(fullCommand)[0];
+	if (heredoc) return heredoc.body;
 
 	// --body flag
 	return extractFlag(entityPart, "body");
@@ -91,10 +134,15 @@ export function splitAtCommand(
  * for a real command.
  */
 export function stripHeredocBodies(command: string): string {
-	return command.replace(
-		/<<-?\s*['"]?(\w+)['"]?\s*\n[\s\S]*?\n\1(?:\s*$)?/gm,
-		"",
-	);
+	// Remove each heredoc span (operator through closing delimiter)
+	// from the end backwards so earlier offsets stay valid.
+	let result = command;
+	for (const heredoc of matchHeredocs(command).reverse()) {
+		result =
+			result.slice(0, heredoc.index) +
+			result.slice(heredoc.index + heredoc.length);
+	}
+	return result;
 }
 
 /**
@@ -113,16 +161,7 @@ export function stripHeredocBodies(command: string): string {
  * delimiters.
  */
 export function hasUnquotedHeredoc(command: string): boolean {
-	// Match the full heredoc: operator + body + closing delimiter.
-	// Group 1 captures the optional quote around the delimiter.
-	// Group 2 captures the delimiter word. The closing delimiter
-	// uses a backreference to group 2 so only real heredocs match.
-	const HEREDOC_FULL =
-		/<<-?\s*(['"]?)([A-Za-z_]\w*)\1\s*\n[\s\S]*?\n\2(?:\s*$)?/gm;
-	for (const match of command.matchAll(HEREDOC_FULL)) {
-		if (!match[1]) return true;
-	}
-	return false;
+	return matchHeredocs(command).some((heredoc) => !heredoc.quoted);
 }
 
 /**

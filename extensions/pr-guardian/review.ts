@@ -4,11 +4,18 @@
  * rendering.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
 import type {
 	CommandGuardian,
 	GuardianResult,
 } from "../../lib/guardian/types.js";
+import {
+	runProseGate,
+	sessionProseGateDeps,
+} from "../../lib/internal/guardian/prose-gate.js";
 import {
 	type EntityReviewConfig,
 	reviewMarkdownEntity,
@@ -21,20 +28,36 @@ const PR_REVIEW_CONFIG: EntityReviewConfig = {
 	entityLabel: "PR",
 };
 
-/** Guardian that intercepts gh pr create/edit commands for review. */
-export const prGuardian: CommandGuardian<PrCommand> = {
-	detect(command) {
-		return isPrCommand(command);
-	},
+/**
+ * Guardian that intercepts gh pr create/edit commands for review.
+ *
+ * Built as a factory so the review closure can capture `pi` for
+ * the prose gate's session-backed signature persistence.
+ */
+export function createPrGuardian(pi: ExtensionAPI): CommandGuardian<PrCommand> {
+	return {
+		detect(command) {
+			return isPrCommand(command);
+		},
 
-	parse(command) {
-		return parsePrCommand(command);
-	},
+		parse(command) {
+			return parsePrCommand(command);
+		},
 
-	async review(
-		parsed: PrCommand,
-		ctx: ExtensionContext,
-	): Promise<GuardianResult> {
-		return reviewMarkdownEntity(ctx, parsed, PR_REVIEW_CONFIG);
-	},
-};
+		async review(
+			parsed: PrCommand,
+			ctx: ExtensionContext,
+		): Promise<GuardianResult> {
+			// Block on detectable prose violations before the human
+			// gate, so the user reviews a clean PR body. The gate
+			// relents to the human review on a repeat to avoid looping.
+			const proseBlock = runProseGate(
+				sessionProseGateDeps(ctx, pi),
+				parsed.body,
+			);
+			if (proseBlock) return proseBlock;
+
+			return reviewMarkdownEntity(ctx, parsed, PR_REVIEW_CONFIG);
+		},
+	};
+}

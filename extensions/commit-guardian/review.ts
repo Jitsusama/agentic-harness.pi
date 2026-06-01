@@ -4,13 +4,21 @@
  * annotations.
  */
 
-import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	Theme,
+} from "@mariozechner/pi-coding-agent";
 import {
 	ALLOW,
 	type CommandGuardian,
 	formatRedirectBlock,
 	type GuardianResult,
 } from "../../lib/guardian/index.js";
+import {
+	runProseGate,
+	sessionProseGateDeps,
+} from "../../lib/internal/guardian/prose-gate.js";
 import { promptSingle } from "../../lib/ui/index.js";
 import { extractCommitFlags, extractMessage, splitAtCommit } from "./parse.js";
 import { type CommitValidation, validate } from "./validate.js";
@@ -24,74 +32,94 @@ interface CommitParsed {
 	flags: string[];
 }
 
-/** Guardian that intercepts git commit commands and presents the message for review. */
-export const commitGuardian: CommandGuardian<CommitParsed> = {
-	detect(command) {
-		return /\bgit\s+commit\b/.test(command);
-	},
+/**
+ * Guardian that intercepts git commit commands and presents the
+ * message for review.
+ *
+ * Built as a factory so the review closure can capture `pi` for
+ * the prose gate's session-backed signature persistence.
+ */
+export function createCommitGuardian(
+	pi: ExtensionAPI,
+): CommandGuardian<CommitParsed> {
+	return {
+		detect(command) {
+			return /\bgit\s+commit\b/.test(command);
+		},
 
-	parse(command) {
-		const message = extractMessage(command);
-		if (!message) return null;
+		parse(command) {
+			const message = extractMessage(command);
+			if (!message) return null;
 
-		const isAmend = /--amend\b/.test(command);
-		const { prefix, commitPart } = splitAtCommit(command);
-		const flags = extractCommitFlags(commitPart);
+			const isAmend = /--amend\b/.test(command);
+			const { prefix, commitPart } = splitAtCommit(command);
+			const flags = extractCommitFlags(commitPart);
 
-		return { message, isAmend, prefix, flags };
-	},
+			return { message, isAmend, prefix, flags };
+		},
 
-	async review(
-		parsed: CommitParsed,
-		ctx: ExtensionContext,
-	): Promise<GuardianResult> {
-		const result = await promptSingle(ctx, {
-			title: parsed.isAmend ? "Amend Commit" : "Commit",
-			content: renderCommitContent(parsed.message, parsed.isAmend),
-			actions: COMMIT_ACTIONS,
-		});
-
-		if (!result) {
-			return {
-				block: true,
-				reason: "User cancelled the commit review.",
-			};
-		}
-
-		if (result.type === "redirect") {
-			return formatRedirectBlock(
-				result.note,
-				`Original commit:\n${parsed.message}`,
+		async review(
+			parsed: CommitParsed,
+			ctx: ExtensionContext,
+		): Promise<GuardianResult> {
+			// Block on detectable prose violations in the commit message
+			// body before the human gate; relent to human review on a
+			// repeat. prose-standard governs commit body tone, spelling
+			// and punctuation even though commit-format owns structure.
+			const proseBlock = runProseGate(
+				sessionProseGateDeps(ctx, pi),
+				parsed.message,
 			);
-		}
+			if (proseBlock) return proseBlock;
 
-		if (result.type === "action") {
-			// Reject
-			if (result.key === "r") {
+			const result = await promptSingle(ctx, {
+				title: parsed.isAmend ? "Amend Commit" : "Commit",
+				content: renderCommitContent(parsed.message, parsed.isAmend),
+				actions: COMMIT_ACTIONS,
+			});
+
+			if (!result) {
+				return {
+					block: true,
+					reason: "User cancelled the commit review.",
+				};
+			}
+
+			if (result.type === "redirect") {
+				return formatRedirectBlock(
+					result.note,
+					`Original commit:\n${parsed.message}`,
+				);
+			}
+
+			if (result.type === "action") {
+				// Reject
+				if (result.key === "r") {
+					if (result.note) {
+						return formatRedirectBlock(
+							result.note,
+							`Original commit:\n${parsed.message}`,
+						);
+					}
+					return {
+						block: true,
+						reason:
+							"User rejected the commit. Ask for guidance on the commit description.",
+					};
+				}
+
+				// Enter (approve)
 				if (result.note) {
 					return formatRedirectBlock(
 						result.note,
 						`Original commit:\n${parsed.message}`,
 					);
 				}
-				return {
-					block: true,
-					reason:
-						"User rejected the commit. Ask for guidance on the commit description.",
-				};
+				return ALLOW;
 			}
-
-			// Enter (approve)
-			if (result.note) {
-				return formatRedirectBlock(
-					result.note,
-					`Original commit:\n${parsed.message}`,
-				);
-			}
-			return ALLOW;
-		}
-	},
-};
+		},
+	};
+}
 
 /** Render validation as a compact indicator line. */
 function renderValidation(v: CommitValidation, theme: Theme): string {
