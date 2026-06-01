@@ -34,24 +34,65 @@ const ELLIPSIS_RULE =
  * `anchor`), so each pair here is one we are certain about. The
  * key is the form to flag; the value is the Canadian form.
  *
+ * This list is the enforced half of a bound pair: the prose-standard
+ * skill carries the same table for a human to read, and
+ * tests/lib/prose/spelling-binding.test.ts asserts the two are
+ * identical, so neither can drift from the other. To change what
+ * the gate flags, change the skill and this list together.
+ *
+ * Meaning-dependent words are deliberately excluded so the gate
+ * never flags a correct spelling: `licence`/`license`,
+ * `practice`/`practise` and `cheque`/`check` turn on part of
+ * speech or sense; `meter` (the instrument) is correct while
+ * `metre` (the unit) is not; `aluminum`, `program` and `dialog`
+ * (the UI element) are the spellings Canadian English keeps. A
+ * miss is a missed block, never a wrong rewrite.
+ *
  * Stored lowercase; matching is case-insensitive and the
  * suggestion preserves the original's leading-capital shape.
  */
-const SPELLING_PAIRS: ReadonlyArray<readonly [string, string]> = [
+export const SPELLING_PAIRS: ReadonlyArray<readonly [string, string]> = [
+	// -our (American -or)
 	["color", "colour"],
 	["colors", "colours"],
+	["colored", "coloured"],
 	["behavior", "behaviour"],
 	["behaviors", "behaviours"],
 	["honor", "honour"],
+	["honored", "honoured"],
 	["favor", "favour"],
+	["favored", "favoured"],
 	["favorite", "favourite"],
+	["favorites", "favourites"],
 	["neighbor", "neighbour"],
+	["neighbors", "neighbours"],
 	["labor", "labour"],
 	["flavor", "flavour"],
+	["flavors", "flavours"],
+	["valor", "valour"],
+	["vapor", "vapour"],
+	["rumor", "rumour"],
+	["humor", "humour"],
+	["harbor", "harbour"],
+	["armor", "armour"],
+	["endeavor", "endeavour"],
+	["savior", "saviour"],
+	// -re (American -er)
 	["center", "centre"],
 	["centers", "centres"],
-	["meter", "metre"],
+	["centered", "centred"],
 	["theater", "theatre"],
+	["theaters", "theatres"],
+	["fiber", "fibre"],
+	["fibers", "fibres"],
+	["liter", "litre"],
+	["liters", "litres"],
+	// -ce noun (American -se)
+	["defense", "defence"],
+	["defenses", "defences"],
+	["offense", "offence"],
+	["offenses", "offences"],
+	// -ize (British -ise; Canadian keeps -ize like American)
 	["organise", "organize"],
 	["organised", "organized"],
 	["organising", "organizing"],
@@ -70,6 +111,35 @@ const SPELLING_PAIRS: ReadonlyArray<readonly [string, string]> = [
 	["optimise", "optimize"],
 	["initialise", "initialize"],
 	["initialised", "initialized"],
+	["standardise", "standardize"],
+	["customise", "customize"],
+	["generalise", "generalize"],
+	["specialise", "specialize"],
+	["normalise", "normalize"],
+	["serialise", "serialize"],
+	["synchronise", "synchronize"],
+	// doubled consonant before a suffix (Canadian doubles the l)
+	["traveler", "traveller"],
+	["traveled", "travelled"],
+	["traveling", "travelling"],
+	["canceled", "cancelled"],
+	["canceling", "cancelling"],
+	["modeling", "modelling"],
+	["modeled", "modelled"],
+	["labeling", "labelling"],
+	["labeled", "labelled"],
+	["fueled", "fuelled"],
+	// -ogue (American -og)
+	["catalog", "catalogue"],
+	["catalogs", "catalogues"],
+	// grey (American gray)
+	["gray", "grey"],
+	["grays", "greys"],
+	// single l (American doubles)
+	["enroll", "enrol"],
+	["enrollment", "enrolment"],
+	["fulfill", "fulfil"],
+	["fulfillment", "fulfilment"],
 ];
 
 /** Build the case-insensitive, whole-word spelling regex once. */

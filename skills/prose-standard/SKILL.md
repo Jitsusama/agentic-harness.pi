@@ -38,6 +38,111 @@ Oxford Dictionary.
 
 This is not negotiable. Leave American English to the Americans.
 
+### Words the Gate Flags
+
+The convention gate enforces this curated list. Each row is a
+spelling to avoid and the Canadian form to use instead; the gate
+blocks the left column and points you here. This table is the
+source of truth: the code that runs the gate mirrors it exactly,
+and a test fails the build if the two ever drift apart. The list
+is representative, not exhaustive, so a word it omits is still
+governed by the rule above.
+
+| Not this | Use this |
+| --- | --- |
+| color | colour |
+| colors | colours |
+| colored | coloured |
+| behavior | behaviour |
+| behaviors | behaviours |
+| honor | honour |
+| honored | honoured |
+| favor | favour |
+| favored | favoured |
+| favorite | favourite |
+| favorites | favourites |
+| neighbor | neighbour |
+| neighbors | neighbours |
+| labor | labour |
+| flavor | flavour |
+| flavors | flavours |
+| valor | valour |
+| vapor | vapour |
+| rumor | rumour |
+| humor | humour |
+| harbor | harbour |
+| armor | armour |
+| endeavor | endeavour |
+| savior | saviour |
+| center | centre |
+| centers | centres |
+| centered | centred |
+| theater | theatre |
+| theaters | theatres |
+| fiber | fibre |
+| fibers | fibres |
+| liter | litre |
+| liters | litres |
+| defense | defence |
+| defenses | defences |
+| offense | offence |
+| offenses | offences |
+| organise | organize |
+| organised | organized |
+| organising | organizing |
+| recognise | recognize |
+| recognised | recognized |
+| summarise | summarize |
+| summarised | summarized |
+| analyse | analyze |
+| analysed | analyzed |
+| prioritise | prioritize |
+| prioritised | prioritized |
+| realise | realize |
+| realised | realized |
+| minimise | minimize |
+| maximise | maximize |
+| optimise | optimize |
+| initialise | initialize |
+| initialised | initialized |
+| standardise | standardize |
+| customise | customize |
+| generalise | generalize |
+| specialise | specialize |
+| normalise | normalize |
+| serialise | serialize |
+| synchronise | synchronize |
+| traveler | traveller |
+| traveled | travelled |
+| traveling | travelling |
+| canceled | cancelled |
+| canceling | cancelling |
+| modeling | modelling |
+| modeled | modelled |
+| labeling | labelling |
+| labeled | labelled |
+| fueled | fuelled |
+| catalog | catalogue |
+| catalogs | catalogues |
+| gray | grey |
+| grays | greys |
+| enroll | enrol |
+| enrollment | enrolment |
+| fulfill | fulfil |
+| fulfillment | fulfilment |
+
+Some words the gate deliberately leaves alone, because flagging
+them would mark a correct Canadian spelling as wrong and teach
+you to distrust the gate. The noun "licence" and the verb
+"license" are both correct, as are the noun "practice" and the
+verb "practise", so neither pair can be judged mechanically.
+"Cheque" (the bank instrument) and "check" (to verify) are
+different words. "Meter" the instrument is correct while "metre"
+the unit is the spelling to prefer, so the gate cannot tell them
+apart. And "aluminum", "program" and "dialog" (the UI element)
+are the spellings Canadian English actually keeps. Use the
+Canadian form by hand; the gate will not catch these for you.
+
 ## Punctuation
 
 The standard punctuation marks (colons, semi-colons,

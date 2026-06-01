@@ -24,6 +24,45 @@ describe("detectProseViolations", () => {
 		expect(colour?.suggestion).toBe("colour");
 	});
 
+	it("flags the common American forms the old list missed", () => {
+		const text =
+			"The defense used gray fiber, a traveler canceled the catalog, and we modeled and labeled a liter of offense.";
+		const found = new Set(
+			detectProseViolations(text)
+				.filter((v) => v.kind === "spelling")
+				.map((v) => v.found),
+		);
+		for (const word of [
+			"defense",
+			"gray",
+			"fiber",
+			"traveler",
+			"canceled",
+			"catalog",
+			"modeled",
+			"labeled",
+			"liter",
+			"offense",
+		]) {
+			expect(found).toContain(word);
+		}
+	});
+
+	it("suggests the Canadian form for a doubled-consonant verb", () => {
+		const v = detectProseViolations("We canceled it.").find(
+			(x) => x.found === "canceled",
+		);
+		expect(v?.suggestion).toBe("cancelled");
+	});
+
+	it("leaves the deliberately-excluded words alone", () => {
+		const clean =
+			"The license and practice ran the program, opened a dialog, and used aluminum.";
+		expect(
+			detectProseViolations(clean).filter((v) => v.kind === "spelling"),
+		).toEqual([]);
+	});
+
 	it("flags -ise spellings but leaves Canadian -ize alone", () => {
 		expect(
 			detectProseViolations("We organise the data.")
