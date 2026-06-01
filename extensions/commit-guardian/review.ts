@@ -74,6 +74,11 @@ export function createCommitGuardian(
 			const proseBlock = runProseGate(sessionGateDeps(ctx, pi), parsed.message);
 			if (proseBlock) return proseBlock;
 
+			// Without a UI the gate has done its job and there is no
+			// panel to show; allow rather than block so headless and
+			// subagent commits are gated, not stalled.
+			if (!ctx.hasUI) return ALLOW;
+
 			const result = await promptSingle(ctx, {
 				title: parsed.isAmend ? "Amend Commit" : "Commit",
 				content: renderCommitContent(parsed.message, parsed.isAmend),

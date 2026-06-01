@@ -15,5 +15,6 @@ export default function commitGuardianExtension(pi: ExtensionAPI) {
 	registerGuardian(pi, createCommitGuardian(pi), {
 		name: "commit",
 		bypass: isGitBypassed,
+		enforceWithoutUI: true,
 	});
 }

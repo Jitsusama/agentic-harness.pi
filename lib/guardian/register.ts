@@ -30,6 +30,15 @@ export interface RegisterGuardianOptions {
 	 * that haven't been updated keep working.
 	 */
 	name?: string;
+	/**
+	 * Run the guardian even without a UI. Content-gating guardians
+	 * (prose, sections) set this so subagents and headless runs are
+	 * still blocked at authoring time; the guardian's own review
+	 * skips the human panel when there is no UI and relies on the
+	 * gate. Guardians that only present a human panel leave this
+	 * off and stay skipped without a UI.
+	 */
+	enforceWithoutUI?: boolean;
 }
 
 /**
@@ -52,7 +61,7 @@ export function registerGuardian<T>(
 		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
 			if (!isToolCallEventType("bash", event)) return;
 
-			if (!ctx.hasUI) {
+			if (!ctx.hasUI && !options?.enforceWithoutUI) {
 				if (trackedName) record(trackedName, { kind: "skipped", why: "no-ui" });
 				return;
 			}
