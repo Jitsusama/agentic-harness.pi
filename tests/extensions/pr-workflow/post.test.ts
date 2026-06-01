@@ -757,6 +757,39 @@ describe("postReviewAction", () => {
 		expect(exec).not.toHaveBeenCalled();
 	});
 
+	it("refuses to post when the prose gate flags the review text", async () => {
+		const state = withJudgeAndDecision();
+		const exec: PostReviewExec = vi.fn();
+		const proseGate = vi.fn(
+			(_texts: string[]) => "prose-standard: never use emdashes.",
+		);
+		const result = await postReviewAction({
+			state,
+			event: "COMMENT",
+			exec,
+			proseGate,
+		});
+		expect(expectFailure(result).error).toContain("emdash");
+		expect(exec).not.toHaveBeenCalled();
+		// The gate sees the summary plus every inline comment body.
+		const texts = proseGate.mock.calls[0][0];
+		expect(texts.length).toBeGreaterThanOrEqual(1);
+	});
+
+	it("posts when the prose gate passes the review text", async () => {
+		const state = withJudgeAndDecision();
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const proseGate = vi.fn((_texts: string[]) => undefined);
+		const result = await postReviewAction({
+			state,
+			event: "COMMENT",
+			exec,
+			proseGate,
+		});
+		expect(result.ok).toBe(true);
+		expect(exec).toHaveBeenCalledTimes(1);
+	});
+
 	it("uses the caller's custom body prefix when supplied, otherwise generates a default summary", async () => {
 		const state = withJudgeAndDecision();
 		const exec: PostReviewExec = vi.fn(async () => undefined);
