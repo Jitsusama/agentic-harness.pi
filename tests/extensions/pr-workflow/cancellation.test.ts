@@ -96,6 +96,59 @@ describe("ReviewerCancellationRegistry", () => {
 		run.end();
 	});
 
+	it("cancel-all aborts reviewers across two concurrent runs", async () => {
+		const registry = new ReviewerCancellationRegistry();
+		const runA = registry.beginRun("council");
+		const runB = registry.beginRun("review");
+		let release!: () => void;
+		const blocked = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const makeDispatch = (run: typeof runA) =>
+			createCancellableDispatch(run, async (opts) => {
+				await blocked;
+				return successfulDispatch()(opts);
+			});
+		const a = makeDispatch(runA)({
+			reviewer: { id: "a" },
+			prompt: "p",
+			cwd: "/tmp",
+		});
+		const b = makeDispatch(runB)({
+			reviewer: { id: "b" },
+			prompt: "p",
+			cwd: "/tmp",
+		});
+
+		const outcome = registry.cancel();
+		release();
+
+		expect(outcome).toMatchObject({ ok: true, mode: "all", count: 2 });
+		await expect(a).rejects.toBeInstanceOf(ReviewerCancelledError);
+		await expect(b).rejects.toBeInstanceOf(ReviewerCancelledError);
+		runA.end();
+		runB.end();
+	});
+
+	it("keeps a run's future-reviewer cancellation after a sibling run ends", async () => {
+		const registry = new ReviewerCancellationRegistry();
+		const runA = registry.beginRun("council");
+		const runB = registry.beginRun("review");
+		const dispatchA = createCancellableDispatch(runA, successfulDispatch());
+
+		// Queue a future-reviewer cancellation on runA, then end
+		// runB. The clobber bug would have dropped runA's pending
+		// cancellation when runB became (and then cleared) the
+		// single active run.
+		registry.cancel("future");
+		runB.end();
+
+		await expect(
+			dispatchA({ reviewer: { id: "future" }, prompt: "p", cwd: "/tmp" }),
+		).rejects.toBeInstanceOf(ReviewerCancelledError);
+		runA.end();
+	});
+
 	it("formats missing cancellation requests as a user-facing error", () => {
 		const registry = new ReviewerCancellationRegistry();
 		const outcome = registry.cancel("ghost");

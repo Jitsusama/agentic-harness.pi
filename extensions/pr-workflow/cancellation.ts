@@ -70,7 +70,11 @@ interface RegisteredProcess {
 /** Tracks in-flight reviewer subprocesses and aborts them on request. */
 export class ReviewerCancellationRegistry {
 	private nextRunId = 1;
-	private activeRun: ReviewRun | null = null;
+	// Multiple review actions can be in flight at once (pi runs
+	// sibling tool calls concurrently), so we track a set of
+	// active runs in start order rather than a single slot that
+	// the latest beginRun would clobber.
+	private readonly activeRuns = new Set<ReviewRun>();
 	private readonly active = new Map<string, RegisteredProcess>();
 
 	/** Start a cancellable review action. */
@@ -81,11 +85,11 @@ export class ReviewerCancellationRegistry {
 			cancelledReviewerIds: new Set(),
 			cancelAllRequested: false,
 		};
-		this.activeRun = run;
+		this.activeRuns.add(run);
 		return {
 			operation,
 			end: () => {
-				if (this.activeRun?.id === run.id) this.activeRun = null;
+				this.activeRuns.delete(run);
 			},
 			register: (reviewer, parentSignal) =>
 				this.register(run, reviewer, parentSignal),
@@ -107,9 +111,21 @@ export class ReviewerCancellationRegistry {
 		}));
 	}
 
-	/** The current review operation, if a cancellable action is running. */
+	/**
+	 * The current review operation, if a cancellable action is
+	 * running. When several overlap, reports the most recently
+	 * started one — enough for the status line, which only
+	 * needs a label to show.
+	 */
 	currentOperation(): ReviewOperation | null {
-		return this.activeRun?.operation ?? null;
+		return this.latestRun()?.operation ?? null;
+	}
+
+	/** The most recently started active run, or null when idle. */
+	private latestRun(): ReviewRun | null {
+		let latest: ReviewRun | null = null;
+		for (const run of this.activeRuns) latest = run;
+		return latest;
 	}
 
 	private register(
@@ -157,13 +173,18 @@ export class ReviewerCancellationRegistry {
 				operation: entry.run.operation,
 			};
 		}
-		if (this.activeRun) {
-			this.activeRun.cancelledReviewerIds.add(reviewerId);
+		// Not yet registered: queue the cancellation on every
+		// active run, since we can't know which one will spawn a
+		// reviewer with this id. Whichever does aborts it on
+		// registration; the others keep a harmless dead entry.
+		const runs = Array.from(this.activeRuns);
+		if (runs.length > 0) {
+			for (const run of runs) run.cancelledReviewerIds.add(reviewerId);
 			return {
 				ok: true,
 				mode: "one",
 				reviewerId,
-				operation: this.activeRun.operation,
+				operation: runs[runs.length - 1].operation,
 			};
 		}
 		return {
@@ -173,17 +194,17 @@ export class ReviewerCancellationRegistry {
 	}
 
 	private cancelAll(): CancellationOutcome {
-		if (this.activeRun) this.activeRun.cancelAllRequested = true;
+		for (const run of this.activeRuns) run.cancelAllRequested = true;
 		const active = Array.from(this.active.values());
 		for (const entry of active) this.abortEntry(entry);
-		if (active.length === 0 && this.activeRun === null) {
+		if (active.length === 0 && this.activeRuns.size === 0) {
 			return { ok: false, error: "No active reviewer subprocesses to cancel." };
 		}
 		return {
 			ok: true,
 			mode: "all",
 			count: active.length,
-			operation: this.activeRun?.operation ?? null,
+			operation: this.latestRun()?.operation ?? null,
 		};
 	}
 
