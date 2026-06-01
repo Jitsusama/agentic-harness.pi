@@ -34,7 +34,7 @@ describe("slackGateDecision", () => {
 
 	it("relents when the same problem was already blocked", () => {
 		const text = ["| a | b |", "| --- | --- |"].join("\n");
-		const sig = violationSignature(detectSlackViolations(text));
+		const sig = violationSignature(detectSlackViolations(text), text);
 		const decision = slackGateDecision(text, [sig]);
 		expect(decision.action).toBe("relent");
 		expect(decision.message).toMatch(/still|remaining|yourself/i);

@@ -26,7 +26,16 @@ export function buildReviewProseGate(
 ): (texts: string[]) => string | undefined {
 	return (texts) => {
 		const violations = texts.flatMap(detectProseViolations);
-		const decision = proseGateDecision(violations, deps.readSignatures());
+		// The artifact is the whole review: the summary and every
+		// comment body. Joining them scopes the relent signature to
+		// this review, so a later review with the same violation
+		// shape still blocks fresh.
+		const artifact = texts.join("\u0000");
+		const decision = proseGateDecision(
+			violations,
+			deps.readSignatures(),
+			artifact,
+		);
 		if (decision.action === "block") {
 			deps.persistSignature(decision.signature);
 			return decision.message;

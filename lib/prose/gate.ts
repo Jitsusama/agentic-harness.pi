@@ -31,11 +31,13 @@ const RELENT_PREFIX = [
 export function proseGateDecision(
 	violations: ProseViolation[],
 	priorSignatures: string[],
+	artifact: string,
 ): ProseGateDecision {
 	return decideGate(
 		violations,
 		priorSignatures,
 		formatProseBlock,
 		RELENT_PREFIX,
+		artifact,
 	);
 }

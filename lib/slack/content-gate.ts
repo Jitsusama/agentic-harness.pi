@@ -32,5 +32,6 @@ export function slackGateDecision(
 		priorSignatures,
 		formatSlackBlock,
 		RELENT_PREFIX,
+		text,
 	);
 }

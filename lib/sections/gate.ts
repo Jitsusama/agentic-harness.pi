@@ -42,5 +42,6 @@ export function sectionGateDecision(
 		priorSignatures,
 		(v) => formatSectionBlock(v, config.entityLabel, config.skill),
 		relentPrefix,
+		body,
 	);
 }

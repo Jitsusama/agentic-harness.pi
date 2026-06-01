@@ -7,29 +7,38 @@ import {
 
 describe("proseGateDecision", () => {
 	it("allows clean prose", () => {
-		const decision = proseGateDecision(detectProseViolations("All clean."), []);
+		const decision = proseGateDecision(
+			detectProseViolations("All clean."),
+			[],
+			"All clean.",
+		);
 		expect(decision.action).toBe("allow");
 	});
 
 	it("blocks the first time a violation is seen", () => {
-		const violations = detectProseViolations("Pick a color.");
-		const decision = proseGateDecision(violations, []);
+		const text = "Pick a color.";
+		const decision = proseGateDecision(detectProseViolations(text), [], text);
 		expect(decision.action).toBe("block");
 		expect(decision.message).toContain("colour");
 	});
 
-	it("relents when the same violation set was already blocked", () => {
-		const violations = detectProseViolations("Pick a color.");
-		const sig = violationSignature(violations);
-		const decision = proseGateDecision(violations, [sig]);
+	it("relents when the identical body was already blocked", () => {
+		const text = "Pick a color.";
+		const violations = detectProseViolations(text);
+		const sig = violationSignature(violations, text);
+		const decision = proseGateDecision(violations, [sig], text);
 		expect(decision.action).toBe("relent");
 		expect(decision.message).toMatch(/could not|still|let/i);
 	});
 
-	it("blocks again when the violation set changed", () => {
-		const first = detectProseViolations("Pick a color.");
-		const second = detectProseViolations("Pick a behavior.");
-		const decision = proseGateDecision(second, [violationSignature(first)]);
+	it("blocks a different body that breaks the same way", () => {
+		const first = "Pick a color.";
+		const second = "Choose a color.";
+		const decision = proseGateDecision(
+			detectProseViolations(second),
+			[violationSignature(detectProseViolations(first), first)],
+			second,
+		);
 		expect(decision.action).toBe("block");
 	});
 

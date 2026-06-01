@@ -21,16 +21,17 @@ describe("decideGate", () => {
 
 	it("blocks the first time a violation set is seen", () => {
 		const violations = [{ kind: "emdash", found: "\u2014" }];
-		const decision = decideGate(violations, [], format, RELENT);
+		const decision = decideGate(violations, [], format, RELENT, "body one");
 		expect(decision.action).toBe("block");
 		expect(decision.message).toBe("emdash:\u2014");
 		expect(decision.message).not.toContain(RELENT);
 	});
 
-	it("relents when the same violation set was already blocked", () => {
+	it("relents when the identical artifact was already blocked", () => {
 		const violations = [{ kind: "emdash", found: "\u2014" }];
-		const sig = violationSignature(violations);
-		const decision = decideGate(violations, [sig], format, RELENT);
+		const artifact = "the cat\u2014dog ran";
+		const sig = violationSignature(violations, artifact);
+		const decision = decideGate(violations, [sig], format, RELENT, artifact);
 		expect(decision.action).toBe("relent");
 		expect(decision.message).toContain(RELENT);
 		expect(decision.message).toContain("emdash");
@@ -41,9 +42,39 @@ describe("decideGate", () => {
 		const second = [{ kind: "spelling", found: "behavior" }];
 		const decision = decideGate(
 			second,
-			[violationSignature(first)],
+			[violationSignature(first, "a")],
 			format,
 			RELENT,
+			"b",
+		);
+		expect(decision.action).toBe("block");
+	});
+
+	it("signs two different artifacts with the same violation shape differently", () => {
+		const a = [{ kind: "emdash", found: "\u2014" }];
+		const b = [{ kind: "emdash", found: "\u2014" }];
+		expect(violationSignature(a, "the cat\u2014dog ran")).not.toBe(
+			violationSignature(b, "totally\u2014different content"),
+		);
+	});
+
+	it("signs the identical artifact and violation set identically", () => {
+		const v = [{ kind: "emdash", found: "\u2014" }];
+		expect(violationSignature(v, "same body\u2014here")).toBe(
+			violationSignature(v, "same body\u2014here"),
+		);
+	});
+
+	it("blocks a different artifact that carries the same emdash violation shape", () => {
+		const first = [{ kind: "emdash", found: "\u2014" }];
+		const second = [{ kind: "emdash", found: "\u2014" }];
+		const priorSig = violationSignature(first, "PR A: the cat\u2014dog ran");
+		const decision = decideGate(
+			second,
+			[priorSig],
+			format,
+			RELENT,
+			"Commit B: totally\u2014different",
 		);
 		expect(decision.action).toBe("block");
 	});

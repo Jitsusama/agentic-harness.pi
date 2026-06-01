@@ -22,7 +22,7 @@ export function runProseGate(
 	if (!body) return undefined;
 
 	const violations = detectProseViolations(body);
-	const decision = proseGateDecision(violations, deps.readSignatures());
+	const decision = proseGateDecision(violations, deps.readSignatures(), body);
 
 	if (decision.action === "block") {
 		deps.persistSignature(decision.signature);

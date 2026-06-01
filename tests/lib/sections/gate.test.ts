@@ -37,6 +37,7 @@ describe("sectionGateDecision", () => {
 	it("relents when the same section problem was already blocked", () => {
 		const sig = violationSignature(
 			detectSectionViolations(invented, PR_SECTIONS),
+			invented,
 		);
 		const decision = sectionGateDecision(invented, [sig], PR_CONFIG);
 		expect(decision.action).toBe("relent");
@@ -46,6 +47,7 @@ describe("sectionGateDecision", () => {
 	it("blocks a different section problem even after one relented", () => {
 		const firstSig = violationSignature(
 			detectSectionViolations(invented, PR_SECTIONS),
+			invented,
 		);
 		const other = `${clean}\n### Notes\nstuff`;
 		const decision = sectionGateDecision(other, [firstSig], PR_CONFIG);
