@@ -33,6 +33,20 @@ describe("matchHeredocs", () => {
 		const command = "x <<'EOF'\nhas EOF inline\nreal\nEOF";
 		expect(matchHeredocs(command)[0].body).toBe("has EOF inline\nreal");
 	});
+
+	it("parses an opener line with trailing redirects and pipes", () => {
+		const command =
+			"gh pr edit 42 --body-file - <<'EOF' 2>&1 | tail -5\nBody.\nEOF";
+		const matches = matchHeredocs(command);
+		expect(matches).toHaveLength(1);
+		expect(matches[0].body).toBe("Body.");
+		expect(matches[0].openerRest).toBe(" 2>&1 | tail -5");
+	});
+
+	it("reports an empty openerRest for a plain opener line", () => {
+		const command = "cmd <<'EOF'\nbody\nEOF";
+		expect(matchHeredocs(command)[0].openerRest).toBe("");
+	});
 });
 
 describe("extractBody", () => {

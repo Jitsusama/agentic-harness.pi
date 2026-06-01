@@ -30,5 +30,7 @@ export function rebuildCommand(
 		title: newTitle ?? parsed.title,
 		body: newBody,
 		heredocDelim: HEREDOC_DELIM,
+		suffix: parsed.suffix,
+		openerSuffix: parsed.openerRest,
 	});
 }

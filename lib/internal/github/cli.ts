@@ -50,6 +50,12 @@ export interface GhRebuildConfig {
 	readonly heredocDelim: string;
 	/** Shell tokens after the closing delimiter (e.g. `&& git push`). */
 	readonly suffix?: string | null;
+	/**
+	 * Opener-line tokens after the delimiter (e.g. ` 2>&1 | tail -5`).
+	 * They must stay on the opener line, after `<<'DELIM'`, or the
+	 * rewritten command is malformed.
+	 */
+	readonly openerSuffix?: string | null;
 }
 
 /** Rebuild a gh command with an edited body. */
@@ -70,11 +76,11 @@ export function rebuildGhCommand(config: GhRebuildConfig): string {
 
 	parts.push("--body-file", "-");
 
-	const heredoc = [
-		`${parts.join(" ")} <<'${config.heredocDelim}'`,
-		config.body,
-		config.heredocDelim,
-	].join("\n");
+	// Opener-line tokens (a `2>&1 | tail -5`) belong on the opener
+	// line itself, right after the delimiter; the heredoc body
+	// still begins on the next line.
+	const opener = `${parts.join(" ")} <<'${config.heredocDelim}'${config.openerSuffix ?? ""}`;
+	const heredoc = [opener, config.body, config.heredocDelim].join("\n");
 
 	// Trailing tokens after the original closing delimiter (a
 	// `&& git push`, say) are not flags we parse, so they must be
@@ -143,6 +149,8 @@ export interface PrCommand {
 	readonly extraFlags: string[];
 	/** Shell tokens after the heredoc closing delimiter (e.g. `&& git push`). */
 	readonly suffix: string | null;
+	/** Opener-line tokens after the delimiter (e.g. ` 2>&1 | tail -5`). */
+	readonly openerRest: string | null;
 }
 
 /**
@@ -171,6 +179,7 @@ export function parsePrCommand(command: string): PrCommand | null {
 			: null;
 	const extraFlags = extractPrExtraFlags(prPart);
 	const suffix = extractHeredocSuffix(command);
+	const openerRest = matchHeredocs(command)[0]?.openerRest ?? null;
 
 	if (!body) return null;
 
@@ -183,6 +192,7 @@ export function parsePrCommand(command: string): PrCommand | null {
 		prNumber,
 		extraFlags,
 		suffix,
+		openerRest,
 	};
 }
 
@@ -226,6 +236,8 @@ export interface IssueCommand {
 	readonly extraFlags: string[];
 	/** Shell tokens after the heredoc closing delimiter (e.g. `&& git push`). */
 	readonly suffix: string | null;
+	/** Opener-line tokens after the delimiter (e.g. ` 2>&1 | tail -5`). */
+	readonly openerRest: string | null;
 }
 
 /**
@@ -254,6 +266,7 @@ export function parseIssueCommand(command: string): IssueCommand | null {
 			: null;
 	const extraFlags = extractIssueExtraFlags(issuePart);
 	const suffix = extractHeredocSuffix(command);
+	const openerRest = matchHeredocs(command)[0]?.openerRest ?? null;
 
 	if (!body) return null;
 
@@ -266,6 +279,7 @@ export function parseIssueCommand(command: string): IssueCommand | null {
 		issueNumber,
 		extraFlags,
 		suffix,
+		openerRest,
 	};
 }
 

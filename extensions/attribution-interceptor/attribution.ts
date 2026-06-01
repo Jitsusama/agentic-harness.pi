@@ -124,6 +124,7 @@ export function injectGhAttribution(
 			body: attributed,
 			heredocDelim: "__PR_BODY__",
 			suffix: parsed.suffix,
+			openerSuffix: parsed.openerRest,
 		});
 	}
 
@@ -142,5 +143,6 @@ export function injectGhAttribution(
 		body: attributed,
 		heredocDelim: "__ISSUE_BODY__",
 		suffix: parsed.suffix,
+		openerSuffix: parsed.openerRest,
 	});
 }
