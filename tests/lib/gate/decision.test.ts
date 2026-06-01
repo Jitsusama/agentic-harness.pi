@@ -13,7 +13,7 @@ const RELENT = "relenting: ";
 
 describe("decideGate", () => {
 	it("allows an empty violation set", () => {
-		const decision = decideGate<TestViolation>([], [], format, RELENT);
+		const decision = decideGate<TestViolation>([], [], format, RELENT, "");
 		expect(decision.action).toBe("allow");
 		expect(decision.signature).toBe("");
 		expect(decision.message).toBe("");

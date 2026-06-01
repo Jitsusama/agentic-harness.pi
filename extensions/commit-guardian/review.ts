@@ -15,6 +15,7 @@ import {
 	formatRedirectBlock,
 	type GuardianResult,
 } from "../../lib/guardian/index.js";
+import { readCommitFile } from "../../lib/internal/guardian/commit-file.js";
 import {
 	runProseGate,
 	sessionGateDeps,
@@ -48,7 +49,11 @@ export function createCommitGuardian(
 		},
 
 		parse(command) {
-			const message = extractMessage(command);
+			// Resolve a `git commit -F <file>` too, so the gate still
+			// sees the message when attribution is off or rewrote
+			// nothing (it normally translates the file to a heredoc
+			// before this runs).
+			const message = extractMessage(command, readCommitFile);
 			if (!message) return null;
 
 			const isAmend = /--amend\b/.test(command);

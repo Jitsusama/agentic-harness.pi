@@ -1,5 +1,34 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { injectGhAttribution } from "../../../extensions/attribution-interceptor/attribution.js";
+import {
+	injectCommitAttribution,
+	injectGhAttribution,
+} from "../../../extensions/attribution-interceptor/attribution.js";
+
+describe("injectCommitAttribution", () => {
+	it("reads a -F <file>, translates it to a heredoc and attributes it", () => {
+		const dir = mkdtempSync(join(tmpdir(), "attr-commit-"));
+		const path = join(dir, "msg.txt");
+		writeFileSync(path, "feat: do the thing\n\nThe body explains why.\n");
+		const result = injectCommitAttribution(
+			`git commit -F ${path} 2>&1 | tail -3`,
+			null,
+		);
+		expect(result).not.toBeNull();
+		expect(result).toContain("feat: do the thing");
+		expect(result).toContain("The body explains why.");
+		expect(result).toContain("-F- <<'__COMMIT_MSG__'");
+		expect(result).toContain("Co-Authored-By: AI");
+	});
+
+	it("leaves a -F <file> alone when the file cannot be read", () => {
+		expect(
+			injectCommitAttribution("git commit -F /nonexistent/msg.txt", null),
+		).toBeNull();
+	});
+});
 
 describe("injectGhAttribution", () => {
 	it("injects the footer for a plain heredoc pr command", () => {

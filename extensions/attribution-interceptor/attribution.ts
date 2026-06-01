@@ -13,6 +13,7 @@ import {
 	parsePrCommand,
 	rebuildGhCommand,
 } from "../../lib/internal/github/cli.js";
+import { readCommitFile } from "../../lib/internal/guardian/commit-file.js";
 import {
 	buildCommitHeredoc,
 	extractCommitFlags,
@@ -80,7 +81,10 @@ export function injectCommitAttribution(
 	const stripped = stripShellData(stripHeredocBodies(command));
 	if (!/\bgit\s+commit\b/.test(stripped)) return null;
 
-	const message = extractMessage(command);
+	// Resolve a `git commit -F <file>` by reading the file, so a
+	// file-based message is translated to the canonical heredoc
+	// form and carries attribution like any other commit.
+	const message = extractMessage(command, readCommitFile);
 	if (!message) return null;
 	if (ATTRIBUTION_PATTERN.test(message)) return null;
 
