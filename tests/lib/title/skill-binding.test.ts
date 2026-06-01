@@ -23,6 +23,12 @@ describe("title gate is bound to the skills it enforces", () => {
 		expect(text).toMatch(/not conventional commit/i);
 	});
 
+	it("github-cli-convention states the 72-character upper bound the gate enforces", () => {
+		const text = skill("skills/github-cli-convention/SKILL.md");
+		expect(text).toMatch(/72\s+characters/i);
+		expect(text).toMatch(/upper bound is enforced/i);
+	});
+
 	it("the format skills each carry a Title section the block points at", () => {
 		expect(skill("skills/github-pr-format/SKILL.md")).toMatch(/^## Title$/m);
 		expect(skill("skills/github-issue-format/SKILL.md")).toMatch(/^## Title$/m);

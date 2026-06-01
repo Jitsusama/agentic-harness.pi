@@ -44,4 +44,25 @@ describe("detectTitleViolations", () => {
 	it("does not treat a type word followed by a space as conventional commit", () => {
 		expect(detectTitleViolations("Fix the Flaky Push Test")).toEqual([]);
 	});
+
+	it("flags a title over 72 characters with the length and the limit", () => {
+		const long =
+			"Add a Very Long Descriptive Title That Goes Well Past the Seventy Two Character Limit";
+		expect(long.length).toBeGreaterThan(72);
+		const v = detectTitleViolations(long);
+		expect(v).toContainEqual({
+			kind: "title",
+			issue: "over-length",
+			found: `${long.length} characters (limit 72)`,
+		});
+	});
+
+	it("leaves a title at exactly 72 characters alone", () => {
+		const exactly72 = "A".repeat(72);
+		expect(detectTitleViolations(exactly72)).toEqual([]);
+	});
+
+	it("leaves a short descriptive title under 50 chars alone", () => {
+		expect(detectTitleViolations("Add Dark Mode Toggle")).toEqual([]);
+	});
 });

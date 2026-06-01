@@ -9,6 +9,11 @@ const cc: TitleViolation = {
 	issue: "conventional-commit",
 	found: "chore(monitoring):",
 };
+const tooLong: TitleViolation = {
+	kind: "title",
+	issue: "over-length",
+	found: "84 characters (limit 72)",
+};
 
 describe("formatTitleBlock", () => {
 	it("returns an empty string when there are no violations", () => {
@@ -26,6 +31,21 @@ describe("formatTitleBlock", () => {
 	it("uses the entity label", () => {
 		const message = formatTitleBlock([cc], "issue", "github-issue-format");
 		expect(message).toContain("issue");
+		// The skill name appears twice (intro + closing pointer); just
+		// confirm it is in the message.
 		expect(message).toContain("github-issue-format");
+	});
+
+	it("names the length and limit on an over-length title", () => {
+		const message = formatTitleBlock([tooLong], "PR", "github-pr-format");
+		expect(message).toContain("84");
+		expect(message).toContain("72");
+		expect(message).toMatch(/upper bound is\s+enforced/i);
+	});
+
+	it("reports both violations when a title is both conventional commit and over-length", () => {
+		const message = formatTitleBlock([cc, tooLong], "PR", "github-pr-format");
+		expect(message).toContain("chore(monitoring):");
+		expect(message).toContain("84");
 	});
 });

@@ -37,18 +37,15 @@ of slipping into the wild for someone to spot in a bad artifact.
 
 ## Open Gaps
 
-One real gap, plus a category to be deliberate about.
-
-- **🔴 PR and issue title length (50–72 characters).**
-  `github-cli-convention` states the length range explicitly, and
-  the bound is mechanically certain (no false-positive surface,
-  unlike Title Case). Right now nothing checks it. A short title
-  like `Add Dark Mode` (13 chars) is descriptive and arguably
-  fine; a 100-char title is unambiguously over the rule. The
-  honest call is to gate the upper bound and leave the lower
-  bound as guidance, or gate both with the recorded rationale
-  that 50 is the threshold the skill itself sets. Pending
-  decision.
+None open. The PR and issue title length entry that previously
+lived here is now 🟢 enforced on the upper bound and ⚪ skill-only
+on the lower bound, the same precision-over-recall split the
+spelling allowlist and Title Case exclusion already use. The
+rationale lives in the cli convention skill itself: past 72
+characters the title truncates in GitHub views and reads badly in
+logs, so the gate blocks it; below 50 a short descriptive title
+("Add Dark Mode Toggle" is 20 characters and clear) is fine, so
+the lower bound stays a nudge.
 
 The commit-format trio (subject length, body wrap,
 conventional-commit subject) is 📋 advisory in the human review
@@ -178,7 +175,8 @@ Command syntax for `gh` operations.
 | Quoted heredoc delimiter (`<<'EOF'`, not `<<EOF`) | Heredoc Syntax | 🟢 | `lib/shell/parse.ts` `hasUnquotedHeredoc`, blocked in the guardians |
 | Descriptive, not conventional commit | Title Conventions | 🟢 | `lib/title/detect.ts`, gated in pr-guardian and issue-guardian |
 | Title Case | Title Conventions | 🚫 | A lowercase-start check false-positives on proper nouns (`iOS`, `gRPC`, `npm`). Skill-only plus resident reminder. |
-| Length 50–72 characters | Title Conventions | 🔴 | See Open Gaps. Mechanically certain and currently unchecked. |
+| Title length ≤ 72 characters (upper bound) | Title Conventions | 🟢 | `lib/title/detect.ts` `MAX_TITLE_LENGTH`, gated in pr-guardian and issue-guardian; the skill text is asserted by `tests/lib/title/skill-binding.test.ts` |
+| Aim for 50+ characters (lower bound) | Title Conventions | ⚪ | Guidance, not enforced. A short descriptive title ("Add Dark Mode Toggle") is fine; blocking would mark legitimate prose wrong. The skill is explicit about which bound is the wall and which is the nudge. |
 | Metadata in separate commands (not packed into `create`) | Metadata in Separate Commands | ⚪ | Judgment about which metadata calls to chain. |
 | Line wrapping in bodies | Line Wrapping in Bodies | ⚪ | Judgment. |
 

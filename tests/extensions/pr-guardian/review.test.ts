@@ -65,7 +65,21 @@ describe("createPrGuardian review without a UI", () => {
 		);
 		expect(result && "block" in result).toBe(true);
 		if (result && "block" in result) {
-			expect(result.reason).toContain("conventional commit");
+			expect(result.reason).toMatch(/conventional commit/i);
+		}
+	});
+
+	it("blocks a title over 72 characters even with a clean body", async () => {
+		const { pi, ctx } = noUiContext();
+		const tooLong =
+			"Add a Very Long Descriptive Title That Goes Well Past the Seventy Two Character Limit";
+		const result = await createPrGuardian(pi).review(
+			prCommand(cleanBody, tooLong),
+			ctx,
+		);
+		expect(result && "block" in result).toBe(true);
+		if (result && "block" in result) {
+			expect(result.reason).toContain("72");
 		}
 	});
 });
