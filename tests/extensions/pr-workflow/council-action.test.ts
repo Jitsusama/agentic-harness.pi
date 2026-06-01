@@ -840,3 +840,122 @@ describe("retryCouncilReviewer", () => {
 		expect(captured).toBe("Hunt escalation.");
 	});
 });
+
+describe("runCouncilAction concurrency", () => {
+	function loadedState(prNumber: number, headSha: string) {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: prNumber },
+			loadedAt: "2026-01-01T00:00:00Z",
+			metadata: prMetadata({
+				head: { ref: "feat", sha: headSha },
+			}),
+			files: [],
+			stack: null,
+		};
+		state.council.roster = [{ id: "fast" }];
+		state.council.judge = { id: "judge" };
+		return state;
+	}
+
+	function oneFindingText(subject: string): string {
+		return JSON.stringify({
+			findings: [
+				{
+					location: { kind: "global" },
+					label: "issue",
+					subject,
+					discussion: "d",
+				},
+			],
+		});
+	}
+
+	it("allocates disjoint finding ids when two runs are in flight at once", async () => {
+		// One shared state, two concurrent runs. A barrier holds
+		// both dispatches open until both have started, so the
+		// id-assignment loops cannot have run before both fan-outs
+		// are simultaneously in flight. Disjoint ids prove the
+		// allocator reads-and-advances state.nextFindingId at
+		// assignment time, not from a pre-await snapshot.
+		const state = loadedState(42, "headsha1");
+		state.nextFindingId = 1;
+
+		let release!: () => void;
+		const barrier = new Promise<void>((r) => {
+			release = r;
+		});
+		let started = 0;
+		const dispatch = async (opts: { reviewer: { id: string } }) => {
+			started += 1;
+			if (started === 2) release();
+			await barrier;
+			return {
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: oneFindingText("x"),
+				stderr: "",
+				warnings: [],
+			};
+		};
+
+		const registry = new WorktreeRegistry(fakeProvider());
+		const [a, b] = await Promise.all([
+			runCouncilAction({ state, registry, dispatch }),
+			runCouncilAction({ state, registry, dispatch }),
+		]);
+		expect(a.ok && b.ok).toBe(true);
+
+		// The last run to commit owns state.council.lastRun. The
+		// other got stashed nowhere (same PR), but both runs must
+		// have used non-overlapping ids regardless of commit order.
+		const ids = [a, b]
+			.flatMap((r) => (r.ok ? r.run.reviewerOutputs : []))
+			.flatMap((o) => o.findings.map((f) => f.id));
+		expect(ids).toHaveLength(2);
+		expect(new Set(ids).size).toBe(2);
+	});
+
+	it("commits to the PR's stackRuns slot when the cursor moved during the run", async () => {
+		const state = loadedState(42, "headsha1");
+		state.nextFindingId = 1;
+
+		let release!: () => void;
+		const barrier = new Promise<void>((r) => {
+			release = r;
+		});
+		const dispatch = async (opts: { reviewer: { id: string } }) => {
+			// While the run is in flight, the user navigates to a
+			// different PR. The run must land on PR 42's slot, not
+			// the live council slot now pointing at PR 99.
+			state.pr = {
+				reference: { owner: "o", repo: "r", number: 99 },
+				loadedAt: "2026-01-01T00:00:00Z",
+				metadata: prMetadata({ head: { ref: "other", sha: "headsha2" } }),
+				files: [],
+				stack: null,
+			};
+			release();
+			await barrier;
+			return {
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: oneFindingText("pinned"),
+				stderr: "",
+				warnings: [],
+			};
+		};
+
+		const registry = new WorktreeRegistry(fakeProvider());
+		const runPromise = runCouncilAction({ state, registry, dispatch });
+		await barrier;
+		const result = await runPromise;
+		expect(result.ok).toBe(true);
+
+		// The run pinned to PR 42 must not have clobbered the live
+		// council slot (now on PR 99); it lands in stackRuns[42].
+		expect(state.stackRuns.get(42)?.lastRun).not.toBeUndefined();
+		expect(state.stackRuns.get(42)?.lastRun?.target.prNumber).toBe(42);
+		expect(state.council.lastRun).toBeNull();
+	});
+});

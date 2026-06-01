@@ -142,6 +142,13 @@ export interface PrWorkflowState {
 	threads: ThreadsSnapshot | null;
 	/** Most recent warning from attempting to fetch existing review threads. */
 	threadContextWarning: string | null;
+	/**
+	 * Monotonic source for `ThreadsSnapshot.version`. Bumped on
+	 * every threads load and every in-place reply/resolve so a
+	 * captured version uniquely identifies the snapshot a user
+	 * acted on.
+	 */
+	threadsVersionSeq: number;
 	/** Last supervised reviewer recovery summary from extension activation. */
 	reviewerRecovery: RecoverySummary | null;
 }
@@ -166,6 +173,16 @@ export interface ThreadsSnapshot {
 	readonly fetchedAt: string;
 	/** Most recent in-session mutation, or null when none. */
 	mutatedAt: string | null;
+	/**
+	 * Strictly increasing identity stamped from
+	 * `state.threadsVersionSeq`. Every load swaps in a new
+	 * version; every in-place reply/resolve advances it. A
+	 * reply or resolve captures the version it targeted and
+	 * refuses to fire if the live snapshot has moved on, so a
+	 * concurrent refetch or sibling mutation can never silently
+	 * redirect the action to a different thread.
+	 */
+	version: number;
 	threads: import("./threads.js").ReviewThread[];
 }
 
@@ -189,6 +206,7 @@ export function createPrWorkflowState(): PrWorkflowState {
 		stackDecisions: new Map(),
 		threads: null,
 		threadContextWarning: null,
+		threadsVersionSeq: 0,
 		reviewerRecovery: null,
 	};
 }
@@ -215,4 +233,5 @@ export function resetPrWorkflowSession(state: PrWorkflowState): void {
 	state.stackDecisions = new Map();
 	state.threads = null;
 	state.threadContextWarning = null;
+	state.threadsVersionSeq = 0;
 }

@@ -351,6 +351,7 @@ describe("pr-workflow lifecycle", () => {
 				prNumber: 3,
 				fetchedAt: "2026-05-20T13:30:00Z",
 				mutatedAt: null,
+				version: 1,
 				threads: [reviewThread()],
 			};
 			persist(source, pi);

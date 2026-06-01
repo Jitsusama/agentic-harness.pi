@@ -49,6 +49,56 @@ steering it from a menu.
   hijacked by default. Pi steers nvim via the documented
   companion protocol; the user always wins.
 
+## Concurrency Model
+
+Pi runs sibling tool calls from one assistant message
+concurrently. The agent can fire two `pr_workflow` calls in a
+single turn — two replies, a `decide` next to a `load`, a
+`reply` while a council runs — and their `execute` bodies
+overlap. The extension is built so that parallel calls always
+do the right thing rather than forcing the agent to think
+about ordering. Three lanes:
+
+- **Read-only (lane-free).** `findings`, `summary`,
+  `preview-post`, `status`, `stack`, threads-view. These only
+  read state; under single-threaded JS a synchronous read
+  sees a consistent snapshot. They never block and are never
+  blocked — status stays instant even mid-council.
+- **Quick-mutation lane (serialized).** `decide`,
+  `add-finding`, `reply`, `resolve`, `post`, `fix-next`,
+  `fix-done`, `fix-skip`, `load`, `reset`. Each reads shared
+  state, may await a gate or network round-trip, then writes
+  it back. A per-session FIFO mutex (`lib/internal/async-mutex`)
+  serializes them against each other so their
+  read-modify-write windows can't interleave. The wait is
+  imperceptible — they finish in milliseconds, or pause on a
+  gate the user is already looking at.
+- **Run lane (concurrent, pinned).** `council`, `judge`,
+  `critique`, `council-retry`, `critique-retry`, `review`.
+  These run for minutes, so they do **not** take the
+  quick-mutation mutex. Instead each pins to the PR it
+  started on (capturing the PR reference before its await)
+  and reserves its finding-id block at assignment time by
+  reading and advancing the session counter synchronously
+  once the fan-out settles. Two runs therefore get disjoint
+  ids, and a run whose cursor moved (a concurrent `load`)
+  commits to its own PR's `stackRuns` slot instead of
+  clobbering the PR now under the cursor — pin and allow.
+
+This is deliberately not pi's `executionMode: "sequential"`,
+which would serialize `pr_workflow` against *every* tool call
+(including `read` / `bash`) and against the minutes-long runs.
+The per-lane discipline keeps reads instant, quick edits
+atomic, and long runs free to overlap.
+
+Defence in depth for the gated quick mutations: `reply` and
+`resolve` capture the targeted thread's id plus a snapshot
+version before the gate, and refuse (or skip the local cache
+update) if a refetch or sibling mutation moved the snapshot
+out from under them. `post` freezes its payload and captures
+the PR reference before the gate, so a `load` during the gate
+can't redirect the review to a different PR.
+
 ## User Journeys
 
 These aren't modes the user picks. They're trajectories
@@ -587,7 +637,12 @@ packs in
 
 - `state.ts` — runtime state for the session (active PR,
   findings, council, companion linkage). Grows as
-  capabilities land.
+  capabilities land. Carries `threadsVersionSeq`, the
+  monotonic source for thread-snapshot drift detection.
+- `cancellation.ts` — tracks in-flight reviewer subprocesses
+  across concurrent runs and aborts them on request.
+  (The session mutex that serializes the quick-mutation lane
+  lives in `lib/internal/async-mutex.ts`.)
 - `load.ts` — parses a PR reference and engages the
   session. Pure; no network calls.
 - `fetch.ts` — fetches PR metadata via `gh api graphql`.

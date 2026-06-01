@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { createMutex } from "../../lib/internal/async-mutex.js";
 import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
 import { postReview } from "../../lib/internal/github/review-post.js";
@@ -137,6 +138,7 @@ import {
 import { describeReplyOutcome } from "./thread-reply-outcome.js";
 import { fetchReviewThreads, replyToThread, resolveThread } from "./threads.js";
 import {
+	captureThreadExpectation,
 	formatThreadsView,
 	loadThreadsAction,
 	replyToThreadAction,
@@ -274,6 +276,31 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	const resolveSourceRepo = async (req: { owner: string; repo: string }) =>
 		join(homedir(), "src", "github.com", req.owner, req.repo);
 	const cancellations = new ReviewerCancellationRegistry();
+
+	// Pi runs sibling tool calls from one assistant message
+	// concurrently. The quick-mutation actions each read shared
+	// session state, await a gate or a network round-trip, then
+	// write it back; serializing them through one FIFO mutex
+	// makes them atomic against each other without perceptible
+	// latency (they finish in milliseconds, or wait on a gate
+	// the user is already looking at). Read-only actions and the
+	// long-running council-class runs deliberately stay outside
+	// the lane: reads are consistent under single-threaded JS,
+	// and runs pin to their PR + reserve ids so they're safe to
+	// overlap anything.
+	const actionMutex = createMutex();
+	const QUICK_MUTATION_ACTIONS: ReadonlySet<string> = new Set([
+		"decide",
+		"add-finding",
+		"reply",
+		"resolve",
+		"post",
+		"fix-next",
+		"fix-done",
+		"fix-skip",
+		"load",
+		"reset",
+	]);
 	const worktreeProviders = new WorktreeProviderBroker(
 		createGitWorktreeProvider({
 			stateDir: prWorkflowStateDir(),
@@ -828,1491 +855,1538 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (params.action === "council-config") {
-				let reviewers: readonly PrWorkflowReviewerEntry[] | undefined;
-				if (params.reviewers !== undefined) {
-					// Normalize tool-supplied reviewers through the same
-					// parser the config file uses, so persona-only entries
-					// get their id derived and both paths validate alike.
-					const normalized: PrWorkflowReviewerEntry[] = [];
-					for (let i = 0; i < params.reviewers.length; i += 1) {
-						const parsed = parseReviewer(
-							params.reviewers[i],
-							`reviewers[${i}]`,
-						);
-						if (!parsed.ok) {
+			// The action body, closing over the typed `params` and `ctx`
+			// from this execute call. The explicit return type mirrors
+			// what the handlers produce (text content plus the optional
+			// `isError` flag pi tolerates) so the `type: "text"` literals
+			// stay narrowed without an annotation that rejects `isError`.
+			const handleAction = async (): Promise<{
+				content: { type: "text"; text: string }[];
+				details: unknown;
+				isError?: boolean;
+			}> => {
+				if (params.action === "council-config") {
+					let reviewers: readonly PrWorkflowReviewerEntry[] | undefined;
+					if (params.reviewers !== undefined) {
+						// Normalize tool-supplied reviewers through the same
+						// parser the config file uses, so persona-only entries
+						// get their id derived and both paths validate alike.
+						const normalized: PrWorkflowReviewerEntry[] = [];
+						for (let i = 0; i < params.reviewers.length; i += 1) {
+							const parsed = parseReviewer(
+								params.reviewers[i],
+								`reviewers[${i}]`,
+							);
+							if (!parsed.ok) {
+								return {
+									content: [{ type: "text", text: parsed.error }],
+									details: { ok: false, error: parsed.error },
+									isError: true,
+								};
+							}
+							normalized.push(parsed.reviewer);
+						}
+						reviewers = normalized;
+					}
+					let sourcePath: string | null = null;
+					if (reviewers === undefined) {
+						const loaded = await loadPrWorkflowConfig();
+						if (!loaded.ok) {
+							const error =
+								`${loaded.error}\n` +
+								"Pass `reviewers` explicitly or create a config file with a top-level `reviewers` array.";
 							return {
-								content: [{ type: "text", text: parsed.error }],
-								details: { ok: false, error: parsed.error },
+								content: [{ type: "text", text: error }],
+								details: { ok: false, error, configPath: loaded.path },
 								isError: true,
 							};
 						}
-						normalized.push(parsed.reviewer);
+						if (loaded.config.defaults.reviewers === undefined) {
+							const error = `No reviewers found in pr-workflow config at ${loaded.config.path}.`;
+							return {
+								content: [{ type: "text", text: error }],
+								details: { ok: false, error, configPath: loaded.config.path },
+								isError: true,
+							};
+						}
+						reviewers = [...loaded.config.defaults.reviewers];
+						sourcePath = loaded.config.path;
 					}
-					reviewers = normalized;
-				}
-				let sourcePath: string | null = null;
-				if (reviewers === undefined) {
-					const loaded = await loadPrWorkflowConfig();
-					if (!loaded.ok) {
-						const error =
-							`${loaded.error}\n` +
-							"Pass `reviewers` explicitly or create a config file with a top-level `reviewers` array.";
+					const result = configureCouncil(state, { reviewers });
+					if (!result.ok) {
 						return {
-							content: [{ type: "text", text: error }],
-							details: { ok: false, error, configPath: loaded.path },
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
 							isError: true,
 						};
 					}
-					if (loaded.config.defaults.reviewers === undefined) {
-						const error = `No reviewers found in pr-workflow config at ${loaded.config.path}.`;
-						return {
-							content: [{ type: "text", text: error }],
-							details: { ok: false, error, configPath: loaded.config.path },
-							isError: true,
-						};
-					}
-					reviewers = [...loaded.config.defaults.reviewers];
-					sourcePath = loaded.config.path;
-				}
-				const result = configureCouncil(state, { reviewers });
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				const names = state.council.roster
-					.map((r) => `${r.id}${r.model ? ` (${r.model})` : ""}`)
-					.join(", ");
-				const source = sourcePath ? ` from ${sourcePath}` : "";
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Council roster set${source} (${state.council.roster.length}): ${names}`,
-						},
-					],
-					details: {
-						ok: true,
-						roster: state.council.roster,
-						...(sourcePath ? { configPath: sourcePath } : {}),
-					},
-				};
-			}
-
-			if (params.action === "council") {
-				const progress = createCouncilProgressReporter(ctx, progressControls());
-				const charters = await loadCharterResolver();
-				for (const e of charters.errors) {
-					ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
-				}
-				const result = await runWithCancellableReviewers(
-					"council",
-					({ registry, dispatch }) =>
-						runCouncilAction({
-							state,
-							registry,
-							dispatch,
-							reviewContexts: reviewContextProviders,
-							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
-							resolveCharter: charters.resolve,
-							...(params.intent ? { intent: params.intent } : {}),
-							progress,
-						}),
-				);
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [{ type: "text", text: formatCouncilSummary(result.run) }],
-					details: { ok: true, run: result.run },
-				};
-			}
-
-			if (params.action === "council-retry") {
-				if (!params.reviewerId) {
+					const names = state.council.roster
+						.map((r) => `${r.id}${r.model ? ` (${r.model})` : ""}`)
+						.join(", ");
+					const source = sourcePath ? ` from ${sourcePath}` : "";
 					return {
 						content: [
 							{
 								type: "text",
-								text: "council-retry requires a `reviewerId` argument.",
+								text: `Council roster set${source} (${state.council.roster.length}): ${names}`,
 							},
 						],
-						details: { ok: false, error: "missing reviewerId argument" },
-						isError: true,
-					};
-				}
-				const reviewerId = params.reviewerId;
-				const charters = await loadCharterResolver();
-				for (const e of charters.errors) {
-					ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
-				}
-				const result = await runWithCancellableReviewers(
-					"council-retry",
-					({ registry, dispatch }) =>
-						retryCouncilReviewer({
-							state,
-							registry,
-							dispatch,
-							reviewContexts: reviewContextProviders,
-							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
-							resolveCharter: charters.resolve,
-							...(params.intent ? { intent: params.intent } : {}),
-							reviewerId,
-						}),
-				);
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [{ type: "text", text: formatCouncilSummary(result.run) }],
-					details: { ok: true, run: result.run },
-				};
-			}
-
-			if (params.action === "judge-config") {
-				let judge: CouncilReviewer | undefined = params.judge;
-				let sourcePath: string | null = null;
-				if (judge === undefined) {
-					const loaded = await loadPrWorkflowConfig();
-					if (!loaded.ok) {
-						const error =
-							`${loaded.error}\n` +
-							"Pass `judge` explicitly or create a config file with a top-level `judge` object.";
-						return {
-							content: [{ type: "text", text: error }],
-							details: { ok: false, error, configPath: loaded.path },
-							isError: true,
-						};
-					}
-					if (loaded.config.defaults.judge === undefined) {
-						const error = `No judge found in pr-workflow config at ${loaded.config.path}.`;
-						return {
-							content: [{ type: "text", text: error }],
-							details: { ok: false, error, configPath: loaded.config.path },
-							isError: true,
-						};
-					}
-					judge = loaded.config.defaults.judge;
-					sourcePath = loaded.config.path;
-				}
-				const result = configureJudge(state, { judge });
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				const j = state.council.judge;
-				const source = sourcePath ? ` from ${sourcePath}` : "";
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Judge set${source}: ${j?.id}${j?.model ? ` (${j.model})` : ""}`,
+						details: {
+							ok: true,
+							roster: state.council.roster,
+							...(sourcePath ? { configPath: sourcePath } : {}),
 						},
-					],
-					details: {
-						ok: true,
-						judge: state.council.judge,
-						...(sourcePath ? { configPath: sourcePath } : {}),
-					},
-				};
-			}
+					};
+				}
 
-			if (params.action === "judge") {
-				const progress = createCouncilProgressReporter(
-					ctx,
-					progressControls(),
-					{
-						statusLabel: "judge",
-						title: "PR Judge Progress",
-					},
-				);
-				const judgeCharter = await resolveJudgeCharter(personasDir());
-				const judgeCharters = await loadCharterResolver();
-				const personaExhibits = state.council.roster.flatMap((reviewer) => {
-					if (reviewer.persona === undefined) return [];
-					const meta = judgeCharters.meta(reviewer.persona);
-					return meta
-						? [
+				if (params.action === "council") {
+					const progress = createCouncilProgressReporter(
+						ctx,
+						progressControls(),
+					);
+					const charters = await loadCharterResolver();
+					for (const e of charters.errors) {
+						ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
+					}
+					const result = await runWithCancellableReviewers(
+						"council",
+						({ registry, dispatch }) =>
+							runCouncilAction({
+								state,
+								registry,
+								dispatch,
+								reviewContexts: reviewContextProviders,
+								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								resolveCharter: charters.resolve,
+								...(params.intent ? { intent: params.intent } : {}),
+								progress,
+							}),
+					);
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					return {
+						content: [{ type: "text", text: formatCouncilSummary(result.run) }],
+						details: { ok: true, run: result.run },
+					};
+				}
+
+				if (params.action === "council-retry") {
+					if (!params.reviewerId) {
+						return {
+							content: [
 								{
-									reviewerId: reviewer.id,
-									name: meta.name,
-									description: meta.description,
+									type: "text",
+									text: "council-retry requires a `reviewerId` argument.",
 								},
-							]
-						: [];
-				});
-				const result = await runWithCancellableReviewers(
-					"judge",
-					({ registry, dispatch }) =>
-						runJudgeAction({
-							state,
-							registry,
-							dispatch,
-							reviewContexts: reviewContextProviders,
-							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
-							judgeCharter,
-							...(personaExhibits.length > 0 ? { personaExhibits } : {}),
-							...(params.intent ? { intent: params.intent } : {}),
-							progress,
-						}),
-				);
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [{ type: "text", text: formatJudgeSummary(result.run) }],
-					details: { ok: true, run: result.run },
-				};
-			}
-
-			if (params.action === "review") {
-				const progress = createCouncilProgressReporter(
-					ctx,
-					progressControls(),
-					{
-						statusLabel: "review",
-						title: "PR Stack Review Progress",
-					},
-				);
-				const stackJudgeCharter = await resolveJudgeCharter(personasDir());
-				const result = await runWithCancellableReviewers(
-					"review",
-					({ registry, dispatch }) =>
-						runStackReviewAction({
-							state,
-							registry,
-							dispatch,
-							reviewContexts: reviewContextProviders,
-							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
-							progress,
-							judgeCharter: stackJudgeCharter,
-							fetchers: {
-								metadata: (reference) => fetchPrMetadata(pi, reference),
-								diff: async (reference) => {
-									const raw = await fetchDiff(pi, reference);
-									return parseDiff(raw);
-								},
-							},
-						}),
-				);
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [
-						{ type: "text", text: formatStackReviewActionSummary(result.run) },
-					],
-					details: { ok: true, run: result.run },
-				};
-			}
-
-			if (params.action === "critique") {
-				const progress = createCouncilProgressReporter(
-					ctx,
-					progressControls(),
-					{
-						statusLabel: "critique",
-						title: "PR Critique Progress",
-					},
-				);
-				const critiqueCharters = await loadCharterResolver();
-				for (const e of critiqueCharters.errors) {
-					ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
-				}
-				const result = await runWithCancellableReviewers(
-					"critique",
-					({ registry, dispatch }) =>
-						runCritiqueAction({
-							state,
-							registry,
-							dispatch,
-							reviewContexts: reviewContextProviders,
-							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
-							resolveCharter: critiqueCharters.resolve,
-							...(params.intent ? { intent: params.intent } : {}),
-							progress,
-						}),
-				);
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: formatCritiqueSummary({
-								judge: result.judge,
-								critique: result.run,
-							}),
-						},
-					],
-					details: { ok: true, run: result.run },
-				};
-			}
-
-			if (params.action === "critique-retry") {
-				if (!params.reviewerId) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "critique-retry requires a `reviewerId` argument.",
-							},
-						],
-						details: { ok: false, error: "missing reviewerId argument" },
-						isError: true,
-					};
-				}
-				const reviewerId = params.reviewerId;
-				const critiqueCharters = await loadCharterResolver();
-				for (const e of critiqueCharters.errors) {
-					ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
-				}
-				const result = await runWithCancellableReviewers(
-					"critique-retry",
-					({ registry, dispatch }) =>
-						retryCritiqueReviewer({
-							state,
-							registry,
-							dispatch,
-							reviewContexts: reviewContextProviders,
-							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
-							resolveCharter: critiqueCharters.resolve,
-							...(params.intent ? { intent: params.intent } : {}),
-							reviewerId,
-						}),
-				);
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: formatCritiqueSummary({
-								judge: result.judge,
-								critique: result.run,
-							}),
-						},
-					],
-					details: { ok: true, run: result.run },
-				};
-			}
-
-			if (params.action === "findings") {
-				const text = params.verbose
-					? formatFindingsView(state)
-					: formatCompactFindingsView(state);
-				return {
-					content: [{ type: "text", text }],
-					details: {
-						ok: true,
-						judgeRunId: state.council.lastJudge?.id ?? null,
-						critiqueRunId: state.council.lastCritique?.id ?? null,
-						stackFindingRunId: state.stackFindingRun?.id ?? null,
-						decisionCount: state.council.decisions.size,
-						stackDecisionCount: state.stackDecisions.size,
-					},
-				};
-			}
-
-			if (params.action === "add-finding") {
-				if (!params.label) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "add-finding requires a `label` argument.",
-							},
-						],
-						details: { ok: false, error: "missing label" },
-						isError: true,
-					};
-				}
-				if (!params.subject) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "add-finding requires a `subject` argument.",
-							},
-						],
-						details: { ok: false, error: "missing subject" },
-						isError: true,
-					};
-				}
-				if (!params.discussion) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "add-finding requires a `discussion` argument.",
-							},
-						],
-						details: { ok: false, error: "missing discussion" },
-						isError: true,
-					};
-				}
-				const result = addManualFindingAction({
-					state,
-					label: params.label,
-					subject: params.subject,
-					discussion: params.discussion,
-					decorations: params.decorations,
-					severity: params.severity,
-					confidence: params.confidence,
-					file: params.file,
-					start: params.start,
-					end: params.end,
-					side: params.side,
-					originNote: params.originNote,
-				});
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [
-						{
-							type: "text",
-							text:
-								`Manual finding ${result.finding.id} added. ` +
-								`Run action=decide findingId=${result.finding.id} verdict=endorse to include it when posting.`,
-						},
-					],
-					details: { ok: true, finding: result.finding },
-				};
-			}
-
-			if (params.action === "decide") {
-				if (typeof params.findingId !== "number") {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "decide requires a `findingId` argument.",
-							},
-						],
-						details: { ok: false, error: "missing findingId" },
-						isError: true,
-					};
-				}
-				if (!params.verdict) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "decide requires a `verdict` argument.",
-							},
-						],
-						details: { ok: false, error: "missing verdict" },
-						isError: true,
-					};
-				}
-				const input = buildDecideInput({
-					findingId: params.findingId,
-					verdict: params.verdict,
-					note: params.note,
-					subject: params.subject,
-					discussion: params.discussion,
-					reason: params.reason,
-					instructions: params.instructions,
-					scope: params.scope,
-					label: params.label,
-					file: params.file,
-					start: params.start,
-					end: params.end,
-					side: params.side,
-				});
-				const result = decideFinding(state, input);
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Decision recorded for finding ${params.findingId}: ${params.verdict}.`,
-						},
-					],
-					details: { ok: true },
-				};
-			}
-
-			if (params.action === "preview-post") {
-				if (state.pr === null) {
-					return {
-						content: [
-							{ type: "text", text: "No PR loaded; call action=load first." },
-						],
-						details: { ok: false, error: "no pr loaded" },
-						isError: true,
-					};
-				}
-				const payload = buildReviewPayload(state);
-				const diffLoaded = (state.pr?.files?.length ?? 0) > 0;
-				const event: ReviewEvent = params.event ?? "COMMENT";
-				const wrappedBody = renderSummary(state, payload, params.body, event);
-				const text = params.verbose
-					? formatPreviewPostVerbose(payload, diffLoaded, wrappedBody)
-					: formatPreviewPostSummary(payload, diffLoaded);
-				return {
-					content: [{ type: "text", text }],
-					details: { ok: true, payload, diffLoaded },
-				};
-			}
-
-			if (params.action === "post") {
-				const event: ReviewEvent = params.event ?? "COMMENT";
-				const exec: PostReviewExec = async ({
-					ref,
-					event: ev,
-					body,
-					comments,
-				}) => {
-					await postReview(pi, ref, ev, body, comments);
-				};
-				const gate: PostReviewGate = (summary) => confirmPostGate(ctx, summary);
-				const result = await postReviewAction({
-					state,
-					event,
-					body: params.body,
-					exec,
-					gate,
-				});
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				const skippedSummary =
-					result.payload.skipped.length === 0
-						? ""
-						: ` (${result.payload.skipped.length} skipped)`;
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Review posted as ${event}: ${result.payload.includedFindingIds.length} finding(s)${skippedSummary}.`,
-						},
-					],
-					details: { ok: true, payload: result.payload },
-				};
-			}
-
-			if (params.action === "stack") {
-				if (state.pr === null) {
-					return {
-						content: [
-							{ type: "text", text: "No PR loaded; call action=load first." },
-						],
-						details: { ok: false, error: "no pr loaded" },
-						isError: true,
-					};
-				}
-				if (state.pr.stack === null || state.pr.stack.entries.length <= 1) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "This PR is not part of a detected stack (no upstream or downstream PRs were found).",
-							},
-						],
-						details: { ok: true, stack: null },
-					};
-				}
-				return {
-					content: [{ type: "text", text: formatStack(state.pr.stack) }],
-					details: { ok: true, stack: state.pr.stack },
-				};
-			}
-
-			if (params.action === "stack-next" || params.action === "stack-prev") {
-				if (state.pr === null || state.pr.stack === null) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "No stack discovered; call action=load on a PR that's part of a stack.",
-							},
-						],
-						details: { ok: false, error: "no stack" },
-						isError: true,
-					};
-				}
-				const pick =
-					params.action === "stack-next"
-						? nextInStack(state.pr.stack)
-						: prevInStack(state.pr.stack);
-				if (pick === null) {
-					const direction =
-						params.action === "stack-next" ? "downstream" : "upstream";
-					const suffix =
-						params.action === "stack-next" &&
-						state.pr.stack.cursorChildren.length > 0
-							? ` Cursor has ${state.pr.stack.cursorChildren.length} fan-out children; ask the user which one to load.`
-							: "";
-					return {
-						content: [
-							{
-								type: "text",
-								text: `No ${direction} PR in stack from cursor.${suffix}`,
-							},
-						],
-						details: { ok: false, error: `no ${direction}` },
-					};
-				}
-				const ref = `${pick.reference.owner}/${pick.reference.repo}#${pick.reference.number}`;
-				const directionLabel =
-					params.action === "stack-next" ? "Downstream PR" : "Upstream PR";
-				return {
-					content: [
-						{
-							type: "text",
-							text: `${directionLabel}: ${ref} (${pick.title}). Call action=load with pr="${ref}" to navigate.`,
-						},
-					],
-					details: { ok: true, target: pick, suggestedAction: "load" },
-				};
-			}
-
-			if (params.action === "threads") {
-				const result = await loadThreadsAction({
-					state,
-					fetcher: (ref) => fetchReviewThreads(pi, ref),
-				});
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [{ type: "text", text: formatThreadsView(state) }],
-					details: {
-						ok: true,
-						prNumber: result.snapshot.prNumber,
-						threadCount: result.snapshot.threads.length,
-						fetchedAt: result.snapshot.fetchedAt,
-					},
-				};
-			}
-
-			if (params.action === "reply") {
-				if (typeof params.threadIndex !== "number") {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "reply requires a `threadIndex` argument.",
-							},
-						],
-						details: { ok: false, error: "missing threadIndex" },
-						isError: true,
-					};
-				}
-				if (typeof params.replyBody !== "string") {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "reply requires a `replyBody` argument.",
-							},
-						],
-						details: { ok: false, error: "missing replyBody" },
-						isError: true,
-					};
-				}
-				const alsoResolve = params.resolve === true;
-				const threadForGate = state.threads?.threads[params.threadIndex - 1];
-				let replyBodyToPost = params.replyBody;
-				if (threadForGate !== undefined) {
-					const gate = alsoResolve
-						? await confirmReplyAndResolveGate(
-								ctx,
-								threadForGate,
-								params.replyBody,
-							)
-						: await confirmReplyGate(ctx, threadForGate, params.replyBody);
-					if (!gate.approved) {
-						return {
-							content: [{ type: "text", text: gate.reason }],
-							details: { ok: false, error: gate.reason },
+							],
+							details: { ok: false, error: "missing reviewerId argument" },
 							isError: true,
 						};
 					}
-					replyBodyToPost = gate.body;
-				}
-				const result = await replyToThreadAction({
-					state,
-					index: params.threadIndex,
-					body: replyBodyToPost,
-					sender: (threadId, body) => replyToThread(pi, threadId, body),
-				});
-				if (!result.ok) {
+					const reviewerId = params.reviewerId;
+					const charters = await loadCharterResolver();
+					for (const e of charters.errors) {
+						ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
+					}
+					const result = await runWithCancellableReviewers(
+						"council-retry",
+						({ registry, dispatch }) =>
+							retryCouncilReviewer({
+								state,
+								registry,
+								dispatch,
+								reviewContexts: reviewContextProviders,
+								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								resolveCharter: charters.resolve,
+								...(params.intent ? { intent: params.intent } : {}),
+								reviewerId,
+							}),
+					);
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
 					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
+						content: [{ type: "text", text: formatCouncilSummary(result.run) }],
+						details: { ok: true, run: result.run },
 					};
 				}
-				const reply = {
-					threadIndex: params.threadIndex,
-					url: result.url,
-					body: replyBodyToPost,
-				};
-				if (!alsoResolve) {
-					const outcome = describeReplyOutcome(reply, undefined);
+
+				if (params.action === "judge-config") {
+					let judge: CouncilReviewer | undefined = params.judge;
+					let sourcePath: string | null = null;
+					if (judge === undefined) {
+						const loaded = await loadPrWorkflowConfig();
+						if (!loaded.ok) {
+							const error =
+								`${loaded.error}\n` +
+								"Pass `judge` explicitly or create a config file with a top-level `judge` object.";
+							return {
+								content: [{ type: "text", text: error }],
+								details: { ok: false, error, configPath: loaded.path },
+								isError: true,
+							};
+						}
+						if (loaded.config.defaults.judge === undefined) {
+							const error = `No judge found in pr-workflow config at ${loaded.config.path}.`;
+							return {
+								content: [{ type: "text", text: error }],
+								details: { ok: false, error, configPath: loaded.config.path },
+								isError: true,
+							};
+						}
+						judge = loaded.config.defaults.judge;
+						sourcePath = loaded.config.path;
+					}
+					const result = configureJudge(state, { judge });
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					const j = state.council.judge;
+					const source = sourcePath ? ` from ${sourcePath}` : "";
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Judge set${source}: ${j?.id}${j?.model ? ` (${j.model})` : ""}`,
+							},
+						],
+						details: {
+							ok: true,
+							judge: state.council.judge,
+							...(sourcePath ? { configPath: sourcePath } : {}),
+						},
+					};
+				}
+
+				if (params.action === "judge") {
+					const progress = createCouncilProgressReporter(
+						ctx,
+						progressControls(),
+						{
+							statusLabel: "judge",
+							title: "PR Judge Progress",
+						},
+					);
+					const judgeCharter = await resolveJudgeCharter(personasDir());
+					const judgeCharters = await loadCharterResolver();
+					const personaExhibits = state.council.roster.flatMap((reviewer) => {
+						if (reviewer.persona === undefined) return [];
+						const meta = judgeCharters.meta(reviewer.persona);
+						return meta
+							? [
+									{
+										reviewerId: reviewer.id,
+										name: meta.name,
+										description: meta.description,
+									},
+								]
+							: [];
+					});
+					const result = await runWithCancellableReviewers(
+						"judge",
+						({ registry, dispatch }) =>
+							runJudgeAction({
+								state,
+								registry,
+								dispatch,
+								reviewContexts: reviewContextProviders,
+								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								judgeCharter,
+								...(personaExhibits.length > 0 ? { personaExhibits } : {}),
+								...(params.intent ? { intent: params.intent } : {}),
+								progress,
+							}),
+					);
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					return {
+						content: [{ type: "text", text: formatJudgeSummary(result.run) }],
+						details: { ok: true, run: result.run },
+					};
+				}
+
+				if (params.action === "review") {
+					const progress = createCouncilProgressReporter(
+						ctx,
+						progressControls(),
+						{
+							statusLabel: "review",
+							title: "PR Stack Review Progress",
+						},
+					);
+					const stackJudgeCharter = await resolveJudgeCharter(personasDir());
+					const result = await runWithCancellableReviewers(
+						"review",
+						({ registry, dispatch }) =>
+							runStackReviewAction({
+								state,
+								registry,
+								dispatch,
+								reviewContexts: reviewContextProviders,
+								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								progress,
+								judgeCharter: stackJudgeCharter,
+								fetchers: {
+									metadata: (reference) => fetchPrMetadata(pi, reference),
+									diff: async (reference) => {
+										const raw = await fetchDiff(pi, reference);
+										return parseDiff(raw);
+									},
+								},
+							}),
+					);
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					return {
+						content: [
+							{
+								type: "text",
+								text: formatStackReviewActionSummary(result.run),
+							},
+						],
+						details: { ok: true, run: result.run },
+					};
+				}
+
+				if (params.action === "critique") {
+					const progress = createCouncilProgressReporter(
+						ctx,
+						progressControls(),
+						{
+							statusLabel: "critique",
+							title: "PR Critique Progress",
+						},
+					);
+					const critiqueCharters = await loadCharterResolver();
+					for (const e of critiqueCharters.errors) {
+						ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
+					}
+					const result = await runWithCancellableReviewers(
+						"critique",
+						({ registry, dispatch }) =>
+							runCritiqueAction({
+								state,
+								registry,
+								dispatch,
+								reviewContexts: reviewContextProviders,
+								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								resolveCharter: critiqueCharters.resolve,
+								...(params.intent ? { intent: params.intent } : {}),
+								progress,
+							}),
+					);
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					return {
+						content: [
+							{
+								type: "text",
+								text: formatCritiqueSummary({
+									judge: result.judge,
+									critique: result.run,
+								}),
+							},
+						],
+						details: { ok: true, run: result.run },
+					};
+				}
+
+				if (params.action === "critique-retry") {
+					if (!params.reviewerId) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "critique-retry requires a `reviewerId` argument.",
+								},
+							],
+							details: { ok: false, error: "missing reviewerId argument" },
+							isError: true,
+						};
+					}
+					const reviewerId = params.reviewerId;
+					const critiqueCharters = await loadCharterResolver();
+					for (const e of critiqueCharters.errors) {
+						ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
+					}
+					const result = await runWithCancellableReviewers(
+						"critique-retry",
+						({ registry, dispatch }) =>
+							retryCritiqueReviewer({
+								state,
+								registry,
+								dispatch,
+								reviewContexts: reviewContextProviders,
+								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								resolveCharter: critiqueCharters.resolve,
+								...(params.intent ? { intent: params.intent } : {}),
+								reviewerId,
+							}),
+					);
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					return {
+						content: [
+							{
+								type: "text",
+								text: formatCritiqueSummary({
+									judge: result.judge,
+									critique: result.run,
+								}),
+							},
+						],
+						details: { ok: true, run: result.run },
+					};
+				}
+
+				if (params.action === "findings") {
+					const text = params.verbose
+						? formatFindingsView(state)
+						: formatCompactFindingsView(state);
+					return {
+						content: [{ type: "text", text }],
+						details: {
+							ok: true,
+							judgeRunId: state.council.lastJudge?.id ?? null,
+							critiqueRunId: state.council.lastCritique?.id ?? null,
+							stackFindingRunId: state.stackFindingRun?.id ?? null,
+							decisionCount: state.council.decisions.size,
+							stackDecisionCount: state.stackDecisions.size,
+						},
+					};
+				}
+
+				if (params.action === "add-finding") {
+					if (!params.label) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "add-finding requires a `label` argument.",
+								},
+							],
+							details: { ok: false, error: "missing label" },
+							isError: true,
+						};
+					}
+					if (!params.subject) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "add-finding requires a `subject` argument.",
+								},
+							],
+							details: { ok: false, error: "missing subject" },
+							isError: true,
+						};
+					}
+					if (!params.discussion) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "add-finding requires a `discussion` argument.",
+								},
+							],
+							details: { ok: false, error: "missing discussion" },
+							isError: true,
+						};
+					}
+					const result = addManualFindingAction({
+						state,
+						label: params.label,
+						subject: params.subject,
+						discussion: params.discussion,
+						decorations: params.decorations,
+						severity: params.severity,
+						confidence: params.confidence,
+						file: params.file,
+						start: params.start,
+						end: params.end,
+						side: params.side,
+						originNote: params.originNote,
+					});
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									`Manual finding ${result.finding.id} added. ` +
+									`Run action=decide findingId=${result.finding.id} verdict=endorse to include it when posting.`,
+							},
+						],
+						details: { ok: true, finding: result.finding },
+					};
+				}
+
+				if (params.action === "decide") {
+					if (typeof params.findingId !== "number") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "decide requires a `findingId` argument.",
+								},
+							],
+							details: { ok: false, error: "missing findingId" },
+							isError: true,
+						};
+					}
+					if (!params.verdict) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "decide requires a `verdict` argument.",
+								},
+							],
+							details: { ok: false, error: "missing verdict" },
+							isError: true,
+						};
+					}
+					const input = buildDecideInput({
+						findingId: params.findingId,
+						verdict: params.verdict,
+						note: params.note,
+						subject: params.subject,
+						discussion: params.discussion,
+						reason: params.reason,
+						instructions: params.instructions,
+						scope: params.scope,
+						label: params.label,
+						file: params.file,
+						start: params.start,
+						end: params.end,
+						side: params.side,
+					});
+					const result = decideFinding(state, input);
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Decision recorded for finding ${params.findingId}: ${params.verdict}.`,
+							},
+						],
+						details: { ok: true },
+					};
+				}
+
+				if (params.action === "preview-post") {
+					if (state.pr === null) {
+						return {
+							content: [
+								{ type: "text", text: "No PR loaded; call action=load first." },
+							],
+							details: { ok: false, error: "no pr loaded" },
+							isError: true,
+						};
+					}
+					const payload = buildReviewPayload(state);
+					const diffLoaded = (state.pr?.files?.length ?? 0) > 0;
+					const event: ReviewEvent = params.event ?? "COMMENT";
+					const wrappedBody = renderSummary(state, payload, params.body, event);
+					const text = params.verbose
+						? formatPreviewPostVerbose(payload, diffLoaded, wrappedBody)
+						: formatPreviewPostSummary(payload, diffLoaded);
+					return {
+						content: [{ type: "text", text }],
+						details: { ok: true, payload, diffLoaded },
+					};
+				}
+
+				if (params.action === "post") {
+					const event: ReviewEvent = params.event ?? "COMMENT";
+					const exec: PostReviewExec = async ({
+						ref,
+						event: ev,
+						body,
+						comments,
+					}) => {
+						await postReview(pi, ref, ev, body, comments);
+					};
+					const gate: PostReviewGate = (summary) =>
+						confirmPostGate(ctx, summary);
+					const result = await postReviewAction({
+						state,
+						event,
+						body: params.body,
+						exec,
+						gate,
+					});
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					const skippedSummary =
+						result.payload.skipped.length === 0
+							? ""
+							: ` (${result.payload.skipped.length} skipped)`;
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Review posted as ${event}: ${result.payload.includedFindingIds.length} finding(s)${skippedSummary}.`,
+							},
+						],
+						details: { ok: true, payload: result.payload },
+					};
+				}
+
+				if (params.action === "stack") {
+					if (state.pr === null) {
+						return {
+							content: [
+								{ type: "text", text: "No PR loaded; call action=load first." },
+							],
+							details: { ok: false, error: "no pr loaded" },
+							isError: true,
+						};
+					}
+					if (state.pr.stack === null || state.pr.stack.entries.length <= 1) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "This PR is not part of a detected stack (no upstream or downstream PRs were found).",
+								},
+							],
+							details: { ok: true, stack: null },
+						};
+					}
+					return {
+						content: [{ type: "text", text: formatStack(state.pr.stack) }],
+						details: { ok: true, stack: state.pr.stack },
+					};
+				}
+
+				if (params.action === "stack-next" || params.action === "stack-prev") {
+					if (state.pr === null || state.pr.stack === null) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "No stack discovered; call action=load on a PR that's part of a stack.",
+								},
+							],
+							details: { ok: false, error: "no stack" },
+							isError: true,
+						};
+					}
+					const pick =
+						params.action === "stack-next"
+							? nextInStack(state.pr.stack)
+							: prevInStack(state.pr.stack);
+					if (pick === null) {
+						const direction =
+							params.action === "stack-next" ? "downstream" : "upstream";
+						const suffix =
+							params.action === "stack-next" &&
+							state.pr.stack.cursorChildren.length > 0
+								? ` Cursor has ${state.pr.stack.cursorChildren.length} fan-out children; ask the user which one to load.`
+								: "";
+						return {
+							content: [
+								{
+									type: "text",
+									text: `No ${direction} PR in stack from cursor.${suffix}`,
+								},
+							],
+							details: { ok: false, error: `no ${direction}` },
+						};
+					}
+					const ref = `${pick.reference.owner}/${pick.reference.repo}#${pick.reference.number}`;
+					const directionLabel =
+						params.action === "stack-next" ? "Downstream PR" : "Upstream PR";
+					return {
+						content: [
+							{
+								type: "text",
+								text: `${directionLabel}: ${ref} (${pick.title}). Call action=load with pr="${ref}" to navigate.`,
+							},
+						],
+						details: { ok: true, target: pick, suggestedAction: "load" },
+					};
+				}
+
+				if (params.action === "threads") {
+					const result = await loadThreadsAction({
+						state,
+						fetcher: (ref) => fetchReviewThreads(pi, ref),
+					});
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					return {
+						content: [{ type: "text", text: formatThreadsView(state) }],
+						details: {
+							ok: true,
+							prNumber: result.snapshot.prNumber,
+							threadCount: result.snapshot.threads.length,
+							fetchedAt: result.snapshot.fetchedAt,
+						},
+					};
+				}
+
+				if (params.action === "reply") {
+					if (typeof params.threadIndex !== "number") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "reply requires a `threadIndex` argument.",
+								},
+							],
+							details: { ok: false, error: "missing threadIndex" },
+							isError: true,
+						};
+					}
+					if (typeof params.replyBody !== "string") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "reply requires a `replyBody` argument.",
+								},
+							],
+							details: { ok: false, error: "missing replyBody" },
+							isError: true,
+						};
+					}
+					const alsoResolve = params.resolve === true;
+					const threadForGate = state.threads?.threads[params.threadIndex - 1];
+					// Capture the targeted thread's identity and the snapshot
+					// version before the gate await, so a concurrent refetch or
+					// sibling mutation during the gate can't redirect the reply
+					// to a different thread.
+					const replyExpectation = captureThreadExpectation(
+						state,
+						params.threadIndex,
+					);
+					let replyBodyToPost = params.replyBody;
+					if (threadForGate !== undefined) {
+						const gate = alsoResolve
+							? await confirmReplyAndResolveGate(
+									ctx,
+									threadForGate,
+									params.replyBody,
+								)
+							: await confirmReplyGate(ctx, threadForGate, params.replyBody);
+						if (!gate.approved) {
+							return {
+								content: [{ type: "text", text: gate.reason }],
+								details: { ok: false, error: gate.reason },
+								isError: true,
+							};
+						}
+						replyBodyToPost = gate.body;
+					}
+					const result = await replyToThreadAction({
+						state,
+						index: params.threadIndex,
+						body: replyBodyToPost,
+						sender: (threadId, body) => replyToThread(pi, threadId, body),
+						...(replyExpectation ? { expect: replyExpectation } : {}),
+					});
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					const reply = {
+						threadIndex: params.threadIndex,
+						url: result.url,
+						body: replyBodyToPost,
+					};
+					if (!alsoResolve) {
+						const outcome = describeReplyOutcome(reply, undefined);
+						return {
+							content: [{ type: "text", text: outcome.text }],
+							details: outcome.details,
+						};
+					}
+					// The combined gate (or its headless bypass) already covered
+					// the resolution, so resolve without a second gate.
+					const resolved = await resolveThreadAction({
+						state,
+						index: params.threadIndex,
+						resolver: (threadId) => resolveThread(pi, threadId),
+					});
+					const outcome = describeReplyOutcome(
+						reply,
+						resolved.ok
+							? { ok: true, isResolved: resolved.isResolved }
+							: { ok: false, error: resolved.error },
+					);
 					return {
 						content: [{ type: "text", text: outcome.text }],
 						details: outcome.details,
 					};
 				}
-				// The combined gate (or its headless bypass) already covered
-				// the resolution, so resolve without a second gate.
-				const resolved = await resolveThreadAction({
-					state,
-					index: params.threadIndex,
-					resolver: (threadId) => resolveThread(pi, threadId),
-				});
-				const outcome = describeReplyOutcome(
-					reply,
-					resolved.ok
-						? { ok: true, isResolved: resolved.isResolved }
-						: { ok: false, error: resolved.error },
-				);
-				return {
-					content: [{ type: "text", text: outcome.text }],
-					details: outcome.details,
-				};
-			}
 
-			if (params.action === "resolve") {
-				if (typeof params.threadIndex !== "number") {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "resolve requires a `threadIndex` argument.",
-							},
-						],
-						details: { ok: false, error: "missing threadIndex" },
-						isError: true,
-					};
-				}
-				const threadForGate = state.threads?.threads[params.threadIndex - 1];
-				if (threadForGate !== undefined) {
-					const gate = await confirmResolveGate(ctx, threadForGate);
-					if (!gate.approved) {
+				if (params.action === "resolve") {
+					if (typeof params.threadIndex !== "number") {
 						return {
-							content: [{ type: "text", text: gate.reason }],
-							details: { ok: false, error: gate.reason },
+							content: [
+								{
+									type: "text",
+									text: "resolve requires a `threadIndex` argument.",
+								},
+							],
+							details: { ok: false, error: "missing threadIndex" },
 							isError: true,
 						};
 					}
-				}
-				const result = await resolveThreadAction({
-					state,
-					index: params.threadIndex,
-					resolver: (threadId) => resolveThread(pi, threadId),
-				});
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Thread [T${params.threadIndex}] resolved.`,
-						},
-					],
-					details: {
-						ok: true,
-						isResolved: result.isResolved,
-						threadIndex: params.threadIndex,
-					},
-				};
-			}
-
-			if (params.action === "fix-next") {
-				const result = await nextFixAction(state, (request) =>
-					fixWorktreeProviders.provision(request),
-				);
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [{ type: "text", text: result.summary }],
-					details: {
-						ok: true,
-						context: result.context,
-						worktree: result.worktree,
-						done: result.context === null,
-					},
-				};
-			}
-
-			if (params.action === "fix-done") {
-				if (typeof params.findingId !== "number") {
+					const threadForGate = state.threads?.threads[params.threadIndex - 1];
+					// Capture identity + version before the gate await for
+					// the same reason as reply: the gate yields, and a
+					// concurrent refetch must not redirect the resolve.
+					const resolveExpectation = captureThreadExpectation(
+						state,
+						params.threadIndex,
+					);
+					if (threadForGate !== undefined) {
+						const gate = await confirmResolveGate(ctx, threadForGate);
+						if (!gate.approved) {
+							return {
+								content: [{ type: "text", text: gate.reason }],
+								details: { ok: false, error: gate.reason },
+								isError: true,
+							};
+						}
+					}
+					const result = await resolveThreadAction({
+						state,
+						index: params.threadIndex,
+						resolver: (threadId) => resolveThread(pi, threadId),
+						...(resolveExpectation ? { expect: resolveExpectation } : {}),
+					});
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
 					return {
 						content: [
 							{
 								type: "text",
-								text: "fix-done requires a `findingId` argument.",
+								text: `Thread [T${params.threadIndex}] resolved.`,
 							},
 						],
-						details: { ok: false, error: "missing findingId" },
-						isError: true,
-					};
-				}
-				if (typeof params.commitSha !== "string") {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "fix-done requires a `commitSha` argument.",
-							},
-						],
-						details: { ok: false, error: "missing commitSha" },
-						isError: true,
-					};
-				}
-				const result = recordFixDoneAction({
-					state,
-					findingId: params.findingId,
-					commitSha: params.commitSha,
-				});
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Finding ${params.findingId} recorded as fixed in ${params.commitSha.trim()}.`,
+						details: {
+							ok: true,
+							isResolved: result.isResolved,
+							threadIndex: params.threadIndex,
 						},
-					],
-					details: {
-						ok: true,
+					};
+				}
+
+				if (params.action === "fix-next") {
+					const result = await nextFixAction(state, (request) =>
+						fixWorktreeProviders.provision(request),
+					);
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					return {
+						content: [{ type: "text", text: result.summary }],
+						details: {
+							ok: true,
+							context: result.context,
+							worktree: result.worktree,
+							done: result.context === null,
+						},
+					};
+				}
+
+				if (params.action === "fix-done") {
+					if (typeof params.findingId !== "number") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "fix-done requires a `findingId` argument.",
+								},
+							],
+							details: { ok: false, error: "missing findingId" },
+							isError: true,
+						};
+					}
+					if (typeof params.commitSha !== "string") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "fix-done requires a `commitSha` argument.",
+								},
+							],
+							details: { ok: false, error: "missing commitSha" },
+							isError: true,
+						};
+					}
+					const result = recordFixDoneAction({
+						state,
 						findingId: params.findingId,
-						commitSha: params.commitSha.trim(),
-					},
-				};
-			}
-
-			if (params.action === "fix-skip") {
-				if (typeof params.findingId !== "number") {
+						commitSha: params.commitSha,
+					});
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
 					return {
 						content: [
 							{
 								type: "text",
-								text: "fix-skip requires a `findingId` argument.",
+								text: `Finding ${params.findingId} recorded as fixed in ${params.commitSha.trim()}.`,
 							},
 						],
-						details: { ok: false, error: "missing findingId" },
-						isError: true,
-					};
-				}
-				if (typeof params.skipReason !== "string") {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "fix-skip requires a `skipReason` argument.",
-							},
-						],
-						details: { ok: false, error: "missing skipReason" },
-						isError: true,
-					};
-				}
-				const result = recordFixSkipAction({
-					state,
-					findingId: params.findingId,
-					reason: params.skipReason,
-				});
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Finding ${params.findingId} marked as skipped.`,
+						details: {
+							ok: true,
+							findingId: params.findingId,
+							commitSha: params.commitSha.trim(),
 						},
-					],
-					details: {
-						ok: true,
-						findingId: params.findingId,
-						reason: params.skipReason.trim(),
-					},
-				};
-			}
+					};
+				}
 
-			if (params.action === "fix-worktree-list") {
-				const entries = await fixWorktreeProviders.list();
-				if (entries.length === 0) {
+				if (params.action === "fix-skip") {
+					if (typeof params.findingId !== "number") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "fix-skip requires a `findingId` argument.",
+								},
+							],
+							details: { ok: false, error: "missing findingId" },
+							isError: true,
+						};
+					}
+					if (typeof params.skipReason !== "string") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "fix-skip requires a `skipReason` argument.",
+								},
+							],
+							details: { ok: false, error: "missing skipReason" },
+							isError: true,
+						};
+					}
+					const result = recordFixSkipAction({
+						state,
+						findingId: params.findingId,
+						reason: params.skipReason,
+					});
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
 					return {
 						content: [
 							{
 								type: "text",
-								text: "No fix worktrees on disk.",
+								text: `Finding ${params.findingId} marked as skipped.`,
 							},
 						],
-						details: { ok: true, entries: [] },
+						details: {
+							ok: true,
+							findingId: params.findingId,
+							reason: params.skipReason.trim(),
+						},
 					};
 				}
-				const lines = [
-					`${entries.length} fix worktree${entries.length === 1 ? "" : "s"} on disk:`,
-					"",
-				];
-				for (const entry of entries) {
-					const ref = `${entry.owner}/${entry.repo}#${entry.number}`;
-					const when =
-						entry.mtimeMs === null
-							? "mtime unknown"
-							: `mtime ${new Date(entry.mtimeMs).toISOString()}`;
-					lines.push(`  ${ref}  (${when})`);
-					lines.push(`    ${entry.path}`);
-				}
-				lines.push("");
-				lines.push(
-					"Call action=fix-worktree-cleanup pr=<ref> to remove one. Pass force:true to drop uncommitted edits.",
-				);
-				return {
-					content: [{ type: "text", text: lines.join("\n") }],
-					details: { ok: true, entries },
-				};
-			}
 
-			if (params.action === "fix-worktree-cleanup") {
+				if (params.action === "fix-worktree-list") {
+					const entries = await fixWorktreeProviders.list();
+					if (entries.length === 0) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "No fix worktrees on disk.",
+								},
+							],
+							details: { ok: true, entries: [] },
+						};
+					}
+					const lines = [
+						`${entries.length} fix worktree${entries.length === 1 ? "" : "s"} on disk:`,
+						"",
+					];
+					for (const entry of entries) {
+						const ref = `${entry.owner}/${entry.repo}#${entry.number}`;
+						const when =
+							entry.mtimeMs === null
+								? "mtime unknown"
+								: `mtime ${new Date(entry.mtimeMs).toISOString()}`;
+						lines.push(`  ${ref}  (${when})`);
+						lines.push(`    ${entry.path}`);
+					}
+					lines.push("");
+					lines.push(
+						"Call action=fix-worktree-cleanup pr=<ref> to remove one. Pass force:true to drop uncommitted edits.",
+					);
+					return {
+						content: [{ type: "text", text: lines.join("\n") }],
+						details: { ok: true, entries },
+					};
+				}
+
+				if (params.action === "fix-worktree-cleanup") {
+					if (!params.pr) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "fix-worktree-cleanup requires a `pr` argument (owner/repo#number or a bare number inside a checkout).",
+								},
+							],
+							details: { ok: false, error: "missing pr argument" },
+							isError: true,
+						};
+					}
+					const loadedRef = state.pr?.reference;
+					const reference = parsePRReference(
+						params.pr,
+						loadedRef?.owner,
+						loadedRef?.repo,
+					);
+					if (reference === null) {
+						const error =
+							`Could not parse "${params.pr}" as a PR reference. ` +
+							"Expected a full URL, a short form (owner/repo#N), or a bare " +
+							"number with a PR already loaded so owner/repo can be inferred.";
+						return {
+							content: [{ type: "text", text: error }],
+							details: { ok: false, error },
+							isError: true,
+						};
+					}
+					const outcome = await fixWorktreeProviders.cleanup({
+						owner: reference.owner,
+						repo: reference.repo,
+						number: reference.number,
+						force: params.force === true,
+					});
+					if (outcome.status === "missing") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `No fix worktree at ${outcome.path}; nothing to remove.`,
+								},
+							],
+							details: { ok: true, outcome },
+						};
+					}
+					if (outcome.status === "blocked") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Refused: ${outcome.reason}\n${outcome.hint}`,
+								},
+							],
+							details: { ok: false, outcome },
+							isError: true,
+						};
+					}
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Removed ${outcome.path} (${outcome.method}).`,
+							},
+						],
+						details: { ok: true, outcome },
+					};
+				}
+
+				if (params.action === "release-identity-lock") {
+					const id = params.reviewerId?.trim();
+					if (!id) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "release-identity-lock requires `reviewerId`.",
+								},
+							],
+							details: { ok: false, error: "missing reviewerId" },
+							isError: true,
+						};
+					}
+					const existing = state.participantIdentities.get(id);
+					if (!existing) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Participant id "${id}" is not currently locked; nothing to release.`,
+								},
+							],
+							details: { ok: true, released: false },
+						};
+					}
+					state.participantIdentities.delete(id);
+					const stillReferenced = hasFindingsForParticipant(state, id);
+					const note = stillReferenced
+						? " Findings from the previous identity remain in state with their original " +
+							"attribution string."
+						: "";
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									`Released identity lock for "${id}". ` +
+									"Next council-config or judge-config call may bind a new model to that id." +
+									note,
+							},
+						],
+						details: { ok: true, released: true, stillReferenced },
+					};
+				}
+
+				if (params.action === "summary") {
+					const text = formatPrSummary(state);
+					return {
+						content: [{ type: "text", text }],
+						details: { ok: true },
+					};
+				}
+
+				if (params.action === "personas") {
+					const loaded = await loadPersonas(personasDir());
+					return {
+						content: [{ type: "text", text: formatPersonaList(loaded) }],
+						details: {
+							ok: true,
+							personas: loaded.personas.map((p) => ({
+								id: p.id,
+								name: p.name,
+								description: p.description,
+							})),
+							errors: loaded.errors,
+						},
+					};
+				}
+
+				if (
+					params.action === "persona-add" ||
+					params.action === "persona-edit"
+				) {
+					const validated = requirePersonaWrite(params);
+					if (!validated.ok) {
+						return {
+							content: [{ type: "text", text: validated.error }],
+							details: { ok: false, error: validated.error },
+							isError: true,
+						};
+					}
+					const write = validated.write;
+					const dir = personasDir();
+					const result =
+						params.action === "persona-add"
+							? await addPersona(dir, write)
+							: await editPersona(dir, write);
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					const verb = params.action === "persona-add" ? "Created" : "Updated";
+					return {
+						content: [
+							{
+								type: "text",
+								text: `${verb} persona "${write.id}" in ${dir}.`,
+							},
+						],
+						details: { ok: true, id: write.id, dir },
+					};
+				}
+
+				if (params.action === "persona-remove") {
+					if (params.persona === undefined || params.persona.trim() === "") {
+						const error = "persona-remove requires a `persona` (id) argument.";
+						return {
+							content: [{ type: "text", text: error }],
+							details: { ok: false, error },
+							isError: true,
+						};
+					}
+					const dir = personasDir();
+					const result = await removePersona(dir, params.persona);
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					return {
+						content: [
+							{ type: "text", text: `Removed persona "${params.persona}".` },
+						],
+						details: { ok: true, id: params.persona },
+					};
+				}
+
+				if (params.action === "audit-threads") {
+					if (state.council.judge === null) {
+						const error =
+							"No judge configured to act as the auditor. Call " +
+							"pr_workflow action=judge-config first.";
+						return {
+							content: [{ type: "text", text: error }],
+							details: { ok: false, error },
+							isError: true,
+						};
+					}
+					const auditor = state.council.judge;
+					const result = await runWithCancellableReviewers(
+						"audit-threads",
+						({ registry, dispatch }) =>
+							auditThreadsAction({
+								state,
+								registry,
+								dispatch,
+								auditor,
+								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+							}),
+					);
+					if (!result.ok) {
+						return {
+							content: [{ type: "text", text: result.error }],
+							details: { ok: false, error: result.error },
+							isError: true,
+						};
+					}
+					return {
+						content: [
+							{
+								type: "text",
+								text: formatThreadAudit(result.verdicts, result.indexById),
+							},
+						],
+						details: {
+							ok: true,
+							verdicts: result.verdicts,
+							warnings: result.warnings,
+						},
+					};
+				}
+
+				if (params.action === "reset") {
+					const previous = state.pr
+						? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
+						: "none";
+					resetPrWorkflowSession(state);
+					clearPrStatusLine(ctx);
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									"PR workflow session reset. " +
+									`Previous PR: ${previous}. ` +
+									"Reviewer roster and judge config were kept.",
+							},
+						],
+						details: { ok: true, previousPr: previous },
+					};
+				}
+
+				if (params.action === "status") {
+					const ref = state.pr
+						? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
+						: "none";
+					const breakdown = summarizeUsage({
+						council: state.council.lastRun,
+						judge: state.council.lastJudge,
+						critique: state.council.lastCritique,
+					});
+					const stackSnapshotSummary =
+						state.stackRuns.size === 0
+							? "none"
+							: Array.from(state.stackRuns.keys())
+									.sort((a, b) => a - b)
+									.map((n) => `#${n}`)
+									.join(", ");
+					const lines = [
+						`active: ${state.active ? "yes" : "no"}`,
+						`pr: ${ref}`,
+						`worktree providers: ${worktreeProviders.providerIds().join(", ")}`,
+						`fix worktree providers: ${fixWorktreeProviders.providerIds().join(", ")}`,
+						`council roster: ${state.council.roster.length} reviewer(s)`,
+						`council last run: ${state.council.lastRun?.id ?? "none"}`,
+						`judge: ${state.council.judge?.id ?? "unset"}`,
+						`judge last run: ${state.council.lastJudge?.id ?? "none"}`,
+						`critique last run: ${state.council.lastCritique?.id ?? "none"}`,
+						`cross-PR finding run: ${state.stackFindingRun?.id ?? "none"}`,
+						`cross-PR findings: ${state.stackFindingRun?.findings.length ?? 0} (${state.stackDecisions.size} decided)`,
+						`stack snapshots: ${stackSnapshotSummary}`,
+						`threads: ${state.threads === null ? "not fetched" : `${state.threads.threads.length} (fetched ${state.threads.fetchedAt})`}`,
+						formatFixQueueStatus(state),
+						...renderUsageLines(breakdown),
+					];
+					return {
+						content: [{ type: "text", text: lines.join("\n") }],
+						details: {
+							active: state.active,
+							pr: state.pr,
+							council: state.council,
+							usage: breakdown,
+						},
+					};
+				}
+
+				// action === "load"
 				if (!params.pr) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: "fix-worktree-cleanup requires a `pr` argument (owner/repo#number or a bare number inside a checkout).",
+								text: "pr_workflow load requires a `pr` argument.",
 							},
 						],
 						details: { ok: false, error: "missing pr argument" },
 						isError: true,
 					};
 				}
-				const loadedRef = state.pr?.reference;
-				const reference = parsePRReference(
-					params.pr,
-					loadedRef?.owner,
-					loadedRef?.repo,
-				);
-				if (reference === null) {
-					const error =
-						`Could not parse "${params.pr}" as a PR reference. ` +
-						"Expected a full URL, a short form (owner/repo#N), or a bare " +
-						"number with a PR already loaded so owner/repo can be inferred.";
+
+				const outcome = loadPr(state, { input: params.pr });
+				if (!outcome.ok) {
 					return {
-						content: [{ type: "text", text: error }],
-						details: { ok: false, error },
+						content: [{ type: "text", text: outcome.error }],
+						details: { ok: false, error: outcome.error },
 						isError: true,
 					};
 				}
-				const outcome = await fixWorktreeProviders.cleanup({
-					owner: reference.owner,
-					repo: reference.repo,
-					number: reference.number,
-					force: params.force === true,
-				});
-				if (outcome.status === "missing") {
+
+				const loaded = state.pr;
+				if (!loaded) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `No fix worktree at ${outcome.path}; nothing to remove.`,
+								text: "Unreachable: state.pr null after successful load.",
 							},
 						],
-						details: { ok: true, outcome },
+						details: { ok: false, error: "unreachable" },
+						isError: true,
 					};
 				}
-				if (outcome.status === "blocked") {
+
+				try {
+					loaded.metadata = await fetchPrMetadata(pi, loaded.reference);
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Refused: ${outcome.reason}\n${outcome.hint}`,
+								text: `Loaded ${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number} but could not fetch metadata: ${message}`,
 							},
 						],
-						details: { ok: false, outcome },
+						details: { ok: false, pr: loaded, error: message },
 						isError: true,
 					};
 				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Removed ${outcome.path} (${outcome.method}).`,
-						},
-					],
-					details: { ok: true, outcome },
-				};
-			}
 
-			if (params.action === "release-identity-lock") {
-				const id = params.reviewerId?.trim();
-				if (!id) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "release-identity-lock requires `reviewerId`.",
-							},
-						],
-						details: { ok: false, error: "missing reviewerId" },
-						isError: true,
-					};
+				// Diff fetch is best-effort: if it fails, we keep the PR
+				// loaded with metadata only and report the failure.
+				let diffError: string | null = null;
+				try {
+					const raw = await fetchDiff(pi, loaded.reference);
+					loaded.files = parseDiff(raw);
+				} catch (error) {
+					diffError = error instanceof Error ? error.message : String(error);
 				}
-				const existing = state.participantIdentities.get(id);
-				if (!existing) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Participant id "${id}" is not currently locked; nothing to release.`,
-							},
-						],
-						details: { ok: true, released: false },
-					};
-				}
-				state.participantIdentities.delete(id);
-				const stillReferenced = hasFindingsForParticipant(state, id);
-				const note = stillReferenced
-					? " Findings from the previous identity remain in state with their original " +
-						"attribution string."
-					: "";
-				return {
-					content: [
-						{
-							type: "text",
-							text:
-								`Released identity lock for "${id}". ` +
-								"Next council-config or judge-config call may bind a new model to that id." +
-								note,
-						},
-					],
-					details: { ok: true, released: true, stillReferenced },
-				};
-			}
 
-			if (params.action === "summary") {
-				const text = formatPrSummary(state);
-				return {
-					content: [{ type: "text", text }],
-					details: { ok: true },
-				};
-			}
-
-			if (params.action === "personas") {
-				const loaded = await loadPersonas(personasDir());
-				return {
-					content: [{ type: "text", text: formatPersonaList(loaded) }],
-					details: {
-						ok: true,
-						personas: loaded.personas.map((p) => ({
-							id: p.id,
-							name: p.name,
-							description: p.description,
-						})),
-						errors: loaded.errors,
-					},
-				};
-			}
-
-			if (params.action === "persona-add" || params.action === "persona-edit") {
-				const validated = requirePersonaWrite(params);
-				if (!validated.ok) {
-					return {
-						content: [{ type: "text", text: validated.error }],
-						details: { ok: false, error: validated.error },
-						isError: true,
+				// Stack discovery is best-effort too. The walker needs
+				// metadata's base/head ref names, so we can only run it
+				// after the metadata fetch succeeded.
+				let stackError: string | null = null;
+				try {
+					const cursor: StackEntry = {
+						reference: loaded.reference,
+						title: loaded.metadata.title,
+						baseRefName: loaded.metadata.base.ref,
+						headRefName: loaded.metadata.head.ref,
 					};
+					const search = createGitHubPrSearch(
+						pi,
+						loaded.reference.owner,
+						loaded.reference.repo,
+					);
+					loaded.stack = await buildStack(cursor, search);
+				} catch (error) {
+					stackError = error instanceof Error ? error.message : String(error);
 				}
-				const write = validated.write;
-				const dir = personasDir();
-				const result =
-					params.action === "persona-add"
-						? await addPersona(dir, write)
-						: await editPersona(dir, write);
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
-				}
-				const verb = params.action === "persona-add" ? "Created" : "Updated";
-				return {
-					content: [
-						{
-							type: "text",
-							text: `${verb} persona "${write.id}" in ${dir}.`,
-						},
-					],
-					details: { ok: true, id: write.id, dir },
-				};
-			}
 
-			if (params.action === "persona-remove") {
-				if (params.persona === undefined || params.persona.trim() === "") {
-					const error = "persona-remove requires a `persona` (id) argument.";
-					return {
-						content: [{ type: "text", text: error }],
-						details: { ok: false, error },
-						isError: true,
-					};
+				const m = loaded.metadata;
+				const lines: string[] = [];
+				if (m) {
+					lines.push(
+						`Loaded ${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number}: ${m.title}`,
+						`author: ${m.author} · state: ${m.state}${m.isDraft ? " (draft)" : ""}`,
+						`base: ${m.base.ref} ← head: ${m.head.ref}`,
+						`${m.changedFiles} files changed, +${m.additions} −${m.deletions}`,
+						`${m.url}`,
+					);
+				} else {
+					lines.push("Loaded.");
 				}
-				const dir = personasDir();
-				const result = await removePersona(dir, params.persona);
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
+				const stack = loaded.stack;
+				if (stack && stack.entries.length > 1) {
+					lines.push("");
+					lines.push(`Stack (${stack.entries.length} PRs):`);
+					stack.entries.forEach((e, i) => {
+						const marker = i === stack.cursorIndex ? "▶" : " ";
+						lines.push(
+							`  ${marker} ${e.reference.owner}/${e.reference.repo}#${e.reference.number}: ${e.title}`,
+						);
+					});
+					if (stack.cursorChildren.length > 0) {
+						lines.push(
+							`  (fan-out: ${stack.cursorChildren.length} children of cursor)`,
+						);
+					}
+				} else if (stackError) {
+					lines.push("");
+					lines.push(`Stack discovery failed: ${stackError}`);
 				}
-				return {
-					content: [
-						{ type: "text", text: `Removed persona "${params.persona}".` },
-					],
-					details: { ok: true, id: params.persona },
-				};
-			}
-
-			if (params.action === "audit-threads") {
-				if (state.council.judge === null) {
-					const error =
-						"No judge configured to act as the auditor. Call " +
-						"pr_workflow action=judge-config first.";
-					return {
-						content: [{ type: "text", text: error }],
-						details: { ok: false, error },
-						isError: true,
-					};
+				if (loaded.files) {
+					lines.push("");
+					lines.push("Files:");
+					const sha = loaded.metadata?.head.sha;
+					for (const f of loaded.files) {
+						const tag =
+							f.status === "added"
+								? "+"
+								: f.status === "deleted"
+									? "-"
+									: f.status === "renamed"
+										? "→"
+										: "~";
+						lines.push(`  ${tag} ${f.path}  (+${f.additions} −${f.deletions})`);
+					}
+					if (sha) {
+						const sample = loaded.files[0];
+						if (sample) {
+							const uri = prFileUri({
+								owner: loaded.reference.owner,
+								repo: loaded.reference.repo,
+								number: loaded.reference.number,
+								sha,
+								path: sample.path,
+							});
+							lines.push("");
+							lines.push(
+								`To open a file in nvim, call nvim_buffer_open with a URI like:`,
+							);
+							lines.push(`  ${uri}`);
+						}
+					}
+				} else if (diffError) {
+					lines.push("");
+					lines.push(`Diff fetch failed: ${diffError}`);
 				}
-				const auditor = state.council.judge;
-				const result = await runWithCancellableReviewers(
-					"audit-threads",
-					({ registry, dispatch }) =>
-						auditThreadsAction({
-							state,
-							registry,
-							dispatch,
-							auditor,
-							fetchThreads: (ref) => fetchReviewThreads(pi, ref),
-						}),
-				);
-				if (!result.ok) {
-					return {
-						content: [{ type: "text", text: result.error }],
-						details: { ok: false, error: result.error },
-						isError: true,
-					};
+				const suggestedNext = suggestNextAfterLoad(state);
+				for (const line of formatLoadSuggestions(suggestedNext)) {
+					lines.push(line);
 				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: formatThreadAudit(result.verdicts, result.indexById),
-						},
-					],
-					details: {
-						ok: true,
-						verdicts: result.verdicts,
-						warnings: result.warnings,
-					},
-				};
-			}
-
-			if (params.action === "reset") {
-				const previous = state.pr
-					? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
-					: "none";
-				resetPrWorkflowSession(state);
-				clearPrStatusLine(ctx);
-				return {
-					content: [
-						{
-							type: "text",
-							text:
-								"PR workflow session reset. " +
-								`Previous PR: ${previous}. ` +
-								"Reviewer roster and judge config were kept.",
-						},
-					],
-					details: { ok: true, previousPr: previous },
-				};
-			}
-
-			if (params.action === "status") {
-				const ref = state.pr
-					? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
-					: "none";
-				const breakdown = summarizeUsage({
-					council: state.council.lastRun,
-					judge: state.council.lastJudge,
-					critique: state.council.lastCritique,
-				});
-				const stackSnapshotSummary =
-					state.stackRuns.size === 0
-						? "none"
-						: Array.from(state.stackRuns.keys())
-								.sort((a, b) => a - b)
-								.map((n) => `#${n}`)
-								.join(", ");
-				const lines = [
-					`active: ${state.active ? "yes" : "no"}`,
-					`pr: ${ref}`,
-					`worktree providers: ${worktreeProviders.providerIds().join(", ")}`,
-					`fix worktree providers: ${fixWorktreeProviders.providerIds().join(", ")}`,
-					`council roster: ${state.council.roster.length} reviewer(s)`,
-					`council last run: ${state.council.lastRun?.id ?? "none"}`,
-					`judge: ${state.council.judge?.id ?? "unset"}`,
-					`judge last run: ${state.council.lastJudge?.id ?? "none"}`,
-					`critique last run: ${state.council.lastCritique?.id ?? "none"}`,
-					`cross-PR finding run: ${state.stackFindingRun?.id ?? "none"}`,
-					`cross-PR findings: ${state.stackFindingRun?.findings.length ?? 0} (${state.stackDecisions.size} decided)`,
-					`stack snapshots: ${stackSnapshotSummary}`,
-					`threads: ${state.threads === null ? "not fetched" : `${state.threads.threads.length} (fetched ${state.threads.fetchedAt})`}`,
-					formatFixQueueStatus(state),
-					...renderUsageLines(breakdown),
-				];
+				// Persist is fired centrally by the `tool_result`
+				// handler at the bottom of this file — see there
+				// for why we don't sprinkle persist() calls per
+				// action.
 				return {
 					content: [{ type: "text", text: lines.join("\n") }],
-					details: {
-						active: state.active,
-						pr: state.pr,
-						council: state.council,
-						usage: breakdown,
-					},
+					details: { ok: true, pr: loaded, suggestedNext },
 				};
-			}
-
-			// action === "load"
-			if (!params.pr) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: "pr_workflow load requires a `pr` argument.",
-						},
-					],
-					details: { ok: false, error: "missing pr argument" },
-					isError: true,
-				};
-			}
-
-			const outcome = loadPr(state, { input: params.pr });
-			if (!outcome.ok) {
-				return {
-					content: [{ type: "text", text: outcome.error }],
-					details: { ok: false, error: outcome.error },
-					isError: true,
-				};
-			}
-
-			const loaded = state.pr;
-			if (!loaded) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: "Unreachable: state.pr null after successful load.",
-						},
-					],
-					details: { ok: false, error: "unreachable" },
-					isError: true,
-				};
-			}
-
-			try {
-				loaded.metadata = await fetchPrMetadata(pi, loaded.reference);
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Loaded ${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number} but could not fetch metadata: ${message}`,
-						},
-					],
-					details: { ok: false, pr: loaded, error: message },
-					isError: true,
-				};
-			}
-
-			// Diff fetch is best-effort: if it fails, we keep the PR
-			// loaded with metadata only and report the failure.
-			let diffError: string | null = null;
-			try {
-				const raw = await fetchDiff(pi, loaded.reference);
-				loaded.files = parseDiff(raw);
-			} catch (error) {
-				diffError = error instanceof Error ? error.message : String(error);
-			}
-
-			// Stack discovery is best-effort too. The walker needs
-			// metadata's base/head ref names, so we can only run it
-			// after the metadata fetch succeeded.
-			let stackError: string | null = null;
-			try {
-				const cursor: StackEntry = {
-					reference: loaded.reference,
-					title: loaded.metadata.title,
-					baseRefName: loaded.metadata.base.ref,
-					headRefName: loaded.metadata.head.ref,
-				};
-				const search = createGitHubPrSearch(
-					pi,
-					loaded.reference.owner,
-					loaded.reference.repo,
-				);
-				loaded.stack = await buildStack(cursor, search);
-			} catch (error) {
-				stackError = error instanceof Error ? error.message : String(error);
-			}
-
-			const m = loaded.metadata;
-			const lines: string[] = [];
-			if (m) {
-				lines.push(
-					`Loaded ${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number}: ${m.title}`,
-					`author: ${m.author} · state: ${m.state}${m.isDraft ? " (draft)" : ""}`,
-					`base: ${m.base.ref} ← head: ${m.head.ref}`,
-					`${m.changedFiles} files changed, +${m.additions} −${m.deletions}`,
-					`${m.url}`,
-				);
-			} else {
-				lines.push("Loaded.");
-			}
-			const stack = loaded.stack;
-			if (stack && stack.entries.length > 1) {
-				lines.push("");
-				lines.push(`Stack (${stack.entries.length} PRs):`);
-				stack.entries.forEach((e, i) => {
-					const marker = i === stack.cursorIndex ? "▶" : " ";
-					lines.push(
-						`  ${marker} ${e.reference.owner}/${e.reference.repo}#${e.reference.number}: ${e.title}`,
-					);
-				});
-				if (stack.cursorChildren.length > 0) {
-					lines.push(
-						`  (fan-out: ${stack.cursorChildren.length} children of cursor)`,
-					);
-				}
-			} else if (stackError) {
-				lines.push("");
-				lines.push(`Stack discovery failed: ${stackError}`);
-			}
-			if (loaded.files) {
-				lines.push("");
-				lines.push("Files:");
-				const sha = loaded.metadata?.head.sha;
-				for (const f of loaded.files) {
-					const tag =
-						f.status === "added"
-							? "+"
-							: f.status === "deleted"
-								? "-"
-								: f.status === "renamed"
-									? "→"
-									: "~";
-					lines.push(`  ${tag} ${f.path}  (+${f.additions} −${f.deletions})`);
-				}
-				if (sha) {
-					const sample = loaded.files[0];
-					if (sample) {
-						const uri = prFileUri({
-							owner: loaded.reference.owner,
-							repo: loaded.reference.repo,
-							number: loaded.reference.number,
-							sha,
-							path: sample.path,
-						});
-						lines.push("");
-						lines.push(
-							`To open a file in nvim, call nvim_buffer_open with a URI like:`,
-						);
-						lines.push(`  ${uri}`);
-					}
-				}
-			} else if (diffError) {
-				lines.push("");
-				lines.push(`Diff fetch failed: ${diffError}`);
-			}
-			const suggestedNext = suggestNextAfterLoad(state);
-			for (const line of formatLoadSuggestions(suggestedNext)) {
-				lines.push(line);
-			}
-			// Persist is fired centrally by the `tool_result`
-			// handler at the bottom of this file — see there
-			// for why we don't sprinkle persist() calls per
-			// action.
-			return {
-				content: [{ type: "text", text: lines.join("\n") }],
-				details: { ok: true, pr: loaded, suggestedNext },
 			};
+
+			// Route quick mutations through the FIFO lane so their
+			// read-modify-write windows can't interleave; everything
+			// else runs free. See QUICK_MUTATION_ACTIONS above.
+			if (QUICK_MUTATION_ACTIONS.has(params.action)) {
+				return actionMutex.runExclusive(handleAction);
+			}
+			return handleAction();
 		},
 	});
 

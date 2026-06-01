@@ -13,7 +13,7 @@ import type { PrWorkflowReviewerEntry } from "./config.js";
 import type { CouncilDispatch } from "./council.js";
 import { runCouncil, runOneCouncilReviewer } from "./council.js";
 import type { CouncilProgress } from "./council-progress.js";
-import { rememberAllocatedFindings } from "./finding-ids.js";
+import { reserveFindingIds } from "./finding-ids.js";
 import type { CouncilRun } from "./findings.js";
 import {
 	assertParticipantIdentityAvailable,
@@ -220,6 +220,11 @@ export async function runCouncilAction(
 	// of the personas; reviewers with no persona simply aren't in it.
 	const charters = buildCharterMap(state.council.roster, input.resolveCharter);
 
+	// Pin to the PR this run started on. The cursor may move
+	// (a concurrent action=load) while the fan-out is in
+	// flight; the run must commit to its own PR regardless.
+	const pinnedPrNumber = pr.reference.number;
+
 	const run = await runCouncil({
 		runId,
 		target,
@@ -227,20 +232,45 @@ export async function runCouncilAction(
 		registry: input.registry,
 		dispatch: input.dispatch,
 		signal: input.signal,
-		startId: state.nextFindingId,
+		// Reserve ids synchronously at assignment time so two
+		// concurrent runs in one session never overlap.
+		allocate: (count) => reserveFindingIds(state, count),
 		progress: input.progress,
 		charterFor: (id) => charters.get(id),
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
-	for (const output of run.reviewerOutputs) {
-		rememberAllocatedFindings(state, output.findings);
-	}
 	rememberParticipantIdentities(state, "reviewer", state.council.roster);
-	state.council.lastRun = run;
-	state.council.lastJudge = null;
-	state.council.lastCritique = null;
-	state.council.decisions = new Map();
+	commitCouncilRun(state, pinnedPrNumber, run);
 	return { ok: true, run };
+}
+
+/**
+ * Land a finished council run on the PR it started on.
+ *
+ * If the cursor is still on that PR, the run becomes the
+ * live `council.lastRun` and resets the downstream rounds.
+ * If the user has since navigated away, the run is stashed
+ * in that PR's `stackRuns` slot so it rehydrates on return
+ * instead of clobbering the PR now under the cursor.
+ */
+function commitCouncilRun(
+	state: PrWorkflowState,
+	pinnedPrNumber: number,
+	run: CouncilRun,
+): void {
+	if (state.pr?.reference.number === pinnedPrNumber) {
+		state.council.lastRun = run;
+		state.council.lastJudge = null;
+		state.council.lastCritique = null;
+		state.council.decisions = new Map();
+		return;
+	}
+	state.stackRuns.set(pinnedPrNumber, {
+		lastRun: run,
+		lastJudge: null,
+		lastCritique: null,
+		decisions: new Map(),
+	});
 }
 
 /** Inputs for `retryCouncilReviewer`. */
@@ -315,8 +345,6 @@ export async function retryCouncilReviewer(
 		};
 	}
 
-	const startId = state.nextFindingId;
-
 	const pr = state.pr;
 	const threadContext = await loadReviewThreadPromptContext(
 		state,
@@ -350,12 +378,18 @@ export async function retryCouncilReviewer(
 		registry: input.registry,
 		dispatch: input.dispatch,
 		signal: input.signal,
-		startId,
+		// Placeholder; the allocator below supplies the real
+		// base synchronously once findings are parsed.
+		startId: 0,
+		allocate: (count) => reserveFindingIds(state, count),
 		charterFor: (id) => charters.get(id),
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
-	rememberAllocatedFindings(state, output.findings);
 	rememberParticipantIdentities(state, "reviewer", [reviewer]);
+	// The retry edits the captured run object in place. That
+	// object is whichever run `lastRun` referenced at entry —
+	// the live one, or a stashed stackRuns run — so this
+	// commits to the right place without re-reading state.pr.
 	lastRun.reviewerOutputs[existingIndex] = output;
 	return { ok: true, run: lastRun };
 }

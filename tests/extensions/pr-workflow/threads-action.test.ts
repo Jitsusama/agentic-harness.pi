@@ -73,6 +73,178 @@ describe("loadThreadsAction", () => {
 	});
 });
 
+describe("drift guard", () => {
+	it("reply refuses when the snapshot version moved since targeting", async () => {
+		const state = activeState();
+		await loadThreadsAction({
+			state,
+			fetcher: async () => [thread({ id: "TA" })],
+		});
+		const staleVersion = (state.threads?.version ?? 0) - 1;
+		const sender = vi.fn(async () => "https://example.com/new");
+		const result = await replyToThreadAction({
+			state,
+			index: 1,
+			body: "thanks",
+			sender,
+			expect: { threadId: "TA", version: staleVersion },
+		});
+		expect(result.ok).toBe(false);
+		expect(sender).not.toHaveBeenCalled();
+	});
+
+	it("reply refuses when the target id no longer sits at the index", async () => {
+		const state = activeState();
+		await loadThreadsAction({
+			state,
+			fetcher: async () => [thread({ id: "TA" })],
+		});
+		const sender = vi.fn(async () => "https://example.com/new");
+		const result = await replyToThreadAction({
+			state,
+			index: 1,
+			body: "thanks",
+			sender,
+			expect: { threadId: "TB", version: state.threads?.version ?? 0 },
+		});
+		expect(result.ok).toBe(false);
+		expect(sender).not.toHaveBeenCalled();
+	});
+
+	it("reply proceeds when the captured id and version still match", async () => {
+		const state = activeState();
+		await loadThreadsAction({
+			state,
+			fetcher: async () => [thread({ id: "TA" })],
+		});
+		const sender = vi.fn(async () => "https://example.com/new");
+		const result = await replyToThreadAction({
+			state,
+			index: 1,
+			body: "thanks",
+			sender,
+			expect: { threadId: "TA", version: state.threads?.version ?? 0 },
+		});
+		expect(result.ok).toBe(true);
+		expect(sender).toHaveBeenCalledWith("TA", "thanks");
+	});
+
+	it("resolve refuses when the snapshot version moved since targeting", async () => {
+		const state = activeState();
+		await loadThreadsAction({
+			state,
+			fetcher: async () => [thread({ id: "TA" })],
+		});
+		const resolver = vi.fn(async () => true);
+		const result = await resolveThreadAction({
+			state,
+			index: 1,
+			resolver,
+			expect: { threadId: "TA", version: (state.threads?.version ?? 0) - 1 },
+		});
+		expect(result.ok).toBe(false);
+		expect(resolver).not.toHaveBeenCalled();
+	});
+
+	it("does not apply the reply to a snapshot swapped in during the send", async () => {
+		// The reply passes the pre-send drift guard, then a sibling
+		// threads refetch swaps state.threads while the network send
+		// is in flight. The local-apply must not mutate the fresh
+		// snapshot (which never saw this reply targeted at it).
+		const state = activeState();
+		await loadThreadsAction({
+			state,
+			fetcher: async () => [thread({ id: "TA" })],
+		});
+		const captured = {
+			threadId: "TA",
+			version: state.threads?.version ?? 0,
+		};
+		const sender = vi.fn(async () => {
+			// Concurrent refetch lands mid-send.
+			await loadThreadsAction({
+				state,
+				fetcher: async () => [thread({ id: "TA" })],
+			});
+			return "https://example.com/new";
+		});
+		const freshVersionBefore = 0;
+		await replyToThreadAction({
+			state,
+			index: 1,
+			body: "thanks",
+			sender,
+			expect: captured,
+		});
+		// The fresh snapshot has exactly one comment (the original);
+		// the reply must not have been appended to it.
+		expect(state.threads?.threads[0].comments).toHaveLength(1);
+		void freshVersionBefore;
+	});
+
+	it("omitting expect keeps the legacy index-only behaviour", async () => {
+		const state = activeState();
+		await loadThreadsAction({
+			state,
+			fetcher: async () => [thread({ id: "TA" })],
+		});
+		const sender = vi.fn(async () => "https://example.com/new");
+		const result = await replyToThreadAction({
+			state,
+			index: 1,
+			body: "thanks",
+			sender,
+		});
+		expect(result.ok).toBe(true);
+	});
+});
+
+describe("threads snapshot versioning", () => {
+	it("stamps a version on a freshly loaded snapshot", async () => {
+		const state = activeState();
+		const fetcher = vi.fn(async () => [thread()]);
+		await loadThreadsAction({ state, fetcher });
+		expect(state.threads?.version).toBeGreaterThan(0);
+	});
+
+	it("advances the version on every reload so a swap is detectable", async () => {
+		const state = activeState();
+		const fetcher = vi.fn(async () => [thread()]);
+		await loadThreadsAction({ state, fetcher });
+		const first = state.threads?.version ?? 0;
+		await loadThreadsAction({ state, fetcher });
+		const second = state.threads?.version ?? 0;
+		expect(second).toBeGreaterThan(first);
+	});
+
+	it("advances the version when a reply mutates in place", async () => {
+		const state = activeState();
+		await loadThreadsAction({
+			state,
+			fetcher: async () => [thread({ id: "TA" })],
+		});
+		const before = state.threads?.version ?? 0;
+		await replyToThreadAction({
+			state,
+			index: 1,
+			body: "thanks",
+			sender: async () => "https://example.com/new",
+		});
+		expect(state.threads?.version ?? 0).toBeGreaterThan(before);
+	});
+
+	it("advances the version when a resolve mutates in place", async () => {
+		const state = activeState();
+		await loadThreadsAction({
+			state,
+			fetcher: async () => [thread({ id: "TA" })],
+		});
+		const before = state.threads?.version ?? 0;
+		await resolveThreadAction({ state, index: 1, resolver: async () => true });
+		expect(state.threads?.version ?? 0).toBeGreaterThan(before);
+	});
+});
+
 describe("formatThreadsView", () => {
 	it("explains the empty state when threads haven't been fetched", () => {
 		const state = activeState();
@@ -86,6 +258,7 @@ describe("formatThreadsView", () => {
 			prNumber: 7,
 			fetchedAt: "now",
 			mutatedAt: null,
+			version: 1,
 			threads: [],
 		};
 		expect(formatThreadsView(state)).toMatch(/zero|no.*threads.*on/i);
@@ -97,6 +270,7 @@ describe("formatThreadsView", () => {
 			prNumber: 7,
 			fetchedAt: "now",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread(), thread({ id: "T2", path: "src/bar.ts", line: 20 })],
 		};
 		const view = formatThreadsView(state);
@@ -112,6 +286,7 @@ describe("formatThreadsView", () => {
 			prNumber: 7,
 			fetchedAt: "now",
 			mutatedAt: null,
+			version: 1,
 			threads: [
 				thread({ isResolved: true }),
 				thread({ id: "T2", isOutdated: true }),
@@ -128,6 +303,7 @@ describe("formatThreadsView", () => {
 			prNumber: 7,
 			fetchedAt: "now",
 			mutatedAt: null,
+			version: 1,
 			threads: [
 				thread({
 					id: "IC1",
@@ -170,6 +346,7 @@ describe("replyToThreadAction", () => {
 			prNumber: 7,
 			fetchedAt: "now",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread({ id: "TA" }), thread({ id: "TB" })],
 		};
 		const sender = vi.fn(async () => "https://example.com/new");
@@ -189,6 +366,7 @@ describe("replyToThreadAction", () => {
 			prNumber: 7,
 			fetchedAt: "now",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread()],
 		};
 		const sender = vi.fn();
@@ -208,6 +386,7 @@ describe("replyToThreadAction", () => {
 			prNumber: 7,
 			fetchedAt: "2026-05-19T00:00:00Z",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread({ id: "TA" })],
 		};
 		const sender = vi.fn(async () => "https://example.com/new");
@@ -238,6 +417,7 @@ describe("replyToThreadAction", () => {
 			prNumber: 7,
 			fetchedAt: "now",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread()],
 		};
 		const sender = vi.fn();
@@ -257,6 +437,7 @@ describe("replyToThreadAction", () => {
 			prNumber: 7,
 			fetchedAt: "now",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread({ kind: "review-level", path: null, line: null })],
 		};
 		const sender = vi.fn();
@@ -286,6 +467,7 @@ describe("resolveThreadAction", () => {
 			prNumber: 7,
 			fetchedAt: "now",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread({ id: "TA" }), thread({ id: "TB" })],
 		};
 		const resolver = vi.fn(async () => true);
@@ -300,6 +482,7 @@ describe("resolveThreadAction", () => {
 			prNumber: 7,
 			fetchedAt: "now",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread()],
 		};
 		const resolver = vi.fn();
@@ -314,6 +497,7 @@ describe("resolveThreadAction", () => {
 			prNumber: 7,
 			fetchedAt: "2026-05-19T00:00:00Z",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread({ id: "TA" })],
 		};
 		const resolver = vi.fn(async () => true);
@@ -336,6 +520,7 @@ describe("resolveThreadAction", () => {
 			prNumber: 7,
 			fetchedAt: "now",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread({ isResolved: true })],
 		};
 		const resolver = vi.fn(async () => true);
@@ -350,6 +535,7 @@ describe("resolveThreadAction", () => {
 			prNumber: 7,
 			fetchedAt: "now",
 			mutatedAt: null,
+			version: 1,
 			threads: [thread({ kind: "review-level", path: null, line: null })],
 		};
 		const resolver = vi.fn();

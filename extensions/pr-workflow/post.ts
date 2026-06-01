@@ -301,6 +301,11 @@ export async function postReviewAction(
 			error: "PR diff is not loaded. Run action=load before posting.",
 		};
 	}
+	// Capture the target reference before any gate await. A
+	// concurrent action=load can swap state.pr.reference while
+	// the gate is open; the post must land on the PR the user
+	// actually reviewed, not whatever the cursor moved to.
+	const targetRef = input.state.pr.reference;
 	const payload = buildReviewPayload(input.state);
 	if (
 		payload.includedFindingIds.length === 0 &&
@@ -325,7 +330,7 @@ export async function postReviewAction(
 	}
 	try {
 		await input.exec({
-			ref: input.state.pr.reference,
+			ref: targetRef,
 			event: input.event,
 			body: summary,
 			comments: payload.comments,

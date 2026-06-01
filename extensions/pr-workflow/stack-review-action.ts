@@ -351,10 +351,16 @@ export async function runStackReviewAction(
 			error: `Stack review judge failed: ${errorMessage(error)}`,
 		};
 	}
+	// Re-read the session id counter after the judge await
+	// rather than reusing the pre-await `nextId`. The reviewer
+	// loop already advanced the counter synchronously, and a
+	// concurrent run may have advanced it further during the
+	// judge dispatch; reading it now keeps the judge findings
+	// disjoint from everything else.
 	const parsedJudge = parseStackJudgeOutput(judged.finalAssistantText, {
 		runId: judgeRunId,
 		judgeReviewerId: judge.id,
-		startId: nextId,
+		startId: state.nextFindingId,
 	});
 	rememberStackReviewAllocation(state, parsedJudge.perPr, parsedJudge.crossPr);
 	for (const warning of [...judged.warnings, ...parsedJudge.warnings]) {
