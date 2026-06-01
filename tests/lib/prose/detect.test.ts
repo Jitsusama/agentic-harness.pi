@@ -61,4 +61,39 @@ describe("detectProseViolations", () => {
 		// Only the prose "color" outside the backticks is flagged.
 		expect(spellings).toHaveLength(1);
 	});
+
+	it("flags a literal \\u2014 escape as an emdash", () => {
+		const violations = detectProseViolations(
+			"This is a pause \\u2014 a sneaky one.",
+		);
+		expect(violations).toHaveLength(1);
+		expect(violations[0].kind).toBe("emdash");
+	});
+
+	it("flags curly quotes with a straight-quote suggestion", () => {
+		const violations = detectProseViolations(
+			"She said \u201Chello\u201D and it\u2019s fine.",
+		);
+		const curly = violations.filter((v) => v.kind === "curly-quote");
+		// Open and close curly double-quotes are two violations, plus
+		// the curly apostrophe: three in total.
+		expect(curly.map((v) => v.suggestion).sort()).toEqual(['"', '"', "'"]);
+	});
+
+	it("flags the Unicode ellipsis with a three-period suggestion", () => {
+		const violations = detectProseViolations("Wait for it\u2026 done.");
+		const ellipsis = violations.filter((v) => v.kind === "ellipsis");
+		expect(ellipsis).toHaveLength(1);
+		expect(ellipsis[0].suggestion).toBe("...");
+	});
+
+	it("ignores curly quotes and ellipsis inside code", () => {
+		const text = [
+			"`it\u2019s` and `a\u2026b`",
+			"```",
+			"x = \u201Cy\u201D",
+			"```",
+		].join("\n");
+		expect(detectProseViolations(text)).toEqual([]);
+	});
 });

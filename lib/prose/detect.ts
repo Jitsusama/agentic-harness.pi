@@ -9,7 +9,7 @@
 /** A single prose convention violation. */
 export interface ProseViolation {
 	/** Which rule was broken. */
-	readonly kind: "emdash" | "spelling";
+	readonly kind: "emdash" | "spelling" | "curly-quote" | "ellipsis";
 	/** The offending text as it appears. */
 	readonly found: string;
 	/** The Canadian replacement, when there is a single right one. */
@@ -22,6 +22,9 @@ const EMDASH_RULE =
 	"prose-standard: never use emdashes; restructure the sentence (a colon, semi-colon, parentheses or a new sentence).";
 const SPELLING_RULE =
 	"prose-standard: use Canadian English spelling exclusively.";
+const CURLY_QUOTE_RULE = "prose-standard: use straight quotes, not curly ones.";
+const ELLIPSIS_RULE =
+	"prose-standard: spell out an ellipsis as three periods, not the Unicode character.";
 
 /**
  * Curated American/British to Canadian spelling pairs. This is a
@@ -77,7 +80,21 @@ const SPELLING_REGEX = new RegExp(
 );
 
 const EMDASH_REGEX = /\u2014/g;
+// The literal six-character escape an author types when they
+// meant an emdash. prose-standard bans it as an emdash in
+// disguise, so it is reported under the same kind.
+const EMDASH_ESCAPE_REGEX = /\\u2014/gi;
+const CURLY_QUOTE_REGEX = /[\u2018\u2019\u201C\u201D]/g;
+const ELLIPSIS_REGEX = /\u2026/g;
 const FENCE_REGEX = /```[\s\S]*?```/g;
+
+/** Map a curly quote to its straight ASCII equivalent. */
+const STRAIGHT_QUOTE: Readonly<Record<string, string>> = {
+	"\u2018": "'",
+	"\u2019": "'",
+	"\u201C": '"',
+	"\u201D": '"',
+};
 const INLINE_CODE_REGEX = /`[^`\n]*`/g;
 const URL_REGEX = /https?:\/\/\S+/g;
 // Deliberately conservative: only tokens that clearly open as a
@@ -122,6 +139,28 @@ export function detectProseViolations(text: string): ProseViolation[] {
 
 	for (const match of prose.matchAll(EMDASH_REGEX)) {
 		violations.push({ kind: "emdash", found: match[0], rule: EMDASH_RULE });
+	}
+
+	for (const match of prose.matchAll(EMDASH_ESCAPE_REGEX)) {
+		violations.push({ kind: "emdash", found: match[0], rule: EMDASH_RULE });
+	}
+
+	for (const match of prose.matchAll(CURLY_QUOTE_REGEX)) {
+		violations.push({
+			kind: "curly-quote",
+			found: match[0],
+			suggestion: STRAIGHT_QUOTE[match[0]],
+			rule: CURLY_QUOTE_RULE,
+		});
+	}
+
+	for (const match of prose.matchAll(ELLIPSIS_REGEX)) {
+		violations.push({
+			kind: "ellipsis",
+			found: match[0],
+			suggestion: "...",
+			rule: ELLIPSIS_RULE,
+		});
 	}
 
 	for (const match of prose.matchAll(SPELLING_REGEX)) {
