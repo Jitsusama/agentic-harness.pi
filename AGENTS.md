@@ -121,6 +121,11 @@ they all work independently.
   `tsconfig.json` maps the `@mariozechner/*` specifiers
   to the `@earendil-works/*` packages on disk. The
   runtime contract is unchanged.
+- Every mechanical rule a skill states is tracked in
+  [`docs/convention-coverage.md`](./docs/convention-coverage.md)
+  against the gate that enforces it. When adding a rule to a
+  skill or a gate to the code, update the matrix in the same
+  change so the coverage stays visible.
 
 ## Design Principles
 
