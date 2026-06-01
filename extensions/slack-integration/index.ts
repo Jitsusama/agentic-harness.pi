@@ -11,6 +11,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
 import { getLastEntry } from "../../lib/internal/state.js";
 import { SlackApiError, type SlackClient } from "../../lib/slack/api/client.js";
 import { clearAllConfig, getToken } from "../../lib/slack/auth/credentials.js";
@@ -449,6 +450,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 					client,
 					params,
 					ctx,
+					sessionGateDeps(ctx, pi),
 				);
 				if (params.action === "get_user") {
 					captureIdentityIfSelf(result);

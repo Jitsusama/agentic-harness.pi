@@ -9,6 +9,7 @@
 
 import { basename } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { GateDeps } from "../../lib/gate/index.js";
 import { getChannelInfo } from "../../lib/slack/api/channels.js";
 import type { SlackClient } from "../../lib/slack/api/client.js";
 import {
@@ -36,6 +37,7 @@ import { resolveMessages } from "../../lib/slack/api/resolve-messages.js";
 import { searchFiles, searchMessages } from "../../lib/slack/api/search.js";
 import { getUserInfo } from "../../lib/slack/api/users.js";
 import { mrkdwnToBlocks, tableToBlock } from "../../lib/slack/blocks.js";
+import { slackGateDecision } from "../../lib/slack/content-gate.js";
 import { renderChannel } from "../../lib/slack/renderers/channel.js";
 import {
 	renderMessage,
@@ -93,14 +95,60 @@ export async function routeAction(
 	client: SlackClient,
 	params: ActionParams,
 	ctx: ExtensionContext,
+	gateDeps: GateDeps,
 ): Promise<ToolResult> {
 	const handler = ACTION_HANDLERS.get(action);
 	if (!handler) {
 		return text(`Unknown action: ${action}`);
 	}
 
+	// Block content the converter cannot render as intended
+	// (image embeds, pipe tables, malformed lists) before the
+	// confirmation gate, so the AI fixes it against the
+	// slack-guide skill and the user only ever reviews a clean
+	// message. The gate relents to the confirmation gate on a
+	// repeat so a model that cannot satisfy the rule does not
+	// loop.
+	const gatedText = collectGatedText(action, params);
+	if (gatedText) {
+		const decision = slackGateDecision(gatedText, gateDeps.readSignatures());
+		if (decision.action === "block") {
+			gateDeps.persistSignature(decision.signature);
+			return text(decision.message);
+		}
+	}
+
 	const resolved = await resolveAllParams(client, params);
 	return handler(client, params, resolved, ctx);
+}
+
+/**
+ * Collect the message text an action will send, so the content
+ * gate can scan it. Returns the empty string for actions that
+ * send no markdown body. Thread and queued-reply messages are
+ * joined so one gate pass reports every problem at once.
+ */
+function collectGatedText(action: string, params: ActionParams): string {
+	const texts: string[] = [];
+	const single = stringParam(params, "text");
+	if (single) texts.push(single);
+
+	if (action === "send_thread" || action === "reply_to_thread") {
+		const messages = params.messages;
+		if (Array.isArray(messages)) {
+			for (const message of messages) {
+				if (
+					message &&
+					typeof message === "object" &&
+					typeof (message as { text?: unknown }).text === "string"
+				) {
+					texts.push((message as { text: string }).text);
+				}
+			}
+		}
+	}
+
+	return texts.join("\n\n");
 }
 
 /** Shorthand for a simple text result. */

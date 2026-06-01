@@ -6,11 +6,13 @@
  * wiring against the shared session store.
  */
 
+import type { GateDeps } from "../../gate/index.js";
 import type { GuardianResult } from "../../guardian/types.js";
 import { detectProseViolations, proseGateDecision } from "../../prose/index.js";
-import type { GateDeps } from "./gate-deps.js";
+import { sessionGateDeps } from "../gate/session-deps.js";
 
-export { type GateDeps, sessionGateDeps } from "./gate-deps.js";
+export type { GateDeps };
+export { sessionGateDeps };
 
 /** Run the prose gate over a body. Returns a block or undefined. */
 export function runProseGate(

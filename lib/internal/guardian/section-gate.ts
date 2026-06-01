@@ -6,12 +6,12 @@
  * read/persist wiring against the shared session store.
  */
 
+import type { GateDeps } from "../../gate/index.js";
 import type { GuardianResult } from "../../guardian/types.js";
 import {
 	type SectionGateConfig,
 	sectionGateDecision,
 } from "../../sections/index.js";
-import type { GateDeps } from "./gate-deps.js";
 
 /** Run the section gate over a body. Returns a block or undefined. */
 export function runSectionGate(
