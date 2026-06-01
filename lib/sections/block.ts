@@ -17,6 +17,7 @@ export function formatSectionBlock(
 
 	const invented = violations.filter((v) => v.issue === "invented");
 	const missing = violations.filter((v) => v.issue === "missing");
+	const misordered = violations.filter((v) => v.issue === "misordered");
 
 	const lines: string[] = [
 		`This ${entityLabel} body does not use the sections the`,
@@ -36,6 +37,12 @@ export function formatSectionBlock(
 	if (missing.length > 0) {
 		lines.push("Required headings the body is missing, add them:");
 		for (const v of missing) lines.push(`  ${v.found}`);
+		lines.push("");
+	}
+
+	if (misordered.length > 0) {
+		lines.push("The sections are out of order; put them in this order:");
+		for (const v of misordered) lines.push(`  ${v.found}`);
 		lines.push("");
 	}
 

@@ -14,6 +14,11 @@ const missing: SectionViolation = {
 	issue: "missing",
 	found: "### 🔬 Validation",
 };
+const misordered: SectionViolation = {
+	kind: "section",
+	issue: "misordered",
+	found: "### 🌐 Situation then ### 🔧 Resolution then ### 🔬 Validation",
+};
 
 describe("formatSectionBlock", () => {
 	it("returns an empty string when there are no violations", () => {
@@ -30,6 +35,14 @@ describe("formatSectionBlock", () => {
 		const message = formatSectionBlock([missing], "PR", "github-pr-format");
 		expect(message).toContain("### 🔬 Validation");
 		expect(message).toMatch(/missing/i);
+	});
+
+	it("names the required order under an out-of-order instruction", () => {
+		const message = formatSectionBlock([misordered], "PR", "github-pr-format");
+		expect(message).toMatch(/out of order/i);
+		expect(message).toContain(
+			"### 🌐 Situation then ### 🔧 Resolution then ### 🔬 Validation",
+		);
 	});
 
 	it("points at the format skill and the entity label", () => {

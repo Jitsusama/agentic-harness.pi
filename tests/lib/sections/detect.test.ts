@@ -70,6 +70,36 @@ describe("detectSectionViolations", () => {
 		});
 	});
 
+	it("flags a complete body whose sections are out of order", () => {
+		const body = [
+			"### 🔧 Resolution",
+			"fixed",
+			"",
+			"### 🌐 Situation",
+			"broken",
+			"",
+			"### 🔬 Validation",
+			"proven",
+		].join("\n");
+		const violations = detectSectionViolations(body, PR);
+		expect(violations).toContainEqual({
+			kind: "section",
+			issue: "misordered",
+			found: "### 🌐 Situation then ### 🔧 Resolution then ### 🔬 Validation",
+		});
+		// All three are present, so neither invented nor missing fires.
+		expect(violations.some((v) => v.issue === "invented")).toBe(false);
+		expect(violations.some((v) => v.issue === "missing")).toBe(false);
+	});
+
+	it("does not flag order when the sections are in the sanctioned order", () => {
+		expect(
+			detectSectionViolations(cleanPr, PR).some(
+				(v) => v.issue === "misordered",
+			),
+		).toBe(false);
+	});
+
 	it("ignores hashes inside a fenced code block", () => {
 		const body = [
 			"### 🌐 Situation",
