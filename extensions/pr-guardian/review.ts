@@ -21,11 +21,17 @@ import {
 	reviewMarkdownEntity,
 } from "../../lib/internal/guardian/review-entity.js";
 import { runSectionGate } from "../../lib/internal/guardian/section-gate.js";
+import { runTitleGate } from "../../lib/internal/guardian/title-gate.js";
 import { PR_SECTIONS } from "../../lib/sections/index.js";
 import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.js";
 
 const PR_SECTION_CONFIG = {
 	sanctioned: PR_SECTIONS,
+	entityLabel: "PR",
+	skill: "github-pr-format",
+};
+
+const PR_TITLE_CONFIG = {
 	entityLabel: "PR",
 	skill: "github-pr-format",
 };
@@ -64,6 +70,12 @@ export function createPrGuardian(pi: ExtensionAPI): CommandGuardian<PrCommand> {
 			// the section gate runs first.
 			const sectionBlock = runSectionGate(deps, parsed.body, PR_SECTION_CONFIG);
 			if (sectionBlock) return sectionBlock;
+
+			// The title carries its own convention (descriptive, not
+			// conventional commit). Gate it before the body prose so a
+			// wrong title is caught with the structure, not after.
+			const titleBlock = runTitleGate(deps, parsed.title, PR_TITLE_CONFIG);
+			if (titleBlock) return titleBlock;
 
 			// Block on detectable prose violations before the human
 			// gate, so the user reviews a clean PR body. The gate

@@ -21,6 +21,7 @@ import {
 	reviewMarkdownEntity,
 } from "../../lib/internal/guardian/review-entity.js";
 import { runSectionGate } from "../../lib/internal/guardian/section-gate.js";
+import { runTitleGate } from "../../lib/internal/guardian/title-gate.js";
 import { ISSUE_SECTIONS } from "../../lib/sections/index.js";
 import {
 	type IssueCommand,
@@ -30,6 +31,11 @@ import {
 
 const ISSUE_SECTION_CONFIG = {
 	sanctioned: ISSUE_SECTIONS,
+	entityLabel: "issue",
+	skill: "github-issue-format",
+};
+
+const ISSUE_TITLE_CONFIG = {
 	entityLabel: "issue",
 	skill: "github-issue-format",
 };
@@ -75,6 +81,12 @@ export function createIssueGuardian(
 				ISSUE_SECTION_CONFIG,
 			);
 			if (sectionBlock) return sectionBlock;
+
+			// The title carries its own convention (descriptive, not
+			// conventional commit). Gate it before the body prose so a
+			// wrong title is caught with the structure, not after.
+			const titleBlock = runTitleGate(deps, parsed.title, ISSUE_TITLE_CONFIG);
+			if (titleBlock) return titleBlock;
 
 			// Block on detectable prose violations before the human
 			// gate, so the user reviews a clean issue body. The gate

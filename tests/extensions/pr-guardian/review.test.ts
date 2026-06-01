@@ -16,10 +16,10 @@ function noUiContext(): { pi: ExtensionAPI; ctx: ExtensionContext } {
 	return { pi, ctx };
 }
 
-function prCommand(body: string): PrCommand {
+function prCommand(body: string, title = "A Descriptive Title"): PrCommand {
 	return {
 		action: "create",
-		title: "A title",
+		title,
 		body,
 		prefix: null,
 		prPart: "",
@@ -55,5 +55,17 @@ describe("createPrGuardian review without a UI", () => {
 		const { pi, ctx } = noUiContext();
 		const result = await createPrGuardian(pi).review(prCommand(cleanBody), ctx);
 		expect(result).toBeUndefined();
+	});
+
+	it("blocks a conventional-commit title even with a clean body", async () => {
+		const { pi, ctx } = noUiContext();
+		const result = await createPrGuardian(pi).review(
+			prCommand(cleanBody, "chore(monitoring): define the policies as code"),
+			ctx,
+		);
+		expect(result && "block" in result).toBe(true);
+		if (result && "block" in result) {
+			expect(result.reason).toContain("conventional commit");
+		}
 	});
 });
