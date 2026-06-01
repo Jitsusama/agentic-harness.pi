@@ -38,4 +38,18 @@ describe("formatProseBlock", () => {
 		const occurrences = message.split("color -> colour").length - 1;
 		expect(occurrences).toBe(1);
 	});
+
+	it("names curly quotes and tells the author to use straight ones", () => {
+		const message = formatProseBlock(
+			detectProseViolations("It\u2019s \u201Cquoted\u201D."),
+		);
+		expect(message).toMatch(/straight quote/i);
+		expect(message).toContain("prose-standard");
+	});
+
+	it("names the Unicode ellipsis and tells the author to use three periods", () => {
+		const message = formatProseBlock(detectProseViolations("Wait\u2026 done."));
+		expect(message).toMatch(/three periods|\.\.\./);
+		expect(message).toMatch(/ellipsis/i);
+	});
 });

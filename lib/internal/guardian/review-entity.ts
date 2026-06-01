@@ -48,6 +48,12 @@ export async function reviewMarkdownEntity(
 	entity: ReviewableEntity,
 	config: EntityReviewConfig,
 ): Promise<GuardianResult> {
+	// The content gates have already run by the time we get here.
+	// Without a UI there is no panel to show and no human to be the
+	// backstop, so allow rather than block: the gate is the
+	// enforcement, the panel is only the human review on top of it.
+	if (!ctx.hasUI) return ALLOW;
+
 	const panelTitle =
 		entity.action === "edit" ? config.editTitle : config.createTitle;
 

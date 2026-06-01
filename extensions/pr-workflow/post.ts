@@ -114,6 +114,15 @@ export interface PostReviewActionInput {
 	 * an approved outcome can override the body.
 	 */
 	readonly gate?: PostReviewGate;
+	/**
+	 * Optional prose gate. When supplied, the action runs it
+	 * over the review summary and every inline comment body
+	 * before the confirmation gate. A returned string is a
+	 * skill-grounded block message: the post short-circuits
+	 * with `ok: false` so the AI repairs the prose against
+	 * prose-standard before the review reaches GitHub.
+	 */
+	readonly proseGate?: (texts: string[]) => string | undefined;
 }
 
 /** Result of `postReviewAction`. */
@@ -319,6 +328,20 @@ export async function postReviewAction(
 	}
 
 	let summary = renderSummary(input.state, payload, input.body, input.event);
+
+	// Enforce prose-standard on the review text before the user
+	// ever sees the confirmation gate, the same detect-and-block
+	// posture the PR, issue and commit guardians use. The summary
+	// carries the body-level findings; the comment bodies carry
+	// the inline ones, so both are scanned.
+	if (input.proseGate) {
+		const block = input.proseGate([
+			summary,
+			...payload.comments.map((comment) => comment.body),
+		]);
+		if (block) return { ok: false, error: block };
+	}
+
 	if (input.gate) {
 		const outcome = await input.gate(
 			buildGateSummary(input.state, input.event, payload, summary),

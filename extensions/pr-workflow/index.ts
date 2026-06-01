@@ -23,6 +23,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { createMutex } from "../../lib/internal/async-mutex.js";
+import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
 import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
 import { postReview } from "../../lib/internal/github/review-post.js";
@@ -106,6 +107,7 @@ import {
 	renderSummary,
 } from "./post.js";
 import { confirmPostGate } from "./post-gate.js";
+import { buildReviewProseGate } from "./prose-gate.js";
 import {
 	isReviewContextProvider,
 	PR_WORKFLOW_REGISTER_REVIEW_CONTEXT_PROVIDER,
@@ -1460,6 +1462,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						body: params.body,
 						exec,
 						gate,
+						proseGate: buildReviewProseGate(sessionGateDeps(ctx, pi)),
 					});
 					if (!result.ok) {
 						return {

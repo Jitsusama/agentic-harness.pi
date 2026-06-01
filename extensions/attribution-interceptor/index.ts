@@ -9,6 +9,12 @@
  * sees the injected attribution during review. Returns undefined
  * to let subsequent handlers proceed with the modified command.
  *
+ * Runs whether or not there is a UI. Attribution is a silent
+ * command rewrite with no panel, like the other interceptors,
+ * and transparency matters most in the headless and subagent
+ * runs nobody is watching. The rewrite is idempotent, so a
+ * command that already carries attribution is left alone.
+ *
  * This extension mutates `event.input.command` directly rather
  * than going through `registerGuardian`, because interceptors
  * are a sanctioned mutation site for silent command enrichment
@@ -36,7 +42,6 @@ export default function attributionExtension(pi: ExtensionAPI) {
 		"tool_call",
 		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
 			if (!isToolCallEventType("bash", event)) return;
-			if (!ctx.hasUI) return;
 			if (pi.getFlag("no-attribution") === true) return;
 
 			const command = event.input.command;

@@ -10,5 +10,8 @@ import { registerGuardian } from "../../lib/guardian/register.js";
 import { createIssueGuardian } from "./review.js";
 
 export default function issueGuardianExtension(pi: ExtensionAPI) {
-	registerGuardian(pi, createIssueGuardian(pi), { name: "issue" });
+	registerGuardian(pi, createIssueGuardian(pi), {
+		name: "issue",
+		enforceWithoutUI: true,
+	});
 }

@@ -9,7 +9,7 @@
 /** A single prose convention violation. */
 export interface ProseViolation {
 	/** Which rule was broken. */
-	readonly kind: "emdash" | "spelling";
+	readonly kind: "emdash" | "spelling" | "curly-quote" | "ellipsis";
 	/** The offending text as it appears. */
 	readonly found: string;
 	/** The Canadian replacement, when there is a single right one. */
@@ -22,6 +22,9 @@ const EMDASH_RULE =
 	"prose-standard: never use emdashes; restructure the sentence (a colon, semi-colon, parentheses or a new sentence).";
 const SPELLING_RULE =
 	"prose-standard: use Canadian English spelling exclusively.";
+const CURLY_QUOTE_RULE = "prose-standard: use straight quotes, not curly ones.";
+const ELLIPSIS_RULE =
+	"prose-standard: spell out an ellipsis as three periods, not the Unicode character.";
 
 /**
  * Curated American/British to Canadian spelling pairs. This is a
@@ -31,24 +34,65 @@ const SPELLING_RULE =
  * `anchor`), so each pair here is one we are certain about. The
  * key is the form to flag; the value is the Canadian form.
  *
+ * This list is the enforced half of a bound pair: the prose-standard
+ * skill carries the same table for a human to read, and
+ * tests/lib/prose/spelling-binding.test.ts asserts the two are
+ * identical, so neither can drift from the other. To change what
+ * the gate flags, change the skill and this list together.
+ *
+ * Meaning-dependent words are deliberately excluded so the gate
+ * never flags a correct spelling: `licence`/`license`,
+ * `practice`/`practise` and `cheque`/`check` turn on part of
+ * speech or sense; `meter` (the instrument) is correct while
+ * `metre` (the unit) is not; `aluminum`, `program` and `dialog`
+ * (the UI element) are the spellings Canadian English keeps. A
+ * miss is a missed block, never a wrong rewrite.
+ *
  * Stored lowercase; matching is case-insensitive and the
  * suggestion preserves the original's leading-capital shape.
  */
-const SPELLING_PAIRS: ReadonlyArray<readonly [string, string]> = [
+export const SPELLING_PAIRS: ReadonlyArray<readonly [string, string]> = [
+	// -our (American -or)
 	["color", "colour"],
 	["colors", "colours"],
+	["colored", "coloured"],
 	["behavior", "behaviour"],
 	["behaviors", "behaviours"],
 	["honor", "honour"],
+	["honored", "honoured"],
 	["favor", "favour"],
+	["favored", "favoured"],
 	["favorite", "favourite"],
+	["favorites", "favourites"],
 	["neighbor", "neighbour"],
+	["neighbors", "neighbours"],
 	["labor", "labour"],
 	["flavor", "flavour"],
+	["flavors", "flavours"],
+	["valor", "valour"],
+	["vapor", "vapour"],
+	["rumor", "rumour"],
+	["humor", "humour"],
+	["harbor", "harbour"],
+	["armor", "armour"],
+	["endeavor", "endeavour"],
+	["savior", "saviour"],
+	// -re (American -er)
 	["center", "centre"],
 	["centers", "centres"],
-	["meter", "metre"],
+	["centered", "centred"],
 	["theater", "theatre"],
+	["theaters", "theatres"],
+	["fiber", "fibre"],
+	["fibers", "fibres"],
+	["liter", "litre"],
+	["liters", "litres"],
+	// -ce noun (American -se)
+	["defense", "defence"],
+	["defenses", "defences"],
+	["offense", "offence"],
+	["offenses", "offences"],
+	// -ize (British -ise; Canadian keeps -ize like American)
 	["organise", "organize"],
 	["organised", "organized"],
 	["organising", "organizing"],
@@ -67,6 +111,35 @@ const SPELLING_PAIRS: ReadonlyArray<readonly [string, string]> = [
 	["optimise", "optimize"],
 	["initialise", "initialize"],
 	["initialised", "initialized"],
+	["standardise", "standardize"],
+	["customise", "customize"],
+	["generalise", "generalize"],
+	["specialise", "specialize"],
+	["normalise", "normalize"],
+	["serialise", "serialize"],
+	["synchronise", "synchronize"],
+	// doubled consonant before a suffix (Canadian doubles the l)
+	["traveler", "traveller"],
+	["traveled", "travelled"],
+	["traveling", "travelling"],
+	["canceled", "cancelled"],
+	["canceling", "cancelling"],
+	["modeling", "modelling"],
+	["modeled", "modelled"],
+	["labeling", "labelling"],
+	["labeled", "labelled"],
+	["fueled", "fuelled"],
+	// -ogue (American -og)
+	["catalog", "catalogue"],
+	["catalogs", "catalogues"],
+	// grey (American gray)
+	["gray", "grey"],
+	["grays", "greys"],
+	// single l (American doubles)
+	["enroll", "enrol"],
+	["enrollment", "enrolment"],
+	["fulfill", "fulfil"],
+	["fulfillment", "fulfilment"],
 ];
 
 /** Build the case-insensitive, whole-word spelling regex once. */
@@ -77,7 +150,21 @@ const SPELLING_REGEX = new RegExp(
 );
 
 const EMDASH_REGEX = /\u2014/g;
+// The literal six-character escape an author types when they
+// meant an emdash. prose-standard bans it as an emdash in
+// disguise, so it is reported under the same kind.
+const EMDASH_ESCAPE_REGEX = /\\u2014/gi;
+const CURLY_QUOTE_REGEX = /[\u2018\u2019\u201C\u201D]/g;
+const ELLIPSIS_REGEX = /\u2026/g;
 const FENCE_REGEX = /```[\s\S]*?```/g;
+
+/** Map a curly quote to its straight ASCII equivalent. */
+const STRAIGHT_QUOTE: Readonly<Record<string, string>> = {
+	"\u2018": "'",
+	"\u2019": "'",
+	"\u201C": '"',
+	"\u201D": '"',
+};
 const INLINE_CODE_REGEX = /`[^`\n]*`/g;
 const URL_REGEX = /https?:\/\/\S+/g;
 // Deliberately conservative: only tokens that clearly open as a
@@ -122,6 +209,28 @@ export function detectProseViolations(text: string): ProseViolation[] {
 
 	for (const match of prose.matchAll(EMDASH_REGEX)) {
 		violations.push({ kind: "emdash", found: match[0], rule: EMDASH_RULE });
+	}
+
+	for (const match of prose.matchAll(EMDASH_ESCAPE_REGEX)) {
+		violations.push({ kind: "emdash", found: match[0], rule: EMDASH_RULE });
+	}
+
+	for (const match of prose.matchAll(CURLY_QUOTE_REGEX)) {
+		violations.push({
+			kind: "curly-quote",
+			found: match[0],
+			suggestion: STRAIGHT_QUOTE[match[0]],
+			rule: CURLY_QUOTE_RULE,
+		});
+	}
+
+	for (const match of prose.matchAll(ELLIPSIS_REGEX)) {
+		violations.push({
+			kind: "ellipsis",
+			found: match[0],
+			suggestion: "...",
+			rule: ELLIPSIS_RULE,
+		});
 	}
 
 	for (const match of prose.matchAll(SPELLING_REGEX)) {

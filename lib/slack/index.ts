@@ -7,6 +7,7 @@
 
 export * from "./api/index.js";
 export * from "./auth/index.js";
+export { formatSlackBlock } from "./block-message.js";
 export {
 	extractCellText,
 	extractTables,
@@ -16,6 +17,11 @@ export {
 	renderRichTextCell,
 	tableToBlock,
 } from "./blocks.js";
+export {
+	type SlackGateDecision,
+	slackGateDecision,
+} from "./content-gate.js";
+export { detectSlackViolations, type SlackViolation } from "./detect.js";
 export * from "./renderers/index.js";
 export * from "./resolvers/index.js";
 

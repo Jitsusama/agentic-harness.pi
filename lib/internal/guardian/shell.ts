@@ -31,8 +31,18 @@ const HEREDOC_OPERATOR = /<<-?\s*['"]?\w+['"]?/;
  * quoted in the description — would be picked up as a real
  * flag and silently replace the user's intended message
  * once attribution-interceptor's rewrite kicks in.
+ *
+ * A `git commit -F <file>` (a real file, not `-F-` stdin) is
+ * resolved through the optional `readFile` reader, which is
+ * given the raw path and the command's `cd` base directory and
+ * returns the file's contents or null. Without a reader, or when
+ * the read fails, this returns null and the caller no-ops, so an
+ * unreadable file is a missed gate, never a wrong rewrite.
  */
-export function extractMessage(command: string): string | null {
+export function extractMessage(
+	command: string,
+	readFile?: (rawPath: string, baseDir: string | null) => string | null,
+): string | null {
 	const heredoc = matchHeredocs(command)[0];
 	if (heredoc) return heredoc.body;
 
@@ -46,7 +56,41 @@ export function extractMessage(command: string): string | null {
 			(match[1] ?? match[2] ?? match[3] ?? "").replace(/\\(.)/g, "$1"),
 		);
 	}
-	return messages.length > 0 ? messages.join("\n\n") : null;
+	if (messages.length > 0) return messages.join("\n\n");
+
+	return extractFileMessage(command, readFile);
+}
+
+/** Match a `-F <path>` or `--file <path>` (or `=path`) commit flag. */
+const COMMIT_FILE_FLAG = /(?:-F|--file)(?:\s+|=)("[^"]*"|'[^']*'|\S+)/;
+/** Match the first `cd <dir>` in a command, for relative path resolution. */
+const CD_TARGET = /(?:^|&&|;|\n)\s*cd\s+("[^"]*"|'[^']*'|\S+)/;
+
+/** Strip one layer of surrounding single or double quotes. */
+function unquote(token: string): string {
+	return token.replace(/^['"]|['"]$/g, "");
+}
+
+/**
+ * Resolve a `git commit -F <file>` message through the reader.
+ * Returns null when there is no file flag, when the path is `-`
+ * (stdin, handled elsewhere), when no reader is supplied, or when
+ * the read fails.
+ */
+function extractFileMessage(
+	command: string,
+	readFile?: (rawPath: string, baseDir: string | null) => string | null,
+): string | null {
+	if (!readFile) return null;
+	const flag = command.match(COMMIT_FILE_FLAG);
+	if (!flag?.[1]) return null;
+	const rawPath = unquote(flag[1]);
+	if (rawPath === "-") return null;
+	const cd = command.match(CD_TARGET);
+	const baseDir = cd?.[1] ? unquote(cd[1]) : null;
+	const contents = readFile(rawPath, baseDir);
+	if (contents === null) return null;
+	return contents.replace(/\n+$/, "");
 }
 
 /**

@@ -15,6 +15,14 @@ export interface HeredocMatch {
 	readonly body: string;
 	/** Whether the delimiter was quoted (`<<'EOF'`) or bare (`<<EOF`). */
 	readonly quoted: boolean;
+	/**
+	 * The opener-line tokens after the delimiter (a `2>&1 | tail -5`
+	 * redirect-and-pipe, say). Empty when nothing trails the
+	 * delimiter. The body starts on the next line regardless, so
+	 * these are command structure, not body, and a rebuild must
+	 * reattach them to the opener line or they vanish.
+	 */
+	readonly openerRest: string;
 	/** Start offset of the whole heredoc within the command. */
 	readonly index: number;
 	/** Length of the whole heredoc match. */
@@ -33,18 +41,24 @@ export interface HeredocMatch {
  */
 export function matchHeredocs(command: string): HeredocMatch[] {
 	// Group 1: optional quote around the delimiter. Group 2: the
-	// delimiter word. Group 3: the body. The closing delimiter is
+	// delimiter word. Group 3: the opener-line tokens after the
+	// delimiter (a redirect or pipe). Group 4: the body. The
+	// opener accepts anything up to the newline (`[^\n]*`) so a
+	// piped `gh ... <<'EOF' 2>&1 | tail -5` still parses; without
+	// it the gate, attribution and the unquoted-heredoc guard all
+	// go blind on the same command. The closing delimiter is
 	// matched via a backreference to group 2 and must sit on its
 	// own line (`\n\2`) with only trailing horizontal whitespace
 	// before the line end, anchored by `$` under `/m`.
-	const HEREDOC = /<<-?\s*(['"]?)(\w+)\1\s*\n([\s\S]*?)\n\2[ \t]*$/gm;
+	const HEREDOC = /<<-?\s*(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)\n\2[ \t]*$/gm;
 	const matches: HeredocMatch[] = [];
 	for (const match of command.matchAll(HEREDOC)) {
 		if (match.index === undefined) continue;
 		matches.push({
 			delim: match[2] ?? "",
-			body: match[3] ?? "",
+			body: match[4] ?? "",
 			quoted: match[1] !== "",
+			openerRest: match[3] ?? "",
 			index: match.index,
 			length: match[0].length,
 		});

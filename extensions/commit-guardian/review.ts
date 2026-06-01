@@ -15,9 +15,10 @@ import {
 	formatRedirectBlock,
 	type GuardianResult,
 } from "../../lib/guardian/index.js";
+import { readCommitFile } from "../../lib/internal/guardian/commit-file.js";
 import {
 	runProseGate,
-	sessionProseGateDeps,
+	sessionGateDeps,
 } from "../../lib/internal/guardian/prose-gate.js";
 import { promptSingle } from "../../lib/ui/index.js";
 import { extractCommitFlags, extractMessage, splitAtCommit } from "./parse.js";
@@ -48,7 +49,11 @@ export function createCommitGuardian(
 		},
 
 		parse(command) {
-			const message = extractMessage(command);
+			// Resolve a `git commit -F <file>` too, so the gate still
+			// sees the message when attribution is off or rewrote
+			// nothing (it normally translates the file to a heredoc
+			// before this runs).
+			const message = extractMessage(command, readCommitFile);
 			if (!message) return null;
 
 			const isAmend = /--amend\b/.test(command);
@@ -66,11 +71,13 @@ export function createCommitGuardian(
 			// body before the human gate; relent to human review on a
 			// repeat. prose-standard governs commit body tone, spelling
 			// and punctuation even though commit-format owns structure.
-			const proseBlock = runProseGate(
-				sessionProseGateDeps(ctx, pi),
-				parsed.message,
-			);
+			const proseBlock = runProseGate(sessionGateDeps(ctx, pi), parsed.message);
 			if (proseBlock) return proseBlock;
+
+			// Without a UI the gate has done its job and there is no
+			// panel to show; allow rather than block so headless and
+			// subagent commits are gated, not stalled.
+			if (!ctx.hasUI) return ALLOW;
 
 			const result = await promptSingle(ctx, {
 				title: parsed.isAmend ? "Amend Commit" : "Commit",
