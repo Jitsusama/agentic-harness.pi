@@ -17,7 +17,7 @@ import {
 } from "../../lib/guardian/index.js";
 import {
 	runProseGate,
-	sessionProseGateDeps,
+	sessionGateDeps,
 } from "../../lib/internal/guardian/prose-gate.js";
 import { promptSingle } from "../../lib/ui/index.js";
 import { extractCommitFlags, extractMessage, splitAtCommit } from "./parse.js";
@@ -66,10 +66,7 @@ export function createCommitGuardian(
 			// body before the human gate; relent to human review on a
 			// repeat. prose-standard governs commit body tone, spelling
 			// and punctuation even though commit-format owns structure.
-			const proseBlock = runProseGate(
-				sessionProseGateDeps(ctx, pi),
-				parsed.message,
-			);
+			const proseBlock = runProseGate(sessionGateDeps(ctx, pi), parsed.message);
 			if (proseBlock) return proseBlock;
 
 			const result = await promptSingle(ctx, {

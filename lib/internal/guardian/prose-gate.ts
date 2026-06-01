@@ -1,63 +1,20 @@
 /**
- * Guardian-side glue for the prose gate. Reads the prose-block
- * signatures recorded this session, asks the pure decision what
- * to do with a body, persists a new signature when it blocks,
- * and returns a guardian result. The decision logic lives in
- * lib/prose; this is only the read/persist wiring so the
- * extension can supply session-backed implementations.
+ * Guardian-side glue for the prose gate. Detects prose
+ * violations in a body, asks the pure decision what to do, and
+ * persists a new signature when it blocks. The decision logic
+ * lives in lib/prose and lib/gate; this is only the read/persist
+ * wiring against the shared session store.
  */
 
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
 import type { GuardianResult } from "../../guardian/types.js";
 import { detectProseViolations, proseGateDecision } from "../../prose/index.js";
+import type { GateDeps } from "./gate-deps.js";
 
-/** Session-backed signature store the gate reads and writes. */
-export interface ProseGateDeps {
-	/** Every prose-block signature recorded this session. */
-	readSignatures: () => string[];
-	/** Record a new block signature. */
-	persistSignature: (signature: string) => void;
-}
-
-/** The custom session-entry type that holds a prose-block signature. */
-const PROSE_BLOCK_ENTRY = "prose-block-signature";
-
-/**
- * Build session-backed gate deps. Signatures are read from the
- * session entries and persisted as custom entries, so the
- * relent logic survives across gate fires within a session.
- */
-export function sessionProseGateDeps(
-	ctx: ExtensionContext,
-	pi: ExtensionAPI,
-): ProseGateDeps {
-	return {
-		readSignatures: () => {
-			const signatures: string[] = [];
-			for (const entry of ctx.sessionManager.getEntries()) {
-				if (
-					entry.type === "custom" &&
-					"customType" in entry &&
-					entry.customType === PROSE_BLOCK_ENTRY &&
-					typeof (entry as { data?: unknown }).data === "string"
-				) {
-					signatures.push((entry as { data: string }).data);
-				}
-			}
-			return signatures;
-		},
-		persistSignature: (signature) => {
-			pi.appendEntry(PROSE_BLOCK_ENTRY, signature);
-		},
-	};
-}
+export { type GateDeps, sessionGateDeps } from "./gate-deps.js";
 
 /** Run the prose gate over a body. Returns a block or undefined. */
 export function runProseGate(
-	deps: ProseGateDeps,
+	deps: GateDeps,
 	body: string | null,
 ): GuardianResult {
 	if (!body) return undefined;

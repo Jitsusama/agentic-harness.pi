@@ -14,13 +14,21 @@ import type {
 } from "../../lib/guardian/types.js";
 import {
 	runProseGate,
-	sessionProseGateDeps,
+	sessionGateDeps,
 } from "../../lib/internal/guardian/prose-gate.js";
 import {
 	type EntityReviewConfig,
 	reviewMarkdownEntity,
 } from "../../lib/internal/guardian/review-entity.js";
+import { runSectionGate } from "../../lib/internal/guardian/section-gate.js";
+import { PR_SECTIONS } from "../../lib/sections/index.js";
 import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.js";
+
+const PR_SECTION_CONFIG = {
+	sanctioned: PR_SECTIONS,
+	entityLabel: "PR",
+	skill: "github-pr-format",
+};
 
 const PR_REVIEW_CONFIG: EntityReviewConfig = {
 	createTitle: "New PR",
@@ -48,13 +56,19 @@ export function createPrGuardian(pi: ExtensionAPI): CommandGuardian<PrCommand> {
 			parsed: PrCommand,
 			ctx: ExtensionContext,
 		): Promise<GuardianResult> {
+			const deps = sessionGateDeps(ctx, pi);
+
+			// Get the skeleton right before the prose. An invented or
+			// missing section is a structural problem; there is no point
+			// polishing the words in a section that should not exist, so
+			// the section gate runs first.
+			const sectionBlock = runSectionGate(deps, parsed.body, PR_SECTION_CONFIG);
+			if (sectionBlock) return sectionBlock;
+
 			// Block on detectable prose violations before the human
 			// gate, so the user reviews a clean PR body. The gate
 			// relents to the human review on a repeat to avoid looping.
-			const proseBlock = runProseGate(
-				sessionProseGateDeps(ctx, pi),
-				parsed.body,
-			);
+			const proseBlock = runProseGate(deps, parsed.body);
 			if (proseBlock) return proseBlock;
 
 			return reviewMarkdownEntity(ctx, parsed, PR_REVIEW_CONFIG);

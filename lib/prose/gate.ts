@@ -1,32 +1,25 @@
 /**
- * The prose gate decision: block a violation the first time, but
- * relent if the same violation set comes back, so a model that
- * cannot satisfy the rule does not loop forever. The user is
- * surfaced the relented violations rather than trapped in a cycle.
+ * The prose gate: a thin adapter over the shared loop breaker in
+ * lib/gate. It supplies the prose-specific block formatting and
+ * relent wording; the block-first, relent-on-repeat mechanism
+ * lives in decideGate so prose and sections share one behaviour.
  */
 
+import {
+	decideGate,
+	type GateDecision,
+	violationSignature,
+} from "../gate/index.js";
 import { formatProseBlock } from "./block.js";
 import type { ProseViolation } from "./detect.js";
 
-/** The gate's verdict on one artifact. */
-export interface ProseGateDecision {
-	/** allow: clean. block: first offence. relent: already blocked once. */
-	readonly action: "allow" | "block" | "relent";
-	/** Stable signature of this violation set, for the caller to persist. */
-	readonly signature: string;
-	/** Message for the AI (block) or the user (relent); empty when allowed. */
-	readonly message: string;
-}
+/** Re-exported so the prose barrel exposes one signature helper. */
+export { violationSignature };
 
-/** A stable, order-independent signature of a violation set. */
-export function violationSignature(violations: ProseViolation[]): string {
-	return violations
-		.map((v) => `${v.kind}:${v.found.toLowerCase()}`)
-		.sort()
-		.join("|");
-}
+/** The gate's verdict on one body of prose. */
+export type ProseGateDecision = GateDecision;
 
-const RELENT_MESSAGE = [
+const RELENT_PREFIX = [
 	"This text still breaks prose-standard after a previous attempt,",
 	"so it is being let through rather than blocked again. The",
 	"author could not satisfy the rule automatically; review the",
@@ -39,18 +32,10 @@ export function proseGateDecision(
 	violations: ProseViolation[],
 	priorSignatures: string[],
 ): ProseGateDecision {
-	if (violations.length === 0) {
-		return { action: "allow", signature: "", message: "" };
-	}
-
-	const signature = violationSignature(violations);
-	if (priorSignatures.includes(signature)) {
-		return {
-			action: "relent",
-			signature,
-			message: RELENT_MESSAGE + formatProseBlock(violations),
-		};
-	}
-
-	return { action: "block", signature, message: formatProseBlock(violations) };
+	return decideGate(
+		violations,
+		priorSignatures,
+		formatProseBlock,
+		RELENT_PREFIX,
+	);
 }
