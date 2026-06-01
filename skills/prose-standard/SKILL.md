@@ -53,10 +53,58 @@ related thought. A semi-colon can join two independent clauses.
 Parentheses can hold an aside. A period can end a thought and
 start a new one. These tools are more than sufficient.
 
+The ban covers every form the emdash takes, not just the
+rendered character. The literal `\u2014` escape sequence is an
+emdash wearing a disguise; it is banned too. So is the en-dash
+(`–`) when it is standing in for an emdash. When you need a pause
+or an aside, reach for the punctuation above, never a dash.
+
+**Use straight quotes, not curly ones.** Straight quotes (`"` and
+`'`) are what we type and what renders cleanly everywhere. The
+curly variants (`“”‘’`) creep in from copy-paste and word
+processors; they break in diffs, terminals and code spans.
+Replace them with their straight equivalents.
+
+**Spell out an ellipsis as three periods**, never the single
+Unicode ellipsis character (`…`). Three periods are what a reader
+types and what a search finds. Better still, ask whether the
+ellipsis earns its place at all; trailing off mid-thought is
+rarely the strongest way to end a sentence.
+
 **Omit the Oxford comma** unless the sentence would be
 ambiguous without it. In most lists, the comma before "and"
 is unnecessary clutter. But when dropping it could genuinely
 confuse the reader, include it for clarity's sake.
+
+## Decoration in Prose
+
+Prose carries its weight through words and structure, not
+typographic decoration. Two habits creep in from markdown and
+should stay out of running prose.
+
+**No markdown emphasis in prose.** Bold (`**word**`) and italic
+(`*word*` or `_word_`) decorate without informing. A sentence
+that needs a bolded word to land usually has too many words
+around the important one; the fix is to restructure the sentence
+so the key idea sits where the reader's eye naturally falls, not
+to reach for bold. Emphasis markup is fine in *structural*
+markdown (a bolded lead-in on a list item, a heading), but the
+body of a paragraph stays plain.
+
+**No backticks in prose.** Code spans are for actual code,
+commands, file paths and identifiers being quoted as literal
+tokens. A symbol name woven into a sentence as part of the
+argument is prose, not a quoted token, and reads fine in plain
+text. Reserve backticks for the cases where the reader needs to
+see the exact characters: a command to run, a path to open, a
+snippet of output. In a PR or commit body, the natural home for
+backtick'd code is a worked example or a validation excerpt, not
+the explanatory paragraphs.
+
+The reasoning is the same in both cases: decoration tends to
+expose prose that was doing too much. Strip the decoration and
+the weak sentence shows itself, which is the moment to rewrite
+it.
 
 ## Tone
 

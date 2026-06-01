@@ -67,6 +67,20 @@ See `git-cli-convention` for the heredoc command syntax
     this, users with sessions longer than 1 hour are forced to
     re-authenticate."
 - Multiple paragraphs separated by blank lines
+- The body is prose; it follows `prose-standard`. No emdashes,
+  Canadian spelling, and no markdown decoration: commit messages
+  are read in plain terminals where backticks and asterisks
+  render as literal characters, so symbol names, paths and
+  identifiers appear as plain prose, not code spans.
+
+## URI Indexing
+
+When the body cites a URI, index it rather than inlining the raw
+link. Place a numbered marker inline (`[1]`) and a `[1]:
+https://...` line in a footer block at the end of the body. A
+bare URL in the middle of a paragraph breaks the 72-character
+wrap and reads as noise in `git log`; the footer keeps the prose
+clean and the link recoverable.
 
 ## Breaking Changes
 

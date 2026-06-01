@@ -1,21 +1,27 @@
 ---
 name: github-pr-format
 description: >
-  PR description structure and narrative. Body organization,
-  story types, self-review guidance and title conventions.
+  PR description structure and narrative. The closed
+  three-section body (Situation, Resolution, Validation),
+  URI indexing, self-review guidance and title conventions.
   Use when writing or editing a pull request description.
-  Pairs with github-cli-convention for command syntax.
-  Follow the user's writing voice and prose style guides
-  for description text.
+  Pairs with github-cli-convention for command syntax and
+  markdown-standard for markdown structure. Follow the user's
+  writing voice and prose style guides for description text.
 ---
 
 # Pull Request Writing
 
-A PR has three layers: the code changes (reviewers can see
-those for themselves), the technical decisions (you need to
-explain those) and the business impact (you need to connect
-to that). The job is to build bridges from the inner layer
-to the outer one.
+A PR description is the narrative the reviewer reads before
+they open a single file. Done well it explains the situation
+that motivated the change, the resolution the change embodies
+and the validation that proves the resolution is correct. Done
+poorly it summarises the diff and adds nothing.
+
+This skill governs the shape and prose of a PR description.
+Follow `prose-standard` for voice and `markdown-standard` for
+markdown structure; see `github-cli-convention` for the command
+surface.
 
 ## Title
 
@@ -59,31 +65,61 @@ creating the child PR.
 
 ## Body Structure
 
-### 🔍 What We're Doing
+A PR description has exactly three sections, in this order. Each
+heading is the emoji and the name together, written precisely as
+shown. These three are the whole set; there are no optional
+sections and no others. A PR describes a change you have made:
+the problem it solved, what it did and the proof it works. Future
+work is not a PR's job. It belongs in an issue, not a heading
+here.
 
-One paragraph connecting the change to the problem it solves.
-Link to issues or references.
+### 🌐 Situation
 
-### 💡 Why This Matters
+Where things stood before this PR, and what motivated the change.
+The Situation answers "why does this PR exist?". It carries the
+context and the motivation together: the scenario that uncovered
+the gap, the failure mode the change retires, the risk it
+clears, the drift it corrects. This is the section the reader
+spends the most time on and the one they remember. It says what
+was wrong, not what you did about it.
 
-The "so what": why should anyone care? State the impact:
-"Without this, [specific bad thing] happens, causing
-[measurable consequence]."
+### 🔧 Resolution
 
-### 🔧 How It Works
+What this PR does about the situation, at the altitude a
+reviewer needs to navigate the diff. Name the mechanism, the
+shape change to any public surface, the side effects to
+anticipate (renames, moves, dependency bumps). This is the map,
+not the territory: the reviewer reads the diff after this
+section, so do not walk the diff line by line. It says what you
+did, not how every line works and not what you left for later.
 
-Key decisions and trade-offs only, not implementation
-details visible in the diff. "Chose A over B because C
-matters more than D for this use case."
+### 🔬 Validation
 
-## Story Types
+The evidence that the resolution is correct. Name the tests
+added or updated, the checks that pass, the manual runs
+performed, the edges deliberately probed. Output excerpts and
+code spans belong here when the change produces operator-visible
+output; this is the section where a fenced block or a code span
+is at home. A one-line "the suite passes" is weaker than naming
+what you added and what it proves. It says how you know it
+works, with evidence rather than assertion.
 
-Think about what kind of story the changes tell:
+The three answer, in order: what was wrong, what you did, how you
+know it works. Anything you want to add that is none of those
+three does not belong in the description.
 
-- **Performance**: lead with the metrics that were bad.
-- **Reliability**: lead with the failure scenarios.
-- **Security**: lead with the risk or compliance need.
-- **Feature**: lead with the user problem being solved.
+## URI Indexing
+
+Every URI in the description is a markdown reference link, never
+a raw inline URL. Inline, write `[descriptive label][1]`; in a
+footer block at the end of the body, write `[1]: https://...` on
+its own line. GitHub renders the reference as a hyperlink with
+the label as the visible text and the footer disappears, so the
+source stays readable and the render stays clean. Reuse a number
+for a repeated URI; keep the sequence low and ordered. The
+reference label is descriptive prose the reader scans, not
+"here" or "this link". See `markdown-standard` for the full
+reference-link convention.
 
 ## Self-Review Comments
 
@@ -164,22 +200,50 @@ Do NOT guess line numbers from the file contents. Do NOT
 retry with adjusted numbers after a 422; get them right
 the first time.
 
-## The Three Questions
+## Worked Example
 
-Every PR must answer:
+```markdown
+Part of #482
 
-1. What problem does this solve?
-2. Why this approach over alternatives?
-3. What could go wrong?
+### 🌐 Situation
+
+The runner's trace parser buffered partial frame reads and
+retried them. When the trace producer died mid-frame and the
+stream closed between two reads, the parser kept the partial
+frame forever and returned the same retry signal to the caller.
+Operators saw their run hang with no diagnostic, and the hang
+was reproducible by killing the producer during a fetch.
+
+### 🔧 Resolution
+
+The parser now treats a closed stream as an end signal when the
+underlying descriptor reports end-of-file. Partial frames at the
+close are discarded with a debug line, and the parser returns a
+clean end-of-stream that propagates up to the run loop as a
+normal completion.
+
+### 🔬 Validation
+
+Added a parser test covering the partial-frame-at-close case
+that reproduced the hang. The existing happy-path and
+complete-frame cases still pass. The full suite passes locally.
+```
+
+The Situation names the operator scenario and the failure mode.
+The Resolution names the mechanism without walking the diff. The
+Validation names the test added and what it proves.
 
 ## Quality Checks
 
 Before submitting:
 
+- Do the three sections each do their own job, with no overlap?
+  (Situation is the problem, Resolution is what you did,
+  Validation is the proof.)
 - Would a non-technical stakeholder understand the value?
-- Would a new team member know what to review carefully?
 - Would a senior engineer understand the trade-offs?
-- Is every claim backed by real data, not assumptions?
+- Is every claim in Validation backed by real evidence, not
+  assumption?
 
 ## After Creating
 
@@ -198,10 +262,22 @@ patterns, `--body-file -` and metadata in separate commands.
 
 ## What Not to Do
 
-- Don't hard-wrap body paragraphs; GitHub reflows them,
-  and hard breaks make the text choppy. Write each
-  paragraph as a single continuous line.
+- Don't add sections beyond the three. The set is closed:
+  🌐 Situation, 🔧 Resolution, 🔬 Validation. No Follow-ups, no
+  Notes, no References heading, no Testing or Description
+  section. Future work goes in an issue; links go in the URI
+  footer.
+- Don't change the heading shape. The headings are `### 🌐
+  Situation`, `### 🔧 Resolution`, `### 🔬 Validation`, exactly:
+  the emoji, the name, at the `###` level. Not `##`, not a bare
+  name, not a different emoji.
+- Don't hard-wrap body paragraphs; GitHub reflows them, and hard
+  breaks make the text choppy. Write each paragraph as a single
+  continuous line.
 - Don't list what changed; that's visible in the diff.
-- Don't use generic phrases like "improves performance."
-- Don't skip the "why" and jump to the "what."
-- Don't leave the review focus empty or vague.
+- Don't walk the diff in the Resolution; give the map, not the
+  territory.
+- Don't leave Validation as a bare "tests pass"; name what you
+  added and what it proves.
+- Don't inline a raw URL; every link is a reference into the URI
+  footer.
