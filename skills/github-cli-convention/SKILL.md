@@ -67,7 +67,12 @@ ISSUE_BODY
 
 - Use Title Case, not lowercase or sentence case.
 - Describe the outcome, not the task.
-- 50–72 characters.
+- Aim for 50 to 72 characters. The upper bound is enforced; the
+  lower bound is guidance. Past 72 characters the title truncates
+  in GitHub views and reads badly in logs, so the gate blocks it.
+  Short descriptive titles below 50 are fine when they say what
+  needs to be said ("Add Dark Mode Toggle" is 20 characters and
+  clear); the lower bound is a nudge, not a wall.
 - Formula: `[Action] [What] [For What Purpose]`
 
 Good: "Add Rate Limiting to Prevent API Abuse"
