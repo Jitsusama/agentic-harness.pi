@@ -13,7 +13,7 @@
  * of the tree.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type {
 	QuestAlias,
@@ -23,6 +23,7 @@ import type {
 import { buildAliasIndex, lookupAliasDetail } from "./alias-index.js";
 import { discoverQuests } from "./discovery.js";
 import { mintId } from "./id.js";
+import { atomicWriteFile } from "./io.js";
 import { scaffoldQuestReadme } from "./scaffold.js";
 
 /** A GitHub PR reference. */
@@ -152,7 +153,7 @@ export function findOrCreateSidequestForPr(
 	});
 
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(path, body, "utf8");
+	atomicWriteFile(path, body);
 
 	return {
 		sidequestId: id,

@@ -19,13 +19,7 @@
  * current date.
  */
 
-import {
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DocumentFrontMatter } from "../../quest/types.js";
 import {
@@ -33,6 +27,7 @@ import {
 	serializeDocumentFrontMatter,
 } from "./frontmatter.js";
 import { mintId } from "./id.js";
+import { atomicWriteFile } from "./io.js";
 
 /**
  * Cross-reviewer agreement metadata for one finding.
@@ -270,7 +265,7 @@ export function appendPrReviewRound(
 			updated: date,
 		};
 		const newText = `${serializeDocumentFrontMatter(fm)}\n\n${parsed.body.replace(/\s*$/, "")}\n\n${section}\n`;
-		writeFileSync(existing, newText, "utf8");
+		atomicWriteFile(existing, newText);
 		return {
 			path: existing,
 			docId: parsed.frontMatter.id,
@@ -303,6 +298,6 @@ export function appendPrReviewRound(
 	// say what the document is; the title in the body
 	// names the PR.
 	const path = join(researchDir, `${docId}.md`);
-	writeFileSync(path, body, "utf8");
+	atomicWriteFile(path, body);
 	return { path, docId, roundNumber: 1, isNew: true };
 }

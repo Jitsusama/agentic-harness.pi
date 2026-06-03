@@ -5,7 +5,7 @@
  * module bridges between disk artifacts and that state.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
 import {
@@ -17,6 +17,11 @@ import {
 	discoverQuests,
 	type QuestEntry,
 } from "../../lib/internal/quest/discovery.js";
+import {
+	atomicWriteFile,
+	atomicWriteUnderLock,
+	withQuestLock,
+} from "../../lib/internal/quest/io.js";
 import {
 	diffRanks,
 	type RankEntry,
@@ -196,9 +201,16 @@ export function unfocusDocument(state: QuestState): void {
 	refreshProgress(state);
 }
 
-/** Persist the focused document's stage back to disk. */
+/**
+ * Persist the focused document's stage back to disk.
+ *
+ * Mutates the in-memory `state.documentStage` only after
+ * the write returns, so a failed write does not diverge
+ * memory from disk.
+ */
 export function writeDocumentStage(state: QuestState, stage: Stage): void {
 	if (!state.documentPath) return;
+	const questDir = state.questDir;
 	let text: string;
 	try {
 		text = readFileSync(state.documentPath, "utf8");
@@ -213,35 +225,48 @@ export function writeDocumentStage(state: QuestState, stage: Stage): void {
 		updated: nowYmd(),
 	};
 	const newText = `${serializeDocumentFrontMatter(newFm)}\n${parsed.body}`;
-	writeFileSync(state.documentPath, newText, "utf8");
+	const documentPath = state.documentPath;
+	if (questDir) {
+		atomicWriteUnderLock(questDir, documentPath, newText);
+	} else {
+		atomicWriteFile(documentPath, newText);
+	}
 	state.documentStage = stage;
 }
 
 /** Append a Journey entry to the loaded quest's README. */
 export function appendJourneyEntry(state: QuestState, prose: string): void {
 	if (!state.questDir) return;
-	appendJourneyByPath(state.questDir, prose);
+	const ok = appendJourneyByPath(state.questDir, prose);
+	if (!ok) {
+		console.warn(
+			`[quest-workflow] failed to append Journey entry to ${state.questDir}; README missing or unreadable.`,
+		);
+		return;
+	}
 	stampQuestUpdated(state);
 }
 
 /** Update the loaded quest's `updated` frontmatter to today. */
 export function stampQuestUpdated(state: QuestState): void {
 	if (!state.questDir) return;
-	const path = join(state.questDir, "README.md");
-	let text: string;
-	try {
-		text = readFileSync(path, "utf8");
-	} catch {
-		return;
-	}
-	const parsed = parseQuestFrontMatter(text);
-	if (!parsed) return;
-	const fm: QuestFrontMatter = {
-		...parsed.frontMatter,
-		updated: nowYmd(),
-	};
-	const newText = `${serializeQuestFrontMatter(fm)}\n${parsed.body}`;
-	writeFileSync(path, newText, "utf8");
+	const questDir = state.questDir;
+	const path = join(questDir, "README.md");
+	withQuestLock(questDir, () => {
+		let text: string;
+		try {
+			text = readFileSync(path, "utf8");
+		} catch {
+			return;
+		}
+		const parsed = parseQuestFrontMatter(text);
+		if (!parsed) return;
+		const fm: QuestFrontMatter = {
+			...parsed.frontMatter,
+			updated: nowYmd(),
+		};
+		atomicWriteFile(path, `${serializeQuestFrontMatter(fm)}\n${parsed.body}`);
+	});
 }
 
 /** Restore on session_start by re-reading from disk if a quest dir was remembered. */
@@ -312,7 +337,9 @@ export function createDocument(
 	const dir = join(state.questDir, subDir[opts.kind]);
 	mkdirSync(dir, { recursive: true });
 	const path = join(dir, `${opts.id}.md`);
-	writeFileSync(path, opts.scaffoldBody, "utf8");
+	// New document; scaffold atomically. Subsequent writes go
+	// through writeDocumentStage which holds the lock too.
+	atomicWriteUnderLock(state.questDir, path, opts.scaffoldBody);
 	return path;
 }
 
@@ -411,24 +438,22 @@ export function reorderSiblings(
 
 function writeQuestRank(questDir: string, rank: number): void {
 	const path = join(questDir, "README.md");
-	let text: string;
-	try {
-		text = readFileSync(path, "utf8");
-	} catch {
-		return;
-	}
-	const parsed = parseQuestFrontMatter(text);
-	if (!parsed) return;
-	const fm: QuestFrontMatter = {
-		...parsed.frontMatter,
-		rank,
-		updated: nowYmd(),
-	};
-	writeFileSync(
-		path,
-		`${serializeQuestFrontMatter(fm)}\n${parsed.body}`,
-		"utf8",
-	);
+	withQuestLock(questDir, () => {
+		let text: string;
+		try {
+			text = readFileSync(path, "utf8");
+		} catch {
+			return;
+		}
+		const parsed = parseQuestFrontMatter(text);
+		if (!parsed) return;
+		const fm: QuestFrontMatter = {
+			...parsed.frontMatter,
+			rank,
+			updated: nowYmd(),
+		};
+		atomicWriteFile(path, `${serializeQuestFrontMatter(fm)}\n${parsed.body}`);
+	});
 }
 
 /** Build a reverse alias index across every discovered quest. */
@@ -442,31 +467,32 @@ function writeQuestFrontMatter(
 	mutate: (fm: QuestFrontMatter) => QuestFrontMatter | undefined,
 ): { ok: true; fm: QuestFrontMatter } | { ok: false; guidance: string } {
 	const path = join(questDir, "README.md");
-	let text: string;
-	try {
-		text = readFileSync(path, "utf8");
-	} catch (err) {
-		return {
-			ok: false,
-			guidance: `Cannot read ${path}: ${(err as Error).message}`,
-		};
-	}
-	const parsed = parseQuestFrontMatter(text);
-	if (!parsed) {
-		return {
-			ok: false,
-			guidance: `Quest README ${path} has invalid frontmatter.`,
-		};
-	}
-	const next = mutate(parsed.frontMatter);
-	if (!next) return { ok: true, fm: parsed.frontMatter };
-	const withStamp: QuestFrontMatter = { ...next, updated: nowYmd() };
-	writeFileSync(
-		path,
-		`${serializeQuestFrontMatter(withStamp)}\n${parsed.body}`,
-		"utf8",
-	);
-	return { ok: true, fm: withStamp };
+	return withQuestLock(questDir, () => {
+		let text: string;
+		try {
+			text = readFileSync(path, "utf8");
+		} catch (err) {
+			return {
+				ok: false as const,
+				guidance: `Cannot read ${path}: ${(err as Error).message}`,
+			};
+		}
+		const parsed = parseQuestFrontMatter(text);
+		if (!parsed) {
+			return {
+				ok: false as const,
+				guidance: `Quest README ${path} has invalid frontmatter.`,
+			};
+		}
+		const next = mutate(parsed.frontMatter);
+		if (!next) return { ok: true as const, fm: parsed.frontMatter };
+		const withStamp: QuestFrontMatter = { ...next, updated: nowYmd() };
+		atomicWriteFile(
+			path,
+			`${serializeQuestFrontMatter(withStamp)}\n${parsed.body}`,
+		);
+		return { ok: true as const, fm: withStamp };
+	});
 }
 
 /** Add an alias to the loaded quest. No-op if already present. */

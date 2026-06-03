@@ -8,13 +8,7 @@
  * disk artifacts and producing a human-facing message.
  */
 
-import {
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
 import {
@@ -23,6 +17,7 @@ import {
 } from "../../lib/internal/quest/alias-index.js";
 import { discoverQuests } from "../../lib/internal/quest/discovery.js";
 import { parseQuestFrontMatter } from "../../lib/internal/quest/frontmatter.js";
+import { atomicWriteFile } from "../../lib/internal/quest/io.js";
 import {
 	addTreeToQuest,
 	listTreesOnQuest,
@@ -332,7 +327,10 @@ async function create(
 		);
 	}
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(path, body, "utf8");
+	// Brand-new quest: no concurrent writers yet, but use the
+	// atomic-rename helper for consistency. Once the file is
+	// on disk, every subsequent write goes through the lock.
+	atomicWriteFile(path, body);
 	const result = loadQuest(state, pi, id);
 	if (!result.ok) return refuse(result.guidance);
 

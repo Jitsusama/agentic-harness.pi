@@ -7,8 +7,9 @@
  * to any quest the alias index points them at.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { atomicWriteFile, withQuestLock } from "./io.js";
 
 function nowYmd(now: () => Date): string {
 	const d = now();
@@ -23,43 +24,50 @@ function nowYmd(now: () => Date): string {
  * the Journey section is missing, append the whole section
  * with the bullet inside. `now` is injected so tests can
  * pin the date stamp.
+ *
+ * Returns `true` on success, `false` when the README is
+ * missing or unreadable so callers can log instead of
+ * silently dropping the journal entry.
  */
 export function appendJourneyByPath(
 	questDir: string,
 	prose: string,
 	opts?: { now?: () => Date },
-): void {
+): boolean {
 	const path = join(questDir, "README.md");
-	let text: string;
-	try {
-		text = readFileSync(path, "utf8");
-	} catch {
-		return;
-	}
-	const date = nowYmd(opts?.now ?? (() => new Date()));
-	const bullet = `- **${date}**: ${prose.trim()}`;
-	const journeyHeading = /^##\s+(?:[\u{1F300}-\u{1FFFF}]\s+)?Journey\s*$/mu;
-	const match = journeyHeading.exec(text);
-	let newText: string;
-	if (match) {
-		const lines = text.split("\n");
-		let lineIdx = 0;
-		let charCount = 0;
-		for (let i = 0; i < lines.length; i++) {
-			if (charCount + lines[i].length + 1 > match.index) {
-				lineIdx = i;
-				break;
+	return withQuestLock(questDir, () => {
+		let text: string;
+		try {
+			text = readFileSync(path, "utf8");
+		} catch {
+			return false;
+		}
+		const date = nowYmd(opts?.now ?? (() => new Date()));
+		const bullet = `- **${date}**: ${prose.trim()}`;
+		const journeyHeading = /^##\s+(?:[\u{1F300}-\u{1FFFF}]\s+)?Journey\s*$/mu;
+		const match = journeyHeading.exec(text);
+		let newText: string;
+		if (match) {
+			const lines = text.split("\n");
+			let lineIdx = 0;
+			let charCount = 0;
+			for (let i = 0; i < lines.length; i++) {
+				if (charCount + lines[i].length + 1 > match.index) {
+					lineIdx = i;
+					break;
+				}
+				charCount += lines[i].length + 1;
 			}
-			charCount += lines[i].length + 1;
+			let insertAt = lineIdx + 1;
+			while (insertAt < lines.length && lines[insertAt].trim() === "") {
+				insertAt++;
+			}
+			lines.splice(insertAt, 0, bullet);
+			newText = lines.join("\n");
+		} else {
+			newText = `${text.replace(/\n*$/, "\n")}\n## 🌄 Journey\n\n${bullet}\n`;
 		}
-		let insertAt = lineIdx + 1;
-		while (insertAt < lines.length && lines[insertAt].trim() === "") {
-			insertAt++;
-		}
-		lines.splice(insertAt, 0, bullet);
-		newText = lines.join("\n");
-	} else {
-		newText = `${text.replace(/\n*$/, "\n")}\n## 🌄 Journey\n\n${bullet}\n`;
-	}
-	writeFileSync(path, newText, "utf8");
+		atomicWriteFile(path, newText);
+		return true;
+	});
 }

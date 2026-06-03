@@ -8,13 +8,14 @@
  * find the quest from inside the tree.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { QuestAlias, QuestTree } from "../../quest/types.js";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
 } from "./frontmatter.js";
+import { atomicWriteFile, withQuestLock } from "./io.js";
 
 /** Path to a quest's README. */
 function questReadme(questDir: string): string {
@@ -35,22 +36,23 @@ function withQuestFrontMatter<T>(
 	const path = questReadme(questDir);
 	if (!existsSync(path))
 		return { ok: false, reason: "Quest README not found." };
-	const text = readFileSync(path, "utf8");
-	const parsed = parseQuestFrontMatter(text);
-	if (!parsed) {
-		return { ok: false, reason: "Quest README has no readable frontmatter." };
-	}
-	const outcome = mutate(parsed);
-	if (!outcome.ok) return outcome;
-	const next = outcome.fm as unknown as Parameters<
-		typeof serializeQuestFrontMatter
-	>[0];
-	writeFileSync(
-		path,
-		`${serializeQuestFrontMatter(next)}\n${parsed.body}`,
-		"utf8",
-	);
-	return { ok: true, result: outcome.fm };
+	return withQuestLock(questDir, () => {
+		const text = readFileSync(path, "utf8");
+		const parsed = parseQuestFrontMatter(text);
+		if (!parsed) {
+			return {
+				ok: false as const,
+				reason: "Quest README has no readable frontmatter.",
+			};
+		}
+		const outcome = mutate(parsed);
+		if (!outcome.ok) return outcome;
+		const next = outcome.fm as unknown as Parameters<
+			typeof serializeQuestFrontMatter
+		>[0];
+		atomicWriteFile(path, `${serializeQuestFrontMatter(next)}\n${parsed.body}`);
+		return { ok: true as const, result: outcome.fm };
+	});
 }
 
 function ensureAlias(aliases: QuestAlias[], alias: QuestAlias): boolean {
@@ -139,6 +141,10 @@ export function listTreesOnQuest(
 	const path = questReadme(questDir);
 	if (!existsSync(path))
 		return { ok: false, reason: "Quest README not found." };
+	// Read-only: the atomic-rename write contract guarantees
+	// observers see either the old or the new file in full,
+	// so this readFileSync cannot tear against a concurrent
+	// writer.
 	const text = readFileSync(path, "utf8");
 	const parsed = parseQuestFrontMatter(text);
 	if (!parsed) {
