@@ -17,6 +17,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Ref } from "../../refs/index.js";
+import {
+	sanitizeExcerpt,
+	sanitizeHandle,
+	sanitizeSingleLine,
+} from "./sanitize.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -115,14 +120,17 @@ async function fetchGhJson(
 	]);
 	const data = JSON.parse(stdout) as GhIssueOrPrJson;
 	const hints: SeedHints = {};
-	if (data.title) hints.title = data.title;
+	if (data.title) {
+		hints.title = sanitizeSingleLine(data.title);
+	}
 	if (data.body) {
-		const trimmed = data.body.trim();
-		hints.excerpt =
-			trimmed.length > 400 ? `${trimmed.slice(0, 400)}...` : trimmed;
+		hints.excerpt = sanitizeExcerpt(data.body);
 	}
 	if (data.author?.login) {
-		hints.originator = { type: "github", value: data.author.login };
+		const handle = sanitizeHandle(data.author.login);
+		if (handle.length > 0) {
+			hints.originator = { type: "github", value: handle };
+		}
 	}
 	return Object.keys(hints).length > 0 ? hints : undefined;
 }

@@ -80,6 +80,46 @@ describe("quest discipline", () => {
 		expect(result?.block).toBe(true);
 	});
 
+	it("blocks git with global options between git and the verb", () => {
+		const state = stateFixture({ documentStage: "think" });
+		for (const cmd of [
+			"git -c user.email=x@y commit -m foo",
+			"git -C /tmp/repo commit -am foo",
+			"git --git-dir=/tmp/.git add .",
+			"git -c gc.auto=0 push origin main",
+		]) {
+			const result = enforceQuest(state, "bash", { command: cmd }, "/tmp");
+			expect(result?.block, `expected ${cmd} to be blocked`).toBe(true);
+		}
+	});
+
+	it("nudges the agent away from common bash write paths during plan draft", () => {
+		const state = stateFixture({ documentStage: "draft" });
+		for (const cmd of [
+			"cat > foo.ts",
+			"echo hello >> notes.md",
+			"sed -i 's/x/y/g' src/foo.ts",
+			"perl -i -pe 's/x/y/' src/foo.ts",
+			"tee -a out.log",
+		]) {
+			const result = enforceQuest(state, "bash", { command: cmd }, "/tmp");
+			expect(result?.block, `expected ${cmd} to be blocked`).toBe(true);
+		}
+	});
+
+	it("does not nudge for read-only bash during plan draft", () => {
+		const state = stateFixture({ documentStage: "draft" });
+		for (const cmd of [
+			"ls -la",
+			"cat src/foo.ts",
+			"grep needle src",
+			"git status",
+		]) {
+			const result = enforceQuest(state, "bash", { command: cmd }, "/tmp");
+			expect(result?.block, `${cmd} should not be blocked`).toBeFalsy();
+		}
+	});
+
 	it("isFocusedDocWrite recognises edits to the focused doc", () => {
 		const state = stateFixture();
 		const path = state.documentPath ?? "";

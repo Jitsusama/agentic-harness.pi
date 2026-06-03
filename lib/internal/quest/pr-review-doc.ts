@@ -28,6 +28,10 @@ import {
 } from "./frontmatter.js";
 import { mintId } from "./id.js";
 import { atomicWriteFile } from "./io.js";
+import { escapeMarkdownStructure } from "./sanitize.js";
+
+/** Subject tag stored on the doc's frontmatter so findExistingDoc can match it without parsing the body. */
+const PR_REVIEW_SUBJECT = "pr-review";
 
 /**
  * Cross-reviewer agreement metadata for one finding.
@@ -129,12 +133,17 @@ function renderOneFinding(
 	critiques?: ReviewDocCritique[],
 ): string[] {
 	const severity = finding.severity ? ` (${finding.severity})` : "";
+	// Discussion prose is reviewer-authored. Escape leading
+	// `#` and `##` so a finding cannot pose as a new round
+	// or finding heading inside the doc the agent reads.
+	const escapedDiscussion = escapeMarkdownStructure(finding.discussion.trim());
+	const escapedSubject = finding.subject.replace(/[\r\n]+/g, " ");
 	const lines: string[] = [
-		`#### Finding ${finding.id} \u2014 ${finding.label}: ${finding.subject}${severity}`,
+		`#### Finding ${finding.id} \u2014 ${finding.label}: ${escapedSubject}${severity}`,
 		"",
 		`Location: ${renderLocation(finding.location)}.`,
 		"",
-		finding.discussion.trim(),
+		escapedDiscussion,
 	];
 	const agreement = renderAgreement(finding.agreement);
 	if (agreement) {
@@ -212,24 +221,33 @@ function nowYmd(now: () => Date): string {
 	return `${y}-${m}-${day}`;
 }
 
-function findExistingDoc(researchDir: string): string | undefined {
+/**
+ * Find the PR-review research doc for a sidequest by
+ * matching the frontmatter marker (`kind: research,
+ * subject: pr-review`) rather than parsing the body's H1.
+ * The H1 is reviewer-prose-adjacent and could be shadowed
+ * by a hostile finding subject; the frontmatter is ours.
+ */
+function findExistingDoc(researchDir: string):
+	| {
+			path: string;
+			parsed: NonNullable<ReturnType<typeof parseDocumentFrontMatter>>;
+	  }
+	| undefined {
 	if (!existsSync(researchDir)) return undefined;
 	const entries = readdirSync(researchDir);
-	// Single-doc-per-sidequest convention: the first
-	// markdown file whose body starts with the PR review
-	// H1 wins. We don't pin the filename so we can read
-	// docs back regardless of how they were named.
 	for (const name of entries) {
 		if (!name.endsWith(".md")) continue;
-		const text = readFileSync(join(researchDir, name), "utf8");
-		if (/^#\s+PR Review:/m.test(text)) return join(researchDir, name);
+		const full = join(researchDir, name);
+		const text = readFileSync(full, "utf8");
+		const parsed = parseDocumentFrontMatter(text);
+		if (!parsed) continue;
+		if (parsed.frontMatter.kind !== "research") continue;
+		if (parsed.frontMatter.subject === PR_REVIEW_SUBJECT) {
+			return { path: full, parsed };
+		}
 	}
 	return undefined;
-}
-
-function countRounds(body: string): number {
-	const matches = body.match(/^##\s+Round\s+\d+/gm);
-	return matches ? matches.length : 0;
 }
 
 /**
@@ -246,29 +264,27 @@ export function appendPrReviewRound(
 	const date = input.date || nowYmd(now);
 
 	if (existing) {
-		const text = readFileSync(existing, "utf8");
-		const parsed = parseDocumentFrontMatter(text);
-		if (!parsed) {
-			throw new Error(
-				`Existing review doc at ${existing} has no readable frontmatter.`,
-			);
-		}
-		const roundNumber = countRounds(parsed.body) + 1;
+		// Round number is anchored to frontmatter so a
+		// reviewer finding whose discussion starts with
+		// `## Round 99` cannot inflate the count.
+		const priorRounds = existing.parsed.frontMatter.rounds ?? 0;
+		const roundNumber = priorRounds + 1;
 		const section = renderPrReviewRound({
 			...input,
 			roundNumber,
 			date,
 		});
-		// Bump `updated`, keep everything else.
 		const fm: DocumentFrontMatter = {
-			...parsed.frontMatter,
+			...existing.parsed.frontMatter,
 			updated: date,
+			rounds: roundNumber,
+			subject: PR_REVIEW_SUBJECT,
 		};
-		const newText = `${serializeDocumentFrontMatter(fm)}\n\n${parsed.body.replace(/\s*$/, "")}\n\n${section}\n`;
-		atomicWriteFile(existing, newText);
+		const newText = `${serializeDocumentFrontMatter(fm)}\n\n${existing.parsed.body.replace(/\s*$/, "")}\n\n${section}\n`;
+		atomicWriteFile(existing.path, newText);
 		return {
-			path: existing,
-			docId: parsed.frontMatter.id,
+			path: existing.path,
+			docId: existing.parsed.frontMatter.id,
 			roundNumber,
 			isNew: false,
 		};
@@ -282,6 +298,8 @@ export function appendPrReviewRound(
 		quest: input.sidequestId,
 		stage: "build",
 		updated: date,
+		rounds: 1,
+		subject: PR_REVIEW_SUBJECT,
 	};
 	const fmBlock = serializeDocumentFrontMatter(fm);
 	const section = renderPrReviewRound({ ...input, roundNumber: 1, date });

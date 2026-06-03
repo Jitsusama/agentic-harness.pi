@@ -95,6 +95,39 @@ export function createQuestState(opts: {
 	};
 }
 
-/** Git-mutating bash commands: blocked while in think or draft on a plan. */
+/**
+ * Bash commands that mutate code or repo state, blocked
+ * while in think or draft on a plan.
+ *
+ * This is agent discipline, not a sandbox: it nudges the
+ * agent toward the right phase rather than enforcing
+ * security. A determined caller can always bypass through
+ * a tool we haven't pattern-matched on. The patterns cover
+ * the common-case write paths an agent reaches for
+ * accidentally.
+ *
+ * The git regex tolerates global options between `git`
+ * and the verb (`-c k=v`, `-C path`, `--git-dir=...`,
+ * `--work-tree=...`) so a `git -c user.email=...` form
+ * does not slip past.
+ */
 export const GIT_MUTATING =
-	/\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|stash|cherry-pick|revert|tag)\b/i;
+	/\bgit(?:\s+(?:-c\s+\S+|-C\s+\S+|--git-dir=\S+|--work-tree=\S+|--no-pager))*\s+(add|commit|push|pull|merge|rebase|reset|checkout|stash|cherry-pick|revert|tag|switch|restore|am|format-patch)\b/i;
+
+/**
+ * Bash patterns that write to the filesystem outside the
+ * quest tree. Same advisory contract as GIT_MUTATING: a
+ * nudge toward the focused stage, not a security boundary.
+ * The agent uses the pi `write`/`edit` tools for normal
+ * code edits; bash redirection is the path that escaped
+ * the discipline before.
+ */
+export const BASH_WRITE_PATTERNS = [
+	/(^|\s|[;&|`])cat\s+[^|]*>>?\s/, // cat > foo, cat >> foo
+	/(^|\s|[;&|`])tee\s+(?:-[a-z]+\s+)*\S/, // tee foo, tee -a foo
+	/(^|\s|[;&|`])sed\s+(?:-[a-z]+\s+)*-i\b/, // sed -i
+	/(^|\s|[;&|`])gsed\s+(?:-[a-z]+\s+)*-i\b/, // homebrew sed
+	/(^|\s|[;&|`])perl\s+(?:-[a-z]+\s+)*-i\b/, // perl -i
+	/(^|\s|[;&|`])printf\s+.+>>?\s/, // printf > foo
+	/(^|\s|[;&|`])echo\s+.+>>?\s/, // echo > foo
+];

@@ -19,10 +19,16 @@ import { randomBytes } from "node:crypto";
 export const ID_PREFIXES = ["QEST", "PLAN", "RSCH", "BRIF", "RPRT"] as const;
 export type IdPrefix = (typeof ID_PREFIXES)[number];
 
+// YYYY: 1900-2999. MM: 01-12. DD: 01-31. This is a
+// shape check, not a perfect calendar validator: it
+// rejects the obvious garbage (00000000, 20261345) the
+// old `\d{8}` accepted while staying cheap.
+const DATE_PATTERN =
+	"(?:19|2[0-9])\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])";
 const ID_REGEX = new RegExp(
-	`^(${ID_PREFIXES.join("|")})-(\\d{8})-([0-9A-Z]{6})$`,
+	`^(${ID_PREFIXES.join("|")})-(${DATE_PATTERN})-([0-9A-Z]{6})$`,
 );
-const ID_REGEX_BODY = `(${ID_PREFIXES.join("|")})-(\\d{8})-([0-9A-Z]{6})`;
+const ID_REGEX_BODY = `(${ID_PREFIXES.join("|")})-(${DATE_PATTERN})-([0-9A-Z]{6})`;
 
 function pad(n: number): string {
 	return String(n).padStart(2, "0");

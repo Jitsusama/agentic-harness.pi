@@ -181,6 +181,28 @@ describe("reactive no-tree guardian", () => {
 		expect(verdict).toBeUndefined();
 	});
 
+	it("allows writes to any path under the loaded quest dir, not just named subdirs", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "build",
+			skipTree: true,
+		});
+		// notes.md at the quest root and a custom runs/ dir
+		// should both be considered quest-internal, not
+		// external code writes that need a tree.
+		for (const rel of ["notes.md", "runs/2026-06-03.log"]) {
+			const p = join(state.questDir ?? "", rel);
+			const verdict = enforceQuest(
+				state,
+				"write",
+				{ path: p },
+				state.questDir ?? "",
+			);
+			expect(verdict).toBeUndefined();
+		}
+	});
+
 	it("allows writes when a tree exists", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);

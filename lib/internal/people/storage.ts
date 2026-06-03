@@ -103,6 +103,13 @@ export class PeopleStorage {
 	}
 
 	delete(id: string): void {
+		// Validate the id with the same rule as write: a
+		// `delete("../etc/passwd.md")` from an untrusted caller
+		// would otherwise compose into the storage directory.
+		// Latent today (every call site passes a parsed id),
+		// but the asymmetry between write and delete was a
+		// real footgun.
+		assertValidId(id);
 		this.ensureLoaded();
 		this.cache.delete(id);
 		const file = join(this.dir, `${id}.md`);

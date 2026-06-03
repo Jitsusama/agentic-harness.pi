@@ -49,6 +49,14 @@ describe("isId / prefixOf / dateOf", () => {
 		expect(isId("not-an-id")).toBe(false);
 	});
 
+	it("rejects impossible calendar dates that pass digit-count", () => {
+		expect(isId("QEST-00000000-AAAAAA")).toBe(false); // year 0000
+		expect(isId("QEST-20261345-AAAAAA")).toBe(false); // month 13, day 45
+		expect(isId("QEST-20260230-AAAAAA")).toBe(true); // Feb 30 still passes (shape, not calendar)
+		expect(isId("QEST-20260001-AAAAAA")).toBe(false); // month 00
+		expect(isId("QEST-20260100-AAAAAA")).toBe(false); // day 00
+	});
+
 	it("prefixOf returns undefined for invalid", () => {
 		expect(prefixOf("not-an-id")).toBeUndefined();
 	});

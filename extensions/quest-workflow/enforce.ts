@@ -16,9 +16,11 @@
 import * as path from "node:path";
 import type { ToolCallEventResult } from "@mariozechner/pi-coding-agent";
 import { listTreesOnQuest } from "../../lib/internal/quest/trees.js";
-import { GIT_MUTATING, type QuestState } from "./state.js";
+import { BASH_WRITE_PATTERNS, GIT_MUTATING, type QuestState } from "./state.js";
 
-const DOC_SUBDIRS = ["plans", "research", "briefs", "reports"];
+function looksLikeBashWrite(command: string): boolean {
+	return BASH_WRITE_PATTERNS.some((rx) => rx.test(command));
+}
 
 function isReadOnly(state: QuestState): boolean {
 	if (state.documentKind !== "plan") return false;
@@ -39,10 +41,14 @@ export function isFocusedDocWrite(
 }
 
 /**
- * Whether the write target lives under the loaded quest's
- * own directory (the README or any document subdir). Such
- * writes are always considered "on the quest itself" and
- * don't trigger the no-tree guardian.
+ * Whether the write target lives anywhere under the loaded
+ * quest's own directory. Such writes are always considered
+ * "on the quest itself" and don't trigger the no-tree
+ * guardian. The previous version only matched README.md
+ * plus four named subdirs, so a write to
+ * `<questDir>/notes.md` or to any human-added folder
+ * (`<questDir>/runs/`, `<questDir>/workloads/`) was
+ * misclassified as an external code write.
  */
 function isQuestInternalWrite(
 	input: Record<string, unknown>,
@@ -52,9 +58,9 @@ function isQuestInternalWrite(
 	if (!questDir) return false;
 	const resolved = path.resolve(cwd, String(input.path ?? ""));
 	const questResolved = path.resolve(questDir);
-	if (resolved === path.join(questResolved, "README.md")) return true;
-	return DOC_SUBDIRS.some((sub) =>
-		resolved.startsWith(`${path.join(questResolved, sub)}${path.sep}`),
+	return (
+		resolved === questResolved ||
+		resolved.startsWith(`${questResolved}${path.sep}`)
 	);
 }
 
@@ -100,11 +106,20 @@ export function enforceQuest(
 			};
 		}
 
-		if (toolName === "bash" && GIT_MUTATING.test(String(input.command ?? ""))) {
-			return {
-				block: true,
-				reason: `Quest workflow (plan ${state.documentStage}): git-mutating command blocked. Move to build first.`,
-			};
+		if (toolName === "bash") {
+			const command = String(input.command ?? "");
+			if (GIT_MUTATING.test(command)) {
+				return {
+					block: true,
+					reason: `Quest workflow (plan ${state.documentStage}): git-mutating command blocked. Move to build first.`,
+				};
+			}
+			if (looksLikeBashWrite(command)) {
+				return {
+					block: true,
+					reason: `Quest workflow (plan ${state.documentStage}): bash write pattern blocked (sed -i, cat >, tee, etc.). Use the write/edit tools, or move to build first. This is agent discipline, not a sandbox: pass the work through the right phase.`,
+				};
+			}
 		}
 	}
 
