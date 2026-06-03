@@ -28,10 +28,8 @@ import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
 import { postReview } from "../../lib/internal/github/review-post.js";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
-import {
-	findOrCreateSidequestForPr,
-	getQuestPrBridge,
-} from "../../lib/quest/index.js";
+import { findOrCreateSidequestForPr } from "../../lib/internal/quest/pr-sidequest.js";
+import { getQuestPrBridge } from "../../lib/quest/pr-bridge.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
 import { recoverReviewerRuns } from "../../lib/subagent/recovery.js";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.js";

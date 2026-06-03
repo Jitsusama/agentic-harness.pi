@@ -8,8 +8,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { findOrCreateSidequestForPr } from "../../../lib/internal/quest/pr-sidequest";
 import {
-	findOrCreateSidequestForPr,
 	getQuestPrBridge,
 	parseQuestFrontMatter,
 	registerQuestPrBridge,

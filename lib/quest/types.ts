@@ -8,8 +8,6 @@
  * lives under a quest's directory.
  */
 
-import type { IdPrefix } from "../internal/quest/id.js";
-
 export type QuestKind = "quest" | "subquest" | "sidequest";
 
 export type QuestStatus =
@@ -75,6 +73,10 @@ export interface QuestTree {
  * A prune attempt blocked on safety: dirty state, unmerged
  * branch, attached session. Persisted on the quest so the
  * workflow can resume the conversation after a restart.
+ *
+ * Stored as an array on `QuestFrontMatter.pendingPrune` so
+ * a quest can carry several blocked trees at once (a
+ * `retire` may surface more than one).
  */
 export interface PendingPrune {
 	/** Path of the tree the user is trying to prune. */
@@ -114,7 +116,21 @@ export interface QuestFrontMatter {
 	aliases: QuestAlias[];
 	sessions: QuestSession[];
 	trees?: QuestTree[];
-	pendingPrune?: PendingPrune;
+	pendingPrune?: PendingPrune[];
+	/**
+	 * Bag of unrecognised top-level frontmatter keys we read
+	 * back from disk so we can write them out unchanged. The
+	 * README is human-editable; user-added fields survive
+	 * round-trip.
+	 */
+	_extra?: Record<string, unknown>;
+	/**
+	 * Document id of the plan the agent first drafts on this
+	 * quest. The build-stage tree gate consults this so the
+	 * "primary plan" definition is deterministic across
+	 * file-system orderings.
+	 */
+	primaryPlanId?: string;
 }
 
 /** Frontmatter for a quest document (plan, research, etc.). */
@@ -124,6 +140,18 @@ export interface DocumentFrontMatter {
 	quest: string;
 	stage: DocumentStage;
 	updated: string;
+	/**
+	 * Round counter for a research doc that records repeated
+	 * passes against the same subject (e.g. council reviews).
+	 * Persisted in frontmatter so consumers don't have to
+	 * count headings in the body to know which round they are
+	 * appending.
+	 */
+	rounds?: number;
+	/** Subject tag, e.g. "pr-review". Used for round-trip matching. */
+	subject?: string;
+	/** Bag of unrecognised top-level keys, mirrored from QuestFrontMatter. */
+	_extra?: Record<string, unknown>;
 }
 
 /** A parsed quest README. */
@@ -156,12 +184,3 @@ export interface JourneyEntry {
 	date: string;
 	prose: string;
 }
-
-/** Map from ID prefix to document kind. Useful for routing. */
-export const PREFIX_TO_KIND: Record<IdPrefix, QuestKind | DocumentKind> = {
-	QEST: "quest",
-	PLAN: "plan",
-	RSCH: "research",
-	BRIF: "brief",
-	RPRT: "report",
-};

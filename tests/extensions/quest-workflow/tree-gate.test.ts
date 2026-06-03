@@ -90,12 +90,12 @@ describe("build-stage tree gate", () => {
 		if (!result.ok) expect(result.guidance).toMatch(/tree-add/);
 	});
 
-	it("allows build when the agent passes note:no-tree", async () => {
+	it("allows build when the agent passes skipTree:true", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		const result = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "build",
-			note: "no-tree",
+			skipTree: true,
 		});
 		expect(result.ok).toBe(true);
 	});
@@ -121,7 +121,7 @@ describe("reactive no-tree guardian", () => {
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "build",
-			note: "no-tree",
+			skipTree: true,
 		});
 		const verdict = enforceQuest(
 			state,
@@ -138,7 +138,7 @@ describe("reactive no-tree guardian", () => {
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "build",
-			note: "no-tree",
+			skipTree: true,
 		});
 		const docPath = join(state.questDir ?? "", "plans", "PLAN-something.md");
 		const verdict = enforceQuest(

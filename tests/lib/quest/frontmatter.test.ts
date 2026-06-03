@@ -97,15 +97,52 @@ describe("quest front-matter", () => {
 					zones: ["system/gitstream", "system/mirror"],
 				},
 			],
-			pendingPrune: {
-				path: "/Users/joel/src/world/.worktrees/old",
-				reason: "dirty",
-				detectedAt: "2026-06-03T19:00:00Z",
-			},
+			pendingPrune: [
+				{
+					path: "/Users/joel/src/world/.worktrees/old",
+					reason: "dirty",
+					detectedAt: "2026-06-03T19:00:00Z",
+				},
+				{
+					path: "/Users/joel/src/world/.worktrees/older",
+					reason: "unmerged",
+					detectedAt: "2026-06-04T08:00:00Z",
+				},
+			],
 		};
 		const text = `${serializeQuestFrontMatter(fm)}\n# Title\n`;
 		const parsed = parseQuestFrontMatter(text);
 		expect(parsed?.frontMatter).toEqual(fm);
+	});
+
+	it("reads a legacy scalar pendingPrune as a one-entry array", () => {
+		const legacy = [
+			"---",
+			"id: QEST-20260603-AAA111",
+			"kind: quest",
+			"parent: null",
+			"status: active",
+			"priority: active",
+			"rank: 1",
+			"started: 2026-06-03",
+			"updated: 2026-06-04",
+			"aliases: []",
+			"sessions: []",
+			"pendingPrune:",
+			"  path: /tmp/x",
+			"  reason: dirty",
+			"  detectedAt: 2026-06-03T19:00:00Z",
+			"---",
+			"# Title",
+		].join("\n");
+		const parsed = parseQuestFrontMatter(legacy);
+		expect(parsed?.frontMatter.pendingPrune).toEqual([
+			{
+				path: "/tmp/x",
+				reason: "dirty",
+				detectedAt: "2026-06-03T19:00:00Z",
+			},
+		]);
 	});
 
 	it("omits trees and pendingPrune when absent", () => {

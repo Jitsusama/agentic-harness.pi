@@ -188,11 +188,12 @@ describe("tree-prune", () => {
 		expect(pruned.ok).toBe(false);
 		expect(existsSync(treePath)).toBe(true);
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
-		expect(fm?.pendingPrune?.path).toBe(treePath);
-		expect(fm?.pendingPrune?.reason).toMatch(/uncommitted/);
+		expect(fm?.pendingPrune).toHaveLength(1);
+		expect(fm?.pendingPrune?.[0].path).toBe(treePath);
+		expect(fm?.pendingPrune?.[0].reason).toMatch(/uncommitted/);
 	});
 
-	it("force-prunes a dirty tree and clears pendingPrune", async () => {
+	it("force-prunes a dirty tree and clears the pendingPrune for that path", async () => {
 		const state = buildState();
 		const q = await createQuest(state, "Feature F");
 		const added = await handle(state, fakePi(), fakeCtx(repoRoot), {
@@ -202,10 +203,23 @@ describe("tree-prune", () => {
 		});
 		const treePath = (added.details as { tree: { path: string } }).tree.path;
 		writeFileSync(join(treePath, "scratch.txt"), "dirty\n");
+		// Non-force prune first: the refusal records a
+		// pendingPrune entry against this tree's path.
+		const blocked = await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "tree-prune",
+			target: treePath,
+		});
+		expect(blocked.ok).toBe(false);
+		const blockedFm = parseQuestFrontMatter(
+			readFileSync(q.path, "utf8"),
+		)?.frontMatter;
+		expect(blockedFm?.pendingPrune?.[0].path).toBe(treePath);
+
+		// Force-prune second: succeeds and clears the entry.
 		const pruned = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "tree-prune",
 			target: treePath,
-			note: "force",
+			force: true,
 		});
 		expect(pruned.ok).toBe(true);
 		expect(existsSync(treePath)).toBe(false);

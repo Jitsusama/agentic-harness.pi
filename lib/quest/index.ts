@@ -2,30 +2,20 @@
  * Public surface of the quest library.
  *
  * Pure data model: ID minting, frontmatter parsing,
- * scaffolding, TOC generation, discovery walk and the
- * reverse-mention index. The quest extension wires these
- * into Pi's lifecycle; downstream packages can use them to
- * read quest state without loading the extension.
+ * scaffolding, TOC generation and the pluggable URL-hint
+ * fetchers. Plus the pr-workflow bridge registration
+ * surface, which is the one cross-extension hook downstream
+ * packages need.
  *
- * Storage and runtime state (loaded quest, focused
- * document, status bar) live in the extension. This library
- * is reusable for tooling, scripts and migrations.
+ * Discovery, alias indexing, mention indexing and the
+ * pr-review-doc round writer live under
+ * `lib/internal/quest/` and are not part of this barrel.
+ * They are consumed by `extensions/quest-workflow` and
+ * `extensions/pr-workflow` (same package) directly. If a
+ * downstream package needs them, promote the specific
+ * function here intentionally.
  */
 
-export {
-	type AliasIndex,
-	aliasKey,
-	buildAliasIndex,
-	lookupAlias,
-} from "../internal/quest/alias-index.js";
-export { appendJourneyByPath } from "../internal/quest/append-journey.js";
-export {
-	type DiscoveryResult,
-	discoverQuests,
-	type QuestDocumentEntry,
-	type QuestEntry,
-	type QuestIndex,
-} from "../internal/quest/discovery.js";
 export {
 	parseDocumentFrontMatter,
 	parseQuestFrontMatter,
@@ -43,30 +33,6 @@ export {
 	prefixOf,
 } from "../internal/quest/id.js";
 export {
-	buildMentionIndex,
-	type MentionEdge,
-	type MentionIndex,
-	mentionsOf,
-} from "../internal/quest/mentions.js";
-export {
-	type AppendRoundInput,
-	type AppendRoundResult,
-	appendPrReviewRound,
-	type RenderRoundInput,
-	type ReviewDocAgreement,
-	type ReviewDocCritique,
-	type ReviewDocCritiquePosition,
-	type ReviewDocFinding,
-	type ReviewDocJudgeSelfSignal,
-	renderPrReviewRound,
-} from "../internal/quest/pr-review-doc.js";
-export {
-	type FindOrCreateInput,
-	type FindOrCreateResult,
-	findOrCreateSidequestForPr,
-	type PrSidequestRef,
-} from "../internal/quest/pr-sidequest.js";
-export {
 	type ExtractedMentions,
 	extractCast,
 	extractJourney,
@@ -79,18 +45,6 @@ export {
 	projectQuestForShow,
 	type QuestShowProjection,
 } from "../internal/quest/quest-doc.js";
-export {
-	after as rankAfter,
-	before as rankBefore,
-	bottom as rankBottom,
-	bump as rankBump,
-	diffRanks,
-	type RankEntry,
-	renumber as rankRenumber,
-	sink as rankSink,
-	sortByRank,
-	top as rankTop,
-} from "../internal/quest/ranking.js";
 export {
 	type DocumentScaffoldInput,
 	defaultsForKind,
@@ -122,6 +76,7 @@ export type {
 	DocumentKind,
 	DocumentStage,
 	JourneyEntry,
+	PendingPrune,
 	QuestAlias,
 	QuestDoc,
 	QuestDocumentDoc,
@@ -130,5 +85,6 @@ export type {
 	QuestPriority,
 	QuestSession,
 	QuestStatus,
+	QuestTree,
 	SessionStatus,
 } from "./types.js";

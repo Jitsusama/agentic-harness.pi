@@ -25,12 +25,12 @@ import { SessionManager } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { dataDir } from "../../lib/internal/paths.js";
+import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.js";
 import {
 	registerBuiltinHandleTypes,
 	registerBuiltinPersonResolvers,
 } from "../../lib/people/index.js";
 import {
-	appendJourneyByPath,
 	registerBuiltinUrlFetchers,
 	registerQuestPrBridge,
 } from "../../lib/quest/index.js";
@@ -275,6 +275,18 @@ export default function questWorkflow(pi: ExtensionAPI) {
 				Type.String({
 					description:
 						"conclude/retire: 'quest' or 'document'. Defaults to the focused document when one is set, otherwise the loaded quest.",
+				}),
+			),
+			force: Type.Optional(
+				Type.Boolean({
+					description:
+						"tree-prune: override safety refusals (dirty working tree, unmerged branch, attached session). Destructive: passing true is consent to lose uncommitted work, so the agent should confirm with the user first.",
+				}),
+			),
+			skipTree: Type.Optional(
+				Type.Boolean({
+					description:
+						"build: skip the primary-plan tree gate (documentation-only build with no working tree).",
 				}),
 			),
 		}),

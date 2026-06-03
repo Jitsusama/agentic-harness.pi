@@ -13,15 +13,17 @@
 
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import {
-	type AppendRoundResult,
 	aliasKey,
-	appendPrReviewRound,
 	buildAliasIndex,
-	discoverQuests,
-	getQuestPrBridge,
+} from "../../lib/internal/quest/alias-index.js";
+import { discoverQuests } from "../../lib/internal/quest/discovery.js";
+import {
+	type AppendRoundResult,
+	appendPrReviewRound,
 	type ReviewDocCritique,
 	type ReviewDocFinding,
-} from "../../lib/quest/index.js";
+} from "../../lib/internal/quest/pr-review-doc.js";
+import { getQuestPrBridge } from "../../lib/quest/pr-bridge.js";
 import type { CritiqueRun } from "./critique.js";
 import type { Finding } from "./findings.js";
 import type { JudgeRun } from "./judge.js";

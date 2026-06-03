@@ -10,31 +10,37 @@ import { join } from "node:path";
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
 import {
 	type AliasIndex,
-	appendJourneyByPath,
 	buildAliasIndex,
+} from "../../lib/internal/quest/alias-index.js";
+import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.js";
+import {
+	discoverQuests,
+	type QuestEntry,
+} from "../../lib/internal/quest/discovery.js";
+import {
+	diffRanks,
+	type RankEntry,
+	after as rankAfter,
+	before as rankBefore,
+	bottom as rankBottom,
+	bump as rankBump,
+	renumber as rankRenumber,
+	sink as rankSink,
+	top as rankTop,
+} from "../../lib/internal/quest/ranking.js";
+import {
 	type DocumentFrontMatter,
 	type DocumentKind,
 	type DocumentStage,
-	diffRanks,
-	discoverQuests,
 	milestoneProgress,
 	parseDocumentFrontMatter,
 	parseQuestDoc,
 	parseQuestFrontMatter,
 	type QuestAlias,
-	type QuestEntry,
 	type QuestFrontMatter,
 	type QuestPriority,
 	type QuestSession,
 	type QuestStatus,
-	type RankEntry,
-	rankAfter,
-	rankBefore,
-	rankBottom,
-	rankBump,
-	rankRenumber,
-	rankSink,
-	rankTop,
 	serializeDocumentFrontMatter,
 	serializeQuestFrontMatter,
 } from "../../lib/quest/index.js";

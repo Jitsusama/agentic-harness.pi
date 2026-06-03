@@ -18,9 +18,9 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 
+import type { QuestEntry } from "../../lib/internal/quest/discovery.js";
 import type {
 	DocumentKind,
-	QuestEntry,
 	QuestKind,
 	QuestStatus,
 } from "../../lib/quest/index.js";

@@ -7,20 +7,22 @@
  */
 
 import {
+	discoverQuests,
+	type QuestDocumentEntry,
+	type QuestEntry,
+	type QuestIndex,
+} from "../../lib/internal/quest/discovery.js";
+import {
 	getResolutionFallback,
 	type Identity,
 	resolveIdentity,
 } from "../../lib/people/index.js";
 import {
 	type CastEntry,
-	discoverQuests,
 	extractCast,
 	extractMentions,
 	extractSectionParagraph,
-	type QuestDocumentEntry,
-	type QuestEntry,
 	type QuestFrontMatter,
-	type QuestIndex,
 	type QuestSession,
 } from "../../lib/quest/index.js";
 import { urlForRef } from "../../lib/refs/index.js";

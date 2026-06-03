@@ -147,15 +147,32 @@ export function listTreesOnQuest(
 	return { ok: true, trees: parsed.frontMatter.trees ?? [] };
 }
 
-/** Set or clear the quest's pendingPrune marker. */
+/**
+ * Append or replace a pendingPrune entry on the quest. Each
+ * blocked tree is keyed by `path`: a second blocker for the
+ * same path overwrites the first; blockers for distinct
+ * paths accumulate. Pass `null` to clear every entry, or
+ * pass `clearPath` to clear one entry by tree path.
+ */
 export function setPendingPrune(
 	questDir: string,
 	pending: { path: string; reason: string; detectedAt: string } | null,
+	options?: { clearPath?: string },
 ): { ok: true } | { ok: false; reason: string } {
 	const outcome = withQuestFrontMatter(questDir, (parsed) => {
 		if (!parsed) return { ok: false, reason: "Quest README missing." };
 		const next = { ...parsed.frontMatter };
-		if (pending) next.pendingPrune = pending;
+		const existing = next.pendingPrune ?? [];
+		let merged = existing;
+		if (pending === null && !options?.clearPath) {
+			merged = [];
+		} else if (options?.clearPath) {
+			merged = existing.filter((e) => e.path !== options.clearPath);
+		}
+		if (pending) {
+			merged = [...merged.filter((e) => e.path !== pending.path), pending];
+		}
+		if (merged.length > 0) next.pendingPrune = merged;
 		else delete (next as { pendingPrune?: unknown }).pendingPrune;
 		return { fm: next, ok: true };
 	});

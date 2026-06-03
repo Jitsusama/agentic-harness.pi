@@ -17,6 +17,11 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
+import {
+	buildAliasIndex,
+	lookupAlias,
+} from "../../lib/internal/quest/alias-index.js";
+import { discoverQuests } from "../../lib/internal/quest/discovery.js";
 import { parseQuestFrontMatter } from "../../lib/internal/quest/frontmatter.js";
 import {
 	addTreeToQuest,
@@ -25,12 +30,9 @@ import {
 	setPendingPrune,
 } from "../../lib/internal/quest/trees.js";
 import {
-	buildAliasIndex,
 	type DocumentFrontMatter,
 	type DocumentKind,
-	discoverQuests,
 	fetchUrlHints,
-	lookupAlias,
 	mintId,
 	type QuestAlias,
 	type QuestFrontMatter,
@@ -112,6 +114,8 @@ export interface QuestToolParams {
 	cwd?: string;
 	sessionId?: string;
 	scope?: string;
+	force?: boolean;
+	skipTree?: boolean;
 }
 
 export type QuestResult =
@@ -562,12 +566,12 @@ function stageTransition(
 		action === "build" &&
 		state.documentKind === "plan" &&
 		isPrimaryPlan(state) &&
-		params.note?.trim() !== "no-tree"
+		params.skipTree !== true
 	) {
 		const treeListing = listTreesOnQuest(state.questDir);
 		if (treeListing.ok && treeListing.trees.length === 0) {
 			return refuse(
-				'This plan is crossing into build with no working tree on the quest. Run `tree-add` first, or pass `note:"no-tree"` for documentation-only work.',
+				"This plan is crossing into build with no working tree on the quest. Run `tree-add` first, or pass `skipTree: true` for documentation-only work.",
 			);
 		}
 	}
@@ -1037,12 +1041,18 @@ async function treePrune(
 	// Refuse outright when an attached session has its cwd
 	// somewhere under the tree. Pruning would yank the
 	// rug from a live session.
+	// `force` is a typed boolean parameter. The agent flips
+	// it only after confirming destructive intent with the
+	// user. We deliberately do NOT key off a `note` string
+	// because notes are free-form prose the agent generates,
+	// not consent. `force: true` is the consent signal.
+	const force = params.force === true;
 	const sessions = readSessionsFromQuest(state);
 	const attached = sessions.filter((s) => s.cwd?.startsWith(target.path));
-	if (attached.length > 0 && params.note !== "force") {
+	if (attached.length > 0 && !force) {
 		const names = attached.map((s) => s.name ?? s.id).join(", ");
 		return refuse(
-			`Tree at ${target.path} has attached session(s) (${names}). Detach them with \`session-detach\` before pruning, or pass note:"force" to override.`,
+			`Tree at ${target.path} has attached session(s) (${names}). Detach them with \`session-detach\` before pruning, or pass force:true after confirming with the user.`,
 		);
 	}
 	const provider =
@@ -1053,7 +1063,6 @@ async function treePrune(
 			`No tree provider applies to ${target.repoRoot ?? target.path}.`,
 		);
 	}
-	const force = params.note === "force";
 	try {
 		await provider.prune({ path: target.path, force });
 	} catch (error) {
@@ -1065,12 +1074,12 @@ async function treePrune(
 			detectedAt,
 		});
 		return refuse(
-			`Tree prune blocked: ${message} Resolve the conflict and retry, or pass note:"force" to override.`,
+			`Tree prune blocked: ${message} Resolve the conflict and retry, or pass force:true after confirming with the user.`,
 		);
 	}
 	const removal = removeTreeFromQuest(state.questDir, target.path);
 	if (!removal.ok) return refuse(removal.reason);
-	setPendingPrune(state.questDir, null);
+	setPendingPrune(state.questDir, null, { clearPath: target.path });
 	appendJourneyEntry(state, `Pruned tree at ${target.path}.`);
 	return ok(`Tree at ${target.path} pruned.`, { path: target.path });
 }
@@ -1240,6 +1249,9 @@ async function concludeOrRetire(
 	if (blocked.length > 0) {
 		const detectedAt = new Date().toISOString();
 		for (const b of blocked) {
+			// One setPendingPrune per blocker: the array-aware
+			// store appends/upserts by path so every blocker
+			// survives the retire.
 			setPendingPrune(state.questDir, {
 				path: b.path,
 				reason: b.reason,

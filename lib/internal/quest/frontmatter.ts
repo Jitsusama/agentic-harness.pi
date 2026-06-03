@@ -212,7 +212,7 @@ function parseTrees(raw: unknown): QuestTree[] {
 	return out;
 }
 
-function parsePendingPrune(raw: unknown): PendingPrune | undefined {
+function parsePendingPruneEntry(raw: unknown): PendingPrune | undefined {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
 	const obj = raw as Record<string, unknown>;
 	const path = asString(obj.path);
@@ -220,6 +220,68 @@ function parsePendingPrune(raw: unknown): PendingPrune | undefined {
 	const detectedAt = asString(obj.detectedAt);
 	if (!path || !reason || !detectedAt) return undefined;
 	return { path, reason, detectedAt };
+}
+
+function parsePendingPrune(raw: unknown): PendingPrune[] {
+	// Accept both the legacy scalar form (one entry as an
+	// object) and the canonical array form, so an older
+	// README round-trips without losing data.
+	if (Array.isArray(raw)) {
+		const out: PendingPrune[] = [];
+		for (const entry of raw) {
+			const parsed = parsePendingPruneEntry(entry);
+			if (parsed) out.push(parsed);
+		}
+		return out;
+	}
+	const single = parsePendingPruneEntry(raw);
+	return single ? [single] : [];
+}
+
+/**
+ * Keys the quest-frontmatter parser recognises. Anything
+ * outside this set is captured into `_extra` so a
+ * round-trip preserves user-added fields.
+ */
+const KNOWN_QUEST_KEYS = new Set<string>([
+	"id",
+	"kind",
+	"parent",
+	"status",
+	"priority",
+	"rank",
+	"started",
+	"updated",
+	"due",
+	"eta",
+	"aliases",
+	"sessions",
+	"trees",
+	"pendingPrune",
+	"primaryPlanId",
+]);
+
+const KNOWN_DOCUMENT_KEYS = new Set<string>([
+	"id",
+	"kind",
+	"quest",
+	"stage",
+	"updated",
+	"rounds",
+	"subject",
+]);
+
+function captureExtras(
+	raw: Record<string, unknown>,
+	known: Set<string>,
+): Record<string, unknown> | undefined {
+	let extras: Record<string, unknown> | undefined;
+	for (const key of Object.keys(raw)) {
+		if (known.has(key)) continue;
+		extras ??= {};
+		extras[key] = raw[key];
+	}
+	return extras;
 }
 
 /** Parse the quest README front-matter from raw text. */
@@ -281,7 +343,11 @@ export function parseQuestFrontMatter(
 	const trees = parseTrees(raw.trees);
 	if (trees.length > 0) frontMatter.trees = trees;
 	const pendingPrune = parsePendingPrune(raw.pendingPrune);
-	if (pendingPrune) frontMatter.pendingPrune = pendingPrune;
+	if (pendingPrune.length > 0) frontMatter.pendingPrune = pendingPrune;
+	const primaryPlanId = asString(raw.primaryPlanId);
+	if (primaryPlanId) frontMatter.primaryPlanId = primaryPlanId;
+	const extras = captureExtras(raw, KNOWN_QUEST_KEYS);
+	if (extras) frontMatter._extra = extras;
 
 	return { frontMatter, body: split.body };
 }
@@ -303,10 +369,17 @@ export function parseDocumentFrontMatter(
 
 	if (!id || !kind || !quest || !stage || !updated) return undefined;
 
-	return {
-		frontMatter: { id, kind, quest, stage, updated },
-		body: split.body,
-	};
+	const fm: DocumentFrontMatter = { id, kind, quest, stage, updated };
+	const rounds = asNumber(raw.rounds);
+	if (rounds !== undefined && Number.isInteger(rounds) && rounds >= 0) {
+		fm.rounds = rounds;
+	}
+	const subject = asString(raw.subject);
+	if (subject) fm.subject = subject;
+	const extras = captureExtras(raw, KNOWN_DOCUMENT_KEYS);
+	if (extras) fm._extra = extras;
+
+	return { frontMatter: fm, body: split.body };
 }
 
 function sessionToPlain(session: QuestSession): Record<string, unknown> {
@@ -348,12 +421,18 @@ export function serializeQuestFrontMatter(fm: QuestFrontMatter): string {
 	if (fm.trees && fm.trees.length > 0) {
 		payload.trees = fm.trees.map(treeToPlain);
 	}
-	if (fm.pendingPrune) {
-		payload.pendingPrune = {
-			path: fm.pendingPrune.path,
-			reason: fm.pendingPrune.reason,
-			detectedAt: fm.pendingPrune.detectedAt,
-		};
+	if (fm.pendingPrune && fm.pendingPrune.length > 0) {
+		payload.pendingPrune = fm.pendingPrune.map((entry) => ({
+			path: entry.path,
+			reason: entry.reason,
+			detectedAt: entry.detectedAt,
+		}));
+	}
+	if (fm.primaryPlanId) payload.primaryPlanId = fm.primaryPlanId;
+	if (fm._extra) {
+		for (const [key, value] of Object.entries(fm._extra)) {
+			if (!(key in payload)) payload[key] = value;
+		}
 	}
 	return renderYamlBlock(payload);
 }
@@ -378,5 +457,12 @@ export function serializeDocumentFrontMatter(fm: DocumentFrontMatter): string {
 		stage: fm.stage,
 		updated: fm.updated,
 	};
+	if (fm.rounds !== undefined) payload.rounds = fm.rounds;
+	if (fm.subject) payload.subject = fm.subject;
+	if (fm._extra) {
+		for (const [key, value] of Object.entries(fm._extra)) {
+			if (!(key in payload)) payload[key] = value;
+		}
+	}
 	return renderYamlBlock(payload);
 }
