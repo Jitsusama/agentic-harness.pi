@@ -118,13 +118,22 @@ export async function spawn(
 	}
 	const cwd = params.cwd?.trim() || state.questDir || undefined;
 	const command = params.command?.trim() || "pi";
-	const title =
-		params.title?.trim() ||
-		(state.questId
-			? `${state.questId} ${state.questTitle ?? ""}`.trim()
-			: undefined);
+	// Pass the loaded quest id through to the spawned
+	// process via an env var. The new pi's quest-workflow
+	// extension reads this on session_start and uses it
+	// to load the right quest, which in turn calls
+	// pi.setSessionName so the new session inherits the
+	// quest's name without depending on terminal-emulator
+	// tab titles. The auto-attach on cwd already handles
+	// the common case where the spawn lands inside a
+	// registered tree; this env var carries the id when
+	// the cwd doesn't help (e.g. a fresh sidequest with
+	// no tree of its own).
+	const env = state.questId
+		? { QUEST_WORKFLOW_AUTOLOAD_ID: state.questId }
+		: undefined;
 	try {
-		await driver.spawn({ layout, command, cwd, title });
+		await driver.spawn({ layout, command, cwd, env });
 	} catch (err) {
 		return refuse(`Spawn failed via ${driver.id}: ${(err as Error).message}`);
 	}
@@ -133,5 +142,6 @@ export async function spawn(
 		layout,
 		cwd,
 		command,
+		autoloadQuestId: state.questId ?? undefined,
 	});
 }

@@ -15,6 +15,7 @@ import type {
 	TerminalDriver,
 	TerminalRequest,
 } from "../../../terminal/types.js";
+import { wrapCommandWithEnv } from "./shared.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,7 +47,13 @@ function buildArgs(request: TerminalRequest): string[] {
 			break;
 	}
 	if (request.cwd) args.push("--cwd", request.cwd);
-	args.push("--", "/bin/sh", "-c", request.command);
+	// `wezterm cli` hands the command to the mux daemon,
+	// which runs it in the daemon's own environment. The
+	// Node-side env on `nodeSpawn` reaches only the cli
+	// process itself, not the new pane, so env that must
+	// reach the pane has to be wrapped into the command.
+	const command = wrapCommandWithEnv(request.command, request.env);
+	args.push("--", "/bin/sh", "-c", command);
 	return args;
 }
 
@@ -57,12 +64,10 @@ export const wezterm: TerminalDriver = {
 	},
 	async spawn(request) {
 		const args = buildArgs(request);
-		const env: NodeJS.ProcessEnv = { ...process.env, ...(request.env ?? {}) };
 		await new Promise<void>((resolve, reject) => {
 			const child = nodeSpawn("wezterm", args, {
 				detached: true,
 				stdio: "ignore",
-				env,
 			});
 			child.on("error", reject);
 			child.on("spawn", () => {
