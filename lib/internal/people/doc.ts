@@ -233,17 +233,101 @@ function serializeMetadata(
 }
 
 /**
- * Serialize an identity document. Body is regenerated from
- * the canonical sections (H1 title plus per-namespace
- * metadata blocks); free prose is not preserved across full
- * serialization. Callers that want to keep prose should mutate
- * `IdentityDoc.body` directly.
+ * Serialize an identity document.
+ *
+ * Frontmatter is canonical and always regenerated.
+ *
+ * Body is preserved across round-trip: when `doc.body`
+ * carries free prose around the namespace JSON blocks,
+ * the prose survives. The JSON blocks for known
+ * namespaces are rewritten in place from `doc.metadata`,
+ * and any namespace that's in `metadata` but missing from
+ * `body` gets appended.
+ *
+ * A doc with an empty body is scaffolded with the H1
+ * title plus one section per namespace.
  */
 export function serializeIdentity(doc: IdentityDoc): string {
 	const fm = serializeFrontMatter(doc.identity);
 	const title = doc.identity.names[0] ?? doc.identity.id;
-	const body = serializeMetadata(doc.metadata);
-	const sections = [fm, "", `# ${title}`];
-	if (body) sections.push("", body);
-	return `${sections.join("\n")}\n`;
+	if (doc.body.trim().length === 0) {
+		const body = serializeMetadata(doc.metadata);
+		const sections = [fm, "", `# ${title}`];
+		if (body) sections.push("", body);
+		return `${sections.join("\n")}\n`;
+	}
+	const rewritten = rewriteBodyMetadata(doc.body, doc.metadata);
+	return `${fm}\n${rewritten.startsWith("\n") ? "" : "\n"}${rewritten}${rewritten.endsWith("\n") ? "" : "\n"}`;
+}
+
+/**
+ * Walk the body and replace each known namespace's JSON
+ * code block in place. Append namespaces in `metadata`
+ * that the body never named.
+ */
+function rewriteBodyMetadata(
+	body: string,
+	metadata: Record<string, Record<string, unknown>>,
+): string {
+	const lines = body.split("\n");
+	const out: string[] = [];
+	const seenNamespaces = new Set<string>();
+	let currentNamespace: string | undefined;
+	let inJsonBlock = false;
+	let jsonReplaced = false;
+
+	for (const line of lines) {
+		const heading = /^##\s+(.+)$/.exec(line);
+		if (heading && !inJsonBlock) {
+			currentNamespace = heading[1].trim();
+			jsonReplaced = false;
+			seenNamespaces.add(currentNamespace);
+			out.push(line);
+			continue;
+		}
+		if (inJsonBlock) {
+			if (line.trimStart().startsWith("```")) {
+				inJsonBlock = false;
+				out.push(line);
+			}
+			// Otherwise we drop the line: we've already
+			// emitted the replacement JSON above.
+			continue;
+		}
+		if (
+			currentNamespace &&
+			!jsonReplaced &&
+			line.trimStart().startsWith("```json") &&
+			metadata[currentNamespace]
+		) {
+			out.push(line);
+			const json = JSON.stringify(metadata[currentNamespace], null, 2);
+			out.push(...json.split("\n"));
+			inJsonBlock = true;
+			jsonReplaced = true;
+			continue;
+		}
+		out.push(line);
+	}
+
+	// Append any namespace from metadata that the body did
+	// not contain so callers can add namespaces without
+	// rewriting the doc by hand.
+	const missing = Object.keys(metadata)
+		.filter((ns) => !seenNamespaces.has(ns))
+		.sort();
+	if (missing.length > 0) {
+		if (out.length > 0 && out[out.length - 1].trim() !== "") out.push("");
+		for (const ns of missing) {
+			const json = JSON.stringify(metadata[ns], null, 2);
+			out.push(`## ${ns}`);
+			out.push("");
+			out.push("```json");
+			out.push(...json.split("\n"));
+			out.push("```");
+			out.push("");
+		}
+	}
+
+	return out.join("\n");
 }

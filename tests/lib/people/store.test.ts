@@ -256,6 +256,50 @@ describe("deleteIdentity", () => {
 	it("is idempotent on a missing id", () => {
 		expect(() => store.deleteIdentity("ghost")).not.toThrow();
 	});
+
+	it("refuses delete for ids that fail filename validation", () => {
+		expect(() => store.deleteIdentity("../oops")).toThrow(/Invalid/);
+		expect(() => store.deleteIdentity("UPPERCASE")).toThrow(/Invalid/);
+	});
+});
+
+describe("round-trip preserves prose between known metadata blocks", () => {
+	it("keeps prose around namespace JSON blocks across a metadata write", async () => {
+		const writeFileSync = (await import("node:fs")).writeFileSync;
+		writeFileSync(
+			join(dir, "jane.md"),
+			[
+				"---",
+				"id: jane",
+				"names:",
+				"  - Jane Doe",
+				"handles: []",
+				"---",
+				"",
+				"# Jane Doe",
+				"",
+				"Jane is on the privacy engineering team.",
+				"",
+				"## mastery",
+				"",
+				"Lead reviewer: Mark.",
+				"",
+				"```json",
+				'{ "team": "Privacy Engineering" }',
+				"```",
+				"",
+				"Notes after the block.",
+				"",
+			].join("\n"),
+		);
+		store.reload();
+		store.setMetadata("jane", "mastery", { team: "Security Engineering" });
+		const text = readFileSync(join(dir, "jane.md"), "utf8");
+		expect(text).toContain("Jane is on the privacy engineering team.");
+		expect(text).toContain("Notes after the block.");
+		expect(text).toContain('"team": "Security Engineering"');
+		expect(text).not.toContain('"team": "Privacy Engineering"');
+	});
 });
 
 describe("reload", () => {

@@ -211,6 +211,28 @@ describe("tree and expand", () => {
 		expect(node.id).toBe(parent.id);
 		expect(node.children.length).toBe(1);
 	});
+
+	it("surfaces orphan subquests under a synthetic orphans group", async () => {
+		const state = buildState();
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Orphan",
+			parent: "QEST-20260603-NOPARENT",
+			kind: "subquest",
+		});
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "tree",
+		});
+		expect(result.ok).toBe(true);
+		const tree = (
+			result.details as {
+				tree: { id: string; children: { id: string }[] }[];
+			}
+		).tree;
+		const orphans = tree.find((n) => n.id === "(orphans)");
+		expect(orphans).toBeDefined();
+		expect(orphans?.children.length).toBe(1);
+	});
 });
 
 describe("find with extended filters", () => {

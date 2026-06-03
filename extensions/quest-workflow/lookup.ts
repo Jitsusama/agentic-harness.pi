@@ -447,10 +447,50 @@ function buildSubtree(index: QuestIndex, parentKey: string): TreeNode[] {
 	}));
 }
 
-/** Tree projection across the whole quest tree. */
+/** Tree projection across the whole quest tree.
+ *
+ * Any quest whose `parent` points at an id not in the
+ * index is collected under a synthetic root with a
+ * `parent` of `null` (a deleted or missing parent
+ * shouldn't make the children disappear from the tree
+ * view). The orphans group sits after the legitimate
+ * top-level quests so the user notices it.
+ */
 export function treeAll(state: QuestState): TreeNode[] {
 	const { index } = discoverQuests(state.questsRoot);
-	return buildSubtree(index, "");
+	const top = buildSubtree(index, "");
+	const orphans: TreeNode[] = [];
+	for (const [parentKey, ids] of index.children) {
+		if (parentKey === "") continue;
+		if (index.quests.has(parentKey)) continue;
+		for (const id of ids) {
+			const entry = index.quests.get(id);
+			if (!entry) continue;
+			orphans.push({
+				id: entry.doc.frontMatter.id,
+				title: entry.doc.title ?? null,
+				kind: entry.doc.frontMatter.kind,
+				status: entry.doc.frontMatter.status,
+				priority: entry.doc.frontMatter.priority,
+				rank: entry.doc.frontMatter.rank,
+				children: buildSubtree(index, entry.doc.frontMatter.id),
+			});
+		}
+	}
+	if (orphans.length === 0) return top;
+	orphans.sort((a, b) => a.id.localeCompare(b.id));
+	return [
+		...top,
+		{
+			id: "(orphans)",
+			title: "Quests whose parent is missing from the index",
+			kind: "quest",
+			status: "active",
+			priority: "someday",
+			rank: Number.MAX_SAFE_INTEGER,
+			children: orphans,
+		},
+	];
 }
 
 /** Subtree rooted at a single quest id. */

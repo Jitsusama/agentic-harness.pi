@@ -707,9 +707,11 @@ function stageTransition(
 	}
 
 	// For other transitions, write the new stage back to the
-	// focused document if there is one.
-	state.documentStage = result.state.stage;
+	// focused document if there is one. Write FIRST, then
+	// flip the in-memory stage, so a failed write does not
+	// diverge memory from disk.
 	if (state.documentPath) writeDocumentStage(state, result.state.stage);
+	state.documentStage = result.state.stage;
 	refreshProgress(state);
 	if (action === "build") {
 		appendJourneyEntry(
