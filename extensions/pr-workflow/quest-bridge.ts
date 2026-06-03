@@ -13,8 +13,8 @@
 
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import {
-	aliasKey,
 	buildAliasIndex,
+	lookupAliasDetail,
 } from "../../lib/internal/quest/alias-index.js";
 import { discoverQuests } from "../../lib/internal/quest/discovery.js";
 import {
@@ -28,7 +28,14 @@ import type { CritiqueRun } from "./critique.js";
 import type { Finding } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 
-/** Locate the sidequest for a PR via the alias index. */
+/**
+ * Locate the sidequest for a PR via the alias index.
+ *
+ * Refuses to guess when the alias is registered on more
+ * than one quest. The caller treats `undefined` as "no
+ * sidequest" either way; the silent-collision case would
+ * be a worse outcome than no-op.
+ */
 function findSidequest(
 	reference: PRReference,
 ): { sidequestId: string; sidequestDir: string } | undefined {
@@ -37,13 +44,20 @@ function findSidequest(
 	const aliasValue = `${reference.owner}/${reference.repo}#${reference.number}`;
 	const { index } = discoverQuests(bridge.questsRoot());
 	const aliasIdx = buildAliasIndex(index);
-	const sidequestId = aliasIdx.byKey.get(
-		aliasKey({ type: "github-pr", value: aliasValue }),
-	);
-	if (!sidequestId) return undefined;
-	const entry = index.quests.get(sidequestId);
+	const lookup = lookupAliasDetail(aliasIdx, {
+		type: "github-pr",
+		value: aliasValue,
+	});
+	if (lookup.kind === "miss") return undefined;
+	if (lookup.kind === "collision") {
+		console.warn(
+			`[pr-workflow] alias github-pr:${aliasValue} is registered on ${lookup.questIds.length} quests (${lookup.questIds.join(", ")}); refusing to pick one.`,
+		);
+		return undefined;
+	}
+	const entry = index.quests.get(lookup.questId);
 	if (!entry) return undefined;
-	return { sidequestId, sidequestDir: entry.dir };
+	return { sidequestId: lookup.questId, sidequestDir: entry.dir };
 }
 
 /**

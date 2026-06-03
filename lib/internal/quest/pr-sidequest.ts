@@ -20,7 +20,7 @@ import type {
 	QuestFrontMatter,
 	QuestKind,
 } from "../../quest/types.js";
-import { buildAliasIndex, lookupAlias } from "./alias-index.js";
+import { buildAliasIndex, lookupAliasDetail } from "./alias-index.js";
 import { discoverQuests } from "./discovery.js";
 import { mintId } from "./id.js";
 import { scaffoldQuestReadme } from "./scaffold.js";
@@ -84,15 +84,20 @@ export function findOrCreateSidequestForPr(
 	const aliasValue = `${prRef.owner}/${prRef.repo}#${prRef.number}`;
 	const { index } = discoverQuests(input.questsRoot);
 	const aliasIdx = buildAliasIndex(index);
-	const existingId = lookupAlias(aliasIdx, {
+	const lookup = lookupAliasDetail(aliasIdx, {
 		type: "github-pr",
 		value: aliasValue,
 	});
-	if (existingId) {
-		const entry = index.quests.get(existingId);
+	if (lookup.kind === "collision") {
+		throw new Error(
+			`Alias github-pr:${aliasValue} is registered on multiple quests (${lookup.questIds.join(", ")}). Resolve the duplicate before creating a sidequest.`,
+		);
+	}
+	if (lookup.kind === "hit") {
+		const entry = index.quests.get(lookup.questId);
 		if (entry) {
 			return {
-				sidequestId: existingId,
+				sidequestId: lookup.questId,
 				sidequestDir: entry.dir,
 				parentQuestId: entry.doc.frontMatter.parent ?? null,
 				isNew: false,

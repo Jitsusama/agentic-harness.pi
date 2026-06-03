@@ -22,12 +22,20 @@
  * references.
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { type Dirent, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.js";
 import { parseDocumentFrontMatter } from "./frontmatter.js";
 import { isId, prefixOf } from "./id.js";
 import { extractTitle, parseQuestDoc } from "./quest-doc.js";
+
+/**
+ * Maximum directory depth the walk follows. A quest tree
+ * with depth past this is almost certainly a symlink loop
+ * or accidental nesting; we stop and log an error rather
+ * than wedge every quest action.
+ */
+const MAX_WALK_DEPTH = 16;
 
 /** A single quest entry in the index. */
 export interface QuestEntry {
@@ -74,11 +82,21 @@ function readMaybe(path: string): string | undefined {
 	}
 }
 
-function isDirectory(path: string): boolean {
+function safeRealpath(path: string): string | undefined {
 	try {
-		return statSync(path).isDirectory();
+		return realpathSync(path);
 	} catch {
-		return false;
+		// Path doesn't exist or is unreadable; the caller
+		// will surface the read error separately.
+		return undefined;
+	}
+}
+
+function readEntries(path: string): Dirent[] | undefined {
+	try {
+		return readdirSync(path, { withFileTypes: true });
+	} catch {
+		return undefined;
 	}
 }
 
@@ -95,101 +113,125 @@ function parseDocumentFile(text: string): QuestDocumentDoc | undefined {
 /**
  * Walk `questsRoot` and build the index. Read errors are
  * collected into `errors`; they do not stop discovery.
+ *
+ * Safety against pathological trees:
+ *
+ * - We use `withFileTypes` so the directory check comes
+ *   from the entry, never from a `stat` call that would
+ *   follow symlinks.
+ * - We refuse symlinks outright: a real quest tree is
+ *   plain directories. This keeps the walk from leaving
+ *   `questsRoot` via someone's stray symlink.
+ * - We track real paths we have entered and skip any we
+ *   already visited so a hard-link cycle terminates.
+ * - We cap recursion depth at `MAX_WALK_DEPTH` and surface
+ *   the truncation as an error rather than spinning.
  */
 export function discoverQuests(questsRoot: string): DiscoveryResult {
 	const quests = new Map<string, QuestEntry>();
 	const children = new Map<string, string[]>();
 	const errors: DiscoveryError[] = [];
+	const visited = new Set<string>();
 
-	function visit(dir: string): void {
-		let entries: string[];
-		try {
-			entries = readdirSync(dir);
-		} catch (err) {
-			errors.push({ path: dir, message: (err as Error).message });
+	function scanDocuments(full: string): QuestDocumentEntry[] {
+		const documents: QuestDocumentEntry[] = [];
+		const documentScanDirs = [
+			full,
+			join(full, "plans"),
+			join(full, "research"),
+			join(full, "briefs"),
+			join(full, "reports"),
+		];
+		for (const scanDir of documentScanDirs) {
+			const entries = readEntries(scanDir);
+			if (!entries) continue;
+			for (const entry of entries) {
+				if (!entry.isFile()) continue;
+				const child = entry.name;
+				const childPath = join(scanDir, child);
+				if (extname(child) !== ".md") continue;
+				const base = child.slice(0, -3);
+				if (!isId(base) || prefixOf(base) === "QEST") continue;
+				const docText = readMaybe(childPath);
+				if (!docText) continue;
+				const docDoc = parseDocumentFile(docText);
+				if (docDoc) documents.push({ path: childPath, doc: docDoc });
+			}
+		}
+		return documents;
+	}
+
+	function visit(dir: string, depth: number): void {
+		if (depth > MAX_WALK_DEPTH) {
+			errors.push({
+				path: dir,
+				message: `Walk depth exceeded ${MAX_WALK_DEPTH}; refusing to recurse further.`,
+			});
+			return;
+		}
+		const real = safeRealpath(dir);
+		if (real) {
+			if (visited.has(real)) return;
+			visited.add(real);
+		}
+		const entries = readEntries(dir);
+		if (!entries) {
+			errors.push({ path: dir, message: "Directory unreadable." });
 			return;
 		}
 
-		for (const name of entries) {
-			const full = join(dir, name);
-			if (isDirectory(full)) {
-				if (isId(name) && prefixOf(name) === "QEST") {
-					const readmePath = join(full, "README.md");
-					const text = readMaybe(readmePath);
-					if (!text) {
-						errors.push({ path: readmePath, message: "README.md missing" });
-						visit(full);
-						continue;
-					}
-					const doc = parseQuestDoc(text);
-					if (!doc) {
-						errors.push({
-							path: readmePath,
-							message: "Front-matter invalid or absent.",
-						});
-						visit(full);
-						continue;
-					}
-					if (doc.frontMatter.id !== name) {
-						errors.push({
-							path: readmePath,
-							message: `Directory name "${name}" does not match front-matter id "${doc.frontMatter.id}".`,
-						});
-					}
-					const documents: QuestDocumentEntry[] = [];
-					const documentScanDirs = [
-						full,
-						join(full, "plans"),
-						join(full, "research"),
-						join(full, "briefs"),
-						join(full, "reports"),
-					];
-					for (const scanDir of documentScanDirs) {
-						if (!isDirectory(scanDir)) continue;
-						try {
-							for (const child of readdirSync(scanDir)) {
-								const childPath = join(scanDir, child);
-								if (
-									extname(child) === ".md" &&
-									isId(child.slice(0, -3)) &&
-									prefixOf(child.slice(0, -3)) !== "QEST"
-								) {
-									const docText = readMaybe(childPath);
-									if (!docText) continue;
-									const docDoc = parseDocumentFile(docText);
-									if (docDoc) documents.push({ path: childPath, doc: docDoc });
-								}
-							}
-						} catch (err) {
-							errors.push({ path: scanDir, message: (err as Error).message });
-						}
-					}
-					quests.set(doc.frontMatter.id, { dir: full, doc, documents });
-					const parentKey = doc.frontMatter.parent ?? "";
-					const list = children.get(parentKey) ?? [];
-					list.push(doc.frontMatter.id);
-					children.set(parentKey, list);
-					visit(full);
-					continue;
-				}
-				// Recurse into non-quest directories at the
-				// top level too (a project might keep quests
-				// in a category subfolder). We only avoid
-				// known sibling siblings like node_modules.
-				if (
-					name === "node_modules" ||
-					name === ".git" ||
-					name.startsWith(".")
-				) {
-					continue;
-				}
-				visit(full);
+		for (const entry of entries) {
+			const name = entry.name;
+			if (entry.isSymbolicLink()) {
+				// Skip symlinks entirely so the walk cannot escape
+				// the questsRoot via a stray link.
+				continue;
 			}
+			if (!entry.isDirectory()) continue;
+			const full = join(dir, name);
+			if (isId(name) && prefixOf(name) === "QEST") {
+				const readmePath = join(full, "README.md");
+				const text = readMaybe(readmePath);
+				if (!text) {
+					errors.push({ path: readmePath, message: "README.md missing" });
+					visit(full, depth + 1);
+					continue;
+				}
+				const doc = parseQuestDoc(text);
+				if (!doc) {
+					errors.push({
+						path: readmePath,
+						message: "Front-matter invalid or absent.",
+					});
+					visit(full, depth + 1);
+					continue;
+				}
+				if (doc.frontMatter.id !== name) {
+					errors.push({
+						path: readmePath,
+						message: `Directory name "${name}" does not match front-matter id "${doc.frontMatter.id}".`,
+					});
+				}
+				const documents = scanDocuments(full);
+				quests.set(doc.frontMatter.id, { dir: full, doc, documents });
+				const parentKey = doc.frontMatter.parent ?? "";
+				const list = children.get(parentKey) ?? [];
+				list.push(doc.frontMatter.id);
+				children.set(parentKey, list);
+				visit(full, depth + 1);
+				continue;
+			}
+			if (name === "node_modules" || name === ".git" || name.startsWith(".")) {
+				continue;
+			}
+			visit(full, depth + 1);
 		}
 	}
 
-	if (isDirectory(questsRoot)) visit(questsRoot);
-	else {
+	const rootEntries = readEntries(questsRoot);
+	if (rootEntries) {
+		visit(questsRoot, 0);
+	} else {
 		errors.push({
 			path: questsRoot,
 			message: "Quests root does not exist as a directory.",

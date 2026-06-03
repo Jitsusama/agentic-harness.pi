@@ -19,7 +19,7 @@ import { join } from "node:path";
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
 import {
 	buildAliasIndex,
-	lookupAlias,
+	lookupAliasDetail,
 } from "../../lib/internal/quest/alias-index.js";
 import { discoverQuests } from "../../lib/internal/quest/discovery.js";
 import { parseQuestFrontMatter } from "../../lib/internal/quest/frontmatter.js";
@@ -263,10 +263,15 @@ async function create(
 		}
 		const { index } = discoverQuests(state.questsRoot);
 		const aliasIdx = buildAliasIndex(index);
-		const existing = lookupAlias(aliasIdx, ref);
-		if (existing) {
+		const lookup = lookupAliasDetail(aliasIdx, ref);
+		if (lookup.kind === "collision") {
 			return refuse(
-				`Quest ${existing} already has alias ${ref.type}:${ref.value}. Load it instead: \`quest load ${existing}\`.`,
+				`Alias ${ref.type}:${ref.value} is already on multiple quests (${lookup.questIds.join(", ")}). Resolve the duplicate before adding it again.`,
+			);
+		}
+		if (lookup.kind === "hit") {
+			return refuse(
+				`Quest ${lookup.questId} already has alias ${ref.type}:${ref.value}. Load it instead: \`quest load ${lookup.questId}\`.`,
 			);
 		}
 		seededAlias = { type: ref.type, value: ref.value };
@@ -1178,7 +1183,21 @@ async function pruneAllTreesOnQuest(state: QuestState): Promise<{
 	if (!state.questDir) return { pruned, blocked };
 	const listing = listTreesOnQuest(state.questDir);
 	if (!listing.ok) return { pruned, blocked };
+	// Snapshot the attached sessions once so the auto-prune
+	// loop refuses to delete a tree that still has a live
+	// session inside it. retire is allowed to leave blockers
+	// behind: the user resolves them after detaching.
+	const sessions = readSessionsFromQuest(state);
 	for (const tree of listing.trees) {
+		const attached = sessions.filter((s) => s.cwd?.startsWith(tree.path));
+		if (attached.length > 0) {
+			const names = attached.map((s) => s.name ?? s.id).join(", ");
+			blocked.push({
+				path: tree.path,
+				reason: `attached session(s): ${names}`,
+			});
+			continue;
+		}
 		const provider = resolveTreeProvider(tree.repoRoot ?? tree.path);
 		if (!provider) {
 			blocked.push({ path: tree.path, reason: "no applicable provider" });

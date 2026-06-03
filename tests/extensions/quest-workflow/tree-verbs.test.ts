@@ -311,6 +311,62 @@ describe("retire auto-prunes trees", () => {
 		}
 		expect(existsSync(treePath)).toBe(true);
 	});
+
+	it("keeps every blocker on retire when multiple trees fail", async () => {
+		const state = buildState();
+		const q = await createQuest(state, "Retire Many Dirty");
+		const t1 = await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "tree-add",
+			name: "feature-multi-a",
+			cwd: repoRoot,
+		});
+		const t2 = await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "tree-add",
+			name: "feature-multi-b",
+			cwd: repoRoot,
+		});
+		const path1 = (t1.details as { tree: { path: string } }).tree.path;
+		const path2 = (t2.details as { tree: { path: string } }).tree.path;
+		writeFileSync(join(path1, "dirt"), "x");
+		writeFileSync(join(path2, "dirt"), "x");
+		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "retire",
+			scope: "quest",
+			reason: "both still pending",
+		});
+		expect(retired.ok).toBe(true);
+		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
+		const pendingPaths = (fm?.pendingPrune ?? []).map((e) => e.path);
+		expect(pendingPaths).toContain(path1);
+		expect(pendingPaths).toContain(path2);
+	});
+
+	it("refuses to auto-prune a tree with an attached session", async () => {
+		const state = buildState();
+		const q = await createQuest(state, "Retire Attached");
+		const added = await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "tree-add",
+			name: "feature-attached",
+			cwd: repoRoot,
+		});
+		const treePath = (added.details as { tree: { path: string } }).tree.path;
+		await handle(state, fakePi(), fakeCtx(treePath, "sess-live"), {
+			action: "session-attach",
+			cwd: treePath,
+		});
+		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "retire",
+			scope: "quest",
+			reason: "see you later",
+		});
+		expect(retired.ok).toBe(true);
+		expect(existsSync(treePath)).toBe(true);
+		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
+		const pending = fm?.pendingPrune ?? [];
+		expect(pending.find((e) => e.path === treePath)?.reason).toMatch(
+			/attached session/,
+		);
+	});
 });
 
 describe("tree-expand", () => {

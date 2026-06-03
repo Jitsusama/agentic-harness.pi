@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -121,6 +127,46 @@ describe("discoverQuests", () => {
 		});
 		const { index } = discoverQuests(root);
 		expect(index.quests.size).toBe(1);
+	});
+
+	it("does not follow symlinks back into the tree", () => {
+		writeQuest({
+			id: "QEST-20260603-LLL111",
+			parent: null,
+			title: "Root",
+		});
+		// A symlink loop that would crash an unbounded walk:
+		// link points back to its containing directory.
+		try {
+			symlinkSync(root, join(root, "loop"));
+		} catch {
+			// Symlinks may not be permitted in some sandboxes;
+			// the test is meaningful only when we can create one.
+			return;
+		}
+		const { index, errors } = discoverQuests(root);
+		expect(index.quests.size).toBe(1);
+		expect(
+			errors.find((e) => e.message.includes("depth exceeded")),
+		).toBeUndefined();
+	});
+
+	it("caps walk depth so a malformed tree cannot wedge discovery", () => {
+		// Build a chain of 20 plain non-quest directories so
+		// the walk hits the depth cap.
+		let cur = root;
+		for (let i = 0; i < 20; i++) {
+			cur = join(cur, `nest${i}`);
+			mkdirSync(cur, { recursive: true });
+		}
+		writeQuest({
+			id: "QEST-20260603-DDD333",
+			parent: null,
+			title: "At the surface",
+		});
+		const { index, errors } = discoverQuests(root);
+		expect(index.quests.size).toBe(1);
+		expect(errors.some((e) => e.message.includes("depth exceeded"))).toBe(true);
 	});
 });
 
