@@ -7,7 +7,11 @@
 
 import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	ToolContext,
+} from "@mariozechner/pi-coding-agent";
 import {
 	type AliasIndex,
 	buildAliasIndex,
@@ -34,6 +38,7 @@ import {
 	sink as rankSink,
 	top as rankTop,
 } from "../../lib/internal/quest/ranking.js";
+import { getLastEntry } from "../../lib/internal/state.js";
 import {
 	type DocumentFrontMatter,
 	type DocumentKind,
@@ -272,6 +277,78 @@ function canonicalForCompare(path: string): string {
 function isUnder(child: string, parent: string): boolean {
 	if (child === parent) return true;
 	return child.startsWith(`${parent}/`);
+}
+
+/**
+ * Customtype tag used to persist the loaded quest and
+ * focused document into the session history. The pi
+ * session entries are the durable store; `restore` reads
+ * the most recent entry on session_start and re-hydrates
+ * the in-memory state from it. Same channel pr-workflow
+ * uses for its roster, judge config and last run state.
+ */
+const SESSION_KEY = "quest-workflow";
+
+/** Snapshot persisted across reloads. */
+interface PersistedState {
+	/** The id of the loaded quest, when one is loaded. */
+	questId: string | null;
+	/**
+	 * The absolute on-disk path of the focused document
+	 * under the loaded quest. The path is the stable
+	 * identifier inside the quest dir; the kind, stage and
+	 * title get re-derived from the document's own
+	 * frontmatter when restoring.
+	 */
+	documentPath: string | null;
+}
+
+function snapshot(state: QuestState): PersistedState {
+	return {
+		questId: state.questId,
+		documentPath: state.documentPath,
+	};
+}
+
+/**
+ * Persist the current loaded-quest and focused-document
+ * pointers into the session history.
+ *
+ * Idempotent in effect: each call appends a new entry,
+ * and `restore` reads only the most recent one. Older
+ * entries become dead weight in the log but don't cause
+ * incorrect behaviour. Wired centrally from the
+ * tool_result hook in the extension entry point, mirroring
+ * the pr-workflow pattern.
+ */
+export function persist(state: QuestState, pi: ExtensionAPI): void {
+	pi.appendEntry(SESSION_KEY, snapshot(state));
+}
+
+/**
+ * Restore the persisted slice on session_start. Returns
+ * true when something was hydrated, false when no entry
+ * was recorded or the quest no longer exists on disk so
+ * the caller can fall through to its other restore paths
+ * (the spawn autoload-env hint, then the cwd walk).
+ */
+export function restore(
+	state: QuestState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+): boolean {
+	const saved = getLastEntry<PersistedState>(ctx, SESSION_KEY);
+	if (!saved || !saved.questId) return false;
+	const result = loadQuest(state, pi, saved.questId);
+	if (!result.ok) return false;
+	if (saved.documentPath) {
+		// The quest is loaded; try to restore the focused
+		// document. A missing or unparsable document is not
+		// fatal: the quest stays loaded and the user re-focuses
+		// if they care to.
+		focusDocument(state, saved.documentPath);
+	}
+	return true;
 }
 
 /** Restore on session_start by re-reading from disk if a quest dir was remembered. */

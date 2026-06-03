@@ -41,7 +41,9 @@ import { enforceQuest, isFocusedDocWrite } from "./enforce.js";
 import {
 	listAllQuests,
 	loadQuest,
+	persist,
 	refreshProgress,
+	restore,
 	restoreFromCwd,
 } from "./lifecycle.js";
 import { showLoaded } from "./lookup.js";
@@ -436,7 +438,13 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	);
 
 	// When the focused document gets edited, repaint the
-	// scoreboard so progress numbers update.
+	// scoreboard so progress numbers update. Persist the
+	// loaded-quest and focused-document pointers on every
+	// tool result so a /reload (or any other session restart)
+	// can re-hydrate without re-reading the cwd. Mirrors the
+	// pr-workflow pattern: pi sequences event handlers, so a
+	// tool that mutates state in-handler has finished writing
+	// by the time we read it here.
 	pi.on("tool_result", async (event, ctx) => {
 		if (
 			isFocusedDocWrite(
@@ -449,6 +457,7 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			refreshProgress(state);
 			updateScoreboard(state, ctx);
 		}
+		persist(state, pi);
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {
@@ -457,18 +466,26 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		// A spawn from the quest workflow's spawn-* verbs
-		// ships the loaded quest id via this env var so the
-		// new session can name itself after the right quest
-		// even when the cwd doesn't disambiguate. Consume
-		// and clear it so the hint doesn't carry across
-		// in-process session restarts.
-		const autoloadId = process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
-		if (autoloadId) {
-			delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
-			loadQuest(state, pi, autoloadId);
+		// The persisted slice in the session history is the
+		// authoritative source: a /reload reuses the same
+		// session, so the last loaded quest and focused
+		// document are exactly the right thing to restore.
+		const restored = restore(state, pi, ctx);
+		if (!restored) {
+			// A fresh session has no history yet. A spawn from
+			// the quest workflow's spawn-* verbs ships the
+			// loaded quest id via this env var so the new
+			// session can name itself after the right quest
+			// even when the cwd doesn't disambiguate. Consume
+			// and clear it so the hint doesn't carry across
+			// in-process session restarts.
+			const autoloadId = process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
+			if (autoloadId) {
+				delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
+				loadQuest(state, pi, autoloadId);
+			}
+			if (!state.questId) restoreFromCwd(state, pi, ctx);
 		}
-		if (!state.questId) restoreFromCwd(state, pi, ctx);
 		updateScoreboard(state, ctx);
 	});
 
