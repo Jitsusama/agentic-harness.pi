@@ -8,13 +8,7 @@
  * disk artifacts and producing a human-facing message.
  */
 
-import {
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	realpathSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
 import {
@@ -22,7 +16,10 @@ import {
 	lookupAliasDetail,
 } from "../../lib/internal/quest/alias-index.js";
 import { discoverQuests } from "../../lib/internal/quest/discovery.js";
-import { parseQuestFrontMatter } from "../../lib/internal/quest/frontmatter.js";
+import {
+	parseQuestFrontMatter,
+	serializeQuestFrontMatter,
+} from "../../lib/internal/quest/frontmatter.js";
 import { atomicWriteFile } from "../../lib/internal/quest/io.js";
 import {
 	addTreeToQuest,
@@ -511,22 +508,65 @@ function unfocus(state: QuestState): QuestResult {
 	return ok(`Unfocused ${prior}.`);
 }
 
-function isPrimaryPlan(state: QuestState): boolean {
-	if (!state.questDir || !state.documentId) return false;
+/**
+ * Pin `planId` as the quest's primary plan when no primary
+ * has been recorded yet. Quietly leaves an existing
+ * recorded primary in place. This runs at draft time so
+ * the gate has a stable answer the first time the user
+ * tries to build.
+ */
+function pinPrimaryPlanIfUnset(questDir: string, planId: string): void {
+	const path = join(questDir, "README.md");
+	let text: string;
 	try {
-		const plansDir = join(state.questDir, "plans");
-		if (!existsSync(plansDir)) return false;
-		const entries = readdirSync(plansDir)
-			.filter((f) => f.startsWith("PLAN-") && f.endsWith(".md"))
-			.sort();
-		if (entries.length === 0) return false;
-		const firstId = entries[0].replace(/\.md$/, "");
-		return firstId === state.documentId;
+		text = readFileSync(path, "utf8");
 	} catch {
-		// On any IO failure, default to allowing the
-		// transition rather than blocking work.
-		return false;
+		return;
 	}
+	const parsed = parseQuestFrontMatter(text);
+	if (!parsed) return;
+	if (parsed.frontMatter.primaryPlanId) return;
+	const fm: QuestFrontMatter = {
+		...parsed.frontMatter,
+		primaryPlanId: planId,
+	};
+	try {
+		atomicWriteFile(path, `${serializeQuestFrontMatter(fm)}\n${parsed.body}`);
+	} catch {
+		// Best-effort pin: leave the field unset so the next
+		// draft tries again. The gate fails closed in the
+		// meantime.
+	}
+}
+
+/**
+ * Returns whether the focused document is the quest's
+ * primary plan. Fail-closed: when we cannot determine the
+ * primary plan (corrupt README, IO failure), the gate
+ * fires so the agent stops and surfaces the problem
+ * rather than sliding past it.
+ */
+function isPrimaryPlan(state: QuestState): { primary: boolean; ok: boolean } {
+	if (!state.questDir || !state.documentId) {
+		return { primary: false, ok: true };
+	}
+	const path = join(state.questDir, "README.md");
+	let text: string;
+	try {
+		text = readFileSync(path, "utf8");
+	} catch {
+		return { primary: true, ok: false };
+	}
+	const parsed = parseQuestFrontMatter(text);
+	if (!parsed) return { primary: true, ok: false };
+	const recorded = parsed.frontMatter.primaryPlanId;
+	if (recorded) {
+		return { primary: recorded === state.documentId, ok: true };
+	}
+	// No primaryPlanId recorded yet (legacy quest or the
+	// draft pin failed): treat the current plan as primary
+	// so the gate still fires for the user's first build.
+	return { primary: true, ok: true };
 }
 
 function stageTransition(
@@ -587,14 +627,21 @@ function stageTransition(
 	if (
 		action === "build" &&
 		state.documentKind === "plan" &&
-		isPrimaryPlan(state) &&
 		params.skipTree !== true
 	) {
-		const treeListing = listTreesOnQuest(state.questDir);
-		if (treeListing.ok && treeListing.trees.length === 0) {
+		const primary = isPrimaryPlan(state);
+		if (!primary.ok) {
 			return refuse(
-				"This plan is crossing into build with no working tree on the quest. Run `tree-add` first, or pass `skipTree: true` for documentation-only work.",
+				"Build gate cannot determine the quest's primary plan (README unreadable or invalid frontmatter). Fix the README, or pass `skipTree: true` after confirming with the user.",
 			);
+		}
+		if (primary.primary) {
+			const treeListing = listTreesOnQuest(state.questDir);
+			if (treeListing.ok && treeListing.trees.length === 0) {
+				return refuse(
+					"This plan is crossing into build with no working tree on the quest. Run `tree-add` first, or pass `skipTree: true` for documentation-only work.",
+				);
+			}
 		}
 	}
 
@@ -643,6 +690,13 @@ function stageTransition(
 		state.documentTitle = params.title.trim();
 		state.documentStage = "draft";
 		state.documentKind = kind;
+		if (kind === "plan" && state.questDir) {
+			// Pin the first plan drafted on this quest as the
+			// primary plan so the build-stage gate has a stable
+			// answer independent of filesystem ordering. Later
+			// plans get evaluated against this record.
+			pinPrimaryPlanIfUnset(state.questDir, id);
+		}
 		refreshProgress(state);
 		appendJourneyEntry(state, `Drafted ${kind} ${id}.`);
 		return ok(`Drafted ${kind} ${id} at ${path}.`, {

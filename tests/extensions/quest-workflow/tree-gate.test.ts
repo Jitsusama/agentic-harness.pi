@@ -113,6 +113,37 @@ describe("build-stage tree gate", () => {
 		});
 		expect(result.ok).toBe(true);
 	});
+
+	it("pins primaryPlanId on the first plan and lets second plans build freely", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+		// First plan is the primary. Cross it into build via
+		// the skipTree escape so the quest progresses.
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "build",
+			skipTree: true,
+		});
+		// Unfocus the first plan, then start a fresh loop for
+		// a second plan. The fresh loop mints a new PLAN id
+		// and goes through draft: that draft sees a primary is
+		// already pinned, so it does not overwrite the pin.
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "unfocus",
+		});
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "think",
+			kind: "plan",
+			note: "Secondary effort",
+		});
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "draft",
+			title: "Second plan",
+		});
+		const result = await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "build",
+		});
+		expect(result.ok).toBe(true);
+	});
 });
 
 describe("reactive no-tree guardian", () => {
