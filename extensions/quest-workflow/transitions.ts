@@ -179,10 +179,8 @@ export async function handle(
 		case "after":
 			return reorder(state, params);
 		case "alias-add":
-		case "link-alias":
 			return aliasAdd(state, params);
 		case "alias-remove":
-		case "unlink-alias":
 			return aliasRemove(state, params);
 		case "promote":
 			return priorityShift(state, "up");
@@ -207,13 +205,10 @@ export async function handle(
 		case "expand":
 			return expand(state, params);
 		case "session-attach":
-		case "attach-session":
 			return sessionAttach(state, ctx, params);
 		case "session-detach":
-		case "detach-session":
 			return sessionDetach(state, ctx, params);
 		case "session-rename":
-		case "name-session":
 			return sessionRename(state, ctx, params);
 		case "spawn-tab":
 		case "spawn-pane":

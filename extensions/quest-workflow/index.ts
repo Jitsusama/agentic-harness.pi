@@ -33,6 +33,7 @@ import {
 import {
 	registerBuiltinUrlFetchers,
 	registerQuestPrBridge,
+	unregisterQuestPrBridge,
 } from "../../lib/quest/index.js";
 import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
@@ -121,14 +122,9 @@ export default function questWorkflow(pi: ExtensionAPI) {
 					"renumber",
 					"alias-add",
 					"alias-remove",
-					"link-alias",
-					"unlink-alias",
 					"session-attach",
 					"session-detach",
 					"session-rename",
-					"attach-session",
-					"detach-session",
-					"name-session",
 					"spawn-tab",
 					"spawn-pane",
 					"spawn-window",
@@ -458,6 +454,34 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		restoreFromCwd(state, pi, ctx);
 		updateScoreboard(state, ctx);
+	});
+
+	// Tear down the bridge so a session_shutdown followed
+	// by a re-activation doesn't leave a stale closure
+	// pointing at the old state object on globalThis.
+	pi.on("session_shutdown", async () => {
+		unregisterQuestPrBridge();
+	});
+
+	// Inject the loaded-quest context into every agent
+	// turn's system prompt so the model sees "this
+	// conversation is on quest X, focused on document Y, at
+	// stage Z" without re-deriving it from filesystem
+	// state on every step.
+	pi.on("before_agent_start", async (event) => {
+		if (!state.questId) return undefined;
+		const parts: string[] = [
+			`Quest ${state.questId} loaded (${state.questKind ?? "quest"}, ${state.questStatus ?? "active"}/${state.questPriority ?? "active"}).`,
+		];
+		if (state.questTitle) parts.push(`Title: ${state.questTitle}.`);
+		if (state.documentId) {
+			parts.push(
+				`Focused document: ${state.documentId} (${state.documentKind}/${state.documentStage}).`,
+			);
+		}
+		return {
+			systemPrompt: `${event.systemPrompt}\n\n[Quest workflow context] ${parts.join(" ")}`,
+		};
 	});
 }
 
