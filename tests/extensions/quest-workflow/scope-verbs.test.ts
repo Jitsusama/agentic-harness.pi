@@ -8,6 +8,7 @@ import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
 } from "../../../lib/refs/index";
+import { createEnvGuard } from "./_helpers";
 
 let tmpRoot: string;
 
@@ -40,7 +41,10 @@ async function createQuest(
 	return result.details as { id: string; path: string };
 }
 
+const envGuard = createEnvGuard();
+
 beforeEach(() => {
+	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "quest-scope-"));
 	clearRefTypes();
 	registerBuiltinRefTypes();
@@ -49,6 +53,7 @@ beforeEach(() => {
 afterEach(() => {
 	rmSync(tmpRoot, { recursive: true, force: true });
 	clearRefTypes();
+	envGuard.leave();
 });
 
 describe("priority verbs", () => {

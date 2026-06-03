@@ -18,6 +18,7 @@ import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../lib/tree/index";
+import { createEnvGuard } from "./_helpers";
 
 const execFileAsync = promisify(execFile);
 
@@ -54,7 +55,10 @@ async function makeRepo(): Promise<string> {
 	return dir;
 }
 
+const envGuard = createEnvGuard();
+
 beforeEach(async () => {
+	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "cwd-attach-state-"));
 	repoRoot = await makeRepo();
 	clearTreeProviders();
@@ -65,6 +69,7 @@ afterEach(() => {
 	rmSync(tmpRoot, { recursive: true, force: true });
 	rmSync(repoRoot, { recursive: true, force: true });
 	clearTreeProviders();
+	envGuard.leave();
 });
 
 describe("restoreFromCwd (session_start handler)", () => {

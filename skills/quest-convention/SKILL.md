@@ -36,13 +36,15 @@ choices.
   trackable strands.
 - **Sidequest**: a small or external unit of work,
   typically created from a Slack thread, a PR review or
-  an incident. Sidequests have `parent: null`; they live
-  alongside top-level quests rather than under them.
+  an incident. A free-standing sidequest has
+  `parent: null` and sits alongside top-level quests; a
+  scoped sidequest (a PR review under an active quest,
+  say) carries the loaded quest's id as its parent so the
+  audit trail composes. Either form is valid.
 
 When in doubt, start as a sidequest and promote later. A
 sidequest that grows a north star becomes a quest by
-flipping its kind and giving it a parent (or staying
-top-level).
+flipping its kind.
 
 ## Priority Buckets and Rank
 

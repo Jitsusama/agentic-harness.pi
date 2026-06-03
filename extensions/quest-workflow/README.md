@@ -8,15 +8,35 @@ report documents living underneath.
 
 ## Tool
 
-One tool, `quest`, with action verbs:
+One tool, `quest`, with action verbs. Every verb below is
+shipped and tested.
 
-- **Lifecycle**: `create`, `load`, `unload`, `show`, `list`.
-- **Document stage**: `think`, `draft`, `build`, `conclude`,
-  `retire`, `focus`, `unfocus`.
+- **Lifecycle**: `create`, `load`, `unload`, `show`, `list`,
+  `tree`, `expand`.
+- **Document stage**: `think`, `draft`, `build`,
+  `conclude`, `retire`, `focus`, `unfocus`.
+- **Priority and rank**: `promote`, `demote`, `drive`,
+  `park`, `defer`, `top`, `bottom`, `bump`, `sink`,
+  `before`, `after`, `renumber`.
+- **Aliases**: `alias-add`, `alias-remove`.
+- **Sessions**: `session-attach`, `session-detach`,
+  `session-rename`.
+- **Working trees**: `tree-add`, `tree-list`, `tree-prune`,
+  `tree-expand`.
+- **Terminal spawn**: `spawn-tab`, `spawn-pane`,
+  `spawn-window`.
+- **Queries**: `find`, `who`, `links`.
 
-(More verbs are planned but not yet wired: importance
-reordering, alias linking, session attach/detach, terminal
-spawn, find with time-range filters, who, links.)
+Destructive verbs take typed parameters, not free-form
+prose:
+
+- `tree-prune` takes `force: true` to override safety
+  refusals.
+- `build` takes `skipTree: true` to bypass the primary-
+  plan tree gate for documentation-only work.
+
+The `note` parameter is plain prose attached to a Journey
+entry; it never triggers behaviour.
 
 ## What It Owns
 

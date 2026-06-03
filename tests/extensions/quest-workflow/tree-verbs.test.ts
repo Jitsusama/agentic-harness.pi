@@ -22,6 +22,7 @@ import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../lib/tree/index";
+import { createEnvGuard } from "./_helpers";
 
 const execFileAsync = promisify(execFile);
 
@@ -61,7 +62,10 @@ async function makeRepo(): Promise<string> {
 	return dir;
 }
 
+const envGuard = createEnvGuard();
+
 beforeEach(async () => {
+	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "tree-verbs-state-"));
 	repoRoot = await makeRepo();
 	clearRefTypes();
@@ -77,6 +81,7 @@ afterEach(() => {
 	clearRefTypes();
 	clearUrlFetchers();
 	clearTreeProviders();
+	envGuard.leave();
 });
 
 async function createQuest(

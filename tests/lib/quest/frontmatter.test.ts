@@ -216,4 +216,87 @@ describe("document front-matter", () => {
 		const text = ["---", "id: PLAN-x", "kind: plan", "---"].join("\n");
 		expect(parseDocumentFrontMatter(text)).toBeUndefined();
 	});
+
+	it("round-trips the rounds and subject markers", () => {
+		const fm: DocumentFrontMatter = {
+			...SAMPLE,
+			rounds: 3,
+			subject: "pr-review",
+		};
+		const text = `${serializeDocumentFrontMatter(fm)}\n# Plan title\n`;
+		const parsed = parseDocumentFrontMatter(text);
+		expect(parsed?.frontMatter).toEqual(fm);
+	});
+});
+
+describe("frontmatter parser failure branches", () => {
+	it("returns undefined when the YAML block is malformed", () => {
+		const text = [
+			"---",
+			"id: QEST-20260603-AAA111",
+			"  bad: [unterminated",
+			"---",
+			"# Title",
+		].join("\n");
+		expect(parseQuestFrontMatter(text)).toBeUndefined();
+	});
+
+	it("returns undefined when the YAML root is an array", () => {
+		const text = ["---", "- one", "- two", "---", "# Title"].join("\n");
+		expect(parseQuestFrontMatter(text)).toBeUndefined();
+	});
+
+	it("returns undefined when the YAML root is a scalar", () => {
+		const text = ["---", "42", "---", "# Title"].join("\n");
+		expect(parseQuestFrontMatter(text)).toBeUndefined();
+	});
+
+	it("coerces a numeric rank from a string", () => {
+		const base = serializeQuestFrontMatter(SAMPLE_QUEST_FM);
+		const text = `${base.replace("rank: 1", 'rank: "7"')}\n# Title`;
+		const parsed = parseQuestFrontMatter(text);
+		expect(parsed?.frontMatter.rank).toBe(7);
+	});
+
+	it("rejects NaN ranks", () => {
+		const base = serializeQuestFrontMatter(SAMPLE_QUEST_FM);
+		const text = `${base.replace("rank: 1", "rank: not-a-number")}\n# Title`;
+		expect(parseQuestFrontMatter(text)).toBeUndefined();
+	});
+
+	it("accepts the bare `type:value` form for an alias", () => {
+		const text = [
+			"---",
+			"id: QEST-20260603-AAA111",
+			"kind: quest",
+			"parent: null",
+			"status: active",
+			"priority: active",
+			"rank: 1",
+			"started: 2026-06-03",
+			"updated: 2026-06-03",
+			"aliases:",
+			"  - github-pr:shop/world#1",
+			"sessions: []",
+			"---",
+			"# Title",
+		].join("\n");
+		const parsed = parseQuestFrontMatter(text);
+		expect(parsed?.frontMatter.aliases).toEqual([
+			{ type: "github-pr", value: "shop/world#1" },
+		]);
+	});
+
+	it("preserves unknown top-level keys across a round-trip", () => {
+		const base = serializeQuestFrontMatter(SAMPLE_QUEST_FM);
+		const text = `${base.replace(/^---\n/, "---\ncustomField: hello\nlabels:\n  - x\n  - y\n")}\n# Title`;
+		const parsed = parseQuestFrontMatter(text);
+		expect(parsed?.frontMatter._extra).toEqual({
+			customField: "hello",
+			labels: ["x", "y"],
+		});
+		const rendered = serializeQuestFrontMatter(parsed?.frontMatter as never);
+		expect(rendered).toContain("customField: hello");
+		expect(rendered).toContain("- x");
+	});
 });

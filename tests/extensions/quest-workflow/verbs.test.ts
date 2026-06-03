@@ -13,6 +13,7 @@ import {
 	clearTerminalDrivers,
 	registerTerminalDriver,
 } from "../../../lib/terminal/index";
+import { createEnvGuard } from "./_helpers";
 
 let tmpRoot: string;
 
@@ -33,7 +34,10 @@ function buildState() {
 	return createQuestState({ homeDir: tmpRoot, dataDir: tmpRoot });
 }
 
+const envGuard = createEnvGuard();
+
 beforeEach(() => {
+	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "quest-verbs-"));
 	clearRefTypes();
 	registerBuiltinRefTypes();
@@ -46,6 +50,7 @@ afterEach(() => {
 	clearRefTypes();
 	clearUrlFetchers();
 	clearTerminalDrivers();
+	envGuard.leave();
 });
 
 async function createQuest(
@@ -61,28 +66,42 @@ async function createQuest(
 }
 
 describe("reorder verbs", () => {
-	it("top moves the loaded quest to rank 1 and shifts siblings", async () => {
+	it("top moves the loaded quest to rank 1 and shifts siblings to fixed positions", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
 		const b = await createQuest(state, "Bravo");
 		const c = await createQuest(state, "Charlie");
 
-		// Load C and top it.
+		// Set up distinct starting ranks so we know exactly
+		// where each quest must land after `top`. Without
+		// this seeding every quest's rank is 1 and a loose
+		// `rank: [23]` regex passes for either order.
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: b.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "sink" });
 		await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "load",
 			id: c.id,
 		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "sink" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "sink" });
+		// Now ranks are: Alpha=1, Bravo=2, Charlie=3.
+
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "top",
 		});
 		expect(result.ok).toBe(true);
 
+		// After `top` on Charlie: Charlie=1, Alpha=2,
+		// Bravo=3. Each rank is asserted exactly.
 		const cText = readFileSync(c.path, "utf8");
 		expect(cText).toMatch(/^rank: 1$/m);
 		const aText = readFileSync(a.path, "utf8");
-		expect(aText).toMatch(/^rank: [23]$/m);
+		expect(aText).toMatch(/^rank: 2$/m);
 		const bText = readFileSync(b.path, "utf8");
-		expect(bText).toMatch(/^rank: [23]$/m);
+		expect(bText).toMatch(/^rank: 3$/m);
 	});
 
 	it("before/after needs a target", async () => {
