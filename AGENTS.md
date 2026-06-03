@@ -62,7 +62,7 @@ it does:
   session-wide process with state and stages. This covers
   both persistent session workflows (planning, TDD) and
   task-scoped orchestration (PR review and reply).
-  `plan-workflow`, `tdd-workflow`, `pr-workflow`,
+  `quest-workflow`, `tdd-workflow`, `pr-workflow`,
   `ask-workflow`, `git-bypass-workflow`,
   `guardian-status-workflow`
 
@@ -100,7 +100,7 @@ rules, domain definitions and decision framework.
 
 Extensions and skills are complementary. Skills teach
 methodology; extensions enforce it. Some are paired (e.g.,
-the `planning-guide` skill + `plan-workflow` extension) but
+the `planning-guide` skill + `quest-workflow` extension) but
 they all work independently.
 
 ## Conventions

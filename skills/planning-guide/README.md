@@ -11,6 +11,7 @@ recommended document sections, checkbox progress and how to
 deviate. It is written generally: a code plan, an investigation,
 a writing project and an ops runbook all use the same shape.
 
-Pairs with the [plan-workflow extension](../../extensions/plan-workflow/),
+Pairs with the [quest-workflow extension](../../extensions/quest-workflow/),
 which keeps the stage state, paints the scoreboard and enforces
-the read-only guardrail while planning.
+the read-only guardrail while a plan is focused under a loaded
+quest.

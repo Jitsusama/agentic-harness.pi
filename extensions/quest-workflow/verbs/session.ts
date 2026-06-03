@@ -1,0 +1,137 @@
+/**
+ * Session verbs: attach, detach, rename. Plus the
+ * `spawn-*` verbs that open a new terminal tab, pane or
+ * window via the registered terminal driver.
+ */
+
+import type { ToolContext } from "@mariozechner/pi-coding-agent";
+import type { QuestSession } from "../../../lib/quest/index.js";
+import {
+	resolveDriver,
+	type TerminalLayout,
+} from "../../../lib/terminal/index.js";
+import {
+	attachSessionToLoaded,
+	detachSessionFromLoaded,
+	renameSessionOnLoaded,
+} from "../lifecycle.js";
+import type { QuestState } from "../state.js";
+import {
+	currentSessionId,
+	ok,
+	type QuestResult,
+	type QuestToolParams,
+	refuse,
+} from "./shared.js";
+
+export function sessionAttach(
+	state: QuestState,
+	ctx: ToolContext,
+	params: QuestToolParams,
+): QuestResult {
+	if (!state.questId) return refuse("Load a quest first.");
+	const id = currentSessionId(ctx, params.sessionId);
+	if (!id) {
+		return refuse(
+			"Could not determine current pi session id. Pass it explicitly in `sessionId`.",
+		);
+	}
+	const session: QuestSession = {
+		id,
+		started: new Date().toISOString(),
+		status: "active",
+	};
+	if (params.name?.trim()) session.name = params.name.trim();
+	if (params.cwd?.trim()) session.cwd = params.cwd.trim();
+	else if (ctx.cwd) session.cwd = ctx.cwd;
+	const result = attachSessionToLoaded(state, session);
+	if (!result.ok) return refuse(result.guidance);
+	return ok(
+		result.added
+			? `Attached session ${id} to ${state.questId}.`
+			: `Session ${id} was already attached; refreshed status.`,
+		{ session, added: result.added },
+	);
+}
+
+export function sessionDetach(
+	state: QuestState,
+	ctx: ToolContext,
+	params: QuestToolParams,
+): QuestResult {
+	if (!state.questId) return refuse("Load a quest first.");
+	const id = currentSessionId(ctx, params.sessionId);
+	if (!id) {
+		return refuse(
+			"Could not determine session id to detach. Pass it explicitly in `sessionId`.",
+		);
+	}
+	const result = detachSessionFromLoaded(state, id);
+	if (!result.ok) return refuse(result.guidance);
+	if (!result.detached) {
+		return refuse(
+			`Session ${id} is not attached (or already detached) on this quest.`,
+		);
+	}
+	return ok(`Detached session ${id}.`, { sessionId: id });
+}
+
+export function sessionRename(
+	state: QuestState,
+	ctx: ToolContext,
+	params: QuestToolParams,
+): QuestResult {
+	if (!state.questId) return refuse("Load a quest first.");
+	if (!params.name?.trim())
+		return refuse("Pass the new session name in `name`.");
+	const id = currentSessionId(ctx, params.sessionId);
+	if (!id) return refuse("Pass a session id in `sessionId`.");
+	const result = renameSessionOnLoaded(state, id, params.name.trim());
+	if (!result.ok) return refuse(result.guidance);
+	if (!result.renamed) {
+		return refuse(
+			`Session ${id} is not attached to this quest or already has that name.`,
+		);
+	}
+	return ok(`Renamed session ${id} to "${params.name.trim()}".`, {
+		sessionId: id,
+		name: params.name.trim(),
+	});
+}
+
+export async function spawn(
+	state: QuestState,
+	params: QuestToolParams,
+): Promise<QuestResult> {
+	const layout = (params.layout ??
+		params.action.replace(/^spawn-/, "")) as TerminalLayout;
+	if (!(["tab", "pane", "window"] as TerminalLayout[]).includes(layout)) {
+		return refuse(
+			`Unknown layout "${layout}". Use spawn-tab, spawn-pane or spawn-window.`,
+		);
+	}
+	const driver = await resolveDriver();
+	if (!driver) {
+		return refuse(
+			"No terminal driver is available. Register one with `registerTerminalDriver` or seed the built-ins.",
+		);
+	}
+	const cwd = params.cwd?.trim() || state.questDir || undefined;
+	const command = params.command?.trim() || "pi";
+	const title =
+		params.title?.trim() ||
+		(state.questId
+			? `${state.questId} ${state.questTitle ?? ""}`.trim()
+			: undefined);
+	try {
+		await driver.spawn({ layout, command, cwd, title });
+	} catch (err) {
+		return refuse(`Spawn failed via ${driver.id}: ${(err as Error).message}`);
+	}
+	return ok(`Spawned a ${layout} via ${driver.id}.`, {
+		driver: driver.id,
+		layout,
+		cwd,
+		command,
+	});
+}

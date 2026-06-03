@@ -1,0 +1,690 @@
+/**
+ * Lifecycle operations for the quest workflow: load,
+ * unload, focus, unfocus, restore on session start, persist
+ * back to disk. The state object owns the projections; this
+ * module bridges between disk artifacts and that state.
+ */
+
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { join } from "node:path";
+import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
+import {
+	type AliasIndex,
+	buildAliasIndex,
+} from "../../lib/internal/quest/alias-index.js";
+import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.js";
+import { nowYmd } from "../../lib/internal/quest/dates.js";
+import {
+	discoverQuests,
+	type QuestEntry,
+} from "../../lib/internal/quest/discovery.js";
+import {
+	atomicWriteFile,
+	atomicWriteUnderLock,
+	withQuestLock,
+} from "../../lib/internal/quest/io.js";
+import {
+	diffRanks,
+	type RankEntry,
+	after as rankAfter,
+	before as rankBefore,
+	bottom as rankBottom,
+	bump as rankBump,
+	renumber as rankRenumber,
+	sink as rankSink,
+	top as rankTop,
+} from "../../lib/internal/quest/ranking.js";
+import {
+	type DocumentFrontMatter,
+	type DocumentKind,
+	type DocumentStage,
+	milestoneProgress,
+	parseDocumentFrontMatter,
+	parseQuestDoc,
+	parseQuestFrontMatter,
+	type QuestAlias,
+	type QuestFrontMatter,
+	type QuestPriority,
+	type QuestSession,
+	type QuestStatus,
+	serializeDocumentFrontMatter,
+	serializeQuestFrontMatter,
+} from "../../lib/quest/index.js";
+import type { Stage } from "./machine.js";
+import type { QuestState } from "./state.js";
+
+/** Persist quest state's progress projection from the focused document or quest. */
+export function refreshProgress(state: QuestState): void {
+	if (state.documentPath) {
+		try {
+			const text = readFileSync(state.documentPath, "utf8");
+			const parsed = parseDocumentFrontMatter(text);
+			if (parsed) {
+				const progress = milestoneProgress(parsed.body);
+				state.done = progress.done;
+				state.total = progress.total;
+				state.documentStage = parsed.frontMatter.stage as Stage;
+				return;
+			}
+		} catch {
+			// Document missing or unreadable; fall through.
+		}
+	}
+	if (state.questDir) {
+		try {
+			const text = readFileSync(join(state.questDir, "README.md"), "utf8");
+			const parsed = parseQuestDoc(text);
+			if (parsed) {
+				const progress = milestoneProgress(parsed.body);
+				state.done = progress.done;
+				state.total = progress.total;
+				return;
+			}
+		} catch {
+			// Quest missing; fall through.
+		}
+	}
+	state.done = 0;
+	state.total = 0;
+}
+
+/** Find a quest entry by id across the quests root. */
+export function findQuestEntry(
+	state: QuestState,
+	id: string,
+): QuestEntry | undefined {
+	const { index } = discoverQuests(state.questsRoot);
+	return index.quests.get(id);
+}
+
+/** Load a quest into state by id. */
+export function loadQuest(
+	state: QuestState,
+	pi: ExtensionAPI,
+	id: string,
+): { ok: true } | { ok: false; guidance: string } {
+	const entry = findQuestEntry(state, id);
+	if (!entry) {
+		return {
+			ok: false,
+			guidance: `No quest with id "${id}" under ${state.questsRoot}.`,
+		};
+	}
+	state.questDir = entry.dir;
+	state.questId = entry.doc.frontMatter.id;
+	state.questTitle = entry.doc.title ?? null;
+	state.questKind = entry.doc.frontMatter.kind;
+	state.questStatus = entry.doc.frontMatter.status;
+	state.questPriority = entry.doc.frontMatter.priority;
+	state.documentPath = null;
+	state.documentId = null;
+	state.documentKind = null;
+	state.documentTitle = null;
+	state.documentStage = "idle";
+	refreshProgress(state);
+	pi.setSessionName?.(`${id} ${entry.doc.title ?? "quest"}`);
+	return { ok: true };
+}
+
+/** Unload the currently loaded quest. */
+export function unloadQuest(state: QuestState): void {
+	state.questDir = null;
+	state.questId = null;
+	state.questTitle = null;
+	state.questKind = null;
+	state.questStatus = null;
+	state.questPriority = null;
+	state.documentPath = null;
+	state.documentId = null;
+	state.documentKind = null;
+	state.documentTitle = null;
+	state.documentStage = "idle";
+	state.done = 0;
+	state.total = 0;
+}
+
+/** Focus a document under the loaded quest. */
+export function focusDocument(
+	state: QuestState,
+	docPath: string,
+): { ok: true } | { ok: false; guidance: string } {
+	if (!state.questDir) {
+		return { ok: false, guidance: "Load a quest first." };
+	}
+	let text: string;
+	try {
+		text = readFileSync(docPath, "utf8");
+	} catch (err) {
+		return {
+			ok: false,
+			guidance: `Cannot read ${docPath}: ${(err as Error).message}`,
+		};
+	}
+	const parsed = parseDocumentFrontMatter(text);
+	if (!parsed) {
+		return {
+			ok: false,
+			guidance: `Document ${docPath} has no valid front-matter.`,
+		};
+	}
+	state.documentPath = docPath;
+	state.documentId = parsed.frontMatter.id;
+	state.documentKind = parsed.frontMatter.kind;
+	state.documentTitle = extractTitle(parsed.body);
+	state.documentStage = parsed.frontMatter.stage as Stage;
+	refreshProgress(state);
+	return { ok: true };
+}
+
+/** Unfocus the active document. */
+export function unfocusDocument(state: QuestState): void {
+	state.documentPath = null;
+	state.documentId = null;
+	state.documentKind = null;
+	state.documentTitle = null;
+	state.documentStage = "idle";
+	refreshProgress(state);
+}
+
+/**
+ * Persist the focused document's stage back to disk.
+ *
+ * Mutates the in-memory `state.documentStage` only after
+ * the write returns, so a failed write does not diverge
+ * memory from disk.
+ */
+export function writeDocumentStage(state: QuestState, stage: Stage): void {
+	if (!state.documentPath) return;
+	const questDir = state.questDir;
+	let text: string;
+	try {
+		text = readFileSync(state.documentPath, "utf8");
+	} catch {
+		return;
+	}
+	const parsed = parseDocumentFrontMatter(text);
+	if (!parsed) return;
+	const newFm: DocumentFrontMatter = {
+		...parsed.frontMatter,
+		stage: stage as DocumentStage,
+		updated: nowYmd(),
+	};
+	const newText = `${serializeDocumentFrontMatter(newFm)}\n${parsed.body}`;
+	const documentPath = state.documentPath;
+	if (questDir) {
+		atomicWriteUnderLock(questDir, documentPath, newText);
+	} else {
+		atomicWriteFile(documentPath, newText);
+	}
+	state.documentStage = stage;
+}
+
+/** Append a Journey entry to the loaded quest's README. */
+export function appendJourneyEntry(state: QuestState, prose: string): void {
+	if (!state.questDir) return;
+	const ok = appendJourneyByPath(state.questDir, prose);
+	if (!ok) {
+		console.warn(
+			`[quest-workflow] failed to append Journey entry to ${state.questDir}; README missing or unreadable.`,
+		);
+		return;
+	}
+	stampQuestUpdated(state);
+}
+
+/** Update the loaded quest's `updated` frontmatter to today. */
+export function stampQuestUpdated(state: QuestState): void {
+	if (!state.questDir) return;
+	const questDir = state.questDir;
+	const path = join(questDir, "README.md");
+	withQuestLock(questDir, () => {
+		let text: string;
+		try {
+			text = readFileSync(path, "utf8");
+		} catch {
+			return;
+		}
+		const parsed = parseQuestFrontMatter(text);
+		if (!parsed) return;
+		const fm: QuestFrontMatter = {
+			...parsed.frontMatter,
+			updated: nowYmd(),
+		};
+		atomicWriteFile(path, `${serializeQuestFrontMatter(fm)}\n${parsed.body}`);
+	});
+}
+
+/**
+ * Canonicalize a path for prefix comparison: resolve
+ * symlinks, normalize `/var` vs `/private/var` on macOS,
+ * and lowercase on case-insensitive filesystems where the
+ * runtime can detect them. Returns the input on failure so
+ * a missing path still compares against something stable.
+ */
+function canonicalForCompare(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		return path;
+	}
+}
+
+function isUnder(child: string, parent: string): boolean {
+	if (child === parent) return true;
+	return child.startsWith(`${parent}/`);
+}
+
+/** Restore on session_start by re-reading from disk if a quest dir was remembered. */
+export function restoreFromCwd(
+	state: QuestState,
+	pi: ExtensionAPI,
+	ctx: ToolContext,
+): void {
+	const rawCwd = ctx.cwd;
+	if (!rawCwd) return;
+	const cwd = canonicalForCompare(rawCwd);
+	const { index } = discoverQuests(state.questsRoot);
+	// 1. Quest directory match: the session's cwd is
+	//    inside a quest's own folder.
+	for (const entry of index.quests.values()) {
+		if (isUnder(cwd, canonicalForCompare(entry.dir))) {
+			loadQuest(state, pi, entry.doc.frontMatter.id);
+			return;
+		}
+	}
+	// 2. Tree-alias match: the cwd is inside a working
+	//    tree registered on some quest. Walk every quest's
+	//    `git-worktree:` aliases (path values) and the
+	//    quest's `trees:` array; pick the deepest match so
+	//    nested trees resolve to the innermost owner. Each
+	//    candidate path is canonicalized so /var and
+	//    /private/var (and bind-mounts in containers) match.
+	let bestQuestId: string | undefined;
+	let bestMatchLen = -1;
+	const consider = (questId: string, treePath: string) => {
+		const real = canonicalForCompare(treePath);
+		if (isUnder(cwd, real) && real.length > bestMatchLen) {
+			bestMatchLen = real.length;
+			bestQuestId = questId;
+		}
+	};
+	for (const entry of index.quests.values()) {
+		const fm = entry.doc.frontMatter;
+		for (const a of fm.aliases) {
+			if (a.type === "git-worktree") consider(fm.id, a.value);
+		}
+		for (const tree of fm.trees ?? []) consider(fm.id, tree.path);
+	}
+	if (bestQuestId) loadQuest(state, pi, bestQuestId);
+}
+
+function extractTitle(body: string): string | null {
+	const match = /^#\s+(.+)$/m.exec(body);
+	return match ? match[1].trim() : null;
+}
+
+/** Create a new document under the loaded quest. */
+export function createDocument(
+	state: QuestState,
+	opts: {
+		id: string;
+		kind: DocumentKind;
+		title: string;
+		stage: Stage;
+		scaffoldBody: string;
+	},
+): string | undefined {
+	if (!state.questDir) return undefined;
+	const subDir: Record<DocumentKind, string> = {
+		plan: "plans",
+		research: "research",
+		brief: "briefs",
+		report: "reports",
+	};
+	const dir = join(state.questDir, subDir[opts.kind]);
+	mkdirSync(dir, { recursive: true });
+	const path = join(dir, `${opts.id}.md`);
+	// New document; scaffold atomically. Subsequent writes go
+	// through writeDocumentStage which holds the lock too.
+	atomicWriteUnderLock(state.questDir, path, opts.scaffoldBody);
+	return path;
+}
+
+/** Discover quests for /quest-list etc. */
+export function listAllQuests(state: QuestState): QuestEntry[] {
+	const { index } = discoverQuests(state.questsRoot);
+	return [...index.quests.values()];
+}
+
+/** Ensure the quests root exists on disk. */
+export function ensureQuestsRoot(state: QuestState): void {
+	if (!existsSync(state.questsRoot)) {
+		mkdirSync(state.questsRoot, { recursive: true });
+	}
+}
+
+export type RankAction =
+	| { kind: "top" }
+	| { kind: "bottom" }
+	| { kind: "bump" }
+	| { kind: "sink" }
+	| { kind: "before"; target: string }
+	| { kind: "after"; target: string }
+	| { kind: "renumber" };
+
+export interface ReorderResult {
+	siblings: QuestEntry[];
+	changes: { id: string; from: number; to: number }[];
+}
+
+/**
+ * Reorder the sibling set the given quest belongs to.
+ * Siblings share both `parent` and `priority`. Writes the
+ * updated rank back to every quest whose rank changed.
+ */
+export function reorderSiblings(
+	state: QuestState,
+	questId: string,
+	action: RankAction,
+): { ok: true; result: ReorderResult } | { ok: false; guidance: string } {
+	const { index } = discoverQuests(state.questsRoot);
+	const pivot = index.quests.get(questId);
+	if (!pivot) {
+		return {
+			ok: false,
+			guidance: `No quest with id "${questId}" under ${state.questsRoot}.`,
+		};
+	}
+	const siblings: QuestEntry[] = [];
+	for (const entry of index.quests.values()) {
+		if (
+			entry.doc.frontMatter.parent === pivot.doc.frontMatter.parent &&
+			entry.doc.frontMatter.priority === pivot.doc.frontMatter.priority
+		) {
+			siblings.push(entry);
+		}
+	}
+	const before: RankEntry[] = siblings.map((e) => ({
+		id: e.doc.frontMatter.id,
+		rank: e.doc.frontMatter.rank,
+	}));
+	let after: RankEntry[];
+	switch (action.kind) {
+		case "top":
+			after = rankTop(before, questId);
+			break;
+		case "bottom":
+			after = rankBottom(before, questId);
+			break;
+		case "bump":
+			after = rankBump(before, questId);
+			break;
+		case "sink":
+			after = rankSink(before, questId);
+			break;
+		case "before":
+			after = rankBefore(before, questId, action.target);
+			break;
+		case "after":
+			after = rankAfter(before, questId, action.target);
+			break;
+		case "renumber":
+			after = rankRenumber(before);
+			break;
+	}
+	const changes = diffRanks(before, after);
+	const rankById = new Map(after.map((e) => [e.id, e.rank]));
+	for (const entry of siblings) {
+		const newRank = rankById.get(entry.doc.frontMatter.id);
+		if (newRank === undefined) continue;
+		if (newRank === entry.doc.frontMatter.rank) continue;
+		writeQuestRank(entry.dir, newRank);
+	}
+	return { ok: true, result: { siblings, changes } };
+}
+
+function writeQuestRank(questDir: string, rank: number): void {
+	const path = join(questDir, "README.md");
+	withQuestLock(questDir, () => {
+		let text: string;
+		try {
+			text = readFileSync(path, "utf8");
+		} catch {
+			return;
+		}
+		const parsed = parseQuestFrontMatter(text);
+		if (!parsed) return;
+		const fm: QuestFrontMatter = {
+			...parsed.frontMatter,
+			rank,
+			updated: nowYmd(),
+		};
+		atomicWriteFile(path, `${serializeQuestFrontMatter(fm)}\n${parsed.body}`);
+	});
+}
+
+/** Build a reverse alias index across every discovered quest. */
+export function buildQuestsAliasIndex(state: QuestState): AliasIndex {
+	const { index } = discoverQuests(state.questsRoot);
+	return buildAliasIndex(index);
+}
+
+function writeQuestFrontMatter(
+	questDir: string,
+	mutate: (fm: QuestFrontMatter) => QuestFrontMatter | undefined,
+): { ok: true; fm: QuestFrontMatter } | { ok: false; guidance: string } {
+	const path = join(questDir, "README.md");
+	return withQuestLock(questDir, () => {
+		let text: string;
+		try {
+			text = readFileSync(path, "utf8");
+		} catch (err) {
+			return {
+				ok: false as const,
+				guidance: `Cannot read ${path}: ${(err as Error).message}`,
+			};
+		}
+		const parsed = parseQuestFrontMatter(text);
+		if (!parsed) {
+			return {
+				ok: false as const,
+				guidance: `Quest README ${path} has invalid frontmatter.`,
+			};
+		}
+		const next = mutate(parsed.frontMatter);
+		if (!next) return { ok: true as const, fm: parsed.frontMatter };
+		const withStamp: QuestFrontMatter = { ...next, updated: nowYmd() };
+		atomicWriteFile(
+			path,
+			`${serializeQuestFrontMatter(withStamp)}\n${parsed.body}`,
+		);
+		return { ok: true as const, fm: withStamp };
+	});
+}
+
+/** Add an alias to the loaded quest. No-op if already present. */
+export function addAliasToLoaded(
+	state: QuestState,
+	alias: QuestAlias,
+): { ok: true; added: boolean } | { ok: false; guidance: string } {
+	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	let added = false;
+	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+		if (
+			fm.aliases.some((a) => a.type === alias.type && a.value === alias.value)
+		) {
+			return undefined;
+		}
+		added = true;
+		return { ...fm, aliases: [...fm.aliases, alias] };
+	});
+	if (!result.ok) return result;
+	return { ok: true, added };
+}
+
+/** Remove an alias from the loaded quest. */
+export function removeAliasFromLoaded(
+	state: QuestState,
+	alias: QuestAlias,
+): { ok: true; removed: boolean } | { ok: false; guidance: string } {
+	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	let removed = false;
+	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+		const next = fm.aliases.filter(
+			(a) => !(a.type === alias.type && a.value === alias.value),
+		);
+		if (next.length === fm.aliases.length) return undefined;
+		removed = true;
+		return { ...fm, aliases: next };
+	});
+	if (!result.ok) return result;
+	return { ok: true, removed };
+}
+
+/** Attach a pi session id to the loaded quest. */
+export function attachSessionToLoaded(
+	state: QuestState,
+	session: QuestSession,
+): { ok: true; added: boolean } | { ok: false; guidance: string } {
+	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	let added = false;
+	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+		const existing = fm.sessions.find((s) => s.id === session.id);
+		if (existing) {
+			// Refresh status to active and merge any new fields.
+			const merged: QuestSession = {
+				...existing,
+				...session,
+				status: "active",
+			};
+			if (JSON.stringify(merged) === JSON.stringify(existing)) {
+				return undefined;
+			}
+			return {
+				...fm,
+				sessions: fm.sessions.map((s) => (s.id === session.id ? merged : s)),
+			};
+		}
+		added = true;
+		const next: QuestSession = { status: "active", ...session };
+		return { ...fm, sessions: [...fm.sessions, next] };
+	});
+	if (!result.ok) return result;
+	return { ok: true, added };
+}
+
+/** Mark a session as detached on the loaded quest. */
+export function detachSessionFromLoaded(
+	state: QuestState,
+	sessionId: string,
+): { ok: true; detached: boolean } | { ok: false; guidance: string } {
+	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	let detached = false;
+	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+		let hit = false;
+		const next = fm.sessions.map((s) => {
+			if (s.id !== sessionId) return s;
+			if (s.status === "detached") return s;
+			hit = true;
+			return { ...s, status: "detached" as const };
+		});
+		if (!hit) return undefined;
+		detached = true;
+		return { ...fm, sessions: next };
+	});
+	if (!result.ok) return result;
+	return { ok: true, detached };
+}
+
+const PRIORITY_ORDER: QuestPriority[] = [
+	"driving",
+	"active",
+	"queued",
+	"bench",
+	"someday",
+];
+
+/** Set the loaded quest's priority bucket. */
+export function setLoadedPriority(
+	state: QuestState,
+	priority: QuestPriority,
+): { ok: true; changed: boolean } | { ok: false; guidance: string } {
+	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	let changed = false;
+	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+		if (fm.priority === priority) return undefined;
+		changed = true;
+		return { ...fm, priority, rank: 1 };
+	});
+	if (!result.ok) return result;
+	if (changed) {
+		state.questPriority = priority;
+	}
+	return { ok: true, changed };
+}
+
+/** Shift the loaded quest one bucket up or down the priority ladder. */
+export function bumpLoadedPriority(
+	state: QuestState,
+	direction: "up" | "down",
+):
+	| { ok: true; from: QuestPriority; to: QuestPriority }
+	| { ok: false; guidance: string } {
+	if (!state.questDir || !state.questPriority) {
+		return { ok: false, guidance: "Load a quest first." };
+	}
+	const i = PRIORITY_ORDER.indexOf(state.questPriority);
+	if (i < 0)
+		return { ok: false, guidance: "Unknown priority on the loaded quest." };
+	const step = direction === "up" ? -1 : 1;
+	const j = Math.min(PRIORITY_ORDER.length - 1, Math.max(0, i + step));
+	const next = PRIORITY_ORDER[j];
+	const from = state.questPriority;
+	if (next === from) return { ok: true, from, to: from };
+	const result = setLoadedPriority(state, next);
+	if (!result.ok) return result;
+	return { ok: true, from, to: next };
+}
+
+/** Set the loaded quest's coarse status enum. */
+export function setLoadedStatus(
+	state: QuestState,
+	status: QuestStatus,
+): { ok: true; changed: boolean } | { ok: false; guidance: string } {
+	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	let changed = false;
+	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+		if (fm.status === status) return undefined;
+		changed = true;
+		return { ...fm, status };
+	});
+	if (!result.ok) return result;
+	if (changed) {
+		state.questStatus = status;
+	}
+	return { ok: true, changed };
+}
+
+/** Rename a session on the loaded quest. */
+export function renameSessionOnLoaded(
+	state: QuestState,
+	sessionId: string,
+	name: string,
+): { ok: true; renamed: boolean } | { ok: false; guidance: string } {
+	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	let renamed = false;
+	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+		let hit = false;
+		const next = fm.sessions.map((s) => {
+			if (s.id !== sessionId) return s;
+			if (s.name === name) return s;
+			hit = true;
+			return { ...s, name };
+		});
+		if (!hit) return undefined;
+		renamed = true;
+		return { ...fm, sessions: next };
+	});
+	if (!result.ok) return result;
+	return { ok: true, renamed };
+}

@@ -190,6 +190,39 @@ Command syntax for `git` operations.
 | Quoted heredoc delimiter | Shell Quoting | 🟢 | Same `hasUnquotedHeredoc` check applies to commit heredocs through the guardian |
 | One concern per bash call | One Concern Per Bash Call | ⚪ | Judgment about what constitutes "one concern". |
 
+### quest-format
+
+On-disk shape of a quest README and the documents under it.
+
+| Rule | Section in skill | Status | Enforced by |
+| --- | --- | --- | --- |
+| ID format `PREFIX-YYYYMMDD-XXXXXX` (6-char base-36 upper) | Identifiers | 🟢 | `lib/internal/quest/id.ts` `isId` validates; the discovery walk surfaces directory-name vs id mismatches as errors. |
+| Frontmatter required scalars (id, kind, parent, status, priority, rank, started, updated) | Frontmatter | 🟢 | `lib/internal/quest/frontmatter.ts` returns undefined when any required scalar is missing; the discovery walk records the failure. |
+| `kind` enum (quest, subquest, sidequest) | Frontmatter | 🟢 | Same parser rejects unknown kinds. |
+| `status` enum (active, paused, blocked, concluded, retired) | Frontmatter | 🟢 | Same parser rejects unknown values. |
+| `priority` enum (driving, active, queued, bench, someday) | Frontmatter | 🟢 | Same parser rejects unknown values. |
+| Alias format `type:value` matching the refs registry | Frontmatter | 🚫 | The parser accepts any `type:value` pair; the refs registry decides at lookup time. Unregistered types simply have no URL. |
+| Four mandatory body sections (Summary, Purpose, Cast, Journey) | Body Sections | ⚪ | Skill-only for v1; convention drift would land here first. A content gate over quest READMEs can land later if drift shows up. |
+| Section emoji glyphs | Body Sections | ⚪ | Skill-only; the section extractor accepts the headings with or without an emoji prefix. |
+| Cast role-prefix bullets | Cast Bullets | ⚪ | The extractor only picks bullets that match the role-prefix pattern; non-matching bullets are silently ignored, so the rule is enforced by what gets indexed but not by a write gate. |
+| Journey entry shape (dated bullets, newest first) | Journey Entries | ⚪ | Skill-only. The extractor parses any `- **YYYY-MM-DD**: ...` bullet; ordering is the author's responsibility. |
+| Inline link extraction | Inline Links and References | 🚫 | The library indexes what it finds; absence is silent. Skill-only. |
+| Prose voice | Voice | 🟢 | `prose-standard` covers it through the existing prose gate. |
+
+### quest-convention
+
+Operational rules for the quest system.
+
+| Rule | Section in skill | Status | Enforced by |
+| --- | --- | --- | --- |
+| Kind choice (quest vs subquest vs sidequest) | Kind: Quest, Subquest or Sidequest | ⚪ | Judgment. |
+| Priority bucket choice | Priority Buckets and Rank | ⚪ | Judgment. |
+| Status enum changes only when situation changes | Status and Journey | ⚪ | Judgment. |
+| URL-to-quest dedup (load existing instead of creating) | Creating from a URL | 🟢 | The tool's create action checks the alias index and proposes loading when a match exists (planned; partial wiring in place). |
+| Document scaffolding criteria | When to Scaffold a Document | ⚪ | Judgment. |
+| Code-write discipline on focused plan | Focus and the Document Loop | 🟢 | `extensions/quest-workflow/enforce.ts` blocks writes during plan think/draft except to the focused plan itself. |
+| Conclude vs Retire | Conclude vs Retire | ⚪ | Judgment. |
+
 ## Skills With No Artifact-Shape Rules
 
 These skills exist but are out of scope for the gate matrix. They

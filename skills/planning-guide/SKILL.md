@@ -19,35 +19,49 @@ You dig hard, you argue for the best shape, and you leave with a
 living document that captures the spirit of the work and tracks
 its own progress.
 
-The `plan` tool drives the workflow. The plan document is the
-single source of truth: it survives reloads, resumes and cold
-starts, and the workflow rehydrates from it. The tool is a
-tracker, not a gate. It never prompts the user; it only reflects
-where the work is and reminds you of the posture for each stage.
+The `quest` tool drives planning, as one of the four document
+kinds (plan, research, brief, report) that live under a loaded
+quest. The plan document is the single source of truth: it
+survives reloads, resumes and cold starts, and the workflow
+rehydrates from it. The tool is a tracker, not a gate. It
+never prompts the user; it only reflects where the work is
+and reminds you of the posture for each stage.
+
+A plan exists under a quest. If no quest is loaded when you
+start planning, the agent loads or creates one first. Plans
+are scaffolded into the quest's `plans/` subdirectory and
+tied back to the quest via the document's `quest` front-matter
+field.
 
 ## The Stages
 
 A plan moves through three working stages and two terminal ones.
 
 - **think** (read-only): dig and debate. No implementing.
-- **plan** (read-only except the plan document): draft the
+- **draft** (read-only except the plan document): write the
   document.
 - **build** (writes allowed): implement against the plan.
 - **concluded** / **retired**: terminal. The document is the
   record.
 
-You drive transitions with the `plan` tool:
+You drive transitions with the `quest` tool's stage verbs:
 
-- `think` opens a plan from idle, with a `note` on what it is
-  about. It also reopens a plan from `plan` or `build` when
-  discovery sends you back to the drawing board (replan), and
-  after a plan has concluded or retired it simply opens the next
-  one, so you are never stuck once a plan ends.
-- `draft` moves think to plan and creates the document, with a
-  `title` that becomes its H1.
-- `build` moves plan to build once the document is drafted.
-- `conclude` closes a finished plan; `retire` abandons one with
-  a `reason`.
+- `quest({action: "think", note, kind: "plan"})` opens a fresh
+  plan loop from idle with a note on what it is about. The same
+  action reopens the focused plan from `draft` or `build` when
+  discovery sends you back to the drawing board (replan).
+- `quest({action: "draft", title})` moves think to draft and
+  creates the document, with a title that becomes its H1.
+- `quest({action: "build"})` moves draft to build once the
+  document is written.
+- `quest({action: "conclude"})` closes a finished plan;
+  `quest({action: "retire", reason})` abandons one with a
+  reason. Both default to the focused document when one is
+  set; pass `scope: "quest"` to act on the loaded quest
+  itself.
+- `quest({action: "focus", id})` switches the focused
+  document, and `quest({action: "unfocus"})` clears it.
+  Switching focus does not change the document's stage.
 
 A refused transition hands back guidance and changes nothing.
 There is no approval prompt.
@@ -145,10 +159,13 @@ it live, so progress climbs as you check items off rather than
 waiting on a stage change.
 
 When resuming, trust the checkboxes: the checked items are done,
-the unchecked are what remain. To find a plan to resume in a
-fresh session, `/plan list` shows the plans in the plan home,
-newest first, with their stage and progress; `/plan-attach`
-re-adopts the one you pick.
+the unchecked are what remain. To find a plan in a fresh session,
+load the relevant quest with `quest({action: "load", id})` (or
+let the workflow auto-load it from the session's cwd), then
+`focus` the document by its id. `quest({action: "list"})` shows
+the quests under the questsRoot, and `quest({action: "show"})`
+renders the loaded quest's documents with their kinds and
+stages.
 
 ## Deviating From the Plan
 
@@ -163,16 +180,19 @@ response depends on what changes.
 
 If the plan is genuinely wrong, reopen it: transition back to
 `think` with a note on what changed, rework the approach, then
-redraft.
+draft again.
 
 ## Where Plans Live
 
-The workflow writes the document to a durable location anchored
-to the main worktree root, so a plan started inside a linked
-worktree does not vanish when that worktree is removed. A
-personal setup can route plans into its own home by registering
-a router (see the plan-routing library); the package default is
-just the fallback.
+Plans live under their parent quest, in the quest's `plans/`
+subdirectory, as `PLAN-DATE-XXX.md`. The quest itself lives
+under the questsRoot (default
+`~/.local/share/pi/agentic-harness.pi/quest-workflow/quests/`,
+override via `QUEST_WORKFLOW_ROOT`).
+
+When you start a plan without a loaded quest, the agent loads
+or creates one first. There is no longer a notion of a
+free-standing plan: every plan belongs to a quest.
 
 ## Granularity
 
