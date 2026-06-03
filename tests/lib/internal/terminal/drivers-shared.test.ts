@@ -27,27 +27,37 @@ describe("wrapCommandWithEnv", () => {
 		expect(wrapCommandWithEnv("pi", {})).toBe("pi");
 	});
 
-	it("prepends KEY=value assignments and execs the command", () => {
+	it("prepends KEY=value assignments and execs the command via sh -c", () => {
 		expect(
 			wrapCommandWithEnv("pi", { QUEST_WORKFLOW_AUTOLOAD_ID: "QEST-X" }),
-		).toBe("QUEST_WORKFLOW_AUTOLOAD_ID='QEST-X' exec pi");
+		).toBe("QUEST_WORKFLOW_AUTOLOAD_ID='QEST-X' exec sh -c 'pi'");
 	});
 
 	it("quotes env values that contain spaces", () => {
 		expect(wrapCommandWithEnv("pi", { TITLE: "a b" })).toBe(
-			"TITLE='a b' exec pi",
+			"TITLE='a b' exec sh -c 'pi'",
 		);
 	});
 
 	it("supports multiple env vars in declaration order", () => {
 		expect(wrapCommandWithEnv("pi", { A: "1", B: "2" })).toBe(
-			"A='1' B='2' exec pi",
+			"A='1' B='2' exec sh -c 'pi'",
 		);
 	});
 
 	it("escapes single quotes in env values", () => {
 		expect(wrapCommandWithEnv("pi", { TITLE: "Joel's quest" })).toBe(
-			"TITLE='Joel'\\''s quest' exec pi",
+			"TITLE='Joel'\\''s quest' exec sh -c 'pi'",
+		);
+	});
+
+	it("preserves compound commands so shell metacharacters keep working", () => {
+		// The whole compound command becomes a single token to
+		// the outer shell, so the `;` separator and the second
+		// command survive instead of being lost when `exec`
+		// consumes only the first token.
+		expect(wrapCommandWithEnv("echo hi; sleep 30", { A: "1" })).toBe(
+			"A='1' exec sh -c 'echo hi; sleep 30'",
 		);
 	});
 });
