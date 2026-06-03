@@ -3,7 +3,9 @@
  * the chain to resolve an input string against external
  * systems.
  *
- * Built-ins ship at priority 100; downstream packages\n * register their own resolvers at lower priorities to take\n * precedence (e.g. a Vault lookup at priority 50).
+ * Built-ins ship at priority 100; downstream packages
+ * register their own resolvers at lower priorities to take
+ * precedence (e.g. a Vault lookup at priority 50).
  */
 
 import { slackResolver } from "../internal/people/resolvers/slack.js";

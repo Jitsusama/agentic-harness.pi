@@ -22,6 +22,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DocumentFrontMatter } from "../../quest/types.js";
+import { nowYmd } from "./dates.js";
 import {
 	parseDocumentFrontMatter,
 	serializeDocumentFrontMatter,
@@ -213,14 +214,6 @@ export interface AppendRoundInput
 	now?: () => Date;
 }
 
-function nowYmd(now: () => Date): string {
-	const d = now();
-	const y = d.getFullYear();
-	const m = String(d.getMonth() + 1).padStart(2, "0");
-	const day = String(d.getDate()).padStart(2, "0");
-	return `${y}-${m}-${day}`;
-}
-
 /**
  * Find the PR-review research doc for a sidequest by
  * matching the frontmatter marker (`kind: research,
@@ -260,8 +253,7 @@ export function appendPrReviewRound(
 ): AppendRoundResult {
 	const researchDir = join(input.sidequestDir, "research");
 	const existing = findExistingDoc(researchDir);
-	const now = input.now ?? (() => new Date());
-	const date = input.date || nowYmd(now);
+	const date = input.date || nowYmd(input.now);
 
 	if (existing) {
 		// Round number is anchored to frontmatter so a

@@ -1,18 +1,23 @@
 /**
  * Public surface of the people library.
  *
- * Storage of canonical people identities (names + handles)
- * backed by markdown files on disk. Extensions register
- * metadata against any identity in their own namespace.
+ * Handle-type registry, person-resolver chain and the
+ * canonical identity types. Downstream packages use these
+ * to resolve a free-form name or handle to an `Identity`,
+ * and to register new handle types or resolvers.
  *
- * Most callers use `createPeopleStore({ dir })` to build a
- * store object scoped to a specific directory. The quest
- * extension uses `dataDir("people") + "/registry"` as its
- * dir; tests pass a tmp directory.
+ * The disk-backed `PeopleStore` and its associated
+ * `createPeopleStore` factory live under
+ * `lib/internal/people/` (and the file at `./store.ts`).
+ * They are not yet wired to a consumer in this package and
+ * therefore are not part of the public barrel; a future PR
+ * that wires a consumer can promote them intentionally.
  */
 
 export {
 	clearHandleTypes,
+	getHandleType,
+	listHandleTypes,
 	registerBuiltinHandleTypes,
 	registerHandleType,
 	unregisterHandleType,
@@ -28,12 +33,6 @@ export {
 	setResolutionFallback,
 	unregisterPersonResolver,
 } from "./resolve.js";
-export {
-	type AddIdentityOptions,
-	createPeopleStore,
-	type PeopleStore,
-	type UpdateIdentityPatch,
-} from "./store.js";
 export type {
 	Handle,
 	HandleType,

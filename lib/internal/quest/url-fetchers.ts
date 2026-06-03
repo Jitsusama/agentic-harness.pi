@@ -42,48 +42,34 @@ export interface UrlFetcher {
 	fetch(ref: Ref): Promise<SeedHints | undefined>;
 }
 
-const REGISTRY_KEY = Symbol.for("pi:quest-url-fetchers");
+import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.js";
 
-type Registry = Map<string, UrlFetcher>;
-type GlobalRegistry = Record<symbol, Registry | undefined>;
-
-function getRegistry(): Registry {
-	const slot = globalThis as GlobalRegistry;
-	const existing = slot[REGISTRY_KEY];
-	if (existing) return existing;
-	const fresh: Registry = new Map();
-	slot[REGISTRY_KEY] = fresh;
-	return fresh;
-}
+const registry = createGlobalSymbolRegistry<UrlFetcher>({
+	slot: "pi:agentic-harness:quest-url-fetchers",
+	getId: (f) => f.type,
+});
 
 /** Register a URL fetcher for a ref type. */
-export function registerUrlFetcher(fetcher: UrlFetcher): void {
-	getRegistry().set(fetcher.type, fetcher);
-}
+export const registerUrlFetcher = (fetcher: UrlFetcher): void =>
+	registry.register(fetcher);
 
 /** Remove a fetcher. Idempotent. */
-export function unregisterUrlFetcher(type: string): void {
-	getRegistry().delete(type);
-}
+export const unregisterUrlFetcher = (type: string): void =>
+	registry.unregister(type);
 
 /** Empty the registry. Tests only. */
-export function clearUrlFetchers(): void {
-	getRegistry().clear();
-}
+export const clearUrlFetchers = (): void => registry.clear();
 
 /** Look up a fetcher by ref type. */
-export function getUrlFetcher(type: string): UrlFetcher | undefined {
-	return getRegistry().get(type);
-}
+export const getUrlFetcher = (type: string): UrlFetcher | undefined =>
+	registry.get(type);
 
 /** Snapshot of every registered fetcher. */
-export function listUrlFetchers(): UrlFetcher[] {
-	return [...getRegistry().values()];
-}
+export const listUrlFetchers = (): UrlFetcher[] => registry.list();
 
 /** Fetch hints for a ref, or undefined when nothing handles it. */
 export async function fetchUrlHints(ref: Ref): Promise<SeedHints | undefined> {
-	const fetcher = getRegistry().get(ref.type);
+	const fetcher = registry.get(ref.type);
 	if (!fetcher) return undefined;
 	try {
 		return await fetcher.fetch(ref);

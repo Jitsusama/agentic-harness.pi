@@ -235,7 +235,7 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			command: Type.Optional(
 				Type.String({
 					description:
-						"spawn: shell command for the new terminal. Defaults to `pi`.",
+						"spawn: shell command for the new terminal. Defaults to `pi`. This launches a detached process the other guardians cannot intercept; the agent should only spawn commands the user has authorized.",
 				}),
 			),
 			cwd: Type.Optional(

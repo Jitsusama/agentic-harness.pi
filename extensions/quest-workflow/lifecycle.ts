@@ -13,6 +13,7 @@ import {
 	buildAliasIndex,
 } from "../../lib/internal/quest/alias-index.js";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.js";
+import { nowYmd } from "../../lib/internal/quest/dates.js";
 import {
 	discoverQuests,
 	type QuestEntry,
@@ -52,12 +53,6 @@ import {
 import type { Stage } from "./machine.js";
 import type { QuestState } from "./state.js";
 
-function nowYmd(): string {
-	const d = new Date();
-	const p = (n: number) => String(n).padStart(2, "0");
-	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
 /** Persist quest state's progress projection from the focused document or quest. */
 export function refreshProgress(state: QuestState): void {
 	if (state.documentPath) {
@@ -65,19 +60,9 @@ export function refreshProgress(state: QuestState): void {
 			const text = readFileSync(state.documentPath, "utf8");
 			const parsed = parseDocumentFrontMatter(text);
 			if (parsed) {
-				const rx = /^\s*-\s+\[([ xX])\]/gm;
-				let total = 0;
-				let done = 0;
-				for (
-					let m = rx.exec(parsed.body);
-					m !== null;
-					m = rx.exec(parsed.body)
-				) {
-					total++;
-					if (m[1].toLowerCase() === "x") done++;
-				}
-				state.done = done;
-				state.total = total;
+				const progress = milestoneProgress(parsed.body);
+				state.done = progress.done;
+				state.total = progress.total;
 				state.documentStage = parsed.frontMatter.stage as Stage;
 				return;
 			}

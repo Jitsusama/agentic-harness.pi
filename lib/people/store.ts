@@ -1,12 +1,18 @@
 /**
- * Public store object for the people registry.
+ * Disk-backed store for canonical people identities.
  *
- * One instance maps to one on-disk directory. Most callers
- * use the module-level free functions (`addIdentity`,
- * `getIdentity` and friends) which delegate to a singleton
- * store at `dataDir("people")/registry`. Tests build their
- * own store with `createPeopleStore({ dir })` to isolate
- * from the user's real registry.
+ * One `PeopleStore` instance is scoped to one on-disk
+ * directory. The directory holds one markdown file per
+ * identity (`<id>.md`) plus per-namespace metadata in JSON
+ * code blocks inside each file's body. Callers build a
+ * store with `createPeopleStore({ dir })` and hold the
+ * instance for the lifetime of the consumer that needs
+ * it; there is no module-level singleton.
+ *
+ * The factory is not currently exported from
+ * `lib/people/index.ts`: no consumer in this package wires
+ * the store yet. A future PR that wires it should promote
+ * the public surface in one step (factory plus types).
  */
 
 import {

@@ -15,6 +15,7 @@ import {
 	buildAliasIndex,
 	lookupAliasDetail,
 } from "../../lib/internal/quest/alias-index.js";
+import { nowYmd } from "../../lib/internal/quest/dates.js";
 import { discoverQuests } from "../../lib/internal/quest/discovery.js";
 import {
 	parseQuestFrontMatter,
@@ -79,12 +80,6 @@ import {
 } from "./lookup.js";
 import { type TransitionAction, transition } from "./machine.js";
 import type { QuestState } from "./state.js";
-
-function nowYmd(): string {
-	const d = new Date();
-	const p = (n: number) => String(n).padStart(2, "0");
-	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
 
 export interface QuestToolParams {
 	action: string;

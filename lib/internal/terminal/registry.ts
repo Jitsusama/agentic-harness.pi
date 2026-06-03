@@ -1,42 +1,21 @@
 /**
  * Terminal driver registry: process-global map from driver
- * id to `TerminalDriver`. Symmetric with refs and people
- * libraries; uses the same `globalThis` symbol slot
- * pattern.
+ * id to `TerminalDriver`. Symmetric with refs and tree
+ * registries; uses the shared `createGlobalSymbolRegistry`
+ * helper.
  */
 
 import type { TerminalDriver } from "../../terminal/types.js";
+import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.js";
 
-const REGISTRY_KEY = Symbol.for("pi:terminal-drivers");
+const registry = createGlobalSymbolRegistry<TerminalDriver>({
+	slot: "pi:agentic-harness:terminal-drivers",
+	getId: (d) => d.id,
+});
 
-type Registry = Map<string, TerminalDriver>;
-type GlobalRegistry = Record<symbol, Registry | undefined>;
-
-function getRegistry(): Registry {
-	const slot = globalThis as GlobalRegistry;
-	const existing = slot[REGISTRY_KEY];
-	if (existing) return existing;
-	const fresh: Registry = new Map();
-	slot[REGISTRY_KEY] = fresh;
-	return fresh;
-}
-
-export function register(driver: TerminalDriver): void {
-	getRegistry().set(driver.id, driver);
-}
-
-export function unregister(id: string): void {
-	getRegistry().delete(id);
-}
-
-export function clear(): void {
-	getRegistry().clear();
-}
-
-export function get(id: string): TerminalDriver | undefined {
-	return getRegistry().get(id);
-}
-
-export function list(): TerminalDriver[] {
-	return [...getRegistry().values()];
-}
+export const register = (driver: TerminalDriver): void =>
+	registry.register(driver);
+export const unregister = (id: string): void => registry.unregister(id);
+export const clear = (): void => registry.clear();
+export const get = (id: string): TerminalDriver | undefined => registry.get(id);
+export const list = (): TerminalDriver[] => registry.list();

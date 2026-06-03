@@ -21,6 +21,7 @@ import type {
 	QuestKind,
 } from "../../quest/types.js";
 import { buildAliasIndex, lookupAliasDetail } from "./alias-index.js";
+import { nowYmd } from "./dates.js";
 import { discoverQuests } from "./discovery.js";
 import { mintId } from "./id.js";
 import { atomicWriteFile } from "./io.js";
@@ -61,14 +62,6 @@ export interface FindOrCreateResult {
 	parentQuestId: string | null;
 	/** True when this call scaffolded a new sidequest. */
 	isNew: boolean;
-}
-
-function nowYmd(now: () => Date): string {
-	const d = now();
-	const y = d.getFullYear();
-	const m = String(d.getMonth() + 1).padStart(2, "0");
-	const day = String(d.getDate()).padStart(2, "0");
-	return `${y}-${m}-${day}`;
 }
 
 /**
@@ -119,7 +112,7 @@ export function findOrCreateSidequestForPr(
 	}
 
 	const alias: QuestAlias = { type: "github-pr", value: aliasValue };
-	const date = nowYmd(input.now ?? (() => new Date()));
+	const date = nowYmd(input.now);
 	const frontMatter: QuestFrontMatter = {
 		id,
 		kind: "sidequest" satisfies QuestKind,

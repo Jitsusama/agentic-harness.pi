@@ -5,7 +5,13 @@
  */
 
 import { BUILTIN_HANDLE_TYPES } from "../internal/people/builtins.js";
-import { clear, register, unregister } from "../internal/people/registry.js";
+import {
+	clear,
+	get,
+	list,
+	register,
+	unregister,
+} from "../internal/people/registry.js";
 import type { HandleType } from "./types.js";
 
 /**
@@ -37,4 +43,14 @@ export function registerBuiltinHandleTypes(): void {
  */
 export function clearHandleTypes(): void {
 	clear();
+}
+
+/** Look up a registered handle type by id, or `undefined`. */
+export function getHandleType(type: string): HandleType | undefined {
+	return get(type);
+}
+
+/** Snapshot of every registered handle type. */
+export function listHandleTypes(): HandleType[] {
+	return list();
 }

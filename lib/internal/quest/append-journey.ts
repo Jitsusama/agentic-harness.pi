@@ -9,15 +9,8 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { nowYmd } from "./dates.js";
 import { atomicWriteFile, withQuestLock } from "./io.js";
-
-function nowYmd(now: () => Date): string {
-	const d = now();
-	const y = d.getFullYear();
-	const m = String(d.getMonth() + 1).padStart(2, "0");
-	const day = String(d.getDate()).padStart(2, "0");
-	return `${y}-${m}-${day}`;
-}
 
 /**
  * Append a Journey bullet to `<questDir>/README.md`. When
@@ -42,7 +35,7 @@ export function appendJourneyByPath(
 		} catch {
 			return false;
 		}
-		const date = nowYmd(opts?.now ?? (() => new Date()));
+		const date = nowYmd(opts?.now);
 		const bullet = `- **${date}**: ${prose.trim()}`;
 		const journeyHeading = /^##\s+(?:[\u{1F300}-\u{1FFFF}]\s+)?Journey\s*$/mu;
 		const match = journeyHeading.exec(text);

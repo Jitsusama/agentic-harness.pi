@@ -2,50 +2,27 @@
  * Refs registry: a process-global map from ref type
  * identifier to `RefType` definition.
  *
- * Stored on `globalThis` via `Symbol.for` so multiple
- * extension packages share a single registry. The quest
- * extension registers the built-in types; downstream
- * packages can register their own without coordinating.
- *
- * State is per-process and resets on `/reload` or restart.
- * Tests use `clear()` to isolate one test from the next.
+ * Implementation note: backed by the shared
+ * `createGlobalSymbolRegistry` helper so every package
+ * registry follows the same shape. The slot persists
+ * across module reimport but NOT across pi's `/reload`,
+ * which spawns a fresh process. Tests call `clear()` to
+ * isolate registrations between cases.
  */
 
 import type { Ref, RefType } from "../../refs/types.js";
+import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.js";
 
-const REGISTRY_KEY = Symbol.for("pi:refs-registry");
+const registry = createGlobalSymbolRegistry<RefType>({
+	slot: "pi:agentic-harness:refs-registry",
+	getId: (rt) => rt.type,
+});
 
-type Registry = Map<string, RefType>;
-type GlobalRegistry = Record<symbol, Registry | undefined>;
-
-function getRegistry(): Registry {
-	const slot = globalThis as GlobalRegistry;
-	const existing = slot[REGISTRY_KEY];
-	if (existing) return existing;
-	const fresh: Registry = new Map();
-	slot[REGISTRY_KEY] = fresh;
-	return fresh;
-}
-
-export function register(refType: RefType): void {
-	getRegistry().set(refType.type, refType);
-}
-
-export function unregister(type: string): void {
-	getRegistry().delete(type);
-}
-
-export function clear(): void {
-	getRegistry().clear();
-}
-
-export function get(type: string): RefType | undefined {
-	return getRegistry().get(type);
-}
-
-export function list(): RefType[] {
-	return [...getRegistry().values()];
-}
+export const register = (refType: RefType): void => registry.register(refType);
+export const unregister = (type: string): void => registry.unregister(type);
+export const clear = (): void => registry.clear();
+export const get = (type: string): RefType | undefined => registry.get(type);
+export const list = (): RefType[] => registry.list();
 
 /**
  * Run every registered type's `matchAll` against the given
