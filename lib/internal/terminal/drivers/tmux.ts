@@ -17,6 +17,7 @@ import type {
 	TerminalDriver,
 	TerminalRequest,
 } from "../../../terminal/types.js";
+import { wrapCommandWithEnv } from "./shared.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -51,7 +52,13 @@ function buildArgs(request: TerminalRequest): string[] {
 			if (request.cwd) args.push("-c", request.cwd);
 			break;
 	}
-	args.push(request.command);
+	// Tmux runs the spawned command in the server's
+	// environment, not the calling CLI's. Wrapping the
+	// command in a shell that sets env vars and execs
+	// the target is portable across tmux versions and
+	// avoids relying on `-e KEY=value`, which was added
+	// in tmux 3.0 and not always present.
+	args.push(wrapCommandWithEnv(request.command, request.env));
 	return args;
 }
 
@@ -63,11 +70,9 @@ export const tmux: TerminalDriver = {
 	},
 	async spawn(request) {
 		const args = buildArgs(request);
-		const env: NodeJS.ProcessEnv = { ...process.env, ...(request.env ?? {}) };
 		await new Promise<void>((resolve, reject) => {
 			const child = nodeSpawn("tmux", args, {
 				stdio: "ignore",
-				env,
 			});
 			child.on("error", reject);
 			child.on("exit", (code) => {

@@ -38,7 +38,12 @@ import {
 import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
 import { enforceQuest, isFocusedDocWrite } from "./enforce.js";
-import { listAllQuests, refreshProgress, restoreFromCwd } from "./lifecycle.js";
+import {
+	listAllQuests,
+	loadQuest,
+	refreshProgress,
+	restoreFromCwd,
+} from "./lifecycle.js";
 import { showLoaded } from "./lookup.js";
 import { formatQuestList, renderStatus, renderWidget } from "./render.js";
 import { createQuestState, type QuestState } from "./state.js";
@@ -452,7 +457,18 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		restoreFromCwd(state, pi, ctx);
+		// A spawn from the quest workflow's spawn-* verbs
+		// ships the loaded quest id via this env var so the
+		// new session can name itself after the right quest
+		// even when the cwd doesn't disambiguate. Consume
+		// and clear it so the hint doesn't carry across
+		// in-process session restarts.
+		const autoloadId = process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
+		if (autoloadId) {
+			delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
+			loadQuest(state, pi, autoloadId);
+		}
+		if (!state.questId) restoreFromCwd(state, pi, ctx);
 		updateScoreboard(state, ctx);
 	});
 

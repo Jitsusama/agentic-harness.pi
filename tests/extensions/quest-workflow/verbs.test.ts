@@ -260,12 +260,22 @@ describe("spawn verbs", () => {
 			id: a.id,
 		});
 
-		const calls: { layout: string; cwd?: string; command: string }[] = [];
+		const calls: {
+			layout: string;
+			cwd?: string;
+			command: string;
+			env?: Readonly<Record<string, string>>;
+		}[] = [];
 		registerTerminalDriver({
 			id: "test",
 			available: () => true,
 			async spawn(req) {
-				calls.push({ layout: req.layout, cwd: req.cwd, command: req.command });
+				calls.push({
+					layout: req.layout,
+					cwd: req.cwd,
+					command: req.command,
+					env: req.env,
+				});
 			},
 		});
 
@@ -277,6 +287,10 @@ describe("spawn verbs", () => {
 		expect(calls[0].layout).toBe("tab");
 		expect(calls[0].command).toBe("pi");
 		expect(calls[0].cwd).toBe(state.questDir);
+		// The spawn ships the loaded quest id so the new
+		// pi can name its session after the quest without
+		// the wezterm/tmux tab-title plumbing.
+		expect(calls[0].env).toEqual({ QUEST_WORKFLOW_AUTOLOAD_ID: a.id });
 	});
 });
 
