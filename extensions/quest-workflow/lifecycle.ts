@@ -5,7 +5,7 @@
  * module bridges between disk artifacts and that state.
  */
 
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
 import {
@@ -269,19 +269,40 @@ export function stampQuestUpdated(state: QuestState): void {
 	});
 }
 
+/**
+ * Canonicalize a path for prefix comparison: resolve
+ * symlinks, normalize `/var` vs `/private/var` on macOS,
+ * and lowercase on case-insensitive filesystems where the
+ * runtime can detect them. Returns the input on failure so
+ * a missing path still compares against something stable.
+ */
+function canonicalForCompare(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		return path;
+	}
+}
+
+function isUnder(child: string, parent: string): boolean {
+	if (child === parent) return true;
+	return child.startsWith(`${parent}/`);
+}
+
 /** Restore on session_start by re-reading from disk if a quest dir was remembered. */
 export function restoreFromCwd(
 	state: QuestState,
 	pi: ExtensionAPI,
 	ctx: ToolContext,
 ): void {
-	const cwd = ctx.cwd;
-	if (!cwd) return;
+	const rawCwd = ctx.cwd;
+	if (!rawCwd) return;
+	const cwd = canonicalForCompare(rawCwd);
 	const { index } = discoverQuests(state.questsRoot);
 	// 1. Quest directory match: the session's cwd is
 	//    inside a quest's own folder.
 	for (const entry of index.quests.values()) {
-		if (cwd === entry.dir || cwd.startsWith(`${entry.dir}/`)) {
+		if (isUnder(cwd, canonicalForCompare(entry.dir))) {
 			loadQuest(state, pi, entry.doc.frontMatter.id);
 			return;
 		}
@@ -290,15 +311,16 @@ export function restoreFromCwd(
 	//    tree registered on some quest. Walk every quest's
 	//    `git-worktree:` aliases (path values) and the
 	//    quest's `trees:` array; pick the deepest match so
-	//    nested trees resolve to the innermost owner.
+	//    nested trees resolve to the innermost owner. Each
+	//    candidate path is canonicalized so /var and
+	//    /private/var (and bind-mounts in containers) match.
 	let bestQuestId: string | undefined;
 	let bestMatchLen = -1;
 	const consider = (questId: string, treePath: string) => {
-		if (cwd === treePath || cwd.startsWith(`${treePath}/`)) {
-			if (treePath.length > bestMatchLen) {
-				bestMatchLen = treePath.length;
-				bestQuestId = questId;
-			}
+		const real = canonicalForCompare(treePath);
+		if (isUnder(cwd, real) && real.length > bestMatchLen) {
+			bestMatchLen = real.length;
+			bestQuestId = questId;
 		}
 	};
 	for (const entry of index.quests.values()) {

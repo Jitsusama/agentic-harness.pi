@@ -8,7 +8,13 @@
  * disk artifacts and producing a human-facing message.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
 import {
@@ -348,10 +354,24 @@ async function create(
 	return ok(`Created ${kind} ${id} at ${path}`, { id, path, kind });
 }
 
+function canonical(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		return path;
+	}
+}
+
+function isUnder(child: string, parent: string): boolean {
+	if (child === parent) return true;
+	return child.startsWith(`${parent}/`);
+}
+
 function questIdFromCwd(state: QuestState, cwd: string): string | undefined {
 	const { index } = discoverQuests(state.questsRoot);
+	const realCwd = canonical(cwd);
 	for (const entry of index.quests.values()) {
-		if (cwd === entry.dir || cwd.startsWith(`${entry.dir}/`)) {
+		if (isUnder(realCwd, canonical(entry.dir))) {
 			return entry.doc.frontMatter.id;
 		}
 	}
@@ -365,11 +385,10 @@ function questIdFromCwd(state: QuestState, cwd: string): string | undefined {
 		}
 		for (const tree of fm.trees ?? []) paths.push(tree.path);
 		for (const p of paths) {
-			if (cwd === p || cwd.startsWith(`${p}/`)) {
-				if (p.length > bestLen) {
-					bestLen = p.length;
-					bestId = fm.id;
-				}
+			const real = canonical(p);
+			if (isUnder(realCwd, real) && real.length > bestLen) {
+				bestLen = real.length;
+				bestId = fm.id;
 			}
 		}
 	}
