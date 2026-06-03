@@ -28,6 +28,10 @@ import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
 import { postReview } from "../../lib/internal/github/review-post.js";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
+import {
+	findOrCreateSidequestForPr,
+	getQuestPrBridge,
+} from "../../lib/quest/index.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
 import { recoverReviewerRuns } from "../../lib/subagent/recovery.js";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.js";
@@ -108,6 +112,7 @@ import {
 } from "./post.js";
 import { confirmPostGate } from "./post-gate.js";
 import { buildReviewProseGate } from "./prose-gate.js";
+import { logQuestJourneyForPr, recordReviewRound } from "./quest-bridge.js";
 import {
 	isReviewContextProvider,
 	PR_WORKFLOW_REGISTER_REVIEW_CONTEXT_PROVIDER,
@@ -971,6 +976,16 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							isError: true,
 						};
 					}
+					if (state.pr) {
+						const findingsCount = result.run.reviewerOutputs.reduce(
+							(sum, r) => sum + r.findings.length,
+							0,
+						);
+						logQuestJourneyForPr(
+							state.pr.reference,
+							`Council ran with ${result.run.reviewerOutputs.length} reviewers; gathered ${findingsCount} findings.`,
+						);
+					}
 					return {
 						content: [{ type: "text", text: formatCouncilSummary(result.run) }],
 						details: { ok: true, run: result.run },
@@ -1118,6 +1133,26 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							details: { ok: false, error: result.error },
 							isError: true,
 						};
+					}
+					if (state.pr) {
+						const rawFindingsCount =
+							state.council.lastRun?.reviewerOutputs.reduce(
+								(sum, r) => sum + r.findings.length,
+								0,
+							) ?? 0;
+						const councilReviewerIds =
+							state.council.lastRun?.reviewerOutputs.map((r) => r.reviewerId) ??
+							[];
+						const doc = recordReviewRound(state.pr.reference, {
+							councilReviewerIds,
+							rawFindingsCount,
+							judgeRun: result.run,
+							critiqueRun: state.council.lastCritique,
+						});
+						const journey = doc
+							? `Judge consolidated to ${result.run.consolidatedFindings.length} findings; round ${doc.roundNumber} ${doc.isNew ? "scaffolded as" : "appended to"} ${doc.docId}.`
+							: `Judge consolidated to ${result.run.consolidatedFindings.length} findings.`;
+						logQuestJourneyForPr(state.pr.reference, journey);
 					}
 					return {
 						content: [{ type: "text", text: formatJudgeSummary(result.run) }],
@@ -2369,6 +2404,59 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					lines.push("");
 					lines.push(`Diff fetch failed: ${diffError}`);
 				}
+
+				// When quest-workflow is loaded, attach the PR to
+				// its tree: load the existing sidequest or scaffold
+				// a new one under the user's loaded quest. The
+				// integration is additive: when the bridge isn't
+				// registered, this block is a no-op.
+				const questBridge = getQuestPrBridge();
+				let questSidequest: {
+					sidequestId: string;
+					isNew: boolean;
+					parentQuestId: string | null;
+				} | null = null;
+				if (questBridge) {
+					try {
+						const sidequest = findOrCreateSidequestForPr(
+							{
+								owner: loaded.reference.owner,
+								repo: loaded.reference.repo,
+								number: loaded.reference.number,
+							},
+							{
+								questsRoot: questBridge.questsRoot(),
+								parentQuestId: questBridge.loadedQuestId(),
+								title: loaded.metadata?.title,
+								authorHandle: loaded.metadata?.author,
+								url: loaded.metadata?.url,
+							},
+						);
+						questSidequest = {
+							sidequestId: sidequest.sidequestId,
+							isNew: sidequest.isNew,
+							parentQuestId: sidequest.parentQuestId,
+						};
+						if (!sidequest.isNew) {
+							questBridge.logJourney(
+								sidequest.sidequestDir,
+								`Reloaded for review (${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number}).`,
+							);
+						}
+						lines.push("");
+						lines.push(
+							sidequest.isNew
+								? `Scaffolded quest sidequest ${sidequest.sidequestId}${sidequest.parentQuestId ? ` under ${sidequest.parentQuestId}` : ""}.`
+								: `Linked to existing quest sidequest ${sidequest.sidequestId}.`,
+						);
+					} catch (error) {
+						lines.push("");
+						lines.push(
+							`Quest-workflow integration failed: ${(error as Error).message}`,
+						);
+					}
+				}
+
 				const suggestedNext = suggestNextAfterLoad(state);
 				for (const line of formatLoadSuggestions(suggestedNext)) {
 					lines.push(line);
@@ -2379,7 +2467,12 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				// action.
 				return {
 					content: [{ type: "text", text: lines.join("\n") }],
-					details: { ok: true, pr: loaded, suggestedNext },
+					details: {
+						ok: true,
+						pr: loaded,
+						suggestedNext,
+						questSidequest,
+					},
 				};
 			};
 
