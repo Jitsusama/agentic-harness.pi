@@ -112,4 +112,45 @@ describe("git-worktree provider", () => {
 		const handles = await provider.list?.(repoRoot);
 		expect(handles?.map((h) => h.branch).sort()).toEqual(["a", "b"]);
 	});
+
+	it("refuses tree names containing path traversal or dash prefixes", async () => {
+		const provider = createGitWorktreeProvider();
+		await expect(
+			provider.create({ name: "../escape", repoRoot }),
+		).rejects.toThrow(/Tree name/);
+		await expect(provider.create({ name: "-rf", repoRoot })).rejects.toThrow(
+			/Tree name/,
+		);
+		await expect(provider.create({ name: "a/../b", repoRoot })).rejects.toThrow(
+			/Tree name/,
+		);
+		await expect(provider.create({ name: "", repoRoot })).rejects.toThrow(
+			/cannot be empty/,
+		);
+	});
+
+	it("refuses base branches that try to slip in flags", async () => {
+		const provider = createGitWorktreeProvider();
+		await expect(
+			provider.create({
+				name: "safe-name",
+				repoRoot,
+				baseBranch: "-rf",
+			}),
+		).rejects.toThrow(/Base branch/);
+	});
+
+	it("compares against the local default branch when no origin remote exists", async () => {
+		const provider = createGitWorktreeProvider();
+		const handle = await provider.create({ name: "local-only", repoRoot });
+		writeFileSync(join(handle.path, "commit-me.txt"), "unmerged work\n");
+		await git(handle.path, "add", "commit-me.txt");
+		await git(handle.path, "commit", "-qm", "unmerged commit");
+		// No origin remote: previously this silently returned
+		// false and let a non-force prune destroy the work.
+		await expect(provider.prune({ path: handle.path })).rejects.toThrow(
+			/not merged/,
+		);
+		expect(existsSync(handle.path)).toBe(true);
+	});
 });

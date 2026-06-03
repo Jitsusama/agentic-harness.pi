@@ -34,6 +34,31 @@ const DEFAULT_PRIORITY = 100;
 const WORKTREES_DIR = ".worktrees";
 
 /**
+ * Slug pattern for tree names and base branches that
+ * flow into a path join and a git argv. Restrictive on
+ * purpose: alphanumeric plus dot, slash, underscore and
+ * dash, must not start with a dot or dash, and rejects
+ * `..` segments anywhere.
+ */
+const NAME_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_./-]*$/;
+
+function assertValidName(label: string, value: string): void {
+	if (!value) {
+		throw new Error(`${label} cannot be empty.`);
+	}
+	if (!NAME_PATTERN.test(value)) {
+		throw new Error(
+			`${label} must match ${NAME_PATTERN.source}; got ${JSON.stringify(value)}.`,
+		);
+	}
+	if (value.split("/").some((part) => part === "" || part === "..")) {
+		throw new Error(
+			`${label} cannot contain empty or '..' path segments; got ${JSON.stringify(value)}.`,
+		);
+	}
+}
+
+/**
  * Run a git command in a directory and return stdout
  * trimmed. Throws on non-zero exit.
  */
@@ -106,22 +131,53 @@ async function isDirty(treePath: string): Promise<boolean> {
 }
 
 /**
- * Return true when `branch` contains commits that
- * `origin/<defaultBranch>` does not.
+ * Return true when `branch` contains commits that the
+ * default branch does not.
+ *
+ * Tries `origin/<default>` first (the common shared-state
+ * comparison), then falls back to the local default
+ * branch when no origin remote is wired. If neither
+ * comparison succeeds the function returns true and lets
+ * the caller surface the lack of a target: silently
+ * returning false would let a force-less prune destroy
+ * unmerged work in a repo with no origin remote.
  */
 async function hasUnmergedCommits(
 	repoRoot: string,
 	branch: string,
-): Promise<boolean> {
+): Promise<{ unmerged: boolean; comparedAgainst: string | undefined }> {
 	const defaultBranch = await detectDefaultBranch(repoRoot);
-	const ahead = await tryGit(
+	if (defaultBranch === branch) {
+		return { unmerged: false, comparedAgainst: defaultBranch };
+	}
+	const originAhead = await tryGit(
 		repoRoot,
 		"rev-list",
 		"--count",
 		`origin/${defaultBranch}..${branch}`,
 	);
-	if (ahead === undefined) return false;
-	return Number.parseInt(ahead, 10) > 0;
+	if (originAhead !== undefined) {
+		return {
+			unmerged: Number.parseInt(originAhead, 10) > 0,
+			comparedAgainst: `origin/${defaultBranch}`,
+		};
+	}
+	const localAhead = await tryGit(
+		repoRoot,
+		"rev-list",
+		"--count",
+		`${defaultBranch}..${branch}`,
+	);
+	if (localAhead !== undefined) {
+		return {
+			unmerged: Number.parseInt(localAhead, 10) > 0,
+			comparedAgainst: defaultBranch,
+		};
+	}
+	// No comparison target. Fail safe: claim unmerged so a
+	// non-force prune refuses with a clear message, and let
+	// the user force when they know better.
+	return { unmerged: true, comparedAgainst: undefined };
 }
 
 /** Build the provider. */
@@ -139,6 +195,10 @@ export function createGitWorktreeProvider(
 			return existsSync(join(repoRoot, ".git"));
 		},
 		async create(input: CreateTreeInput): Promise<TreeHandle> {
+			assertValidName("Tree name", input.name);
+			if (input.baseBranch !== undefined) {
+				assertValidName("Base branch", input.baseBranch);
+			}
 			const repoRoot = resolve(input.repoRoot);
 			const treePath = join(repoRoot, WORKTREES_DIR, input.name);
 			if (existsSync(treePath)) {
@@ -148,7 +208,20 @@ export function createGitWorktreeProvider(
 			}
 			ensureGitignore(repoRoot);
 			const base = input.baseBranch ?? (await detectDefaultBranch(repoRoot));
-			await git(repoRoot, "worktree", "add", treePath, "-b", input.name, base);
+			// `--` separates positional args from refs so a base
+			// or branch name that happens to start with a dash
+			// (already refused by assertValidName) cannot be
+			// reparsed as a flag by older git versions.
+			await git(
+				repoRoot,
+				"worktree",
+				"add",
+				"-b",
+				input.name,
+				treePath,
+				"--",
+				base,
+			);
 			return {
 				path: treePath,
 				branch: input.name,
@@ -190,10 +263,19 @@ export function createGitWorktreeProvider(
 						`Tree at ${treePath} has uncommitted changes. Commit, stash or force-prune.`,
 					);
 				}
-				if (branch && (await hasUnmergedCommits(repoRoot, branch))) {
-					throw new Error(
-						`Branch ${branch} has commits not in origin's default branch. Push and merge first, or force-prune.`,
+				if (branch) {
+					const { unmerged, comparedAgainst } = await hasUnmergedCommits(
+						repoRoot,
+						branch,
 					);
+					if (unmerged) {
+						const target = comparedAgainst
+							? `against ${comparedAgainst}`
+							: "and no default-branch comparison target exists (no origin remote, no local main/master)";
+						throw new Error(
+							`Branch ${branch} has commits not merged ${target}. Push and merge first, or force-prune.`,
+						);
+					}
 				}
 			}
 			await git(

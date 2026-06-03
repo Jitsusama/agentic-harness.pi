@@ -79,6 +79,7 @@ export function addTreeToQuest(
 	questDir: string,
 	tree: QuestTree,
 ): { ok: true; added: boolean } | { ok: false; reason: string } {
+	let addedFlag = false;
 	const outcome = withQuestFrontMatter(questDir, (parsed) => {
 		if (!parsed) return { ok: false, reason: "Quest README missing." };
 		const fm = parsed.frontMatter;
@@ -87,6 +88,7 @@ export function addTreeToQuest(
 		if (already) {
 			return { fm: { ...fm, trees }, ok: true };
 		}
+		addedFlag = true;
 		const nextTrees = [...trees, tree];
 		const nextAliases = [...fm.aliases];
 		ensureAlias(nextAliases, { type: "git-worktree", value: tree.path });
@@ -99,9 +101,7 @@ export function addTreeToQuest(
 		};
 	});
 	if (!outcome.ok) return outcome;
-	const trees = (outcome.result as { trees?: QuestTree[] }).trees ?? [];
-	const added = trees.some((t) => t.path === tree.path);
-	return { ok: true, added };
+	return { ok: true, added: addedFlag };
 }
 
 /** Remove a tree (by path) from the quest's `trees:` list. */
