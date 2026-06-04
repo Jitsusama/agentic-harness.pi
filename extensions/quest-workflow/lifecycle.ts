@@ -330,15 +330,35 @@ function snapshot(state: QuestState): PersistedState {
  * Persist the current loaded-quest and focused-document
  * pointers into the session history.
  *
- * Idempotent in effect: each call appends a new entry,
- * and `restore` reads only the most recent one. Older
- * entries become dead weight in the log but don't cause
- * incorrect behaviour. Wired centrally from the
- * tool_result hook in the extension entry point, mirroring
- * the pr-workflow pattern.
+ * Skips the append when the snapshot equals the most
+ * recent persisted entry. The tool_result hook fires on
+ * every tool, so a long session that never touches the
+ * quest tool used to accumulate dozens of identical
+ * entries; the restore path only reads the latest one, so
+ * everything past the first was dead weight. The skip
+ * preserves restore semantics because `restore` still
+ * reads the same data — it just doesn't have a fresh
+ * copy of it on every keystroke.
+ *
+ * Wired centrally from the tool_result hook in the
+ * extension entry point, mirroring the pr-workflow
+ * pattern.
  */
-export function persist(state: QuestState, pi: ExtensionAPI): void {
-	pi.appendEntry(SESSION_KEY, snapshot(state));
+export function persist(
+	state: QuestState,
+	pi: ExtensionAPI,
+	ctx?: ExtensionContext,
+): void {
+	const current = snapshot(state);
+	if (ctx) {
+		const prev = getLastEntry<PersistedState>(ctx, SESSION_KEY);
+		if (prev && snapshotsEqual(prev, current)) return;
+	}
+	pi.appendEntry(SESSION_KEY, current);
+}
+
+function snapshotsEqual(a: PersistedState, b: PersistedState): boolean {
+	return a.questId === b.questId && a.documentPath === b.documentPath;
 }
 
 /**

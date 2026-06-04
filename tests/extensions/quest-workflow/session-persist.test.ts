@@ -145,6 +145,28 @@ describe("persist + restore", () => {
 		expect(next.questId).toBe(b.id);
 	});
 
+	it("skips appending when the snapshot equals the most recent entry", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+
+		const questEntriesBefore = entries.filter(
+			(e) => e.customType === "quest-workflow",
+		).length;
+
+		// Five back-to-back persists with no state change
+		// should add at most one entry, not five.
+		for (let i = 0; i < 5; i++) persist(state, fakePi(), fakeCtx(tmpRoot));
+
+		const questEntriesAfter = entries.filter(
+			(e) => e.customType === "quest-workflow",
+		).length;
+		expect(questEntriesAfter - questEntriesBefore).toBeLessThanOrEqual(1);
+	});
+
 	it("refuses to restore a quest that no longer exists on disk", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");

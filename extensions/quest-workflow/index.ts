@@ -437,7 +437,7 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			refreshProgress(state);
 			updateScoreboard(state, ctx);
 		}
-		persist(state, pi);
+		persist(state, pi, ctx);
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {
