@@ -36,6 +36,22 @@ import {
 	unloadQuest,
 } from "../lifecycle.js";
 import { buildRowExpansion, showLoaded } from "../lookup.js";
+
+/**
+ * Priority ladder for sorting list output. Lower numbers
+ * sort first; driving is the most prominent bucket. A
+ * priority outside the ladder sorts to the end so legacy
+ * values do not silently jump ahead of legitimate ones.
+ */
+const PRIORITY_ORDER: Record<string, number> = {
+	driving: 0,
+	active: 1,
+	queued: 2,
+	bench: 3,
+	someday: 4,
+};
+const PRIORITY_FALLBACK = 99;
+
 import {
 	paginate,
 	type QuestRowBrief,
@@ -371,9 +387,9 @@ export function list(state: QuestState, params: QuestToolParams): QuestResult {
 		return true;
 	});
 	entries.sort((a, b) => {
-		if (a.doc.frontMatter.priority !== b.doc.frontMatter.priority) {
-			return a.doc.frontMatter.priority < b.doc.frontMatter.priority ? -1 : 1;
-		}
+		const pa = PRIORITY_ORDER[a.doc.frontMatter.priority] ?? PRIORITY_FALLBACK;
+		const pb = PRIORITY_ORDER[b.doc.frontMatter.priority] ?? PRIORITY_FALLBACK;
+		if (pa !== pb) return pa - pb;
 		return a.doc.frontMatter.rank - b.doc.frontMatter.rank;
 	});
 	const view = paginate(entries, {

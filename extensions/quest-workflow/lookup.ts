@@ -208,18 +208,41 @@ export interface WhoHit {
 	prose: string;
 }
 
-const DEFAULT_WHO_LIMIT = 50;
+/**
+ * Cast subjects the scaffold writes verbatim into a fresh
+ * quest README. We skip them when collecting bullets so
+ * `who` with no filter doesn't list dozens of
+ * placeholder entries from never-edited templates.
+ */
+const SCAFFOLD_CAST_PLACEHOLDERS = new Set([
+	"_name or @handle_",
+	"name or @handle",
+]);
 
-/** Return Cast bullets across quests matching the filter. */
+function isPlaceholderSubject(subject: string): boolean {
+	const trimmed = subject.trim().toLowerCase();
+	if (SCAFFOLD_CAST_PLACEHOLDERS.has(trimmed)) return true;
+	// Anything that's purely markdown emphasis (italic or
+	// bold) and empty otherwise is a placeholder.
+	return /^_+$/.test(trimmed) || /^\*+$/.test(trimmed);
+}
+
+/**
+ * Return Cast bullets across quests matching the filter.
+ * No internal cap: the verb owns pagination so a caller
+ * who walks the whole tree gets the whole tree. Direct
+ * library callers who want a cap pass `limit:`.
+ */
 export function findPeople(state: QuestState, params: WhoParams): WhoHit[] {
 	const { index } = discoverQuests(state.questsRoot);
 	const nameNeedle = params.name?.toLowerCase();
 	const roleNeedle = params.role?.toLowerCase();
 	const out: WhoHit[] = [];
-	const limit = params.limit ?? DEFAULT_WHO_LIMIT;
+	const limit = params.limit ?? Number.POSITIVE_INFINITY;
 	for (const entry of index.quests.values()) {
 		const cast: CastEntry[] = extractCast(entry.doc.body);
 		for (const c of cast) {
+			if (isPlaceholderSubject(c.subject)) continue;
 			if (roleNeedle && !c.role.toLowerCase().includes(roleNeedle)) continue;
 			if (nameNeedle && !c.subject.toLowerCase().includes(nameNeedle)) continue;
 			out.push({

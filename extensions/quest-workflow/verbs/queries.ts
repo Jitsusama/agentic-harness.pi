@@ -7,12 +7,12 @@
  * subdir.
  */
 
+import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
 import {
 	buildRowExpansion,
 	expandQuest,
 	findPeople,
 	findQuestEntries,
-	getQuestEntry,
 	linksForLoaded,
 	type TreeNode,
 	treeAll,
@@ -178,6 +178,11 @@ function renderTreeNodes(
 	expanded: boolean,
 ): string {
 	if (nodes.length === 0) return "(no quests)";
+	// Take one discovery snapshot up front for expanded
+	// renders. Without this each per-node lookup walked
+	// the entire quest tree from disk, making `tree
+	// expanded:true` on a 250-quest forest O(N^2).
+	const index = expanded ? discoverQuests(state.questsRoot).index : undefined;
 	const lines: string[] = [];
 	const visit = (node: TreeNode, depth: number): void => {
 		const indent = "  ".repeat(depth);
@@ -187,10 +192,10 @@ function renderTreeNodes(
 			status: node.status as QuestRowBrief["status"],
 			title: node.title,
 		};
-		if (!expanded) {
+		if (!expanded || !index) {
 			lines.push(`${indent}${renderRowBrief(brief)}`);
 		} else {
-			const entry = getQuestEntry(state, node.id);
+			const entry = index.quests.get(node.id);
 			if (entry) {
 				const expandedLines = renderRowExpanded({
 					...brief,

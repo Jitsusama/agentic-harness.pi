@@ -157,14 +157,44 @@ describe("persist + restore", () => {
 			(e) => e.customType === "quest-workflow",
 		).length;
 
-		// Five back-to-back persists with no state change
-		// should add at most one entry, not five.
-		for (let i = 0; i < 5; i++) persist(state, fakePi(), fakeCtx(tmpRoot));
-
-		const questEntriesAfter = entries.filter(
+		// One persist with ctx commits the first snapshot.
+		// Four back-to-back persists with no state change
+		// dedup against it.
+		persist(state, fakePi(), fakeCtx(tmpRoot));
+		const afterFirst = entries.filter(
 			(e) => e.customType === "quest-workflow",
 		).length;
-		expect(questEntriesAfter - questEntriesBefore).toBeLessThanOrEqual(1);
+		expect(afterFirst - questEntriesBefore).toBe(1);
+
+		for (let i = 0; i < 4; i++) persist(state, fakePi(), fakeCtx(tmpRoot));
+		const afterRepeats = entries.filter(
+			(e) => e.customType === "quest-workflow",
+		).length;
+		expect(afterRepeats).toBe(afterFirst);
+	});
+
+	it("appends a new entry after state changes", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		const b = await createQuest(state, "Bravo");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		persist(state, fakePi(), fakeCtx(tmpRoot));
+		const before = entries.filter(
+			(e) => e.customType === "quest-workflow",
+		).length;
+
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: b.id,
+		});
+		persist(state, fakePi(), fakeCtx(tmpRoot));
+		const after = entries.filter(
+			(e) => e.customType === "quest-workflow",
+		).length;
+		expect(after - before).toBe(1);
 	});
 
 	it("refuses to restore a quest that no longer exists on disk", async () => {

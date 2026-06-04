@@ -606,6 +606,21 @@ describe("listing verbs: brief, expanded and pagination", () => {
 		expect(result.message).toContain(a.id);
 	});
 
+	it("who skips scaffold placeholder cast subjects", async () => {
+		const state = buildState();
+		await createQuest(state, "Quest A");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "who",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		// A fresh quest's scaffold leaves the cast bullet at
+		// `_name or @handle_`. `who` should not list that as a
+		// real bullet; an unfiltered call against a tree of
+		// only fresh quests reports no cast bullets.
+		expect(result.message).toContain("(no cast bullets");
+	});
+
 	it("who returns (no cast bullets) when the filter matches nothing", async () => {
 		const state = buildState();
 		await createQuest(state, "Quest A");

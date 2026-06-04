@@ -34,16 +34,6 @@ import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const DEFAULT_ROOT = join(
-	homedir(),
-	".local",
-	"share",
-	"pi",
-	"agentic-harness.pi",
-	"quest-workflow",
-	"quests",
-);
-
 const DOC_KIND_BY_PREFIX: Record<string, string> = {
 	"PLAN-": "plans",
 	"RSCH-": "research",
@@ -221,7 +211,8 @@ function main(): void {
 	const args = process.argv.slice(2);
 	const dryRun = args.includes("--dry-run");
 	const rootIndex = args.indexOf("--root");
-	const root = rootIndex >= 0 ? args[rootIndex + 1] : DEFAULT_ROOT;
+	const fallback = defaultQuestsRoot();
+	const root = rootIndex >= 0 ? (args[rootIndex + 1] ?? fallback) : fallback;
 
 	if (!existsSync(root)) {
 		console.error(`questsRoot does not exist: ${root}`);

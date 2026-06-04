@@ -357,8 +357,19 @@ export function persist(
 	pi.appendEntry(SESSION_KEY, current);
 }
 
+/**
+ * Structural equality on persisted snapshots. Compares
+ * by the full set of `PersistedState` keys so adding a
+ * field later doesn't silently break the dedup behaviour.
+ */
 function snapshotsEqual(a: PersistedState, b: PersistedState): boolean {
-	return a.questId === b.questId && a.documentPath === b.documentPath;
+	const aKeys = Object.keys(a) as (keyof PersistedState)[];
+	const bKeys = Object.keys(b) as (keyof PersistedState)[];
+	if (aKeys.length !== bKeys.length) return false;
+	for (const key of aKeys) {
+		if (a[key] !== b[key]) return false;
+	}
+	return true;
 }
 
 /**

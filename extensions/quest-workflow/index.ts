@@ -16,6 +16,7 @@
  */
 
 import { homedir } from "node:os";
+import { StringEnum } from "@mariozechner/pi-ai";
 import type {
 	ExtensionAPI,
 	ToolCallEventResult,
@@ -25,6 +26,7 @@ import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { dataDir } from "../../lib/internal/paths.js";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.js";
+import { discoverQuests } from "../../lib/internal/quest/discovery.js";
 import {
 	registerBuiltinHandleTypes,
 	registerBuiltinPersonResolvers,
@@ -98,8 +100,9 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			"A refused transition returns guidance and changes nothing. There is no human gate and no approval prompt.",
 		],
 		parameters: Type.Object({
-			action: Type.String({
-				description: `The action to perform. One of: ${QUEST_ACTIONS.join(", ")}. \`status\` is an alias for \`show\`. A typo returns a refusal with a Levenshtein-based suggestion of the nearest match.`,
+			action: StringEnum([...QUEST_ACTIONS], {
+				description:
+					"The action to perform. `status` is an alias for `show`. The dispatcher's refusal path Levenshtein-suggests the nearest action when an agent calls past the schema's enum (e.g. through a custom client that bypasses validation).",
 			}),
 			id: Type.Optional(
 				Type.String({
@@ -446,6 +449,30 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		// Surface any layout-drift errors the discovery walk
+		// found. After the canonical-layout tightening, a
+		// nested QEST dir or a misplaced doc file gets recorded
+		// as a DiscoveryError and skipped from the index. The
+		// user needs to know those quests didn't load so they
+		// can run the migrator (or fix by hand) rather than
+		// noticing later that a quest "vanished."
+		const { errors } = discoverQuests(state.questsRoot);
+		if (errors.length > 0) {
+			const preview = errors.slice(0, 5);
+			console.error(
+				`[quest-workflow] discovery surfaced ${errors.length} layout error(s):`,
+			);
+			for (const err of preview) {
+				console.error(`  ${err.path}: ${err.message}`);
+			}
+			if (errors.length > preview.length) {
+				console.error(`  ... and ${errors.length - preview.length} more`);
+			}
+			console.error(
+				"Run `scripts/migrate-quests-canonical.ts --dry-run` to inspect, then drop --dry-run to apply.",
+			);
+		}
+
 		// The persisted slice in the session history is the
 		// authoritative source: a /reload reuses the same
 		// session, so the last loaded quest and focused

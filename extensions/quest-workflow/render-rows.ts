@@ -147,16 +147,25 @@ export function paginate<T>(
 /**
  * Join already-rendered row strings into one listing block,
  * appending the "... and N more" tail when more rows exist
- * past the current page. Returns "(no matches)" on an
- * empty page; the caller wraps that in a success result so
- * the agent sees a positive shape even when nothing
- * matched.
+ * past the current page.
+ *
+ * Empty-page output discriminates between the two reasons:
+ *
+ * - The whole set really is empty: returns `(no matches)`.
+ * - The user paged past the end of a non-empty set: returns
+ *   a hint about the total and a working offset to start
+ *   from. Without this, an agent paging through a list got
+ *   `(no matches)` on the trailing page and concluded
+ *   nothing was there.
  */
 export function renderListing<T>(
 	rendered: string[],
 	view: PaginationView<T>,
 ): string {
-	if (rendered.length === 0) return "(no matches)";
+	if (rendered.length === 0) {
+		if (view.total === 0) return "(no matches)";
+		return `(empty page; ${view.total} total, try offset 0)`;
+	}
 	const body = rendered.join("\n");
 	if (view.remaining === 0) return body;
 	const nextOffset = view.offset + view.rows.length;
