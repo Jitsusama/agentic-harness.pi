@@ -49,6 +49,7 @@ import {
 } from "./lifecycle.js";
 import { showLoaded } from "./lookup.js";
 import { formatQuestList, renderStatus, renderWidget } from "./render.js";
+
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
 
@@ -505,6 +506,7 @@ interface UiSink {
 
 function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 	const live = state.questId !== null;
+	const width = process.stdout.columns || DEFAULT_WIDTH;
 	ctx.ui.setStatus(
 		"quest-workflow",
 		live
@@ -515,10 +517,10 @@ function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 						questStatus: state.questStatus,
 					},
 					ctx.ui.theme,
+					width,
 				)
 			: undefined,
 	);
-	const width = process.stdout.columns || DEFAULT_WIDTH;
 	ctx.ui.setWidget(
 		"quest-workflow",
 		!live
@@ -529,8 +531,10 @@ function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 						questTitle: state.questTitle,
 						documentKind: state.documentKind,
 						documentStage: state.documentStage,
+						documentTitle: state.documentTitle,
 						done: state.done,
 						total: state.total,
+						currentItem: state.currentItem,
 					},
 					ctx.ui.theme,
 					width,

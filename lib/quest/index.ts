@@ -36,6 +36,7 @@ export {
 	prefixOf,
 } from "../internal/quest/id.js";
 export {
+	checkboxProgress,
 	type ExtractedMentions,
 	extractCast,
 	extractJourney,

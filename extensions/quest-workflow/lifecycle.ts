@@ -40,10 +40,10 @@ import {
 } from "../../lib/internal/quest/ranking.js";
 import { getLastEntry } from "../../lib/internal/state.js";
 import {
+	checkboxProgress,
 	type DocumentFrontMatter,
 	type DocumentKind,
 	type DocumentStage,
-	milestoneProgress,
 	parseDocumentFrontMatter,
 	parseQuestDoc,
 	parseQuestFrontMatter,
@@ -56,18 +56,31 @@ import {
 	serializeQuestFrontMatter,
 } from "../../lib/quest/index.js";
 import type { Stage } from "./machine.js";
+import { sessionNameFor } from "./render.js";
 import type { QuestState } from "./state.js";
 
-/** Persist quest state's progress projection from the focused document or quest. */
+/**
+ * Persist the focused document's progress (or, when no
+ * document is focused, the loaded quest's) into the
+ * QuestState struct so the widget can paint without
+ * re-parsing the body on every keystroke.
+ *
+ * Uses the broad `checkboxProgress` walk so every `- [ ]`
+ * / `- [x]` in the body contributes regardless of which
+ * section holds it. The plan, research, brief and report
+ * templates each use a different section name for their
+ * work list; one counter serves them all.
+ */
 export function refreshProgress(state: QuestState): void {
 	if (state.documentPath) {
 		try {
 			const text = readFileSync(state.documentPath, "utf8");
 			const parsed = parseDocumentFrontMatter(text);
 			if (parsed) {
-				const progress = milestoneProgress(parsed.body);
+				const progress = checkboxProgress(parsed.body);
 				state.done = progress.done;
 				state.total = progress.total;
+				state.currentItem = progress.currentItem;
 				state.documentStage = parsed.frontMatter.stage as Stage;
 				return;
 			}
@@ -80,9 +93,10 @@ export function refreshProgress(state: QuestState): void {
 			const text = readFileSync(join(state.questDir, "README.md"), "utf8");
 			const parsed = parseQuestDoc(text);
 			if (parsed) {
-				const progress = milestoneProgress(parsed.body);
+				const progress = checkboxProgress(parsed.body);
 				state.done = progress.done;
 				state.total = progress.total;
+				state.currentItem = progress.currentItem;
 				return;
 			}
 		} catch {
@@ -91,6 +105,7 @@ export function refreshProgress(state: QuestState): void {
 	}
 	state.done = 0;
 	state.total = 0;
+	state.currentItem = undefined;
 }
 
 /** Find a quest entry by id across the quests root. */
@@ -127,7 +142,8 @@ export function loadQuest(
 	state.documentTitle = null;
 	state.documentStage = "idle";
 	refreshProgress(state);
-	pi.setSessionName?.(`${id} ${entry.doc.title ?? "quest"}`);
+	const sessionName = sessionNameFor(entry.doc.title ?? null);
+	if (sessionName) pi.setSessionName?.(sessionName);
 	return { ok: true };
 }
 

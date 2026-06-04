@@ -174,6 +174,43 @@ export function milestoneProgress(body: string): {
 }
 
 /**
+ * Count every `- [ ]` / `- [x]` checkbox in the body,
+ * regardless of which section holds it. Returns a count
+ * pair plus the prose of the first unchecked entry so the
+ * widget can render "5/33 → do the next thing" without
+ * re-parsing the body on every paint.
+ *
+ * The plan, research, brief and report templates all use
+ * different section names for their work list. Walking
+ * the whole body makes one counter serve all four kinds
+ * without coupling to a template detail.
+ */
+export function checkboxProgress(body: string): {
+	total: number;
+	done: number;
+	currentItem?: string;
+} {
+	const rx = /^\s*-\s+\[([ xX])\]\s*(.*?)\s*$/gm;
+	let total = 0;
+	let done = 0;
+	let currentItem: string | undefined;
+	for (let m = rx.exec(body); m !== null; m = rx.exec(body)) {
+		total++;
+		const isDone = m[1].toLowerCase() === "x";
+		if (isDone) {
+			done++;
+			continue;
+		}
+		if (currentItem === undefined) {
+			currentItem = m[2] ?? "";
+		}
+	}
+	return currentItem === undefined
+		? { total, done }
+		: { total, done, currentItem };
+}
+
+/**
  * Pull every inline reference out of the body: bare quest
  * IDs and any pattern recognised by a registered ref type.
  *
