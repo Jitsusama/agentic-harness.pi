@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	checkboxProgress,
 	extractCast,
 	extractJourney,
 	extractMentions,
@@ -124,6 +125,21 @@ describe("Cast extraction", () => {
 		expect(cast[1].subject).toBe("@xiao.li");
 		expect(cast[2].subject).toBe("@ahmad.shaffer");
 	});
+
+	it("skips scaffold placeholder subjects", () => {
+		const body = [
+			"## 🎭 Cast",
+			"",
+			"- **owner**: _name or @handle_",
+			"- **reviewer**: _name or @handle_",
+			"- **originator**: Joel Gerber. Started the quest.",
+			"",
+		].join("\n");
+		const cast = extractCast(body);
+		expect(cast.length).toBe(1);
+		expect(cast[0].subject).toBe("Joel Gerber");
+		expect(cast[0].role).toBe("originator");
+	});
 });
 
 describe("Journey extraction", () => {
@@ -147,6 +163,38 @@ describe("milestoneProgress", () => {
 			total: 0,
 			done: 0,
 		});
+	});
+});
+
+describe("checkboxProgress", () => {
+	it("counts every checkbox in the body regardless of section", () => {
+		const body = [
+			"## Work",
+			"- [x] First item",
+			"- [x] Second item",
+			"- [ ] Third item",
+			"- [ ] Fourth item",
+			"",
+			"## Open Questions",
+			"- [ ] Fifth item",
+		].join("\n");
+		expect(checkboxProgress(body)).toEqual({
+			total: 5,
+			done: 2,
+			currentItem: "Third item",
+		});
+	});
+
+	it("returns zeroes and no currentItem when the body has no checkboxes", () => {
+		expect(checkboxProgress("no checkboxes here")).toEqual({
+			total: 0,
+			done: 0,
+		});
+	});
+
+	it("omits currentItem when every checkbox is checked", () => {
+		const body = ["## Work", "- [x] One", "- [x] Two"].join("\n");
+		expect(checkboxProgress(body)).toEqual({ total: 2, done: 2 });
 	});
 });
 

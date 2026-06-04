@@ -37,6 +37,12 @@ human-readable title.
 
 ## File Layout
 
+All quests live as immediate children of `questsRoot`.
+Hierarchy is expressed through the `parent:` front-matter
+field, never by directory nesting. Documents (plans,
+research, briefs, reports) live inside their owning
+quest's kind subdirectory.
+
 ```
 questsRoot/
   QEST-20260603-AAA111/
@@ -45,10 +51,19 @@ questsRoot/
       PLAN-20260603-BBB222.md
     research/
       RSCH-20260604-CCC333.md
-    QEST-20260605-DDD444/        (subquest)
-      README.md
-  (no QUESTS.md; views are walked on demand by the tool)
+  QEST-20260605-DDD444/          (subquest of AAA111,
+    README.md                      flat at the root,
+                                   parent: QEST-...-AAA111
+                                   set in its front-matter)
 ```
+
+Discovery refuses these two drift patterns as layout
+errors and skips the offending entry:
+
+- a `QEST-*` directory found inside another quest
+- a `PLAN-/RSCH-/BRIF-/RPRT-*.md` file at a quest's root
+  instead of inside `plans/`, `research/`, `briefs/`
+  or `reports/`
 
 Free-form subdirectories (`runs/`, `tools/`, `evidence/`)
 are fine; the discovery walk ignores them.
@@ -209,6 +224,13 @@ Anywhere in the body, you can:
 There is no typed-link taxonomy. The relationship is in
 the prose; the tool surfaces inbound references on `quest
 show` as Echoes.
+
+One lightweight sigil is recognised: an id preceded by
+`→` reads as "this quest produced that one," and `quest
+show` lists it under `Produced by:` rather than
+`Referenced by:`. The natural prose is
+`- [ ] Synthesize findings → BRIF-20260605-CCC333`. A
+bare id stays a reference; no schema change is needed.
 
 ## Document Templates
 

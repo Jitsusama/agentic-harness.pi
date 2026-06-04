@@ -1,18 +1,21 @@
 /**
- * Status line and widget rendering for the quest workflow.
+ * Visual surfaces for the quest workflow.
  *
- * Two surfaces:
+ * Three scopes, cleanly separated:
  *
- * - Status line: a constant "Quest" label beside a kind
- *   glyph (◇/◈/◆ for sidequest/subquest/quest) and a
- *   status glyph (○ ◔ ◑ ◕ ● for active → concluded).
- * - Widget line: a progress glyph for the focused
- *   document's checkboxes (or the quest's Milestones when
- *   no document is focused), followed by the quest title
- *   and, when present, the focused document's kind label
- *   and stage.
+ * - Pi session name: a Title Case slice of the quest's
+ *   title, truncated to 20 characters with an ellipsis
+ *   when longer. No id, no kind glyph. The terminal-tab
+ *   label.
+ * - Status line: the quest's identity. Kind glyph,
+ *   status glyph and either the full quest id (when the
+ *   width budget allows) or the literal word "Quest".
+ * - Widget: the focused document's activity. Stage verb,
+ *   kind noun, doc title, step count and the prose of
+ *   the next unchecked checkbox. No glyphs; the status
+ *   line owns the visual glyph footprint.
  *
- * Both fall silent when no quest is loaded.
+ * All surfaces fall silent when no quest is loaded.
  */
 
 import type { Theme } from "@mariozechner/pi-coding-agent";
@@ -25,8 +28,6 @@ import type {
 	QuestStatus,
 } from "../../lib/quest/index.js";
 import type { Stage } from "./machine.js";
-
-const GLYPH_COLS = 2;
 
 const KIND_GLYPHS: Record<QuestKind, string> = {
 	quest: "\u25c6", // ◆
@@ -43,31 +44,77 @@ interface Glyph {
 
 const STATUS_GLYPHS: Record<QuestStatus, Glyph> = {
 	active: { char: "\u25cb", token: "warning" }, // ○
-	paused: { char: "\u25d4", token: "dim" }, // ◔
-	blocked: { char: "\u25d1", token: "warning" }, // ◑
+	paused: { char: "\u25d0", token: "dim" }, // ◐
+	blocked: { char: "\u2298", token: "warning" }, // ⊘
 	concluded: { char: "\u25cf", token: "success" }, // ●
-	retired: { char: "\u25d5", token: "dim" }, // ◕
+	retired: { char: "\u2297", token: "dim" }, // ⊗
 };
 
-const STAGE_LABELS: Record<Stage, string> = {
+/**
+ * Stage verb in Title Case, e.g. `think` -> `Thinking On`,
+ * `draft` -> `Drafting`. The verb pairs with the kind noun
+ * to read as prose: "Drafting Plan: ...".
+ */
+const STAGE_VERB: Record<Stage, string> = {
 	idle: "",
-	think: "think",
-	draft: "draft",
-	build: "build",
-	concluded: "done",
-	retired: "retired",
+	think: "Thinking On",
+	draft: "Drafting",
+	build: "Building",
+	concluded: "Concluded",
+	retired: "Retired",
 };
 
-const DOCUMENT_LABELS: Record<DocumentKind, string> = {
-	plan: "PLAN",
-	research: "RSCH",
-	brief: "BRIF",
-	report: "RPRT",
+const KIND_NOUN: Record<DocumentKind, string> = {
+	plan: "Plan",
+	research: "Research",
+	brief: "Brief",
+	report: "Report",
 };
 
-const STATUS_LABEL = "Quest";
+const SESSION_NAME_LIMIT = 20;
+const STATUS_NARROW_LABEL = "Quest";
 
-/** Status-line indicator: kind + status glyph + steady "Quest" label. */
+/**
+ * Terminal width below which the status line collapses
+ * the id to the literal `Quest` label. The status line
+ * shares space with whatever other extensions paint, so
+ * the threshold is set against the whole terminal width
+ * rather than against the budget left after other
+ * segments: any column count below this is the regime
+ * where the id crowds out everything else anyway.
+ */
+const STATUS_NARROW_THRESHOLD = 60;
+
+/**
+ * The session-name label pi sets on the terminal tab when
+ * a quest loads. A Title Case slice of the title truncated
+ * to `SESSION_NAME_LIMIT` characters; longer titles take
+ * 19 characters plus an ellipsis. Returns `undefined`
+ * when no title is supplied.
+ */
+export function sessionNameFor(title: string | null): string | undefined {
+	if (!title) return undefined;
+	const cased = titleCase(title);
+	if (cased.length <= SESSION_NAME_LIMIT) return cased;
+	return `${cased.slice(0, SESSION_NAME_LIMIT - 1)}\u2026`;
+}
+
+function titleCase(text: string): string {
+	return text
+		.split(/(\s+)/)
+		.map((piece) => {
+			if (/^\s+$/.test(piece)) return piece;
+			if (piece.length === 0) return piece;
+			return piece[0].toUpperCase() + piece.slice(1);
+		})
+		.join("");
+}
+
+/**
+ * Status-line render: kind glyph, status glyph, and the
+ * quest id (when the width budget allows) or the literal
+ * "Quest" label when it does not.
+ */
 export function renderStatus(
 	state: {
 		questId: string | null;
@@ -75,28 +122,18 @@ export function renderStatus(
 		questStatus: QuestStatus | null;
 	},
 	theme: Theme,
+	width?: number,
 ): string | undefined {
 	if (!state.questId || !state.questKind || !state.questStatus)
 		return undefined;
-	const kindGlyph = KIND_GLYPHS[state.questKind];
+	const kindGlyph = theme.fg("accent", KIND_GLYPHS[state.questKind]);
 	const statusGlyph = STATUS_GLYPHS[state.questStatus];
-	return `${theme.fg("accent", kindGlyph)} ${theme.fg(statusGlyph.token, statusGlyph.char)} ${theme.fg("muted", STATUS_LABEL)}`;
-}
-
-const FILL = ["\u25cb", "\u25d4", "\u25d1", "\u25d5", "\u25cf"];
-
-function progressGlyph(done: number, total: number): Glyph {
-	if (total <= 0 || done <= 0) return { char: FILL[0], token: "accent" };
-	if (done >= total) return { char: FILL[4], token: "success" };
-	const ratio = done / total;
-	const bucket = ratio < 0.25 ? 1 : ratio < 0.5 ? 2 : 3;
-	return { char: FILL[bucket], token: "accent" };
-}
-
-function progressText(done: number, total: number): string {
-	if (total <= 0) return "";
-	const step = done >= total ? total : done + 1;
-	return ` \u00b7 ${step}/${total}`;
+	const colouredStatus = theme.fg(statusGlyph.token, statusGlyph.char);
+	const tail =
+		width !== undefined && width < STATUS_NARROW_THRESHOLD
+			? STATUS_NARROW_LABEL
+			: state.questId;
+	return `${kindGlyph} ${colouredStatus} ${theme.fg("muted", tail)}`;
 }
 
 /** Inputs the widget needs to paint a line. */
@@ -105,32 +142,69 @@ export interface WidgetInput {
 	questTitle: string | null;
 	documentKind: DocumentKind | null;
 	documentStage: Stage;
+	documentTitle: string | null;
 	done: number;
 	total: number;
+	currentItem?: string;
 }
 
-/** Widget line. Returns empty when no quest is loaded. */
+/**
+ * Widget line. Returns empty when no quest is loaded.
+ *
+ * Three layouts depending on what's focused:
+ *
+ * 1. Focused document, mid-stage: `{Stage-Verb} {Kind-Noun}:
+ *    {Doc Title} \u00b7 {step}/{total} \u2192 {next item}`
+ * 2. Focused document, concluded/retired: drops the
+ *    `{Stage-Verb} {Kind-Noun}:` prefix and shows just
+ *    the doc title plus progress.
+ * 3. No focused document: falls back to the quest title
+ *    plus the quest README's own checkbox count.
+ *
+ * When the underlying body has no checkboxes the count
+ * segment and arrow drop entirely; the line reads as
+ * prose with no trailing noise.
+ */
 export function renderWidget(
 	input: WidgetInput,
 	theme: Theme,
 	width: number,
 ): string[] {
 	if (!input.questId) return [];
-	const { char, token } = progressGlyph(input.done, input.total);
-	const colouredGlyph = theme.fg(token, char);
-	let label = input.questId;
-	if (input.documentKind) {
-		const kindLabel = DOCUMENT_LABELS[input.documentKind];
-		const stage = STAGE_LABELS[input.documentStage];
-		label += ` \u00b7 ${kindLabel}`;
-		if (stage) label += `(${stage})`;
+	const line = buildWidgetLine(input);
+	const coloured = theme.fg("muted", line);
+	return [truncateToWidth(coloured, width)];
+}
+
+function buildWidgetLine(input: WidgetInput): string {
+	const counter = progressText(input.done, input.total);
+	const trailer = progressTrailer(input);
+	if (input.documentKind && input.documentTitle) {
+		const stageVerb = STAGE_VERB[input.documentStage];
+		const kindNoun = KIND_NOUN[input.documentKind];
+		const head =
+			stageVerb &&
+			input.documentStage !== "concluded" &&
+			input.documentStage !== "retired"
+				? `${stageVerb} ${kindNoun}: ${input.documentTitle}`
+				: input.documentTitle;
+		return `${head}${counter}${trailer}`;
 	}
-	label += progressText(input.done, input.total);
-	const prefix = `${colouredGlyph} ${theme.fg("muted", label)}`;
-	if (!input.questTitle) return [truncateToWidth(prefix, width)];
-	const room = Math.max(0, width - GLYPH_COLS - (label.length + 1));
-	const line = `${prefix} ${theme.fg("dim", truncateToWidth(input.questTitle, room))}`;
-	return [truncateToWidth(line, width)];
+	const title = input.questTitle ?? "(untitled quest)";
+	return `${title}${counter}${trailer}`;
+}
+
+function progressText(done: number, total: number): string {
+	if (total <= 0) return "";
+	const step = done >= total ? total : done + 1;
+	return ` \u00b7 ${step}/${total}`;
+}
+
+function progressTrailer(input: WidgetInput): string {
+	if (input.total <= 0) return "";
+	if (input.done >= input.total) return "";
+	if (!input.currentItem) return "";
+	return ` \u2192 ${input.currentItem}`;
 }
 
 /** Format a list of quests as plain-text rows for /quest-list. */

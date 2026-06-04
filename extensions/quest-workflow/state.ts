@@ -58,10 +58,27 @@ export interface QuestState {
 	/**
 	 * Progress for the status bar. When a document is
 	 * focused, these mirror that document's checkboxes.
-	 * Otherwise they mirror the quest's Milestones section.
+	 * Otherwise they mirror the quest README's checkboxes.
 	 */
 	done: number;
 	total: number;
+	/**
+	 * Verbatim prose of the first unchecked checkbox in the
+	 * source the counter walked. Carried so the widget can
+	 * paint `→ {item}` without re-parsing the body.
+	 */
+	currentItem?: string;
+
+	/**
+	 * Cache of the most recently persisted snapshot's
+	 * `${questId ?? ""}|${documentPath ?? ""}` key. The
+	 * tool_result hook fires on every tool call; comparing
+	 * against this cache is O(1) and avoids reading the
+	 * session history from disk to dedup. The cache is
+	 * advisory: when it's missing (a fresh session), the
+	 * dedup path falls back to `getLastEntry`.
+	 */
+	lastPersistedKey?: string;
 }
 
 /**
@@ -92,6 +109,8 @@ export function createQuestState(opts: {
 		documentStage: "idle",
 		done: 0,
 		total: 0,
+		currentItem: undefined,
+		lastPersistedKey: undefined,
 	};
 }
 

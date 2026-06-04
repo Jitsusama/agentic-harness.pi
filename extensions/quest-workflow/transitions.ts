@@ -17,6 +17,7 @@
 
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
 import type { QuestPriority } from "../../lib/quest/index.js";
+import { suggestAction } from "./actions.js";
 import type { QuestState } from "./state.js";
 import { aliasAdd, aliasRemove } from "./verbs/alias.js";
 import {
@@ -61,9 +62,10 @@ export async function handle(
 		case "unload":
 			return unload(state);
 		case "show":
+		case "status":
 			return show(state);
 		case "list":
-			return list(state);
+			return list(state, params);
 		case "focus":
 			return focus(state, params);
 		case "unfocus":
@@ -98,7 +100,7 @@ export async function handle(
 		case "defer":
 			return priorityJump(state, "someday" as QuestPriority);
 		case "tree":
-			return tree(state);
+			return tree(state, params);
 		case "tree-add":
 			return treeAdd(state, params);
 		case "tree-list":
@@ -125,9 +127,12 @@ export async function handle(
 			return who(state, params);
 		case "links":
 			return linksAction(state, params);
-		default:
-			return refuse(
-				`Unknown action "${params.action}". Try create, load, unload, show, list, tree, expand, focus, unfocus, think, draft, build, conclude, retire, promote, demote, drive, park, defer, top, bottom, bump, sink, before, after, renumber, alias-add, alias-remove, session-attach, session-detach, session-rename, spawn-tab, spawn-pane, spawn-window, find, who or links.`,
-			);
+		default: {
+			const suggestion = suggestAction(params.action ?? "");
+			const hint = suggestion
+				? ` Did you mean "${suggestion}"?`
+				: " See the schema for the full list of actions.";
+			return refuse(`Unknown action "${params.action}".${hint}`);
+		}
 	}
 }

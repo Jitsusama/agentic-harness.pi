@@ -26,6 +26,7 @@ import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { dataDir } from "../../lib/internal/paths.js";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.js";
+import { discoverQuests } from "../../lib/internal/quest/discovery.js";
 import {
 	registerBuiltinHandleTypes,
 	registerBuiltinPersonResolvers,
@@ -38,6 +39,7 @@ import {
 import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
 import { registerBuiltinTreeProviders } from "../../lib/tree/index.js";
+import { QUEST_ACTIONS } from "./actions.js";
 import { enforceQuest, isFocusedDocWrite } from "./enforce.js";
 import {
 	listAllQuests,
@@ -49,6 +51,7 @@ import {
 } from "./lifecycle.js";
 import { showLoaded } from "./lookup.js";
 import { formatQuestList, renderStatus, renderWidget } from "./render.js";
+
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
 
@@ -73,12 +76,18 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	// Expose the PR-workflow bridge so pr-workflow can
 	// scaffold a sidequest when it loads a PR. The
 	// integration is additive: pr-workflow checks for the
-	// bridge and skips quietly when absent.
-	registerQuestPrBridge({
+	// bridge and skips quietly when absent. We hold a
+	// reference to our own bridge so a session_shutdown
+	// from a stale extension instance can only clear its
+	// own registration, not a fresher one that a later
+	// activation installed.
+	const ownBridge = {
 		questsRoot: () => state.questsRoot,
 		loadedQuestId: () => state.questId,
-		logJourney: (questDir, prose) => appendJourneyByPath(questDir, prose),
-	});
+		logJourney: (questDir: string, prose: string) =>
+			appendJourneyByPath(questDir, prose),
+	};
+	registerQuestPrBridge(ownBridge);
 
 	pi.registerTool({
 		name: "quest",
@@ -97,56 +106,14 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			"A refused transition returns guidance and changes nothing. There is no human gate and no approval prompt.",
 		],
 		parameters: Type.Object({
-			action: StringEnum(
-				[
-					"create",
-					"load",
-					"unload",
-					"show",
-					"list",
-					"tree",
-					"tree-add",
-					"tree-list",
-					"tree-prune",
-					"tree-expand",
-					"expand",
-					"focus",
-					"unfocus",
-					"think",
-					"draft",
-					"build",
-					"conclude",
-					"retire",
-					"promote",
-					"demote",
-					"drive",
-					"park",
-					"defer",
-					"top",
-					"bottom",
-					"bump",
-					"sink",
-					"before",
-					"after",
-					"renumber",
-					"alias-add",
-					"alias-remove",
-					"session-attach",
-					"session-detach",
-					"session-rename",
-					"spawn-tab",
-					"spawn-pane",
-					"spawn-window",
-					"find",
-					"who",
-					"links",
-				] as const,
-				{ description: "The action to perform." },
-			),
+			action: StringEnum([...QUEST_ACTIONS], {
+				description:
+					"The action to perform. `status` is an alias for `show`. The dispatcher's refusal path Levenshtein-suggests the nearest action when an agent calls past the schema's enum (e.g. through a custom client that bypasses validation).",
+			}),
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
@@ -292,6 +259,26 @@ export default function questWorkflow(pi: ExtensionAPI) {
 				Type.Boolean({
 					description:
 						"build: skip the primary-plan tree gate (documentation-only build with no working tree).",
+				}),
+			),
+			expanded: Type.Optional(
+				Type.Boolean({
+					description:
+						"list/find/who/links/tree/expand: render the expanded view (priority, parent, cast, recent journey, docs) instead of the one-line brief.",
+				}),
+			),
+			limit: Type.Optional(
+				Type.Integer({
+					description:
+						"list/find/who/links/tree: maximum rows in the listing. Defaults to 25.",
+					minimum: 1,
+				}),
+			),
+			offset: Type.Optional(
+				Type.Integer({
+					description:
+						"list/find/who/links/tree: skip the first N rows before rendering. Use with limit for pagination.",
+					minimum: 0,
 				}),
 			),
 		}),
@@ -459,7 +446,7 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			refreshProgress(state);
 			updateScoreboard(state, ctx);
 		}
-		persist(state, pi);
+		persist(state, pi, ctx);
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {
@@ -468,6 +455,30 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		// Surface any layout-drift errors the discovery walk
+		// found. After the canonical-layout tightening, a
+		// nested QEST dir or a misplaced doc file gets recorded
+		// as a DiscoveryError and skipped from the index. The
+		// user needs to know those quests didn't load so they
+		// can run the migrator (or fix by hand) rather than
+		// noticing later that a quest "vanished."
+		const { errors } = discoverQuests(state.questsRoot);
+		if (errors.length > 0) {
+			const preview = errors.slice(0, 5);
+			console.error(
+				`[quest-workflow] discovery surfaced ${errors.length} layout error(s):`,
+			);
+			for (const err of preview) {
+				console.error(`  ${err.path}: ${err.message}`);
+			}
+			if (errors.length > preview.length) {
+				console.error(`  ... and ${errors.length - preview.length} more`);
+			}
+			console.error(
+				"Run `scripts/migrate-quests-canonical.ts --dry-run` to inspect, then drop --dry-run to apply.",
+			);
+		}
+
 		// The persisted slice in the session history is the
 		// authoritative source: a /reload reuses the same
 		// session, so the last loaded quest and focused
@@ -494,8 +505,11 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	// Tear down the bridge so a session_shutdown followed
 	// by a re-activation doesn't leave a stale closure
 	// pointing at the old state object on globalThis.
+	// Pass our own bridge so an out-of-order shutdown
+	// can only clear its own registration, never a
+	// fresher instance's.
 	pi.on("session_shutdown", async () => {
-		unregisterQuestPrBridge();
+		unregisterQuestPrBridge(ownBridge);
 	});
 
 	// Inject the loaded-quest context into every agent
@@ -528,6 +542,7 @@ interface UiSink {
 
 function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 	const live = state.questId !== null;
+	const width = process.stdout.columns || DEFAULT_WIDTH;
 	ctx.ui.setStatus(
 		"quest-workflow",
 		live
@@ -538,10 +553,10 @@ function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 						questStatus: state.questStatus,
 					},
 					ctx.ui.theme,
+					width,
 				)
 			: undefined,
 	);
-	const width = process.stdout.columns || DEFAULT_WIDTH;
 	ctx.ui.setWidget(
 		"quest-workflow",
 		!live
@@ -552,8 +567,10 @@ function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 						questTitle: state.questTitle,
 						documentKind: state.documentKind,
 						documentStage: state.documentStage,
+						documentTitle: state.documentTitle,
 						done: state.done,
 						total: state.total,
+						currentItem: state.currentItem,
 					},
 					ctx.ui.theme,
 					width,

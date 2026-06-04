@@ -26,7 +26,7 @@ import type {
 } from "../../quest/types.js";
 import { parseAllRefs } from "../../refs/index.js";
 import { parseQuestFrontMatter } from "./frontmatter.js";
-import { findIds } from "./id.js";
+import { findIds, findIdsWithRelation, type IdMention } from "./id.js";
 
 const SECTION_HEADERS = {
 	summary: /^##\s+(?:[\u{1F300}-\u{1FFFF}]\s+)?Summary\s*$/u,
@@ -105,7 +105,35 @@ export function extractSectionParagraph(
 	return paragraph.length > 0 ? paragraph.join("\n").trim() : undefined;
 }
 
-/** Parse the Cast section's role-prefix bullets. */
+/**
+ * A cast subject that's purely a scaffold placeholder, not
+ * a real person. The scaffold writes
+ * `- **owner**: _name or @handle_` into every fresh quest
+ * README; reading that bullet as a real cast entry made
+ * `who` and `show` echo the placeholder back to the user.
+ * We strip italic and bold delimiters then match the
+ * stripped form against a small set of known sentinels.
+ */
+function isCastPlaceholder(subject: string): boolean {
+	const stripped = subject
+		.trim()
+		.replace(/^[*_]+/, "")
+		.replace(/[*_]+$/, "")
+		.trim()
+		.toLowerCase();
+	if (stripped.length === 0) return true;
+	return (
+		stripped === "name or @handle" ||
+		stripped === "name" ||
+		stripped === "@handle"
+	);
+}
+
+/**
+ * Parse the Cast section's role-prefix bullets. Skips
+ * scaffold placeholder subjects so an unedited template
+ * doesn't surface as a real cast entry.
+ */
 export function extractCast(body: string): CastEntry[] {
 	const lines = extractSection(body, "cast");
 	const bullets: CastEntry[] = [];
@@ -126,6 +154,7 @@ export function extractCast(body: string): CastEntry[] {
 		const commaBreak = rest.indexOf(",");
 		if (commaBreak >= 0 && commaBreak < subjectEnd) subjectEnd = commaBreak;
 		const subject = rest.slice(0, subjectEnd).trim();
+		if (isCastPlaceholder(subject)) continue;
 		const prose = rest
 			.slice(subjectEnd)
 			.replace(/^[.\s,]+/, "")
@@ -174,19 +203,66 @@ export function milestoneProgress(body: string): {
 }
 
 /**
+ * Count every `- [ ]` / `- [x]` checkbox in the body,
+ * regardless of which section holds it. Returns a count
+ * pair plus the prose of the first unchecked entry so the
+ * widget can render "5/33 → do the next thing" without
+ * re-parsing the body on every paint.
+ *
+ * The plan, research, brief and report templates all use
+ * different section names for their work list. Walking
+ * the whole body makes one counter serve all four kinds
+ * without coupling to a template detail.
+ */
+export function checkboxProgress(body: string): {
+	total: number;
+	done: number;
+	currentItem?: string;
+} {
+	const rx = /^\s*-\s+\[([ xX])\]\s*(.*?)\s*$/gm;
+	let total = 0;
+	let done = 0;
+	let currentItem: string | undefined;
+	for (let m = rx.exec(body); m !== null; m = rx.exec(body)) {
+		total++;
+		const isDone = m[1].toLowerCase() === "x";
+		if (isDone) {
+			done++;
+			continue;
+		}
+		if (currentItem === undefined) {
+			currentItem = m[2] ?? "";
+		}
+	}
+	return currentItem === undefined
+		? { total, done }
+		: { total, done, currentItem };
+}
+
+/**
  * Pull every inline reference out of the body: bare quest
  * IDs and any pattern recognised by a registered ref type.
+ *
+ * `ids` lists every ID found, in order of first appearance.
+ * `idMentions` adds the `→` sigil relation: an id
+ * preceded by `→` is marked `produced`; bare ids are
+ * marked `reference`. Consumers that don't care about the
+ * relation can keep using `ids`.
  */
 export interface ExtractedMentions {
 	/** Quest, plan, research, brief or report IDs. */
 	ids: string[];
+	/** Same IDs, classified as produced-by or bare reference. */
+	idMentions: IdMention[];
 	/** Refs through the registered ref types. */
 	refs: Array<{ type: string; value: string }>;
 }
 
 export function extractMentions(body: string): ExtractedMentions {
+	const idMentions = findIdsWithRelation(body);
 	return {
 		ids: findIds(body),
+		idMentions,
 		refs: parseAllRefs(body),
 	};
 }

@@ -35,7 +35,30 @@ import {
 	unfocusDocument,
 	unloadQuest,
 } from "../lifecycle.js";
-import { showLoaded } from "../lookup.js";
+import { buildRowExpansion, showLoaded } from "../lookup.js";
+
+/**
+ * Priority ladder for sorting list output. Lower numbers
+ * sort first; driving is the most prominent bucket. A
+ * priority outside the ladder sorts to the end so legacy
+ * values do not silently jump ahead of legitimate ones.
+ */
+const PRIORITY_ORDER: Record<string, number> = {
+	driving: 0,
+	active: 1,
+	queued: 2,
+	bench: 3,
+	someday: 4,
+};
+const PRIORITY_FALLBACK = 99;
+
+import {
+	paginate,
+	type QuestRowBrief,
+	renderListing,
+	renderRowBrief,
+	renderRowExpanded,
+} from "../render-rows.js";
 import type { QuestState } from "../state.js";
 import { subdirForDocumentId } from "./queries.js";
 import {
@@ -276,22 +299,135 @@ export async function show(state: QuestState): Promise<QuestResult> {
 	if (!state.questDir) return refuse("No quest loaded.");
 	const projection = await showLoaded(state);
 	if (!projection) return refuse("Could not project the loaded quest.");
-	return ok(
-		`Quest ${projection.frontMatter.id}: ${projection.title ?? "(untitled)"}`,
-		{ projection },
-	);
+	return ok(renderShow(projection), { projection });
 }
 
-export function list(state: QuestState): QuestResult {
-	const entries = listAllQuests(state).map((e) => ({
+function renderShow(
+	projection: NonNullable<Awaited<ReturnType<typeof showLoaded>>>,
+): string {
+	const fm = projection.frontMatter;
+	const lines: string[] = [];
+	lines.push(`${fm.id}: ${projection.title ?? "(untitled)"}`);
+	lines.push(
+		`  kind: ${fm.kind}  status: ${fm.status}  priority: ${fm.priority}  parent: ${fm.parent ?? "none"}  updated: ${fm.updated}`,
+	);
+	if (projection.summary) lines.push(`  summary: ${projection.summary}`);
+	if (projection.purpose) lines.push(`  purpose: ${projection.purpose}`);
+	if (projection.cast.length > 0) {
+		lines.push("");
+		lines.push("Cast:");
+		for (const c of projection.cast) {
+			const identity = c.identityId ? ` [${c.identityId}]` : "";
+			lines.push(`  - ${c.subject} (${c.role})${identity}`);
+		}
+	}
+	if (projection.documents.length > 0) {
+		lines.push("");
+		lines.push("Documents:");
+		for (const d of projection.documents) {
+			const title = d.title ?? "(untitled)";
+			lines.push(`  - ${d.id} (${d.kind}, ${d.stage}): ${title}`);
+		}
+	}
+	const outgoing = projection.links;
+	const outgoingCount =
+		outgoing.quests.length + outgoing.refs.length + outgoing.urls.length;
+	if (outgoingCount > 0) {
+		lines.push("");
+		lines.push(`Links out (${outgoingCount}):`);
+		for (const q of outgoing.quests) {
+			lines.push(`  -> ${q.id} ${q.title ?? ""}`.trimEnd());
+		}
+		for (const r of outgoing.refs) {
+			lines.push(`  -> ${r.type}:${r.value}${r.url ? ` (${r.url})` : ""}`);
+		}
+		for (const u of outgoing.urls) {
+			lines.push(`  -> ${u}`);
+		}
+	}
+	const produced = projection.echoes.filter((e) => e.relation === "produced");
+	const referenced = projection.echoes.filter(
+		(e) => e.relation === "reference",
+	);
+	if (produced.length > 0) {
+		lines.push("");
+		lines.push(`Produced by (${produced.length}):`);
+		for (const e of produced) {
+			lines.push(`  <- ${e.questId} ${e.questTitle ?? ""}`.trimEnd());
+		}
+	}
+	if (referenced.length > 0) {
+		lines.push("");
+		lines.push(`Referenced by (${referenced.length}):`);
+		for (const e of referenced) {
+			lines.push(`  <- ${e.questId} ${e.questTitle ?? ""}`.trimEnd());
+		}
+	}
+	if (projection.journey.length > 0) {
+		lines.push("");
+		lines.push("Recent journey:");
+		for (const j of projection.journey) {
+			lines.push(`  ${j.date}: ${j.prose}`);
+		}
+	}
+	return lines.join("\n");
+}
+
+export function list(state: QuestState, params: QuestToolParams): QuestResult {
+	const all = listAllQuests(state);
+	const entries = all.filter((e) => {
+		const fm = e.doc.frontMatter;
+		if (params.priority && fm.priority !== params.priority) return false;
+		if (params.kind && fm.kind !== params.kind) return false;
+		if (params.status && fm.status !== params.status) return false;
+		if (params.parent !== undefined) {
+			const expected = params.parent === "null" ? null : params.parent;
+			if (fm.parent !== expected) return false;
+		}
+		return true;
+	});
+	entries.sort((a, b) => {
+		const pa = PRIORITY_ORDER[a.doc.frontMatter.priority] ?? PRIORITY_FALLBACK;
+		const pb = PRIORITY_ORDER[b.doc.frontMatter.priority] ?? PRIORITY_FALLBACK;
+		if (pa !== pb) return pa - pb;
+		return a.doc.frontMatter.rank - b.doc.frontMatter.rank;
+	});
+	const view = paginate(entries, {
+		limit: params.limit,
+		offset: params.offset,
+	});
+	const expanded = params.expanded === true;
+	const rendered = view.rows.map((entry) => {
+		const brief: QuestRowBrief = {
+			id: entry.doc.frontMatter.id,
+			kind: entry.doc.frontMatter.kind,
+			status: entry.doc.frontMatter.status,
+			title: entry.doc.title ?? null,
+		};
+		if (!expanded) return renderRowBrief(brief);
+		return renderRowExpanded({
+			...brief,
+			priority: entry.doc.frontMatter.priority,
+			parent: entry.doc.frontMatter.parent,
+			updated: entry.doc.frontMatter.updated,
+			...buildRowExpansion(entry),
+		});
+	});
+	const payload = view.rows.map((e) => ({
 		id: e.doc.frontMatter.id,
-		title: e.doc.title,
+		title: e.doc.title ?? null,
 		kind: e.doc.frontMatter.kind,
 		status: e.doc.frontMatter.status,
 		priority: e.doc.frontMatter.priority,
 		rank: e.doc.frontMatter.rank,
 	}));
-	return ok(`${entries.length} quest(s).`, { entries });
+	return ok(renderListing(rendered, view), {
+		entries: payload,
+		total: view.total,
+		offset: view.offset,
+		limit: view.limit,
+		remaining: view.remaining,
+	});
 }
 
 export function focus(state: QuestState, params: QuestToolParams): QuestResult {

@@ -26,13 +26,17 @@ export {
 export {
 	dateOf,
 	findIds,
+	findIdsWithRelation,
 	ID_PREFIXES,
+	type IdMention,
+	type IdMentionRelation,
 	type IdPrefix,
 	isId,
 	mintId,
 	prefixOf,
 } from "../internal/quest/id.js";
 export {
+	checkboxProgress,
 	type ExtractedMentions,
 	extractCast,
 	extractJourney,

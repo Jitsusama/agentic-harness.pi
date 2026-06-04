@@ -40,10 +40,10 @@ import {
 } from "../../lib/internal/quest/ranking.js";
 import { getLastEntry } from "../../lib/internal/state.js";
 import {
+	checkboxProgress,
 	type DocumentFrontMatter,
 	type DocumentKind,
 	type DocumentStage,
-	milestoneProgress,
 	parseDocumentFrontMatter,
 	parseQuestDoc,
 	parseQuestFrontMatter,
@@ -56,18 +56,31 @@ import {
 	serializeQuestFrontMatter,
 } from "../../lib/quest/index.js";
 import type { Stage } from "./machine.js";
+import { sessionNameFor } from "./render.js";
 import type { QuestState } from "./state.js";
 
-/** Persist quest state's progress projection from the focused document or quest. */
+/**
+ * Persist the focused document's progress (or, when no
+ * document is focused, the loaded quest's) into the
+ * QuestState struct so the widget can paint without
+ * re-parsing the body on every keystroke.
+ *
+ * Uses the broad `checkboxProgress` walk so every `- [ ]`
+ * / `- [x]` in the body contributes regardless of which
+ * section holds it. The plan, research, brief and report
+ * templates each use a different section name for their
+ * work list; one counter serves them all.
+ */
 export function refreshProgress(state: QuestState): void {
 	if (state.documentPath) {
 		try {
 			const text = readFileSync(state.documentPath, "utf8");
 			const parsed = parseDocumentFrontMatter(text);
 			if (parsed) {
-				const progress = milestoneProgress(parsed.body);
+				const progress = checkboxProgress(parsed.body);
 				state.done = progress.done;
 				state.total = progress.total;
+				state.currentItem = progress.currentItem;
 				state.documentStage = parsed.frontMatter.stage as Stage;
 				return;
 			}
@@ -80,9 +93,10 @@ export function refreshProgress(state: QuestState): void {
 			const text = readFileSync(join(state.questDir, "README.md"), "utf8");
 			const parsed = parseQuestDoc(text);
 			if (parsed) {
-				const progress = milestoneProgress(parsed.body);
+				const progress = checkboxProgress(parsed.body);
 				state.done = progress.done;
 				state.total = progress.total;
+				state.currentItem = progress.currentItem;
 				return;
 			}
 		} catch {
@@ -91,6 +105,7 @@ export function refreshProgress(state: QuestState): void {
 	}
 	state.done = 0;
 	state.total = 0;
+	state.currentItem = undefined;
 }
 
 /** Find a quest entry by id across the quests root. */
@@ -127,7 +142,8 @@ export function loadQuest(
 	state.documentTitle = null;
 	state.documentStage = "idle";
 	refreshProgress(state);
-	pi.setSessionName?.(`${id} ${entry.doc.title ?? "quest"}`);
+	const sessionName = sessionNameFor(entry.doc.title ?? null);
+	if (sessionName) pi.setSessionName?.(sessionName);
 	return { ok: true };
 }
 
@@ -314,15 +330,63 @@ function snapshot(state: QuestState): PersistedState {
  * Persist the current loaded-quest and focused-document
  * pointers into the session history.
  *
- * Idempotent in effect: each call appends a new entry,
- * and `restore` reads only the most recent one. Older
- * entries become dead weight in the log but don't cause
- * incorrect behaviour. Wired centrally from the
- * tool_result hook in the extension entry point, mirroring
- * the pr-workflow pattern.
+ * Skips the append when the snapshot equals the most
+ * recent persisted entry. The tool_result hook fires on
+ * every tool, so a long session that never touches the
+ * quest tool used to accumulate dozens of identical
+ * entries; the restore path only reads the latest one, so
+ * everything past the first was dead weight. The skip
+ * preserves restore semantics because `restore` still
+ * reads the same data — it just doesn't have a fresh
+ * copy of it on every keystroke.
+ *
+ * Dedup uses an in-memory key on QuestState (O(1)) when
+ * one is set, falling back to a one-time `getLastEntry`
+ * disk read when the cache is empty (fresh session). The
+ * cache stays write-only inside `persist`: once we've
+ * appended, we update it; every subsequent call within
+ * the session compares against it without touching disk.
+ *
+ * Wired centrally from the tool_result hook in the
+ * extension entry point, mirroring the pr-workflow
+ * pattern.
  */
-export function persist(state: QuestState, pi: ExtensionAPI): void {
-	pi.appendEntry(SESSION_KEY, snapshot(state));
+export function persist(
+	state: QuestState,
+	pi: ExtensionAPI,
+	ctx?: ExtensionContext,
+): void {
+	const current = snapshot(state);
+	const key = snapshotKey(current);
+	if (state.lastPersistedKey === key) return;
+	if (state.lastPersistedKey === undefined && ctx) {
+		const prev = getLastEntry<PersistedState>(ctx, SESSION_KEY);
+		if (prev && snapshotsEqual(prev, current)) {
+			state.lastPersistedKey = key;
+			return;
+		}
+	}
+	pi.appendEntry(SESSION_KEY, current);
+	state.lastPersistedKey = key;
+}
+
+function snapshotKey(s: PersistedState): string {
+	return `${s.questId ?? ""}|${s.documentPath ?? ""}`;
+}
+
+/**
+ * Structural equality on persisted snapshots. Compares
+ * by the full set of `PersistedState` keys so adding a
+ * field later doesn't silently break the dedup behaviour.
+ */
+function snapshotsEqual(a: PersistedState, b: PersistedState): boolean {
+	const aKeys = Object.keys(a) as (keyof PersistedState)[];
+	const bKeys = Object.keys(b) as (keyof PersistedState)[];
+	if (aKeys.length !== bKeys.length) return false;
+	for (const key of aKeys) {
+		if (a[key] !== b[key]) return false;
+	}
+	return true;
 }
 
 /**

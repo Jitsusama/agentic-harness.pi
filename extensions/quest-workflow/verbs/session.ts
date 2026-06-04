@@ -15,6 +15,7 @@ import {
 	detachSessionFromLoaded,
 	renameSessionOnLoaded,
 } from "../lifecycle.js";
+import { getQuestEntry } from "../lookup.js";
 import type { QuestState } from "../state.js";
 import {
 	currentSessionId,
@@ -116,9 +117,24 @@ export async function spawn(
 			"No terminal driver is available. Register one with `registerTerminalDriver` or seed the built-ins.",
 		);
 	}
-	const cwd = params.cwd?.trim() || state.questDir || undefined;
+	// An explicit `id:` lets the agent open a tab for
+	// another quest without touching its own loaded state.
+	// We resolve through discovery so a typo fails fast,
+	// and we inherit the target quest's dir for the new
+	// process's cwd unless the caller overrode it.
+	let questIdForSpawn: string | undefined = state.questId ?? undefined;
+	let defaultCwd: string | undefined = state.questDir ?? undefined;
+	if (params.id) {
+		const entry = getQuestEntry(state, params.id);
+		if (!entry) {
+			return refuse(`No quest with id "${params.id}".`);
+		}
+		questIdForSpawn = entry.doc.frontMatter.id;
+		defaultCwd = entry.dir;
+	}
+	const cwd = params.cwd?.trim() || defaultCwd || undefined;
 	const command = params.command?.trim() || "pi";
-	// Pass the loaded quest id through to the spawned
+	// Pass the target quest id through to the spawned
 	// process via an env var. The new pi's quest-workflow
 	// extension reads this on session_start and uses it
 	// to load the right quest, which in turn calls
@@ -129,8 +145,8 @@ export async function spawn(
 	// registered tree; this env var carries the id when
 	// the cwd doesn't help (e.g. a fresh sidequest with
 	// no tree of its own).
-	const env = state.questId
-		? { QUEST_WORKFLOW_AUTOLOAD_ID: state.questId }
+	const env = questIdForSpawn
+		? { QUEST_WORKFLOW_AUTOLOAD_ID: questIdForSpawn }
 		: undefined;
 	try {
 		await driver.spawn({ layout, command, cwd, env });
@@ -142,6 +158,6 @@ export async function spawn(
 		layout,
 		cwd,
 		command,
-		autoloadQuestId: state.questId ?? undefined,
+		autoloadQuestId: questIdForSpawn,
 	});
 }

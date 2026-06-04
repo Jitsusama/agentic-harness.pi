@@ -2,24 +2,40 @@
  * Quest discovery: walk a quest tree on disk and build an
  * in-memory index.
  *
- * Disk layout (within `questsRoot`):
+ * Canonical disk layout (within `questsRoot`):
  *
+ *     QUESTS.md                       (auto-generated TOC)
  *     QEST-20260603-AAA111/
  *       README.md
- *       PLAN-20260603-BBB222.md
- *       RSCH-20260605-CCC333.md
- *       QEST-20260610-DDD444/       (subquest)
- *         README.md
+ *       plans/PLAN-20260603-BBB222.md
+ *       research/RSCH-20260605-CCC333.md
+ *       briefs/BRIF-20260606-EEE555.md
+ *       reports/RPRT-20260607-FFF666.md
+ *     QEST-20260610-DDD444/           (subquest of AAA111,
+ *       README.md                       parent: QEST-...-AAA111
+ *                                       lives flat at the
+ *                                       quests root, not
+ *                                       nested in its
+ *                                       parent's directory)
  *
- * We walk recursively. Every directory whose name parses as
- * a QEST id is a quest; its README.md is parsed; any file
- * whose name parses as a PLAN/RSCH/BRIF/RPRT id is recorded
- * as a document under that quest.
+ * All quests live as immediate children of `questsRoot`.
+ * Hierarchy is expressed by the `parent:` front-matter
+ * field on each quest's README, not by directory nesting.
+ * Documents (plans, research, briefs, reports) live inside
+ * their owning quest's kind subdirectory (`plans/`,
+ * `research/`, `briefs/`, `reports/`).
  *
- * Free-form subdirectories (`runs/`, `tools/`,
- * `workloads/`, etc.) are not walked — they don't contain
- * quests. We surface them only via the quest's own body
- * references.
+ * Discovery enforces these invariants. Two drift patterns
+ * are surfaced as `DiscoveryError` and the offending entry
+ * is skipped:
+ *
+ * - a `QEST-*` directory found inside another quest
+ * - a `PLAN-/RSCH-/BRIF-/RPRT-*.md` file at a quest's root
+ *   instead of in its kind subdirectory
+ *
+ * Free-form subdirectories under a quest (`runs/`,
+ * `tools/`, `workloads/`, etc.) are not walked. They're
+ * surfaced only via the quest's own body references.
  */
 
 import { type Dirent, readdirSync, readFileSync, realpathSync } from "node:fs";
@@ -92,6 +108,13 @@ function safeRealpath(path: string): string | undefined {
 	}
 }
 
+const CANONICAL_DOCUMENT_DIRS = [
+	"plans",
+	"research",
+	"briefs",
+	"reports",
+] as const;
+
 function readEntries(path: string): Dirent[] | undefined {
 	try {
 		return readdirSync(path, { withFileTypes: true });
@@ -133,16 +156,30 @@ export function discoverQuests(questsRoot: string): DiscoveryResult {
 	const errors: DiscoveryError[] = [];
 	const visited = new Set<string>();
 
-	function scanDocuments(full: string): QuestDocumentEntry[] {
+	function scanDocuments(questDir: string): QuestDocumentEntry[] {
 		const documents: QuestDocumentEntry[] = [];
-		const documentScanDirs = [
-			full,
-			join(full, "plans"),
-			join(full, "research"),
-			join(full, "briefs"),
-			join(full, "reports"),
-		];
-		for (const scanDir of documentScanDirs) {
+
+		// Surface any doc-id-named file at the quest-dir root
+		// as a layout error: the canonical home for those is a
+		// kind subdirectory. We still skip the entry rather
+		// than parse it, so a stray misplaced file does not
+		// double-register.
+		const questEntries = readEntries(questDir);
+		if (questEntries) {
+			for (const entry of questEntries) {
+				if (!entry.isFile()) continue;
+				if (extname(entry.name) !== ".md") continue;
+				const base = entry.name.slice(0, -3);
+				if (!isId(base) || prefixOf(base) === "QEST") continue;
+				errors.push({
+					path: join(questDir, entry.name),
+					message: `Document "${entry.name}" sits at the quest-dir root instead of in its kind subdirectory.`,
+				});
+			}
+		}
+
+		for (const subdir of CANONICAL_DOCUMENT_DIRS) {
+			const scanDir = join(questDir, subdir);
 			const entries = readEntries(scanDir);
 			if (!entries) continue;
 			for (const entry of entries) {
@@ -161,80 +198,94 @@ export function discoverQuests(questsRoot: string): DiscoveryResult {
 		return documents;
 	}
 
-	function visit(dir: string, depth: number): void {
+	function reportNestedQuests(questDir: string, depth: number): void {
 		if (depth > MAX_WALK_DEPTH) {
 			errors.push({
-				path: dir,
+				path: questDir,
 				message: `Walk depth exceeded ${MAX_WALK_DEPTH}; refusing to recurse further.`,
 			});
 			return;
 		}
-		const real = safeRealpath(dir);
-		if (real) {
-			if (visited.has(real)) return;
-			visited.add(real);
-		}
-		const entries = readEntries(dir);
-		if (!entries) {
-			errors.push({ path: dir, message: "Directory unreadable." });
-			return;
-		}
-
+		const entries = readEntries(questDir);
+		if (!entries) return;
 		for (const entry of entries) {
-			const name = entry.name;
-			if (entry.isSymbolicLink()) {
-				// Skip symlinks entirely so the walk cannot escape
-				// the questsRoot via a stray link.
-				continue;
-			}
+			if (entry.isSymbolicLink()) continue;
 			if (!entry.isDirectory()) continue;
-			const full = join(dir, name);
+			const name = entry.name;
 			if (isId(name) && prefixOf(name) === "QEST") {
-				const readmePath = join(full, "README.md");
-				const text = readMaybe(readmePath);
-				if (!text) {
-					errors.push({ path: readmePath, message: "README.md missing" });
-					visit(full, depth + 1);
-					continue;
-				}
-				const doc = parseQuestDoc(text);
-				if (!doc) {
-					errors.push({
-						path: readmePath,
-						message: "Front-matter invalid or absent.",
-					});
-					visit(full, depth + 1);
-					continue;
-				}
-				if (doc.frontMatter.id !== name) {
-					errors.push({
-						path: readmePath,
-						message: `Directory name "${name}" does not match front-matter id "${doc.frontMatter.id}".`,
-					});
-				}
-				const documents = scanDocuments(full);
-				quests.set(doc.frontMatter.id, { dir: full, doc, documents });
-				const parentKey = doc.frontMatter.parent ?? "";
-				const list = children.get(parentKey) ?? [];
-				list.push(doc.frontMatter.id);
-				children.set(parentKey, list);
-				visit(full, depth + 1);
-				continue;
+				errors.push({
+					path: join(questDir, name),
+					message: `Nested quest "${name}" found inside another quest. Quests live as immediate children of the quests root; hierarchy is expressed by the parent: front-matter field.`,
+				});
+				reportNestedQuests(join(questDir, name), depth + 1);
 			}
-			if (name === "node_modules" || name === ".git" || name.startsWith(".")) {
-				continue;
-			}
-			visit(full, depth + 1);
 		}
 	}
 
+	function acceptQuest(name: string, full: string): void {
+		const readmePath = join(full, "README.md");
+		const text = readMaybe(readmePath);
+		if (!text) {
+			errors.push({ path: readmePath, message: "README.md missing" });
+			return;
+		}
+		const doc = parseQuestDoc(text);
+		if (!doc) {
+			errors.push({
+				path: readmePath,
+				message: "Front-matter invalid or absent.",
+			});
+			return;
+		}
+		if (doc.frontMatter.id !== name) {
+			errors.push({
+				path: readmePath,
+				message: `Directory name "${name}" does not match front-matter id "${doc.frontMatter.id}".`,
+			});
+		}
+		const documents = scanDocuments(full);
+		quests.set(doc.frontMatter.id, { dir: full, doc, documents });
+		const parentKey = doc.frontMatter.parent ?? "";
+		const list = children.get(parentKey) ?? [];
+		list.push(doc.frontMatter.id);
+		children.set(parentKey, list);
+		// Look for nested quests inside this one and surface
+		// them as errors; never index them.
+		reportNestedQuests(full, 1);
+	}
+
 	const rootEntries = readEntries(questsRoot);
-	if (rootEntries) {
-		visit(questsRoot, 0);
-	} else {
+	if (!rootEntries) {
 		errors.push({
 			path: questsRoot,
 			message: "Quests root does not exist as a directory.",
+		});
+		return { index: { quests, children }, errors };
+	}
+
+	const rootReal = safeRealpath(questsRoot);
+	if (rootReal) visited.add(rootReal);
+
+	for (const entry of rootEntries) {
+		const name = entry.name;
+		if (entry.isSymbolicLink()) continue;
+		if (!entry.isDirectory()) continue;
+		if (name === "node_modules" || name === ".git" || name.startsWith(".")) {
+			continue;
+		}
+		const full = join(questsRoot, name);
+		const real = safeRealpath(full);
+		if (real) {
+			if (visited.has(real)) continue;
+			visited.add(real);
+		}
+		if (isId(name) && prefixOf(name) === "QEST") {
+			acceptQuest(name, full);
+			continue;
+		}
+		errors.push({
+			path: full,
+			message: `Unexpected directory "${name}" at quests root. Only QEST-* directories belong here.`,
 		});
 	}
 

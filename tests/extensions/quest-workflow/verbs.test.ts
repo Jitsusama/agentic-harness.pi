@@ -72,21 +72,30 @@ describe("reorder verbs", () => {
 		const b = await createQuest(state, "Bravo");
 		const c = await createQuest(state, "Charlie");
 
-		// Set up distinct starting ranks so we know exactly
-		// where each quest must land after `top`. Without
-		// this seeding every quest's rank is 1 and a loose
-		// `rank: [23]` regex passes for either order.
+		// Seed deterministic positions with explicit
+		// before/after actions rather than sink. Every quest
+		// starts at rank 1, so a sink-only seed relies on the
+		// rank tiebreaker (alphabetical id sort), and ids
+		// carry random 6-char suffixes that don't honour the
+		// Alpha/Bravo/Charlie creation order. The explicit
+		// placements below make the seed order independent
+		// of the id suffixes.
 		await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "load",
 			id: b.id,
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "sink" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "after",
+			target: a.id,
+		});
 		await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "load",
 			id: c.id,
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "sink" });
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "sink" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "after",
+			target: b.id,
+		});
 		// Now ranks are: Alpha=1, Bravo=2, Charlie=3.
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
@@ -292,6 +301,58 @@ describe("spawn verbs", () => {
 		// the wezterm/tmux tab-title plumbing.
 		expect(calls[0].env).toEqual({ QUEST_WORKFLOW_AUTOLOAD_ID: a.id });
 	});
+
+	it("spawn-tab id:OTHER targets the other quest without mutating loaded state", async () => {
+		const state = buildState();
+		const loaded = await createQuest(state, "Loaded");
+		const other = await createQuest(state, "Other");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: loaded.id,
+		});
+
+		const calls: {
+			cwd?: string;
+			env?: Readonly<Record<string, string>>;
+		}[] = [];
+		registerTerminalDriver({
+			id: "test",
+			available: () => true,
+			async spawn(req) {
+				calls.push({ cwd: req.cwd, env: req.env });
+			},
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "spawn-tab",
+			id: other.id,
+		});
+		expect(result.ok).toBe(true);
+		expect(calls[0].env).toEqual({ QUEST_WORKFLOW_AUTOLOAD_ID: other.id });
+		expect(calls[0].cwd).not.toBe(state.questDir);
+		expect(calls[0].cwd).toContain(other.id);
+		// The caller's loaded state must not have changed.
+		expect(state.questId).toBe(loaded.id);
+	});
+
+	it("spawn-tab refuses with a clean message when the id is unknown", async () => {
+		const state = buildState();
+		await createQuest(state, "Loaded");
+		registerTerminalDriver({
+			id: "test",
+			available: () => true,
+			async spawn() {
+				/* not reached */
+			},
+		});
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "spawn-tab",
+			id: "QEST-29991231-MISSING",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unexpected ok");
+		expect(result.guidance).toContain("No quest with id");
+	});
 });
 
 describe("URL-seeded create", () => {
@@ -352,5 +413,299 @@ describe("URL-seeded create", () => {
 		});
 		// No fetcher registered, no title param: refuse.
 		expect(result.ok).toBe(false);
+	});
+});
+
+describe("action aliases and refusals", () => {
+	it("status is a synonym for show on a loaded quest", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha quest");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "status",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain(a.id);
+	});
+
+	it("refuses unknown actions with a Levenshtein suggestion", async () => {
+		const state = buildState();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "lst",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unexpected ok");
+		expect(result.guidance).toContain('Did you mean "list"');
+	});
+});
+
+describe("list filters", () => {
+	it("list priority:driving returns only driving quests and the count matches", async () => {
+		const state = buildState();
+		const driving = await createQuest(state, "Driving quest");
+		await createQuest(state, "Active quest");
+		await createQuest(state, "Queued quest");
+
+		// Move the first one to driving so we have a known
+		// distribution: 1 driving, 2 active (the default).
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: driving.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "list",
+			priority: "driving",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const details = result.details as {
+			entries: { id: string; priority: string }[];
+			total: number;
+		};
+		expect(details.total).toBe(1);
+		expect(details.entries.length).toBe(1);
+		expect(details.entries[0].id).toBe(driving.id);
+		expect(details.entries[0].priority).toBe("driving");
+	});
+
+	it("list kind:quest excludes sidequests and subquests", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Parent");
+
+		const child = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Child",
+			parent: parent.id,
+			kind: "subquest",
+		});
+		if (!child.ok) throw new Error(child.guidance);
+		const top = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Top-level quest",
+			kind: "quest",
+		});
+		if (!top.ok) throw new Error(top.guidance);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "list",
+			kind: "quest",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const details = result.details as {
+			entries: { id: string; kind: string }[];
+			total: number;
+		};
+		for (const e of details.entries) expect(e.kind).toBe("quest");
+		expect(details.total).toBe(details.entries.length);
+	});
+});
+
+describe("listing verbs: brief, expanded and pagination", () => {
+	it("list defaults to one brief row per quest with id, glyphs and title", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha quest");
+		await createQuest(state, "Bravo quest");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "list",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain(a.id);
+		expect(result.message).toContain("Alpha quest");
+		expect(result.message).toContain("Bravo quest");
+		// Glyphs present: a kind glyph for the row and ○
+		// for active status. The default kind is sidequest;
+		// it carries the ◇ glyph.
+		expect(result.message).toMatch(/[\u25c6\u25c7\u25c8]/);
+		expect(result.message).toContain("\u25cb");
+		const details = result.details as { total: number; remaining: number };
+		expect(details.total).toBe(2);
+		expect(details.remaining).toBe(0);
+	});
+
+	it("list expanded renders metadata under each brief row", async () => {
+		const state = buildState();
+		await createQuest(state, "Alpha quest");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "list",
+			expanded: true,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain("priority:");
+		expect(result.message).toContain("parent: none");
+		expect(result.message).toContain("updated:");
+	});
+
+	it("list with limit and offset slices the brief view and surfaces a tail", async () => {
+		const state = buildState();
+		for (let i = 0; i < 5; i++) {
+			await createQuest(state, `Quest ${i}`);
+		}
+
+		const page = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "list",
+			limit: 2,
+			offset: 1,
+		});
+		if (!page.ok) throw new Error(page.guidance);
+		const details = page.details as {
+			total: number;
+			offset: number;
+			limit: number;
+			remaining: number;
+		};
+		expect(details.total).toBe(5);
+		expect(details.offset).toBe(1);
+		expect(details.limit).toBe(2);
+		expect(details.remaining).toBe(2);
+		expect(page.message).toContain("and 2 more (offset 3 to continue)");
+	});
+
+	it("find renders brief rows in the message and keeps the hits payload", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Authentication bug");
+		await createQuest(state, "Unrelated quest");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "find",
+			query: "authentication",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain(a.id);
+		expect(result.message).toContain("Authentication bug");
+		expect(result.message).not.toContain("Unrelated quest");
+		const details = result.details as { hits: { id: string }[] };
+		expect(details.hits.length).toBe(1);
+	});
+
+	it("find with no matches returns (no matches) and zero hits", async () => {
+		const state = buildState();
+		await createQuest(state, "Alpha");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "find",
+			query: "nothing-matches-this",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toBe("(no matches)");
+		const details = result.details as { hits: unknown[] };
+		expect(details.hits.length).toBe(0);
+	});
+
+	it("who renders one row per Cast bullet across quests", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Quest A");
+		const aPath = (a as { path: string }).path;
+		const text = readFileSync(aPath, "utf8").replace(
+			"- **owner**: _name or @handle_",
+			"- **owner**: Joel Gerber. Coordinates the campaign.",
+		);
+		writeFileSync(aPath, text, "utf8");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "who",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain("Joel Gerber (owner)");
+		expect(result.message).toContain(a.id);
+	});
+
+	it("who skips scaffold placeholder cast subjects", async () => {
+		const state = buildState();
+		await createQuest(state, "Quest A");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "who",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		// A fresh quest's scaffold leaves the cast bullet at
+		// `_name or @handle_`. `who` should not list that as a
+		// real bullet; an unfiltered call against a tree of
+		// only fresh quests reports no cast bullets.
+		expect(result.message).toContain("(no cast bullets");
+	});
+
+	it("who returns (no cast bullets) when the filter matches nothing", async () => {
+		const state = buildState();
+		await createQuest(state, "Quest A");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "who",
+			name: "absolutely-nobody-with-this-name",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain("(no cast bullets");
+	});
+
+	it("show splits inbound echoes into Produced by and Referenced by", async () => {
+		const state = buildState();
+		const target = await createQuest(state, "Target quest");
+		const producer = await createQuest(state, "Producer quest");
+		const referrer = await createQuest(state, "Referrer quest");
+
+		// Producer's body mentions the target with the → sigil.
+		const pPath = (producer as { path: string }).path;
+		const pText = readFileSync(pPath, "utf8").replace(
+			"## 🌄 Journey",
+			`## 🌄 Journey\n\n- **2026-06-03**: Synthesized findings → ${target.id}.\n\n## (oldjourney)`,
+		);
+		writeFileSync(pPath, pText, "utf8");
+
+		// Referrer's body mentions the target without the sigil.
+		const rPath = (referrer as { path: string }).path;
+		const rText = readFileSync(rPath, "utf8").replace(
+			"## 🌄 Journey",
+			`## 🌄 Journey\n\n- **2026-06-03**: Cross-link to ${target.id}.\n\n## (oldjourney)`,
+		);
+		writeFileSync(rPath, rText, "utf8");
+
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: target.id,
+		});
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "show",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		expect(result.message).toContain("Produced by");
+		expect(result.message).toContain("Referenced by");
+		const producedSection = result.message
+			.split("Referenced by")[0]
+			.split("Produced by")[1];
+		const referencedSection = result.message.split("Referenced by")[1];
+		expect(producedSection).toContain(producer.id);
+		expect(producedSection).not.toContain(referrer.id);
+		expect(referencedSection).toContain(referrer.id);
+		expect(referencedSection).not.toContain(producer.id);
+	});
+
+	it("tree renders an indented brief listing across the forest", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Parent quest");
+		const child = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Child quest",
+			parent: parent.id,
+			kind: "subquest",
+		});
+		if (!child.ok) throw new Error(child.guidance);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "tree",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain("Parent quest");
+		expect(result.message).toContain("Child quest");
+		const lines = result.message.split("\n");
+		const parentLine = lines.find((l) => l.includes("Parent quest"));
+		const childLine = lines.find((l) => l.includes("Child quest"));
+		expect(parentLine?.startsWith(" ")).toBeFalsy();
+		expect(childLine?.startsWith("  ")).toBe(true);
 	});
 });

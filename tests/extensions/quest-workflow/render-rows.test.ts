@@ -1,0 +1,162 @@
+import { describe, expect, it } from "vitest";
+import {
+	DEFAULT_LISTING_LIMIT,
+	paginate,
+	type QuestRowBrief,
+	type QuestRowExpanded,
+	renderListing,
+	renderRowBrief,
+	renderRowExpanded,
+} from "../../../extensions/quest-workflow/render-rows";
+
+const baseBrief: QuestRowBrief = {
+	id: "QEST-20260603-AAA111",
+	kind: "quest",
+	status: "active",
+	title: "Quest Workflow UX Iteration",
+};
+
+describe("renderRowBrief", () => {
+	it("renders id, kind glyph, status glyph and title on one line", () => {
+		expect(renderRowBrief(baseBrief)).toBe(
+			"QEST-20260603-AAA111 \u25c6 \u25cb Quest Workflow UX Iteration",
+		);
+	});
+
+	it("falls back to (untitled) when the row carries a null title", () => {
+		expect(renderRowBrief({ ...baseBrief, title: null })).toContain(
+			"(untitled)",
+		);
+	});
+
+	it("uses different kind glyphs for quest, subquest and sidequest", () => {
+		const q = renderRowBrief({ ...baseBrief, kind: "quest" });
+		const sub = renderRowBrief({ ...baseBrief, kind: "subquest" });
+		const side = renderRowBrief({ ...baseBrief, kind: "sidequest" });
+		expect(q).toContain("\u25c6");
+		expect(sub).toContain("\u25c8");
+		expect(side).toContain("\u25c7");
+	});
+
+	it("uses a distinct status glyph for each lifecycle state", () => {
+		const seen = new Set<string>();
+		for (const status of [
+			"active",
+			"paused",
+			"blocked",
+			"concluded",
+			"retired",
+		] as const) {
+			const out = renderRowBrief({ ...baseBrief, status });
+			const glyph = out.split(" ")[2];
+			expect(glyph).toBeTruthy();
+			expect(seen.has(glyph)).toBe(false);
+			seen.add(glyph);
+		}
+	});
+});
+
+describe("renderRowExpanded", () => {
+	const base: QuestRowExpanded = {
+		...baseBrief,
+		priority: "driving",
+		parent: null,
+		updated: "2026-06-03",
+	};
+
+	it("renders the brief row and a metadata line below it", () => {
+		const out = renderRowExpanded(base);
+		const [first, second] = out.split("\n");
+		expect(first).toBe(renderRowBrief(base));
+		expect(second).toContain("priority: driving");
+		expect(second).toContain("parent: none");
+		expect(second).toContain("updated: 2026-06-03");
+	});
+
+	it("emits a parent id when the row has one", () => {
+		const out = renderRowExpanded({ ...base, parent: "QEST-20260603-PRT777" });
+		expect(out).toContain("parent: QEST-20260603-PRT777");
+		expect(out).not.toContain("parent: none");
+	});
+
+	it("includes summary, cast, documents and recent journey when supplied", () => {
+		const out = renderRowExpanded({
+			...base,
+			summary: "Iterate on quest UX based on dogfooding.",
+			cast: [
+				{ role: "owner", subject: "Joel Gerber" },
+				{ role: "reviewer", subject: "Evan" },
+			],
+			documents: [{ id: "PLAN-20260603-2XXWYU", stage: "build" }],
+			recentJourney: [{ date: "2026-06-03", prose: "Slice 1 landed." }],
+		});
+		expect(out).toContain("summary: Iterate on quest UX based on dogfooding.");
+		expect(out).toContain("cast: Joel Gerber (owner), Evan (reviewer)");
+		expect(out).toContain("docs: PLAN-20260603-2XXWYU (build)");
+		expect(out).toContain("recent journey:");
+		expect(out).toContain("2026-06-03: Slice 1 landed.");
+	});
+
+	it("omits optional sections when their arrays are empty", () => {
+		const out = renderRowExpanded({
+			...base,
+			cast: [],
+			documents: [],
+			recentJourney: [],
+		});
+		expect(out).not.toContain("cast:");
+		expect(out).not.toContain("docs:");
+		expect(out).not.toContain("recent journey:");
+	});
+});
+
+describe("paginate", () => {
+	const items = Array.from({ length: 60 }, (_, i) => `row${i}`);
+
+	it("defaults to the listing limit and offset zero", () => {
+		const view = paginate(items);
+		expect(view.limit).toBe(DEFAULT_LISTING_LIMIT);
+		expect(view.offset).toBe(0);
+		expect(view.rows.length).toBe(DEFAULT_LISTING_LIMIT);
+		expect(view.remaining).toBe(items.length - DEFAULT_LISTING_LIMIT);
+	});
+
+	it("respects explicit limit and offset", () => {
+		const view = paginate(items, { limit: 10, offset: 25 });
+		expect(view.rows.length).toBe(10);
+		expect(view.rows[0]).toBe("row25");
+		expect(view.remaining).toBe(items.length - 35);
+	});
+
+	it("clamps negative inputs and a limit of zero", () => {
+		const view = paginate(items, { limit: 0, offset: -10 });
+		expect(view.limit).toBeGreaterThanOrEqual(1);
+		expect(view.offset).toBe(0);
+	});
+
+	it("reports zero remaining when offset is past the end", () => {
+		const view = paginate(items, { offset: 1000, limit: 10 });
+		expect(view.rows.length).toBe(0);
+		expect(view.remaining).toBe(0);
+	});
+});
+
+describe("renderListing", () => {
+	it("returns (no matches) on an empty page", () => {
+		const view = paginate<string>([], {});
+		expect(renderListing([], view)).toBe("(no matches)");
+	});
+
+	it("renders rows without a tail when nothing remains", () => {
+		const view = paginate(["a", "b", "c"]);
+		const out = renderListing(["a", "b", "c"], view);
+		expect(out).toBe("a\nb\nc");
+	});
+
+	it("appends an 'and N more' tail when more rows remain", () => {
+		const items = Array.from({ length: 30 }, (_, i) => `row${i}`);
+		const view = paginate(items, { limit: 5 });
+		const out = renderListing(view.rows, view);
+		expect(out).toContain("... and 25 more (offset 5 to continue)");
+	});
+});
