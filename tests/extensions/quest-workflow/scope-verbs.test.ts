@@ -173,7 +173,7 @@ describe("conclude / retire scope", () => {
 });
 
 describe("tree and expand", () => {
-	it("tree returns top-level quests with their children", async () => {
+	it("tree returns top-level quests with their children as listing rows", async () => {
 		const state = buildState();
 		const parent = await createQuest(state, "Parent");
 		await handle(state, fakePi(), fakeCtx(tmpRoot), {
@@ -187,12 +187,16 @@ describe("tree and expand", () => {
 			action: "tree",
 		});
 		expect(result.ok).toBe(true);
-		const tree = (
-			result.details as { tree: { id: string; children: { id: string }[] }[] }
-		).tree;
-		const found = tree.find((n) => n.id === parent.id);
-		expect(found).toBeDefined();
-		expect(found?.children.length).toBe(1);
+		const details = result.details as {
+			listing: { rows: { id: string; depth: number }[] };
+		};
+		const parentIdx = details.listing.rows.findIndex((r) => r.id === parent.id);
+		expect(parentIdx).toBeGreaterThanOrEqual(0);
+		expect(details.listing.rows[parentIdx].depth).toBe(0);
+		// Child sits at depth 1 directly after its parent
+		// in the flattened listing.
+		expect(details.listing.rows[parentIdx + 1].depth).toBe(1);
+		expect(result.message).toMatch(/^ {2}/m);
 	});
 
 	it("expand returns the named subtree", async () => {
@@ -210,11 +214,15 @@ describe("tree and expand", () => {
 			id: parent.id,
 		});
 		expect(result.ok).toBe(true);
-		const node = (
-			result.details as { node: { id: string; children: { id: string }[] } }
-		).node;
-		expect(node.id).toBe(parent.id);
-		expect(node.children.length).toBe(1);
+		// expand attaches a listing payload with the parent
+		// at depth 0 and each child at depth 1.
+		const details = result.details as {
+			listing: { rows: { id: string; depth: number }[] };
+		};
+		expect(details.listing.rows[0].id).toBe(parent.id);
+		expect(details.listing.rows[0].depth).toBe(0);
+		const childRows = details.listing.rows.filter((r) => r.depth === 1);
+		expect(childRows.length).toBe(1);
 	});
 
 	it("surfaces orphan subquests under a synthetic orphans group", async () => {
@@ -229,14 +237,26 @@ describe("tree and expand", () => {
 			action: "tree",
 		});
 		expect(result.ok).toBe(true);
-		const tree = (
-			result.details as {
-				tree: { id: string; children: { id: string }[] }[];
-			}
-		).tree;
-		const orphans = tree.find((n) => n.id === "(orphans)");
-		expect(orphans).toBeDefined();
-		expect(orphans?.children.length).toBe(1);
+		const details = result.details as {
+			listing: {
+				rows: {
+					id: string;
+					depth: number;
+					updated: string;
+					parent: string | null;
+				}[];
+			};
+		};
+		const orphansRow = details.listing.rows.find((r) => r.id === "(orphans)");
+		expect(orphansRow).toBeDefined();
+		expect(orphansRow?.depth).toBe(0);
+		// Sparse row: the synthetic node has no discovery
+		// entry, so updated is empty and parent is null.
+		expect(orphansRow?.updated).toBe("");
+		expect(orphansRow?.parent).toBeNull();
+		// The orphan child sits at depth 1 under the group.
+		const childRows = details.listing.rows.filter((r) => r.depth === 1);
+		expect(childRows.length).toBe(1);
 	});
 });
 
@@ -254,10 +274,13 @@ describe("find with extended filters", () => {
 			action: "find",
 			parent: "null",
 		});
-		const hits = (result.details as { hits: { id: string; kind: string }[] })
-			.hits;
-		expect(hits.every((h) => h.kind !== "subquest")).toBe(true);
-		expect(hits.some((h) => h.id === parent.id)).toBe(true);
+		const rows = (
+			result.details as {
+				listing: { rows: { id: string; kind: string }[] };
+			}
+		).listing.rows;
+		expect(rows.every((r) => r.kind !== "subquest")).toBe(true);
+		expect(rows.some((r) => r.id === parent.id)).toBe(true);
 	});
 
 	it("filters by refType", async () => {
@@ -276,8 +299,9 @@ describe("find with extended filters", () => {
 			action: "find",
 			refType: "github-pr",
 		});
-		const hits = (result.details as { hits: { id: string }[] }).hits;
-		expect(hits.map((h) => h.id)).toEqual([a.id]);
+		const rows = (result.details as { listing: { rows: { id: string }[] } })
+			.listing.rows;
+		expect(rows.map((r) => r.id)).toEqual([a.id]);
 	});
 });
 

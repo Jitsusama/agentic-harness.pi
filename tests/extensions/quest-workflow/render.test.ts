@@ -165,7 +165,10 @@ describe("renderWidget", () => {
 				"Lift QuestRowExpanded and the tree node shape into lib/internal/quest/ so both sides share the same definitions.",
 		});
 		const arrow = out.split("\u2192 ")[1] ?? "";
-		expect(arrow.length).toBe(40);
+		// trimEnd before the ellipsis can shave one column,
+		// so the cap is inclusive rather than exact.
+		expect(arrow.length).toBeLessThanOrEqual(40);
+		expect(arrow.length).toBeGreaterThan(35);
 		expect(arrow.endsWith("\u2026")).toBe(true);
 	});
 
@@ -178,9 +181,59 @@ describe("renderWidget", () => {
 			total: 5,
 			currentItem: "Lift `QuestRowExpanded` and the **tree** node shape.",
 		});
-		expect(out).not.toMatch(/[`*_]/);
 		expect(out).toContain("QuestRowExpanded");
 		expect(out).toContain("tree");
+		expect(out).not.toMatch(/`/);
+		expect(out).not.toMatch(/\*/);
+	});
+
+	it("preserves underscores inside snake_case identifiers", () => {
+		// The chrome strip used to delete every underscore,
+		// turning identifiers like `internal_quest` into
+		// `internalquest`. Snake_case is content, not chrome.
+		const out = widget({
+			documentKind: "plan",
+			documentStage: "draft",
+			documentTitle: "Snake plan",
+			done: 0,
+			total: 5,
+			currentItem: "Move helpers into the internal_quest module.",
+		});
+		expect(out).toContain("internal_quest");
+	});
+
+	it("strips emphasis underscores when they wrap a word", () => {
+		const out = widget({
+			documentKind: "plan",
+			documentStage: "draft",
+			documentTitle: "Emphasis plan",
+			done: 0,
+			total: 5,
+			currentItem: "Mark the _critical_ path through the renderer.",
+		});
+		expect(out).toContain("critical");
+		// One-sided strip would leave a trailing underscore;
+		// the regex must strip on both sides for emphasis.
+		expect(out).not.toMatch(/_/);
+	});
+
+	it("strips emphasis chrome that sits next to punctuation", () => {
+		// `_critical_.` and similar were stranded by the
+		// whitespace-only anchors: the closing marker abuts
+		// a period, not whitespace. Anchoring on \W catches
+		// punctuation too.
+		const out = widget({
+			documentKind: "plan",
+			documentStage: "draft",
+			documentTitle: "Punctuation plan",
+			done: 0,
+			total: 5,
+			currentItem: "Wrap the _critical_, then the **bold**!",
+		});
+		expect(out).toContain("critical");
+		expect(out).toContain("bold");
+		expect(out).not.toMatch(/_/);
+		expect(out).not.toMatch(/\*/);
 	});
 
 	it("truncates the whole line to width minus the pi indent", () => {

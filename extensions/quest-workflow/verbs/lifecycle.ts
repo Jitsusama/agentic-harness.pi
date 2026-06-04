@@ -417,14 +417,6 @@ export function list(state: QuestState, params: QuestToolParams): QuestResult {
 		};
 		return renderRowBrief(brief);
 	});
-	const payload = view.rows.map((e) => ({
-		id: e.doc.frontMatter.id,
-		title: e.doc.title ?? null,
-		kind: e.doc.frontMatter.kind,
-		status: e.doc.frontMatter.status,
-		priority: e.doc.frontMatter.priority,
-		rank: e.doc.frontMatter.rank,
-	}));
 	const listing: ListingDetails = {
 		rows,
 		total: view.total,
@@ -434,7 +426,6 @@ export function list(state: QuestState, params: QuestToolParams): QuestResult {
 	};
 	return ok(renderListing(rendered, view), {
 		listing,
-		entries: payload,
 		total: view.total,
 		offset: view.offset,
 		limit: view.limit,

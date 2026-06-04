@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+	collapseListingPreview,
 	DEFAULT_LISTING_LIMIT,
+	isListingDetails,
 	type ListingDetails,
 	type ListingFlatRow,
 	paginate,
@@ -243,6 +245,140 @@ describe("renderListingExpanded", () => {
 		};
 		expect(renderListingExpanded(details)).toContain(
 			"... and 29 more (offset 1 to continue)",
+		);
+	});
+});
+
+describe("renderRowExpanded", () => {
+	it("suppresses the updated field on sparse rows with no value", () => {
+		// The synthetic (orphans) tree node arrives without
+		// a discovery entry, so updated is empty. The
+		// expanded view must not paint a dangling
+		// `updated:` field with nothing after it.
+		const row: QuestRowExpanded = {
+			id: "(orphans)",
+			kind: "quest",
+			status: "active",
+			title: "Sparse",
+			priority: "someday",
+			parent: null,
+			updated: "",
+		};
+		const out = renderRowExpanded(row);
+		expect(out).toContain("priority: someday");
+		expect(out).toContain("parent: none");
+		expect(out).not.toContain("updated:");
+	});
+
+	it("emits the updated field when the row carries a date", () => {
+		const row: QuestRowExpanded = {
+			id: "QEST-20260603-AAA111",
+			kind: "quest",
+			status: "active",
+			title: "Real",
+			priority: "active",
+			parent: null,
+			updated: "2026-06-03",
+		};
+		expect(renderRowExpanded(row)).toContain("updated: 2026-06-03");
+	});
+});
+
+describe("isListingDetails", () => {
+	it("accepts a well-formed payload", () => {
+		const payload: ListingDetails = {
+			rows: [],
+			total: 0,
+			offset: 0,
+			limit: 25,
+			remaining: 0,
+		};
+		expect(isListingDetails(payload)).toBe(true);
+	});
+
+	it("rejects undefined, null and non-objects", () => {
+		expect(isListingDetails(undefined)).toBe(false);
+		expect(isListingDetails(null)).toBe(false);
+		expect(isListingDetails("listing")).toBe(false);
+		expect(isListingDetails(7)).toBe(false);
+	});
+
+	it("rejects payloads missing required fields or with wrong types", () => {
+		expect(isListingDetails({})).toBe(false);
+		expect(
+			isListingDetails({
+				rows: "not-an-array",
+				total: 0,
+				offset: 0,
+				limit: 0,
+				remaining: 0,
+			}),
+		).toBe(false);
+		expect(
+			isListingDetails({
+				rows: [],
+				total: "0",
+				offset: 0,
+				limit: 0,
+				remaining: 0,
+			}),
+		).toBe(false);
+	});
+});
+
+describe("collapseListingPreview", () => {
+	const baseListing: ListingDetails = {
+		rows: [],
+		total: 0,
+		offset: 0,
+		limit: 25,
+		remaining: 0,
+	};
+
+	it("falls back to the first content line when there are no rows", () => {
+		expect(collapseListingPreview(baseListing, "(no matches)")).toBe(
+			"(no matches)",
+		);
+	});
+
+	it("shows the first row alone when total is one", () => {
+		const listing: ListingDetails = {
+			...baseListing,
+			rows: [makeRow()],
+			total: 1,
+		};
+		expect(
+			collapseListingPreview(listing, "QEST-20260603-AAA111 ◆ ○ Sample"),
+		).toBe("QEST-20260603-AAA111 ◆ ○ Sample");
+	});
+
+	it("appends a +N more suffix when the total exceeds one", () => {
+		const listing: ListingDetails = {
+			...baseListing,
+			rows: [makeRow()],
+			total: 7,
+			remaining: 6,
+		};
+		expect(collapseListingPreview(listing, "first row text")).toBe(
+			"first row text (+6 more)",
+		);
+	});
+
+	it("counts only what's still hidden under pagination", () => {
+		// At offset 5 with limit 5 of a 30-row set, the
+		// preview is showing row 5; rows 6..9 sit on the
+		// same page (4 more) and rows 10..29 sit later (20
+		// more), so the count is 24, not total-1 = 29.
+		const rows = Array.from({ length: 5 }, () => makeRow());
+		const listing: ListingDetails = {
+			rows,
+			total: 30,
+			offset: 5,
+			limit: 5,
+			remaining: 20,
+		};
+		expect(collapseListingPreview(listing, "row5 text")).toBe(
+			"row5 text (+24 more)",
 		);
 	});
 });

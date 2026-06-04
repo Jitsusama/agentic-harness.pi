@@ -51,7 +51,11 @@ import {
 } from "./lifecycle.js";
 import { showLoaded } from "./lookup.js";
 import { formatQuestList, renderStatus, renderWidget } from "./render.js";
-import { type ListingDetails, renderListingExpanded } from "./render-rows.js";
+import {
+	collapseListingPreview,
+	isListingDetails,
+	renderListingExpanded,
+} from "./render-rows.js";
 
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
@@ -265,14 +269,14 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			limit: Type.Optional(
 				Type.Integer({
 					description:
-						"list/find/who/links/tree: maximum rows in the listing. Defaults to 25.",
+						"list/find/who: maximum rows in the listing. Defaults to 25.",
 					minimum: 1,
 				}),
 			),
 			offset: Type.Optional(
 				Type.Integer({
 					description:
-						"list/find/who/links/tree: skip the first N rows before rendering. Use with limit for pagination.",
+						"list/find/who: skip the first N rows before rendering. Use with limit for pagination.",
 					minimum: 0,
 				}),
 			),
@@ -321,7 +325,7 @@ export default function questWorkflow(pi: ExtensionAPI) {
 				| {
 						ok?: boolean;
 						guidance?: string;
-						listing?: ListingDetails;
+						listing?: unknown;
 				  }
 				| undefined;
 			if (d && d.ok === false) {
@@ -331,23 +335,26 @@ export default function questWorkflow(pi: ExtensionAPI) {
 				result.content?.[0] && "text" in result.content[0]
 					? result.content[0].text
 					: "";
-			if (d?.listing) {
+			const listing = isListingDetails(d?.listing) ? d.listing : undefined;
+			if (listing) {
 				if (options.expanded) {
 					return new Text(
-						theme.fg("success", renderListingExpanded(d.listing)),
+						theme.fg("success", renderListingExpanded(listing)),
 						0,
 						0,
 					);
 				}
-				const body = theme.fg("success", content);
-				if (d.listing.rows.length > 0) {
-					const hint = theme.fg(
-						"muted",
-						` (${keyHint("app.tools.expand", "to expand")})`,
-					);
-					return new Text(`${body}${hint}`, 0, 0);
-				}
-				return new Text(body, 0, 0);
+				return new Text(
+					theme.fg("success", collapseListingPreview(listing, content)) +
+						(listing.rows.length > 0
+							? theme.fg(
+									"muted",
+									` (${keyHint("app.tools.expand", "to expand")})`,
+								)
+							: ""),
+					0,
+					0,
+				);
 			}
 			const first = content.split("\n")[0];
 			return new Text(theme.fg("success", first), 0, 0);
