@@ -292,6 +292,58 @@ describe("spawn verbs", () => {
 		// the wezterm/tmux tab-title plumbing.
 		expect(calls[0].env).toEqual({ QUEST_WORKFLOW_AUTOLOAD_ID: a.id });
 	});
+
+	it("spawn-tab id:OTHER targets the other quest without mutating loaded state", async () => {
+		const state = buildState();
+		const loaded = await createQuest(state, "Loaded");
+		const other = await createQuest(state, "Other");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: loaded.id,
+		});
+
+		const calls: {
+			cwd?: string;
+			env?: Readonly<Record<string, string>>;
+		}[] = [];
+		registerTerminalDriver({
+			id: "test",
+			available: () => true,
+			async spawn(req) {
+				calls.push({ cwd: req.cwd, env: req.env });
+			},
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "spawn-tab",
+			id: other.id,
+		});
+		expect(result.ok).toBe(true);
+		expect(calls[0].env).toEqual({ QUEST_WORKFLOW_AUTOLOAD_ID: other.id });
+		expect(calls[0].cwd).not.toBe(state.questDir);
+		expect(calls[0].cwd).toContain(other.id);
+		// The caller's loaded state must not have changed.
+		expect(state.questId).toBe(loaded.id);
+	});
+
+	it("spawn-tab refuses with a clean message when the id is unknown", async () => {
+		const state = buildState();
+		await createQuest(state, "Loaded");
+		registerTerminalDriver({
+			id: "test",
+			available: () => true,
+			async spawn() {
+				/* not reached */
+			},
+		});
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "spawn-tab",
+			id: "QEST-29991231-MISSING",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unexpected ok");
+		expect(result.guidance).toContain("No quest with id");
+	});
 });
 
 describe("URL-seeded create", () => {

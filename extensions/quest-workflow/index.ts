@@ -103,7 +103,7 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
