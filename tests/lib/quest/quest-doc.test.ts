@@ -125,6 +125,21 @@ describe("Cast extraction", () => {
 		expect(cast[1].subject).toBe("@xiao.li");
 		expect(cast[2].subject).toBe("@ahmad.shaffer");
 	});
+
+	it("skips scaffold placeholder subjects", () => {
+		const body = [
+			"## 🎭 Cast",
+			"",
+			"- **owner**: _name or @handle_",
+			"- **reviewer**: _name or @handle_",
+			"- **originator**: Joel Gerber. Started the quest.",
+			"",
+		].join("\n");
+		const cast = extractCast(body);
+		expect(cast.length).toBe(1);
+		expect(cast[0].subject).toBe("Joel Gerber");
+		expect(cast[0].role).toBe("originator");
+	});
 });
 
 describe("Journey extraction", () => {

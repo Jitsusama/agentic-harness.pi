@@ -68,6 +68,17 @@ export interface QuestState {
 	 * paint `→ {item}` without re-parsing the body.
 	 */
 	currentItem?: string;
+
+	/**
+	 * Cache of the most recently persisted snapshot's
+	 * `${questId ?? ""}|${documentPath ?? ""}` key. The
+	 * tool_result hook fires on every tool call; comparing
+	 * against this cache is O(1) and avoids reading the
+	 * session history from disk to dedup. The cache is
+	 * advisory: when it's missing (a fresh session), the
+	 * dedup path falls back to `getLastEntry`.
+	 */
+	lastPersistedKey?: string;
 }
 
 /**
@@ -99,6 +110,7 @@ export function createQuestState(opts: {
 		done: 0,
 		total: 0,
 		currentItem: undefined,
+		lastPersistedKey: undefined,
 	};
 }
 

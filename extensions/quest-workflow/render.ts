@@ -75,6 +75,17 @@ const SESSION_NAME_LIMIT = 20;
 const STATUS_NARROW_LABEL = "Quest";
 
 /**
+ * Terminal width below which the status line collapses
+ * the id to the literal `Quest` label. The status line
+ * shares space with whatever other extensions paint, so
+ * the threshold is set against the whole terminal width
+ * rather than against the budget left after other
+ * segments: any column count below this is the regime
+ * where the id crowds out everything else anyway.
+ */
+const STATUS_NARROW_THRESHOLD = 60;
+
+/**
  * The session-name label pi sets on the terminal tab when
  * a quest loads. A Title Case slice of the title truncated
  * to `SESSION_NAME_LIMIT` characters; longer titles take
@@ -119,7 +130,7 @@ export function renderStatus(
 	const statusGlyph = STATUS_GLYPHS[state.questStatus];
 	const colouredStatus = theme.fg(statusGlyph.token, statusGlyph.char);
 	const tail =
-		width !== undefined && width < state.questId.length + 4
+		width !== undefined && width < STATUS_NARROW_THRESHOLD
 			? STATUS_NARROW_LABEL
 			: state.questId;
 	return `${kindGlyph} ${colouredStatus} ${theme.fg("muted", tail)}`;

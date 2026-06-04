@@ -340,6 +340,13 @@ function snapshot(state: QuestState): PersistedState {
  * reads the same data — it just doesn't have a fresh
  * copy of it on every keystroke.
  *
+ * Dedup uses an in-memory key on QuestState (O(1)) when
+ * one is set, falling back to a one-time `getLastEntry`
+ * disk read when the cache is empty (fresh session). The
+ * cache stays write-only inside `persist`: once we've
+ * appended, we update it; every subsequent call within
+ * the session compares against it without touching disk.
+ *
  * Wired centrally from the tool_result hook in the
  * extension entry point, mirroring the pr-workflow
  * pattern.
@@ -350,11 +357,21 @@ export function persist(
 	ctx?: ExtensionContext,
 ): void {
 	const current = snapshot(state);
-	if (ctx) {
+	const key = snapshotKey(current);
+	if (state.lastPersistedKey === key) return;
+	if (state.lastPersistedKey === undefined && ctx) {
 		const prev = getLastEntry<PersistedState>(ctx, SESSION_KEY);
-		if (prev && snapshotsEqual(prev, current)) return;
+		if (prev && snapshotsEqual(prev, current)) {
+			state.lastPersistedKey = key;
+			return;
+		}
 	}
 	pi.appendEntry(SESSION_KEY, current);
+	state.lastPersistedKey = key;
+}
+
+function snapshotKey(s: PersistedState): string {
+	return `${s.questId ?? ""}|${s.documentPath ?? ""}`;
 }
 
 /**

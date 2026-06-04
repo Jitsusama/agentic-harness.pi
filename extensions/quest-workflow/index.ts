@@ -76,12 +76,18 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	// Expose the PR-workflow bridge so pr-workflow can
 	// scaffold a sidequest when it loads a PR. The
 	// integration is additive: pr-workflow checks for the
-	// bridge and skips quietly when absent.
-	registerQuestPrBridge({
+	// bridge and skips quietly when absent. We hold a
+	// reference to our own bridge so a session_shutdown
+	// from a stale extension instance can only clear its
+	// own registration, not a fresher one that a later
+	// activation installed.
+	const ownBridge = {
 		questsRoot: () => state.questsRoot,
 		loadedQuestId: () => state.questId,
-		logJourney: (questDir, prose) => appendJourneyByPath(questDir, prose),
-	});
+		logJourney: (questDir: string, prose: string) =>
+			appendJourneyByPath(questDir, prose),
+	};
+	registerQuestPrBridge(ownBridge);
 
 	pi.registerTool({
 		name: "quest",
@@ -499,8 +505,11 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	// Tear down the bridge so a session_shutdown followed
 	// by a re-activation doesn't leave a stale closure
 	// pointing at the old state object on globalThis.
+	// Pass our own bridge so an out-of-order shutdown
+	// can only clear its own registration, never a
+	// fresher instance's.
 	pi.on("session_shutdown", async () => {
-		unregisterQuestPrBridge();
+		unregisterQuestPrBridge(ownBridge);
 	});
 
 	// Inject the loaded-quest context into every agent

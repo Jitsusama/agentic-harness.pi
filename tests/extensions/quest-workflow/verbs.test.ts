@@ -72,21 +72,30 @@ describe("reorder verbs", () => {
 		const b = await createQuest(state, "Bravo");
 		const c = await createQuest(state, "Charlie");
 
-		// Set up distinct starting ranks so we know exactly
-		// where each quest must land after `top`. Without
-		// this seeding every quest's rank is 1 and a loose
-		// `rank: [23]` regex passes for either order.
+		// Seed deterministic positions with explicit
+		// before/after actions rather than sink. Every quest
+		// starts at rank 1, so a sink-only seed relies on the
+		// rank tiebreaker (alphabetical id sort), and ids
+		// carry random 6-char suffixes that don't honour the
+		// Alpha/Bravo/Charlie creation order. The explicit
+		// placements below make the seed order independent
+		// of the id suffixes.
 		await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "load",
 			id: b.id,
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "sink" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "after",
+			target: a.id,
+		});
 		await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "load",
 			id: c.id,
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "sink" });
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "sink" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "after",
+			target: b.id,
+		});
 		// Now ranks are: Alpha=1, Bravo=2, Charlie=3.
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {

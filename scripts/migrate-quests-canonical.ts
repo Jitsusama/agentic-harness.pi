@@ -53,12 +53,12 @@ interface DocMove {
 	kind: string;
 }
 
-interface FlattenPlan {
+export interface FlattenPlan {
 	nestedMoves: NestedMove[];
 	collisions: string[];
 }
 
-interface DocPlan {
+export interface DocPlan {
 	docMoves: DocMove[];
 	collisions: string[];
 }
@@ -77,7 +77,7 @@ function isDocFile(name: string): { kind: string } | undefined {
 	return undefined;
 }
 
-function planFlatten(root: string): FlattenPlan {
+export function planFlatten(root: string): FlattenPlan {
 	const nestedMoves: NestedMove[] = [];
 	const collisions: string[] = [];
 
@@ -109,7 +109,7 @@ function planFlatten(root: string): FlattenPlan {
 	return { nestedMoves, collisions };
 }
 
-function planDocMoves(root: string, postFlatten: boolean): DocPlan {
+export function planDocMoves(root: string, postFlatten: boolean): DocPlan {
 	const docMoves: DocMove[] = [];
 	const collisions: string[] = [];
 
@@ -151,7 +151,7 @@ function planDocMoves(root: string, postFlatten: boolean): DocPlan {
 	return { docMoves, collisions };
 }
 
-function applyFlatten(plan: FlattenPlan): void {
+export function applyFlatten(plan: FlattenPlan): void {
 	// Bottom-up: move deepest nested dirs first so we
 	// never try to move a directory that still contains
 	// children waiting to be flattened.
@@ -163,7 +163,7 @@ function applyFlatten(plan: FlattenPlan): void {
 	}
 }
 
-function applyDocMoves(plan: DocPlan): void {
+export function applyDocMoves(plan: DocPlan): void {
 	for (const move of plan.docMoves) {
 		mkdirSync(join(move.to, ".."), { recursive: true });
 		renameSync(move.from, move.to);
@@ -257,4 +257,9 @@ function main(): void {
 	}
 }
 
-main();
+// Only run the script when invoked directly, so tests can
+// import the planFlatten/planDocMoves/apply* helpers
+// without triggering a migration against the live tree.
+if (require.main === module) {
+	main();
+}

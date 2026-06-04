@@ -105,7 +105,35 @@ export function extractSectionParagraph(
 	return paragraph.length > 0 ? paragraph.join("\n").trim() : undefined;
 }
 
-/** Parse the Cast section's role-prefix bullets. */
+/**
+ * A cast subject that's purely a scaffold placeholder, not
+ * a real person. The scaffold writes
+ * `- **owner**: _name or @handle_` into every fresh quest
+ * README; reading that bullet as a real cast entry made
+ * `who` and `show` echo the placeholder back to the user.
+ * We strip italic and bold delimiters then match the
+ * stripped form against a small set of known sentinels.
+ */
+function isCastPlaceholder(subject: string): boolean {
+	const stripped = subject
+		.trim()
+		.replace(/^[*_]+/, "")
+		.replace(/[*_]+$/, "")
+		.trim()
+		.toLowerCase();
+	if (stripped.length === 0) return true;
+	return (
+		stripped === "name or @handle" ||
+		stripped === "name" ||
+		stripped === "@handle"
+	);
+}
+
+/**
+ * Parse the Cast section's role-prefix bullets. Skips
+ * scaffold placeholder subjects so an unedited template
+ * doesn't surface as a real cast entry.
+ */
 export function extractCast(body: string): CastEntry[] {
 	const lines = extractSection(body, "cast");
 	const bullets: CastEntry[] = [];
@@ -126,6 +154,7 @@ export function extractCast(body: string): CastEntry[] {
 		const commaBreak = rest.indexOf(",");
 		if (commaBreak >= 0 && commaBreak < subjectEnd) subjectEnd = commaBreak;
 		const subject = rest.slice(0, subjectEnd).trim();
+		if (isCastPlaceholder(subject)) continue;
 		const prose = rest
 			.slice(subjectEnd)
 			.replace(/^[.\s,]+/, "")

@@ -42,9 +42,21 @@ export function registerQuestPrBridge(bridge: QuestPrBridge): void {
 	(globalThis as GlobalSlot)[BRIDGE_KEY] = bridge;
 }
 
-/** Remove the bridge. Idempotent. */
-export function unregisterQuestPrBridge(): void {
-	(globalThis as GlobalSlot)[BRIDGE_KEY] = undefined;
+/**
+ * Remove the bridge. Idempotent.
+ *
+ * When `bridge` is passed, only unregister if the
+ * currently-registered bridge is the same object. This
+ * lets a session_shutdown handler clean up its own
+ * registration without clobbering a newer instance that
+ * a later activation may have installed. With no
+ * argument, the function unconditionally clears, which
+ * is the right behaviour at process teardown.
+ */
+export function unregisterQuestPrBridge(bridge?: QuestPrBridge): void {
+	const slot = globalThis as GlobalSlot;
+	if (bridge !== undefined && slot[BRIDGE_KEY] !== bridge) return;
+	slot[BRIDGE_KEY] = undefined;
 }
 
 /** Current bridge, or `undefined` when none is registered. */
