@@ -225,6 +225,13 @@ There is no typed-link taxonomy. The relationship is in
 the prose; the tool surfaces inbound references on `quest
 show` as Echoes.
 
+One lightweight sigil is recognised: an id preceded by
+`→` reads as "this quest produced that one," and `quest
+show` lists it under `Produced by:` rather than
+`Referenced by:`. The natural prose is
+`- [ ] Synthesize findings → BRIF-20260605-CCC333`. A
+bare id stays a reference; no schema change is needed.
+
 ## Document Templates
 
 Each document kind has a starting set of sections that

@@ -14,6 +14,7 @@
  */
 
 import type { QuestIndex } from "./discovery.js";
+import type { IdMentionRelation } from "./id.js";
 import { extractMentions } from "./quest-doc.js";
 
 /** One inbound mention. */
@@ -22,6 +23,13 @@ export interface MentionEdge {
 	from: string;
 	/** Short snippet of context around the mention. */
 	snippet: string;
+	/**
+	 * How the source document referred to this id. `produced`
+	 * when the mention was preceded by the → sigil; a bare
+	 * reference otherwise. Refs carry `reference` since the
+	 * sigil applies to ids only.
+	 */
+	relation: IdMentionRelation;
 }
 
 /** Snapshot of mentions for the whole index. */
@@ -70,11 +78,12 @@ export function buildMentionIndex(index: QuestIndex): MentionIndex {
 		const combined = bodies.join("\n\n");
 		const mentions = extractMentions(combined);
 
-		for (const targetId of mentions.ids) {
-			if (targetId === questId) continue;
-			push(byId, targetId, {
+		for (const idMention of mentions.idMentions) {
+			if (idMention.id === questId) continue;
+			push(byId, idMention.id, {
 				from: questId,
-				snippet: findSnippet(combined, targetId),
+				snippet: findSnippet(combined, idMention.id),
+				relation: idMention.relation,
 			});
 		}
 		for (const ref of mentions.refs) {
@@ -82,6 +91,7 @@ export function buildMentionIndex(index: QuestIndex): MentionIndex {
 			push(byRef, key, {
 				from: questId,
 				snippet: findSnippet(combined, ref.value),
+				relation: "reference",
 			});
 		}
 	}

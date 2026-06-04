@@ -26,7 +26,10 @@ export {
 export {
 	dateOf,
 	findIds,
+	findIdsWithRelation,
 	ID_PREFIXES,
+	type IdMention,
+	type IdMentionRelation,
 	type IdPrefix,
 	isId,
 	mintId,

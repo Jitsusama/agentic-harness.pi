@@ -254,6 +254,12 @@ export interface LinkSnippet {
 	questId: string;
 	questTitle: string | null;
 	context: string;
+	/**
+	 * Relation the source document used to mention the
+	 * loaded quest's id. `produced` when the mention was
+	 * preceded by the → sigil; `reference` otherwise.
+	 */
+	relation: "produced" | "reference";
 }
 
 export interface LinkBundle {
@@ -326,11 +332,13 @@ function linksForQuest(
 		if (params.status && entry.doc.frontMatter.status !== params.status)
 			continue;
 		const mentions = extractMentions(entry.doc.body);
-		if (mentions.ids.includes(questId)) {
+		const match = mentions.idMentions.find((m) => m.id === questId);
+		if (match) {
 			incoming.push({
 				questId: entry.doc.frontMatter.id,
 				questTitle: entry.doc.title ?? null,
 				context: bodySnippet(entry.doc.body, questId),
+				relation: match.relation,
 			});
 		}
 	}

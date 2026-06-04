@@ -283,10 +283,78 @@ export async function show(state: QuestState): Promise<QuestResult> {
 	if (!state.questDir) return refuse("No quest loaded.");
 	const projection = await showLoaded(state);
 	if (!projection) return refuse("Could not project the loaded quest.");
-	return ok(
-		`Quest ${projection.frontMatter.id}: ${projection.title ?? "(untitled)"}`,
-		{ projection },
+	return ok(renderShow(projection), { projection });
+}
+
+function renderShow(
+	projection: NonNullable<Awaited<ReturnType<typeof showLoaded>>>,
+): string {
+	const fm = projection.frontMatter;
+	const lines: string[] = [];
+	lines.push(`${fm.id}: ${projection.title ?? "(untitled)"}`);
+	lines.push(
+		`  kind: ${fm.kind}  status: ${fm.status}  priority: ${fm.priority}  parent: ${fm.parent ?? "none"}  updated: ${fm.updated}`,
 	);
+	if (projection.summary) lines.push(`  summary: ${projection.summary}`);
+	if (projection.purpose) lines.push(`  purpose: ${projection.purpose}`);
+	if (projection.cast.length > 0) {
+		lines.push("");
+		lines.push("Cast:");
+		for (const c of projection.cast) {
+			const identity = c.identityId ? ` [${c.identityId}]` : "";
+			lines.push(`  - ${c.subject} (${c.role})${identity}`);
+		}
+	}
+	if (projection.documents.length > 0) {
+		lines.push("");
+		lines.push("Documents:");
+		for (const d of projection.documents) {
+			const title = d.title ?? "(untitled)";
+			lines.push(`  - ${d.id} (${d.kind}, ${d.stage}): ${title}`);
+		}
+	}
+	const outgoing = projection.links;
+	const outgoingCount =
+		outgoing.quests.length + outgoing.refs.length + outgoing.urls.length;
+	if (outgoingCount > 0) {
+		lines.push("");
+		lines.push(`Links out (${outgoingCount}):`);
+		for (const q of outgoing.quests) {
+			lines.push(`  -> ${q.id} ${q.title ?? ""}`.trimEnd());
+		}
+		for (const r of outgoing.refs) {
+			lines.push(`  -> ${r.type}:${r.value}${r.url ? ` (${r.url})` : ""}`);
+		}
+		for (const u of outgoing.urls) {
+			lines.push(`  -> ${u}`);
+		}
+	}
+	const produced = projection.echoes.filter((e) => e.relation === "produced");
+	const referenced = projection.echoes.filter(
+		(e) => e.relation === "reference",
+	);
+	if (produced.length > 0) {
+		lines.push("");
+		lines.push(`Produced by (${produced.length}):`);
+		for (const e of produced) {
+			lines.push(`  <- ${e.questId} ${e.questTitle ?? ""}`.trimEnd());
+		}
+	}
+	if (referenced.length > 0) {
+		lines.push("");
+		lines.push(`Referenced by (${referenced.length}):`);
+		for (const e of referenced) {
+			lines.push(`  <- ${e.questId} ${e.questTitle ?? ""}`.trimEnd());
+		}
+	}
+	if (projection.journey.length > 0) {
+		lines.push("");
+		lines.push("Recent journey:");
+		for (const j of projection.journey) {
+			lines.push(`  ${j.date}: ${j.prose}`);
+		}
+	}
+	return lines.join("\n");
 }
 
 export function list(state: QuestState, params: QuestToolParams): QuestResult {

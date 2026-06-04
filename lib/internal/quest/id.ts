@@ -89,3 +89,58 @@ export function findIds(text: string): string[] {
 	}
 	return out;
 }
+
+/**
+ * How an inline ID mention reads. A bare `QEST-...` reads
+ * as a `reference`. An id preceded by the `→` sigil
+ * (after optional whitespace) reads as `produced`: the
+ * containing document is the work that produced the
+ * mentioned id.
+ */
+export type IdMentionRelation = "produced" | "reference";
+
+export interface IdMention {
+	id: string;
+	relation: IdMentionRelation;
+}
+
+/**
+ * Find every ID in a body of text and classify each
+ * mention as a bare reference or a produced-by sigil hit.
+ * When the same id appears more than once, the strongest
+ * relation wins: a single `→ ID` anywhere upgrades the
+ * record from `reference` to `produced`.
+ */
+export function findIdsWithRelation(text: string): IdMention[] {
+	const scan = new RegExp(`\\b${ID_REGEX_BODY}\\b`, "g");
+	const seen = new Map<string, IdMentionRelation>();
+	const order: string[] = [];
+	for (const m of text.matchAll(scan)) {
+		const id = m[0];
+		const start = m.index ?? 0;
+		const relation = sigilBefore(text, start) ? "produced" : "reference";
+		const prev = seen.get(id);
+		if (prev === undefined) {
+			order.push(id);
+			seen.set(id, relation);
+			continue;
+		}
+		if (prev === "reference" && relation === "produced") {
+			seen.set(id, relation);
+		}
+	}
+	return order.map((id) => ({
+		id,
+		relation: seen.get(id) ?? "reference",
+	}));
+}
+
+function sigilBefore(text: string, idStart: number): boolean {
+	// Walk backwards past whitespace; if we hit a → with
+	// nothing but whitespace in between, the id reads as
+	// `produced`. Anything else (text, punctuation, line
+	// boundary) means bare reference.
+	let i = idStart - 1;
+	while (i >= 0 && /\s/.test(text[i])) i--;
+	return i >= 0 && text[i] === "\u2192";
+}

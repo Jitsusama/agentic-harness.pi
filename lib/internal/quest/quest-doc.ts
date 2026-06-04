@@ -26,7 +26,7 @@ import type {
 } from "../../quest/types.js";
 import { parseAllRefs } from "../../refs/index.js";
 import { parseQuestFrontMatter } from "./frontmatter.js";
-import { findIds } from "./id.js";
+import { findIds, findIdsWithRelation, type IdMention } from "./id.js";
 
 const SECTION_HEADERS = {
 	summary: /^##\s+(?:[\u{1F300}-\u{1FFFF}]\s+)?Summary\s*$/u,
@@ -176,17 +176,27 @@ export function milestoneProgress(body: string): {
 /**
  * Pull every inline reference out of the body: bare quest
  * IDs and any pattern recognised by a registered ref type.
+ *
+ * `ids` lists every ID found, in order of first appearance.
+ * `idMentions` adds the `→` sigil relation: an id
+ * preceded by `→` is marked `produced`; bare ids are
+ * marked `reference`. Consumers that don't care about the
+ * relation can keep using `ids`.
  */
 export interface ExtractedMentions {
 	/** Quest, plan, research, brief or report IDs. */
 	ids: string[];
+	/** Same IDs, classified as produced-by or bare reference. */
+	idMentions: IdMention[];
 	/** Refs through the registered ref types. */
 	refs: Array<{ type: string; value: string }>;
 }
 
 export function extractMentions(body: string): ExtractedMentions {
+	const idMentions = findIdsWithRelation(body);
 	return {
 		ids: findIds(body),
+		idMentions,
 		refs: parseAllRefs(body),
 	};
 }

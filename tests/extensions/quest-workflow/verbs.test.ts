@@ -478,6 +478,49 @@ describe("listing verbs: brief, expanded and pagination", () => {
 		expect(result.message).toContain("(no cast bullets");
 	});
 
+	it("show splits inbound echoes into Produced by and Referenced by", async () => {
+		const state = buildState();
+		const target = await createQuest(state, "Target quest");
+		const producer = await createQuest(state, "Producer quest");
+		const referrer = await createQuest(state, "Referrer quest");
+
+		// Producer's body mentions the target with the → sigil.
+		const pPath = (producer as { path: string }).path;
+		const pText = readFileSync(pPath, "utf8").replace(
+			"## 🌄 Journey",
+			`## 🌄 Journey\n\n- **2026-06-03**: Synthesized findings → ${target.id}.\n\n## (oldjourney)`,
+		);
+		writeFileSync(pPath, pText, "utf8");
+
+		// Referrer's body mentions the target without the sigil.
+		const rPath = (referrer as { path: string }).path;
+		const rText = readFileSync(rPath, "utf8").replace(
+			"## 🌄 Journey",
+			`## 🌄 Journey\n\n- **2026-06-03**: Cross-link to ${target.id}.\n\n## (oldjourney)`,
+		);
+		writeFileSync(rPath, rText, "utf8");
+
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: target.id,
+		});
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "show",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		expect(result.message).toContain("Produced by");
+		expect(result.message).toContain("Referenced by");
+		const producedSection = result.message
+			.split("Referenced by")[0]
+			.split("Produced by")[1];
+		const referencedSection = result.message.split("Referenced by")[1];
+		expect(producedSection).toContain(producer.id);
+		expect(producedSection).not.toContain(referrer.id);
+		expect(referencedSection).toContain(referrer.id);
+		expect(referencedSection).not.toContain(producer.id);
+	});
+
 	it("tree renders an indented brief listing across the forest", async () => {
 		const state = buildState();
 		const parent = await createQuest(state, "Parent quest");
