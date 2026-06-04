@@ -63,7 +63,7 @@ export async function handle(
 		case "show":
 			return show(state);
 		case "list":
-			return list(state);
+			return list(state, params);
 		case "focus":
 			return focus(state, params);
 		case "unfocus":
@@ -98,7 +98,7 @@ export async function handle(
 		case "defer":
 			return priorityJump(state, "someday" as QuestPriority);
 		case "tree":
-			return tree(state);
+			return tree(state, params);
 		case "tree-add":
 			return treeAdd(state, params);
 		case "tree-list":

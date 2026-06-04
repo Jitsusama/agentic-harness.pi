@@ -354,3 +354,151 @@ describe("URL-seeded create", () => {
 		expect(result.ok).toBe(false);
 	});
 });
+
+describe("listing verbs: brief, expanded and pagination", () => {
+	it("list defaults to one brief row per quest with id, glyphs and title", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha quest");
+		await createQuest(state, "Bravo quest");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "list",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain(a.id);
+		expect(result.message).toContain("Alpha quest");
+		expect(result.message).toContain("Bravo quest");
+		// Glyphs present: a kind glyph for the row and ○
+		// for active status. The default kind is sidequest;
+		// it carries the ◇ glyph.
+		expect(result.message).toMatch(/[\u25c6\u25c7\u25c8]/);
+		expect(result.message).toContain("\u25cb");
+		const details = result.details as { total: number; remaining: number };
+		expect(details.total).toBe(2);
+		expect(details.remaining).toBe(0);
+	});
+
+	it("list expanded renders metadata under each brief row", async () => {
+		const state = buildState();
+		await createQuest(state, "Alpha quest");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "list",
+			expanded: true,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain("priority:");
+		expect(result.message).toContain("parent: none");
+		expect(result.message).toContain("updated:");
+	});
+
+	it("list with limit and offset slices the brief view and surfaces a tail", async () => {
+		const state = buildState();
+		for (let i = 0; i < 5; i++) {
+			await createQuest(state, `Quest ${i}`);
+		}
+
+		const page = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "list",
+			limit: 2,
+			offset: 1,
+		});
+		if (!page.ok) throw new Error(page.guidance);
+		const details = page.details as {
+			total: number;
+			offset: number;
+			limit: number;
+			remaining: number;
+		};
+		expect(details.total).toBe(5);
+		expect(details.offset).toBe(1);
+		expect(details.limit).toBe(2);
+		expect(details.remaining).toBe(2);
+		expect(page.message).toContain("and 2 more (offset 3 to continue)");
+	});
+
+	it("find renders brief rows in the message and keeps the hits payload", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Authentication bug");
+		await createQuest(state, "Unrelated quest");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "find",
+			query: "authentication",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain(a.id);
+		expect(result.message).toContain("Authentication bug");
+		expect(result.message).not.toContain("Unrelated quest");
+		const details = result.details as { hits: { id: string }[] };
+		expect(details.hits.length).toBe(1);
+	});
+
+	it("find with no matches returns (no matches) and zero hits", async () => {
+		const state = buildState();
+		await createQuest(state, "Alpha");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "find",
+			query: "nothing-matches-this",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toBe("(no matches)");
+		const details = result.details as { hits: unknown[] };
+		expect(details.hits.length).toBe(0);
+	});
+
+	it("who renders one row per Cast bullet across quests", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Quest A");
+		const aPath = (a as { path: string }).path;
+		const text = readFileSync(aPath, "utf8").replace(
+			"- **owner**: _name or @handle_",
+			"- **owner**: Joel Gerber. Coordinates the campaign.",
+		);
+		writeFileSync(aPath, text, "utf8");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "who",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain("Joel Gerber (owner)");
+		expect(result.message).toContain(a.id);
+	});
+
+	it("who returns (no cast bullets) when the filter matches nothing", async () => {
+		const state = buildState();
+		await createQuest(state, "Quest A");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "who",
+			name: "absolutely-nobody-with-this-name",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain("(no cast bullets");
+	});
+
+	it("tree renders an indented brief listing across the forest", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Parent quest");
+		const child = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Child quest",
+			parent: parent.id,
+			kind: "subquest",
+		});
+		if (!child.ok) throw new Error(child.guidance);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "tree",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain("Parent quest");
+		expect(result.message).toContain("Child quest");
+		const lines = result.message.split("\n");
+		const parentLine = lines.find((l) => l.includes("Parent quest"));
+		const childLine = lines.find((l) => l.includes("Child quest"));
+		expect(parentLine?.startsWith(" ")).toBeFalsy();
+		expect(childLine?.startsWith("  ")).toBe(true);
+	});
+});

@@ -26,6 +26,7 @@ import {
 	type QuestSession,
 } from "../../lib/quest/index.js";
 import { urlForRef } from "../../lib/refs/index.js";
+import type { RowCast, RowDocument, RowJourney } from "./render-rows.js";
 import type { QuestState } from "./state.js";
 
 export interface FindParams {
@@ -53,7 +54,33 @@ export interface FindHit {
 	summary?: string;
 }
 
-const DEFAULT_FIND_LIMIT = 25;
+/**
+ * The pure-data shape the listing verbs add on top of a
+ * brief row when the caller asks for `expanded: true`.
+ * Built by walking a single quest entry; no I/O.
+ */
+export interface QuestRowExpansion {
+	summary?: string;
+	cast: RowCast[];
+	documents: RowDocument[];
+	recentJourney: RowJourney[];
+}
+
+/** Build the expansion block for a single quest entry. */
+export function buildRowExpansion(entry: QuestEntry): QuestRowExpansion {
+	const cast = extractCast(entry.doc.body)
+		.slice(0, 5)
+		.map((c) => ({ role: c.role, subject: c.subject }));
+	const documents = entry.documents.map((d) => ({
+		id: d.doc.frontMatter.id,
+		stage: d.doc.frontMatter.stage,
+	}));
+	const recentJourney = extractJourneyEntries(entry.doc.body, 3);
+	const summary = firstSummaryLine(entry.doc.body);
+	return summary
+		? { summary, cast, documents, recentJourney }
+		: { cast, documents, recentJourney };
+}
 
 function parseDate(input?: string): Date | undefined {
 	if (!input) return undefined;
@@ -94,13 +121,30 @@ function fieldValue(
 	}
 }
 
-/** Search quests by free text, time range and frontmatter filters. */
+/**
+ * Search quests by free text, time range and frontmatter
+ * filters. Returns every match ordered by `updated`
+ * descending; pagination is the caller's concern so the
+ * listing renderer can attach an accurate "and N more"
+ * tail.
+ */
 export function findQuests(state: QuestState, params: FindParams): FindHit[] {
+	return findQuestEntries(state, params).map((m) => m.hit);
+}
+
+/**
+ * Same as `findQuests` but also returns the matching
+ * `QuestEntry` so the verb can build the expanded view
+ * without re-walking discovery.
+ */
+export function findQuestEntries(
+	state: QuestState,
+	params: FindParams,
+): { hit: FindHit; entry: QuestEntry }[] {
 	const { index } = discoverQuests(state.questsRoot);
 	const since = parseDate(params.since);
 	const until = parseDate(params.until);
-	const limit = params.limit ?? DEFAULT_FIND_LIMIT;
-	const hits: (FindHit & { _sortKey: number })[] = [];
+	const matches: { hit: FindHit; entry: QuestEntry; _sortKey: number }[] = [];
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
 		if (params.kind && fm.kind !== params.kind) continue;
@@ -120,7 +164,7 @@ export function findQuests(state: QuestState, params: FindParams): FindHit[] {
 		if (params.query && !matchesQuery(entry, params.query)) continue;
 		const summary = firstSummaryLine(entry.doc.body);
 		const updatedDate = parseDate(fm.updated);
-		const hit: FindHit & { _sortKey: number } = {
+		const hit: FindHit = {
 			id: fm.id,
 			title: entry.doc.title ?? null,
 			kind: fm.kind,
@@ -129,17 +173,25 @@ export function findQuests(state: QuestState, params: FindParams): FindHit[] {
 			rank: fm.rank,
 			updated: fm.updated,
 			dir: entry.dir,
-			_sortKey: updatedDate ? -updatedDate.getTime() : 0,
 		};
 		if (summary) hit.summary = summary;
-		hits.push(hit);
+		matches.push({
+			hit,
+			entry,
+			_sortKey: updatedDate ? -updatedDate.getTime() : 0,
+		});
 	}
-	hits.sort((a, b) => a._sortKey - b._sortKey);
-	return hits.slice(0, limit).map((h) => {
-		const { _sortKey, ...rest } = h;
-		void _sortKey;
-		return rest;
-	});
+	matches.sort((a, b) => a._sortKey - b._sortKey);
+	return matches.map(({ hit, entry }) => ({ hit, entry }));
+}
+
+/** Convenience: load a single QuestEntry by id. */
+export function getQuestEntry(
+	state: QuestState,
+	id: string,
+): QuestEntry | undefined {
+	const { index } = discoverQuests(state.questsRoot);
+	return index.quests.get(id);
 }
 
 export interface WhoParams {
@@ -399,7 +451,8 @@ function milestoneCounts(body: string): { total: number; done: number } {
 	return { total, done };
 }
 
-function extractJourneyEntries(
+/** Pull recent Journey bullets from a quest's body. */
+export function extractJourneyEntries(
 	body: string,
 	limit: number,
 ): { date: string; prose: string }[] {

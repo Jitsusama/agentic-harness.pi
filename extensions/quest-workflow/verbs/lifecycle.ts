@@ -35,7 +35,14 @@ import {
 	unfocusDocument,
 	unloadQuest,
 } from "../lifecycle.js";
-import { showLoaded } from "../lookup.js";
+import { buildRowExpansion, showLoaded } from "../lookup.js";
+import {
+	paginate,
+	type QuestRowBrief,
+	renderListing,
+	renderRowBrief,
+	renderRowExpanded,
+} from "../render-rows.js";
 import type { QuestState } from "../state.js";
 import { subdirForDocumentId } from "./queries.js";
 import {
@@ -282,16 +289,50 @@ export async function show(state: QuestState): Promise<QuestResult> {
 	);
 }
 
-export function list(state: QuestState): QuestResult {
-	const entries = listAllQuests(state).map((e) => ({
+export function list(state: QuestState, params: QuestToolParams): QuestResult {
+	const entries = listAllQuests(state);
+	entries.sort((a, b) => {
+		if (a.doc.frontMatter.priority !== b.doc.frontMatter.priority) {
+			return a.doc.frontMatter.priority < b.doc.frontMatter.priority ? -1 : 1;
+		}
+		return a.doc.frontMatter.rank - b.doc.frontMatter.rank;
+	});
+	const view = paginate(entries, {
+		limit: params.limit,
+		offset: params.offset,
+	});
+	const expanded = params.expanded === true;
+	const rendered = view.rows.map((entry) => {
+		const brief: QuestRowBrief = {
+			id: entry.doc.frontMatter.id,
+			kind: entry.doc.frontMatter.kind,
+			status: entry.doc.frontMatter.status,
+			title: entry.doc.title ?? null,
+		};
+		if (!expanded) return renderRowBrief(brief);
+		return renderRowExpanded({
+			...brief,
+			priority: entry.doc.frontMatter.priority,
+			parent: entry.doc.frontMatter.parent,
+			updated: entry.doc.frontMatter.updated,
+			...buildRowExpansion(entry),
+		});
+	});
+	const payload = view.rows.map((e) => ({
 		id: e.doc.frontMatter.id,
-		title: e.doc.title,
+		title: e.doc.title ?? null,
 		kind: e.doc.frontMatter.kind,
 		status: e.doc.frontMatter.status,
 		priority: e.doc.frontMatter.priority,
 		rank: e.doc.frontMatter.rank,
 	}));
-	return ok(`${entries.length} quest(s).`, { entries });
+	return ok(renderListing(rendered, view), {
+		entries: payload,
+		total: view.total,
+		offset: view.offset,
+		limit: view.limit,
+		remaining: view.remaining,
+	});
 }
 
 export function focus(state: QuestState, params: QuestToolParams): QuestResult {

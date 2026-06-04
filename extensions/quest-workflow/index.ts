@@ -294,6 +294,26 @@ export default function questWorkflow(pi: ExtensionAPI) {
 						"build: skip the primary-plan tree gate (documentation-only build with no working tree).",
 				}),
 			),
+			expanded: Type.Optional(
+				Type.Boolean({
+					description:
+						"list/find/who/links/tree/expand: render the expanded view (priority, parent, cast, recent journey, docs) instead of the one-line brief.",
+				}),
+			),
+			limit: Type.Optional(
+				Type.Integer({
+					description:
+						"list/find/who/links/tree: maximum rows in the listing. Defaults to 25.",
+					minimum: 1,
+				}),
+			),
+			offset: Type.Optional(
+				Type.Integer({
+					description:
+						"list/find/who/links/tree: skip the first N rows before rendering. Use with limit for pagination.",
+					minimum: 0,
+				}),
+			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const result = await handle(state, pi, ctx, params as QuestToolParams);
