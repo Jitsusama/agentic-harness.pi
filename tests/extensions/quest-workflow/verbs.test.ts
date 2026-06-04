@@ -527,18 +527,36 @@ describe("listing verbs: brief, expanded and pagination", () => {
 		expect(details.remaining).toBe(0);
 	});
 
-	it("list expanded renders metadata under each brief row", async () => {
+	it("list attaches expansion rows for the renderResult to draw on Ctrl-O", async () => {
 		const state = buildState();
 		await createQuest(state, "Alpha quest");
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "list",
-			expanded: true,
 		});
 		if (!result.ok) throw new Error(result.guidance);
-		expect(result.message).toContain("priority:");
-		expect(result.message).toContain("parent: none");
-		expect(result.message).toContain("updated:");
+		// Brief content stays as one line per row: no priority
+		// or updated metadata leaks into what the model reads.
+		expect(result.message).not.toContain("priority:");
+		expect(result.message).not.toContain("parent:");
+		// The structured listing payload carries the rich
+		// fields the result renderer reformats on Ctrl-O.
+		const details = result.details as {
+			listing: {
+				rows: Array<{
+					id: string;
+					title: string | null;
+					priority: string;
+					parent: string | null;
+					updated: string;
+				}>;
+			};
+		};
+		expect(details.listing.rows.length).toBe(1);
+		expect(details.listing.rows[0].title).toBe("Alpha quest");
+		expect(details.listing.rows[0].priority).toBe("active");
+		expect(details.listing.rows[0].parent).toBeNull();
+		expect(details.listing.rows[0].updated).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 	});
 
 	it("list with limit and offset slices the brief view and surfaces a tail", async () => {

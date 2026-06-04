@@ -21,7 +21,7 @@ import type {
 	ExtensionAPI,
 	ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
-import { SessionManager } from "@mariozechner/pi-coding-agent";
+import { keyHint, SessionManager } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { dataDir } from "../../lib/internal/paths.js";
@@ -51,6 +51,7 @@ import {
 } from "./lifecycle.js";
 import { showLoaded } from "./lookup.js";
 import { formatQuestList, renderStatus, renderWidget } from "./render.js";
+import { type ListingDetails, renderListingExpanded } from "./render-rows.js";
 
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
@@ -261,12 +262,6 @@ export default function questWorkflow(pi: ExtensionAPI) {
 						"build: skip the primary-plan tree gate (documentation-only build with no working tree).",
 				}),
 			),
-			expanded: Type.Optional(
-				Type.Boolean({
-					description:
-						"list/find/who/links/tree/expand: render the expanded view (priority, parent, cast, recent journey, docs) instead of the one-line brief.",
-				}),
-			),
 			limit: Type.Optional(
 				Type.Integer({
 					description:
@@ -321,17 +316,40 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			return new Text(text, 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result, options, theme) {
 			const d = result.details as
-				| { ok?: boolean; guidance?: string }
+				| {
+						ok?: boolean;
+						guidance?: string;
+						listing?: ListingDetails;
+				  }
 				| undefined;
 			if (d && d.ok === false) {
 				return new Text(theme.fg("warning", d.guidance ?? "Refused"), 0, 0);
 			}
-			const first =
+			const content =
 				result.content?.[0] && "text" in result.content[0]
-					? result.content[0].text.split("\n")[0]
+					? result.content[0].text
 					: "";
+			if (d?.listing) {
+				if (options.expanded) {
+					return new Text(
+						theme.fg("success", renderListingExpanded(d.listing)),
+						0,
+						0,
+					);
+				}
+				const body = theme.fg("success", content);
+				if (d.listing.rows.length > 0) {
+					const hint = theme.fg(
+						"muted",
+						` (${keyHint("app.tools.expand", "to expand")})`,
+					);
+					return new Text(`${body}${hint}`, 0, 0);
+				}
+				return new Text(body, 0, 0);
+			}
+			const first = content.split("\n")[0];
 			return new Text(theme.fg("success", first), 0, 0);
 		},
 	});

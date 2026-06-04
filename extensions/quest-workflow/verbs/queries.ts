@@ -18,11 +18,12 @@ import {
 	treeAll,
 } from "../lookup.js";
 import {
+	type ListingDetails,
+	type ListingFlatRow,
 	paginate,
 	type QuestRowBrief,
 	renderListing,
 	renderRowBrief,
-	renderRowExpanded,
 } from "../render-rows.js";
 import type { QuestState } from "../state.js";
 import {
@@ -59,25 +60,35 @@ export function find(state: QuestState, params: QuestToolParams): QuestResult {
 		limit: params.limit,
 		offset: params.offset,
 	});
-	const expanded = params.expanded === true;
-	const rendered = view.rows.map(({ hit, entry }) => {
-		const brief: QuestRowBrief = {
-			id: hit.id,
-			kind: hit.kind as QuestRowBrief["kind"],
-			status: hit.status as QuestRowBrief["status"],
-			title: hit.title,
-		};
-		if (!expanded) return renderRowBrief(brief);
-		return renderRowExpanded({
-			...brief,
-			priority: hit.priority,
-			parent: entry.doc.frontMatter.parent,
-			updated: hit.updated,
-			...buildRowExpansion(entry),
-		});
-	});
+	const rows: ListingFlatRow[] = view.rows.map(({ hit, entry }) => ({
+		id: hit.id,
+		kind: hit.kind as ListingFlatRow["kind"],
+		status: hit.status as ListingFlatRow["status"],
+		title: hit.title,
+		priority: hit.priority,
+		parent: entry.doc.frontMatter.parent,
+		updated: hit.updated,
+		depth: 0,
+		...buildRowExpansion(entry),
+	}));
+	const rendered = rows.map((row) =>
+		renderRowBrief({
+			id: row.id,
+			kind: row.kind,
+			status: row.status,
+			title: row.title,
+		}),
+	);
 	const hits = view.rows.map((m) => m.hit);
+	const listing: ListingDetails = {
+		rows,
+		total: view.total,
+		offset: view.offset,
+		limit: view.limit,
+		remaining: view.remaining,
+	};
 	return ok(renderListing(rendered, view), {
+		listing,
 		hits,
 		total: view.total,
 		offset: view.offset,
@@ -152,10 +163,9 @@ export function linksAction(
 	return ok(lines.join("\n"), { links });
 }
 
-export function tree(state: QuestState, params: QuestToolParams): QuestResult {
+export function tree(state: QuestState, _params: QuestToolParams): QuestResult {
 	const nodes = treeAll(state);
-	const message = renderTreeNodes(state, nodes, params.expanded === true);
-	return ok(message, { tree: nodes });
+	return renderTreeAsListing(state, nodes);
 }
 
 export function expand(
@@ -168,22 +178,21 @@ export function expand(
 	}
 	const node = expandQuest(state, id);
 	if (!node) return refuse(`No quest with id "${id}".`);
-	const message = renderTreeNodes(state, [node], params.expanded === true);
-	return ok(message, { node });
+	const result = renderTreeAsListing(state, [node]);
+	if (!result.ok) return result;
+	return ok(result.message, { ...result.details, node });
 }
 
-function renderTreeNodes(
+function renderTreeAsListing(
 	state: QuestState,
 	nodes: TreeNode[],
-	expanded: boolean,
-): string {
-	if (nodes.length === 0) return "(no quests)";
-	// Take one discovery snapshot up front for expanded
-	// renders. Without this each per-node lookup walked
-	// the entire quest tree from disk, making `tree
-	// expanded:true` on a 250-quest forest O(N^2).
-	const index = expanded ? discoverQuests(state.questsRoot).index : undefined;
-	const lines: string[] = [];
+): QuestResult {
+	if (nodes.length === 0) return ok("(no quests)", { tree: nodes });
+	// One discovery snapshot up front so the per-node
+	// expansion data lookup is O(N), not O(N^2).
+	const index = discoverQuests(state.questsRoot).index;
+	const rows: ListingFlatRow[] = [];
+	const briefLines: string[] = [];
 	const visit = (node: TreeNode, depth: number): void => {
 		const indent = "  ".repeat(depth);
 		const brief: QuestRowBrief = {
@@ -192,27 +201,40 @@ function renderTreeNodes(
 			status: node.status as QuestRowBrief["status"],
 			title: node.title,
 		};
-		if (!expanded || !index) {
-			lines.push(`${indent}${renderRowBrief(brief)}`);
+		briefLines.push(`${indent}${renderRowBrief(brief)}`);
+		const entry = index.quests.get(node.id);
+		if (entry) {
+			rows.push({
+				...brief,
+				priority: node.priority,
+				parent: entry.doc.frontMatter.parent,
+				updated: entry.doc.frontMatter.updated,
+				depth,
+				...buildRowExpansion(entry),
+			});
 		} else {
-			const entry = index.quests.get(node.id);
-			if (entry) {
-				const expandedLines = renderRowExpanded({
-					...brief,
-					priority: node.priority,
-					parent: entry.doc.frontMatter.parent,
-					updated: entry.doc.frontMatter.updated,
-					...buildRowExpansion(entry),
-				}).split("\n");
-				for (const ln of expandedLines) lines.push(`${indent}${ln}`);
-			} else {
-				lines.push(`${indent}${renderRowBrief(brief)}`);
-			}
+			// The node exists in the tree but discovery dropped
+			// the entry. Surface a sparse row so the expanded
+			// view still reflects every brief row.
+			rows.push({
+				...brief,
+				priority: node.priority,
+				parent: null,
+				updated: "",
+				depth,
+			});
 		}
 		for (const child of node.children) visit(child, depth + 1);
 	};
 	for (const node of nodes) visit(node, 0);
-	return lines.join("\n");
+	const listing: ListingDetails = {
+		rows,
+		total: rows.length,
+		offset: 0,
+		limit: rows.length,
+		remaining: 0,
+	};
+	return ok(briefLines.join("\n"), { listing, tree: nodes });
 }
 
 /** Map a document id's prefix to its storage subdir. */

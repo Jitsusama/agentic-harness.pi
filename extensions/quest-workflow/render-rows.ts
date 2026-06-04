@@ -145,6 +145,59 @@ export function paginate<T>(
 }
 
 /**
+ * A row in the listing payload that `renderResult` reads
+ * to paint the expanded view on Ctrl-O. Each row already
+ * carries every field `renderRowExpanded` needs, so the
+ * renderer does no further disk IO when toggling.
+ */
+export interface ListingFlatRow extends QuestRowExpanded {
+	/** Indent depth, used by tree-shaped listings. Flat
+	 * listings leave this as 0. */
+	depth: number;
+}
+
+/**
+ * The structured payload a listing verb attaches to
+ * `result.details.listing`. `renderResult` reads this on
+ * Ctrl-O and reformats the rows into the expanded view
+ * without re-running discovery.
+ */
+export interface ListingDetails {
+	rows: ListingFlatRow[];
+	total: number;
+	offset: number;
+	limit: number;
+	remaining: number;
+}
+
+/**
+ * Render a listing as expanded blocks, one block per row,
+ * separated by blank lines. Tree-shaped listings indent
+ * each block by the row's `depth`. The trailing pagination
+ * hint comes from `renderListing` so the format matches
+ * the brief view.
+ */
+export function renderListingExpanded(details: ListingDetails): string {
+	if (details.rows.length === 0) {
+		if (details.total === 0) return "(no matches)";
+		return `(empty page; ${details.total} total, try offset 0)`;
+	}
+	const blocks = details.rows.map((row) => {
+		const block = renderRowExpanded(row);
+		if (row.depth <= 0) return block;
+		const indent = "  ".repeat(row.depth);
+		return block
+			.split("\n")
+			.map((line) => `${indent}${line}`)
+			.join("\n");
+	});
+	const body = blocks.join("\n\n");
+	if (details.remaining === 0) return body;
+	const nextOffset = details.offset + details.rows.length;
+	return `${body}\n\n... and ${details.remaining} more (offset ${nextOffset} to continue)`;
+}
+
+/**
  * Join already-rendered row strings into one listing block,
  * appending the "... and N more" tail when more rows exist
  * past the current page.
