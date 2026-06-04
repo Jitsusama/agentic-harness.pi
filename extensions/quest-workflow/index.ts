@@ -37,6 +37,7 @@ import {
 } from "../../lib/quest/index.js";
 import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
+import { registerBuiltinTreeProviders } from "../../lib/tree/index.js";
 import { enforceQuest, isFocusedDocWrite } from "./enforce.js";
 import {
 	listAllQuests,
@@ -62,6 +63,7 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	registerBuiltinPersonResolvers();
 	registerBuiltinUrlFetchers();
 	registerBuiltinTerminalDrivers();
+	registerBuiltinTreeProviders();
 
 	const state = createQuestState({
 		homeDir: homedir(),
