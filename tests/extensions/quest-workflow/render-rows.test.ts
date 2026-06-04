@@ -357,9 +357,28 @@ describe("collapseListingPreview", () => {
 			...baseListing,
 			rows: [makeRow()],
 			total: 7,
+			remaining: 6,
 		};
 		expect(collapseListingPreview(listing, "first row text")).toBe(
 			"first row text (+6 more)",
+		);
+	});
+
+	it("counts only what's still hidden under pagination", () => {
+		// At offset 5 with limit 5 of a 30-row set, the
+		// preview is showing row 5; rows 6..9 sit on the
+		// same page (4 more) and rows 10..29 sit later (20
+		// more), so the count is 24, not total-1 = 29.
+		const rows = Array.from({ length: 5 }, () => makeRow());
+		const listing: ListingDetails = {
+			rows,
+			total: 30,
+			offset: 5,
+			limit: 5,
+			remaining: 20,
+		};
+		expect(collapseListingPreview(listing, "row5 text")).toBe(
+			"row5 text (+24 more)",
 		);
 	});
 });

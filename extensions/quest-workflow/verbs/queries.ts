@@ -232,7 +232,7 @@ function renderTreeAsListing(
 		limit: rows.length,
 		remaining: 0,
 	};
-	return ok(briefLines.join("\n"), { listing, tree: nodes });
+	return ok(briefLines.join("\n"), { listing });
 }
 
 /** Map a document id's prefix to its storage subdir. */

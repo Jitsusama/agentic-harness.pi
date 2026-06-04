@@ -187,21 +187,19 @@ describe("renderWidget", () => {
 		expect(out).not.toMatch(/\*/);
 	});
 
-	it("preserves underscores inside identifiers", () => {
+	it("preserves underscores inside snake_case identifiers", () => {
 		// The chrome strip used to delete every underscore,
-		// turning `lib/internal/quest/` into `lib/internalquest/`.
-		// Snake_case and path fragments are content, not chrome:
-		// only the underscores that sit at whitespace boundaries
-		// (as paired emphasis markers) are stripped.
+		// turning identifiers like `internal_quest` into
+		// `internalquest`. Snake_case is content, not chrome.
 		const out = widget({
 			documentKind: "plan",
 			documentStage: "draft",
 			documentTitle: "Snake plan",
 			done: 0,
 			total: 5,
-			currentItem: "Move helpers into lib/internal/quest/ for sharing.",
+			currentItem: "Move helpers into the internal_quest module.",
 		});
-		expect(out).toContain("lib/internal/quest/");
+		expect(out).toContain("internal_quest");
 	});
 
 	it("strips emphasis underscores when they wrap a word", () => {
@@ -214,7 +212,28 @@ describe("renderWidget", () => {
 			currentItem: "Mark the _critical_ path through the renderer.",
 		});
 		expect(out).toContain("critical");
-		expect(out).not.toContain("_critical_");
+		// One-sided strip would leave a trailing underscore;
+		// the regex must strip on both sides for emphasis.
+		expect(out).not.toMatch(/_/);
+	});
+
+	it("strips emphasis chrome that sits next to punctuation", () => {
+		// `_critical_.` and similar were stranded by the
+		// whitespace-only anchors: the closing marker abuts
+		// a period, not whitespace. Anchoring on \W catches
+		// punctuation too.
+		const out = widget({
+			documentKind: "plan",
+			documentStage: "draft",
+			documentTitle: "Punctuation plan",
+			done: 0,
+			total: 5,
+			currentItem: "Wrap the _critical_, then the **bold**!",
+		});
+		expect(out).toContain("critical");
+		expect(out).toContain("bold");
+		expect(out).not.toMatch(/_/);
+		expect(out).not.toMatch(/\*/);
 	});
 
 	it("truncates the whole line to width minus the pi indent", () => {

@@ -249,10 +249,12 @@ export function isListingDetails(value: unknown): value is ListingDetails {
 /**
  * One-line preview of a listing result for the collapsed
  * (default) tool widget. Shows the first brief row and a
- * row-count suffix so the human can tell how big the
- * full listing is before pressing Ctrl-O. Empty listings
- * fall back to the rendered content, which already says
- * `(no matches)` or `(no quests)`.
+ * row-count suffix so the human can tell how much more
+ * is hidden before pressing Ctrl-O. The count combines
+ * the remaining rows on this page with whatever paging
+ * left behind, so a paged result reads honestly. Empty
+ * listings fall back to the rendered content, which
+ * already says `(no matches)` or `(no quests)`.
  */
 export function collapseListingPreview(
 	listing: ListingDetails,
@@ -260,6 +262,7 @@ export function collapseListingPreview(
 ): string {
 	if (listing.rows.length === 0) return content.split("\n")[0];
 	const firstRow = content.split("\n")[0];
-	if (listing.total <= 1) return firstRow;
-	return `${firstRow} (+${listing.total - 1} more)`;
+	const more = listing.rows.length - 1 + listing.remaining;
+	if (more <= 0) return firstRow;
+	return `${firstRow} (+${more} more)`;
 }

@@ -269,14 +269,14 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			limit: Type.Optional(
 				Type.Integer({
 					description:
-						"list/find/who/links: maximum rows in the listing. Defaults to 25.",
+						"list/find/who: maximum rows in the listing. Defaults to 25.",
 					minimum: 1,
 				}),
 			),
 			offset: Type.Optional(
 				Type.Integer({
 					description:
-						"list/find/who/links: skip the first N rows before rendering. Use with limit for pagination.",
+						"list/find/who: skip the first N rows before rendering. Use with limit for pagination.",
 					minimum: 0,
 				}),
 			),
