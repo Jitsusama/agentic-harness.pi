@@ -33,7 +33,9 @@ choices.
 - **Subquest**: a campaign whose existence depends on a
   parent quest's spirit. Subquests have `parent: <QEST-id>`.
   Useful for partitioning a large quest into independently
-  trackable strands.
+  trackable strands. Subquests sit flat at the quests
+  root alongside their parent; the relationship lives in
+  front-matter, never in directory nesting.
 - **Sidequest**: a small or external unit of work,
   typically created from a Slack thread, a PR review or
   an incident. A free-standing sidequest has

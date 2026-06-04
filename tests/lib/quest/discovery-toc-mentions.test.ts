@@ -65,24 +65,100 @@ function writeQuest(opts: {
 }
 
 describe("discoverQuests", () => {
-	it("walks the tree and indexes every quest", () => {
+	it("indexes flat quests and resolves parent/child via front-matter", () => {
 		writeQuest({
 			id: "QEST-20260603-AAA111",
 			parent: null,
 			title: "Root quest",
 		});
-		const subDir = join(root, "QEST-20260603-AAA111");
 		writeQuest({
 			id: "QEST-20260603-BBB222",
 			parent: "QEST-20260603-AAA111",
 			title: "Subquest",
-			parentDir: subDir,
 		});
 		const { index, errors } = discoverQuests(root);
 		expect(errors).toEqual([]);
 		expect(index.quests.size).toBe(2);
 		expect(index.children.get("")?.length).toBe(1);
 		expect(index.children.get("QEST-20260603-AAA111")?.length).toBe(1);
+	});
+
+	it("refuses a nested QEST directory as a layout error", () => {
+		writeQuest({
+			id: "QEST-20260603-AAA111",
+			parent: null,
+			title: "Root quest",
+		});
+		const parentDir = join(root, "QEST-20260603-AAA111");
+		writeQuest({
+			id: "QEST-20260603-BBB222",
+			parent: "QEST-20260603-AAA111",
+			title: "Nested",
+			parentDir,
+		});
+		const { index, errors } = discoverQuests(root);
+		expect(index.quests.size).toBe(1);
+		expect(index.quests.has("QEST-20260603-AAA111")).toBe(true);
+		expect(index.quests.has("QEST-20260603-BBB222")).toBe(false);
+		expect(
+			errors.some((e) =>
+				e.message.includes('Nested quest "QEST-20260603-BBB222"'),
+			),
+		).toBe(true);
+	});
+
+	it("refuses a misplaced document at the quest-dir root", () => {
+		writeQuest({
+			id: "QEST-20260603-AAA111",
+			parent: null,
+			title: "Root quest",
+		});
+		const questDir = join(root, "QEST-20260603-AAA111");
+		writeFileSync(
+			join(questDir, "PLAN-20260603-XXXYYY.md"),
+			"---\nid: PLAN-20260603-XXXYYY\nkind: plan\nquest: QEST-20260603-AAA111\nstage: draft\nupdated: 2026-06-03\n---\n\n# Misplaced plan\n",
+		);
+		const { index, errors } = discoverQuests(root);
+		expect(index.quests.size).toBe(1);
+		expect(index.quests.get("QEST-20260603-AAA111")?.documents.length).toBe(0);
+		expect(
+			errors.some((e) => e.message.includes("sits at the quest-dir root")),
+		).toBe(true);
+	});
+
+	it("refuses an unexpected top-level directory at quests root", () => {
+		mkdirSync(join(root, "stray-folder"), { recursive: true });
+		writeQuest({
+			id: "QEST-20260603-AAA111",
+			parent: null,
+			title: "Real quest",
+		});
+		const { index, errors } = discoverQuests(root);
+		expect(index.quests.size).toBe(1);
+		expect(
+			errors.some((e) =>
+				e.message.includes('Unexpected directory "stray-folder"'),
+			),
+		).toBe(true);
+	});
+
+	it("accepts documents in their canonical kind subdirectory", () => {
+		writeQuest({
+			id: "QEST-20260603-AAA111",
+			parent: null,
+			title: "Quest with docs",
+		});
+		const plansDir = join(root, "QEST-20260603-AAA111", "plans");
+		mkdirSync(plansDir, { recursive: true });
+		writeFileSync(
+			join(plansDir, "PLAN-20260603-XXXYYY.md"),
+			"---\nid: PLAN-20260603-XXXYYY\nkind: plan\nquest: QEST-20260603-AAA111\nstage: draft\nupdated: 2026-06-03\n---\n\n# Canonical plan\n",
+		);
+		const { index, errors } = discoverQuests(root);
+		expect(errors).toEqual([]);
+		const quest = index.quests.get("QEST-20260603-AAA111");
+		expect(quest?.documents.length).toBe(1);
+		expect(quest?.documents[0].doc.frontMatter.id).toBe("PLAN-20260603-XXXYYY");
 	});
 
 	it("records an error when a quest README is missing", () => {
@@ -151,21 +227,24 @@ describe("discoverQuests", () => {
 		).toBeUndefined();
 	});
 
-	it("caps walk depth so a malformed tree cannot wedge discovery", () => {
-		// Build a chain of 20 plain non-quest directories so
-		// the walk hits the depth cap.
-		let cur = root;
+	it("caps the nested-quest walk depth so a pathological chain cannot wedge discovery", () => {
+		// Build a chain of 20 QEST dirs nested inside each
+		// other so the error-reporting walk hits the depth cap.
+		// Every dir gets a minimal README so they all qualify
+		// as quests for the discovery walk.
+		let parentDir = root;
 		for (let i = 0; i < 20; i++) {
-			cur = join(cur, `nest${i}`);
-			mkdirSync(cur, { recursive: true });
+			const id = `QEST-20260603-N${String(i).padStart(5, "0")}`;
+			writeQuest({
+				id,
+				parent:
+					i === 0 ? null : `QEST-20260603-N${String(i - 1).padStart(5, "0")}`,
+				title: `Nest ${i}`,
+				parentDir,
+			});
+			parentDir = join(parentDir, id);
 		}
-		writeQuest({
-			id: "QEST-20260603-DDD333",
-			parent: null,
-			title: "At the surface",
-		});
-		const { index, errors } = discoverQuests(root);
-		expect(index.quests.size).toBe(1);
+		const { errors } = discoverQuests(root);
 		expect(errors.some((e) => e.message.includes("depth exceeded"))).toBe(true);
 	});
 });

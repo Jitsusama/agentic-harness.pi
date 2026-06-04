@@ -37,6 +37,12 @@ human-readable title.
 
 ## File Layout
 
+All quests live as immediate children of `questsRoot`.
+Hierarchy is expressed through the `parent:` front-matter
+field, never by directory nesting. Documents (plans,
+research, briefs, reports) live inside their owning
+quest's kind subdirectory.
+
 ```
 questsRoot/
   QEST-20260603-AAA111/
@@ -45,10 +51,19 @@ questsRoot/
       PLAN-20260603-BBB222.md
     research/
       RSCH-20260604-CCC333.md
-    QEST-20260605-DDD444/        (subquest)
-      README.md
-  (no QUESTS.md; views are walked on demand by the tool)
+  QEST-20260605-DDD444/          (subquest of AAA111,
+    README.md                      flat at the root,
+                                   parent: QEST-...-AAA111
+                                   set in its front-matter)
 ```
+
+Discovery refuses these two drift patterns as layout
+errors and skips the offending entry:
+
+- a `QEST-*` directory found inside another quest
+- a `PLAN-/RSCH-/BRIF-/RPRT-*.md` file at a quest's root
+  instead of inside `plans/`, `research/`, `briefs/`
+  or `reports/`
 
 Free-form subdirectories (`runs/`, `tools/`, `evidence/`)
 are fine; the discovery walk ignores them.
