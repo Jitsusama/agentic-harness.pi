@@ -75,6 +75,41 @@ const SESSION_NAME_LIMIT = 20;
 const STATUS_NARROW_LABEL = "Quest";
 
 /**
+ * Hard cap on visible characters in the widget's arrow
+ * trailer (the `→ first-unchecked-item` segment). Plan
+ * checklist items are written as sentences because the
+ * plan is a document for humans to read, but the widget
+ * is status chrome: it should hint at next-up without
+ * painting a paragraph. 40 visible chars fits the useful
+ * leading words in even the narrowest reasonable
+ * terminal and stays tight in wide ones.
+ */
+const WIDGET_TRAILER_LIMIT = 40;
+
+/**
+ * Strip markdown emphasis chrome that bleeds through from
+ * checklist item source text into the widget trailer.
+ * Backticks, asterisks and underscores are wrappers, not
+ * content; the words inside them are what the trailer
+ * wants to convey.
+ */
+function stripChrome(source: string): string {
+	return source.replace(/[`*_]+/g, "");
+}
+
+/**
+ * Truncate to `limit` visible characters, appending an
+ * ellipsis when the source is longer. Operates on the
+ * stripped string so the ellipsis represents real lost
+ * content, not just chrome.
+ */
+function truncateTrailer(source: string, limit: number): string {
+	const stripped = stripChrome(source).trim();
+	if (stripped.length <= limit) return stripped;
+	return `${stripped.slice(0, limit - 1).trimEnd()}…`;
+}
+
+/**
  * Terminal width below which the status line collapses
  * the id to the literal `Quest` label. The status line
  * shares space with whatever other extensions paint, so
@@ -84,6 +119,16 @@ const STATUS_NARROW_LABEL = "Quest";
  * where the id crowds out everything else anyway.
  */
 const STATUS_NARROW_THRESHOLD = 60;
+
+/**
+ * Pi renders widget lines through `new Text(line, 1, 0)`,
+ * with `1` being a one-column left indent. The widget's
+ * effective render width is therefore one column less
+ * than the terminal width, and the truncation must use
+ * the smaller number or pi's Text component wraps the
+ * overflow onto a second line.
+ */
+const WIDGET_INDENT_COLS = 1;
 
 /**
  * The session-name label pi sets on the terminal tab when
@@ -173,7 +218,8 @@ export function renderWidget(
 	if (!input.questId) return [];
 	const line = buildWidgetLine(input);
 	const coloured = theme.fg("muted", line);
-	return [truncateToWidth(coloured, width)];
+	const budget = Math.max(0, width - WIDGET_INDENT_COLS);
+	return [truncateToWidth(coloured, budget)];
 }
 
 function buildWidgetLine(input: WidgetInput): string {
@@ -204,7 +250,9 @@ function progressTrailer(input: WidgetInput): string {
 	if (input.total <= 0) return "";
 	if (input.done >= input.total) return "";
 	if (!input.currentItem) return "";
-	return ` \u2192 ${input.currentItem}`;
+	const tightened = truncateTrailer(input.currentItem, WIDGET_TRAILER_LIMIT);
+	if (!tightened) return "";
+	return ` \u2192 ${tightened}`;
 }
 
 /** Format a list of quests as plain-text rows for /quest-list. */

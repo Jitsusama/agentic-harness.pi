@@ -1,3 +1,4 @@
+import { visibleWidth } from "@mariozechner/pi-tui";
 import { describe, expect, it } from "vitest";
 import {
 	renderStatus,
@@ -146,11 +147,65 @@ describe("renderWidget", () => {
 				documentTitle: "Quest Workflow UX Iteration",
 				done: 4,
 				total: 33,
-				currentItem: "Slice 1: flatten disk layout and tighten discovery.",
+				currentItem: "Short next step.",
 			}),
 		).toBe(
-			"Drafting Plan: Quest Workflow UX Iteration \u00b7 5/33 \u2192 Slice 1: flatten disk layout and tighten discovery.",
+			"Drafting Plan: Quest Workflow UX Iteration \u00b7 5/33 \u2192 Short next step.",
 		);
+	});
+
+	it("truncates a long trailer to the cap with an ellipsis", () => {
+		const out = widget({
+			documentKind: "plan",
+			documentStage: "draft",
+			documentTitle: "Long item plan",
+			done: 0,
+			total: 5,
+			currentItem:
+				"Lift QuestRowExpanded and the tree node shape into lib/internal/quest/ so both sides share the same definitions.",
+		});
+		const arrow = out.split("\u2192 ")[1] ?? "";
+		expect(arrow.length).toBe(40);
+		expect(arrow.endsWith("\u2026")).toBe(true);
+	});
+
+	it("strips markdown chrome from the trailer source", () => {
+		const out = widget({
+			documentKind: "plan",
+			documentStage: "draft",
+			documentTitle: "Chrome plan",
+			done: 0,
+			total: 5,
+			currentItem: "Lift `QuestRowExpanded` and the **tree** node shape.",
+		});
+		expect(out).not.toMatch(/[`*_]/);
+		expect(out).toContain("QuestRowExpanded");
+		expect(out).toContain("tree");
+	});
+
+	it("truncates the whole line to width minus the pi indent", () => {
+		// Pi renders the widget through `new Text(line, 1, 0)`,
+		// so the effective render width is width - 1. Anything
+		// past that wraps onto a second visible row, which is
+		// the regression this test pins down.
+		const lines = renderWidget(
+			{
+				questId: "QEST-20260603-AAA111",
+				questTitle: "Quest title",
+				documentKind: "plan",
+				documentStage: "draft",
+				documentTitle: "A title that on its own already fills the budget",
+				done: 0,
+				total: 5,
+				currentItem: "and a trailer that pushes past the right edge.",
+			},
+			identityTheme,
+			60,
+		);
+		expect(lines.length).toBe(1);
+		// truncateToWidth wraps the result in ANSI resets, so
+		// measure visible width rather than raw string length.
+		expect(visibleWidth(lines[0])).toBeLessThanOrEqual(59);
 	});
 
 	it("drops the count and arrow when the body has no checkboxes", () => {
