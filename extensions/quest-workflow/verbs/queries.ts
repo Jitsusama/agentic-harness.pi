@@ -7,7 +7,10 @@
  * subdir.
  */
 
-import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
+import {
+	discoverQuests,
+	type QuestIndex,
+} from "../../../lib/internal/quest/discovery.js";
 import {
 	buildRowExpansion,
 	expandQuest,
@@ -79,7 +82,6 @@ export function find(state: QuestState, params: QuestToolParams): QuestResult {
 			title: row.title,
 		}),
 	);
-	const hits = view.rows.map((m) => m.hit);
 	const listing: ListingDetails = {
 		rows,
 		total: view.total,
@@ -89,7 +91,6 @@ export function find(state: QuestState, params: QuestToolParams): QuestResult {
 	};
 	return ok(renderListing(rendered, view), {
 		listing,
-		hits,
 		total: view.total,
 		offset: view.offset,
 		limit: view.limit,
@@ -164,8 +165,9 @@ export function linksAction(
 }
 
 export function tree(state: QuestState, _params: QuestToolParams): QuestResult {
-	const nodes = treeAll(state);
-	return renderTreeAsListing(state, nodes);
+	const { index } = discoverQuests(state.questsRoot);
+	const nodes = treeAll(index);
+	return renderTreeAsListing(index, nodes);
 }
 
 export function expand(
@@ -176,21 +178,17 @@ export function expand(
 	if (!id) {
 		return refuse("Pass a quest id in `id` or load one first.");
 	}
-	const node = expandQuest(state, id);
+	const { index } = discoverQuests(state.questsRoot);
+	const node = expandQuest(index, id);
 	if (!node) return refuse(`No quest with id "${id}".`);
-	const result = renderTreeAsListing(state, [node]);
-	if (!result.ok) return result;
-	return ok(result.message, { ...result.details, node });
+	return renderTreeAsListing(index, [node]);
 }
 
 function renderTreeAsListing(
-	state: QuestState,
+	index: QuestIndex,
 	nodes: TreeNode[],
 ): QuestResult {
-	if (nodes.length === 0) return ok("(no quests)", { tree: nodes });
-	// One discovery snapshot up front so the per-node
-	// expansion data lookup is O(N), not O(N^2).
-	const index = discoverQuests(state.questsRoot).index;
+	if (nodes.length === 0) return ok("(no quests)");
 	const rows: ListingFlatRow[] = [];
 	const briefLines: string[] = [];
 	const visit = (node: TreeNode, depth: number): void => {

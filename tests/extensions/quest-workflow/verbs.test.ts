@@ -204,8 +204,9 @@ describe("find / who / links", () => {
 			query: "authentication",
 		});
 		expect(result.ok).toBe(true);
-		const hits = (result.details as { hits: { id: string }[] }).hits;
-		expect(hits.some((h) => h.id === a.id)).toBe(true);
+		const rows = (result.details as { listing: { rows: { id: string }[] } })
+			.listing.rows;
+		expect(rows.some((r) => r.id === a.id)).toBe(true);
 	});
 
 	it("who filters Cast bullets across quests", async () => {
@@ -463,13 +464,13 @@ describe("list filters", () => {
 		});
 		if (!result.ok) throw new Error(result.guidance);
 		const details = result.details as {
-			entries: { id: string; priority: string }[];
+			listing: { rows: { id: string; priority: string }[] };
 			total: number;
 		};
 		expect(details.total).toBe(1);
-		expect(details.entries.length).toBe(1);
-		expect(details.entries[0].id).toBe(driving.id);
-		expect(details.entries[0].priority).toBe("driving");
+		expect(details.listing.rows.length).toBe(1);
+		expect(details.listing.rows[0].id).toBe(driving.id);
+		expect(details.listing.rows[0].priority).toBe("driving");
 	});
 
 	it("list kind:quest excludes sidequests and subquests", async () => {
@@ -496,11 +497,11 @@ describe("list filters", () => {
 		});
 		if (!result.ok) throw new Error(result.guidance);
 		const details = result.details as {
-			entries: { id: string; kind: string }[];
+			listing: { rows: { id: string; kind: string }[] };
 			total: number;
 		};
-		for (const e of details.entries) expect(e.kind).toBe("quest");
-		expect(details.total).toBe(details.entries.length);
+		for (const r of details.listing.rows) expect(r.kind).toBe("quest");
+		expect(details.total).toBe(details.listing.rows.length);
 	});
 });
 
@@ -584,7 +585,7 @@ describe("listing verbs: brief, expanded and pagination", () => {
 		expect(page.message).toContain("and 2 more (offset 3 to continue)");
 	});
 
-	it("find renders brief rows in the message and keeps the hits payload", async () => {
+	it("find renders brief rows in the message and attaches a listing payload", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Authentication bug");
 		await createQuest(state, "Unrelated quest");
@@ -597,11 +598,14 @@ describe("listing verbs: brief, expanded and pagination", () => {
 		expect(result.message).toContain(a.id);
 		expect(result.message).toContain("Authentication bug");
 		expect(result.message).not.toContain("Unrelated quest");
-		const details = result.details as { hits: { id: string }[] };
-		expect(details.hits.length).toBe(1);
+		const details = result.details as {
+			listing: { rows: { id: string; title: string | null }[] };
+		};
+		expect(details.listing.rows.length).toBe(1);
+		expect(details.listing.rows[0].id).toBe(a.id);
 	});
 
-	it("find with no matches returns (no matches) and zero hits", async () => {
+	it("find with no matches returns (no matches) and an empty listing", async () => {
 		const state = buildState();
 		await createQuest(state, "Alpha");
 
@@ -611,8 +615,8 @@ describe("listing verbs: brief, expanded and pagination", () => {
 		});
 		if (!result.ok) throw new Error(result.guidance);
 		expect(result.message).toBe("(no matches)");
-		const details = result.details as { hits: unknown[] };
-		expect(details.hits.length).toBe(0);
+		const details = result.details as { listing: { rows: unknown[] } };
+		expect(details.listing.rows.length).toBe(0);
 	});
 
 	it("who renders one row per Cast bullet across quests", async () => {

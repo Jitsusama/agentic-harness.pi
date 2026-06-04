@@ -56,8 +56,10 @@ export interface FindHit {
 
 /**
  * The pure-data shape the listing verbs add on top of a
- * brief row when the caller asks for `expanded: true`.
- * Built by walking a single quest entry; no I/O.
+ * brief row. Threaded through to the listing payload so
+ * `renderResult` can paint the expanded view on Ctrl-O
+ * without re-walking discovery. Built by walking a single
+ * quest entry; no I/O.
  */
 export interface QuestRowExpansion {
 	summary?: string;
@@ -525,8 +527,7 @@ function buildSubtree(index: QuestIndex, parentKey: string): TreeNode[] {
  * view). The orphans group sits after the legitimate
  * top-level quests so the user notices it.
  */
-export function treeAll(state: QuestState): TreeNode[] {
-	const { index } = discoverQuests(state.questsRoot);
+export function treeAll(index: QuestIndex): TreeNode[] {
 	const top = buildSubtree(index, "");
 	const orphans: TreeNode[] = [];
 	for (const [parentKey, ids] of index.children) {
@@ -564,10 +565,9 @@ export function treeAll(state: QuestState): TreeNode[] {
 
 /** Subtree rooted at a single quest id. */
 export function expandQuest(
-	state: QuestState,
+	index: QuestIndex,
 	id: string,
 ): TreeNode | undefined {
-	const { index } = discoverQuests(state.questsRoot);
 	const entry = index.quests.get(id);
 	if (!entry) return undefined;
 	return {

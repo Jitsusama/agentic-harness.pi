@@ -87,9 +87,12 @@ export interface QuestRowExpanded extends QuestRowBrief {
 export function renderRowExpanded(row: QuestRowExpanded): string {
 	const lines = [renderRowBrief(row)];
 	const parent = row.parent ?? "none";
-	lines.push(
-		`  priority: ${row.priority}  parent: ${parent}  updated: ${row.updated}`,
-	);
+	// Sparse rows (e.g. the synthetic (orphans) tree node)
+	// arrive with an empty updated; suppress the dangling
+	// `updated:` field rather than print an empty value.
+	const metaParts = [`priority: ${row.priority}`, `parent: ${parent}`];
+	if (row.updated) metaParts.push(`updated: ${row.updated}`);
+	lines.push(`  ${metaParts.join("  ")}`);
 	if (row.summary) lines.push(`  summary: ${row.summary}`);
 	if (row.cast && row.cast.length > 0) {
 		const cast = row.cast.map((c) => `${c.subject} (${c.role})`).join(", ");
@@ -223,4 +226,40 @@ export function renderListing<T>(
 	if (view.remaining === 0) return body;
 	const nextOffset = view.offset + view.rows.length;
 	return `${body}\n\n... and ${view.remaining} more (offset ${nextOffset} to continue)`;
+}
+
+/**
+ * Defensive shape check for a listing payload. The
+ * `renderResult` callback runs inside pi's render loop,
+ * where a thrown error tanks the frame; trust the cast
+ * only after the shape clears.
+ */
+export function isListingDetails(value: unknown): value is ListingDetails {
+	if (!value || typeof value !== "object") return false;
+	const v = value as Partial<ListingDetails>;
+	return (
+		Array.isArray(v.rows) &&
+		typeof v.total === "number" &&
+		typeof v.offset === "number" &&
+		typeof v.limit === "number" &&
+		typeof v.remaining === "number"
+	);
+}
+
+/**
+ * One-line preview of a listing result for the collapsed
+ * (default) tool widget. Shows the first brief row and a
+ * row-count suffix so the human can tell how big the
+ * full listing is before pressing Ctrl-O. Empty listings
+ * fall back to the rendered content, which already says
+ * `(no matches)` or `(no quests)`.
+ */
+export function collapseListingPreview(
+	listing: ListingDetails,
+	content: string,
+): string {
+	if (listing.rows.length === 0) return content.split("\n")[0];
+	const firstRow = content.split("\n")[0];
+	if (listing.total <= 1) return firstRow;
+	return `${firstRow} (+${listing.total - 1} more)`;
 }

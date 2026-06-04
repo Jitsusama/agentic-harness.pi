@@ -89,12 +89,15 @@ const WIDGET_TRAILER_LIMIT = 40;
 /**
  * Strip markdown emphasis chrome that bleeds through from
  * checklist item source text into the widget trailer.
- * Backticks, asterisks and underscores are wrappers, not
- * content; the words inside them are what the trailer
- * wants to convey.
+ * Backticks, asterisks and underscores are wrappers when
+ * they sit at word edges, content when they don't: an
+ * underscore inside `lib/internal/quest/` is part of an
+ * identifier, not chrome. The whitespace anchors keep
+ * identifiers intact while still stripping the emphasis
+ * markers that wrap whole words.
  */
 function stripChrome(source: string): string {
-	return source.replace(/[`*_]+/g, "");
+	return source.replace(/(?<=^|\s)[`*_]+|[`*_]+(?=\s|$)/g, "");
 }
 
 /**

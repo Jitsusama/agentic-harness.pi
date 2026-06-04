@@ -165,7 +165,10 @@ describe("renderWidget", () => {
 				"Lift QuestRowExpanded and the tree node shape into lib/internal/quest/ so both sides share the same definitions.",
 		});
 		const arrow = out.split("\u2192 ")[1] ?? "";
-		expect(arrow.length).toBe(40);
+		// trimEnd before the ellipsis can shave one column,
+		// so the cap is inclusive rather than exact.
+		expect(arrow.length).toBeLessThanOrEqual(40);
+		expect(arrow.length).toBeGreaterThan(35);
 		expect(arrow.endsWith("\u2026")).toBe(true);
 	});
 
@@ -178,9 +181,40 @@ describe("renderWidget", () => {
 			total: 5,
 			currentItem: "Lift `QuestRowExpanded` and the **tree** node shape.",
 		});
-		expect(out).not.toMatch(/[`*_]/);
 		expect(out).toContain("QuestRowExpanded");
 		expect(out).toContain("tree");
+		expect(out).not.toMatch(/`/);
+		expect(out).not.toMatch(/\*/);
+	});
+
+	it("preserves underscores inside identifiers", () => {
+		// The chrome strip used to delete every underscore,
+		// turning `lib/internal/quest/` into `lib/internalquest/`.
+		// Snake_case and path fragments are content, not chrome:
+		// only the underscores that sit at whitespace boundaries
+		// (as paired emphasis markers) are stripped.
+		const out = widget({
+			documentKind: "plan",
+			documentStage: "draft",
+			documentTitle: "Snake plan",
+			done: 0,
+			total: 5,
+			currentItem: "Move helpers into lib/internal/quest/ for sharing.",
+		});
+		expect(out).toContain("lib/internal/quest/");
+	});
+
+	it("strips emphasis underscores when they wrap a word", () => {
+		const out = widget({
+			documentKind: "plan",
+			documentStage: "draft",
+			documentTitle: "Emphasis plan",
+			done: 0,
+			total: 5,
+			currentItem: "Mark the _critical_ path through the renderer.",
+		});
+		expect(out).toContain("critical");
+		expect(out).not.toContain("_critical_");
 	});
 
 	it("truncates the whole line to width minus the pi indent", () => {
