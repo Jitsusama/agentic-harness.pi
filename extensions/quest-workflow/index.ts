@@ -16,7 +16,6 @@
  */
 
 import { homedir } from "node:os";
-import { StringEnum } from "@mariozechner/pi-ai";
 import type {
 	ExtensionAPI,
 	ToolCallEventResult,
@@ -38,6 +37,7 @@ import {
 import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
 import { registerBuiltinTreeProviders } from "../../lib/tree/index.js";
+import { QUEST_ACTIONS } from "./actions.js";
 import { enforceQuest, isFocusedDocWrite } from "./enforce.js";
 import {
 	listAllQuests,
@@ -97,52 +97,9 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			"A refused transition returns guidance and changes nothing. There is no human gate and no approval prompt.",
 		],
 		parameters: Type.Object({
-			action: StringEnum(
-				[
-					"create",
-					"load",
-					"unload",
-					"show",
-					"list",
-					"tree",
-					"tree-add",
-					"tree-list",
-					"tree-prune",
-					"tree-expand",
-					"expand",
-					"focus",
-					"unfocus",
-					"think",
-					"draft",
-					"build",
-					"conclude",
-					"retire",
-					"promote",
-					"demote",
-					"drive",
-					"park",
-					"defer",
-					"top",
-					"bottom",
-					"bump",
-					"sink",
-					"before",
-					"after",
-					"renumber",
-					"alias-add",
-					"alias-remove",
-					"session-attach",
-					"session-detach",
-					"session-rename",
-					"spawn-tab",
-					"spawn-pane",
-					"spawn-window",
-					"find",
-					"who",
-					"links",
-				] as const,
-				{ description: "The action to perform." },
-			),
+			action: Type.String({
+				description: `The action to perform. One of: ${QUEST_ACTIONS.join(", ")}. \`status\` is an alias for \`show\`. A typo returns a refusal with a Levenshtein-based suggestion of the nearest match.`,
+			}),
 			id: Type.Optional(
 				Type.String({
 					description:

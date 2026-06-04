@@ -355,6 +355,94 @@ describe("URL-seeded create", () => {
 	});
 });
 
+describe("action aliases and refusals", () => {
+	it("status is a synonym for show on a loaded quest", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha quest");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "status",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain(a.id);
+	});
+
+	it("refuses unknown actions with a Levenshtein suggestion", async () => {
+		const state = buildState();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "lst",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unexpected ok");
+		expect(result.guidance).toContain('Did you mean "list"');
+	});
+});
+
+describe("list filters", () => {
+	it("list priority:driving returns only driving quests and the count matches", async () => {
+		const state = buildState();
+		const driving = await createQuest(state, "Driving quest");
+		await createQuest(state, "Active quest");
+		await createQuest(state, "Queued quest");
+
+		// Move the first one to driving so we have a known
+		// distribution: 1 driving, 2 active (the default).
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: driving.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "list",
+			priority: "driving",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const details = result.details as {
+			entries: { id: string; priority: string }[];
+			total: number;
+		};
+		expect(details.total).toBe(1);
+		expect(details.entries.length).toBe(1);
+		expect(details.entries[0].id).toBe(driving.id);
+		expect(details.entries[0].priority).toBe("driving");
+	});
+
+	it("list kind:quest excludes sidequests and subquests", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Parent");
+
+		const child = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Child",
+			parent: parent.id,
+			kind: "subquest",
+		});
+		if (!child.ok) throw new Error(child.guidance);
+		const top = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Top-level quest",
+			kind: "quest",
+		});
+		if (!top.ok) throw new Error(top.guidance);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "list",
+			kind: "quest",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const details = result.details as {
+			entries: { id: string; kind: string }[];
+			total: number;
+		};
+		for (const e of details.entries) expect(e.kind).toBe("quest");
+		expect(details.total).toBe(details.entries.length);
+	});
+});
+
 describe("listing verbs: brief, expanded and pagination", () => {
 	it("list defaults to one brief row per quest with id, glyphs and title", async () => {
 		const state = buildState();

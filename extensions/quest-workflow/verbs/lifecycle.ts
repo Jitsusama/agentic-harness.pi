@@ -358,7 +358,18 @@ function renderShow(
 }
 
 export function list(state: QuestState, params: QuestToolParams): QuestResult {
-	const entries = listAllQuests(state);
+	const all = listAllQuests(state);
+	const entries = all.filter((e) => {
+		const fm = e.doc.frontMatter;
+		if (params.priority && fm.priority !== params.priority) return false;
+		if (params.kind && fm.kind !== params.kind) return false;
+		if (params.status && fm.status !== params.status) return false;
+		if (params.parent !== undefined) {
+			const expected = params.parent === "null" ? null : params.parent;
+			if (fm.parent !== expected) return false;
+		}
+		return true;
+	});
 	entries.sort((a, b) => {
 		if (a.doc.frontMatter.priority !== b.doc.frontMatter.priority) {
 			return a.doc.frontMatter.priority < b.doc.frontMatter.priority ? -1 : 1;

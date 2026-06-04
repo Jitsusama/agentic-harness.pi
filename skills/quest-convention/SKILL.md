@@ -183,10 +183,21 @@ quest. Retiring a quest needs a `reason`.
 An Echo is an incoming reference: another quest's body
 mentions yours by id, or by a URL the refs registry can
 resolve back to one of your aliases. The `show` projection
-lists Echoes for the loaded quest, each with the source
-quest id, its title and the surrounding sentence as a
-snippet. Render the Echoes section when at least one is
-present; skip it silently when the list is empty.
+splits Echoes by intent: `Produced by` lists every quest
+whose body referred to yours with the → sigil, and
+`Referenced by` lists every quest that mentioned you with
+a bare id. Skip either section silently when its list is
+empty.
+
+## Verbs and Aliases
+
+The `status` action is an alias for `show`; both render
+the loaded quest's full projection. When you type an
+action name that no verb matches, the tool refuses with a
+Levenshtein-based suggestion of the nearest canonical
+verb (`lst` is told to try `list`; `shw` is told to try
+`show`). When no close match exists the refusal points
+you at the schema.
 
 ## Disambiguation
 
