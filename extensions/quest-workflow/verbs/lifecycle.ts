@@ -53,11 +53,12 @@ const PRIORITY_ORDER: Record<string, number> = {
 const PRIORITY_FALLBACK = 99;
 
 import {
+	type ListingDetails,
+	type ListingFlatRow,
 	paginate,
 	type QuestRowBrief,
 	renderListing,
 	renderRowBrief,
-	renderRowExpanded,
 } from "../render-rows.js";
 import type { QuestState } from "../state.js";
 import { subdirForDocumentId } from "./queries.js";
@@ -396,22 +397,25 @@ export function list(state: QuestState, params: QuestToolParams): QuestResult {
 		limit: params.limit,
 		offset: params.offset,
 	});
-	const expanded = params.expanded === true;
-	const rendered = view.rows.map((entry) => {
+	const rows: ListingFlatRow[] = view.rows.map((entry) => ({
+		id: entry.doc.frontMatter.id,
+		kind: entry.doc.frontMatter.kind,
+		status: entry.doc.frontMatter.status,
+		title: entry.doc.title ?? null,
+		priority: entry.doc.frontMatter.priority,
+		parent: entry.doc.frontMatter.parent,
+		updated: entry.doc.frontMatter.updated,
+		depth: 0,
+		...buildRowExpansion(entry),
+	}));
+	const rendered = rows.map((row) => {
 		const brief: QuestRowBrief = {
-			id: entry.doc.frontMatter.id,
-			kind: entry.doc.frontMatter.kind,
-			status: entry.doc.frontMatter.status,
-			title: entry.doc.title ?? null,
+			id: row.id,
+			kind: row.kind,
+			status: row.status,
+			title: row.title,
 		};
-		if (!expanded) return renderRowBrief(brief);
-		return renderRowExpanded({
-			...brief,
-			priority: entry.doc.frontMatter.priority,
-			parent: entry.doc.frontMatter.parent,
-			updated: entry.doc.frontMatter.updated,
-			...buildRowExpansion(entry),
-		});
+		return renderRowBrief(brief);
 	});
 	const payload = view.rows.map((e) => ({
 		id: e.doc.frontMatter.id,
@@ -421,7 +425,15 @@ export function list(state: QuestState, params: QuestToolParams): QuestResult {
 		priority: e.doc.frontMatter.priority,
 		rank: e.doc.frontMatter.rank,
 	}));
+	const listing: ListingDetails = {
+		rows,
+		total: view.total,
+		offset: view.offset,
+		limit: view.limit,
+		remaining: view.remaining,
+	};
 	return ok(renderListing(rendered, view), {
+		listing,
 		entries: payload,
 		total: view.total,
 		offset: view.offset,

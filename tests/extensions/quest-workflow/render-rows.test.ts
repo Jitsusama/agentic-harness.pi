@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
 	DEFAULT_LISTING_LIMIT,
+	type ListingDetails,
+	type ListingFlatRow,
 	paginate,
 	type QuestRowBrief,
 	type QuestRowExpanded,
 	renderListing,
+	renderListingExpanded,
 	renderRowBrief,
 	renderRowExpanded,
 } from "../../../extensions/quest-workflow/render-rows";
@@ -158,5 +161,88 @@ describe("renderListing", () => {
 		const view = paginate(items, { limit: 5 });
 		const out = renderListing(view.rows, view);
 		expect(out).toContain("... and 25 more (offset 5 to continue)");
+	});
+});
+
+function makeRow(overrides: Partial<ListingFlatRow> = {}): ListingFlatRow {
+	return {
+		id: "QEST-20260603-AAA111",
+		kind: "quest",
+		status: "active",
+		title: "Sample",
+		priority: "active",
+		parent: null,
+		updated: "2026-06-03",
+		depth: 0,
+		...overrides,
+	};
+}
+
+describe("renderListingExpanded", () => {
+	it("renders each row as a block of expanded lines", () => {
+		const details: ListingDetails = {
+			rows: [makeRow({ summary: "A short summary." })],
+			total: 1,
+			offset: 0,
+			limit: 25,
+			remaining: 0,
+		};
+		const out = renderListingExpanded(details);
+		expect(out).toContain("QEST-20260603-AAA111");
+		expect(out).toContain("priority: active");
+		expect(out).toContain("parent: none");
+		expect(out).toContain("updated: 2026-06-03");
+		expect(out).toContain("summary: A short summary.");
+	});
+
+	it("indents tree-shaped rows by depth", () => {
+		const details: ListingDetails = {
+			rows: [makeRow(), makeRow({ id: "QEST-20260603-CCC222", depth: 1 })],
+			total: 2,
+			offset: 0,
+			limit: 25,
+			remaining: 0,
+		};
+		const out = renderListingExpanded(details);
+		const lines = out.split("\n");
+		const depth1Line = lines.find((l) => l.includes("QEST-20260603-CCC222"));
+		expect(depth1Line?.startsWith("  ")).toBe(true);
+	});
+
+	it("surfaces the empty-page tail when total > 0 but rows empty", () => {
+		const details: ListingDetails = {
+			rows: [],
+			total: 30,
+			offset: 100,
+			limit: 25,
+			remaining: 0,
+		};
+		expect(renderListingExpanded(details)).toBe(
+			"(empty page; 30 total, try offset 0)",
+		);
+	});
+
+	it("shows (no matches) when the set is truly empty", () => {
+		const details: ListingDetails = {
+			rows: [],
+			total: 0,
+			offset: 0,
+			limit: 25,
+			remaining: 0,
+		};
+		expect(renderListingExpanded(details)).toBe("(no matches)");
+	});
+
+	it("appends a pagination tail when more remain", () => {
+		const details: ListingDetails = {
+			rows: [makeRow()],
+			total: 30,
+			offset: 0,
+			limit: 1,
+			remaining: 29,
+		};
+		expect(renderListingExpanded(details)).toContain(
+			"... and 29 more (offset 1 to continue)",
+		);
 	});
 });
