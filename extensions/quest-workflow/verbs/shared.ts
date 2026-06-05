@@ -36,6 +36,7 @@ export interface QuestToolParams {
 	sessionId?: string;
 	scope?: string;
 	force?: boolean;
+	dryRun?: boolean;
 	skipTree?: boolean;
 	limit?: number;
 	offset?: number;

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -26,7 +26,7 @@ function fakeCtx(cwd: string, sessionId = "sess-1") {
 }
 
 function buildState() {
-	return createQuestState({ homeDir: tmpRoot, dataDir: tmpRoot });
+	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
 
 async function createQuest(
@@ -157,6 +157,72 @@ describe("conclude / retire scope", () => {
 		expect(text).toMatch(/status: retired/);
 	});
 
+	it("warns when the primary plan still has unchecked items", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Q");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "think",
+			kind: "plan",
+			note: "scope",
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "draft",
+			title: "The plan",
+		});
+		// Replace the scaffold body with a known checkbox set:
+		// one done, one open.
+		writeFileSync(
+			state.documentPath as string,
+			"# The plan\n\n## Work\n- [x] done item\n- [ ] open item\n",
+		);
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			scope: "quest",
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("expected ok");
+		expect(result.message).toMatch(/unchecked|open work|item/i);
+		const drift = (
+			result.details as { planDrift?: { done: number; total: number } }
+		).planDrift;
+		expect(drift).toMatchObject({ done: 1, total: 2 });
+	});
+
+	it("does not warn when the primary plan is fully checked", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Q");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "think",
+			kind: "plan",
+			note: "scope",
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "draft",
+			title: "The plan",
+		});
+		writeFileSync(
+			state.documentPath as string,
+			"# The plan\n\n## Work\n- [x] done item\n",
+		);
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			scope: "quest",
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("expected ok");
+		expect(
+			(result.details as { planDrift?: unknown }).planDrift,
+		).toBeUndefined();
+	});
+
 	it("explicit scope=document with no focused document refuses cleanly", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Q");
@@ -281,6 +347,32 @@ describe("find with extended filters", () => {
 		).listing.rows;
 		expect(rows.every((r) => r.kind !== "subquest")).toBe(true);
 		expect(rows.some((r) => r.id === parent.id)).toBe(true);
+	});
+
+	it("accepts field=activity and rejects an unknown field", async () => {
+		const state = buildState();
+		await createQuest(state, "Q");
+		const ok = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "find",
+			field: "activity",
+		});
+		expect(ok.ok).toBe(true);
+
+		// Under an activity window, a quest with no recorded activity is
+		// excluded rather than slipping through on an undefined date.
+		const windowed = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "find",
+			field: "activity",
+			since: "2026-01-01",
+		});
+		const rows = (windowed.details as { listing: { rows: { id: string }[] } })
+			.listing.rows;
+		expect(rows).toHaveLength(0);
+		const bad = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "find",
+			field: "banana",
+		});
+		expect(bad.ok).toBe(false);
 	});
 
 	it("filters by refType", async () => {

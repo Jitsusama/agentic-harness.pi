@@ -20,6 +20,7 @@ import type { QuestPriority } from "../../lib/quest/index.js";
 import { suggestAction } from "./actions.js";
 import type { QuestState } from "./state.js";
 import { aliasAdd, aliasRemove } from "./verbs/alias.js";
+import { configReport } from "./verbs/config.js";
 import {
 	create,
 	focus,
@@ -43,6 +44,7 @@ import {
 	refuse,
 } from "./verbs/shared.js";
 import { concludeOrRetire, stageTransition } from "./verbs/stage.js";
+import { reparent, undo } from "./verbs/structural.js";
 import { treeAdd, treeExpand, treeList, treePrune } from "./verbs/tree-ops.js";
 
 export type { QuestResult, QuestToolParams };
@@ -63,7 +65,9 @@ export async function handle(
 			return unload(state);
 		case "show":
 		case "status":
-			return show(state);
+			return show(state, params);
+		case "config":
+			return configReport();
 		case "list":
 			return list(state, params);
 		case "focus":
@@ -85,6 +89,10 @@ export async function handle(
 		case "before":
 		case "after":
 			return reorder(state, params);
+		case "reparent":
+			return reparent(state, params);
+		case "undo":
+			return undo(state);
 		case "alias-add":
 			return aliasAdd(state, params);
 		case "alias-remove":
@@ -120,7 +128,7 @@ export async function handle(
 		case "spawn-tab":
 		case "spawn-pane":
 		case "spawn-window":
-			return spawn(state, params);
+			return spawn(state, ctx, params);
 		case "find":
 			return find(state, params);
 		case "who":

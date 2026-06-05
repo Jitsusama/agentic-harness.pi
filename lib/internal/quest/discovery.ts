@@ -38,6 +38,7 @@
  * surfaced only via the quest's own body references.
  */
 
+import { createHash } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.js";
@@ -150,7 +151,92 @@ function parseDocumentFile(text: string): QuestDocumentDoc | undefined {
  * - We cap recursion depth at `MAX_WALK_DEPTH` and surface
  *   the truncation as an error rather than spinning.
  */
+interface CacheSlot {
+	signature: string;
+	result: DiscoveryResult;
+}
+
+const discoveryCache = new Map<string, CacheSlot>();
+
+/**
+ * Drop the discovery memo. Tests call this between runs; write
+ * paths do not need it because the signature catches their
+ * changes on the next read.
+ */
+export function clearDiscoveryCache(): void {
+	discoveryCache.clear();
+}
+
+/**
+ * Walk `questsRoot` and build the index, memoized per root. The
+ * walk re-parses every README and document, which is the costly
+ * part; this caches the result behind a cheap mtime-and-size
+ * signature so repeated read verbs in a session do not re-parse
+ * an unchanged tree. The signature recomputes on every call (a
+ * directory traversal plus stats, no file reads), so any change
+ * to a README, a document, or the set of quests invalidates the
+ * cache on the next read.
+ */
 export function discoverQuests(questsRoot: string): DiscoveryResult {
+	const signature = discoverySignature(questsRoot);
+	const cached = discoveryCache.get(questsRoot);
+	if (cached && cached.signature === signature) return cached.result;
+	const result = discoverQuestsUncached(questsRoot);
+	discoveryCache.set(questsRoot, { signature, result });
+	return result;
+}
+
+/**
+ * A content-sensitive fingerprint of the quest tree. For each
+ * quest it hashes the README and every document file, so an edit
+ * that keeps the byte size identical (a status flip, a same-length
+ * reparent, a date-only stamp) still moves the signature. It also
+ * folds in the directory listings of the root and each quest dir,
+ * so the layout-drift conditions that drive the discovery `errors`
+ * (a stray non-quest entry, a misplaced document at a quest root,
+ * a nested quest) move it too. Hashing reads the file bytes but
+ * skips the parse and object construction the cache exists to
+ * avoid, so a warm read still wins on a large tree.
+ */
+function discoverySignature(questsRoot: string): string {
+	const parts: string[] = [];
+	const stampContent = (path: string): void => {
+		try {
+			const hash = createHash("sha1").update(readFileSync(path)).digest("hex");
+			parts.push(`${path}:${hash}`);
+		} catch {
+			// Missing or unreadable file contributes nothing; its
+			// absence is itself a change from a signature that had it.
+		}
+	};
+	const layout = (entries: Dirent[]): string =>
+		entries
+			.map((e) => `${e.name}/${e.isDirectory() ? "d" : "f"}`)
+			.sort()
+			.join(",");
+	const rootEntries = readEntries(questsRoot);
+	if (!rootEntries) return "absent";
+	parts.push(`root:${layout(rootEntries)}`);
+	for (const entry of rootEntries) {
+		if (!entry.isDirectory()) continue;
+		if (!isId(entry.name) || prefixOf(entry.name) !== "QEST") continue;
+		const questDir = join(questsRoot, entry.name);
+		const questEntries = readEntries(questDir);
+		if (questEntries) parts.push(`${entry.name}:${layout(questEntries)}`);
+		stampContent(join(questDir, "README.md"));
+		for (const subdir of CANONICAL_DOCUMENT_DIRS) {
+			const scanDir = join(questDir, subdir);
+			const docEntries = readEntries(scanDir);
+			if (!docEntries) continue;
+			for (const doc of docEntries) {
+				if (doc.isFile()) stampContent(join(scanDir, doc.name));
+			}
+		}
+	}
+	return parts.sort().join("|");
+}
+
+function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
 	const quests = new Map<string, QuestEntry>();
 	const children = new Map<string, string[]>();
 	const errors: DiscoveryError[] = [];

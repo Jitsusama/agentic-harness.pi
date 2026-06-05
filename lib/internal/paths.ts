@@ -68,6 +68,34 @@ function xdgPath(kind: XdgKind, slug: string): string {
 }
 
 /**
+ * Resolve the pi session store directory, where pi writes one
+ * JSONL log per session under a cwd-encoded subdirectory. Pi
+ * keeps this at `~/.pi/agent/sessions`; the home is injectable
+ * for testing.
+ */
+export function sessionsDir(home = homedir()): string {
+	return join(home, ".pi", "agent", "sessions");
+}
+
+/**
+ * Resolve the single package-level configuration file shared
+ * by every extension in this package. Unlike {@link configDir}
+ * this is not scoped to a consumer slug: it is one file whose
+ * sections are keyed by slug. Honours `XDG_CONFIG_HOME`; falls
+ * back to `~/.config`. The env and home are injectable so the
+ * loader can be tested without mutating the process env.
+ */
+export function packageConfigPath(
+	env: NodeJS.ProcessEnv = process.env,
+	home = homedir(),
+): string {
+	const override = env.XDG_CONFIG_HOME;
+	const root =
+		override && override.length > 0 ? override : join(home, ".config");
+	return join(root, "pi", PACKAGE_DIR, "config.json");
+}
+
+/**
  * Resolve the on-disk configuration directory for one
  * consumer in this package. Use for user-editable
  * configuration files. Honours `XDG_CONFIG_HOME`; falls back

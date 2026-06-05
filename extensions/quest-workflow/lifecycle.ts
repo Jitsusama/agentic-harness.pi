@@ -6,7 +6,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -147,6 +147,29 @@ export function loadQuest(
 	return { ok: true };
 }
 
+/**
+ * Re-read the loaded quest's README and refresh the in-memory
+ * slice (title, kind, status, priority) so an edit to the quest's
+ * own README shows up in the status line without a manual reload.
+ * No-op when no quest is loaded or the README cannot be read.
+ */
+export function refreshLoadedSlice(state: QuestState): void {
+	if (!state.questDir) return;
+	let text: string;
+	try {
+		text = readFileSync(join(state.questDir, "README.md"), "utf8");
+	} catch {
+		// README missing or unreadable; leave the slice as-is.
+		return;
+	}
+	const parsed = parseQuestDoc(text);
+	if (!parsed) return;
+	state.questTitle = parsed.title ?? null;
+	state.questKind = parsed.frontMatter.kind;
+	state.questStatus = parsed.frontMatter.status;
+	state.questPriority = parsed.frontMatter.priority;
+}
+
 /** Unload the currently loaded quest. */
 export function unloadQuest(state: QuestState): void {
 	state.questDir = null;
@@ -277,10 +300,10 @@ export function stampQuestUpdated(state: QuestState): void {
 
 /**
  * Canonicalize a path for prefix comparison: resolve
- * symlinks, normalize `/var` vs `/private/var` on macOS,
- * and lowercase on case-insensitive filesystems where the
- * runtime can detect them. Returns the input on failure so
- * a missing path still compares against something stable.
+ * symlinks and normalize `/var` vs `/private/var` on macOS
+ * via realpath, which also yields the on-disk casing on a
+ * case-insensitive filesystem. Returns the input on failure
+ * so a missing path still compares against something stable.
  */
 function canonicalForCompare(path: string): string {
 	try {
@@ -292,7 +315,7 @@ function canonicalForCompare(path: string): string {
 
 function isUnder(child: string, parent: string): boolean {
 	if (child === parent) return true;
-	return child.startsWith(`${parent}/`);
+	return child.startsWith(`${parent}${sep}`);
 }
 
 /**
@@ -317,12 +340,19 @@ interface PersistedState {
 	 * frontmatter when restoring.
 	 */
 	documentPath: string | null;
+	/**
+	 * The session's working directory at persist time, so a
+	 * resumed session has the cwd without re-deriving it from
+	 * the tree or session store.
+	 */
+	cwd: string | null;
 }
 
-function snapshot(state: QuestState): PersistedState {
+function snapshot(state: QuestState, cwd: string | null): PersistedState {
 	return {
 		questId: state.questId,
 		documentPath: state.documentPath,
+		cwd,
 	};
 }
 
@@ -356,7 +386,7 @@ export function persist(
 	pi: ExtensionAPI,
 	ctx?: ExtensionContext,
 ): void {
-	const current = snapshot(state);
+	const current = snapshot(state, ctx?.cwd ?? null);
 	const key = snapshotKey(current);
 	if (state.lastPersistedKey === key) return;
 	if (state.lastPersistedKey === undefined && ctx) {
@@ -371,7 +401,7 @@ export function persist(
 }
 
 function snapshotKey(s: PersistedState): string {
-	return `${s.questId ?? ""}|${s.documentPath ?? ""}`;
+	return `${s.questId ?? ""}|${s.documentPath ?? ""}|${s.cwd ?? ""}`;
 }
 
 /**
@@ -489,6 +519,40 @@ export function createDocument(
 	// through writeDocumentStage which holds the lock too.
 	atomicWriteUnderLock(state.questDir, path, opts.scaffoldBody);
 	return path;
+}
+
+/** One working tree in the cross-quest inventory. */
+export interface WorktreeInventoryEntry {
+	path: string;
+	branch?: string;
+	questId: string;
+	questTitle: string | null;
+}
+
+/**
+ * Inventory every working tree recorded across all quests,
+ * attributing each to its owning quest. This is what lets the
+ * harness-created trees be seen and reaped in one place instead
+ * of being a mystery pile of directories.
+ */
+export function inventoryWorktrees(
+	state: QuestState,
+): WorktreeInventoryEntry[] {
+	const { index } = discoverQuests(state.questsRoot);
+	const entries: WorktreeInventoryEntry[] = [];
+	for (const quest of index.quests.values()) {
+		const fm = quest.doc.frontMatter;
+		for (const tree of fm.trees ?? []) {
+			const entry: WorktreeInventoryEntry = {
+				path: tree.path,
+				questId: fm.id,
+				questTitle: quest.doc.title ?? null,
+			};
+			if (tree.branch) entry.branch = tree.branch;
+			entries.push(entry);
+		}
+	}
+	return entries.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 /** Discover quests for /quest-list etc. */
@@ -643,6 +707,34 @@ function writeQuestFrontMatter(
 	});
 }
 
+/**
+ * Set a quest's parent by directory, stamping `updated` and
+ * appending a Journey entry. Used by the reparent verb, which
+ * may move quests other than the loaded one.
+ */
+export function setQuestParent(
+	questDir: string,
+	newParent: string | null,
+): { ok: true } | { ok: false; guidance: string } {
+	const result = writeQuestFrontMatter(questDir, (fm) => ({
+		...fm,
+		parent: newParent,
+	}));
+	if (!result.ok) return result;
+	appendJourneyByPath(questDir, `Reparented to ${newParent ?? "top level"}.`);
+	return { ok: true };
+}
+
+/** Set a quest's status by directory, stamping `updated`. */
+export function setQuestStatusByDir(
+	questDir: string,
+	status: QuestFrontMatter["status"],
+): { ok: true } | { ok: false; guidance: string } {
+	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, status }));
+	if (!result.ok) return result;
+	return { ok: true };
+}
+
 /** Add an alias to the loaded quest. No-op if already present. */
 export function addAliasToLoaded(
 	state: QuestState,
@@ -692,10 +784,15 @@ export function attachSessionToLoaded(
 	const result = writeQuestFrontMatter(state.questDir, (fm) => {
 		const existing = fm.sessions.find((s) => s.id === session.id);
 		if (existing) {
-			// Refresh status to active and merge any new fields.
+			// Refresh status to active and merge any new fields, but keep
+			// the original started: it records when the session first
+			// touched this quest, not the latest attach. Letting the
+			// incoming started win would defeat the no-op guard below and
+			// churn the README on every load.
 			const merged: QuestSession = {
 				...existing,
 				...session,
+				started: existing.started ?? session.started,
 				status: "active",
 			};
 			if (JSON.stringify(merged) === JSON.stringify(existing)) {
@@ -712,6 +809,31 @@ export function attachSessionToLoaded(
 	});
 	if (!result.ok) return result;
 	return { ok: true, added };
+}
+
+/**
+ * Attach the current pi session to the loaded quest.
+ *
+ * This is the automatic-capture path: the session_start and
+ * load flows call it so a quest's sessions frontmatter records
+ * where work happened without the user running session-attach by
+ * hand. It refreshes an existing record rather than duplicating,
+ * and no-ops cleanly when no quest is loaded or the session id is
+ * unknown.
+ */
+export function attachCurrentSession(
+	state: QuestState,
+	opts: { id: string | undefined; cwd?: string },
+): { attached: boolean } {
+	if (!state.questDir || !opts.id) return { attached: false };
+	const session: QuestSession = {
+		id: opts.id,
+		started: new Date().toISOString(),
+		status: "active",
+	};
+	if (opts.cwd?.trim()) session.cwd = opts.cwd.trim();
+	const result = attachSessionToLoaded(state, session);
+	return { attached: result.ok };
 }
 
 /** Mark a session as detached on the loaded quest. */

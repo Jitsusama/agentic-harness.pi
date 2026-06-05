@@ -6,12 +6,17 @@
  * the tool only dispatches.
  */
 
+import { sessionsDir } from "../../lib/internal/paths.js";
 import {
 	discoverQuests,
 	type QuestDocumentEntry,
 	type QuestEntry,
 	type QuestIndex,
 } from "../../lib/internal/quest/discovery.js";
+import {
+	indexSessionFiles,
+	questLastActivity,
+} from "../../lib/internal/quest/session-liveness.js";
 import {
 	getResolutionFallback,
 	type Identity,
@@ -33,7 +38,7 @@ export interface FindParams {
 	query?: string;
 	since?: string;
 	until?: string;
-	field?: "started" | "updated" | "due" | "eta";
+	field?: "started" | "updated" | "due" | "eta" | "activity";
 	priority?: string;
 	kind?: string;
 	status?: string;
@@ -52,6 +57,8 @@ export interface FindHit {
 	updated: string;
 	dir: string;
 	summary?: string;
+	/** Newest session activity, populated only for activity queries. */
+	lastActivity?: string;
 }
 
 /**
@@ -90,16 +97,30 @@ function parseDate(input?: string): Date | undefined {
 	return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
-function matchesQuery(entry: QuestEntry, q: string): boolean {
-	const needle = q.toLowerCase();
+/**
+ * Match a quest against a free-text query, token by token. The
+ * query is split on whitespace and every token must appear
+ * somewhere across the quest's title, id, body or alias values
+ * (an AND across a combined haystack), so a multi-word query no
+ * longer demands one contiguous substring. An empty query
+ * matches everything.
+ */
+export function matchesQuery(entry: QuestEntry, q: string): boolean {
+	const tokens = q
+		.toLowerCase()
+		.split(/\s+/)
+		.filter((t) => t.length > 0);
+	if (tokens.length === 0) return true;
 	const fm = entry.doc.frontMatter;
-	if (entry.doc.title?.toLowerCase().includes(needle)) return true;
-	if (fm.id.toLowerCase().includes(needle)) return true;
-	if (entry.doc.body.toLowerCase().includes(needle)) return true;
-	for (const alias of fm.aliases) {
-		if (alias.value.toLowerCase().includes(needle)) return true;
-	}
-	return false;
+	const haystack = [
+		entry.doc.title ?? "",
+		fm.id,
+		entry.doc.body,
+		...fm.aliases.map((a) => a.value),
+	]
+		.join("\n")
+		.toLowerCase();
+	return tokens.every((token) => haystack.includes(token));
 }
 
 function firstSummaryLine(body: string): string | undefined {
@@ -146,6 +167,13 @@ export function findQuestEntries(
 	const { index } = discoverQuests(state.questsRoot);
 	const since = parseDate(params.since);
 	const until = parseDate(params.until);
+	const byActivity = params.field === "activity";
+	// Activity is read from the session store. Index the store once
+	// for the whole query rather than re-listing it per quest, and
+	// only when the caller actually filters or sorts by activity.
+	const activityIndex = byActivity
+		? indexSessionFiles(sessionsDir())
+		: undefined;
 	const matches: { hit: FindHit; entry: QuestEntry; _sortKey: number }[] = [];
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
@@ -160,7 +188,17 @@ export function findQuestEntries(
 			const types = new Set(fm.aliases.map((a) => a.type));
 			if (!types.has(params.refType)) continue;
 		}
-		const fieldDate = parseDate(fieldValue(fm, params.field));
+		const lastActivity =
+			byActivity && activityIndex
+				? questLastActivity(fm.sessions, activityIndex)
+				: undefined;
+		const fieldDate = byActivity
+			? parseDate(lastActivity)
+			: parseDate(fieldValue(fm, params.field));
+		// Under an activity window, a quest with no recorded activity
+		// is not "active in this window" and is excluded, rather than
+		// slipping through the date guards on an undefined date.
+		if (byActivity && (since || until) && !fieldDate) continue;
 		if (since && fieldDate && fieldDate < since) continue;
 		if (until && fieldDate && fieldDate > until) continue;
 		if (params.query && !matchesQuery(entry, params.query)) continue;
@@ -177,10 +215,12 @@ export function findQuestEntries(
 			dir: entry.dir,
 		};
 		if (summary) hit.summary = summary;
+		if (lastActivity) hit.lastActivity = lastActivity;
+		const sortBasis = byActivity ? parseDate(lastActivity) : updatedDate;
 		matches.push({
 			hit,
 			entry,
-			_sortKey: updatedDate ? -updatedDate.getTime() : 0,
+			_sortKey: sortBasis ? -sortBasis.getTime() : 0,
 		});
 	}
 	matches.sort((a, b) => a._sortKey - b._sortKey);
@@ -431,10 +471,22 @@ export async function showLoaded(
 	state: QuestState,
 ): Promise<QuestShowResult | undefined> {
 	if (!state.questId) return undefined;
+	return showQuestById(state, state.questId);
+}
+
+/**
+ * Build the full `show` projection for any quest by id, without
+ * touching the loaded state. This is what lets `show <id>`
+ * inspect a sibling read-only instead of having to load it.
+ */
+export async function showQuestById(
+	state: QuestState,
+	questId: string,
+): Promise<QuestShowResult | undefined> {
 	const { index } = discoverQuests(state.questsRoot);
-	const me = index.quests.get(state.questId);
+	const me = index.quests.get(questId);
 	if (!me) return undefined;
-	const links = linksForQuest(index, state.questId, {});
+	const links = linksForQuest(index, questId, {});
 	const { cast, unresolved } = await resolveCast(extractCast(me.doc.body));
 	const journey = extractJourneyEntries(me.doc.body, 5);
 	return {

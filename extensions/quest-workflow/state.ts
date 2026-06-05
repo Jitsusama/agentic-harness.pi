@@ -13,7 +13,6 @@
  * and the discipline gates without re-reading on every turn.
  */
 
-import { join } from "node:path";
 import type {
 	DocumentKind,
 	QuestKind,
@@ -82,20 +81,15 @@ export interface QuestState {
 }
 
 /**
- * Build a fresh, idle state. The questsRoot is taken from
- * `QUEST_WORKFLOW_ROOT` when set, otherwise the per-package
- * XDG data dir. Callers pass the home directory so the
- * default does not need a process-wide side-effect.
+ * Build a fresh, idle state. The caller resolves the
+ * questsRoot from the package config (see
+ * `resolveQuestsRoot` in config.ts) and passes it in, so
+ * this stays a pure constructor with no environment or
+ * filesystem side-effects.
  */
-export function createQuestState(opts: {
-	homeDir: string;
-	dataDir: string;
-}): QuestState {
-	const override = process.env.QUEST_WORKFLOW_ROOT;
-	const root =
-		override && override.length > 0 ? override : join(opts.dataDir, "quests");
+export function createQuestState(opts: { questsRoot: string }): QuestState {
 	return {
-		questsRoot: root,
+		questsRoot: opts.questsRoot,
 		questDir: null,
 		questId: null,
 		questTitle: null,

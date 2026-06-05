@@ -43,15 +43,39 @@ export interface QuestRowBrief {
 	id: string;
 	kind: QuestKind;
 	status: QuestStatus;
+	priority: string;
 	title: string | null;
 }
 
-/** Render one brief row as a single line. */
+/**
+ * Render one brief row as a single parsable line. The kind,
+ * status and priority are spelled out as `key=value` words
+ * rather than glyphs so the agent reads them without a legend;
+ * the glyph form lives in {@link renderRowGlyph} for the
+ * human-facing expanded view.
+ */
 export function renderRowBrief(row: QuestRowBrief): string {
+	const title = row.title ?? "(untitled)";
+	return `${row.id} kind=${row.kind} status=${row.status} priority=${row.priority} ${title}`;
+}
+
+/** Render one row in the glyph form for the expanded human view. */
+export function renderRowGlyph(row: QuestRowBrief): string {
 	const kindGlyph = KIND_GLYPHS[row.kind];
 	const statusGlyph = STATUS_GLYPHS[row.status];
 	const title = row.title ?? "(untitled)";
 	return `${row.id} ${kindGlyph} ${statusGlyph} ${title}`;
+}
+
+/** A legend mapping each kind and status glyph to its word. */
+export function questGlyphLegend(): string {
+	const kinds = Object.entries(KIND_GLYPHS)
+		.map(([word, glyph]) => `${glyph} ${word}`)
+		.join("  ");
+	const statuses = Object.entries(STATUS_GLYPHS)
+		.map(([word, glyph]) => `${glyph} ${word}`)
+		.join("  ");
+	return `Legend -- kind: ${kinds}; status: ${statuses}`;
 }
 
 /** A document listed under a quest. */
@@ -85,7 +109,7 @@ export interface QuestRowExpanded extends QuestRowBrief {
 
 /** Render one expanded row as a small block of lines. */
 export function renderRowExpanded(row: QuestRowExpanded): string {
-	const lines = [renderRowBrief(row)];
+	const lines = [renderRowGlyph(row)];
 	const parent = row.parent ?? "none";
 	// Sparse rows (e.g. the synthetic (orphans) tree node)
 	// arrive with an empty updated; suppress the dangling
@@ -195,9 +219,10 @@ export function renderListingExpanded(details: ListingDetails): string {
 			.join("\n");
 	});
 	const body = blocks.join("\n\n");
-	if (details.remaining === 0) return body;
+	const legend = questGlyphLegend();
+	if (details.remaining === 0) return `${legend}\n\n${body}`;
 	const nextOffset = details.offset + details.rows.length;
-	return `${body}\n\n... and ${details.remaining} more (offset ${nextOffset} to continue)`;
+	return `${legend}\n\n${body}\n\n... and ${details.remaining} more (offset ${nextOffset} to continue)`;
 }
 
 /**

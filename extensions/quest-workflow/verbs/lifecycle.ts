@@ -28,6 +28,7 @@ import {
 import { parseRef, urlForRef } from "../../../lib/refs/index.js";
 import {
 	appendJourneyEntry,
+	attachCurrentSession,
 	ensureQuestsRoot,
 	focusDocument,
 	listAllQuests,
@@ -35,7 +36,7 @@ import {
 	unfocusDocument,
 	unloadQuest,
 } from "../lifecycle.js";
-import { buildRowExpansion, showLoaded } from "../lookup.js";
+import { buildRowExpansion, showLoaded, showQuestById } from "../lookup.js";
 
 /**
  * Priority ladder for sorting list output. Lower numbers
@@ -257,11 +258,14 @@ export async function load(
 	const priorSessions = loaded?.frontMatter.sessions ?? [];
 	const sid = currentSessionId(ctx, undefined);
 
-	let proposeAttach: { sessionId: string; cwd?: string } | undefined;
-	if (sid && !priorSessions.some((s) => s.id === sid)) {
-		proposeAttach = { sessionId: sid };
-		if (ctx.cwd) proposeAttach.cwd = ctx.cwd;
-	}
+	// Capture the current session automatically rather than
+	// nudging the user to run session-attach by hand: this is
+	// what keeps the sessions frontmatter honest so reopening
+	// can later resolve where work happened.
+	const attached = attachCurrentSession(state, {
+		id: sid,
+		cwd: ctx.cwd,
+	}).attached;
 
 	const resumable = priorSessions
 		.filter((s) => s.id !== sid)
@@ -277,14 +281,14 @@ export async function load(
 	if (resumable.length > 0) {
 		message += `. ${resumable.length} prior session(s) on file; resume one with \`/quest-resume <id>\``;
 	}
-	if (proposeAttach) {
-		message += `. Attach this pi session with \`quest session-attach\` if you want it tracked.`;
+	if (attached) {
+		message += `. Tracking this pi session on the quest.`;
 	}
 
 	return ok(message, {
 		id: state.questId,
 		dir: state.questDir,
-		proposeAttach,
+		attached,
 		resumable,
 	});
 }
@@ -296,11 +300,23 @@ export function unload(state: QuestState): QuestResult {
 	return ok(`Unloaded ${prior}.`);
 }
 
-export async function show(state: QuestState): Promise<QuestResult> {
-	if (!state.questDir) return refuse("No quest loaded.");
+export async function show(
+	state: QuestState,
+	params: QuestToolParams = { action: "show" },
+): Promise<QuestResult> {
+	// An explicit id projects any quest read-only, without
+	// changing what is loaded; otherwise show the loaded quest.
+	if (params.id) {
+		const projection = await showQuestById(state, params.id);
+		if (!projection) return refuse(`No quest with id "${params.id}".`);
+		return ok(renderShow(projection), { projection, readOnly: true });
+	}
+	if (!state.questDir) {
+		return refuse("No quest loaded. Pass an id to inspect a specific quest.");
+	}
 	const projection = await showLoaded(state);
 	if (!projection) return refuse("Could not project the loaded quest.");
-	return ok(renderShow(projection), { projection });
+	return ok(renderShow(projection), { projection, readOnly: false });
 }
 
 function renderShow(
@@ -413,6 +429,7 @@ export function list(state: QuestState, params: QuestToolParams): QuestResult {
 			id: row.id,
 			kind: row.kind,
 			status: row.status,
+			priority: row.priority,
 			title: row.title,
 		};
 		return renderRowBrief(brief);

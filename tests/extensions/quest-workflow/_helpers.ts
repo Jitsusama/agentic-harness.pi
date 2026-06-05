@@ -1,12 +1,11 @@
 /**
- * Shared helpers for quest-workflow tests. Currently just
- * an env-isolation guard: the workflow reads
- * `QUEST_WORKFLOW_ROOT` from the process env to override
- * the default questsRoot, so a developer who has it set in
- * their shell would otherwise see every test creating
- * quests inside their real registry. Each test file wraps
- * its beforeEach/afterEach in this helper to scrub the
- * variable and restore it afterwards.
+ * Shared helpers for quest-workflow tests: a defensive
+ * env-isolation guard. The workflow no longer reads
+ * `QUEST_WORKFLOW_ROOT` (the quests root comes from the
+ * package config, and tests pass an explicit root to
+ * `createQuestState`), so this guard now only scrubs a
+ * deprecated variable that a developer might still have in
+ * their shell, keeping the environment clean across runs.
  */
 
 const VAR = "QUEST_WORKFLOW_ROOT";

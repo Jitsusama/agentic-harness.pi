@@ -15,7 +15,6 @@
  * slash commands for the primary surface.
  */
 
-import { homedir } from "node:os";
 import { StringEnum } from "@mariozechner/pi-ai";
 import type {
 	ExtensionAPI,
@@ -24,6 +23,10 @@ import type {
 import { keyHint, SessionManager } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import {
+	getSection,
+	loadPackageConfig,
+} from "../../lib/internal/config/loader.js";
 import { dataDir } from "../../lib/internal/paths.js";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.js";
 import { discoverQuests } from "../../lib/internal/quest/discovery.js";
@@ -40,11 +43,19 @@ import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
 import { registerBuiltinTreeProviders } from "../../lib/tree/index.js";
 import { QUEST_ACTIONS } from "./actions.js";
+import {
+	parseQuestWorkflowConfig,
+	QUEST_WORKFLOW_SLUG,
+	resolveQuestsRoot,
+} from "./config.js";
 import { enforceQuest, isFocusedDocWrite } from "./enforce.js";
 import {
+	attachCurrentSession,
+	detachSessionFromLoaded,
 	listAllQuests,
 	loadQuest,
 	persist,
+	refreshLoadedSlice,
 	refreshProgress,
 	restore,
 	restoreFromCwd,
@@ -56,14 +67,14 @@ import {
 	isListingDetails,
 	renderListingExpanded,
 } from "./render-rows.js";
-
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
+import { currentSessionId } from "./verbs/shared.js";
 
 const DEFAULT_WIDTH = 80;
 const CALL_PREFIX_WIDTH = 14;
 
-export default function questWorkflow(pi: ExtensionAPI) {
+export default async function questWorkflow(pi: ExtensionAPI) {
 	// Seed the pluggable registries with their built-in
 	// types on activate. Idempotent: re-registers cleanly.
 	registerBuiltinRefTypes();
@@ -73,10 +84,19 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	registerBuiltinTerminalDrivers();
 	registerBuiltinTreeProviders();
 
-	const state = createQuestState({
-		homeDir: homedir(),
-		dataDir: dataDir("quest-workflow"),
-	});
+	// Resolve the quests root from the package config file.
+	// A missing file or a malformed section degrades to the
+	// default data-dir location; the config query verb is
+	// where provenance and any warning surface to the user.
+	const loaded = await loadPackageConfig();
+	const section = loaded.ok
+		? getSection(loaded.config, QUEST_WORKFLOW_SLUG, parseQuestWorkflowConfig)
+		: { value: {} };
+	const questsRoot = resolveQuestsRoot(
+		section.value,
+		dataDir("quest-workflow"),
+	);
+	const state = createQuestState({ questsRoot });
 
 	// Expose the PR-workflow bridge so pr-workflow can
 	// scaffold a sidequest when it loads a PR. The
@@ -118,7 +138,7 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id(s) to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
@@ -135,7 +155,8 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			),
 			parent: Type.Optional(
 				Type.String({
-					description: "create: parent quest id when minting a subquest.",
+					description:
+						"create: parent quest id when minting a subquest. reparent: the new parent quest id, or `null` to move the target(s) to top level.",
 				}),
 			),
 			kind: Type.Optional(
@@ -258,6 +279,12 @@ export default function questWorkflow(pi: ExtensionAPI) {
 				Type.Boolean({
 					description:
 						"tree-prune: override safety refusals (dirty working tree, unmerged branch, attached session). Destructive: passing true is consent to lose uncommitted work, so the agent should confirm with the user first.",
+				}),
+			),
+			dryRun: Type.Optional(
+				Type.Boolean({
+					description:
+						"reparent and bulk conclude/retire: preview the planned changes and report exactly what would change without writing anything. Use undo to reverse the last applied structural edit.",
 				}),
 			),
 			skipTree: Type.Optional(
@@ -475,6 +502,11 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {
+		// Re-read the loaded quest's README so a title, status
+		// or priority edited in place (not through a verb that
+		// already updates state) is reflected in the status line
+		// without a manual reload.
+		refreshLoadedSlice(state);
 		refreshProgress(state);
 		updateScoreboard(state, ctx);
 	});
@@ -524,6 +556,15 @@ export default function questWorkflow(pi: ExtensionAPI) {
 			}
 			if (!state.questId) restoreFromCwd(state, pi, ctx);
 		}
+		// Once a quest is loaded (restored, autoloaded or
+		// resolved from the cwd), record this session on it so
+		// the sessions frontmatter reflects where work happens.
+		if (state.questId) {
+			attachCurrentSession(state, {
+				id: currentSessionId(ctx, undefined),
+				cwd: ctx.cwd,
+			});
+		}
 		updateScoreboard(state, ctx);
 	});
 
@@ -533,7 +574,13 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	// Pass our own bridge so an out-of-order shutdown
 	// can only clear its own registration, never a
 	// fresher instance's.
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (_event, ctx) => {
+		// Mark this session detached on the loaded quest so its
+		// liveness reads correctly after the process exits.
+		if (state.questId) {
+			const sid = currentSessionId(ctx, undefined);
+			if (sid) detachSessionFromLoaded(state, sid);
+		}
 		unregisterQuestPrBridge(ownBridge);
 	});
 

@@ -2,18 +2,27 @@
  * Configuration-file defaults for pr-workflow reviewer setup.
  *
  * The extension intentionally ships with no built-in council or
- * judge roster. Users can opt into defaults by writing a JSON file
- * at `$PR_WORKFLOW_CONFIG`, `$XDG_CONFIG_HOME/pi/pr-workflow.json`,
- * or `~/.config/pi/pr-workflow.json`.
+ * judge roster. Users opt into defaults through the `pr-workflow`
+ * section of the unified package config at
+ * `~/.config/pi/agentic-harness.pi/config.json`. During the
+ * transition the legacy standalone file is still read as a
+ * fallback when that section is absent: `$PR_WORKFLOW_CONFIG`,
+ * `$XDG_CONFIG_HOME/pi/pr-workflow.json`, or
+ * `~/.config/pi/pr-workflow.json`.
  */
 
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { loadPackageConfig } from "../../lib/internal/config/loader.js";
+import { packageConfigPath } from "../../lib/internal/paths.js";
 import type {
 	CouncilReviewer,
 	ReviewerThinkingLevel,
 } from "../../lib/subagent/subagent.js";
+
+/** Section key for pr-workflow in the unified package config. */
+export const PR_WORKFLOW_SLUG = "pr-workflow";
 
 const CONFIG_ENV_VAR = "PR_WORKFLOW_CONFIG";
 const CONFIG_FILENAME = "pr-workflow.json";
@@ -78,7 +87,30 @@ export function prWorkflowConfigPath(
 /** Load and validate reviewer defaults from the config file. */
 export async function loadPrWorkflowConfig(
 	path = prWorkflowConfigPath(),
+	packagePath = packageConfigPath(),
 ): Promise<PrWorkflowConfigLoadResult> {
+	// During the transition the unified package config wins
+	// when it carries a pr-workflow section; otherwise we
+	// fall back to the legacy standalone file below.
+	const pkg = await loadPackageConfig(packagePath);
+	if (pkg.ok) {
+		const raw = pkg.config.sections[PR_WORKFLOW_SLUG];
+		if (raw !== undefined) {
+			const parsed = parsePrWorkflowConfig(raw);
+			if (!parsed.ok) {
+				return {
+					ok: false,
+					path: pkg.path,
+					error: `Invalid pr-workflow section in ${pkg.path}: ${parsed.error}`,
+				};
+			}
+			return {
+				ok: true,
+				config: { path: pkg.path, defaults: parsed.defaults },
+			};
+		}
+	}
+
 	let text: string;
 	try {
 		text = await readFile(path, "utf8");

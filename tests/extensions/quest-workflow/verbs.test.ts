@@ -1,10 +1,21 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
-import { clearUrlFetchers, registerUrlFetcher } from "../../../lib/quest/index";
+import {
+	clearUrlFetchers,
+	parseQuestFrontMatter,
+	registerUrlFetcher,
+	serializeQuestFrontMatter,
+} from "../../../lib/quest/index";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
@@ -31,7 +42,7 @@ function fakeCtx(cwd: string, sessionId = "sess-1") {
 }
 
 function buildState() {
-	return createQuestState({ homeDir: tmpRoot, dataDir: tmpRoot });
+	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
 
 const envGuard = createEnvGuard();
@@ -303,6 +314,44 @@ describe("spawn verbs", () => {
 		expect(calls[0].env).toEqual({ QUEST_WORKFLOW_AUTOLOAD_ID: a.id });
 	});
 
+	it("prefers a registered tree path over the quest dir", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+
+		// Register a real tree directory in the quest frontmatter.
+		const treeDir = join(tmpRoot, "work-tree");
+		mkdirSync(treeDir, { recursive: true });
+		const readmePath = join(state.questDir as string, "README.md");
+		const parsed = parseQuestFrontMatter(readFileSync(readmePath, "utf8"));
+		if (!parsed) throw new Error("could not parse quest frontmatter");
+		parsed.frontMatter.trees = [{ path: treeDir, providerId: "git-worktree" }];
+		writeFileSync(
+			readmePath,
+			`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+		);
+
+		const calls: { cwd?: string }[] = [];
+		registerTerminalDriver({
+			id: "test",
+			available: () => true,
+			async spawn(req) {
+				calls.push({ cwd: req.cwd });
+			},
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "spawn-tab",
+		});
+		expect(result.ok).toBe(true);
+		expect(calls[0].cwd).toBe(treeDir);
+		if (!result.ok) throw new Error("expected ok");
+		expect((result.details as { cwdSource?: string }).cwdSource).toBe("tree");
+	});
+
 	it("spawn-tab id:OTHER targets the other quest without mutating loaded state", async () => {
 		const state = buildState();
 		const loaded = await createQuest(state, "Loaded");
@@ -505,8 +554,41 @@ describe("list filters", () => {
 	});
 });
 
+describe("show by id", () => {
+	it("projects another quest read-only without changing the loaded quest", async () => {
+		const state = buildState();
+		const loaded = await createQuest(state, "Loaded quest");
+		const other = await createQuest(state, "Other quest");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: loaded.id,
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "show",
+			id: other.id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain(other.id);
+		expect(result.message).toContain("Other quest");
+		// The loaded quest is unchanged.
+		expect(state.questId).toBe(loaded.id);
+		expect((result.details as { readOnly?: boolean }).readOnly).toBe(true);
+	});
+
+	it("refuses an unknown id", async () => {
+		const state = buildState();
+		await createQuest(state, "Only quest");
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "show",
+			id: "QEST-20260604-NOPE00",
+		});
+		expect(result.ok).toBe(false);
+	});
+});
+
 describe("listing verbs: brief, expanded and pagination", () => {
-	it("list defaults to one brief row per quest with id, glyphs and title", async () => {
+	it("list defaults to one parsable brief row per quest with id, words and title", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha quest");
 		await createQuest(state, "Bravo quest");
@@ -518,11 +600,11 @@ describe("listing verbs: brief, expanded and pagination", () => {
 		expect(result.message).toContain(a.id);
 		expect(result.message).toContain("Alpha quest");
 		expect(result.message).toContain("Bravo quest");
-		// Glyphs present: a kind glyph for the row and ○
-		// for active status. The default kind is sidequest;
-		// it carries the ◇ glyph.
-		expect(result.message).toMatch(/[\u25c6\u25c7\u25c8]/);
-		expect(result.message).toContain("\u25cb");
+		// R1: the brief text the agent reads carries parsable
+		// words, not glyphs. The default kind is sidequest.
+		expect(result.message).toContain("kind=sidequest");
+		expect(result.message).toContain("status=active");
+		expect(result.message).not.toMatch(/[\u25c6\u25c7\u25c8]/);
 		const details = result.details as { total: number; remaining: number };
 		expect(details.total).toBe(2);
 		expect(details.remaining).toBe(0);

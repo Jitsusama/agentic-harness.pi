@@ -30,7 +30,7 @@ function fakeCtx(cwd: string, sessionId = "sess-1") {
 	} as unknown as Parameters<typeof handle>[2];
 }
 function buildState() {
-	return createQuestState({ homeDir: tmpRoot, dataDir: tmpRoot });
+	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
 
 async function git(cwd: string, ...args: string[]) {
@@ -206,6 +206,81 @@ describe("reactive no-tree guardian", () => {
 			);
 			expect(verdict).toBeUndefined();
 		}
+	});
+
+	it("allows build-stage writes inside a recorded session's git working dir", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+		// Record a session whose cwd is the git repo, then cross
+		// into build without a registered tree. The gate should
+		// stand down for writes inside that working directory.
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "session-attach",
+			sessionId: "sess-code",
+			cwd: repoRoot,
+		});
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "build",
+			skipTree: true,
+		});
+		const verdict = enforceQuest(
+			state,
+			"write",
+			{ path: join(repoRoot, "src/foo.ts") },
+			repoRoot,
+		);
+		expect(verdict).toBeUndefined();
+	});
+
+	it("still blocks writes outside the active session's code dir", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "session-attach",
+			sessionId: "sess-code",
+			cwd: repoRoot,
+		});
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "build",
+			skipTree: true,
+		});
+		// A write outside the recorded code dir (and outside the quest)
+		// must still be blocked: the stand-down is scoped to the code
+		// home, not the whole filesystem.
+		const verdict = enforceQuest(
+			state,
+			"write",
+			{ path: join(tmpRoot, "outside.ts") },
+			repoRoot,
+		);
+		expect(verdict?.block).toBe(true);
+	});
+
+	it("does not stand down for a detached session's code dir", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "session-attach",
+			sessionId: "sess-code",
+			cwd: repoRoot,
+		});
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "session-detach",
+			sessionId: "sess-code",
+		});
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "build",
+			skipTree: true,
+		});
+		// The only session in the git tree is detached, so it is not a
+		// live code home and the gate must fire.
+		const verdict = enforceQuest(
+			state,
+			"write",
+			{ path: join(repoRoot, "src/foo.ts") },
+			repoRoot,
+		);
+		expect(verdict?.block).toBe(true);
 	});
 
 	it("allows writes when a tree exists", async () => {

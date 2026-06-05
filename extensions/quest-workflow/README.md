@@ -18,6 +18,11 @@ shipped and tested.
 - **Priority and rank**: `promote`, `demote`, `drive`,
   `park`, `defer`, `top`, `bottom`, `bump`, `sink`,
   `before`, `after`, `renumber`.
+- **Structural edits**: `reparent` (single or comma-
+  separated batch), bulk `conclude` / `retire` (triggered
+  by a comma-separated `id` set), and `undo`. All
+  structural edits are atomic, support a `dryRun` preview,
+  and are journalled so `undo` can reverse the last one.
 - **Aliases**: `alias-add`, `alias-remove`.
 - **Sessions**: `session-attach`, `session-detach`,
   `session-rename`.
@@ -66,8 +71,9 @@ entry; it never triggers behaviour.
 
 Quest directories live under the `questsRoot`. The default
 is `~/.local/share/pi/agentic-harness.pi/quest-workflow/quests/`
-(per XDG); override with the `QUEST_WORKFLOW_ROOT` environment
-variable.
+(per XDG); override it by setting `questsRoot` in the
+`quest-workflow` section of the package config file at
+`~/.config/pi/agentic-harness.pi/config.json`.
 
 ## Related Extensions
 
