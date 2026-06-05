@@ -5,8 +5,12 @@
  * can be trusted and reversed.
  */
 
+import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.js";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
-import { planReparent } from "../../../lib/internal/quest/structural.js";
+import {
+	planReparent,
+	planStatusChange,
+} from "../../../lib/internal/quest/structural.js";
 import {
 	dropLastStructuralOp,
 	lastStructuralOp,
@@ -101,6 +105,89 @@ export function reparent(
  * Reverse the most recent structural operation, restoring each
  * quest's recorded old value. Refuses when the journal is empty.
  */
+/**
+ * Bulk conclude or retire an explicit comma-separated id set.
+ * Atomic on any missing target, dry-run previewable, journalled
+ * for undo. Unlike the single-quest conclude, this does not
+ * prune trees: it is a lightweight, reversible status sweep.
+ */
+export function bulkConcludeOrRetire(
+	state: QuestState,
+	action: "conclude" | "retire",
+	params: QuestToolParams,
+): QuestResult {
+	const targets = (params.id ?? "")
+		.split(",")
+		.map((t) => t.trim())
+		.filter((t) => t.length > 0);
+	if (targets.length === 0) {
+		return refuse("Pass the quest ids to sweep in `id`, comma-separated.");
+	}
+	const reason = params.reason?.trim();
+	if (action === "retire" && !reason) {
+		return refuse(
+			"Bulk retire needs a `reason`: why are these being abandoned?",
+		);
+	}
+	const newStatus = action === "conclude" ? "concluded" : "retired";
+
+	const { index } = discoverQuests(state.questsRoot);
+	const plan = planStatusChange(index, targets, newStatus);
+	if (plan.errors.length > 0) {
+		return refuse(
+			`Refusing the batch; nothing was changed:\n- ${plan.errors.join("\n- ")}`,
+		);
+	}
+	if (plan.changes.length === 0) {
+		return ok(`Nothing to ${action}; every target is already ${newStatus}.`, {
+			changes: [],
+			dryRun: Boolean(params.dryRun),
+		});
+	}
+
+	if (params.dryRun) {
+		const lines = plan.changes
+			.map((c) => `  ${c.id}: ${c.oldStatus} -> ${c.newStatus}`)
+			.join("\n");
+		return ok(
+			`Dry run: would ${action} ${plan.changes.length} quest(s).\n${lines}`,
+			{ changes: plan.changes, dryRun: true },
+		);
+	}
+
+	const journey =
+		action === "conclude"
+			? "Concluded the quest (bulk)."
+			: `Retired the quest (bulk): ${reason}.`;
+	for (const change of plan.changes) {
+		const entry = index.quests.get(change.id);
+		if (!entry) continue;
+		const result = setQuestStatusByDir(
+			entry.dir,
+			newStatus as QuestFrontMatter["status"],
+		);
+		if (!result.ok) return refuse(result.guidance);
+		appendJourneyByPath(entry.dir, journey);
+	}
+	recordStructuralOp(
+		state.questsRoot,
+		action,
+		plan.changes.map((c) => ({
+			id: c.id,
+			field: "status" as const,
+			old: c.oldStatus,
+			new: c.newStatus,
+		})),
+	);
+	return ok(
+		`${action === "conclude" ? "Concluded" : "Retired"} ${plan.changes.length} quest(s).`,
+		{
+			changes: plan.changes,
+			dryRun: false,
+		},
+	);
+}
+
 export function undo(state: QuestState): QuestResult {
 	const last = lastStructuralOp(state.questsRoot);
 	if (!last) {

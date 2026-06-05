@@ -41,10 +41,18 @@ async function createQuest(
 	return result.details as { id: string; path: string };
 }
 
-function parentOf(id: string): string {
+function fieldOf(id: string, key: string): string {
 	const text = readFileSync(join(tmpRoot, "quests", id, "README.md"), "utf8");
-	const line = text.split("\n").find((l) => l.startsWith("parent:"));
-	return (line ?? "").replace("parent:", "").trim();
+	const line = text.split("\n").find((l) => l.startsWith(`${key}:`));
+	return (line ?? "").replace(`${key}:`, "").trim();
+}
+
+function parentOf(id: string): string {
+	return fieldOf(id, "parent");
+}
+
+function statusOf(id: string): string {
+	return fieldOf(id, "status");
 }
 
 const envGuard = createEnvGuard();
@@ -176,6 +184,66 @@ describe("reparent verb", () => {
 		});
 		expect(result.ok).toBe(false);
 		expect(result.guidance).toMatch(/nothing to undo/i);
+	});
+
+	it("bulk retires a comma-separated set and is undoable", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "A");
+		const b = await createQuest(state, "B");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "retire",
+			id: `${a.id},${b.id}`,
+			reason: "duplicates",
+		});
+		expect(result.ok).toBe(true);
+		expect(statusOf(a.id)).toBe("retired");
+		expect(statusOf(b.id)).toBe("retired");
+
+		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+		});
+		expect(undone.ok).toBe(true);
+		expect(statusOf(a.id)).toBe("active");
+		expect(statusOf(b.id)).toBe("active");
+	});
+
+	it("bulk conclude previews under dryRun without writing", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "A");
+		const b = await createQuest(state, "B");
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: `${a.id},${b.id}`,
+			dryRun: true,
+		});
+		expect(result.ok).toBe(true);
+		expect(statusOf(a.id)).toBe("active");
+		expect(statusOf(b.id)).toBe("active");
+	});
+
+	it("bulk retire needs a reason", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "A");
+		const b = await createQuest(state, "B");
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "retire",
+			id: `${a.id},${b.id}`,
+		});
+		expect(result.ok).toBe(false);
+		expect(result.guidance).toMatch(/reason/i);
+	});
+
+	it("bulk refuses the whole set when a target is missing", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "A");
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: `${a.id},QEST-20260604-GONE99`,
+		});
+		expect(result.ok).toBe(false);
+		expect(result.guidance).toMatch(/GONE99/);
+		expect(statusOf(a.id)).toBe("active");
 	});
 
 	it("moves a quest back to top level with parent=null", async () => {

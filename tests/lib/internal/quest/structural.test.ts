@@ -7,11 +7,18 @@ import {
 	discoverQuests,
 	type QuestIndex,
 } from "../../../../lib/internal/quest/discovery";
-import { planReparent } from "../../../../lib/internal/quest/structural";
+import {
+	planReparent,
+	planStatusChange,
+} from "../../../../lib/internal/quest/structural";
 
 let root: string;
 
-function writeQuest(id: string, parent: string | null): void {
+function writeQuest(
+	id: string,
+	parent: string | null,
+	status = "active",
+): void {
 	const dir = join(root, id);
 	mkdirSync(dir, { recursive: true });
 	const fm = [
@@ -19,7 +26,7 @@ function writeQuest(id: string, parent: string | null): void {
 		`id: ${id}`,
 		"kind: quest",
 		`parent: ${parent ?? "null"}`,
-		"status: active",
+		`status: ${status}`,
 		"priority: active",
 		"rank: 1",
 		"started: 2026-06-04",
@@ -136,6 +143,35 @@ describe("planReparent", () => {
 			"QEST-20260604-BBB222",
 			"QEST-20260604-CCC333",
 		]);
+		expect(plan.errors.join(" ")).toMatch(/GONE99/);
+	});
+});
+
+describe("planStatusChange", () => {
+	it("plans a status change and records the old status", () => {
+		writeQuest("QEST-20260604-AAA111", null, "active");
+		const plan = planStatusChange(index(), ["QEST-20260604-AAA111"], "retired");
+		expect(plan.errors).toEqual([]);
+		expect(plan.changes).toEqual([
+			{ id: "QEST-20260604-AAA111", oldStatus: "active", newStatus: "retired" },
+		]);
+	});
+
+	it("skips a quest already at the target status", () => {
+		writeQuest("QEST-20260604-AAA111", null, "concluded");
+		const plan = planStatusChange(
+			index(),
+			["QEST-20260604-AAA111"],
+			"concluded",
+		);
+		expect(plan.errors).toEqual([]);
+		expect(plan.changes).toEqual([]);
+	});
+
+	it("errors on a missing target", () => {
+		writeQuest("QEST-20260604-AAA111", null, "active");
+		const plan = planStatusChange(index(), ["QEST-20260604-GONE99"], "retired");
+		expect(plan.changes).toEqual([]);
 		expect(plan.errors.join(" ")).toMatch(/GONE99/);
 	});
 });

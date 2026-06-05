@@ -61,6 +61,44 @@ export function planReparent(
 	return { changes, errors };
 }
 
+/** A single status change produced by {@link planStatusChange}. */
+export interface StatusChange {
+	id: string;
+	oldStatus: string;
+	newStatus: string;
+}
+
+/** The outcome of planning a bulk status change. */
+export interface StatusChangePlan {
+	changes: StatusChange[];
+	errors: string[];
+}
+
+/**
+ * Plan the status changes for `targetIds` to `newStatus` without
+ * touching disk. Quests already at the target status are dropped;
+ * missing quests are reported in `errors`.
+ */
+export function planStatusChange(
+	index: QuestIndex,
+	targetIds: string[],
+	newStatus: string,
+): StatusChangePlan {
+	const changes: StatusChange[] = [];
+	const errors: string[] = [];
+	for (const id of targetIds) {
+		const entry = index.quests.get(id);
+		if (!entry) {
+			errors.push(`Quest ${id} not found.`);
+			continue;
+		}
+		const oldStatus = entry.doc.frontMatter.status;
+		if (oldStatus === newStatus) continue;
+		changes.push({ id, oldStatus, newStatus });
+	}
+	return { changes, errors };
+}
+
 /**
  * Is `candidate` inside `ancestor`'s subtree? Walks up the parent
  * chain from `candidate`; a visited set keeps pre-existing cyclic

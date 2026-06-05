@@ -46,6 +46,7 @@ import {
 	type QuestToolParams,
 	refuse,
 } from "./shared.js";
+import { bulkConcludeOrRetire } from "./structural.js";
 
 /**
  * Pin `planId` as the quest's primary plan when no primary
@@ -360,6 +361,11 @@ export async function concludeOrRetire(
 	params: QuestToolParams,
 	ctx: ToolContext,
 ): Promise<QuestResult> {
+	// A comma-separated id set is a bulk status sweep over explicit
+	// targets, distinct from concluding the loaded quest.
+	if ((params.id ?? "").includes(",")) {
+		return bulkConcludeOrRetire(state, action, params);
+	}
 	if (!state.questDir) {
 		return refuse("Load a quest before concluding or retiring anything.");
 	}
