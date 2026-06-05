@@ -445,10 +445,22 @@ export async function showLoaded(
 	state: QuestState,
 ): Promise<QuestShowResult | undefined> {
 	if (!state.questId) return undefined;
+	return showQuestById(state, state.questId);
+}
+
+/**
+ * Build the full `show` projection for any quest by id, without
+ * touching the loaded state. This is what lets `show <id>`
+ * inspect a sibling read-only instead of having to load it.
+ */
+export async function showQuestById(
+	state: QuestState,
+	questId: string,
+): Promise<QuestShowResult | undefined> {
 	const { index } = discoverQuests(state.questsRoot);
-	const me = index.quests.get(state.questId);
+	const me = index.quests.get(questId);
 	if (!me) return undefined;
-	const links = linksForQuest(index, state.questId, {});
+	const links = linksForQuest(index, questId, {});
 	const { cast, unresolved } = await resolveCast(extractCast(me.doc.body));
 	const journey = extractJourneyEntries(me.doc.body, 5);
 	return {

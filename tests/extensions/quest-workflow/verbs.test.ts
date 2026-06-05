@@ -554,6 +554,39 @@ describe("list filters", () => {
 	});
 });
 
+describe("show by id", () => {
+	it("projects another quest read-only without changing the loaded quest", async () => {
+		const state = buildState();
+		const loaded = await createQuest(state, "Loaded quest");
+		const other = await createQuest(state, "Other quest");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: loaded.id,
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "show",
+			id: other.id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain(other.id);
+		expect(result.message).toContain("Other quest");
+		// The loaded quest is unchanged.
+		expect(state.questId).toBe(loaded.id);
+		expect((result.details as { readOnly?: boolean }).readOnly).toBe(true);
+	});
+
+	it("refuses an unknown id", async () => {
+		const state = buildState();
+		await createQuest(state, "Only quest");
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "show",
+			id: "QEST-20260604-NOPE00",
+		});
+		expect(result.ok).toBe(false);
+	});
+});
+
 describe("listing verbs: brief, expanded and pagination", () => {
 	it("list defaults to one parsable brief row per quest with id, words and title", async () => {
 		const state = buildState();

@@ -64,7 +64,7 @@ export async function handle(
 			return unload(state);
 		case "show":
 		case "status":
-			return show(state);
+			return show(state, params);
 		case "config":
 			return configReport();
 		case "list":

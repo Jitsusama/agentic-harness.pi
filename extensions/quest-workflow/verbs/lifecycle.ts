@@ -36,7 +36,7 @@ import {
 	unfocusDocument,
 	unloadQuest,
 } from "../lifecycle.js";
-import { buildRowExpansion, showLoaded } from "../lookup.js";
+import { buildRowExpansion, showLoaded, showQuestById } from "../lookup.js";
 
 /**
  * Priority ladder for sorting list output. Lower numbers
@@ -300,11 +300,23 @@ export function unload(state: QuestState): QuestResult {
 	return ok(`Unloaded ${prior}.`);
 }
 
-export async function show(state: QuestState): Promise<QuestResult> {
-	if (!state.questDir) return refuse("No quest loaded.");
+export async function show(
+	state: QuestState,
+	params: QuestToolParams = { action: "show" },
+): Promise<QuestResult> {
+	// An explicit id projects any quest read-only, without
+	// changing what is loaded; otherwise show the loaded quest.
+	if (params.id) {
+		const projection = await showQuestById(state, params.id);
+		if (!projection) return refuse(`No quest with id "${params.id}".`);
+		return ok(renderShow(projection), { projection, readOnly: true });
+	}
+	if (!state.questDir) {
+		return refuse("No quest loaded. Pass an id to inspect a specific quest.");
+	}
 	const projection = await showLoaded(state);
 	if (!projection) return refuse("Could not project the loaded quest.");
-	return ok(renderShow(projection), { projection });
+	return ok(renderShow(projection), { projection, readOnly: false });
 }
 
 function renderShow(
