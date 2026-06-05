@@ -43,3 +43,29 @@ export function resolveQuestsRoot(
 ): string {
 	return config.questsRoot ?? join(dataDir, "quests");
 }
+
+/** Effective quest-workflow config with provenance for the query verb. */
+export interface QuestConfigSummary {
+	configPath: string;
+	questsRoot: string;
+	questsRootSource: "config" | "default";
+}
+
+/**
+ * Summarize the effective configuration for the config query
+ * verb: the file the values come from, the resolved quests root,
+ * and whether that root was set in the file or fell back to the
+ * built-in default.
+ */
+export function summarizeQuestConfig(opts: {
+	config: QuestWorkflowConfig;
+	configPath: string;
+	dataDir: string;
+}): QuestConfigSummary {
+	return {
+		configPath: opts.configPath,
+		questsRoot: resolveQuestsRoot(opts.config, opts.dataDir),
+		questsRootSource:
+			opts.config.questsRoot !== undefined ? "config" : "default",
+	};
+}

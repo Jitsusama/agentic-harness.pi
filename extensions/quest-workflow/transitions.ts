@@ -20,6 +20,7 @@ import type { QuestPriority } from "../../lib/quest/index.js";
 import { suggestAction } from "./actions.js";
 import type { QuestState } from "./state.js";
 import { aliasAdd, aliasRemove } from "./verbs/alias.js";
+import { configReport } from "./verbs/config.js";
 import {
 	create,
 	focus,
@@ -64,6 +65,8 @@ export async function handle(
 		case "show":
 		case "status":
 			return show(state);
+		case "config":
+			return configReport();
 		case "list":
 			return list(state, params);
 		case "focus":

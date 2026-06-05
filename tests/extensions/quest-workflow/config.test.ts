@@ -4,6 +4,7 @@ import {
 	parseQuestWorkflowConfig,
 	QUEST_WORKFLOW_SLUG,
 	resolveQuestsRoot,
+	summarizeQuestConfig,
 } from "../../../extensions/quest-workflow/config";
 
 describe("parseQuestWorkflowConfig", () => {
@@ -47,6 +48,31 @@ describe("resolveQuestsRoot", () => {
 
 	it("falls back to quests under the data dir", () => {
 		expect(resolveQuestsRoot({}, "/data")).toBe(join("/data", "quests"));
+	});
+});
+
+describe("summarizeQuestConfig", () => {
+	it("marks a configured questsRoot as sourced from config", () => {
+		const summary = summarizeQuestConfig({
+			config: { questsRoot: "/custom" },
+			configPath: "/cfg/config.json",
+			dataDir: "/data",
+		});
+		expect(summary).toEqual({
+			configPath: "/cfg/config.json",
+			questsRoot: "/custom",
+			questsRootSource: "config",
+		});
+	});
+
+	it("marks a defaulted questsRoot as sourced from default", () => {
+		const summary = summarizeQuestConfig({
+			config: {},
+			configPath: "/cfg/config.json",
+			dataDir: "/data",
+		});
+		expect(summary.questsRootSource).toBe("default");
+		expect(summary.questsRoot).toBe(join("/data", "quests"));
 	});
 });
 

@@ -16,6 +16,7 @@ export const QUEST_ACTIONS = [
 	"unload",
 	"show",
 	"status",
+	"config",
 	"list",
 	"tree",
 	"tree-add",
