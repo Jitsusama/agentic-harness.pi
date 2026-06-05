@@ -188,7 +188,8 @@ Plans live under their parent quest, in the quest's `plans/`
 subdirectory, as `PLAN-DATE-XXX.md`. The quest itself lives
 under the questsRoot (default
 `~/.local/share/pi/agentic-harness.pi/quest-workflow/quests/`,
-override via `QUEST_WORKFLOW_ROOT`).
+override with `questsRoot` in the `quest-workflow` section of
+the package config at `~/.config/pi/agentic-harness.pi/config.json`).
 
 When you start a plan without a loaded quest, the agent loads
 or creates one first. There is no longer a notion of a

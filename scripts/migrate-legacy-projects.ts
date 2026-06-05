@@ -49,9 +49,7 @@ import type {
 const DRY_RUN = process.argv.includes("--dry-run");
 const PROJECTS_ROOT = join(homedir(), "src/localhost/documents/projects");
 const WORLD_PLANS = join(homedir(), "world/.pi/plans");
-const QUESTS_ROOT =
-	process.env.QUEST_WORKFLOW_ROOT?.trim() ||
-	join(dataDir("quest-workflow"), "quests");
+const QUESTS_ROOT = join(dataDir("quest-workflow"), "quests");
 const LOG_PATH = join(homedir(), ".pi", "migration-log-quests.md");
 const NOW = new Date();
 const TODAY = `${NOW.getFullYear()}-${pad(NOW.getMonth() + 1)}-${pad(NOW.getDate())}`;
