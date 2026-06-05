@@ -5,6 +5,7 @@ import {
 	cacheDir,
 	configDir,
 	dataDir,
+	sessionsDir,
 	stateDir,
 } from "../../../lib/internal/paths";
 
@@ -119,5 +120,13 @@ describe("XDG kinds do not collide", () => {
 		const paths = new Set<string>();
 		for (const { fn } of CASES) paths.add(fn("quest-workflow"));
 		expect(paths.size).toBe(CASES.length);
+	});
+});
+
+describe("sessionsDir", () => {
+	it("resolves the pi session store under the home dir", () => {
+		expect(sessionsDir("/home/u")).toBe(
+			join("/home/u", ".pi", "agent", "sessions"),
+		);
 	});
 });

@@ -208,6 +208,30 @@ describe("reactive no-tree guardian", () => {
 		}
 	});
 
+	it("allows build-stage writes inside a recorded session's git working dir", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+		// Record a session whose cwd is the git repo, then cross
+		// into build without a registered tree. The gate should
+		// stand down for writes inside that working directory.
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "session-attach",
+			sessionId: "sess-code",
+			cwd: repoRoot,
+		});
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "build",
+			skipTree: true,
+		});
+		const verdict = enforceQuest(
+			state,
+			"write",
+			{ path: join(repoRoot, "src/foo.ts") },
+			repoRoot,
+		);
+		expect(verdict).toBeUndefined();
+	});
+
 	it("allows writes when a tree exists", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);

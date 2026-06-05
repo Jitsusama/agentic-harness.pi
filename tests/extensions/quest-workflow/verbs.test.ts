@@ -1,10 +1,21 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
-import { clearUrlFetchers, registerUrlFetcher } from "../../../lib/quest/index";
+import {
+	clearUrlFetchers,
+	parseQuestFrontMatter,
+	registerUrlFetcher,
+	serializeQuestFrontMatter,
+} from "../../../lib/quest/index";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
@@ -301,6 +312,44 @@ describe("spawn verbs", () => {
 		// pi can name its session after the quest without
 		// the wezterm/tmux tab-title plumbing.
 		expect(calls[0].env).toEqual({ QUEST_WORKFLOW_AUTOLOAD_ID: a.id });
+	});
+
+	it("prefers a registered tree path over the quest dir", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+
+		// Register a real tree directory in the quest frontmatter.
+		const treeDir = join(tmpRoot, "work-tree");
+		mkdirSync(treeDir, { recursive: true });
+		const readmePath = join(state.questDir as string, "README.md");
+		const parsed = parseQuestFrontMatter(readFileSync(readmePath, "utf8"));
+		if (!parsed) throw new Error("could not parse quest frontmatter");
+		parsed.frontMatter.trees = [{ path: treeDir, providerId: "git-worktree" }];
+		writeFileSync(
+			readmePath,
+			`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+		);
+
+		const calls: { cwd?: string }[] = [];
+		registerTerminalDriver({
+			id: "test",
+			available: () => true,
+			async spawn(req) {
+				calls.push({ cwd: req.cwd });
+			},
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "spawn-tab",
+		});
+		expect(result.ok).toBe(true);
+		expect(calls[0].cwd).toBe(treeDir);
+		if (!result.ok) throw new Error("expected ok");
+		expect((result.details as { cwdSource?: string }).cwdSource).toBe("tree");
 	});
 
 	it("spawn-tab id:OTHER targets the other quest without mutating loaded state", async () => {

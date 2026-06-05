@@ -123,7 +123,7 @@ export async function handle(
 		case "spawn-tab":
 		case "spawn-pane":
 		case "spawn-window":
-			return spawn(state, params);
+			return spawn(state, ctx, params);
 		case "find":
 			return find(state, params);
 		case "who":

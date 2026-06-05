@@ -13,9 +13,11 @@
  * agent-facing reason, never a prompt.
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import type { ToolCallEventResult } from "@mariozechner/pi-coding-agent";
 import { listTreesOnQuest } from "../../lib/internal/quest/trees.js";
+import { parseQuestFrontMatter } from "../../lib/quest/index.js";
 import { BASH_WRITE_PATTERNS, GIT_MUTATING, type QuestState } from "./state.js";
 
 function looksLikeBashWrite(command: string): boolean {
@@ -64,11 +66,53 @@ function isQuestInternalWrite(
 	);
 }
 
+/** Whether a directory sits inside a git working tree. */
+function isInsideGitWorkTree(dir: string): boolean {
+	let current = path.resolve(dir);
+	while (true) {
+		if (existsSync(path.join(current, ".git"))) return true;
+		const parent = path.dirname(current);
+		if (parent === current) return false;
+		current = parent;
+	}
+}
+
 /**
- * Reactive guardian: when the loaded quest is
- * code-bearing (has a focused build-stage plan) but no
- * tree, block writes to anything outside the quest's own
- * directory. Pushes the agent back to `tree-add`.
+ * Resolve an active-code directory from the quest's recorded
+ * sessions: the cwd of a session that still exists on disk and
+ * sits inside a git working tree. A session that ran in a
+ * non-code directory (a home dir, a scratch path) does not
+ * count, so loading a quest from somewhere incidental does not
+ * silently turn that place into a sanctioned code home.
+ */
+function sessionCodeDir(questDir: string): string | undefined {
+	let text: string;
+	try {
+		text = readFileSync(path.join(questDir, "README.md"), "utf8");
+	} catch {
+		// README missing or unreadable; no code dir resolves.
+		return undefined;
+	}
+	const parsed = parseQuestFrontMatter(text);
+	if (!parsed) return undefined;
+	for (const session of parsed.frontMatter.sessions) {
+		const cwd = session.cwd;
+		if (cwd && existsSync(cwd) && isInsideGitWorkTree(cwd)) return cwd;
+	}
+	return undefined;
+}
+
+/**
+ * Reactive guardian: when the loaded quest is code-bearing
+ * (has a focused build-stage plan) but no working tree, block
+ * writes to anything outside the quest's own directory.
+ *
+ * The gate stands down the moment an active-code directory is
+ * known: a registered tree, or a recorded session's git
+ * working directory. This is R14 -- editing inside a known
+ * working tree during build never requires unloading the
+ * quest; the gate fires only when no code home resolves,
+ * pushing the agent toward `tree-add` rather than `unload`.
  */
 function enforceNoTree(
 	state: QuestState,
@@ -83,10 +127,17 @@ function enforceNoTree(
 	const listing = listTreesOnQuest(state.questDir);
 	if (!listing.ok) return;
 	if (listing.trees.length > 0) return;
+	const codeDir = sessionCodeDir(state.questDir);
+	if (codeDir) {
+		const resolved = path.resolve(cwd, String(input.path ?? ""));
+		if (resolved === codeDir || resolved.startsWith(`${codeDir}${path.sep}`)) {
+			return;
+		}
+	}
 	return {
 		block: true,
 		reason:
-			"Quest workflow: this quest is in build with no working tree. Run `tree-add` to scaffold one before editing code outside the quest's own directory.",
+			"Quest workflow: this quest is in build with no working tree. Run `tree-add` to scaffold one, or work inside a tree this quest already owns. Do not unload the quest to bypass this.",
 	};
 }
 

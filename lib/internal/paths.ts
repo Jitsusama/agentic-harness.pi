@@ -68,6 +68,16 @@ function xdgPath(kind: XdgKind, slug: string): string {
 }
 
 /**
+ * Resolve the pi session store directory, where pi writes one
+ * JSONL log per session under a cwd-encoded subdirectory. Pi
+ * keeps this at `~/.pi/agent/sessions`; the home is injectable
+ * for testing.
+ */
+export function sessionsDir(home = homedir()): string {
+	return join(home, ".pi", "agent", "sessions");
+}
+
+/**
  * Resolve the single package-level configuration file shared
  * by every extension in this package. Unlike {@link configDir}
  * this is not scoped to a consumer slug: it is one file whose

@@ -5,6 +5,12 @@
  */
 
 import type { ToolContext } from "@mariozechner/pi-coding-agent";
+import { sessionsDir } from "../../../lib/internal/paths.js";
+import {
+	pickResumeSession,
+	resolveSpawnCwd,
+} from "../../../lib/internal/quest/reopen.js";
+import { deriveLiveness } from "../../../lib/internal/quest/session-liveness.js";
 import type { QuestSession } from "../../../lib/quest/index.js";
 import {
 	resolveDriver,
@@ -102,6 +108,7 @@ export function sessionRename(
 
 export async function spawn(
 	state: QuestState,
+	ctx: ToolContext,
 	params: QuestToolParams,
 ): Promise<QuestResult> {
 	const layout = (params.layout ??
@@ -119,45 +126,77 @@ export async function spawn(
 	}
 	// An explicit `id:` lets the agent open a tab for
 	// another quest without touching its own loaded state.
-	// We resolve through discovery so a typo fails fast,
-	// and we inherit the target quest's dir for the new
-	// process's cwd unless the caller overrode it.
-	let questIdForSpawn: string | undefined = state.questId ?? undefined;
-	let defaultCwd: string | undefined = state.questDir ?? undefined;
-	if (params.id) {
-		const entry = getQuestEntry(state, params.id);
-		if (!entry) {
-			return refuse(`No quest with id "${params.id}".`);
-		}
-		questIdForSpawn = entry.doc.frontMatter.id;
-		defaultCwd = entry.dir;
+	// We resolve through discovery so a typo fails fast.
+	const targetId = params.id ?? state.questId ?? undefined;
+	if (!targetId) {
+		return refuse("Load a quest first, or pass an explicit `id`.");
 	}
-	const cwd = params.cwd?.trim() || defaultCwd || undefined;
-	const command = params.command?.trim() || "pi";
+	const entry = getQuestEntry(state, targetId);
+	if (!entry) {
+		return refuse(`No quest with id "${targetId}".`);
+	}
+	const questIdForSpawn = entry.doc.frontMatter.id;
+	const fm = entry.doc.frontMatter;
+
+	// Resolve the working directory: prefer a quest-owned
+	// tree, then a recent session's cwd, then a tree's repo
+	// root, then the quest dir. A recorded path that no
+	// longer exists self-heals to the next candidate rather
+	// than dropping the new terminal into home.
+	const now = new Date();
+	const store = sessionsDir();
+	const sessions = fm.sessions.map((s) => deriveLiveness(s, store, now));
+	const resolved = resolveSpawnCwd({
+		questDir: entry.dir,
+		trees: fm.trees ?? [],
+		sessions,
+	});
+	const cwd = params.cwd?.trim() || resolved.cwd;
+
+	// Resume a real session when exactly one is live and it
+	// is not the session doing the spawning. Several live
+	// sessions are ambiguous: spawn a fresh pi and surface
+	// the choice rather than guessing.
+	const currentId = currentSessionId(ctx, undefined);
+	const resume = pickResumeSession(sessions.filter((s) => s.id !== currentId));
+	let command = params.command?.trim() || "pi";
+	let resumedSessionId: string | undefined;
+	if (!params.command && resume && "id" in resume) {
+		resumedSessionId = resume.id;
+		command = `pi --session ${resume.id}`;
+	}
+
 	// Pass the target quest id through to the spawned
 	// process via an env var. The new pi's quest-workflow
-	// extension reads this on session_start and uses it
-	// to load the right quest, which in turn calls
-	// pi.setSessionName so the new session inherits the
-	// quest's name without depending on terminal-emulator
-	// tab titles. The auto-attach on cwd already handles
-	// the common case where the spawn lands inside a
-	// registered tree; this env var carries the id when
-	// the cwd doesn't help (e.g. a fresh sidequest with
-	// no tree of its own).
-	const env = questIdForSpawn
-		? { QUEST_WORKFLOW_AUTOLOAD_ID: questIdForSpawn }
-		: undefined;
+	// extension reads this on session_start and uses it to
+	// load the right quest, which in turn names the session
+	// after the quest. A resumed session restores its own
+	// loaded quest from history, but the env var is harmless
+	// and covers a fresh pi.
+	const env = { QUEST_WORKFLOW_AUTOLOAD_ID: questIdForSpawn };
 	try {
 		await driver.spawn({ layout, command, cwd, env });
 	} catch (err) {
 		return refuse(`Spawn failed via ${driver.id}: ${(err as Error).message}`);
 	}
-	return ok(`Spawned a ${layout} via ${driver.id}.`, {
+
+	let message = `Spawned a ${layout} via ${driver.id} in ${cwd} (${resolved.source}).`;
+	if (resolved.healed) {
+		message += ` A recorded path was missing; healed to this one.`;
+	}
+	if (resumedSessionId) {
+		message += ` Resuming session ${resumedSessionId}.`;
+	} else if (resume && "ambiguous" in resume) {
+		message += ` ${resume.ambiguous.length} live sessions; started fresh, resume one explicitly if needed.`;
+	}
+	return ok(message, {
 		driver: driver.id,
 		layout,
 		cwd,
+		cwdSource: resolved.source,
+		healed: resolved.healed ?? false,
 		command,
+		resumedSessionId,
 		autoloadQuestId: questIdForSpawn,
 	});
 }

@@ -8,7 +8,7 @@
  * one without the agent guessing.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { type Dirent, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { QuestSession } from "../../quest/types.js";
 
@@ -76,7 +76,7 @@ function findSessionFile(
 	sessionDir: string,
 	suffix: string,
 ): string | undefined {
-	let entries: ReturnType<typeof readdirSync>;
+	let entries: Dirent[];
 	try {
 		entries = readdirSync(sessionDir, { withFileTypes: true });
 	} catch {
