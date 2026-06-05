@@ -38,13 +38,8 @@
  * surfaced only via the quest's own body references.
  */
 
-import {
-	type Dirent,
-	readdirSync,
-	readFileSync,
-	realpathSync,
-	statSync,
-} from "node:fs";
+import { createHash } from "node:crypto";
+import { type Dirent, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.js";
 import { parseDocumentFrontMatter } from "./frontmatter.js";
@@ -192,36 +187,49 @@ export function discoverQuests(questsRoot: string): DiscoveryResult {
 }
 
 /**
- * A cheap fingerprint of the quest tree: the quests root plus,
- * for each quest directory, its README and each document file by
- * mtime and size. Catches content edits (mtime or size move) and
- * structural changes (a quest or document added or removed shows
- * as a new or missing path).
+ * A content-sensitive fingerprint of the quest tree. For each
+ * quest it hashes the README and every document file, so an edit
+ * that keeps the byte size identical (a status flip, a same-length
+ * reparent, a date-only stamp) still moves the signature. It also
+ * folds in the directory listings of the root and each quest dir,
+ * so the layout-drift conditions that drive the discovery `errors`
+ * (a stray non-quest entry, a misplaced document at a quest root,
+ * a nested quest) move it too. Hashing reads the file bytes but
+ * skips the parse and object construction the cache exists to
+ * avoid, so a warm read still wins on a large tree.
  */
 function discoverySignature(questsRoot: string): string {
 	const parts: string[] = [];
-	const stamp = (path: string): void => {
+	const stampContent = (path: string): void => {
 		try {
-			const s = statSync(path);
-			parts.push(`${path}:${s.mtimeMs}:${s.size}`);
+			const hash = createHash("sha1").update(readFileSync(path)).digest("hex");
+			parts.push(`${path}:${hash}`);
 		} catch {
-			// Missing path contributes nothing; its absence is
-			// itself a change from any prior signature that had it.
+			// Missing or unreadable file contributes nothing; its
+			// absence is itself a change from a signature that had it.
 		}
 	};
+	const layout = (entries: Dirent[]): string =>
+		entries
+			.map((e) => `${e.name}/${e.isDirectory() ? "d" : "f"}`)
+			.sort()
+			.join(",");
 	const rootEntries = readEntries(questsRoot);
 	if (!rootEntries) return "absent";
+	parts.push(`root:${layout(rootEntries)}`);
 	for (const entry of rootEntries) {
 		if (!entry.isDirectory()) continue;
 		if (!isId(entry.name) || prefixOf(entry.name) !== "QEST") continue;
 		const questDir = join(questsRoot, entry.name);
-		stamp(join(questDir, "README.md"));
+		const questEntries = readEntries(questDir);
+		if (questEntries) parts.push(`${entry.name}:${layout(questEntries)}`);
+		stampContent(join(questDir, "README.md"));
 		for (const subdir of CANONICAL_DOCUMENT_DIRS) {
 			const scanDir = join(questDir, subdir);
 			const docEntries = readEntries(scanDir);
 			if (!docEntries) continue;
 			for (const doc of docEntries) {
-				if (doc.isFile()) stamp(join(scanDir, doc.name));
+				if (doc.isFile()) stampContent(join(scanDir, doc.name));
 			}
 		}
 	}

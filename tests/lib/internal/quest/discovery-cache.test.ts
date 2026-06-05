@@ -9,7 +9,7 @@ import {
 
 let root: string;
 
-function writeQuest(id: string, title: string): void {
+function writeQuest(id: string, title: string, status = "active"): void {
 	const dir = join(root, id);
 	mkdirSync(dir, { recursive: true });
 	const fm = [
@@ -17,7 +17,7 @@ function writeQuest(id: string, title: string): void {
 		`id: ${id}`,
 		"kind: quest",
 		"parent: null",
-		"status: active",
+		`status: ${status}`,
 		"priority: active",
 		"rank: 1",
 		"started: 2026-06-04",
@@ -75,6 +75,35 @@ describe("discoverQuests caching", () => {
 		const second = discoverQuests(root);
 		expect(second).not.toBe(first);
 		expect(second.index.quests.size).toBe(2);
+	});
+
+	it("recomputes after a same-byte-size in-place edit", () => {
+		// "active" and "paused" are both six characters, so size and a
+		// coarse mtime cannot distinguish them; only content can.
+		writeQuest("QEST-20260604-AAA111", "Alpha", "active");
+		const first = discoverQuests(root);
+		expect(
+			first.index.quests.get("QEST-20260604-AAA111")?.doc.frontMatter.status,
+		).toBe("active");
+
+		writeQuest("QEST-20260604-AAA111", "Alpha", "paused");
+		const second = discoverQuests(root);
+		expect(second).not.toBe(first);
+		expect(
+			second.index.quests.get("QEST-20260604-AAA111")?.doc.frontMatter.status,
+		).toBe("paused");
+	});
+
+	it("recomputes when a layout-drift entry appears at the root", () => {
+		writeQuest("QEST-20260604-AAA111", "Alpha");
+		const first = discoverQuests(root);
+		expect(first.errors).toEqual([]);
+
+		// A stray non-quest directory at the root is a layout error the
+		// uncached walk reports; the signature must notice it.
+		mkdirSync(join(root, "stray-dir"), { recursive: true });
+		const second = discoverQuests(root);
+		expect(second).not.toBe(first);
 	});
 
 	it("clearDiscoveryCache forces a fresh walk", () => {
