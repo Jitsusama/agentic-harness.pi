@@ -6,7 +6,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -300,10 +300,10 @@ export function stampQuestUpdated(state: QuestState): void {
 
 /**
  * Canonicalize a path for prefix comparison: resolve
- * symlinks, normalize `/var` vs `/private/var` on macOS,
- * and lowercase on case-insensitive filesystems where the
- * runtime can detect them. Returns the input on failure so
- * a missing path still compares against something stable.
+ * symlinks and normalize `/var` vs `/private/var` on macOS
+ * via realpath, which also yields the on-disk casing on a
+ * case-insensitive filesystem. Returns the input on failure
+ * so a missing path still compares against something stable.
  */
 function canonicalForCompare(path: string): string {
 	try {
@@ -315,7 +315,7 @@ function canonicalForCompare(path: string): string {
 
 function isUnder(child: string, parent: string): boolean {
 	if (child === parent) return true;
-	return child.startsWith(`${parent}/`);
+	return child.startsWith(`${parent}${sep}`);
 }
 
 /**

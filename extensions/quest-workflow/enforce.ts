@@ -13,7 +13,7 @@
  * agent-facing reason, never a prompt.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import * as path from "node:path";
 import type { ToolCallEventResult } from "@mariozechner/pi-coding-agent";
 import { listTreesOnQuest } from "../../lib/internal/quest/trees.js";
@@ -78,28 +78,56 @@ function isInsideGitWorkTree(dir: string): boolean {
 }
 
 /**
- * Resolve an active-code directory from the quest's recorded
- * sessions: the cwd of a session that still exists on disk and
- * sits inside a git working tree. A session that ran in a
- * non-code directory (a home dir, a scratch path) does not
- * count, so loading a quest from somewhere incidental does not
- * silently turn that place into a sanctioned code home.
+ * Canonicalize for prefix comparison. A not-yet-written file cannot
+ * be realpath'd directly, so resolve the longest existing ancestor
+ * (which turns /var into /private/var on macOS) and re-append the
+ * missing tail. The literal path survives a total failure.
  */
-function sessionCodeDir(questDir: string): string | undefined {
+function canonical(p: string): string {
+	const tail: string[] = [];
+	let prefix = p;
+	while (!existsSync(prefix)) {
+		const parent = path.dirname(prefix);
+		if (parent === prefix) return p;
+		tail.unshift(path.basename(prefix));
+		prefix = parent;
+	}
+	try {
+		const real = realpathSync(prefix);
+		return tail.length > 0 ? path.join(real, ...tail) : real;
+	} catch {
+		return p;
+	}
+}
+
+/**
+ * Resolve the active-code directories from the quest's recorded
+ * sessions: the cwd of an active session that still exists on
+ * disk and sits inside a git working tree. Only sessions still
+ * marked active count, so a long-dead or cleanly-detached load
+ * from an incidental directory does not stand the gate down
+ * forever. Paths are canonicalized so a /var versus /private/var
+ * spelling does not defeat the later prefix check.
+ */
+function sessionCodeDirs(questDir: string): string[] {
 	let text: string;
 	try {
 		text = readFileSync(path.join(questDir, "README.md"), "utf8");
 	} catch {
 		// README missing or unreadable; no code dir resolves.
-		return undefined;
+		return [];
 	}
 	const parsed = parseQuestFrontMatter(text);
-	if (!parsed) return undefined;
+	if (!parsed) return [];
+	const dirs: string[] = [];
 	for (const session of parsed.frontMatter.sessions) {
+		if (session.status !== "active") continue;
 		const cwd = session.cwd;
-		if (cwd && existsSync(cwd) && isInsideGitWorkTree(cwd)) return cwd;
+		if (cwd && existsSync(cwd) && isInsideGitWorkTree(cwd)) {
+			dirs.push(canonical(cwd));
+		}
 	}
-	return undefined;
+	return dirs;
 }
 
 /**
@@ -127,10 +155,16 @@ function enforceNoTree(
 	const listing = listTreesOnQuest(state.questDir);
 	if (!listing.ok) return;
 	if (listing.trees.length > 0) return;
-	const codeDir = sessionCodeDir(state.questDir);
-	if (codeDir) {
-		const resolved = path.resolve(cwd, String(input.path ?? ""));
-		if (resolved === codeDir || resolved.startsWith(`${codeDir}${path.sep}`)) {
+	const codeDirs = sessionCodeDirs(state.questDir);
+	if (codeDirs.length > 0) {
+		const resolved = canonical(
+			path.resolve(canonical(cwd), String(input.path ?? "")),
+		);
+		if (
+			codeDirs.some(
+				(dir) => resolved === dir || resolved.startsWith(`${dir}${path.sep}`),
+			)
+		) {
 			return;
 		}
 	}
