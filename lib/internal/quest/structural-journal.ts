@@ -6,8 +6,9 @@
  * newest operation.
  */
 
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { atomicWriteFile, withQuestLock } from "./io.js";
 
 /** One quest's before-and-after for a single field. */
 export interface JournalChange {
@@ -28,14 +29,24 @@ function journalPath(questsRoot: string): string {
 	return join(questsRoot, ".structural-journal.jsonl");
 }
 
-/** Append an applied operation to the journal. */
+/**
+ * Append an applied operation to the journal, under the same
+ * per-root advisory lock the README writers use, so a concurrent
+ * record and undo in another process cannot interleave.
+ */
 export function recordStructuralOp(
 	questsRoot: string,
 	op: string,
 	changes: JournalChange[],
 ): void {
 	const entry: JournalEntry = { ts: new Date().toISOString(), op, changes };
-	appendFileSync(journalPath(questsRoot), `${JSON.stringify(entry)}\n`, "utf8");
+	withQuestLock(questsRoot, () => {
+		appendFileSync(
+			journalPath(questsRoot),
+			`${JSON.stringify(entry)}\n`,
+			"utf8",
+		);
+	});
 }
 
 function readEntries(questsRoot: string): JournalEntry[] {
@@ -65,15 +76,20 @@ export function lastStructuralOp(questsRoot: string): JournalEntry | undefined {
 	return entries[entries.length - 1];
 }
 
-/** Remove the most recent recorded operation. */
+/**
+ * Remove the most recent recorded operation. The read-modify-write
+ * runs under the per-root lock and rewrites through an atomic
+ * rename, so it cannot truncate a concurrent append or lose an op.
+ */
 export function dropLastStructuralOp(questsRoot: string): void {
-	const entries = readEntries(questsRoot);
-	if (entries.length === 0) return;
-	entries.pop();
-	const body = entries.map((e) => JSON.stringify(e)).join("\n");
-	writeFileSync(
-		journalPath(questsRoot),
-		body.length > 0 ? `${body}\n` : "",
-		"utf8",
-	);
+	withQuestLock(questsRoot, () => {
+		const entries = readEntries(questsRoot);
+		if (entries.length === 0) return;
+		entries.pop();
+		const body = entries.map((e) => JSON.stringify(e)).join("\n");
+		atomicWriteFile(
+			journalPath(questsRoot),
+			body.length > 0 ? `${body}\n` : "",
+		);
+	});
 }

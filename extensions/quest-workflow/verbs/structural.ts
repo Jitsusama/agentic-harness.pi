@@ -13,6 +13,7 @@ import {
 } from "../../../lib/internal/quest/structural.js";
 import {
 	dropLastStructuralOp,
+	type JournalChange,
 	lastStructuralOp,
 	recordStructuralOp,
 } from "../../../lib/internal/quest/structural-journal.js";
@@ -79,22 +80,30 @@ export function reparent(
 		);
 	}
 
+	// Journal incrementally: record each write the moment it lands so
+	// a mid-batch failure leaves the journal reflecting exactly what
+	// is on disk, and undo can reverse the partial application.
+	const applied: JournalChange[] = [];
 	for (const change of plan.changes) {
 		const entry = index.quests.get(change.id);
 		if (!entry) continue;
 		const result = setQuestParent(entry.dir, change.newParent);
-		if (!result.ok) return refuse(result.guidance);
+		if (!result.ok) {
+			if (applied.length > 0) {
+				recordStructuralOp(state.questsRoot, "reparent", applied);
+			}
+			return refuse(
+				`${result.guidance} Applied ${applied.length} of ${plan.changes.length} before the failure; recorded for undo.`,
+			);
+		}
+		applied.push({
+			id: change.id,
+			field: "parent",
+			old: change.oldParent,
+			new: change.newParent,
+		});
 	}
-	recordStructuralOp(
-		state.questsRoot,
-		"reparent",
-		plan.changes.map((c) => ({
-			id: c.id,
-			field: "parent" as const,
-			old: c.oldParent,
-			new: c.newParent,
-		})),
-	);
+	recordStructuralOp(state.questsRoot, "reparent", applied);
 	return ok(`Reparented ${plan.changes.length} quest(s).`, {
 		changes: plan.changes,
 		dryRun: false,
@@ -159,6 +168,7 @@ export function bulkConcludeOrRetire(
 		action === "conclude"
 			? "Concluded the quest (bulk)."
 			: `Retired the quest (bulk): ${reason}.`;
+	const applied: JournalChange[] = [];
 	for (const change of plan.changes) {
 		const entry = index.quests.get(change.id);
 		if (!entry) continue;
@@ -166,19 +176,23 @@ export function bulkConcludeOrRetire(
 			entry.dir,
 			newStatus as QuestFrontMatter["status"],
 		);
-		if (!result.ok) return refuse(result.guidance);
+		if (!result.ok) {
+			if (applied.length > 0) {
+				recordStructuralOp(state.questsRoot, action, applied);
+			}
+			return refuse(
+				`${result.guidance} Applied ${applied.length} of ${plan.changes.length} before the failure; recorded for undo.`,
+			);
+		}
 		appendJourneyByPath(entry.dir, journey);
+		applied.push({
+			id: change.id,
+			field: "status",
+			old: change.oldStatus,
+			new: change.newStatus,
+		});
 	}
-	recordStructuralOp(
-		state.questsRoot,
-		action,
-		plan.changes.map((c) => ({
-			id: c.id,
-			field: "status" as const,
-			old: c.oldStatus,
-			new: c.newStatus,
-		})),
-	);
+	recordStructuralOp(state.questsRoot, action, applied);
 	return ok(
 		`${action === "conclude" ? "Concluded" : "Retired"} ${plan.changes.length} quest(s).`,
 		{
@@ -195,9 +209,22 @@ export function undo(state: QuestState): QuestResult {
 	}
 	const { index } = discoverQuests(state.questsRoot);
 	const skipped: string[] = [];
+	const reverted: string[] = [];
 	for (const change of last.changes) {
 		const entry = index.quests.get(change.id);
 		if (!entry) {
+			skipped.push(change.id);
+			continue;
+		}
+		// Verify the on-disk value still equals what this operation
+		// wrote. An intervening manual edit means the recorded `new` no
+		// longer holds, so reverting to `old` would clobber that edit;
+		// skip instead.
+		const current =
+			change.field === "parent"
+				? (entry.doc.frontMatter.parent ?? null)
+				: entry.doc.frontMatter.status;
+		if (current !== change.new) {
 			skipped.push(change.id);
 			continue;
 		}
@@ -209,15 +236,23 @@ export function undo(state: QuestState): QuestResult {
 						change.old as QuestFrontMatter["status"],
 					);
 		if (!result.ok) return refuse(result.guidance);
+		// setQuestParent appends its own "Reparented to ..." line; a
+		// status reversal needs an explicit compensating entry so the
+		// original conclude/retire line does not stand uncontradicted.
+		if (change.field === "status") {
+			appendJourneyByPath(entry.dir, `Reverted the ${last.op} (undo).`);
+		}
+		reverted.push(change.id);
 	}
 	dropLastStructuralOp(state.questsRoot);
 	const note =
 		skipped.length > 0
-			? ` (skipped ${skipped.length} missing quest(s): ${skipped.join(", ")})`
+			? ` (skipped ${skipped.length} quest(s) missing or changed since: ${skipped.join(", ")})`
 			: "";
-	return ok(`Undid ${last.op} of ${last.changes.length} quest(s)${note}.`, {
+	return ok(`Undid ${last.op} of ${reverted.length} quest(s)${note}.`, {
 		op: last.op,
 		changes: last.changes,
+		reverted,
 		skipped,
 	});
 }

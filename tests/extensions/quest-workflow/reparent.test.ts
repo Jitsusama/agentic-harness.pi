@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -53,6 +53,18 @@ function parentOf(id: string): string {
 
 function statusOf(id: string): string {
 	return fieldOf(id, "status");
+}
+
+function readReadme(id: string): string {
+	return readFileSync(join(tmpRoot, "quests", id, "README.md"), "utf8");
+}
+
+// Simulate an out-of-band edit: rewrite the parent frontmatter line
+// directly, bypassing the workflow and the journal.
+function setParentDirect(id: string, value: string): void {
+	const path = join(tmpRoot, "quests", id, "README.md");
+	const text = readFileSync(path, "utf8");
+	writeFileSync(path, text.replace(/^parent:.*$/m, `parent: ${value}`));
 }
 
 const envGuard = createEnvGuard();
@@ -270,6 +282,45 @@ describe("reparent verb", () => {
 		expect(result.ok).toBe(false);
 		expect(result.guidance).toMatch(/GONE99/);
 		expect(statusOf(a.id)).toBe("active");
+	});
+
+	it("undo skips a quest whose value changed since, rather than clobbering it", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Parent");
+		const other = await createQuest(state, "Other");
+		const child = await createQuest(state, "Child");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reparent",
+			id: child.id,
+			parent: parent.id,
+		});
+		expect(parentOf(child.id)).toBe(parent.id);
+
+		// An intervening edit moves the child somewhere the journal did
+		// not record. Undo must not stomp it back to null.
+		setParentDirect(child.id, other.id);
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+		});
+		expect(result.ok).toBe(true);
+		expect(parentOf(child.id)).toBe(other.id);
+		const details = result.details as { skipped: string[] };
+		expect(details.skipped).toContain(child.id);
+	});
+
+	it("undo of a bulk conclude leaves a compensating Journey entry", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "A");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: a.id,
+		});
+		expect(statusOf(a.id)).toBe("concluded");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "undo" });
+		expect(statusOf(a.id)).toBe("active");
+		// The original "Concluded the quest (bulk)." entry must not stand
+		// uncontradicted on a quest that now reads active.
+		expect(readReadme(a.id)).toMatch(/Reverted the conclude \(undo\)\./);
 	});
 
 	it("moves a quest back to top level with parent=null", async () => {
