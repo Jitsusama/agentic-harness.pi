@@ -37,7 +37,7 @@ function fakeCtx(cwd: string, sessionId = "sess-1") {
 	} as unknown as Parameters<typeof handle>[2];
 }
 function buildState() {
-	return createQuestState({ homeDir: tmpRoot, dataDir: tmpRoot });
+	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
 
 async function git(cwd: string, ...args: string[]) {

@@ -31,7 +31,7 @@ function fakeCtx(cwd: string, sessionId = "sess-1") {
 }
 
 function buildState() {
-	return createQuestState({ homeDir: tmpRoot, dataDir: tmpRoot });
+	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
 
 const envGuard = createEnvGuard();

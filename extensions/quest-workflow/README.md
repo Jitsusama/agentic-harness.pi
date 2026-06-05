@@ -66,8 +66,9 @@ entry; it never triggers behaviour.
 
 Quest directories live under the `questsRoot`. The default
 is `~/.local/share/pi/agentic-harness.pi/quest-workflow/quests/`
-(per XDG); override with the `QUEST_WORKFLOW_ROOT` environment
-variable.
+(per XDG); override it by setting `questsRoot` in the
+`quest-workflow` section of the package config file at
+`~/.config/pi/agentic-harness.pi/config.json`.
 
 ## Related Extensions
 

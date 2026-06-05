@@ -15,7 +15,6 @@
  * slash commands for the primary surface.
  */
 
-import { homedir } from "node:os";
 import { StringEnum } from "@mariozechner/pi-ai";
 import type {
 	ExtensionAPI,
@@ -24,6 +23,10 @@ import type {
 import { keyHint, SessionManager } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import {
+	getSection,
+	loadPackageConfig,
+} from "../../lib/internal/config/loader.js";
 import { dataDir } from "../../lib/internal/paths.js";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.js";
 import { discoverQuests } from "../../lib/internal/quest/discovery.js";
@@ -40,6 +43,11 @@ import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
 import { registerBuiltinTreeProviders } from "../../lib/tree/index.js";
 import { QUEST_ACTIONS } from "./actions.js";
+import {
+	parseQuestWorkflowConfig,
+	QUEST_WORKFLOW_SLUG,
+	resolveQuestsRoot,
+} from "./config.js";
 import { enforceQuest, isFocusedDocWrite } from "./enforce.js";
 import {
 	listAllQuests,
@@ -56,14 +64,13 @@ import {
 	isListingDetails,
 	renderListingExpanded,
 } from "./render-rows.js";
-
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
 
 const DEFAULT_WIDTH = 80;
 const CALL_PREFIX_WIDTH = 14;
 
-export default function questWorkflow(pi: ExtensionAPI) {
+export default async function questWorkflow(pi: ExtensionAPI) {
 	// Seed the pluggable registries with their built-in
 	// types on activate. Idempotent: re-registers cleanly.
 	registerBuiltinRefTypes();
@@ -73,10 +80,19 @@ export default function questWorkflow(pi: ExtensionAPI) {
 	registerBuiltinTerminalDrivers();
 	registerBuiltinTreeProviders();
 
-	const state = createQuestState({
-		homeDir: homedir(),
-		dataDir: dataDir("quest-workflow"),
-	});
+	// Resolve the quests root from the package config file.
+	// A missing file or a malformed section degrades to the
+	// default data-dir location; the config query verb is
+	// where provenance and any warning surface to the user.
+	const loaded = await loadPackageConfig();
+	const section = loaded.ok
+		? getSection(loaded.config, QUEST_WORKFLOW_SLUG, parseQuestWorkflowConfig)
+		: { value: {} };
+	const questsRoot = resolveQuestsRoot(
+		section.value,
+		dataDir("quest-workflow"),
+	);
+	const state = createQuestState({ questsRoot });
 
 	// Expose the PR-workflow bridge so pr-workflow can
 	// scaffold a sidequest when it loads a PR. The
