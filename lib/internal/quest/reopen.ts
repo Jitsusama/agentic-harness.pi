@@ -76,7 +76,11 @@ export function resolveSpawnCwd(opts: {
 		}
 	}
 
-	return { cwd: opts.questDir, source: "questDir" };
+	return {
+		cwd: opts.questDir,
+		source: "questDir",
+		...(healed ? { healed } : {}),
+	};
 }
 
 /**

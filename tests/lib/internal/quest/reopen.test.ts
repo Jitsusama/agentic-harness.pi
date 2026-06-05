@@ -92,6 +92,19 @@ describe("resolveSpawnCwd", () => {
 		});
 		expect(result).toEqual({ cwd: "/q", source: "questDir" });
 	});
+
+	it("flags the heal when a recorded path was missing and it falls through to the quest dir", () => {
+		const result = resolveSpawnCwd({
+			questDir: "/q",
+			// A recorded tree path that no longer exists: resolution
+			// heals past it, and nothing else resolves, so it lands on the
+			// quest dir but must still report that a stale record was met.
+			trees: [{ path: "/gone" }],
+			sessions: [],
+			exists: none,
+		});
+		expect(result).toEqual({ cwd: "/q", source: "questDir", healed: true });
+	});
 });
 
 function view(
