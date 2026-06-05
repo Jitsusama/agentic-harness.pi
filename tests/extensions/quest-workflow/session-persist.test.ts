@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { persist, restore } from "../../../extensions/quest-workflow/lifecycle";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import { parseQuestFrontMatter } from "../../../lib/quest/index";
 import { createEnvGuard } from "./_helpers";
 
 interface AppendedEntry {
@@ -214,5 +215,58 @@ describe("persist + restore", () => {
 		const restored = restore(next, fakePi(), fakeCtx(tmpRoot));
 		expect(restored).toBe(false);
 		expect(next.questId).toBeNull();
+	});
+});
+
+describe("persisted cwd", () => {
+	it("records the session cwd in the snapshot", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx("/work/here"), {
+			action: "load",
+			id: a.id,
+		});
+		persist(state, fakePi(), fakeCtx("/work/here"));
+		const last = entries
+			.filter((e) => e.customType === "quest-workflow")
+			.at(-1);
+		expect((last?.data as { cwd?: string }).cwd).toBe("/work/here");
+	});
+});
+
+describe("auto-attach on load", () => {
+	function sessionsOf(dir: string) {
+		const text = readFileSync(join(dir, "README.md"), "utf8");
+		const parsed = parseQuestFrontMatter(text);
+		return parsed?.frontMatter.sessions ?? [];
+	}
+
+	it("attaches the current session to the loaded quest's frontmatter", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-load"), {
+			action: "load",
+			id: a.id,
+		});
+		const sessions = sessionsOf(a.dir);
+		const mine = sessions.find((s) => s.id === "sess-load");
+		expect(mine).toBeDefined();
+		expect(mine?.status).toBe("active");
+		expect(mine?.cwd).toBe("/work/dir");
+	});
+
+	it("does not duplicate the session when the same quest is reloaded", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-load"), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-load"), {
+			action: "load",
+			id: a.id,
+		});
+		const mine = sessionsOf(a.dir).filter((s) => s.id === "sess-load");
+		expect(mine).toHaveLength(1);
 	});
 });

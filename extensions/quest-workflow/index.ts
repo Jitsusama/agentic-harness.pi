@@ -50,6 +50,8 @@ import {
 } from "./config.js";
 import { enforceQuest, isFocusedDocWrite } from "./enforce.js";
 import {
+	attachCurrentSession,
+	detachSessionFromLoaded,
 	listAllQuests,
 	loadQuest,
 	persist,
@@ -66,6 +68,7 @@ import {
 } from "./render-rows.js";
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
+import { currentSessionId } from "./verbs/shared.js";
 
 const DEFAULT_WIDTH = 80;
 const CALL_PREFIX_WIDTH = 14;
@@ -540,6 +543,15 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			}
 			if (!state.questId) restoreFromCwd(state, pi, ctx);
 		}
+		// Once a quest is loaded (restored, autoloaded or
+		// resolved from the cwd), record this session on it so
+		// the sessions frontmatter reflects where work happens.
+		if (state.questId) {
+			attachCurrentSession(state, {
+				id: currentSessionId(ctx, undefined),
+				cwd: ctx.cwd,
+			});
+		}
 		updateScoreboard(state, ctx);
 	});
 
@@ -549,7 +561,13 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	// Pass our own bridge so an out-of-order shutdown
 	// can only clear its own registration, never a
 	// fresher instance's.
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (_event, ctx) => {
+		// Mark this session detached on the loaded quest so its
+		// liveness reads correctly after the process exits.
+		if (state.questId) {
+			const sid = currentSessionId(ctx, undefined);
+			if (sid) detachSessionFromLoaded(state, sid);
+		}
 		unregisterQuestPrBridge(ownBridge);
 	});
 

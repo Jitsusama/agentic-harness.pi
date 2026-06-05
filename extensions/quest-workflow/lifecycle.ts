@@ -317,12 +317,19 @@ interface PersistedState {
 	 * frontmatter when restoring.
 	 */
 	documentPath: string | null;
+	/**
+	 * The session's working directory at persist time, so a
+	 * resumed session has the cwd without re-deriving it from
+	 * the tree or session store.
+	 */
+	cwd: string | null;
 }
 
-function snapshot(state: QuestState): PersistedState {
+function snapshot(state: QuestState, cwd: string | null): PersistedState {
 	return {
 		questId: state.questId,
 		documentPath: state.documentPath,
+		cwd,
 	};
 }
 
@@ -356,7 +363,7 @@ export function persist(
 	pi: ExtensionAPI,
 	ctx?: ExtensionContext,
 ): void {
-	const current = snapshot(state);
+	const current = snapshot(state, ctx?.cwd ?? null);
 	const key = snapshotKey(current);
 	if (state.lastPersistedKey === key) return;
 	if (state.lastPersistedKey === undefined && ctx) {
@@ -371,7 +378,7 @@ export function persist(
 }
 
 function snapshotKey(s: PersistedState): string {
-	return `${s.questId ?? ""}|${s.documentPath ?? ""}`;
+	return `${s.questId ?? ""}|${s.documentPath ?? ""}|${s.cwd ?? ""}`;
 }
 
 /**
@@ -712,6 +719,31 @@ export function attachSessionToLoaded(
 	});
 	if (!result.ok) return result;
 	return { ok: true, added };
+}
+
+/**
+ * Attach the current pi session to the loaded quest.
+ *
+ * This is the automatic-capture path: the session_start and
+ * load flows call it so a quest's sessions frontmatter records
+ * where work happened without the user running session-attach by
+ * hand. It refreshes an existing record rather than duplicating,
+ * and no-ops cleanly when no quest is loaded or the session id is
+ * unknown.
+ */
+export function attachCurrentSession(
+	state: QuestState,
+	opts: { id: string | undefined; cwd?: string },
+): { attached: boolean } {
+	if (!state.questDir || !opts.id) return { attached: false };
+	const session: QuestSession = {
+		id: opts.id,
+		started: new Date().toISOString(),
+		status: "active",
+	};
+	if (opts.cwd?.trim()) session.cwd = opts.cwd.trim();
+	const result = attachSessionToLoaded(state, session);
+	return { attached: result.ok };
 }
 
 /** Mark a session as detached on the loaded quest. */

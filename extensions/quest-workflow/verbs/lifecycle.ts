@@ -28,6 +28,7 @@ import {
 import { parseRef, urlForRef } from "../../../lib/refs/index.js";
 import {
 	appendJourneyEntry,
+	attachCurrentSession,
 	ensureQuestsRoot,
 	focusDocument,
 	listAllQuests,
@@ -257,11 +258,14 @@ export async function load(
 	const priorSessions = loaded?.frontMatter.sessions ?? [];
 	const sid = currentSessionId(ctx, undefined);
 
-	let proposeAttach: { sessionId: string; cwd?: string } | undefined;
-	if (sid && !priorSessions.some((s) => s.id === sid)) {
-		proposeAttach = { sessionId: sid };
-		if (ctx.cwd) proposeAttach.cwd = ctx.cwd;
-	}
+	// Capture the current session automatically rather than
+	// nudging the user to run session-attach by hand: this is
+	// what keeps the sessions frontmatter honest so reopening
+	// can later resolve where work happened.
+	const attached = attachCurrentSession(state, {
+		id: sid,
+		cwd: ctx.cwd,
+	}).attached;
 
 	const resumable = priorSessions
 		.filter((s) => s.id !== sid)
@@ -277,14 +281,14 @@ export async function load(
 	if (resumable.length > 0) {
 		message += `. ${resumable.length} prior session(s) on file; resume one with \`/quest-resume <id>\``;
 	}
-	if (proposeAttach) {
-		message += `. Attach this pi session with \`quest session-attach\` if you want it tracked.`;
+	if (attached) {
+		message += `. Tracking this pi session on the quest.`;
 	}
 
 	return ok(message, {
 		id: state.questId,
 		dir: state.questDir,
-		proposeAttach,
+		attached,
 		resumable,
 	});
 }
