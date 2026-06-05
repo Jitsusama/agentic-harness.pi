@@ -13,7 +13,10 @@ import {
 	type QuestEntry,
 	type QuestIndex,
 } from "../../lib/internal/quest/discovery.js";
-import { questLastActivity } from "../../lib/internal/quest/session-liveness.js";
+import {
+	indexSessionFiles,
+	questLastActivity,
+} from "../../lib/internal/quest/session-liveness.js";
 import {
 	getResolutionFallback,
 	type Identity,
@@ -164,6 +167,13 @@ export function findQuestEntries(
 	const { index } = discoverQuests(state.questsRoot);
 	const since = parseDate(params.since);
 	const until = parseDate(params.until);
+	const byActivity = params.field === "activity";
+	// Activity is read from the session store. Index the store once
+	// for the whole query rather than re-listing it per quest, and
+	// only when the caller actually filters or sorts by activity.
+	const activityIndex = byActivity
+		? indexSessionFiles(sessionsDir())
+		: undefined;
 	const matches: { hit: FindHit; entry: QuestEntry; _sortKey: number }[] = [];
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
@@ -178,16 +188,17 @@ export function findQuestEntries(
 			const types = new Set(fm.aliases.map((a) => a.type));
 			if (!types.has(params.refType)) continue;
 		}
-		// Last activity is read from the session store, which is
-		// costly per quest, so only compute it when the caller
-		// actually filters or sorts by the activity window.
-		const byActivity = params.field === "activity";
-		const lastActivity = byActivity
-			? questLastActivity(fm.sessions, sessionsDir())
-			: undefined;
+		const lastActivity =
+			byActivity && activityIndex
+				? questLastActivity(fm.sessions, activityIndex)
+				: undefined;
 		const fieldDate = byActivity
 			? parseDate(lastActivity)
 			: parseDate(fieldValue(fm, params.field));
+		// Under an activity window, a quest with no recorded activity
+		// is not "active in this window" and is excluded, rather than
+		// slipping through the date guards on an undefined date.
+		if (byActivity && (since || until) && !fieldDate) continue;
 		if (since && fieldDate && fieldDate < since) continue;
 		if (until && fieldDate && fieldDate > until) continue;
 		if (params.query && !matchesQuery(entry, params.query)) continue;

@@ -357,6 +357,17 @@ describe("find with extended filters", () => {
 			field: "activity",
 		});
 		expect(ok.ok).toBe(true);
+
+		// Under an activity window, a quest with no recorded activity is
+		// excluded rather than slipping through on an undefined date.
+		const windowed = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "find",
+			field: "activity",
+			since: "2026-01-01",
+		});
+		const rows = (windowed.details as { listing: { rows: { id: string }[] } })
+			.listing.rows;
+		expect(rows).toHaveLength(0);
 		const bad = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "find",
 			field: "banana",

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	deriveLiveness,
+	indexSessionFiles,
 	questLastActivity,
 	sessionActivity,
 } from "../../../../lib/internal/quest/session-liveness";
@@ -58,7 +59,10 @@ describe("sessionActivity", () => {
 describe("questLastActivity", () => {
 	it("returns undefined when no session has a log", () => {
 		expect(
-			questLastActivity([{ id: "gone", status: "active" }], dir),
+			questLastActivity(
+				[{ id: "gone", status: "active" }],
+				indexSessionFiles(dir),
+			),
 		).toBeUndefined();
 	});
 
@@ -74,9 +78,24 @@ describe("questLastActivity", () => {
 				{ id: "019older", status: "detached" },
 				{ id: "019newer", status: "detached" },
 			],
-			dir,
+			indexSessionFiles(dir),
 		);
 		expect(last).toBe("2026-06-04T15:30:00.000Z");
+	});
+});
+
+describe("newestTimestamp via sessionActivity", () => {
+	it("returns the maximum timestamp even when the last line is out of order", async () => {
+		// A late-arriving entry with an earlier timestamp lands last in
+		// the file; the newest activity must still be the real maximum.
+		await writeSession("019ooo", "--c--", [
+			{ timestamp: "2026-06-04T10:00:00.000Z" },
+			{ timestamp: "2026-06-04T18:00:00.000Z" },
+			{ timestamp: "2026-06-04T11:00:00.000Z" },
+		]);
+		expect(sessionActivity("019ooo", dir)?.lastActivity).toBe(
+			"2026-06-04T18:00:00.000Z",
+		);
 	});
 });
 

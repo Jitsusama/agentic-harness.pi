@@ -8,7 +8,14 @@
  * one without the agent guessing.
  */
 
-import { type Dirent, readdirSync, readFileSync } from "node:fs";
+import {
+	closeSync,
+	type Dirent,
+	fstatSync,
+	openSync,
+	readdirSync,
+	readSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { QuestSession } from "../../quest/types.js";
 
@@ -29,22 +36,63 @@ export interface SessionView extends QuestSession {
 const LIVE_WINDOW_MS = 15 * 60 * 1000;
 
 /**
+ * Index every session log in the store once, mapping session id to
+ * its file path. Callers that need the activity of many sessions
+ * (the activity-window query over the whole backlog) build this
+ * once and reuse it, instead of re-listing the store per session.
+ */
+export function indexSessionFiles(sessionDir: string): Map<string, string> {
+	const index = new Map<string, string>();
+	const add = (dir: string, names: string[]): void => {
+		for (const name of names) {
+			if (!name.endsWith(".jsonl")) continue;
+			const underscore = name.lastIndexOf("_");
+			if (underscore < 0) continue;
+			const id = name.slice(underscore + 1, name.length - ".jsonl".length);
+			if (!index.has(id)) index.set(id, join(dir, name));
+		}
+	};
+	let entries: Dirent[];
+	try {
+		entries = readdirSync(sessionDir, { withFileTypes: true });
+	} catch {
+		// Store does not exist or is unreadable; an empty index reads
+		// the same as "no session has a log".
+		return index;
+	}
+	add(
+		sessionDir,
+		entries.filter((e) => e.isFile()).map((e) => e.name),
+	);
+	for (const entry of entries) {
+		if (!entry.isDirectory()) continue;
+		const full = join(sessionDir, entry.name);
+		try {
+			add(full, readdirSync(full));
+		} catch {
+			// Unreadable subdir; skip it and keep indexing siblings.
+		}
+	}
+	return index;
+}
+
+/**
  * The most recent activity timestamp across a quest's sessions,
- * read from the session store. Undefined when none of them has a
- * log on disk. This is a quest's effective last-touched time for
- * activity-window filtering and sorting.
+ * using a prebuilt {@link indexSessionFiles} map. Undefined when
+ * none of them has a log. This is a quest's effective last-touched
+ * time for activity-window filtering and sorting.
  */
 export function questLastActivity(
 	sessions: QuestSession[],
-	sessionDir: string,
+	index: Map<string, string>,
 ): string | undefined {
 	let newest: string | undefined;
 	for (const session of sessions) {
-		const activity = sessionActivity(session.id, sessionDir);
-		if (!activity) continue;
-		if (!newest || Date.parse(activity.lastActivity) > Date.parse(newest)) {
-			newest = activity.lastActivity;
-		}
+		const path = index.get(session.id);
+		if (!path) continue;
+		const last = newestTimestamp(path);
+		if (!last) continue;
+		if (!newest || Date.parse(last) > Date.parse(newest)) newest = last;
 	}
 	return newest;
 }
@@ -123,23 +171,58 @@ function findSessionFile(
 	return undefined;
 }
 
-/** Read the newest entry's timestamp from a JSONL session file. */
+/**
+ * How much of a session log's tail to read for its newest
+ * timestamp. Logs are append-only and can grow large, so reading
+ * the whole file just to find the latest entry is wasteful; the
+ * last window holds the recent entries.
+ */
+const TAIL_BYTES = 64 * 1024;
+
+/**
+ * Read the newest entry's timestamp from a JSONL session file.
+ *
+ * Reads only the tail rather than the whole file, and returns the
+ * maximum timestamp among the lines it reads rather than the last
+ * positional one, so a late-arriving out-of-order entry does not
+ * mis-report activity.
+ */
 function newestTimestamp(path: string): string | undefined {
-	let text: string;
+	let fd: number;
 	try {
-		text = readFileSync(path, "utf8");
+		fd = openSync(path, "r");
 	} catch {
-		// File vanished between listing and reading; treat as no activity.
+		// File vanished between listing and reading; no activity.
 		return undefined;
 	}
-	const lines = text.split("\n");
-	for (let i = lines.length - 1; i >= 0; i -= 1) {
-		const line = lines[i].trim();
-		if (line === "") continue;
-		const stamp = parseTimestamp(line);
-		if (stamp) return stamp;
+	try {
+		const { size } = fstatSync(fd);
+		const start = Math.max(0, size - TAIL_BYTES);
+		const length = size - start;
+		const buffer = Buffer.alloc(length);
+		if (length > 0) readSync(fd, buffer, 0, length, start);
+		let text = buffer.toString("utf8");
+		// When we started mid-file the first line is likely partial;
+		// drop it so a truncated JSON line is not parsed.
+		if (start > 0) {
+			const newline = text.indexOf("\n");
+			if (newline >= 0) text = text.slice(newline + 1);
+		}
+		let newest: string | undefined;
+		for (const line of text.split("\n")) {
+			const trimmed = line.trim();
+			if (trimmed === "") continue;
+			const stamp = parseTimestamp(trimmed);
+			if (stamp && (!newest || Date.parse(stamp) > Date.parse(newest))) {
+				newest = stamp;
+			}
+		}
+		return newest;
+	} catch {
+		return undefined;
+	} finally {
+		closeSync(fd);
 	}
-	return undefined;
 }
 
 /** Parse one JSONL line's timestamp into an ISO string. */
