@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -155,6 +155,72 @@ describe("conclude / retire scope", () => {
 		expect(result.ok).toBe(true);
 		const text = readFileSync(a.path, "utf8");
 		expect(text).toMatch(/status: retired/);
+	});
+
+	it("warns when the primary plan still has unchecked items", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Q");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "think",
+			kind: "plan",
+			note: "scope",
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "draft",
+			title: "The plan",
+		});
+		// Replace the scaffold body with a known checkbox set:
+		// one done, one open.
+		writeFileSync(
+			state.documentPath as string,
+			"# The plan\n\n## Work\n- [x] done item\n- [ ] open item\n",
+		);
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			scope: "quest",
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("expected ok");
+		expect(result.message).toMatch(/unchecked|open work|item/i);
+		const drift = (
+			result.details as { planDrift?: { done: number; total: number } }
+		).planDrift;
+		expect(drift).toMatchObject({ done: 1, total: 2 });
+	});
+
+	it("does not warn when the primary plan is fully checked", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Q");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "think",
+			kind: "plan",
+			note: "scope",
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "draft",
+			title: "The plan",
+		});
+		writeFileSync(
+			state.documentPath as string,
+			"# The plan\n\n## Work\n- [x] done item\n",
+		);
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			scope: "quest",
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("expected ok");
+		expect(
+			(result.details as { planDrift?: unknown }).planDrift,
+		).toBeUndefined();
 	});
 
 	it("explicit scope=document with no focused document refuses cleanly", async () => {

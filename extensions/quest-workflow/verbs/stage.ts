@@ -20,6 +20,7 @@ import {
 	setPendingPrune,
 } from "../../../lib/internal/quest/trees.js";
 import {
+	checkboxProgress,
 	type DocumentFrontMatter,
 	type DocumentKind,
 	mintId,
@@ -260,6 +261,41 @@ export function stageTransition(
 	);
 }
 
+/**
+ * Inspect the loaded quest's primary plan for unchecked work.
+ * Returns the plan id and its checkbox tallies when items remain
+ * open, so conclude can warn rather than silently sealing a quest
+ * with work still on its plan. Returns undefined when there is no
+ * primary plan, it is unreadable, has no checkboxes, or is fully
+ * checked.
+ */
+function primaryPlanDrift(
+	state: QuestState,
+): { planId: string; done: number; total: number } | undefined {
+	if (!state.questDir) return undefined;
+	let readme: string;
+	try {
+		readme = readFileSync(join(state.questDir, "README.md"), "utf8");
+	} catch {
+		return undefined;
+	}
+	const parsed = parseQuestFrontMatter(readme);
+	const planId = parsed?.frontMatter.primaryPlanId;
+	if (!planId) return undefined;
+	let planText: string;
+	try {
+		planText = readFileSync(
+			join(state.questDir, "plans", `${planId}.md`),
+			"utf8",
+		);
+	} catch {
+		return undefined;
+	}
+	const { done, total } = checkboxProgress(planText);
+	if (total === 0 || done >= total) return undefined;
+	return { planId, done, total };
+}
+
 /** Read the loaded quest's sessions list off disk. */
 function readSessionsFromQuest(state: QuestState): QuestSession[] {
 	if (!state.questDir) return [];
@@ -364,6 +400,11 @@ export async function concludeOrRetire(
 			? `Concluded quest ${state.questId}.`
 			: `Retired quest ${state.questId}.`;
 	if (pruned.length > 0) message += ` Pruned ${pruned.length} tree(s).`;
+	const drift = action === "conclude" ? primaryPlanDrift(state) : undefined;
+	if (drift) {
+		const open = drift.total - drift.done;
+		message += ` Warning: primary plan ${drift.planId} still has ${open} unchecked item(s) (${drift.done}/${drift.total} done); concluded anyway.`;
+	}
 	if (blocked.length > 0) {
 		const detectedAt = new Date().toISOString();
 		for (const b of blocked) {
@@ -380,5 +421,6 @@ export async function concludeOrRetire(
 		action,
 		prunedTrees: pruned,
 		blockedTrees: blocked,
+		...(drift ? { planDrift: drift } : {}),
 	});
 }
