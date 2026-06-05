@@ -55,6 +55,7 @@ import {
 	listAllQuests,
 	loadQuest,
 	persist,
+	refreshLoadedSlice,
 	refreshProgress,
 	restore,
 	restoreFromCwd,
@@ -494,6 +495,11 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {
+		// Re-read the loaded quest's README so a title, status
+		// or priority edited in place (not through a verb that
+		// already updates state) is reflected in the status line
+		// without a manual reload.
+		refreshLoadedSlice(state);
 		refreshProgress(state);
 		updateScoreboard(state, ctx);
 	});

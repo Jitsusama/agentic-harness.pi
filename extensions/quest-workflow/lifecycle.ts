@@ -147,6 +147,29 @@ export function loadQuest(
 	return { ok: true };
 }
 
+/**
+ * Re-read the loaded quest's README and refresh the in-memory
+ * slice (title, kind, status, priority) so an edit to the quest's
+ * own README shows up in the status line without a manual reload.
+ * No-op when no quest is loaded or the README cannot be read.
+ */
+export function refreshLoadedSlice(state: QuestState): void {
+	if (!state.questDir) return;
+	let text: string;
+	try {
+		text = readFileSync(join(state.questDir, "README.md"), "utf8");
+	} catch {
+		// README missing or unreadable; leave the slice as-is.
+		return;
+	}
+	const parsed = parseQuestDoc(text);
+	if (!parsed) return;
+	state.questTitle = parsed.title ?? null;
+	state.questKind = parsed.frontMatter.kind;
+	state.questStatus = parsed.frontMatter.status;
+	state.questPriority = parsed.frontMatter.priority;
+}
+
 /** Unload the currently loaded quest. */
 export function unloadQuest(state: QuestState): void {
 	state.questDir = null;
