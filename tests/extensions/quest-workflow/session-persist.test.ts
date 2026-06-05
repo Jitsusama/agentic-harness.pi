@@ -269,4 +269,28 @@ describe("auto-attach on load", () => {
 		const mine = sessionsOf(a.dir).filter((s) => s.id === "sess-load");
 		expect(mine).toHaveLength(1);
 	});
+
+	it("preserves the original started timestamp across reloads", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-load"), {
+			action: "load",
+			id: a.id,
+		});
+		const firstStarted = sessionsOf(a.dir).find(
+			(s) => s.id === "sess-load",
+		)?.started;
+		expect(firstStarted).toBeDefined();
+
+		// A later load of the same session must not re-stamp started to
+		// the latest attach time.
+		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-load"), {
+			action: "load",
+			id: a.id,
+		});
+		const secondStarted = sessionsOf(a.dir).find(
+			(s) => s.id === "sess-load",
+		)?.started;
+		expect(secondStarted).toBe(firstStarted);
+	});
 });

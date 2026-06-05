@@ -784,10 +784,15 @@ export function attachSessionToLoaded(
 	const result = writeQuestFrontMatter(state.questDir, (fm) => {
 		const existing = fm.sessions.find((s) => s.id === session.id);
 		if (existing) {
-			// Refresh status to active and merge any new fields.
+			// Refresh status to active and merge any new fields, but keep
+			// the original started: it records when the session first
+			// touched this quest, not the latest attach. Letting the
+			// incoming started win would defeat the no-op guard below and
+			// churn the README on every load.
 			const merged: QuestSession = {
 				...existing,
 				...session,
+				started: existing.started ?? session.started,
 				status: "active",
 			};
 			if (JSON.stringify(merged) === JSON.stringify(existing)) {
