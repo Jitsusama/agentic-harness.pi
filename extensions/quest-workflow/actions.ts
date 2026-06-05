@@ -43,6 +43,8 @@ export const QUEST_ACTIONS = [
 	"before",
 	"after",
 	"renumber",
+	"reparent",
+	"undo",
 	"alias-add",
 	"alias-remove",
 	"session-attach",

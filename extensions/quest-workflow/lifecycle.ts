@@ -707,6 +707,34 @@ function writeQuestFrontMatter(
 	});
 }
 
+/**
+ * Set a quest's parent by directory, stamping `updated` and
+ * appending a Journey entry. Used by the reparent verb, which
+ * may move quests other than the loaded one.
+ */
+export function setQuestParent(
+	questDir: string,
+	newParent: string | null,
+): { ok: true } | { ok: false; guidance: string } {
+	const result = writeQuestFrontMatter(questDir, (fm) => ({
+		...fm,
+		parent: newParent,
+	}));
+	if (!result.ok) return result;
+	appendJourneyByPath(questDir, `Reparented to ${newParent ?? "top level"}.`);
+	return { ok: true };
+}
+
+/** Set a quest's status by directory, stamping `updated`. */
+export function setQuestStatusByDir(
+	questDir: string,
+	status: QuestFrontMatter["status"],
+): { ok: true } | { ok: false; guidance: string } {
+	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, status }));
+	if (!result.ok) return result;
+	return { ok: true };
+}
+
 /** Add an alias to the loaded quest. No-op if already present. */
 export function addAliasToLoaded(
 	state: QuestState,

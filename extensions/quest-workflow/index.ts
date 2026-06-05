@@ -138,7 +138,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id(s) to move, comma-separated for a batch. For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
@@ -155,7 +155,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			),
 			parent: Type.Optional(
 				Type.String({
-					description: "create: parent quest id when minting a subquest.",
+					description:
+						"create: parent quest id when minting a subquest. reparent: the new parent quest id, or `null` to move the target(s) to top level.",
 				}),
 			),
 			kind: Type.Optional(
@@ -278,6 +279,12 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				Type.Boolean({
 					description:
 						"tree-prune: override safety refusals (dirty working tree, unmerged branch, attached session). Destructive: passing true is consent to lose uncommitted work, so the agent should confirm with the user first.",
+				}),
+			),
+			dryRun: Type.Optional(
+				Type.Boolean({
+					description:
+						"reparent: preview the planned moves and report exactly what would change without writing anything. Use undo to reverse the last applied structural edit.",
 				}),
 			),
 			skipTree: Type.Optional(
