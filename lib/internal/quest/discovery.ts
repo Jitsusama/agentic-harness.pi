@@ -38,7 +38,13 @@
  * surfaced only via the quest's own body references.
  */
 
-import { type Dirent, readdirSync, readFileSync, realpathSync } from "node:fs";
+import {
+	type Dirent,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	statSync,
+} from "node:fs";
 import { extname, join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.js";
 import { parseDocumentFrontMatter } from "./frontmatter.js";
@@ -150,7 +156,79 @@ function parseDocumentFile(text: string): QuestDocumentDoc | undefined {
  * - We cap recursion depth at `MAX_WALK_DEPTH` and surface
  *   the truncation as an error rather than spinning.
  */
+interface CacheSlot {
+	signature: string;
+	result: DiscoveryResult;
+}
+
+const discoveryCache = new Map<string, CacheSlot>();
+
+/**
+ * Drop the discovery memo. Tests call this between runs; write
+ * paths do not need it because the signature catches their
+ * changes on the next read.
+ */
+export function clearDiscoveryCache(): void {
+	discoveryCache.clear();
+}
+
+/**
+ * Walk `questsRoot` and build the index, memoized per root. The
+ * walk re-parses every README and document, which is the costly
+ * part; this caches the result behind a cheap mtime-and-size
+ * signature so repeated read verbs in a session do not re-parse
+ * an unchanged tree. The signature recomputes on every call (a
+ * directory traversal plus stats, no file reads), so any change
+ * to a README, a document, or the set of quests invalidates the
+ * cache on the next read.
+ */
 export function discoverQuests(questsRoot: string): DiscoveryResult {
+	const signature = discoverySignature(questsRoot);
+	const cached = discoveryCache.get(questsRoot);
+	if (cached && cached.signature === signature) return cached.result;
+	const result = discoverQuestsUncached(questsRoot);
+	discoveryCache.set(questsRoot, { signature, result });
+	return result;
+}
+
+/**
+ * A cheap fingerprint of the quest tree: the quests root plus,
+ * for each quest directory, its README and each document file by
+ * mtime and size. Catches content edits (mtime or size move) and
+ * structural changes (a quest or document added or removed shows
+ * as a new or missing path).
+ */
+function discoverySignature(questsRoot: string): string {
+	const parts: string[] = [];
+	const stamp = (path: string): void => {
+		try {
+			const s = statSync(path);
+			parts.push(`${path}:${s.mtimeMs}:${s.size}`);
+		} catch {
+			// Missing path contributes nothing; its absence is
+			// itself a change from any prior signature that had it.
+		}
+	};
+	const rootEntries = readEntries(questsRoot);
+	if (!rootEntries) return "absent";
+	for (const entry of rootEntries) {
+		if (!entry.isDirectory()) continue;
+		if (!isId(entry.name) || prefixOf(entry.name) !== "QEST") continue;
+		const questDir = join(questsRoot, entry.name);
+		stamp(join(questDir, "README.md"));
+		for (const subdir of CANONICAL_DOCUMENT_DIRS) {
+			const scanDir = join(questDir, subdir);
+			const docEntries = readEntries(scanDir);
+			if (!docEntries) continue;
+			for (const doc of docEntries) {
+				if (doc.isFile()) stamp(join(scanDir, doc.name));
+			}
+		}
+	}
+	return parts.sort().join("|");
+}
+
+function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
 	const quests = new Map<string, QuestEntry>();
 	const children = new Map<string, string[]>();
 	const errors: DiscoveryError[] = [];
