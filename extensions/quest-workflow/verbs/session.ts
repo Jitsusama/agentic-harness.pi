@@ -106,6 +106,26 @@ export function sessionRename(
 	});
 }
 
+/**
+ * Decide the command the spawned terminal runs. An explicit command
+ * wins outright. Otherwise, when exactly one resumable session was
+ * picked, resume it with `pi --session <id>`; with no resumable
+ * session (none or several), start a fresh `pi`.
+ */
+export function resolveSpawnCommand(
+	explicitCommand: string | undefined,
+	resume: ReturnType<typeof pickResumeSession>,
+): { command: string; resumedSessionId?: string } {
+	if (explicitCommand?.trim()) return { command: explicitCommand.trim() };
+	if (resume && "id" in resume) {
+		return {
+			command: `pi --session ${resume.id}`,
+			resumedSessionId: resume.id,
+		};
+	}
+	return { command: "pi" };
+}
+
 export async function spawn(
 	state: QuestState,
 	ctx: ToolContext,
@@ -159,12 +179,10 @@ export async function spawn(
 	// the choice rather than guessing.
 	const currentId = currentSessionId(ctx, undefined);
 	const resume = pickResumeSession(sessions.filter((s) => s.id !== currentId));
-	let command = params.command?.trim() || "pi";
-	let resumedSessionId: string | undefined;
-	if (!params.command && resume && "id" in resume) {
-		resumedSessionId = resume.id;
-		command = `pi --session ${resume.id}`;
-	}
+	const { command, resumedSessionId } = resolveSpawnCommand(
+		params.command,
+		resume,
+	);
 
 	// Pass the target quest id through to the spawned
 	// process via an env var. The new pi's quest-workflow

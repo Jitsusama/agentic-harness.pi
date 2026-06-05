@@ -90,13 +90,18 @@ export function treeList(state: QuestState): QuestResult {
 		// No quest loaded: return the cross-quest inventory so
 		// the harness-created trees can be seen in one place.
 		const inventory = inventoryWorktrees(state);
+		// scope tells a consumer which shape `trees` carries: the
+		// global inventory entries are attributed (questId/questTitle),
+		// the per-quest records are not.
 		return ok(`${inventory.length} tree(s) across all quests.`, {
+			scope: "global",
 			trees: inventory,
 		});
 	}
 	const result = listTreesOnQuest(state.questDir);
 	if (!result.ok) return refuse(result.reason);
 	return ok(`${result.trees.length} tree(s) on the loaded quest.`, {
+		scope: "quest",
 		trees: result.trees,
 	});
 }

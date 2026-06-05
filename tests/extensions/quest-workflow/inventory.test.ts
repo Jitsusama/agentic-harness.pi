@@ -90,7 +90,11 @@ describe("inventoryWorktrees", () => {
 		});
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error("expected ok");
-		const trees = (result.details as { trees: { path: string }[] }).trees;
-		expect(trees.some((t) => t.path === "/work/c")).toBe(true);
+		const details = result.details as {
+			scope: string;
+			trees: { path: string }[];
+		};
+		expect(details.scope).toBe("global");
+		expect(details.trees.some((t) => t.path === "/work/c")).toBe(true);
 	});
 });

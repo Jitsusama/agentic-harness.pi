@@ -2,7 +2,11 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { persist, restore } from "../../../extensions/quest-workflow/lifecycle";
+import {
+	detachSessionFromLoaded,
+	persist,
+	restore,
+} from "../../../extensions/quest-workflow/lifecycle";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { parseQuestFrontMatter } from "../../../lib/quest/index";
@@ -268,6 +272,26 @@ describe("auto-attach on load", () => {
 		});
 		const mine = sessionsOf(a.dir).filter((s) => s.id === "sess-load");
 		expect(mine).toHaveLength(1);
+	});
+
+	it("detaches the current session as the shutdown handler does", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-x"), {
+			action: "load",
+			id: a.id,
+		});
+		expect(sessionsOf(a.dir).find((s) => s.id === "sess-x")?.status).toBe(
+			"active",
+		);
+
+		// session_shutdown calls detachSessionFromLoaded with the
+		// current id; the on-disk session must flip to detached so
+		// reopen's detached-wins branch reads it correctly.
+		detachSessionFromLoaded(state, "sess-x");
+		expect(sessionsOf(a.dir).find((s) => s.id === "sess-x")?.status).toBe(
+			"detached",
+		);
 	});
 
 	it("preserves the original started timestamp across reloads", async () => {
