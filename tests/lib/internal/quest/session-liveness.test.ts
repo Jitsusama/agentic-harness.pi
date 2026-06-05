@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	deriveLiveness,
+	questLastActivity,
 	sessionActivity,
 } from "../../../../lib/internal/quest/session-liveness";
 
@@ -51,6 +52,31 @@ describe("sessionActivity", () => {
 		await writeSession("019epoch", "--c--", [{ timestamp: ms }]);
 		const result = sessionActivity("019epoch", dir);
 		expect(result?.lastActivity).toBe(new Date(ms).toISOString());
+	});
+});
+
+describe("questLastActivity", () => {
+	it("returns undefined when no session has a log", () => {
+		expect(
+			questLastActivity([{ id: "gone", status: "active" }], dir),
+		).toBeUndefined();
+	});
+
+	it("returns the newest activity across sessions", async () => {
+		await writeSession("019older", "--a--", [
+			{ timestamp: "2026-06-04T09:00:00.000Z" },
+		]);
+		await writeSession("019newer", "--b--", [
+			{ timestamp: "2026-06-04T15:30:00.000Z" },
+		]);
+		const last = questLastActivity(
+			[
+				{ id: "019older", status: "detached" },
+				{ id: "019newer", status: "detached" },
+			],
+			dir,
+		);
+		expect(last).toBe("2026-06-04T15:30:00.000Z");
 	});
 });
 

@@ -37,17 +37,19 @@ import {
 } from "./shared.js";
 
 export function find(state: QuestState, params: QuestToolParams): QuestResult {
+	const ALLOWED_FIELDS = ["started", "updated", "due", "eta", "activity"];
+	if (params.field && !ALLOWED_FIELDS.includes(params.field)) {
+		return refuse(
+			`Unknown field "${params.field}". Use started, updated, due, eta or activity.`,
+		);
+	}
 	const field = params.field as
 		| "started"
 		| "updated"
 		| "due"
 		| "eta"
+		| "activity"
 		| undefined;
-	if (params.field && !field) {
-		return refuse(
-			`Unknown field "${params.field}". Use started, updated, due or eta.`,
-		);
-	}
 	const matches = findQuestEntries(state, {
 		query: params.query,
 		since: params.since,

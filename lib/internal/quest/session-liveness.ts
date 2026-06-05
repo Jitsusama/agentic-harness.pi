@@ -29,6 +29,27 @@ export interface SessionView extends QuestSession {
 const LIVE_WINDOW_MS = 15 * 60 * 1000;
 
 /**
+ * The most recent activity timestamp across a quest's sessions,
+ * read from the session store. Undefined when none of them has a
+ * log on disk. This is a quest's effective last-touched time for
+ * activity-window filtering and sorting.
+ */
+export function questLastActivity(
+	sessions: QuestSession[],
+	sessionDir: string,
+): string | undefined {
+	let newest: string | undefined;
+	for (const session of sessions) {
+		const activity = sessionActivity(session.id, sessionDir);
+		if (!activity) continue;
+		if (!newest || Date.parse(activity.lastActivity) > Date.parse(newest)) {
+			newest = activity.lastActivity;
+		}
+	}
+	return newest;
+}
+
+/**
  * Classify an attached session. A detached status wins outright; a
  * session with no log file is dead; recent activity is live and
  * older activity is idle. lastActivity is carried through whenever

@@ -349,6 +349,21 @@ describe("find with extended filters", () => {
 		expect(rows.some((r) => r.id === parent.id)).toBe(true);
 	});
 
+	it("accepts field=activity and rejects an unknown field", async () => {
+		const state = buildState();
+		await createQuest(state, "Q");
+		const ok = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "find",
+			field: "activity",
+		});
+		expect(ok.ok).toBe(true);
+		const bad = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "find",
+			field: "banana",
+		});
+		expect(bad.ok).toBe(false);
+	});
+
 	it("filters by refType", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Aliased");

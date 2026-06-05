@@ -6,12 +6,14 @@
  * the tool only dispatches.
  */
 
+import { sessionsDir } from "../../lib/internal/paths.js";
 import {
 	discoverQuests,
 	type QuestDocumentEntry,
 	type QuestEntry,
 	type QuestIndex,
 } from "../../lib/internal/quest/discovery.js";
+import { questLastActivity } from "../../lib/internal/quest/session-liveness.js";
 import {
 	getResolutionFallback,
 	type Identity,
@@ -33,7 +35,7 @@ export interface FindParams {
 	query?: string;
 	since?: string;
 	until?: string;
-	field?: "started" | "updated" | "due" | "eta";
+	field?: "started" | "updated" | "due" | "eta" | "activity";
 	priority?: string;
 	kind?: string;
 	status?: string;
@@ -52,6 +54,8 @@ export interface FindHit {
 	updated: string;
 	dir: string;
 	summary?: string;
+	/** Newest session activity, populated only for activity queries. */
+	lastActivity?: string;
 }
 
 /**
@@ -174,7 +178,16 @@ export function findQuestEntries(
 			const types = new Set(fm.aliases.map((a) => a.type));
 			if (!types.has(params.refType)) continue;
 		}
-		const fieldDate = parseDate(fieldValue(fm, params.field));
+		// Last activity is read from the session store, which is
+		// costly per quest, so only compute it when the caller
+		// actually filters or sorts by the activity window.
+		const byActivity = params.field === "activity";
+		const lastActivity = byActivity
+			? questLastActivity(fm.sessions, sessionsDir())
+			: undefined;
+		const fieldDate = byActivity
+			? parseDate(lastActivity)
+			: parseDate(fieldValue(fm, params.field));
 		if (since && fieldDate && fieldDate < since) continue;
 		if (until && fieldDate && fieldDate > until) continue;
 		if (params.query && !matchesQuery(entry, params.query)) continue;
@@ -191,10 +204,12 @@ export function findQuestEntries(
 			dir: entry.dir,
 		};
 		if (summary) hit.summary = summary;
+		if (lastActivity) hit.lastActivity = lastActivity;
+		const sortBasis = byActivity ? parseDate(lastActivity) : updatedDate;
 		matches.push({
 			hit,
 			entry,
-			_sortKey: updatedDate ? -updatedDate.getTime() : 0,
+			_sortKey: sortBasis ? -sortBasis.getTime() : 0,
 		});
 	}
 	matches.sort((a, b) => a._sortKey - b._sortKey);
