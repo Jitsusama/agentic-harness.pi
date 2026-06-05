@@ -321,8 +321,12 @@ async function pruneAllTreesOnQuest(state: QuestState): Promise<{
 	if (!state.questDir) return { pruned, blocked };
 	const listing = listTreesOnQuest(state.questDir);
 	if (!listing.ok) return { pruned, blocked };
-	const sessions = readSessionsFromQuest(state);
 	for (const tree of listing.trees) {
+		// Re-read the live session list immediately before each prune
+		// rather than from one snapshot taken before the loop: the
+		// awaits below yield the event loop, so another session can
+		// attach into a tree we are about to prune and must be seen.
+		const sessions = readSessionsFromQuest(state);
 		const attached = sessions.filter((s) => s.cwd?.startsWith(tree.path));
 		if (attached.length > 0) {
 			const names = attached.map((s) => s.name ?? s.id).join(", ");
@@ -361,9 +365,11 @@ export async function concludeOrRetire(
 	params: QuestToolParams,
 	ctx: ToolContext,
 ): Promise<QuestResult> {
-	// A comma-separated id set is a bulk status sweep over explicit
-	// targets, distinct from concluding the loaded quest.
-	if ((params.id ?? "").includes(",")) {
+	// An explicit id (single or a comma list) selects the target set
+	// for a reversible status sweep, distinct from concluding the
+	// loaded quest. Naming an id always targets that id, so a single
+	// id never silently falls through to the loaded quest.
+	if ((params.id ?? "").trim().length > 0) {
 		return bulkConcludeOrRetire(state, action, params);
 	}
 	if (!state.questDir) {
@@ -381,23 +387,22 @@ export async function concludeOrRetire(
 	if (action === "retire" && !params.reason?.trim()) {
 		return refuse("Retire needs a `reason`: why is the quest being abandoned?");
 	}
-	const result = setLoadedStatus(
-		state,
-		action === "conclude" ? "concluded" : "retired",
-	);
-	if (!result.ok) return refuse(result.guidance);
-	if (!result.changed) {
-		return ok(
-			`Quest already ${action === "conclude" ? "concluded" : "retired"}.`,
-		);
+	const target = action === "conclude" ? "concluded" : "retired";
+	if (state.questStatus === target) {
+		return ok(`Quest already ${target}.`);
 	}
+	// Prune before flipping status so a prune that cannot complete
+	// leaves the quest in its prior state with the blocked trees
+	// recorded, rather than sealing a still-active quest.
+	const { pruned, blocked } = await pruneAllTreesOnQuest(state);
+	const result = setLoadedStatus(state, target);
+	if (!result.ok) return refuse(result.guidance);
 	appendJourneyEntry(
 		state,
 		action === "conclude"
 			? "Concluded the quest."
 			: `Retired the quest: ${params.reason?.trim()}.`,
 	);
-	const { pruned, blocked } = await pruneAllTreesOnQuest(state);
 	for (const path of pruned) {
 		appendJourneyEntry(state, `Pruned tree at ${path}.`);
 	}

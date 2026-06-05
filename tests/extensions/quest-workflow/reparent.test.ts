@@ -208,6 +208,32 @@ describe("reparent verb", () => {
 		expect(statusOf(b.id)).toBe("active");
 	});
 
+	it("a single explicit id targets that quest, not the loaded one", async () => {
+		const state = buildState();
+		const loaded = await createQuest(state, "Loaded");
+		const other = await createQuest(state, "Other");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: loaded.id,
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: other.id,
+		});
+		expect(result.ok).toBe(true);
+		// The named quest is concluded; the loaded quest is untouched.
+		expect(statusOf(other.id)).toBe("concluded");
+		expect(statusOf(loaded.id)).toBe("active");
+
+		// And it is reversible, unlike the loaded-quest path.
+		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+		});
+		expect(undone.ok).toBe(true);
+		expect(statusOf(other.id)).toBe("active");
+	});
+
 	it("bulk conclude previews under dryRun without writing", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "A");
