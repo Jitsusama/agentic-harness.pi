@@ -521,6 +521,40 @@ export function createDocument(
 	return path;
 }
 
+/** One working tree in the cross-quest inventory. */
+export interface WorktreeInventoryEntry {
+	path: string;
+	branch?: string;
+	questId: string;
+	questTitle: string | null;
+}
+
+/**
+ * Inventory every working tree recorded across all quests,
+ * attributing each to its owning quest. This is what lets the
+ * harness-created trees be seen and reaped in one place instead
+ * of being a mystery pile of directories.
+ */
+export function inventoryWorktrees(
+	state: QuestState,
+): WorktreeInventoryEntry[] {
+	const { index } = discoverQuests(state.questsRoot);
+	const entries: WorktreeInventoryEntry[] = [];
+	for (const quest of index.quests.values()) {
+		const fm = quest.doc.frontMatter;
+		for (const tree of fm.trees ?? []) {
+			const entry: WorktreeInventoryEntry = {
+				path: tree.path,
+				questId: fm.id,
+				questTitle: quest.doc.title ?? null,
+			};
+			if (tree.branch) entry.branch = tree.branch;
+			entries.push(entry);
+		}
+	}
+	return entries.sort((a, b) => a.path.localeCompare(b.path));
+}
+
 /** Discover quests for /quest-list etc. */
 export function listAllQuests(state: QuestState): QuestEntry[] {
 	const { index } = discoverQuests(state.questsRoot);
