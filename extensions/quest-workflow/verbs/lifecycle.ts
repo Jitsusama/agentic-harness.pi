@@ -417,6 +417,7 @@ export function list(state: QuestState, params: QuestToolParams): QuestResult {
 			id: row.id,
 			kind: row.kind,
 			status: row.status,
+			priority: row.priority,
 			title: row.title,
 		};
 		return renderRowBrief(brief);

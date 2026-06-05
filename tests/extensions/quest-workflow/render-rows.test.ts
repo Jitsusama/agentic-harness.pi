@@ -8,23 +8,26 @@ import {
 	paginate,
 	type QuestRowBrief,
 	type QuestRowExpanded,
+	questGlyphLegend,
 	renderListing,
 	renderListingExpanded,
 	renderRowBrief,
 	renderRowExpanded,
+	renderRowGlyph,
 } from "../../../extensions/quest-workflow/render-rows";
 
 const baseBrief: QuestRowBrief = {
 	id: "QEST-20260603-AAA111",
 	kind: "quest",
 	status: "active",
+	priority: "active",
 	title: "Quest Workflow UX Iteration",
 };
 
 describe("renderRowBrief", () => {
-	it("renders id, kind glyph, status glyph and title on one line", () => {
+	it("renders id and parsable kind, status, priority words and title", () => {
 		expect(renderRowBrief(baseBrief)).toBe(
-			"QEST-20260603-AAA111 \u25c6 \u25cb Quest Workflow UX Iteration",
+			"QEST-20260603-AAA111 kind=quest status=active priority=active Quest Workflow UX Iteration",
 		);
 	});
 
@@ -34,30 +37,37 @@ describe("renderRowBrief", () => {
 		);
 	});
 
-	it("uses different kind glyphs for quest, subquest and sidequest", () => {
-		const q = renderRowBrief({ ...baseBrief, kind: "quest" });
-		const sub = renderRowBrief({ ...baseBrief, kind: "subquest" });
-		const side = renderRowBrief({ ...baseBrief, kind: "sidequest" });
-		expect(q).toContain("\u25c6");
-		expect(sub).toContain("\u25c8");
-		expect(side).toContain("\u25c7");
+	it("carries the priority word", () => {
+		expect(renderRowBrief({ ...baseBrief, priority: "driving" })).toContain(
+			"priority=driving",
+		);
+	});
+});
+
+describe("renderRowGlyph", () => {
+	it("renders id, kind glyph, status glyph and title on one line", () => {
+		expect(renderRowGlyph(baseBrief)).toBe(
+			"QEST-20260603-AAA111 \u25c6 \u25cb Quest Workflow UX Iteration",
+		);
 	});
 
-	it("uses a distinct status glyph for each lifecycle state", () => {
-		const seen = new Set<string>();
-		for (const status of [
-			"active",
-			"paused",
-			"blocked",
-			"concluded",
-			"retired",
-		] as const) {
-			const out = renderRowBrief({ ...baseBrief, status });
-			const glyph = out.split(" ")[2];
-			expect(glyph).toBeTruthy();
-			expect(seen.has(glyph)).toBe(false);
-			seen.add(glyph);
-		}
+	it("uses different kind glyphs for quest, subquest and sidequest", () => {
+		expect(renderRowGlyph({ ...baseBrief, kind: "quest" })).toContain("\u25c6");
+		expect(renderRowGlyph({ ...baseBrief, kind: "subquest" })).toContain(
+			"\u25c8",
+		);
+		expect(renderRowGlyph({ ...baseBrief, kind: "sidequest" })).toContain(
+			"\u25c7",
+		);
+	});
+});
+
+describe("questGlyphLegend", () => {
+	it("maps the kind and status glyphs to their words", () => {
+		const legend = questGlyphLegend();
+		expect(legend).toContain("\u25c6");
+		expect(legend).toContain("quest");
+		expect(legend).toContain("active");
 	});
 });
 
@@ -69,10 +79,10 @@ describe("renderRowExpanded", () => {
 		updated: "2026-06-03",
 	};
 
-	it("renders the brief row and a metadata line below it", () => {
+	it("renders the glyph row and a metadata line below it", () => {
 		const out = renderRowExpanded(base);
 		const [first, second] = out.split("\n");
-		expect(first).toBe(renderRowBrief(base));
+		expect(first).toBe(renderRowGlyph(base));
 		expect(second).toContain("priority: driving");
 		expect(second).toContain("parent: none");
 		expect(second).toContain("updated: 2026-06-03");

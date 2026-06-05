@@ -90,16 +90,30 @@ function parseDate(input?: string): Date | undefined {
 	return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
-function matchesQuery(entry: QuestEntry, q: string): boolean {
-	const needle = q.toLowerCase();
+/**
+ * Match a quest against a free-text query, token by token. The
+ * query is split on whitespace and every token must appear
+ * somewhere across the quest's title, id, body or alias values
+ * (an AND across a combined haystack), so a multi-word query no
+ * longer demands one contiguous substring. An empty query
+ * matches everything.
+ */
+export function matchesQuery(entry: QuestEntry, q: string): boolean {
+	const tokens = q
+		.toLowerCase()
+		.split(/\s+/)
+		.filter((t) => t.length > 0);
+	if (tokens.length === 0) return true;
 	const fm = entry.doc.frontMatter;
-	if (entry.doc.title?.toLowerCase().includes(needle)) return true;
-	if (fm.id.toLowerCase().includes(needle)) return true;
-	if (entry.doc.body.toLowerCase().includes(needle)) return true;
-	for (const alias of fm.aliases) {
-		if (alias.value.toLowerCase().includes(needle)) return true;
-	}
-	return false;
+	const haystack = [
+		entry.doc.title ?? "",
+		fm.id,
+		entry.doc.body,
+		...fm.aliases.map((a) => a.value),
+	]
+		.join("\n")
+		.toLowerCase();
+	return tokens.every((token) => haystack.includes(token));
 }
 
 function firstSummaryLine(body: string): string | undefined {

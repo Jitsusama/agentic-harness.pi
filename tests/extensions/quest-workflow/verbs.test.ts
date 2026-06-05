@@ -555,7 +555,7 @@ describe("list filters", () => {
 });
 
 describe("listing verbs: brief, expanded and pagination", () => {
-	it("list defaults to one brief row per quest with id, glyphs and title", async () => {
+	it("list defaults to one parsable brief row per quest with id, words and title", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha quest");
 		await createQuest(state, "Bravo quest");
@@ -567,11 +567,11 @@ describe("listing verbs: brief, expanded and pagination", () => {
 		expect(result.message).toContain(a.id);
 		expect(result.message).toContain("Alpha quest");
 		expect(result.message).toContain("Bravo quest");
-		// Glyphs present: a kind glyph for the row and ○
-		// for active status. The default kind is sidequest;
-		// it carries the ◇ glyph.
-		expect(result.message).toMatch(/[\u25c6\u25c7\u25c8]/);
-		expect(result.message).toContain("\u25cb");
+		// R1: the brief text the agent reads carries parsable
+		// words, not glyphs. The default kind is sidequest.
+		expect(result.message).toContain("kind=sidequest");
+		expect(result.message).toContain("status=active");
+		expect(result.message).not.toMatch(/[\u25c6\u25c7\u25c8]/);
 		const details = result.details as { total: number; remaining: number };
 		expect(details.total).toBe(2);
 		expect(details.remaining).toBe(0);

@@ -79,6 +79,7 @@ export function find(state: QuestState, params: QuestToolParams): QuestResult {
 			id: row.id,
 			kind: row.kind,
 			status: row.status,
+			priority: row.priority,
 			title: row.title,
 		}),
 	);
@@ -197,6 +198,7 @@ function renderTreeAsListing(
 			id: node.id,
 			kind: node.kind as QuestRowBrief["kind"],
 			status: node.status as QuestRowBrief["status"],
+			priority: node.priority,
 			title: node.title,
 		};
 		briefLines.push(`${indent}${renderRowBrief(brief)}`);
