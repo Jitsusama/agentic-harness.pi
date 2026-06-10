@@ -35,9 +35,15 @@ of slipping into the wild for someone to spot in a bad artifact.
 | ⚪ | **Skill-only.** Judgment-based rule, not mechanically detectable. Lives in the skill and the resident reminder. |
 | 🔴 | **Gap.** Gateable rule with no gate. Action item. |
 
-## Open Gaps
+None open. The glyph-bullet gap recorded here previously is now
+🟢 enforced: `lib/slack/detect.ts` flags a run of two or more
+lines led by a `•`, `‣`, `◦`, `▪` or `·` glyph and blocks with
+a message pointing the author at the markdown markers, using the
+same conservative run-of-two threshold as the existing
+malformed-bullet scan so a lone arithmetic `3 · 4` line never
+trips it.
 
-None open. The PR and issue title length entry that previously
+The PR and issue title length entry that previously
 lived here is now 🟢 enforced on the upper bound and ⚪ skill-only
 on the lower bound, the same precision-over-recall split the
 spelling allowlist and Title Case exclusion already use. The
@@ -156,6 +162,8 @@ Slack message authoring and content.
 | No markdown image embeds (`![alt](url)`); upload files instead | Unsupported Syntax | 🟢 | `lib/slack/detect.ts` |
 | No markdown pipe tables; use the `table` parameter instead | Tables | 🟢 | `lib/slack/detect.ts` |
 | Well-formed lists (no orphan items, parallel shape) | Tables / Lists | 🟢 | `lib/slack/detect.ts`, conservative thresholds (runs of two, separator-or-adjacent-rows) |
+| No glyph bullets (`•`, `‣`, `◦`, `▪`, `·`); markdown markers (`- `, `* `, `+ `) only | Message Formatting | 🟢 | `lib/slack/detect.ts` flags a run of two glyph-led lines with a distinct instructive message; same run-of-two threshold as the markdown-marker scan |
+| Thread replies put the parent ts in `ts`, never `thread_ts` | Reply to that thread saying… | ⚪ | Parameter-usage methodology, not artifact shape. The `ts`/`thread_ts` schema descriptions and the `slack` tool guideline carry it; `thread_ts` without `ts` already fails loudly at the router. |
 | Slack mrkdwn dialect (`*bold*`, `_italic_`, `~strike~`) instead of markdown | Text Formatting | 🔇 | `lib/slack/blocks.ts` translates `**bold**` → `*bold*`, `*italic*` → `_italic_`, etc., at send time |
 | Slack link syntax (`<url|text>`) instead of markdown | Links and Mentions | 🔇 | `lib/slack/blocks.ts` translates `[text](url)` → `<url|text>` |
 | Colour swatch hex codes (`#DA35EA`) get a leading zero-width space to suppress the auto-detected swatch | Avoiding Auto-Detected Colour Swatches | 🔇 | `lib/slack/blocks.ts` inserts a ZWSP before the `#` |

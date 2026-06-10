@@ -33,6 +33,8 @@ const TABLE_RULE =
 	"slack-guide: send tabular data through the structured table parameter, not a markdown pipe table.";
 const LIST_RULE =
 	"slack-guide: format lists as proper markdown (a bullet then a space, or `N.` ordinals).";
+const GLYPH_LIST_RULE =
+	"slack-guide: write list bullets as `- `, `* ` or `+ ` markers, not a \u2022 glyph; Slack renders glyph bullets as literal text instead of a native list.";
 
 const FENCE_REGEX = /```[\s\S]*?```/g;
 const INLINE_CODE_REGEX = /`[^`\n]*`/g;
@@ -51,6 +53,11 @@ const MALFORMED_ORDERED = /^\s*\d+\)\s+\S/;
 // left out because `*bold*` collides with it; `-` and `+` led
 // runs are the unambiguous malformed-bullet case.
 const MALFORMED_BULLET = /^\s*[-+]\S/;
+// A line led by a bullet glyph and a space. Slack renders these
+// as literal characters rather than a native rich_text_list, so
+// they need translating to a markdown marker. The trailing space
+// keeps a lone `3 \u00b7 4` arithmetic line from matching.
+const GLYPH_BULLET = /^\s*[\u2022\u2023\u25E6\u25AA\u00b7]\s+\S/;
 
 /** Blank out a region so its contents never match a later scan. */
 function blankOut(text: string, pattern: RegExp): string {
@@ -75,8 +82,9 @@ export function detectSlackViolations(text: string): SlackViolation[] {
 
 	const lines = scan.split("\n");
 	flagTables(lines, violations);
-	flagLists(lines, MALFORMED_ORDERED, violations);
-	flagLists(lines, MALFORMED_BULLET, violations);
+	flagLists(lines, MALFORMED_ORDERED, violations, LIST_RULE);
+	flagLists(lines, MALFORMED_BULLET, violations, LIST_RULE);
+	flagLists(lines, GLYPH_BULLET, violations, GLYPH_LIST_RULE);
 
 	return violations;
 }
@@ -120,6 +128,7 @@ function flagLists(
 	lines: string[],
 	marker: RegExp,
 	violations: SlackViolation[],
+	rule: string,
 ): void {
 	let runStart = -1;
 	for (let i = 0; i <= lines.length; i++) {
@@ -131,7 +140,7 @@ function flagLists(
 				violations.push({
 					kind: "slack-list",
 					found: lines[runStart].trim(),
-					rule: LIST_RULE,
+					rule,
 				});
 			}
 			runStart = -1;

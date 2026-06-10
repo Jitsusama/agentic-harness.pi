@@ -49,6 +49,22 @@ describe("detectSlackViolations", () => {
 		);
 	});
 
+	it("flags a run of glyph bullets that are not markdown markers", () => {
+		const text = ["\u2022 Safe: gt restack", "\u2022 Not safe: gt get"].join(
+			"\n",
+		);
+		expect(detectSlackViolations(text).map((v) => v.kind)).toContain(
+			"slack-list",
+		);
+	});
+
+	it("does not flag a single glyph-led line as a list", () => {
+		// A lone middle-dot line is prose, not a one-item list.
+		expect(detectSlackViolations("The ratio is 3 \u00b7 4 \u00b7 5.")).toEqual(
+			[],
+		);
+	});
+
 	it("does not flag a single dash-led line as a malformed list", () => {
 		// A lone "-5 degrees" is prose, not a one-item list.
 		expect(detectSlackViolations("It dropped to -5 overnight.")).toEqual([]);

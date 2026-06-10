@@ -180,6 +180,14 @@ instead. This is a Slack API limitation, not a tool limitation.
 ### "Reply to that thread saying…"
 → `reply_to_thread` with `channel`, `ts` (from previous context), and `text`
 
+  The thread parent's timestamp goes in `ts`, not `thread_ts`.
+  `reply_to_thread` reads only `ts`; it ignores `thread_ts`
+  and fails with `Missing required parameter: channel + ts`
+  when `ts` is empty. `thread_ts` exists solely for
+  `get_message` of a reply inside a thread. The parameter
+  name is a trap: "reply to a thread" does not mean "fill in
+  thread_ts."
+
 ### "Edit that message" / "Fix that" / "Update what I said"
 → `edit_message` with `target` (or `channel`+`ts`) and the
   new `text` (and optional `table`)
@@ -552,9 +560,12 @@ never include.
 - **Dividers**: a line containing only `---`, `***` or
   `___` becomes a horizontal rule (Block Kit `divider`).
 - **Bulleted lists**: start each line with `- `, `* ` or
-  `+ `. The tool converts consecutive bullet lines into a
-  native Slack `rich_text_list` block, so wrapped lines
-  indent correctly.
+  `+ ` (a marker then a space). The tool converts consecutive
+  bullet lines into a native Slack `rich_text_list` block, so
+  wrapped lines indent correctly. Never use a `•`, `‣`, `·`
+  or any other manual bullet glyph: Slack renders those as
+  literal characters, not a list, and they defeat the native
+  list block. Markdown markers only.
 - **Ordered lists**: start each line with `1. `, `2. ` and
   so on. Slack always renumbers from 1 regardless of the
   digits you write — the digits are just a marker.
@@ -869,4 +880,28 @@ has:myreaction
 # ✅ Must name a specific emoji
 hasmy::thumbsup:
 hasmy::heart:
+```
+
+**DON'T** put the thread parent's ts in `thread_ts` when
+replying — `reply_to_thread` reads only `ts`:
+```
+# ❌ Bad: fails with "Missing required parameter: channel + ts"
+slack({ action: "reply_to_thread", channel: "C0AJY0FLK8Q",
+        thread_ts: "1781112262.653269", text: "..." })
+
+# ✅ Good: the parent ts goes in ts
+slack({ action: "reply_to_thread", channel: "C0AJY0FLK8Q",
+        ts: "1781112262.653269", text: "..." })
+```
+
+**DON'T** use `•` or other glyph bullets for lists — they
+render as literal text, not a Slack list:
+```
+# ❌ Bad: • is a literal character, not a list marker
+slack({ action: "send_message", channel: "#ops",
+        text: "• Safe: gt restack\n• Not safe: gt get" })
+
+# ✅ Good: markdown markers become a native rich_text_list
+slack({ action: "send_message", channel: "#ops",
+        text: "- Safe: gt restack\n- Not safe: gt get" })
 ```
