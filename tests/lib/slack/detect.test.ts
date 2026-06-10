@@ -54,12 +54,19 @@ describe("detectSlackViolations", () => {
 			"\n",
 		);
 		expect(detectSlackViolations(text).map((v) => v.kind)).toContain(
-			"slack-list",
+			"slack-glyph-bullet",
 		);
 	});
 
 	it("does not flag a single glyph-led line as a list", () => {
-		// A lone middle-dot line is prose, not a one-item list.
+		// One glyph line is a one-item list at most; the run-of-two
+		// threshold leaves it alone, like a lone dash line.
+		expect(detectSlackViolations("\u2022 the only bullet here")).toEqual([]);
+	});
+
+	it("does not flag an inline mid-line glyph as a list", () => {
+		// A middle dot inside prose never opens a line, so it is
+		// never read as a bullet.
 		expect(detectSlackViolations("The ratio is 3 \u00b7 4 \u00b7 5.")).toEqual(
 			[],
 		);

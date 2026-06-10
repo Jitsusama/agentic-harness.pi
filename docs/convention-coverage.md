@@ -35,6 +35,8 @@ of slipping into the wild for someone to spot in a bad artifact.
 | ⚪ | **Skill-only.** Judgment-based rule, not mechanically detectable. Lives in the skill and the resident reminder. |
 | 🔴 | **Gap.** Gateable rule with no gate. Action item. |
 
+## Open Gaps
+
 None open. The glyph-bullet gap recorded here previously is now
 🟢 enforced: `lib/slack/detect.ts` flags a run of two or more
 lines led by a `•`, `‣`, `◦`, `▪` or `·` glyph and blocks with

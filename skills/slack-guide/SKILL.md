@@ -182,8 +182,8 @@ instead. This is a Slack API limitation, not a tool limitation.
 
   The thread parent's timestamp goes in `ts`, not `thread_ts`.
   `reply_to_thread` reads only `ts`; it ignores `thread_ts`
-  and fails with `Missing required parameter: channel + ts`
-  when `ts` is empty. `thread_ts` exists solely for
+  and fails with `Missing required parameter: channel + ts or
+  target` when `ts` is empty. `thread_ts` exists solely for
   `get_message` of a reply inside a thread. The parameter
   name is a trap: "reply to a thread" does not mean "fill in
   thread_ts."
@@ -562,9 +562,9 @@ never include.
 - **Bulleted lists**: start each line with `- `, `* ` or
   `+ ` (a marker then a space). The tool converts consecutive
   bullet lines into a native Slack `rich_text_list` block, so
-  wrapped lines indent correctly. Never use a `•`, `‣`, `·`
-  or any other manual bullet glyph: Slack renders those as
-  literal characters, not a list, and they defeat the native
+  wrapped lines indent correctly. Never use a `•`, `‣`, `◦`,
+  `▪`, `·` or any other manual bullet glyph: Slack renders those
+  as literal characters, not a list, and they defeat the native
   list block. Markdown markers only.
 - **Ordered lists**: start each line with `1. `, `2. ` and
   so on. Slack always renumbers from 1 regardless of the
@@ -883,9 +883,9 @@ hasmy::heart:
 ```
 
 **DON'T** put the thread parent's ts in `thread_ts` when
-replying — `reply_to_thread` reads only `ts`:
+replying. `reply_to_thread` reads only `ts`:
 ```
-# ❌ Bad: fails with "Missing required parameter: channel + ts"
+# ❌ Bad: fails with "Missing required parameter: channel + ts or target"
 slack({ action: "reply_to_thread", channel: "C0AJY0FLK8Q",
         thread_ts: "1781112262.653269", text: "..." })
 
@@ -894,7 +894,7 @@ slack({ action: "reply_to_thread", channel: "C0AJY0FLK8Q",
         ts: "1781112262.653269", text: "..." })
 ```
 
-**DON'T** use `•` or other glyph bullets for lists — they
+**DON'T** use `•` or other glyph bullets for lists. They
 render as literal text, not a Slack list:
 ```
 # ❌ Bad: • is a literal character, not a list marker

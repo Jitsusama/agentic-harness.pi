@@ -252,7 +252,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"All identifier formats (channel names, IDs, user IDs, permalink URLs) are resolved automatically. Use whatever you have from context.",
 			"Parse Slack search operators: from:user, in:#channel, after:YYYY-MM-DD, before:YYYY-MM-DD. The after/before operators are exclusive: after:2026-03-26 means March 27 onward. To include today, use yesterday's date.",
 			"Remember context from previous results — user may reference 'that message', 'the thread', etc.",
-			"For thread replies, use reply_to_thread and put the thread parent's timestamp in the ts parameter, never in thread_ts. reply_to_thread reads only ts; thread_ts is for get_message of a reply. Passing thread_ts without ts fails with 'Missing required parameter: channel + ts'.",
+			"For thread replies, use reply_to_thread and put the thread parent's timestamp in the ts parameter, never in thread_ts. reply_to_thread reads only ts; thread_ts is for get_message of a reply. Passing thread_ts without ts fails with 'Missing required parameter: channel + ts or target'.",
 			"Format lists with markdown markers only: '- ', '* ' or '+ ' for bullets and 'N. ' for ordered items. Never use the \u2022 glyph or any other manual bullet character; Slack renders those as literal text instead of a real list.",
 			"User handles work with or without the @ prefix.",
 			"To read DMs with a person, ALWAYS use list_messages with their user ID as the channel (resolves to the DM automatically). NEVER use search_messages with 'with:' for DM history — search mixes in shared channels and misses messages. Only use 'with:' when you need keyword filtering across all conversations.",
@@ -318,7 +318,8 @@ export default function slackIntegration(pi: ExtensionAPI) {
 						"ts to the reply's ts and thread_ts to the thread parent's ts. " +
 						"Do not pass thread_ts to reply_to_thread; the thread parent's " +
 						"timestamp goes in the ts parameter, and reply_to_thread fails " +
-						"with 'Missing required parameter: channel + ts' when ts is empty.",
+						"with 'Missing required parameter: channel + ts or target' when " +
+						"ts is empty.",
 				}),
 			),
 			user: Type.Optional(
