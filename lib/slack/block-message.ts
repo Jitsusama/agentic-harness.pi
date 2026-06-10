@@ -40,5 +40,14 @@ export function formatSlackBlock(violations: SlackViolation[]): string {
 		);
 	}
 
+	if (kinds.has("slack-glyph-bullet")) {
+		lines.push(
+			"- A list uses glyph bullets (a \u2022, \u2023 or similar), which",
+			"  render as literal characters, not a native list. Replace the",
+			"  glyph with a markdown marker (- item) or `N.` ordinals, per",
+			"  the slack-guide skill.",
+		);
+	}
+
 	return lines.join("\n");
 }

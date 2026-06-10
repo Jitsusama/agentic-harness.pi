@@ -252,7 +252,8 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"All identifier formats (channel names, IDs, user IDs, permalink URLs) are resolved automatically. Use whatever you have from context.",
 			"Parse Slack search operators: from:user, in:#channel, after:YYYY-MM-DD, before:YYYY-MM-DD. The after/before operators are exclusive: after:2026-03-26 means March 27 onward. To include today, use yesterday's date.",
 			"Remember context from previous results — user may reference 'that message', 'the thread', etc.",
-			"For thread replies, use reply_to_thread with the parent message's channel and ts.",
+			"For thread replies, use reply_to_thread and put the thread parent's timestamp in the ts parameter, never in thread_ts. reply_to_thread reads only ts; thread_ts is for get_message of a reply. Passing thread_ts without ts fails with 'Missing required parameter: channel + ts or target'.",
+			"Format lists with markdown markers only: '- ', '* ' or '+ ' for bullets and 'N. ' for ordered items. Never use the \u2022 glyph or any other manual bullet character; Slack renders those as literal text instead of a real list.",
 			"User handles work with or without the @ prefix.",
 			"To read DMs with a person, ALWAYS use list_messages with their user ID as the channel (resolves to the DM automatically). NEVER use search_messages with 'with:' for DM history — search mixes in shared channels and misses messages. Only use 'with:' when you need keyword filtering across all conversations.",
 			"search_messages cannot search DM conversations — the tool returns a clear error. Use list_messages for DMs.",
@@ -299,12 +300,26 @@ export default function slackIntegration(pi: ExtensionAPI) {
 						"user ID (opens DM), or comma-separated user IDs/handles (opens group DM)",
 				}),
 			),
-			ts: Type.Optional(Type.String({ description: "Message timestamp" })),
+			ts: Type.Optional(
+				Type.String({
+					description:
+						"Message timestamp. This parameter carries the timestamp for " +
+						"every message-targeting action: for reply_to_thread it is the " +
+						"thread parent's ts; for get_thread, add_reaction, " +
+						"remove_reaction and edit_message it is the target message's " +
+						"ts; for get_message of a thread reply it is the reply's own ts. " +
+						"When in doubt, the timestamp goes here, not in thread_ts.",
+				}),
+			),
 			thread_ts: Type.Optional(
 				Type.String({
 					description:
-						"Thread parent timestamp. For get_message on a thread reply, " +
-						"set ts to the reply's ts and thread_ts to the thread parent's ts.",
+						"Only used by get_message to fetch a reply inside a thread: set " +
+						"ts to the reply's ts and thread_ts to the thread parent's ts. " +
+						"Do not pass thread_ts to reply_to_thread; the thread parent's " +
+						"timestamp goes in the ts parameter, and reply_to_thread fails " +
+						"with 'Missing required parameter: channel + ts or target' when " +
+						"ts is empty.",
 				}),
 			),
 			user: Type.Optional(

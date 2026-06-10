@@ -20,7 +20,11 @@ import type { Violation } from "../gate/index.js";
 
 /** A single Slack content violation. */
 export interface SlackViolation extends Violation {
-	readonly kind: "slack-image" | "slack-table" | "slack-list";
+	readonly kind:
+		| "slack-image"
+		| "slack-table"
+		| "slack-list"
+		| "slack-glyph-bullet";
 	/** A representative offending snippet. */
 	readonly found: string;
 	/** A short statement of the rule, for the block message. */
@@ -33,6 +37,8 @@ const TABLE_RULE =
 	"slack-guide: send tabular data through the structured table parameter, not a markdown pipe table.";
 const LIST_RULE =
 	"slack-guide: format lists as proper markdown (a bullet then a space, or `N.` ordinals).";
+const GLYPH_LIST_RULE =
+	"slack-guide: write list bullets as `- `, `* ` or `+ ` markers, not a \u2022 glyph; Slack renders glyph bullets as literal text instead of a native list.";
 
 const FENCE_REGEX = /```[\s\S]*?```/g;
 const INLINE_CODE_REGEX = /`[^`\n]*`/g;
@@ -51,6 +57,13 @@ const MALFORMED_ORDERED = /^\s*\d+\)\s+\S/;
 // left out because `*bold*` collides with it; `-` and `+` led
 // runs are the unambiguous malformed-bullet case.
 const MALFORMED_BULLET = /^\s*[-+]\S/;
+// A line that opens with a bullet glyph, a space and content.
+// The leading anchor means the glyph must start the line, so an
+// inline `3 \u00b7 4` is never mistaken for a bullet, and the
+// run-of-two threshold in flagLists leaves a lone glyph line
+// alone. Slack renders these glyphs as literal characters rather
+// than a native rich_text_list, so they need a markdown marker.
+const GLYPH_BULLET = /^\s*[\u2022\u2023\u25E6\u25AA\u00b7]\s+\S/;
 
 /** Blank out a region so its contents never match a later scan. */
 function blankOut(text: string, pattern: RegExp): string {
@@ -75,8 +88,15 @@ export function detectSlackViolations(text: string): SlackViolation[] {
 
 	const lines = scan.split("\n");
 	flagTables(lines, violations);
-	flagLists(lines, MALFORMED_ORDERED, violations);
-	flagLists(lines, MALFORMED_BULLET, violations);
+	flagLists(lines, MALFORMED_ORDERED, violations, "slack-list", LIST_RULE);
+	flagLists(lines, MALFORMED_BULLET, violations, "slack-list", LIST_RULE);
+	flagLists(
+		lines,
+		GLYPH_BULLET,
+		violations,
+		"slack-glyph-bullet",
+		GLYPH_LIST_RULE,
+	);
 
 	return violations;
 }
@@ -120,6 +140,8 @@ function flagLists(
 	lines: string[],
 	marker: RegExp,
 	violations: SlackViolation[],
+	kind: SlackViolation["kind"],
+	rule: string,
 ): void {
 	let runStart = -1;
 	for (let i = 0; i <= lines.length; i++) {
@@ -129,9 +151,9 @@ function flagLists(
 		} else {
 			if (runStart >= 0 && i - runStart >= 2) {
 				violations.push({
-					kind: "slack-list",
+					kind,
 					found: lines[runStart].trim(),
-					rule: LIST_RULE,
+					rule,
 				});
 			}
 			runStart = -1;
