@@ -181,7 +181,13 @@ export function parsePrCommand(command: string): PrCommand | null {
 	const suffix = extractHeredocSuffix(command);
 	const openerRest = matchHeredocs(command)[0]?.openerRest ?? null;
 
-	if (!body) return null;
+	// A command with a body parses as before. A title-only edit
+	// also parses, with a null body, so the title gate runs on the
+	// one path whose sole purpose is changing the title; the
+	// body-dependent gates skip a null body downstream. Everything
+	// else, a bodyless create or a metadata-only edit, carries no
+	// reviewable content here, so leave it ungated.
+	if (!body && !(action === "edit" && title)) return null;
 
 	return {
 		action,
@@ -268,7 +274,13 @@ export function parseIssueCommand(command: string): IssueCommand | null {
 	const suffix = extractHeredocSuffix(command);
 	const openerRest = matchHeredocs(command)[0]?.openerRest ?? null;
 
-	if (!body) return null;
+	// A command with a body parses as before. A title-only edit
+	// also parses, with a null body, so the title gate runs on the
+	// one path whose sole purpose is changing the title; the
+	// body-dependent gates skip a null body downstream. Everything
+	// else, a bodyless create or a metadata-only edit, carries no
+	// reviewable content here, so leave it ungated.
+	if (!body && !(action === "edit" && title)) return null;
 
 	return {
 		action,

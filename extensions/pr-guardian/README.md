@@ -22,5 +22,7 @@ a review gate with four options:
 - `gh pr edit N --title "..." --body-file - <<'EOF'...EOF`
 - `gh pr edit N --body "..."`
 
-Commands without a body (e.g., `gh pr edit --add-label`) pass
-through without a gate.
+A title-only edit (e.g., `gh pr edit N --title "..."`) is gated
+on its title. Commands with neither a body nor a title (e.g.,
+`gh pr edit --add-label`), and bodyless creates, pass through
+without a gate.
