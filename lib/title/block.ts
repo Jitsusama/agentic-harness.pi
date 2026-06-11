@@ -35,6 +35,18 @@ export function formatTitleBlock(
 		);
 	}
 
+	const sentenceCase = violations.find((v) => v.issue === "sentence-case");
+	if (sentenceCase) {
+		lines.push(
+			"The title reads as a sentence, not Title Case. These words",
+			`should be capitalized: ${sentenceCase.found}. Capitalize every`,
+			"noun, verb, adjective, adverb and pronoun; leave only articles,",
+			"short prepositions and coordinating conjunctions lowercase. A",
+			"deliberately lowercase proper noun (gitstream, gsperf) is fine.",
+			"",
+		);
+	}
+
 	const tooLong = violations.find((v) => v.issue === "over-length");
 	if (tooLong) {
 		lines.push(
