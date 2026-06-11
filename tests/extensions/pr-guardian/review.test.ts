@@ -76,7 +76,8 @@ describe("createPrGuardian review without a UI", () => {
 			title: "attribute replica memory to git subprocesses",
 			body: null,
 			prefix: null,
-			prPart: "",
+			prPart:
+				'gh pr edit 42 --title "attribute replica memory to git subprocesses"',
 			prNumber: "42",
 			extraFlags: [],
 			suffix: null,
