@@ -26,7 +26,9 @@ describe("detectTitleViolations", () => {
 	});
 
 	it("flags a capitalized conventional-commit prefix", () => {
-		expect(detectTitleViolations("Fix: stop the crash")).toHaveLength(1);
+		expect(
+			detectTitleViolations("Fix: stop the crash").map((v) => v.issue),
+		).toContain("conventional-commit");
 	});
 
 	it("flags a breaking-change marker prefix", () => {
@@ -64,5 +66,32 @@ describe("detectTitleViolations", () => {
 
 	it("leaves a short descriptive title under 50 chars alone", () => {
 		expect(detectTitleViolations("Add Dark Mode Toggle")).toEqual([]);
+	});
+
+	it("flags a sentence-case title", () => {
+		const v = detectTitleViolations(
+			"Attribute replica memory to git subprocesses in Observe",
+		);
+		expect(v.map((x) => x.issue)).toContain("sentence-case");
+	});
+
+	it("flags an all-lowercase title", () => {
+		expect(
+			detectTitleViolations("rate limiting work").map((x) => x.issue),
+		).toContain("sentence-case");
+	});
+
+	it("spares a Title Case title carrying one lowercase proper noun", () => {
+		expect(
+			detectTitleViolations(
+				"Drive Non-Prod gitstream API and Secrets-Watch Off ExecStart Flags",
+			),
+		).toEqual([]);
+	});
+
+	it("spares lowercase proper nouns that do not outnumber capitalized words", () => {
+		expect(
+			detectTitleViolations("Integrate gsperf with gitstream Benchmarks"),
+		).toEqual([]);
 	});
 });

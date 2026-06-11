@@ -94,7 +94,7 @@ PR description structure and narrative.
 | Rule | Section in skill | Status | Enforced by |
 | --- | --- | --- | --- |
 | Descriptive Title Case title (not conventional commit) | Title | 🟢 | `lib/title/detect.ts` flags the conventional-commit form; the gate runs in `pr-guardian` |
-| Title Case enforcement | Title (via `github-cli-convention`) | 🚫 | A lowercase-start check false-positives on proper nouns (`iOS`, `gRPC`, `npm`). Skill-only plus resident reminder. |
+| Title Case enforcement | Title (via `github-cli-convention`) | 🟢 | `lib/title/detect.ts` flags sentence case when lowercase major words number at least two and outnumber the capitalized ones; gated in `pr-guardian`. A single lowercase proper noun (`gitstream`, `iOS`) and over-capitalized minor words stay judgment, skill-only. |
 | Closed three-section body set (🌐 Situation / 🔧 Resolution / 🔬 Validation) | Body Structure | 🟢 | `lib/sections/detect.ts` against `PR_SECTIONS`, bound to the skill by `tests/lib/sections/sanctioned.test.ts` |
 | Sections in mandated order | Body Structure | 🟢 | `lib/sections/detect.ts` flags `misordered` (R3 in the remediation plan) |
 | No invented headings | Body Structure | 🟢 | Same detector, `invented` issue kind |
@@ -184,7 +184,7 @@ Command syntax for `gh` operations.
 | Heredoc must be present when `--body-file -` is used | Heredoc Syntax | 🟢 | Same module blocks bare stdin |
 | Quoted heredoc delimiter (`<<'EOF'`, not `<<EOF`) | Heredoc Syntax | 🟢 | `lib/shell/parse.ts` `hasUnquotedHeredoc`, blocked in the guardians |
 | Descriptive, not conventional commit | Title Conventions | 🟢 | `lib/title/detect.ts`, gated in pr-guardian and issue-guardian |
-| Title Case | Title Conventions | 🚫 | A lowercase-start check false-positives on proper nouns (`iOS`, `gRPC`, `npm`). Skill-only plus resident reminder. |
+| Title Case | Title Conventions | 🟢 | `lib/title/detect.ts` `detectSentenceCase` flags sentence case (lowercase major words at least two and outnumbering the capitalized ones), gated in pr-guardian and issue-guardian. A lone lowercase proper noun and over-capitalized minor words remain judgment, skill-only. |
 | Title length ≤ 72 characters (upper bound) | Title Conventions | 🟢 | `lib/title/detect.ts` `MAX_TITLE_LENGTH`, gated in pr-guardian and issue-guardian; the skill text is asserted by `tests/lib/title/skill-binding.test.ts` |
 | Aim for 50+ characters (lower bound) | Title Conventions | ⚪ | Guidance, not enforced. A short descriptive title ("Add Dark Mode Toggle") is fine; blocking would mark legitimate prose wrong. The skill is explicit about which bound is the wall and which is the nudge. |
 | Metadata in separate commands (not packed into `create`) | Metadata in Separate Commands | ⚪ | Judgment about which metadata calls to chain. |

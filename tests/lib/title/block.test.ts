@@ -14,6 +14,11 @@ const tooLong: TitleViolation = {
 	issue: "over-length",
 	found: "84 characters (limit 72)",
 };
+const sentenceCase: TitleViolation = {
+	kind: "title",
+	issue: "sentence-case",
+	found: "replica, memory, subprocesses",
+};
 
 describe("formatTitleBlock", () => {
 	it("returns an empty string when there are no violations", () => {
@@ -41,6 +46,13 @@ describe("formatTitleBlock", () => {
 		expect(message).toContain("84");
 		expect(message).toContain("72");
 		expect(message).toMatch(/upper bound is\s+enforced/i);
+	});
+
+	it("names the offending words and the Title Case rule on a sentence-case title", () => {
+		const message = formatTitleBlock([sentenceCase], "PR", "github-pr-format");
+		expect(message).toContain("replica, memory, subprocesses");
+		expect(message).toMatch(/Title Case/i);
+		expect(message).toMatch(/proper noun/i);
 	});
 
 	it("reports both violations when a title is both conventional commit and over-length", () => {

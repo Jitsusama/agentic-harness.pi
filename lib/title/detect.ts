@@ -14,8 +14,9 @@ export interface TitleViolation extends Violation {
 	/**
 	 * conventional-commit: the title uses `type(scope): ...` form.
 	 * over-length: the title exceeds the upper-bound character limit.
+	 * sentence-case: the title reads as a sentence, not Title Case.
 	 */
-	readonly issue: "conventional-commit" | "over-length";
+	readonly issue: "conventional-commit" | "over-length" | "sentence-case";
 	/**
 	 * The offending prefix (conventional-commit) or a description of
 	 * the length and the limit (over-length).
@@ -66,6 +67,42 @@ const CONVENTIONAL_COMMIT = new RegExp(
 	"i",
 );
 
+// The minor words Title Case leaves lowercase unless they open or
+// close the title: articles, the short prepositions and the
+// coordinating conjunctions the markdown-standard skill names.
+// They are neither a capitalized nor a lowercase major word, so
+// they sit out the sentence-case count entirely.
+const MINOR_WORDS = new Set([
+	"a",
+	"an",
+	"the",
+	"of",
+	"in",
+	"on",
+	"at",
+	"to",
+	"for",
+	"with",
+	"by",
+	"from",
+	"as",
+	"and",
+	"or",
+	"but",
+	"nor",
+	"so",
+	"yet",
+]);
+
+// A word that is exempt from the case test because the convention
+// keeps it verbatim: backticked code, dotted or slashed
+// identifiers (vantage.Prepare, site/host) and mixed-case tokens
+// (iOS, CamelCase, V1). ALLCAPS abbreviations (CLI, JSON) are
+// caught separately because they read as capitalized.
+function isVerbatimToken(word: string): boolean {
+	return /[`./]/.test(word);
+}
+
 /** Find the mechanically certain title convention violations. */
 export function detectTitleViolations(title: string): TitleViolation[] {
 	const trimmed = title.trim();
@@ -88,5 +125,58 @@ export function detectTitleViolations(title: string): TitleViolation[] {
 		});
 	}
 
+	const sentenceCase = detectSentenceCase(trimmed);
+	if (sentenceCase) violations.push(sentenceCase);
+
 	return violations;
+}
+
+/**
+ * Flag a title that reads as a sentence rather than Title Case.
+ *
+ * Detection is precision-over-recall: it counts the major words
+ * (everything that is not a minor word or a verbatim token) and
+ * splits them into capitalized and lowercase. A title is only
+ * flagged when its lowercase major words number at least two and
+ * outnumber the capitalized ones, the unambiguous signal of
+ * sentence case. A mostly-Title-Case title that carries one or
+ * two deliberately lowercase proper nouns (gitstream, gsperf)
+ * never trips, because those never outnumber the capitalized
+ * words around them.
+ */
+function detectSentenceCase(title: string): TitleViolation | undefined {
+	let capitalized = 0;
+	const lowercase: string[] = [];
+
+	for (const raw of title.split(/\s+/)) {
+		// Strip surrounding punctuation (quotes, parens, a trailing
+		// colon) but keep internal dots, slashes and hyphens.
+		const word = raw.replace(/^[^\p{L}\p{N}`]+|[^\p{L}\p{N}`]+$/gu, "");
+		if (!word) continue;
+		if (!/\p{L}/u.test(word)) continue; // pure number or symbol
+		if (MINOR_WORDS.has(word.toLowerCase())) continue;
+		if (isVerbatimToken(word)) continue;
+
+		const firstLetter = word.match(/\p{L}/u)?.[0] ?? "";
+		const startsUpper = firstLetter === firstLetter.toUpperCase();
+		const hasUpper = /\p{Lu}/u.test(word);
+
+		if (startsUpper) {
+			capitalized++;
+		} else if (!hasUpper) {
+			// Lowercase first letter and no inner capital: a plain
+			// lowercase word. A mixed-case token (iOS) has an inner
+			// capital and is left verbatim.
+			lowercase.push(word);
+		}
+	}
+
+	if (lowercase.length >= 2 && lowercase.length > capitalized) {
+		return {
+			kind: "title",
+			issue: "sentence-case",
+			found: lowercase.join(", "),
+		};
+	}
+	return undefined;
 }
