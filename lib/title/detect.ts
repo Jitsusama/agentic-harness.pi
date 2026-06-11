@@ -95,10 +95,11 @@ const MINOR_WORDS = new Set([
 ]);
 
 // A word that is exempt from the case test because the convention
-// keeps it verbatim: backticked code, dotted or slashed
-// identifiers (vantage.Prepare, site/host) and mixed-case tokens
-// (iOS, CamelCase, V1). ALLCAPS abbreviations (CLI, JSON) are
-// caught separately because they read as capitalized.
+// keeps it verbatim by its punctuation: backticked code and
+// dotted or slashed identifiers (vantage.Prepare, site/host).
+// Mixed-case tokens (iOS, CamelCase, V1) are not handled here;
+// the case loop below reads their inner capital and leaves them
+// out of the lowercase count.
 function isVerbatimToken(word: string): boolean {
 	return /[`./]/.test(word);
 }

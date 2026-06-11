@@ -181,7 +181,11 @@ export function parsePrCommand(command: string): PrCommand | null {
 	const suffix = extractHeredocSuffix(command);
 	const openerRest = matchHeredocs(command)[0]?.openerRest ?? null;
 
-	if (!body) return null;
+	// A command carrying neither a body nor a title has no
+	// reviewable content, so leave it ungated. A title-only edit
+	// keeps a null body and still parses, so the title gate runs on
+	// it; the body-dependent gates skip a null body downstream.
+	if (!body && !title) return null;
 
 	return {
 		action,
@@ -268,7 +272,11 @@ export function parseIssueCommand(command: string): IssueCommand | null {
 	const suffix = extractHeredocSuffix(command);
 	const openerRest = matchHeredocs(command)[0]?.openerRest ?? null;
 
-	if (!body) return null;
+	// A command carrying neither a body nor a title has no
+	// reviewable content, so leave it ungated. A title-only edit
+	// keeps a null body and still parses, so the title gate runs on
+	// it; the body-dependent gates skip a null body downstream.
+	if (!body && !title) return null;
 
 	return {
 		action,

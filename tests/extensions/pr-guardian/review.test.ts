@@ -69,6 +69,26 @@ describe("createPrGuardian review without a UI", () => {
 		}
 	});
 
+	it("blocks a sentence-case title on a title-only edit with no body", async () => {
+		const { pi, ctx } = noUiContext();
+		const titleOnlyEdit: PrCommand = {
+			action: "edit",
+			title: "attribute replica memory to git subprocesses",
+			body: null,
+			prefix: null,
+			prPart: "",
+			prNumber: "42",
+			extraFlags: [],
+			suffix: null,
+			openerRest: null,
+		};
+		const result = await createPrGuardian(pi).review(titleOnlyEdit, ctx);
+		expect(result && "block" in result).toBe(true);
+		if (result && "block" in result) {
+			expect(result.reason).toMatch(/Title Case/i);
+		}
+	});
+
 	it("blocks a title over 72 characters even with a clean body", async () => {
 		const { pi, ctx } = noUiContext();
 		const tooLong =
