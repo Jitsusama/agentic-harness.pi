@@ -5,6 +5,7 @@ import {
 } from "../../../../lib/internal/quest/write-classifier";
 
 const never = () => false;
+const always = () => true;
 const noTree = () => null;
 
 function options(
@@ -14,6 +15,7 @@ function options(
 		questDir: null,
 		scratchRoots: [],
 		isGitignored: never,
+		isTracked: never,
 		gitTreeRootOf: noTree,
 		...overrides,
 	};
@@ -52,12 +54,21 @@ describe("classifyWrite", () => {
 		expect(result.category).toBe("scratch");
 	});
 
-	it("labels a non-exempt in-tree target as tracked-code with its tree root", () => {
+	it("labels a tracked in-tree target as tracked-code with its tree root", () => {
 		const result = classifyWrite(
 			"/work/tree/areas/tools/gsperf/main.go",
-			options({ gitTreeRootOf: () => "/work/tree" }),
+			options({ gitTreeRootOf: () => "/work/tree", isTracked: always }),
 		);
 		expect(result.category).toBe("tracked-code");
+		expect(result.treeRoot).toBe("/work/tree");
+	});
+
+	it("labels an untracked, not-ignored in-tree target as untracked-in-tree", () => {
+		const result = classifyWrite(
+			"/work/tree/tmp_dump/scratch.json",
+			options({ gitTreeRootOf: () => "/work/tree", isTracked: never }),
+		);
+		expect(result.category).toBe("untracked-in-tree");
 		expect(result.treeRoot).toBe("/work/tree");
 	});
 });

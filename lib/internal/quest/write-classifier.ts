@@ -4,8 +4,14 @@
  * classifier is pure: filesystem and git signals arrive as
  * injected predicates, so the ladder is unit-testable without
  * real `.git` fixtures. The risky production predicates (git
- * ignore resolution, working-tree discovery) are wired in by
- * the caller and covered separately.
+ * ignore resolution, index membership, working-tree discovery)
+ * are wired in by the caller and covered separately.
+ *
+ * Tracked code and untracked-in-tree are kept distinct because
+ * git's ignore answer cannot tell a forgotten scratch directory
+ * from a new source file. Deferring only tracked edits during
+ * the plan phase keeps the discipline honest without ever
+ * cornering new work.
  */
 
 import * as path from "node:path";
@@ -15,6 +21,7 @@ export type WriteCategory =
 	| "quest-internal"
 	| "scratch"
 	| "tracked-code"
+	| "untracked-in-tree"
 	| "loose-file";
 
 /** The classifier's verdict for one write target. */
@@ -32,6 +39,8 @@ export interface ClassifyWriteOptions {
 	scratchRoots: string[];
 	/** Whether the target is gitignored at its destination. */
 	isGitignored: (absPath: string) => boolean;
+	/** Whether the target is tracked in its repository's index. */
+	isTracked: (absPath: string) => boolean;
 	/** The git working tree root containing the target, or null when none. */
 	gitTreeRootOf: (absPath: string) => string | null;
 }
@@ -62,7 +71,10 @@ export function classifyWrite(
 	}
 	const treeRoot = opts.gitTreeRootOf(target);
 	if (treeRoot) {
-		return { category: "tracked-code", treeRoot };
+		const category = opts.isTracked(target)
+			? "tracked-code"
+			: "untracked-in-tree";
+		return { category, treeRoot };
 	}
 	return { category: "loose-file" };
 }
