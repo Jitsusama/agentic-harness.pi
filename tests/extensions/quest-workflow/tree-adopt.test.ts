@@ -3,6 +3,7 @@ import {
 	existsSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -13,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
+import { addTreeToQuest } from "../../../lib/internal/quest/trees";
 import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
@@ -104,7 +106,42 @@ describe("tree-adopt", () => {
 		expect(retired.ok).toBe(true);
 		if (retired.ok) {
 			const details = retired.details as { prunedTrees?: string[] };
-			expect(details.prunedTrees ?? []).not.toContain(wt);
+			// prunedTrees records canonicalized paths, so compare against
+			// the canonical form of wt rather than its raw mkdtemp path,
+			// which on macOS differs (/var versus /private/var) and would
+			// make the assertion pass vacuously.
+			expect(details.prunedTrees ?? []).not.toContain(realpathSync(wt));
+		}
+		expect(existsSync(wt)).toBe(true);
+	});
+
+	it("keeps a legacy tree with no origin marker when retired", async () => {
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const created = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Legacy Tree",
+		});
+		if (!created.ok) throw new Error(created.guidance);
+		const wt = join(tmpRoot, "legacy-wt");
+		await execFileAsync("git", ["worktree", "add", "-b", "legacy", wt], {
+			cwd: repoRoot,
+		});
+		// Register it the way a pre-marker tree would be recorded: with
+		// no origin field at all.
+		const added = addTreeToQuest(state.questDir ?? "", {
+			path: realpathSync(wt),
+			providerId: "git-worktree",
+		});
+		expect(added.ok).toBe(true);
+		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "retire",
+			scope: "quest",
+			reason: "done",
+		});
+		expect(retired.ok).toBe(true);
+		if (retired.ok) {
+			const details = retired.details as { prunedTrees?: string[] };
+			expect(details.prunedTrees ?? []).not.toContain(realpathSync(wt));
 		}
 		expect(existsSync(wt)).toBe(true);
 	});

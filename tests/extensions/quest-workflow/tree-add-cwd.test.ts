@@ -51,6 +51,7 @@ afterEach(() => {
 	rmSync(tmpRoot, { recursive: true, force: true });
 	rmSync(repoRoot, { recursive: true, force: true });
 	clearTreeProviders();
+	envGuard.leave();
 });
 
 describe("tree-add from a repo subdirectory", () => {

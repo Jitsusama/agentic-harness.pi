@@ -137,6 +137,26 @@ describe("quest front-matter", () => {
 		expect(parsed?.frontMatter.trees?.[1]?.origin).toBe("adopted");
 	});
 
+	it("parses an absent or invalid tree origin as undefined", () => {
+		const withOrigins: QuestFrontMatter = {
+			...SAMPLE_QUEST_FM,
+			trees: [
+				{ path: "/a", providerId: "git-worktree" },
+				{ path: "/b", providerId: "git-worktree", origin: "adopted" },
+			],
+		};
+		const text = serializeQuestFrontMatter(withOrigins).replace(
+			"providerId: git-worktree",
+			"providerId: git-worktree\n    origin: bogus",
+		);
+		const parsed = parseQuestFrontMatter(`${text}\n# Title\n`);
+		// The injected bogus value on the first tree is dropped, and the
+		// second tree's valid marker survives, so a malformed marker can
+		// never silently read as scaffolded and arm auto-prune.
+		expect(parsed?.frontMatter.trees?.[0]?.origin).toBeUndefined();
+		expect(parsed?.frontMatter.trees?.[1]?.origin).toBe("adopted");
+	});
+
 	it("reads a legacy scalar pendingPrune as a one-entry array", () => {
 		const legacy = [
 			"---",
