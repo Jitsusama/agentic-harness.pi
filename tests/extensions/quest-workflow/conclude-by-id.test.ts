@@ -78,4 +78,47 @@ describe("conclude by document id", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) expect(result.guidance).toMatch(/not found/i);
 	});
+
+	it("refuses a crafted id that would escape the quest directory", async () => {
+		const { state, ctx, questDir } = await questWithPlan();
+		// A README exists one level up under quests/; a traversal id must
+		// not reach it. The id keys to the plans subdir via its prefix.
+		const result = await handle(state, fakePi(), ctx, {
+			action: "conclude",
+			id: "PLAN-/../../README",
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.guidance).toMatch(/path separators/i);
+		// The quest README is untouched: still active.
+		expect(readFileSync(join(questDir, "README.md"), "utf8")).toMatch(
+			/status:\s*active/,
+		);
+	});
+
+	it("restores prior focus after concluding a sibling document by id", async () => {
+		const { state, ctx, planId, questDir } = await questWithPlan();
+		// Author a second plan and leave it focused, then conclude the
+		// first plan by id: focus must return to the second plan, not
+		// silently move to the one just concluded.
+		await handle(state, fakePi(), ctx, {
+			action: "think",
+			kind: "plan",
+			note: "Second",
+		});
+		await handle(state, fakePi(), ctx, {
+			action: "draft",
+			title: "Second plan",
+		});
+		const secondPath = state.documentPath;
+		expect(secondPath).toBeTruthy();
+		const result = await handle(state, fakePi(), ctx, {
+			action: "conclude",
+			id: planId,
+		});
+		expect(result.ok).toBe(true);
+		expect(state.documentPath).toBe(secondPath);
+		expect(
+			readFileSync(join(questDir, "plans", `${planId}.md`), "utf8"),
+		).toMatch(/stage:\s*concluded/);
+	});
 });

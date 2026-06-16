@@ -6,7 +6,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { ToolContext } from "@mariozechner/pi-coding-agent";
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
 import {
@@ -358,6 +358,12 @@ export function reopenQuest(state: QuestState): QuestResult {
  * transition. This shares the focused-document semantics, so like
  * any document conclusion it is not reversible through `undo`
  * (only the quest sweep journals a structural op).
+ *
+ * The id comes from the agent, so the resolved path is contained to
+ * the quest's subdirectory: a crafted id carrying path separators
+ * or `..` resolves outside it and is refused, never reaching the
+ * filesystem. Any prior focus is restored afterward so concluding a
+ * sibling document does not silently move the user's focus.
  */
 function concludeDocumentById(
 	state: QuestState,
@@ -370,15 +376,26 @@ function concludeDocumentById(
 	if (!state.questDir) {
 		return refuse("Load a quest before concluding or retiring a document.");
 	}
-	const path = join(state.questDir, subdir, `${id}.md`);
+	const expectedDir = resolve(state.questDir, subdir);
+	const path = resolve(expectedDir, `${id}.md`);
+	if (dirname(path) !== expectedDir) {
+		return refuse(
+			`Document id ${id} is not a plain id; it must not contain path separators.`,
+		);
+	}
 	if (!existsSync(path)) {
 		return refuse(
 			`Document ${id} not found under the loaded quest. Load the quest that owns it, or pass a quest id for a status sweep.`,
 		);
 	}
+	const priorFocus = state.documentPath;
 	const focused = focusDocument(state, path);
 	if (!focused.ok) return refuse(focused.guidance);
-	return stageTransition(state, action, params, ctx);
+	const result = stageTransition(state, action, params, ctx);
+	// Restore the focus the user had before, unless they were already
+	// focused on the document just concluded.
+	if (priorFocus && priorFocus !== path) focusDocument(state, priorFocus);
+	return result;
 }
 
 /**
@@ -393,10 +410,11 @@ export async function concludeOrRetire(
 	params: QuestToolParams,
 	ctx: ToolContext,
 ): Promise<QuestResult> {
-	// An explicit id (single or a comma list) selects the target set
-	// for a reversible status sweep, distinct from concluding the
-	// loaded quest. Naming an id always targets that id, so a single
-	// id never silently falls through to the loaded quest.
+	// An explicit id targets that id rather than the loaded quest, so
+	// naming an id never silently falls through to the loaded quest.
+	// A single document-kind id concludes that document (not
+	// undoable, see concludeDocumentById); a quest id or any comma
+	// list runs the reversible status sweep.
 	const targetId = (params.id ?? "").trim();
 	if (targetId.length > 0) {
 		// A single document-kind id (PLAN/RSCH/BRIF/RPRT) concludes or
