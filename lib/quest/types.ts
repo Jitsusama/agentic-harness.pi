@@ -67,6 +67,15 @@ export interface QuestTree {
 	 * provider tracks `tec checkout add` results here.
 	 */
 	zones?: string[];
+	/**
+	 * How this tree came to be on the quest. `scaffolded`
+	 * means the tool created it (via `tree-add`) and may
+	 * auto-prune it on conclude or retire. `adopted` means a
+	 * pre-existing tree the quest only references; it is
+	 * never auto-pruned. An absent marker (legacy or
+	 * hand-registered) is treated as keep, never auto-pruned.
+	 */
+	origin?: "scaffolded" | "adopted";
 }
 
 /**

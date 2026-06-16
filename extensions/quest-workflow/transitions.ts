@@ -49,7 +49,13 @@ import {
 	stageTransition,
 } from "./verbs/stage.js";
 import { reparent, undo } from "./verbs/structural.js";
-import { treeAdd, treeExpand, treeList, treePrune } from "./verbs/tree-ops.js";
+import {
+	treeAdd,
+	treeAdopt,
+	treeExpand,
+	treeList,
+	treePrune,
+} from "./verbs/tree-ops.js";
 
 export type { QuestResult, QuestToolParams };
 
@@ -117,6 +123,8 @@ export async function handle(
 			return tree(state, params);
 		case "tree-add":
 			return treeAdd(state, params);
+		case "tree-adopt":
+			return treeAdopt(state, params);
 		case "tree-list":
 			return treeList(state);
 		case "tree-prune":

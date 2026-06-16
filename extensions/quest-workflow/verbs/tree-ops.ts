@@ -85,6 +85,7 @@ export async function treeAdd(
 			branch: handle.branch,
 			repoRoot: handle.repoRoot,
 			providerId: handle.providerId,
+			origin: "scaffolded" as const,
 		};
 		const result = addTreeToQuest(state.questDir, tree);
 		if (!result.ok) return refuse(result.reason);
@@ -97,6 +98,43 @@ export async function treeAdd(
 		const message = error instanceof Error ? error.message : String(error);
 		return refuse(`Tree create failed: ${message}`);
 	}
+}
+
+/**
+ * Adopt the existing git tree at the cwd: register it on the quest
+ * without creating anything, marked `adopted` so conclude and retire
+ * never auto-prune it. This is the deliberate, explicit alternative
+ * to scaffolding a fresh worktree; the act of running it is the
+ * consent, so there is no inference and no silent binding.
+ */
+export function treeAdopt(
+	state: QuestState,
+	params: QuestToolParams,
+): QuestResult {
+	if (!state.questDir || !state.questId) {
+		return refuse("Load a quest first.");
+	}
+	const start = defaultRepoRoot(state, params);
+	const root = gitTreeRootOf(join(start, ".quest-tree-probe"));
+	if (!root) {
+		return refuse(
+			`${start} is not inside a git working tree. cd into the tree you want to adopt, or pass its path in cwd.`,
+		);
+	}
+	const provider = resolveTreeProvider(root);
+	const tree = {
+		path: root,
+		repoRoot: root,
+		providerId: provider?.id ?? "git-worktree",
+		origin: "adopted" as const,
+	};
+	const result = addTreeToQuest(state.questDir, tree);
+	if (!result.ok) return refuse(result.reason);
+	if (!result.added) {
+		return ok(`Tree at ${root} is already tracked on this quest.`, { tree });
+	}
+	appendJourneyEntry(state, `Adopted tree at ${root}.`);
+	return ok(`Adopted tree at ${root}; it will not be auto-pruned.`, { tree });
 }
 
 export function treeList(state: QuestState): QuestResult {

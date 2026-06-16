@@ -276,6 +276,12 @@ async function pruneAllTreesOnQuest(state: QuestState): Promise<{
 	const listing = listTreesOnQuest(state.questDir);
 	if (!listing.ok) return { pruned, blocked };
 	for (const tree of listing.trees) {
+		// Only auto-prune trees the tool scaffolded. Adopted trees, and
+		// legacy or hand-registered trees with no origin marker, are
+		// references the quest does not own, so concluding the quest
+		// must never delete them; they are released deliberately with
+		// tree-prune.
+		if (tree.origin !== "scaffolded") continue;
 		// Re-read the live session list immediately before each prune
 		// rather than from one snapshot taken before the loop: the
 		// awaits below yield the event loop, so another session can

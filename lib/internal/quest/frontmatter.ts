@@ -199,6 +199,8 @@ function parseTree(raw: unknown): QuestTree | undefined {
 		}
 		if (zones.length > 0) tree.zones = zones;
 	}
+	const origin = asString(obj.origin);
+	if (origin === "scaffolded" || origin === "adopted") tree.origin = origin;
 	return tree;
 }
 
@@ -445,6 +447,7 @@ function treeToPlain(tree: QuestTree): Record<string, unknown> {
 	if (tree.branch !== undefined) out.branch = tree.branch;
 	if (tree.repoRoot !== undefined) out.repoRoot = tree.repoRoot;
 	if (tree.zones && tree.zones.length > 0) out.zones = tree.zones;
+	if (tree.origin !== undefined) out.origin = tree.origin;
 	return out;
 }
 

@@ -26,8 +26,11 @@ shipped and tested.
 - **Aliases**: `alias-add`, `alias-remove`.
 - **Sessions**: `session-attach`, `session-detach`,
   `session-rename`.
-- **Working trees**: `tree-add`, `tree-list`, `tree-prune`,
-  `tree-expand`.
+- **Working trees**: `tree-add`, `tree-adopt`, `tree-list`,
+  `tree-prune`, `tree-expand`. `tree-add` scaffolds a fresh
+  worktree the quest owns and auto-prunes on conclude; `tree-adopt`
+  registers an existing tree the quest only references and never
+  auto-prunes.
 - **Terminal spawn**: `spawn-tab`, `spawn-pane`,
   `spawn-window`.
 - **Queries**: `find`, `who`, `links`.

@@ -115,6 +115,28 @@ describe("quest front-matter", () => {
 		expect(parsed?.frontMatter).toEqual(fm);
 	});
 
+	it("round-trips a tree's origin marker", () => {
+		const fm: QuestFrontMatter = {
+			...SAMPLE_QUEST_FM,
+			trees: [
+				{
+					path: "/Users/joel/src/world/.worktrees/feature-x",
+					providerId: "git-worktree",
+					origin: "scaffolded",
+				},
+				{
+					path: "/Users/joel/world/trees/root",
+					providerId: "dev-tree",
+					origin: "adopted",
+				},
+			],
+		};
+		const text = `${serializeQuestFrontMatter(fm)}\n# Title\n`;
+		const parsed = parseQuestFrontMatter(text);
+		expect(parsed?.frontMatter.trees?.[0]?.origin).toBe("scaffolded");
+		expect(parsed?.frontMatter.trees?.[1]?.origin).toBe("adopted");
+	});
+
 	it("reads a legacy scalar pendingPrune as a one-entry array", () => {
 		const legacy = [
 			"---",

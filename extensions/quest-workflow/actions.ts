@@ -20,6 +20,7 @@ export const QUEST_ACTIONS = [
 	"list",
 	"tree",
 	"tree-add",
+	"tree-adopt",
 	"tree-list",
 	"tree-prune",
 	"tree-expand",
