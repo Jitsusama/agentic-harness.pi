@@ -121,7 +121,7 @@ export function stageTransition(
 		state.done = 0;
 		state.total = 0;
 		return ok(
-			`Thinking about a ${kind} for ${state.questId}: ${params.note.trim()}`,
+			`Thinking about a ${kind} for ${state.questId}: ${params.note.trim()}. This loop has no document id yet; \`draft\` (with a title) mints it.`,
 			{ stage: "think", kind },
 		);
 	}

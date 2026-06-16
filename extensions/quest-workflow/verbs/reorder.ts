@@ -84,10 +84,13 @@ export function priorityShift(
 		);
 	}
 	appendJourneyEntry(state, `Moved from ${result.from} to ${result.to}.`);
-	return ok(`Now ${result.to} (was ${result.from}).`, {
-		from: result.from,
-		to: result.to,
-	});
+	return ok(
+		`Quest ${state.questId} is now ${result.to} (was ${result.from}).`,
+		{
+			from: result.from,
+			to: result.to,
+		},
+	);
 }
 
 /** Jump the loaded quest directly to a named priority bucket. */
@@ -100,8 +103,8 @@ export function priorityJump(
 	const result = setLoadedPriority(state, to);
 	if (!result.ok) return refuse(result.guidance);
 	if (!result.changed) {
-		return ok(`Already ${to}.`, { from, to });
+		return ok(`Quest ${state.questId} is already ${to}.`, { from, to });
 	}
 	appendJourneyEntry(state, `Moved from ${from} to ${to}.`);
-	return ok(`Now ${to} (was ${from}).`, { from, to });
+	return ok(`Quest ${state.questId} is now ${to} (was ${from}).`, { from, to });
 }
