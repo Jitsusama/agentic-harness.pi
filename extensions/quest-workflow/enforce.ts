@@ -1,28 +1,39 @@
 /**
- * Stage-aware enforcement for the focused document. The
- * machine only blocks when the focused document is a plan
- * in `think` or `draft`; other document kinds (research,
- * brief, report) have no implementation phase and never
- * block code writes.
+ * Stage-aware enforcement for the focused document, driven by the
+ * write classifier. The gate's job is to keep the agent in the
+ * right phase and to keep quest code in a real working tree, never
+ * to corner a legitimate write.
  *
- * The exception in all cases: writes that target the
- * focused document itself are allowed (otherwise the author
- * could not draft it).
+ * During a plan's think or draft stage, writes to the plan itself,
+ * to the quest's own directory, to scratch and to brand-new files
+ * flow freely; only edits to already-tracked code defer to build.
+ * During build, any write that lands inside a git working tree is
+ * allowed (that is a code home, whether or not the quest has
+ * registered it); only a genuinely homeless write is blocked, with
+ * a satisfiable remedy.
  *
  * This blocks the agent, never the human. It returns an
  * agent-facing reason, never a prompt.
  */
 
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
 import type { ToolCallEventResult } from "@mariozechner/pi-coding-agent";
-import { listTreesOnQuest } from "../../lib/internal/quest/trees.js";
-import { parseQuestFrontMatter } from "../../lib/quest/index.js";
-import { BASH_WRITE_PATTERNS, GIT_MUTATING, type QuestState } from "./state.js";
-
-function looksLikeBashWrite(command: string): boolean {
-	return BASH_WRITE_PATTERNS.some((rx) => rx.test(command));
-}
+import {
+	bashWriteTargets,
+	classifyBashWrite,
+} from "../../lib/internal/quest/bash-write.js";
+import {
+	gitTreeRootOf,
+	isGitignored,
+	isTracked,
+} from "../../lib/internal/quest/git-signals.js";
+import {
+	classifyWrite,
+	type WriteClassification,
+} from "../../lib/internal/quest/write-classifier.js";
+import type { QuestState } from "./state.js";
 
 function isReadOnly(state: QuestState): boolean {
 	if (state.documentKind !== "plan") return false;
@@ -40,41 +51,6 @@ export function isFocusedDocWrite(
 	if (toolName !== "write" && toolName !== "edit") return false;
 	const resolved = path.resolve(cwd, String(input.path ?? ""));
 	return resolved === path.resolve(documentPath);
-}
-
-/**
- * Whether the write target lives anywhere under the loaded
- * quest's own directory. Such writes are always considered
- * "on the quest itself" and don't trigger the no-tree
- * guardian. The previous version only matched README.md
- * plus four named subdirs, so a write to
- * `<questDir>/notes.md` or to any human-added folder
- * (`<questDir>/runs/`, `<questDir>/workloads/`) was
- * misclassified as an external code write.
- */
-function isQuestInternalWrite(
-	input: Record<string, unknown>,
-	questDir: string | null,
-	cwd: string,
-): boolean {
-	if (!questDir) return false;
-	const resolved = path.resolve(cwd, String(input.path ?? ""));
-	const questResolved = path.resolve(questDir);
-	return (
-		resolved === questResolved ||
-		resolved.startsWith(`${questResolved}${path.sep}`)
-	);
-}
-
-/** Whether a directory sits inside a git working tree. */
-function isInsideGitWorkTree(dir: string): boolean {
-	let current = path.resolve(dir);
-	while (true) {
-		if (existsSync(path.join(current, ".git"))) return true;
-		const parent = path.dirname(current);
-		if (parent === current) return false;
-		current = parent;
-	}
 }
 
 /**
@@ -96,83 +72,114 @@ function canonical(p: string): string {
 		const real = realpathSync(prefix);
 		return tail.length > 0 ? path.join(real, ...tail) : real;
 	} catch {
+		// realpath can fail on a broken symlink; the literal path is best.
 		return p;
 	}
 }
 
-/**
- * Resolve the active-code directories from the quest's recorded
- * sessions: the cwd of an active session that still exists on
- * disk and sits inside a git working tree. Only sessions still
- * marked active count, so a long-dead or cleanly-detached load
- * from an incidental directory does not stand the gate down
- * forever. Paths are canonicalized so a /var versus /private/var
- * spelling does not defeat the later prefix check.
- */
-function sessionCodeDirs(questDir: string): string[] {
-	let text: string;
-	try {
-		text = readFileSync(path.join(questDir, "README.md"), "utf8");
-	} catch {
-		// README missing or unreadable; no code dir resolves.
-		return [];
-	}
-	const parsed = parseQuestFrontMatter(text);
-	if (!parsed) return [];
-	const dirs: string[] = [];
-	for (const session of parsed.frontMatter.sessions) {
-		if (session.status !== "active") continue;
-		const cwd = session.cwd;
-		if (cwd && existsSync(cwd) && isInsideGitWorkTree(cwd)) {
-			dirs.push(canonical(cwd));
-		}
-	}
-	return dirs;
+/** Tunable inputs to the gate, so tests can vary the scratch roots. */
+export interface EnforceOptions {
+	/** Directories whose contents are always scratch. Defaults to the temp dir. */
+	scratchRoots?: string[];
+}
+
+/** Classify a write target against the loaded quest and git signals. */
+function classifyTarget(
+	state: QuestState,
+	absTarget: string,
+	options: EnforceOptions,
+): WriteClassification {
+	const roots = (options.scratchRoots ?? [tmpdir()]).map(canonical);
+	return classifyWrite(canonical(absTarget), {
+		questDir: state.questDir ? canonical(state.questDir) : null,
+		scratchRoots: roots,
+		isGitignored,
+		isTracked,
+		gitTreeRootOf,
+	});
 }
 
 /**
- * Reactive guardian: when the loaded quest is code-bearing
- * (has a focused build-stage plan) but no working tree, block
- * writes to anything outside the quest's own directory.
- *
- * The gate stands down the moment an active-code directory is
- * known: a registered tree, or a recorded session's git
- * working directory. This is R14 -- editing inside a known
- * working tree during build never requires unloading the
- * quest; the gate fires only when no code home resolves,
- * pushing the agent toward `tree-add` rather than `unload`.
+ * The plan-phase write gate: in think or draft, defer only edits to
+ * already-tracked code. The plan document, quest-internal files,
+ * scratch and brand-new (untracked) files all flow, so drafting and
+ * scratch exploration are never cornered.
  */
-function enforceNoTree(
+function enforcePhase(
 	state: QuestState,
 	toolName: string,
 	input: Record<string, unknown>,
 	cwd: string,
+	options: EnforceOptions,
+): ToolCallEventResult | undefined {
+	if (toolName === "write" || toolName === "edit") {
+		if (isFocusedDocWrite(toolName, input, state.documentPath, cwd)) return;
+		const target = path.resolve(cwd, String(input.path ?? ""));
+		if (classifyTarget(state, target, options).category === "tracked-code") {
+			return {
+				block: true,
+				reason: `Quest workflow (plan ${state.documentStage}): this edits already-tracked code. Move to build to implement, or keep planning notes in the plan, the quest directory or a scratch path.`,
+			};
+		}
+		return;
+	}
+
+	if (toolName === "bash") {
+		const command = String(input.command ?? "");
+		const kind = classifyBashWrite(command);
+		if (kind === "git-mutating") {
+			return {
+				block: true,
+				reason: `Quest workflow (plan ${state.documentStage}): git-mutating command blocked. Move to build first.`,
+			};
+		}
+		if (kind === "bash-write") {
+			const lands = bashWriteTargets(command)
+				.map(
+					(t) => classifyTarget(state, path.resolve(cwd, t), options).category,
+				)
+				.some((category) => category === "tracked-code");
+			if (lands) {
+				return {
+					block: true,
+					reason: `Quest workflow (plan ${state.documentStage}): this bash write targets already-tracked code. Move to build first, or redirect to a scratch path. Use the write/edit tools for normal edits.`,
+				};
+			}
+		}
+	}
+
+	return;
+}
+
+/**
+ * The build-phase home gate: a quest in build keeps its code in a
+ * working tree. Any write inside a git tree is a code home and is
+ * allowed, which is the fix for the cornering the old gate caused
+ * (it stood down only for a registered tree or a still-active
+ * session, so an in-tree write from a detached session was blocked
+ * even though the tree was right there). Only a genuinely homeless
+ * write -- outside every git tree, and not scratch or quest-internal
+ * -- is blocked, with a satisfiable remedy.
+ */
+function enforceHome(
+	state: QuestState,
+	toolName: string,
+	input: Record<string, unknown>,
+	cwd: string,
+	options: EnforceOptions,
 ): ToolCallEventResult | undefined {
 	if (toolName !== "write" && toolName !== "edit") return;
 	if (!state.questDir || !state.questId) return;
 	if (state.documentKind !== "plan" || state.documentStage !== "build") return;
-	if (isQuestInternalWrite(input, state.questDir, cwd)) return;
-	const listing = listTreesOnQuest(state.questDir);
-	if (!listing.ok) return;
-	if (listing.trees.length > 0) return;
-	const codeDirs = sessionCodeDirs(state.questDir);
-	if (codeDirs.length > 0) {
-		const resolved = canonical(
-			path.resolve(canonical(cwd), String(input.path ?? "")),
-		);
-		if (
-			codeDirs.some(
-				(dir) => resolved === dir || resolved.startsWith(`${dir}${path.sep}`),
-			)
-		) {
-			return;
-		}
+	const target = path.resolve(cwd, String(input.path ?? ""));
+	if (classifyTarget(state, target, options).category === "loose-file") {
+		return {
+			block: true,
+			reason:
+				"Quest workflow: this quest is in build, but this write lands outside every git working tree. Run `tree-add` to scaffold one, or write inside a git tree this quest works in. Do not unload the quest to bypass this.",
+		};
 	}
-	return {
-		block: true,
-		reason:
-			"Quest workflow: this quest is in build with no working tree. Run `tree-add` to scaffold one, or work inside a tree this quest already owns. Do not unload the quest to bypass this.",
-	};
+	return;
 }
 
 /** Check a tool call against the focused document's discipline. */
@@ -181,32 +188,9 @@ export function enforceQuest(
 	toolName: string,
 	input: Record<string, unknown>,
 	cwd: string,
+	options: EnforceOptions = {},
 ): ToolCallEventResult | undefined {
-	if (isReadOnly(state)) {
-		if (toolName === "write" || toolName === "edit") {
-			if (isFocusedDocWrite(toolName, input, state.documentPath, cwd)) return;
-			return {
-				block: true,
-				reason: `Quest workflow (plan ${state.documentStage}): writes are limited to the plan document. Move to build to implement.`,
-			};
-		}
-
-		if (toolName === "bash") {
-			const command = String(input.command ?? "");
-			if (GIT_MUTATING.test(command)) {
-				return {
-					block: true,
-					reason: `Quest workflow (plan ${state.documentStage}): git-mutating command blocked. Move to build first.`,
-				};
-			}
-			if (looksLikeBashWrite(command)) {
-				return {
-					block: true,
-					reason: `Quest workflow (plan ${state.documentStage}): bash write pattern blocked (sed -i, cat >, tee, etc.). Use the write/edit tools, or move to build first. This is agent discipline, not a sandbox: pass the work through the right phase.`,
-				};
-			}
-		}
-	}
-
-	return enforceNoTree(state, toolName, input, cwd);
+	if (isReadOnly(state))
+		return enforcePhase(state, toolName, input, cwd, options);
+	return enforceHome(state, toolName, input, cwd, options);
 }

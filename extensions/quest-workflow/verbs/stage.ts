@@ -80,39 +80,12 @@ function pinPrimaryPlanIfUnset(questDir: string, planId: string): void {
 }
 
 /**
- * Returns whether the focused document is the quest's
- * primary plan. Fail-closed: when we cannot determine the
- * primary plan (corrupt README, IO failure), the gate
- * fires so the agent stops and surfaces the problem
- * rather than sliding past it.
- */
-function isPrimaryPlan(state: QuestState): { primary: boolean; ok: boolean } {
-	if (!state.questDir || !state.documentId) {
-		return { primary: false, ok: true };
-	}
-	const path = join(state.questDir, "README.md");
-	let text: string;
-	try {
-		text = readFileSync(path, "utf8");
-	} catch {
-		return { primary: true, ok: false };
-	}
-	const parsed = parseQuestFrontMatter(text);
-	if (!parsed) return { primary: true, ok: false };
-	const recorded = parsed.frontMatter.primaryPlanId;
-	if (recorded) {
-		return { primary: recorded === state.documentId, ok: true };
-	}
-	// No primaryPlanId recorded yet (legacy quest or the
-	// draft pin failed): treat the current plan as primary
-	// so the gate still fires for the user's first build.
-	return { primary: true, ok: true };
-}
-
-/**
  * Drive the document stage machine: think -> draft ->
- * build -> conclude/retire. Handles the build-stage tree
- * gate and the first-draft document scaffolding inline.
+ * build -> conclude/retire. The build-stage code home is
+ * enforced at write time by the write classifier (see
+ * enforce.ts), not at the transition, so crossing into
+ * build never refuses; first-draft document scaffolding is
+ * handled inline.
  */
 export function stageTransition(
 	state: QuestState,
@@ -160,27 +133,6 @@ export function stageTransition(
 		},
 	);
 	if (!result.ok) return refuse(result.guidance);
-
-	if (
-		action === "build" &&
-		state.documentKind === "plan" &&
-		params.skipTree !== true
-	) {
-		const primary = isPrimaryPlan(state);
-		if (!primary.ok) {
-			return refuse(
-				"Build gate cannot determine the quest's primary plan (README unreadable or invalid frontmatter). Fix the README, or pass `skipTree: true` after confirming with the user.",
-			);
-		}
-		if (primary.primary) {
-			const treeListing = listTreesOnQuest(state.questDir);
-			if (treeListing.ok && treeListing.trees.length === 0) {
-				return refuse(
-					"This plan is crossing into build with no working tree on the quest. Run `tree-add` first, or pass `skipTree: true` for documentation-only work.",
-				);
-			}
-		}
-	}
 
 	if (action === "draft" && !state.documentId) {
 		if (!params.title?.trim()) {

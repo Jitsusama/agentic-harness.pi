@@ -37,8 +37,6 @@ prose:
 
 - `tree-prune` takes `force: true` to override safety
   refusals.
-- `build` takes `skipTree: true` to bypass the primary-
-  plan tree gate for documentation-only work.
 
 The `note` parameter is plain prose attached to a Journey
 entry; it never triggers behaviour.

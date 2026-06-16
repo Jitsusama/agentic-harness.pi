@@ -15,8 +15,12 @@ import { createEnvGuard } from "./_helpers";
 
 const execFileAsync = promisify(execFile);
 
+// The state dir is not a git repo, so paths under it read as
+// loose files; scratchRoots is forced to [] so the system temp
+// dir does not auto-classify those fixtures as scratch.
 let tmpRoot: string;
 let repoRoot: string;
+const noScratch = { scratchRoots: [] as string[] };
 
 function fakePi() {
 	return { setSessionName: () => {} } as unknown as Parameters<
@@ -84,28 +88,17 @@ async function createQuestWithPlan(state: ReturnType<typeof buildState>) {
 	return q.details as { id: string; path: string };
 }
 
-describe("build-stage tree gate", () => {
-	it("refuses build for a primary plan with no tree", async () => {
+describe("build transition", () => {
+	it("crosses into build with no tree, never refusing", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		const result = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "build",
-		});
-		expect(result.ok).toBe(false);
-		if (!result.ok) expect(result.guidance).toMatch(/tree-add/);
-	});
-
-	it("allows build when the agent passes skipTree:true", async () => {
-		const state = buildState();
-		await createQuestWithPlan(state);
-		const result = await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "build",
-			skipTree: true,
 		});
 		expect(result.ok).toBe(true);
 	});
 
-	it("allows build after a tree is added", async () => {
+	it("still crosses into build after a tree is added", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), {
@@ -118,70 +111,34 @@ describe("build-stage tree gate", () => {
 		});
 		expect(result.ok).toBe(true);
 	});
-
-	it("pins primaryPlanId on the first plan and lets second plans build freely", async () => {
-		const state = buildState();
-		await createQuestWithPlan(state);
-		// First plan is the primary. Cross it into build via
-		// the skipTree escape so the quest progresses.
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "build",
-			skipTree: true,
-		});
-		// Unfocus the first plan, then start a fresh loop for
-		// a second plan. The fresh loop mints a new PLAN id
-		// and goes through draft: that draft sees a primary is
-		// already pinned, so it does not overwrite the pin.
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "unfocus",
-		});
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "think",
-			kind: "plan",
-			note: "Secondary effort",
-		});
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "draft",
-			title: "Second plan",
-		});
-		const result = await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "build",
-		});
-		expect(result.ok).toBe(true);
-	});
 });
 
-describe("reactive no-tree guardian", () => {
-	it("blocks writes outside the quest dir when no tree exists", async () => {
+describe("build home gate", () => {
+	it("allows a write inside a git working tree", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "build",
-			skipTree: true,
-		});
+		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
 		const verdict = enforceQuest(
 			state,
 			"write",
 			{ path: join(repoRoot, "src/foo.ts") },
 			repoRoot,
+			noScratch,
 		);
-		expect(verdict?.block).toBe(true);
-		expect(verdict?.reason).toMatch(/tree-add/);
+		expect(verdict).toBeUndefined();
 	});
 
 	it("allows writes to the quest's own document directories", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "build",
-			skipTree: true,
-		});
+		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
 		const docPath = join(state.questDir ?? "", "plans", "PLAN-something.md");
 		const verdict = enforceQuest(
 			state,
 			"write",
 			{ path: docPath },
 			state.questDir ?? "",
+			noScratch,
 		);
 		expect(verdict).toBeUndefined();
 	});
@@ -189,13 +146,7 @@ describe("reactive no-tree guardian", () => {
 	it("allows writes to any path under the loaded quest dir, not just named subdirs", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "build",
-			skipTree: true,
-		});
-		// notes.md at the quest root and a custom runs/ dir
-		// should both be considered quest-internal, not
-		// external code writes that need a tree.
+		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
 		for (const rel of ["notes.md", "runs/2026-06-03.log"]) {
 			const p = join(state.questDir ?? "", rel);
 			const verdict = enforceQuest(
@@ -203,103 +154,24 @@ describe("reactive no-tree guardian", () => {
 				"write",
 				{ path: p },
 				state.questDir ?? "",
+				noScratch,
 			);
 			expect(verdict).toBeUndefined();
 		}
 	});
 
-	it("allows build-stage writes inside a recorded session's git working dir", async () => {
+	it("blocks a homeless write outside every git working tree", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
-		// Record a session whose cwd is the git repo, then cross
-		// into build without a registered tree. The gate should
-		// stand down for writes inside that working directory.
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "session-attach",
-			sessionId: "sess-code",
-			cwd: repoRoot,
-		});
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "build",
-			skipTree: true,
-		});
-		const verdict = enforceQuest(
-			state,
-			"write",
-			{ path: join(repoRoot, "src/foo.ts") },
-			repoRoot,
-		);
-		expect(verdict).toBeUndefined();
-	});
-
-	it("still blocks writes outside the active session's code dir", async () => {
-		const state = buildState();
-		await createQuestWithPlan(state);
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "session-attach",
-			sessionId: "sess-code",
-			cwd: repoRoot,
-		});
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "build",
-			skipTree: true,
-		});
-		// A write outside the recorded code dir (and outside the quest)
-		// must still be blocked: the stand-down is scoped to the code
-		// home, not the whole filesystem.
+		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
 		const verdict = enforceQuest(
 			state,
 			"write",
 			{ path: join(tmpRoot, "outside.ts") },
-			repoRoot,
+			tmpRoot,
+			noScratch,
 		);
 		expect(verdict?.block).toBe(true);
-	});
-
-	it("does not stand down for a detached session's code dir", async () => {
-		const state = buildState();
-		await createQuestWithPlan(state);
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "session-attach",
-			sessionId: "sess-code",
-			cwd: repoRoot,
-		});
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "session-detach",
-			sessionId: "sess-code",
-		});
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "build",
-			skipTree: true,
-		});
-		// The only session in the git tree is detached, so it is not a
-		// live code home and the gate must fire.
-		const verdict = enforceQuest(
-			state,
-			"write",
-			{ path: join(repoRoot, "src/foo.ts") },
-			repoRoot,
-		);
-		expect(verdict?.block).toBe(true);
-	});
-
-	it("allows writes when a tree exists", async () => {
-		const state = buildState();
-		await createQuestWithPlan(state);
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "tree-add",
-			name: "feature-guard",
-			cwd: repoRoot,
-		});
-		await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "build",
-		});
-		const verdict = enforceQuest(
-			state,
-			"write",
-			{ path: join(repoRoot, "src/foo.ts") },
-			repoRoot,
-		);
-		expect(verdict).toBeUndefined();
+		expect(verdict?.reason).toMatch(/tree-add/);
 	});
 });

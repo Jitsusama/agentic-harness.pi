@@ -1,9 +1,36 @@
-import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	enforceQuest,
 	isFocusedDocWrite,
 } from "../../../extensions/quest-workflow/enforce";
 import type { QuestState } from "../../../extensions/quest-workflow/state";
+
+// A real git repo with one tracked file and one untracked file, so
+// the gate's git predicates judge real tracking state. scratchRoots
+// is set to [] in every call so paths under the system temp dir are
+// not auto-classified as scratch (the fixtures live there).
+let repo: string;
+const tracked = "src/tracked.ts";
+const noScratch = { scratchRoots: [] as string[] };
+
+beforeAll(() => {
+	repo = mkdtempSync(join(tmpdir(), "discipline-repo-"));
+	const run = (args: string[]) =>
+		execFileSync("git", args, { cwd: repo, stdio: "ignore" });
+	run(["init", "-q"]);
+	run(["config", "user.email", "t@t"]);
+	run(["config", "user.name", "t"]);
+	mkdirSync(join(repo, "src"));
+	writeFileSync(join(repo, tracked), "export const a = 1;\n");
+	run(["add", tracked]);
+	run(["commit", "-q", "-m", "seed"]);
+});
+
+afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
 function stateFixture(overrides: Partial<QuestState> = {}): QuestState {
 	return {
@@ -25,33 +52,35 @@ function stateFixture(overrides: Partial<QuestState> = {}): QuestState {
 	};
 }
 
-describe("quest discipline", () => {
-	it("blocks code writes while a plan is in draft", () => {
+describe("quest discipline (plan phase)", () => {
+	it("defers edits to already-tracked code while a plan is in draft", () => {
+		const state = stateFixture({ documentStage: "draft" });
+		const result = enforceQuest(
+			state,
+			"edit",
+			{ path: join(repo, tracked) },
+			repo,
+			noScratch,
+		);
+		expect(result?.block).toBe(true);
+	});
+
+	it("lets new (untracked) files flow while a plan is in draft", () => {
 		const state = stateFixture({ documentStage: "draft" });
 		const result = enforceQuest(
 			state,
 			"write",
-			{ path: "/some/other/file.ts", content: "x" },
-			"/tmp",
+			{ path: join(repo, "src/brand-new.ts"), content: "x" },
+			repo,
+			noScratch,
 		);
-		expect(result?.block).toBe(true);
+		expect(result).toBeUndefined();
 	});
 
 	it("allows writes to the focused plan document itself", () => {
 		const state = stateFixture({ documentStage: "draft" });
 		const path = state.documentPath ?? "";
 		const result = enforceQuest(state, "write", { path, content: "..." }, "/");
-		expect(result).toBeUndefined();
-	});
-
-	it("allows code writes when the plan is in build", () => {
-		const state = stateFixture({ documentStage: "build" });
-		const result = enforceQuest(
-			state,
-			"write",
-			{ path: "/some/file.ts", content: "x" },
-			"/tmp",
-		);
 		expect(result).toBeUndefined();
 	});
 
@@ -62,9 +91,10 @@ describe("quest discipline", () => {
 		});
 		const result = enforceQuest(
 			state,
-			"write",
-			{ path: "/file.ts", content: "x" },
-			"/tmp",
+			"edit",
+			{ path: join(repo, tracked) },
+			repo,
+			noScratch,
 		);
 		expect(result).toBeUndefined();
 	});
@@ -93,27 +123,39 @@ describe("quest discipline", () => {
 		}
 	});
 
-	it("nudges the agent away from common bash write paths during plan draft", () => {
+	it("blocks a bash write that targets already-tracked code in draft", () => {
 		const state = stateFixture({ documentStage: "draft" });
-		for (const cmd of [
-			"cat > foo.ts",
-			"echo hello >> notes.md",
-			"sed -i 's/x/y/g' src/foo.ts",
-			"perl -i -pe 's/x/y/' src/foo.ts",
-			"tee -a out.log",
-		]) {
-			const result = enforceQuest(state, "bash", { command: cmd }, "/tmp");
-			expect(result?.block, `expected ${cmd} to be blocked`).toBe(true);
-		}
+		const result = enforceQuest(
+			state,
+			"bash",
+			{ command: `cat >> ${join(repo, tracked)}` },
+			repo,
+			noScratch,
+		);
+		expect(result?.block).toBe(true);
 	});
 
-	it("does not nudge for read-only bash during plan draft", () => {
+	it("allows a bash redirect to a scratch path in draft", () => {
+		const state = stateFixture({ documentStage: "draft" });
+		const result = enforceQuest(
+			state,
+			"bash",
+			{ command: `cat > ${join(repo, "tmp-dump.json")}` },
+			repo,
+			noScratch,
+		);
+		// tmp-dump.json is untracked and not ignored: a new file, never cornered.
+		expect(result?.block).toBeFalsy();
+	});
+
+	it("does not block read-only bash, including literal mutating verbs", () => {
 		const state = stateFixture({ documentStage: "draft" });
 		for (const cmd of [
 			"ls -la",
 			"cat src/foo.ts",
 			"grep needle src",
 			"git status",
+			'grep -n "branch -d" file.ts',
 		]) {
 			const result = enforceQuest(state, "bash", { command: cmd }, "/tmp");
 			expect(result?.block, `${cmd} should not be blocked`).toBeFalsy();

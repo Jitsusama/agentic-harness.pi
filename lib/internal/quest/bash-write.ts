@@ -32,6 +32,34 @@ const BASH_WRITE_PATTERNS = [
  * so quoted literals and heredoc bodies cannot raise a false
  * positive.
  */
+/**
+ * Extract the destination paths of redirect (`>`, `>>`) and `tee`
+ * writes, so the gate can classify where a bash write lands and
+ * allow scratch destinations. Heredoc bodies are stripped first.
+ * In-place editors (sed -i, perl -i) are not parsed: they target
+ * existing files, which the phase gate defers regardless.
+ */
+export function bashWriteTargets(command: string): string[] {
+	const skeleton = stripHeredocBodies(command);
+	const targets: string[] = [];
+	const unquote = (token: string): string =>
+		token.replace(/^['"]/, "").replace(/['"]$/, "");
+
+	// Redirect destinations: the token following > or >>.
+	for (const match of skeleton.matchAll(/>>?\s*([^\s;&|<>]+)/g)) {
+		if (match[1]) targets.push(unquote(match[1]));
+	}
+
+	// tee destinations: non-flag tokens following a tee invocation.
+	for (const match of skeleton.matchAll(
+		/(?:^|[|;&]|\s)tee\s+((?:-[^\s]+\s+)*)(\S+)/g,
+	)) {
+		if (match[2]) targets.push(unquote(match[2]));
+	}
+
+	return targets;
+}
+
 export function classifyBashWrite(command: string): BashWriteKind {
 	const skeleton = stripShellData(stripHeredocBodies(command));
 	if (GIT_MUTATING.test(skeleton)) return "git-mutating";
