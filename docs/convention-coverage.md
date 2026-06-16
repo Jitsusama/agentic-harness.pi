@@ -229,8 +229,9 @@ Operational rules for the quest system.
 | Priority bucket choice | Priority Buckets and Rank | ⚪ | Judgment. |
 | Status enum changes only when situation changes | Status and Journey | ⚪ | Judgment. |
 | URL-to-quest dedup (load existing instead of creating) | Creating from a URL | 🟢 | The tool's create action checks the alias index and proposes loading when a match exists (planned; partial wiring in place). |
+| Quest code lives in a working tree | Focus and the Document Loop | 🟢 | During build, `enforce.ts` allows any write inside a git working tree and blocks only a genuinely homeless write (outside every tree, not scratch or quest-internal) with a `tree-add` remedy. Replaces the old transition refusal and the registered-tree/active-session stand-down. |
 | Document scaffolding criteria | When to Scaffold a Document | ⚪ | Judgment. |
-| Code-write discipline on focused plan | Focus and the Document Loop | 🟢 | `extensions/quest-workflow/enforce.ts` blocks writes during plan think/draft except to the focused plan itself. |
+| Code-write discipline on focused plan | Focus and the Document Loop | 🟢 | `extensions/quest-workflow/enforce.ts` routes writes through `lib/internal/quest/write-classifier.ts` during plan think/draft and defers only edits to already-tracked code; the plan itself, quest-directory files, scratch and brand-new (untracked) files flow. Bash writes are classified on the stripped skeleton so a read-only command carrying a literal mutating verb is not blocked. |
 | Conclude vs Retire | Conclude vs Retire | ⚪ | Judgment. |
 
 ## Skills With No Artifact-Shape Rules
