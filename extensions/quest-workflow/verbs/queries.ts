@@ -17,6 +17,7 @@ import {
 	findPeople,
 	findQuestEntries,
 	linksForLoaded,
+	resolveRefQuery,
 	type TreeNode,
 	treeAll,
 } from "../lookup.js";
@@ -50,17 +51,20 @@ export function find(state: QuestState, params: QuestToolParams): QuestResult {
 		| "eta"
 		| "activity"
 		| undefined;
-	const matches = findQuestEntries(state, {
-		query: params.query,
-		since: params.since,
-		until: params.until,
-		field,
-		priority: params.priority,
-		kind: params.kind,
-		status: params.status,
-		parent: params.parent,
-		refType: params.refType,
-	});
+	const matches = findQuestEntries(
+		state,
+		resolveRefQuery({
+			query: params.query,
+			since: params.since,
+			until: params.until,
+			field,
+			priority: params.priority,
+			kind: params.kind,
+			status: params.status,
+			parent: params.parent,
+			refType: params.refType,
+		}),
+	);
 	const view = paginate(matches, {
 		limit: params.limit,
 		offset: params.offset,

@@ -30,7 +30,7 @@ import {
 	type QuestFrontMatter,
 	type QuestSession,
 } from "../../lib/quest/index.js";
-import { urlForRef } from "../../lib/refs/index.js";
+import { parseRef, urlForRef } from "../../lib/refs/index.js";
 import type { RowCast, RowDocument, RowJourney } from "./render-rows.js";
 import type { QuestState } from "./state.js";
 
@@ -45,6 +45,20 @@ export interface FindParams {
 	parent?: string;
 	refType?: string;
 	limit?: number;
+}
+
+/**
+ * Rewrite a find query that is a URL or ref-shaped string to the
+ * canonical alias value its ref type stores, and pin the ref type,
+ * so a search by URL resolves the quest that carries that alias.
+ * A plain-text query (nothing the ref registry recognises) is
+ * returned unchanged.
+ */
+export function resolveRefQuery(params: FindParams): FindParams {
+	if (!params.query) return params;
+	const ref = parseRef(params.query);
+	if (!ref) return params;
+	return { ...params, query: ref.value, refType: ref.type };
 }
 
 export interface FindHit {
