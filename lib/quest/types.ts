@@ -74,6 +74,13 @@ export interface QuestTree {
 	 * pre-existing tree the quest only references; it is
 	 * never auto-pruned. An absent marker (legacy or
 	 * hand-registered) is treated as keep, never auto-pruned.
+	 *
+	 * This is advisory ownership state, not a trust boundary: it
+	 * lives in the quest README, which the agent may write, so an
+	 * already-compromised agent could restamp it. The destructive
+	 * prune still refuses a dirty or unmerged tree unless forced, so
+	 * the marker is one layer of a defence in depth, not the only
+	 * guard on deletion.
 	 */
 	origin?: "scaffolded" | "adopted";
 }

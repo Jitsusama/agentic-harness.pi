@@ -148,16 +148,28 @@ function enforceHome(
 	cwd: string,
 	options: EnforceOptions,
 ): ToolCallEventResult | undefined {
-	if (toolName !== "write" && toolName !== "edit") return;
 	if (!state.questDir || !state.questId) return;
 	if (state.documentKind !== "plan" || state.documentStage !== "build") return;
-	const target = path.resolve(cwd, String(input.path ?? ""));
-	if (classifyTarget(state, target, options).category === "loose-file") {
-		return {
-			block: true,
-			reason:
-				"Quest workflow: this quest is in build, but this write lands outside every git working tree. Run `tree-add` to scaffold one, or write inside a git tree this quest works in. Do not unload the quest to bypass this.",
-		};
+	const homeless = (target: string): boolean =>
+		classifyTarget(state, target, options).category === "loose-file";
+	const block = (): ToolCallEventResult => ({
+		block: true,
+		reason:
+			"Quest workflow: this quest is in build, but this write lands outside every git working tree. Run `tree-add` to scaffold one, or write inside a git tree this quest works in. Do not unload the quest to bypass this.",
+	});
+	if (toolName === "write" || toolName === "edit") {
+		if (homeless(path.resolve(cwd, String(input.path ?? "")))) return block();
+		return;
+	}
+	if (toolName === "bash") {
+		// A bash redirect can land code just as a write tool can, so the
+		// home gate must see it too; otherwise `cat > /outside/loose.ts`
+		// slips the nudge the write tool would have caught.
+		const command = String(input.command ?? "");
+		const lands = bashWriteTargets(command).some((t) =>
+			homeless(path.resolve(cwd, t)),
+		);
+		if (lands) return block();
 	}
 	return;
 }

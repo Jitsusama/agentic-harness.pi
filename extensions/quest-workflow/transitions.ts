@@ -122,9 +122,9 @@ export async function handle(
 		case "tree":
 			return tree(state, params);
 		case "tree-add":
-			return treeAdd(state, params);
+			return treeAdd(state, { ...params, cwd: params.cwd ?? ctx.cwd });
 		case "tree-adopt":
-			return treeAdopt(state, params);
+			return treeAdopt(state, { ...params, cwd: params.cwd ?? ctx.cwd });
 		case "tree-list":
 			return treeList(state);
 		case "tree-prune":

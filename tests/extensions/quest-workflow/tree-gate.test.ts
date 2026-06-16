@@ -174,4 +174,33 @@ describe("build home gate", () => {
 		expect(verdict?.block).toBe(true);
 		expect(verdict?.reason).toMatch(/tree-add/);
 	});
+
+	it("blocks a homeless bash redirect, like the write tool", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
+		const verdict = enforceQuest(
+			state,
+			"bash",
+			{ command: `cat > ${join(tmpRoot, "outside.ts")}` },
+			tmpRoot,
+			noScratch,
+		);
+		expect(verdict?.block).toBe(true);
+		expect(verdict?.reason).toMatch(/tree-add/);
+	});
+
+	it("allows a bash redirect inside a git working tree", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
+		const verdict = enforceQuest(
+			state,
+			"bash",
+			{ command: `cat > ${join(repoRoot, "src/foo.ts")}` },
+			repoRoot,
+			noScratch,
+		);
+		expect(verdict).toBeUndefined();
+	});
 });

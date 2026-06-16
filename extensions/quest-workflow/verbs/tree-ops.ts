@@ -125,6 +125,11 @@ export function treeAdopt(
 		);
 	}
 	const provider = resolveTreeProvider(root);
+	// repoRoot is recorded as the adopted tree's own root. For a
+	// linked worktree that is the worktree dir rather than the main
+	// repo, unlike a scaffolded tree, but it is sufficient here: an
+	// adopted tree is never auto-pruned, and the provider resolves
+	// from the path either way, so the value is only a reference.
 	const tree = {
 		path: root,
 		repoRoot: root,
