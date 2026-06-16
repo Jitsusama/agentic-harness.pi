@@ -8,6 +8,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
+import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.js";
 import {
 	addTreeToQuest,
 	listTreesOnQuest,
@@ -51,11 +52,24 @@ export async function treeAdd(
 	if (!state.questDir || !state.questId) {
 		return refuse("Load a quest first.");
 	}
-	const repoRoot = defaultRepoRoot(state, params);
-	const provider = resolveTreeProvider(repoRoot);
+	let repoRoot = defaultRepoRoot(state, params);
+	let provider = resolveTreeProvider(repoRoot);
+	if (!provider) {
+		// The cwd may be a subdirectory of a repository, where the
+		// built-in git-worktree provider (which looks for .git at the
+		// root) does not apply. Resolve to the enclosing git root and
+		// retry, so tree-add from a deep working directory no longer
+		// hard-fails on the wrong cwd. Downstream providers that match
+		// the raw root are untouched; this only rescues the no-match case.
+		const root = gitTreeRootOf(join(repoRoot, ".quest-tree-probe"));
+		if (root) {
+			repoRoot = root;
+			provider = resolveTreeProvider(repoRoot);
+		}
+	}
 	if (!provider) {
 		return refuse(
-			`No tree provider applies to ${repoRoot}. Register one (the harness ships git-worktree as a default).`,
+			`No tree provider applies to ${repoRoot}, and it is not inside a git repository. cd into your repo or pass cwd, or register a provider (the harness ships git-worktree as a default).`,
 		);
 	}
 	const name =
