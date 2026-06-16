@@ -63,4 +63,31 @@ describe("alias-add with a list", () => {
 		expect(readme).not.toMatch(/value: 'shop\/world#1,/);
 		expect(readme).not.toMatch(/value: "shop\/world#1,/);
 	});
+
+	it("reports already-present entries and stays idempotent on re-add", async () => {
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const ctx = fakeCtx(tmpRoot);
+		const created = await handle(state, fakePi(), ctx, {
+			action: "create",
+			title: "Linked Work",
+		});
+		if (!created.ok) throw new Error(created.guidance);
+		await handle(state, fakePi(), ctx, {
+			action: "alias-add",
+			ref: "github-pr:shop/world#1",
+		});
+		// A list that re-states the present one and adds a new one: the
+		// new lands, the present is reported, not duplicated.
+		const result = await handle(state, fakePi(), ctx, {
+			action: "alias-add",
+			ref: "github-pr:shop/world#1, github-issue:shop/world#2",
+		});
+		expect(result.ok).toBe(true);
+		const readme = readFileSync(
+			join(state.questDir ?? "", "README.md"),
+			"utf8",
+		);
+		expect(readme.match(/value: shop\/world#1/g)?.length).toBe(1);
+		expect(readme).toMatch(/value: shop\/world#2/);
+	});
 });

@@ -7,7 +7,7 @@
 import type { QuestAlias } from "../../../lib/quest/index.js";
 import { parseRef } from "../../../lib/refs/index.js";
 import {
-	addAliasToLoaded,
+	addAliasesToLoaded,
 	appendJourneyEntry,
 	removeAliasFromLoaded,
 } from "../lifecycle.js";
@@ -68,17 +68,13 @@ export function aliasAdd(
 			"Pass the alias in `ref` (e.g. `github-pr:shop/world#47281`) or in `url` (a recognised URL). Separate several with commas.",
 		);
 	}
-	const added: QuestAlias[] = [];
-	const already: QuestAlias[] = [];
-	for (const alias of aliases) {
-		const result = addAliasToLoaded(state, alias);
-		if (!result.ok) return refuse(result.guidance);
-		if (result.added) {
-			added.push(alias);
-			appendJourneyEntry(state, `Linked ${alias.type}:${alias.value}.`);
-		} else {
-			already.push(alias);
-		}
+	// One write lands the whole list, so a mid-list failure cannot
+	// leave a partial set behind.
+	const result = addAliasesToLoaded(state, aliases);
+	if (!result.ok) return refuse(result.guidance);
+	const { added, already } = result;
+	for (const alias of added) {
+		appendJourneyEntry(state, `Linked ${alias.type}:${alias.value}.`);
 	}
 	const label = (a: QuestAlias) => `${a.type}:${a.value}`;
 	if (added.length === 0) {
