@@ -140,6 +140,12 @@ function enforcePhase(
  * even though the tree was right there). Only a genuinely homeless
  * write -- outside every git tree, and not scratch or quest-internal
  * -- is blocked, with a satisfiable remedy.
+ *
+ * This is advisory, and it fails open: if the home directory is
+ * itself a git repository (dotfiles under git, for instance), a
+ * write there reads as in-tree and the block never fires. That is
+ * acceptable for a nudge whose only job is to keep quest code in a
+ * tree it can later prune, not to police the filesystem.
  */
 function enforceHome(
 	state: QuestState,
