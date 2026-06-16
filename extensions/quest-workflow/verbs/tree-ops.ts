@@ -9,6 +9,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
 import {
+	gitTreeRootOf,
+	isWithin,
+} from "../../../lib/internal/quest/git-signals.js";
+import {
 	addTreeToQuest,
 	listTreesOnQuest,
 	removeTreeFromQuest,
@@ -51,11 +55,24 @@ export async function treeAdd(
 	if (!state.questDir || !state.questId) {
 		return refuse("Load a quest first.");
 	}
-	const repoRoot = defaultRepoRoot(state, params);
-	const provider = resolveTreeProvider(repoRoot);
+	let repoRoot = defaultRepoRoot(state, params);
+	let provider = resolveTreeProvider(repoRoot);
+	if (!provider) {
+		// The cwd may be a subdirectory of a repository, where the
+		// built-in git-worktree provider (which looks for .git at the
+		// root) does not apply. Resolve to the enclosing git root and
+		// retry, so tree-add from a deep working directory no longer
+		// hard-fails on the wrong cwd. Downstream providers that match
+		// the raw root are untouched; this only rescues the no-match case.
+		const root = gitTreeRootOf(join(repoRoot, ".quest-tree-probe"));
+		if (root) {
+			repoRoot = root;
+			provider = resolveTreeProvider(repoRoot);
+		}
+	}
 	if (!provider) {
 		return refuse(
-			`No tree provider applies to ${repoRoot}. Register one (the harness ships git-worktree as a default).`,
+			`No tree provider applies to ${repoRoot}, and it is not inside a git repository. cd into your repo or pass cwd, or register a provider (the harness ships git-worktree as a default).`,
 		);
 	}
 	const name =
@@ -71,6 +88,7 @@ export async function treeAdd(
 			branch: handle.branch,
 			repoRoot: handle.repoRoot,
 			providerId: handle.providerId,
+			origin: "scaffolded" as const,
 		};
 		const result = addTreeToQuest(state.questDir, tree);
 		if (!result.ok) return refuse(result.reason);
@@ -83,6 +101,48 @@ export async function treeAdd(
 		const message = error instanceof Error ? error.message : String(error);
 		return refuse(`Tree create failed: ${message}`);
 	}
+}
+
+/**
+ * Adopt the existing git tree at the cwd: register it on the quest
+ * without creating anything, marked `adopted` so conclude and retire
+ * never auto-prune it. This is the deliberate, explicit alternative
+ * to scaffolding a fresh worktree; the act of running it is the
+ * consent, so there is no inference and no silent binding.
+ */
+export function treeAdopt(
+	state: QuestState,
+	params: QuestToolParams,
+): QuestResult {
+	if (!state.questDir || !state.questId) {
+		return refuse("Load a quest first.");
+	}
+	const start = defaultRepoRoot(state, params);
+	const root = gitTreeRootOf(join(start, ".quest-tree-probe"));
+	if (!root) {
+		return refuse(
+			`${start} is not inside a git working tree. cd into the tree you want to adopt, or pass its path in cwd.`,
+		);
+	}
+	const provider = resolveTreeProvider(root);
+	// repoRoot is recorded as the adopted tree's own root. For a
+	// linked worktree that is the worktree dir rather than the main
+	// repo, unlike a scaffolded tree, but it is sufficient here: an
+	// adopted tree is never auto-pruned, and the provider resolves
+	// from the path either way, so the value is only a reference.
+	const tree = {
+		path: root,
+		repoRoot: root,
+		providerId: provider?.id ?? "git-worktree",
+		origin: "adopted" as const,
+	};
+	const result = addTreeToQuest(state.questDir, tree);
+	if (!result.ok) return refuse(result.reason);
+	if (!result.added) {
+		return ok(`Tree at ${root} is already tracked on this quest.`, { tree });
+	}
+	appendJourneyEntry(state, `Adopted tree at ${root}.`);
+	return ok(`Adopted tree at ${root}; it will not be auto-pruned.`, { tree });
 }
 
 export function treeList(state: QuestState): QuestResult {
@@ -129,7 +189,9 @@ export async function treePrune(
 	// not consent. `force: true` is the consent signal.
 	const force = params.force === true;
 	const sessions = readSessionsFromQuest(state);
-	const attached = sessions.filter((s) => s.cwd?.startsWith(target.path));
+	const attached = sessions.filter(
+		(s) => s.cwd && isWithin(s.cwd, target.path),
+	);
 	if (attached.length > 0 && !force) {
 		const names = attached.map((s) => s.name ?? s.id).join(", ");
 		return refuse(

@@ -37,7 +37,6 @@ export interface QuestToolParams {
 	scope?: string;
 	force?: boolean;
 	dryRun?: boolean;
-	skipTree?: boolean;
 	limit?: number;
 	offset?: number;
 }

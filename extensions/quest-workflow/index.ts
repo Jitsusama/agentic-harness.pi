@@ -126,7 +126,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			"convention skill for the README format.",
 		promptGuidelines: [
 			"Use action `create` to mint a new quest. Use action `load` to switch to an existing one. The status bar shows the loaded quest at all times.",
-			"`focus` and `unfocus` set or clear the focused document. While a plan is focused in think or draft, code writes are blocked everywhere except the plan document itself.",
+			"`focus` and `unfocus` set or clear the focused document. While a plan is focused in think or draft, edits to already-tracked code defer to build; the plan itself, quest-directory files, scratch paths and brand-new files still flow.",
 			"Stage transitions are think → draft → build → concluded (or retired). `think` accepts a kind on a fresh loop (default plan); `draft` scaffolds the document and mints its id; `build` lets you implement.",
 			"A refused transition returns guidance and changes nothing. There is no human gate and no approval prompt.",
 		],
@@ -196,7 +196,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			ref: Type.Optional(
 				Type.String({
 					description:
-						"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`).",
+						"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). alias-add also accepts a comma-separated list to add several at once.",
 				}),
 			),
 			query: Type.Optional(
@@ -285,12 +285,6 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				Type.Boolean({
 					description:
 						"reparent and bulk conclude/retire: preview the planned changes and report exactly what would change without writing anything. Use undo to reverse the last applied structural edit.",
-				}),
-			),
-			skipTree: Type.Optional(
-				Type.Boolean({
-					description:
-						"build: skip the primary-plan tree gate (documentation-only build with no working tree).",
 				}),
 			),
 			limit: Type.Optional(

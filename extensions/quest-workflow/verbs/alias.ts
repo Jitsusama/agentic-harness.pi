@@ -7,7 +7,7 @@
 import type { QuestAlias } from "../../../lib/quest/index.js";
 import { parseRef } from "../../../lib/refs/index.js";
 import {
-	addAliasToLoaded,
+	addAliasesToLoaded,
 	appendJourneyEntry,
 	removeAliasFromLoaded,
 } from "../lifecycle.js";
@@ -47,25 +47,47 @@ export function aliasAdd(
 ): QuestResult {
 	if (!state.questId) return refuse("Load a quest first.");
 	const input = params.ref ?? params.url ?? "";
-	const alias = parseAliasInput(input);
-	if (!alias) {
+	// A comma separates entries: a type:value literal and a URL both
+	// have no bare comma, so splitting first lets one call add several.
+	const tokens = input
+		.split(",")
+		.map((t) => t.trim())
+		.filter((t) => t.length > 0);
+	const aliases: QuestAlias[] = [];
+	for (const token of tokens) {
+		const alias = parseAliasInput(token);
+		if (!alias) {
+			return refuse(
+				`Could not parse "${token}" as an alias. Use the \`type:value\` form (e.g. \`github-pr:shop/world#47281\`) or a recognised URL; separate several with commas.`,
+			);
+		}
+		aliases.push(alias);
+	}
+	if (aliases.length === 0) {
 		return refuse(
-			"Pass the alias in `ref` (e.g. `github-pr:shop/world#47281`) or in `url` (a recognised URL).",
+			"Pass the alias in `ref` (e.g. `github-pr:shop/world#47281`) or in `url` (a recognised URL). Separate several with commas.",
 		);
 	}
-	const result = addAliasToLoaded(state, alias);
+	// One write lands the whole list, so a mid-list failure cannot
+	// leave a partial set behind.
+	const result = addAliasesToLoaded(state, aliases);
 	if (!result.ok) return refuse(result.guidance);
-	if (!result.added) {
-		return ok(`Alias ${alias.type}:${alias.value} was already present.`, {
-			alias,
+	const { added, already } = result;
+	for (const alias of added) {
+		appendJourneyEntry(state, `Linked ${alias.type}:${alias.value}.`);
+	}
+	const label = (a: QuestAlias) => `${a.type}:${a.value}`;
+	if (added.length === 0) {
+		return ok(`Alias ${already.map(label).join(", ")} was already present.`, {
+			aliases: already,
 			added: false,
 		});
 	}
-	appendJourneyEntry(state, `Linked ${alias.type}:${alias.value}.`);
-	return ok(`Added alias ${alias.type}:${alias.value}.`, {
-		alias,
-		added: true,
-	});
+	let message = `Added alias ${added.map(label).join(", ")}.`;
+	if (already.length > 0) {
+		message += ` ${already.map(label).join(", ")} already present.`;
+	}
+	return ok(message, { aliases: added, added: true });
 }
 
 export function aliasRemove(

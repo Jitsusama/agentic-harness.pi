@@ -5,14 +5,15 @@
  * stageTransition for document-scoped calls).
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type { ToolContext } from "@mariozechner/pi-coding-agent";
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
 } from "../../../lib/internal/quest/frontmatter.js";
+import { isWithin } from "../../../lib/internal/quest/git-signals.js";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
 import {
 	listTreesOnQuest,
@@ -32,6 +33,7 @@ import { resolveTreeProvider } from "../../../lib/tree/index.js";
 import {
 	appendJourneyEntry,
 	createDocument,
+	focusDocument,
 	refreshProgress,
 	setLoadedStatus,
 	stampQuestUpdated,
@@ -39,6 +41,7 @@ import {
 } from "../lifecycle.js";
 import { type TransitionAction, transition } from "../machine.js";
 import type { QuestState } from "../state.js";
+import { subdirForDocumentId } from "./queries.js";
 import {
 	DOCUMENT_KINDS_SET,
 	ok,
@@ -80,39 +83,12 @@ function pinPrimaryPlanIfUnset(questDir: string, planId: string): void {
 }
 
 /**
- * Returns whether the focused document is the quest's
- * primary plan. Fail-closed: when we cannot determine the
- * primary plan (corrupt README, IO failure), the gate
- * fires so the agent stops and surfaces the problem
- * rather than sliding past it.
- */
-function isPrimaryPlan(state: QuestState): { primary: boolean; ok: boolean } {
-	if (!state.questDir || !state.documentId) {
-		return { primary: false, ok: true };
-	}
-	const path = join(state.questDir, "README.md");
-	let text: string;
-	try {
-		text = readFileSync(path, "utf8");
-	} catch {
-		return { primary: true, ok: false };
-	}
-	const parsed = parseQuestFrontMatter(text);
-	if (!parsed) return { primary: true, ok: false };
-	const recorded = parsed.frontMatter.primaryPlanId;
-	if (recorded) {
-		return { primary: recorded === state.documentId, ok: true };
-	}
-	// No primaryPlanId recorded yet (legacy quest or the
-	// draft pin failed): treat the current plan as primary
-	// so the gate still fires for the user's first build.
-	return { primary: true, ok: true };
-}
-
-/**
  * Drive the document stage machine: think -> draft ->
- * build -> conclude/retire. Handles the build-stage tree
- * gate and the first-draft document scaffolding inline.
+ * build -> conclude/retire. The build-stage code home is
+ * enforced at write time by the write classifier (see
+ * enforce.ts), not at the transition, so crossing into
+ * build never refuses; first-draft document scaffolding is
+ * handled inline.
  */
 export function stageTransition(
 	state: QuestState,
@@ -146,7 +122,7 @@ export function stageTransition(
 		state.done = 0;
 		state.total = 0;
 		return ok(
-			`Thinking about a ${kind} for ${state.questId}: ${params.note.trim()}`,
+			`Thinking about a ${kind} for ${state.questId}: ${params.note.trim()}. This loop has no document id yet; \`draft\` (with a title) mints it.`,
 			{ stage: "think", kind },
 		);
 	}
@@ -160,27 +136,6 @@ export function stageTransition(
 		},
 	);
 	if (!result.ok) return refuse(result.guidance);
-
-	if (
-		action === "build" &&
-		state.documentKind === "plan" &&
-		params.skipTree !== true
-	) {
-		const primary = isPrimaryPlan(state);
-		if (!primary.ok) {
-			return refuse(
-				"Build gate cannot determine the quest's primary plan (README unreadable or invalid frontmatter). Fix the README, or pass `skipTree: true` after confirming with the user.",
-			);
-		}
-		if (primary.primary) {
-			const treeListing = listTreesOnQuest(state.questDir);
-			if (treeListing.ok && treeListing.trees.length === 0) {
-				return refuse(
-					"This plan is crossing into build with no working tree on the quest. Run `tree-add` first, or pass `skipTree: true` for documentation-only work.",
-				);
-			}
-		}
-	}
 
 	if (action === "draft" && !state.documentId) {
 		if (!params.title?.trim()) {
@@ -322,12 +277,20 @@ async function pruneAllTreesOnQuest(state: QuestState): Promise<{
 	const listing = listTreesOnQuest(state.questDir);
 	if (!listing.ok) return { pruned, blocked };
 	for (const tree of listing.trees) {
+		// Only auto-prune trees the tool scaffolded. Adopted trees, and
+		// legacy or hand-registered trees with no origin marker, are
+		// references the quest does not own, so concluding the quest
+		// must never delete them; they are released deliberately with
+		// tree-prune.
+		if (tree.origin !== "scaffolded") continue;
 		// Re-read the live session list immediately before each prune
 		// rather than from one snapshot taken before the loop: the
 		// awaits below yield the event loop, so another session can
 		// attach into a tree we are about to prune and must be seen.
 		const sessions = readSessionsFromQuest(state);
-		const attached = sessions.filter((s) => s.cwd?.startsWith(tree.path));
+		const attached = sessions.filter(
+			(s) => s.cwd && isWithin(s.cwd, tree.path),
+		);
 		if (attached.length > 0) {
 			const names = attached.map((s) => s.name ?? s.id).join(", ");
 			blocked.push({
@@ -343,14 +306,96 @@ async function pruneAllTreesOnQuest(state: QuestState): Promise<{
 		}
 		try {
 			await provider.prune({ path: tree.path });
-			removeTreeFromQuest(state.questDir, tree.path);
-			pruned.push(tree.path);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			blocked.push({ path: tree.path, reason: message });
+			continue;
 		}
+		// The worktree is gone; de-register it. If the frontmatter write
+		// fails the tree is half-pruned (removed on disk, still listed),
+		// so surface it for manual cleanup rather than reporting a clean
+		// prune.
+		const removal = removeTreeFromQuest(state.questDir, tree.path);
+		if (!removal.ok) {
+			blocked.push({
+				path: tree.path,
+				reason: `worktree removed but could not be de-registered: ${removal.reason}`,
+			});
+			continue;
+		}
+		pruned.push(tree.path);
 	}
 	return { pruned, blocked };
+}
+
+/**
+ * Reopen a concluded or retired quest, returning it to active. The
+ * inverse of concluding the whole quest; the resuscitate pattern in
+ * the quest convention. Document stages are left as they are, so a
+ * reopened quest keeps whatever plans it had concluded; the author
+ * moves the ones they want back to build deliberately.
+ */
+export function reopenQuest(state: QuestState): QuestResult {
+	if (!state.questId || !state.questDir) {
+		return refuse("Load a quest before reopening it.");
+	}
+	if (state.questStatus !== "concluded" && state.questStatus !== "retired") {
+		return refuse(
+			`Quest ${state.questId} is ${state.questStatus ?? "active"}, not concluded or retired; there is nothing to reopen.`,
+		);
+	}
+	const result = setLoadedStatus(state, "active");
+	if (!result.ok) return refuse(result.guidance);
+	appendJourneyEntry(state, "Reopened the quest.");
+	return ok(`Reopened quest ${state.questId}; now active.`, {
+		status: "active",
+	});
+}
+
+/**
+ * Conclude or retire a specific document by id: focus it so the
+ * stage machine and widget stay in sync, then drive the document
+ * transition. This shares the focused-document semantics, so like
+ * any document conclusion it is not reversible through `undo`
+ * (only the quest sweep journals a structural op).
+ *
+ * The id comes from the agent, so the resolved path is contained to
+ * the quest's subdirectory: a crafted id carrying path separators
+ * or `..` resolves outside it and is refused, never reaching the
+ * filesystem. Any prior focus is restored afterward so concluding a
+ * sibling document does not silently move the user's focus.
+ */
+function concludeDocumentById(
+	state: QuestState,
+	action: "conclude" | "retire",
+	params: QuestToolParams,
+	ctx: ToolContext,
+	id: string,
+	subdir: string,
+): QuestResult {
+	if (!state.questDir) {
+		return refuse("Load a quest before concluding or retiring a document.");
+	}
+	const expectedDir = resolve(state.questDir, subdir);
+	const path = resolve(expectedDir, `${id}.md`);
+	if (dirname(path) !== expectedDir) {
+		return refuse(
+			`Document id ${id} is not a plain id; it must not contain path separators.`,
+		);
+	}
+	if (!existsSync(path)) {
+		return refuse(
+			`Document ${id} not found under the loaded quest. Load the quest that owns it, or pass a quest id for a status sweep.`,
+		);
+	}
+	const priorFocus = state.documentPath;
+	const focused = focusDocument(state, path);
+	if (!focused.ok) return refuse(focused.guidance);
+	const result = stageTransition(state, action, params, ctx);
+	// Restore the focus the user had before, unless they were already
+	// focused on the document just concluded.
+	if (priorFocus && priorFocus !== path) focusDocument(state, priorFocus);
+	return result;
 }
 
 /**
@@ -365,11 +410,23 @@ export async function concludeOrRetire(
 	params: QuestToolParams,
 	ctx: ToolContext,
 ): Promise<QuestResult> {
-	// An explicit id (single or a comma list) selects the target set
-	// for a reversible status sweep, distinct from concluding the
-	// loaded quest. Naming an id always targets that id, so a single
-	// id never silently falls through to the loaded quest.
-	if ((params.id ?? "").trim().length > 0) {
+	// An explicit id targets that id rather than the loaded quest, so
+	// naming an id never silently falls through to the loaded quest.
+	// A single document-kind id concludes that document (not
+	// undoable, see concludeDocumentById); a quest id or any comma
+	// list runs the reversible status sweep.
+	const targetId = (params.id ?? "").trim();
+	if (targetId.length > 0) {
+		// A single document-kind id (PLAN/RSCH/BRIF/RPRT) concludes or
+		// retires that document under the loaded quest, with the same
+		// (non-undoable) semantics as concluding a focused document.
+		// Quest ids, and any comma list, run the reversible quest sweep.
+		const subdir = targetId.includes(",")
+			? undefined
+			: subdirForDocumentId(targetId);
+		if (subdir) {
+			return concludeDocumentById(state, action, params, ctx, targetId, subdir);
+		}
 		return bulkConcludeOrRetire(state, action, params);
 	}
 	if (!state.questDir) {

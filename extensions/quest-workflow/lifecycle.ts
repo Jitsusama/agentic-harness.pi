@@ -735,24 +735,42 @@ export function setQuestStatusByDir(
 	return { ok: true };
 }
 
-/** Add an alias to the loaded quest. No-op if already present. */
-export function addAliasToLoaded(
+/**
+ * Add one or more aliases to the loaded quest in a single front-matter
+ * write, so a list either lands whole or not at all and no partial
+ * state survives a failure. Aliases already present, and duplicates
+ * within the batch, are reported as already and added only once.
+ */
+export function addAliasesToLoaded(
 	state: QuestState,
-	alias: QuestAlias,
-): { ok: true; added: boolean } | { ok: false; guidance: string } {
+	aliases: QuestAlias[],
+):
+	| { ok: true; added: QuestAlias[]; already: QuestAlias[] }
+	| { ok: false; guidance: string } {
 	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
-	let added = false;
+	let added: QuestAlias[] = [];
+	let already: QuestAlias[] = [];
 	const result = writeQuestFrontMatter(state.questDir, (fm) => {
-		if (
-			fm.aliases.some((a) => a.type === alias.type && a.value === alias.value)
-		) {
-			return undefined;
+		// Reset on every invocation so a retried write does not
+		// accumulate duplicate report entries.
+		added = [];
+		already = [];
+		const next = [...fm.aliases];
+		for (const alias of aliases) {
+			const present = next.some(
+				(a) => a.type === alias.type && a.value === alias.value,
+			);
+			if (present) {
+				already.push(alias);
+				continue;
+			}
+			added.push(alias);
+			next.push(alias);
 		}
-		added = true;
-		return { ...fm, aliases: [...fm.aliases, alias] };
+		return { ...fm, aliases: next };
 	});
 	if (!result.ok) return result;
-	return { ok: true, added };
+	return { ok: true, added, already };
 }
 
 /** Remove an alias from the loaded quest. */
