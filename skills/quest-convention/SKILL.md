@@ -145,18 +145,18 @@ ping brings it back. The steps:
 
 1. `quest find <hint>` and `quest load <id>` to pick up the
    old sidequest.
-2. `quest drive` (or `promote`) to push it back to driving
-   or active.
+2. `quest reopen` if it was concluded or retired, to return
+   its status to active; then `quest drive` (or `promote`)
+   to set its priority.
 3. `quest alias-add` for the new context (the Slack thread
    or PR that resurfaced it).
 4. Append a Journey bullet noting what brought it back.
 5. `quest think kind:plan` if the reactivation needs
    structured work.
 
-Each step is a separate tool call today. A composite
-`resuscitate` verb may land later if the workflow stays
-awkward; current bet is that the pattern reads cleanly
-enough as separate moves.
+Each step is a separate tool call. `reopen` covers the
+status flip; the rest read cleanly enough as separate
+moves that no further composite verb is planned.
 
 ## Conclude vs Retire
 
@@ -168,9 +168,9 @@ enough as separate moves.
   but rank below active quests when the tool walks the
   tree for a TOC view.
 
-A retired quest can be resuscitated. A concluded quest
-can also be resuscitated, though usually a new quest is
-cleaner when the work re-opens with a new shape.
+A retired quest can be resuscitated with `quest reopen`. A
+concluded quest can also be reopened, though usually a new
+quest is cleaner when the work re-opens with a new shape.
 
 Both `conclude` and `retire` accept a `scope` parameter:
 `document` acts on the focused document, `quest` acts on

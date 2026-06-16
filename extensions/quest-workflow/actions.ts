@@ -31,6 +31,7 @@ export const QUEST_ACTIONS = [
 	"build",
 	"conclude",
 	"retire",
+	"reopen",
 	"promote",
 	"demote",
 	"drive",

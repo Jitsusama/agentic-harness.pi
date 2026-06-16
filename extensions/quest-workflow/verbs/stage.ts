@@ -308,6 +308,30 @@ async function pruneAllTreesOnQuest(state: QuestState): Promise<{
 }
 
 /**
+ * Reopen a concluded or retired quest, returning it to active. The
+ * inverse of concluding the whole quest; the resuscitate pattern in
+ * the quest convention. Document stages are left as they are, so a
+ * reopened quest keeps whatever plans it had concluded; the author
+ * moves the ones they want back to build deliberately.
+ */
+export function reopenQuest(state: QuestState): QuestResult {
+	if (!state.questId || !state.questDir) {
+		return refuse("Load a quest before reopening it.");
+	}
+	if (state.questStatus !== "concluded" && state.questStatus !== "retired") {
+		return refuse(
+			`Quest ${state.questId} is ${state.questStatus ?? "active"}, not concluded or retired; there is nothing to reopen.`,
+		);
+	}
+	const result = setLoadedStatus(state, "active");
+	if (!result.ok) return refuse(result.guidance);
+	appendJourneyEntry(state, "Reopened the quest.");
+	return ok(`Reopened quest ${state.questId}; now active.`, {
+		status: "active",
+	});
+}
+
+/**
  * Conclude or retire a specific document by id: focus it so the
  * stage machine and widget stay in sync, then drive the document
  * transition. This shares the focused-document semantics, so like

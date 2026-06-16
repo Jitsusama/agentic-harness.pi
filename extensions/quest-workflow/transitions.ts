@@ -43,7 +43,11 @@ import {
 	type QuestToolParams,
 	refuse,
 } from "./verbs/shared.js";
-import { concludeOrRetire, stageTransition } from "./verbs/stage.js";
+import {
+	concludeOrRetire,
+	reopenQuest,
+	stageTransition,
+} from "./verbs/stage.js";
 import { reparent, undo } from "./verbs/structural.js";
 import { treeAdd, treeExpand, treeList, treePrune } from "./verbs/tree-ops.js";
 
@@ -81,6 +85,8 @@ export async function handle(
 		case "conclude":
 		case "retire":
 			return concludeOrRetire(state, params.action, params, ctx);
+		case "reopen":
+			return reopenQuest(state);
 		case "top":
 		case "bottom":
 		case "bump":
