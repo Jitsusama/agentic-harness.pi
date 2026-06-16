@@ -28,38 +28,62 @@ const BASH_WRITE_PATTERNS = [
 ];
 
 /**
- * Classify a bash command after stripping non-executable content,
- * so quoted literals and heredoc bodies cannot raise a false
- * positive.
- */
-/**
- * Extract the destination paths of redirect (`>`, `>>`) and `tee`
- * writes, so the gate can classify where a bash write lands and
- * allow scratch destinations. Heredoc bodies are stripped first.
- * In-place editors (sed -i, perl -i) are not parsed: they target
- * existing files, which the phase gate defers regardless.
+ * Extract the destination paths a bash command writes to, so the
+ * gate can see where the write lands and allow scratch
+ * destinations. The command is reduced to the same data-stripped
+ * skeleton the classifier matches on, so a redirect that lived
+ * inside quoted data raises no phantom target. Three write shapes
+ * are read: redirect destinations (`>`, `>>`, excluding fd
+ * redirects such as `2>`), `tee` destinations, and the file
+ * argument of an in-place editor (sed -i, gsed -i, perl -i), whose
+ * quoted script has already been stripped, leaving the file as a
+ * trailing non-flag token.
  */
 export function bashWriteTargets(command: string): string[] {
-	const skeleton = stripHeredocBodies(command);
+	const skeleton = stripShellData(stripHeredocBodies(command));
 	const targets: string[] = [];
-	const unquote = (token: string): string =>
-		token.replace(/^['"]/, "").replace(/['"]$/, "");
+	const add = (token: string | undefined): void => {
+		if (!token) return;
+		const value = token.replace(/^['"]/, "").replace(/['"]$/, "");
+		if (value) targets.push(value);
+	};
 
-	// Redirect destinations: the token following > or >>.
-	for (const match of skeleton.matchAll(/>>?\s*([^\s;&|<>]+)/g)) {
-		if (match[1]) targets.push(unquote(match[1]));
+	// Redirect destinations: the token following > or >>. A leading
+	// digit or & marks an fd redirect (2>, &>), which routes a stream
+	// rather than naming a content target, so it is skipped.
+	for (const match of skeleton.matchAll(/(?<![0-9&])>>?\s*([^\s;&|<>]+)/g)) {
+		add(match[1]);
 	}
 
 	// tee destinations: non-flag tokens following a tee invocation.
 	for (const match of skeleton.matchAll(
 		/(?:^|[|;&]|\s)tee\s+((?:-[^\s]+\s+)*)(\S+)/g,
 	)) {
-		if (match[2]) targets.push(unquote(match[2]));
+		add(match[2]);
+	}
+
+	// In-place editor file arguments: every non-flag token after the
+	// editor invocation. An unquoted script token cannot resolve to
+	// a tracked path, so it is harmless to include.
+	for (const match of skeleton.matchAll(
+		/(?:^|[|;&]|\s)(?:g?sed|perl)\s+([^|;&\n]*)/g,
+	)) {
+		const tokens = (match[1] ?? "").split(/\s+/).filter(Boolean);
+		if (!tokens.some((t) => t === "-i" || t.startsWith("-i"))) continue;
+		for (const token of tokens) {
+			if (token.startsWith("-")) continue;
+			add(token);
+		}
 	}
 
 	return targets;
 }
 
+/**
+ * Classify a bash command after stripping non-executable content,
+ * so quoted literals and heredoc bodies cannot raise a false
+ * positive.
+ */
 export function classifyBashWrite(command: string): BashWriteKind {
 	const skeleton = stripShellData(stripHeredocBodies(command));
 	if (GIT_MUTATING.test(skeleton)) return "git-mutating";

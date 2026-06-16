@@ -44,8 +44,29 @@ describe("bashWriteTargets", () => {
 		expect(bashWriteTargets(command)).toEqual(["real.txt"]);
 	});
 
+	it("resolves the file argument of an in-place editor", () => {
+		expect(bashWriteTargets("sed -i 's/a/b/' src/foo.ts")).toContain(
+			"src/foo.ts",
+		);
+		expect(bashWriteTargets("gsed -i.bak 's/a/b/g' lib/x.ts")).toContain(
+			"lib/x.ts",
+		);
+		expect(bashWriteTargets("perl -i -pe 's/a/b/' a/b.ts")).toContain("a/b.ts");
+	});
+
+	it("does not treat a non-in-place editor as a write target", () => {
+		expect(bashWriteTargets("perl -pe 's/a/b/' foo.ts")).toEqual([]);
+	});
+
+	it("ignores fd redirects such as 2> and &>", () => {
+		expect(bashWriteTargets("cat foo 2> err.log")).not.toContain("err.log");
+	});
+
+	it("does not capture a redirect that lived inside quoted data", () => {
+		expect(bashWriteTargets('echo "a > b" > real.ts')).toEqual(["real.ts"]);
+	});
+
 	it("returns empty when there is no parseable write target", () => {
-		expect(bashWriteTargets("sed -i 's/a/b/' file.txt")).toEqual([]);
 		expect(bashWriteTargets("ls -la")).toEqual([]);
 	});
 });

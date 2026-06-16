@@ -135,6 +135,23 @@ describe("quest discipline (plan phase)", () => {
 		expect(result?.block).toBe(true);
 	});
 
+	it("defers an in-place edit of already-tracked code in draft", () => {
+		const state = stateFixture({ documentStage: "draft" });
+		for (const cmd of [
+			`sed -i 's/a/b/' ${join(repo, tracked)}`,
+			`perl -i -pe 's/a/b/' ${join(repo, tracked)}`,
+		]) {
+			const result = enforceQuest(
+				state,
+				"bash",
+				{ command: cmd },
+				repo,
+				noScratch,
+			);
+			expect(result?.block, `expected ${cmd} to be deferred`).toBe(true);
+		}
+	});
+
 	it("allows a bash redirect to a scratch path in draft", () => {
 		const state = stateFixture({ documentStage: "draft" });
 		const result = enforceQuest(
