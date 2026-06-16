@@ -8,7 +8,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
-import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.js";
+import {
+	gitTreeRootOf,
+	isWithin,
+} from "../../../lib/internal/quest/git-signals.js";
 import {
 	addTreeToQuest,
 	listTreesOnQuest,
@@ -181,7 +184,9 @@ export async function treePrune(
 	// not consent. `force: true` is the consent signal.
 	const force = params.force === true;
 	const sessions = readSessionsFromQuest(state);
-	const attached = sessions.filter((s) => s.cwd?.startsWith(target.path));
+	const attached = sessions.filter(
+		(s) => s.cwd && isWithin(s.cwd, target.path),
+	);
 	if (attached.length > 0 && !force) {
 		const names = attached.map((s) => s.name ?? s.id).join(", ");
 		return refuse(

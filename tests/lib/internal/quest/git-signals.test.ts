@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -7,6 +13,7 @@ import {
 	gitTreeRootOf,
 	isGitignored,
 	isTracked,
+	isWithin,
 } from "../../../../lib/internal/quest/git-signals";
 
 let repo: string;
@@ -25,6 +32,32 @@ beforeAll(() => {
 	writeFileSync(path.join(repo, "src", "tracked.ts"), "export const a = 1;\n");
 	run(["add", "src/tracked.ts", ".gitignore"]);
 	run(["commit", "-q", "-m", "seed"]);
+});
+
+describe("isWithin", () => {
+	it("matches a path that is the parent or under it", () => {
+		expect(isWithin("/a/feat", "/a/feat")).toBe(true);
+		expect(isWithin("/a/feat/x/y", "/a/feat")).toBe(true);
+	});
+
+	it("rejects a sibling whose name shares a prefix", () => {
+		expect(isWithin("/a/feature-2/x", "/a/feat")).toBe(false);
+	});
+
+	it("canonicalizes both sides so a symlinked path still matches", () => {
+		const real = mkdtempSync(path.join(tmpdir(), "within-real-"));
+		const link = `${real}-link`;
+		symlinkSync(real, link);
+		mkdirSync(path.join(real, "w"));
+		try {
+			expect(isWithin(path.join(link, "w", "f.ts"), path.join(real, "w"))).toBe(
+				true,
+			);
+		} finally {
+			rmSync(link, { force: true });
+			rmSync(real, { recursive: true, force: true });
+		}
+	});
 });
 
 afterAll(() => {

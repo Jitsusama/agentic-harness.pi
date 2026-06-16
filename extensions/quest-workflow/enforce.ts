@@ -16,7 +16,6 @@
  * agent-facing reason, never a prompt.
  */
 
-import { existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import type { ToolCallEventResult } from "@mariozechner/pi-coding-agent";
@@ -25,6 +24,7 @@ import {
 	classifyBashWrite,
 } from "../../lib/internal/quest/bash-write.js";
 import {
+	canonicalPath,
 	gitTreeRootOf,
 	isGitignored,
 	isTracked,
@@ -53,29 +53,9 @@ export function isFocusedDocWrite(
 	return resolved === path.resolve(documentPath);
 }
 
-/**
- * Canonicalize for prefix comparison. A not-yet-written file cannot
- * be realpath'd directly, so resolve the longest existing ancestor
- * (which turns /var into /private/var on macOS) and re-append the
- * missing tail. The literal path survives a total failure.
- */
-function canonical(p: string): string {
-	const tail: string[] = [];
-	let prefix = p;
-	while (!existsSync(prefix)) {
-		const parent = path.dirname(prefix);
-		if (parent === prefix) return p;
-		tail.unshift(path.basename(prefix));
-		prefix = parent;
-	}
-	try {
-		const real = realpathSync(prefix);
-		return tail.length > 0 ? path.join(real, ...tail) : real;
-	} catch {
-		// realpath can fail on a broken symlink; the literal path is best.
-		return p;
-	}
-}
+// Path canonicalization is shared with the prune guards; see
+// canonicalPath in git-signals.
+const canonical = canonicalPath;
 
 /** Tunable inputs to the gate, so tests can vary the scratch roots. */
 export interface EnforceOptions {

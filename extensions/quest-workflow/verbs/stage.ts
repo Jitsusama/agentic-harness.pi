@@ -13,6 +13,7 @@ import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
 } from "../../../lib/internal/quest/frontmatter.js";
+import { isWithin } from "../../../lib/internal/quest/git-signals.js";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
 import {
 	listTreesOnQuest,
@@ -287,7 +288,9 @@ async function pruneAllTreesOnQuest(state: QuestState): Promise<{
 		// awaits below yield the event loop, so another session can
 		// attach into a tree we are about to prune and must be seen.
 		const sessions = readSessionsFromQuest(state);
-		const attached = sessions.filter((s) => s.cwd?.startsWith(tree.path));
+		const attached = sessions.filter(
+			(s) => s.cwd && isWithin(s.cwd, tree.path),
+		);
 		if (attached.length > 0) {
 			const names = attached.map((s) => s.name ?? s.id).join(", ");
 			blocked.push({
@@ -303,12 +306,24 @@ async function pruneAllTreesOnQuest(state: QuestState): Promise<{
 		}
 		try {
 			await provider.prune({ path: tree.path });
-			removeTreeFromQuest(state.questDir, tree.path);
-			pruned.push(tree.path);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			blocked.push({ path: tree.path, reason: message });
+			continue;
 		}
+		// The worktree is gone; de-register it. If the frontmatter write
+		// fails the tree is half-pruned (removed on disk, still listed),
+		// so surface it for manual cleanup rather than reporting a clean
+		// prune.
+		const removal = removeTreeFromQuest(state.questDir, tree.path);
+		if (!removal.ok) {
+			blocked.push({
+				path: tree.path,
+				reason: `worktree removed but could not be de-registered: ${removal.reason}`,
+			});
+			continue;
+		}
+		pruned.push(tree.path);
 	}
 	return { pruned, blocked };
 }

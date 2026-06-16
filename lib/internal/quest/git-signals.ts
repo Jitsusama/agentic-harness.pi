@@ -11,8 +11,16 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import * as path from "node:path";
+
+/**
+ * Wall-clock ceiling for a single git invocation. The classifier
+ * runs on the synchronous tool_call path, so a wedged git must not
+ * hang the event loop with no operator lever; a timeout throws,
+ * which every caller already treats as the safe answer.
+ */
+const GIT_TIMEOUT_MS = 5000;
 
 /** Run git in `cwd`, returning trimmed stdout, or null on any failure. */
 function git(cwd: string, args: string[]): string | null {
@@ -21,6 +29,7 @@ function git(cwd: string, args: string[]): string | null {
 			cwd,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
+			timeout: GIT_TIMEOUT_MS,
 		}).trim();
 	} catch {
 		// git missing, non-zero exit (e.g. not a repo, not ignored,
@@ -74,6 +83,7 @@ export function isGitignored(absPath: string): boolean {
 		execFileSync("git", ["check-ignore", "-q", "--", target], {
 			cwd: dir,
 			stdio: "ignore",
+			timeout: GIT_TIMEOUT_MS,
 		});
 		return true;
 	} catch {
@@ -83,6 +93,42 @@ export function isGitignored(absPath: string): boolean {
 	}
 }
 
+/**
+ * Canonicalize a path for comparison, tolerating a path that does
+ * not exist yet. Resolves the longest existing ancestor (which
+ * turns /var into /private/var on macOS) and re-appends the missing
+ * tail. The literal path survives a total failure.
+ */
+export function canonicalPath(p: string): string {
+	const tail: string[] = [];
+	let prefix = p;
+	while (!existsSync(prefix)) {
+		const parent = path.dirname(prefix);
+		if (parent === prefix) return p;
+		tail.unshift(path.basename(prefix));
+		prefix = parent;
+	}
+	try {
+		const real = realpathSync(prefix);
+		return tail.length > 0 ? path.join(real, ...tail) : real;
+	} catch {
+		// realpath can fail on a broken symlink; the literal path is best.
+		return p;
+	}
+}
+
+/**
+ * Whether `child` is `parent` or lives beneath it, comparing
+ * canonicalized paths with a separator boundary so a /var versus
+ * /private/var spelling still matches and a sibling whose name
+ * merely shares a prefix (feature-2 against feat) does not.
+ */
+export function isWithin(child: string, parent: string): boolean {
+	const c = canonicalPath(child);
+	const p = canonicalPath(parent);
+	return c === p || c.startsWith(p + path.sep);
+}
+
 /** Whether the target is tracked in its repository's index. */
 export function isTracked(absPath: string): boolean {
 	const { dir, target } = located(absPath);
@@ -90,6 +136,7 @@ export function isTracked(absPath: string): boolean {
 		execFileSync("git", ["ls-files", "--error-unmatch", "--", target], {
 			cwd: dir,
 			stdio: "ignore",
+			timeout: GIT_TIMEOUT_MS,
 		});
 		return true;
 	} catch {
