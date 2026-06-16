@@ -5,7 +5,7 @@
  * stageTransition for document-scoped calls).
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolContext } from "@mariozechner/pi-coding-agent";
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
@@ -32,6 +32,7 @@ import { resolveTreeProvider } from "../../../lib/tree/index.js";
 import {
 	appendJourneyEntry,
 	createDocument,
+	focusDocument,
 	refreshProgress,
 	setLoadedStatus,
 	stampQuestUpdated,
@@ -39,6 +40,7 @@ import {
 } from "../lifecycle.js";
 import { type TransitionAction, transition } from "../machine.js";
 import type { QuestState } from "../state.js";
+import { subdirForDocumentId } from "./queries.js";
 import {
 	DOCUMENT_KINDS_SET,
 	ok,
@@ -306,6 +308,35 @@ async function pruneAllTreesOnQuest(state: QuestState): Promise<{
 }
 
 /**
+ * Conclude or retire a specific document by id: focus it so the
+ * stage machine and widget stay in sync, then drive the document
+ * transition. This shares the focused-document semantics, so like
+ * any document conclusion it is not reversible through `undo`
+ * (only the quest sweep journals a structural op).
+ */
+function concludeDocumentById(
+	state: QuestState,
+	action: "conclude" | "retire",
+	params: QuestToolParams,
+	ctx: ToolContext,
+	id: string,
+	subdir: string,
+): QuestResult {
+	if (!state.questDir) {
+		return refuse("Load a quest before concluding or retiring a document.");
+	}
+	const path = join(state.questDir, subdir, `${id}.md`);
+	if (!existsSync(path)) {
+		return refuse(
+			`Document ${id} not found under the loaded quest. Load the quest that owns it, or pass a quest id for a status sweep.`,
+		);
+	}
+	const focused = focusDocument(state, path);
+	if (!focused.ok) return refuse(focused.guidance);
+	return stageTransition(state, action, params, ctx);
+}
+
+/**
  * Quest-or-document scoped conclude/retire. With a focused
  * document and no explicit scope, delegates to
  * stageTransition. Otherwise concludes or retires the
@@ -321,7 +352,18 @@ export async function concludeOrRetire(
 	// for a reversible status sweep, distinct from concluding the
 	// loaded quest. Naming an id always targets that id, so a single
 	// id never silently falls through to the loaded quest.
-	if ((params.id ?? "").trim().length > 0) {
+	const targetId = (params.id ?? "").trim();
+	if (targetId.length > 0) {
+		// A single document-kind id (PLAN/RSCH/BRIF/RPRT) concludes or
+		// retires that document under the loaded quest, with the same
+		// (non-undoable) semantics as concluding a focused document.
+		// Quest ids, and any comma list, run the reversible quest sweep.
+		const subdir = targetId.includes(",")
+			? undefined
+			: subdirForDocumentId(targetId);
+		if (subdir) {
+			return concludeDocumentById(state, action, params, ctx, targetId, subdir);
+		}
 		return bulkConcludeOrRetire(state, action, params);
 	}
 	if (!state.questDir) {
