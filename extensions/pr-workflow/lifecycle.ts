@@ -215,16 +215,33 @@ function snapshot(state: PrWorkflowState): PersistedState {
 }
 
 /**
- * Persist the current state to session history.
+ * Last snapshot we wrote, keyed by the pi API for the
+ * session. The session log is append-only, so persisting
+ * an unchanged snapshot is pure dead weight; the dirty
+ * check below compares against this and skips the write
+ * when nothing moved. A WeakMap keys the memory to the
+ * session's pi instance without leaking across sessions.
+ */
+const lastSerialised = new WeakMap<ExtensionAPI, string>();
+
+/**
+ * Persist the current state to session history when it
+ * has changed since the last write.
  *
- * Idempotent in effect: each call appends a new entry,
- * and `restore` reads only the most recent one. Older
- * entries become dead weight in the log but don't
- * cause incorrect behaviour. Session-history append is
- * how pi expects extensions to record durable state.
+ * `restore` reads only the most recent entry, so older
+ * entries are dead weight; writing one on every tool call,
+ * changed or not, is what bloated the log. The dirty check
+ * serialises the candidate snapshot and skips the append
+ * when it matches the last one written for this session.
+ * Session-history append is how pi expects extensions to
+ * record durable state.
  */
 export function persist(state: PrWorkflowState, pi: ExtensionAPI): void {
-	pi.appendEntry(SESSION_KEY, snapshot(state));
+	const snap = snapshot(state);
+	const serialised = JSON.stringify(snap);
+	if (lastSerialised.get(pi) === serialised) return;
+	lastSerialised.set(pi, serialised);
+	pi.appendEntry(SESSION_KEY, snap);
 }
 
 /**
@@ -235,7 +252,7 @@ export function persist(state: PrWorkflowState, pi: ExtensionAPI): void {
  */
 export function restore(
 	state: PrWorkflowState,
-	_pi: ExtensionAPI,
+	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 ): void {
 	const saved = getLastEntry<Partial<PersistedState>>(ctx, SESSION_KEY);
@@ -276,4 +293,8 @@ export function restore(
 	state.participantIdentities = deserialiseParticipantIdentities(
 		saved.participantIdentities,
 	);
+
+	// Seed the dirty check with the restored state so the first
+	// persist after a reload is a no-op when nothing changed.
+	lastSerialised.set(pi, JSON.stringify(snapshot(state)));
 }
