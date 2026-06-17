@@ -17,7 +17,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { CritiqueRun } from "../../../extensions/pr-workflow/critique.js";
 import type {
 	CouncilRun,
@@ -25,6 +25,7 @@ import type {
 } from "../../../extensions/pr-workflow/findings.js";
 import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
 import { persist, restore } from "../../../extensions/pr-workflow/lifecycle.js";
+import type { RunBodyStore } from "../../../extensions/pr-workflow/results-store.js";
 import type { StackFindingRun } from "../../../extensions/pr-workflow/stack-findings.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import type { FindingDecision } from "../../../extensions/pr-workflow/synthesis.js";
@@ -52,6 +53,25 @@ function makeCtx(entries: Entry[]): ExtensionContext {
 			getEntries: () => entries,
 		},
 	} as unknown as ExtensionContext;
+}
+
+/**
+ * In-memory stand-in for the parsed-results store. Persist writes
+ * run bodies here keyed by id; restore reads them back. Keeping
+ * it in memory means the lifecycle tests exercise the v5
+ * pointer-plus-store round-trip without touching the filesystem.
+ */
+function makeStore(): RunBodyStore {
+	const files = new Map<string, string>();
+	return {
+		writeRun(run) {
+			files.set(run.id, JSON.stringify(run));
+		},
+		readRun<T>(id: string): T | null {
+			const raw = files.get(id);
+			return raw ? (JSON.parse(raw) as T) : null;
+		},
+	};
 }
 
 function sampleReviewer(id: string): CouncilReviewer {
@@ -181,12 +201,18 @@ function reviewThread(): ReviewThread {
 }
 
 describe("pr-workflow lifecycle", () => {
+	let store: RunBodyStore;
+
+	beforeEach(() => {
+		store = makeStore();
+	});
+
 	describe("restore", () => {
 		it("is a no-op when no entry has been written", () => {
 			const state = createPrWorkflowState();
 			const entries: Entry[] = [];
 
-			restore(state, makeApi(entries), makeCtx(entries));
+			restore(state, makeApi(entries), makeCtx(entries), store);
 
 			expect(state.council.roster).toEqual([]);
 			expect(state.council.judge).toBeNull();
@@ -209,10 +235,10 @@ describe("pr-workflow lifecycle", () => {
 			const source = createPrWorkflowState();
 			source.council.roster = [sampleReviewer("alpha")];
 			source.council.judge = sampleReviewer("judge");
-			persist(source, pi);
+			persist(source, pi, store);
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, ctx);
+			restore(restored, pi, ctx, store);
 
 			expect(restored.council.roster).toEqual([sampleReviewer("alpha")]);
 			expect(restored.council.judge).toEqual(sampleReviewer("judge"));
@@ -231,10 +257,10 @@ describe("pr-workflow lifecycle", () => {
 				files: null,
 				stack: null,
 			};
-			persist(source, pi);
+			persist(source, pi, store);
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, ctx);
+			restore(restored, pi, ctx, store);
 
 			expect(restored.pr).not.toBeNull();
 			expect(restored.pr?.reference).toEqual(sampleRef());
@@ -251,14 +277,14 @@ describe("pr-workflow lifecycle", () => {
 
 			const first = createPrWorkflowState();
 			first.council.roster = [sampleReviewer("old")];
-			persist(first, pi);
+			persist(first, pi, store);
 
 			const second = createPrWorkflowState();
 			second.council.roster = [sampleReviewer("new")];
-			persist(second, pi);
+			persist(second, pi, store);
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, ctx);
+			restore(restored, pi, ctx, store);
 
 			expect(restored.council.roster).toEqual([sampleReviewer("new")]);
 		});
@@ -272,10 +298,10 @@ describe("pr-workflow lifecycle", () => {
 			source.council.lastRun = sampleCouncilRun();
 			source.council.lastJudge = sampleJudgeRun();
 			source.council.lastCritique = sampleCritiqueRun();
-			persist(source, pi);
+			persist(source, pi, store);
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, ctx);
+			restore(restored, pi, ctx, store);
 
 			expect(restored.council.lastRun).toEqual(sampleCouncilRun());
 			expect(restored.council.lastJudge).toEqual(sampleJudgeRun());
@@ -290,10 +316,10 @@ describe("pr-workflow lifecycle", () => {
 			const source = createPrWorkflowState();
 			source.council.decisions.set(1, endorseDecision(1));
 			source.council.decisions.set(2, fixDecision(2));
-			persist(source, pi);
+			persist(source, pi, store);
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, ctx);
+			restore(restored, pi, ctx, store);
 
 			expect(restored.council.decisions.size).toBe(2);
 			expect(restored.council.decisions.get(1)).toEqual(endorseDecision(1));
@@ -308,10 +334,10 @@ describe("pr-workflow lifecycle", () => {
 			const source = createPrWorkflowState();
 			source.stackFindingRun = sampleStackFindingRun();
 			source.stackDecisions.set(101, endorseDecision(101));
-			persist(source, pi);
+			persist(source, pi, store);
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, ctx);
+			restore(restored, pi, ctx, store);
 
 			expect(restored.stackFindingRun).toEqual(sampleStackFindingRun());
 			expect(restored.stackDecisions.get(101)).toEqual(endorseDecision(101));
@@ -329,10 +355,10 @@ describe("pr-workflow lifecycle", () => {
 				lastCritique: null,
 				decisions: new Map([[1, endorseDecision(1)]]),
 			});
-			persist(source, pi);
+			persist(source, pi, store);
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, ctx);
+			restore(restored, pi, ctx, store);
 
 			const snap = restored.stackRuns.get(7);
 			expect(snap).toBeDefined();
@@ -354,10 +380,10 @@ describe("pr-workflow lifecycle", () => {
 				version: 1,
 				threads: [reviewThread()],
 			};
-			persist(source, pi);
+			persist(source, pi, store);
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, ctx);
+			restore(restored, pi, ctx, store);
 
 			expect(restored.threads).not.toBeNull();
 			expect(restored.threads?.prNumber).toBe(3);
@@ -371,10 +397,10 @@ describe("pr-workflow lifecycle", () => {
 
 			const source = createPrWorkflowState();
 			source.nextFindingId = 42;
-			persist(source, pi);
+			persist(source, pi, store);
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, ctx);
+			restore(restored, pi, ctx, store);
 
 			expect(restored.nextFindingId).toBe(42);
 		});
@@ -391,10 +417,10 @@ describe("pr-workflow lifecycle", () => {
 				model: "model-a",
 				tools: ["read"],
 			});
-			persist(source, pi);
+			persist(source, pi, store);
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, ctx);
+			restore(restored, pi, ctx, store);
 
 			expect(restored.participantIdentities.get("fast")).toEqual({
 				id: "fast",
@@ -412,13 +438,13 @@ describe("pr-workflow lifecycle", () => {
 			const source = createPrWorkflowState();
 			source.council.lastJudge = sampleJudgeRun();
 			source.stackFindingRun = sampleStackFindingRun();
-			persist(source, pi);
+			persist(source, pi, store);
 			if (entries[0]?.data && typeof entries[0].data === "object") {
 				delete (entries[0].data as { nextFindingId?: number }).nextFindingId;
 			}
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, ctx);
+			restore(restored, pi, ctx, store);
 
 			expect(restored.nextFindingId).toBe(102);
 		});
@@ -445,13 +471,75 @@ describe("pr-workflow lifecycle", () => {
 			const ctx = makeCtx(entries);
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, ctx);
+			restore(restored, pi, ctx, store);
 
 			expect(restored.council.roster).toEqual([sampleReviewer("alpha")]);
 			expect(restored.council.judge).toEqual(sampleReviewer("judge"));
 			expect(restored.council.lastRun).toBeNull();
 			expect(restored.council.lastJudge).toBeNull();
 			expect(restored.council.decisions.size).toBe(0);
+		});
+
+		it("degrades gracefully when a referenced run body is missing", () => {
+			// A v5 entry points at a run by id. If that body has
+			// expired from the store, restore must keep the
+			// decisions, leave the run null and record a notice
+			// rather than throw.
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+			const ctx = makeCtx(entries);
+
+			const source = createPrWorkflowState();
+			source.council.lastJudge = sampleJudgeRun();
+			source.council.decisions.set(1, endorseDecision(1));
+			persist(source, pi, store);
+
+			const emptyStore = makeStore();
+			const restored = createPrWorkflowState();
+			restore(restored, pi, ctx, emptyStore);
+
+			expect(restored.council.lastJudge).toBeNull();
+			expect(restored.council.decisions.get(1)).toEqual(endorseDecision(1));
+			expect(restored.degradedRunNotice).not.toBeNull();
+		});
+
+		it("rehydrates a v4 inline entry without a results store", () => {
+			// v4 entries embedded the run bodies inline. Restoring
+			// one must still hydrate the runs without consulting
+			// the store.
+			const entries: Entry[] = [
+				{
+					type: "custom",
+					customType: "pr-workflow",
+					data: {
+						version: 4,
+						roster: [sampleReviewer("alpha")],
+						judge: null,
+						prReference: null,
+						prLoadedAt: null,
+						lastRun: sampleCouncilRun(),
+						lastJudge: sampleJudgeRun(),
+						lastCritique: null,
+						decisions: [{ findingId: 1, decision: endorseDecision(1) }],
+						stackFindingRun: null,
+						stackDecisions: [],
+						stackRuns: [],
+						threads: null,
+						nextFindingId: 3,
+						participantIdentities: [],
+					},
+				},
+			];
+			const pi = makeApi(entries);
+			const ctx = makeCtx(entries);
+
+			const restored = createPrWorkflowState();
+			restore(restored, pi, ctx, makeStore());
+
+			expect(restored.council.lastRun).toEqual(sampleCouncilRun());
+			expect(restored.council.lastJudge).toEqual(sampleJudgeRun());
+			expect(restored.council.decisions.get(1)).toEqual(endorseDecision(1));
+			expect(restored.degradedRunNotice).toBeNull();
 		});
 	});
 
@@ -466,8 +554,8 @@ describe("pr-workflow lifecycle", () => {
 
 			const source = createPrWorkflowState();
 			source.council.roster = [sampleReviewer("alpha")];
-			persist(source, pi);
-			persist(source, pi);
+			persist(source, pi, store);
+			persist(source, pi, store);
 
 			expect(entries).toHaveLength(1);
 		});
@@ -478,11 +566,90 @@ describe("pr-workflow lifecycle", () => {
 
 			const source = createPrWorkflowState();
 			source.council.roster = [sampleReviewer("alpha")];
-			persist(source, pi);
+			persist(source, pi, store);
 			source.council.judge = sampleReviewer("judge");
-			persist(source, pi);
+			persist(source, pi, store);
 
 			expect(entries).toHaveLength(2);
+		});
+
+		it("writes run ids into the session entry, not run bodies", () => {
+			// The whole point of v5: the session entry stays small
+			// by carrying a pointer, while the transcript-bearing
+			// body lives in the store.
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+
+			const source = createPrWorkflowState();
+			source.council.lastRun = sampleCouncilRun();
+			persist(source, pi, store);
+
+			const serialised = JSON.stringify(entries[0]?.data);
+			expect(serialised).toContain('"lastRunId":"c-1"');
+			expect(serialised).not.toContain("reviewerOutputs");
+			expect(serialised).not.toContain("discussion");
+		});
+
+		it("writes the run body to the results store", () => {
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+
+			const source = createPrWorkflowState();
+			source.council.lastRun = sampleCouncilRun();
+			persist(source, pi, store);
+
+			expect(store.readRun("c-1")).toEqual(sampleCouncilRun());
+		});
+
+		it("persists an in-place body edit even when no pointer moved", () => {
+			// Mirrors a zero-finding council-retry: the run body is
+			// edited in place and reuses its id, so the pointer
+			// snapshot does not change. The body must still reach
+			// the store or a reload silently loses the retry.
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+
+			const source = createPrWorkflowState();
+			const run = sampleCouncilRun();
+			source.council.lastRun = run;
+			persist(source, pi, store);
+
+			const edited = {
+				...run,
+				reviewerOutputs: [
+					{ reviewerId: "alpha", findings: [], warnings: ["retried"] },
+				],
+			};
+			source.council.lastRun = edited;
+			persist(source, pi, store);
+
+			expect(store.readRun("c-1")).toEqual(edited);
+		});
+
+		it("swallows a body write failure and retries on the next persist", () => {
+			// Persist runs in the action finally and does synchronous
+			// disk IO. A throw must not mask the action, and the
+			// dirty marker must not advance, so a transient failure
+			// is retried rather than silently dropped.
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+			let writes = 0;
+			const failingStore: RunBodyStore = {
+				writeRun() {
+					writes++;
+					throw new Error("ENOSPC");
+				},
+				readRun: () => null,
+			};
+
+			const source = createPrWorkflowState();
+			source.council.lastRun = sampleCouncilRun();
+
+			expect(() => persist(source, pi, failingStore)).not.toThrow();
+			expect(entries).toHaveLength(0);
+
+			persist(source, pi, failingStore);
+			expect(writes).toBe(2);
 		});
 
 		it("survives a JSON round-trip for the full state shape", () => {
@@ -509,7 +676,7 @@ describe("pr-workflow lifecycle", () => {
 				lastCritique: null,
 				decisions: new Map([[1, fixDecision(1)]]),
 			});
-			persist(source, pi);
+			persist(source, pi, store);
 
 			const written = entries[0]?.data;
 			const roundTripped = JSON.parse(JSON.stringify(written));
@@ -524,7 +691,7 @@ describe("pr-workflow lifecycle", () => {
 			};
 
 			const restored = createPrWorkflowState();
-			restore(restored, pi, makeCtx(entries));
+			restore(restored, pi, makeCtx(entries), store);
 
 			expect(restored.council.decisions.get(1)).toEqual(endorseDecision(1));
 			expect(restored.stackDecisions.get(101)).toEqual(endorseDecision(101));

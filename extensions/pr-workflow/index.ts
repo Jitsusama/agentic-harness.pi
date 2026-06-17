@@ -112,6 +112,7 @@ import {
 import { confirmPostGate } from "./post-gate.js";
 import { buildReviewProseGate } from "./prose-gate.js";
 import { logQuestJourneyForPr, recordReviewRound } from "./quest-bridge.js";
+import { ResultsStore } from "./results-store.js";
 import {
 	isReviewContextProvider,
 	PR_WORKFLOW_REGISTER_REVIEW_CONTEXT_PROVIDER,
@@ -175,6 +176,17 @@ import { createGitWorktreeProvider } from "./worktree-git.js";
  */
 const NEOVIM_PI_REGISTER_HANDLER = "neovim-pi:register-handler";
 const NEOVIM_PI_READY = "neovim-pi:ready";
+
+/**
+ * Results-store retention. A run body is pruned on activation
+ * only when it is both beyond the newest this-many files and
+ * older than this age, so a recent, possibly still-referenced
+ * body is always kept while long-stale surplus is reclaimed. The
+ * caps are generous: the bound is meant to stop unbounded
+ * accumulation across sessions, not to run tight.
+ */
+const RESULTS_RETAIN_FILES = 500;
+const RESULTS_RETAIN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Load the persona library from disk and return a synchronous
@@ -248,6 +260,23 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	const prWorkflowStateDir = () => packageStateDir("pr-workflow");
 	const reviewerArtifacts = () =>
 		new ReviewerArtifactsStore(prWorkflowStateDir());
+	// Heavy run bodies (council, judge, critique transcripts) live
+	// in this store keyed by run id; the session log keeps only the
+	// id pointers. See lifecycle.ts for the persist/restore split.
+	const resultsStore = new ResultsStore(prWorkflowStateDir());
+	// Bound the results directory on activation. Run ids are unique
+	// per run, so superseded bodies linger unreferenced; this prunes
+	// the old surplus while keeping every recent body a live
+	// snapshot might still point at. Best-effort: a sweep failure
+	// must never block activation.
+	try {
+		resultsStore.cleanup({
+			maxFiles: RESULTS_RETAIN_FILES,
+			maxAgeMs: RESULTS_RETAIN_MAX_AGE_MS,
+		});
+	} catch {
+		// Retention is advisory; ignore a transient sweep failure.
+	}
 	void recoverReviewerRuns(reviewerArtifacts()).then(
 		(summary) => {
 			state.reviewerRecovery = summary;
@@ -2502,7 +2531,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				try {
 					return await handleAction();
 				} finally {
-					persist(state, pi);
+					persist(state, pi, resultsStore);
 				}
 			};
 
@@ -2522,7 +2551,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	// configuration. See lifecycle.ts for what is and
 	// isn't persisted.
 	pi.on("session_start", async (_event, ctx) => {
-		restore(state, pi, ctx);
+		restore(state, pi, ctx, resultsStore);
+		if (state.degradedRunNotice)
+			ctx.ui.notify(state.degradedRunNotice, "warning");
 		refreshPrStatusLine(ctx, state);
 	});
 

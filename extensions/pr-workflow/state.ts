@@ -151,6 +151,14 @@ export interface PrWorkflowState {
 	threadsVersionSeq: number;
 	/** Last supervised reviewer recovery summary from extension activation. */
 	reviewerRecovery: RecoverySummary | null;
+	/**
+	 * Set by `restore` when a persisted run pointer has no body in
+	 * the results store (an expired or deleted transcript). Carries
+	 * a short human notice the session-start surface can show so the
+	 * gap is explained rather than silent. Null when every
+	 * referenced body rehydrated. Not itself persisted.
+	 */
+	degradedRunNotice: string | null;
 }
 
 /**
@@ -208,6 +216,7 @@ export function createPrWorkflowState(): PrWorkflowState {
 		threadContextWarning: null,
 		threadsVersionSeq: 0,
 		reviewerRecovery: null,
+		degradedRunNotice: null,
 	};
 }
 
@@ -234,4 +243,5 @@ export function resetPrWorkflowSession(state: PrWorkflowState): void {
 	state.threads = null;
 	state.threadContextWarning = null;
 	state.threadsVersionSeq = 0;
+	state.degradedRunNotice = null;
 }
