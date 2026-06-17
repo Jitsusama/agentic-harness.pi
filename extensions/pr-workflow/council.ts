@@ -226,170 +226,185 @@ export async function runCouncil(
 	);
 	safelyNotify(() => progress.start(startSnapshot), "start", progressWarnings);
 
-	const handle = await options.registry.ensure({
-		owner: options.target.owner,
-		repo: options.target.repo,
-		sha: options.target.sha,
-		...(options.target.branch ? { branch: options.target.branch } : {}),
-	});
-
-	const prompt = buildReviewerPrompt({
-		prTitle: options.target.title,
-		prDescription: options.target.description,
-		files: options.target.files,
-		...(options.target.threadContext
-			? { threadContext: options.target.threadContext }
-			: {}),
-		...(options.promptAddendum
-			? { promptAddendum: options.promptAddendum }
-			: {}),
-	});
-
-	// Each reviewer needs a contiguous slice of finding ids.
-	// We can't know how many findings each will return
-	// until they're parsed, so we serialize id assignment
-	// AFTER results land — dispatch is still concurrent.
-	const settled = await Promise.allSettled(
-		options.reviewers.map(async (reviewer) => {
-			safelyNotify(
-				() => progress.reviewerStarted(reviewer.id),
-				`started(${reviewer.id})`,
-				progressWarnings,
-			);
-			const onEvent = (event: Record<string, unknown>): void => {
-				const activity = summarizeStreamActivity(event);
-				if (activity === null) return;
-				safelyNotify(
-					() => progress.reviewerActivity?.(reviewer.id, activity),
-					`activity(${reviewer.id})`,
-					progressWarnings,
-				);
-			};
-			const charter = options.charterFor?.(reviewer.id);
-			try {
-				const value = await options.dispatch({
-					reviewer,
-					prompt,
-					cwd: handle.path,
-					runId: options.runId,
-					signal: options.signal,
-					expectedVerificationStage: "council",
-					onEvent,
-					...(charter ? { systemPrompt: charter } : {}),
-				});
-				const parsed = parseReviewerOutput(value.finalAssistantText, {
-					reviewerId: reviewer.id,
-					runId: options.runId,
-					startId: 0,
-					diffFiles: options.target.files,
-				});
-				safelyNotify(
-					() =>
-						progress.reviewerCompleted(reviewer.id, {
-							reviewerId: reviewer.id,
-							findings: parsed.findings,
-							warnings: [...value.warnings, ...parsed.warnings],
-							...(value.usage ? { usage: value.usage } : {}),
-						}),
-					`completed(${reviewer.id})`,
-					progressWarnings,
-				);
-				return value;
-			} catch (err) {
-				if (isReviewerCancelledError(err)) {
-					safelyNotify(
-						() => progress.reviewerCancelled?.(reviewer.id),
-						`cancelled(${reviewer.id})`,
-						progressWarnings,
-					);
-				} else {
-					const message = err instanceof Error ? err.message : String(err);
-					safelyNotify(
-						() => progress.reviewerFailed(reviewer.id, message),
-						`failed(${reviewer.id})`,
-						progressWarnings,
-					);
-				}
-				throw err;
-			}
-		}),
-	);
-
-	let nextId = options.startId ?? 1;
-	// Allocate ids at assignment time. When `allocate` is
-	// present it reads-and-advances the live session counter
-	// synchronously, so concurrent runs get disjoint blocks;
-	// otherwise we fall back to the local `startId` sequence.
-	const allocate =
-		options.allocate ??
-		((count: number): number => {
-			const start = nextId;
-			nextId += count;
-			return start;
-		});
-	const reviewerOutputs: ReviewerOutput[] = [];
-	for (let i = 0; i < settled.length; i++) {
-		const reviewer = options.reviewers[i];
-		const result = settled[i];
-		if (result.status === "rejected") {
-			const cancelled = isReviewerCancelledError(result.reason);
-			const message = cancelled
-				? "Reviewer cancelled by user."
-				: result.reason instanceof Error
-					? result.reason.message
-					: String(result.reason);
-			reviewerOutputs.push({
-				reviewerId: reviewer.id,
-				findings: [],
-				warnings: [
-					cancelled ? message : `Reviewer dispatch failed: ${message}`,
-				],
-			});
-			continue;
-		}
-		const value = result.value;
-		// Parse once to learn the count, reserve that many ids,
-		// then parse again from the reserved base so finding ids
-		// and their origins carry the session-global numbers.
-		const counted = parseReviewerOutput(value.finalAssistantText, {
-			reviewerId: reviewer.id,
-			runId: options.runId,
-			startId: 0,
-			diffFiles: options.target.files,
-		});
-		const base = allocate(counted.findings.length);
-		const parsed = parseReviewerOutput(value.finalAssistantText, {
-			reviewerId: reviewer.id,
-			runId: options.runId,
-			startId: base,
-			diffFiles: options.target.files,
-		});
-		const output: ReviewerOutput = {
-			reviewerId: reviewer.id,
-			findings: parsed.findings,
-			warnings: [...value.warnings, ...parsed.warnings],
-			...(value.usage ? { usage: value.usage } : {}),
-			...(value.verification ? { verification: value.verification } : {}),
-		};
-		reviewerOutputs.push(output);
-	}
-
-	safelyNotify(() => progress.finish(), "finish", progressWarnings);
-
-	if (progressWarnings.length > 0) {
-		// Surface reporter failures as warnings on the
-		// first reviewer so the user notices, without
-		// derailing the actual run output.
-		const first = reviewerOutputs[0];
-		if (first) {
-			first.warnings.push(...progressWarnings);
-		}
-	}
-
-	return {
-		id: options.runId,
-		startedAt,
-		target: { kind: "diff", prNumber: options.target.prNumber },
-		reviewerOutputs,
+	// finish() restores the editor the panel captured on
+	// start(); it must run no matter how the run exits, or a
+	// throw (notably from registry.ensure) strands the panel and
+	// the user's keyboard. Guarded so it fires exactly once.
+	let finished = false;
+	const finishOnce = (): void => {
+		if (finished) return;
+		finished = true;
+		safelyNotify(() => progress.finish(), "finish", progressWarnings);
 	};
+
+	try {
+		const handle = await options.registry.ensure({
+			owner: options.target.owner,
+			repo: options.target.repo,
+			sha: options.target.sha,
+			...(options.target.branch ? { branch: options.target.branch } : {}),
+		});
+
+		const prompt = buildReviewerPrompt({
+			prTitle: options.target.title,
+			prDescription: options.target.description,
+			files: options.target.files,
+			...(options.target.threadContext
+				? { threadContext: options.target.threadContext }
+				: {}),
+			...(options.promptAddendum
+				? { promptAddendum: options.promptAddendum }
+				: {}),
+		});
+
+		// Each reviewer needs a contiguous slice of finding ids.
+		// We can't know how many findings each will return
+		// until they're parsed, so we serialize id assignment
+		// AFTER results land — dispatch is still concurrent.
+		const settled = await Promise.allSettled(
+			options.reviewers.map(async (reviewer) => {
+				safelyNotify(
+					() => progress.reviewerStarted(reviewer.id),
+					`started(${reviewer.id})`,
+					progressWarnings,
+				);
+				const onEvent = (event: Record<string, unknown>): void => {
+					const activity = summarizeStreamActivity(event);
+					if (activity === null) return;
+					safelyNotify(
+						() => progress.reviewerActivity?.(reviewer.id, activity),
+						`activity(${reviewer.id})`,
+						progressWarnings,
+					);
+				};
+				const charter = options.charterFor?.(reviewer.id);
+				try {
+					const value = await options.dispatch({
+						reviewer,
+						prompt,
+						cwd: handle.path,
+						runId: options.runId,
+						signal: options.signal,
+						expectedVerificationStage: "council",
+						onEvent,
+						...(charter ? { systemPrompt: charter } : {}),
+					});
+					const parsed = parseReviewerOutput(value.finalAssistantText, {
+						reviewerId: reviewer.id,
+						runId: options.runId,
+						startId: 0,
+						diffFiles: options.target.files,
+					});
+					safelyNotify(
+						() =>
+							progress.reviewerCompleted(reviewer.id, {
+								reviewerId: reviewer.id,
+								findings: parsed.findings,
+								warnings: [...value.warnings, ...parsed.warnings],
+								...(value.usage ? { usage: value.usage } : {}),
+							}),
+						`completed(${reviewer.id})`,
+						progressWarnings,
+					);
+					return value;
+				} catch (err) {
+					if (isReviewerCancelledError(err)) {
+						safelyNotify(
+							() => progress.reviewerCancelled?.(reviewer.id),
+							`cancelled(${reviewer.id})`,
+							progressWarnings,
+						);
+					} else {
+						const message = err instanceof Error ? err.message : String(err);
+						safelyNotify(
+							() => progress.reviewerFailed(reviewer.id, message),
+							`failed(${reviewer.id})`,
+							progressWarnings,
+						);
+					}
+					throw err;
+				}
+			}),
+		);
+
+		let nextId = options.startId ?? 1;
+		// Allocate ids at assignment time. When `allocate` is
+		// present it reads-and-advances the live session counter
+		// synchronously, so concurrent runs get disjoint blocks;
+		// otherwise we fall back to the local `startId` sequence.
+		const allocate =
+			options.allocate ??
+			((count: number): number => {
+				const start = nextId;
+				nextId += count;
+				return start;
+			});
+		const reviewerOutputs: ReviewerOutput[] = [];
+		for (let i = 0; i < settled.length; i++) {
+			const reviewer = options.reviewers[i];
+			const result = settled[i];
+			if (result.status === "rejected") {
+				const cancelled = isReviewerCancelledError(result.reason);
+				const message = cancelled
+					? "Reviewer cancelled by user."
+					: result.reason instanceof Error
+						? result.reason.message
+						: String(result.reason);
+				reviewerOutputs.push({
+					reviewerId: reviewer.id,
+					findings: [],
+					warnings: [
+						cancelled ? message : `Reviewer dispatch failed: ${message}`,
+					],
+				});
+				continue;
+			}
+			const value = result.value;
+			// Parse once to learn the count, reserve that many ids,
+			// then parse again from the reserved base so finding ids
+			// and their origins carry the session-global numbers.
+			const counted = parseReviewerOutput(value.finalAssistantText, {
+				reviewerId: reviewer.id,
+				runId: options.runId,
+				startId: 0,
+				diffFiles: options.target.files,
+			});
+			const base = allocate(counted.findings.length);
+			const parsed = parseReviewerOutput(value.finalAssistantText, {
+				reviewerId: reviewer.id,
+				runId: options.runId,
+				startId: base,
+				diffFiles: options.target.files,
+			});
+			const output: ReviewerOutput = {
+				reviewerId: reviewer.id,
+				findings: parsed.findings,
+				warnings: [...value.warnings, ...parsed.warnings],
+				...(value.usage ? { usage: value.usage } : {}),
+				...(value.verification ? { verification: value.verification } : {}),
+			};
+			reviewerOutputs.push(output);
+		}
+
+		finishOnce();
+
+		if (progressWarnings.length > 0) {
+			// Surface reporter failures as warnings on the
+			// first reviewer so the user notices, without
+			// derailing the actual run output.
+			const first = reviewerOutputs[0];
+			if (first) {
+				first.warnings.push(...progressWarnings);
+			}
+		}
+
+		return {
+			id: options.runId,
+			startedAt,
+			target: { kind: "diff", prNumber: options.target.prNumber },
+			reviewerOutputs,
+		};
+	} finally {
+		finishOnce();
+	}
 }

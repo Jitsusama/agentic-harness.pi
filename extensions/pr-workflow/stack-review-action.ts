@@ -153,270 +153,291 @@ export async function runStackReviewAction(
 		progressWarnings,
 	);
 
-	const resolved = await attachThreadContexts(
-		await resolveStackPrs(state, input.fetchers),
-		input.fetchThreads,
-	);
-	const diffsByPr = buildDiffsByPr(resolved);
-	const tip = resolved[resolved.length - 1];
-	if (!tip) {
+	// finish() restores the editor the panel captured on
+	// start(); it must run no matter how the run exits, or a
+	// throw (notably from registry.ensure) strands the panel and
+	// the user's keyboard. Guarded so it fires exactly once.
+	let finished = false;
+	const finishOnce = (): void => {
+		if (finished) return;
+		finished = true;
 		safelyNotify(() => progress.finish(), "finish", progressWarnings);
-		return { ok: false, error: "No PR context available for review." };
-	}
-
-	const request = {
-		owner: tip.reference.owner,
-		repo: tip.reference.repo,
-		sha: tip.metadata.head.sha,
-		branch: tip.metadata.head.ref,
 	};
-	const handle = await input.registry.ensure(request);
-	const stackReviewAddendum = await input.reviewContexts?.promptAddendum({
-		...request,
-		prNumber: cursorPrNumber,
-		stage: "stack-review",
-	});
-	const stackJudgeAddendum = await input.reviewContexts?.promptAddendum({
-		...request,
-		prNumber: cursorPrNumber,
-		stage: "stack-judge",
-	});
 
-	const reviewPrompt = buildStackReviewPrompt({
-		cursorPrNumber,
-		prs: resolved.map(toPromptPr),
-		...(stackReviewAddendum ? { promptAddendum: stackReviewAddendum } : {}),
-	});
+	try {
+		const resolved = await attachThreadContexts(
+			await resolveStackPrs(state, input.fetchers),
+			input.fetchThreads,
+		);
+		const diffsByPr = buildDiffsByPr(resolved);
+		const tip = resolved[resolved.length - 1];
+		if (!tip) {
+			finishOnce();
+			return { ok: false, error: "No PR context available for review." };
+		}
 
-	const settled = await Promise.allSettled(
-		state.council.roster.map(async (reviewer) => {
-			safelyNotify(
-				() => progress.reviewerStarted(reviewer.id),
-				`started(${reviewer.id})`,
-				progressWarnings,
-			);
-			try {
-				const value = await input.dispatch({
-					reviewer,
-					prompt: reviewPrompt,
-					cwd: handle.path,
-					runId,
-					signal: input.signal,
-					expectedVerificationStage: "stack-review",
-					onEvent: (event) =>
-						notifyActivity(progress, progressWarnings, reviewer.id, event),
-				});
-				const parsed = parseStackReviewOutput(value.finalAssistantText, {
-					runId,
-					reviewerId: reviewer.id,
-					startId: 0,
-					diffsByPr,
-				});
-				const output: StackReviewerOutput = {
-					reviewerId: reviewer.id,
-					perPr: parsed.perPr,
-					crossPr: parsed.crossPr,
-					warnings: [...value.warnings, ...parsed.warnings],
-				};
+		const request = {
+			owner: tip.reference.owner,
+			repo: tip.reference.repo,
+			sha: tip.metadata.head.sha,
+			branch: tip.metadata.head.ref,
+		};
+		const handle = await input.registry.ensure(request);
+		const stackReviewAddendum = await input.reviewContexts?.promptAddendum({
+			...request,
+			prNumber: cursorPrNumber,
+			stage: "stack-review",
+		});
+		const stackJudgeAddendum = await input.reviewContexts?.promptAddendum({
+			...request,
+			prNumber: cursorPrNumber,
+			stage: "stack-judge",
+		});
+
+		const reviewPrompt = buildStackReviewPrompt({
+			cursorPrNumber,
+			prs: resolved.map(toPromptPr),
+			...(stackReviewAddendum ? { promptAddendum: stackReviewAddendum } : {}),
+		});
+
+		const settled = await Promise.allSettled(
+			state.council.roster.map(async (reviewer) => {
 				safelyNotify(
-					() =>
-						progress.reviewerCompleted(
-							reviewer.id,
-							reviewerProgressOutput(output),
-						),
-					`completed(${reviewer.id})`,
+					() => progress.reviewerStarted(reviewer.id),
+					`started(${reviewer.id})`,
 					progressWarnings,
 				);
-				return value;
-			} catch (err) {
-				if (isReviewerCancelledError(err)) {
+				try {
+					const value = await input.dispatch({
+						reviewer,
+						prompt: reviewPrompt,
+						cwd: handle.path,
+						runId,
+						signal: input.signal,
+						expectedVerificationStage: "stack-review",
+						onEvent: (event) =>
+							notifyActivity(progress, progressWarnings, reviewer.id, event),
+					});
+					const parsed = parseStackReviewOutput(value.finalAssistantText, {
+						runId,
+						reviewerId: reviewer.id,
+						startId: 0,
+						diffsByPr,
+					});
+					const output: StackReviewerOutput = {
+						reviewerId: reviewer.id,
+						perPr: parsed.perPr,
+						crossPr: parsed.crossPr,
+						warnings: [...value.warnings, ...parsed.warnings],
+					};
 					safelyNotify(
-						() => progress.reviewerCancelled?.(reviewer.id),
-						`cancelled(${reviewer.id})`,
+						() =>
+							progress.reviewerCompleted(
+								reviewer.id,
+								reviewerProgressOutput(output),
+							),
+						`completed(${reviewer.id})`,
 						progressWarnings,
 					);
-				} else {
-					const message = errorMessage(err);
-					safelyNotify(
-						() => progress.reviewerFailed(reviewer.id, message),
-						`failed(${reviewer.id})`,
-						progressWarnings,
-					);
+					return value;
+				} catch (err) {
+					if (isReviewerCancelledError(err)) {
+						safelyNotify(
+							() => progress.reviewerCancelled?.(reviewer.id),
+							`cancelled(${reviewer.id})`,
+							progressWarnings,
+						);
+					} else {
+						const message = errorMessage(err);
+						safelyNotify(
+							() => progress.reviewerFailed(reviewer.id, message),
+							`failed(${reviewer.id})`,
+							progressWarnings,
+						);
+					}
+					throw err;
 				}
-				throw err;
+			}),
+		);
+
+		let nextId = state.nextFindingId;
+		const reviewerOutputs: StackReviewerOutput[] = [];
+		for (let i = 0; i < settled.length; i++) {
+			const reviewer = state.council.roster[i];
+			const result = settled[i];
+			if (result.status === "rejected") {
+				const cancelled = isReviewerCancelledError(result.reason);
+				const message = cancelled
+					? "Reviewer cancelled by user."
+					: `Reviewer dispatch failed: ${errorMessage(result.reason)}`;
+				warnings.push(`${reviewer.id}: ${message}`);
+				reviewerOutputs.push({
+					reviewerId: reviewer.id,
+					perPr: new Map(),
+					crossPr: [],
+					warnings: [message],
+				});
+				continue;
 			}
-		}),
-	);
-
-	let nextId = state.nextFindingId;
-	const reviewerOutputs: StackReviewerOutput[] = [];
-	for (let i = 0; i < settled.length; i++) {
-		const reviewer = state.council.roster[i];
-		const result = settled[i];
-		if (result.status === "rejected") {
-			const cancelled = isReviewerCancelledError(result.reason);
-			const message = cancelled
-				? "Reviewer cancelled by user."
-				: `Reviewer dispatch failed: ${errorMessage(result.reason)}`;
-			warnings.push(`${reviewer.id}: ${message}`);
-			reviewerOutputs.push({
-				reviewerId: reviewer.id,
-				perPr: new Map(),
-				crossPr: [],
-				warnings: [message],
-			});
-			continue;
-		}
-		const parsed = parseStackReviewOutput(result.value.finalAssistantText, {
-			runId,
-			reviewerId: reviewer.id,
-			startId: nextId,
-			diffsByPr,
-		});
-		nextId = nextIdAfterReviewer(nextId, parsed);
-		rememberStackReviewAllocation(state, parsed.perPr, parsed.crossPr);
-		const output: StackReviewerOutput = {
-			reviewerId: reviewer.id,
-			perPr: parsed.perPr,
-			crossPr: parsed.crossPr,
-			warnings: [...result.value.warnings, ...parsed.warnings],
-			...(result.value.verification
-				? { verification: result.value.verification }
-				: {}),
-		};
-		for (const warning of output.warnings)
-			warnings.push(`${reviewer.id}: ${warning}`);
-		reviewerOutputs.push(output);
-	}
-
-	const judgeRunId = `stack-judge-${startedAt}`;
-	const judgePrompt = buildStackJudgePrompt({
-		cursorPrNumber,
-		prs: resolved.map(toJudgePr),
-		reviewerOutputs,
-		...(stackJudgeAddendum ? { promptAddendum: stackJudgeAddendum } : {}),
-		...(input.judgeCharter ? { charterGoverned: true } : {}),
-	});
-	safelyNotify(
-		() => progress.reviewerStarted(judge.id),
-		`started(${judge.id})`,
-		progressWarnings,
-	);
-	let judged: Awaited<ReturnType<CouncilDispatch>>;
-	try {
-		judged = await input.dispatch({
-			reviewer: judge,
-			prompt: judgePrompt,
-			cwd: handle.path,
-			runId: judgeRunId,
-			signal: input.signal,
-			...(input.judgeCharter ? { systemPrompt: input.judgeCharter } : {}),
-			expectedVerificationStage: "stack-judge",
-			onEvent: (event) =>
-				notifyActivity(progress, progressWarnings, judge.id, event),
-		});
-	} catch (error) {
-		if (isReviewerCancelledError(error)) {
-			safelyNotify(
-				() => progress.reviewerCancelled?.(judge.id),
-				`cancelled(${judge.id})`,
-				progressWarnings,
-			);
-			preserveCouncilForCursor(
-				state,
+			const parsed = parseStackReviewOutput(result.value.finalAssistantText, {
 				runId,
-				startedAt,
-				cursorPrNumber,
-				reviewerOutputs,
-			);
-		} else {
-			safelyNotify(
-				() => progress.reviewerFailed(judge.id, errorMessage(error)),
-				`failed(${judge.id})`,
-				progressWarnings,
-			);
+				reviewerId: reviewer.id,
+				startId: nextId,
+				diffsByPr,
+			});
+			nextId = nextIdAfterReviewer(nextId, parsed);
+			rememberStackReviewAllocation(state, parsed.perPr, parsed.crossPr);
+			const output: StackReviewerOutput = {
+				reviewerId: reviewer.id,
+				perPr: parsed.perPr,
+				crossPr: parsed.crossPr,
+				warnings: [...result.value.warnings, ...parsed.warnings],
+				...(result.value.verification
+					? { verification: result.value.verification }
+					: {}),
+			};
+			for (const warning of output.warnings)
+				warnings.push(`${reviewer.id}: ${warning}`);
+			reviewerOutputs.push(output);
 		}
-		safelyNotify(() => progress.finish(), "finish", progressWarnings);
-		if (isReviewerCancelledError(error)) {
+
+		const judgeRunId = `stack-judge-${startedAt}`;
+		const judgePrompt = buildStackJudgePrompt({
+			cursorPrNumber,
+			prs: resolved.map(toJudgePr),
+			reviewerOutputs,
+			...(stackJudgeAddendum ? { promptAddendum: stackJudgeAddendum } : {}),
+			...(input.judgeCharter ? { charterGoverned: true } : {}),
+		});
+		safelyNotify(
+			() => progress.reviewerStarted(judge.id),
+			`started(${judge.id})`,
+			progressWarnings,
+		);
+		let judged: Awaited<ReturnType<CouncilDispatch>>;
+		try {
+			judged = await input.dispatch({
+				reviewer: judge,
+				prompt: judgePrompt,
+				cwd: handle.path,
+				runId: judgeRunId,
+				signal: input.signal,
+				...(input.judgeCharter ? { systemPrompt: input.judgeCharter } : {}),
+				expectedVerificationStage: "stack-judge",
+				onEvent: (event) =>
+					notifyActivity(progress, progressWarnings, judge.id, event),
+			});
+		} catch (error) {
+			if (isReviewerCancelledError(error)) {
+				safelyNotify(
+					() => progress.reviewerCancelled?.(judge.id),
+					`cancelled(${judge.id})`,
+					progressWarnings,
+				);
+				preserveCouncilForCursor(
+					state,
+					runId,
+					startedAt,
+					cursorPrNumber,
+					reviewerOutputs,
+				);
+			} else {
+				safelyNotify(
+					() => progress.reviewerFailed(judge.id, errorMessage(error)),
+					`failed(${judge.id})`,
+					progressWarnings,
+				);
+			}
+			finishOnce();
+			if (isReviewerCancelledError(error)) {
+				return {
+					ok: false,
+					error:
+						`Stack review cancelled at the judge phase: ${errorMessage(error)}. ` +
+						"Council output for the cursor PR is preserved; call " +
+						"action=judge to resume from the already-completed reviewers.",
+				};
+			}
 			return {
 				ok: false,
-				error:
-					`Stack review cancelled at the judge phase: ${errorMessage(error)}. ` +
-					"Council output for the cursor PR is preserved; call " +
-					"action=judge to resume from the already-completed reviewers.",
+				error: `Stack review judge failed: ${errorMessage(error)}`,
 			};
 		}
-		return {
-			ok: false,
-			error: `Stack review judge failed: ${errorMessage(error)}`,
-		};
-	}
-	// Re-read the session id counter after the judge await
-	// rather than reusing the pre-await `nextId`. The reviewer
-	// loop already advanced the counter synchronously, and a
-	// concurrent run may have advanced it further during the
-	// judge dispatch; reading it now keeps the judge findings
-	// disjoint from everything else.
-	const parsedJudge = parseStackJudgeOutput(judged.finalAssistantText, {
-		runId: judgeRunId,
-		judgeReviewerId: judge.id,
-		startId: state.nextFindingId,
-	});
-	rememberStackReviewAllocation(state, parsedJudge.perPr, parsedJudge.crossPr);
-	for (const warning of [...judged.warnings, ...parsedJudge.warnings]) {
-		warnings.push(`${judge.id}: ${warning}`);
-	}
-	safelyNotify(
-		() =>
-			progress.reviewerCompleted(
-				judge.id,
-				judgeProgressOutput(judge.id, parsedJudge.perPr, parsedJudge.crossPr, [
-					...judged.warnings,
-					...parsedJudge.warnings,
-				]),
-			),
-		`completed(${judge.id})`,
-		progressWarnings,
-	);
+		// Re-read the session id counter after the judge await
+		// rather than reusing the pre-await `nextId`. The reviewer
+		// loop already advanced the counter synchronously, and a
+		// concurrent run may have advanced it further during the
+		// judge dispatch; reading it now keeps the judge findings
+		// disjoint from everything else.
+		const parsedJudge = parseStackJudgeOutput(judged.finalAssistantText, {
+			runId: judgeRunId,
+			judgeReviewerId: judge.id,
+			startId: state.nextFindingId,
+		});
+		rememberStackReviewAllocation(
+			state,
+			parsedJudge.perPr,
+			parsedJudge.crossPr,
+		);
+		for (const warning of [...judged.warnings, ...parsedJudge.warnings]) {
+			warnings.push(`${judge.id}: ${warning}`);
+		}
+		safelyNotify(
+			() =>
+				progress.reviewerCompleted(
+					judge.id,
+					judgeProgressOutput(
+						judge.id,
+						parsedJudge.perPr,
+						parsedJudge.crossPr,
+						[...judged.warnings, ...parsedJudge.warnings],
+					),
+				),
+			`completed(${judge.id})`,
+			progressWarnings,
+		);
 
-	const reviewedPrs = writePerPrJudgeRuns({
-		state,
-		resolved,
-		cursorPrNumber,
-		judge,
-		judgeRunId,
-		startedAt,
-		perPr: parsedJudge.perPr,
-		selfSignal: parsedJudge.selfSignal,
-		warnings: parsedJudge.warnings,
-	});
-	state.stackFindingRun = {
-		id: judgeRunId,
-		startedAt,
-		reviewerId: judge.id,
-		findings: parsedJudge.crossPr,
-		warnings: [...judged.warnings, ...parsedJudge.warnings],
-		...(judged.usage ? { usage: judged.usage } : {}),
-	} satisfies StackFindingRun;
-	rememberParticipantIdentities(state, "reviewer", state.council.roster);
-	rememberParticipantIdentity(state, "judge", judge);
-	state.stackDecisions = new Map();
-
-	safelyNotify(() => progress.finish(), "finish", progressWarnings);
-	warnings.push(...progressWarnings);
-
-	return {
-		ok: true,
-		run: {
-			id: runId,
-			startedAt,
+		const reviewedPrs = writePerPrJudgeRuns({
+			state,
+			resolved,
 			cursorPrNumber,
-			reviewedPrs,
-			crossPrFindingCount: parsedJudge.crossPr.length,
-			reviewerOutputs,
-			warnings,
-		},
-	};
+			judge,
+			judgeRunId,
+			startedAt,
+			perPr: parsedJudge.perPr,
+			selfSignal: parsedJudge.selfSignal,
+			warnings: parsedJudge.warnings,
+		});
+		state.stackFindingRun = {
+			id: judgeRunId,
+			startedAt,
+			reviewerId: judge.id,
+			findings: parsedJudge.crossPr,
+			warnings: [...judged.warnings, ...parsedJudge.warnings],
+			...(judged.usage ? { usage: judged.usage } : {}),
+		} satisfies StackFindingRun;
+		rememberParticipantIdentities(state, "reviewer", state.council.roster);
+		rememberParticipantIdentity(state, "judge", judge);
+		state.stackDecisions = new Map();
+
+		finishOnce();
+		warnings.push(...progressWarnings);
+
+		return {
+			ok: true,
+			run: {
+				id: runId,
+				startedAt,
+				cursorPrNumber,
+				reviewedPrs,
+				crossPrFindingCount: parsedJudge.crossPr.length,
+				reviewerOutputs,
+				warnings,
+			},
+		};
+	} finally {
+		finishOnce();
+	}
 }
 
 /** Render the stack-wide review result for the tool output. */

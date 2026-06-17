@@ -258,6 +258,32 @@ describe("runStackReviewAction guards", () => {
 		});
 		expect(expectFailure(result).error).toMatch(/Judge not configured/);
 	});
+
+	it("finishes the progress panel even when worktree provisioning throws", async () => {
+		// The panel captures the editor on start; a throw
+		// from registry.ensure must still finish it or the
+		// user loses the keyboard. Regression for the
+		// stack-review teardown leak.
+		const state = buildState();
+		const events: string[] = [];
+		const throwingProvider: WorktreeProvider = {
+			id: "throwing",
+			async ensure() {
+				throw new Error("worktree not ready");
+			},
+			async release() {},
+		};
+		await expect(
+			runStackReviewAction({
+				state,
+				registry: new WorktreeRegistry(throwingProvider),
+				dispatch: dispatch(),
+				fetchers: fetchers(),
+				progress: progressRecorder(events),
+			}),
+		).rejects.toThrow("worktree not ready");
+		expect(events).toContain("finish");
+	});
 });
 
 describe("runStackReviewAction", () => {

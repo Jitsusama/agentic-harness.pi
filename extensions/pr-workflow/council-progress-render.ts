@@ -87,7 +87,14 @@ export function createCouncilProgressReporter(
 		});
 		terminalInputUnsubscribe = ctx.ui.onTerminalInput((data) => {
 			if (!matchesKey(data, Key.escape)) return undefined;
+			// Request cancellation best-effort, then always close
+			// the panel and restore the editor. Closing must not
+			// depend on whether a run is still tracked: if the run
+			// already died, cancelAll finds nothing, but the user
+			// must still get the keyboard back. clear() is
+			// idempotent, so a later finish() is harmless.
 			controls?.cancelAll();
+			clear();
 			return { consume: true };
 		});
 		editorInstalled = true;
