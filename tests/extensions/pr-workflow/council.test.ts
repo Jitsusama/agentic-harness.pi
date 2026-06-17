@@ -352,6 +352,49 @@ describe("runCouncil", () => {
 		expect(fast?.findings).toHaveLength(1);
 	});
 
+	it("finishes the progress panel even when worktree provisioning throws", async () => {
+		// The panel installs an editor input component on
+		// start; finish is the only path that restores it.
+		// A throw from registry.ensure must not strand the
+		// panel, or the user loses the keyboard. Regression
+		// for the council teardown leak.
+		const events: string[] = [];
+		const throwingProvider: WorktreeProvider = {
+			id: "fake",
+			async ensure() {
+				throw new Error("worktree not ready");
+			},
+			async release() {},
+		};
+		const dispatch: CouncilDispatch = async (opts) => ({
+			reviewerId: opts.reviewer.id,
+			exitCode: 0,
+			finalAssistantText: findingsJson([]),
+			stderr: "",
+			warnings: [],
+		});
+		await expect(
+			runCouncil({
+				runId: "r",
+				target: TARGET,
+				reviewers: [REVIEWER_A],
+				registry: new WorktreeRegistry(throwingProvider),
+				dispatch,
+				progress: {
+					start() {},
+					reviewerStarted() {},
+					reviewerCompleted() {},
+					reviewerCancelled() {},
+					reviewerFailed() {},
+					finish() {
+						events.push("finish");
+					},
+				},
+			}),
+		).rejects.toThrow("worktree not ready");
+		expect(events).toContain("finish");
+	});
+
 	it(
 		"dispatches reviewers concurrently (not serially)",
 		async () => {
