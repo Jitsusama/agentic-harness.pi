@@ -20,6 +20,7 @@
  * read-and-upgrade or skip.
  */
 
+import { createHash } from "node:crypto";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -332,9 +333,50 @@ function* collectBodies(
 	}
 }
 
-/** Write every in-memory run body to the store, keyed by its id. */
-function writeBodies(state: PrWorkflowState, store: RunBodyStore): void {
-	for (const body of collectBodies(state)) store.writeRun(body);
+/** Stable content hash of a run body, for change detection. */
+function hashBody(body: CouncilRun | JudgeRun | CritiqueRun): string {
+	return createHash("sha256").update(JSON.stringify(body)).digest("hex");
+}
+
+/**
+ * Per-session record of the content hash last written for each
+ * run id. Lets `writeChangedBodies` skip a body whose content is
+ * unchanged (the common case, where only decisions or pointers
+ * moved) while still catching an in-place edit that reuses a run
+ * id, such as a zero-finding council-retry. Keyed by the
+ * session's pi so it cannot leak across sessions.
+ */
+const writtenBodyHashes = new WeakMap<ExtensionAPI, Map<string, string>>();
+
+function bodyHashesFor(pi: ExtensionAPI): Map<string, string> {
+	let hashes = writtenBodyHashes.get(pi);
+	if (!hashes) {
+		hashes = new Map();
+		writtenBodyHashes.set(pi, hashes);
+	}
+	return hashes;
+}
+
+/**
+ * Write each in-memory run body whose content has changed since
+ * it was last written for this session. A body is immutable for
+ * a given run id in the common case, so most persists write
+ * nothing; but an in-place edit that reuses an id changes the
+ * hash and is written. The per-id hash advances only after a
+ * successful write, so a throwing write is retried next time.
+ */
+function writeChangedBodies(
+	state: PrWorkflowState,
+	pi: ExtensionAPI,
+	store: RunBodyStore,
+): void {
+	const hashes = bodyHashesFor(pi);
+	for (const body of collectBodies(state)) {
+		const hash = hashBody(body);
+		if (hashes.get(body.id) === hash) continue;
+		store.writeRun(body);
+		hashes.set(body.id, hash);
+	}
 }
 
 /**
@@ -366,12 +408,26 @@ export function persist(
 ): void {
 	const snap = snapshot(state);
 	const serialised = JSON.stringify(snap);
-	if (lastSerialised.get(pi) === serialised) return;
-	lastSerialised.set(pi, serialised);
-	// Write the heavy bodies to the store only when the snapshot
-	// actually changed, so a no-op persist touches no disk at all.
-	writeBodies(state, store);
-	pi.appendEntry(SESSION_KEY, snap);
+	const snapshotUnchanged = lastSerialised.get(pi) === serialised;
+	try {
+		// Bodies are checked on every persist, not gated by the
+		// pointer dirty check: an in-place body edit (a zero-finding
+		// council-retry reuses the run id) changes a transcript
+		// without moving any pointer, and that edit must still reach
+		// the store. writeChangedBodies skips bodies whose content is
+		// unchanged, so this stays cheap.
+		writeChangedBodies(state, pi, store);
+		if (!snapshotUnchanged) {
+			pi.appendEntry(SESSION_KEY, snap);
+			lastSerialised.set(pi, serialised);
+		}
+	} catch {
+		// Persistence is best-effort. It runs in the action finally,
+		// so a disk error here must not mask the action that
+		// triggered it. The dirty marker and per-id hashes advance
+		// only on success, so a transient failure is retried on the
+		// next persist rather than silently dropped.
+	}
 }
 
 /**
@@ -460,7 +516,11 @@ export function restore(
 				`(${missing.join(", ")}). Re-run to regenerate them.`
 			: null;
 
-	// Seed the dirty check with the restored state so the first
-	// persist after a reload is a no-op when nothing changed.
+	// Seed the dirty check and the per-id body hashes with the
+	// restored state, so the first persist after a reload neither
+	// re-appends the snapshot nor re-writes a body that already
+	// round-tripped through the store.
 	lastSerialised.set(pi, JSON.stringify(snapshot(state)));
+	const hashes = bodyHashesFor(pi);
+	for (const body of collectBodies(state)) hashes.set(body.id, hashBody(body));
 }

@@ -601,6 +601,57 @@ describe("pr-workflow lifecycle", () => {
 			expect(store.readRun("c-1")).toEqual(sampleCouncilRun());
 		});
 
+		it("persists an in-place body edit even when no pointer moved", () => {
+			// Mirrors a zero-finding council-retry: the run body is
+			// edited in place and reuses its id, so the pointer
+			// snapshot does not change. The body must still reach
+			// the store or a reload silently loses the retry.
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+
+			const source = createPrWorkflowState();
+			const run = sampleCouncilRun();
+			source.council.lastRun = run;
+			persist(source, pi, store);
+
+			const edited = {
+				...run,
+				reviewerOutputs: [
+					{ reviewerId: "alpha", findings: [], warnings: ["retried"] },
+				],
+			};
+			source.council.lastRun = edited;
+			persist(source, pi, store);
+
+			expect(store.readRun("c-1")).toEqual(edited);
+		});
+
+		it("swallows a body write failure and retries on the next persist", () => {
+			// Persist runs in the action finally and does synchronous
+			// disk IO. A throw must not mask the action, and the
+			// dirty marker must not advance, so a transient failure
+			// is retried rather than silently dropped.
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+			let writes = 0;
+			const failingStore: RunBodyStore = {
+				writeRun() {
+					writes++;
+					throw new Error("ENOSPC");
+				},
+				readRun: () => null,
+			};
+
+			const source = createPrWorkflowState();
+			source.council.lastRun = sampleCouncilRun();
+
+			expect(() => persist(source, pi, failingStore)).not.toThrow();
+			expect(entries).toHaveLength(0);
+
+			persist(source, pi, failingStore);
+			expect(writes).toBe(2);
+		});
+
 		it("survives a JSON round-trip for the full state shape", () => {
 			// Maps and complex run shapes need explicit
 			// serialisation. This catches future drift where
