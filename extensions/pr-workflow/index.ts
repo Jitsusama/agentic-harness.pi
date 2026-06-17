@@ -178,6 +178,17 @@ const NEOVIM_PI_REGISTER_HANDLER = "neovim-pi:register-handler";
 const NEOVIM_PI_READY = "neovim-pi:ready";
 
 /**
+ * Results-store retention. A run body is pruned on activation
+ * only when it is both beyond the newest this-many files and
+ * older than this age, so a recent, possibly still-referenced
+ * body is always kept while long-stale surplus is reclaimed. The
+ * caps are generous: the bound is meant to stop unbounded
+ * accumulation across sessions, not to run tight.
+ */
+const RESULTS_RETAIN_FILES = 500;
+const RESULTS_RETAIN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
  * Load the persona library from disk and return a synchronous
  * resolver from persona id to charter prose. The council action
  * needs a sync resolver (it maps the roster inline), so the
@@ -253,6 +264,19 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	// in this store keyed by run id; the session log keeps only the
 	// id pointers. See lifecycle.ts for the persist/restore split.
 	const resultsStore = new ResultsStore(prWorkflowStateDir());
+	// Bound the results directory on activation. Run ids are unique
+	// per run, so superseded bodies linger unreferenced; this prunes
+	// the old surplus while keeping every recent body a live
+	// snapshot might still point at. Best-effort: a sweep failure
+	// must never block activation.
+	try {
+		resultsStore.cleanup({
+			maxFiles: RESULTS_RETAIN_FILES,
+			maxAgeMs: RESULTS_RETAIN_MAX_AGE_MS,
+		});
+	} catch {
+		// Retention is advisory; ignore a transient sweep failure.
+	}
 	void recoverReviewerRuns(reviewerArtifacts()).then(
 		(summary) => {
 			state.reviewerRecovery = summary;
