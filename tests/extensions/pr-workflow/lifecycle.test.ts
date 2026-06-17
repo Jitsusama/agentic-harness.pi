@@ -456,6 +456,35 @@ describe("pr-workflow lifecycle", () => {
 	});
 
 	describe("persist", () => {
+		it("skips a duplicate entry when the state has not changed", () => {
+			// The session log is append-only, so re-writing an
+			// unchanged snapshot on every tool call is what bloated
+			// the log. A second persist of identical state must be a
+			// no-op.
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+
+			const source = createPrWorkflowState();
+			source.council.roster = [sampleReviewer("alpha")];
+			persist(source, pi);
+			persist(source, pi);
+
+			expect(entries).toHaveLength(1);
+		});
+
+		it("appends again after the state actually changes", () => {
+			const entries: Entry[] = [];
+			const pi = makeApi(entries);
+
+			const source = createPrWorkflowState();
+			source.council.roster = [sampleReviewer("alpha")];
+			persist(source, pi);
+			source.council.judge = sampleReviewer("judge");
+			persist(source, pi);
+
+			expect(entries).toHaveLength(2);
+		});
+
 		it("survives a JSON round-trip for the full state shape", () => {
 			// Maps and complex run shapes need explicit
 			// serialisation. This catches future drift where
