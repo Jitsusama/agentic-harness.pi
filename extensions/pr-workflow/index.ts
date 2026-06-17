@@ -2476,10 +2476,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				for (const line of formatLoadSuggestions(suggestedNext)) {
 					lines.push(line);
 				}
-				// Persist is fired centrally by the `tool_result`
-				// handler at the bottom of this file — see there
-				// for why we don't sprinkle persist() calls per
-				// action.
+				// Persist fires once after the action returns, from the
+				// dispatch wrapper below, so there is no per-action call
+				// to make here.
 				return {
 					content: [{ type: "text", text: lines.join("\n") }],
 					details: {
@@ -2491,13 +2490,29 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				};
 			};
 
+			// Persist the state slice once the action has run, rather
+			// than on every tool call. pr-workflow actions are the
+			// only thing that mutates this slice, so this fires
+			// persist exactly when it can change and never on an
+			// unrelated bash or read. The dirty check inside persist
+			// drops actions that changed nothing.
+			const handleActionAndPersist = async (): Promise<
+				Awaited<ReturnType<typeof handleAction>>
+			> => {
+				try {
+					return await handleAction();
+				} finally {
+					persist(state, pi);
+				}
+			};
+
 			// Route quick mutations through the FIFO lane so their
 			// read-modify-write windows can't interleave; everything
 			// else runs free. See QUICK_MUTATION_ACTIONS above.
 			if (QUICK_MUTATION_ACTIONS.has(params.action)) {
-				return actionMutex.runExclusive(handleAction);
+				return actionMutex.runExclusive(handleActionAndPersist);
 			}
-			return handleAction();
+			return handleActionAndPersist();
 		},
 	});
 
@@ -2511,18 +2526,15 @@ export default function prWorkflow(pi: ExtensionAPI) {
 		refreshPrStatusLine(ctx, state);
 	});
 
-	// Push the latest overview line after every tool call,
-	// and re-persist the state slice while we're here. The
-	// status-line refresh is what motivated the hook (PR
-	// #198); persistence joins it because pr-workflow
-	// actions are the only thing that mutate the state
-	// either surface cares about, so a per-tool fire is
-	// both necessary and sufficient. Pi sequences event
-	// handlers, so a tool that mutates state in-handler
-	// has finished writing by the time we read it here.
+	// Push the latest overview line after every tool call. The
+	// status-line refresh is cheap and wants to catch any tool
+	// that might have shifted the PR context (PR #198).
+	// Persistence used to ride along here, but firing it on every
+	// bash and read is what bloated the session log; it now fires
+	// from the action dispatch wrapper, the only place the state
+	// slice changes.
 	pi.on("tool_result", async (_event, ctx) => {
 		refreshPrStatusLine(ctx, state);
-		persist(state, pi);
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {
