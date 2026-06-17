@@ -236,6 +236,45 @@ describe("createCouncilProgressReporter", () => {
 		expect(installed[1]).toBe(previous);
 	});
 
+	it("restores the editor on Escape even when no run is active to cancel", () => {
+		// Escape must close the panel and return the
+		// keyboard, not merely request cancellation. This is
+		// the wedge regression: the registry was empty so
+		// cancelAll found nothing, and the panel never
+		// closed. Closing must not depend on cancellation.
+		type TerminalHandler = (data: string) => { consume?: boolean } | undefined;
+		const previous = () => ({ render: () => [], invalidate() {} }) as never;
+		const installed: unknown[] = [];
+		let escapeHandler: TerminalHandler | undefined;
+		const ctx = {
+			hasUI: true,
+			ui: {
+				theme: fakeTheme(),
+				setStatus() {},
+				onTerminalInput(handler: TerminalHandler) {
+					escapeHandler = handler;
+					return () => {};
+				},
+				getEditorComponent: () => previous,
+				setEditorComponent(factory: unknown) {
+					installed.push(factory);
+				},
+			},
+		};
+		const reporter = createCouncilProgressReporter(ctx as never, {
+			cancelReviewer: () => "cancelled one",
+			// Simulates an empty registry: nothing to cancel.
+			cancelAll: () => "No active reviewer subprocesses to cancel.",
+		});
+
+		reporter.start([entry("fast", "running")]);
+		escapeHandler?.("\x1b");
+
+		// The panel factory installed on start is replaced by
+		// the previous editor: the keyboard is back.
+		expect(installed.at(-1)).toBe(previous);
+	});
+
 	it("registers an escape-key terminal fallback for cancelling the run", () => {
 		type TerminalHandler = (data: string) => { consume?: boolean } | undefined;
 		const terminalHandlers: TerminalHandler[] = [];
