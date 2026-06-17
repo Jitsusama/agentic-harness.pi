@@ -56,6 +56,7 @@ import {
 	retryCouncilReviewer,
 	runCouncilAction,
 } from "./council-action.js";
+import type { CouncilProgress } from "./council-progress.js";
 import { createCouncilProgressReporter } from "./council-progress-render.js";
 import {
 	formatCritiqueSummary,
@@ -375,6 +376,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			readonly registry: WorktreeRegistry;
 			readonly dispatch: CouncilDispatch;
 		}) => Promise<T>,
+		progress?: CouncilProgress,
 	): Promise<T> => {
 		const { registry, runPi } = getCouncilDeps();
 		const activeRun = cancellations.beginRun(operation);
@@ -399,6 +401,17 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			return await run({ registry, dispatch });
 		} finally {
 			activeRun.end();
+			// Backstop the panel teardown to the same finally as the
+			// registry cleanup, so the panel can never outlive the
+			// registered run even if a run function forgets to finish
+			// it. finish() is idempotent, so the run's own finish and
+			// this one don't double up.
+			try {
+				progress?.finish();
+			} catch {
+				// A broken reporter must not mask the run's outcome or
+				// throw from finally; teardown is best-effort here.
+			}
 		}
 	};
 
@@ -966,6 +979,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								...(params.intent ? { intent: params.intent } : {}),
 								progress,
 							}),
+						progress,
 					);
 					if (!result.ok) {
 						return {
@@ -1124,6 +1138,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								...(params.intent ? { intent: params.intent } : {}),
 								progress,
 							}),
+						progress,
 					);
 					if (!result.ok) {
 						return {
@@ -1187,6 +1202,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 									},
 								},
 							}),
+						progress,
 					);
 					if (!result.ok) {
 						return {
@@ -1232,6 +1248,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								...(params.intent ? { intent: params.intent } : {}),
 								progress,
 							}),
+						progress,
 					);
 					if (!result.ok) {
 						return {
