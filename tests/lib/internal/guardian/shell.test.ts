@@ -26,14 +26,14 @@ describe("extractMessage", () => {
 		expect(calls).toEqual([["msg.txt", "/work"]]);
 	});
 
-	it("passes a null base for an absolute -F path with no cd", () => {
+	it("passes the process cwd as the base when there is no cd", () => {
 		const calls: Array<[string, string | null]> = [];
 		const read = (path: string, base: string | null): string | null => {
 			calls.push([path, base]);
 			return "x";
 		};
 		extractMessage("git commit -F /tmp/m.txt", read);
-		expect(calls).toEqual([["/tmp/m.txt", null]]);
+		expect(calls).toEqual([["/tmp/m.txt", process.cwd()]]);
 	});
 
 	it("returns null for a -F file when no reader is given", () => {

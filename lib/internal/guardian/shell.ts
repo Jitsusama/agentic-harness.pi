@@ -6,6 +6,7 @@
  * parsing lives in lib/shell/.
  */
 
+import { effectiveCwd, tokenize } from "../../command/index.js";
 import { matchHeredocs, splitAtCommand } from "../../shell/parse.js";
 
 const COMMIT_HEREDOC_DELIM = "__COMMIT_MSG__";
@@ -63,8 +64,6 @@ export function extractMessage(
 
 /** Match a `-F <path>` or `--file <path>` (or `=path`) commit flag. */
 const COMMIT_FILE_FLAG = /(?:-F|--file)(?:\s+|=)("[^"]*"|'[^']*'|\S+)/;
-/** Match the first `cd <dir>` in a command, for relative path resolution. */
-const CD_TARGET = /(?:^|&&|;|\n)\s*cd\s+("[^"]*"|'[^']*'|\S+)/;
 
 /** Strip one layer of surrounding single or double quotes. */
 function unquote(token: string): string {
@@ -86,8 +85,12 @@ function extractFileMessage(
 	if (!flag?.[1]) return null;
 	const rawPath = unquote(flag[1]);
 	if (rawPath === "-") return null;
-	const cd = command.match(CD_TARGET);
-	const baseDir = cd?.[1] ? unquote(cd[1]) : null;
+	// Resolve the relative path against the command's effective
+	// working directory (the pi cwd composed with any leading cd
+	// segments) instead of scraping the first cd with a regex. An
+	// unresolvable cd chain falls back to the process cwd reader-side.
+	const cwd = effectiveCwd(tokenize(command), process.cwd());
+	const baseDir = "dir" in cwd ? cwd.dir : null;
 	const contents = readFile(rawPath, baseDir);
 	if (contents === null) return null;
 	return contents.replace(/\n+$/, "");
