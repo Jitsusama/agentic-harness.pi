@@ -24,7 +24,90 @@ export function tokenize(source: string): CommandLine {
 		if (command) commands.push(command);
 	}
 
-	return { source, commands, connectors, supported: true };
+	const unsupportedReason =
+		detectUnsupported(source, heredocs) ?? detectControlFlow(commands);
+	return {
+		source,
+		commands,
+		connectors,
+		supported: unsupportedReason === undefined,
+		...(unsupportedReason ? { unsupportedReason } : {}),
+	};
+}
+
+/**
+ * Scan for constructs outside the supported grammar, ignoring
+ * quoted text and heredoc bodies (where the bytes are literal or
+ * user content, not command structure). Returns a reason when one
+ * is found, so a consumer can fail closed on it.
+ */
+function detectUnsupported(
+	source: string,
+	heredocs: HeredocInfo[],
+): string | undefined {
+	let i = 0;
+	const n = source.length;
+
+	while (i < n) {
+		const body = heredocs.find((h) => i >= h.bodyStart && i < h.bodyEnd);
+		if (body) {
+			i = body.bodyEnd;
+			continue;
+		}
+
+		const ch = source[i];
+		if (ch === "'" || ch === '"') {
+			i = skipQuoted(source, i);
+			continue;
+		}
+		if (ch === "\\") {
+			i += 2;
+			continue;
+		}
+		if (ch === "$" && source[i + 1] === "(") {
+			return "command substitution $(...) is not supported";
+		}
+		if (ch === "`") {
+			return "backtick command substitution is not supported";
+		}
+		if (ch === "(") {
+			return "a subshell (...) is not supported";
+		}
+		if (ch === "{" && isWhitespace(source[i + 1])) {
+			return "a brace group { ...; } is not supported";
+		}
+		i++;
+	}
+
+	return undefined;
+}
+
+const CONTROL_FLOW_KEYWORDS = new Set([
+	"if",
+	"then",
+	"else",
+	"elif",
+	"fi",
+	"for",
+	"while",
+	"until",
+	"do",
+	"done",
+	"case",
+	"esac",
+	"select",
+	"function",
+]);
+
+/** Flag a command whose name is a shell control-flow keyword. */
+function detectControlFlow(commands: SimpleCommand[]): string | undefined {
+	for (const command of commands) {
+		const name = command.argv[0]?.text;
+		if (name && CONTROL_FLOW_KEYWORDS.has(name)) {
+			return `shell control flow (${name}) is not supported`;
+		}
+	}
+	return undefined;
 }
 
 interface Segment {
@@ -78,6 +161,11 @@ function splitTopLevel(
 		const heredoc = heredocs.find((h) => h.index === i);
 		if (heredoc) {
 			i = heredoc.end;
+			continue;
+		}
+
+		if (isContinuation(source, i)) {
+			i += 2;
 			continue;
 		}
 
@@ -205,6 +293,11 @@ function isAssignment(text: string): boolean {
 const isWhitespace = (ch: string): boolean =>
 	ch === " " || ch === "\t" || ch === "\n";
 
+/** Whether a backslash-newline line continuation begins at i. */
+function isContinuation(source: string, i: number): boolean {
+	return source[i] === "\\" && source[i + 1] === "\n";
+}
+
 /** Index just past a quoted span beginning at the quote at i. */
 function skipQuoted(source: string, i: number): number {
 	const quote = source[i];
@@ -225,14 +318,16 @@ function scanWords(source: string, start: number, end: number): Word[] {
 	let i = start;
 
 	while (i < end) {
-		while (i < end && isWhitespace(source[i])) i++;
+		while (i < end && (isWhitespace(source[i]) || isContinuation(source, i))) {
+			i += isContinuation(source, i) ? 2 : 1;
+		}
 		if (i >= end) break;
 
 		const wordStart = i;
 		let sawSingle = false;
 		let sawDouble = false;
 
-		while (i < end && !isWhitespace(source[i])) {
+		while (i < end && !isWhitespace(source[i]) && !isContinuation(source, i)) {
 			const ch = source[i];
 			if (ch === "'") {
 				sawSingle = true;

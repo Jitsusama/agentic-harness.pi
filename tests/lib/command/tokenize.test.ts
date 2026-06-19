@@ -123,4 +123,46 @@ describe("tokenize", () => {
 		expect(command.heredoc?.delimiter).toBe("EOF");
 		expect(command.heredoc?.quoted).toBe(false);
 	});
+
+	it("joins across a backslash-newline continuation", () => {
+		const line = tokenize("gh pr create \\\n  --title x");
+
+		expect(line.commands).toHaveLength(1);
+		expect(line.connectors).toEqual([]);
+		expect(line.commands[0].argv.map((w) => w.text)).toEqual([
+			"gh",
+			"pr",
+			"create",
+			"--title",
+			"x",
+		]);
+	});
+
+	it("flags command substitution as unsupported", () => {
+		const dollar = tokenize("echo $(date)");
+		const backtick = tokenize("echo `date`");
+
+		expect(dollar.supported).toBe(false);
+		expect(dollar.unsupportedReason).toBeTruthy();
+		expect(backtick.supported).toBe(false);
+	});
+
+	it("does not flag substitution that is quoted or in a heredoc body", () => {
+		expect(tokenize("echo '$(date)'").supported).toBe(true);
+		expect(tokenize("git commit -F- <<'EOF'\nsee $(date)\nEOF").supported).toBe(
+			true,
+		);
+	});
+
+	it("flags subshells, brace groups and control flow as unsupported", () => {
+		expect(tokenize("(cd x && y)").supported).toBe(false);
+		expect(tokenize("{ a ; }").supported).toBe(false);
+		expect(tokenize("if true; then x; fi").supported).toBe(false);
+		expect(tokenize("for f in a; do x; done").supported).toBe(false);
+	});
+
+	it("does not flag brace expansion or quoted parens", () => {
+		expect(tokenize("echo '(ok)'").supported).toBe(true);
+		expect(tokenize("echo {a,b}").supported).toBe(true);
+	});
 });
