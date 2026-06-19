@@ -48,7 +48,7 @@ import {
 	renderReviewThreadPromptContext,
 	renderThreadRelation,
 } from "./thread-context.js";
-import type { WorktreeRegistry } from "./worktree.js";
+import { type WorktreeRegistry, worktreeRequestFor } from "./worktree.js";
 
 // Judge self-signal lives in schemas.ts as the
 // authoritative shape. Re-exported here so existing
@@ -354,12 +354,9 @@ export async function runJudge(options: RunJudgeOptions): Promise<JudgeRun> {
 		progressWarnings,
 	);
 	try {
-		const handle = await options.registry.ensure({
-			owner: options.target.owner,
-			repo: options.target.repo,
-			sha: options.target.sha,
-			...(options.target.branch ? { branch: options.target.branch } : {}),
-		});
+		const handle = await options.registry.ensure(
+			worktreeRequestFor(options.target),
+		);
 
 		const prompt = buildJudgePrompt({
 			council: options.council,

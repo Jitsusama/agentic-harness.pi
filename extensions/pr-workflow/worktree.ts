@@ -36,6 +36,42 @@ export interface WorktreeRequest {
 	readonly sha: string;
 	/** Optional branch hint; provider may retrieve it if appropriate. */
 	readonly branch?: string;
+	/**
+	 * Optional changed-file paths for the PR. A provider may use
+	 * these to scope what it materializes (for example, checking
+	 * out only the zones the PR touches) rather than the whole
+	 * repository. Absent or empty means the provider decides.
+	 */
+	readonly files?: readonly string[];
+}
+
+/** The shape a review target needs to build a {@link WorktreeRequest}. */
+export interface WorktreeRequestTarget {
+	readonly owner: string;
+	readonly repo: string;
+	readonly sha: string;
+	readonly branch?: string;
+	readonly files?: readonly { readonly path: string }[];
+}
+
+/**
+ * Build a {@link WorktreeRequest} from a review target,
+ * carrying the changed-file paths so a provider can scope
+ * materialization to the touched zones. Branch and files are
+ * omitted when the target lacks them, keeping the request
+ * minimal for providers that ignore them.
+ */
+export function worktreeRequestFor(
+	target: WorktreeRequestTarget,
+): WorktreeRequest {
+	const paths = target.files?.map((file) => file.path) ?? [];
+	return {
+		owner: target.owner,
+		repo: target.repo,
+		sha: target.sha,
+		...(target.branch ? { branch: target.branch } : {}),
+		...(paths.length > 0 ? { files: paths } : {}),
+	};
 }
 
 /** What a provider returns. */

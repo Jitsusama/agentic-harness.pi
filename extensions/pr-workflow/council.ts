@@ -43,7 +43,7 @@ import type { CouncilRun, ReviewerOutput } from "./findings.js";
 import { parseReviewerOutput } from "./parse.js";
 import { buildReviewerPrompt } from "./prompts.js";
 import type { ReviewThreadPromptContext } from "./thread-context.js";
-import type { WorktreeRegistry } from "./worktree.js";
+import { type WorktreeRegistry, worktreeRequestFor } from "./worktree.js";
 
 /** Target a council run inspects. */
 export interface CouncilTarget {
@@ -148,12 +148,9 @@ export interface RunOneReviewerOptions {
 export async function runOneCouncilReviewer(
 	options: RunOneReviewerOptions,
 ): Promise<ReviewerOutput> {
-	const handle = await options.registry.ensure({
-		owner: options.target.owner,
-		repo: options.target.repo,
-		sha: options.target.sha,
-		...(options.target.branch ? { branch: options.target.branch } : {}),
-	});
+	const handle = await options.registry.ensure(
+		worktreeRequestFor(options.target),
+	);
 	const prompt = buildReviewerPrompt({
 		prTitle: options.target.title,
 		prDescription: options.target.description,
@@ -238,12 +235,9 @@ export async function runCouncil(
 	};
 
 	try {
-		const handle = await options.registry.ensure({
-			owner: options.target.owner,
-			repo: options.target.repo,
-			sha: options.target.sha,
-			...(options.target.branch ? { branch: options.target.branch } : {}),
-		});
+		const handle = await options.registry.ensure(
+			worktreeRequestFor(options.target),
+		);
 
 		const prompt = buildReviewerPrompt({
 			prTitle: options.target.title,
