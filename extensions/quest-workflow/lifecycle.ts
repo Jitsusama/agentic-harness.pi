@@ -12,6 +12,7 @@ import type {
 	ExtensionContext,
 	ToolContext,
 } from "@mariozechner/pi-coding-agent";
+import { sessionsDir } from "../../lib/internal/paths.js";
 import {
 	type AliasIndex,
 	buildAliasIndex,
@@ -38,6 +39,10 @@ import {
 	sink as rankSink,
 	top as rankTop,
 } from "../../lib/internal/quest/ranking.js";
+import {
+	indexSessionFiles,
+	prunePhantomSessions,
+} from "../../lib/internal/quest/session-liveness.js";
 import { getLastEntry } from "../../lib/internal/state.js";
 import {
 	checkboxProgress,
@@ -856,6 +861,32 @@ export function attachCurrentSession(
 	if (opts.cwd?.trim()) session.cwd = opts.cwd.trim();
 	const result = attachSessionToLoaded(state, session);
 	return { attached: result.ok };
+}
+
+/**
+ * Drop no-log phantom sessions from the loaded quest's frontmatter.
+ *
+ * Ephemeral fan-outs that predate the attach guard left detached
+ * ids with no log behind; this garbage-collects them when a quest
+ * is loaded, so a quest self-heals on next touch. Only provable
+ * phantoms go (detached and log-less); active and logged sessions
+ * are untouched. No-ops when nothing is prunable.
+ */
+export function prunePhantomSessionsOnLoaded(state: QuestState): {
+	removed: number;
+} {
+	if (!state.questDir) return { removed: 0 };
+	const index = indexSessionFiles(sessionsDir());
+	let removed = 0;
+	writeQuestFrontMatter(state.questDir, (fm) => {
+		const { kept, removed: gone } = prunePhantomSessions(fm.sessions, (id) =>
+			index.has(id),
+		);
+		removed = gone.length;
+		if (gone.length === 0) return fm;
+		return { ...fm, sessions: kept };
+	});
+	return { removed };
 }
 
 /** Mark a session as detached on the loaded quest. */

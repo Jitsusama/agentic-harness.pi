@@ -5,9 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	deriveLiveness,
 	indexSessionFiles,
+	prunePhantomSessions,
 	questLastActivity,
 	sessionActivity,
 } from "../../../../lib/internal/quest/session-liveness";
+import type { QuestSession } from "../../../../lib/quest/types";
 
 let dir: string;
 
@@ -131,5 +133,44 @@ describe("deriveLiveness", () => {
 		]);
 		const view = deriveLiveness({ id: "019idle", status: "active" }, dir, now);
 		expect(view.liveness).toBe("idle");
+	});
+});
+
+describe("prunePhantomSessions", () => {
+	const s = (id: string, status: QuestSession["status"]): QuestSession => ({
+		id,
+		started: "2026-06-04T10:00:00.000Z",
+		status,
+	});
+
+	it("removes detached sessions that have no log", () => {
+		const sessions = [s("phantom", "detached"), s("real", "active")];
+		const { kept, removed } = prunePhantomSessions(
+			sessions,
+			(id) => id !== "phantom",
+		);
+		expect(kept.map((x) => x.id)).toEqual(["real"]);
+		expect(removed.map((x) => x.id)).toEqual(["phantom"]);
+	});
+
+	it("keeps a detached session that still has a log", () => {
+		const sessions = [s("ended", "detached")];
+		const { kept, removed } = prunePhantomSessions(sessions, () => true);
+		expect(kept.map((x) => x.id)).toEqual(["ended"]);
+		expect(removed).toEqual([]);
+	});
+
+	it("never removes an active session even without a log", () => {
+		const sessions = [s("current", "active")];
+		const { kept, removed } = prunePhantomSessions(sessions, () => false);
+		expect(kept.map((x) => x.id)).toEqual(["current"]);
+		expect(removed).toEqual([]);
+	});
+
+	it("returns everything kept when nothing is a phantom", () => {
+		const sessions = [s("a", "active"), s("b", "detached")];
+		const { kept, removed } = prunePhantomSessions(sessions, () => true);
+		expect(kept).toHaveLength(2);
+		expect(removed).toEqual([]);
 	});
 });

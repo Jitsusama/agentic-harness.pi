@@ -34,6 +34,7 @@ import {
 	focusDocument,
 	listAllQuests,
 	loadQuest,
+	prunePhantomSessionsOnLoaded,
 	unfocusDocument,
 	unloadQuest,
 } from "../lifecycle.js";
@@ -256,6 +257,10 @@ export async function load(
 	const result = loadQuest(state, pi, targetId);
 	if (!result.ok) return refuse(result.guidance);
 
+	// Garbage-collect no-log phantoms left by pre-guard fan-outs so
+	// the prior-session list and frontmatter reflect real sessions.
+	const pruned = prunePhantomSessionsOnLoaded(state).removed;
+
 	const loaded = await showLoaded(state);
 	const priorSessions = loaded?.frontMatter.sessions ?? [];
 	const sid = currentSessionId(ctx, undefined);
@@ -287,12 +292,16 @@ export async function load(
 	if (attached) {
 		message += `. Tracking this pi session on the quest.`;
 	}
+	if (pruned > 0) {
+		message += `. Pruned ${pruned} phantom session(s).`;
+	}
 
 	return ok(message, {
 		id: state.questId,
 		dir: state.questDir,
 		attached,
 		resumable,
+		pruned,
 	});
 }
 

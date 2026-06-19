@@ -292,6 +292,27 @@ describe("auto-attach on load", () => {
 		expect(mine).toHaveLength(1);
 	});
 
+	it("prunes a detached no-log phantom when the quest is next loaded", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx("/work/dir", "phantom"), {
+			action: "load",
+			id: a.id,
+		});
+		// The session has no log on disk (test ctx), so once detached it
+		// is a phantom. Loading again under a different session id must
+		// garbage-collect it rather than carry it forever.
+		detachSessionFromLoaded(state, "phantom");
+		expect(sessionsOf(a.dir).some((s) => s.id === "phantom")).toBe(true);
+		await handle(state, fakePi(), fakeCtx("/work/dir", "fresh"), {
+			action: "load",
+			id: a.id,
+		});
+		const ids = sessionsOf(a.dir).map((s) => s.id);
+		expect(ids).not.toContain("phantom");
+		expect(ids).toContain("fresh");
+	});
+
 	it("detaches the current session as the shutdown handler does", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");

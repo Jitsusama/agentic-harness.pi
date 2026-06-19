@@ -59,6 +59,29 @@ export interface SessionView extends QuestSession {
 const LIVE_WINDOW_MS = 15 * 60 * 1000;
 
 /**
+ * Drop a quest's no-log phantom sessions. A phantom is a detached
+ * session with no log file: a fan-out of ephemeral children leaves
+ * such ids behind, and they can never be resumed. Active sessions
+ * are never removed (the current one may not have flushed a log
+ * yet), and a detached session that still has a log is real history.
+ */
+export function prunePhantomSessions(
+	sessions: QuestSession[],
+	hasLog: (id: string) => boolean,
+): { kept: QuestSession[]; removed: QuestSession[] } {
+	const kept: QuestSession[] = [];
+	const removed: QuestSession[] = [];
+	for (const session of sessions) {
+		if (session.status === "detached" && !hasLog(session.id)) {
+			removed.push(session);
+		} else {
+			kept.push(session);
+		}
+	}
+	return { kept, removed };
+}
+
+/**
  * Index every session log in the store once, mapping session id to
  * its file path. Callers that need the activity of many sessions
  * (the activity-window query over the whole backlog) build this
