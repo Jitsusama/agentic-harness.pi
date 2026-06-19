@@ -20,7 +20,7 @@ import {
 	renameSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 /** Marker identifying a hook file as pi's, for idempotent installs. */
 const HOOK_MARKER = "pi-commit-attribution-hook";
@@ -91,5 +91,18 @@ function resolveHooksDir(repoRoot: string): string {
 		["-C", repoRoot, "rev-parse", "--git-path", "hooks"],
 		{ encoding: "utf8" },
 	).trim();
-	return join(repoRoot, path);
+	return isAbsolute(path) ? path : join(repoRoot, path);
+}
+
+/** The git repository root containing dir, or null when there is none. */
+export function repoRootOf(dir: string): string | null {
+	try {
+		return execFileSync("git", ["-C", dir, "rev-parse", "--show-toplevel"], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
+	} catch {
+		// Not a git repository (or git unavailable): no hook to install.
+		return null;
+	}
 }

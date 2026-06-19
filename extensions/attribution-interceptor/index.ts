@@ -32,11 +32,30 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
+import {
+	installCommitHook,
+	repoRootOf,
+} from "../../lib/internal/guardian/commit-hook.js";
+import { coAuthorTrailer } from "../../lib/internal/guardian/commit-trailer.js";
 import { attributeGh, injectCommitAttribution } from "./attribution.js";
 
 const GH_ENTITIES = ["pr", "issue"] as const;
 
 export default function attributionExtension(pi: ExtensionAPI) {
+	// Install the prepare-commit-msg hook in the working repo so
+	// commits pi cannot intercept at the command (cherry-pick,
+	// revert, rebase, merge, editor) are attributed too. Idempotent
+	// and best-effort: a non-git cwd or a failed install just leaves
+	// command-level injection as the only path.
+	const repoRoot = repoRootOf(process.cwd());
+	if (repoRoot) {
+		try {
+			installCommitHook(repoRoot);
+		} catch {
+			// Best-effort: never block startup on hook installation.
+		}
+	}
+
 	pi.on(
 		"tool_call",
 		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
@@ -44,6 +63,10 @@ export default function attributionExtension(pi: ExtensionAPI) {
 
 			const command = event.input.command;
 			const modelId = ctx.model?.id ?? null;
+
+			// Carry the trailer to child git processes so the hook can
+			// attribute every commit path with the current model.
+			process.env.PI_CO_AUTHOR = coAuthorTrailer(modelId);
 
 			// Commits are still attributed by an in-place rewrite until
 			// the prepare-commit-msg hook lands; PRs and issues splice.
