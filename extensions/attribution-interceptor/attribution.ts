@@ -8,11 +8,9 @@
  */
 
 import {
-	isGhCommand,
-	parseIssueCommand,
-	parsePrCommand,
-	rebuildGhCommand,
-} from "../../lib/internal/github/cli.js";
+	type GhFooterInsertion,
+	insertGhBodyFooter,
+} from "../../lib/internal/github/attribution-edit.js";
 import { readCommitFile } from "../../lib/internal/guardian/commit-file.js";
 import {
 	buildCommitHeredoc,
@@ -101,52 +99,19 @@ export function injectCommitAttribution(
 }
 
 /**
- * Inject a Co-Authored-By footer into a gh pr or gh issue command.
- * Returns the rewritten command or null if not applicable.
+ * Attribute a gh pr or gh issue command by splicing the footer into
+ * its body in place, so the working directory, environment and
+ * every other flag survive untouched. Returns a rewritten, blocked
+ * or skip verdict; the caller fails closed on a blocked command so
+ * a gh entity command in an unsupported shape never runs
+ * un-attributed.
  */
-export function injectGhAttribution(
+export function attributeGh(
 	command: string,
 	entity: "pr" | "issue",
 	modelId: string | null,
-): string | null {
-	const stripped = stripShellData(stripHeredocBodies(command));
-	if (!isGhCommand(stripped, entity)) return null;
-
-	if (entity === "pr") {
-		const parsed = parsePrCommand(command);
-		if (!parsed?.body) return null;
-		if (ATTRIBUTION_PATTERN.test(parsed.body)) return null;
-
-		const attributed = parsed.body + ghFooter(modelId);
-		return rebuildGhCommand({
-			entity: "pr",
-			action: parsed.action,
-			entityNumber: parsed.prNumber,
-			prefix: parsed.prefix,
-			extraFlags: parsed.extraFlags,
-			title: parsed.title,
-			body: attributed,
-			heredocDelim: "__PR_BODY__",
-			suffix: parsed.suffix,
-			openerSuffix: parsed.openerRest,
-		});
-	}
-
-	const parsed = parseIssueCommand(command);
-	if (!parsed?.body) return null;
-	if (ATTRIBUTION_PATTERN.test(parsed.body)) return null;
-
-	const attributed = parsed.body + ghFooter(modelId);
-	return rebuildGhCommand({
-		entity: "issue",
-		action: parsed.action,
-		entityNumber: parsed.issueNumber,
-		prefix: parsed.prefix,
-		extraFlags: parsed.extraFlags,
-		title: parsed.title,
-		body: attributed,
-		heredocDelim: "__ISSUE_BODY__",
-		suffix: parsed.suffix,
-		openerSuffix: parsed.openerRest,
-	});
+): GhFooterInsertion {
+	return insertGhBodyFooter(command, entity, ghFooter(modelId), (body) =>
+		ATTRIBUTION_PATTERN.test(body),
+	);
 }

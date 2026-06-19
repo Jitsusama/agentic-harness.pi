@@ -196,7 +196,7 @@ Command syntax for `git` operations.
 
 | Rule | Section in skill | Status | Enforced by |
 | --- | --- | --- | --- |
-| Heredoc commit messages, never long `-m` | Heredoc Syntax for Commits / Why Heredoc Over -m | 🔇 | `extensions/attribution-interceptor` rebuilds every commit it processes (heredoc, `-m`, or `-F <file>`) into the canonical heredoc form via `buildCommitHeredoc`, so the convention is enforced silently in the rewrite. When `--no-attribution` is set the original `-m` form passes through. |
+| Heredoc commit messages, never long `-m` | Heredoc Syntax for Commits / Why Heredoc Over -m | 🔇 | `extensions/attribution-interceptor` rebuilds every commit it processes (heredoc, `-m`, or `-F <file>`) into the canonical heredoc form via `buildCommitHeredoc`, so the convention is enforced silently in the rewrite. Attribution is unconditional, so there is no opt-out that would let the original `-m` form pass through. |
 | Quoted heredoc delimiter | Shell Quoting | 🟢 | Same `hasUnquotedHeredoc` check applies to commit heredocs through the guardian |
 | One concern per bash call | One Concern Per Bash Call | ⚪ | Judgment about what constitutes "one concern". |
 

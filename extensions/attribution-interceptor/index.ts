@@ -20,7 +20,11 @@
  * are a sanctioned mutation site for silent command enrichment
  * (see AGENTS.md "One Mutation Site for Command Rewriting").
  *
- * On by default. Disable with --no-attribution flag.
+ * Attribution is unconditional: there is no opt-out flag. A gh
+ * entity command in a shape we cannot parse well enough to
+ * attribute is blocked, with a reason that asks the agent to
+ * reissue it in a simpler form, rather than allowed to run
+ * un-attributed.
  */
 
 import {
@@ -28,32 +32,39 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
-import { injectCommitAttribution, injectGhAttribution } from "./attribution.js";
+import { attributeGh, injectCommitAttribution } from "./attribution.js";
+
+const GH_ENTITIES = ["pr", "issue"] as const;
 
 export default function attributionExtension(pi: ExtensionAPI) {
-	pi.registerFlag("no-attribution", {
-		description:
-			"Disable AI co-authorship attribution on commits, PRs and issues",
-		type: "boolean",
-		default: false,
-	});
-
 	pi.on(
 		"tool_call",
 		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
 			if (!isToolCallEventType("bash", event)) return;
-			if (pi.getFlag("no-attribution") === true) return;
 
 			const command = event.input.command;
 			const modelId = ctx.model?.id ?? null;
 
-			const rewritten =
-				injectCommitAttribution(command, modelId) ??
-				injectGhAttribution(command, "pr", modelId) ??
-				injectGhAttribution(command, "issue", modelId);
+			// Commits are still attributed by an in-place rewrite until
+			// the prepare-commit-msg hook lands; PRs and issues splice.
+			const commitRewrite = injectCommitAttribution(command, modelId);
+			if (commitRewrite) {
+				(event.input as { command: string }).command = commitRewrite;
+				return;
+			}
 
-			if (rewritten) {
-				(event.input as { command: string }).command = rewritten;
+			for (const entity of GH_ENTITIES) {
+				const result = attributeGh(command, entity, modelId);
+				if (result.kind === "rewritten") {
+					(event.input as { command: string }).command = result.command;
+					return;
+				}
+				if (result.kind === "blocked") {
+					return {
+						block: true,
+						reason: `Attribution cannot be applied to this gh ${entity} command: ${result.reason}. Reissue it in a simple form, without wrapping it in command substitution, a subshell or a pipe, so it can be reviewed and attributed.`,
+					};
+				}
 			}
 		},
 	);
