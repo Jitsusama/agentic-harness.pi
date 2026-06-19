@@ -7,6 +7,8 @@
  * detect, enforce and rewrite commands without reconstructing them.
  */
 
+export type { Edit } from "./edit.js";
+export { applyEdits } from "./edit.js";
 export { tokenize } from "./tokenize.js";
 export type {
 	CommandLine,
