@@ -65,6 +65,54 @@ describe("reclaimWorktrees", () => {
 		expect(released).toEqual(["aaa"]);
 	});
 
+	it("releases after the drain timeout even if a run never ends", async () => {
+		const released: string[] = [];
+		const registry = new WorktreeRegistry(recordingProvider(released));
+		await registry.ensure({ owner: "o", repo: "r", sha: "aaa" });
+
+		const cancellations = new ReviewerCancellationRegistry();
+		// A run that ignores its cancellation and never ends.
+		cancellations.beginRun("council");
+
+		const result = await reclaimWorktrees(registry, cancellations, {
+			drainTimeoutMs: 20,
+		});
+
+		expect(result.released).toBe(1);
+		expect(released).toEqual(["aaa"]);
+	});
+
+	it("reports only the handles that actually released", async () => {
+		let calls = 0;
+		const provider: WorktreeProvider = {
+			id: "flaky",
+			async ensure(req) {
+				return {
+					path: `/wt/${req.sha}`,
+					sha: req.sha,
+					providerId: "flaky",
+					reusable: true,
+					createdAt: new Date(0),
+				};
+			},
+			async release() {
+				calls += 1;
+				if (calls === 1) throw new Error("dev tree remove failed");
+			},
+		};
+		const registry = new WorktreeRegistry(provider);
+		await registry.ensure({ owner: "o", repo: "r", sha: "aaa" });
+		await registry.ensure({ owner: "o", repo: "r", sha: "bbb" });
+
+		const result = await reclaimWorktrees(
+			registry,
+			new ReviewerCancellationRegistry(),
+		);
+
+		expect(result.released).toBe(1);
+		expect(result.errors.length).toBe(1);
+	});
+
 	it("collects release failures instead of throwing", async () => {
 		const provider: WorktreeProvider = {
 			id: "boom",

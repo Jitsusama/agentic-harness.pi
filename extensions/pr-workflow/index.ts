@@ -189,6 +189,12 @@ const NEOVIM_PI_READY = "neovim-pi:ready";
  */
 const RESULTS_RETAIN_FILES = 500;
 const RESULTS_RETAIN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+// Upper bound on waiting for cancelled review runs to drain before
+// reclaiming worktrees. Cancellation aborts the subprocesses, so a
+// drain is normally near-instant; this only bounds a reviewer that
+// ignores its abort, so teardown and the quick-mutation lane cannot
+// hang on it forever.
+const RECLAIM_DRAIN_TIMEOUT_MS = 30 * 1000;
 
 /**
  * Load the persona library from disk and return a synchronous
@@ -404,7 +410,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	// throwing, and we never let teardown reject.
 	const reclaimSessionWorktrees = async () => {
 		if (councilDeps === null) return { released: 0, errors: [] };
-		return reclaimWorktrees(councilDeps.registry, cancellations);
+		return reclaimWorktrees(councilDeps.registry, cancellations, {
+			drainTimeoutMs: RECLAIM_DRAIN_TIMEOUT_MS,
+		});
 	};
 	const progressControls = () => ({
 		cancelReviewer: (reviewerId: string) =>
@@ -2477,7 +2485,15 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						previousRef.repo !== loaded.reference.repo ||
 						previousRef.number !== loaded.reference.number)
 				) {
-					await reclaimSessionWorktrees();
+					const reclaimed = await reclaimSessionWorktrees();
+					// Surface the outcome the way reset does, so a release
+					// failure on the switch edge is not silent.
+					if (reclaimed.errors.length > 0) {
+						ctx.ui.notify(
+							`Switching PRs: ${reclaimed.errors.length} review worktree(s) from the previous PR could not be released: ${reclaimed.errors.join("; ")}.`,
+							"warning",
+						);
+					}
 				}
 				if (!loaded) {
 					return {

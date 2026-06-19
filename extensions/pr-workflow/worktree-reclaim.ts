@@ -3,10 +3,22 @@ import type { WorktreeRegistry } from "./worktree.js";
 
 /** Outcome of a worktree reclaim sweep. */
 export interface ReclaimResult {
-	/** How many handles were active when the sweep began. */
+	/** How many handles were successfully released. */
 	readonly released: number;
 	/** Per-handle release failures, as messages. Empty on a clean sweep. */
 	readonly errors: string[];
+}
+
+/** Options for {@link reclaimWorktrees}. */
+export interface ReclaimOptions {
+	/**
+	 * Upper bound, in milliseconds, on waiting for cancelled runs
+	 * to drain before releasing anyway. A reviewer subprocess that
+	 * ignores its abort would otherwise hang the drain forever,
+	 * wedging session teardown and the quick-mutation lane. Omit
+	 * to wait unbounded (only safe when the caller knows runs end).
+	 */
+	readonly drainTimeoutMs?: number;
 }
 
 /**
@@ -22,12 +34,37 @@ export interface ReclaimResult {
 export async function reclaimWorktrees(
 	registry: WorktreeRegistry,
 	cancellations: ReviewerCancellationRegistry,
+	options: ReclaimOptions = {},
 ): Promise<ReclaimResult> {
 	cancellations.cancel();
-	await cancellations.whenIdle();
-	const released = registry.active().length;
+	await drainOrTimeout(cancellations, options.drainTimeoutMs);
+	const attempted = registry.active().length;
 	const errors = await releaseAllCollecting(registry);
-	return { released, errors };
+	return { released: attempted - errors.length, errors };
+}
+
+/**
+ * Wait for active runs to drain, but no longer than
+ * `timeoutMs` when one is given. The timer is cleared when the
+ * drain wins so it never keeps the event loop alive.
+ */
+async function drainOrTimeout(
+	cancellations: ReviewerCancellationRegistry,
+	timeoutMs: number | undefined,
+): Promise<void> {
+	if (timeoutMs === undefined) {
+		await cancellations.whenIdle();
+		return;
+	}
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<void>((resolve) => {
+		timer = setTimeout(resolve, timeoutMs);
+	});
+	try {
+		await Promise.race([cancellations.whenIdle(), timeout]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
 }
 
 async function releaseAllCollecting(
