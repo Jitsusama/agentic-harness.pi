@@ -895,8 +895,21 @@ export function detachSessionFromLoaded(
 	sessionId: string,
 ): { ok: true; detached: boolean } | { ok: false; guidance: string } {
 	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	return detachSessionInQuestDir(state.questDir, sessionId);
+}
+
+/**
+ * Mark a session detached on a specific quest dir, independent of
+ * what is loaded. The switch path uses this to release a session
+ * from the quest it is leaving, so one session does not read active
+ * on every quest it ever touched.
+ */
+export function detachSessionInQuestDir(
+	questDir: string,
+	sessionId: string,
+): { ok: true; detached: boolean } | { ok: false; guidance: string } {
 	let detached = false;
-	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+	const result = writeQuestFrontMatter(questDir, (fm) => {
 		let hit = false;
 		const next = fm.sessions.map((s) => {
 			if (s.id !== sessionId) return s;

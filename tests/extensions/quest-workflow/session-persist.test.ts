@@ -313,6 +313,28 @@ describe("auto-attach on load", () => {
 		expect(ids).toContain("fresh");
 	});
 
+	it("detaches the session from the quest it leaves on a switch", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		const b = await createQuest(state, "Beta");
+		// One session loads Alpha, then switches to Beta.
+		await handle(state, fakePi(), fakeCtx("/work/dir", "roamer"), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx("/work/dir", "roamer"), {
+			action: "load",
+			id: b.id,
+		});
+		// Alpha must no longer show the session as active; Beta does.
+		expect(sessionsOf(a.dir).find((s) => s.id === "roamer")?.status).toBe(
+			"detached",
+		);
+		expect(sessionsOf(b.dir).find((s) => s.id === "roamer")?.status).toBe(
+			"active",
+		);
+	});
+
 	it("detaches the current session as the shutdown handler does", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");

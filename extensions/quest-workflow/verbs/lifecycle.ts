@@ -30,6 +30,7 @@ import { parseRef, urlForRef } from "../../../lib/refs/index.js";
 import {
 	appendJourneyEntry,
 	attachCurrentSession,
+	detachSessionInQuestDir,
 	ensureQuestsRoot,
 	focusDocument,
 	listAllQuests,
@@ -254,8 +255,28 @@ export async function load(
 			);
 		}
 	}
+	// Capture the quest being left so the current session can be
+	// released from it on a switch.
+	const priorQuestId = state.questId;
+	const priorQuestDir = state.questDir;
+
 	const result = loadQuest(state, pi, targetId);
 	if (!result.ok) return refuse(result.guidance);
+
+	// On a switch, detach this session from the quest it is leaving:
+	// one pi session that loads several quests over its life should
+	// read active on the one it is on, not on all of them. Only for a
+	// persisted session, mirroring the attach guard.
+	const switchSid = currentSessionId(ctx, undefined);
+	if (
+		priorQuestDir &&
+		priorQuestId &&
+		priorQuestId !== state.questId &&
+		switchSid &&
+		isPersistedSession(ctx)
+	) {
+		detachSessionInQuestDir(priorQuestDir, switchSid);
+	}
 
 	// Garbage-collect no-log phantoms left by pre-guard fan-outs so
 	// the prior-session list and frontmatter reflect real sessions.
