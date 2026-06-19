@@ -162,6 +162,7 @@ import {
 } from "./worktree.js";
 import { createGitWorktreeProvider } from "./worktree-git.js";
 import { reclaimWorktrees } from "./worktree-reclaim.js";
+import { selectWorktreeBySha } from "./worktree-select.js";
 
 /**
  * Events used to register `pi://pr/...` URI handling with
@@ -529,6 +530,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"fix-skip",
 					"fix-worktree-list",
 					"fix-worktree-cleanup",
+					"worktree-list",
+					"worktree-cleanup",
 					"release-identity-lock",
 					"summary",
 					"personas",
@@ -586,6 +589,16 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"for a PR. Requires `pr` (owner/repo#number form " +
 						"or bare number when run inside a checkout). " +
 						"Pass force:true to delete uncommitted edits. " +
+						"worktree-list: enumerate review worktrees on disk " +
+						"(the per-SHA trees council reviews materialize). " +
+						"Read-only; no arguments. Use it to find crash " +
+						"orphans a hard kill left behind, which the " +
+						"shutdown, reset and PR-switch release edges could " +
+						"not reclaim. " +
+						"worktree-cleanup: remove a review worktree by `sha` " +
+						"(the value worktree-list prints; a prefix is " +
+						"enough). The provider force-removes, since a review " +
+						"tree is a read-only checkout of the PR head. " +
 						"release-identity-lock: drop a participant id from " +
 						"the lock map so council-config or judge-config can " +
 						"re-use it with a different model. Old findings keep " +
@@ -613,6 +626,14 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"PR reference: a URL, an owner/repo#number short form, or a " +
 						"bare number when run inside a checkout of the target repo. " +
 						"Required for action=load.",
+				}),
+			),
+			sha: Type.Optional(
+				Type.String({
+					description:
+						"Review worktree sha to reclaim. Required for " +
+						"action=worktree-cleanup; a prefix of the value " +
+						"worktree-list prints is enough.",
 				}),
 			),
 			reviewers: Type.Optional(
@@ -2061,6 +2082,101 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							},
 						],
 						details: { ok: true, outcome },
+					};
+				}
+
+				if (params.action === "worktree-list") {
+					const handles = await worktreeProviders.list();
+					if (handles.length === 0) {
+						return {
+							content: [{ type: "text", text: "No review worktrees on disk." }],
+							details: { ok: true, handles: [] },
+						};
+					}
+					const lines = [
+						`${handles.length} review worktree${handles.length === 1 ? "" : "s"} on disk:`,
+						"",
+					];
+					for (const handle of handles) {
+						lines.push(
+							`  ${handle.sha}  (created ${handle.createdAt.toISOString()})`,
+						);
+						lines.push(`    ${handle.path}`);
+					}
+					lines.push("");
+					lines.push(
+						"Call action=worktree-cleanup sha=<sha> to remove one. A prefix is enough.",
+					);
+					return {
+						content: [{ type: "text", text: lines.join("\n") }],
+						details: { ok: true, handles },
+					};
+				}
+
+				if (params.action === "worktree-cleanup") {
+					const sha = params.sha?.trim();
+					if (!sha) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "worktree-cleanup requires a `sha` argument (a value worktree-list prints; a prefix is enough).",
+								},
+							],
+							details: { ok: false, error: "missing sha argument" },
+							isError: true,
+						};
+					}
+					const selection = selectWorktreeBySha(
+						await worktreeProviders.list(),
+						sha,
+					);
+					if (selection.status === "missing") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `No review worktree matches sha "${sha}". Run action=worktree-list to see what is on disk.`,
+								},
+							],
+							details: { ok: false, error: "no matching worktree" },
+							isError: true,
+						};
+					}
+					if (selection.status === "ambiguous") {
+						const shas = selection.matches.map((h) => h.sha).join(", ");
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Sha "${sha}" matches more than one review worktree: ${shas}. Use a longer prefix.`,
+								},
+							],
+							details: { ok: false, error: "ambiguous sha" },
+							isError: true,
+						};
+					}
+					try {
+						await worktreeProviders.release(selection.handle);
+					} catch (error) {
+						const message =
+							error instanceof Error ? error.message : String(error);
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Failed to remove ${selection.handle.path}: ${message}`,
+								},
+							],
+							details: { ok: false, error: message },
+							isError: true,
+						};
+					}
+					return {
+						content: [
+							{ type: "text", text: `Removed ${selection.handle.path}.` },
+						],
+						details: { ok: true, removed: selection.handle },
 					};
 				}
 

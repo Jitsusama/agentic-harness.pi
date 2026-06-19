@@ -63,6 +63,8 @@ prose; you translate intent into calls.
 | `fix-skip` | Abandon a queued fix with a reason. Requires `findingId` and `skipReason`. |
 | `fix-worktree-list` | Enumerate fix worktrees that have accumulated under the pr-workflow state dir. Read-only; no arguments. |
 | `fix-worktree-cleanup` | Remove the fix worktree for a PR. Requires `pr`; pass `force:true` to delete uncommitted edits. |
+| `worktree-list` | Enumerate review worktrees on disk (the per-SHA trees council reviews materialize). Read-only; no arguments. Surfaces crash orphans that shutdown, reset and PR-switch release could not reclaim. |
+| `worktree-cleanup` | Remove a review worktree by `sha` (a value `worktree-list` prints; a prefix is enough). Force-removes, since a review tree is a read-only checkout of the PR head. |
 
 ## Reading the user's trajectory
 
