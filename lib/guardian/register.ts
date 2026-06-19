@@ -91,6 +91,11 @@ export function registerGuardian<T>(
 				return;
 			}
 
+			// No guardian emits a rewrite today (review blocks or
+			// allows; rewriting lives in the attribution splice and the
+			// interceptors). This stays as the one sanctioned place a
+			// guardian rewrite would be applied, so a future opt-in does
+			// not reintroduce a second mutation site.
 			if ("rewrite" in result) {
 				(event.input as { command: string }).command = result.rewrite;
 				if (trackedName) record(trackedName, { kind: "rewritten" });
