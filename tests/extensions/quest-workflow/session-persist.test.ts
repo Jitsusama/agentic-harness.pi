@@ -1,10 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	detachSessionFromLoaded,
 	persist,
+	prunePhantomSessionsOnLoaded,
 	restore,
 } from "../../../extensions/quest-workflow/lifecycle";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
@@ -290,6 +291,24 @@ describe("auto-attach on load", () => {
 		});
 		const mine = sessionsOf(a.dir).filter((s) => s.id === "sess-load");
 		expect(mine).toHaveLength(1);
+	});
+
+	it("does not rewrite the quest when there is no phantom to prune", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		// Pre-age `updated` so a stray rewrite is detectable: a no-op
+		// prune must not bump it back to today.
+		const readme = join(a.dir, "README.md");
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(
+				/updated: .*/,
+				"updated: 2020-01-01",
+			),
+		);
+		const { removed } = prunePhantomSessionsOnLoaded(state);
+		expect(removed).toBe(0);
+		expect(readFileSync(readme, "utf8")).toContain("updated: 2020-01-01");
 	});
 
 	it("prunes a detached no-log phantom when the quest is next loaded", async () => {

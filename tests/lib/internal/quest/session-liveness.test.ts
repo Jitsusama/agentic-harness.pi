@@ -134,6 +134,38 @@ describe("deriveLiveness", () => {
 		const view = deriveLiveness({ id: "019idle", status: "active" }, dir, now);
 		expect(view.liveness).toBe("idle");
 	});
+
+	it("matches the directory-walk result when given a prebuilt index", async () => {
+		await writeSession("019live", "--c--", [
+			{ timestamp: "2026-06-04T11:58:00.000Z" },
+		]);
+		await writeSession("019idle", "--d--", [
+			{ timestamp: "2026-06-04T10:00:00.000Z" },
+		]);
+		const index = indexSessionFiles(dir);
+		for (const id of ["019live", "019idle", "gone"]) {
+			const session = { id, status: "active" as const };
+			expect(deriveLiveness(session, dir, now, index)).toEqual(
+				deriveLiveness(session, dir, now),
+			);
+		}
+	});
+
+	it("resolves activity from the index without reading the store directory", async () => {
+		await writeSession("019live", "--c--", [
+			{ timestamp: "2026-06-04T11:58:00.000Z" },
+		]);
+		const index = indexSessionFiles(dir);
+		// A bogus sessionDir would make the directory-walk path fail to
+		// find the log; with the index, liveness still resolves.
+		const view = deriveLiveness(
+			{ id: "019live", status: "active" },
+			"/nonexistent",
+			now,
+			index,
+		);
+		expect(view.liveness).toBe("live");
+	});
 });
 
 describe("prunePhantomSessions", () => {

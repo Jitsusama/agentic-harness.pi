@@ -883,7 +883,10 @@ export function prunePhantomSessionsOnLoaded(state: QuestState): {
 			index.has(id),
 		);
 		removed = gone.length;
-		if (gone.length === 0) return fm;
+		// Return undefined when nothing changed so writeQuestFrontMatter
+		// skips the write: a no-op prune must not rewrite the README or
+		// bump `updated` on every load.
+		if (gone.length === 0) return undefined;
 		return { ...fm, sessions: kept };
 	});
 	return { removed };

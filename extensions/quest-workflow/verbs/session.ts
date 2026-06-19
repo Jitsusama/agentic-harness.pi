@@ -13,6 +13,7 @@ import {
 import {
 	deriveLiveness,
 	formatRelativeAge,
+	indexSessionFiles,
 	type SessionView,
 } from "../../../lib/internal/quest/session-liveness.js";
 import type { QuestSession } from "../../../lib/quest/index.js";
@@ -195,7 +196,8 @@ export async function spawn(
 	// than dropping the new terminal into home.
 	const now = new Date();
 	const store = sessionsDir();
-	const sessions = fm.sessions.map((s) => deriveLiveness(s, store, now));
+	const index = indexSessionFiles(store);
+	const sessions = fm.sessions.map((s) => deriveLiveness(s, store, now, index));
 	const resolved = resolveSpawnCwd({
 		questDir: entry.dir,
 		trees: fm.trees ?? [],

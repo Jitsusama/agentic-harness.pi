@@ -148,13 +148,21 @@ export function questLastActivity(
  * session with no log file is dead; recent activity is live and
  * older activity is idle. lastActivity is carried through whenever
  * a log file is found, even for a detached session.
+ *
+ * Pass a prebuilt {@link indexSessionFiles} map as `index` to
+ * resolve the log without re-walking the store. Callers deriving
+ * many sessions at once (the `show` view, `spawn`) build it once
+ * instead of scanning the store per session.
  */
 export function deriveLiveness(
 	session: QuestSession,
 	sessionDir: string,
 	now: Date,
+	index?: Map<string, string>,
 ): SessionView {
-	const activity = sessionActivity(session.id, sessionDir);
+	const activity = index
+		? activityFromPath(index.get(session.id))
+		: sessionActivity(session.id, sessionDir);
 	const lastActivity = activity?.lastActivity;
 	if (session.status === "detached") {
 		return { ...session, liveness: "detached", lastActivity };
@@ -180,10 +188,22 @@ export function sessionActivity(
 ): { path: string; lastActivity: string } | undefined {
 	const suffix = `_${id}.jsonl`;
 	const match = findSessionFile(sessionDir, suffix);
-	if (!match) return undefined;
-	const lastActivity = newestTimestamp(match);
+	return activityFromPath(match);
+}
+
+/**
+ * Read a known log path's newest activity. Shared by the
+ * directory-walk and the prebuilt-index resolution paths so both
+ * report activity identically. Undefined when the path is missing
+ * or carries no parseable timestamp.
+ */
+function activityFromPath(
+	path: string | undefined,
+): { path: string; lastActivity: string } | undefined {
+	if (!path) return undefined;
+	const lastActivity = newestTimestamp(path);
 	if (!lastActivity) return undefined;
-	return { path: match, lastActivity };
+	return { path, lastActivity };
 }
 
 /** Walk the session dir and its immediate subdirs for the id-matched file. */

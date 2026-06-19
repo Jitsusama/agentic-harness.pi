@@ -55,6 +55,7 @@ import {
 	listAllQuests,
 	loadQuest,
 	persist,
+	prunePhantomSessionsOnLoaded,
 	refreshLoadedSlice,
 	refreshProgress,
 	restore,
@@ -554,6 +555,11 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// resolved from the cwd), record this session on it so
 		// the sessions frontmatter reflects where work happens.
 		if (state.questId) {
+			// Garbage-collect no-log phantoms here too: most reopens go
+			// through this autoload/restore path rather than the explicit
+			// load verb, so pruning only there would rarely fire. The
+			// no-op case is cheap (it skips the write).
+			prunePhantomSessionsOnLoaded(state);
 			attachCurrentSession(state, {
 				id: currentSessionId(ctx, undefined),
 				cwd: ctx.cwd,

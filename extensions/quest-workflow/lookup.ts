@@ -417,13 +417,18 @@ function linksForQuest(
 /**
  * Project a quest's attached sessions for display: derive each
  * session's liveness from its log in the pi session store, then
- * summarise (drop dead phantoms, order newest-first, flag the
- * resume target). Reads the store fresh against the current time.
+ * summarise (order newest-first and flag the resume target). Every
+ * session is reported, including dead no-log ones; pruning phantoms
+ * is the load verb's job, not this view's. Reads the store fresh
+ * against the current time.
  */
 function projectSessions(sessions: QuestSession[]): SessionSummary[] {
 	const store = sessionsDir();
+	const index = indexSessionFiles(store);
 	const now = new Date();
-	return summariseSessions(sessions.map((s) => deriveLiveness(s, store, now)));
+	return summariseSessions(
+		sessions.map((s) => deriveLiveness(s, store, now, index)),
+	);
 }
 
 export interface DocumentSummary {
