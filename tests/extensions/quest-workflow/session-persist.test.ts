@@ -1,10 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	detachSessionFromLoaded,
 	persist,
+	prunePhantomSessionsOnLoaded,
 	restore,
 } from "../../../extensions/quest-workflow/lifecycle";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
@@ -29,11 +30,12 @@ function fakePi() {
 	} as unknown as Parameters<typeof handle>[1];
 }
 
-function fakeCtx(cwd: string, sessionId = "sess-1") {
+function fakeCtx(cwd: string, sessionId = "sess-1", persisted = true) {
 	return {
 		cwd,
 		sessionManager: {
 			getSessionId: () => sessionId,
+			isPersisted: () => persisted,
 			getEntries: () =>
 				entries.map((e) => ({
 					type: "custom" as const,
@@ -49,12 +51,20 @@ function buildState() {
 }
 
 const envGuard = createEnvGuard();
+let savedHome: string | undefined;
 beforeEach(() => {
 	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "quest-persist-"));
 	entries = [];
+	// Point the pi session store (sessionsDir keys off HOME) at an
+	// empty tmp home so phantom-prune and liveness tests read a known
+	// store rather than the developer's real ~/.pi/agent/sessions.
+	savedHome = process.env.HOME;
+	process.env.HOME = tmpRoot;
 });
 afterEach(() => {
+	if (savedHome !== undefined) process.env.HOME = savedHome;
+	else delete process.env.HOME;
 	rmSync(tmpRoot, { recursive: true, force: true });
 	envGuard.leave();
 });
@@ -259,6 +269,39 @@ describe("auto-attach on load", () => {
 		expect(mine?.cwd).toBe("/work/dir");
 	});
 
+	it("does not attach an ephemeral (--no-session) session", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(
+			state,
+			fakePi(),
+			fakeCtx("/work/dir", "sess-ephemeral", false),
+			{
+				action: "load",
+				id: a.id,
+			},
+		);
+		expect(sessionsOf(a.dir).some((s) => s.id === "sess-ephemeral")).toBe(
+			false,
+		);
+	});
+
+	it("keeps the session active when the same quest is reloaded (no switch-detach)", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx("/work/dir", "stay"), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx("/work/dir", "stay"), {
+			action: "load",
+			id: a.id,
+		});
+		expect(sessionsOf(a.dir).find((s) => s.id === "stay")?.status).toBe(
+			"active",
+		);
+	});
+
 	it("does not duplicate the session when the same quest is reloaded", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
@@ -272,6 +315,67 @@ describe("auto-attach on load", () => {
 		});
 		const mine = sessionsOf(a.dir).filter((s) => s.id === "sess-load");
 		expect(mine).toHaveLength(1);
+	});
+
+	it("does not rewrite the quest when there is no phantom to prune", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		// Pre-age `updated` so a stray rewrite is detectable: a no-op
+		// prune must not bump it back to today.
+		const readme = join(a.dir, "README.md");
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(
+				/updated: .*/,
+				"updated: 2020-01-01",
+			),
+		);
+		const { removed } = prunePhantomSessionsOnLoaded(state);
+		expect(removed).toBe(0);
+		expect(readFileSync(readme, "utf8")).toContain("updated: 2020-01-01");
+	});
+
+	it("prunes a detached no-log phantom when the quest is next loaded", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx("/work/dir", "phantom"), {
+			action: "load",
+			id: a.id,
+		});
+		// The session has no log on disk (test ctx), so once detached it
+		// is a phantom. Loading again under a different session id must
+		// garbage-collect it rather than carry it forever.
+		detachSessionFromLoaded(state, "phantom");
+		expect(sessionsOf(a.dir).some((s) => s.id === "phantom")).toBe(true);
+		await handle(state, fakePi(), fakeCtx("/work/dir", "fresh"), {
+			action: "load",
+			id: a.id,
+		});
+		const ids = sessionsOf(a.dir).map((s) => s.id);
+		expect(ids).not.toContain("phantom");
+		expect(ids).toContain("fresh");
+	});
+
+	it("detaches the session from the quest it leaves on a switch", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		const b = await createQuest(state, "Beta");
+		// One session loads Alpha, then switches to Beta.
+		await handle(state, fakePi(), fakeCtx("/work/dir", "roamer"), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx("/work/dir", "roamer"), {
+			action: "load",
+			id: b.id,
+		});
+		// Alpha must no longer show the session as active; Beta does.
+		expect(sessionsOf(a.dir).find((s) => s.id === "roamer")?.status).toBe(
+			"detached",
+		);
+		expect(sessionsOf(b.dir).find((s) => s.id === "roamer")?.status).toBe(
+			"active",
+		);
 	});
 
 	it("detaches the current session as the shutdown handler does", async () => {

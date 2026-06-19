@@ -84,20 +84,62 @@ export function resolveSpawnCwd(opts: {
 }
 
 /**
- * Choose the live session to resume. Returns undefined when none
- * is live, the single live session's id when exactly one is, and
- * an ambiguous list (most-recent first) when several are live so
- * the caller can ask the user which to resume.
+ * Choose the session to resume. A live session wins: one live
+ * session resumes outright, several live ones are ambiguous
+ * (genuinely concurrent work) so the caller can ask which. With
+ * no live session, fall back to the most-recent idle one —
+ * reopening yesterday's work is the common case, and staleness is
+ * surfaced, not refused. Only dead (no log) and detached sessions
+ * are excluded, so undefined means nothing is resumable.
  */
 export function pickResumeSession(
 	sessions: SessionView[],
 ): { id: string } | { ambiguous: SessionView[] } | undefined {
-	const live = sessions
-		.filter((s) => s.liveness === "live")
-		.sort(byActivityDesc);
-	if (live.length === 0) return undefined;
+	const byLiveness = (want: SessionView["liveness"]): SessionView[] =>
+		sessions.filter((s) => s.liveness === want).sort(byActivityDesc);
+
+	const live = byLiveness("live");
 	if (live.length === 1) return { id: live[0].id };
-	return { ambiguous: live };
+	if (live.length > 1) return { ambiguous: live };
+
+	// No live session: resume the most-recent idle one. Idle is
+	// stale, not concurrent, so several idle sessions are never
+	// ambiguous — the newest is the one you left the work in.
+	const idle = byLiveness("idle");
+	if (idle.length > 0) return { id: idle[0].id };
+	return undefined;
+}
+
+/** A session projected for display in the `show` view. */
+export interface SessionSummary {
+	id: string;
+	name?: string;
+	cwd?: string;
+	liveness: SessionView["liveness"];
+	lastActivity?: string;
+	/** True for the one session a reopen would resume. */
+	resumeTarget: boolean;
+}
+
+/**
+ * Project a quest's attached sessions for the `show` view. Every
+ * attached session is reported — show reflects the frontmatter
+ * honestly, and removing no-log phantoms is the prune verb's job,
+ * not this view's. Sessions are ordered newest-activity first, and
+ * the single session a reopen would land on (per pickResumeSession)
+ * is flagged so the reader can see what `spawn` will resume.
+ */
+export function summariseSessions(views: SessionView[]): SessionSummary[] {
+	const resume = pickResumeSession(views);
+	const targetId = resume && "id" in resume ? resume.id : undefined;
+	return [...views].sort(byActivityDesc).map((v) => ({
+		id: v.id,
+		...(v.name ? { name: v.name } : {}),
+		...(v.cwd ? { cwd: v.cwd } : {}),
+		liveness: v.liveness,
+		...(v.lastActivity ? { lastActivity: v.lastActivity } : {}),
+		resumeTarget: v.id === targetId,
+	}));
 }
 
 function byActivityDesc(a: SessionView, b: SessionView): number {

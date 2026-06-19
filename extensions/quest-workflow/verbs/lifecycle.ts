@@ -16,6 +16,7 @@ import {
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
+import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.js";
 import {
 	fetchUrlHints,
 	mintId,
@@ -29,10 +30,12 @@ import { parseRef, urlForRef } from "../../../lib/refs/index.js";
 import {
 	appendJourneyEntry,
 	attachCurrentSession,
+	detachSessionInQuestDir,
 	ensureQuestsRoot,
 	focusDocument,
 	listAllQuests,
 	loadQuest,
+	prunePhantomSessionsOnLoaded,
 	unfocusDocument,
 	unloadQuest,
 } from "../lifecycle.js";
@@ -65,6 +68,7 @@ import type { QuestState } from "../state.js";
 import { subdirForDocumentId } from "./queries.js";
 import {
 	currentSessionId,
+	isPersistedSession,
 	ok,
 	QUEST_KINDS_SET,
 	type QuestResult,
@@ -251,12 +255,36 @@ export async function load(
 			);
 		}
 	}
+	// Capture the quest being left so the current session can be
+	// released from it on a switch.
+	const priorQuestId = state.questId;
+	const priorQuestDir = state.questDir;
+
 	const result = loadQuest(state, pi, targetId);
 	if (!result.ok) return refuse(result.guidance);
 
+	const sid = currentSessionId(ctx, undefined);
+
+	// On a switch, detach this session from the quest it is leaving:
+	// one pi session that loads several quests over its life should
+	// read active on the one it is on, not on all of them. Only for a
+	// persisted session, mirroring the attach guard.
+	if (
+		priorQuestDir &&
+		priorQuestId &&
+		priorQuestId !== state.questId &&
+		sid &&
+		isPersistedSession(ctx)
+	) {
+		detachSessionInQuestDir(priorQuestDir, sid);
+	}
+
+	// Garbage-collect no-log phantoms left by pre-guard fan-outs so
+	// the prior-session list and frontmatter reflect real sessions.
+	const pruned = prunePhantomSessionsOnLoaded(state).removed;
+
 	const loaded = await showLoaded(state);
 	const priorSessions = loaded?.frontMatter.sessions ?? [];
-	const sid = currentSessionId(ctx, undefined);
 
 	// Capture the current session automatically rather than
 	// nudging the user to run session-attach by hand: this is
@@ -265,6 +293,7 @@ export async function load(
 	const attached = attachCurrentSession(state, {
 		id: sid,
 		cwd: ctx.cwd,
+		persisted: isPersistedSession(ctx),
 	}).attached;
 
 	const resumable = priorSessions
@@ -284,12 +313,16 @@ export async function load(
 	if (attached) {
 		message += `. Tracking this pi session on the quest.`;
 	}
+	if (pruned > 0) {
+		message += `. Pruned ${pruned} phantom session(s).`;
+	}
 
 	return ok(message, {
 		id: state.questId,
 		dir: state.questDir,
 		attached,
 		resumable,
+		pruned,
 	});
 }
 
@@ -344,6 +377,19 @@ function renderShow(
 		for (const d of projection.documents) {
 			const title = d.title ?? "(untitled)";
 			lines.push(`  - ${d.id} (${d.kind}, ${d.stage}): ${title}`);
+		}
+	}
+	if (projection.sessions.length > 0) {
+		const now = new Date();
+		lines.push("");
+		lines.push("Sessions:");
+		for (const s of projection.sessions) {
+			const age = formatRelativeAge(s.lastActivity, now);
+			const facts = [s.liveness, ...(age ? [age] : [])].join(", ");
+			const name = s.name ? ` "${s.name}"` : "";
+			const where = s.cwd ? ` ${s.cwd}` : "";
+			const mark = s.resumeTarget ? "  <- resumes on reopen" : "";
+			lines.push(`  - ${s.id}${name} (${facts})${where}${mark}`);
 		}
 	}
 	const outgoing = projection.links;

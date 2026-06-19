@@ -22,6 +22,29 @@ import type { QuestSession } from "../../quest/types.js";
 /** How a quest's attached session looks right now. */
 export type SessionLiveness = "live" | "idle" | "detached" | "dead";
 
+/**
+ * Render an activity timestamp as a compact relative string
+ * ("just now", "15m ago", "3h ago", "2d ago"). Undefined when there
+ * is no timestamp or it does not parse, so callers drop the clause
+ * rather than print a bare "undefined ago".
+ */
+export function formatRelativeAge(
+	iso: string | undefined,
+	now: Date,
+): string | undefined {
+	if (!iso) return undefined;
+	const then = Date.parse(iso);
+	if (Number.isNaN(then)) return undefined;
+	const seconds = Math.max(0, Math.floor((now.getTime() - then) / 1000));
+	if (seconds < 60) return "just now";
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h ago`;
+	const days = Math.floor(hours / 24);
+	return `${days}d ago`;
+}
+
 /** A {@link QuestSession} enriched with derived liveness. */
 export interface SessionView extends QuestSession {
 	liveness: SessionLiveness;
@@ -34,6 +57,29 @@ export interface SessionView extends QuestSession {
  * process probe (see the plan's open question on liveness depth).
  */
 const LIVE_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * Drop a quest's no-log phantom sessions. A phantom is a detached
+ * session with no log file: a fan-out of ephemeral children leaves
+ * such ids behind, and they can never be resumed. Active sessions
+ * are never removed (the current one may not have flushed a log
+ * yet), and a detached session that still has a log is real history.
+ */
+export function prunePhantomSessions(
+	sessions: QuestSession[],
+	hasLog: (id: string) => boolean,
+): { kept: QuestSession[]; removed: QuestSession[] } {
+	const kept: QuestSession[] = [];
+	const removed: QuestSession[] = [];
+	for (const session of sessions) {
+		if (session.status === "detached" && !hasLog(session.id)) {
+			removed.push(session);
+		} else {
+			kept.push(session);
+		}
+	}
+	return { kept, removed };
+}
 
 /**
  * Index every session log in the store once, mapping session id to
@@ -102,13 +148,21 @@ export function questLastActivity(
  * session with no log file is dead; recent activity is live and
  * older activity is idle. lastActivity is carried through whenever
  * a log file is found, even for a detached session.
+ *
+ * Pass a prebuilt {@link indexSessionFiles} map as `index` to
+ * resolve the log without re-walking the store. Callers deriving
+ * many sessions at once (the `show` view, `spawn`) build it once
+ * instead of scanning the store per session.
  */
 export function deriveLiveness(
 	session: QuestSession,
 	sessionDir: string,
 	now: Date,
+	index?: Map<string, string>,
 ): SessionView {
-	const activity = sessionActivity(session.id, sessionDir);
+	const activity = index
+		? activityFromPath(index.get(session.id))
+		: sessionActivity(session.id, sessionDir);
 	const lastActivity = activity?.lastActivity;
 	if (session.status === "detached") {
 		return { ...session, liveness: "detached", lastActivity };
@@ -134,10 +188,22 @@ export function sessionActivity(
 ): { path: string; lastActivity: string } | undefined {
 	const suffix = `_${id}.jsonl`;
 	const match = findSessionFile(sessionDir, suffix);
-	if (!match) return undefined;
-	const lastActivity = newestTimestamp(match);
+	return activityFromPath(match);
+}
+
+/**
+ * Read a known log path's newest activity. Shared by the
+ * directory-walk and the prebuilt-index resolution paths so both
+ * report activity identically. Undefined when the path is missing
+ * or carries no parseable timestamp.
+ */
+function activityFromPath(
+	path: string | undefined,
+): { path: string; lastActivity: string } | undefined {
+	if (!path) return undefined;
+	const lastActivity = newestTimestamp(path);
 	if (!lastActivity) return undefined;
-	return { path: match, lastActivity };
+	return { path, lastActivity };
 }
 
 /** Walk the session dir and its immediate subdirs for the id-matched file. */

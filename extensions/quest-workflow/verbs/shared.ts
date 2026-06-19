@@ -91,3 +91,24 @@ export function currentSessionId(
 		return undefined;
 	}
 }
+
+/**
+ * Whether the current pi session persists a log. False only when
+ * the session manager explicitly reports an ephemeral session
+ * (pi --no-session); a missing accessor defaults to true so the
+ * common case still attaches and older harnesses keep working.
+ */
+export function isPersistedSession(ctx: ToolContext): boolean {
+	try {
+		const sm = (
+			ctx as unknown as {
+				sessionManager?: { isPersisted?(): boolean };
+			}
+		).sessionManager;
+		return sm?.isPersisted?.() ?? true;
+	} catch {
+		// Probe failed; treat as persisted so attach behaviour is
+		// unchanged when the accessor is unavailable.
+		return true;
+	}
+}

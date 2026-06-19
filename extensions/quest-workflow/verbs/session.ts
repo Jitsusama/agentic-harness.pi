@@ -10,7 +10,12 @@ import {
 	pickResumeSession,
 	resolveSpawnCwd,
 } from "../../../lib/internal/quest/reopen.js";
-import { deriveLiveness } from "../../../lib/internal/quest/session-liveness.js";
+import {
+	deriveLiveness,
+	formatRelativeAge,
+	indexSessionFiles,
+	type SessionView,
+} from "../../../lib/internal/quest/session-liveness.js";
 import type { QuestSession } from "../../../lib/quest/index.js";
 import {
 	resolveDriver,
@@ -126,6 +131,32 @@ export function resolveSpawnCommand(
 	return { command: "pi" };
 }
 
+/**
+ * The resume fragment appended to the spawn message. A live resume
+ * reads plainly; an idle resume is flagged as such and carries its
+ * last-active age so a day-old session is not silently presented as
+ * current. Several live sessions report the count; nothing
+ * resumable yields no fragment.
+ */
+export function resumeMessage(
+	resume: ReturnType<typeof pickResumeSession>,
+	sessions: SessionView[],
+	now: Date,
+): string | undefined {
+	if (resume && "id" in resume) {
+		const picked = sessions.find((s) => s.id === resume.id);
+		if (picked?.liveness === "idle") {
+			const age = formatRelativeAge(picked.lastActivity, now);
+			return `Resuming idle session ${resume.id}${age ? `, last active ${age}` : ""}.`;
+		}
+		return `Resuming session ${resume.id}.`;
+	}
+	if (resume && "ambiguous" in resume) {
+		return `${resume.ambiguous.length} live sessions; started fresh, resume one explicitly if needed.`;
+	}
+	return undefined;
+}
+
 export async function spawn(
 	state: QuestState,
 	ctx: ToolContext,
@@ -165,7 +196,8 @@ export async function spawn(
 	// than dropping the new terminal into home.
 	const now = new Date();
 	const store = sessionsDir();
-	const sessions = fm.sessions.map((s) => deriveLiveness(s, store, now));
+	const index = indexSessionFiles(store);
+	const sessions = fm.sessions.map((s) => deriveLiveness(s, store, now, index));
 	const resolved = resolveSpawnCwd({
 		questDir: entry.dir,
 		trees: fm.trees ?? [],
@@ -173,10 +205,11 @@ export async function spawn(
 	});
 	const cwd = params.cwd?.trim() || resolved.cwd;
 
-	// Resume a real session when exactly one is live and it
-	// is not the session doing the spawning. Several live
-	// sessions are ambiguous: spawn a fresh pi and surface
-	// the choice rather than guessing.
+	// Pick the session to resume, excluding the one doing the
+	// spawning. pickResumeSession prefers a live session, falls back
+	// to the most-recent idle one, and only reports ambiguity when
+	// several are concurrently live; in that case spawn starts a
+	// fresh pi and surfaces the choice rather than guessing.
 	const currentId = currentSessionId(ctx, undefined);
 	const resume = pickResumeSession(sessions.filter((s) => s.id !== currentId));
 	const { command, resumedSessionId } = resolveSpawnCommand(
@@ -202,11 +235,13 @@ export async function spawn(
 	if (resolved.healed) {
 		message += ` A recorded path was missing; healed to this one.`;
 	}
-	if (resumedSessionId) {
-		message += ` Resuming session ${resumedSessionId}.`;
-	} else if (resume && "ambiguous" in resume) {
-		message += ` ${resume.ambiguous.length} live sessions; started fresh, resume one explicitly if needed.`;
-	}
+	// Only narrate resume when the spawn used pi's default command;
+	// an explicit command overrides the resume decision, so the
+	// idle/live/ambiguous note would not describe what actually ran.
+	const resumeNote = params.command?.trim()
+		? undefined
+		: resumeMessage(resume, sessions, now);
+	if (resumeNote) message += ` ${resumeNote}`;
 	return ok(message, {
 		driver: driver.id,
 		layout,

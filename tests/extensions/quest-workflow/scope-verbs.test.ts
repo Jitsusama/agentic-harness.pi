@@ -440,5 +440,9 @@ describe("show projection", () => {
 		expect(projection.sessions[0].id).toBe("sess-1");
 		expect(projection.links).toBeDefined();
 		expect(projection.echoes).toBeDefined();
+		// renderShow emits a Sessions block listing the attached session.
+		if (!result.ok) throw new Error("expected ok");
+		expect(result.message).toContain("Sessions:");
+		expect(result.message).toContain("sess-1");
 	});
 });

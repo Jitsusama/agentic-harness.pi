@@ -12,6 +12,7 @@ import type {
 	ExtensionContext,
 	ToolContext,
 } from "@mariozechner/pi-coding-agent";
+import { sessionsDir } from "../../lib/internal/paths.js";
 import {
 	type AliasIndex,
 	buildAliasIndex,
@@ -38,6 +39,10 @@ import {
 	sink as rankSink,
 	top as rankTop,
 } from "../../lib/internal/quest/ranking.js";
+import {
+	indexSessionFiles,
+	prunePhantomSessions,
+} from "../../lib/internal/quest/session-liveness.js";
 import { getLastEntry } from "../../lib/internal/state.js";
 import {
 	checkboxProgress,
@@ -841,8 +846,12 @@ export function attachSessionToLoaded(
  */
 export function attachCurrentSession(
 	state: QuestState,
-	opts: { id: string | undefined; cwd?: string },
+	opts: { id: string | undefined; cwd?: string; persisted?: boolean },
 ): { attached: boolean } {
+	// An ephemeral session (pi --no-session) has an id but writes no
+	// log, so attaching it would leave a phantom entry that can never
+	// be resumed. Skip it; only a persisted session earns a record.
+	if (opts.persisted === false) return { attached: false };
 	if (!state.questDir || !opts.id) return { attached: false };
 	const session: QuestSession = {
 		id: opts.id,
@@ -854,14 +863,56 @@ export function attachCurrentSession(
 	return { attached: result.ok };
 }
 
+/**
+ * Drop no-log phantom sessions from the loaded quest's frontmatter.
+ *
+ * Ephemeral fan-outs that predate the attach guard left detached
+ * ids with no log behind; this garbage-collects them when a quest
+ * is loaded, so a quest self-heals on next touch. Only provable
+ * phantoms go (detached and log-less); active and logged sessions
+ * are untouched. No-ops when nothing is prunable.
+ */
+export function prunePhantomSessionsOnLoaded(state: QuestState): {
+	removed: number;
+} {
+	if (!state.questDir) return { removed: 0 };
+	const index = indexSessionFiles(sessionsDir());
+	let removed = 0;
+	writeQuestFrontMatter(state.questDir, (fm) => {
+		const { kept, removed: gone } = prunePhantomSessions(fm.sessions, (id) =>
+			index.has(id),
+		);
+		removed = gone.length;
+		// Return undefined when nothing changed so writeQuestFrontMatter
+		// skips the write: a no-op prune must not rewrite the README or
+		// bump `updated` on every load.
+		if (gone.length === 0) return undefined;
+		return { ...fm, sessions: kept };
+	});
+	return { removed };
+}
+
 /** Mark a session as detached on the loaded quest. */
 export function detachSessionFromLoaded(
 	state: QuestState,
 	sessionId: string,
 ): { ok: true; detached: boolean } | { ok: false; guidance: string } {
 	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	return detachSessionInQuestDir(state.questDir, sessionId);
+}
+
+/**
+ * Mark a session detached on a specific quest dir, independent of
+ * what is loaded. The switch path uses this to release a session
+ * from the quest it is leaving, so one session does not read active
+ * on every quest it ever touched.
+ */
+export function detachSessionInQuestDir(
+	questDir: string,
+	sessionId: string,
+): { ok: true; detached: boolean } | { ok: false; guidance: string } {
 	let detached = false;
-	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+	const result = writeQuestFrontMatter(questDir, (fm) => {
 		let hit = false;
 		const next = fm.sessions.map((s) => {
 			if (s.id !== sessionId) return s;
