@@ -841,8 +841,12 @@ export function attachSessionToLoaded(
  */
 export function attachCurrentSession(
 	state: QuestState,
-	opts: { id: string | undefined; cwd?: string },
+	opts: { id: string | undefined; cwd?: string; persisted?: boolean },
 ): { attached: boolean } {
+	// An ephemeral session (pi --no-session) has an id but writes no
+	// log, so attaching it would leave a phantom entry that can never
+	// be resumed. Skip it; only a persisted session earns a record.
+	if (opts.persisted === false) return { attached: false };
 	if (!state.questDir || !opts.id) return { attached: false };
 	const session: QuestSession = {
 		id: opts.id,

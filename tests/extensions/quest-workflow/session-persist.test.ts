@@ -29,11 +29,12 @@ function fakePi() {
 	} as unknown as Parameters<typeof handle>[1];
 }
 
-function fakeCtx(cwd: string, sessionId = "sess-1") {
+function fakeCtx(cwd: string, sessionId = "sess-1", persisted = true) {
 	return {
 		cwd,
 		sessionManager: {
 			getSessionId: () => sessionId,
+			isPersisted: () => persisted,
 			getEntries: () =>
 				entries.map((e) => ({
 					type: "custom" as const,
@@ -257,6 +258,23 @@ describe("auto-attach on load", () => {
 		expect(mine).toBeDefined();
 		expect(mine?.status).toBe("active");
 		expect(mine?.cwd).toBe("/work/dir");
+	});
+
+	it("does not attach an ephemeral (--no-session) session", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(
+			state,
+			fakePi(),
+			fakeCtx("/work/dir", "sess-ephemeral", false),
+			{
+				action: "load",
+				id: a.id,
+			},
+		);
+		expect(sessionsOf(a.dir).some((s) => s.id === "sess-ephemeral")).toBe(
+			false,
+		);
 	});
 
 	it("does not duplicate the session when the same quest is reloaded", async () => {

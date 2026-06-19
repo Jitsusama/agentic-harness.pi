@@ -69,7 +69,7 @@ import {
 } from "./render-rows.js";
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
-import { currentSessionId } from "./verbs/shared.js";
+import { currentSessionId, isPersistedSession } from "./verbs/shared.js";
 
 const DEFAULT_WIDTH = 80;
 const CALL_PREFIX_WIDTH = 14;
@@ -557,6 +557,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			attachCurrentSession(state, {
 				id: currentSessionId(ctx, undefined),
 				cwd: ctx.cwd,
+				persisted: isPersistedSession(ctx),
 			});
 		}
 		updateScoreboard(state, ctx);

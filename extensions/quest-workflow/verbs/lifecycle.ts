@@ -66,6 +66,7 @@ import type { QuestState } from "../state.js";
 import { subdirForDocumentId } from "./queries.js";
 import {
 	currentSessionId,
+	isPersistedSession,
 	ok,
 	QUEST_KINDS_SET,
 	type QuestResult,
@@ -266,6 +267,7 @@ export async function load(
 	const attached = attachCurrentSession(state, {
 		id: sid,
 		cwd: ctx.cwd,
+		persisted: isPersistedSession(ctx),
 	}).attached;
 
 	const resumable = priorSessions
