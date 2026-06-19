@@ -76,6 +76,9 @@ export class ReviewerCancellationRegistry {
 	// the latest beginRun would clobber.
 	private readonly activeRuns = new Set<ReviewRun>();
 	private readonly active = new Map<string, RegisteredProcess>();
+	// Resolvers for callers awaiting an idle registry. Drained
+	// and cleared the moment the last active run ends.
+	private readonly idleWaiters: Array<() => void> = [];
 
 	/** Start a cancellable review action. */
 	beginRun(operation: ReviewOperation): ReviewRunHandle {
@@ -90,10 +93,29 @@ export class ReviewerCancellationRegistry {
 			operation,
 			end: () => {
 				this.activeRuns.delete(run);
+				if (this.activeRuns.size === 0) this.resolveIdleWaiters();
 			},
 			register: (reviewer, parentSignal) =>
 				this.register(run, reviewer, parentSignal),
 		};
+	}
+
+	/**
+	 * Resolve once no review run is active. Resolves on the
+	 * spot when the registry is already idle, otherwise when
+	 * the last in-flight run ends. Pair with `cancel()` to
+	 * drain runs before releasing the resources they hold.
+	 */
+	whenIdle(): Promise<void> {
+		if (this.activeRuns.size === 0) return Promise.resolve();
+		return new Promise((resolve) => {
+			this.idleWaiters.push(resolve);
+		});
+	}
+
+	private resolveIdleWaiters(): void {
+		const waiters = this.idleWaiters.splice(0);
+		for (const resolve of waiters) resolve();
 	}
 
 	/** Cancel one active reviewer, or every active reviewer when no id is given. */

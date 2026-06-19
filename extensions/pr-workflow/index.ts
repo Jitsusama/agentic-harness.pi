@@ -161,6 +161,8 @@ import {
 	WorktreeRegistry,
 } from "./worktree.js";
 import { createGitWorktreeProvider } from "./worktree-git.js";
+import { reclaimWorktrees } from "./worktree-reclaim.js";
+import { selectWorktreeBySha } from "./worktree-select.js";
 
 /**
  * Events used to register `pi://pr/...` URI handling with
@@ -187,6 +189,12 @@ const NEOVIM_PI_READY = "neovim-pi:ready";
  */
 const RESULTS_RETAIN_FILES = 500;
 const RESULTS_RETAIN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+// Upper bound on waiting for cancelled review runs to drain before
+// reclaiming worktrees. Cancellation aborts the subprocesses, so a
+// drain is normally near-instant; this only bounds a reviewer that
+// ignores its abort, so teardown and the quick-mutation lane cannot
+// hang on it forever.
+const RECLAIM_DRAIN_TIMEOUT_MS = 30 * 1000;
 
 /**
  * Load the persona library from disk and return a synchronous
@@ -394,6 +402,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 		};
 		return councilDeps;
 	};
+	// Reclaim the session's review worktrees, draining any
+	// in-flight run first. A no-op when no council ran (the
+	// registry is built lazily), so it is cheap to call on
+	// every reset, PR switch and shutdown. Best-effort:
+	// `reclaimWorktrees` collects release failures instead of
+	// throwing, and we never let teardown reject.
+	const reclaimSessionWorktrees = async () => {
+		if (councilDeps === null) return { released: 0, errors: [] };
+		return reclaimWorktrees(councilDeps.registry, cancellations, {
+			drainTimeoutMs: RECLAIM_DRAIN_TIMEOUT_MS,
+		});
+	};
 	const progressControls = () => ({
 		cancelReviewer: (reviewerId: string) =>
 			formatCancellationOutcome(cancellations.cancel(reviewerId)),
@@ -518,6 +538,8 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					"fix-skip",
 					"fix-worktree-list",
 					"fix-worktree-cleanup",
+					"worktree-list",
+					"worktree-cleanup",
 					"release-identity-lock",
 					"summary",
 					"personas",
@@ -575,6 +597,16 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"for a PR. Requires `pr` (owner/repo#number form " +
 						"or bare number when run inside a checkout). " +
 						"Pass force:true to delete uncommitted edits. " +
+						"worktree-list: enumerate review worktrees on disk " +
+						"(the per-SHA trees council reviews materialize). " +
+						"Read-only; no arguments. Use it to find crash " +
+						"orphans a hard kill left behind, which the " +
+						"shutdown, reset and PR-switch release edges could " +
+						"not reclaim. " +
+						"worktree-cleanup: remove a review worktree by `sha` " +
+						"(the value worktree-list prints; a prefix is " +
+						"enough). The provider force-removes, since a review " +
+						"tree is a read-only checkout of the PR head. " +
 						"release-identity-lock: drop a participant id from " +
 						"the lock map so council-config or judge-config can " +
 						"re-use it with a different model. Old findings keep " +
@@ -602,6 +634,14 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"PR reference: a URL, an owner/repo#number short form, or a " +
 						"bare number when run inside a checkout of the target repo. " +
 						"Required for action=load.",
+				}),
+			),
+			sha: Type.Optional(
+				Type.String({
+					description:
+						"Review worktree sha to reclaim. Required for " +
+						"action=worktree-cleanup; a prefix of the value " +
+						"worktree-list prints is enough.",
 				}),
 			),
 			reviewers: Type.Optional(
@@ -2053,6 +2093,101 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					};
 				}
 
+				if (params.action === "worktree-list") {
+					const handles = await worktreeProviders.list();
+					if (handles.length === 0) {
+						return {
+							content: [{ type: "text", text: "No review worktrees on disk." }],
+							details: { ok: true, handles: [] },
+						};
+					}
+					const lines = [
+						`${handles.length} review worktree${handles.length === 1 ? "" : "s"} on disk:`,
+						"",
+					];
+					for (const handle of handles) {
+						lines.push(
+							`  ${handle.sha}  (created ${handle.createdAt.toISOString()})`,
+						);
+						lines.push(`    ${handle.path}`);
+					}
+					lines.push("");
+					lines.push(
+						"Call action=worktree-cleanup sha=<sha> to remove one. A prefix is enough.",
+					);
+					return {
+						content: [{ type: "text", text: lines.join("\n") }],
+						details: { ok: true, handles },
+					};
+				}
+
+				if (params.action === "worktree-cleanup") {
+					const sha = params.sha?.trim();
+					if (!sha) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "worktree-cleanup requires a `sha` argument (a value worktree-list prints; a prefix is enough).",
+								},
+							],
+							details: { ok: false, error: "missing sha argument" },
+							isError: true,
+						};
+					}
+					const selection = selectWorktreeBySha(
+						await worktreeProviders.list(),
+						sha,
+					);
+					if (selection.status === "missing") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `No review worktree matches sha "${sha}". Run action=worktree-list to see what is on disk.`,
+								},
+							],
+							details: { ok: false, error: "no matching worktree" },
+							isError: true,
+						};
+					}
+					if (selection.status === "ambiguous") {
+						const shas = selection.matches.map((h) => h.sha).join(", ");
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Sha "${sha}" matches more than one review worktree: ${shas}. Use a longer prefix.`,
+								},
+							],
+							details: { ok: false, error: "ambiguous sha" },
+							isError: true,
+						};
+					}
+					try {
+						await worktreeProviders.release(selection.handle);
+					} catch (error) {
+						const message =
+							error instanceof Error ? error.message : String(error);
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Failed to remove ${selection.handle.path}: ${message}`,
+								},
+							],
+							details: { ok: false, error: message },
+							isError: true,
+						};
+					}
+					return {
+						content: [
+							{ type: "text", text: `Removed ${selection.handle.path}.` },
+						],
+						details: { ok: true, removed: selection.handle },
+					};
+				}
+
 				if (params.action === "release-identity-lock") {
 					const id = params.reviewerId?.trim();
 					if (!id) {
@@ -2237,6 +2372,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						: "none";
 					resetPrWorkflowSession(state);
 					clearPrStatusLine(ctx);
+					// The previous PR is no longer the active resource,
+					// so reclaim the worktrees it held (draining any
+					// in-flight run first).
+					const reclaimed = await reclaimSessionWorktrees();
+					const reclaimNote =
+						reclaimed.released > 0
+							? ` Released ${reclaimed.released} review worktree(s).`
+							: "";
+					const reclaimWarning =
+						reclaimed.errors.length > 0
+							? ` Some worktrees could not be released: ${reclaimed.errors.join("; ")}.`
+							: "";
 					return {
 						content: [
 							{
@@ -2244,10 +2391,17 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								text:
 									"PR workflow session reset. " +
 									`Previous PR: ${previous}. ` +
-									"Reviewer roster and judge config were kept.",
+									"Reviewer roster and judge config were kept." +
+									reclaimNote +
+									reclaimWarning,
 							},
 						],
-						details: { ok: true, previousPr: previous },
+						details: {
+							ok: true,
+							previousPr: previous,
+							released: reclaimed.released,
+							releaseErrors: reclaimed.errors,
+						},
 					};
 				}
 
@@ -2309,6 +2463,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					};
 				}
 
+				const previousRef = state.pr?.reference ?? null;
 				const outcome = loadPr(state, { input: params.pr });
 				if (!outcome.ok) {
 					return {
@@ -2319,6 +2474,27 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 
 				const loaded = state.pr;
+				// Switching to a different PR retires the previous
+				// one as the active resource, so reclaim the
+				// worktrees it held. A reload of the same PR keeps
+				// them for reuse.
+				if (
+					previousRef &&
+					loaded &&
+					(previousRef.owner !== loaded.reference.owner ||
+						previousRef.repo !== loaded.reference.repo ||
+						previousRef.number !== loaded.reference.number)
+				) {
+					const reclaimed = await reclaimSessionWorktrees();
+					// Surface the outcome the way reset does, so a release
+					// failure on the switch edge is not silent.
+					if (reclaimed.errors.length > 0) {
+						ctx.ui.notify(
+							`Switching PRs: ${reclaimed.errors.length} review worktree(s) from the previous PR could not be released: ${reclaimed.errors.join("; ")}.`,
+							"warning",
+						);
+					}
+				}
 				if (!loaded) {
 					return {
 						content: [
@@ -2570,6 +2746,23 @@ export default function prWorkflow(pi: ExtensionAPI) {
 
 	pi.on("agent_end", async (_event, ctx) => {
 		refreshPrStatusLine(ctx, state);
+	});
+
+	// Release the session's review worktrees on shutdown. Pi
+	// emits session_shutdown on graceful exit, reload, switch,
+	// fork and clone, so this is the deterministic reclaim
+	// edge for the common case. A hard kill never reaches
+	// here; the manual worktree-cleanup verb covers those
+	// orphans. Best-effort: a stuck release must not block
+	// pi's teardown.
+	pi.on("session_shutdown", async () => {
+		try {
+			await reclaimSessionWorktrees();
+		} catch {
+			// Teardown is best-effort; reclaimWorktrees already
+			// collects release failures, so a throw here would be
+			// unexpected, but we still refuse to fail shutdown.
+		}
 	});
 }
 

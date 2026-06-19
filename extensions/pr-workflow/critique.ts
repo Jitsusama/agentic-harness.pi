@@ -50,7 +50,7 @@ import {
 	renderReviewThreadPromptContext,
 	renderThreadRelation,
 } from "./thread-context.js";
-import type { WorktreeRegistry } from "./worktree.js";
+import { type WorktreeRegistry, worktreeRequestFor } from "./worktree.js";
 
 // Vocabulary type lives in `schemas.ts`. Re-exported
 // here so existing call sites that import the type
@@ -167,12 +167,9 @@ export interface RunOneCritiqueReviewerOptions {
 export async function runOneCritiqueReviewer(
 	options: RunOneCritiqueReviewerOptions,
 ): Promise<ReviewerCritiqueOutput> {
-	const handle = await options.registry.ensure({
-		owner: options.target.owner,
-		repo: options.target.repo,
-		sha: options.target.sha,
-		...(options.target.branch ? { branch: options.target.branch } : {}),
-	});
+	const handle = await options.registry.ensure(
+		worktreeRequestFor(options.target),
+	);
 	const prompt = buildCritiquePrompt({
 		reviewerId: options.reviewer.id,
 		council: options.council,
@@ -415,12 +412,9 @@ export async function runCritique(
 	);
 
 	try {
-		const handle = await options.registry.ensure({
-			owner: options.target.owner,
-			repo: options.target.repo,
-			sha: options.target.sha,
-			...(options.target.branch ? { branch: options.target.branch } : {}),
-		});
+		const handle = await options.registry.ensure(
+			worktreeRequestFor(options.target),
+		);
 
 		const promises = options.roster.map(async (reviewer) => {
 			safelyNotify(

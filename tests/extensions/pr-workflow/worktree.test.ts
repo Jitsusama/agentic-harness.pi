@@ -6,7 +6,50 @@ import {
 	WorktreeProviderBroker,
 	WorktreeRegistry,
 	type WorktreeRequest,
+	worktreeRequestFor,
 } from "../../../extensions/pr-workflow/worktree.js";
+
+describe("worktreeRequestFor", () => {
+	it("carries the changed-file paths so a provider can scope materialization", () => {
+		const request = worktreeRequestFor({
+			owner: "shop",
+			repo: "world",
+			sha: "abc123",
+			branch: "feature",
+			files: [
+				{ path: "areas/core/foo.rb" },
+				{ path: "system/gitstream/bar.go" },
+			],
+		});
+		expect(request).toEqual({
+			owner: "shop",
+			repo: "world",
+			sha: "abc123",
+			branch: "feature",
+			files: ["areas/core/foo.rb", "system/gitstream/bar.go"],
+		});
+	});
+
+	it("omits files and branch when the target carries neither", () => {
+		const request = worktreeRequestFor({
+			owner: "shop",
+			repo: "world",
+			sha: "abc123",
+		});
+		expect(request).toEqual({ owner: "shop", repo: "world", sha: "abc123" });
+		expect("files" in request).toBe(false);
+	});
+
+	it("omits files when the changed-file list is empty", () => {
+		const request = worktreeRequestFor({
+			owner: "shop",
+			repo: "world",
+			sha: "abc123",
+			files: [],
+		});
+		expect("files" in request).toBe(false);
+	});
+});
 
 /**
  * The WorktreeRegistry coordinates handle lifecycle across

@@ -8,6 +8,7 @@ import {
 import {
 	type WorktreeProvider,
 	WorktreeRegistry,
+	type WorktreeRequest,
 } from "../../../extensions/pr-workflow/worktree.js";
 import type { CouncilReviewer } from "../../../lib/subagent/subagent.js";
 
@@ -37,6 +38,25 @@ function fakeWorktreeProvider(): WorktreeProvider {
 				path: `/wt/${req.owner}-${req.repo}/${req.sha}`,
 				sha: req.sha,
 				providerId: "fake",
+				reusable: true,
+				createdAt: new Date(0),
+			};
+		},
+		async release() {},
+	};
+}
+
+function capturingWorktreeProvider(
+	captured: WorktreeRequest[],
+): WorktreeProvider {
+	return {
+		id: "capture",
+		async ensure(req) {
+			captured.push(req);
+			return {
+				path: `/wt/${req.sha}`,
+				sha: req.sha,
+				providerId: "capture",
 				reusable: true,
 				createdAt: new Date(0),
 			};
@@ -590,5 +610,47 @@ describe("runOneCouncilReviewer", () => {
 		});
 		expect(called).toBe(true);
 		expect(captured).toBe("Fast lens charter.");
+	});
+
+	it("carries the PR's changed-file paths into the worktree request", async () => {
+		const captured: WorktreeRequest[] = [];
+		const dispatch: CouncilDispatch = async (opts) => ({
+			reviewerId: opts.reviewer.id,
+			exitCode: 0,
+			finalAssistantText: findingsJson([]),
+			stderr: "",
+			warnings: [],
+		});
+		await runOneCouncilReviewer({
+			runId: "run-1",
+			target: {
+				...TARGET,
+				files: [
+					{
+						path: "areas/core/foo.rb",
+						status: "modified",
+						hunks: [],
+						additions: 1,
+						deletions: 0,
+					},
+					{
+						path: "system/gitstream/bar.go",
+						status: "added",
+						hunks: [],
+						additions: 2,
+						deletions: 0,
+					},
+				],
+			},
+			reviewer: REVIEWER_A,
+			registry: new WorktreeRegistry(capturingWorktreeProvider(captured)),
+			dispatch,
+			startId: 1,
+		});
+		expect(captured).toHaveLength(1);
+		expect(captured[0].files).toEqual([
+			"areas/core/foo.rb",
+			"system/gitstream/bar.go",
+		]);
 	});
 });
