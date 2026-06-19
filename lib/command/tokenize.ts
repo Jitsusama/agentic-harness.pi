@@ -3,20 +3,24 @@
  * into a lossless, range-indexed CommandLine.
  */
 
+import { matchHeredocs } from "../shell/parse.js";
 import type {
 	CommandLine,
 	Connector,
+	Heredoc,
 	Quoting,
 	SimpleCommand,
+	Span,
 	Word,
 } from "./types.js";
 
 /** Tokenize a bash command line into a CommandLine. */
 export function tokenize(source: string): CommandLine {
-	const { segments, connectors } = splitTopLevel(source);
+	const heredocs = collectHeredocs(source);
+	const { segments, connectors } = splitTopLevel(source, heredocs);
 	const commands: SimpleCommand[] = [];
 	for (const segment of segments) {
-		const command = buildCommand(source, segment.start, segment.end);
+		const command = buildCommand(source, segment.start, segment.end, heredocs);
 		if (command) commands.push(command);
 	}
 
@@ -28,12 +32,39 @@ interface Segment {
 	readonly end: number;
 }
 
+interface HeredocInfo {
+	readonly index: number;
+	readonly end: number;
+	readonly bodyStart: number;
+	readonly bodyEnd: number;
+	readonly delimiter: string;
+	readonly quoted: boolean;
+}
+
+/** Locate every heredoc in the source, with body and whole spans. */
+function collectHeredocs(source: string): HeredocInfo[] {
+	return matchHeredocs(source).map((match) => {
+		const bodyStart = source.indexOf("\n", match.index) + 1;
+		return {
+			index: match.index,
+			end: match.index + match.length,
+			bodyStart,
+			bodyEnd: bodyStart + match.body.length,
+			delimiter: match.delim,
+			quoted: match.quoted,
+		};
+	});
+}
+
 /**
  * Walk the source at the top level, respecting quoting, and split
  * it at connector operators (&&, ||, ;, |, newline). Returns the
  * segment spans between operators and the connectors themselves.
  */
-function splitTopLevel(source: string): {
+function splitTopLevel(
+	source: string,
+	heredocs: HeredocInfo[],
+): {
 	segments: Segment[];
 	connectors: Connector[];
 } {
@@ -44,6 +75,12 @@ function splitTopLevel(source: string): {
 	const n = source.length;
 
 	while (i < n) {
+		const heredoc = heredocs.find((h) => h.index === i);
+		if (heredoc) {
+			i = heredoc.end;
+			continue;
+		}
+
 		const ch = source[i];
 		if (ch === "'" || ch === '"') {
 			i = skipQuoted(source, i);
@@ -81,21 +118,81 @@ function buildCommand(
 	source: string,
 	start: number,
 	end: number,
+	heredocs: HeredocInfo[],
 ): SimpleCommand | undefined {
-	const words = scanWords(source, start, end);
-	if (words.length === 0) return undefined;
+	const heredoc = heredocs.find((h) => h.index >= start && h.index < end);
+	const scanEnd = heredoc ? source.indexOf("\n", heredoc.index) : end;
+	const openerWords = scanWords(source, start, scanEnd).filter(
+		(word) => !heredoc || word.span.start < heredoc.index,
+	);
+	if (openerWords.length === 0) return undefined;
 
 	let firstArgv = 0;
-	while (firstArgv < words.length && isAssignment(words[firstArgv].text)) {
+	while (
+		firstArgv < openerWords.length &&
+		isAssignment(openerWords[firstArgv].text)
+	) {
 		firstArgv++;
 	}
 
+	const assignments = openerWords.slice(0, firstArgv);
+	const { argv, redirects } = extractRedirects(openerWords.slice(firstArgv));
+	const spanEnd = heredoc
+		? heredoc.end
+		: openerWords[openerWords.length - 1].span.end;
+
 	return {
-		span: { start: words[0].span.start, end: words[words.length - 1].span.end },
-		assignments: words.slice(0, firstArgv),
-		argv: words.slice(firstArgv),
-		redirects: [],
+		span: { start: openerWords[0].span.start, end: spanEnd },
+		assignments,
+		argv,
+		redirects,
+		...(heredoc ? { heredoc: toHeredoc(heredoc) } : {}),
 	};
+}
+
+/** Project a HeredocInfo onto the public Heredoc shape. */
+function toHeredoc(info: HeredocInfo): Heredoc {
+	return {
+		delimiter: info.delimiter,
+		quoted: info.quoted,
+		bodySpan: { start: info.bodyStart, end: info.bodyEnd },
+		span: { start: info.index, end: info.end },
+	};
+}
+
+const REDIRECT = /^(\d*)(>>|>|<)(&\d+)?$/;
+
+/**
+ * Pull redirects out of a word list. A redirect operator that names
+ * a file descriptor duplication (2>&1) stands alone; any other
+ * operator consumes the following word as its target.
+ */
+function extractRedirects(words: Word[]): {
+	argv: Word[];
+	redirects: Span[];
+} {
+	const argv: Word[] = [];
+	const redirects: Span[] = [];
+
+	for (let j = 0; j < words.length; j++) {
+		const word = words[j];
+		const match = REDIRECT.exec(word.text);
+		if (!match) {
+			argv.push(word);
+			continue;
+		}
+
+		const hasDuplication = Boolean(match[3]);
+		const target = !hasDuplication ? words[j + 1] : undefined;
+		if (target) {
+			redirects.push({ start: word.span.start, end: target.span.end });
+			j++;
+		} else {
+			redirects.push({ start: word.span.start, end: word.span.end });
+		}
+	}
+
+	return { argv, redirects };
 }
 
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;

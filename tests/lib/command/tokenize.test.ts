@@ -79,4 +79,48 @@ describe("tokenize", () => {
 			"a=b",
 		]);
 	});
+
+	it("captures a redirect with a following target out of argv", () => {
+		const source = "echo hi > out.txt";
+		const command = tokenize(source).commands[0];
+
+		expect(command.argv.map((w) => w.text)).toEqual(["echo", "hi"]);
+		expect(command.redirects).toHaveLength(1);
+		expect(
+			source.slice(command.redirects[0].start, command.redirects[0].end),
+		).toBe("> out.txt");
+	});
+
+	it("captures a self-contained duplication redirect", () => {
+		const source = "make 2>&1";
+		const command = tokenize(source).commands[0];
+
+		expect(command.argv.map((w) => w.text)).toEqual(["make"]);
+		expect(command.redirects).toHaveLength(1);
+		expect(
+			source.slice(command.redirects[0].start, command.redirects[0].end),
+		).toBe("2>&1");
+	});
+
+	it("attaches a heredoc and keeps its body out of argv", () => {
+		const source = "git commit -F- <<'EOF'\nfeat: x\n\nbody\nEOF";
+		const line = tokenize(source);
+		const command = line.commands[0];
+
+		expect(line.commands).toHaveLength(1);
+		expect(line.connectors).toEqual([]);
+		expect(command.argv.map((w) => w.text)).toEqual(["git", "commit", "-F-"]);
+		expect(command.heredoc?.delimiter).toBe("EOF");
+		expect(command.heredoc?.quoted).toBe(true);
+		const body = command.heredoc?.bodySpan;
+		expect(body && source.slice(body.start, body.end)).toBe("feat: x\n\nbody");
+	});
+
+	it("treats a bare heredoc delimiter as unquoted", () => {
+		const source = "git commit -F- <<EOF\nmsg\nEOF";
+		const command = tokenize(source).commands[0];
+
+		expect(command.heredoc?.delimiter).toBe("EOF");
+		expect(command.heredoc?.quoted).toBe(false);
+	});
 });
