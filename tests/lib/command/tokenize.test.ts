@@ -35,4 +35,48 @@ describe("tokenize", () => {
 		expect(word.quoting).toBe("double");
 		expect(source.slice(word.span.start, word.span.end)).toBe(word.text);
 	});
+
+	it("splits at top-level connectors into separate commands", () => {
+		const line = tokenize("a && b ; c | d");
+
+		expect(line.commands.map((c) => c.argv.map((w) => w.text))).toEqual([
+			["a"],
+			["b"],
+			["c"],
+			["d"],
+		]);
+		expect(line.connectors.map((c) => c.op)).toEqual(["&&", ";", "|"]);
+	});
+
+	it("does not split on a quoted operator", () => {
+		const line = tokenize("echo 'a && b'");
+
+		expect(line.commands).toHaveLength(1);
+		expect(line.connectors).toEqual([]);
+		expect(line.commands[0].argv.map((w) => w.text)).toEqual([
+			"echo",
+			"'a && b'",
+		]);
+	});
+
+	it("separates leading env assignments from argv", () => {
+		const command = tokenize("GH_HOST=github.com gh pr create").commands[0];
+
+		expect(command.assignments.map((w) => w.text)).toEqual([
+			"GH_HOST=github.com",
+		]);
+		expect(command.argv.map((w) => w.text)).toEqual(["gh", "pr", "create"]);
+	});
+
+	it("keeps a non-leading equals as an argv word", () => {
+		const command = tokenize("git config user.email a=b").commands[0];
+
+		expect(command.assignments).toEqual([]);
+		expect(command.argv.map((w) => w.text)).toEqual([
+			"git",
+			"config",
+			"user.email",
+			"a=b",
+		]);
+	});
 });
