@@ -14,6 +14,11 @@ import {
 	type QuestIndex,
 } from "../../lib/internal/quest/discovery.js";
 import {
+	type SessionSummary,
+	summariseSessions,
+} from "../../lib/internal/quest/reopen.js";
+import {
+	deriveLiveness,
 	indexSessionFiles,
 	questLastActivity,
 } from "../../lib/internal/quest/session-liveness.js";
@@ -409,9 +414,16 @@ function linksForQuest(
 	return { outgoing: { quests, refs, urls }, incoming };
 }
 
-/** Active sessions on the loaded quest. */
-function activeSessions(sessions: QuestSession[]): QuestSession[] {
-	return sessions.filter((s) => s.status !== "detached");
+/**
+ * Project a quest's attached sessions for display: derive each
+ * session's liveness from its log in the pi session store, then
+ * summarise (drop dead phantoms, order newest-first, flag the
+ * resume target). Reads the store fresh against the current time.
+ */
+function projectSessions(sessions: QuestSession[]): SessionSummary[] {
+	const store = sessionsDir();
+	const now = new Date();
+	return summariseSessions(sessions.map((s) => deriveLiveness(s, store, now)));
 }
 
 export interface DocumentSummary {
@@ -457,7 +469,7 @@ export interface QuestShowResult {
 	journey: { date: string; prose: string }[];
 	milestones: { total: number; done: number };
 	documents: DocumentSummary[];
-	sessions: QuestSession[];
+	sessions: SessionSummary[];
 	links: LinkBundle;
 	echoes: LinkSnippet[];
 }
@@ -514,7 +526,7 @@ export async function showQuestById(
 		journey,
 		milestones: milestoneCounts(me.doc.body),
 		documents: summariseDocuments(me.documents),
-		sessions: activeSessions(me.doc.frontMatter.sessions),
+		sessions: projectSessions(me.doc.frontMatter.sessions),
 		links: links?.outgoing ?? { quests: [], refs: [], urls: [] },
 		echoes: links?.incoming ?? [],
 	};

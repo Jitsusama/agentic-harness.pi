@@ -16,6 +16,7 @@ import {
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
+import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.js";
 import {
 	fetchUrlHints,
 	mintId,
@@ -344,6 +345,19 @@ function renderShow(
 		for (const d of projection.documents) {
 			const title = d.title ?? "(untitled)";
 			lines.push(`  - ${d.id} (${d.kind}, ${d.stage}): ${title}`);
+		}
+	}
+	if (projection.sessions.length > 0) {
+		const now = new Date();
+		lines.push("");
+		lines.push("Sessions:");
+		for (const s of projection.sessions) {
+			const age = formatRelativeAge(s.lastActivity, now);
+			const facts = [s.liveness, ...(age ? [age] : [])].join(", ");
+			const name = s.name ? ` "${s.name}"` : "";
+			const where = s.cwd ? ` ${s.cwd}` : "";
+			const mark = s.resumeTarget ? "  <- resumes on reopen" : "";
+			lines.push(`  - ${s.id}${name} (${facts})${where}${mark}`);
 		}
 	}
 	const outgoing = projection.links;

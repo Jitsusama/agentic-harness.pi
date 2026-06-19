@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-	formatRelativeAge,
 	resolveSpawnCommand,
 	resumeMessage,
 } from "../../../extensions/quest-workflow/verbs/session";
-import type { SessionView } from "../../../lib/internal/quest/session-liveness";
+import {
+	formatRelativeAge,
+	type SessionView,
+} from "../../../lib/internal/quest/session-liveness";
 
 function view(
 	id: string,

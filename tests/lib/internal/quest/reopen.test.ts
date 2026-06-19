@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	pickResumeSession,
 	resolveSpawnCwd,
+	summariseSessions,
 } from "../../../../lib/internal/quest/reopen";
 import type { SessionView } from "../../../../lib/internal/quest/session-liveness";
 import type { QuestTree } from "../../../../lib/quest/types";
@@ -164,5 +165,64 @@ describe("pickResumeSession", () => {
 
 	it("resumes a single idle session, never treating idle as ambiguous", () => {
 		expect(pickResumeSession([view("only", "idle")])).toEqual({ id: "only" });
+	});
+});
+
+describe("summariseSessions", () => {
+	it("reports every attached session, leaving phantom removal to prune", () => {
+		const out = summariseSessions([
+			view("real", "idle", "2026-06-04T10:00:00.000Z"),
+			view("phantom", "dead"),
+		]);
+		expect(out.map((s) => s.id).sort()).toEqual(["phantom", "real"]);
+	});
+
+	it("never flags a dead or detached session as the resume target", () => {
+		const out = summariseSessions([
+			view("phantom", "dead"),
+			view("gone", "detached", "2026-06-04T12:00:00.000Z"),
+		]);
+		expect(out.some((s) => s.resumeTarget)).toBe(false);
+	});
+
+	it("orders newest activity first", () => {
+		const out = summariseSessions([
+			view("older", "idle", "2026-06-04T09:00:00.000Z"),
+			view("newer", "idle", "2026-06-04T11:00:00.000Z"),
+			view("detachedOld", "detached", "2026-06-03T08:00:00.000Z"),
+		]);
+		expect(out.map((s) => s.id)).toEqual(["newer", "older", "detachedOld"]);
+	});
+
+	it("flags only the session pickResumeSession would resume", () => {
+		const out = summariseSessions([
+			view("idleOlder", "idle", "2026-06-04T09:00:00.000Z"),
+			view("liveWinner", "live", "2026-06-04T11:00:00.000Z"),
+			view("detached", "detached", "2026-06-04T12:00:00.000Z"),
+		]);
+		expect(out.filter((s) => s.resumeTarget).map((s) => s.id)).toEqual([
+			"liveWinner",
+		]);
+	});
+
+	it("flags no target when nothing is resumable", () => {
+		const out = summariseSessions([
+			view("a", "detached", "2026-06-04T09:00:00.000Z"),
+		]);
+		expect(out.some((s) => s.resumeTarget)).toBe(false);
+	});
+
+	it("carries name and cwd through", () => {
+		const out = summariseSessions([
+			{
+				id: "a",
+				status: "active",
+				liveness: "idle",
+				lastActivity: "2026-06-04T09:00:00.000Z",
+				name: "root cause dig",
+				cwd: "/work/tree",
+			},
+		]);
+		expect(out[0]).toMatchObject({ name: "root cause dig", cwd: "/work/tree" });
 	});
 });

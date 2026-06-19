@@ -110,6 +110,38 @@ export function pickResumeSession(
 	return undefined;
 }
 
+/** A session projected for display in the `show` view. */
+export interface SessionSummary {
+	id: string;
+	name?: string;
+	cwd?: string;
+	liveness: SessionView["liveness"];
+	lastActivity?: string;
+	/** True for the one session a reopen would resume. */
+	resumeTarget: boolean;
+}
+
+/**
+ * Project a quest's attached sessions for the `show` view. Every
+ * attached session is reported — show reflects the frontmatter
+ * honestly, and removing no-log phantoms is the prune verb's job,
+ * not this view's. Sessions are ordered newest-activity first, and
+ * the single session a reopen would land on (per pickResumeSession)
+ * is flagged so the reader can see what `spawn` will resume.
+ */
+export function summariseSessions(views: SessionView[]): SessionSummary[] {
+	const resume = pickResumeSession(views);
+	const targetId = resume && "id" in resume ? resume.id : undefined;
+	return [...views].sort(byActivityDesc).map((v) => ({
+		id: v.id,
+		...(v.name ? { name: v.name } : {}),
+		...(v.cwd ? { cwd: v.cwd } : {}),
+		liveness: v.liveness,
+		...(v.lastActivity ? { lastActivity: v.lastActivity } : {}),
+		resumeTarget: v.id === targetId,
+	}));
+}
+
 function byActivityDesc(a: SessionView, b: SessionView): number {
 	const at = a.lastActivity ? Date.parse(a.lastActivity) : 0;
 	const bt = b.lastActivity ? Date.parse(b.lastActivity) : 0;
