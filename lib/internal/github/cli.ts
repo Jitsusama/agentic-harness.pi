@@ -30,67 +30,6 @@ export function isGhCommand(command: string, subcommand: string): boolean {
 	return re.test(command);
 }
 
-/** Configuration for rebuilding a gh pr/issue command with an edited body. */
-export interface GhRebuildConfig {
-	/** "pr" or "issue" */
-	readonly entity: string;
-	/** "create" or "edit" */
-	readonly action: string;
-	/** Entity number for edit commands. */
-	readonly entityNumber?: string | null;
-	/** Prefix command (cd /path, etc.) */
-	readonly prefix?: string | null;
-	/** Extra flags to preserve. */
-	readonly extraFlags?: string[];
-	/** Title. */
-	readonly title?: string | null;
-	/** Body content. */
-	readonly body: string;
-	/** Heredoc delimiter. */
-	readonly heredocDelim: string;
-	/** Shell tokens after the closing delimiter (e.g. `&& git push`). */
-	readonly suffix?: string | null;
-	/**
-	 * Opener-line tokens after the delimiter (e.g. ` 2>&1 | tail -5`).
-	 * They must stay on the opener line, after `<<'DELIM'`, or the
-	 * rewritten command is malformed.
-	 */
-	readonly openerSuffix?: string | null;
-}
-
-/** Rebuild a gh command with an edited body. */
-export function rebuildGhCommand(config: GhRebuildConfig): string {
-	const parts: string[] = ["gh", config.entity, config.action];
-
-	if (config.action === "edit" && config.entityNumber) {
-		parts.push(config.entityNumber);
-	}
-
-	if (config.extraFlags && config.extraFlags.length > 0) {
-		parts.push(...config.extraFlags);
-	}
-
-	if (config.title) {
-		parts.push("--title", quote(config.title));
-	}
-
-	parts.push("--body-file", "-");
-
-	// Opener-line tokens (a `2>&1 | tail -5`) belong on the opener
-	// line itself, right after the delimiter; the heredoc body
-	// still begins on the next line.
-	const opener = `${parts.join(" ")} <<'${config.heredocDelim}'${config.openerSuffix ?? ""}`;
-	const heredoc = [opener, config.body, config.heredocDelim].join("\n");
-
-	// Trailing tokens after the original closing delimiter (a
-	// `&& git push`, say) are not flags we parse, so they must be
-	// reattached verbatim or they would silently vanish from the
-	// rewritten command.
-	const withSuffix = config.suffix ? `${heredoc}\n${config.suffix}` : heredoc;
-
-	return config.prefix ? `${config.prefix} && ${withSuffix}` : withSuffix;
-}
-
 /**
  * Extract shell tokens that follow a heredoc's closing
  * delimiter. Returns null when the command has no heredoc or

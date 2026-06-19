@@ -1,36 +1,14 @@
 /**
- * Issue command parsing: re-exports shared utilities from
- * lib/github/cli and adds the issue-specific rebuild helper.
+ * Issue command parsing: re-exports the shared gh issue parsing
+ * utilities from lib/internal/github/cli for the issue guardian.
+ *
+ * Editing an issue body for attribution is done by splicing in
+ * place (lib/internal/github/attribution-edit), not by rebuilding
+ * the command, so there is no rebuild helper here.
  */
-
-import { rebuildGhCommand } from "../../lib/internal/github/cli.js";
 
 export {
 	type IssueCommand,
 	isIssueCommand,
 	parseIssueCommand,
 } from "../../lib/internal/github/cli.js";
-
-import type { IssueCommand } from "../../lib/internal/github/cli.js";
-
-const HEREDOC_DELIM = "__ISSUE_BODY__";
-
-/** Rebuild the command with an edited body. */
-export function rebuildCommand(
-	parsed: IssueCommand,
-	newBody: string,
-	newTitle?: string,
-): string {
-	return rebuildGhCommand({
-		entity: "issue",
-		action: parsed.action,
-		entityNumber: parsed.issueNumber,
-		prefix: parsed.prefix,
-		extraFlags: parsed.extraFlags,
-		title: newTitle ?? parsed.title,
-		body: newBody,
-		heredocDelim: HEREDOC_DELIM,
-		suffix: parsed.suffix,
-		openerSuffix: parsed.openerRest,
-	});
-}
