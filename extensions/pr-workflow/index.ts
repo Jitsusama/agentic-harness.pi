@@ -161,6 +161,7 @@ import {
 	WorktreeRegistry,
 } from "./worktree.js";
 import { createGitWorktreeProvider } from "./worktree-git.js";
+import { reclaimWorktrees } from "./worktree-reclaim.js";
 
 /**
  * Events used to register `pi://pr/...` URI handling with
@@ -393,6 +394,16 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			}),
 		};
 		return councilDeps;
+	};
+	// Reclaim the session's review worktrees, draining any
+	// in-flight run first. A no-op when no council ran (the
+	// registry is built lazily), so it is cheap to call on
+	// every reset, PR switch and shutdown. Best-effort:
+	// `reclaimWorktrees` collects release failures instead of
+	// throwing, and we never let teardown reject.
+	const reclaimSessionWorktrees = async () => {
+		if (councilDeps === null) return { released: 0, errors: [] };
+		return reclaimWorktrees(councilDeps.registry, cancellations);
 	};
 	const progressControls = () => ({
 		cancelReviewer: (reviewerId: string) =>
@@ -2237,6 +2248,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						: "none";
 					resetPrWorkflowSession(state);
 					clearPrStatusLine(ctx);
+					// The previous PR is no longer the active resource,
+					// so reclaim the worktrees it held (draining any
+					// in-flight run first).
+					const reclaimed = await reclaimSessionWorktrees();
+					const reclaimNote =
+						reclaimed.released > 0
+							? ` Released ${reclaimed.released} review worktree(s).`
+							: "";
+					const reclaimWarning =
+						reclaimed.errors.length > 0
+							? ` Some worktrees could not be released: ${reclaimed.errors.join("; ")}.`
+							: "";
 					return {
 						content: [
 							{
@@ -2244,10 +2267,17 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								text:
 									"PR workflow session reset. " +
 									`Previous PR: ${previous}. ` +
-									"Reviewer roster and judge config were kept.",
+									"Reviewer roster and judge config were kept." +
+									reclaimNote +
+									reclaimWarning,
 							},
 						],
-						details: { ok: true, previousPr: previous },
+						details: {
+							ok: true,
+							previousPr: previous,
+							released: reclaimed.released,
+							releaseErrors: reclaimed.errors,
+						},
 					};
 				}
 
@@ -2309,6 +2339,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					};
 				}
 
+				const previousRef = state.pr?.reference ?? null;
 				const outcome = loadPr(state, { input: params.pr });
 				if (!outcome.ok) {
 					return {
@@ -2319,6 +2350,19 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 
 				const loaded = state.pr;
+				// Switching to a different PR retires the previous
+				// one as the active resource, so reclaim the
+				// worktrees it held. A reload of the same PR keeps
+				// them for reuse.
+				if (
+					previousRef &&
+					loaded &&
+					(previousRef.owner !== loaded.reference.owner ||
+						previousRef.repo !== loaded.reference.repo ||
+						previousRef.number !== loaded.reference.number)
+				) {
+					await reclaimSessionWorktrees();
+				}
 				if (!loaded) {
 					return {
 						content: [
@@ -2570,6 +2614,23 @@ export default function prWorkflow(pi: ExtensionAPI) {
 
 	pi.on("agent_end", async (_event, ctx) => {
 		refreshPrStatusLine(ctx, state);
+	});
+
+	// Release the session's review worktrees on shutdown. Pi
+	// emits session_shutdown on graceful exit, reload, switch,
+	// fork and clone, so this is the deterministic reclaim
+	// edge for the common case. A hard kill never reaches
+	// here; the manual worktree-cleanup verb covers those
+	// orphans. Best-effort: a stuck release must not block
+	// pi's teardown.
+	pi.on("session_shutdown", async () => {
+		try {
+			await reclaimSessionWorktrees();
+		} catch {
+			// Teardown is best-effort; reclaimWorktrees already
+			// collects release failures, so a throw here would be
+			// unexpected, but we still refuse to fail shutdown.
+		}
 	});
 }
 
