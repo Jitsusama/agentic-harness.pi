@@ -1,5 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { extractBody, matchHeredocs } from "../../../lib/shell/parse.js";
+import {
+	extractBody,
+	matchHeredocs,
+	unquote,
+} from "../../../lib/shell/parse.js";
+
+describe("unquote", () => {
+	it("leaves an unquoted word untouched", () => {
+		expect(unquote("value")).toBe("value");
+	});
+
+	it("strips double quotes and unescapes inside them", () => {
+		expect(unquote('"a b"')).toBe("a b");
+		expect(unquote('"a \\"b\\""')).toBe('a "b"');
+	});
+
+	it("strips single quotes and keeps their contents literal", () => {
+		expect(unquote("'a b'")).toBe("a b");
+		expect(unquote("'a\\b'")).toBe("a\\b");
+	});
+
+	it("joins the '\\'' idiom into an embedded single quote", () => {
+		expect(unquote("'it'\\''s'")).toBe("it's");
+	});
+
+	it("concatenates adjacent quoted and bare runs", () => {
+		expect(unquote('foo"bar baz"')).toBe("foobar baz");
+	});
+});
 
 describe("matchHeredocs", () => {
 	it("returns nothing when there is no heredoc", () => {

@@ -103,6 +103,49 @@ export function extractBody(
 	return extractFlag(entityPart, "body");
 }
 
+/**
+ * Turn a raw shell word into its literal value: strip the quotes
+ * the shell would, unescape backslashes outside single quotes, and
+ * concatenate adjacent quoted and bare runs the way the shell joins
+ * them into one argument.
+ */
+export function unquote(word: string): string {
+	let out = "";
+	let i = 0;
+	while (i < word.length) {
+		const ch = word[i];
+		if (ch === "'") {
+			const close = word.indexOf("'", i + 1);
+			const end = close === -1 ? word.length : close;
+			out += word.slice(i + 1, end);
+			i = end + 1;
+			continue;
+		}
+		if (ch === '"') {
+			i++;
+			while (i < word.length && word[i] !== '"') {
+				if (word[i] === "\\" && i + 1 < word.length) {
+					out += word[i + 1];
+					i += 2;
+					continue;
+				}
+				out += word[i];
+				i++;
+			}
+			i++;
+			continue;
+		}
+		if (ch === "\\" && i + 1 < word.length) {
+			out += word[i + 1];
+			i += 2;
+			continue;
+		}
+		out += ch;
+		i++;
+	}
+	return out;
+}
+
 /** Safe shell quoting. */
 export function quote(s: string): string {
 	if (!s.includes("'")) return `'${s}'`;
