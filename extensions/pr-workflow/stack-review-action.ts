@@ -47,7 +47,7 @@ import {
 	type ReviewThreadPromptContext,
 	type ReviewThreadsFetcher,
 } from "./thread-context.js";
-import type { WorktreeRegistry } from "./worktree.js";
+import { type WorktreeRegistry, worktreeRequestFor } from "./worktree.js";
 
 /** Helpers needed to resolve non-cursor PR context. */
 export interface StackReviewFetchers {
@@ -182,7 +182,13 @@ export async function runStackReviewAction(
 			sha: tip.metadata.head.sha,
 			branch: tip.metadata.head.ref,
 		};
-		const handle = await input.registry.ensure(request);
+		// Carry the tip PR's changed files so a scoping provider
+		// materializes the touched zones. Every stage that ensures
+		// this sha passes the same change set, so the registry's
+		// sha-keyed reuse stays correctly scoped.
+		const handle = await input.registry.ensure(
+			worktreeRequestFor({ ...request, files: tip.files }),
+		);
 		const stackReviewAddendum = await input.reviewContexts?.promptAddendum({
 			...request,
 			prNumber: cursorPrNumber,

@@ -21,7 +21,7 @@ import {
 	type ThreadAuditVerdict,
 } from "./thread-audit.js";
 import { loadThreadsAction, type ThreadsFetcher } from "./threads-action.js";
-import type { WorktreeRegistry } from "./worktree.js";
+import { type WorktreeRegistry, worktreeRequestFor } from "./worktree.js";
 
 /** Inputs for {@link auditThreadsAction}. */
 export interface AuditThreadsActionInput {
@@ -87,12 +87,15 @@ export async function auditThreadsAction(
 	const prompt = buildThreadAuditPrompt({ threads, stack });
 
 	const metadata = state.pr.metadata;
-	const handle = await input.registry.ensure({
-		owner: state.pr.reference.owner,
-		repo: state.pr.reference.repo,
-		sha: metadata.head.sha,
-		...(metadata.head.ref ? { branch: metadata.head.ref } : {}),
-	});
+	const handle = await input.registry.ensure(
+		worktreeRequestFor({
+			owner: state.pr.reference.owner,
+			repo: state.pr.reference.repo,
+			sha: metadata.head.sha,
+			...(metadata.head.ref ? { branch: metadata.head.ref } : {}),
+			files: state.pr.files ?? undefined,
+		}),
+	);
 
 	const dispatched = await input.dispatch({
 		reviewer: input.auditor,
