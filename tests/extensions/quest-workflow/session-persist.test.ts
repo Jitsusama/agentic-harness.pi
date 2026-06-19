@@ -51,12 +51,20 @@ function buildState() {
 }
 
 const envGuard = createEnvGuard();
+let savedHome: string | undefined;
 beforeEach(() => {
 	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "quest-persist-"));
 	entries = [];
+	// Point the pi session store (sessionsDir keys off HOME) at an
+	// empty tmp home so phantom-prune and liveness tests read a known
+	// store rather than the developer's real ~/.pi/agent/sessions.
+	savedHome = process.env.HOME;
+	process.env.HOME = tmpRoot;
 });
 afterEach(() => {
+	if (savedHome !== undefined) process.env.HOME = savedHome;
+	else delete process.env.HOME;
 	rmSync(tmpRoot, { recursive: true, force: true });
 	envGuard.leave();
 });
@@ -275,6 +283,22 @@ describe("auto-attach on load", () => {
 		);
 		expect(sessionsOf(a.dir).some((s) => s.id === "sess-ephemeral")).toBe(
 			false,
+		);
+	});
+
+	it("keeps the session active when the same quest is reloaded (no switch-detach)", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx("/work/dir", "stay"), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx("/work/dir", "stay"), {
+			action: "load",
+			id: a.id,
+		});
+		expect(sessionsOf(a.dir).find((s) => s.id === "stay")?.status).toBe(
+			"active",
 		);
 	});
 

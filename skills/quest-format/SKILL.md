@@ -135,7 +135,8 @@ Field semantics:
   at most the quest it is on, and prunes any detached
   entry whose session log no longer exists. `show` lists
   each session with its derived liveness (`live`, `idle`,
-  `detached`), relative last-active age, and a marker on
+  `detached`, or `dead` for an attached id with no log on
+  disk), relative last-active age, and a marker on
   the one a reopen would resume — the most-recent live
   session, or the most-recent idle one when none is live.
 

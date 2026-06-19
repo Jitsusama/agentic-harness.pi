@@ -205,10 +205,11 @@ export async function spawn(
 	});
 	const cwd = params.cwd?.trim() || resolved.cwd;
 
-	// Resume a real session when exactly one is live and it
-	// is not the session doing the spawning. Several live
-	// sessions are ambiguous: spawn a fresh pi and surface
-	// the choice rather than guessing.
+	// Pick the session to resume, excluding the one doing the
+	// spawning. pickResumeSession prefers a live session, falls back
+	// to the most-recent idle one, and only reports ambiguity when
+	// several are concurrently live; in that case spawn starts a
+	// fresh pi and surfaces the choice rather than guessing.
 	const currentId = currentSessionId(ctx, undefined);
 	const resume = pickResumeSession(sessions.filter((s) => s.id !== currentId));
 	const { command, resumedSessionId } = resolveSpawnCommand(

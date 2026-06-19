@@ -263,19 +263,20 @@ export async function load(
 	const result = loadQuest(state, pi, targetId);
 	if (!result.ok) return refuse(result.guidance);
 
+	const sid = currentSessionId(ctx, undefined);
+
 	// On a switch, detach this session from the quest it is leaving:
 	// one pi session that loads several quests over its life should
 	// read active on the one it is on, not on all of them. Only for a
 	// persisted session, mirroring the attach guard.
-	const switchSid = currentSessionId(ctx, undefined);
 	if (
 		priorQuestDir &&
 		priorQuestId &&
 		priorQuestId !== state.questId &&
-		switchSid &&
+		sid &&
 		isPersistedSession(ctx)
 	) {
-		detachSessionInQuestDir(priorQuestDir, switchSid);
+		detachSessionInQuestDir(priorQuestDir, sid);
 	}
 
 	// Garbage-collect no-log phantoms left by pre-guard fan-outs so
@@ -284,7 +285,6 @@ export async function load(
 
 	const loaded = await showLoaded(state);
 	const priorSessions = loaded?.frontMatter.sessions ?? [];
-	const sid = currentSessionId(ctx, undefined);
 
 	// Capture the current session automatically rather than
 	// nudging the user to run session-attach by hand: this is
