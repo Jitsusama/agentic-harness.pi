@@ -49,6 +49,10 @@ export interface GitWorktreeProviderConfig {
 	readonly exec?: GitExec;
 	/** Defaults to fs.access-based existence check. Override in tests. */
 	readonly pathExists?: (p: string) => Promise<boolean>;
+	/** Defaults to fs.readdir. Override in tests. */
+	readonly readDir?: (p: string) => Promise<string[]>;
+	/** Defaults to fs.readFile (utf8). Override in tests. */
+	readonly readText?: (p: string) => Promise<string>;
 }
 
 const PROVIDER_ID = "git";
@@ -59,6 +63,8 @@ export function createGitWorktreeProvider(
 ): WorktreeProvider {
 	const exec = config.exec ?? defaultGitExec;
 	const pathExists = config.pathExists ?? defaultPathExists;
+	const readDir = config.readDir ?? defaultReadDir;
+	const readText = config.readText ?? defaultReadText;
 
 	return {
 		id: PROVIDER_ID,
@@ -89,6 +95,32 @@ export function createGitWorktreeProvider(
 			return makeHandle(target, request, sourceRepo);
 		},
 
+		async list() {
+			const root = path.join(config.stateDir, "worktrees");
+			const slugs = await safeReadDir(readDir, root);
+			const handles: WorktreeHandle[] = [];
+			for (const slug of slugs) {
+				const slugDir = path.join(root, slug);
+				for (const sha of await safeReadDir(readDir, slugDir)) {
+					const treePath = path.join(slugDir, sha);
+					const sourceRepo = await sourceRepoFor(readText, treePath);
+					// Without the source repo the handle cannot be
+					// released, so an unrecoverable entry is no use to
+					// the cleanup verb; skip it.
+					if (sourceRepo === null) continue;
+					handles.push({
+						path: treePath,
+						sha,
+						providerId: PROVIDER_ID,
+						reusable: true,
+						createdAt: new Date(0),
+						marker: sourceRepo,
+					});
+				}
+			}
+			return handles;
+		},
+
 		async release(handle) {
 			const sourceRepo = handle.marker;
 			if (!sourceRepo) {
@@ -104,6 +136,44 @@ export function createGitWorktreeProvider(
 			await runOrThrow(exec, ["worktree", "prune"], sourceRepo);
 		},
 	};
+}
+
+/**
+ * Recover the source repo that owns a worktree by reading its
+ * `.git` pointer file (`gitdir: <repo>/.git/worktrees/<name>`).
+ * Returns null when the pointer is missing or unparseable.
+ */
+async function sourceRepoFor(
+	readText: (p: string) => Promise<string>,
+	treePath: string,
+): Promise<string | null> {
+	let contents: string;
+	try {
+		contents = await readText(path.join(treePath, ".git"));
+	} catch {
+		// No readable .git pointer: not a worktree we can act on.
+		return null;
+	}
+	return sourceRepoFromGitPointer(contents);
+}
+
+/** Parse `gitdir: <repo>/.git/worktrees/<name>` to `<repo>`. */
+function sourceRepoFromGitPointer(contents: string): string | null {
+	const match = contents.match(/^gitdir:\s*(.+?)\/\.git\/worktrees\//m);
+	return match ? match[1] : null;
+}
+
+/** Read a directory's entries, treating a missing directory as empty. */
+async function safeReadDir(
+	readDir: (p: string) => Promise<string[]>,
+	p: string,
+): Promise<string[]> {
+	try {
+		return await readDir(p);
+	} catch {
+		// A missing worktrees root just means nothing to list.
+		return [];
+	}
 }
 
 function worktreePath(stateDir: string, request: WorktreeRequest): string {
@@ -141,6 +211,14 @@ async function runOrThrow(
 		);
 	}
 	return result;
+}
+
+function defaultReadDir(p: string): Promise<string[]> {
+	return fs.readdir(p);
+}
+
+function defaultReadText(p: string): Promise<string> {
+	return fs.readFile(p, "utf8");
 }
 
 async function defaultPathExists(p: string): Promise<boolean> {

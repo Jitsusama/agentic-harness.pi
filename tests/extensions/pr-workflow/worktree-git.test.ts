@@ -252,3 +252,73 @@ describe("createGitWorktreeProvider — release()", () => {
 		await expect(provider.release(handle)).rejects.toThrow(/cannot remove/);
 	});
 });
+
+describe("createGitWorktreeProvider — list()", () => {
+	it("lists worktrees on disk, recovering each source repo from its git pointer", async () => {
+		const dirs: Record<string, string[]> = {
+			"/tmp/pi-state/worktrees": ["octocat-hello-world"],
+			"/tmp/pi-state/worktrees/octocat-hello-world": [
+				"abc123def456",
+				"def789abc",
+			],
+		};
+		const pointers: Record<string, string> = {
+			"/tmp/pi-state/worktrees/octocat-hello-world/abc123def456/.git":
+				"gitdir: /home/me/src/octocat/hello-world/.git/worktrees/abc123def456\n",
+			"/tmp/pi-state/worktrees/octocat-hello-world/def789abc/.git":
+				"gitdir: /home/me/src/octocat/hello-world/.git/worktrees/def789abc\n",
+		};
+		const provider = createGitWorktreeProvider({
+			stateDir: "/tmp/pi-state",
+			resolveSourceRepo: async () => "unused",
+			readDir: async (p) => dirs[p] ?? [],
+			readText: async (p) => pointers[p] ?? "",
+		});
+
+		const handles = await provider.list?.();
+		expect(handles).toBeDefined();
+		expect(handles).toHaveLength(2);
+		const handle = handles?.find((h) => h.sha === "abc123def456");
+		expect(handle?.path).toBe(
+			"/tmp/pi-state/worktrees/octocat-hello-world/abc123def456",
+		);
+		expect(handle?.marker).toBe("/home/me/src/octocat/hello-world");
+		expect(handle?.providerId).toBe("git");
+	});
+
+	it("skips entries whose git pointer cannot be parsed", async () => {
+		const dirs: Record<string, string[]> = {
+			"/tmp/s/worktrees": ["o-r"],
+			"/tmp/s/worktrees/o-r": ["good", "bad"],
+		};
+		const pointers: Record<string, string> = {
+			"/tmp/s/worktrees/o-r/good/.git":
+				"gitdir: /src/o/r/.git/worktrees/good\n",
+			"/tmp/s/worktrees/o-r/bad/.git": "not a gitdir pointer",
+		};
+		const provider = createGitWorktreeProvider({
+			stateDir: "/tmp/s",
+			resolveSourceRepo: async () => "unused",
+			readDir: async (p) => dirs[p] ?? [],
+			readText: async (p) => pointers[p] ?? "",
+		});
+
+		const handles = (await provider.list?.()) ?? [];
+		expect(handles).toHaveLength(1);
+		expect(handles[0].sha).toBe("good");
+	});
+
+	it("returns an empty list when the worktrees root does not exist", async () => {
+		const provider = createGitWorktreeProvider({
+			stateDir: "/tmp/empty",
+			resolveSourceRepo: async () => "unused",
+			readDir: async () => {
+				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+			},
+			readText: async () => "",
+		});
+
+		const handles = (await provider.list?.()) ?? [];
+		expect(handles).toEqual([]);
+	});
+});
