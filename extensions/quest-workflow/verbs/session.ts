@@ -10,7 +10,10 @@ import {
 	pickResumeSession,
 	resolveSpawnCwd,
 } from "../../../lib/internal/quest/reopen.js";
-import { deriveLiveness } from "../../../lib/internal/quest/session-liveness.js";
+import {
+	deriveLiveness,
+	type SessionView,
+} from "../../../lib/internal/quest/session-liveness.js";
 import type { QuestSession } from "../../../lib/quest/index.js";
 import {
 	resolveDriver,
@@ -126,6 +129,55 @@ export function resolveSpawnCommand(
 	return { command: "pi" };
 }
 
+/**
+ * Render a session's age as a compact relative string ("just now",
+ * "15m ago", "3h ago", "2d ago"). Undefined when there is no
+ * timestamp or it does not parse, so callers can drop the clause
+ * rather than print a bare "undefined ago".
+ */
+export function formatRelativeAge(
+	iso: string | undefined,
+	now: Date,
+): string | undefined {
+	if (!iso) return undefined;
+	const then = Date.parse(iso);
+	if (Number.isNaN(then)) return undefined;
+	const seconds = Math.max(0, Math.floor((now.getTime() - then) / 1000));
+	if (seconds < 60) return "just now";
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h ago`;
+	const days = Math.floor(hours / 24);
+	return `${days}d ago`;
+}
+
+/**
+ * The resume fragment appended to the spawn message. A live resume
+ * reads plainly; an idle resume is flagged as such and carries its
+ * last-active age so a day-old session is not silently presented as
+ * current. Several live sessions report the count; nothing
+ * resumable yields no fragment.
+ */
+export function resumeMessage(
+	resume: ReturnType<typeof pickResumeSession>,
+	sessions: SessionView[],
+	now: Date,
+): string | undefined {
+	if (resume && "id" in resume) {
+		const picked = sessions.find((s) => s.id === resume.id);
+		if (picked?.liveness === "idle") {
+			const age = formatRelativeAge(picked.lastActivity, now);
+			return `Resuming idle session ${resume.id}${age ? `, last active ${age}` : ""}.`;
+		}
+		return `Resuming session ${resume.id}.`;
+	}
+	if (resume && "ambiguous" in resume) {
+		return `${resume.ambiguous.length} live sessions; started fresh, resume one explicitly if needed.`;
+	}
+	return undefined;
+}
+
 export async function spawn(
 	state: QuestState,
 	ctx: ToolContext,
@@ -202,11 +254,13 @@ export async function spawn(
 	if (resolved.healed) {
 		message += ` A recorded path was missing; healed to this one.`;
 	}
-	if (resumedSessionId) {
-		message += ` Resuming session ${resumedSessionId}.`;
-	} else if (resume && "ambiguous" in resume) {
-		message += ` ${resume.ambiguous.length} live sessions; started fresh, resume one explicitly if needed.`;
-	}
+	// Only narrate resume when the spawn used pi's default command;
+	// an explicit command overrides the resume decision, so the
+	// idle/live/ambiguous note would not describe what actually ran.
+	const resumeNote = params.command?.trim()
+		? undefined
+		: resumeMessage(resume, sessions, now);
+	if (resumeNote) message += ` ${resumeNote}`;
 	return ok(message, {
 		driver: driver.id,
 		layout,
