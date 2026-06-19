@@ -8,11 +8,11 @@
  */
 
 import {
-	type FlagSpec,
 	findFlag,
 	type SimpleCommand,
 	tokenize,
 } from "../../lib/command/index.js";
+import { GH_BODY_SPEC } from "../../lib/internal/github/command-spec.js";
 import {
 	extractBodyFilePath,
 	hasUnquotedHeredoc,
@@ -20,14 +20,6 @@ import {
 
 /** Matches gh pr or issue create/edit commands. */
 const GH_ENTITY_COMMAND = /\bgh\s+(?:pr|issue)\s+(?:create|edit)\b/;
-
-/** The body flags, both inline and file, in long and short forms. */
-const GH_BODY_SPEC: FlagSpec = {
-	flags: [
-		{ name: "body", long: "body", short: "b", takesValue: true },
-		{ name: "body-file", long: "body-file", short: "F", takesValue: true },
-	],
-};
 
 /** Matches --body-file - (stdin). */
 const BODY_FILE_STDIN = /--body-file\s+-(?:\s|$)/;

@@ -11,24 +11,19 @@
 import {
 	applyEdits,
 	type Edit,
-	type FlagSpec,
 	findFlag,
 	type SimpleCommand,
 	tokenize,
 } from "../../command/index.js";
 import { stripHeredocBodies, stripShellData } from "../../shell/parse.js";
 import { isGhCommand } from "./cli.js";
+import { GH_BODY_SPEC } from "./command-spec.js";
 
 /** The outcome of attempting to attribute a gh command. */
 export type GhFooterInsertion =
 	| { kind: "rewritten"; command: string }
 	| { kind: "blocked"; reason: string }
 	| { kind: "skip" };
-
-/** Flags that carry a gh pr/issue body inline. */
-const GH_BODY_SPEC: FlagSpec = {
-	flags: [{ name: "body", long: "body", short: "b", takesValue: true }],
-};
 
 /** Where a footer should be inserted, with the body it joins. */
 interface BodyInsertion {
