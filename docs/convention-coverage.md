@@ -179,7 +179,7 @@ Command syntax for `gh` operations.
 
 | Rule | Section in skill | Status | Enforced by |
 | --- | --- | --- | --- |
-| `--body-file -` heredoc form, never `--body "..."` | Heredoc Syntax / Why --body-file Over --body | 🟢 | `extensions/github-cli-interceptor/patterns.ts` blocks `--body` |
+| `--body-file -` heredoc form, never `--body "..."` | Heredoc Syntax / Why --body-file Over --body | 🟢 | `extensions/github-cli-interceptor/patterns.ts` blocks an inline body through the command model, catching both `--body` and the short `-b` |
 | `--body-file -` (stdin), never `--body-file <path>` | Why --body-file Over --body | 🟢 | Same module blocks file-path form |
 | Heredoc must be present when `--body-file -` is used | Heredoc Syntax | 🟢 | Same module blocks bare stdin |
 | Quoted heredoc delimiter (`<<'EOF'`, not `<<EOF`) | Heredoc Syntax | 🟢 | `lib/shell/parse.ts` `hasUnquotedHeredoc`, blocked in the guardians |
@@ -197,6 +197,8 @@ Command syntax for `git` operations.
 | Rule | Section in skill | Status | Enforced by |
 | --- | --- | --- | --- |
 | Heredoc commit messages, never long `-m` | Heredoc Syntax for Commits / Why Heredoc Over -m | 🔇 | `extensions/attribution-interceptor` rebuilds every commit it processes (heredoc, `-m`, or `-F <file>`) into the canonical heredoc form via `buildCommitHeredoc`, so the convention is enforced silently in the rewrite. Attribution is unconditional, so there is no opt-out that would let the original `-m` form pass through. |
+| AI co-authorship on every commit | n/a (attribution) | 🔇 | `extensions/attribution-interceptor` injects the trailer on a typed `git commit`, and the `prepare-commit-msg` hook (`lib/internal/guardian/commit-hook.ts`) attributes the cherry-pick, revert, rebase, merge and editor paths the command interceptor cannot see. Idempotent together. |
+| Guardable command in a reviewable shape | n/a (enforcement) | 🟢 | `lib/guardian/enforce.ts` `blockIfUnsupported`, wired into the guardian pipeline, blocks a detected git commit or gh pr/issue create/edit wrapped in command substitution, a subshell, a brace group or control flow, so it is reissued in a shape the gates can review. |
 | Quoted heredoc delimiter | Shell Quoting | 🟢 | Same `hasUnquotedHeredoc` check applies to commit heredocs through the guardian |
 | One concern per bash call | One Concern Per Bash Call | ⚪ | Judgment about what constitutes "one concern". |
 
