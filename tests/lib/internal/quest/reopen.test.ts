@@ -116,10 +116,14 @@ function view(
 }
 
 describe("pickResumeSession", () => {
-	it("returns undefined when no session is live", () => {
+	it("returns undefined only when every session is dead or detached", () => {
 		expect(
-			pickResumeSession([view("a", "idle"), view("b", "dead")]),
+			pickResumeSession([view("a", "dead"), view("b", "detached")]),
 		).toBeUndefined();
+	});
+
+	it("returns undefined for an empty session list", () => {
+		expect(pickResumeSession([])).toBeUndefined();
 	});
 
 	it("returns the single live session", () => {
@@ -137,5 +141,28 @@ describe("pickResumeSession", () => {
 		if (!result || !("ambiguous" in result))
 			throw new Error("expected ambiguous");
 		expect(result.ambiguous.map((s) => s.id)).toEqual(["newer", "older"]);
+	});
+
+	it("falls back to the most-recent idle session when none is live", () => {
+		expect(
+			pickResumeSession([
+				view("older", "idle", "2026-06-04T09:00:00.000Z"),
+				view("newer", "idle", "2026-06-04T11:00:00.000Z"),
+				view("gone", "dead"),
+			]),
+		).toEqual({ id: "newer" });
+	});
+
+	it("prefers a live session over a more-recent idle one", () => {
+		expect(
+			pickResumeSession([
+				view("idleNewer", "idle", "2026-06-04T11:00:00.000Z"),
+				view("liveOlder", "live", "2026-06-04T09:00:00.000Z"),
+			]),
+		).toEqual({ id: "liveOlder" });
+	});
+
+	it("resumes a single idle session, never treating idle as ambiguous", () => {
+		expect(pickResumeSession([view("only", "idle")])).toEqual({ id: "only" });
 	});
 });
