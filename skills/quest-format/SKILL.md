@@ -127,6 +127,17 @@ Field semantics:
   (`active` or `detached`). The workflow maintains the
   list as sessions attach. A bare string is read as an
   id-only session for compatibility with older files.
+  Only persisted sessions are recorded: an ephemeral
+  `pi --no-session` run (a subagent or council fan-out)
+  is never attached, so it cannot leave a log-less
+  phantom. Loading a quest detaches the session from the
+  quest it is leaving, so one session reads `active` on
+  at most the quest it is on, and prunes any detached
+  entry whose session log no longer exists. `show` lists
+  each session with its derived liveness (`live`, `idle`,
+  `detached`), relative last-active age, and a marker on
+  the one a reopen would resume — the most-recent live
+  session, or the most-recent idle one when none is live.
 
 Documents under a quest carry their own smaller
 frontmatter:
