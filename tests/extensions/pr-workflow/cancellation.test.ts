@@ -149,6 +149,34 @@ describe("ReviewerCancellationRegistry", () => {
 		runA.end();
 	});
 
+	it("whenIdle() resolves immediately when no run is active", async () => {
+		const registry = new ReviewerCancellationRegistry();
+		await expect(registry.whenIdle()).resolves.toBeUndefined();
+	});
+
+	it("whenIdle() resolves only once every active run has ended", async () => {
+		const registry = new ReviewerCancellationRegistry();
+		const runA = registry.beginRun("council");
+		const runB = registry.beginRun("review");
+
+		let settled = false;
+		const idle = registry.whenIdle().then(() => {
+			settled = true;
+		});
+
+		// Let microtasks flush; still two runs in flight.
+		await Promise.resolve();
+		expect(settled).toBe(false);
+
+		runA.end();
+		await Promise.resolve();
+		expect(settled).toBe(false);
+
+		runB.end();
+		await idle;
+		expect(settled).toBe(true);
+	});
+
 	it("formats missing cancellation requests as a user-facing error", () => {
 		const registry = new ReviewerCancellationRegistry();
 		const outcome = registry.cancel("ghost");
