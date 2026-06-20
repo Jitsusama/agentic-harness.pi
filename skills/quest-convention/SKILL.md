@@ -138,6 +138,21 @@ document is a plan in `think` or `draft`. Other document
 kinds (research, brief, report) have no implementation
 phase and never block code writes.
 
+The gate classifies every write, edit and bash redirect
+destination, and treats scratch and devices as first-class
+so ad-hoc work is never cornered. Writes to a `/dev` node
+(the discard sink, the standard streams) always flow. A
+write to bare system temp (`/tmp`, the OS temp dir) is
+funnelled into a quest-owned managed scratch directory:
+the gate creates it on demand under the OS temp dir,
+records it on the quest, and reaps it when the quest
+concludes or retires, so all scratch stays controlled and
+cleaned up. In `build`, a write inside any tree the quest
+tracks flows; a write inside a git tree the quest does not
+track is refused with guidance to register it through
+`tree-adopt`, so the quest comes to account for every tree
+its code lives in.
+
 ## The Resuscitate Pattern
 
 A common motion: a sidequest paused weeks ago, a new Slack

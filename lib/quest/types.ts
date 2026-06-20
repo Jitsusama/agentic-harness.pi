@@ -134,6 +134,12 @@ export interface QuestFrontMatter {
 	trees?: QuestTree[];
 	pendingPrune?: PendingPrune[];
 	/**
+	 * Absolute path to the quest's managed scratch directory, created
+	 * on demand under the OS temp dir. Persisted so it survives across
+	 * sessions and can be reaped on conclude or retire.
+	 */
+	scratchDir?: string;
+	/**
 	 * Bag of unrecognised top-level frontmatter keys we read
 	 * back from disk so we can write them out unchanged. The
 	 * README is human-editable; user-added fields survive

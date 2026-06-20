@@ -13,7 +13,8 @@ function options(
 ): ClassifyWriteOptions {
 	return {
 		questDir: null,
-		scratchRoots: [],
+		scratchDir: null,
+		tempRoots: [],
 		isGitignored: never,
 		isTracked: never,
 		gitTreeRootOf: noTree,
@@ -22,6 +23,18 @@ function options(
 }
 
 describe("classifyWrite", () => {
+	it("labels a /dev node as a device", () => {
+		for (const node of [
+			"/dev/null",
+			"/dev/stdout",
+			"/dev/stderr",
+			"/dev/fd/1",
+			"/dev/tty",
+		]) {
+			expect(classifyWrite(node, options()).category).toBe("device");
+		}
+	});
+
 	it("labels a target outside every exemption and git tree as loose", () => {
 		const result = classifyWrite("/home/user/notes.txt", options());
 		expect(result.category).toBe("loose-file");
@@ -35,12 +48,23 @@ describe("classifyWrite", () => {
 		expect(result.category).toBe("quest-internal");
 	});
 
-	it("labels a target under a configured scratch root as scratch", () => {
+	it("labels a target under a system temp root as system-temp", () => {
 		const result = classifyWrite(
 			"/tmp/run-42/dump.json",
-			options({ scratchRoots: ["/tmp"] }),
+			options({ tempRoots: ["/tmp"] }),
 		);
-		expect(result.category).toBe("scratch");
+		expect(result.category).toBe("system-temp");
+	});
+
+	it("labels a target under the managed scratch dir as quest-scratch", () => {
+		const result = classifyWrite(
+			"/tmp/pi-quest-Q1-Ab3xZ9/dump.json",
+			options({
+				scratchDir: "/tmp/pi-quest-Q1-Ab3xZ9",
+				tempRoots: ["/tmp"],
+			}),
+		);
+		expect(result.category).toBe("quest-scratch");
 	});
 
 	it("labels a gitignored in-tree target as scratch, not tracked code", () => {

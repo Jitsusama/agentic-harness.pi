@@ -141,6 +141,7 @@ export function loadQuest(
 	state.questKind = entry.doc.frontMatter.kind;
 	state.questStatus = entry.doc.frontMatter.status;
 	state.questPriority = entry.doc.frontMatter.priority;
+	state.scratchDir = entry.doc.frontMatter.scratchDir ?? null;
 	state.documentPath = null;
 	state.documentId = null;
 	state.documentKind = null;
@@ -173,6 +174,7 @@ export function refreshLoadedSlice(state: QuestState): void {
 	state.questKind = parsed.frontMatter.kind;
 	state.questStatus = parsed.frontMatter.status;
 	state.questPriority = parsed.frontMatter.priority;
+	state.scratchDir = parsed.frontMatter.scratchDir ?? null;
 }
 
 /** Unload the currently loaded quest. */
@@ -183,6 +185,7 @@ export function unloadQuest(state: QuestState): void {
 	state.questKind = null;
 	state.questStatus = null;
 	state.questPriority = null;
+	state.scratchDir = null;
 	state.documentPath = null;
 	state.documentId = null;
 	state.documentKind = null;

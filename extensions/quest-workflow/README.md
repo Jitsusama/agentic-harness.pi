@@ -50,9 +50,15 @@ entry; it never triggers behaviour.
 - The stage machine for the focused document (subsumes the
   prior plan-workflow's stage machine, generalised across
   document kinds).
-- Discipline: while a focused plan is in `think` or `draft`,
-  code writes are blocked everywhere except the plan
-  document itself.
+- Discipline: a classification gate over every write, edit
+  and bash redirect. While a focused plan is in `think` or
+  `draft`, only edits to already-tracked code defer to
+  build. In `build`, writes flow inside any tree the quest
+  tracks; a write inside an untracked git tree is refused
+  with `tree-adopt` guidance, and a homeless write with
+  `tree-add`. Across stages, `/dev` nodes always flow and
+  bare system temp is funnelled into a quest-owned managed
+  scratch directory that is reaped on conclude or retire.
 - The status-bar widget showing the loaded quest, its kind,
   status, and the focused document's stage and progress.
 - Auto-load on session start when the cwd is inside a

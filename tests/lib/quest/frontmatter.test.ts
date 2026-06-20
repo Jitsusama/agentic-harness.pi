@@ -193,6 +193,22 @@ describe("quest front-matter", () => {
 		expect(text).not.toContain("pendingPrune:");
 	});
 
+	it("round-trips a scratchDir when present and omits it when absent", () => {
+		const fm: QuestFrontMatter = {
+			...SAMPLE_QUEST_FM,
+			scratchDir: "/tmp/pi-quest-QEST-20260603-AAA111-Ab3xZ9",
+		};
+		const parsed = parseQuestFrontMatter(
+			`${serializeQuestFrontMatter(fm)}\n# Title\n`,
+		);
+		expect(parsed?.frontMatter.scratchDir).toBe(
+			"/tmp/pi-quest-QEST-20260603-AAA111-Ab3xZ9",
+		);
+		expect(serializeQuestFrontMatter(SAMPLE_QUEST_FM)).not.toContain(
+			"scratchDir:",
+		);
+	});
+
 	it("accepts a session id given as a bare string", () => {
 		const text = [
 			"---",

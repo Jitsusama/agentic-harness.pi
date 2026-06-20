@@ -18,7 +18,10 @@ import * as path from "node:path";
 
 /** The category a write target falls into. */
 export type WriteCategory =
+	| "device"
+	| "quest-scratch"
 	| "quest-internal"
+	| "system-temp"
 	| "scratch"
 	| "tracked-code"
 	| "untracked-in-tree"
@@ -35,8 +38,17 @@ export interface WriteClassification {
 export interface ClassifyWriteOptions {
 	/** The loaded quest's own directory, or null when none is loaded. */
 	questDir: string | null;
-	/** Directories whose contents are always scratch (temp dir, configured roots). */
-	scratchRoots: string[];
+	/**
+	 * The quest's managed scratch directory, or null when the quest
+	 * has none yet. Writes here are allowed and reaped on conclude.
+	 */
+	scratchDir: string | null;
+	/**
+	 * System temp roots (the OS temp dir, /tmp, /private/tmp). A
+	 * write here that is not under the managed scratch dir is funnelled
+	 * back into it rather than left to leak unreaped.
+	 */
+	tempRoots: string[];
 	/** Whether the target is gitignored at its destination. */
 	isGitignored: (absPath: string) => boolean;
 	/** Whether the target is tracked in its repository's index. */
@@ -56,15 +68,30 @@ function isUnder(target: string, dir: string): boolean {
 	return resolved === base || resolved.startsWith(`${base}${path.sep}`);
 }
 
+/**
+ * Whether the target is a node under /dev (the discard sink and the
+ * standard streams). These are never file writes to police, so the
+ * gate allows them unconditionally.
+ */
+function isDeviceNode(target: string): boolean {
+	return path.resolve(target).startsWith(`${path.sep}dev${path.sep}`);
+}
+
 export function classifyWrite(
 	target: string,
 	opts: ClassifyWriteOptions,
 ): WriteClassification {
+	if (isDeviceNode(target)) {
+		return { category: "device" };
+	}
+	if (opts.scratchDir && isUnder(target, opts.scratchDir)) {
+		return { category: "quest-scratch" };
+	}
 	if (opts.questDir && isUnder(target, opts.questDir)) {
 		return { category: "quest-internal" };
 	}
-	if (opts.scratchRoots.some((root) => isUnder(target, root))) {
-		return { category: "scratch" };
+	if (opts.tempRoots.some((root) => isUnder(target, root))) {
+		return { category: "system-temp" };
 	}
 	if (opts.isGitignored(target)) {
 		return { category: "scratch" };
