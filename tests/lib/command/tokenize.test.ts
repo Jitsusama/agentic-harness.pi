@@ -165,4 +165,37 @@ describe("tokenize", () => {
 		expect(tokenize("echo '(ok)'").supported).toBe(true);
 		expect(tokenize("echo {a,b}").supported).toBe(true);
 	});
+
+	it("splits on a background & so the next command is its own command", () => {
+		const line = tokenize("git commit -m x & rm -rf y");
+
+		expect(line.commands).toHaveLength(2);
+		expect(line.connectors.map((c) => c.op)).toEqual(["&"]);
+		expect(line.commands[1].argv[0].text).toBe("rm");
+	});
+
+	it("splits on |&", () => {
+		const line = tokenize("a |& b");
+
+		expect(line.commands).toHaveLength(2);
+		expect(line.connectors.map((c) => c.op)).toEqual(["|&"]);
+	});
+
+	it("does not split &> as a connector", () => {
+		expect(tokenize("echo a &>f").commands).toHaveLength(1);
+	});
+
+	it("keeps a double-quoted word whole across an escaped quote and does not swallow a later flag", () => {
+		const argv = tokenize('gh pr create --title "a \\" b" --draft').commands[0]
+			.argv;
+
+		expect(argv.map((w) => w.text)).toEqual([
+			"gh",
+			"pr",
+			"create",
+			"--title",
+			'"a \\" b"',
+			"--draft",
+		]);
+	});
 });

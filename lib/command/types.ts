@@ -42,7 +42,7 @@ export interface SimpleCommand {
 
 /** A top-level operator joining two simple commands. */
 export interface Connector {
-	readonly op: "&&" | "||" | ";" | "|" | "\n";
+	readonly op: "&&" | "||" | ";" | "|" | "|&" | "&" | "\n";
 	readonly span: Span;
 }
 

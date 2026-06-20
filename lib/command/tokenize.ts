@@ -193,8 +193,14 @@ function splitTopLevel(
 /** The connector operator beginning at index i, or undefined. */
 function connectorAt(source: string, i: number): Connector["op"] | undefined {
 	const ch = source[i];
-	if (ch === "&" && source[i + 1] === "&") return "&&";
-	if (ch === "|" && source[i + 1] === "|") return "||";
+	const next = source[i + 1];
+	if (ch === "&" && next === "&") return "&&";
+	// A lone & backgrounds the preceding command. Exclude the
+	// redirect forms: &>/&>> (next is >) and >& duplication (the
+	// previous char is >), so only a true background & splits.
+	if (ch === "&" && next !== ">" && source[i - 1] !== ">") return "&";
+	if (ch === "|" && next === "|") return "||";
+	if (ch === "|" && next === "&") return "|&";
 	if (ch === "|") return "|";
 	if (ch === ";") return ";";
 	if (ch === "\n") return "\n";
@@ -298,11 +304,22 @@ function isContinuation(source: string, i: number): boolean {
 	return source[i] === "\\" && source[i + 1] === "\n";
 }
 
-/** Index just past a quoted span beginning at the quote at i. */
+/**
+ * Index just past a quoted span beginning at the quote at i. Inside
+ * double quotes a backslash escapes the next character, so an
+ * escaped quote does not end the span; single quotes take no
+ * escapes, so a backslash there is literal.
+ */
 function skipQuoted(source: string, i: number): number {
 	const quote = source[i];
 	i++;
-	while (i < source.length && source[i] !== quote) i++;
+	while (i < source.length && source[i] !== quote) {
+		if (quote === '"' && source[i] === "\\" && i + 1 < source.length) {
+			i += 2;
+			continue;
+		}
+		i++;
+	}
 	if (i < source.length) i++;
 	return i;
 }
