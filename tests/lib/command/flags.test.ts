@@ -1,5 +1,44 @@
 import { describe, expect, it } from "vitest";
-import { findFlag, tokenize } from "../../../lib/command/index.js";
+import { findFlag, findFlags, tokenize } from "../../../lib/command/index.js";
+
+const commitSpec = {
+	flags: [
+		{ name: "message", long: "message", short: "m", takesValue: true },
+		{ name: "all", long: "all", short: "a", takesValue: false },
+	],
+};
+
+describe("findFlags", () => {
+	it("returns every occurrence of a repeated flag in order", () => {
+		const command = tokenize('git commit -m "a" -m "b"').commands[0];
+
+		const values = findFlags(command, commitSpec, "message").map(
+			(m) => m.value,
+		);
+
+		expect(values).toEqual(['"a"', '"b"']);
+	});
+
+	it("finds a value-taking short flag inside a boolean cluster", () => {
+		const command = tokenize('git commit -am "msg"').commands[0];
+
+		const match = findFlags(command, commitSpec, "message")[0];
+
+		expect(match?.value).toBe('"msg"');
+	});
+
+	it("finds the boolean member of a cluster", () => {
+		const command = tokenize('git commit -am "msg"').commands[0];
+
+		expect(findFlags(command, commitSpec, "all")).toHaveLength(1);
+	});
+
+	it("returns nothing when the flag is absent", () => {
+		const command = tokenize("git commit --amend").commands[0];
+
+		expect(findFlags(command, commitSpec, "message")).toEqual([]);
+	});
+});
 
 const bodySpec = {
 	flags: [{ name: "body", long: "body", takesValue: true }],

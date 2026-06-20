@@ -12,7 +12,7 @@ export { effectiveCwd } from "./cwd.js";
 export type { Edit } from "./edit.js";
 export { applyEdits } from "./edit.js";
 export type { FlagDef, FlagMatch, FlagSpec } from "./flags.js";
-export { findFlag } from "./flags.js";
+export { findFlag, findFlags } from "./flags.js";
 export { tokenize } from "./tokenize.js";
 export type {
 	CommandLine,

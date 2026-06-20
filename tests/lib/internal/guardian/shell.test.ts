@@ -12,6 +12,24 @@ describe("extractMessage", () => {
 		expect(extractMessage('git commit -m "subject"')).toBe("subject");
 	});
 
+	it("joins repeated -m flags into paragraphs", () => {
+		expect(extractMessage('git commit -m "subject" -m "body"')).toBe(
+			"subject\n\nbody",
+		);
+	});
+
+	it("reads the message from an -am cluster", () => {
+		expect(extractMessage('git commit -am "subject"')).toBe("subject");
+	});
+
+	it("ignores a heredoc that belongs to a chained command", () => {
+		expect(
+			extractMessage(
+				"git commit -m \"real\" && cat <<'EOF'\nnot the message\nEOF",
+			),
+		).toBe("real");
+	});
+
 	it("resolves a -F <file> through the injected reader with the cd base", () => {
 		const calls: Array<[string, string | null]> = [];
 		const read = (path: string, base: string | null): string | null => {

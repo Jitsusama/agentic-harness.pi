@@ -34,15 +34,30 @@ export function findFlag(
 	spec: FlagSpec,
 	name: string,
 ): FlagMatch | undefined {
+	return findFlags(command, spec, name)[0];
+}
+
+/** Find every occurrence of a named flag in a command, in order. */
+export function findFlags(
+	command: SimpleCommand,
+	spec: FlagSpec,
+	name: string,
+): FlagMatch[] {
 	const def = spec.flags.find((flag) => flag.name === name);
-	if (!def) return undefined;
+	if (!def) return [];
 
 	const { argv } = command;
+	const matches: FlagMatch[] = [];
 	for (let i = 0; i < argv.length; i++) {
-		const match = matchAt(def, argv[i], argv[i + 1]);
-		if (match) return match;
+		const direct = matchAt(def, argv[i], argv[i + 1]);
+		if (direct) {
+			matches.push(direct);
+			continue;
+		}
+		const clustered = matchInCluster(spec, def, argv[i], argv[i + 1]);
+		if (clustered) matches.push(clustered);
 	}
-	return undefined;
+	return matches;
 }
 
 /**
@@ -86,5 +101,60 @@ function matchAt(
 		return attachedValue(short.length);
 	}
 
+	return undefined;
+}
+
+/**
+ * Match a flag inside a clustered short word like `-am`, where
+ * leading characters are boolean short flags and a later character
+ * is the one being looked for. Walks the cluster left to right
+ * against the full spec; bails to undefined the moment it meets a
+ * character the spec does not know or an earlier short flag that
+ * would itself consume a value, since then the cluster cannot be
+ * read safely.
+ */
+function matchInCluster(
+	spec: FlagSpec,
+	def: FlagDef,
+	word: Word,
+	next: Word | undefined,
+): FlagMatch | undefined {
+	const { text } = word;
+	if (!text.startsWith("-") || text.startsWith("--") || text.length < 2) {
+		return undefined;
+	}
+
+	const chars = text.slice(1);
+	for (let j = 0; j < chars.length; j++) {
+		const member = spec.flags.find((flag) => flag.short === chars[j]);
+		if (!member) return undefined;
+
+		if (member.name === def.name) {
+			if (!def.takesValue) return { name: def.name, flagSpan: word.span };
+			const rest = chars.slice(j + 1);
+			if (rest.length > 0) {
+				const prefixLength = 1 + j + 1;
+				return {
+					name: def.name,
+					flagSpan: word.span,
+					value: rest,
+					valueSpan: {
+						start: word.span.start + prefixLength,
+						end: word.span.end,
+					},
+				};
+			}
+			return next
+				? {
+						name: def.name,
+						flagSpan: word.span,
+						value: next.text,
+						valueSpan: next.span,
+					}
+				: { name: def.name, flagSpan: word.span };
+		}
+
+		if (member.takesValue) return undefined;
+	}
 	return undefined;
 }
