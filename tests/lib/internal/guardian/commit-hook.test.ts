@@ -1,11 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	ensureCommitHook,
 	installCommitHook,
 	PREPARE_COMMIT_MSG_HOOK,
+	repoRootOf,
 } from "../../../../lib/internal/guardian/commit-hook.js";
 
 const TRAILER = "Co-Authored-By: AI (Claude Opus 4.6 via Pi) <noreply@pi.dev>";
@@ -71,6 +79,33 @@ describe("PREPARE_COMMIT_MSG_HOOK", () => {
 	});
 });
 
+describe("ensureCommitHook", () => {
+	it("installs into the repo of a subdirectory and records the root", () => {
+		const repo = initRepo();
+		const sub = join(repo, "a", "b");
+		mkdirSync(sub, { recursive: true });
+		const installed = new Set<string>();
+
+		ensureCommitHook(sub, installed);
+
+		const hooksDir = execFileSync(
+			"git",
+			["-C", repo, "rev-parse", "--git-path", "hooks"],
+			{ encoding: "utf8" },
+		).trim();
+		expect(existsSync(join(repo, hooksDir, "prepare-commit-msg"))).toBe(true);
+		expect(installed.has(repoRootOf(sub) ?? "")).toBe(true);
+	});
+
+	it("is a no-op for a directory outside any git repo", () => {
+		const loose = tempDir();
+		const installed = new Set<string>();
+
+		expect(() => ensureCommitHook(loose, installed)).not.toThrow();
+		expect(installed.size).toBe(0);
+	});
+});
+
 describe("installCommitHook", () => {
 	it("installs and attributes a real commit end to end", () => {
 		const repo = initRepo();
@@ -105,6 +140,35 @@ describe("installCommitHook", () => {
 		expect(log).not.toContain("Co-Authored-By");
 	});
 
+	it("refuses to install when a custom core.hooksPath is configured", () => {
+		const repo = initRepo();
+		execFileSync("git", ["-C", repo, "config", "core.hooksPath", ".husky"]);
+
+		const result = installCommitHook(repo);
+
+		expect(result.installed).toBe(false);
+		expect(result.reason).toMatch(/hookspath/i);
+	});
+
+	it("refuses to clobber an existing .pi-chained backup", () => {
+		const repo = initRepo();
+		const hooksDir = execFileSync(
+			"git",
+			["-C", repo, "rev-parse", "--git-path", "hooks"],
+			{ encoding: "utf8" },
+		).trim();
+		const chained = join(repo, hooksDir, "prepare-commit-msg.pi-chained");
+		writeFileSync(chained, "#!/bin/sh\n# original backup\n", { mode: 0o755 });
+		writeFileSync(join(repo, hooksDir, "prepare-commit-msg"), "#!/bin/sh\n", {
+			mode: 0o755,
+		});
+
+		const result = installCommitHook(repo);
+
+		expect(result.installed).toBe(false);
+		expect(readFileSync(chained, "utf8")).toContain("original backup");
+	});
+
 	it("is idempotent on a second install", () => {
 		const repo = initRepo();
 
@@ -113,6 +177,28 @@ describe("installCommitHook", () => {
 			installed: false,
 			reason: "already installed",
 		});
+	});
+
+	it("aborts the commit when a chained hook exits non-zero", () => {
+		const repo = initRepo();
+		const hooksDir = execFileSync(
+			"git",
+			["-C", repo, "rev-parse", "--git-path", "hooks"],
+			{ encoding: "utf8" },
+		).trim();
+		const existing = join(repo, hooksDir, "prepare-commit-msg");
+		writeFileSync(existing, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+
+		installCommitHook(repo);
+
+		writeFileSync(join(repo, "f.txt"), "hi");
+		execFileSync("git", ["-C", repo, "add", "."]);
+		expect(() =>
+			execFileSync("git", ["-C", repo, "commit", "-m", "feat: thing"], {
+				env: { ...process.env, PI_CO_AUTHOR: TRAILER },
+				stdio: "ignore",
+			}),
+		).toThrow();
 	});
 
 	it("chains a pre-existing hook", () => {

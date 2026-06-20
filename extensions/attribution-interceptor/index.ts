@@ -32,29 +32,21 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@mariozechner/pi-coding-agent";
-import {
-	installCommitHook,
-	repoRootOf,
-} from "../../lib/internal/guardian/commit-hook.js";
+import { effectiveCwd, tokenize } from "../../lib/command/index.js";
+import { ensureCommitHook } from "../../lib/internal/guardian/commit-hook.js";
 import { coAuthorTrailer } from "../../lib/internal/guardian/commit-trailer.js";
 import { attributeGh } from "./attribution.js";
 
 const GH_ENTITIES = ["pr", "issue"] as const;
 
 export default function attributionExtension(pi: ExtensionAPI) {
-	// Install the prepare-commit-msg hook in the working repo so
-	// commits pi cannot intercept at the command (cherry-pick,
-	// revert, rebase, merge, editor) are attributed too. Idempotent
-	// and best-effort: a non-git cwd or a failed install just leaves
-	// command-level injection as the only path.
-	const repoRoot = repoRootOf(process.cwd());
-	if (repoRoot) {
-		try {
-			installCommitHook(repoRoot);
-		} catch {
-			// Best-effort: never block startup on hook installation.
-		}
-	}
+	// The prepare-commit-msg hook is how every commit path pi cannot
+	// intercept at the command (cherry-pick, revert, rebase, merge,
+	// editor) gets attributed. Install it once per repo the session
+	// touches, so coverage follows the agent as it cds between repos
+	// rather than only the repo pi started in.
+	const hookedRepos = new Set<string>();
+	ensureCommitHook(process.cwd(), hookedRepos);
 
 	pi.on(
 		"tool_call",
@@ -63,6 +55,11 @@ export default function attributionExtension(pi: ExtensionAPI) {
 
 			const command = event.input.command;
 			const modelId = ctx.model?.id ?? null;
+
+			// Make sure the hook covers the repo this command runs in,
+			// which may be one the agent cd'd into after startup.
+			const cwd = effectiveCwd(tokenize(command), process.cwd());
+			ensureCommitHook("dir" in cwd ? cwd.dir : process.cwd(), hookedRepos);
 
 			// Carry the trailer to child git processes so the
 			// prepare-commit-msg hook attributes every commit path,

@@ -36,7 +36,9 @@ export const PREPARE_COMMIT_MSG_HOOK = `#!/bin/sh
 msg_file="$1"
 
 chained="$(CDPATH= cd "$(dirname "$0")" && pwd)/prepare-commit-msg.pi-chained"
-[ -x "$chained" ] && "$chained" "$@"
+if [ -x "$chained" ]; then
+	"$chained" "$@" || exit $?
+fi
 
 [ -n "$PI_CO_AUTHOR" ] || exit 0
 [ -f "$msg_file" ] || exit 0
@@ -60,6 +62,14 @@ export interface HookInstall {
  * hook. A no-op when pi's hook is already installed.
  */
 export function installCommitHook(repoRoot: string): HookInstall {
+	// A custom core.hooksPath means a hook manager (husky and the
+	// like) or a shared, possibly version-controlled hooks directory
+	// owns the hooks. Leave it alone rather than write pi's hook into
+	// a directory pi does not own.
+	if (hasCustomHooksPath(repoRoot)) {
+		return { installed: false, reason: "custom core.hooksPath configured" };
+	}
+
 	let hooksDir: string;
 	try {
 		hooksDir = resolveHooksDir(repoRoot);
@@ -76,12 +86,55 @@ export function installCommitHook(repoRoot: string): HookInstall {
 	}
 
 	if (existsSync(target)) {
-		renameSync(target, join(hooksDir, "prepare-commit-msg.pi-chained"));
+		const chained = join(hooksDir, "prepare-commit-msg.pi-chained");
+		// A backup already here means a non-pi hook was chained before;
+		// renaming over it would lose the original, so refuse instead.
+		if (existsSync(chained)) {
+			return {
+				installed: false,
+				reason: "a prepare-commit-msg.pi-chained backup already exists",
+			};
+		}
+		renameSync(target, chained);
 	}
 
 	writeFileSync(target, PREPARE_COMMIT_MSG_HOOK, { mode: 0o755 });
 	chmodSync(target, 0o755);
 	return { installed: true };
+}
+
+/** Whether the repo configures a custom core.hooksPath. */
+function hasCustomHooksPath(repoRoot: string): boolean {
+	try {
+		const value = execFileSync(
+			"git",
+			["-C", repoRoot, "config", "--get", "core.hooksPath"],
+			{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+		).trim();
+		return value.length > 0;
+	} catch {
+		// git config exits non-zero when the key is unset: no custom path.
+		return false;
+	}
+}
+
+/**
+ * Ensure the hook is installed in the repo containing dir, at most
+ * once per repo root. Resolves the repo, records it in `installed`
+ * so later commands in the same repo are skipped, and installs
+ * best-effort. A directory outside any git repo is a no-op. This is
+ * how hook coverage follows the session into repos it later cds
+ * into, rather than only the repo pi started in.
+ */
+export function ensureCommitHook(dir: string, installed: Set<string>): void {
+	const root = repoRootOf(dir);
+	if (!root || installed.has(root)) return;
+	installed.add(root);
+	try {
+		installCommitHook(root);
+	} catch {
+		// Best-effort: never let hook installation break a command.
+	}
 }
 
 /** Resolve the active hooks directory, honouring core.hooksPath. */
