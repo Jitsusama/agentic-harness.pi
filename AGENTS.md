@@ -24,6 +24,9 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     redirect formatting (public)
   - `lib/shell/`: shell command parsing: flag extraction,
     heredoc stripping, splitting, quoting (public)
+  - `lib/command/`: lossless, range-indexed command model:
+    tokenize, the caller-spec flag layer, splice-by-range
+    editing and the effective working directory (public)
   - `lib/internal/`: not for external use
     - `git/`: process-global bypass state for git
       command interception

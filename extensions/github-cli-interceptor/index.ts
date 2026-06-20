@@ -36,7 +36,7 @@ export default function githubCliInterceptor(pi: ExtensionAPI) {
 			// Checks on the stripped command (heredoc bodies and
 			// non-executable content removed).
 			const strippedViolation =
-				detectInlineBody(stripped) ??
+				detectInlineBody(command) ??
 				detectPackedMetadata(stripped) ??
 				detectBodyFilePath(stripped) ??
 				detectMissingHeredoc(stripped, command);

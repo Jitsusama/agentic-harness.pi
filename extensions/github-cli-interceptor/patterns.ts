@@ -8,18 +8,18 @@
  */
 
 import {
+	findFlag,
+	type SimpleCommand,
+	tokenize,
+} from "../../lib/command/index.js";
+import { GH_BODY_SPEC } from "../../lib/internal/github/command-spec.js";
+import {
 	extractBodyFilePath,
 	hasUnquotedHeredoc,
 } from "../../lib/shell/parse.js";
 
 /** Matches gh pr or issue create/edit commands. */
 const GH_ENTITY_COMMAND = /\bgh\s+(?:pr|issue)\s+(?:create|edit)\b/;
-
-/** Matches the --body flag (not --body-file). */
-const INLINE_BODY = /--body\s+(?:"[^"]*"|'[^']*'|\S+)/;
-
-/** Matches the --body-file flag (the correct form). */
-const BODY_FILE = /--body-file\b/;
 
 /** Matches --body-file - (stdin). */
 const BODY_FILE_STDIN = /--body-file\s+-(?:\s|$)/;
@@ -43,16 +43,30 @@ const GH_CREATE = /\bgh\s+(?:pr|issue)\s+create\b/;
  * null if the command is fine.
  */
 export function detectInlineBody(command: string): string | null {
-	if (!GH_ENTITY_COMMAND.test(command)) return null;
-	if (!INLINE_BODY.test(command)) return null;
-	if (BODY_FILE.test(command)) return null;
+	const gh = findGhEntityCommand(command);
+	if (!gh) return null;
+	// The body-file heredoc form is the correct one; only an inline
+	// body (--body or its short -b) is the violation.
+	if (gh.heredoc) return null;
+	if (findFlag(gh, GH_BODY_SPEC, "body-file")) return null;
+	if (!findFlag(gh, GH_BODY_SPEC, "body")) return null;
 
 	return (
-		"Blocked: gh pr/issue command uses --body instead of " +
-		"--body-file with heredoc. The --body flag has quoting " +
-		"issues with markdown content.\n\n" +
+		"Blocked: gh pr/issue command uses an inline body (--body or " +
+		"-b) instead of --body-file with a heredoc. An inline body has " +
+		"quoting issues with markdown content.\n\n" +
 		"Read the github-cli-convention skill for the heredoc " +
 		"pattern, then retry."
+	);
+}
+
+/** Find a gh pr/issue create or edit command in a bash command. */
+function findGhEntityCommand(command: string): SimpleCommand | undefined {
+	return tokenize(command).commands.find(
+		(c) =>
+			c.argv[0]?.text === "gh" &&
+			(c.argv[1]?.text === "pr" || c.argv[1]?.text === "issue") &&
+			(c.argv[2]?.text === "create" || c.argv[2]?.text === "edit"),
 	);
 }
 

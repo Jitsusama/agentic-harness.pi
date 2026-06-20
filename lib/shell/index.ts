@@ -15,4 +15,5 @@ export {
 	splitAtCommand,
 	stripHeredocBodies,
 	stripShellData,
+	unquote,
 } from "./parse.js";

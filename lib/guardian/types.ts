@@ -15,6 +15,13 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
  * - ALLOW (undefined): allow the command as-is
  * - { block, reason }: block execution with a reason
  * - { rewrite }: allow execution with a rewritten command
+ *
+ * No guardian currently emits a rewrite: the guardians review and
+ * block or allow, while the sanctioned rewrite paths are the
+ * attribution splice and the interceptors. The rewrite variant is
+ * retained as intentional contract surface so a future guardian can
+ * opt in through the one sanctioned mutation site (register.ts)
+ * rather than touching event.input.command directly.
  */
 export type GuardianResult =
 	| undefined

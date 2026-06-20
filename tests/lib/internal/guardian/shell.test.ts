@@ -12,6 +12,28 @@ describe("extractMessage", () => {
 		expect(extractMessage('git commit -m "subject"')).toBe("subject");
 	});
 
+	it("joins repeated -m flags into paragraphs", () => {
+		expect(extractMessage('git commit -m "subject" -m "body"')).toBe(
+			"subject\n\nbody",
+		);
+	});
+
+	it("reads the message from an -am cluster", () => {
+		expect(extractMessage('git commit -am "subject"')).toBe("subject");
+	});
+
+	it("reads a commit reached through a leading git global option", () => {
+		expect(extractMessage('git -C /tmp/x commit -m "msg"')).toBe("msg");
+	});
+
+	it("ignores a heredoc that belongs to a chained command", () => {
+		expect(
+			extractMessage(
+				"git commit -m \"real\" && cat <<'EOF'\nnot the message\nEOF",
+			),
+		).toBe("real");
+	});
+
 	it("resolves a -F <file> through the injected reader with the cd base", () => {
 		const calls: Array<[string, string | null]> = [];
 		const read = (path: string, base: string | null): string | null => {
@@ -26,14 +48,14 @@ describe("extractMessage", () => {
 		expect(calls).toEqual([["msg.txt", "/work"]]);
 	});
 
-	it("passes a null base for an absolute -F path with no cd", () => {
+	it("passes the process cwd as the base when there is no cd", () => {
 		const calls: Array<[string, string | null]> = [];
 		const read = (path: string, base: string | null): string | null => {
 			calls.push([path, base]);
 			return "x";
 		};
 		extractMessage("git commit -F /tmp/m.txt", read);
-		expect(calls).toEqual([["/tmp/m.txt", null]]);
+		expect(calls).toEqual([["/tmp/m.txt", process.cwd()]]);
 	});
 
 	it("returns null for a -F file when no reader is given", () => {

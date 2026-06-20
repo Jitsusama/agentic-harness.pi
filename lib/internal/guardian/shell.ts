@@ -1,40 +1,111 @@
 /**
- * Git commit command parsing: message extraction, commit
- * splitting, flag parsing and heredoc construction.
+ * Git commit command parsing: locating a git commit past its
+ * global options and extracting its message (heredoc, -m/-am, or
+ * -F file) on the command model.
  *
  * These are commit-guardian internals. General-purpose shell
  * parsing lives in lib/shell/.
  */
 
-import { matchHeredocs, splitAtCommand } from "../../shell/parse.js";
+import {
+	type CommandLine,
+	effectiveCwd,
+	type FlagSpec,
+	findFlag,
+	findFlags,
+	type SimpleCommand,
+	tokenize,
+	type Word,
+} from "../../command/index.js";
+import { unquote } from "../../shell/parse.js";
 
-const COMMIT_HEREDOC_DELIM = "__COMMIT_MSG__";
+/**
+ * Git global options that sit before the subcommand and take a
+ * separate value, so the value token is skipped when locating the
+ * subcommand. Attached forms (-Cpath, --git-dir=...) and the
+ * boolean globals consume only their own token.
+ */
+const GIT_GLOBAL_VALUE_FLAGS = new Set([
+	"-C",
+	"-c",
+	"--git-dir",
+	"--work-tree",
+	"--namespace",
+	"--config-env",
+	"--super-prefix",
+]);
 
-/** Detects the bash heredoc operator (`<<TAG` / `<<'TAG'` / `<<-"TAG"`). */
-const HEREDOC_OPERATOR = /<<-?\s*['"]?\w+['"]?/;
+/**
+ * Index of the git subcommand in argv, skipping any leading global
+ * options, or -1 when this is not a git command or has no
+ * subcommand. So `git -C dir commit` resolves to the index of
+ * `commit`, not `-C`.
+ */
+function gitSubcommandIndex(argv: Word[]): number {
+	if (argv[0]?.text !== "git") return -1;
+	let i = 1;
+	while (i < argv.length) {
+		const token = argv[i].text;
+		if (!token.startsWith("-")) return i;
+		i += GIT_GLOBAL_VALUE_FLAGS.has(token) ? 2 : 1;
+	}
+	return -1;
+}
+
+/**
+ * Find the git command in a tokenized line whose subcommand is
+ * `sub`, looking past leading global options so a form like
+ * `git -C dir commit` is still found.
+ */
+export function findGitCommand(
+	line: CommandLine,
+	sub: string,
+): SimpleCommand | undefined {
+	return line.commands.find((command) => {
+		const index = gitSubcommandIndex(command.argv);
+		return index >= 0 && command.argv[index]?.text === sub;
+	});
+}
+
+/** Whether a bash command contains a git commit, global options aside. */
+export function isGitCommitCommand(command: string): boolean {
+	return findGitCommand(tokenize(command), "commit") !== undefined;
+}
+
+/**
+ * The commit flags that carry a message or affect how a clustered
+ * short flag like `-am` is read. The message and file flags carry
+ * a value; the rest are the common boolean shorts that can precede
+ * `-m` in a cluster, so the cluster parses safely.
+ */
+const COMMIT_MESSAGE_SPEC: FlagSpec = {
+	flags: [
+		{ name: "message", long: "message", short: "m", takesValue: true },
+		{ name: "file", long: "file", short: "F", takesValue: true },
+		{ name: "all", long: "all", short: "a", takesValue: false },
+		{ name: "signoff", long: "signoff", short: "s", takesValue: false },
+		{ name: "verbose", long: "verbose", short: "v", takesValue: false },
+		{ name: "quiet", long: "quiet", short: "q", takesValue: false },
+		{ name: "edit", long: "edit", short: "e", takesValue: false },
+	],
+};
 
 /**
  * Extract the commit message from a bash command.
  *
- * Supports two formats:
- *   heredoc:  git commit -F- <<'EOF'\nmessage\nEOF
- *   -m flag:  git commit -m "message" or -am "message"
+ * Supports the heredoc form (git commit -F- <<'EOF'...EOF), one or
+ * more -m/--message flags (including the -am cluster), and a
+ * -F <file> read through the optional reader.
  *
- * The shared `matchHeredocs` primitive recognises heredocs even
- * when the bash invocation chains more commands afterwards
- * (`...EOF && echo done`).
- *
- * When a heredoc operator is present but body extraction
- * fails, bail with `null` rather than falling through to
- * `-m` extraction. Otherwise a literal `-m "..."` written
- * inside the heredoc body — e.g. an example commit message
- * quoted in the description — would be picked up as a real
- * flag and silently replace the user's intended message
- * once attribution-interceptor's rewrite kicks in.
+ * Parsing runs on the command model, so only the git commit
+ * command's own argv and heredoc are read. A -m written inside a
+ * heredoc body, or a heredoc belonging to a chained command, is
+ * never mistaken for the message, because neither lives in the
+ * commit's argv.
  *
  * A `git commit -F <file>` (a real file, not `-F-` stdin) is
- * resolved through the optional `readFile` reader, which is
- * given the raw path and the command's `cd` base directory and
+ * resolved through the optional `readFile` reader, which is given
+ * the raw path and the command's effective working directory and
  * returns the file's contents or null. Without a reader, or when
  * the read fails, this returns null and the caller no-ops, so an
  * unreadable file is a missed gate, never a wrong rewrite.
@@ -43,32 +114,23 @@ export function extractMessage(
 	command: string,
 	readFile?: (rawPath: string, baseDir: string | null) => string | null,
 ): string | null {
-	const heredoc = matchHeredocs(command)[0];
-	if (heredoc) return heredoc.body;
+	const line = tokenize(command);
+	const commit = findGitCommand(line, "commit");
+	if (!commit) return null;
 
-	if (HEREDOC_OPERATOR.test(command)) return null;
-
-	const normalized = command.replace(/-am\s+/g, "-a -m ");
-	const messages: string[] = [];
-	const re = /(?:^|\s)-m\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+))/g;
-	for (const match of normalized.matchAll(re)) {
-		messages.push(
-			(match[1] ?? match[2] ?? match[3] ?? "").replace(/\\(.)/g, "$1"),
+	if (commit.heredoc) {
+		return command.slice(
+			commit.heredoc.bodySpan.start,
+			commit.heredoc.bodySpan.end,
 		);
 	}
+
+	const messages = findFlags(commit, COMMIT_MESSAGE_SPEC, "message").map((m) =>
+		m.value === undefined ? "" : unquote(m.value),
+	);
 	if (messages.length > 0) return messages.join("\n\n");
 
-	return extractFileMessage(command, readFile);
-}
-
-/** Match a `-F <path>` or `--file <path>` (or `=path`) commit flag. */
-const COMMIT_FILE_FLAG = /(?:-F|--file)(?:\s+|=)("[^"]*"|'[^']*'|\S+)/;
-/** Match the first `cd <dir>` in a command, for relative path resolution. */
-const CD_TARGET = /(?:^|&&|;|\n)\s*cd\s+("[^"]*"|'[^']*'|\S+)/;
-
-/** Strip one layer of surrounding single or double quotes. */
-function unquote(token: string): string {
-	return token.replace(/^['"]|['"]$/g, "");
+	return readFileMessage(line, commit, readFile);
 }
 
 /**
@@ -77,52 +139,23 @@ function unquote(token: string): string {
  * (stdin, handled elsewhere), when no reader is supplied, or when
  * the read fails.
  */
-function extractFileMessage(
-	command: string,
+function readFileMessage(
+	line: CommandLine,
+	commit: SimpleCommand,
 	readFile?: (rawPath: string, baseDir: string | null) => string | null,
 ): string | null {
 	if (!readFile) return null;
-	const flag = command.match(COMMIT_FILE_FLAG);
-	if (!flag?.[1]) return null;
-	const rawPath = unquote(flag[1]);
+	const flag = findFlag(commit, COMMIT_MESSAGE_SPEC, "file");
+	if (!flag || flag.value === undefined) return null;
+	const rawPath = unquote(flag.value);
 	if (rawPath === "-") return null;
-	const cd = command.match(CD_TARGET);
-	const baseDir = cd?.[1] ? unquote(cd[1]) : null;
+	// Resolve the relative path against the command's effective
+	// working directory (the pi cwd composed with any leading cd
+	// segments). An unresolvable cd chain falls back to the process
+	// cwd reader-side.
+	const cwd = effectiveCwd(line, process.cwd(), commit.span.start);
+	const baseDir = "dir" in cwd ? cwd.dir : null;
 	const contents = readFile(rawPath, baseDir);
 	if (contents === null) return null;
 	return contents.replace(/\n+$/, "");
-}
-
-/**
- * Split "cd /path && git add -A && git commit ..." into
- * the prefix (everything before git commit) and the commit part.
- */
-export function splitAtCommit(command: string): {
-	prefix: string | null;
-	commitPart: string;
-} {
-	const { prefix, target } = splitAtCommand(command, /git\s+commit\b/);
-	return { prefix, commitPart: target };
-}
-
-/** Extract commit flags from the commit portion of the command. */
-export function extractCommitFlags(commitPart: string): string[] {
-	const flags: string[] = [];
-	if (/--amend\b/.test(commitPart)) flags.push("--amend");
-	if (/--no-verify\b/.test(commitPart)) flags.push("--no-verify");
-	if (/--allow-empty\b/.test(commitPart)) flags.push("--allow-empty");
-	if (/--signoff\b|\s-s\b/.test(commitPart)) flags.push("--signoff");
-	// Matches both standalone `-a` and combined `-am` forms.
-	if (/-a\b|-am\b/.test(commitPart)) flags.push("-a");
-	return flags;
-}
-
-/** Build a canonical heredoc commit command from a message and flags. */
-export function buildCommitHeredoc(message: string, flags: string[]): string {
-	const flagStr = flags.length > 0 ? ` ${flags.join(" ")}` : "";
-	return [
-		`git commit${flagStr} -F- <<'${COMMIT_HEREDOC_DELIM}'`,
-		message,
-		COMMIT_HEREDOC_DELIM,
-	].join("\n");
 }

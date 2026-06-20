@@ -14,6 +14,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { record, register } from "../internal/guardian/registry.js";
 import { stripHeredocBodies, stripShellData } from "../shell/parse.js";
+import { blockIfUnsupported } from "./enforce.js";
 import type { CommandGuardian } from "./types.js";
 
 /** Options for guardian registration. */
@@ -78,6 +79,16 @@ export function registerGuardian<T>(
 				return;
 			}
 
+			// Fail closed: a detected guardable command in a shape the
+			// model cannot fully parse is blocked rather than passed
+			// through unreviewed.
+			const unsupported = blockIfUnsupported(command);
+			if (unsupported) {
+				if (trackedName && "block" in unsupported)
+					record(trackedName, { kind: "blocked", reason: unsupported.reason });
+				return unsupported;
+			}
+
 			const parsed = guardian.parse(command);
 			if (!parsed) {
 				if (trackedName)
@@ -91,6 +102,11 @@ export function registerGuardian<T>(
 				return;
 			}
 
+			// No guardian emits a rewrite today (review blocks or
+			// allows; rewriting lives in the attribution splice and the
+			// interceptors). This stays as the one sanctioned place a
+			// guardian rewrite would be applied, so a future opt-in does
+			// not reintroduce a second mutation site.
 			if ("rewrite" in result) {
 				(event.input as { command: string }).command = result.rewrite;
 				if (trackedName) record(trackedName, { kind: "rewritten" });
