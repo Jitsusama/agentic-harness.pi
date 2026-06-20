@@ -10,12 +10,12 @@ import {
 import type { QuestState } from "../../../extensions/quest-workflow/state";
 
 // A real git repo with one tracked file and one untracked file, so
-// the gate's git predicates judge real tracking state. scratchRoots
+// the gate's git predicates judge real tracking state. tempRoots
 // is set to [] in every call so paths under the system temp dir are
 // not auto-classified as scratch (the fixtures live there).
 let repo: string;
 const tracked = "src/tracked.ts";
-const noScratch = { scratchRoots: [] as string[] };
+const noScratch = { tempRoots: [] as string[] };
 
 beforeAll(() => {
 	repo = mkdtempSync(join(tmpdir(), "discipline-repo-"));

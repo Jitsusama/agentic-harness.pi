@@ -43,6 +43,15 @@ export interface QuestState {
 	/** The loaded quest's priority bucket. */
 	questPriority: QuestPriority | null;
 
+	/**
+	 * The loaded quest's managed scratch directory, or null when it
+	 * has none yet. Created on demand under the OS temp dir, recorded
+	 * on the quest frontmatter and mirrored here so the gate can
+	 * classify scratch writes without a disk read. Reaped on conclude
+	 * and retire.
+	 */
+	scratchDir: string | null;
+
 	/** Focused document path under the loaded quest, when one is focused. */
 	documentPath: string | null;
 	/** Focused document id (PLAN-/RSCH-/BRIF-/RPRT-...). */
@@ -96,6 +105,7 @@ export function createQuestState(opts: { questsRoot: string }): QuestState {
 		questKind: null,
 		questStatus: null,
 		questPriority: null,
+		scratchDir: null,
 		documentPath: null,
 		documentId: null,
 		documentKind: null,

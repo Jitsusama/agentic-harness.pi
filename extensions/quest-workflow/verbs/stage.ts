@@ -15,6 +15,7 @@ import {
 } from "../../../lib/internal/quest/frontmatter.js";
 import { isWithin } from "../../../lib/internal/quest/git-signals.js";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
+import { reapQuestScratchDir } from "../../../lib/internal/quest/scratch.js";
 import {
 	listTreesOnQuest,
 	removeTreeFromQuest,
@@ -454,6 +455,11 @@ export async function concludeOrRetire(
 	const { pruned, blocked } = await pruneAllTreesOnQuest(state);
 	const result = setLoadedStatus(state, target);
 	if (!result.ok) return refuse(result.guidance);
+	// Reap the managed scratch dir once the quest is sealing: it is
+	// throwaway by definition and lives under the OS temp dir, so it
+	// goes with the quest. Best-effort, never fatal.
+	const reapedScratch = reapQuestScratchDir(state.questDir, state.scratchDir);
+	state.scratchDir = null;
 	appendJourneyEntry(
 		state,
 		action === "conclude"
@@ -462,6 +468,9 @@ export async function concludeOrRetire(
 	);
 	for (const path of pruned) {
 		appendJourneyEntry(state, `Pruned tree at ${path}.`);
+	}
+	if (reapedScratch) {
+		appendJourneyEntry(state, "Reaped the managed scratch directory.");
 	}
 	let message =
 		action === "conclude"
