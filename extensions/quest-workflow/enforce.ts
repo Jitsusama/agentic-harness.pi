@@ -223,7 +223,12 @@ function enforcePhase(
 function trackedTreePaths(state: QuestState): string[] {
 	if (!state.questDir) return [];
 	const result = listTreesOnQuest(state.questDir);
-	return result.ok ? result.trees.map((t) => canonical(t.path)) : [];
+	if (!result.ok) return [];
+	// Compare on git roots: a tree belongs to exactly one root, so a
+	// quest that adopted a subdirectory of a repo still matches a write
+	// anywhere in that repo. Fall back to the raw path for a tracked
+	// path that is not inside a git tree.
+	return result.trees.map((t) => canonical(gitTreeRootOf(t.path) ?? t.path));
 }
 
 function enforceHome(

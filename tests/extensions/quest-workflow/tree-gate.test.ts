@@ -237,6 +237,17 @@ describe("build home gate", () => {
 // override), the wiring the prior fix never exercised: a literal
 // /tmp write and a /dev/null redirect under the real defaults.
 describe("scratch funnel", () => {
+	// Track every managed scratch dir the gate creates and reap them in
+	// afterEach, so a failed assertion never leaks a dir under tmpdir.
+	const scratchDirs: string[] = [];
+	const trackScratch = (state: { scratchDir: string | null }) => {
+		if (state.scratchDir) scratchDirs.push(state.scratchDir);
+	};
+	afterEach(() => {
+		for (const dir of scratchDirs.splice(0))
+			rmSync(dir, { recursive: true, force: true });
+	});
+
 	it("allows a /dev/null redirect in build", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
@@ -264,8 +275,7 @@ describe("scratch funnel", () => {
 		expect(verdict?.reason).toMatch(/scratch/i);
 		expect(verdict?.reason).not.toMatch(/tree-add/);
 		expect(state.scratchDir).toBeTruthy();
-		if (state.scratchDir)
-			rmSync(state.scratchDir, { recursive: true, force: true });
+		trackScratch(state);
 	});
 
 	it("blocks a /tmp bash redirect and names the managed scratch dir", async () => {
@@ -281,8 +291,7 @@ describe("scratch funnel", () => {
 		expect(verdict?.block).toBe(true);
 		expect(state.scratchDir).toBeTruthy();
 		expect(verdict?.reason).toContain(state.scratchDir ?? "<none>");
-		if (state.scratchDir)
-			rmSync(state.scratchDir, { recursive: true, force: true });
+		trackScratch(state);
 	});
 
 	it("allows a write into the managed scratch dir once created", async () => {
@@ -298,7 +307,7 @@ describe("scratch funnel", () => {
 			repoRoot,
 		);
 		expect(verdict).toBeUndefined();
-		if (scratch) rmSync(scratch, { recursive: true, force: true });
+		trackScratch(state);
 	});
 
 	it("funnels system temp in draft too", async () => {
@@ -313,8 +322,7 @@ describe("scratch funnel", () => {
 		);
 		expect(verdict?.block).toBe(true);
 		expect(verdict?.reason).toMatch(/scratch/i);
-		if (state.scratchDir)
-			rmSync(state.scratchDir, { recursive: true, force: true });
+		trackScratch(state);
 	});
 
 	it("reaps the managed scratch dir on conclude", async () => {
@@ -331,7 +339,7 @@ describe("scratch funnel", () => {
 		expect(concluded.ok).toBe(true);
 		expect(existsSync(dir)).toBe(false);
 		expect(state.scratchDir).toBeNull();
-		if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+		scratchDirs.push(dir);
 	});
 
 	it("hydrates the recorded scratch dir into a fresh state on load", async () => {
@@ -349,6 +357,6 @@ describe("scratch funnel", () => {
 		});
 		expect(loaded.ok).toBe(true);
 		expect(fresh.scratchDir).toBe(dir);
-		rmSync(dir, { recursive: true, force: true });
+		scratchDirs.push(dir);
 	});
 });
