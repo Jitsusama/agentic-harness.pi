@@ -35,6 +35,17 @@ describe("insertGhBodyFooter", () => {
 		);
 	});
 
+	it("blocks an unquoted inline body it cannot splice safely", () => {
+		const result = insertGhBodyFooter(
+			"gh pr create --body plain",
+			"pr",
+			FOOTER,
+			never,
+		);
+
+		expect(result.kind).toBe("blocked");
+	});
+
 	it("skips a body that is already attributed", () => {
 		const source = "gh pr create --body-file - <<'EOF'\nbody\nEOF";
 

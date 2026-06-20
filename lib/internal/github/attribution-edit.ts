@@ -58,6 +58,13 @@ export function insertGhBodyFooter(
 	if (!ghCommand) return { kind: "skip" };
 
 	const insertion = locateBodyInsertion(command, ghCommand);
+	if (insertion === "unsafe") {
+		return {
+			kind: "blocked",
+			reason:
+				"inline --body is unquoted, so a multi-line footer cannot be spliced safely; use --body-file - with a quoted heredoc",
+		};
+	}
 	if (!insertion) return { kind: "skip" };
 	if (alreadyAttributed(insertion.bodyText)) return { kind: "skip" };
 
@@ -88,7 +95,7 @@ function findGhCommand(
 function locateBodyInsertion(
 	source: string,
 	command: SimpleCommand,
-): BodyInsertion | undefined {
+): BodyInsertion | "unsafe" | undefined {
 	if (command.heredoc) {
 		const { bodySpan } = command.heredoc;
 		return {
@@ -102,7 +109,9 @@ function locateBodyInsertion(
 
 	const { start, end } = body.valueSpan;
 	const quoted = source[end - 1] === '"' || source[end - 1] === "'";
-	return quoted
-		? { at: end - 1, bodyText: source.slice(start + 1, end - 1) }
-		: { at: end, bodyText: source.slice(start, end) };
+	// An unquoted inline body cannot hold the footer's newlines
+	// without breaking the command into separate statements, so it
+	// is unsafe to splice; the caller fails closed on it.
+	if (!quoted) return "unsafe";
+	return { at: end - 1, bodyText: source.slice(start + 1, end - 1) };
 }
