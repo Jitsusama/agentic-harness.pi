@@ -1,6 +1,7 @@
 /**
- * Git commit command parsing: message extraction, commit
- * splitting, flag parsing and heredoc construction.
+ * Git commit command parsing: locating a git commit past its
+ * global options and extracting its message (heredoc, -m/-am, or
+ * -F file) on the command model.
  *
  * These are commit-guardian internals. General-purpose shell
  * parsing lives in lib/shell/.
@@ -16,9 +17,7 @@ import {
 	tokenize,
 	type Word,
 } from "../../command/index.js";
-import { splitAtCommand, unquote } from "../../shell/parse.js";
-
-const COMMIT_HEREDOC_DELIM = "__COMMIT_MSG__";
+import { unquote } from "../../shell/parse.js";
 
 /**
  * Git global options that sit before the subcommand and take a
@@ -159,38 +158,4 @@ function readFileMessage(
 	const contents = readFile(rawPath, baseDir);
 	if (contents === null) return null;
 	return contents.replace(/\n+$/, "");
-}
-
-/**
- * Split "cd /path && git add -A && git commit ..." into
- * the prefix (everything before git commit) and the commit part.
- */
-export function splitAtCommit(command: string): {
-	prefix: string | null;
-	commitPart: string;
-} {
-	const { prefix, target } = splitAtCommand(command, /git\s+commit\b/);
-	return { prefix, commitPart: target };
-}
-
-/** Extract commit flags from the commit portion of the command. */
-export function extractCommitFlags(commitPart: string): string[] {
-	const flags: string[] = [];
-	if (/--amend\b/.test(commitPart)) flags.push("--amend");
-	if (/--no-verify\b/.test(commitPart)) flags.push("--no-verify");
-	if (/--allow-empty\b/.test(commitPart)) flags.push("--allow-empty");
-	if (/--signoff\b|\s-s\b/.test(commitPart)) flags.push("--signoff");
-	// Matches both standalone `-a` and combined `-am` forms.
-	if (/-a\b|-am\b/.test(commitPart)) flags.push("-a");
-	return flags;
-}
-
-/** Build a canonical heredoc commit command from a message and flags. */
-export function buildCommitHeredoc(message: string, flags: string[]): string {
-	const flagStr = flags.length > 0 ? ` ${flags.join(" ")}` : "";
-	return [
-		`git commit${flagStr} -F- <<'${COMMIT_HEREDOC_DELIM}'`,
-		message,
-		COMMIT_HEREDOC_DELIM,
-	].join("\n");
 }

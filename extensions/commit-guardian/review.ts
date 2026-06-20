@@ -21,7 +21,7 @@ import {
 	sessionGateDeps,
 } from "../../lib/internal/guardian/prose-gate.js";
 import { promptSingle } from "../../lib/ui/index.js";
-import { extractCommitFlags, extractMessage, splitAtCommit } from "./parse.js";
+import { extractMessage, isCommitCommand } from "./parse.js";
 import { type CommitValidation, validate } from "./validate.js";
 
 const COMMIT_ACTIONS = [{ key: "r", label: "Reject" }];
@@ -29,8 +29,6 @@ const COMMIT_ACTIONS = [{ key: "r", label: "Reject" }];
 interface CommitParsed {
 	message: string;
 	isAmend: boolean;
-	prefix: string | null;
-	flags: string[];
 }
 
 /**
@@ -45,22 +43,17 @@ export function createCommitGuardian(
 ): CommandGuardian<CommitParsed> {
 	return {
 		detect(command) {
-			return /\bgit\s+commit\b/.test(command);
+			return isCommitCommand(command);
 		},
 
 		parse(command) {
 			// Resolve a `git commit -F <file>` too, so the gate still
-			// sees the message when attribution is off or rewrote
-			// nothing (it normally translates the file to a heredoc
-			// before this runs).
+			// sees the message even when the message lives in a file.
 			const message = extractMessage(command, readCommitFile);
 			if (!message) return null;
 
 			const isAmend = /--amend\b/.test(command);
-			const { prefix, commitPart } = splitAtCommit(command);
-			const flags = extractCommitFlags(commitPart);
-
-			return { message, isAmend, prefix, flags };
+			return { message, isAmend };
 		},
 
 		async review(

@@ -1,13 +1,7 @@
 /**
  * Commit attribution trailer: formatting the Co-Authored-By line
- * and appending it to a commit message idempotently.
- *
- * Shared so the attribution interceptor and the prepare-commit-msg
- * hook produce an identical trailer rather than drifting apart.
+ * the prepare-commit-msg hook appends to every commit pi drives.
  */
-
-/** Regex to detect existing AI attribution (case-insensitive). */
-const ATTRIBUTION_PATTERN = /co-authored-by[:\s]+ai/i;
 
 /**
  * Format the model identifier for display. Strips a trailing date
@@ -38,18 +32,4 @@ export function coAuthorTrailer(modelId: string | null): string {
 		? ` (${formatModelName(modelId)} via Pi)`
 		: " via Pi";
 	return `Co-Authored-By: AI${modelPart} <noreply@pi.dev>`;
-}
-
-/**
- * Append the trailer to a commit message, after a blank line, when
- * the message is not already attributed. Returns null when it
- * already carries an AI co-author, so the append is idempotent.
- */
-export function appendTrailerIfAbsent(
-	message: string,
-	trailer: string,
-): string | null {
-	if (ATTRIBUTION_PATTERN.test(message)) return null;
-	const separator = message.endsWith("\n") ? "\n" : "\n\n";
-	return `${message}${separator}${trailer}`;
 }

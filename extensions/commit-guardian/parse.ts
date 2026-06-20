@@ -6,12 +6,7 @@
 
 import { isGitCommitCommand } from "../../lib/internal/guardian/shell.js";
 
-export {
-	buildCommitHeredoc,
-	extractCommitFlags,
-	extractMessage,
-	splitAtCommit,
-} from "../../lib/internal/guardian/shell.js";
+export { extractMessage } from "../../lib/internal/guardian/shell.js";
 
 /**
  * Detect whether a bash command contains a git commit. Routes
