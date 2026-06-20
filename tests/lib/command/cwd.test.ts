@@ -10,6 +10,15 @@ describe("effectiveCwd", () => {
 		expect(result).toEqual({ dir: "/repo" });
 	});
 
+	it("ignores a cd that appears after the bounded position", () => {
+		const line = tokenize("cd /before && git commit -F m.txt && cd /after");
+		const commit = line.commands.find((c) => c.argv[1]?.text === "commit");
+
+		expect(effectiveCwd(line, "/repo", commit?.span.start)).toEqual({
+			dir: "/before",
+		});
+	});
+
 	it("resolves an absolute cd by replacing the running dir", () => {
 		expect(effectiveCwd(tokenize("cd /abs && git status"), "/repo")).toEqual({
 			dir: "/abs",

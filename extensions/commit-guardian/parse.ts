@@ -4,6 +4,8 @@
  * detect function.
  */
 
+import { isGitCommitCommand } from "../../lib/internal/guardian/shell.js";
+
 export {
 	buildCommitHeredoc,
 	extractCommitFlags,
@@ -12,9 +14,10 @@ export {
 } from "../../lib/internal/guardian/shell.js";
 
 /**
- * Detect whether a bash command contains a git commit with
- * a message body.
+ * Detect whether a bash command contains a git commit. Routes
+ * through the command model so a commit reached past leading git
+ * global options (git -C dir commit) is still detected.
  */
 export function isCommitCommand(command: string): boolean {
-	return /\bgit\s+commit\b/.test(command);
+	return isGitCommitCommand(command);
 }

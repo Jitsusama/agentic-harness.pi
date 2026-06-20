@@ -14,10 +14,20 @@ export type EffectiveCwd =
 	| { dir: string }
 	| { unresolvable: true; reason: string };
 
-/** Compose the base cwd with each cd segment in the command line. */
-export function effectiveCwd(line: CommandLine, baseCwd: string): EffectiveCwd {
+/**
+ * Compose the base cwd with the cd segments of the command line. A
+ * `before` source position bounds it to the cd segments that begin
+ * before that position, so a cd after the consuming command does
+ * not move the directory it runs in.
+ */
+export function effectiveCwd(
+	line: CommandLine,
+	baseCwd: string,
+	before?: number,
+): EffectiveCwd {
 	let dir = baseCwd;
 	for (const command of line.commands) {
+		if (before !== undefined && command.span.start >= before) break;
 		if (command.argv[0]?.text !== "cd") continue;
 		const targetWord = command.argv[1];
 		if (!targetWord) continue;

@@ -14,10 +14,64 @@ import {
 	findFlags,
 	type SimpleCommand,
 	tokenize,
+	type Word,
 } from "../../command/index.js";
 import { splitAtCommand, unquote } from "../../shell/parse.js";
 
 const COMMIT_HEREDOC_DELIM = "__COMMIT_MSG__";
+
+/**
+ * Git global options that sit before the subcommand and take a
+ * separate value, so the value token is skipped when locating the
+ * subcommand. Attached forms (-Cpath, --git-dir=...) and the
+ * boolean globals consume only their own token.
+ */
+const GIT_GLOBAL_VALUE_FLAGS = new Set([
+	"-C",
+	"-c",
+	"--git-dir",
+	"--work-tree",
+	"--namespace",
+	"--config-env",
+	"--super-prefix",
+]);
+
+/**
+ * Index of the git subcommand in argv, skipping any leading global
+ * options, or -1 when this is not a git command or has no
+ * subcommand. So `git -C dir commit` resolves to the index of
+ * `commit`, not `-C`.
+ */
+function gitSubcommandIndex(argv: Word[]): number {
+	if (argv[0]?.text !== "git") return -1;
+	let i = 1;
+	while (i < argv.length) {
+		const token = argv[i].text;
+		if (!token.startsWith("-")) return i;
+		i += GIT_GLOBAL_VALUE_FLAGS.has(token) ? 2 : 1;
+	}
+	return -1;
+}
+
+/**
+ * Find the git command in a tokenized line whose subcommand is
+ * `sub`, looking past leading global options so a form like
+ * `git -C dir commit` is still found.
+ */
+export function findGitCommand(
+	line: CommandLine,
+	sub: string,
+): SimpleCommand | undefined {
+	return line.commands.find((command) => {
+		const index = gitSubcommandIndex(command.argv);
+		return index >= 0 && command.argv[index]?.text === sub;
+	});
+}
+
+/** Whether a bash command contains a git commit, global options aside. */
+export function isGitCommitCommand(command: string): boolean {
+	return findGitCommand(tokenize(command), "commit") !== undefined;
+}
 
 /**
  * The commit flags that carry a message or affect how a clustered
@@ -62,9 +116,7 @@ export function extractMessage(
 	readFile?: (rawPath: string, baseDir: string | null) => string | null,
 ): string | null {
 	const line = tokenize(command);
-	const commit = line.commands.find(
-		(c) => c.argv[0]?.text === "git" && c.argv[1]?.text === "commit",
-	);
+	const commit = findGitCommand(line, "commit");
 	if (!commit) return null;
 
 	if (commit.heredoc) {
@@ -102,7 +154,7 @@ function readFileMessage(
 	// working directory (the pi cwd composed with any leading cd
 	// segments). An unresolvable cd chain falls back to the process
 	// cwd reader-side.
-	const cwd = effectiveCwd(line, process.cwd());
+	const cwd = effectiveCwd(line, process.cwd(), commit.span.start);
 	const baseDir = "dir" in cwd ? cwd.dir : null;
 	const contents = readFile(rawPath, baseDir);
 	if (contents === null) return null;

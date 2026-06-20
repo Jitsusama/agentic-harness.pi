@@ -22,6 +22,10 @@ describe("extractMessage", () => {
 		expect(extractMessage('git commit -am "subject"')).toBe("subject");
 	});
 
+	it("reads a commit reached through a leading git global option", () => {
+		expect(extractMessage('git -C /tmp/x commit -m "msg"')).toBe("msg");
+	});
+
 	it("ignores a heredoc that belongs to a chained command", () => {
 		expect(
 			extractMessage(
