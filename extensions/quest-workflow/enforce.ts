@@ -244,11 +244,11 @@ function enforceHome(
 	const looseBlock = (): ToolCallEventResult => ({
 		block: true,
 		reason:
-			"Quest workflow: this quest is in build, but this write lands outside every git working tree. Run `tree-add` to scaffold one, or write inside a git tree this quest works in. Do not unload the quest to bypass this.",
+			"Quest workflow: this quest is in build, but this write lands outside every git working tree. Run `tree-add` to scaffold one (pass cwd to choose the repo, no need to change your session's directory), or write inside a git tree this quest works in. Do not unload the quest to bypass this.",
 	});
 	const adoptBlock = (root: string): ToolCallEventResult => ({
 		block: true,
-		reason: `Quest workflow: this write lands in ${root}, a git tree this quest does not track yet. Register it so the quest accounts for it: from a session whose cwd is inside ${root}, run the quest tree-adopt action. Adopted trees are tracked and never auto-pruned. Do not unload the quest to bypass this.`,
+		reason: `Quest workflow: this write lands in ${root}, a git tree this quest does not track yet. Register it so the quest accounts for it: run the quest tree-adopt action with cwd set to a path inside ${root}. You do not need to change your session's directory; the cwd parameter is the adoption target. Adopted trees are tracked and never auto-pruned. Do not unload the quest to bypass this.`,
 	});
 	// A write inside a tracked tree flows; one inside an untracked git
 	// tree gets adoption guidance; a homeless one gets tree-add.

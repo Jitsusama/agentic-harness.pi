@@ -244,7 +244,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			cwd: Type.Optional(
 				Type.String({
 					description:
-						"spawn/session-attach: working directory. Defaults to the loaded quest's directory or the pi cwd.",
+						"Working directory. For spawn: where the new terminal starts. For session-attach: the directory recorded on the attached session. For tree-add: the repo to scaffold a tree from. For tree-adopt: a path inside the existing git tree to register (you do not need to change your session's directory to adopt a tree). Defaults to the loaded quest's directory or the pi cwd.",
 				}),
 			),
 			sessionId: Type.Optional(
