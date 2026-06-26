@@ -30,7 +30,10 @@ shipped and tested.
   `tree-prune`, `tree-expand`. `tree-add` scaffolds a fresh
   worktree the quest owns and auto-prunes on conclude; `tree-adopt`
   registers an existing tree the quest only references and never
-  auto-prunes.
+  auto-prunes. Both accept a `cwd` parameter, so you scaffold or
+  adopt from any session without changing its directory: point
+  `cwd` at the repo to scaffold from, or at a path inside the tree
+  to adopt.
 - **Terminal spawn**: `spawn-tab`, `spawn-pane`,
   `spawn-window`.
 - **Queries**: `find`, `who`, `links`.

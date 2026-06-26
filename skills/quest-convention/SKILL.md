@@ -151,7 +151,11 @@ cleaned up. In `build`, a write inside any tree the quest
 tracks flows; a write inside a git tree the quest does not
 track is refused with guidance to register it through
 `tree-adopt`, so the quest comes to account for every tree
-its code lives in.
+its code lives in. Both `tree-adopt` and `tree-add` accept
+a `cwd` parameter, so you adopt or scaffold a tree from any
+session without changing your session's directory: point
+`cwd` at a path inside the tree to adopt, or at the repo to
+scaffold from.
 
 ## The Resuscitate Pattern
 

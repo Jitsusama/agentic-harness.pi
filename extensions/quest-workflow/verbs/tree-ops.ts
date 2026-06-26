@@ -72,7 +72,7 @@ export async function treeAdd(
 	}
 	if (!provider) {
 		return refuse(
-			`No tree provider applies to ${repoRoot}, and it is not inside a git repository. cd into your repo or pass cwd, or register a provider (the harness ships git-worktree as a default).`,
+			`No tree provider applies to ${repoRoot}, and it is not inside a git repository. Pass cwd pointing at your repo (you do not need to change your session's directory), or register a provider (the harness ships git-worktree as a default).`,
 		);
 	}
 	const name =
@@ -121,7 +121,7 @@ export function treeAdopt(
 	const root = gitTreeRootOf(join(start, ".quest-tree-probe"));
 	if (!root) {
 		return refuse(
-			`${start} is not inside a git working tree. cd into the tree you want to adopt, or pass its path in cwd.`,
+			`${start} is not inside a git working tree. Pass cwd pointing at a path inside the tree you want to adopt; you do not need to change your session's directory.`,
 		);
 	}
 	const provider = resolveTreeProvider(root);
