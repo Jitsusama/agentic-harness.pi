@@ -32,6 +32,8 @@ import {
 	createDocument,
 	focusDocument,
 	refreshProgress,
+	sealQuestDocuments,
+	setLoadedPriority,
 	setLoadedStatus,
 	stampQuestUpdated,
 	writeDocumentStage,
@@ -436,6 +438,11 @@ export async function concludeOrRetire(
 	const { pruned, blocked } = await pruneAllTreesOnQuest(state);
 	const result = setLoadedStatus(state, target);
 	if (!result.ok) return refuse(result.guidance);
+	// Cascade the seal so the quest leaves nothing live behind: drop
+	// the priority to the least prominent bucket and seal every
+	// still-active document to the same terminal stage.
+	setLoadedPriority(state, "someday");
+	const sealedDocs = sealQuestDocuments(state.questDir, target);
 	// Reap the managed scratch dir once the quest is sealing: it is
 	// throwaway by definition and lives under the OS temp dir, so it
 	// goes with the quest. Best-effort, never fatal.
@@ -457,6 +464,13 @@ export async function concludeOrRetire(
 		action === "conclude"
 			? `Concluded quest ${state.questId}.`
 			: `Retired quest ${state.questId}.`;
+	if (sealedDocs > 0) {
+		appendJourneyEntry(
+			state,
+			`Sealed ${sealedDocs} document(s) with the quest.`,
+		);
+		message += ` Sealed ${sealedDocs} document(s).`;
+	}
 	if (pruned.length > 0) message += ` Pruned ${pruned.length} tree(s).`;
 	const drift = action === "conclude" ? primaryPlanDrift(state) : undefined;
 	if (drift) {

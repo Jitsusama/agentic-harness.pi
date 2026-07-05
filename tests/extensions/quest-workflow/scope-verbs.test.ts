@@ -128,6 +128,40 @@ describe("conclude / retire scope", () => {
 		expect(text).toMatch(/status: concluded/);
 	});
 
+	it("cascades on conclude: resets priority to someday and seals documents", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Q");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "think",
+			kind: "plan",
+			note: "scope",
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "draft",
+			title: "The plan",
+		});
+		const planPath = state.documentPath as string;
+		// Unfocus so conclude targets the quest, not the focused plan.
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "unfocus" });
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			scope: "quest",
+		});
+		expect(result.ok).toBe(true);
+
+		const quest = readFileSync(a.path, "utf8");
+		expect(quest).toMatch(/status: concluded/);
+		expect(quest).toMatch(/priority: someday/);
+		const plan = readFileSync(planPath, "utf8");
+		expect(plan).toMatch(/stage: concluded/);
+	});
+
 	it("retire requires a reason in quest scope", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Q");

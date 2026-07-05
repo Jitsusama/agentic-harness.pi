@@ -522,6 +522,33 @@ describe("list filters", () => {
 		expect(details.listing.rows[0].priority).toBe("driving");
 	});
 
+	it("sorts a sealed quest after a live one even when it outranks by priority", async () => {
+		const state = buildState();
+		const live = await createQuest(state, "Live active quest");
+		const sealed = await createQuest(state, "Sealed driving quest");
+
+		// Drive then conclude the second quest: it keeps its driving
+		// priority while sealed, the exact drift the sort must ignore.
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: sealed.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: sealed.id,
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "list",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const ids = (
+			result.details as { listing: { rows: { id: string }[] } }
+		).listing.rows.map((r) => r.id);
+		expect(ids.indexOf(live.id)).toBeLessThan(ids.indexOf(sealed.id));
+	});
+
 	it("list kind:quest excludes sidequests and subquests", async () => {
 		const state = buildState();
 		const parent = await createQuest(state, "Parent");

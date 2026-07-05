@@ -5,7 +5,13 @@
  * module bridges between disk artifacts and that state.
  */
 
-import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+} from "node:fs";
 import { join, sep } from "node:path";
 import type {
 	ExtensionAPI,
@@ -267,6 +273,56 @@ export function writeDocumentStage(state: QuestState, stage: Stage): void {
 		atomicWriteFile(documentPath, newText);
 	}
 	state.documentStage = stage;
+}
+
+const DOC_KIND_DIRS = ["plans", "research", "briefs", "reports"];
+const ACTIVE_DOC_STAGES = new Set(["think", "draft", "build"]);
+
+/**
+ * Seal every still-active document under a quest to the quest's
+ * terminal stage, so concluding or retiring a quest does not leave
+ * documents stranded mid-stage. Returns how many were sealed.
+ * Best-effort per file: an unreadable document is skipped, not fatal.
+ */
+export function sealQuestDocuments(
+	questDir: string,
+	target: "concluded" | "retired",
+): number {
+	let sealed = 0;
+	for (const kindDir of DOC_KIND_DIRS) {
+		const dir = join(questDir, kindDir);
+		let entries: ReturnType<typeof readdirSync>;
+		try {
+			entries = readdirSync(dir, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const entry of entries) {
+			if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+			const docPath = join(dir, entry.name);
+			let text: string;
+			try {
+				text = readFileSync(docPath, "utf8");
+			} catch {
+				continue;
+			}
+			const parsed = parseDocumentFrontMatter(text);
+			if (!parsed) continue;
+			if (!ACTIVE_DOC_STAGES.has(parsed.frontMatter.stage)) continue;
+			const newFm: DocumentFrontMatter = {
+				...parsed.frontMatter,
+				stage: target,
+				updated: nowYmd(),
+			};
+			atomicWriteUnderLock(
+				questDir,
+				docPath,
+				`${serializeDocumentFrontMatter(newFm)}\n${parsed.body}`,
+			);
+			sealed++;
+		}
+	}
+	return sealed;
 }
 
 /** Append a Journey entry to the loaded quest's README. */

@@ -56,6 +56,15 @@ const PRIORITY_ORDER: Record<string, number> = {
 };
 const PRIORITY_FALLBACK = 99;
 
+// Sealed quests sort after every live one, whatever their priority,
+// so a concluded quest that still carries a driving priority never
+// jumps ahead of live work. Ordering within a tier stays priority
+// then rank.
+const SEALED_STATUSES = new Set(["concluded", "retired"]);
+function statusTier(status: string): number {
+	return SEALED_STATUSES.has(status) ? 1 : 0;
+}
+
 import {
 	type ListingDetails,
 	type ListingFlatRow,
@@ -450,6 +459,9 @@ export function list(state: QuestState, params: QuestToolParams): QuestResult {
 		return true;
 	});
 	entries.sort((a, b) => {
+		const ta = statusTier(a.doc.frontMatter.status);
+		const tb = statusTier(b.doc.frontMatter.status);
+		if (ta !== tb) return ta - tb;
 		const pa = PRIORITY_ORDER[a.doc.frontMatter.priority] ?? PRIORITY_FALLBACK;
 		const pb = PRIORITY_ORDER[b.doc.frontMatter.priority] ?? PRIORITY_FALLBACK;
 		if (pa !== pb) return pa - pb;
