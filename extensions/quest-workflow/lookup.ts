@@ -380,8 +380,12 @@ function linksForQuest(
 		const u = urlForRef(r);
 		if (u) knownRefUrls.add(u);
 	}
+	// Only ids that resolve to a real quest belong here. A mentioned
+	// document id (PLAN-, RSCH-, BRIF-, RPRT-) is not a quest, so it
+	// would otherwise render as a titleless quest row.
 	const quests = myMentions.ids
 		.filter((id) => id !== questId)
+		.filter((id) => index.quests.has(id))
 		.map((id) => ({ id, title: index.quests.get(id)?.doc.title ?? null }));
 	const refs = myMentions.refs
 		.filter((r) => !params.kind || r.type === params.kind)
