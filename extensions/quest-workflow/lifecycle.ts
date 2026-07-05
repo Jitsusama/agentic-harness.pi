@@ -939,6 +939,34 @@ export function detachSessionFromLoaded(
  * from the quest it is leaving, so one session does not read active
  * on every quest it ever touched.
  */
+/**
+ * Reconcile a session's membership so it reads active on exactly one
+ * quest: detach the session from every quest other than the one being
+ * kept. The switch path already releases the immediate prior quest;
+ * this catches stragglers left by earlier runs or a lost state, so a
+ * session never lingers active on several quests at once. Returns the
+ * ids it detached the session from.
+ */
+export function reconcileSessionMembership(
+	state: QuestState,
+	sessionId: string,
+	keepQuestId: string,
+): string[] {
+	const { index } = discoverQuests(state.questsRoot);
+	const detachedFrom: string[] = [];
+	for (const entry of index.quests.values()) {
+		const fm = entry.doc.frontMatter;
+		if (fm.id === keepQuestId) continue;
+		const holdsActive = fm.sessions.some(
+			(s) => s.id === sessionId && s.status !== "detached",
+		);
+		if (!holdsActive) continue;
+		const result = detachSessionInQuestDir(entry.dir, sessionId);
+		if (result.ok && result.detached) detachedFrom.push(fm.id);
+	}
+	return detachedFrom;
+}
+
 export function detachSessionInQuestDir(
 	questDir: string,
 	sessionId: string,

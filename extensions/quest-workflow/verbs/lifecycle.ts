@@ -41,6 +41,7 @@ import {
 	listAllQuests,
 	loadQuest,
 	prunePhantomSessionsOnLoaded,
+	reconcileSessionMembership,
 	setLoadedKind,
 	unfocusDocument,
 	unloadQuest,
@@ -367,6 +368,14 @@ export async function load(
 		persisted: isPersistedSession(ctx),
 	}).attached;
 
+	// Reconcile membership so this session reads active on only the
+	// loaded quest, detaching it from any straggler quest an earlier
+	// run or a lost state left it attached to.
+	const reconciled =
+		sid && isPersistedSession(ctx) && state.questId
+			? reconcileSessionMembership(state, sid, state.questId)
+			: [];
+
 	const resumable = priorSessions
 		.filter((s) => s.id !== sid)
 		.map((s) => ({
@@ -387,6 +396,9 @@ export async function load(
 	if (pruned > 0) {
 		message += `. Pruned ${pruned} phantom session(s).`;
 	}
+	if (reconciled.length > 0) {
+		message += `. Detached this session from ${reconciled.length} other quest(s).`;
+	}
 
 	return ok(message, {
 		id: state.questId,
@@ -394,6 +406,7 @@ export async function load(
 		attached,
 		resumable,
 		pruned,
+		reconciled,
 	});
 }
 
