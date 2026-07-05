@@ -188,6 +188,16 @@ export async function treePrune(
 	// because notes are free-form prose the agent generates,
 	// not consent. `force: true` is the consent signal.
 	const force = params.force === true;
+	// Only a tool-scaffolded tree may be pruned without force. An
+	// adopted or unmarked (legacy, hand-registered) tree is a shared
+	// checkout the tool did not create, so deleting it needs explicit,
+	// confirmed consent rather than a mistyped target.
+	if (target.origin !== "scaffolded" && !force) {
+		const kind = target.origin ?? "unmarked";
+		return refuse(
+			`Tree at ${target.path} is ${kind}, not scaffolded by the tool. Pruning it would delete a shared checkout; pass force:true after confirming with the user.`,
+		);
+	}
 	const sessions = readSessionsFromQuest(state);
 	const attached = sessions.filter(
 		(s) => s.cwd && isWithin(s.cwd, target.path),

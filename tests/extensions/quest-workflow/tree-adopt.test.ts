@@ -80,6 +80,36 @@ describe("tree-adopt", () => {
 		expect(fm?.trees?.[0]?.origin).toBe("adopted");
 	});
 
+	it("refuses a manual prune of an adopted tree without force", async () => {
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const created = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Adopted Prune Guard",
+		});
+		if (!created.ok) throw new Error(created.guidance);
+		// A real, clean secondary worktree: without the origin guard a
+		// non-force prune would happily delete it.
+		const wt = join(tmpRoot, "adopted-guard-wt");
+		await execFileAsync("git", ["worktree", "add", "-b", "guard", wt], {
+			cwd: repoRoot,
+		});
+		const adopted = await handle(state, fakePi(), fakeCtx(wt), {
+			action: "tree-adopt",
+			cwd: wt,
+		});
+		expect(adopted.ok).toBe(true);
+
+		const blocked = await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "tree-prune",
+			target: realpathSync(wt),
+		});
+		expect(blocked.ok).toBe(false);
+		if (blocked.ok) throw new Error("unreachable");
+		expect(blocked.guidance).toMatch(/adopted|force/i);
+		// The adopted checkout is untouched.
+		expect(existsSync(wt)).toBe(true);
+	});
+
 	it("keeps an adopted tree when the quest is retired", async () => {
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		const created = await handle(state, fakePi(), fakeCtx(tmpRoot), {
