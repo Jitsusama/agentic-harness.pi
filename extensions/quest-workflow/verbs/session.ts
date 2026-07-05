@@ -26,7 +26,7 @@ import {
 	detachSessionFromLoaded,
 	renameSessionOnLoaded,
 } from "../lifecycle.js";
-import { getQuestEntry } from "../lookup.js";
+import { auditSessionMembership, getQuestEntry } from "../lookup.js";
 import type { QuestState } from "../state.js";
 import {
 	currentSessionId,
@@ -35,6 +35,29 @@ import {
 	type QuestToolParams,
 	refuse,
 } from "./shared.js";
+
+/**
+ * Report session-to-quest divergence across the store: a session
+ * listed active on more than one quest. Read-only; loading a quest
+ * reconciles the divergence automatically, and this is how an operator
+ * sees it before then.
+ */
+export function sessionAudit(state: QuestState): QuestResult {
+	const divergences = auditSessionMembership(state);
+	if (divergences.length === 0) {
+		return ok("No session divergence: every session is active on one quest.", {
+			divergences,
+		});
+	}
+	const lines = divergences.map(
+		(d) =>
+			`${d.sessionId} active on ${d.questIds.length}: ${d.questIds.join(", ")}`,
+	);
+	return ok(
+		`${divergences.length} session(s) active on more than one quest:\n${lines.join("\n")}`,
+		{ divergences },
+	);
+}
 
 export function sessionAttach(
 	state: QuestState,

@@ -27,7 +27,8 @@ shipped and tested.
   and are journalled so `undo` can reverse the last one.
 - **Aliases**: `alias-add`, `alias-remove`.
 - **Sessions**: `session-attach`, `session-detach`,
-  `session-rename`.
+  `session-rename`, `session-audit` (report any session active on
+  more than one quest).
 - **Working trees**: `tree-add`, `tree-adopt`, `tree-list`,
   `tree-prune`, `tree-expand`. `tree-add` scaffolds a fresh
   worktree the quest owns and auto-prunes on conclude; `tree-adopt`

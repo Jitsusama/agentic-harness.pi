@@ -43,6 +43,7 @@ import {
 import { priorityJump, priorityShift, reorder } from "./verbs/reorder.js";
 import {
 	sessionAttach,
+	sessionAudit,
 	sessionDetach,
 	sessionRename,
 	spawn,
@@ -150,6 +151,8 @@ export async function handle(
 			return sessionDetach(state, ctx, params);
 		case "session-rename":
 			return sessionRename(state, ctx, params);
+		case "session-audit":
+			return sessionAudit(state);
 		case "spawn-tab":
 		case "spawn-pane":
 		case "spawn-window":

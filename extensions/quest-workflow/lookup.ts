@@ -361,6 +361,41 @@ export function ancestorsOf(
 	return chain;
 }
 
+/** A session listed active on more than one quest. */
+export interface SessionDivergence {
+	sessionId: string;
+	questIds: string[];
+}
+
+/**
+ * Scan the store for session-to-quest divergence: a session id that
+ * reads active on more than one quest at once. Reconcile-on-load
+ * repairs this the moment a session loads a quest, but until then an
+ * operator has no way to see it; this surfaces it read-only, without
+ * loading or mutating anything. A single-membership store returns an
+ * empty list.
+ */
+export function auditSessionMembership(state: QuestState): SessionDivergence[] {
+	const { index } = discoverQuests(state.questsRoot);
+	const bySession = new Map<string, string[]>();
+	for (const entry of index.quests.values()) {
+		for (const s of entry.doc.frontMatter.sessions) {
+			if (s.status === "active") {
+				const list = bySession.get(s.id) ?? [];
+				list.push(entry.doc.frontMatter.id);
+				bySession.set(s.id, list);
+			}
+		}
+	}
+	const divergences: SessionDivergence[] = [];
+	for (const [sessionId, questIds] of bySession) {
+		if (questIds.length > 1) {
+			divergences.push({ sessionId, questIds: questIds.sort() });
+		}
+	}
+	return divergences;
+}
+
 export interface WhoParams {
 	name?: string;
 	role?: string;
