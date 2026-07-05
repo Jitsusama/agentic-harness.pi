@@ -308,6 +308,39 @@ describe("reparent verb", () => {
 		expect(details.skipped).toContain(child.id);
 	});
 
+	it("keeps a skipped change undoable after the divergence resolves", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Parent");
+		const other = await createQuest(state, "Other");
+		const a = await createQuest(state, "A");
+		const b = await createQuest(state, "B");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reparent",
+			id: `${a.id},${b.id}`,
+			parent: parent.id,
+		});
+
+		// Divert A out-of-band so the first undo must skip it while it
+		// still reverses B.
+		setParentDirect(a.id, other.id);
+		const first = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+		});
+		expect(first.ok).toBe(true);
+		expect(parentOf(b.id)).toBe("null");
+		expect(parentOf(a.id)).toBe(other.id);
+
+		// The divergence resolves: A is back where the journal recorded
+		// it. A second undo must still be able to reverse A, because the
+		// first undo did not consume the change it could not apply.
+		setParentDirect(a.id, parent.id);
+		const second = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+		});
+		expect(second.ok).toBe(true);
+		expect(parentOf(a.id)).toBe("null");
+	});
+
 	it("undo of a bulk conclude leaves a compensating Journey entry", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "A");

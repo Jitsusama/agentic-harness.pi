@@ -10,10 +10,24 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteFile, withQuestLock } from "./io.js";
 
+/**
+ * A field a mutation can change, journal and reverse. Widened past
+ * the original parent-and-status pair so every quest field mutation
+ * is reversible; `stage` covers document mutations journalled the
+ * same way.
+ */
+export type MutableField =
+	| "parent"
+	| "status"
+	| "priority"
+	| "rank"
+	| "kind"
+	| "stage";
+
 /** One quest's before-and-after for a single field. */
 export interface JournalChange {
 	id: string;
-	field: "parent" | "status";
+	field: MutableField;
 	old: string | null;
 	new: string | null;
 }

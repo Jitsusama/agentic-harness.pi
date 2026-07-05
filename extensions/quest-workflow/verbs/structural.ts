@@ -209,11 +209,13 @@ export function undo(state: QuestState): QuestResult {
 	}
 	const { index } = discoverQuests(state.questsRoot);
 	const skipped: string[] = [];
+	const skippedChanges: JournalChange[] = [];
 	const reverted: string[] = [];
 	for (const change of last.changes) {
 		const entry = index.quests.get(change.id);
 		if (!entry) {
 			skipped.push(change.id);
+			skippedChanges.push(change);
 			continue;
 		}
 		// Verify the on-disk value still equals what this operation
@@ -226,6 +228,7 @@ export function undo(state: QuestState): QuestResult {
 				: entry.doc.frontMatter.status;
 		if (current !== change.new) {
 			skipped.push(change.id);
+			skippedChanges.push(change);
 			continue;
 		}
 		const result =
@@ -244,7 +247,14 @@ export function undo(state: QuestState): QuestResult {
 		}
 		reverted.push(change.id);
 	}
+	// Consume the op, but keep the changes we could not apply: rewrite
+	// the journal so the skipped changes survive as the operation's
+	// residue. A later undo can reverse them once the divergence
+	// resolves, instead of the partial undo swallowing them for good.
 	dropLastStructuralOp(state.questsRoot);
+	if (skippedChanges.length > 0) {
+		recordStructuralOp(state.questsRoot, last.op, skippedChanges);
+	}
 	const note =
 		skipped.length > 0
 			? ` (skipped ${skipped.length} quest(s) missing or changed since: ${skipped.join(", ")})`

@@ -9,12 +9,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { ToolContext } from "@mariozechner/pi-coding-agent";
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
-import {
-	parseQuestFrontMatter,
-	serializeQuestFrontMatter,
-} from "../../../lib/internal/quest/frontmatter.js";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
 import { isWithin } from "../../../lib/internal/quest/git-signals.js";
-import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.js";
 import { reapQuestScratchDir } from "../../../lib/internal/quest/scratch.js";
 import {
 	listTreesOnQuest,
@@ -26,7 +23,6 @@ import {
 	type DocumentFrontMatter,
 	type DocumentKind,
 	mintId,
-	type QuestFrontMatter,
 	type QuestSession,
 	scaffoldDocument,
 } from "../../../lib/quest/index.js";
@@ -60,27 +56,12 @@ import { bulkConcludeOrRetire } from "./structural.js";
  * tries to build.
  */
 function pinPrimaryPlanIfUnset(questDir: string, planId: string): void {
-	const path = join(questDir, "README.md");
-	let text: string;
-	try {
-		text = readFileSync(path, "utf8");
-	} catch {
-		return;
-	}
-	const parsed = parseQuestFrontMatter(text);
-	if (!parsed) return;
-	if (parsed.frontMatter.primaryPlanId) return;
-	const fm: QuestFrontMatter = {
-		...parsed.frontMatter,
-		primaryPlanId: planId,
-	};
-	try {
-		atomicWriteFile(path, `${serializeQuestFrontMatter(fm)}\n${parsed.body}`);
-	} catch {
-		// Best-effort pin: leave the field unset so the next
-		// draft tries again. The gate fails closed in the
-		// meantime.
-	}
+	// Best-effort pin through the validated core: leave the field unset
+	// on any failure so the next draft tries again, and quietly keep an
+	// existing recorded primary in place.
+	mutateQuestFrontMatter(questDir, (fm) =>
+		fm.primaryPlanId ? undefined : { ...fm, primaryPlanId: planId },
+	);
 }
 
 /**

@@ -26,8 +26,8 @@ import {
 import {
 	atomicWriteFile,
 	atomicWriteUnderLock,
-	withQuestLock,
 } from "../../lib/internal/quest/io.js";
+import { mutateQuestFrontMatter } from "../../lib/internal/quest/mutate.js";
 import {
 	diffRanks,
 	type RankEntry,
@@ -51,14 +51,12 @@ import {
 	type DocumentStage,
 	parseDocumentFrontMatter,
 	parseQuestDoc,
-	parseQuestFrontMatter,
 	type QuestAlias,
 	type QuestFrontMatter,
 	type QuestPriority,
 	type QuestSession,
 	type QuestStatus,
 	serializeDocumentFrontMatter,
-	serializeQuestFrontMatter,
 } from "../../lib/quest/index.js";
 import type { Stage } from "./machine.js";
 import { sessionNameFor } from "./render.js";
@@ -287,23 +285,9 @@ export function appendJourneyEntry(state: QuestState, prose: string): void {
 /** Update the loaded quest's `updated` frontmatter to today. */
 export function stampQuestUpdated(state: QuestState): void {
 	if (!state.questDir) return;
-	const questDir = state.questDir;
-	const path = join(questDir, "README.md");
-	withQuestLock(questDir, () => {
-		let text: string;
-		try {
-			text = readFileSync(path, "utf8");
-		} catch {
-			return;
-		}
-		const parsed = parseQuestFrontMatter(text);
-		if (!parsed) return;
-		const fm: QuestFrontMatter = {
-			...parsed.frontMatter,
-			updated: nowYmd(),
-		};
-		atomicWriteFile(path, `${serializeQuestFrontMatter(fm)}\n${parsed.body}`);
-	});
+	// The identity transform still stamps updated in the core, so a
+	// touch is validated and locked like every other quest write.
+	mutateQuestFrontMatter(state.questDir, (fm) => fm);
 }
 
 /**
@@ -657,23 +641,9 @@ export function reorderSiblings(
 }
 
 function writeQuestRank(questDir: string, rank: number): void {
-	const path = join(questDir, "README.md");
-	withQuestLock(questDir, () => {
-		let text: string;
-		try {
-			text = readFileSync(path, "utf8");
-		} catch {
-			return;
-		}
-		const parsed = parseQuestFrontMatter(text);
-		if (!parsed) return;
-		const fm: QuestFrontMatter = {
-			...parsed.frontMatter,
-			rank,
-			updated: nowYmd(),
-		};
-		atomicWriteFile(path, `${serializeQuestFrontMatter(fm)}\n${parsed.body}`);
-	});
+	// Routed through the validated mutation core so a rank write is
+	// validated and stamped the same way every other field write is.
+	mutateQuestFrontMatter(questDir, (fm) => ({ ...fm, rank }));
 }
 
 /** Build a reverse alias index across every discovered quest. */
@@ -686,33 +656,9 @@ function writeQuestFrontMatter(
 	questDir: string,
 	mutate: (fm: QuestFrontMatter) => QuestFrontMatter | undefined,
 ): { ok: true; fm: QuestFrontMatter } | { ok: false; guidance: string } {
-	const path = join(questDir, "README.md");
-	return withQuestLock(questDir, () => {
-		let text: string;
-		try {
-			text = readFileSync(path, "utf8");
-		} catch (err) {
-			return {
-				ok: false as const,
-				guidance: `Cannot read ${path}: ${(err as Error).message}`,
-			};
-		}
-		const parsed = parseQuestFrontMatter(text);
-		if (!parsed) {
-			return {
-				ok: false as const,
-				guidance: `Quest README ${path} has invalid frontmatter.`,
-			};
-		}
-		const next = mutate(parsed.frontMatter);
-		if (!next) return { ok: true as const, fm: parsed.frontMatter };
-		const withStamp: QuestFrontMatter = { ...next, updated: nowYmd() };
-		atomicWriteFile(
-			path,
-			`${serializeQuestFrontMatter(withStamp)}\n${parsed.body}`,
-		);
-		return { ok: true as const, fm: withStamp };
-	});
+	const result = mutateQuestFrontMatter(questDir, mutate);
+	if (!result.ok) return result;
+	return { ok: true, fm: result.fm };
 }
 
 /**
