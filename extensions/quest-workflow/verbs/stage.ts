@@ -131,7 +131,16 @@ export function stageTransition(
 				"Give the document a title in `title` (it becomes the H1).",
 			);
 		}
-		const kind = state.documentKind ?? "plan";
+		// A kind given at draft overrides the think-time kind before the
+		// id is minted, so a wrong choice at think is fixable here rather
+		// than forcing the loop to be abandoned.
+		const requestedKind = params.kind as DocumentKind | undefined;
+		if (requestedKind && !DOCUMENT_KINDS_SET.has(requestedKind)) {
+			return refuse(
+				`Unknown kind "${params.kind}". Use plan, research, brief or report.`,
+			);
+		}
+		const kind = requestedKind ?? state.documentKind ?? "plan";
 		const prefix = (
 			{
 				plan: "PLAN",

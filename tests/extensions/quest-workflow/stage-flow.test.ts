@@ -46,6 +46,30 @@ afterEach(() => {
 });
 
 describe("document stage flow", () => {
+	it("lets draft override a wrong think-time kind before minting", async () => {
+		const state = buildState();
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "create",
+			kind: "quest",
+			title: "Kind Fix",
+		});
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "think",
+			kind: "research",
+			note: "investigate",
+		});
+		expect(state.documentKind).toBe("research");
+
+		const drafted = await handle(state, fakePi(), fakeCtx(), {
+			action: "draft",
+			title: "Actually A Plan",
+			kind: "plan",
+		});
+		expect(drafted.ok).toBe(true);
+		expect(state.documentKind).toBe("plan");
+		expect(state.documentId?.startsWith("PLAN-")).toBe(true);
+	});
+
 	it("does not advance the stage in memory when the disk write fails", async () => {
 		const state = buildState();
 		await handle(state, fakePi(), fakeCtx(), {
