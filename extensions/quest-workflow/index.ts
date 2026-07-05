@@ -53,14 +53,12 @@ import {
 	attachCurrentSession,
 	detachSessionFromLoaded,
 	listAllQuests,
-	loadQuest,
 	persist,
 	prunePhantomSessionsOnLoaded,
 	reconcileSessionMembership,
 	refreshLoadedSlice,
 	refreshProgress,
-	restore,
-	restoreFromCwd,
+	resolveStartup,
 } from "./lifecycle.js";
 import { showLoaded } from "./lookup.js";
 import { formatQuestList, renderStatus, renderWidget } from "./render.js";
@@ -532,26 +530,12 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			);
 		}
 
-		// The persisted slice in the session history is the
-		// authoritative source: a /reload reuses the same
-		// session, so the last loaded quest and focused
-		// document are exactly the right thing to restore.
-		const restored = restore(state, pi, ctx);
-		if (!restored) {
-			// A fresh session has no history yet. A spawn from
-			// the quest workflow's spawn-* verbs ships the
-			// loaded quest id via this env var so the new
-			// session can name itself after the right quest
-			// even when the cwd doesn't disambiguate. Consume
-			// and clear it so the hint doesn't carry across
-			// in-process session restarts.
-			const autoloadId = process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
-			if (autoloadId) {
-				delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
-				loadQuest(state, pi, autoloadId);
-			}
-			if (!state.questId) restoreFromCwd(state, pi, ctx);
-		}
+		// Resolve which quest to load through the one startup
+		// pipeline: an explicit spawn request wins, then this
+		// session's persisted history (a /reload restores the last
+		// loaded quest and focused document), then the cwd for a
+		// fresh session launched inside a quest or its tree.
+		resolveStartup(state, pi, ctx);
 		// Once a quest is loaded (restored, autoloaded or
 		// resolved from the cwd), record this session on it so
 		// the sessions frontmatter reflects where work happens.

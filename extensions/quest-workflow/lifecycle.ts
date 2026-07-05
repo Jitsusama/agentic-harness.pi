@@ -503,6 +503,51 @@ export function restore(
 	return true;
 }
 
+/** How the startup resolver chose the quest to load. */
+export interface StartupResolution {
+	source: "explicit" | "persisted" | "cwd" | "none";
+	questId: string | null;
+}
+
+/**
+ * The one startup resolution pipeline, with an explicit precedence:
+ *
+ * 1. An explicit request wins. A spawn ships the target quest id in
+ *    an env var, and that intent must beat this session's persisted
+ *    history, so a spawned tab that resumes a session lands on the
+ *    quest it was opened for rather than the one that session last
+ *    held.
+ * 2. Persisted session history next. A /reload reuses the same
+ *    session, so the last loaded quest and focused document are
+ *    exactly the right thing to restore.
+ * 3. The cwd last. A fresh session with no history resolves from the
+ *    quest directory or working tree it launched inside.
+ *
+ * Consumes and clears the env var so the hint never carries across an
+ * in-process session restart.
+ */
+export function resolveStartup(
+	state: QuestState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+): StartupResolution {
+	const autoloadId = process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
+	if (autoloadId) {
+		delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
+		if (loadQuest(state, pi, autoloadId).ok) {
+			return { source: "explicit", questId: state.questId };
+		}
+	}
+	if (restore(state, pi, ctx)) {
+		return { source: "persisted", questId: state.questId };
+	}
+	restoreFromCwd(state, pi, ctx);
+	return {
+		source: state.questId ? "cwd" : "none",
+		questId: state.questId,
+	};
+}
+
 /** Restore on session_start by re-reading from disk if a quest dir was remembered. */
 export function restoreFromCwd(
 	state: QuestState,
