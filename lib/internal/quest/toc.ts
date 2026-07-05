@@ -1,6 +1,9 @@
 /**
- * QUESTS.md generator: render the at-a-glance index of the
- * whole tree.
+ * Table-of-contents renderer: produce the at-a-glance index
+ * of the whole tree on demand. This builds the markdown; it
+ * does not write a file. Nothing auto-generates a QUESTS.md,
+ * so a consumer that wants one calls this and writes the
+ * result itself.
  *
  * Shape:
  *

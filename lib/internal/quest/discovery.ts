@@ -4,7 +4,6 @@
  *
  * Canonical disk layout (within `questsRoot`):
  *
- *     QUESTS.md                       (auto-generated TOC)
  *     QEST-20260603-AAA111/
  *       README.md
  *       plans/PLAN-20260603-BBB222.md
