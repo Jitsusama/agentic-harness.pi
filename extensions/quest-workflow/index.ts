@@ -64,6 +64,7 @@ import { showLoaded } from "./lookup.js";
 import { formatQuestList, renderStatus, renderWidget } from "./render.js";
 import {
 	collapseListingPreview,
+	collapseText,
 	isListingDetails,
 	renderListingExpanded,
 } from "./render-rows.js";
@@ -196,7 +197,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			ref: Type.Optional(
 				Type.String({
 					description:
-						"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). alias-add also accepts a comma-separated list to add several at once.",
+						"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). Both accept a comma-separated list to add or remove several at once.",
 				}),
 			),
 			query: Type.Optional(
@@ -377,8 +378,22 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 					0,
 				);
 			}
-			const first = content.split("\n")[0];
-			return new Text(theme.fg("success", first), 0, 0);
+			// Non-listing results (show, who, links, ancestors) carry rich
+			// multi-line output. Feed the human the same text as the agent,
+			// collapsed to a first-line preview with an expand hint rather
+			// than dropping everything past the first line.
+			return new Text(
+				theme.fg(
+					"success",
+					collapseText(
+						content,
+						options.expanded === true,
+						keyHint("app.tools.expand", "to expand"),
+					),
+				),
+				0,
+				0,
+			);
 		},
 	});
 
@@ -600,15 +615,40 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	});
 }
 
-interface UiSink {
-	setStatus(key: string, value: string | undefined): void;
-	setWidget(key: string, value: string[] | undefined): void;
-	theme: import("@mariozechner/pi-coding-agent").Theme;
+/** The minimal render component pi's setWidget callback form returns. */
+interface WidgetComponent {
+	render(width: number): string[];
+	invalidate(): void;
+	dispose?(): void;
 }
 
-function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
+type Theme = import("@mariozechner/pi-coding-agent").Theme;
+
+interface UiSink {
+	setStatus(key: string, value: string | undefined): void;
+	setWidget(
+		key: string,
+		value:
+			| string[]
+			| ((tui: unknown, theme: Theme) => WidgetComponent)
+			| undefined,
+	): void;
+	theme: Theme;
+}
+
+/**
+ * Paint the loaded quest into the status line and the progress widget.
+ *
+ * Both are registered so the TUI reflows them on resize rather than
+ * freezing at the width they were computed at. The status is pushed
+ * width-independent and the footer truncates it, so widening a
+ * terminal reveals the id again instead of leaving the collapsed
+ * label. The widget uses pi's callback form, whose `render(width)` the
+ * TUI re-invokes on every paint, including a resize, with the live
+ * width, so the progress line re-truncates to the new width.
+ */
+export function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 	const live = state.questId !== null;
-	const width = process.stdout.columns || DEFAULT_WIDTH;
 	ctx.ui.setStatus(
 		"quest-workflow",
 		live
@@ -619,27 +659,26 @@ function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 						questStatus: state.questStatus,
 					},
 					ctx.ui.theme,
-					width,
 				)
 			: undefined,
 	);
+	const widgetInput = {
+		questId: state.questId,
+		questTitle: state.questTitle,
+		documentKind: state.documentKind,
+		documentStage: state.documentStage,
+		documentTitle: state.documentTitle,
+		done: state.done,
+		total: state.total,
+		currentItem: state.currentItem,
+	};
 	ctx.ui.setWidget(
 		"quest-workflow",
 		!live
 			? undefined
-			: renderWidget(
-					{
-						questId: state.questId,
-						questTitle: state.questTitle,
-						documentKind: state.documentKind,
-						documentStage: state.documentStage,
-						documentTitle: state.documentTitle,
-						done: state.done,
-						total: state.total,
-						currentItem: state.currentItem,
-					},
-					ctx.ui.theme,
-					width,
-				),
+			: (_tui: unknown, theme: Theme): WidgetComponent => ({
+					render: (width: number) => renderWidget(widgetInput, theme, width),
+					invalidate() {},
+				}),
 	);
 }

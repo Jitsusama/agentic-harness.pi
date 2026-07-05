@@ -39,6 +39,7 @@ import {
 	locate,
 	tree,
 	who,
+	workspace,
 } from "./verbs/queries.js";
 import { priorityJump, priorityShift, reorder } from "./verbs/reorder.js";
 import {
@@ -120,9 +121,9 @@ export async function handle(
 		case "alias-remove":
 			return aliasRemove(state, params);
 		case "promote":
-			return priorityShift(state, "up");
+			return priorityShift(state, "up", params);
 		case "demote":
-			return priorityShift(state, "down");
+			return priorityShift(state, "down", params);
 		case "drive":
 			return priorityJump(state, "driving" as QuestPriority);
 		case "park":
@@ -167,6 +168,8 @@ export async function handle(
 			return locate(state, params);
 		case "ancestors":
 			return ancestors(state, params);
+		case "workspace":
+			return workspace(state);
 		default: {
 			const suggestion = suggestAction(params.action ?? "");
 			const hint = suggestion

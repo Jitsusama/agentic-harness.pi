@@ -361,6 +361,67 @@ export function ancestorsOf(
 	return chain;
 }
 
+/** A quest currently being worked on, with its liveliest session. */
+export interface WorkspaceEntry {
+	questId: string;
+	title: string | null;
+	kind: string;
+	status: string;
+	priority: string;
+	liveness: "live" | "idle";
+	sessionId: string;
+	cwd?: string;
+	lastActivity?: string;
+}
+
+/**
+ * The live workspace: quests with a session that is live (a pi running
+ * against it now) or idle (recently active, not detached or dead). This
+ * is the "what am I actually working on right now" view, distinct from
+ * `list`, which ranks every open quest by priority. Ordered by the
+ * liveliest session's most recent activity, newest first.
+ */
+export function workspaceQuests(state: QuestState): WorkspaceEntry[] {
+	const { index } = discoverQuests(state.questsRoot);
+	const store = sessionsDir();
+	const sessionIndex = indexSessionFiles(store);
+	const now = new Date();
+	const entries: WorkspaceEntry[] = [];
+	for (const entry of index.quests.values()) {
+		const fm = entry.doc.frontMatter;
+		const views = fm.sessions
+			.map((s) => deriveLiveness(s, store, now, sessionIndex))
+			.filter((v) => v.liveness === "live" || v.liveness === "idle")
+			.sort((a, b) => {
+				const at = a.lastActivity ? Date.parse(a.lastActivity) : 0;
+				const bt = b.lastActivity ? Date.parse(b.lastActivity) : 0;
+				return bt - at;
+			});
+		const liveliest = views[0];
+		if (!liveliest) continue;
+		entries.push({
+			questId: fm.id,
+			title: entry.doc.title ?? null,
+			kind: fm.kind,
+			status: fm.status,
+			priority: fm.priority,
+			liveness: liveliest.liveness === "live" ? "live" : "idle",
+			sessionId: liveliest.id,
+			...(liveliest.cwd ? { cwd: liveliest.cwd } : {}),
+			...(liveliest.lastActivity
+				? { lastActivity: liveliest.lastActivity }
+				: {}),
+		});
+	}
+	return entries.sort((a, b) => {
+		// Live quests first, then by recency of the liveliest session.
+		if (a.liveness !== b.liveness) return a.liveness === "live" ? -1 : 1;
+		const at = a.lastActivity ? Date.parse(a.lastActivity) : 0;
+		const bt = b.lastActivity ? Date.parse(b.lastActivity) : 0;
+		return bt - at;
+	});
+}
+
 /** A session listed active on more than one quest. */
 export interface SessionDivergence {
 	sessionId: string;

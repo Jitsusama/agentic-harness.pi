@@ -22,6 +22,7 @@ import {
 	resolveRefQuery,
 	type TreeNode,
 	treeAll,
+	workspaceQuests,
 } from "../lookup.js";
 import {
 	type ListingDetails,
@@ -193,6 +194,19 @@ export function locate(
 			(h.detail ? ` (${h.detail})` : ""),
 	);
 	return ok(lines.join("\n"), { hits });
+}
+
+export function workspace(state: QuestState): QuestResult {
+	const entries = workspaceQuests(state);
+	if (entries.length === 0) {
+		return ok("No quests are being worked on right now.", { workspace: [] });
+	}
+	const lines = entries.map((e) => {
+		const mark = e.liveness === "live" ? "\u25cf" : "\u25cb";
+		const where = e.cwd ? ` ${e.cwd}` : "";
+		return `${mark} ${e.questId} ${e.title ?? ""} [${e.status}]${where}`.trimEnd();
+	});
+	return ok(lines.join("\n"), { workspace: entries });
 }
 
 export function ancestors(
