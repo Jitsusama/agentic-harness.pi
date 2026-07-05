@@ -179,7 +179,14 @@ export function stageTransition(
 		});
 	}
 
-	if (state.documentPath) writeDocumentStage(state, result.state.stage);
+	if (state.documentPath) {
+		const persisted = writeDocumentStage(state, result.state.stage);
+		if (!persisted) {
+			return refuse(
+				`Could not persist the stage change to ${state.documentPath}; the document stays ${state.documentStage}. Check the file exists and is readable, then retry.`,
+			);
+		}
+	}
 	state.documentStage = result.state.stage;
 	refreshProgress(state);
 	if (action === "build") {

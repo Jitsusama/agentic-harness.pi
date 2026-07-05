@@ -252,17 +252,23 @@ export function unfocusDocument(state: QuestState): void {
  * the write returns, so a failed write does not diverge
  * memory from disk.
  */
-export function writeDocumentStage(state: QuestState, stage: Stage): void {
-	if (!state.documentPath) return;
+/**
+ * Persist the focused document's stage to its file and mirror it in
+ * state. Returns true when the stage reached disk, false when there
+ * is nothing to write to or the file is unreadable or unparseable,
+ * so the caller can refuse rather than let memory run ahead of disk.
+ */
+export function writeDocumentStage(state: QuestState, stage: Stage): boolean {
+	if (!state.documentPath) return false;
 	const questDir = state.questDir;
 	let text: string;
 	try {
 		text = readFileSync(state.documentPath, "utf8");
 	} catch {
-		return;
+		return false;
 	}
 	const parsed = parseDocumentFrontMatter(text);
-	if (!parsed) return;
+	if (!parsed) return false;
 	const newFm: DocumentFrontMatter = {
 		...parsed.frontMatter,
 		stage: stage as DocumentStage,
@@ -276,6 +282,7 @@ export function writeDocumentStage(state: QuestState, stage: Stage): void {
 		atomicWriteFile(documentPath, newText);
 	}
 	state.documentStage = stage;
+	return true;
 }
 
 const DOC_KIND_DIRS = ["plans", "research", "briefs", "reports"];
