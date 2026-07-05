@@ -238,7 +238,7 @@ describe("reparent verb", () => {
 		expect(statusOf(other.id)).toBe("concluded");
 		expect(statusOf(loaded.id)).toBe("active");
 
-		// And it is reversible, unlike the loaded-quest path.
+		// And it is reversible (as is the loaded-quest path now).
 		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
 		});
@@ -265,6 +265,31 @@ describe("reparent verb", () => {
 		expect(undone.ok).toBe(true);
 		expect(statusOf(a.id)).toBe("active");
 		expect(fieldOf(a.id, "priority")).toBe("active");
+	});
+
+	it("makes a loaded-quest conclude reversible, restoring status and priority", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Loaded Reversible");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		expect(fieldOf(a.id, "priority")).toBe("driving");
+
+		const concluded = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+		});
+		expect(concluded.ok).toBe(true);
+		expect(statusOf(a.id)).toBe("concluded");
+		expect(fieldOf(a.id, "priority")).toBe("someday");
+
+		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+		});
+		expect(undone.ok).toBe(true);
+		expect(statusOf(a.id)).toBe("active");
+		expect(fieldOf(a.id, "priority")).toBe("driving");
 	});
 
 	it("warns about live children without sealing them", async () => {

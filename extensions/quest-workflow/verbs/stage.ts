@@ -14,6 +14,10 @@ import { isWithin } from "../../../lib/internal/quest/git-signals.js";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.js";
 import { reapQuestScratchDir } from "../../../lib/internal/quest/scratch.js";
 import {
+	type JournalChange,
+	recordStructuralOp,
+} from "../../../lib/internal/quest/structural-journal.js";
+import {
 	listTreesOnQuest,
 	removeTreeFromQuest,
 	setPendingPrune,
@@ -436,6 +440,11 @@ export async function concludeOrRetire(
 	// leaves the quest in its prior state with the blocked trees
 	// recorded, rather than sealing a still-active quest.
 	const { pruned, blocked } = await pruneAllTreesOnQuest(state);
+	// Capture the pre-seal status and priority so the seal can be
+	// journalled and reversed by undo, the same way the bulk path is.
+	const priorStatus = state.questStatus ?? "active";
+	const priorPriority = state.questPriority ?? "active";
+	const questId = state.questId;
 	const result = setLoadedStatus(state, target);
 	if (!result.ok) return refuse(result.guidance);
 	// Cascade the seal so the quest leaves nothing live behind: drop
@@ -443,6 +452,22 @@ export async function concludeOrRetire(
 	// still-active document to the same terminal stage.
 	setLoadedPriority(state, "someday");
 	const sealedDocs = sealQuestDocuments(state.questDir, target);
+	// Journal the seal so undo restores the status and the prior
+	// priority bucket, not just the bulk path's version of the same.
+	if (questId) {
+		const changes: JournalChange[] = [
+			{ id: questId, field: "status", old: priorStatus, new: target },
+		];
+		if (priorPriority !== "someday") {
+			changes.push({
+				id: questId,
+				field: "priority",
+				old: priorPriority,
+				new: "someday",
+			});
+		}
+		recordStructuralOp(state.questsRoot, action, changes);
+	}
 	// Reap the managed scratch dir once the quest is sealing: it is
 	// throwaway by definition and lives under the OS temp dir, so it
 	// goes with the quest. Best-effort, never fatal.
