@@ -19,7 +19,10 @@ import {
 	setPendingPrune,
 } from "../../../lib/internal/quest/trees.js";
 import type { QuestSession } from "../../../lib/quest/index.js";
-import { resolveTreeProvider } from "../../../lib/tree/index.js";
+import {
+	getTreeProvider,
+	resolveTreeProvider,
+} from "../../../lib/tree/index.js";
 import { appendJourneyEntry, inventoryWorktrees } from "../lifecycle.js";
 import type { QuestState } from "../state.js";
 import {
@@ -208,7 +211,12 @@ export async function treePrune(
 			`Tree at ${target.path} has attached session(s) (${names}). Detach them with \`session-detach\` before pruning, or pass force:true after confirming with the user.`,
 		);
 	}
+	// Prefer the provider that created the tree, recorded as its
+	// providerId, so a prune reaches the same provider even if the
+	// registry's resolution order changed since the tree was made.
+	// Fall back to repo-root resolution for legacy trees with no id.
 	const provider =
+		(target.providerId ? getTreeProvider(target.providerId) : undefined) ??
 		resolveTreeProvider(target.repoRoot ?? target.path) ??
 		resolveTreeProvider(process.cwd());
 	if (!provider) {
