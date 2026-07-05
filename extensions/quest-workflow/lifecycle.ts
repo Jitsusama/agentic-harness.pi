@@ -51,6 +51,7 @@ import {
 	indexSessionFiles,
 	prunePhantomSessions,
 } from "../../lib/internal/quest/session-liveness.js";
+import { isSealedStatus } from "../../lib/internal/quest/status.js";
 import { getLastEntry } from "../../lib/internal/state.js";
 import {
 	checkboxProgress,
@@ -650,11 +651,18 @@ export function reorderSiblings(
 			guidance: `No quest with id "${questId}" under ${state.questsRoot}.`,
 		};
 	}
+	if (isSealedStatus(pivot.doc.frontMatter.status)) {
+		return {
+			ok: false,
+			guidance: `Quest "${questId}" is ${pivot.doc.frontMatter.status}; reopen it before reordering.`,
+		};
+	}
 	const siblings: QuestEntry[] = [];
 	for (const entry of index.quests.values()) {
 		if (
 			entry.doc.frontMatter.parent === pivot.doc.frontMatter.parent &&
-			entry.doc.frontMatter.priority === pivot.doc.frontMatter.priority
+			entry.doc.frontMatter.priority === pivot.doc.frontMatter.priority &&
+			!isSealedStatus(entry.doc.frontMatter.status)
 		) {
 			siblings.push(entry);
 		}

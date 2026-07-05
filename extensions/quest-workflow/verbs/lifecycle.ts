@@ -21,6 +21,7 @@ import {
 import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
 import { nextRank } from "../../../lib/internal/quest/ranking.js";
 import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.js";
+import { isSealedStatus } from "../../../lib/internal/quest/status.js";
 import {
 	fetchUrlHints,
 	mintId,
@@ -64,9 +65,8 @@ const PRIORITY_FALLBACK = 99;
 // so a concluded quest that still carries a driving priority never
 // jumps ahead of live work. Ordering within a tier stays priority
 // then rank.
-const SEALED_STATUSES = new Set(["concluded", "retired"]);
 function statusTier(status: string): number {
-	return SEALED_STATUSES.has(status) ? 1 : 0;
+	return isSealedStatus(status) ? 1 : 0;
 }
 
 import {
@@ -115,15 +115,28 @@ export function questIdFromCwd(
 ): string | undefined {
 	const { index } = discoverQuests(state.questsRoot);
 	const realCwd = canonical(cwd);
+	// A quest's own directory is the strongest claim. Prefer a live
+	// quest over a sealed one when both directories cover the cwd.
+	let dirMatch: string | undefined;
+	let dirMatchLive = false;
 	for (const entry of index.quests.values()) {
-		if (isUnder(realCwd, canonical(entry.dir))) {
-			return entry.doc.frontMatter.id;
+		if (!isUnder(realCwd, canonical(entry.dir))) continue;
+		const live = !isSealedStatus(entry.doc.frontMatter.status);
+		if (dirMatch === undefined || (live && !dirMatchLive)) {
+			dirMatch = entry.doc.frontMatter.id;
+			dirMatchLive = live;
 		}
 	}
+	if (dirMatch !== undefined) return dirMatch;
+
+	// Otherwise fall back to tree and worktree-alias paths. The longest
+	// covering path wins; a live quest breaks a tie against a sealed one.
 	let bestId: string | undefined;
 	let bestLen = -1;
+	let bestLive = false;
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
+		const live = !isSealedStatus(fm.status);
 		const paths: string[] = [];
 		for (const a of fm.aliases) {
 			if (a.type === "git-worktree") paths.push(a.value);
@@ -131,9 +144,14 @@ export function questIdFromCwd(
 		for (const tree of fm.trees ?? []) paths.push(tree.path);
 		for (const p of paths) {
 			const real = canonical(p);
-			if (isUnder(realCwd, real) && real.length > bestLen) {
+			if (!isUnder(realCwd, real)) continue;
+			if (
+				real.length > bestLen ||
+				(real.length === bestLen && live && !bestLive)
+			) {
 				bestLen = real.length;
 				bestId = fm.id;
+				bestLive = live;
 			}
 		}
 	}

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import { questIdFromCwd } from "../../../extensions/quest-workflow/verbs/lifecycle";
 import {
 	clearUrlFetchers,
 	parseQuestFrontMatter,
@@ -76,6 +77,33 @@ async function createQuest(
 	return result.details as { id: string; path: string };
 }
 
+describe("questIdFromCwd", () => {
+	function addTree(readmePath: string, treePath: string): void {
+		const text = readFileSync(readmePath, "utf8");
+		const block = `\ntrees:\n  - path: ${treePath}\n    providerId: dev-tree\n    repoRoot: ${treePath}\n    origin: adopted\n---\n`;
+		writeFileSync(readmePath, text.replace(/\n---\n/, block));
+	}
+
+	it("prefers a live quest over a sealed one sharing a tree path", async () => {
+		const state = buildState();
+		const treePath = join(tmpRoot, "shared-tree");
+		mkdirSync(treePath, { recursive: true });
+		// Sealed quest created first, so without a status preference its
+		// tree would win the tie by iteration order.
+		const sealed = await createQuest(state, "Sealed");
+		const live = await createQuest(state, "Live");
+		addTree(sealed.path, treePath);
+		addTree(live.path, treePath);
+		const withSeal = readFileSync(sealed.path, "utf8").replace(
+			/^status: active$/m,
+			"status: concluded",
+		);
+		writeFileSync(sealed.path, withSeal);
+
+		expect(questIdFromCwd(state, treePath)).toBe(live.id);
+	});
+});
+
 describe("reorder verbs", () => {
 	it("top moves the loaded quest to rank 1 and shifts siblings to fixed positions", async () => {
 		const state = buildState();
@@ -122,6 +150,35 @@ describe("reorder verbs", () => {
 		expect(aText).toMatch(/^rank: 2$/m);
 		const bText = readFileSync(b.path, "utf8");
 		expect(bText).toMatch(/^rank: 3$/m);
+	});
+
+	it("excludes a sealed same-bucket quest from the reorder", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		const b = await createQuest(state, "Bravo");
+		const c = await createQuest(state, "Charlie");
+		// Simulate legacy drift: seal Bravo but leave it in the live
+		// bucket, the exact shape the status cascade now prevents.
+		const sealed = readFileSync(b.path, "utf8").replace(
+			/^status: active$/m,
+			"status: concluded",
+		);
+		writeFileSync(b.path, sealed);
+		const bRankBefore = readFileSync(b.path, "utf8").match(
+			/^rank: (\d+)/m,
+		)?.[1];
+
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: c.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "top" });
+
+		const bRankAfter = readFileSync(b.path, "utf8").match(/^rank: (\d+)/m)?.[1];
+		expect(bRankAfter).toBe(bRankBefore);
+		// Charlie took rank 1 and Alpha followed; Bravo stayed put.
+		expect(readFileSync(c.path, "utf8")).toMatch(/^rank: 1$/m);
+		expect(readFileSync(a.path, "utf8")).toMatch(/^rank: 2$/m);
 	});
 
 	it("before/after needs a target", async () => {
