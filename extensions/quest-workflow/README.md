@@ -42,7 +42,8 @@ shipped and tested.
 - **Queries**: `find`, `who`, `links`, `locate` (the inverse
   index: resolve a document id, alias ref or session id to the
   quest that owns it), `ancestors` (trace a quest's parent chain
-  up to the root).
+  up to the root), `workspace` (the quests being worked on right
+  now, those with a live or recently active session).
 
 Destructive verbs take typed parameters, not free-form
 prose:

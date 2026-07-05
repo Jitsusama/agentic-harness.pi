@@ -39,6 +39,7 @@ import {
 	locate,
 	tree,
 	who,
+	workspace,
 } from "./verbs/queries.js";
 import { priorityJump, priorityShift, reorder } from "./verbs/reorder.js";
 import {
@@ -167,6 +168,8 @@ export async function handle(
 			return locate(state, params);
 		case "ancestors":
 			return ancestors(state, params);
+		case "workspace":
+			return workspace(state);
 		default: {
 			const suggestion = suggestAction(params.action ?? "");
 			const hint = suggestion
