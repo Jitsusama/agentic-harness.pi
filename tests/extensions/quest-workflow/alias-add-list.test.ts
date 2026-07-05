@@ -37,6 +37,41 @@ afterEach(() => {
 	envGuard.leave();
 });
 
+describe("alias-add collision", () => {
+	it("refuses a ref already on another quest, naming it", async () => {
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const ctx = fakeCtx(tmpRoot);
+		const first = await handle(state, fakePi(), ctx, {
+			action: "create",
+			title: "First",
+		});
+		if (!first.ok) throw new Error(first.guidance);
+		const firstId = (first.details as { id: string }).id;
+		await handle(state, fakePi(), ctx, {
+			action: "alias-add",
+			ref: "github-pr:shop/world#7",
+		});
+
+		const second = await handle(state, fakePi(), ctx, {
+			action: "create",
+			title: "Second",
+		});
+		if (!second.ok) throw new Error(second.guidance);
+		await handle(state, fakePi(), ctx, {
+			action: "load",
+			id: (second.details as { id: string }).id,
+		});
+
+		const result = await handle(state, fakePi(), ctx, {
+			action: "alias-add",
+			ref: "github-pr:shop/world#7",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unreachable");
+		expect(result.guidance).toContain(firstId);
+	});
+});
+
 describe("alias-add with a list", () => {
 	it("adds every ref in a comma-separated list", async () => {
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });

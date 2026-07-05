@@ -10,9 +10,14 @@
 import type { QuestAlias } from "../../quest/types.js";
 import type { QuestIndex } from "./discovery.js";
 
-/** Format a `{type, value}` alias as a flat lookup key. */
+/**
+ * Format a `{type, value}` alias as a flat lookup key. The type is
+ * lowercased so case variants of the same registered type (GitHub-PR
+ * and github-pr) resolve to one key; the value is kept verbatim,
+ * since paths and refs are case-sensitive.
+ */
 export function aliasKey(alias: QuestAlias): string {
-	return `${alias.type}:${alias.value}`;
+	return `${alias.type.toLowerCase()}:${alias.value}`;
 }
 
 export interface AliasIndex {
