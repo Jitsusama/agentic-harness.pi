@@ -112,6 +112,29 @@ describe("restoreFromCwd (session_start handler)", () => {
 		expect(fresh.questId).toBeTruthy();
 	});
 
+	it("prefers a live quest over a sealed one sharing the same tree path", () => {
+		// Legacy stores carry colliding aliases (the baseline counted
+		// 279): two quests can name the same worktree. When both cover
+		// the cwd at equal depth, the live quest must win, matching the
+		// explicit load verb's resolver.
+		const shared = join(repoRoot, "shared-tree");
+		mkdirSync(shared, { recursive: true });
+		const writeQuest = (id: string, status: string) => {
+			const dir = join(tmpRoot, "quests", id);
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(
+				join(dir, "README.md"),
+				`---\nid: ${id}\nkind: quest\nparent: null\nstatus: ${status}\npriority: someday\nrank: 1\nstarted: 2026-01-01\nupdated: 2026-01-01\naliases:\n  - type: git-worktree\n    value: ${shared}\n---\n\n# ${id}\n\nBody.\n`,
+			);
+		};
+		writeQuest("QEST-20260101-SEALD0", "concluded");
+		writeQuest("QEST-20260101-LIVE00", "active");
+
+		const fresh = buildState();
+		restoreFromCwd(fresh, fakePi(), fakeCtx(shared));
+		expect(fresh.questId).toBe("QEST-20260101-LIVE00");
+	});
+
 	it("does not attach when the cwd is outside every tree", async () => {
 		const state = buildState();
 		await handle(state, fakePi(), fakeCtx(tmpRoot), {

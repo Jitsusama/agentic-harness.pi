@@ -514,35 +514,55 @@ export function restoreFromCwd(
 	const cwd = canonicalForCompare(rawCwd);
 	const { index } = discoverQuests(state.questsRoot);
 	// 1. Quest directory match: the session's cwd is
-	//    inside a quest's own folder.
+	//    inside a quest's own folder. Prefer a live quest
+	//    over a sealed one when both directories cover the
+	//    cwd, so a fresh pi launched inside a concluded
+	//    quest's tree does not auto-load the concluded
+	//    quest, matching the explicit load verb's resolver.
+	let dirMatch: string | undefined;
+	let dirMatchLive = false;
 	for (const entry of index.quests.values()) {
-		if (isUnder(cwd, canonicalForCompare(entry.dir))) {
-			loadQuest(state, pi, entry.doc.frontMatter.id);
-			return;
+		if (!isUnder(cwd, canonicalForCompare(entry.dir))) continue;
+		const live = !isSealedStatus(entry.doc.frontMatter.status);
+		if (dirMatch === undefined || (live && !dirMatchLive)) {
+			dirMatch = entry.doc.frontMatter.id;
+			dirMatchLive = live;
 		}
+	}
+	if (dirMatch !== undefined) {
+		loadQuest(state, pi, dirMatch);
+		return;
 	}
 	// 2. Tree-alias match: the cwd is inside a working
 	//    tree registered on some quest. Walk every quest's
 	//    `git-worktree:` aliases (path values) and the
 	//    quest's `trees:` array; pick the deepest match so
-	//    nested trees resolve to the innermost owner. Each
+	//    nested trees resolve to the innermost owner, with a
+	//    live quest breaking a tie against a sealed one. Each
 	//    candidate path is canonicalized so /var and
 	//    /private/var (and bind-mounts in containers) match.
 	let bestQuestId: string | undefined;
 	let bestMatchLen = -1;
-	const consider = (questId: string, treePath: string) => {
+	let bestLive = false;
+	const consider = (questId: string, treePath: string, live: boolean) => {
 		const real = canonicalForCompare(treePath);
-		if (isUnder(cwd, real) && real.length > bestMatchLen) {
+		if (!isUnder(cwd, real)) return;
+		if (
+			real.length > bestMatchLen ||
+			(real.length === bestMatchLen && live && !bestLive)
+		) {
 			bestMatchLen = real.length;
 			bestQuestId = questId;
+			bestLive = live;
 		}
 	};
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
+		const live = !isSealedStatus(fm.status);
 		for (const a of fm.aliases) {
-			if (a.type === "git-worktree") consider(fm.id, a.value);
+			if (a.type === "git-worktree") consider(fm.id, a.value, live);
 		}
-		for (const tree of fm.trees ?? []) consider(fm.id, tree.path);
+		for (const tree of fm.trees ?? []) consider(fm.id, tree.path, live);
 	}
 	if (bestQuestId) loadQuest(state, pi, bestQuestId);
 }

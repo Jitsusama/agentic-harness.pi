@@ -56,6 +56,7 @@ import {
 	loadQuest,
 	persist,
 	prunePhantomSessionsOnLoaded,
+	reconcileSessionMembership,
 	refreshLoadedSlice,
 	refreshProgress,
 	restore,
@@ -560,11 +561,19 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			// load verb, so pruning only there would rarely fire. The
 			// no-op case is cheap (it skips the write).
 			prunePhantomSessionsOnLoaded(state);
+			const sid = currentSessionId(ctx, undefined);
 			attachCurrentSession(state, {
-				id: currentSessionId(ctx, undefined),
+				id: sid,
 				cwd: ctx.cwd,
 				persisted: isPersistedSession(ctx),
 			});
+			// Reconcile on the launch path too, not only the explicit
+			// load verb: a resumed or spawned session lands here, and
+			// without this it would re-attach while still reading active
+			// on a straggler quest from an earlier run.
+			if (sid && isPersistedSession(ctx) && state.questId) {
+				reconcileSessionMembership(state, sid, state.questId);
+			}
 		}
 		updateScoreboard(state, ctx);
 	});
