@@ -7,6 +7,7 @@
 
 import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.js";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
+import { isSealedStatus } from "../../../lib/internal/quest/status.js";
 import {
 	planReparent,
 	planStatusChange,
@@ -18,7 +19,12 @@ import {
 	recordStructuralOp,
 } from "../../../lib/internal/quest/structural-journal.js";
 import type { QuestFrontMatter } from "../../../lib/quest/index.js";
-import { setQuestParent, setQuestStatusByDir } from "../lifecycle.js";
+import {
+	sealQuestDocuments,
+	setQuestParent,
+	setQuestPriorityByDir,
+	setQuestStatusByDir,
+} from "../lifecycle.js";
 import type { QuestState } from "../state.js";
 import {
 	ok,
@@ -184,6 +190,20 @@ export function bulkConcludeOrRetire(
 				`${result.guidance} Applied ${applied.length} of ${plan.changes.length} before the failure; recorded for undo.`,
 			);
 		}
+		// Cascade the seal the same way the loaded-quest path does: drop
+		// the priority to someday (journalled, so undo restores it) and
+		// seal every still-active document to the terminal stage.
+		const oldPriority = entry.doc.frontMatter.priority;
+		if (oldPriority !== "someday") {
+			setQuestPriorityByDir(entry.dir, "someday");
+			applied.push({
+				id: change.id,
+				field: "priority",
+				old: oldPriority,
+				new: "someday",
+			});
+		}
+		sealQuestDocuments(entry.dir, newStatus as "concluded" | "retired");
 		appendJourneyByPath(entry.dir, journey);
 		applied.push({
 			id: change.id,
@@ -193,13 +213,67 @@ export function bulkConcludeOrRetire(
 		});
 	}
 	recordStructuralOp(state.questsRoot, action, applied);
+	// A sealed quest with live children leaves them orphaned but live.
+	// Warn rather than cascade: the operator chose these ids, so seal
+	// only what was named and surface the children to decide on next.
+	const sealedIds = new Set(plan.changes.map((c) => c.id));
+	const liveChildren: string[] = [];
+	for (const id of sealedIds) {
+		for (const childId of index.children.get(id) ?? []) {
+			const child = index.quests.get(childId);
+			if (child && !isSealedStatus(child.doc.frontMatter.status)) {
+				liveChildren.push(childId);
+			}
+		}
+	}
+	const warning =
+		liveChildren.length > 0
+			? ` Warning: ${liveChildren.length} live child quest(s) remain under a sealed parent: ${liveChildren.join(", ")}.`
+			: "";
 	return ok(
-		`${action === "conclude" ? "Concluded" : "Retired"} ${plan.changes.length} quest(s).`,
+		`${action === "conclude" ? "Concluded" : "Retired"} ${plan.changes.length} quest(s).${warning}`,
 		{
 			changes: plan.changes,
 			dryRun: false,
+			liveChildren,
 		},
 	);
+}
+
+/**
+ * Read the current on-disk value of a journalled field, so undo can
+ * check it still equals what the operation wrote before reverting.
+ */
+function currentValue(
+	fm: QuestFrontMatter,
+	field: JournalChange["field"],
+): string | null {
+	switch (field) {
+		case "parent":
+			return fm.parent ?? null;
+		case "priority":
+			return fm.priority;
+		default:
+			return fm.status;
+	}
+}
+
+/** Reverse a single journalled change, restoring its recorded old value. */
+function revertField(
+	dir: string,
+	change: JournalChange,
+): { ok: true } | { ok: false; guidance: string } {
+	switch (change.field) {
+		case "parent":
+			return setQuestParent(dir, change.old);
+		case "priority":
+			return setQuestPriorityByDir(
+				dir,
+				change.old as QuestFrontMatter["priority"],
+			);
+		default:
+			return setQuestStatusByDir(dir, change.old as QuestFrontMatter["status"]);
+	}
 }
 
 export function undo(state: QuestState): QuestResult {
@@ -222,22 +296,13 @@ export function undo(state: QuestState): QuestResult {
 		// wrote. An intervening manual edit means the recorded `new` no
 		// longer holds, so reverting to `old` would clobber that edit;
 		// skip instead.
-		const current =
-			change.field === "parent"
-				? (entry.doc.frontMatter.parent ?? null)
-				: entry.doc.frontMatter.status;
+		const current = currentValue(entry.doc.frontMatter, change.field);
 		if (current !== change.new) {
 			skipped.push(change.id);
 			skippedChanges.push(change);
 			continue;
 		}
-		const result =
-			change.field === "parent"
-				? setQuestParent(entry.dir, change.old)
-				: setQuestStatusByDir(
-						entry.dir,
-						change.old as QuestFrontMatter["status"],
-					);
+		const result = revertField(entry.dir, change);
 		if (!result.ok) return refuse(result.guidance);
 		// setQuestParent appends its own "Reparented to ..." line; a
 		// status reversal needs an explicit compensating entry so the

@@ -756,6 +756,20 @@ export function setQuestStatusByDir(
 }
 
 /**
+ * Set a quest's priority by directory (the by-id counterpart to
+ * `setLoadedPriority`). Used by the bulk seal cascade and by undo
+ * when it reverses a journalled priority change.
+ */
+export function setQuestPriorityByDir(
+	questDir: string,
+	priority: QuestFrontMatter["priority"],
+): { ok: true } | { ok: false; guidance: string } {
+	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, priority }));
+	if (!result.ok) return result;
+	return { ok: true };
+}
+
+/**
  * Add one or more aliases to the loaded quest in a single front-matter
  * write, so a list either lands whole or not at all and no partial
  * state survives a failure. Aliases already present, and duplicates

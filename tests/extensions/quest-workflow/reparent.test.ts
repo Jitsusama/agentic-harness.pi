@@ -246,6 +246,48 @@ describe("reparent verb", () => {
 		expect(statusOf(other.id)).toBe("active");
 	});
 
+	it("bulk conclude cascades the seal and undo restores the priority", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "A");
+		expect(fieldOf(a.id, "priority")).toBe("active");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: a.id,
+		});
+		expect(result.ok).toBe(true);
+		expect(statusOf(a.id)).toBe("concluded");
+		expect(fieldOf(a.id, "priority")).toBe("someday");
+
+		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+		});
+		expect(undone.ok).toBe(true);
+		expect(statusOf(a.id)).toBe("active");
+		expect(fieldOf(a.id, "priority")).toBe("active");
+	});
+
+	it("warns about live children without sealing them", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Parent");
+		const child = await createQuest(state, "Child");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reparent",
+			id: child.id,
+			parent: parent.id,
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: parent.id,
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("unreachable");
+		expect(result.message).toContain(child.id);
+		// The child is warned about, not sealed.
+		expect(statusOf(child.id)).toBe("active");
+	});
+
 	it("bulk conclude previews under dryRun without writing", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "A");
