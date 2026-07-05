@@ -292,6 +292,60 @@ describe("reparent verb", () => {
 		expect(fieldOf(a.id, "priority")).toBe("driving");
 	});
 
+	it("restores the loaded quest's rank on undo, not a someday rank", async () => {
+		const state = buildState();
+		const first = await createQuest(state, "First Driving");
+		const second = await createQuest(state, "Second Driving");
+		for (const q of [first, second]) {
+			await handle(state, fakePi(), fakeCtx(tmpRoot), {
+				action: "load",
+				id: q.id,
+			});
+			await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		}
+		// The loaded quest sits at a non-first rank in the driving bucket.
+		const rankBefore = fieldOf(second.id, "rank");
+		expect(rankBefore).not.toBe("1");
+
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: second.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "conclude" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "undo" });
+
+		expect(statusOf(second.id)).toBe("active");
+		expect(fieldOf(second.id, "priority")).toBe("driving");
+		// The rank returns to its pre-conclude value: the seal must not
+		// have renumbered it into the someday bucket and stranded it there.
+		expect(fieldOf(second.id, "rank")).toBe(rankBefore);
+		// And it no longer collides with the sibling that kept rank 1.
+		expect(fieldOf(first.id, "rank")).toBe("1");
+	});
+
+	it("warns about live children when concluding the loaded parent", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Loaded Parent");
+		const child = await createQuest(state, "Loaded Child");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reparent",
+			id: child.id,
+			parent: parent.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: parent.id,
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("unreachable");
+		expect(result.message).toContain(child.id);
+		expect(statusOf(child.id)).toBe("active");
+	});
+
 	it("warns about live children without sealing them", async () => {
 		const state = buildState();
 		const parent = await createQuest(state, "Parent");

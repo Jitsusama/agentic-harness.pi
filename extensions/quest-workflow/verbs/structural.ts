@@ -253,10 +253,23 @@ function currentValue(
 			return fm.parent ?? null;
 		case "priority":
 			return fm.priority;
-		default:
+		case "status":
 			return fm.status;
+		default:
+			// The field type is wider than the fields undo can reverse
+			// (rank, kind and stage are journallable but not yet
+			// reversible). Return a sentinel that can never equal the
+			// recorded `new`, so the change is skipped and preserved in
+			// the journal rather than mis-reverted into the status field.
+			return UNREVERTABLE_FIELD;
 	}
 }
+
+/**
+ * A value no real front-matter field can hold, used to force an
+ * unhandled journalled field down undo's skip-and-preserve path.
+ */
+const UNREVERTABLE_FIELD = "\u0000__unrevertable_field__";
 
 /** Reverse a single journalled change, restoring its recorded old value. */
 function revertField(
@@ -271,8 +284,17 @@ function revertField(
 				dir,
 				change.old as QuestFrontMatter["priority"],
 			);
-		default:
+		case "status":
 			return setQuestStatusByDir(dir, change.old as QuestFrontMatter["status"]);
+		default:
+			// Unreachable for today's journalled ops: currentValue skips an
+			// unhandled field before revertField is ever called for it. Kept
+			// as a defensive refusal so a future field that starts being
+			// journalled cannot silently corrupt the status field.
+			return {
+				ok: false,
+				guidance: `undo cannot reverse a ${change.field} change yet.`,
+			};
 	}
 }
 

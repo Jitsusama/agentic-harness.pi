@@ -9,10 +9,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { ToolContext } from "@mariozechner/pi-coding-agent";
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
+import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
 import { isWithin } from "../../../lib/internal/quest/git-signals.js";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.js";
 import { reapQuestScratchDir } from "../../../lib/internal/quest/scratch.js";
+import { isSealedStatus } from "../../../lib/internal/quest/status.js";
 import {
 	type JournalChange,
 	recordStructuralOp,
@@ -37,8 +39,8 @@ import {
 	focusDocument,
 	refreshProgress,
 	sealQuestDocuments,
-	setLoadedPriority,
 	setLoadedStatus,
+	setQuestPriorityByDir,
 	stampQuestUpdated,
 	writeDocumentStage,
 } from "../lifecycle.js";
@@ -465,8 +467,15 @@ export async function concludeOrRetire(
 	if (!result.ok) return refuse(result.guidance);
 	// Cascade the seal so the quest leaves nothing live behind: drop
 	// the priority to the least prominent bucket and seal every
-	// still-active document to the same terminal stage.
-	setLoadedPriority(state, "someday");
+	// still-active document to the same terminal stage. Drop the
+	// priority rank-preserving, matching the bulk path: the seal must
+	// not renumber the quest's rank, because undo restores only the
+	// priority bucket, so a rank moved here would strand the quest at a
+	// foreign, colliding rank in its restored bucket.
+	if (state.questDir && priorPriority !== "someday") {
+		setQuestPriorityByDir(state.questDir, "someday");
+		state.questPriority = "someday";
+	}
 	const sealedDocs = sealQuestDocuments(state.questDir, target);
 	// Journal the seal so undo restores the status and the prior
 	// priority bucket, not just the bulk path's version of the same.
@@ -513,6 +522,22 @@ export async function concludeOrRetire(
 		message += ` Sealed ${sealedDocs} document(s).`;
 	}
 	if (pruned.length > 0) message += ` Pruned ${pruned.length} tree(s).`;
+	// Warn about live children, matching the bulk path: sealing a loaded
+	// parent leaves its live subquests orphaned but live, so surface them
+	// rather than cascading or silently stranding them.
+	if (questId) {
+		const { index } = discoverQuests(state.questsRoot);
+		const liveChildren: string[] = [];
+		for (const childId of index.children.get(questId) ?? []) {
+			const child = index.quests.get(childId);
+			if (child && !isSealedStatus(child.doc.frontMatter.status)) {
+				liveChildren.push(childId);
+			}
+		}
+		if (liveChildren.length > 0) {
+			message += ` Warning: ${liveChildren.length} live child quest(s) remain under a sealed parent: ${liveChildren.join(", ")}.`;
+		}
+	}
 	const drift = action === "conclude" ? primaryPlanDrift(state) : undefined;
 	if (drift) {
 		const open = drift.total - drift.done;
