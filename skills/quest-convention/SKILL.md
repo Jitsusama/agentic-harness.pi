@@ -45,8 +45,10 @@ choices.
   audit trail composes. Either form is valid.
 
 When in doubt, start as a sidequest and promote later. A
-sidequest that grows a north star becomes a quest by
-flipping its kind.
+sidequest that grows a north star becomes a quest with
+`reclassify`, which flips the loaded quest's kind in place.
+Reclassifying to a subquest needs a parent to rank within,
+so reparent it under a quest first if it has none.
 
 ## Priority Buckets and Rank
 
@@ -78,18 +80,22 @@ priority, so a concluded quest never outranks live work.
 
 ## Status and Journey
 
-Status is a coarse enum: `active`, `paused`, `blocked`,
-`concluded`, `retired`. It is not where you write
-narrative. The narrative lives in the Journey log: dated
-bullets, newest first, recording what happened and why.
+Status is a coarse enum. Three values are reachable through
+verbs: a quest is `active` from creation, and `conclude` and
+`retire` seal it to `concluded` or `retired`; `reopen`
+returns a sealed quest to `active`. The `paused` and
+`blocked` values are reserved: the parser still accepts them
+so legacy quests stay visible, but no verb sets them today.
+Do not hand-edit a status into `paused` or `blocked`; use the
+Journey log to record that the work is waiting.
+
+Status is not where you write narrative. The narrative lives
+in the Journey log: dated bullets, newest first, recording
+what happened and why.
 
 When asked "what is happening on QEST-X", the tool
 synthesises a paragraph from frontmatter plus recent
 Journey entries; you don't write status prose yourself.
-
-Move the `status` field when the situation actually
-changes (the work paused; you got blocked; you concluded
-it). Otherwise leave it alone and write Journey entries.
 
 ## Creating from a URL
 
