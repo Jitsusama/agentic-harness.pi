@@ -169,6 +169,16 @@ session without changing your session's directory: point
 `cwd` at a path inside the tree to adopt, or at the repo to
 scaffold from.
 
+The two origins prune differently. A scaffolded tree is the
+tool's to remove: it auto-prunes when the quest concludes or
+retires, and a manual `tree-prune` removes it freely. An
+adopted (or legacy, unmarked) tree is a shared checkout the
+tool did not create, so it is never auto-pruned and a manual
+prune refuses unless you pass `force: true` after confirming
+with the user. The `tree-list` inventory flags any recorded
+tree whose directory has gone missing on disk, so a stale
+entry is visible rather than trusted.
+
 ## The Resuscitate Pattern
 
 A common motion: a sidequest paused weeks ago, a new Slack
@@ -229,7 +239,12 @@ empty.
 ## Verbs and Aliases
 
 The `status` action is an alias for `show`; both render
-the loaded quest's full projection. When you type an
+the loaded quest's full projection. `alias-add` refuses a
+ref already attached to another quest, naming it, so the
+same external reference never points at two quests; load
+that quest, or remove the alias there, before re-adding it.
+Alias types are matched case-insensitively, so `github-pr`
+and `GitHub-PR` are the same type. When you type an
 action name that no verb matches, the tool refuses with a
 Levenshtein-based suggestion of the nearest canonical
 verb (`lst` is told to try `list`; `shw` is told to try
