@@ -59,12 +59,14 @@ export interface QuestEntry {
 
 export interface PriorityReset {
 	id: string;
+	dir: string;
 	from: string;
 	to: string;
 }
 
 export interface RankChange {
 	id: string;
+	dir: string;
 	from: number;
 	to: number;
 }
@@ -89,7 +91,7 @@ export function planPriorityResets(quests: QuestEntry[]): PriorityReset[] {
 	for (const q of quests) {
 		if (!isSealed(q.status)) continue;
 		if (q.priority && LIVE_PRIORITIES.has(q.priority)) {
-			plan.push({ id: q.id, from: q.priority, to: "someday" });
+			plan.push({ id: q.id, dir: q.dir, from: q.priority, to: "someday" });
 		}
 	}
 	return plan;
@@ -116,10 +118,36 @@ export function planRankRenumber(quests: QuestEntry[]): RankChange[] {
 		});
 		ordered.forEach((q, i) => {
 			const to = i + 1;
-			if (q.rank !== to) changes.push({ id: q.id, from: q.rank, to });
+			if (q.rank !== to)
+				changes.push({ id: q.id, dir: q.dir, from: q.rank, to });
 		});
 	}
 	return changes;
+}
+
+/**
+ * The whole convergent plan. Rank renumbering is computed against the
+ * store as it will look after the priority resets land, not the store
+ * as scanned: a sealed quest reset to someday must be renumbered
+ * within the someday group it lands in, not the live group it leaves.
+ * Computing all three from one raw snapshot lets a reset quest keep a
+ * rank from its old group and collide in someday, so a single --apply
+ * would not converge. Simulating the resets first makes one pass reach
+ * the fixed point.
+ */
+export function planMigration(quests: QuestEntry[]): {
+	priorities: PriorityReset[];
+	ranks: RankChange[];
+	docs: DocSeal[];
+} {
+	const priorities = planPriorityResets(quests);
+	const resetIds = new Map(priorities.map((p) => [p.id, p.to]));
+	const afterResets = quests.map((q) =>
+		resetIds.has(q.id) ? { ...q, priority: resetIds.get(q.id) } : q,
+	);
+	const ranks = planRankRenumber(afterResets);
+	const docs = planDocumentSeals(quests);
+	return { priorities, ranks, docs };
 }
 
 /** Active-stage documents under a sealed quest, sealed to the quest's terminal stage. */
@@ -193,18 +221,21 @@ function rewriteQuest(
 }
 
 /** Apply the priority resets to disk. */
-export function applyPriorityResets(root: string, plan: PriorityReset[]): void {
+export function applyPriorityResets(
+	_root: string,
+	plan: PriorityReset[],
+): void {
 	for (const reset of plan) {
-		rewriteQuest(join(root, reset.id), (fm) => {
+		rewriteQuest(reset.dir, (fm) => {
 			fm.priority = "someday";
 		});
 	}
 }
 
 /** Apply the rank renumbering to disk. */
-export function applyRankRenumber(root: string, plan: RankChange[]): void {
+export function applyRankRenumber(_root: string, plan: RankChange[]): void {
 	for (const change of plan) {
-		rewriteQuest(join(root, change.id), (fm) => {
+		rewriteQuest(change.dir, (fm) => {
 			fm.rank = change.to;
 		});
 	}
@@ -249,9 +280,7 @@ function main(): void {
 	}
 
 	const quests = scan(root);
-	const priorities = planPriorityResets(quests);
-	const ranks = planRankRenumber(quests);
-	const docs = planDocumentSeals(quests);
+	const { priorities, ranks, docs } = planMigration(quests);
 	console.log(report(priorities, ranks, docs));
 
 	if (!apply) {
