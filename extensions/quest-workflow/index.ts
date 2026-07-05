@@ -163,7 +163,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			kind: Type.Optional(
 				Type.String({
 					description:
-						"create: quest, subquest or sidequest. think: plan, research, brief or report.",
+						"create: quest, subquest or sidequest. reclassify: the loaded quest's new kind (quest, subquest or sidequest). think: plan, research, brief or report.",
 				}),
 			),
 			note: Type.Optional(

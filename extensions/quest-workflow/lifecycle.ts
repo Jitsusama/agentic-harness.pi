@@ -989,6 +989,33 @@ export function setLoadedPriority(
 	return { ok: true, changed };
 }
 
+/**
+ * Change the loaded quest's kind. A subquest needs a parent to rank
+ * within, so refuse the move to subquest when the quest has none.
+ * Returns whether the kind actually changed.
+ */
+export function setLoadedKind(
+	state: QuestState,
+	kind: QuestFrontMatter["kind"],
+): { ok: true; changed: boolean } | { ok: false; guidance: string } {
+	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	let changed = false;
+	let refusal: string | undefined;
+	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+		if (fm.kind === kind) return undefined;
+		if (kind === "subquest" && (fm.parent ?? null) === null) {
+			refusal =
+				"A subquest needs a parent to rank within; reparent it under a quest first.";
+			return undefined;
+		}
+		changed = true;
+		return { ...fm, kind };
+	});
+	if (refusal) return { ok: false, guidance: refusal };
+	if (!result.ok) return result;
+	return { ok: true, changed };
+}
+
 /** Shift the loaded quest one bucket up or down the priority ladder. */
 export function bumpLoadedPriority(
 	state: QuestState,

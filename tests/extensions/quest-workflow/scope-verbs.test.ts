@@ -56,6 +56,47 @@ afterEach(() => {
 	envGuard.leave();
 });
 
+describe("reclassify verb", () => {
+	it("changes the loaded quest's kind", async () => {
+		const state = buildState();
+		const q = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Q",
+			kind: "quest",
+		});
+		if (!q.ok) throw new Error(q.guidance);
+		const { id, path } = q.details as { id: string; path: string };
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "load", id });
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reclassify",
+			kind: "sidequest",
+		});
+		expect(result.ok).toBe(true);
+		expect(readFileSync(path, "utf8")).toMatch(/^kind: sidequest$/m);
+	});
+
+	it("refuses a subquest with no parent", async () => {
+		const state = buildState();
+		const q = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Q",
+			kind: "quest",
+		});
+		if (!q.ok) throw new Error(q.guidance);
+		const { id } = q.details as { id: string };
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "load", id });
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reclassify",
+			kind: "subquest",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unreachable");
+		expect(result.guidance).toMatch(/parent/i);
+	});
+});
+
 describe("priority verbs", () => {
 	it("promote shifts the loaded quest up one bucket", async () => {
 		const state = buildState();

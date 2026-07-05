@@ -41,6 +41,7 @@ import {
 	listAllQuests,
 	loadQuest,
 	prunePhantomSessionsOnLoaded,
+	setLoadedKind,
 	unfocusDocument,
 	unloadQuest,
 } from "../lifecycle.js";
@@ -159,6 +160,39 @@ export function questIdFromCwd(
 }
 
 /** Mint a new quest, optionally seeded from a URL. */
+/**
+ * Change the loaded quest's kind (quest, subquest or sidequest), so a
+ * misclassification made at create time is fixable in place instead
+ * of forcing a delete-and-recreate.
+ */
+export function reclassify(
+	state: QuestState,
+	params: QuestToolParams,
+): QuestResult {
+	if (!state.questId) return refuse("Load a quest first.");
+	const kind = params.kind as QuestKind | undefined;
+	if (!kind || !QUEST_KINDS_SET.has(kind)) {
+		return refuse(
+			`Pass the new kind: quest, subquest or sidequest (got "${params.kind ?? ""}").`,
+		);
+	}
+	const from = state.questKind;
+	const result = setLoadedKind(state, kind);
+	if (!result.ok) return refuse(result.guidance);
+	if (!result.changed) {
+		return ok(`Quest ${state.questId} is already a ${kind}.`, {
+			from,
+			to: kind,
+		});
+	}
+	state.questKind = kind;
+	appendJourneyEntry(state, `Reclassified from ${from ?? "?"} to ${kind}.`);
+	return ok(`Quest ${state.questId} is now a ${kind} (was ${from ?? "?"}).`, {
+		from,
+		to: kind,
+	});
+}
+
 export async function create(
 	state: QuestState,
 	pi: ExtensionAPI,

@@ -38,6 +38,7 @@ export const QUEST_ACTIONS = [
 	"drive",
 	"park",
 	"defer",
+	"reclassify",
 	"top",
 	"bottom",
 	"bump",

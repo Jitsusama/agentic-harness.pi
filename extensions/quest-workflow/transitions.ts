@@ -26,6 +26,7 @@ import {
 	focus,
 	list,
 	load,
+	reclassify,
 	show,
 	unfocus,
 	unload,
@@ -119,6 +120,8 @@ export async function handle(
 			return priorityJump(state, "bench" as QuestPriority);
 		case "defer":
 			return priorityJump(state, "someday" as QuestPriority);
+		case "reclassify":
+			return reclassify(state, params);
 		case "tree":
 			return tree(state, params);
 		case "tree-add":
