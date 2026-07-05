@@ -492,6 +492,26 @@ describe("action aliases and refusals", () => {
 	});
 });
 
+describe("create rank assignment", () => {
+	function rankOf(path: string): number {
+		const parsed = parseQuestFrontMatter(readFileSync(path, "utf8"));
+		if (!parsed) throw new Error("unreadable quest frontmatter");
+		return parsed.frontMatter.rank;
+	}
+
+	it("gives quests in the same group distinct, increasing ranks", async () => {
+		const state = buildState();
+		const first = await createQuest(state, "First top-level");
+		const second = await createQuest(state, "Second top-level");
+		const third = await createQuest(state, "Third top-level");
+
+		const ranks = [rankOf(first.path), rankOf(second.path), rankOf(third.path)];
+		expect(new Set(ranks).size).toBe(3);
+		expect(ranks[0]).toBeLessThan(ranks[1]);
+		expect(ranks[1]).toBeLessThan(ranks[2]);
+	});
+});
+
 describe("list filters", () => {
 	it("list priority:driving returns only driving quests and the count matches", async () => {
 		const state = buildState();

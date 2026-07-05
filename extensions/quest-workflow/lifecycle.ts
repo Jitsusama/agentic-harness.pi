@@ -28,6 +28,7 @@ import { nowYmd } from "../../lib/internal/quest/dates.js";
 import {
 	discoverQuests,
 	type QuestEntry,
+	siblingRanks,
 } from "../../lib/internal/quest/discovery.js";
 import {
 	atomicWriteFile,
@@ -36,6 +37,7 @@ import {
 import { mutateQuestFrontMatter } from "../../lib/internal/quest/mutate.js";
 import {
 	diffRanks,
+	nextRank,
 	type RankEntry,
 	after as rankAfter,
 	before as rankBefore,
@@ -951,7 +953,12 @@ export function setLoadedPriority(
 	const result = writeQuestFrontMatter(state.questDir, (fm) => {
 		if (fm.priority === priority) return undefined;
 		changed = true;
-		return { ...fm, priority, rank: 1 };
+		// Append to the end of the destination bucket rather than
+		// colliding at rank 1: take the next free rank in the target
+		// (parent, priority) group, excluding the quest being moved.
+		const { index } = discoverQuests(state.questsRoot);
+		const destRanks = siblingRanks(index, fm.parent ?? null, priority, fm.id);
+		return { ...fm, priority, rank: nextRank(destRanks) };
 	});
 	if (!result.ok) return result;
 	if (changed) {

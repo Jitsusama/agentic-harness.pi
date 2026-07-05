@@ -72,6 +72,28 @@ describe("priority verbs", () => {
 		expect(text).toMatch(/priority: driving/);
 	});
 
+	it("lands two quests driven into one bucket at distinct ranks", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "A");
+		const b = await createQuest(state, "B");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: b.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+
+		const rankA = readFileSync(a.path, "utf8").match(/^rank: (\d+)/m)?.[1];
+		const rankB = readFileSync(b.path, "utf8").match(/^rank: (\d+)/m)?.[1];
+		expect(rankA).toBeDefined();
+		expect(rankB).toBeDefined();
+		expect(rankA).not.toBe(rankB);
+	});
+
 	it("park jumps the loaded quest to bench", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Q");

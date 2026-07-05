@@ -14,8 +14,12 @@ import {
 	lookupAliasDetail,
 } from "../../../lib/internal/quest/alias-index.js";
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
+import {
+	discoverQuests,
+	siblingRanks,
+} from "../../../lib/internal/quest/discovery.js";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
+import { nextRank } from "../../../lib/internal/quest/ranking.js";
 import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.js";
 import {
 	fetchUrlHints,
@@ -189,13 +193,19 @@ export async function create(
 	ensureQuestsRoot(state);
 	const id = mintId("QEST");
 
+	const parent = params.parent ?? null;
+	const priority = (params.priority as QuestPriority) ?? "active";
+	// Append to the end of the (parent, priority) sibling group so the
+	// new quest takes a free rank rather than colliding at 1.
+	const { index } = discoverQuests(state.questsRoot);
+
 	const frontMatter: QuestFrontMatter = {
 		id,
 		kind,
-		parent: params.parent ?? null,
+		parent,
 		status: "active",
-		priority: (params.priority as QuestPriority) ?? "active",
-		rank: 1,
+		priority,
+		rank: nextRank(siblingRanks(index, parent, priority)),
 		started: nowYmd(),
 		updated: nowYmd(),
 		aliases: seededAlias ? [seededAlias] : [],
