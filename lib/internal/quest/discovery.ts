@@ -4,7 +4,6 @@
  *
  * Canonical disk layout (within `questsRoot`):
  *
- *     QUESTS.md                       (auto-generated TOC)
  *     QEST-20260603-AAA111/
  *       README.md
  *       plans/PLAN-20260603-BBB222.md
@@ -78,6 +77,29 @@ export interface QuestIndex {
 	 * null).
 	 */
 	children: Map<string, string[]>;
+}
+
+/**
+ * The ranks of every quest sharing a parent and priority bucket (a
+ * sibling set), optionally excluding one id. Callers pair this with
+ * `nextRank` to place a new or moved quest at the next free rank in
+ * its group rather than colliding at rank 1.
+ */
+export function siblingRanks(
+	index: QuestIndex,
+	parent: string | null,
+	priority: string,
+	excludeId?: string,
+): number[] {
+	const ranks: number[] = [];
+	for (const entry of index.quests.values()) {
+		const fm = entry.doc.frontMatter;
+		if (fm.id === excludeId) continue;
+		if ((fm.parent ?? null) !== parent) continue;
+		if (fm.priority !== priority) continue;
+		ranks.push(fm.rank);
+	}
+	return ranks;
 }
 
 interface DiscoveryError {

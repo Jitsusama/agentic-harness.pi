@@ -38,6 +38,7 @@ export const QUEST_ACTIONS = [
 	"drive",
 	"park",
 	"defer",
+	"reclassify",
 	"top",
 	"bottom",
 	"bump",
@@ -58,6 +59,7 @@ export const QUEST_ACTIONS = [
 	"find",
 	"who",
 	"links",
+	"locate",
 ] as const;
 
 /** Static type of any canonical action. */

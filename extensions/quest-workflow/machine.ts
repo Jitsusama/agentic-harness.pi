@@ -20,7 +20,10 @@
  * - `retired`: terminal, work abandoned.
  *
  * Returning to `think` from `draft` or `build` reopens the
- * loop when discovery invalidates the document.
+ * loop when discovery invalidates the document. Thinking
+ * from a terminal stage is refused: a concluded or retired
+ * document is not silently reopened; draft a fresh document
+ * or reopen the quest instead.
  */
 
 export type Stage =
@@ -103,6 +106,11 @@ function think(state: DocumentLoop, input: TransitionInput): TransitionResult {
 	}
 	if (state.stage === "think") {
 		return refuse("Already thinking. Draft when you are ready.");
+	}
+	if (state.stage === "concluded" || state.stage === "retired") {
+		return refuse(
+			"This document is terminal; thinking would silently reopen it. Draft a fresh document, or reopen the quest if the whole thing is resuming.",
+		);
 	}
 	return advance("think");
 }

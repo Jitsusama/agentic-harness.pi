@@ -9,13 +9,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { ToolContext } from "@mariozechner/pi-coding-agent";
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
-import {
-	parseQuestFrontMatter,
-	serializeQuestFrontMatter,
-} from "../../../lib/internal/quest/frontmatter.js";
+import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
 import { isWithin } from "../../../lib/internal/quest/git-signals.js";
-import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.js";
 import { reapQuestScratchDir } from "../../../lib/internal/quest/scratch.js";
+import { isSealedStatus } from "../../../lib/internal/quest/status.js";
+import {
+	type JournalChange,
+	recordStructuralOp,
+} from "../../../lib/internal/quest/structural-journal.js";
 import {
 	listTreesOnQuest,
 	removeTreeFromQuest,
@@ -26,7 +29,6 @@ import {
 	type DocumentFrontMatter,
 	type DocumentKind,
 	mintId,
-	type QuestFrontMatter,
 	type QuestSession,
 	scaffoldDocument,
 } from "../../../lib/quest/index.js";
@@ -36,7 +38,9 @@ import {
 	createDocument,
 	focusDocument,
 	refreshProgress,
+	sealQuestDocuments,
 	setLoadedStatus,
+	setQuestPriorityByDir,
 	stampQuestUpdated,
 	writeDocumentStage,
 } from "../lifecycle.js";
@@ -60,27 +64,12 @@ import { bulkConcludeOrRetire } from "./structural.js";
  * tries to build.
  */
 function pinPrimaryPlanIfUnset(questDir: string, planId: string): void {
-	const path = join(questDir, "README.md");
-	let text: string;
-	try {
-		text = readFileSync(path, "utf8");
-	} catch {
-		return;
-	}
-	const parsed = parseQuestFrontMatter(text);
-	if (!parsed) return;
-	if (parsed.frontMatter.primaryPlanId) return;
-	const fm: QuestFrontMatter = {
-		...parsed.frontMatter,
-		primaryPlanId: planId,
-	};
-	try {
-		atomicWriteFile(path, `${serializeQuestFrontMatter(fm)}\n${parsed.body}`);
-	} catch {
-		// Best-effort pin: leave the field unset so the next
-		// draft tries again. The gate fails closed in the
-		// meantime.
-	}
+	// Best-effort pin through the validated core: leave the field unset
+	// on any failure so the next draft tries again, and quietly keep an
+	// existing recorded primary in place.
+	mutateQuestFrontMatter(questDir, (fm) =>
+		fm.primaryPlanId ? undefined : { ...fm, primaryPlanId: planId },
+	);
 }
 
 /**
@@ -144,7 +133,16 @@ export function stageTransition(
 				"Give the document a title in `title` (it becomes the H1).",
 			);
 		}
-		const kind = state.documentKind ?? "plan";
+		// A kind given at draft overrides the think-time kind before the
+		// id is minted, so a wrong choice at think is fixable here rather
+		// than forcing the loop to be abandoned.
+		const requestedKind = params.kind as DocumentKind | undefined;
+		if (requestedKind && !DOCUMENT_KINDS_SET.has(requestedKind)) {
+			return refuse(
+				`Unknown kind "${params.kind}". Use plan, research, brief or report.`,
+			);
+		}
+		const kind = requestedKind ?? state.documentKind ?? "plan";
 		const prefix = (
 			{
 				plan: "PLAN",
@@ -192,7 +190,14 @@ export function stageTransition(
 		});
 	}
 
-	if (state.documentPath) writeDocumentStage(state, result.state.stage);
+	if (state.documentPath) {
+		const persisted = writeDocumentStage(state, result.state.stage);
+		if (!persisted) {
+			return refuse(
+				`Could not persist the stage change to ${state.documentPath}; the document stays ${state.documentStage}. Check the file exists and is readable, then retry.`,
+			);
+		}
+	}
 	state.documentStage = result.state.stage;
 	refreshProgress(state);
 	if (action === "build") {
@@ -453,8 +458,41 @@ export async function concludeOrRetire(
 	// leaves the quest in its prior state with the blocked trees
 	// recorded, rather than sealing a still-active quest.
 	const { pruned, blocked } = await pruneAllTreesOnQuest(state);
+	// Capture the pre-seal status and priority so the seal can be
+	// journalled and reversed by undo, the same way the bulk path is.
+	const priorStatus = state.questStatus ?? "active";
+	const priorPriority = state.questPriority ?? "active";
+	const questId = state.questId;
 	const result = setLoadedStatus(state, target);
 	if (!result.ok) return refuse(result.guidance);
+	// Cascade the seal so the quest leaves nothing live behind: drop
+	// the priority to the least prominent bucket and seal every
+	// still-active document to the same terminal stage. Drop the
+	// priority rank-preserving, matching the bulk path: the seal must
+	// not renumber the quest's rank, because undo restores only the
+	// priority bucket, so a rank moved here would strand the quest at a
+	// foreign, colliding rank in its restored bucket.
+	if (state.questDir && priorPriority !== "someday") {
+		setQuestPriorityByDir(state.questDir, "someday");
+		state.questPriority = "someday";
+	}
+	const sealedDocs = sealQuestDocuments(state.questDir, target);
+	// Journal the seal so undo restores the status and the prior
+	// priority bucket, not just the bulk path's version of the same.
+	if (questId) {
+		const changes: JournalChange[] = [
+			{ id: questId, field: "status", old: priorStatus, new: target },
+		];
+		if (priorPriority !== "someday") {
+			changes.push({
+				id: questId,
+				field: "priority",
+				old: priorPriority,
+				new: "someday",
+			});
+		}
+		recordStructuralOp(state.questsRoot, action, changes);
+	}
 	// Reap the managed scratch dir once the quest is sealing: it is
 	// throwaway by definition and lives under the OS temp dir, so it
 	// goes with the quest. Best-effort, never fatal.
@@ -476,7 +514,30 @@ export async function concludeOrRetire(
 		action === "conclude"
 			? `Concluded quest ${state.questId}.`
 			: `Retired quest ${state.questId}.`;
+	if (sealedDocs > 0) {
+		appendJourneyEntry(
+			state,
+			`Sealed ${sealedDocs} document(s) with the quest.`,
+		);
+		message += ` Sealed ${sealedDocs} document(s).`;
+	}
 	if (pruned.length > 0) message += ` Pruned ${pruned.length} tree(s).`;
+	// Warn about live children, matching the bulk path: sealing a loaded
+	// parent leaves its live subquests orphaned but live, so surface them
+	// rather than cascading or silently stranding them.
+	if (questId) {
+		const { index } = discoverQuests(state.questsRoot);
+		const liveChildren: string[] = [];
+		for (const childId of index.children.get(questId) ?? []) {
+			const child = index.quests.get(childId);
+			if (child && !isSealedStatus(child.doc.frontMatter.status)) {
+				liveChildren.push(childId);
+			}
+		}
+		if (liveChildren.length > 0) {
+			message += ` Warning: ${liveChildren.length} live child quest(s) remain under a sealed parent: ${liveChildren.join(", ")}.`;
+		}
+	}
 	const drift = action === "conclude" ? primaryPlanDrift(state) : undefined;
 	if (drift) {
 		const open = drift.total - drift.done;

@@ -255,6 +255,70 @@ export function getQuestEntry(
 	return index.quests.get(id);
 }
 
+/** A quest that owns the located needle, and how it matched. */
+export interface LocateHit {
+	questId: string;
+	questTitle: string | null;
+	matchKind: "quest" | "document" | "alias" | "session";
+	/** The concrete thing that matched: a doc path, alias ref or id. */
+	detail?: string;
+}
+
+/**
+ * Inverse index: resolve a needle to the quest that owns it. The
+ * needle may be a quest id, a document id, an alias ref (either
+ * `type:value` or a bare value) or a session id. Returns one hit
+ * per match, so a needle that resolves to several quests (a session
+ * id left on more than one after divergence, say) surfaces them all
+ * rather than hiding the ambiguity behind a single answer.
+ */
+export function locateOwner(state: QuestState, needle: string): LocateHit[] {
+	const trimmed = needle.trim();
+	if (!trimmed) return [];
+	const lower = trimmed.toLowerCase();
+	const { index } = discoverQuests(state.questsRoot);
+	const hits: LocateHit[] = [];
+	for (const entry of index.quests.values()) {
+		const fm = entry.doc.frontMatter;
+		const title = entry.doc.title ?? null;
+		if (fm.id === trimmed) {
+			hits.push({ questId: fm.id, questTitle: title, matchKind: "quest" });
+		}
+		for (const d of entry.documents) {
+			if (d.doc.frontMatter.id === trimmed) {
+				hits.push({
+					questId: fm.id,
+					questTitle: title,
+					matchKind: "document",
+					detail: d.path,
+				});
+			}
+		}
+		for (const a of fm.aliases) {
+			const ref = `${a.type}:${a.value}`;
+			if (ref.toLowerCase() === lower || a.value.toLowerCase() === lower) {
+				hits.push({
+					questId: fm.id,
+					questTitle: title,
+					matchKind: "alias",
+					detail: ref,
+				});
+			}
+		}
+		for (const s of fm.sessions) {
+			if (s.id === trimmed) {
+				hits.push({
+					questId: fm.id,
+					questTitle: title,
+					matchKind: "session",
+					detail: s.id,
+				});
+			}
+		}
+	}
+	return hits;
+}
+
 export interface WhoParams {
 	name?: string;
 	role?: string;
@@ -380,8 +444,12 @@ function linksForQuest(
 		const u = urlForRef(r);
 		if (u) knownRefUrls.add(u);
 	}
+	// Only ids that resolve to a real quest belong here. A mentioned
+	// document id (PLAN-, RSCH-, BRIF-, RPRT-) is not a quest, so it
+	// would otherwise render as a titleless quest row.
 	const quests = myMentions.ids
 		.filter((id) => id !== questId)
+		.filter((id) => index.quests.has(id))
 		.map((id) => ({ id, title: index.quests.get(id)?.doc.title ?? null }));
 	const refs = myMentions.refs
 		.filter((r) => !params.kind || r.type === params.kind)

@@ -37,7 +37,12 @@ of slipping into the wild for someone to spot in a bad artifact.
 
 ## Open Gaps
 
-None open. The glyph-bullet gap recorded here previously is now
+The gate-level authoring gaps are closed. A fresh batch is open: the
+quest-workflow rework (PLAN-20260704-Y1KP37) is closing the gap
+between what `quest-convention` and `quest-format` promise and what
+the extension enforces. Those gaps are tracked in Quest Workflow
+Rework Gaps below. The glyph-bullet gap recorded here previously is
+now
 🟢 enforced: `lib/slack/detect.ts` flags a run of two or more
 lines led by a `•`, `‣`, `◦`, `▪` or `·` glyph and blocks with
 a message pointing the author at the markdown markers, using the
@@ -63,6 +68,33 @@ panel already surfaces `✓ conventional` or `⚠ not conventional`
 as an indicator, and a PR rolling up a non-conventional commit is
 separately covered by the PR title gate. Promoting any of the
 three to 🟢 is a future call, not a present miss.
+
+## Quest Workflow Rework Gaps
+
+The `quest-format` and `quest-convention` tables below mark several
+rules 🟢 because the strict front-matter parser rejects an unknown
+value. That is read-side only: the parser drops a malformed record
+to `undefined`, so the write still lands on disk and the record
+turns invisible rather than being blocked. The Phase 0 baseline
+(`scripts/quest-store-baseline.ts`, run 2026-07-04) measured the
+resulting drift across 361 quests. These are the mechanically
+checkable behaviours the rework will newly enforce, each mapped to
+its phase and root cause. They stay 🔴 until the phase lands, then
+flip to 🟢 with the enforcing file.
+
+| Rule | Baseline drift | Status | Phase / cause |
+| --- | --- | --- | --- |
+| Quest enums (status, priority) and rank validated at write time, not silently dropped at read | create cast priority and kind past the type system, minting a quest the strict parser then dropped | 🟢 | Phase 1 and the review follow-up, RC-B (`lib/internal/quest/mutate.ts` refuses a quest write the strict parser cannot read back, and the `create` verb now validates the priority and the parent before it scaffolds; document-stage writes still bypass this, tracked in the discovery row below) |
+| Every field mutation journalled and reversible, not only parent and status | `JournalChange.field` typed `parent \| status` | 🔴 | Phase 1, RC-K (`MutableField` widened, undo drop-a-skipped-op bug fixed, and undo now reverses parent, status and priority via a field-dispatched revert; rank, kind, stage, alias and tree reversal pending) |
+| Conclude and retire cascade: reset priority, seal documents, handle children, release trees | 98 sealed quests keep a live priority; 129 documents left unsealed under a sealed quest; 3 live children under a sealed parent | 🟢 | Phase 2, RC-A (both the loaded and bulk paths reset priority and seal documents; bulk warns on live children and journals the priority drop; the loaded path now journals the seal too, so `undo` reverses either path, restoring status and prior priority) |
+| Rank canonical: no duplicate rank within a sibling set | 336 quests (93 percent) in a colliding rank group | 🔴 | Phase 2, RC-A and RC-H (create and priority moves append at the next free rank; migrate-quests-status-integrity.ts renumbers the existing store) |
+| Tree prune dispatches by stored provider and guards shared checkouts | prune resolved by repo root; adopted trees deletable by a mistyped target | 🟢 | Phase 3, RC-I (prune uses the tree's providerId first; a non-force prune of an adopted or unmarked tree refuses; the inventory flags trees missing on disk) |
+| Kind is changeable, and `paused` and `blocked` are implemented or removed | Both dead statuses present in live data | 🟢 | Phase 2, RC-N (`reclassify` verb changes a quest's kind; `paused` and `blocked` kept as reserved parser-accepted statuses with no setter, documented in `quest-convention`, so legacy data stays visible without a destructive removal) |
+| Alias keys canonical, with a collision check on add | 279 colliding alias keys | 🟢 | Phase 3, RC-H (`aliasKey` lowercases the type; `alias-add` refuses a ref already on another quest, matching the create-from-URL guard) |
+| Alias types resolve or the miss is surfaced, not silent | 643 slack-message aliases resolve to no URL | 🔴 | Phase 3, RC-D and RC-H |
+| Discovery fails open and surfaces a malformed record instead of dropping it to invisible | 31 invisible out-of-vocabulary document stages | 🔴 | Phase 3, RC-D |
+| Scope declared as an argument, not inferred from the shape of `id` | conclude and retire multiplex on id shape | 🔴 | Phase 5, RC-C |
+| One projection feeds both the human render and the agent result | `show`, `who`, `links` collapse to one line in the human TUI | 🔴 | Phase 6, RC-J |
 
 ## Coverage by Skill
 
@@ -232,6 +264,9 @@ Operational rules for the quest system.
 | Priority bucket choice | Priority Buckets and Rank | ⚪ | Judgment. |
 | Status enum changes only when situation changes | Status and Journey | ⚪ | Judgment. |
 | URL-to-quest dedup (load existing instead of creating) | Creating from a URL | 🟢 | The tool's create action checks the alias index and proposes loading when a match exists (planned; partial wiring in place). |
+| Terminal document stages are terminal: think does not silently reopen a concluded or retired document | Focus and the Document Loop | 🟢 | Phase 5, RC-L (`machine.ts` refuses `think` from `concluded` or `retired`, matching the existing conclude and retire refusals) |
+| Document stage persists to disk before it advances in memory | Focus and the Document Loop | 🟢 | Phase 5, RC-L (`writeDocumentStage` returns whether the stage reached disk; the stage verb refuses when it did not, so memory never runs ahead of the file) |
+| Document kind is fixable until the id is minted | Focus and the Document Loop | 🟢 | Phase 5, RC-L (`draft` accepts a `kind` override validated against the kind set, superseding the provisional think-time kind before the mint) |
 | Quest code lives in a tracked working tree | Focus and the Document Loop | 🟢 | During build, `enforce.ts` allows a write inside any tree the quest tracks (`listTreesOnQuest`), blocks a write inside a git tree the quest does not track with `tree-adopt` guidance naming the repo root, and blocks a genuinely homeless write with a `tree-add` remedy. Replaces the old transition refusal and the registered-tree/active-session stand-down. |
 | Scratch and devices are not policed as code | (write classification) | 🟢 | The classifier in `lib/internal/quest/write-classifier.ts` allows `/dev` nodes unconditionally and funnels bare system temp (`/tmp`, `/private/tmp`, the OS temp dir) into a quest-owned managed scratch dir created under the OS temp dir (`lib/internal/quest/scratch.ts`), recorded on the quest frontmatter and reaped on conclude or retire. The system-temp block names the managed dir as the redirect target instead of pointing at `tree-add`. |
 | Auto-prune only trees the tool scaffolded | (tree lifecycle) | 🟢 | `pruneAllTreesOnQuest` in `verbs/stage.ts` auto-prunes only trees with `origin: scaffolded` (set by `tree-add`). Adopted trees (`tree-adopt`) and unmarked legacy or hand-registered trees are never auto-pruned, so concluding a quest cannot delete a tree it did not create; `tree-prune` still releases any tree deliberately. |

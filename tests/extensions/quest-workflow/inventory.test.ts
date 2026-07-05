@@ -82,6 +82,21 @@ describe("inventoryWorktrees", () => {
 		});
 	});
 
+	it("flags whether each tree still exists on disk", () => {
+		const live = join(tmpRoot, "live-tree");
+		mkdirSync(live, { recursive: true });
+		scaffold("QEST-20260604-DDD444", "Delta", [
+			{ path: live },
+			{ path: join(tmpRoot, "vanished-tree") },
+		]);
+		const state = buildState();
+		const inv = inventoryWorktrees(state);
+		expect(inv.find((t) => t.path === live)?.exists).toBe(true);
+		expect(
+			inv.find((t) => t.path === join(tmpRoot, "vanished-tree"))?.exists,
+		).toBe(false);
+	});
+
 	it("tree-list with no loaded quest returns the global inventory", async () => {
 		scaffold("QEST-20260604-CCC333", "Charlie", [{ path: "/work/c" }]);
 		const state = buildState();

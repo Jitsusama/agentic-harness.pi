@@ -5,7 +5,13 @@
  * module bridges between disk artifacts and that state.
  */
 
-import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+} from "node:fs";
 import { join, sep } from "node:path";
 import type {
 	ExtensionAPI,
@@ -22,14 +28,16 @@ import { nowYmd } from "../../lib/internal/quest/dates.js";
 import {
 	discoverQuests,
 	type QuestEntry,
+	siblingRanks,
 } from "../../lib/internal/quest/discovery.js";
 import {
 	atomicWriteFile,
 	atomicWriteUnderLock,
-	withQuestLock,
 } from "../../lib/internal/quest/io.js";
+import { mutateQuestFrontMatter } from "../../lib/internal/quest/mutate.js";
 import {
 	diffRanks,
+	nextRank,
 	type RankEntry,
 	after as rankAfter,
 	before as rankBefore,
@@ -43,6 +51,7 @@ import {
 	indexSessionFiles,
 	prunePhantomSessions,
 } from "../../lib/internal/quest/session-liveness.js";
+import { isSealedStatus } from "../../lib/internal/quest/status.js";
 import { getLastEntry } from "../../lib/internal/state.js";
 import {
 	checkboxProgress,
@@ -51,14 +60,12 @@ import {
 	type DocumentStage,
 	parseDocumentFrontMatter,
 	parseQuestDoc,
-	parseQuestFrontMatter,
 	type QuestAlias,
 	type QuestFrontMatter,
 	type QuestPriority,
 	type QuestSession,
 	type QuestStatus,
 	serializeDocumentFrontMatter,
-	serializeQuestFrontMatter,
 } from "../../lib/quest/index.js";
 import type { Stage } from "./machine.js";
 import { sessionNameFor } from "./render.js";
@@ -245,17 +252,23 @@ export function unfocusDocument(state: QuestState): void {
  * the write returns, so a failed write does not diverge
  * memory from disk.
  */
-export function writeDocumentStage(state: QuestState, stage: Stage): void {
-	if (!state.documentPath) return;
+/**
+ * Persist the focused document's stage to its file and mirror it in
+ * state. Returns true when the stage reached disk, false when there
+ * is nothing to write to or the file is unreadable or unparseable,
+ * so the caller can refuse rather than let memory run ahead of disk.
+ */
+export function writeDocumentStage(state: QuestState, stage: Stage): boolean {
+	if (!state.documentPath) return false;
 	const questDir = state.questDir;
 	let text: string;
 	try {
 		text = readFileSync(state.documentPath, "utf8");
 	} catch {
-		return;
+		return false;
 	}
 	const parsed = parseDocumentFrontMatter(text);
-	if (!parsed) return;
+	if (!parsed) return false;
 	const newFm: DocumentFrontMatter = {
 		...parsed.frontMatter,
 		stage: stage as DocumentStage,
@@ -269,6 +282,57 @@ export function writeDocumentStage(state: QuestState, stage: Stage): void {
 		atomicWriteFile(documentPath, newText);
 	}
 	state.documentStage = stage;
+	return true;
+}
+
+const DOC_KIND_DIRS = ["plans", "research", "briefs", "reports"];
+const ACTIVE_DOC_STAGES = new Set(["think", "draft", "build"]);
+
+/**
+ * Seal every still-active document under a quest to the quest's
+ * terminal stage, so concluding or retiring a quest does not leave
+ * documents stranded mid-stage. Returns how many were sealed.
+ * Best-effort per file: an unreadable document is skipped, not fatal.
+ */
+export function sealQuestDocuments(
+	questDir: string,
+	target: "concluded" | "retired",
+): number {
+	let sealed = 0;
+	for (const kindDir of DOC_KIND_DIRS) {
+		const dir = join(questDir, kindDir);
+		let entries: ReturnType<typeof readdirSync>;
+		try {
+			entries = readdirSync(dir, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const entry of entries) {
+			if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+			const docPath = join(dir, entry.name);
+			let text: string;
+			try {
+				text = readFileSync(docPath, "utf8");
+			} catch {
+				continue;
+			}
+			const parsed = parseDocumentFrontMatter(text);
+			if (!parsed) continue;
+			if (!ACTIVE_DOC_STAGES.has(parsed.frontMatter.stage)) continue;
+			const newFm: DocumentFrontMatter = {
+				...parsed.frontMatter,
+				stage: target,
+				updated: nowYmd(),
+			};
+			atomicWriteUnderLock(
+				questDir,
+				docPath,
+				`${serializeDocumentFrontMatter(newFm)}\n${parsed.body}`,
+			);
+			sealed++;
+		}
+	}
+	return sealed;
 }
 
 /** Append a Journey entry to the loaded quest's README. */
@@ -287,23 +351,9 @@ export function appendJourneyEntry(state: QuestState, prose: string): void {
 /** Update the loaded quest's `updated` frontmatter to today. */
 export function stampQuestUpdated(state: QuestState): void {
 	if (!state.questDir) return;
-	const questDir = state.questDir;
-	const path = join(questDir, "README.md");
-	withQuestLock(questDir, () => {
-		let text: string;
-		try {
-			text = readFileSync(path, "utf8");
-		} catch {
-			return;
-		}
-		const parsed = parseQuestFrontMatter(text);
-		if (!parsed) return;
-		const fm: QuestFrontMatter = {
-			...parsed.frontMatter,
-			updated: nowYmd(),
-		};
-		atomicWriteFile(path, `${serializeQuestFrontMatter(fm)}\n${parsed.body}`);
-	});
+	// The identity transform still stamps updated in the core, so a
+	// touch is validated and locked like every other quest write.
+	mutateQuestFrontMatter(state.questDir, (fm) => fm);
 }
 
 /**
@@ -464,35 +514,55 @@ export function restoreFromCwd(
 	const cwd = canonicalForCompare(rawCwd);
 	const { index } = discoverQuests(state.questsRoot);
 	// 1. Quest directory match: the session's cwd is
-	//    inside a quest's own folder.
+	//    inside a quest's own folder. Prefer a live quest
+	//    over a sealed one when both directories cover the
+	//    cwd, so a fresh pi launched inside a concluded
+	//    quest's tree does not auto-load the concluded
+	//    quest, matching the explicit load verb's resolver.
+	let dirMatch: string | undefined;
+	let dirMatchLive = false;
 	for (const entry of index.quests.values()) {
-		if (isUnder(cwd, canonicalForCompare(entry.dir))) {
-			loadQuest(state, pi, entry.doc.frontMatter.id);
-			return;
+		if (!isUnder(cwd, canonicalForCompare(entry.dir))) continue;
+		const live = !isSealedStatus(entry.doc.frontMatter.status);
+		if (dirMatch === undefined || (live && !dirMatchLive)) {
+			dirMatch = entry.doc.frontMatter.id;
+			dirMatchLive = live;
 		}
+	}
+	if (dirMatch !== undefined) {
+		loadQuest(state, pi, dirMatch);
+		return;
 	}
 	// 2. Tree-alias match: the cwd is inside a working
 	//    tree registered on some quest. Walk every quest's
 	//    `git-worktree:` aliases (path values) and the
 	//    quest's `trees:` array; pick the deepest match so
-	//    nested trees resolve to the innermost owner. Each
+	//    nested trees resolve to the innermost owner, with a
+	//    live quest breaking a tie against a sealed one. Each
 	//    candidate path is canonicalized so /var and
 	//    /private/var (and bind-mounts in containers) match.
 	let bestQuestId: string | undefined;
 	let bestMatchLen = -1;
-	const consider = (questId: string, treePath: string) => {
+	let bestLive = false;
+	const consider = (questId: string, treePath: string, live: boolean) => {
 		const real = canonicalForCompare(treePath);
-		if (isUnder(cwd, real) && real.length > bestMatchLen) {
+		if (!isUnder(cwd, real)) return;
+		if (
+			real.length > bestMatchLen ||
+			(real.length === bestMatchLen && live && !bestLive)
+		) {
 			bestMatchLen = real.length;
 			bestQuestId = questId;
+			bestLive = live;
 		}
 	};
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
+		const live = !isSealedStatus(fm.status);
 		for (const a of fm.aliases) {
-			if (a.type === "git-worktree") consider(fm.id, a.value);
+			if (a.type === "git-worktree") consider(fm.id, a.value, live);
 		}
-		for (const tree of fm.trees ?? []) consider(fm.id, tree.path);
+		for (const tree of fm.trees ?? []) consider(fm.id, tree.path, live);
 	}
 	if (bestQuestId) loadQuest(state, pi, bestQuestId);
 }
@@ -535,6 +605,8 @@ export interface WorktreeInventoryEntry {
 	branch?: string;
 	questId: string;
 	questTitle: string | null;
+	/** Whether the tree's directory still exists on disk. */
+	exists: boolean;
 }
 
 /**
@@ -555,6 +627,7 @@ export function inventoryWorktrees(
 				path: tree.path,
 				questId: fm.id,
 				questTitle: quest.doc.title ?? null,
+				exists: existsSync(tree.path),
 			};
 			if (tree.branch) entry.branch = tree.branch;
 			entries.push(entry);
@@ -608,11 +681,18 @@ export function reorderSiblings(
 			guidance: `No quest with id "${questId}" under ${state.questsRoot}.`,
 		};
 	}
+	if (isSealedStatus(pivot.doc.frontMatter.status)) {
+		return {
+			ok: false,
+			guidance: `Quest "${questId}" is ${pivot.doc.frontMatter.status}; reopen it before reordering.`,
+		};
+	}
 	const siblings: QuestEntry[] = [];
 	for (const entry of index.quests.values()) {
 		if (
 			entry.doc.frontMatter.parent === pivot.doc.frontMatter.parent &&
-			entry.doc.frontMatter.priority === pivot.doc.frontMatter.priority
+			entry.doc.frontMatter.priority === pivot.doc.frontMatter.priority &&
+			!isSealedStatus(entry.doc.frontMatter.status)
 		) {
 			siblings.push(entry);
 		}
@@ -657,23 +737,9 @@ export function reorderSiblings(
 }
 
 function writeQuestRank(questDir: string, rank: number): void {
-	const path = join(questDir, "README.md");
-	withQuestLock(questDir, () => {
-		let text: string;
-		try {
-			text = readFileSync(path, "utf8");
-		} catch {
-			return;
-		}
-		const parsed = parseQuestFrontMatter(text);
-		if (!parsed) return;
-		const fm: QuestFrontMatter = {
-			...parsed.frontMatter,
-			rank,
-			updated: nowYmd(),
-		};
-		atomicWriteFile(path, `${serializeQuestFrontMatter(fm)}\n${parsed.body}`);
-	});
+	// Routed through the validated mutation core so a rank write is
+	// validated and stamped the same way every other field write is.
+	mutateQuestFrontMatter(questDir, (fm) => ({ ...fm, rank }));
 }
 
 /** Build a reverse alias index across every discovered quest. */
@@ -686,33 +752,9 @@ function writeQuestFrontMatter(
 	questDir: string,
 	mutate: (fm: QuestFrontMatter) => QuestFrontMatter | undefined,
 ): { ok: true; fm: QuestFrontMatter } | { ok: false; guidance: string } {
-	const path = join(questDir, "README.md");
-	return withQuestLock(questDir, () => {
-		let text: string;
-		try {
-			text = readFileSync(path, "utf8");
-		} catch (err) {
-			return {
-				ok: false as const,
-				guidance: `Cannot read ${path}: ${(err as Error).message}`,
-			};
-		}
-		const parsed = parseQuestFrontMatter(text);
-		if (!parsed) {
-			return {
-				ok: false as const,
-				guidance: `Quest README ${path} has invalid frontmatter.`,
-			};
-		}
-		const next = mutate(parsed.frontMatter);
-		if (!next) return { ok: true as const, fm: parsed.frontMatter };
-		const withStamp: QuestFrontMatter = { ...next, updated: nowYmd() };
-		atomicWriteFile(
-			path,
-			`${serializeQuestFrontMatter(withStamp)}\n${parsed.body}`,
-		);
-		return { ok: true as const, fm: withStamp };
-	});
+	const result = mutateQuestFrontMatter(questDir, mutate);
+	if (!result.ok) return result;
+	return { ok: true, fm: result.fm };
 }
 
 /**
@@ -739,6 +781,20 @@ export function setQuestStatusByDir(
 	status: QuestFrontMatter["status"],
 ): { ok: true } | { ok: false; guidance: string } {
 	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, status }));
+	if (!result.ok) return result;
+	return { ok: true };
+}
+
+/**
+ * Set a quest's priority by directory (the by-id counterpart to
+ * `setLoadedPriority`). Used by the bulk seal cascade and by undo
+ * when it reverses a journalled priority change.
+ */
+export function setQuestPriorityByDir(
+	questDir: string,
+	priority: QuestFrontMatter["priority"],
+): { ok: true } | { ok: false; guidance: string } {
+	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, priority }));
 	if (!result.ok) return result;
 	return { ok: true };
 }
@@ -910,6 +966,34 @@ export function detachSessionFromLoaded(
  * from the quest it is leaving, so one session does not read active
  * on every quest it ever touched.
  */
+/**
+ * Reconcile a session's membership so it reads active on exactly one
+ * quest: detach the session from every quest other than the one being
+ * kept. The switch path already releases the immediate prior quest;
+ * this catches stragglers left by earlier runs or a lost state, so a
+ * session never lingers active on several quests at once. Returns the
+ * ids it detached the session from.
+ */
+export function reconcileSessionMembership(
+	state: QuestState,
+	sessionId: string,
+	keepQuestId: string,
+): string[] {
+	const { index } = discoverQuests(state.questsRoot);
+	const detachedFrom: string[] = [];
+	for (const entry of index.quests.values()) {
+		const fm = entry.doc.frontMatter;
+		if (fm.id === keepQuestId) continue;
+		const holdsActive = fm.sessions.some(
+			(s) => s.id === sessionId && s.status !== "detached",
+		);
+		if (!holdsActive) continue;
+		const result = detachSessionInQuestDir(entry.dir, sessionId);
+		if (result.ok && result.detached) detachedFrom.push(fm.id);
+	}
+	return detachedFrom;
+}
+
 export function detachSessionInQuestDir(
 	questDir: string,
 	sessionId: string,
@@ -949,12 +1033,44 @@ export function setLoadedPriority(
 	const result = writeQuestFrontMatter(state.questDir, (fm) => {
 		if (fm.priority === priority) return undefined;
 		changed = true;
-		return { ...fm, priority, rank: 1 };
+		// Append to the end of the destination bucket rather than
+		// colliding at rank 1: take the next free rank in the target
+		// (parent, priority) group, excluding the quest being moved.
+		const { index } = discoverQuests(state.questsRoot);
+		const destRanks = siblingRanks(index, fm.parent ?? null, priority, fm.id);
+		return { ...fm, priority, rank: nextRank(destRanks) };
 	});
 	if (!result.ok) return result;
 	if (changed) {
 		state.questPriority = priority;
 	}
+	return { ok: true, changed };
+}
+
+/**
+ * Change the loaded quest's kind. A subquest needs a parent to rank
+ * within, so refuse the move to subquest when the quest has none.
+ * Returns whether the kind actually changed.
+ */
+export function setLoadedKind(
+	state: QuestState,
+	kind: QuestFrontMatter["kind"],
+): { ok: true; changed: boolean } | { ok: false; guidance: string } {
+	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	let changed = false;
+	let refusal: string | undefined;
+	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+		if (fm.kind === kind) return undefined;
+		if (kind === "subquest" && (fm.parent ?? null) === null) {
+			refusal =
+				"A subquest needs a parent to rank within; reparent it under a quest first.";
+			return undefined;
+		}
+		changed = true;
+		return { ...fm, kind };
+	});
+	if (refusal) return { ok: false, guidance: refusal };
+	if (!result.ok) return result;
 	return { ok: true, changed };
 }
 

@@ -20,6 +20,15 @@ export interface RankEntry {
 	rank: number;
 }
 
+/**
+ * The next free rank for a sibling set: one past the highest
+ * existing rank, or 1 when the set is empty. Appends a new quest to
+ * the end of its group so it never collides with an existing rank.
+ */
+export function nextRank(ranks: number[]): number {
+	return ranks.length > 0 ? Math.max(...ranks) + 1 : 1;
+}
+
 /** Sort by rank ascending; stable on ties via the id. */
 export function sortByRank<T extends RankEntry>(entries: T[]): T[] {
 	return [...entries].sort((a, b) => {

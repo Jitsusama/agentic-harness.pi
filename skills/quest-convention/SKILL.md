@@ -45,8 +45,10 @@ choices.
   audit trail composes. Either form is valid.
 
 When in doubt, start as a sidequest and promote later. A
-sidequest that grows a north star becomes a quest by
-flipping its kind.
+sidequest that grows a north star becomes a quest with
+`reclassify`, which flips the loaded quest's kind in place.
+Reclassifying to a subquest needs a parent to rank within,
+so reparent it under a quest first if it has none.
 
 ## Priority Buckets and Rank
 
@@ -70,20 +72,30 @@ Use `promote`, `demote`, `drive`, `park`, `defer` to move
 between buckets. Use `top`/`bottom`/`bump`/`sink` to
 reorder within one.
 
+You never set rank by hand. Creating a quest, and moving one
+to a new bucket, appends it at the next free rank in its
+sibling set, so ranks stay distinct without a collision. The
+listing sorts live quests ahead of sealed ones whatever their
+priority, so a concluded quest never outranks live work.
+
 ## Status and Journey
 
-Status is a coarse enum: `active`, `paused`, `blocked`,
-`concluded`, `retired`. It is not where you write
-narrative. The narrative lives in the Journey log: dated
-bullets, newest first, recording what happened and why.
+Status is a coarse enum. Three values are reachable through
+verbs: a quest is `active` from creation, and `conclude` and
+`retire` seal it to `concluded` or `retired`; `reopen`
+returns a sealed quest to `active`. The `paused` and
+`blocked` values are reserved: the parser still accepts them
+so legacy quests stay visible, but no verb sets them today.
+Do not hand-edit a status into `paused` or `blocked`; use the
+Journey log to record that the work is waiting.
+
+Status is not where you write narrative. The narrative lives
+in the Journey log: dated bullets, newest first, recording
+what happened and why.
 
 When asked "what is happening on QEST-X", the tool
 synthesises a paragraph from frontmatter plus recent
 Journey entries; you don't write status prose yourself.
-
-Move the `status` field when the situation actually
-changes (the work paused; you got blocked; you concluded
-it). Otherwise leave it alone and write Journey entries.
 
 ## Creating from a URL
 
@@ -131,7 +143,15 @@ plus Journey is enough.
 At most one document is focused per quest at a time. The
 focused document carries its own stage machine (think,
 draft, build, conclude, retire). Switching focus does
-not change a document's stage.
+not change a document's stage. A concluded or retired
+document is terminal: thinking from it is refused rather
+than silently reopening it, so draft a fresh document or
+reopen the quest when work resumes. The kind is a
+provisional intent until `draft` mints the id, so a wrong
+kind chosen at think is fixable by passing `kind` to
+`draft`. A stage transition persists to the document file
+before it advances in memory, so a failed write refuses
+rather than reporting a stage the file never reached.
 
 Code-write discipline triggers only when the focused
 document is a plan in `think` or `draft`. Other document
@@ -156,6 +176,16 @@ a `cwd` parameter, so you adopt or scaffold a tree from any
 session without changing your session's directory: point
 `cwd` at a path inside the tree to adopt, or at the repo to
 scaffold from.
+
+The two origins prune differently. A scaffolded tree is the
+tool's to remove: it auto-prunes when the quest concludes or
+retires, and a manual `tree-prune` removes it freely. An
+adopted (or legacy, unmarked) tree is a shared checkout the
+tool did not create, so it is never auto-pruned and a manual
+prune refuses unless you pass `force: true` after confirming
+with the user. The `tree-list` inventory flags any recorded
+tree whose directory has gone missing on disk, so a stale
+entry is visible rather than trusted.
 
 ## The Resuscitate Pattern
 
@@ -197,6 +227,12 @@ the loaded quest. With no scope, the tool defaults to the
 focused document when one is set, otherwise the loaded
 quest. Retiring a quest needs a `reason`.
 
+Sealing a quest cascades so it leaves nothing live behind:
+the priority drops to `someday` and every still-active
+document seals to the quest's terminal stage. You do not
+seal documents by hand before concluding the quest that
+owns them.
+
 ## Echoes
 
 An Echo is an incoming reference: another quest's body
@@ -211,7 +247,12 @@ empty.
 ## Verbs and Aliases
 
 The `status` action is an alias for `show`; both render
-the loaded quest's full projection. When you type an
+the loaded quest's full projection. `alias-add` refuses a
+ref already attached to another quest, naming it, so the
+same external reference never points at two quests; load
+that quest, or remove the alias there, before re-adding it.
+Alias types are matched case-insensitively, so `github-pr`
+and `GitHub-PR` are the same type. When you type an
 action name that no verb matches, the tool refuses with a
 Levenshtein-based suggestion of the nearest canonical
 verb (`lst` is told to try `list`; `shw` is told to try

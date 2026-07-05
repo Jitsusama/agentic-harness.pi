@@ -131,9 +131,12 @@ Field semantics:
   `pi --no-session` run (a subagent or council fan-out)
   is never attached, so it cannot leave a log-less
   phantom. Loading a quest detaches the session from the
-  quest it is leaving, so one session reads `active` on
-  at most the quest it is on, and prunes any detached
-  entry whose session log no longer exists. `show` lists
+  quest it is leaving, and reconciles membership by
+  detaching the session from any other quest that still
+  lists it active, so one session reads `active` on at
+  most the quest it is on even after a lost state or an
+  earlier run left a straggler; it also prunes any
+  detached entry whose session log no longer exists. `show` lists
   each session with its derived liveness (`live`, `idle`,
   `detached`, or `dead` for an attached id with no log on
   disk), relative last-active age, and a marker on

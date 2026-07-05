@@ -19,7 +19,10 @@ import {
 	setPendingPrune,
 } from "../../../lib/internal/quest/trees.js";
 import type { QuestSession } from "../../../lib/quest/index.js";
-import { resolveTreeProvider } from "../../../lib/tree/index.js";
+import {
+	getTreeProvider,
+	resolveTreeProvider,
+} from "../../../lib/tree/index.js";
 import { appendJourneyEntry, inventoryWorktrees } from "../lifecycle.js";
 import type { QuestState } from "../state.js";
 import {
@@ -153,7 +156,9 @@ export function treeList(state: QuestState): QuestResult {
 		// scope tells a consumer which shape `trees` carries: the
 		// global inventory entries are attributed (questId/questTitle),
 		// the per-quest records are not.
-		return ok(`${inventory.length} tree(s) across all quests.`, {
+		const missing = inventory.filter((t) => !t.exists).length;
+		const missingNote = missing > 0 ? ` (${missing} missing on disk)` : "";
+		return ok(`${inventory.length} tree(s) across all quests${missingNote}.`, {
 			scope: "global",
 			trees: inventory,
 		});
@@ -188,6 +193,16 @@ export async function treePrune(
 	// because notes are free-form prose the agent generates,
 	// not consent. `force: true` is the consent signal.
 	const force = params.force === true;
+	// Only a tool-scaffolded tree may be pruned without force. An
+	// adopted or unmarked (legacy, hand-registered) tree is a shared
+	// checkout the tool did not create, so deleting it needs explicit,
+	// confirmed consent rather than a mistyped target.
+	if (target.origin !== "scaffolded" && !force) {
+		const kind = target.origin ?? "unmarked";
+		return refuse(
+			`Tree at ${target.path} is ${kind}, not scaffolded by the tool. Pruning it would delete a shared checkout; pass force:true after confirming with the user.`,
+		);
+	}
 	const sessions = readSessionsFromQuest(state);
 	const attached = sessions.filter(
 		(s) => s.cwd && isWithin(s.cwd, target.path),
@@ -198,7 +213,12 @@ export async function treePrune(
 			`Tree at ${target.path} has attached session(s) (${names}). Detach them with \`session-detach\` before pruning, or pass force:true after confirming with the user.`,
 		);
 	}
+	// Prefer the provider that created the tree, recorded as its
+	// providerId, so a prune reaches the same provider even if the
+	// registry's resolution order changed since the tree was made.
+	// Fall back to repo-root resolution for legacy trees with no id.
 	const provider =
+		(target.providerId ? getTreeProvider(target.providerId) : undefined) ??
 		resolveTreeProvider(target.repoRoot ?? target.path) ??
 		resolveTreeProvider(process.cwd());
 	if (!provider) {

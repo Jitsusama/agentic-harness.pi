@@ -3,6 +3,7 @@ import {
 	bottom,
 	bump,
 	diffRanks,
+	nextRank,
 	type RankEntry,
 	after as rankAfter,
 	before as rankBefore,
@@ -18,6 +19,16 @@ const SET: RankEntry[] = [
 	{ id: "C", rank: 3 },
 	{ id: "D", rank: 4 },
 ];
+
+describe("nextRank", () => {
+	it("returns one past the highest existing rank", () => {
+		expect(nextRank([1, 2, 4])).toBe(5);
+	});
+
+	it("starts at 1 for an empty group", () => {
+		expect(nextRank([])).toBe(1);
+	});
+});
 
 describe("sortByRank", () => {
 	it("orders by rank ascending, id stable on ties", () => {

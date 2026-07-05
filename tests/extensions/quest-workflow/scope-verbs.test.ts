@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -56,6 +62,47 @@ afterEach(() => {
 	envGuard.leave();
 });
 
+describe("reclassify verb", () => {
+	it("changes the loaded quest's kind", async () => {
+		const state = buildState();
+		const q = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Q",
+			kind: "quest",
+		});
+		if (!q.ok) throw new Error(q.guidance);
+		const { id, path } = q.details as { id: string; path: string };
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "load", id });
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reclassify",
+			kind: "sidequest",
+		});
+		expect(result.ok).toBe(true);
+		expect(readFileSync(path, "utf8")).toMatch(/^kind: sidequest$/m);
+	});
+
+	it("refuses a subquest with no parent", async () => {
+		const state = buildState();
+		const q = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Q",
+			kind: "quest",
+		});
+		if (!q.ok) throw new Error(q.guidance);
+		const { id } = q.details as { id: string };
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "load", id });
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reclassify",
+			kind: "subquest",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unreachable");
+		expect(result.guidance).toMatch(/parent/i);
+	});
+});
+
 describe("priority verbs", () => {
 	it("promote shifts the loaded quest up one bucket", async () => {
 		const state = buildState();
@@ -70,6 +117,28 @@ describe("priority verbs", () => {
 		expect(result.ok).toBe(true);
 		const text = readFileSync(a.path, "utf8");
 		expect(text).toMatch(/priority: driving/);
+	});
+
+	it("lands two quests driven into one bucket at distinct ranks", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "A");
+		const b = await createQuest(state, "B");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: b.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+
+		const rankA = readFileSync(a.path, "utf8").match(/^rank: (\d+)/m)?.[1];
+		const rankB = readFileSync(b.path, "utf8").match(/^rank: (\d+)/m)?.[1];
+		expect(rankA).toBeDefined();
+		expect(rankB).toBeDefined();
+		expect(rankA).not.toBe(rankB);
 	});
 
 	it("park jumps the loaded quest to bench", async () => {
@@ -126,6 +195,40 @@ describe("conclude / retire scope", () => {
 		expect(result.ok).toBe(true);
 		const text = readFileSync(a.path, "utf8");
 		expect(text).toMatch(/status: concluded/);
+	});
+
+	it("cascades on conclude: resets priority to someday and seals documents", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Q");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "think",
+			kind: "plan",
+			note: "scope",
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "draft",
+			title: "The plan",
+		});
+		const planPath = state.documentPath as string;
+		// Unfocus so conclude targets the quest, not the focused plan.
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "unfocus" });
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			scope: "quest",
+		});
+		expect(result.ok).toBe(true);
+
+		const quest = readFileSync(a.path, "utf8");
+		expect(quest).toMatch(/status: concluded/);
+		expect(quest).toMatch(/priority: someday/);
+		const plan = readFileSync(planPath, "utf8");
+		expect(plan).toMatch(/stage: concluded/);
 	});
 
 	it("retire requires a reason in quest scope", async () => {
@@ -293,12 +396,16 @@ describe("tree and expand", () => {
 
 	it("surfaces orphan subquests under a synthetic orphans group", async () => {
 		const state = buildState();
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "create",
-			title: "Orphan",
-			parent: "QEST-20260603-NOPARENT",
-			kind: "subquest",
-		});
+		// Seed an orphan as legacy drift: a subquest whose parent no longer
+		// exists. create refuses to mint one now, but the tree must still
+		// surface orphans already on disk.
+		const orphanId = "QEST-20260603-ORPHAN";
+		const orphanDir = join(tmpRoot, "quests", orphanId);
+		mkdirSync(orphanDir, { recursive: true });
+		writeFileSync(
+			join(orphanDir, "README.md"),
+			`---\nid: ${orphanId}\nkind: subquest\nparent: QEST-20260603-NOPRNT\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-06-03\nupdated: 2026-06-03\n---\n\n# Orphan\n\nBody.\n`,
+		);
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "tree",
 		});

@@ -238,12 +238,133 @@ describe("reparent verb", () => {
 		expect(statusOf(other.id)).toBe("concluded");
 		expect(statusOf(loaded.id)).toBe("active");
 
-		// And it is reversible, unlike the loaded-quest path.
+		// And it is reversible (as is the loaded-quest path now).
 		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
 		});
 		expect(undone.ok).toBe(true);
 		expect(statusOf(other.id)).toBe("active");
+	});
+
+	it("bulk conclude cascades the seal and undo restores the priority", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "A");
+		expect(fieldOf(a.id, "priority")).toBe("active");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: a.id,
+		});
+		expect(result.ok).toBe(true);
+		expect(statusOf(a.id)).toBe("concluded");
+		expect(fieldOf(a.id, "priority")).toBe("someday");
+
+		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+		});
+		expect(undone.ok).toBe(true);
+		expect(statusOf(a.id)).toBe("active");
+		expect(fieldOf(a.id, "priority")).toBe("active");
+	});
+
+	it("makes a loaded-quest conclude reversible, restoring status and priority", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Loaded Reversible");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		expect(fieldOf(a.id, "priority")).toBe("driving");
+
+		const concluded = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+		});
+		expect(concluded.ok).toBe(true);
+		expect(statusOf(a.id)).toBe("concluded");
+		expect(fieldOf(a.id, "priority")).toBe("someday");
+
+		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+		});
+		expect(undone.ok).toBe(true);
+		expect(statusOf(a.id)).toBe("active");
+		expect(fieldOf(a.id, "priority")).toBe("driving");
+	});
+
+	it("restores the loaded quest's rank on undo, not a someday rank", async () => {
+		const state = buildState();
+		const first = await createQuest(state, "First Driving");
+		const second = await createQuest(state, "Second Driving");
+		for (const q of [first, second]) {
+			await handle(state, fakePi(), fakeCtx(tmpRoot), {
+				action: "load",
+				id: q.id,
+			});
+			await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		}
+		// The loaded quest sits at a non-first rank in the driving bucket.
+		const rankBefore = fieldOf(second.id, "rank");
+		expect(rankBefore).not.toBe("1");
+
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: second.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "conclude" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "undo" });
+
+		expect(statusOf(second.id)).toBe("active");
+		expect(fieldOf(second.id, "priority")).toBe("driving");
+		// The rank returns to its pre-conclude value: the seal must not
+		// have renumbered it into the someday bucket and stranded it there.
+		expect(fieldOf(second.id, "rank")).toBe(rankBefore);
+		// And it no longer collides with the sibling that kept rank 1.
+		expect(fieldOf(first.id, "rank")).toBe("1");
+	});
+
+	it("warns about live children when concluding the loaded parent", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Loaded Parent");
+		const child = await createQuest(state, "Loaded Child");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reparent",
+			id: child.id,
+			parent: parent.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: parent.id,
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("unreachable");
+		expect(result.message).toContain(child.id);
+		expect(statusOf(child.id)).toBe("active");
+	});
+
+	it("warns about live children without sealing them", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Parent");
+		const child = await createQuest(state, "Child");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reparent",
+			id: child.id,
+			parent: parent.id,
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: parent.id,
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("unreachable");
+		expect(result.message).toContain(child.id);
+		// The child is warned about, not sealed.
+		expect(statusOf(child.id)).toBe("active");
 	});
 
 	it("bulk conclude previews under dryRun without writing", async () => {
@@ -306,6 +427,39 @@ describe("reparent verb", () => {
 		expect(parentOf(child.id)).toBe(other.id);
 		const details = result.details as { skipped: string[] };
 		expect(details.skipped).toContain(child.id);
+	});
+
+	it("keeps a skipped change undoable after the divergence resolves", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Parent");
+		const other = await createQuest(state, "Other");
+		const a = await createQuest(state, "A");
+		const b = await createQuest(state, "B");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reparent",
+			id: `${a.id},${b.id}`,
+			parent: parent.id,
+		});
+
+		// Divert A out-of-band so the first undo must skip it while it
+		// still reverses B.
+		setParentDirect(a.id, other.id);
+		const first = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+		});
+		expect(first.ok).toBe(true);
+		expect(parentOf(b.id)).toBe("null");
+		expect(parentOf(a.id)).toBe(other.id);
+
+		// The divergence resolves: A is back where the journal recorded
+		// it. A second undo must still be able to reverse A, because the
+		// first undo did not consume the change it could not apply.
+		setParentDirect(a.id, parent.id);
+		const second = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+		});
+		expect(second.ok).toBe(true);
+		expect(parentOf(a.id)).toBe("null");
 	});
 
 	it("undo of a bulk conclude leaves a compensating Journey entry", async () => {

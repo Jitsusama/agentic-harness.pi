@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	aliasKey,
 	buildAliasIndex,
 	lookupAlias,
 	lookupAliasDetail,
@@ -19,6 +20,20 @@ beforeEach(() => {
 
 afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
+});
+
+describe("aliasKey", () => {
+	it("is canonical in the type: case does not change the key", () => {
+		expect(aliasKey({ type: "GitHub-PR", value: "shop/world#1" })).toBe(
+			aliasKey({ type: "github-pr", value: "shop/world#1" }),
+		);
+	});
+
+	it("keeps the value verbatim (paths and refs are case-sensitive)", () => {
+		expect(aliasKey({ type: "git-worktree", value: "/A/b" })).not.toBe(
+			aliasKey({ type: "git-worktree", value: "/a/b" }),
+		);
+	});
 });
 
 function writeQuest(id: string, aliases: QuestAlias[]): void {

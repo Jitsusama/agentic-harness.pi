@@ -14,9 +14,14 @@ import {
 	lookupAliasDetail,
 } from "../../../lib/internal/quest/alias-index.js";
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
+import {
+	discoverQuests,
+	siblingRanks,
+} from "../../../lib/internal/quest/discovery.js";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
+import { nextRank } from "../../../lib/internal/quest/ranking.js";
 import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.js";
+import { isSealedStatus } from "../../../lib/internal/quest/status.js";
 import {
 	fetchUrlHints,
 	mintId,
@@ -36,6 +41,8 @@ import {
 	listAllQuests,
 	loadQuest,
 	prunePhantomSessionsOnLoaded,
+	reconcileSessionMembership,
+	setLoadedKind,
 	unfocusDocument,
 	unloadQuest,
 } from "../lifecycle.js";
@@ -55,6 +62,14 @@ const PRIORITY_ORDER: Record<string, number> = {
 	someday: 4,
 };
 const PRIORITY_FALLBACK = 99;
+
+// Sealed quests sort after every live one, whatever their priority,
+// so a concluded quest that still carries a driving priority never
+// jumps ahead of live work. Ordering within a tier stays priority
+// then rank.
+function statusTier(status: string): number {
+	return isSealedStatus(status) ? 1 : 0;
+}
 
 import {
 	type ListingDetails,
@@ -102,15 +117,28 @@ export function questIdFromCwd(
 ): string | undefined {
 	const { index } = discoverQuests(state.questsRoot);
 	const realCwd = canonical(cwd);
+	// A quest's own directory is the strongest claim. Prefer a live
+	// quest over a sealed one when both directories cover the cwd.
+	let dirMatch: string | undefined;
+	let dirMatchLive = false;
 	for (const entry of index.quests.values()) {
-		if (isUnder(realCwd, canonical(entry.dir))) {
-			return entry.doc.frontMatter.id;
+		if (!isUnder(realCwd, canonical(entry.dir))) continue;
+		const live = !isSealedStatus(entry.doc.frontMatter.status);
+		if (dirMatch === undefined || (live && !dirMatchLive)) {
+			dirMatch = entry.doc.frontMatter.id;
+			dirMatchLive = live;
 		}
 	}
+	if (dirMatch !== undefined) return dirMatch;
+
+	// Otherwise fall back to tree and worktree-alias paths. The longest
+	// covering path wins; a live quest breaks a tie against a sealed one.
 	let bestId: string | undefined;
 	let bestLen = -1;
+	let bestLive = false;
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
+		const live = !isSealedStatus(fm.status);
 		const paths: string[] = [];
 		for (const a of fm.aliases) {
 			if (a.type === "git-worktree") paths.push(a.value);
@@ -118,9 +146,14 @@ export function questIdFromCwd(
 		for (const tree of fm.trees ?? []) paths.push(tree.path);
 		for (const p of paths) {
 			const real = canonical(p);
-			if (isUnder(realCwd, real) && real.length > bestLen) {
+			if (!isUnder(realCwd, real)) continue;
+			if (
+				real.length > bestLen ||
+				(real.length === bestLen && live && !bestLive)
+			) {
 				bestLen = real.length;
 				bestId = fm.id;
+				bestLive = live;
 			}
 		}
 	}
@@ -128,6 +161,39 @@ export function questIdFromCwd(
 }
 
 /** Mint a new quest, optionally seeded from a URL. */
+/**
+ * Change the loaded quest's kind (quest, subquest or sidequest), so a
+ * misclassification made at create time is fixable in place instead
+ * of forcing a delete-and-recreate.
+ */
+export function reclassify(
+	state: QuestState,
+	params: QuestToolParams,
+): QuestResult {
+	if (!state.questId) return refuse("Load a quest first.");
+	const kind = params.kind as QuestKind | undefined;
+	if (!kind || !QUEST_KINDS_SET.has(kind)) {
+		return refuse(
+			`Pass the new kind: quest, subquest or sidequest (got "${params.kind ?? ""}").`,
+		);
+	}
+	const from = state.questKind;
+	const result = setLoadedKind(state, kind);
+	if (!result.ok) return refuse(result.guidance);
+	if (!result.changed) {
+		return ok(`Quest ${state.questId} is already a ${kind}.`, {
+			from,
+			to: kind,
+		});
+	}
+	state.questKind = kind;
+	appendJourneyEntry(state, `Reclassified from ${from ?? "?"} to ${kind}.`);
+	return ok(`Quest ${state.questId} is now a ${kind} (was ${from ?? "?"}).`, {
+		from,
+		to: kind,
+	});
+}
+
 export async function create(
 	state: QuestState,
 	pi: ExtensionAPI,
@@ -180,13 +246,36 @@ export async function create(
 	ensureQuestsRoot(state);
 	const id = mintId("QEST");
 
+	const parent = params.parent ?? null;
+	// Validate the priority before it reaches disk: an unchecked cast
+	// lets an out-of-vocab value through, which the strict parser then
+	// drops the whole quest for, making a freshly created quest
+	// invisible. Refuse up front instead.
+	if (params.priority !== undefined && !(params.priority in PRIORITY_ORDER)) {
+		return refuse(
+			`Unknown priority "${params.priority}". Use driving, active, queued, bench or someday.`,
+		);
+	}
+	const priority = (params.priority as QuestPriority) ?? "active";
+	// Append to the end of the (parent, priority) sibling group so the
+	// new quest takes a free rank rather than colliding at 1.
+	const { index } = discoverQuests(state.questsRoot);
+	// A parent that does not exist would strand the quest under a
+	// dangling reference the tree walk can never resolve. Refuse rather
+	// than mint an orphan.
+	if (parent !== null && !index.quests.has(parent)) {
+		return refuse(
+			`Parent quest "${parent}" not found. Create the parent first, or omit parent for a top-level quest.`,
+		);
+	}
+
 	const frontMatter: QuestFrontMatter = {
 		id,
 		kind,
-		parent: params.parent ?? null,
+		parent,
 		status: "active",
-		priority: (params.priority as QuestPriority) ?? "active",
-		rank: 1,
+		priority,
+		rank: nextRank(siblingRanks(index, parent, priority)),
 		started: nowYmd(),
 		updated: nowYmd(),
 		aliases: seededAlias ? [seededAlias] : [],
@@ -296,6 +385,14 @@ export async function load(
 		persisted: isPersistedSession(ctx),
 	}).attached;
 
+	// Reconcile membership so this session reads active on only the
+	// loaded quest, detaching it from any straggler quest an earlier
+	// run or a lost state left it attached to.
+	const reconciled =
+		sid && isPersistedSession(ctx) && state.questId
+			? reconcileSessionMembership(state, sid, state.questId)
+			: [];
+
 	const resumable = priorSessions
 		.filter((s) => s.id !== sid)
 		.map((s) => ({
@@ -316,6 +413,9 @@ export async function load(
 	if (pruned > 0) {
 		message += `. Pruned ${pruned} phantom session(s).`;
 	}
+	if (reconciled.length > 0) {
+		message += `. Detached this session from ${reconciled.length} other quest(s).`;
+	}
 
 	return ok(message, {
 		id: state.questId,
@@ -323,6 +423,7 @@ export async function load(
 		attached,
 		resumable,
 		pruned,
+		reconciled,
 	});
 }
 
@@ -450,6 +551,9 @@ export function list(state: QuestState, params: QuestToolParams): QuestResult {
 		return true;
 	});
 	entries.sort((a, b) => {
+		const ta = statusTier(a.doc.frontMatter.status);
+		const tb = statusTier(b.doc.frontMatter.status);
+		if (ta !== tb) return ta - tb;
 		const pa = PRIORITY_ORDER[a.doc.frontMatter.priority] ?? PRIORITY_FALLBACK;
 		const pb = PRIORITY_ORDER[b.doc.frontMatter.priority] ?? PRIORITY_FALLBACK;
 		if (pa !== pb) return pa - pb;

@@ -4,6 +4,11 @@
  * through the refs registry.
  */
 
+import {
+	buildAliasIndex,
+	lookupAliasDetail,
+} from "../../../lib/internal/quest/alias-index.js";
+import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
 import type { QuestAlias } from "../../../lib/quest/index.js";
 import { parseRef } from "../../../lib/refs/index.js";
 import {
@@ -67,6 +72,23 @@ export function aliasAdd(
 		return refuse(
 			"Pass the alias in `ref` (e.g. `github-pr:shop/world#47281`) or in `url` (a recognised URL). Separate several with commas.",
 		);
+	}
+	// Refuse a ref that already lives on another quest: routing the
+	// same alias to two quests would mis-attribute the linked work.
+	const { index } = discoverQuests(state.questsRoot);
+	const aliasIdx = buildAliasIndex(index);
+	for (const alias of aliases) {
+		const lookup = lookupAliasDetail(aliasIdx, alias);
+		if (lookup.kind === "collision") {
+			return refuse(
+				`Alias ${alias.type}:${alias.value} is already on multiple quests (${lookup.questIds.join(", ")}). Resolve the duplicate before adding it again.`,
+			);
+		}
+		if (lookup.kind === "hit" && lookup.questId !== state.questId) {
+			return refuse(
+				`Alias ${alias.type}:${alias.value} is already on quest ${lookup.questId}. Load that quest, or remove it there first.`,
+			);
+		}
 	}
 	// One write lands the whole list, so a mid-list failure cannot
 	// leave a partial set behind.

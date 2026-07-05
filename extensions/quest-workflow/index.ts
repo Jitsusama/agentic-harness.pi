@@ -56,6 +56,7 @@ import {
 	loadQuest,
 	persist,
 	prunePhantomSessionsOnLoaded,
+	reconcileSessionMembership,
 	refreshLoadedSlice,
 	refreshProgress,
 	restore,
@@ -139,7 +140,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id(s) to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id(s) to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
@@ -163,7 +164,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			kind: Type.Optional(
 				Type.String({
 					description:
-						"create: quest, subquest or sidequest. think: plan, research, brief or report.",
+						"create: quest, subquest or sidequest. reclassify: the loaded quest's new kind (quest, subquest or sidequest). think: plan, research, brief or report. draft: override the document kind chosen at think time before the id is minted (plan, research, brief or report).",
 				}),
 			),
 			note: Type.Optional(
@@ -203,7 +204,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			query: Type.Optional(
 				Type.String({
 					description:
-						"find: free-text needle matched against title, id, body and alias values.",
+						"find: free-text needle matched against title, id, body and alias values. locate: the needle to resolve when `id` is not given.",
 				}),
 			),
 			since: Type.Optional(
@@ -560,11 +561,19 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			// load verb, so pruning only there would rarely fire. The
 			// no-op case is cheap (it skips the write).
 			prunePhantomSessionsOnLoaded(state);
+			const sid = currentSessionId(ctx, undefined);
 			attachCurrentSession(state, {
-				id: currentSessionId(ctx, undefined),
+				id: sid,
 				cwd: ctx.cwd,
 				persisted: isPersistedSession(ctx),
 			});
+			// Reconcile on the launch path too, not only the explicit
+			// load verb: a resumed or spawned session lands here, and
+			// without this it would re-attach while still reading active
+			// on a straggler quest from an earlier run.
+			if (sid && isPersistedSession(ctx) && state.questId) {
+				reconcileSessionMembership(state, sid, state.questId);
+			}
 		}
 		updateScoreboard(state, ctx);
 	});

@@ -26,11 +26,19 @@ import {
 	focus,
 	list,
 	load,
+	reclassify,
 	show,
 	unfocus,
 	unload,
 } from "./verbs/lifecycle.js";
-import { expand, find, linksAction, tree, who } from "./verbs/queries.js";
+import {
+	expand,
+	find,
+	linksAction,
+	locate,
+	tree,
+	who,
+} from "./verbs/queries.js";
 import { priorityJump, priorityShift, reorder } from "./verbs/reorder.js";
 import {
 	sessionAttach,
@@ -119,6 +127,8 @@ export async function handle(
 			return priorityJump(state, "bench" as QuestPriority);
 		case "defer":
 			return priorityJump(state, "someday" as QuestPriority);
+		case "reclassify":
+			return reclassify(state, params);
 		case "tree":
 			return tree(state, params);
 		case "tree-add":
@@ -149,6 +159,8 @@ export async function handle(
 			return who(state, params);
 		case "links":
 			return linksAction(state, params);
+		case "locate":
+			return locate(state, params);
 		default: {
 			const suggestion = suggestAction(params.action ?? "");
 			const hint = suggestion

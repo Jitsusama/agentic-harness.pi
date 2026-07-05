@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import { questIdFromCwd } from "../../../extensions/quest-workflow/verbs/lifecycle";
 import {
 	clearUrlFetchers,
 	parseQuestFrontMatter,
@@ -76,6 +77,33 @@ async function createQuest(
 	return result.details as { id: string; path: string };
 }
 
+describe("questIdFromCwd", () => {
+	function addTree(readmePath: string, treePath: string): void {
+		const text = readFileSync(readmePath, "utf8");
+		const block = `\ntrees:\n  - path: ${treePath}\n    providerId: dev-tree\n    repoRoot: ${treePath}\n    origin: adopted\n---\n`;
+		writeFileSync(readmePath, text.replace(/\n---\n/, block));
+	}
+
+	it("prefers a live quest over a sealed one sharing a tree path", async () => {
+		const state = buildState();
+		const treePath = join(tmpRoot, "shared-tree");
+		mkdirSync(treePath, { recursive: true });
+		// Sealed quest created first, so without a status preference its
+		// tree would win the tie by iteration order.
+		const sealed = await createQuest(state, "Sealed");
+		const live = await createQuest(state, "Live");
+		addTree(sealed.path, treePath);
+		addTree(live.path, treePath);
+		const withSeal = readFileSync(sealed.path, "utf8").replace(
+			/^status: active$/m,
+			"status: concluded",
+		);
+		writeFileSync(sealed.path, withSeal);
+
+		expect(questIdFromCwd(state, treePath)).toBe(live.id);
+	});
+});
+
 describe("reorder verbs", () => {
 	it("top moves the loaded quest to rank 1 and shifts siblings to fixed positions", async () => {
 		const state = buildState();
@@ -122,6 +150,35 @@ describe("reorder verbs", () => {
 		expect(aText).toMatch(/^rank: 2$/m);
 		const bText = readFileSync(b.path, "utf8");
 		expect(bText).toMatch(/^rank: 3$/m);
+	});
+
+	it("excludes a sealed same-bucket quest from the reorder", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		const b = await createQuest(state, "Bravo");
+		const c = await createQuest(state, "Charlie");
+		// Simulate legacy drift: seal Bravo but leave it in the live
+		// bucket, the exact shape the status cascade now prevents.
+		const sealed = readFileSync(b.path, "utf8").replace(
+			/^status: active$/m,
+			"status: concluded",
+		);
+		writeFileSync(b.path, sealed);
+		const bRankBefore = readFileSync(b.path, "utf8").match(
+			/^rank: (\d+)/m,
+		)?.[1];
+
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: c.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "top" });
+
+		const bRankAfter = readFileSync(b.path, "utf8").match(/^rank: (\d+)/m)?.[1];
+		expect(bRankAfter).toBe(bRankBefore);
+		// Charlie took rank 1 and Alpha followed; Bravo stayed put.
+		expect(readFileSync(c.path, "utf8")).toMatch(/^rank: 1$/m);
+		expect(readFileSync(a.path, "utf8")).toMatch(/^rank: 2$/m);
 	});
 
 	it("before/after needs a target", async () => {
@@ -492,6 +549,26 @@ describe("action aliases and refusals", () => {
 	});
 });
 
+describe("create rank assignment", () => {
+	function rankOf(path: string): number {
+		const parsed = parseQuestFrontMatter(readFileSync(path, "utf8"));
+		if (!parsed) throw new Error("unreadable quest frontmatter");
+		return parsed.frontMatter.rank;
+	}
+
+	it("gives quests in the same group distinct, increasing ranks", async () => {
+		const state = buildState();
+		const first = await createQuest(state, "First top-level");
+		const second = await createQuest(state, "Second top-level");
+		const third = await createQuest(state, "Third top-level");
+
+		const ranks = [rankOf(first.path), rankOf(second.path), rankOf(third.path)];
+		expect(new Set(ranks).size).toBe(3);
+		expect(ranks[0]).toBeLessThan(ranks[1]);
+		expect(ranks[1]).toBeLessThan(ranks[2]);
+	});
+});
+
 describe("list filters", () => {
 	it("list priority:driving returns only driving quests and the count matches", async () => {
 		const state = buildState();
@@ -520,6 +597,33 @@ describe("list filters", () => {
 		expect(details.listing.rows.length).toBe(1);
 		expect(details.listing.rows[0].id).toBe(driving.id);
 		expect(details.listing.rows[0].priority).toBe("driving");
+	});
+
+	it("sorts a sealed quest after a live one even when it outranks by priority", async () => {
+		const state = buildState();
+		const live = await createQuest(state, "Live active quest");
+		const sealed = await createQuest(state, "Sealed driving quest");
+
+		// Drive then conclude the second quest: it keeps its driving
+		// priority while sealed, the exact drift the sort must ignore.
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: sealed.id,
+		});
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: sealed.id,
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "list",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const ids = (
+			result.details as { listing: { rows: { id: string }[] } }
+		).listing.rows.map((r) => r.id);
+		expect(ids.indexOf(live.id)).toBeLessThan(ids.indexOf(sealed.id));
 	});
 
 	it("list kind:quest excludes sidequests and subquests", async () => {
@@ -811,5 +915,48 @@ describe("listing verbs: brief, expanded and pagination", () => {
 		const childLine = lines.find((l) => l.includes("Child quest"));
 		expect(parentLine?.startsWith(" ")).toBeFalsy();
 		expect(childLine?.startsWith("  ")).toBe(true);
+	});
+});
+
+describe("create validation", () => {
+	it("refuses an out-of-vocabulary priority instead of minting an invisible quest", async () => {
+		const state = buildState();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Bad Priority",
+			priority: "high",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unreachable");
+		expect(result.guidance).toMatch(/priority/i);
+	});
+
+	it("refuses a parent that does not exist", async () => {
+		const state = buildState();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Orphan",
+			parent: "QEST-20260101-NOEXST",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unreachable");
+		expect(result.guidance).toMatch(/parent/i);
+	});
+
+	it("accepts a valid priority and an existing parent", async () => {
+		const state = buildState();
+		const parent = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Real Parent",
+		});
+		const parentId = (parent.details as { id: string }).id;
+		const child = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Real Child",
+			kind: "subquest",
+			parent: parentId,
+			priority: "queued",
+		});
+		expect(child.ok).toBe(true);
 	});
 });
