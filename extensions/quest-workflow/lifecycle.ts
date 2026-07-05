@@ -934,6 +934,44 @@ export function removeAliasFromLoaded(
 	return { ok: true, removed };
 }
 
+/**
+ * Remove one or more aliases from the loaded quest in a single write,
+ * the batch counterpart to addAliasesToLoaded. Reports which were
+ * removed and which were absent, so the verb can signal a partial or
+ * whole no-op the same way the add path does.
+ */
+export function removeAliasesFromLoaded(
+	state: QuestState,
+	aliases: QuestAlias[],
+):
+	| { ok: true; removed: QuestAlias[]; absent: QuestAlias[] }
+	| { ok: false; guidance: string } {
+	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	let removed: QuestAlias[] = [];
+	let absent: QuestAlias[] = [];
+	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+		removed = [];
+		absent = [];
+		const drop = (a: QuestAlias) =>
+			aliases.some((t) => t.type === a.type && t.value === a.value);
+		for (const target of aliases) {
+			if (
+				fm.aliases.some(
+					(a) => a.type === target.type && a.value === target.value,
+				)
+			) {
+				removed.push(target);
+			} else {
+				absent.push(target);
+			}
+		}
+		if (removed.length === 0) return undefined;
+		return { ...fm, aliases: fm.aliases.filter((a) => !drop(a)) };
+	});
+	if (!result.ok) return result;
+	return { ok: true, removed, absent };
+}
+
 /** Attach a pi session id to the loaded quest. */
 export function attachSessionToLoaded(
 	state: QuestState,

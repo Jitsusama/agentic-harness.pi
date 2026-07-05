@@ -14,7 +14,7 @@ import { parseRef } from "../../../lib/refs/index.js";
 import {
 	addAliasesToLoaded,
 	appendJourneyEntry,
-	removeAliasFromLoaded,
+	removeAliasesFromLoaded,
 } from "../lifecycle.js";
 import type { QuestState } from "../state.js";
 import {
@@ -118,16 +118,42 @@ export function aliasRemove(
 ): QuestResult {
 	if (!state.questId) return refuse("Load a quest first.");
 	const input = params.ref ?? params.url ?? "";
-	const alias = parseAliasInput(input);
-	if (!alias) {
+	// Accept a comma batch, matching alias-add, so several aliases can be
+	// scrubbed in one call rather than one at a time.
+	const tokens = input
+		.split(",")
+		.map((t) => t.trim())
+		.filter((t) => t.length > 0);
+	const aliases: QuestAlias[] = [];
+	for (const token of tokens) {
+		const alias = parseAliasInput(token);
+		if (!alias) {
+			return refuse(
+				`Could not parse "${token}" as an alias. Use the \`type:value\` form (e.g. \`github-pr:shop/world#47281\`) or a recognised URL; separate several with commas.`,
+			);
+		}
+		aliases.push(alias);
+	}
+	if (aliases.length === 0) {
 		return refuse(
-			"Pass the alias in `ref` (e.g. `github-pr:shop/world#47281`) or in `url`.",
+			"Pass the alias in `ref` (e.g. `github-pr:shop/world#47281`) or in `url`. Separate several with commas.",
 		);
 	}
-	const result = removeAliasFromLoaded(state, alias);
+	const result = removeAliasesFromLoaded(state, aliases);
 	if (!result.ok) return refuse(result.guidance);
-	if (!result.removed) {
-		return refuse(`Alias ${alias.type}:${alias.value} is not on this quest.`);
+	const { removed, absent } = result;
+	const label = (a: QuestAlias) => `${a.type}:${a.value}`;
+	// A no-op is reported as success, matching alias-add: "nothing to
+	// remove" is the same outcome as "already present", not a refusal.
+	if (removed.length === 0) {
+		return ok(`Alias ${absent.map(label).join(", ")} was not on this quest.`, {
+			aliases: absent,
+			removed: false,
+		});
 	}
-	return ok(`Removed alias ${alias.type}:${alias.value}.`, { alias });
+	let message = `Removed alias ${removed.map(label).join(", ")}.`;
+	if (absent.length > 0) {
+		message += ` ${absent.map(label).join(", ")} was not on this quest.`;
+	}
+	return ok(message, { aliases: removed, removed: true });
 }

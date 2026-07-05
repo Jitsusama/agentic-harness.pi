@@ -121,9 +121,9 @@ export async function handle(
 		case "alias-remove":
 			return aliasRemove(state, params);
 		case "promote":
-			return priorityShift(state, "up");
+			return priorityShift(state, "up", params);
 		case "demote":
-			return priorityShift(state, "down");
+			return priorityShift(state, "down", params);
 		case "drive":
 			return priorityJump(state, "driving" as QuestPriority);
 		case "park":

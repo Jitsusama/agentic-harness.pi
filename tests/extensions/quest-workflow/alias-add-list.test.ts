@@ -126,3 +126,67 @@ describe("alias-add with a list", () => {
 		expect(readme).toMatch(/value: shop\/world#2/);
 	});
 });
+
+describe("alias-remove contract parity", () => {
+	async function questWithAliases() {
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const ctx = fakeCtx(tmpRoot);
+		const created = await handle(state, fakePi(), ctx, {
+			action: "create",
+			title: "Scrub Me",
+		});
+		if (!created.ok) throw new Error(created.guidance);
+		await handle(state, fakePi(), ctx, {
+			action: "alias-add",
+			ref: "github-pr:shop/world#1, github-issue:shop/world#2",
+		});
+		return { state, ctx };
+	}
+
+	it("removes a comma-separated batch in one call", async () => {
+		const { state, ctx } = await questWithAliases();
+		const result = await handle(state, fakePi(), ctx, {
+			action: "alias-remove",
+			ref: "github-pr:shop/world#1, github-issue:shop/world#2",
+		});
+		expect(result.ok).toBe(true);
+		const readme = readFileSync(
+			join(state.questDir ?? "", "README.md"),
+			"utf8",
+		);
+		expect(readme).not.toMatch(/type: github-pr/);
+		expect(readme).not.toMatch(/type: github-issue/);
+	});
+
+	it("treats a no-op removal as success, matching alias-add", async () => {
+		const { state, ctx } = await questWithAliases();
+		const result = await handle(state, fakePi(), ctx, {
+			action: "alias-remove",
+			ref: "github-pr:shop/world#999",
+		});
+		// alias-add reports an already-present no-op as ok; alias-remove
+		// now reports a nothing-to-remove no-op as ok too.
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("unreachable");
+		expect(result.message).toMatch(/was not on this quest/i);
+	});
+});
+
+describe("promote/demote reject a supplied priority", () => {
+	it("refuses promote with a priority instead of ignoring it", async () => {
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const ctx = fakeCtx(tmpRoot);
+		const created = await handle(state, fakePi(), ctx, {
+			action: "create",
+			title: "Ladder",
+		});
+		if (!created.ok) throw new Error(created.guidance);
+		const result = await handle(state, fakePi(), ctx, {
+			action: "promote",
+			priority: "driving",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unreachable");
+		expect(result.guidance).toMatch(/drive, park or defer/i);
+	});
+});

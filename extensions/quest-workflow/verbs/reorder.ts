@@ -71,8 +71,17 @@ export function reorder(
 export function priorityShift(
 	state: QuestState,
 	direction: "up" | "down",
+	params?: QuestToolParams,
 ): QuestResult {
 	if (!state.questId) return refuse("Load a quest first.");
+	// promote and demote are relative one-tier moves; a supplied
+	// priority is ambiguous, so refuse rather than silently ignore it.
+	// To land in a specific bucket, use drive, park or defer.
+	if (params?.priority !== undefined) {
+		return refuse(
+			`${direction === "up" ? "promote" : "demote"} moves one tier relative and takes no \`priority\`. Use drive, park or defer to jump to a specific bucket.`,
+		);
+	}
 	const result = bumpLoadedPriority(state, direction);
 	if (!result.ok) return refuse(result.guidance);
 	if (result.from === result.to) {

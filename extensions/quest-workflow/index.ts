@@ -197,7 +197,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			ref: Type.Optional(
 				Type.String({
 					description:
-						"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). alias-add also accepts a comma-separated list to add several at once.",
+						"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). Both accept a comma-separated list to add or remove several at once.",
 				}),
 			),
 			query: Type.Optional(
