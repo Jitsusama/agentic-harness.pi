@@ -156,7 +156,9 @@ export function treeList(state: QuestState): QuestResult {
 		// scope tells a consumer which shape `trees` carries: the
 		// global inventory entries are attributed (questId/questTitle),
 		// the per-quest records are not.
-		return ok(`${inventory.length} tree(s) across all quests.`, {
+		const missing = inventory.filter((t) => !t.exists).length;
+		const missingNote = missing > 0 ? ` (${missing} missing on disk)` : "";
+		return ok(`${inventory.length} tree(s) across all quests${missingNote}.`, {
 			scope: "global",
 			trees: inventory,
 		});

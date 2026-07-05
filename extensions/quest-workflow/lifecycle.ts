@@ -578,6 +578,8 @@ export interface WorktreeInventoryEntry {
 	branch?: string;
 	questId: string;
 	questTitle: string | null;
+	/** Whether the tree's directory still exists on disk. */
+	exists: boolean;
 }
 
 /**
@@ -598,6 +600,7 @@ export function inventoryWorktrees(
 				path: tree.path,
 				questId: fm.id,
 				questTitle: quest.doc.title ?? null,
+				exists: existsSync(tree.path),
 			};
 			if (tree.branch) entry.branch = tree.branch;
 			entries.push(entry);
