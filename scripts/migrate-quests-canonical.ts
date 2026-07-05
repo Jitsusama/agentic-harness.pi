@@ -3,7 +3,6 @@
  * canonical layout:
  *
  *   quests/
- *     QUESTS.md
  *     QEST-XXX/
  *       README.md
  *       plans/PLAN-...md

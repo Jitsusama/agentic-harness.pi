@@ -12,9 +12,11 @@ One tool, `quest`, with action verbs. Every verb below is
 shipped and tested.
 
 - **Lifecycle**: `create`, `load`, `unload`, `show`, `list`,
-  `tree`, `expand`.
+  `tree`, `expand`, `reopen`, `reclassify`.
 - **Document stage**: `think`, `draft`, `build`,
-  `conclude`, `retire`, `focus`, `unfocus`.
+  `conclude`, `retire`, `focus`, `unfocus`. `draft` accepts a
+  `kind` override to correct a document kind before its id is
+  minted.
 - **Priority and rank**: `promote`, `demote`, `drive`,
   `park`, `defer`, `top`, `bottom`, `bump`, `sink`,
   `before`, `after`, `renumber`.
@@ -36,7 +38,9 @@ shipped and tested.
   to adopt.
 - **Terminal spawn**: `spawn-tab`, `spawn-pane`,
   `spawn-window`.
-- **Queries**: `find`, `who`, `links`.
+- **Queries**: `find`, `who`, `links`, `locate` (the inverse
+  index: resolve a document id, alias ref or session id to the
+  quest that owns it).
 
 Destructive verbs take typed parameters, not free-form
 prose:
