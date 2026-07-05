@@ -36,7 +36,7 @@ export interface SpawnRunPiConfig {
 }
 
 /** Default wall-clock timeout for one reviewer subagent. */
-export const DEFAULT_RUN_PI_TIMEOUT_MS = 20 * 60 * 1000;
+export const DEFAULT_RUN_PI_TIMEOUT_MS = 45 * 60 * 1000;
 
 /** Default grace period before escalating a stuck subprocess to SIGKILL. */
 export const DEFAULT_KILL_GRACE_MS = 5 * 1000;

@@ -45,8 +45,8 @@ interface SupervisorResultFile {
 	readonly artifacts?: RunPiResult["artifacts"];
 }
 
-const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000;
-const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 45 * 60 * 1000;
+const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_KILL_GRACE_MS = 5 * 1000;
 const DEFAULT_MAX_EVENT_BYTES = 10 * 1024 * 1024;
 const DEFAULT_MAX_EVENT_ROTATIONS = 3;
