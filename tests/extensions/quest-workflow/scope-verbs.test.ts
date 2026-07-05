@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -390,12 +396,16 @@ describe("tree and expand", () => {
 
 	it("surfaces orphan subquests under a synthetic orphans group", async () => {
 		const state = buildState();
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "create",
-			title: "Orphan",
-			parent: "QEST-20260603-NOPARENT",
-			kind: "subquest",
-		});
+		// Seed an orphan as legacy drift: a subquest whose parent no longer
+		// exists. create refuses to mint one now, but the tree must still
+		// surface orphans already on disk.
+		const orphanId = "QEST-20260603-ORPHAN";
+		const orphanDir = join(tmpRoot, "quests", orphanId);
+		mkdirSync(orphanDir, { recursive: true });
+		writeFileSync(
+			join(orphanDir, "README.md"),
+			`---\nid: ${orphanId}\nkind: subquest\nparent: QEST-20260603-NOPRNT\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-06-03\nupdated: 2026-06-03\n---\n\n# Orphan\n\nBody.\n`,
+		);
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "tree",
 		});

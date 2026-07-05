@@ -69,6 +69,25 @@ describe("conclude by document id", () => {
 		expect(readme).toMatch(/status:\s*active/);
 	});
 
+	it("seals the quest's documents when concluding the quest by id", async () => {
+		const { state, ctx, planId, questDir } = await questWithPlan();
+		const questId = state.questId ?? "";
+		const result = await handle(state, fakePi(), ctx, {
+			action: "conclude",
+			id: questId,
+		});
+		expect(result.ok).toBe(true);
+		// The by-id path must cascade the seal to the quest's documents,
+		// not only flip the quest status.
+		const planText = readFileSync(
+			join(questDir, "plans", `${planId}.md`),
+			"utf8",
+		);
+		expect(planText).toMatch(/stage:\s*concluded/);
+		const readme = readFileSync(join(questDir, "README.md"), "utf8");
+		expect(readme).toMatch(/status:\s*concluded/);
+	});
+
 	it("refuses a document id that does not exist under the quest", async () => {
 		const { state, ctx } = await questWithPlan();
 		const result = await handle(state, fakePi(), ctx, {

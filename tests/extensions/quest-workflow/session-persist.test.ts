@@ -128,6 +128,26 @@ describe("session membership reconcile", () => {
 		expect(sessionStatus(a.dir, "sess-1")).toBe("detached");
 		expect(sessionStatus(b.dir, "sess-1")).toBe("active");
 	});
+
+	it("detaches every straggler, not just the first", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		const b = await createQuest(state, "Bravo");
+		const c = await createQuest(state, "Charlie");
+		// Two stragglers: sess-1 left active on both Alpha and Bravo. A
+		// reconcile that broke after the first would leave Bravo active.
+		addActiveSession(join(a.dir, "README.md"), "sess-1");
+		addActiveSession(join(b.dir, "README.md"), "sess-1");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: c.id,
+		});
+		expect(result.ok).toBe(true);
+		expect(sessionStatus(a.dir, "sess-1")).toBe("detached");
+		expect(sessionStatus(b.dir, "sess-1")).toBe("detached");
+		expect(sessionStatus(c.dir, "sess-1")).toBe("active");
+	});
 });
 
 describe("persist + restore", () => {

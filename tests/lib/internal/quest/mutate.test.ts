@@ -75,6 +75,28 @@ describe("mutateQuestFrontMatter", () => {
 		expect(readFileSync(join(questDir, "README.md"), "utf8")).toBe(before);
 	});
 
+	it("refuses an out-of-vocabulary priority", () => {
+		const before = readFileSync(join(questDir, "README.md"), "utf8");
+		const result = mutateQuestFrontMatter(questDir, (fm) => ({
+			...fm,
+			priority: "urgent" as QuestPriorityCast,
+		}));
+
+		expect(result.ok).toBe(false);
+		expect(readFileSync(join(questDir, "README.md"), "utf8")).toBe(before);
+	});
+
+	it("refuses a non-integer rank", () => {
+		const before = readFileSync(join(questDir, "README.md"), "utf8");
+		const result = mutateQuestFrontMatter(questDir, (fm) => ({
+			...fm,
+			rank: Number.NaN,
+		}));
+
+		expect(result.ok).toBe(false);
+		expect(readFileSync(join(questDir, "README.md"), "utf8")).toBe(before);
+	});
+
 	it("preserves the body and stamps updated by default", () => {
 		const result = mutateQuestFrontMatter(questDir, (fm) => ({
 			...fm,
@@ -113,3 +135,4 @@ describe("mutateQuestFrontMatter", () => {
 // The cast mirrors the drift the write-time gate must catch: a caller
 // forcing an out-of-vocabulary value past the type system.
 type QuestStatusCast = "active";
+type QuestPriorityCast = "active";

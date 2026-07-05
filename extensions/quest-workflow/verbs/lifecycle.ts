@@ -247,10 +247,27 @@ export async function create(
 	const id = mintId("QEST");
 
 	const parent = params.parent ?? null;
+	// Validate the priority before it reaches disk: an unchecked cast
+	// lets an out-of-vocab value through, which the strict parser then
+	// drops the whole quest for, making a freshly created quest
+	// invisible. Refuse up front instead.
+	if (params.priority !== undefined && !(params.priority in PRIORITY_ORDER)) {
+		return refuse(
+			`Unknown priority "${params.priority}". Use driving, active, queued, bench or someday.`,
+		);
+	}
 	const priority = (params.priority as QuestPriority) ?? "active";
 	// Append to the end of the (parent, priority) sibling group so the
 	// new quest takes a free rank rather than colliding at 1.
 	const { index } = discoverQuests(state.questsRoot);
+	// A parent that does not exist would strand the quest under a
+	// dangling reference the tree walk can never resolve. Refuse rather
+	// than mint an orphan.
+	if (parent !== null && !index.quests.has(parent)) {
+		return refuse(
+			`Parent quest "${parent}" not found. Create the parent first, or omit parent for a top-level quest.`,
+		);
+	}
 
 	const frontMatter: QuestFrontMatter = {
 		id,

@@ -917,3 +917,46 @@ describe("listing verbs: brief, expanded and pagination", () => {
 		expect(childLine?.startsWith("  ")).toBe(true);
 	});
 });
+
+describe("create validation", () => {
+	it("refuses an out-of-vocabulary priority instead of minting an invisible quest", async () => {
+		const state = buildState();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Bad Priority",
+			priority: "high",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unreachable");
+		expect(result.guidance).toMatch(/priority/i);
+	});
+
+	it("refuses a parent that does not exist", async () => {
+		const state = buildState();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Orphan",
+			parent: "QEST-20260101-NOEXST",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unreachable");
+		expect(result.guidance).toMatch(/parent/i);
+	});
+
+	it("accepts a valid priority and an existing parent", async () => {
+		const state = buildState();
+		const parent = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Real Parent",
+		});
+		const parentId = (parent.details as { id: string }).id;
+		const child = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Real Child",
+			kind: "subquest",
+			parent: parentId,
+			priority: "queued",
+		});
+		expect(child.ok).toBe(true);
+	});
+});

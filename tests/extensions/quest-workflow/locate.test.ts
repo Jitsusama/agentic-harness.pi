@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -83,5 +83,49 @@ describe("locateOwner", () => {
 		expect(byAlias[0]).toMatchObject({ questId, matchKind: "alias" });
 
 		expect(locateOwner(state, "nothing-matches")).toHaveLength(0);
+		// The empty needle resolves to nothing rather than matching all.
+		expect(locateOwner(state, "")).toHaveLength(0);
+		expect(locateOwner(state, "   ")).toHaveLength(0);
+	});
+
+	it("resolves a session id to the quest tracking it", async () => {
+		const state = buildState();
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "create",
+			title: "Session Owner",
+		});
+		const questId = state.questId as string;
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "load",
+			id: questId,
+		});
+
+		const bySession = locateOwner(state, "sess-1");
+		expect(bySession).toHaveLength(1);
+		expect(bySession[0]).toMatchObject({ questId, matchKind: "session" });
+	});
+
+	it("surfaces every owner when a needle resolves ambiguously", () => {
+		// Two quests carry the same alias, as legacy colliding stores do.
+		// locate must return both rather than hiding the ambiguity.
+		const state = buildState();
+		const write = (id: string) => {
+			const dir = join(tmpRoot, "quests", id);
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(
+				join(dir, "README.md"),
+				`---\nid: ${id}\nkind: quest\nparent: null\nstatus: active\npriority: someday\nrank: 1\nstarted: 2026-01-01\nupdated: 2026-01-01\naliases:\n  - type: github-pr\n    value: shop/world#9\n---\n\n# ${id}\n\nBody.\n`,
+			);
+		};
+		write("QEST-20260101-OWNER1");
+		write("QEST-20260101-OWNER2");
+
+		const hits = locateOwner(state, "github-pr:shop/world#9");
+		expect(hits).toHaveLength(2);
+		expect(hits.every((h) => h.matchKind === "alias")).toBe(true);
+		expect(hits.map((h) => h.questId).sort()).toEqual([
+			"QEST-20260101-OWNER1",
+			"QEST-20260101-OWNER2",
+		]);
 	});
 });
