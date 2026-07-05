@@ -31,6 +31,13 @@ describe("quest document machine", () => {
 		expect(result.ok).toBe(false);
 	});
 
+	it("think refuses from a terminal stage", () => {
+		for (const stage of ["concluded", "retired"] as const) {
+			const result = transition({ stage }, { action: "think", note: "more" });
+			expect(result.ok).toBe(false);
+		}
+	});
+
 	it("draft only from think", () => {
 		const fromIdle = transition({ stage: "idle" }, { action: "draft" });
 		expect(fromIdle.ok).toBe(false);
