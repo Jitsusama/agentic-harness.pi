@@ -600,15 +600,40 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	});
 }
 
-interface UiSink {
-	setStatus(key: string, value: string | undefined): void;
-	setWidget(key: string, value: string[] | undefined): void;
-	theme: import("@mariozechner/pi-coding-agent").Theme;
+/** The minimal render component pi's setWidget callback form returns. */
+interface WidgetComponent {
+	render(width: number): string[];
+	invalidate(): void;
+	dispose?(): void;
 }
 
-function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
+type Theme = import("@mariozechner/pi-coding-agent").Theme;
+
+interface UiSink {
+	setStatus(key: string, value: string | undefined): void;
+	setWidget(
+		key: string,
+		value:
+			| string[]
+			| ((tui: unknown, theme: Theme) => WidgetComponent)
+			| undefined,
+	): void;
+	theme: Theme;
+}
+
+/**
+ * Paint the loaded quest into the status line and the progress widget.
+ *
+ * Both are registered so the TUI reflows them on resize rather than
+ * freezing at the width they were computed at. The status is pushed
+ * width-independent and the footer truncates it, so widening a
+ * terminal reveals the id again instead of leaving the collapsed
+ * label. The widget uses pi's callback form, whose `render(width)` the
+ * TUI re-invokes on every paint, including a resize, with the live
+ * width, so the progress line re-truncates to the new width.
+ */
+export function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 	const live = state.questId !== null;
-	const width = process.stdout.columns || DEFAULT_WIDTH;
 	ctx.ui.setStatus(
 		"quest-workflow",
 		live
@@ -619,27 +644,26 @@ function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 						questStatus: state.questStatus,
 					},
 					ctx.ui.theme,
-					width,
 				)
 			: undefined,
 	);
+	const widgetInput = {
+		questId: state.questId,
+		questTitle: state.questTitle,
+		documentKind: state.documentKind,
+		documentStage: state.documentStage,
+		documentTitle: state.documentTitle,
+		done: state.done,
+		total: state.total,
+		currentItem: state.currentItem,
+	};
 	ctx.ui.setWidget(
 		"quest-workflow",
 		!live
 			? undefined
-			: renderWidget(
-					{
-						questId: state.questId,
-						questTitle: state.questTitle,
-						documentKind: state.documentKind,
-						documentStage: state.documentStage,
-						documentTitle: state.documentTitle,
-						done: state.done,
-						total: state.total,
-						currentItem: state.currentItem,
-					},
-					ctx.ui.theme,
-					width,
-				),
+			: (_tui: unknown, theme: Theme): WidgetComponent => ({
+					render: (width: number) => renderWidget(widgetInput, theme, width),
+					invalidate() {},
+				}),
 	);
 }
