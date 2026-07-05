@@ -32,6 +32,7 @@ import {
 	unload,
 } from "./verbs/lifecycle.js";
 import {
+	ancestors,
 	expand,
 	find,
 	linksAction,
@@ -42,6 +43,7 @@ import {
 import { priorityJump, priorityShift, reorder } from "./verbs/reorder.js";
 import {
 	sessionAttach,
+	sessionAudit,
 	sessionDetach,
 	sessionRename,
 	spawn,
@@ -149,6 +151,8 @@ export async function handle(
 			return sessionDetach(state, ctx, params);
 		case "session-rename":
 			return sessionRename(state, ctx, params);
+		case "session-audit":
+			return sessionAudit(state);
 		case "spawn-tab":
 		case "spawn-pane":
 		case "spawn-window":
@@ -161,6 +165,8 @@ export async function handle(
 			return linksAction(state, params);
 		case "locate":
 			return locate(state, params);
+		case "ancestors":
+			return ancestors(state, params);
 		default: {
 			const suggestion = suggestAction(params.action ?? "");
 			const hint = suggestion

@@ -53,14 +53,12 @@ import {
 	attachCurrentSession,
 	detachSessionFromLoaded,
 	listAllQuests,
-	loadQuest,
 	persist,
 	prunePhantomSessionsOnLoaded,
 	reconcileSessionMembership,
 	refreshLoadedSlice,
 	refreshProgress,
-	restore,
-	restoreFromCwd,
+	resolveStartup,
 } from "./lifecycle.js";
 import { showLoaded } from "./lookup.js";
 import { formatQuestList, renderStatus, renderWidget } from "./render.js";
@@ -140,7 +138,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id(s) to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id(s) to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
@@ -274,7 +272,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			scope: Type.Optional(
 				Type.String({
 					description:
-						"conclude/retire: 'quest' or 'document'. Defaults to the focused document when one is set, otherwise the loaded quest.",
+						"conclude/retire: 'quest' or 'document'. Declared scope wins over id-shape inference, so `id` plus scope:document concludes that document and scope:quest runs the quest sweep. Without scope, an explicit id infers scope from its shape (a document id concludes the document, a quest id sweeps the quest), and with no id it defaults to the focused document when one is set, otherwise the loaded quest.",
 				}),
 			),
 			force: Type.Optional(
@@ -532,26 +530,12 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			);
 		}
 
-		// The persisted slice in the session history is the
-		// authoritative source: a /reload reuses the same
-		// session, so the last loaded quest and focused
-		// document are exactly the right thing to restore.
-		const restored = restore(state, pi, ctx);
-		if (!restored) {
-			// A fresh session has no history yet. A spawn from
-			// the quest workflow's spawn-* verbs ships the
-			// loaded quest id via this env var so the new
-			// session can name itself after the right quest
-			// even when the cwd doesn't disambiguate. Consume
-			// and clear it so the hint doesn't carry across
-			// in-process session restarts.
-			const autoloadId = process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
-			if (autoloadId) {
-				delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
-				loadQuest(state, pi, autoloadId);
-			}
-			if (!state.questId) restoreFromCwd(state, pi, ctx);
-		}
+		// Resolve which quest to load through the one startup
+		// pipeline: an explicit spawn request wins, then this
+		// session's persisted history (a /reload restores the last
+		// loaded quest and focused document), then the cwd for a
+		// fresh session launched inside a quest or its tree.
+		resolveStartup(state, pi, ctx);
 		// Once a quest is loaded (restored, autoloaded or
 		// resolved from the cwd), record this session on it so
 		// the sessions frontmatter reflects where work happens.

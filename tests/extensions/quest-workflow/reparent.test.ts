@@ -137,6 +137,42 @@ describe("reparent verb", () => {
 		expect(parentOf(b.id)).toBe(parent.id);
 	});
 
+	it("re-ranks a moved quest into its new sibling set and undo restores both", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Rank Parent");
+		// Two quests already live under the parent, occupying ranks 1..2.
+		const existingA = await createQuest(state, "Existing A");
+		const existingB = await createQuest(state, "Existing B");
+		for (const q of [existingA, existingB]) {
+			await handle(state, fakePi(), fakeCtx(tmpRoot), {
+				action: "reparent",
+				id: q.id,
+				parent: parent.id,
+			});
+		}
+		const mover = await createQuest(state, "Mover");
+		const moverParentBefore = parentOf(mover.id);
+		const moverRankBefore = fieldOf(mover.id, "rank");
+
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reparent",
+			id: mover.id,
+			parent: parent.id,
+		});
+		// It joined the parent's group at a free rank, not colliding
+		// with the existing siblings.
+		expect(parentOf(mover.id)).toBe(parent.id);
+		const siblingRanks = [existingA, existingB, mover].map((q) =>
+			fieldOf(q.id, "rank"),
+		);
+		expect(new Set(siblingRanks).size).toBe(3); // all distinct
+
+		// Undo restores both the parent and the original rank.
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "undo" });
+		expect(parentOf(mover.id)).toBe(moverParentBefore);
+		expect(fieldOf(mover.id, "rank")).toBe(moverRankBefore);
+	});
+
 	it("refuses the whole batch and writes nothing when any target errors", async () => {
 		const state = buildState();
 		const parent = await createQuest(state, "Parent");

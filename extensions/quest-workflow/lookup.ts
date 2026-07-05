@@ -319,6 +319,83 @@ export function locateOwner(state: QuestState, needle: string): LocateHit[] {
 	return hits;
 }
 
+/** One quest on the ancestor chain, nearest parent first. */
+export interface AncestorHit {
+	id: string;
+	title: string | null;
+	kind: string;
+	status: string;
+}
+
+/**
+ * Walk a quest's parent chain from its immediate parent up to the
+ * root, so a caller can ask which epic a quest sits under. Nearest
+ * parent comes first. A cycle (a store that drifted into one) or a
+ * dangling parent stops the walk rather than looping forever. Returns
+ * an empty list for a top-level quest, and undefined when the starting
+ * id is unknown.
+ */
+export function ancestorsOf(
+	state: QuestState,
+	id: string,
+): AncestorHit[] | undefined {
+	const { index } = discoverQuests(state.questsRoot);
+	const start = index.quests.get(id);
+	if (!start) return undefined;
+	const chain: AncestorHit[] = [];
+	const seen = new Set<string>([id]);
+	let parentId = start.doc.frontMatter.parent ?? null;
+	while (parentId && !seen.has(parentId)) {
+		seen.add(parentId);
+		const entry = index.quests.get(parentId);
+		if (!entry) break;
+		const fm = entry.doc.frontMatter;
+		chain.push({
+			id: fm.id,
+			title: entry.doc.title ?? null,
+			kind: fm.kind,
+			status: fm.status,
+		});
+		parentId = fm.parent ?? null;
+	}
+	return chain;
+}
+
+/** A session listed active on more than one quest. */
+export interface SessionDivergence {
+	sessionId: string;
+	questIds: string[];
+}
+
+/**
+ * Scan the store for session-to-quest divergence: a session id that
+ * reads active on more than one quest at once. Reconcile-on-load
+ * repairs this the moment a session loads a quest, but until then an
+ * operator has no way to see it; this surfaces it read-only, without
+ * loading or mutating anything. A single-membership store returns an
+ * empty list.
+ */
+export function auditSessionMembership(state: QuestState): SessionDivergence[] {
+	const { index } = discoverQuests(state.questsRoot);
+	const bySession = new Map<string, string[]>();
+	for (const entry of index.quests.values()) {
+		for (const s of entry.doc.frontMatter.sessions) {
+			if (s.status === "active") {
+				const list = bySession.get(s.id) ?? [];
+				list.push(entry.doc.frontMatter.id);
+				bySession.set(s.id, list);
+			}
+		}
+	}
+	const divergences: SessionDivergence[] = [];
+	for (const [sessionId, questIds] of bySession) {
+		if (questIds.length > 1) {
+			divergences.push({ sessionId, questIds: questIds.sort() });
+		}
+	}
+	return divergences;
+}
+
 export interface WhoParams {
 	name?: string;
 	role?: string;

@@ -12,6 +12,10 @@ import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { questIdFromCwd } from "../../../extensions/quest-workflow/verbs/lifecycle";
 import {
+	clearPersonResolvers,
+	setResolutionFallback,
+} from "../../../lib/people/index";
+import {
 	clearUrlFetchers,
 	parseQuestFrontMatter,
 	registerUrlFetcher,
@@ -958,5 +962,64 @@ describe("create validation", () => {
 			priority: "queued",
 		});
 		expect(child.ok).toBe(true);
+	});
+});
+
+describe("show surfaces unresolved cast per the resolution fallback", () => {
+	it("warns about a cast bullet that resolves to no identity", async () => {
+		clearPersonResolvers();
+		setResolutionFallback("warn");
+		const state = buildState();
+		const q = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Cast Quest",
+		});
+		if (!q.ok) throw new Error(q.guidance);
+		const { id, path } = q.details as { id: string; path: string };
+		writeFileSync(
+			path,
+			readFileSync(path, "utf8").replace(
+				"- **owner**: _name or @handle_",
+				"- **owner**: Nobody Knows. Runs the show.",
+			),
+			"utf8",
+		);
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "load", id });
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "show",
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("unreachable");
+		expect(result.message).toContain("Unresolved cast");
+		expect(result.message).toContain("Nobody Knows");
+	});
+
+	it("stays silent about unresolved cast when the fallback is silent", async () => {
+		clearPersonResolvers();
+		setResolutionFallback("silent");
+		const state = buildState();
+		const q = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Silent Cast",
+		});
+		if (!q.ok) throw new Error(q.guidance);
+		const { id, path } = q.details as { id: string; path: string };
+		writeFileSync(
+			path,
+			readFileSync(path, "utf8").replace(
+				"- **owner**: _name or @handle_",
+				"- **owner**: Nobody Knows. Runs the show.",
+			),
+			"utf8",
+		);
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "load", id });
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "show",
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("unreachable");
+		expect(result.message).not.toContain("Unresolved cast");
+		setResolutionFallback("warn");
 	});
 });

@@ -22,6 +22,7 @@ import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
 import { nextRank } from "../../../lib/internal/quest/ranking.js";
 import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.js";
 import { isSealedStatus } from "../../../lib/internal/quest/status.js";
+import { recordStructuralOp } from "../../../lib/internal/quest/structural-journal.js";
 import {
 	fetchUrlHints,
 	mintId,
@@ -187,6 +188,13 @@ export function reclassify(
 		});
 	}
 	state.questKind = kind;
+	// Journal the kind change so undo can reverse a misclassification
+	// the same way it reverses a status or priority change.
+	if (state.questId && from) {
+		recordStructuralOp(state.questsRoot, "reclassify", [
+			{ id: state.questId, field: "kind", old: from, new: kind },
+		]);
+	}
 	appendJourneyEntry(state, `Reclassified from ${from ?? "?"} to ${kind}.`);
 	return ok(`Quest ${state.questId} is now a ${kind} (was ${from ?? "?"}).`, {
 		from,
@@ -471,6 +479,22 @@ function renderShow(
 			const identity = c.identityId ? ` [${c.identityId}]` : "";
 			lines.push(`  - ${c.subject} (${c.role})${identity}`);
 		}
+	}
+	// Honour the resolution fallback: on warn or ask, surface cast
+	// bullets that resolved to no identity so the miss is visible
+	// rather than silent. On silent, say nothing.
+	if (
+		projection.resolutionFallback !== "silent" &&
+		projection.unresolvedCast.length > 0
+	) {
+		lines.push("");
+		const nudge =
+			projection.resolutionFallback === "ask"
+				? " Resolve them or correct the handles."
+				: "";
+		lines.push(
+			`Unresolved cast (${projection.unresolvedCast.length}): ${projection.unresolvedCast.join(", ")}.${nudge}`,
+		);
 	}
 	if (projection.documents.length > 0) {
 		lines.push("");

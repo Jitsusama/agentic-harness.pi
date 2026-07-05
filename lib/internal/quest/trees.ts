@@ -50,7 +50,17 @@ function withQuestFrontMatter<T>(
 		const next = outcome.fm as unknown as Parameters<
 			typeof serializeQuestFrontMatter
 		>[0];
-		atomicWriteFile(path, `${serializeQuestFrontMatter(next)}\n${parsed.body}`);
+		const serialized = `${serializeQuestFrontMatter(next)}\n${parsed.body}`;
+		// Validate by parse-back before writing, matching the quest
+		// mutation core: a tree or alias write must never leave a README
+		// the strict parser cannot read back.
+		if (!parseQuestFrontMatter(serialized)) {
+			return {
+				ok: false as const,
+				reason: "Tree write would produce an unreadable quest README.",
+			};
+		}
+		atomicWriteFile(path, serialized);
 		return { ok: true as const, result: outcome.fm };
 	});
 }

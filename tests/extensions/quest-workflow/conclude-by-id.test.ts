@@ -88,6 +88,37 @@ describe("conclude by document id", () => {
 		expect(readme).toMatch(/status:\s*concluded/);
 	});
 
+	it("refuses scope:document when the id is not a document id", async () => {
+		const { state, ctx } = await questWithPlan();
+		const questId = state.questId ?? "";
+		const result = await handle(state, fakePi(), ctx, {
+			action: "conclude",
+			id: questId,
+			scope: "document",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unreachable");
+		expect(result.guidance).toMatch(/scope:document/i);
+	});
+
+	it("honours scope:document to conclude the plan by id", async () => {
+		const { state, ctx, planId, questDir } = await questWithPlan();
+		const result = await handle(state, fakePi(), ctx, {
+			action: "conclude",
+			id: planId,
+			scope: "document",
+		});
+		expect(result.ok).toBe(true);
+		const planText = readFileSync(
+			join(questDir, "plans", `${planId}.md`),
+			"utf8",
+		);
+		expect(planText).toMatch(/stage:\s*concluded/);
+		expect(readFileSync(join(questDir, "README.md"), "utf8")).toMatch(
+			/status:\s*active/,
+		);
+	});
+
 	it("refuses a document id that does not exist under the quest", async () => {
 		const { state, ctx } = await questWithPlan();
 		const result = await handle(state, fakePi(), ctx, {

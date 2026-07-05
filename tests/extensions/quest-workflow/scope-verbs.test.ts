@@ -82,6 +82,29 @@ describe("reclassify verb", () => {
 		expect(readFileSync(path, "utf8")).toMatch(/^kind: sidequest$/m);
 	});
 
+	it("is reversible: undo restores the prior kind", async () => {
+		const state = buildState();
+		const q = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Q",
+			kind: "quest",
+		});
+		if (!q.ok) throw new Error(q.guidance);
+		const { id, path } = q.details as { id: string; path: string };
+		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "load", id });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reclassify",
+			kind: "sidequest",
+		});
+		expect(readFileSync(path, "utf8")).toMatch(/^kind: sidequest$/m);
+
+		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+		});
+		expect(undone.ok).toBe(true);
+		expect(readFileSync(path, "utf8")).toMatch(/^kind: quest$/m);
+	});
+
 	it("refuses a subquest with no parent", async () => {
 		const state = buildState();
 		const q = await handle(state, fakePi(), fakeCtx(tmpRoot), {

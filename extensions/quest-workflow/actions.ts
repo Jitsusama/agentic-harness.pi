@@ -60,6 +60,8 @@ export const QUEST_ACTIONS = [
 	"who",
 	"links",
 	"locate",
+	"ancestors",
+	"session-audit",
 ] as const;
 
 /** Static type of any canonical action. */

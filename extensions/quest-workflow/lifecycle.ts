@@ -275,6 +275,11 @@ export function writeDocumentStage(state: QuestState, stage: Stage): boolean {
 		updated: nowYmd(),
 	};
 	const newText = `${serializeDocumentFrontMatter(newFm)}\n${parsed.body}`;
+	// Validate by parse-back, matching the quest mutation core: never
+	// write a document the strict parser cannot read back, which would
+	// drop it to an out-of-vocabulary stage and make it invisible.
+	const reparsed = parseDocumentFrontMatter(newText);
+	if (!reparsed || reparsed.frontMatter.stage !== newFm.stage) return false;
 	const documentPath = state.documentPath;
 	if (questDir) {
 		atomicWriteUnderLock(questDir, documentPath, newText);
@@ -324,11 +329,12 @@ export function sealQuestDocuments(
 				stage: target,
 				updated: nowYmd(),
 			};
-			atomicWriteUnderLock(
-				questDir,
-				docPath,
-				`${serializeDocumentFrontMatter(newFm)}\n${parsed.body}`,
-			);
+			const sealedText = `${serializeDocumentFrontMatter(newFm)}\n${parsed.body}`;
+			// Validate by parse-back before writing, so the seal can never
+			// produce a document the strict parser drops to invisible.
+			const reparsed = parseDocumentFrontMatter(sealedText);
+			if (!reparsed || reparsed.frontMatter.stage !== target) continue;
+			atomicWriteUnderLock(questDir, docPath, sealedText);
 			sealed++;
 		}
 	}
@@ -501,6 +507,51 @@ export function restore(
 		focusDocument(state, saved.documentPath);
 	}
 	return true;
+}
+
+/** How the startup resolver chose the quest to load. */
+export interface StartupResolution {
+	source: "explicit" | "persisted" | "cwd" | "none";
+	questId: string | null;
+}
+
+/**
+ * The one startup resolution pipeline, with an explicit precedence:
+ *
+ * 1. An explicit request wins. A spawn ships the target quest id in
+ *    an env var, and that intent must beat this session's persisted
+ *    history, so a spawned tab that resumes a session lands on the
+ *    quest it was opened for rather than the one that session last
+ *    held.
+ * 2. Persisted session history next. A /reload reuses the same
+ *    session, so the last loaded quest and focused document are
+ *    exactly the right thing to restore.
+ * 3. The cwd last. A fresh session with no history resolves from the
+ *    quest directory or working tree it launched inside.
+ *
+ * Consumes and clears the env var so the hint never carries across an
+ * in-process session restart.
+ */
+export function resolveStartup(
+	state: QuestState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+): StartupResolution {
+	const autoloadId = process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
+	if (autoloadId) {
+		delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
+		if (loadQuest(state, pi, autoloadId).ok) {
+			return { source: "explicit", questId: state.questId };
+		}
+	}
+	if (restore(state, pi, ctx)) {
+		return { source: "persisted", questId: state.questId };
+	}
+	restoreFromCwd(state, pi, ctx);
+	return {
+		source: state.questId ? "cwd" : "none",
+		questId: state.questId,
+	};
 }
 
 /** Restore on session_start by re-reading from disk if a quest dir was remembered. */
@@ -740,6 +791,33 @@ function writeQuestRank(questDir: string, rank: number): void {
 	// Routed through the validated mutation core so a rank write is
 	// validated and stamped the same way every other field write is.
 	mutateQuestFrontMatter(questDir, (fm) => ({ ...fm, rank }));
+}
+
+/**
+ * Set a quest's rank by directory. The by-dir counterpart to the
+ * internal `writeQuestRank`, exported so undo can reverse a journalled
+ * rank change (a reparent re-ranks into its new sibling set).
+ */
+export function setQuestRankByDir(
+	questDir: string,
+	rank: number,
+): { ok: true } | { ok: false; guidance: string } {
+	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, rank }));
+	if (!result.ok) return result;
+	return { ok: true };
+}
+
+/**
+ * Set a quest's kind by directory. Exported so undo can reverse a
+ * journalled kind change made by reclassify.
+ */
+export function setQuestKindByDir(
+	questDir: string,
+	kind: QuestFrontMatter["kind"],
+): { ok: true } | { ok: false; guidance: string } {
+	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, kind }));
+	if (!result.ok) return result;
+	return { ok: true };
 }
 
 /** Build a reverse alias index across every discovered quest. */
