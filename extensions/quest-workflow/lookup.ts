@@ -319,6 +319,48 @@ export function locateOwner(state: QuestState, needle: string): LocateHit[] {
 	return hits;
 }
 
+/** One quest on the ancestor chain, nearest parent first. */
+export interface AncestorHit {
+	id: string;
+	title: string | null;
+	kind: string;
+	status: string;
+}
+
+/**
+ * Walk a quest's parent chain from its immediate parent up to the
+ * root, so a caller can ask which epic a quest sits under. Nearest
+ * parent comes first. A cycle (a store that drifted into one) or a
+ * dangling parent stops the walk rather than looping forever. Returns
+ * an empty list for a top-level quest, and undefined when the starting
+ * id is unknown.
+ */
+export function ancestorsOf(
+	state: QuestState,
+	id: string,
+): AncestorHit[] | undefined {
+	const { index } = discoverQuests(state.questsRoot);
+	const start = index.quests.get(id);
+	if (!start) return undefined;
+	const chain: AncestorHit[] = [];
+	const seen = new Set<string>([id]);
+	let parentId = start.doc.frontMatter.parent ?? null;
+	while (parentId && !seen.has(parentId)) {
+		seen.add(parentId);
+		const entry = index.quests.get(parentId);
+		if (!entry) break;
+		const fm = entry.doc.frontMatter;
+		chain.push({
+			id: fm.id,
+			title: entry.doc.title ?? null,
+			kind: fm.kind,
+			status: fm.status,
+		});
+		parentId = fm.parent ?? null;
+	}
+	return chain;
+}
+
 export interface WhoParams {
 	name?: string;
 	role?: string;

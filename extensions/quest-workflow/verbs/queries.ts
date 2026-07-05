@@ -12,6 +12,7 @@ import {
 	type QuestIndex,
 } from "../../../lib/internal/quest/discovery.js";
 import {
+	ancestorsOf,
 	buildRowExpansion,
 	expandQuest,
 	findPeople,
@@ -192,6 +193,27 @@ export function locate(
 			(h.detail ? ` (${h.detail})` : ""),
 	);
 	return ok(lines.join("\n"), { hits });
+}
+
+export function ancestors(
+	state: QuestState,
+	params: QuestToolParams,
+): QuestResult {
+	const id = (params.id ?? state.questId ?? "").trim();
+	if (!id) {
+		return refuse("Load a quest first, or pass the quest `id` to trace up.");
+	}
+	const chain = ancestorsOf(state, id);
+	if (chain === undefined) {
+		return refuse(`No quest with id "${id}".`);
+	}
+	if (chain.length === 0) {
+		return ok(`${id} is top-level; it has no ancestors.`, { ancestors: [] });
+	}
+	const lines = chain.map((a, i) =>
+		`${"  ".repeat(i)}-> ${a.id} ${a.title ?? ""} [${a.status}]`.trimEnd(),
+	);
+	return ok(lines.join("\n"), { ancestors: chain });
 }
 
 export function tree(state: QuestState, _params: QuestToolParams): QuestResult {

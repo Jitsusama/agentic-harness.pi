@@ -40,7 +40,8 @@ shipped and tested.
   `spawn-window`.
 - **Queries**: `find`, `who`, `links`, `locate` (the inverse
   index: resolve a document id, alias ref or session id to the
-  quest that owns it).
+  quest that owns it), `ancestors` (trace a quest's parent chain
+  up to the root).
 
 Destructive verbs take typed parameters, not free-form
 prose:

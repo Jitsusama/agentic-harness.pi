@@ -32,6 +32,7 @@ import {
 	unload,
 } from "./verbs/lifecycle.js";
 import {
+	ancestors,
 	expand,
 	find,
 	linksAction,
@@ -161,6 +162,8 @@ export async function handle(
 			return linksAction(state, params);
 		case "locate":
 			return locate(state, params);
+		case "ancestors":
+			return ancestors(state, params);
 		default: {
 			const suggestion = suggestAction(params.action ?? "");
 			const hint = suggestion
