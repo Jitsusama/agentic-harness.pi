@@ -143,7 +143,15 @@ plus Journey is enough.
 At most one document is focused per quest at a time. The
 focused document carries its own stage machine (think,
 draft, build, conclude, retire). Switching focus does
-not change a document's stage.
+not change a document's stage. A concluded or retired
+document is terminal: thinking from it is refused rather
+than silently reopening it, so draft a fresh document or
+reopen the quest when work resumes. The kind is a
+provisional intent until `draft` mints the id, so a wrong
+kind chosen at think is fixable by passing `kind` to
+`draft`. A stage transition persists to the document file
+before it advances in memory, so a failed write refuses
+rather than reporting a stage the file never reached.
 
 Code-write discipline triggers only when the focused
 document is a plan in `think` or `draft`. Other document
