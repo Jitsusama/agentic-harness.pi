@@ -275,6 +275,11 @@ export function writeDocumentStage(state: QuestState, stage: Stage): boolean {
 		updated: nowYmd(),
 	};
 	const newText = `${serializeDocumentFrontMatter(newFm)}\n${parsed.body}`;
+	// Validate by parse-back, matching the quest mutation core: never
+	// write a document the strict parser cannot read back, which would
+	// drop it to an out-of-vocabulary stage and make it invisible.
+	const reparsed = parseDocumentFrontMatter(newText);
+	if (!reparsed || reparsed.frontMatter.stage !== newFm.stage) return false;
 	const documentPath = state.documentPath;
 	if (questDir) {
 		atomicWriteUnderLock(questDir, documentPath, newText);
@@ -324,11 +329,12 @@ export function sealQuestDocuments(
 				stage: target,
 				updated: nowYmd(),
 			};
-			atomicWriteUnderLock(
-				questDir,
-				docPath,
-				`${serializeDocumentFrontMatter(newFm)}\n${parsed.body}`,
-			);
+			const sealedText = `${serializeDocumentFrontMatter(newFm)}\n${parsed.body}`;
+			// Validate by parse-back before writing, so the seal can never
+			// produce a document the strict parser drops to invisible.
+			const reparsed = parseDocumentFrontMatter(sealedText);
+			if (!reparsed || reparsed.frontMatter.stage !== target) continue;
+			atomicWriteUnderLock(questDir, docPath, sealedText);
 			sealed++;
 		}
 	}
