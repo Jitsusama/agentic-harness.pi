@@ -6,7 +6,11 @@
  */
 
 import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.js";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
+import {
+	discoverQuests,
+	siblingRanks,
+} from "../../../lib/internal/quest/discovery.js";
+import { nextRank } from "../../../lib/internal/quest/ranking.js";
 import { isSealedStatus } from "../../../lib/internal/quest/status.js";
 import {
 	planReparent,
@@ -21,8 +25,10 @@ import {
 import type { QuestFrontMatter } from "../../../lib/quest/index.js";
 import {
 	sealQuestDocuments,
+	setQuestKindByDir,
 	setQuestParent,
 	setQuestPriorityByDir,
+	setQuestRankByDir,
 	setQuestStatusByDir,
 } from "../lifecycle.js";
 import type { QuestState } from "../state.js";
@@ -89,7 +95,26 @@ export function reparent(
 	// Journal incrementally: record each write the moment it lands so
 	// a mid-batch failure leaves the journal reflecting exactly what
 	// is on disk, and undo can reverse the partial application.
+	//
+	// A moved quest leaves its old sibling set and joins a new one, so
+	// its old rank can collide there. Place it at the next free rank in
+	// the destination (parent, priority) group and journal the rank
+	// change too, so undo restores both. `taken` tracks ranks claimed
+	// this batch so several quests moved into the same group get
+	// distinct ranks rather than all landing on the same next free one.
 	const applied: JournalChange[] = [];
+	const takenByGroup = new Map<string, Set<number>>();
+	const placeRank = (parent: string | null, priority: string): number => {
+		const key = `${parent ?? ""}\u0000${priority}`;
+		let taken = takenByGroup.get(key);
+		if (!taken) {
+			taken = new Set(siblingRanks(index, parent, priority));
+			takenByGroup.set(key, taken);
+		}
+		const rank = nextRank([...taken]);
+		taken.add(rank);
+		return rank;
+	};
 	for (const change of plan.changes) {
 		const entry = index.quests.get(change.id);
 		if (!entry) continue;
@@ -108,6 +133,24 @@ export function reparent(
 			old: change.oldParent,
 			new: change.newParent,
 		});
+		const priority = entry.doc.frontMatter.priority;
+		const oldRank = entry.doc.frontMatter.rank;
+		const newRank = placeRank(change.newParent, priority);
+		if (newRank !== oldRank) {
+			const rankResult = setQuestRankByDir(entry.dir, newRank);
+			if (!rankResult.ok) {
+				recordStructuralOp(state.questsRoot, "reparent", applied);
+				return refuse(
+					`${rankResult.guidance} Applied ${applied.length} change(s) before the failure; recorded for undo.`,
+				);
+			}
+			applied.push({
+				id: change.id,
+				field: "rank",
+				old: String(oldRank),
+				new: String(newRank),
+			});
+		}
 	}
 	recordStructuralOp(state.questsRoot, "reparent", applied);
 	return ok(`Reparented ${plan.changes.length} quest(s).`, {
@@ -255,12 +298,16 @@ function currentValue(
 			return fm.priority;
 		case "status":
 			return fm.status;
+		case "rank":
+			return String(fm.rank);
+		case "kind":
+			return fm.kind;
 		default:
 			// The field type is wider than the fields undo can reverse
-			// (rank, kind and stage are journallable but not yet
-			// reversible). Return a sentinel that can never equal the
-			// recorded `new`, so the change is skipped and preserved in
-			// the journal rather than mis-reverted into the status field.
+			// (stage is journallable but lives on a document, not the
+			// quest README this reverses). Return a sentinel that can
+			// never equal the recorded `new`, so the change is skipped
+			// and preserved in the journal rather than mis-reverted.
 			return UNREVERTABLE_FIELD;
 	}
 }
@@ -286,6 +333,10 @@ function revertField(
 			);
 		case "status":
 			return setQuestStatusByDir(dir, change.old as QuestFrontMatter["status"]);
+		case "rank":
+			return setQuestRankByDir(dir, Number(change.old));
+		case "kind":
+			return setQuestKindByDir(dir, change.old as QuestFrontMatter["kind"]);
 		default:
 			// Unreachable for today's journalled ops: currentValue skips an
 			// unhandled field before revertField is ever called for it. Kept

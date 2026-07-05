@@ -787,6 +787,33 @@ function writeQuestRank(questDir: string, rank: number): void {
 	mutateQuestFrontMatter(questDir, (fm) => ({ ...fm, rank }));
 }
 
+/**
+ * Set a quest's rank by directory. The by-dir counterpart to the
+ * internal `writeQuestRank`, exported so undo can reverse a journalled
+ * rank change (a reparent re-ranks into its new sibling set).
+ */
+export function setQuestRankByDir(
+	questDir: string,
+	rank: number,
+): { ok: true } | { ok: false; guidance: string } {
+	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, rank }));
+	if (!result.ok) return result;
+	return { ok: true };
+}
+
+/**
+ * Set a quest's kind by directory. Exported so undo can reverse a
+ * journalled kind change made by reclassify.
+ */
+export function setQuestKindByDir(
+	questDir: string,
+	kind: QuestFrontMatter["kind"],
+): { ok: true } | { ok: false; guidance: string } {
+	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, kind }));
+	if (!result.ok) return result;
+	return { ok: true };
+}
+
 /** Build a reverse alias index across every discovered quest. */
 export function buildQuestsAliasIndex(state: QuestState): AliasIndex {
 	const { index } = discoverQuests(state.questsRoot);
