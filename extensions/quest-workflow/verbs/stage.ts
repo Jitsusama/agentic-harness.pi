@@ -422,6 +422,10 @@ export async function concludeOrRetire(
 	// undoable, see concludeDocumentById); a quest id or any comma
 	// list runs the reversible status sweep.
 	const targetId = (params.id ?? "").trim();
+	const declaredScope =
+		params.scope === "quest" || params.scope === "document"
+			? params.scope
+			: undefined;
 	if (targetId.length > 0) {
 		// A single document-kind id (PLAN/RSCH/BRIF/RPRT) concludes or
 		// retires that document under the loaded quest, with the same
@@ -430,6 +434,20 @@ export async function concludeOrRetire(
 		const subdir = targetId.includes(",")
 			? undefined
 			: subdirForDocumentId(targetId);
+		// A declared scope wins over id-shape inference, so the caller
+		// can be explicit rather than relying on the tool guessing from
+		// whether the id looks like a document or a quest.
+		if (declaredScope === "document") {
+			if (!subdir) {
+				return refuse(
+					`scope:document needs a single document id (PLAN, RSCH, BRIF or RPRT); "${targetId}" is not one.`,
+				);
+			}
+			return concludeDocumentById(state, action, params, ctx, targetId, subdir);
+		}
+		if (declaredScope === "quest") {
+			return bulkConcludeOrRetire(state, action, params);
+		}
 		if (subdir) {
 			return concludeDocumentById(state, action, params, ctx, targetId, subdir);
 		}

@@ -272,7 +272,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			scope: Type.Optional(
 				Type.String({
 					description:
-						"conclude/retire: 'quest' or 'document'. Defaults to the focused document when one is set, otherwise the loaded quest.",
+						"conclude/retire: 'quest' or 'document'. Declared scope wins over id-shape inference, so `id` plus scope:document concludes that document and scope:quest runs the quest sweep. Without scope, an explicit id infers scope from its shape (a document id concludes the document, a quest id sweeps the quest), and with no id it defaults to the focused document when one is set, otherwise the loaded quest.",
 				}),
 			),
 			force: Type.Optional(

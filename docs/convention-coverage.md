@@ -93,7 +93,7 @@ flip to 🟢 with the enforcing file.
 | Alias keys canonical, with a collision check on add | 279 colliding alias keys | 🟢 | Phase 3, RC-H (`aliasKey` lowercases the type; `alias-add` refuses a ref already on another quest, matching the create-from-URL guard) |
 | Alias types resolve or the miss is surfaced, not silent | 643 slack-message aliases resolve to no URL | 🔴 | Phase 3, RC-D and RC-H |
 | Discovery fails open and surfaces a malformed record instead of dropping it to invisible | 31 invisible out-of-vocabulary document stages | 🔴 | Phase 3, RC-D |
-| Scope declared as an argument, not inferred from the shape of `id` | conclude and retire multiplex on id shape | 🔴 | Phase 5, RC-C |
+| Scope declared as an argument, not inferred from the shape of `id` | conclude and retire multiplex on id shape | 🟢 | Phase 5 and the review follow-up, RC-C (conclude/retire honour a declared `scope`, which wins over id-shape inference; a bare id still infers scope from its shape for backward compatibility) |
 | One projection feeds both the human render and the agent result | `show`, `who`, `links` collapse to one line in the human TUI | 🔴 | Phase 6, RC-J |
 
 ## Coverage by Skill
