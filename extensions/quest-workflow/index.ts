@@ -139,7 +139,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id(s) to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id(s) to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
@@ -203,7 +203,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			query: Type.Optional(
 				Type.String({
 					description:
-						"find: free-text needle matched against title, id, body and alias values.",
+						"find: free-text needle matched against title, id, body and alias values. locate: the needle to resolve when `id` is not given.",
 				}),
 			),
 			since: Type.Optional(

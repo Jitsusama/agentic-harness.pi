@@ -17,6 +17,7 @@ import {
 	findPeople,
 	findQuestEntries,
 	linksForLoaded,
+	locateOwner,
 	resolveRefQuery,
 	type TreeNode,
 	treeAll,
@@ -169,6 +170,28 @@ export function linksAction(
 		lines.push(`  <- ${i.questId} ${i.questTitle ?? ""}${ctx}`.trimEnd());
 	}
 	return ok(lines.join("\n"), { links });
+}
+
+export function locate(
+	state: QuestState,
+	params: QuestToolParams,
+): QuestResult {
+	const needle = (params.id ?? params.query ?? "").trim();
+	if (!needle) {
+		return refuse(
+			"Pass the thing to locate in `id` (or `query`): a quest id, document id, alias ref or session id.",
+		);
+	}
+	const hits = locateOwner(state, needle);
+	if (hits.length === 0) {
+		return ok(`No quest owns "${needle}".`, { hits });
+	}
+	const lines = hits.map(
+		(h) =>
+			`${h.matchKind}: ${h.questId} ${h.questTitle ?? ""}`.trimEnd() +
+			(h.detail ? ` (${h.detail})` : ""),
+	);
+	return ok(lines.join("\n"), { hits });
 }
 
 export function tree(state: QuestState, _params: QuestToolParams): QuestResult {
