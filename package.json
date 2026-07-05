@@ -34,7 +34,9 @@
 		"typecheck:full": "tsc --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"test:coverage": "vitest run --coverage"
+		"test:coverage": "vitest run --coverage",
+		"quest:baseline": "node --import ./scripts/register-ts.mjs scripts/quest-store-baseline.ts",
+		"quest:migrate": "node --import ./scripts/register-ts.mjs scripts/migrate-quests-status-integrity.ts"
 	},
 	"packageManager": "pnpm@9.15.0",
 	"pi": {

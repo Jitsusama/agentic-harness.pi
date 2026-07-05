@@ -32,6 +32,7 @@
 import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const DOC_KIND_BY_PREFIX: Record<string, string> = {
 	"PLAN-": "plans",
@@ -259,6 +260,6 @@ function main(): void {
 // Only run the script when invoked directly, so tests can
 // import the planFlatten/planDocMoves/apply* helpers
 // without triggering a migration against the live tree.
-if (require.main === module) {
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
 	main();
 }

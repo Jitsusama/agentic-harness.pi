@@ -13,6 +13,7 @@
 
 import { type Dirent, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { dataDir, sessionsDir } from "../lib/internal/paths.js";
 import { discoverQuests } from "../lib/internal/quest/discovery.js";
 import { atomicWriteFile } from "../lib/internal/quest/io.js";
@@ -234,6 +235,6 @@ function main(): void {
 
 // Only run when invoked directly so tests can import the
 // planning helpers without touching the live quest tree.
-if (require.main === module) {
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
 	main();
 }

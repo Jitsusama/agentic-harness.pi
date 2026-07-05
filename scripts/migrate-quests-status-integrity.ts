@@ -28,6 +28,7 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { dataDir } from "../lib/internal/paths.js";
 import {
 	parseDocumentFrontMatter,
@@ -295,6 +296,6 @@ function main(): void {
 
 // Only run when invoked directly, so tests can import the pure
 // planners without scanning or mutating the live store.
-if (require.main === module) {
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
 	main();
 }
