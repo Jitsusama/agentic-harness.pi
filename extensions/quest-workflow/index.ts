@@ -64,6 +64,7 @@ import { showLoaded } from "./lookup.js";
 import { formatQuestList, renderStatus, renderWidget } from "./render.js";
 import {
 	collapseListingPreview,
+	collapseText,
 	isListingDetails,
 	renderListingExpanded,
 } from "./render-rows.js";
@@ -377,8 +378,22 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 					0,
 				);
 			}
-			const first = content.split("\n")[0];
-			return new Text(theme.fg("success", first), 0, 0);
+			// Non-listing results (show, who, links, ancestors) carry rich
+			// multi-line output. Feed the human the same text as the agent,
+			// collapsed to a first-line preview with an expand hint rather
+			// than dropping everything past the first line.
+			return new Text(
+				theme.fg(
+					"success",
+					collapseText(
+						content,
+						options.expanded === true,
+						keyHint("app.tools.expand", "to expand"),
+					),
+				),
+				0,
+				0,
+			);
 		},
 	});
 

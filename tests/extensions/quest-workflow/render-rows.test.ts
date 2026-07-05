@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	collapseListingPreview,
+	collapseText,
 	DEFAULT_LISTING_LIMIT,
 	isListingDetails,
 	type ListingDetails,
@@ -390,5 +391,23 @@ describe("collapseListingPreview", () => {
 		expect(collapseListingPreview(listing, "row5 text")).toBe(
 			"row5 text (+24 more)",
 		);
+	});
+});
+
+describe("collapseText", () => {
+	const hint = "ctrl+r to expand";
+	it("returns single-line content unchanged", () => {
+		expect(collapseText("Loaded QEST-1", false, hint)).toBe("Loaded QEST-1");
+	});
+	it("collapses multi-line content to a first-line preview with a hint", () => {
+		const out = collapseText("line one\nline two\nline three", false, hint);
+		expect(out).toBe(`line one (+2 more lines, ${hint})`);
+	});
+	it("uses the singular for a single hidden line", () => {
+		expect(collapseText("a\nb", false, hint)).toBe(`a (+1 more line, ${hint})`);
+	});
+	it("returns the whole content when expanded", () => {
+		const content = "line one\nline two\nline three";
+		expect(collapseText(content, true, hint)).toBe(content);
 	});
 });

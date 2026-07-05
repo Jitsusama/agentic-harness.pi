@@ -291,3 +291,24 @@ export function collapseListingPreview(
 	if (more <= 0) return firstRow;
 	return `${firstRow} (+${more} more)`;
 }
+
+/**
+ * Collapse a multi-line, non-listing result (show, who, links) for the
+ * human TUI. Expanded or single-line content is returned whole; a
+ * multi-line result collapses to its first line plus a count of the
+ * hidden lines and an expand hint, so the reader knows the rich output
+ * is there and how to see it. This is the counterpart that keeps the
+ * human render and the agent result fed from one text, rather than
+ * silently dropping everything past the first line for the human.
+ */
+export function collapseText(
+	content: string,
+	expanded: boolean,
+	expandHint: string,
+): string {
+	if (expanded) return content;
+	const lines = content.split("\n");
+	if (lines.length <= 1) return content;
+	const hidden = lines.length - 1;
+	return `${lines[0]} (+${hidden} more line${hidden === 1 ? "" : "s"}, ${expandHint})`;
+}
