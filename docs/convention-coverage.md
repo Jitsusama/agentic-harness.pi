@@ -37,7 +37,12 @@ of slipping into the wild for someone to spot in a bad artifact.
 
 ## Open Gaps
 
-None open. The glyph-bullet gap recorded here previously is now
+The gate-level authoring gaps are closed. A fresh batch is open: the
+quest-workflow rework (PLAN-20260704-Y1KP37) is closing the gap
+between what `quest-convention` and `quest-format` promise and what
+the extension enforces. Those gaps are tracked in Quest Workflow
+Rework Gaps below. The glyph-bullet gap recorded here previously is
+now
 🟢 enforced: `lib/slack/detect.ts` flags a run of two or more
 lines led by a `•`, `‣`, `◦`, `▪` or `·` glyph and blocks with
 a message pointing the author at the markdown markers, using the
@@ -63,6 +68,32 @@ panel already surfaces `✓ conventional` or `⚠ not conventional`
 as an indicator, and a PR rolling up a non-conventional commit is
 separately covered by the PR title gate. Promoting any of the
 three to 🟢 is a future call, not a present miss.
+
+## Quest Workflow Rework Gaps
+
+The `quest-format` and `quest-convention` tables below mark several
+rules 🟢 because the strict front-matter parser rejects an unknown
+value. That is read-side only: the parser drops a malformed record
+to `undefined`, so the write still lands on disk and the record
+turns invisible rather than being blocked. The Phase 0 baseline
+(`scripts/quest-store-baseline.ts`, run 2026-07-04) measured the
+resulting drift across 361 quests. These are the mechanically
+checkable behaviours the rework will newly enforce, each mapped to
+its phase and root cause. They stay 🔴 until the phase lands, then
+flip to 🟢 with the enforcing file.
+
+| Rule | Baseline drift | Status | Phase / cause |
+| --- | --- | --- | --- |
+| Enums (status, priority, stage) and rank validated at write time, not silently dropped at read | 31 documents at an out-of-vocabulary stage | 🔴 | Phase 1 and 2, RC-B and RC-D |
+| Every field mutation journalled and reversible, not only parent and status | `JournalChange.field` typed `parent \| status` | 🔴 | Phase 1, RC-K |
+| Conclude and retire cascade: reset priority, seal documents, handle children, release trees | 98 sealed quests keep a live priority; 129 documents left unsealed under a sealed quest; 3 live children under a sealed parent | 🔴 | Phase 2, RC-A |
+| Rank canonical: no duplicate rank within a sibling set | 336 quests (93 percent) in a colliding rank group | 🔴 | Phase 2, RC-A and RC-H |
+| Kind is changeable, and `paused` and `blocked` are implemented or removed | Both dead statuses present in live data | 🔴 | Phase 2, RC-N |
+| Alias keys canonical, with a collision check on add | 279 colliding alias keys | 🔴 | Phase 3, RC-H |
+| Alias types resolve or the miss is surfaced, not silent | 643 slack-message aliases resolve to no URL | 🔴 | Phase 3, RC-D and RC-H |
+| Discovery fails open and surfaces a malformed record instead of dropping it to invisible | 31 invisible out-of-vocabulary document stages | 🔴 | Phase 3, RC-D |
+| Scope declared as an argument, not inferred from the shape of `id` | conclude and retire multiplex on id shape | 🔴 | Phase 5, RC-C |
+| One projection feeds both the human render and the agent result | `show`, `who`, `links` collapse to one line in the human TUI | 🔴 | Phase 6, RC-J |
 
 ## Coverage by Skill
 
