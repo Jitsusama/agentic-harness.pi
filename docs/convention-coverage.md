@@ -84,10 +84,10 @@ flip to 🟢 with the enforcing file.
 
 | Rule | Baseline drift | Status | Phase / cause |
 | --- | --- | --- | --- |
-| Enums (status, priority, stage) and rank validated at write time, not silently dropped at read | 31 documents at an out-of-vocabulary stage | 🔴 | Phase 1 and 2, RC-B and RC-D |
-| Every field mutation journalled and reversible, not only parent and status | `JournalChange.field` typed `parent \| status` | 🔴 | Phase 1, RC-K |
-| Conclude and retire cascade: reset priority, seal documents, handle children, release trees | 98 sealed quests keep a live priority; 129 documents left unsealed under a sealed quest; 3 live children under a sealed parent | 🔴 | Phase 2, RC-A |
-| Rank canonical: no duplicate rank within a sibling set | 336 quests (93 percent) in a colliding rank group | 🔴 | Phase 2, RC-A and RC-H |
+| Quest enums (status, priority) and rank validated at write time, not silently dropped at read | 31 documents at an out-of-vocabulary stage | 🟢 | `lib/internal/quest/mutate.ts` refuses a write the strict parser cannot read back |
+| Every field mutation journalled and reversible, not only parent and status | `JournalChange.field` typed `parent \| status` | 🔴 | Phase 1, RC-K (`MutableField` widened and the undo drop-a-skipped-op bug fixed; not every verb journals yet) |
+| Conclude and retire cascade: reset priority, seal documents, handle children, release trees | 98 sealed quests keep a live priority; 129 documents left unsealed under a sealed quest; 3 live children under a sealed parent | 🔴 | Phase 2, RC-A (loaded-quest path resets priority and seals documents; bulk path, live-children warning and journalled seal pending) |
+| Rank canonical: no duplicate rank within a sibling set | 336 quests (93 percent) in a colliding rank group | 🔴 | Phase 2, RC-A and RC-H (create and priority moves append at the next free rank; migrate-quests-status-integrity.ts renumbers the existing store) |
 | Kind is changeable, and `paused` and `blocked` are implemented or removed | Both dead statuses present in live data | 🔴 | Phase 2, RC-N |
 | Alias keys canonical, with a collision check on add | 279 colliding alias keys | 🔴 | Phase 3, RC-H |
 | Alias types resolve or the miss is surfaced, not silent | 643 slack-message aliases resolve to no URL | 🔴 | Phase 3, RC-D and RC-H |

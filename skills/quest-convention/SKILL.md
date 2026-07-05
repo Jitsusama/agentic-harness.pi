@@ -70,6 +70,12 @@ Use `promote`, `demote`, `drive`, `park`, `defer` to move
 between buckets. Use `top`/`bottom`/`bump`/`sink` to
 reorder within one.
 
+You never set rank by hand. Creating a quest, and moving one
+to a new bucket, appends it at the next free rank in its
+sibling set, so ranks stay distinct without a collision. The
+listing sorts live quests ahead of sealed ones whatever their
+priority, so a concluded quest never outranks live work.
+
 ## Status and Journey
 
 Status is a coarse enum: `active`, `paused`, `blocked`,
@@ -196,6 +202,12 @@ Both `conclude` and `retire` accept a `scope` parameter:
 the loaded quest. With no scope, the tool defaults to the
 focused document when one is set, otherwise the loaded
 quest. Retiring a quest needs a `reason`.
+
+Sealing a quest cascades so it leaves nothing live behind:
+the priority drops to `someday` and every still-active
+document seals to the quest's terminal stage. You do not
+seal documents by hand before concluding the quest that
+owns them.
 
 ## Echoes
 
