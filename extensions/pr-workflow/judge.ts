@@ -209,6 +209,12 @@ export function buildJudgePrompt(input: BuildJudgePromptInput): string {
 			"into this subagent. Rely on `verify_output`'s feedback to converge on " +
 			"a valid payload before ending your run.",
 	);
+	lines.push(
+		"For each finding, add a short `recommendation`: one decision-oriented " +
+			"clause telling the reviewing user what to do about it, for example " +
+			"fix before merge, safe to defer, or confirm intent with the author. " +
+			"Keep it distinct from `discussion`, which describes the problem.",
+	);
 	return lines.join("\n");
 }
 
@@ -531,6 +537,7 @@ function toJudgedFinding(
 		discussion: raw.discussion,
 		category,
 		severity: raw.severity,
+		...(raw.recommendation ? { recommendation: raw.recommendation } : {}),
 		confidence: raw.confidence,
 		threadRelation: raw.threadRelation,
 		origin: {

@@ -226,6 +226,9 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 		lines.push(
 			`[${finding.id}] ${verdictMarker(decision)} [${label}] ${subject} (${renderLocation(projected)})${thread}${bodyBound}${critique}${skipReason}`,
 		);
+		if (projected.recommendation) {
+			lines.push(`      → ${projected.recommendation}`);
+		}
 	}
 
 	if (

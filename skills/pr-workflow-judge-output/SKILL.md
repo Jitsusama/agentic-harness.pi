@@ -29,6 +29,12 @@ round 1:
 
 - `location`, `label`, `subject`, `discussion` — required.
 - `decorations`, `severity`, `confidence` — optional.
+- `recommendation` — optional but strongly preferred: one
+  short, decision-oriented clause telling the reviewing user
+  what to do about the finding (for example "fix before
+  merge", "safe to defer", "confirm intent with the
+  author"). Keep it distinct from `discussion`, which
+  describes the problem, not the action.
 
 ### Location preservation
 

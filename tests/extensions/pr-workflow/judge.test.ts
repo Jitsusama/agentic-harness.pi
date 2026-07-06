@@ -218,6 +218,26 @@ describe("parseJudgeOutput", () => {
 		startId: 100,
 	};
 
+	it("carries the judge's recommendation onto the finding", () => {
+		const text = [
+			"```json",
+			JSON.stringify({
+				findings: [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "Race on shutdown",
+						discussion: "Two goroutines close the same channel.",
+						recommendation: "fix before merge",
+					},
+				],
+			}),
+			"```",
+		].join("\n");
+		const result = parseJudgeOutput(text, CTX);
+		expect(result.findings[0]?.recommendation).toBe("fix before merge");
+	});
+
 	describe("line-anchor warnings", () => {
 		function diffFile(
 			path: string,

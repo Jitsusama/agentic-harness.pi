@@ -92,6 +92,12 @@ export interface Finding {
 	readonly discussion: string;
 	readonly category: "file" | "title" | "scope";
 	readonly severity?: FindingSeverity;
+	/**
+	 * Short decision cue from the judge: what the user
+	 * should do about this finding, distinct from the
+	 * problem description in `discussion`.
+	 */
+	readonly recommendation?: string;
 	readonly confidence?: number;
 	readonly origin: FindingOrigin;
 	readonly state: FindingState;

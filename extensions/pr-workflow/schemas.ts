@@ -199,6 +199,11 @@ export const JudgeFinding = Type.Object({
 	threadRelation: Type.Optional(ThreadRelation),
 	raisedBy: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
 	sourceFindingIds: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }))),
+	// A short, decision-oriented cue: what the reviewing
+	// user should do about this finding (fix before merge,
+	// safe to defer, confirm with the author, ...). Distinct
+	// from `discussion`, which describes the problem.
+	recommendation: Type.Optional(Type.String({ minLength: 1 })),
 });
 export type JudgeFinding = Static<typeof JudgeFinding>;
 

@@ -164,6 +164,15 @@ describe("formatCompactFindingsView", () => {
 		expect(text).toContain("Run pr_workflow");
 	});
 
+	it("renders the judge recommendation under the finding row", () => {
+		const state = loadedState();
+		state.council.lastJudge = judgeWith([
+			{ ...lineFinding(1, "Race"), recommendation: "fix before merge" },
+		]);
+		const text = formatCompactFindingsView(state);
+		expect(text).toContain("fix before merge");
+	});
+
 	it("renders one row per finding with id, marker, label and location", () => {
 		const state = loadedState();
 		state.council.lastJudge = judgeWith([
