@@ -199,6 +199,11 @@ describe("runCouncilAction", () => {
 			dispatch: async () => {
 				throw new Error("should not be called");
 			},
+			loadConfig: async () => ({
+				ok: false,
+				path: "/cfg.json",
+				error: "No pr-workflow config found.",
+			}),
 		});
 		expect(expectFailure(result).error).toMatch(
 			/roster|council-config|configure/i,
@@ -228,6 +233,11 @@ describe("runCouncilAction", () => {
 			dispatch: async () => {
 				throw new Error("should not be called");
 			},
+			loadConfig: async () => ({
+				ok: false,
+				path: "/cfg.json",
+				error: "No pr-workflow config found.",
+			}),
 		});
 
 		expect(expectFailure(result).error).toMatch(/judge|judge-config/i);

@@ -13,6 +13,7 @@ import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import { isReviewerCancelledError } from "./cancellation.js";
+import type { PrWorkflowConfigLoadResult } from "./config.js";
 import type { CouncilDispatch } from "./council.js";
 import {
 	type CouncilProgress,
@@ -21,6 +22,7 @@ import {
 	safelyNotify,
 	summarizeStreamActivity,
 } from "./council-progress.js";
+import { ensureCouncilConfigured } from "./ensure-configured.js";
 import type { PrMetadata } from "./fetch.js";
 import { rememberAllocatedFindings } from "./finding-ids.js";
 import type { Finding, ReviewerOutput } from "./findings.js";
@@ -76,6 +78,12 @@ export interface RunStackReviewActionInput {
 	 * prompt inlines its generic framing as before.
 	 */
 	readonly judgeCharter?: string;
+	/**
+	 * Config loader for point-of-use roster and judge
+	 * hydration. Injected so tests stay hermetic; production
+	 * reads the real pr-workflow config file.
+	 */
+	readonly loadConfig?: () => Promise<PrWorkflowConfigLoadResult>;
 }
 
 /** Per-PR result summary for the user-facing action output. */
@@ -118,20 +126,8 @@ export async function runStackReviewAction(
 			error: "No PR is loaded. Call pr_workflow action=load first.",
 		};
 	}
-	if (state.council.roster.length === 0) {
-		return {
-			ok: false,
-			error:
-				"Council roster is empty. Call pr_workflow action=council-config first.",
-		};
-	}
-	if (state.council.judge === null) {
-		return {
-			ok: false,
-			error:
-				"Judge not configured. Call pr_workflow action=judge-config first.",
-		};
-	}
+	const configured = await ensureCouncilConfigured(state, input.loadConfig);
+	if (!configured.ok) return { ok: false, error: configured.error };
 	if (state.pr.metadata === null) {
 		return {
 			ok: false,
@@ -144,6 +140,11 @@ export async function runStackReviewAction(
 	const runId = `stack-review-${startedAt}`;
 	const cursorPrNumber = state.pr.reference.number;
 	const judge = state.council.judge;
+	if (judge === null) {
+		// ensureCouncilConfigured guarantees a judge on
+		// success; this narrows the type for the code below.
+		return { ok: false, error: "Judge not configured." };
+	}
 	const progress = input.progress ?? NULL_PROGRESS;
 	const progressWarnings: string[] = [];
 	const warnings: string[] = [];

@@ -235,7 +235,7 @@ describe("runStackReviewAction guards", () => {
 		expect(expectFailure(result).error).toMatch(/No PR is loaded/);
 	});
 
-	it("refuses without a roster", async () => {
+	it("refuses without a roster when config cannot supply one", async () => {
 		const state = buildState();
 		state.council.roster = [];
 		const result = await runStackReviewAction({
@@ -243,11 +243,17 @@ describe("runStackReviewAction guards", () => {
 			registry: new WorktreeRegistry(fakeProvider()),
 			dispatch: dispatch(),
 			fetchers: fetchers(),
+			loadConfig: async () => ({
+				ok: true,
+				config: { path: "/cfg.json", defaults: {} },
+			}),
 		});
-		expect(expectFailure(result).error).toMatch(/roster is empty/);
+		expect(expectFailure(result).error).toMatch(
+			/roster is empty|council-config/i,
+		);
 	});
 
-	it("refuses without a judge", async () => {
+	it("refuses without a judge when config cannot supply one", async () => {
 		const state = buildState();
 		state.council.judge = null;
 		const result = await runStackReviewAction({
@@ -255,8 +261,12 @@ describe("runStackReviewAction guards", () => {
 			registry: new WorktreeRegistry(fakeProvider()),
 			dispatch: dispatch(),
 			fetchers: fetchers(),
+			loadConfig: async () => ({
+				ok: true,
+				config: { path: "/cfg.json", defaults: {} },
+			}),
 		});
-		expect(expectFailure(result).error).toMatch(/Judge not configured/);
+		expect(expectFailure(result).error).toMatch(/judge-config/i);
 	});
 
 	it("finishes the progress panel even when worktree provisioning throws", async () => {

@@ -9,10 +9,14 @@
  */
 
 import { STALE_RUNTIME_WARNING_PREFIX } from "../../lib/subagent/health.js";
-import type { PrWorkflowReviewerEntry } from "./config.js";
+import type {
+	PrWorkflowConfigLoadResult,
+	PrWorkflowReviewerEntry,
+} from "./config.js";
 import type { CouncilDispatch } from "./council.js";
 import { runCouncil, runOneCouncilReviewer } from "./council.js";
 import type { CouncilProgress } from "./council-progress.js";
+import { ensureCouncilConfigured } from "./ensure-configured.js";
 import { reserveFindingIds } from "./finding-ids.js";
 import type { CouncilRun } from "./findings.js";
 import {
@@ -132,6 +136,12 @@ export interface RunCouncilActionInput {
 	readonly now?: () => Date;
 	/** Optional progress observer; forwarded to `runCouncil`. */
 	readonly progress?: CouncilProgress;
+	/**
+	 * Config loader for point-of-use roster and judge
+	 * hydration. Injected so tests stay hermetic; production
+	 * reads the real pr-workflow config file.
+	 */
+	readonly loadConfig?: () => Promise<PrWorkflowConfigLoadResult>;
 }
 
 /** Result of a council action run. */
@@ -154,26 +164,12 @@ export async function runCouncilAction(
 			error: "No PR is loaded. Call pr_workflow action=load first.",
 		};
 	}
-	if (state.council.roster.length === 0) {
-		return {
-			ok: false,
-			error:
-				"Council roster is empty. Call pr_workflow action=council-config first.",
-		};
-	}
-	if (state.council.judge === null) {
-		// Running the council without a judge leaves the
-		// pipeline in a dead-end: `findings`, `decide`,
-		// `fix-next` and `post` all require a judge run.
-		// Phase 3 surfaced users getting stranded here, so
-		// we refuse upfront with a pointer to the fix.
-		return {
-			ok: false,
-			error:
-				"Judge not configured. Call pr_workflow action=judge-config " +
-				"before running the council so downstream actions stay reachable.",
-		};
-	}
+	// Fill an unset roster and judge from the config file at
+	// point of use, so a review just runs instead of stranding
+	// the user behind a per-session council-config/judge-config
+	// dance. Only errors when the config cannot supply them.
+	const configured = await ensureCouncilConfigured(state, input.loadConfig);
+	if (!configured.ok) return { ok: false, error: configured.error };
 
 	const pr = state.pr;
 	const metadata = pr.metadata;
