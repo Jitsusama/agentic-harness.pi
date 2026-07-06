@@ -118,7 +118,11 @@ export function getNextFix(state: PrWorkflowState): FixContext | null {
 				findingId: finding.id,
 				finding,
 				instructions: decision.instructions ?? null,
-				target: homeFixTarget(state, finding.homePrNumber) ?? cursorTarget,
+				// No cursor fallback here: a cross-PR fix must land on
+				// its home PR, so an unresolvable home yields a null
+				// target the action refuses rather than a wrong-branch
+				// commit to the cursor.
+				target: homeFixTarget(state, finding.homePrNumber),
 				homePrNumber: finding.homePrNumber,
 			};
 		}

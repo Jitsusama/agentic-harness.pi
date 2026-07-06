@@ -9,7 +9,7 @@ import {
 import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import { decideFinding } from "../../../extensions/pr-workflow/synthesis.js";
-import { expectFailure } from "./fixtures.js";
+import { expectFailure, prMetadata } from "./fixtures.js";
 
 function judgedFinding(id: number, subject: string): Finding {
 	return {
@@ -43,7 +43,7 @@ function makeJudge(findings: Finding[]): JudgeRun {
 	};
 }
 
-function stackFixState() {
+function stackFixState(homePrNumber = 102) {
 	const state = createPrWorkflowState();
 	state.pr = {
 		reference: { owner: "o", repo: "r", number: 101 },
@@ -85,8 +85,8 @@ function stackFixState() {
 				category: "scope",
 				origin: { kind: "cross-PR", runId: "sc-1", reviewerId: "sc" },
 				state: "draft",
-				homePrNumber: 102,
-				spans: [102],
+				homePrNumber,
+				spans: [homePrNumber],
 			},
 		],
 	};
@@ -203,6 +203,24 @@ describe("getNextFix", () => {
 			number: 102,
 			branch: "f102",
 		});
+	});
+
+	it("refuses a target when the cross-PR finding's home PR is not in the stack", () => {
+		// Point the finding at a home PR that is not in the stack, and
+		// give the cursor PR a real branch so a fallback to it would
+		// produce a non-null (wrong) target rather than null by luck.
+		const state = stackFixState(999);
+		if (state.pr) {
+			state.pr.metadata = prMetadata({ head: { ref: "f101", sha: "sha101" } });
+		}
+		decideFinding(state, { findingId: 50, verdict: "fix", scope: "stack" });
+
+		const next = getNextFix(state);
+		expect(next?.findingId).toBe(50);
+		expect(next?.homePrNumber).toBe(999);
+		// It must not fall back to the cursor PR (#101): committing a
+		// cross-PR fix to the wrong branch is worse than refusing.
+		expect(next?.target).toBeNull();
 	});
 
 	it("records a stack fix outcome against the stack decision map", () => {
