@@ -234,6 +234,7 @@ export async function runCouncilAction(
 		allocate: (count) => reserveFindingIds(state, count),
 		progress: input.progress,
 		charterFor: (id) => charters.get(id),
+		cache: state.council.reviewerCache,
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	rememberParticipantIdentities(state, "reviewer", state.council.roster);
@@ -380,6 +381,7 @@ export async function retryCouncilReviewer(
 		startId: 0,
 		allocate: (count) => reserveFindingIds(state, count),
 		charterFor: (id) => charters.get(id),
+		cache: state.council.reviewerCache,
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	rememberParticipantIdentities(state, "reviewer", [reviewer]);
@@ -440,8 +442,11 @@ export function formatCouncilSummary(run: CouncilRun): string {
 		const count = output.findings.length;
 		const noun = count === 1 ? "finding" : "findings";
 		const verification = renderVerificationBadge(output.verification);
+		const reused = output.reused ? " · reused (input unchanged)" : "";
 		lines.push("");
-		lines.push(`▸ ${output.reviewerId} — ${count} ${noun}${verification}`);
+		lines.push(
+			`▸ ${output.reviewerId} — ${count} ${noun}${verification}${reused}`,
+		);
 		const verifyReason = renderVerificationFailureReason(output.verification);
 		if (verifyReason) {
 			lines.push(`  ! ${verifyReason}`);

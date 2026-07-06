@@ -115,6 +115,12 @@ export interface ReviewerOutput {
 	readonly usage?: ReviewerUsage;
 	/** Verification result reported by the subagent's verify_output tool. */
 	readonly verification?: ReviewerVerification;
+	/**
+	 * True when this reviewer's result was reused from the
+	 * session cache rather than re-dispatched, because its
+	 * reviewed input was unchanged since a prior run.
+	 */
+	readonly reused?: boolean;
 }
 
 /** A council run: the unit of state for a council invocation. */
