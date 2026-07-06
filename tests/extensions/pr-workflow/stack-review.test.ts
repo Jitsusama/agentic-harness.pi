@@ -372,4 +372,30 @@ describe("parseStackJudgeOutput", () => {
 			judgeReviewerId: "judge",
 		});
 	});
+
+	it("carries the decision-briefing fields on per-PR findings", () => {
+		const result = parseStackJudgeOutput(
+			jsonBlock({
+				perPr: {
+					"101": [
+						{
+							location: { kind: "global" },
+							label: "issue",
+							subject: "consolidated",
+							discussion: "details",
+							recommendation: "fix before merge",
+							impact: "silent data loss",
+							cluster: "error handling",
+						},
+					],
+				},
+				crossPr: [],
+			}),
+			{ runId: "judge-run", judgeReviewerId: "judge", startId: 20 },
+		);
+		const finding = result.perPr.get(101)?.[0];
+		expect(finding?.recommendation).toBe("fix before merge");
+		expect(finding?.impact).toBe("silent data loss");
+		expect(finding?.cluster).toBe("error handling");
+	});
 });

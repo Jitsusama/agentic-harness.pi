@@ -502,6 +502,9 @@ function toJudgeFinding(
 		discussion: raw.discussion,
 		category: categoryFor(raw.location),
 		severity: raw.severity,
+		...(raw.recommendation ? { recommendation: raw.recommendation } : {}),
+		...(raw.impact ? { impact: raw.impact } : {}),
+		...(raw.cluster ? { cluster: raw.cluster } : {}),
 		confidence: raw.confidence,
 		threadRelation: raw.threadRelation,
 		origin: {
