@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
 	type CouncilReviewer,
@@ -165,21 +166,43 @@ describe("runReviewer — argument composition", () => {
 		expect(calls[0].cwd).toBe("/tmp/pi-state/worktrees/o-r/sha");
 	});
 
-	it("passes the prompt as the last positional argument", async () => {
-		// Pi reads the task from the final positional.
-		// Keeping it last avoids accidental flag parsing
-		// of prompt content.
-		const { runPi, calls } = fakeRun({
-			stdout: assistantEvent(`{"findings": []}`),
-		});
+	it("passes the prompt as an @file reference in the final positional, not inline on argv", async () => {
+		// The whole prompt (persona standard plus every
+		// inlined PR diff on a stack review) can exceed macOS
+		// ARG_MAX (1,048,576 bytes). Passing it as a
+		// command-line argument crashes the reviewer's pi
+		// child at spawn. Pi merges an @file reference into
+		// the prompt, so runReviewer writes the prompt to a
+		// temp file and passes @<path> as the final
+		// positional, keeping argv tiny regardless of size.
+		const prompt = "Review the diff at hand";
+		let promptArg: string | undefined;
+		let fileContent: string | undefined;
+		const runPi: RunPi = async (opts) => {
+			promptArg = opts.args[opts.args.length - 1];
+			if (promptArg?.startsWith("@")) {
+				fileContent = readFileSync(promptArg.slice(1), "utf-8");
+			}
+			return {
+				stdout: assistantEvent(`{"findings": []}`),
+				stderr: "",
+				exitCode: 0,
+			};
+		};
 		await runReviewer({
 			reviewer: REVIEWER,
-			prompt: "Review the diff at hand",
+			prompt,
 			cwd: "/tmp/wt",
 			runPi,
 		});
-		const args = calls[0].args;
-		expect(args[args.length - 1]).toBe("Review the diff at hand");
+		// The final positional is an @<path> reference, not
+		// the raw prompt, and the referenced file holds the
+		// prompt verbatim.
+		expect(promptArg?.startsWith("@")).toBe(true);
+		expect(promptArg).not.toBe(prompt);
+		expect(fileContent).toBe(prompt);
+		// The temp file is cleaned up once the run resolves.
+		expect(existsSync(promptArg?.slice(1) ?? "")).toBe(false);
 	});
 
 	it("passes each extra extension path via --extension", async () => {

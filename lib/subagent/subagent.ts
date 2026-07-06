@@ -22,6 +22,10 @@
  * for durable runs).
  */
 
+import { randomUUID } from "node:crypto";
+import { rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getSubagentDefaults } from "./defaults.js";
 import { checkSubagentRuntime, detectStaleInstallInStderr } from "./health.js";
 
@@ -455,28 +459,44 @@ export async function runReviewer(
 		...defaults.skills,
 		...(options.extraSkills ?? []),
 	]);
+	// The prompt carries the whole review payload: the
+	// persona standard plus every inlined PR diff. On a
+	// stack review that runs past macOS ARG_MAX
+	// (1,048,576 bytes), and a prompt passed on argv crashes
+	// the pi child at spawn. Write it to a temp file and
+	// hand pi an `@<path>` reference instead, which pi merges
+	// into the prompt, so argv stays tiny whatever the diff
+	// size. The file is removed once the run resolves.
+	const promptFile = await writeReviewerPrompt(options.prompt);
 	const args = composeArgs({
 		spec: options.reviewer,
-		prompt: options.prompt,
+		prompt: `@${promptFile}`,
 		systemPrompt: options.systemPrompt,
 		isolated: options.isolated,
 		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
 		...(extraSkills.length > 0 ? { extraSkills } : {}),
 	});
-	const result = await options.runPi({
-		args,
-		cwd: options.cwd,
-		...(options.runId ? { runId: options.runId } : {}),
-		reviewerId: options.reviewer.id,
-		signal: options.signal,
-		onEvent: options.onEvent,
-		...(options.timeoutMs !== undefined
-			? { timeoutMs: options.timeoutMs }
-			: {}),
-		...(options.idleTimeoutMs !== undefined
-			? { idleTimeoutMs: options.idleTimeoutMs }
-			: {}),
-	});
+	let result: RunPiResult;
+	try {
+		result = await options.runPi({
+			args,
+			cwd: options.cwd,
+			...(options.runId ? { runId: options.runId } : {}),
+			reviewerId: options.reviewer.id,
+			signal: options.signal,
+			onEvent: options.onEvent,
+			...(options.timeoutMs !== undefined
+				? { timeoutMs: options.timeoutMs }
+				: {}),
+			...(options.idleTimeoutMs !== undefined
+				? { idleTimeoutMs: options.idleTimeoutMs }
+				: {}),
+		});
+	} finally {
+		// Best-effort: the OS temp dir is reaped anyway, and a
+		// failed unlink must not mask the run's own outcome.
+		await rm(promptFile, { force: true }).catch(() => {});
+	}
 
 	const parsed = extractRunPiOutput(result);
 	const requiresVerification = options.requiresVerification === true;
@@ -684,6 +704,20 @@ interface ComposeArgsInput {
 	readonly isolated?: boolean;
 	readonly extraExtensions?: readonly string[];
 	readonly extraSkills?: readonly string[];
+}
+
+/**
+ * Write a reviewer prompt to a unique temp file and return
+ * its path. Callers pass `@<path>` to pi so the prompt
+ * rides a file rather than argv, keeping the spawn under
+ * macOS ARG_MAX no matter how large the inlined diffs are.
+ * The `.md` extension makes pi read the file as prompt
+ * text.
+ */
+async function writeReviewerPrompt(prompt: string): Promise<string> {
+	const path = join(tmpdir(), `pi-reviewer-prompt-${randomUUID()}.md`);
+	await writeFile(path, prompt, "utf-8");
+	return path;
 }
 
 function composeArgs(input: ComposeArgsInput): string[] {
