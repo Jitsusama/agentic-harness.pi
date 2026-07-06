@@ -2413,6 +2413,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						};
 					}
 					const auditor = state.council.judge;
+					const progress = createCouncilProgressReporter(
+						ctx,
+						progressControls(),
+					);
 					const result = await runWithCancellableReviewers(
 						"audit-threads",
 						({ registry, dispatch }) =>
@@ -2422,7 +2426,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								dispatch,
 								auditor,
 								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								progress,
 							}),
+						progress,
 					);
 					if (!result.ok) {
 						return {

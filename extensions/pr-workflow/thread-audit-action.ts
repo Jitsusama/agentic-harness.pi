@@ -13,6 +13,12 @@
 
 import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import type { CouncilDispatch } from "./council.js";
+import {
+	type CouncilProgress,
+	NULL_PROGRESS,
+	safelyNotify,
+	summarizeStreamActivity,
+} from "./council-progress.js";
 import type { PrWorkflowState } from "./state.js";
 import {
 	buildThreadAuditPrompt,
@@ -32,6 +38,13 @@ export interface AuditThreadsActionInput {
 	readonly auditor: CouncilReviewer;
 	readonly fetchThreads: ThreadsFetcher;
 	readonly signal?: AbortSignal;
+	/**
+	 * Optional progress observer. The audit dispatches one
+	 * long auditor subagent; the panel renders its activity
+	 * and, by capturing the keyboard, is what makes the run
+	 * cancellable. Omitted in tests.
+	 */
+	readonly progress?: CouncilProgress;
 }
 
 /** Outcome of the audit action. */
@@ -97,19 +110,76 @@ export async function auditThreadsAction(
 		}),
 	);
 
-	const dispatched = await input.dispatch({
-		reviewer: input.auditor,
-		prompt,
-		cwd: handle.path,
-		signal: input.signal,
-	});
-	const parsed = parseThreadAuditOutput(dispatched.finalAssistantText);
-	return {
-		ok: true,
-		verdicts: parsed.verdicts,
-		indexById,
-		warnings: [...dispatched.warnings, ...parsed.warnings],
-	};
+	// The audit is one long judge call. Surface it on the
+	// progress panel so the user sees activity instead of a
+	// frozen screen, and so the panel's keyboard capture makes
+	// the run cancellable.
+	const progress = input.progress ?? NULL_PROGRESS;
+	const notes: string[] = [];
+	safelyNotify(
+		() =>
+			progress.start([
+				{
+					reviewer: input.auditor,
+					state: "pending",
+					findingCount: 0,
+					warnings: [],
+					error: "",
+					activity: "",
+				},
+			]),
+		"start",
+		notes,
+	);
+	safelyNotify(
+		() => progress.reviewerStarted(input.auditor.id),
+		"started",
+		notes,
+	);
+
+	try {
+		const dispatched = await input.dispatch({
+			reviewer: input.auditor,
+			prompt,
+			cwd: handle.path,
+			signal: input.signal,
+			onEvent: (event) => {
+				const activity = summarizeStreamActivity(event);
+				if (activity === null) return;
+				safelyNotify(
+					() => progress.reviewerActivity?.(input.auditor.id, activity),
+					"activity",
+					notes,
+				);
+			},
+		});
+		const parsed = parseThreadAuditOutput(dispatched.finalAssistantText);
+		const noun = parsed.verdicts.length === 1 ? "thread" : "threads";
+		safelyNotify(
+			() =>
+				progress.reviewerCompleted(input.auditor.id, {
+					reviewerId: input.auditor.id,
+					warnings: dispatched.warnings,
+					completedLabel: `${parsed.verdicts.length} ${noun} audited`,
+				}),
+			"completed",
+			notes,
+		);
+		return {
+			ok: true,
+			verdicts: parsed.verdicts,
+			indexById,
+			warnings: [...dispatched.warnings, ...parsed.warnings],
+		};
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		safelyNotify(
+			() => progress.reviewerFailed(input.auditor.id, message),
+			"failed",
+			notes,
+		);
+		throw err;
+	}
 }
 
 function buildStackEntries(state: PrWorkflowState): ThreadAuditStackEntry[] {

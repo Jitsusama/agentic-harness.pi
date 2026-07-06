@@ -73,6 +73,64 @@ const verdictResponse = (verdicts: unknown) => ({
 });
 
 describe("auditThreadsAction", () => {
+	it("drives the progress panel so the audit is visible and cancellable", async () => {
+		const state = loadedState();
+		const events: string[] = [];
+		const progress = {
+			start: () => events.push("start"),
+			reviewerStarted: () => events.push("started"),
+			reviewerActivity: () => events.push("activity"),
+			reviewerCompleted: () => events.push("completed"),
+			reviewerCancelled: () => events.push("cancelled"),
+			reviewerFailed: () => events.push("failed"),
+			finish: () => events.push("finish"),
+		};
+		const result = await auditThreadsAction({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			auditor: AUDITOR,
+			fetchThreads: async () => [reviewThread()],
+			progress,
+			dispatch: async (opts) => {
+				opts.onEvent?.({ type: "tool-execution-start", toolName: "read" });
+				return verdictResponse([
+					{ threadId: "T_1", disposition: "addressed", rationale: "ok" },
+				]);
+			},
+		});
+		expect(result.ok).toBe(true);
+		expect(events).toContain("start");
+		expect(events).toContain("started");
+		expect(events).toContain("completed");
+	});
+
+	it("reports a dispatch failure to the panel and rethrows", async () => {
+		const state = loadedState();
+		const events: string[] = [];
+		const progress = {
+			start: () => events.push("start"),
+			reviewerStarted: () => events.push("started"),
+			reviewerActivity: () => events.push("activity"),
+			reviewerCompleted: () => events.push("completed"),
+			reviewerCancelled: () => events.push("cancelled"),
+			reviewerFailed: () => events.push("failed"),
+			finish: () => events.push("finish"),
+		};
+		await expect(
+			auditThreadsAction({
+				state,
+				registry: new WorktreeRegistry(fakeProvider()),
+				auditor: AUDITOR,
+				fetchThreads: async () => [reviewThread()],
+				progress,
+				dispatch: async () => {
+					throw new Error("boom");
+				},
+			}),
+		).rejects.toThrow("boom");
+		expect(events).toContain("failed");
+	});
+
 	it("refuses without a loaded PR", async () => {
 		const state = createPrWorkflowState();
 		const result = await auditThreadsAction({
