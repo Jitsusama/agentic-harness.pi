@@ -30,6 +30,7 @@ import {
 	rememberParticipantIdentity,
 } from "./participant-identities.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
+import { reviewerFailureBanner } from "./reviewer-outcome.js";
 import type { StackFinding, StackFindingRun } from "./stack-findings.js";
 import {
 	buildStackJudgePrompt,
@@ -456,6 +457,11 @@ export function formatStackReviewActionSummary(
 	lines.push(
 		`Reviewers: ${run.reviewerOutputs.length}; cross-PR findings: ${run.crossPrFindingCount}`,
 	);
+	const failureBanner = reviewerFailureBanner(run.reviewerOutputs);
+	if (failureBanner) {
+		lines.push("");
+		lines.push(failureBanner);
+	}
 	lines.push("");
 	for (const pr of run.reviewedPrs) {
 		const marker = pr.prNumber === run.cursorPrNumber ? "▶" : " ";
@@ -473,12 +479,18 @@ export function formatStackReviewActionSummary(
 		for (const warning of run.warnings) lines.push(`  ! ${warning}`);
 	}
 	lines.push("");
-	lines.push(
-		"Cursor PR findings are ready. Run action=findings to review them.",
-	);
-	lines.push(
-		"Stack mates are stashed; action=stack-next / action=stack-prev returns the next PR ref, then action=load hydrates its findings.",
-	);
+	if (failureBanner) {
+		lines.push(
+			"No verified findings were produced. Resolve the failure above, then re-run action=review.",
+		);
+	} else {
+		lines.push(
+			"Cursor PR findings are ready. Run action=findings to review them.",
+		);
+		lines.push(
+			"Stack mates are stashed; action=stack-next / action=stack-prev returns the next PR ref, then action=load hydrates its findings.",
+		);
+	}
 	return lines.join("\n");
 }
 

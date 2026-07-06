@@ -20,6 +20,7 @@ import {
 	rememberParticipantIdentities,
 } from "./participant-identities.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
+import { reviewerFailureBanner } from "./reviewer-outcome.js";
 import { composeRunAddendum } from "./run-intent.js";
 import type { PrWorkflowState } from "./state.js";
 import {
@@ -402,6 +403,14 @@ export function formatCouncilSummary(run: CouncilRun): string {
 	const lines: string[] = [];
 	lines.push(`Council run ${run.id} on PR #${run.target.prNumber}`);
 	lines.push(`Started: ${run.startedAt}`);
+
+	// Lead with a hard failure when every reviewer failed to
+	// verify, so an all-crashed run never reads as success.
+	const failureBanner = reviewerFailureBanner(run.reviewerOutputs);
+	if (failureBanner) {
+		lines.push("");
+		lines.push(failureBanner);
+	}
 
 	// When the pi runtime is stale every reviewer fails
 	// identically and no retry will succeed until pi is

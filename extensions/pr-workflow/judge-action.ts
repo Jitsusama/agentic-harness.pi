@@ -18,6 +18,7 @@ import {
 	rememberParticipantIdentity,
 } from "./participant-identities.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
+import { reviewerFailureBanner } from "./reviewer-outcome.js";
 import { composeRunAddendum } from "./run-intent.js";
 import type { PrWorkflowState } from "./state.js";
 import {
@@ -215,6 +216,13 @@ export function formatJudgeSummary(run: JudgeRun): string {
 	const lines: string[] = [];
 	lines.push(`Judge run ${run.id}`);
 	lines.push(`Judge: ${run.judgeReviewerId}`);
+	const failureBanner = reviewerFailureBanner([
+		{ verification: run.verification, warnings: run.warnings },
+	]);
+	if (failureBanner) {
+		lines.push("");
+		lines.push(failureBanner.replace("reviewers", "judge"));
+	}
 	if (run.selfSignal !== null) {
 		lines.push(
 			`Self-signal: ${run.selfSignal.confidence} — ${run.selfSignal.rationale}`,

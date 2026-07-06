@@ -28,6 +28,7 @@ import type {
 } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
+import { reviewerFailureBanner } from "./reviewer-outcome.js";
 import { composeRunAddendum } from "./run-intent.js";
 import type { PrWorkflowState } from "./state.js";
 import {
@@ -473,6 +474,11 @@ export function formatCritiqueSummary(
 	const lines: string[] = [];
 	lines.push(`Critique run ${input.critique.id}`);
 	lines.push(`Reviewers: ${input.critique.reviewerOutputs.length}`);
+	const failureBanner = reviewerFailureBanner(input.critique.reviewerOutputs);
+	if (failureBanner) {
+		lines.push("");
+		lines.push(failureBanner);
+	}
 
 	// When the pi runtime is stale every reviewer fails
 	// identically and no retry will succeed until pi is
