@@ -143,6 +143,7 @@ import {
 	confirmReplyAndResolveGate,
 	confirmReplyGate,
 	confirmResolveGate,
+	confirmResolveManyGate,
 } from "./thread-gate.js";
 import { describeReplyOutcome } from "./thread-reply-outcome.js";
 import { fetchReviewThreads, replyToThread, resolveThread } from "./threads.js";
@@ -152,6 +153,7 @@ import {
 	loadThreadsAction,
 	replyToThreadAction,
 	resolveThreadAction,
+	resolveThreadsAction,
 } from "./threads-action.js";
 import { summarizeUsage, type UsageBreakdown } from "./usage.js";
 import { resolveVerifyPack } from "./verify-packs.js";
@@ -582,7 +584,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"threads: fetch the loaded PR's existing review threads. " +
 						"reply: post a reply to a thread by its [T#] index; pass " +
 						"resolve=true to reply and resolve in one combined gate. " +
-						"resolve: resolve a thread by its [T#] index. " +
+						"resolve: resolve a thread by its [T#] index, or many at once with threadIndices behind one gate. " +
 						"fix-next: return the next finding queued for fix " +
 						"(verdict=fix) with no recorded outcome. Includes a " +
 						"fix worktree path the agent must `cd` into before " +
@@ -908,7 +910,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			threadIndex: Type.Optional(
 				Type.Integer({
 					description:
-						"1-based index of a review thread in the most recent threads snapshot (the [T#] label rendered by action=threads). Required for action=reply and action=resolve.",
+						"1-based index of a review thread in the most recent threads snapshot (the [T#] label rendered by action=threads). Required for action=reply, and for action=resolve unless threadIndices is given.",
+				}),
+			),
+			threadIndices: Type.Optional(
+				Type.Array(Type.Integer(), {
+					description:
+						"1-based thread indices for a batch action=resolve: resolve every listed thread behind one gate. Review-level comments in the list are reported as failed, not resolved.",
 				}),
 			),
 			replyBody: Type.Optional(
@@ -1828,12 +1836,59 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 
 				if (params.action === "resolve") {
+					if (params.threadIndices && params.threadIndices.length > 0) {
+						const indices = params.threadIndices;
+						const threadsForGate = indices
+							.map((i) => state.threads?.threads[i - 1])
+							.filter((t): t is NonNullable<typeof t> => t !== undefined);
+						const expectFor = new Map(
+							indices.map((i) => [i, captureThreadExpectation(state, i)]),
+						);
+						if (threadsForGate.length > 0) {
+							const gate = await confirmResolveManyGate(ctx, threadsForGate);
+							if (!gate.approved) {
+								return {
+									content: [{ type: "text", text: gate.reason }],
+									details: { ok: false, error: gate.reason },
+									isError: true,
+								};
+							}
+						}
+						const batch = await resolveThreadsAction({
+							state,
+							indices,
+							resolver: (threadId) => resolveThread(pi, threadId),
+							expectFor: (i) => expectFor.get(i) ?? undefined,
+						});
+						const summaryParts = [
+							`Resolved ${batch.resolved.length} thread(s)` +
+								(batch.resolved.length > 0
+									? `: ${batch.resolved.map((i) => `[T${i}]`).join(", ")}`
+									: ""),
+						];
+						if (batch.failed.length > 0) {
+							summaryParts.push(
+								`Failed: ${batch.failed
+									.map((f) => `[T${f.index}] ${f.error}`)
+									.join("; ")}`,
+							);
+						}
+						return {
+							content: [{ type: "text", text: summaryParts.join(" ") }],
+							details: {
+								ok: batch.resolved.length > 0,
+								resolved: batch.resolved,
+								failed: batch.failed,
+							},
+							...(batch.resolved.length === 0 ? { isError: true } : {}),
+						};
+					}
 					if (typeof params.threadIndex !== "number") {
 						return {
 							content: [
 								{
 									type: "text",
-									text: "resolve requires a `threadIndex` argument.",
+									text: "resolve requires a `threadIndex` (or `threadIndices` for a batch) argument.",
 								},
 							],
 							details: { ok: false, error: "missing threadIndex" },

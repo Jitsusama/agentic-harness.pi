@@ -19,6 +19,7 @@
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { promptSingle } from "../../lib/ui/panel.js";
+import type { ContentRenderer } from "../../lib/ui/types.js";
 import { withHiddenWorking } from "./gate-working.js";
 import {
 	type ReplyGateOutcome,
@@ -113,6 +114,39 @@ export async function confirmResolveGate(
 		promptSingle(ctx, {
 			title: "Resolve Thread",
 			content: renderResolveGateContent(thread),
+			actions: REJECT_ACTIONS,
+		}),
+	);
+	return resolveGateOutcome(result);
+}
+
+/**
+ * Present one gate covering several threads to resolve, so a
+ * batch resolve confirms once rather than per thread. Enter
+ * approves the whole set; `r` or escape rejects it.
+ */
+export async function confirmResolveManyGate(
+	ctx: ExtensionContext,
+	threads: readonly ReviewThread[],
+): Promise<ResolveGateOutcome> {
+	if (!ctx.hasUI) {
+		return { approved: true };
+	}
+	const content: ContentRenderer = (theme, width) => {
+		const lines: string[] = [];
+		lines.push(
+			theme.fg("warning", ` Mark ${threads.length} threads resolved.`),
+		);
+		for (const thread of threads) {
+			lines.push("");
+			lines.push(...renderResolveGateContent(thread)(theme, width));
+		}
+		return lines;
+	};
+	const result = await withHiddenWorking(ctx, () =>
+		promptSingle(ctx, {
+			title: "Resolve Threads",
+			content,
 			actions: REJECT_ACTIONS,
 		}),
 	);

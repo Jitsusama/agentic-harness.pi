@@ -298,6 +298,42 @@ export async function resolveThreadAction(input: {
 	return { ok: true, isResolved };
 }
 
+/** Outcome of a batch resolve: which indices closed and which did not. */
+export interface ResolveThreadsResult {
+	resolved: number[];
+	failed: { index: number; error: string }[];
+}
+
+/**
+ * Resolve several threads in one call, continuing past a
+ * failing index rather than aborting the batch. Each index
+ * runs through the single-thread path, so drift guards and
+ * the review-level refusal still apply per thread.
+ */
+export async function resolveThreadsAction(input: {
+	state: PrWorkflowState;
+	indices: readonly number[];
+	resolver: ThreadResolver;
+	now?: () => string;
+	expectFor?: (index: number) => ThreadActionExpectation | undefined;
+}): Promise<ResolveThreadsResult> {
+	const resolved: number[] = [];
+	const failed: { index: number; error: string }[] = [];
+	for (const index of input.indices) {
+		const expect = input.expectFor?.(index);
+		const result = await resolveThreadAction({
+			state: input.state,
+			index,
+			resolver: input.resolver,
+			...(input.now ? { now: input.now } : {}),
+			...(expect ? { expect } : {}),
+		});
+		if (result.ok) resolved.push(index);
+		else failed.push({ index, error: result.error });
+	}
+	return { resolved, failed };
+}
+
 function applyResolveLocally(
 	state: PrWorkflowState,
 	threadId: string,

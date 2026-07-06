@@ -6,6 +6,7 @@ import {
 	loadThreadsAction,
 	replyToThreadAction,
 	resolveThreadAction,
+	resolveThreadsAction,
 } from "../../../extensions/pr-workflow/threads-action.js";
 
 function activeState() {
@@ -196,6 +197,56 @@ describe("drift guard", () => {
 			sender,
 		});
 		expect(result.ok).toBe(true);
+	});
+});
+
+describe("resolveThreadsAction", () => {
+	it("resolves several threads and reports each outcome", async () => {
+		const state = activeState();
+		state.threads = {
+			prNumber: 7,
+			fetchedAt: "t",
+			mutatedAt: "t",
+			version: 1,
+			threads: [
+				thread({ id: "TA" }),
+				thread({ id: "TB", path: "src/bar.ts" }),
+				thread({ id: "TC", kind: "review-level", path: null, line: null }),
+			],
+		};
+
+		const result = await resolveThreadsAction({
+			state,
+			indices: [1, 2, 3],
+			resolver: async () => true,
+		});
+
+		expect(result.resolved).toEqual([1, 2]);
+		expect(result.failed).toHaveLength(1);
+		expect(result.failed[0]?.index).toBe(3);
+	});
+
+	it("continues past a resolver failure", async () => {
+		const state = activeState();
+		state.threads = {
+			prNumber: 7,
+			fetchedAt: "t",
+			mutatedAt: "t",
+			version: 1,
+			threads: [thread({ id: "TA" }), thread({ id: "TB" })],
+		};
+		let calls = 0;
+		const result = await resolveThreadsAction({
+			state,
+			indices: [1, 2],
+			resolver: async () => {
+				calls++;
+				if (calls === 1) throw new Error("boom");
+				return true;
+			},
+		});
+		expect(result.resolved).toEqual([2]);
+		expect(result.failed[0]?.index).toBe(1);
 	});
 });
 
