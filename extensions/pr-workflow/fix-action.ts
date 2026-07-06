@@ -67,10 +67,11 @@ export async function nextFixAction(
 	if (state.pr === null) {
 		return { ok: false, error: "Load a PR before walking the fix queue." };
 	}
-	if (state.council.lastJudge === null) {
+	if (state.council.lastJudge === null && state.stackFindingRun === null) {
 		return {
 			ok: false,
-			error: "Run the council and judge before queueing fixes.",
+			error:
+				"Run the council and judge (or a stack review) before queueing fixes.",
 		};
 	}
 	const counts = summarizeFixQueue(state);
@@ -78,14 +79,18 @@ export async function nextFixAction(
 
 	let worktree: FixWorktree | null = null;
 	let worktreeError: string | null = null;
-	const meta = state.pr.metadata;
-	if (context !== null && provision && meta) {
+	// Provision against the finding's target PR, which is the
+	// cursor for a per-PR finding and the home PR for a
+	// cross-PR stack finding, so a stack fix lands on the
+	// right branch instead of the cursor's.
+	const target = context?.target ?? null;
+	if (context !== null && provision && target) {
 		try {
 			const handle = await provision({
-				owner: state.pr.reference.owner,
-				repo: state.pr.reference.repo,
-				number: state.pr.reference.number,
-				branch: meta.head.ref,
+				owner: target.owner,
+				repo: target.repo,
+				number: target.number,
+				branch: target.branch,
 			});
 			worktree = {
 				path: handle.path,
@@ -159,6 +164,9 @@ function formatNextFix(
 	lines.push(
 		`Next fix: finding ${context.findingId} — ${context.finding.subject}`,
 	);
+	if (context.homePrNumber !== undefined) {
+		lines.push(`Targets PR #${context.homePrNumber} (cross-PR stack finding).`);
+	}
 	lines.push(`Location: ${formatLocation(context.finding)}`);
 	if (worktree) {
 		// The agent must `cd` here before editing and
