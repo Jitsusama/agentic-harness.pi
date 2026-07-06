@@ -1109,6 +1109,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					for (const e of charters.errors) {
 						ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
 					}
+					const progress = createCouncilProgressReporter(
+						ctx,
+						progressControls(),
+					);
 					const result = await runWithCancellableReviewers(
 						"council-retry",
 						({ registry, dispatch }) =>
@@ -1121,7 +1125,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								resolveCharter: charters.resolve,
 								...(params.intent ? { intent: params.intent } : {}),
 								reviewerId,
+								progress,
 							}),
+						progress,
 					);
 					if (!result.ok) {
 						return {
@@ -1376,6 +1382,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					for (const e of critiqueCharters.errors) {
 						ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
 					}
+					const progress = createCouncilProgressReporter(
+						ctx,
+						progressControls(),
+					);
 					const result = await runWithCancellableReviewers(
 						"critique-retry",
 						({ registry, dispatch }) =>
@@ -1388,7 +1398,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								resolveCharter: critiqueCharters.resolve,
 								...(params.intent ? { intent: params.intent } : {}),
 								reviewerId,
+								progress,
 							}),
+						progress,
 					);
 					if (!result.ok) {
 						return {

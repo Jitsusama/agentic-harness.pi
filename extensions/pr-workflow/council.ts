@@ -153,6 +153,12 @@ export interface RunOneReviewerOptions {
 	 * another run never overlaps ids.
 	 */
 	readonly allocate?: (count: number) => number;
+	/**
+	 * Optional progress observer. A retry is one full-length
+	 * reviewer subagent; the panel renders its activity and, by
+	 * capturing the keyboard, is what makes the run cancellable.
+	 */
+	readonly progress?: CouncilProgress;
 }
 
 /**
@@ -166,22 +172,58 @@ export interface RunOneReviewerOptions {
 export async function runOneCouncilReviewer(
 	options: RunOneReviewerOptions,
 ): Promise<ReviewerOutput> {
-	const handle = await options.registry.ensure(
-		worktreeRequestFor(options.target),
-	);
-	const prompt = buildReviewerPrompt({
-		prTitle: options.target.title,
-		prDescription: options.target.description,
-		files: options.target.files,
-		...(options.target.threadContext
-			? { threadContext: options.target.threadContext }
-			: {}),
-		...(options.promptAddendum
-			? { promptAddendum: options.promptAddendum }
-			: {}),
-	});
-	const charter = options.charterFor?.(options.reviewer.id);
+	const progress = options.progress ?? NULL_PROGRESS;
+	const progressWarnings: string[] = [];
+	const startSnapshot: CouncilProgressEntry[] = [
+		{
+			reviewer: options.reviewer,
+			state: "pending",
+			findingCount: 0,
+			warnings: [],
+			error: "",
+			activity: "",
+		},
+	];
+	safelyNotify(() => progress.start(startSnapshot), "start", progressWarnings);
+	// finish() restores the editor the panel captured on start();
+	// it must run no matter how the retry exits, or a throw strands
+	// the panel and the user's keyboard. Guarded to fire once.
+	let finished = false;
+	const finishOnce = (): void => {
+		if (finished) return;
+		finished = true;
+		safelyNotify(() => progress.finish(), "finish", progressWarnings);
+	};
+	const onEvent = (event: Record<string, unknown>): void => {
+		const activity = summarizeStreamActivity(event);
+		if (activity === null) return;
+		safelyNotify(
+			() => progress.reviewerActivity?.(options.reviewer.id, activity),
+			"activity",
+			progressWarnings,
+		);
+	};
 	try {
+		const handle = await options.registry.ensure(
+			worktreeRequestFor(options.target),
+		);
+		const prompt = buildReviewerPrompt({
+			prTitle: options.target.title,
+			prDescription: options.target.description,
+			files: options.target.files,
+			...(options.target.threadContext
+				? { threadContext: options.target.threadContext }
+				: {}),
+			...(options.promptAddendum
+				? { promptAddendum: options.promptAddendum }
+				: {}),
+		});
+		const charter = options.charterFor?.(options.reviewer.id);
+		safelyNotify(
+			() => progress.reviewerStarted(options.reviewer.id),
+			"started",
+			progressWarnings,
+		);
 		// A retry is always a fresh run, so bypass the cache
 		// read; still refresh the store so a later full council
 		// run reuses this retried result rather than the stale one.
@@ -202,6 +244,7 @@ export async function runOneCouncilReviewer(
 					runId: options.runId,
 					signal: options.signal,
 					expectedVerificationStage: "council",
+					onEvent,
 					...(charter ? { systemPrompt: charter } : {}),
 				}),
 			{ read: false },
@@ -220,20 +263,39 @@ export async function runOneCouncilReviewer(
 			startId: base,
 			diffFiles: options.target.files,
 		});
+		const warnings = [...value.warnings, ...parsed.warnings];
+		safelyNotify(
+			() =>
+				progress.reviewerCompleted(options.reviewer.id, {
+					reviewerId: options.reviewer.id,
+					findings: parsed.findings,
+					warnings,
+					...(value.usage ? { usage: value.usage } : {}),
+				}),
+			"completed",
+			progressWarnings,
+		);
 		return {
 			reviewerId: options.reviewer.id,
 			findings: parsed.findings,
-			warnings: [...value.warnings, ...parsed.warnings],
+			warnings: [...warnings, ...progressWarnings],
 			...(value.usage ? { usage: value.usage } : {}),
 			...(value.verification ? { verification: value.verification } : {}),
 		};
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
+		safelyNotify(
+			() => progress.reviewerFailed(options.reviewer.id, message),
+			"failed",
+			progressWarnings,
+		);
 		return {
 			reviewerId: options.reviewer.id,
 			findings: [],
-			warnings: [`Reviewer dispatch failed: ${message}`],
+			warnings: [`Reviewer dispatch failed: ${message}`, ...progressWarnings],
 		};
+	} finally {
+		finishOnce();
 	}
 }
 

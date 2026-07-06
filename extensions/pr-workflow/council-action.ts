@@ -293,6 +293,12 @@ export interface RetryCouncilReviewerInput {
 	readonly intent?: string;
 	readonly reviewerId: string;
 	readonly signal?: AbortSignal;
+	/**
+	 * Optional progress observer. A retry is one full-length
+	 * reviewer subagent; the panel renders its activity and, by
+	 * capturing the keyboard, is what makes the run cancellable.
+	 */
+	readonly progress?: CouncilProgress;
 }
 
 /**
@@ -391,6 +397,7 @@ export async function retryCouncilReviewer(
 		allocate: (count) => reserveFindingIds(state, count),
 		charterFor: (id) => charters.get(id),
 		cache: state.council.reviewerCache,
+		...(input.progress ? { progress: input.progress } : {}),
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	rememberParticipantIdentities(state, "reviewer", [reviewer]);
