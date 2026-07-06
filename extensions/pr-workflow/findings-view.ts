@@ -144,6 +144,45 @@ function renderBodyBoundMarker(
  * variant so callers can swap modes without breaking
  * the agent's interpretation.
  */
+/**
+ * A one-line decision briefing for the findings view: how
+ * many findings still need a verdict and how many of those
+ * are high-priority (critical severity or a blocking
+ * decoration). Leads the view so the user sees the decision
+ * workload before the list. Returns "" when there is
+ * nothing to decide on.
+ */
+export function formatDecisionBriefing(state: PrWorkflowState): string {
+	const items: { finding: Finding; decided: boolean }[] = [];
+	for (const finding of state.council.lastJudge?.consolidatedFindings ?? []) {
+		items.push({ finding, decided: state.council.decisions.has(finding.id) });
+	}
+	for (const finding of state.stackFindingRun?.findings ?? []) {
+		items.push({ finding, decided: state.stackDecisions.has(finding.id) });
+	}
+	if (items.length === 0) return "";
+
+	const pending = items.filter((item) => !item.decided);
+	if (pending.length === 0) {
+		return `Decisions: all ${items.length} decided.`;
+	}
+	const highPriority = pending.filter((item) =>
+		isHighPriority(item.finding),
+	).length;
+	const base = `Decisions: ${pending.length} of ${items.length} pending`;
+	return highPriority > 0
+		? `${base}. ${highPriority} high-priority (critical or blocking).`
+		: base;
+}
+
+/** A finding is high-priority when critical or marked blocking. */
+function isHighPriority(finding: Finding): boolean {
+	if (finding.severity === "critical") return true;
+	return finding.decorations.some(
+		(decoration) => decoration.trim().toLowerCase() === "blocking",
+	);
+}
+
 export function formatCompactFindingsView(state: PrWorkflowState): string {
 	const judge = state.council.lastJudge;
 	if (judge === null) {
@@ -157,6 +196,11 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 	}
 
 	const lines: string[] = [];
+	const briefing = formatDecisionBriefing(state);
+	if (briefing) {
+		lines.push(briefing);
+		lines.push("");
+	}
 	lines.push(
 		"Legend: · pending  + endorse  ? qualify  ~ edit  - dismiss  ^ promote  * fix-queued  ✓ fix-done  — fix-skipped",
 	);

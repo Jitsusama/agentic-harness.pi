@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
 	type CouncilReviewer,
@@ -165,21 +166,43 @@ describe("runReviewer — argument composition", () => {
 		expect(calls[0].cwd).toBe("/tmp/pi-state/worktrees/o-r/sha");
 	});
 
-	it("passes the prompt as the last positional argument", async () => {
-		// Pi reads the task from the final positional.
-		// Keeping it last avoids accidental flag parsing
-		// of prompt content.
-		const { runPi, calls } = fakeRun({
-			stdout: assistantEvent(`{"findings": []}`),
-		});
+	it("passes the prompt as an @file reference in the final positional, not inline on argv", async () => {
+		// The whole prompt (persona standard plus every
+		// inlined PR diff on a stack review) can exceed macOS
+		// ARG_MAX (1,048,576 bytes). Passing it as a
+		// command-line argument crashes the reviewer's pi
+		// child at spawn. Pi merges an @file reference into
+		// the prompt, so runReviewer writes the prompt to a
+		// temp file and passes @<path> as the final
+		// positional, keeping argv tiny regardless of size.
+		const prompt = "Review the diff at hand";
+		let promptArg: string | undefined;
+		let fileContent: string | undefined;
+		const runPi: RunPi = async (opts) => {
+			promptArg = opts.args[opts.args.length - 1];
+			if (promptArg?.startsWith("@")) {
+				fileContent = readFileSync(promptArg.slice(1), "utf-8");
+			}
+			return {
+				stdout: assistantEvent(`{"findings": []}`),
+				stderr: "",
+				exitCode: 0,
+			};
+		};
 		await runReviewer({
 			reviewer: REVIEWER,
-			prompt: "Review the diff at hand",
+			prompt,
 			cwd: "/tmp/wt",
 			runPi,
 		});
-		const args = calls[0].args;
-		expect(args[args.length - 1]).toBe("Review the diff at hand");
+		// The final positional is an @<path> reference, not
+		// the raw prompt, and the referenced file holds the
+		// prompt verbatim.
+		expect(promptArg?.startsWith("@")).toBe(true);
+		expect(promptArg).not.toBe(prompt);
+		expect(fileContent).toBe(prompt);
+		// The temp file is cleaned up once the run resolves.
+		expect(existsSync(promptArg?.slice(1) ?? "")).toBe(false);
 	});
 
 	it("passes each extra extension path via --extension", async () => {
@@ -556,6 +579,47 @@ describe("runReviewer — result extraction", () => {
 		expect(result.verification?.ok).toBe(true);
 	});
 
+	it("passes a large out-of-band verified payload through without truncation", async () => {
+		// Out-of-band output already travelled on a file, past
+		// the stream and text caps on purpose. The parent must
+		// not re-apply its own 512 KB verified-output cap, or a
+		// large-but-valid review would be dropped at the last
+		// step. A payload over that cap must survive whole.
+		const bigDiscussion = "x".repeat(600 * 1024);
+		const { runPi } = fakeRun({
+			finalAssistantText: "",
+			verification: {
+				called: true,
+				ok: true,
+				stage: "council",
+				count: 1,
+				outOfBand: true,
+				output: {
+					findings: [
+						{
+							location: { kind: "global" },
+							label: "issue",
+							subject: "Big",
+							discussion: bigDiscussion,
+						},
+					],
+				},
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			expectedVerificationStage: "council",
+			requiresVerification: true,
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toContain(bigDiscussion);
+		expect(result.verification?.ok).toBe(true);
+	});
+
 	it("uses successful verify_output payload as the canonical final text", async () => {
 		const { runPi } = fakeRun({
 			stdout: assistantEvent("not parseable"),
@@ -827,6 +891,39 @@ describe("runReviewer — result extraction", () => {
 		});
 		expect(result.finalAssistantText).toBe("ok");
 		expect(result.warnings.length).toBeGreaterThan(0);
+	});
+
+	it("surfaces the real error line from a node child crash, not the internal frame", async () => {
+		// A crashed reviewer's stderr leads with a useless
+		// node:internal/child_process frame; the actionable
+		// errno (E2BIG, EMFILE, ...) is a few lines down. The
+		// surfaced "Pi stderr" warning must name the real cause
+		// so a failure explains itself instead of forcing the
+		// caller to guess (as happened on the ARG_MAX night).
+		const { runPi } = fakeRun({
+			exitCode: 1,
+			stderr: [
+				"node:internal/child_process:420",
+				"      throw errnoException(err, 'spawn');",
+				"      ^",
+				"Error: spawn E2BIG",
+				"    at ChildProcess.spawn (node:internal/child_process:420:11)",
+			].join("\n"),
+			stdout: "",
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+
+		const stderrWarning = result.warnings.find((w) =>
+			w.startsWith("Pi stderr:"),
+		);
+		expect(stderrWarning).toBeDefined();
+		expect(stderrWarning).toContain("E2BIG");
 	});
 
 	it("surfaces verified payloads from non-zero reviewer runs with a warning", async () => {

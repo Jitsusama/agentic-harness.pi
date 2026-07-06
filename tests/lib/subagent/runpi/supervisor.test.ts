@@ -143,6 +143,57 @@ describe("createSupervisorRunPi", () => {
 		expect(result.finalAssistantText).not.toBe("not json");
 	});
 
+	it("reads verified output out-of-band from the envelope file, past the stream and text caps", async () => {
+		// The reviewer writes its validated payload to the file
+		// named by SUBAGENT_VERIFY_OUTPUT_PATH and never emits
+		// it on the stream. Even with the line and assistant-
+		// text caps set far below the payload size, the parent
+		// must recover the whole output, because it came on a
+		// file rather than the capped stream. This is the ARG_MAX
+		// sibling: large reviews used to be silently dropped.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "oob-child.mjs");
+		const bigDiscussion = "x".repeat(4096);
+		await writeFile(
+			childPath,
+			[
+				`import { writeFileSync } from "node:fs";`,
+				`const output = { findings: [{ location: { kind: "global" }, label: "issue", subject: "Big", discussion: ${JSON.stringify(bigDiscussion)} }] };`,
+				`writeFileSync(process.env.SUBAGENT_VERIFY_OUTPUT_PATH, JSON.stringify({ ok: true, stage: "council", count: 1, output }));`,
+				`process.stdout.write(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "done" }] } }) + "\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			binary: process.execPath,
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+			// Both caps are far below the 4 KB payload; out-of-band
+			// delivery must ignore them.
+			maxLineBytes: 256,
+			maxAssistantTextBytes: 256,
+		});
+
+		const result = await runPi({
+			args: [childPath],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "oob",
+		});
+
+		expect(result.verification).toMatchObject({
+			called: true,
+			ok: true,
+			stage: "council",
+			outOfBand: true,
+		});
+		// The payload survives whole, in verification.output.
+		const output = result.verification?.output as {
+			findings: { discussion: string }[];
+		};
+		expect(output.findings[0].discussion).toBe(bigDiscussion);
+	});
+
 	it("captures verifier output from unkeyed tool events", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "unkeyed-verified-child.mjs");

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Finding } from "../../../extensions/pr-workflow/findings.js";
 import {
 	formatCompactFindingsView,
+	formatDecisionBriefing,
 	verdictMarker,
 } from "../../../extensions/pr-workflow/findings-view.js";
 import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
@@ -113,6 +114,47 @@ describe("verdictMarker", () => {
 				skipped: { reason: "blocked", recordedAt: "now" },
 			}),
 		).toBe("—");
+	});
+});
+
+describe("formatDecisionBriefing", () => {
+	it("returns empty when there are no findings", () => {
+		expect(formatDecisionBriefing(createPrWorkflowState())).toBe("");
+	});
+
+	it("counts pending findings across the run", () => {
+		const state = loadedState();
+		state.council.lastJudge = judgeWith([
+			lineFinding(1, "a"),
+			lineFinding(2, "b"),
+			lineFinding(3, "c"),
+		]);
+		decideFinding(state, { findingId: 1, verdict: "endorse" });
+		expect(formatDecisionBriefing(state)).toBe("Decisions: 2 of 3 pending");
+	});
+
+	it("reports all decided when nothing is pending", () => {
+		const state = loadedState();
+		state.council.lastJudge = judgeWith([lineFinding(1, "a")]);
+		decideFinding(state, { findingId: 1, verdict: "dismiss" });
+		expect(formatDecisionBriefing(state)).toBe("Decisions: all 1 decided.");
+	});
+
+	it("flags high-priority pending findings by severity or blocking decoration", () => {
+		const state = loadedState();
+		const critical = {
+			...lineFinding(1, "crit"),
+			severity: "critical" as const,
+		};
+		const blocking = { ...lineFinding(2, "block"), decorations: ["blocking"] };
+		state.council.lastJudge = judgeWith([
+			critical,
+			blocking,
+			lineFinding(3, "c"),
+		]);
+		expect(formatDecisionBriefing(state)).toBe(
+			"Decisions: 3 of 3 pending. 2 high-priority (critical or blocking).",
+		);
 	});
 });
 

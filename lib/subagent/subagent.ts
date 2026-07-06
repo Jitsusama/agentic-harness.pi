@@ -22,6 +22,10 @@
  * for durable runs).
  */
 
+import { randomUUID } from "node:crypto";
+import { rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getSubagentDefaults } from "./defaults.js";
 import { checkSubagentRuntime, detectStaleInstallInStderr } from "./health.js";
 
@@ -129,6 +133,13 @@ export interface ReviewerRunArtifacts {
 	readonly stderrPath: string;
 	readonly progressPath: string;
 	readonly resultPath: string;
+	/**
+	 * File the reviewer's verify_output tool writes its
+	 * validated payload to. The supervisor reads it back
+	 * out-of-band so a large review never rides the
+	 * size-capped event stream.
+	 */
+	readonly verifiedOutputPath: string;
 }
 
 export { extractUsageFromPiStream } from "./stream.js";
@@ -196,6 +207,13 @@ export interface ReviewerVerification {
 	readonly output?: unknown;
 	/** Whether finalAssistantText was materialized from the verified payload. */
 	readonly canonicalText?: boolean;
+	/**
+	 * Whether the output arrived out-of-band, from the
+	 * verify-output file rather than the event stream. When
+	 * set, the payload bypassed every stream and text size
+	 * cap, so the parent must not re-apply them.
+	 */
+	readonly outOfBand?: boolean;
 }
 
 export interface RunPiResult {
@@ -455,28 +473,44 @@ export async function runReviewer(
 		...defaults.skills,
 		...(options.extraSkills ?? []),
 	]);
+	// The prompt carries the whole review payload: the
+	// persona standard plus every inlined PR diff. On a
+	// stack review that runs past macOS ARG_MAX
+	// (1,048,576 bytes), and a prompt passed on argv crashes
+	// the pi child at spawn. Write it to a temp file and
+	// hand pi an `@<path>` reference instead, which pi merges
+	// into the prompt, so argv stays tiny whatever the diff
+	// size. The file is removed once the run resolves.
+	const promptFile = await writeReviewerPrompt(options.prompt);
 	const args = composeArgs({
 		spec: options.reviewer,
-		prompt: options.prompt,
+		prompt: `@${promptFile}`,
 		systemPrompt: options.systemPrompt,
 		isolated: options.isolated,
 		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
 		...(extraSkills.length > 0 ? { extraSkills } : {}),
 	});
-	const result = await options.runPi({
-		args,
-		cwd: options.cwd,
-		...(options.runId ? { runId: options.runId } : {}),
-		reviewerId: options.reviewer.id,
-		signal: options.signal,
-		onEvent: options.onEvent,
-		...(options.timeoutMs !== undefined
-			? { timeoutMs: options.timeoutMs }
-			: {}),
-		...(options.idleTimeoutMs !== undefined
-			? { idleTimeoutMs: options.idleTimeoutMs }
-			: {}),
-	});
+	let result: RunPiResult;
+	try {
+		result = await options.runPi({
+			args,
+			cwd: options.cwd,
+			...(options.runId ? { runId: options.runId } : {}),
+			reviewerId: options.reviewer.id,
+			signal: options.signal,
+			onEvent: options.onEvent,
+			...(options.timeoutMs !== undefined
+				? { timeoutMs: options.timeoutMs }
+				: {}),
+			...(options.idleTimeoutMs !== undefined
+				? { idleTimeoutMs: options.idleTimeoutMs }
+				: {}),
+		});
+	} finally {
+		// Best-effort: the OS temp dir is reaped anyway, and a
+		// failed unlink must not mask the run's own outcome.
+		await rm(promptFile, { force: true }).catch(() => {});
+	}
 
 	const parsed = extractRunPiOutput(result);
 	const requiresVerification = options.requiresVerification === true;
@@ -497,7 +531,10 @@ export async function runReviewer(
 			}
 		: verification;
 	const verified = verificationForResult?.ok
-		? verifiedOutputText(verificationForResult.output)
+		? verifiedOutputText(
+				verificationForResult.output,
+				verificationForResult.outOfBand === true,
+			)
 		: null;
 	const verifiedText = verified?.text ?? null;
 	const hasRunnerCanonicalText =
@@ -605,12 +642,16 @@ const MAX_VERIFIED_OUTPUT_BYTES = 512 * 1024;
 
 function verifiedOutputText(
 	output: unknown,
+	outOfBand = false,
 ): { readonly text: string | null; readonly warning?: string } | null {
 	if (output === undefined) return null;
-	return truncateBytes(
-		JSON.stringify(output, null, 2),
-		MAX_VERIFIED_OUTPUT_BYTES,
-	);
+	const text = JSON.stringify(output, null, 2);
+	// Out-of-band output already travelled on a file, past
+	// every stream and text cap on purpose. Re-truncating it
+	// here would resurrect the very failure the file avoids,
+	// so a trusted payload passes through whole.
+	if (outOfBand) return { text };
+	return truncateBytes(text, MAX_VERIFIED_OUTPUT_BYTES);
 }
 
 function verificationWithoutOutput(
@@ -658,12 +699,42 @@ const STDERR_SNIPPET_MAX = 240;
 function summarizeStderr(stderr: string): string {
 	if (!stderr) return "";
 	const lines = stderr.split(/\r?\n/);
+	// A node child crash leads with an internal frame
+	// ("node:internal/child_process:420") and buries the
+	// actionable line (an errno like E2BIG, or an "Error:"
+	// message) a few lines down. Prefer the meaningful line
+	// so a spawn failure names its own cause instead of
+	// making the caller guess.
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (isMeaningfulStderrLine(trimmed)) {
+			return truncate(trimmed, STDERR_SNIPPET_MAX);
+		}
+	}
 	for (const line of lines) {
 		const trimmed = line.trim();
 		if (!trimmed) continue;
 		return truncate(trimmed, STDERR_SNIPPET_MAX);
 	}
 	return "";
+}
+
+/**
+ * A stderr line that explains a failure: a system errno, a
+ * node error code, or an "Error:" message. Internal V8 or
+ * node frames and caret markers are not meaningful.
+ */
+function isMeaningfulStderrLine(line: string): boolean {
+	if (!line || line === "^") return false;
+	if (line.startsWith("at ") || line.startsWith("node:internal/")) return false;
+	return (
+		/\b(E2BIG|EMFILE|ENFILE|ENOENT|EACCES|ENOMEM|EAGAIN|ENOSPC|EPIPE)\b/.test(
+			line,
+		) ||
+		/\bERR_[A-Z0-9_]+\b/.test(line) ||
+		/\berrno\b/i.test(line) ||
+		/^(?:[\w.]*Error)\b/.test(line)
+	);
 }
 
 /**
@@ -684,6 +755,20 @@ interface ComposeArgsInput {
 	readonly isolated?: boolean;
 	readonly extraExtensions?: readonly string[];
 	readonly extraSkills?: readonly string[];
+}
+
+/**
+ * Write a reviewer prompt to a unique temp file and return
+ * its path. Callers pass `@<path>` to pi so the prompt
+ * rides a file rather than argv, keeping the spawn under
+ * macOS ARG_MAX no matter how large the inlined diffs are.
+ * The `.md` extension makes pi read the file as prompt
+ * text.
+ */
+async function writeReviewerPrompt(prompt: string): Promise<string> {
+	const path = join(tmpdir(), `pi-reviewer-prompt-${randomUUID()}.md`);
+	await writeFile(path, prompt, "utf-8");
+	return path;
 }
 
 function composeArgs(input: ComposeArgsInput): string[] {

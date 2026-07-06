@@ -74,7 +74,14 @@ describe("runSubagent", () => {
 		expect(args).toContain("--system-prompt You are a careful reader.");
 		expect(args).toContain("--skill /abs/skills/foo/SKILL.md");
 		expect(args).toContain("--extension /abs/extensions/foo.ts");
-		expect(args.endsWith("investigate the parser")).toBe(true);
+		// The prompt rides an @file reference, not argv, so a
+		// large prompt never overflows the spawn. Content
+		// fidelity is pinned in subagent.test.ts; here we only
+		// assert the final positional is the reference and the
+		// raw prompt is not passed as an argument.
+		const positional = fake.calls[0].args[fake.calls[0].args.length - 1];
+		expect(positional.startsWith("@")).toBe(true);
+		expect(args).not.toContain("investigate the parser");
 		expect(fake.calls[0].cwd).toBe("/tmp/wt-a");
 		expect(fake.calls[0].reviewerId).toBe("fleet-1");
 	});

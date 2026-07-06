@@ -26,6 +26,7 @@ import { createMutex } from "../../lib/internal/async-mutex.js";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
 import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
+import { getCurrentRepo } from "../../lib/internal/github/repo-discovery.js";
 import { postReview } from "../../lib/internal/github/review-post.js";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { findOrCreateSidequestForPr } from "../../lib/internal/quest/pr-sidequest.js";
@@ -2464,7 +2465,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 
 				const previousRef = state.pr?.reference ?? null;
-				const outcome = loadPr(state, { input: params.pr });
+				// A bare PR number needs an owner/repo to resolve
+				// against. Derive it from the checkout's origin
+				// remote so `load pr:123` works in a repo without
+				// spelling out owner/repo. Only consulted for a
+				// bare number, so a full ref never pays the git cost.
+				const defaultRepo = /^\d+$/.test(params.pr.trim())
+					? await getCurrentRepo(pi)
+					: null;
+				const outcome = loadPr(state, {
+					input: params.pr,
+					...(defaultRepo ? { defaultRepo } : {}),
+				});
 				if (!outcome.ok) {
 					return {
 						content: [{ type: "text", text: outcome.error }],
