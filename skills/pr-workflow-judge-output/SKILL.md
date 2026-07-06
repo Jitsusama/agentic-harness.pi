@@ -35,6 +35,14 @@ round 1:
   merge", "safe to defer", "confirm intent with the
   author"). Keep it distinct from `discussion`, which
   describes the problem, not the action.
+- `impact` — optional but preferred: one clause naming the
+  consequence of leaving the finding unaddressed ("silent
+  data loss", "slow endpoint under load"), so the user can
+  weigh the stake.
+- `cluster` — optional: a short root-cause label ("error
+  handling", "missing validation", "race condition") shared
+  by findings that stem from the same underlying cause.
+  Findings with the same label group together in the view.
 
 ### Location preservation
 

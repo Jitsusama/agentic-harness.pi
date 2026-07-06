@@ -238,6 +238,28 @@ describe("parseJudgeOutput", () => {
 		expect(result.findings[0]?.recommendation).toBe("fix before merge");
 	});
 
+	it("carries impact and cluster onto the finding", () => {
+		const text = [
+			"```json",
+			JSON.stringify({
+				findings: [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "Unhandled error",
+						discussion: "The error path is swallowed.",
+						impact: "silent failures in production",
+						cluster: "error handling",
+					},
+				],
+			}),
+			"```",
+		].join("\n");
+		const result = parseJudgeOutput(text, CTX);
+		expect(result.findings[0]?.impact).toBe("silent failures in production");
+		expect(result.findings[0]?.cluster).toBe("error handling");
+	});
+
 	describe("line-anchor warnings", () => {
 		function diffFile(
 			path: string,

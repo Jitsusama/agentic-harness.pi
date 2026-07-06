@@ -98,6 +98,13 @@ export interface Finding {
 	 * problem description in `discussion`.
 	 */
 	readonly recommendation?: string;
+	/** Consequence of leaving this finding unaddressed. */
+	readonly impact?: string;
+	/**
+	 * Root-cause label shared by findings from the same
+	 * underlying cause, so the view can group them.
+	 */
+	readonly cluster?: string;
 	readonly confidence?: number;
 	readonly origin: FindingOrigin;
 	readonly state: FindingState;

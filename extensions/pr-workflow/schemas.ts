@@ -204,6 +204,14 @@ export const JudgeFinding = Type.Object({
 	// safe to defer, confirm with the author, ...). Distinct
 	// from `discussion`, which describes the problem.
 	recommendation: Type.Optional(Type.String({ minLength: 1 })),
+	// One clause naming the consequence if this is left
+	// unaddressed (data loss, silent corruption, a slow
+	// endpoint, ...). Frames the decision by stake.
+	impact: Type.Optional(Type.String({ minLength: 1 })),
+	// A short root-cause label shared by findings that stem
+	// from the same underlying cause, so the view can group
+	// them ("error handling", "missing validation", ...).
+	cluster: Type.Optional(Type.String({ minLength: 1 })),
 });
 export type JudgeFinding = Static<typeof JudgeFinding>;
 
