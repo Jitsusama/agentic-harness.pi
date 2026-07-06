@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import type { ReviewThread } from "../../../extensions/pr-workflow/threads.js";
 import {
+	captureThreadExpectation,
 	formatThreadsView,
 	loadThreadsAction,
 	replyToThreadAction,
@@ -224,6 +225,37 @@ describe("resolveThreadsAction", () => {
 		expect(result.resolved).toEqual([1, 2]);
 		expect(result.failed).toHaveLength(1);
 		expect(result.failed[0]?.index).toBe(3);
+	});
+
+	it("resolves every targeted thread when drift expectations are captured eagerly", async () => {
+		const state = activeState();
+		state.threads = {
+			prNumber: 7,
+			fetchedAt: "t",
+			mutatedAt: "t",
+			version: 1,
+			threads: [
+				thread({ id: "TA" }),
+				thread({ id: "TB", path: "src/bar.ts" }),
+				thread({ id: "TC", path: "src/baz.ts" }),
+			],
+		};
+		// The index.ts caller captures every expectation up front at
+		// one snapshot version, then runs the batch. Each successful
+		// resolve bumps the version, so a naive drift check fails
+		// every sibling after the first.
+		const expectFor = new Map(
+			[1, 2, 3].map((i) => [i, captureThreadExpectation(state, i)]),
+		);
+		const result = await resolveThreadsAction({
+			state,
+			indices: [1, 2, 3],
+			resolver: async () => true,
+			expectFor: (i) => expectFor.get(i) ?? undefined,
+		});
+
+		expect(result.resolved).toEqual([1, 2, 3]);
+		expect(result.failed).toHaveLength(0);
 	});
 
 	it("continues past a resolver failure", async () => {
