@@ -43,6 +43,56 @@ function makeJudge(findings: Finding[]): JudgeRun {
 	};
 }
 
+function stackFixState() {
+	const state = createPrWorkflowState();
+	state.pr = {
+		reference: { owner: "o", repo: "r", number: 101 },
+		loadedAt: "2026-01-01T00:00:00Z",
+		metadata: null,
+		files: null,
+		stack: {
+			cursorIndex: 0,
+			cursorChildren: [],
+			entries: [
+				{
+					reference: { owner: "o", repo: "r", number: 101 },
+					title: "PR 101",
+					baseRefName: "main",
+					headRefName: "f101",
+				},
+				{
+					reference: { owner: "o", repo: "r", number: 102 },
+					title: "PR 102",
+					baseRefName: "f101",
+					headRefName: "f102",
+				},
+			],
+		},
+	};
+	state.stackFindingRun = {
+		id: "sc-1",
+		startedAt: "2026-01-01T00:05:00Z",
+		reviewerId: "sc",
+		warnings: [],
+		findings: [
+			{
+				id: 50,
+				location: { kind: "global" },
+				label: "issue",
+				decorations: [],
+				subject: "cross-PR concern",
+				discussion: "d",
+				category: "scope",
+				origin: { kind: "cross-PR", runId: "sc-1", reviewerId: "sc" },
+				state: "draft",
+				homePrNumber: 102,
+				spans: [102],
+			},
+		],
+	};
+	return state;
+}
+
 describe("getNextFix", () => {
 	it("returns null when there is no judge run", () => {
 		const state = createPrWorkflowState();
@@ -137,6 +187,34 @@ describe("getNextFix", () => {
 		decideFinding(state, { findingId: 1, verdict: "fix" });
 		recordFixDone(state, 1, "abc1234");
 
+		expect(getNextFix(state)).toBeNull();
+	});
+
+	it("queues a cross-PR stack fix targeting its home PR after per-PR fixes", () => {
+		const state = stackFixState();
+		decideFinding(state, { findingId: 50, verdict: "fix", scope: "stack" });
+
+		const next = getNextFix(state);
+		expect(next?.findingId).toBe(50);
+		expect(next?.homePrNumber).toBe(102);
+		expect(next?.target).toEqual({
+			owner: "o",
+			repo: "r",
+			number: 102,
+			branch: "f102",
+		});
+	});
+
+	it("records a stack fix outcome against the stack decision map", () => {
+		const state = stackFixState();
+		decideFinding(state, { findingId: 50, verdict: "fix", scope: "stack" });
+
+		expect(recordFixDone(state, 50, "deadbee").ok).toBe(true);
+		const decision = state.stackDecisions.get(50);
+		expect(decision?.verdict).toBe("fix");
+		if (decision?.verdict === "fix") {
+			expect(decision.resolvedBy?.commitSha).toBe("deadbee");
+		}
 		expect(getNextFix(state)).toBeNull();
 	});
 });

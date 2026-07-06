@@ -164,6 +164,47 @@ describe("formatCompactFindingsView", () => {
 		expect(text).toContain("Run pr_workflow");
 	});
 
+	it("renders the judge recommendation under the finding row", () => {
+		const state = loadedState();
+		state.council.lastJudge = judgeWith([
+			{ ...lineFinding(1, "Race"), recommendation: "fix before merge" },
+		]);
+		const text = formatCompactFindingsView(state);
+		expect(text).toContain("fix before merge");
+	});
+
+	it("renders the impact line under the finding row", () => {
+		const state = loadedState();
+		state.council.lastJudge = judgeWith([
+			{ ...lineFinding(1, "Race"), impact: "silent data loss under load" },
+		]);
+		const text = formatCompactFindingsView(state);
+		expect(text).toContain("silent data loss under load");
+	});
+
+	it("groups findings under cluster headers when the judge clustered them", () => {
+		const state = loadedState();
+		state.council.lastJudge = judgeWith([
+			{ ...lineFinding(1, "A"), cluster: "error handling" },
+			{ ...lineFinding(2, "B"), cluster: "validation" },
+			{ ...lineFinding(3, "C"), cluster: "error handling" },
+		]);
+		const text = formatCompactFindingsView(state);
+		expect(text).toContain("── error handling ──");
+		expect(text).toContain("── validation ──");
+		// The first cluster header precedes the second.
+		expect(text.indexOf("error handling")).toBeLessThan(
+			text.indexOf("validation"),
+		);
+	});
+
+	it("keeps a flat list when no finding carries a cluster", () => {
+		const state = loadedState();
+		state.council.lastJudge = judgeWith([lineFinding(1, "A")]);
+		const text = formatCompactFindingsView(state);
+		expect(text).not.toContain("──");
+	});
+
 	it("renders one row per finding with id, marker, label and location", () => {
 		const state = loadedState();
 		state.council.lastJudge = judgeWith([

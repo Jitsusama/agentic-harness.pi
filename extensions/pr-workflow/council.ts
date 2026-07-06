@@ -42,6 +42,11 @@ import {
 import type { CouncilRun, ReviewerOutput } from "./findings.js";
 import { parseReviewerOutput } from "./parse.js";
 import { buildReviewerPrompt } from "./prompts.js";
+import {
+	dispatchWithCache,
+	type ReviewerDispatchCache,
+	reviewerCacheKey,
+} from "./reviewer-cache.js";
 import type { ReviewThreadPromptContext } from "./thread-context.js";
 import { type WorktreeRegistry, worktreeRequestFor } from "./worktree.js";
 
@@ -103,6 +108,13 @@ export interface RunCouncilOptions {
 	 * progress while a fan-out is in flight.
 	 */
 	readonly progress?: CouncilProgress;
+	/**
+	 * Session cache of prior verified reviewer dispatches,
+	 * keyed by reviewed content. When present, a reviewer
+	 * whose input is byte-identical to a prior run reuses
+	 * that result instead of dispatching again.
+	 */
+	readonly cache?: ReviewerDispatchCache;
 }
 
 /** Options for a single-reviewer council dispatch. */
@@ -122,6 +134,12 @@ export interface RunOneReviewerOptions {
 	readonly signal?: AbortSignal;
 	/** Provider or repository context appended to the reviewer prompt. */
 	readonly promptAddendum?: string;
+	/**
+	 * Session cache of prior verified reviewer dispatches. A
+	 * retry refreshes the entry for its reviewer so a later
+	 * full council run reuses the retried result.
+	 */
+	readonly cache?: ReviewerDispatchCache;
 	/**
 	 * Starting finding id. Findings get assigned ids
 	 * sequentially from this value. Used only when `allocate`
@@ -164,15 +182,31 @@ export async function runOneCouncilReviewer(
 	});
 	const charter = options.charterFor?.(options.reviewer.id);
 	try {
-		const value = await options.dispatch({
-			reviewer: options.reviewer,
+		// A retry is always a fresh run, so bypass the cache
+		// read; still refresh the store so a later full council
+		// run reuses this retried result rather than the stale one.
+		const cacheKey = reviewerCacheKey({
+			reviewerId: options.reviewer.id,
+			...(options.reviewer.model ? { model: options.reviewer.model } : {}),
+			...(charter ? { charter } : {}),
 			prompt,
-			cwd: handle.path,
-			runId: options.runId,
-			signal: options.signal,
-			expectedVerificationStage: "council",
-			...(charter ? { systemPrompt: charter } : {}),
 		});
+		const dispatched = await dispatchWithCache(
+			options.cache,
+			cacheKey,
+			() =>
+				options.dispatch({
+					reviewer: options.reviewer,
+					prompt,
+					cwd: handle.path,
+					runId: options.runId,
+					signal: options.signal,
+					expectedVerificationStage: "council",
+					...(charter ? { systemPrompt: charter } : {}),
+				}),
+			{ read: false },
+		);
+		const value = dispatched.value;
 		const counted = parseReviewerOutput(value.finalAssistantText, {
 			reviewerId: options.reviewer.id,
 			runId: options.runId,
@@ -255,6 +289,7 @@ export async function runCouncil(
 		// We can't know how many findings each will return
 		// until they're parsed, so we serialize id assignment
 		// AFTER results land — dispatch is still concurrent.
+		const reusedByReviewer = new Map<string, boolean>();
 		const settled = await Promise.allSettled(
 			options.reviewers.map(async (reviewer) => {
 				safelyNotify(
@@ -273,16 +308,29 @@ export async function runCouncil(
 				};
 				const charter = options.charterFor?.(reviewer.id);
 				try {
-					const value = await options.dispatch({
-						reviewer,
+					const cacheKey = reviewerCacheKey({
+						reviewerId: reviewer.id,
+						...(reviewer.model ? { model: reviewer.model } : {}),
+						...(charter ? { charter } : {}),
 						prompt,
-						cwd: handle.path,
-						runId: options.runId,
-						signal: options.signal,
-						expectedVerificationStage: "council",
-						onEvent,
-						...(charter ? { systemPrompt: charter } : {}),
 					});
+					const dispatched = await dispatchWithCache(
+						options.cache,
+						cacheKey,
+						() =>
+							options.dispatch({
+								reviewer,
+								prompt,
+								cwd: handle.path,
+								runId: options.runId,
+								signal: options.signal,
+								expectedVerificationStage: "council",
+								onEvent,
+								...(charter ? { systemPrompt: charter } : {}),
+							}),
+					);
+					const value = dispatched.value;
+					reusedByReviewer.set(reviewer.id, dispatched.fromCache);
 					const parsed = parseReviewerOutput(value.finalAssistantText, {
 						reviewerId: reviewer.id,
 						runId: options.runId,
@@ -376,6 +424,7 @@ export async function runCouncil(
 				warnings: [...value.warnings, ...parsed.warnings],
 				...(value.usage ? { usage: value.usage } : {}),
 				...(value.verification ? { verification: value.verification } : {}),
+				...(reusedByReviewer.get(reviewer.id) ? { reused: true } : {}),
 			};
 			reviewerOutputs.push(output);
 		}

@@ -21,10 +21,13 @@ const INTENT_HEADING = "## This run";
 export function composeRunAddendum(
 	providerAddendum: string | undefined,
 	userIntent: string | undefined,
+	stackContext?: string | undefined,
 ): string | undefined {
 	const provider = providerAddendum?.trim() ?? "";
 	const intent = userIntent?.trim() ?? "";
+	const stack = stackContext?.trim() ?? "";
 	const parts: string[] = [];
+	if (stack !== "") parts.push(stack);
 	if (provider !== "") parts.push(provider);
 	if (intent !== "") parts.push(`${INTENT_HEADING}\n\n${intent}`);
 	if (parts.length === 0) return undefined;

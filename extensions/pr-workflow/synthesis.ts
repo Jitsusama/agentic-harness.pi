@@ -160,6 +160,94 @@ export function decideFinding(
 	return { ok: true };
 }
 
+/** A verdict that carries no per-finding location override. */
+export type BatchDecideVerdict =
+	| "endorse"
+	| "dismiss"
+	| "promote"
+	| "fix"
+	| "qualify";
+
+/** Inputs to {@link decideFindings}. */
+export interface BatchDecideInput {
+	readonly findingIds: readonly number[];
+	readonly verdict: BatchDecideVerdict;
+	readonly scope?: DecideFindingScope;
+	/** Shared note for a batch qualify. */
+	readonly note?: string;
+	/** Shared reason for a batch dismiss. */
+	readonly reason?: string;
+	/** Shared instructions for a batch fix. */
+	readonly instructions?: string;
+}
+
+/** Outcome of a batch decide: what landed and what did not. */
+export interface BatchDecideResult {
+	readonly decided: number[];
+	readonly failed: { findingId: number; error: string }[];
+}
+
+/**
+ * Apply one simple verdict across a list of finding ids in
+ * a single call, recording each and collecting per-id
+ * failures without aborting the batch. Only verdicts
+ * without per-finding overrides are batchable; edit stays
+ * a single-finding action.
+ */
+export function decideFindings(
+	state: PrWorkflowState,
+	input: BatchDecideInput,
+	now: () => Date = () => new Date(),
+): BatchDecideResult {
+	const decided: number[] = [];
+	const failed: { findingId: number; error: string }[] = [];
+	for (const findingId of input.findingIds) {
+		const single = singleInputFor(findingId, input);
+		const result = decideFinding(state, single, now);
+		if (result.ok) {
+			decided.push(findingId);
+		} else {
+			failed.push({ findingId, error: result.error });
+		}
+	}
+	return { decided, failed };
+}
+
+/**
+ * Build the single-finding decide input for one id in a
+ * batch, attaching the shared verdict fields.
+ */
+function singleInputFor(
+	findingId: number,
+	input: BatchDecideInput,
+): DecideFindingInput {
+	const scope = input.scope;
+	switch (input.verdict) {
+		case "endorse":
+			return { findingId, verdict: "endorse", scope };
+		case "promote":
+			return { findingId, verdict: "promote", scope };
+		case "dismiss":
+			return {
+				findingId,
+				verdict: "dismiss",
+				scope,
+				...(input.reason !== undefined ? { reason: input.reason } : {}),
+			};
+		case "fix":
+			return {
+				findingId,
+				verdict: "fix",
+				scope,
+				...(input.instructions !== undefined
+					? { instructions: input.instructions }
+					: {}),
+			};
+		case "qualify":
+			return { findingId, verdict: "qualify", scope, note: input.note ?? "" };
+	}
+}
+
 /**
  * Resolve a finding id against the scope-appropriate
  * source. Returns a failure result with a scope-specific

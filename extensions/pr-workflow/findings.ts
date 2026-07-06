@@ -92,6 +92,19 @@ export interface Finding {
 	readonly discussion: string;
 	readonly category: "file" | "title" | "scope";
 	readonly severity?: FindingSeverity;
+	/**
+	 * Short decision cue from the judge: what the user
+	 * should do about this finding, distinct from the
+	 * problem description in `discussion`.
+	 */
+	readonly recommendation?: string;
+	/** Consequence of leaving this finding unaddressed. */
+	readonly impact?: string;
+	/**
+	 * Root-cause label shared by findings from the same
+	 * underlying cause, so the view can group them.
+	 */
+	readonly cluster?: string;
 	readonly confidence?: number;
 	readonly origin: FindingOrigin;
 	readonly state: FindingState;
@@ -115,6 +128,12 @@ export interface ReviewerOutput {
 	readonly usage?: ReviewerUsage;
 	/** Verification result reported by the subagent's verify_output tool. */
 	readonly verification?: ReviewerVerification;
+	/**
+	 * True when this reviewer's result was reused from the
+	 * session cache rather than re-dispatched, because its
+	 * reviewed input was unchanged since a prior run.
+	 */
+	readonly reused?: boolean;
 }
 
 /** A council run: the unit of state for a council invocation. */

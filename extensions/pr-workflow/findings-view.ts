@@ -175,6 +175,32 @@ export function formatDecisionBriefing(state: PrWorkflowState): string {
 		: base;
 }
 
+/**
+ * Group findings under their root-cause cluster labels,
+ * preserving first-appearance order, or return null when no
+ * finding carries a cluster so the caller keeps the flat
+ * list. Findings with no label fall under "other".
+ */
+function groupByCluster(
+	findings: readonly Finding[],
+): { cluster: string; findings: Finding[] }[] | null {
+	if (!findings.some((f) => f.cluster)) return null;
+	const order: string[] = [];
+	const byCluster = new Map<string, Finding[]>();
+	for (const finding of findings) {
+		const key = finding.cluster?.trim() || "other";
+		if (!byCluster.has(key)) {
+			byCluster.set(key, []);
+			order.push(key);
+		}
+		byCluster.get(key)?.push(finding);
+	}
+	return order.map((cluster) => ({
+		cluster,
+		findings: byCluster.get(cluster) ?? [],
+	}));
+}
+
 /** A finding is high-priority when critical or marked blocking. */
 function isHighPriority(finding: Finding): boolean {
 	if (finding.severity === "critical") return true;
@@ -211,7 +237,7 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 
 	const diffFiles = state.pr?.files ?? null;
 
-	for (const finding of judge.consolidatedFindings) {
+	const renderRow = (finding: Finding): void => {
 		const decision = state.council.decisions.get(finding.id) ?? null;
 		const projected = effectiveFinding(finding, decision);
 		const { subject, label } = projected;
@@ -226,6 +252,27 @@ export function formatCompactFindingsView(state: PrWorkflowState): string {
 		lines.push(
 			`[${finding.id}] ${verdictMarker(decision)} [${label}] ${subject} (${renderLocation(projected)})${thread}${bodyBound}${critique}${skipReason}`,
 		);
+		if (projected.recommendation) {
+			lines.push(`      → ${projected.recommendation}`);
+		}
+		if (projected.impact) {
+			lines.push(`      ! impact: ${projected.impact}`);
+		}
+	};
+
+	// When the judge grouped findings by root cause, render
+	// them under cluster headers so related work reads
+	// together; otherwise keep the flat list.
+	const clusters = groupByCluster(judge.consolidatedFindings);
+	if (clusters === null) {
+		for (const finding of judge.consolidatedFindings) renderRow(finding);
+	} else {
+		for (const { cluster, findings } of clusters) {
+			lines.push(`── ${cluster} ──`);
+			for (const finding of findings) renderRow(finding);
+			lines.push("");
+		}
+		if (lines[lines.length - 1] === "") lines.pop();
 	}
 
 	if (

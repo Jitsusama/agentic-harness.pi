@@ -5,6 +5,7 @@ import {
 	runCouncil,
 	runOneCouncilReviewer,
 } from "../../../extensions/pr-workflow/council.js";
+import type { ReviewerDispatchCache } from "../../../extensions/pr-workflow/reviewer-cache.js";
 import {
 	type WorktreeProvider,
 	WorktreeRegistry,
@@ -88,6 +89,70 @@ function findingsJson(subjects: string[]): string {
 		})),
 	});
 }
+
+describe("runCouncil caching", () => {
+	it("reuses a verified reviewer on a re-run with an unchanged input", async () => {
+		// A second run over identical input must not pay to
+		// re-dispatch: the cache key is the reviewed content.
+		const cache: ReviewerDispatchCache = new Map();
+		let calls = 0;
+		const dispatch: CouncilDispatch = async (opts) => {
+			calls++;
+			return {
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: findingsJson(["a"]),
+				stderr: "",
+				warnings: [],
+				verification: { called: true, ok: true },
+			};
+		};
+		const opts = {
+			runId: "run-1",
+			target: TARGET,
+			reviewers: [REVIEWER_A],
+			registry: new WorktreeRegistry(fakeWorktreeProvider()),
+			dispatch,
+			cache,
+		};
+
+		await runCouncil(opts);
+		const second = await runCouncil({ ...opts, runId: "run-2" });
+
+		expect(calls).toBe(1);
+		expect(second.reviewerOutputs[0]?.reused).toBe(true);
+		expect(second.reviewerOutputs[0]?.findings).toHaveLength(1);
+	});
+
+	it("does not reuse an unverified reviewer", async () => {
+		const cache: ReviewerDispatchCache = new Map();
+		let calls = 0;
+		const dispatch: CouncilDispatch = async (opts) => {
+			calls++;
+			return {
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: findingsJson(["a"]),
+				stderr: "",
+				warnings: [],
+				verification: { called: false, ok: false },
+			};
+		};
+		const opts = {
+			runId: "run-1",
+			target: TARGET,
+			reviewers: [REVIEWER_A],
+			registry: new WorktreeRegistry(fakeWorktreeProvider()),
+			dispatch,
+			cache,
+		};
+
+		await runCouncil(opts);
+		await runCouncil({ ...opts, runId: "run-2" });
+
+		expect(calls).toBe(2);
+	});
+});
 
 describe("runCouncil", () => {
 	it("provisions exactly one worktree shared across all reviewers", async () => {

@@ -25,6 +25,7 @@ import type { PrMetadata } from "./fetch.js";
 import type { CouncilRun } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
 import type { ParticipantIdentity } from "./participant-identities.js";
+import type { ReviewerDispatchCache } from "./reviewer-cache.js";
 import type { Stack } from "./stack.js";
 import type { StackFindingRun } from "./stack-findings.js";
 import type { FindingDecision } from "./synthesis.js";
@@ -77,6 +78,13 @@ export interface CouncilState {
 	 * before posting.
 	 */
 	decisions: Map<number, FindingDecision>;
+	/**
+	 * Content-addressed cache of prior verified reviewer
+	 * dispatches, so a re-run reuses reviewers whose input
+	 * is unchanged. Keyed by reviewed content; a changed
+	 * diff misses and re-reviews.
+	 */
+	reviewerCache: ReviewerDispatchCache;
 }
 
 /**
@@ -206,6 +214,7 @@ export function createPrWorkflowState(): PrWorkflowState {
 			lastJudge: null,
 			lastCritique: null,
 			decisions: new Map(),
+			reviewerCache: new Map(),
 		},
 		participantIdentities: new Map(),
 		nextFindingId: 1,
@@ -235,6 +244,7 @@ export function resetPrWorkflowSession(state: PrWorkflowState): void {
 	state.council.lastJudge = null;
 	state.council.lastCritique = null;
 	state.council.decisions = new Map();
+	state.council.reviewerCache = new Map();
 	state.participantIdentities = new Map();
 	state.nextFindingId = 1;
 	state.stackRuns = new Map();

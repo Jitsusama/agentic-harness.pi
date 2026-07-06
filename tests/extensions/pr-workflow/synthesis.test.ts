@@ -12,6 +12,7 @@ import type {
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import {
 	decideFinding,
+	decideFindings,
 	effectiveFinding,
 	formatFindingsView,
 } from "../../../extensions/pr-workflow/synthesis.js";
@@ -815,5 +816,79 @@ describe("integration: critique + decisions flow", () => {
 		expect(text).toContain("endorse");
 		expect(text).toContain("dismiss");
 		expect(text).toContain("disagreement is correct");
+	});
+});
+
+describe("decideFindings", () => {
+	it("applies one verdict across many ids in a single call", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([
+			judgedFinding(1, "a"),
+			judgedFinding(2, "b"),
+			judgedFinding(3, "c"),
+		]);
+
+		const result = decideFindings(state, {
+			findingIds: [1, 2, 3],
+			verdict: "endorse",
+		});
+
+		expect(result.decided).toEqual([1, 2, 3]);
+		expect(result.failed).toEqual([]);
+		expect(state.council.decisions.get(1)?.verdict).toBe("endorse");
+		expect(state.council.decisions.get(3)?.verdict).toBe("endorse");
+	});
+
+	it("carries the shared reason onto a batch dismiss", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([
+			judgedFinding(1, "a"),
+			judgedFinding(2, "b"),
+		]);
+
+		decideFindings(state, {
+			findingIds: [1, 2],
+			verdict: "dismiss",
+			reason: "out of scope",
+		});
+
+		const decision = state.council.decisions.get(2);
+		expect(decision?.verdict).toBe("dismiss");
+		if (decision?.verdict === "dismiss") {
+			expect(decision.reason).toBe("out of scope");
+		}
+	});
+
+	it("continues past an unknown id and reports it as failed", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([judgedFinding(1, "a")]);
+
+		const result = decideFindings(state, {
+			findingIds: [1, 999],
+			verdict: "endorse",
+		});
+
+		expect(result.decided).toEqual([1]);
+		expect(result.failed).toHaveLength(1);
+		expect(result.failed[0]?.findingId).toBe(999);
+		expect(state.council.decisions.get(1)?.verdict).toBe("endorse");
+	});
+
+	it("applies a shared qualify note across the batch", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([
+			judgedFinding(1, "a"),
+			judgedFinding(2, "b"),
+		]);
+
+		const result = decideFindings(state, {
+			findingIds: [1, 2],
+			verdict: "qualify",
+			note: "soften the tone",
+		});
+
+		expect(result.decided).toEqual([1, 2]);
+		const decision = state.council.decisions.get(1);
+		expect(decision?.verdict).toBe("qualify");
 	});
 });

@@ -64,6 +64,7 @@ import {
 	retryCritiqueReviewer,
 	runCritiqueAction,
 } from "./critique-action.js";
+import { decideBatchAction } from "./decide-action.js";
 import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
 import type { ConventionalLabel } from "./findings.js";
 import { formatCompactFindingsView } from "./findings-view.js";
@@ -142,6 +143,7 @@ import {
 	confirmReplyAndResolveGate,
 	confirmReplyGate,
 	confirmResolveGate,
+	confirmResolveManyGate,
 } from "./thread-gate.js";
 import { describeReplyOutcome } from "./thread-reply-outcome.js";
 import { fetchReviewThreads, replyToThread, resolveThread } from "./threads.js";
@@ -151,6 +153,7 @@ import {
 	loadThreadsAction,
 	replyToThreadAction,
 	resolveThreadAction,
+	resolveThreadsAction,
 } from "./threads-action.js";
 import { summarizeUsage, type UsageBreakdown } from "./usage.js";
 import { resolveVerifyPack } from "./verify-packs.js";
@@ -567,7 +570,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"review body + inline comments + skipped findings that `post` " +
 						"would build, without firing the gate or contacting GitHub. " +
 						"Use to preview which findings will degrade to body before posting. " +
-						"decide: record the user's verdict on a single finding. " +
+						"decide: record the user's verdict on a single finding (findingId), " +
+						"or on many at once by passing findingIds with one batchable verdict " +
+						"(endorse, dismiss, promote, fix, qualify). " +
 						"post: send eligible findings to GitHub as a PR review. " +
 						"stack: render the discovered PR stack with cursor highlighted. " +
 						"stack-next: re-load the next PR downstream of the cursor. " +
@@ -579,7 +584,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"threads: fetch the loaded PR's existing review threads. " +
 						"reply: post a reply to a thread by its [T#] index; pass " +
 						"resolve=true to reply and resolve in one combined gate. " +
-						"resolve: resolve a thread by its [T#] index. " +
+						"resolve: resolve a thread by its [T#] index, or many at once with threadIndices behind one gate. " +
 						"fix-next: return the next finding queued for fix " +
 						"(verdict=fix) with no recorded outcome. Includes a " +
 						"fix worktree path the agent must `cd` into before " +
@@ -836,7 +841,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			findingId: Type.Optional(
 				Type.Integer({
 					description:
-						"Finding id from the most-recent judge run. Required for action=decide.",
+						"Finding id from the most-recent judge run. Required for action=decide (single). Omit when passing findingIds for a batch decide.",
+				}),
+			),
+			findingIds: Type.Optional(
+				Type.Array(Type.Integer(), {
+					description:
+						"Finding ids for a batch action=decide: apply one verdict to every id in the list. Only the override-free verdicts are batchable (endorse, dismiss, promote, fix, qualify); edit stays a single-finding decide via findingId. Shared note/reason/instructions apply to the whole batch.",
 				}),
 			),
 			reviewerId: Type.Optional(
@@ -899,7 +910,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			threadIndex: Type.Optional(
 				Type.Integer({
 					description:
-						"1-based index of a review thread in the most recent threads snapshot (the [T#] label rendered by action=threads). Required for action=reply and action=resolve.",
+						"1-based index of a review thread in the most recent threads snapshot (the [T#] label rendered by action=threads). Required for action=reply, and for action=resolve unless threadIndices is given.",
+				}),
+			),
+			threadIndices: Type.Optional(
+				Type.Array(Type.Integer(), {
+					description:
+						"1-based thread indices for a batch action=resolve: resolve every listed thread behind one gate. Review-level comments in the list are reported as failed, not resolved.",
 				}),
 			),
 			replyBody: Type.Optional(
@@ -1483,12 +1500,27 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 
 				if (params.action === "decide") {
+					if (params.findingIds && params.findingIds.length > 0) {
+						const batch = decideBatchAction(state, {
+							findingIds: params.findingIds,
+							verdict: params.verdict,
+							scope: params.scope,
+							note: params.note,
+							reason: params.reason,
+							instructions: params.instructions,
+						});
+						return {
+							content: [{ type: "text", text: batch.summary }],
+							details: batch.details,
+							...(batch.isError ? { isError: true } : {}),
+						};
+					}
 					if (typeof params.findingId !== "number") {
 						return {
 							content: [
 								{
 									type: "text",
-									text: "decide requires a `findingId` argument.",
+									text: "decide requires a `findingId` argument (or `findingIds` for a batch).",
 								},
 							],
 							details: { ok: false, error: "missing findingId" },
@@ -1804,12 +1836,59 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 
 				if (params.action === "resolve") {
+					if (params.threadIndices && params.threadIndices.length > 0) {
+						const indices = params.threadIndices;
+						const threadsForGate = indices
+							.map((i) => state.threads?.threads[i - 1])
+							.filter((t): t is NonNullable<typeof t> => t !== undefined);
+						const expectFor = new Map(
+							indices.map((i) => [i, captureThreadExpectation(state, i)]),
+						);
+						if (threadsForGate.length > 0) {
+							const gate = await confirmResolveManyGate(ctx, threadsForGate);
+							if (!gate.approved) {
+								return {
+									content: [{ type: "text", text: gate.reason }],
+									details: { ok: false, error: gate.reason },
+									isError: true,
+								};
+							}
+						}
+						const batch = await resolveThreadsAction({
+							state,
+							indices,
+							resolver: (threadId) => resolveThread(pi, threadId),
+							expectFor: (i) => expectFor.get(i) ?? undefined,
+						});
+						const summaryParts = [
+							`Resolved ${batch.resolved.length} thread(s)` +
+								(batch.resolved.length > 0
+									? `: ${batch.resolved.map((i) => `[T${i}]`).join(", ")}`
+									: ""),
+						];
+						if (batch.failed.length > 0) {
+							summaryParts.push(
+								`Failed: ${batch.failed
+									.map((f) => `[T${f.index}] ${f.error}`)
+									.join("; ")}`,
+							);
+						}
+						return {
+							content: [{ type: "text", text: summaryParts.join(" ") }],
+							details: {
+								ok: batch.resolved.length > 0,
+								resolved: batch.resolved,
+								failed: batch.failed,
+							},
+							...(batch.resolved.length === 0 ? { isError: true } : {}),
+						};
+					}
 					if (typeof params.threadIndex !== "number") {
 						return {
 							content: [
 								{
 									type: "text",
-									text: "resolve requires a `threadIndex` argument.",
+									text: "resolve requires a `threadIndex` (or `threadIndices` for a batch) argument.",
 								},
 							],
 							details: { ok: false, error: "missing threadIndex" },
