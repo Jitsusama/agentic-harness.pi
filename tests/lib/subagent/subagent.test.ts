@@ -893,6 +893,39 @@ describe("runReviewer — result extraction", () => {
 		expect(result.warnings.length).toBeGreaterThan(0);
 	});
 
+	it("surfaces the real error line from a node child crash, not the internal frame", async () => {
+		// A crashed reviewer's stderr leads with a useless
+		// node:internal/child_process frame; the actionable
+		// errno (E2BIG, EMFILE, ...) is a few lines down. The
+		// surfaced "Pi stderr" warning must name the real cause
+		// so a failure explains itself instead of forcing the
+		// caller to guess (as happened on the ARG_MAX night).
+		const { runPi } = fakeRun({
+			exitCode: 1,
+			stderr: [
+				"node:internal/child_process:420",
+				"      throw errnoException(err, 'spawn');",
+				"      ^",
+				"Error: spawn E2BIG",
+				"    at ChildProcess.spawn (node:internal/child_process:420:11)",
+			].join("\n"),
+			stdout: "",
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+
+		const stderrWarning = result.warnings.find((w) =>
+			w.startsWith("Pi stderr:"),
+		);
+		expect(stderrWarning).toBeDefined();
+		expect(stderrWarning).toContain("E2BIG");
+	});
+
 	it("surfaces verified payloads from non-zero reviewer runs with a warning", async () => {
 		const { runPi } = fakeRun({
 			exitCode: 1,

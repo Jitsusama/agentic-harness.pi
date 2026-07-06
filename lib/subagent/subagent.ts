@@ -699,12 +699,42 @@ const STDERR_SNIPPET_MAX = 240;
 function summarizeStderr(stderr: string): string {
 	if (!stderr) return "";
 	const lines = stderr.split(/\r?\n/);
+	// A node child crash leads with an internal frame
+	// ("node:internal/child_process:420") and buries the
+	// actionable line (an errno like E2BIG, or an "Error:"
+	// message) a few lines down. Prefer the meaningful line
+	// so a spawn failure names its own cause instead of
+	// making the caller guess.
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (isMeaningfulStderrLine(trimmed)) {
+			return truncate(trimmed, STDERR_SNIPPET_MAX);
+		}
+	}
 	for (const line of lines) {
 		const trimmed = line.trim();
 		if (!trimmed) continue;
 		return truncate(trimmed, STDERR_SNIPPET_MAX);
 	}
 	return "";
+}
+
+/**
+ * A stderr line that explains a failure: a system errno, a
+ * node error code, or an "Error:" message. Internal V8 or
+ * node frames and caret markers are not meaningful.
+ */
+function isMeaningfulStderrLine(line: string): boolean {
+	if (!line || line === "^") return false;
+	if (line.startsWith("at ") || line.startsWith("node:internal/")) return false;
+	return (
+		/\b(E2BIG|EMFILE|ENFILE|ENOENT|EACCES|ENOMEM|EAGAIN|ENOSPC|EPIPE)\b/.test(
+			line,
+		) ||
+		/\bERR_[A-Z0-9_]+\b/.test(line) ||
+		/\berrno\b/i.test(line) ||
+		/^(?:[\w.]*Error)\b/.test(line)
+	);
 }
 
 /**
