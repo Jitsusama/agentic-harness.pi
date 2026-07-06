@@ -2449,18 +2449,31 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							isError: true,
 						};
 					}
+					// A positive audited count with no verdicts means the
+					// auditor ran but returned nothing parseable; do not let
+					// that read as a clean "nothing to audit", and surface the
+					// diagnostics in the visible output rather than only in
+					// details.
+					const auditParseFailed =
+						result.audited > 0 && result.verdicts.length === 0;
+					const auditText = auditParseFailed
+						? `The auditor returned no usable verdicts for ${result.audited} thread(s). ` +
+							"Re-run action=audit-threads."
+						: formatThreadAudit(result.verdicts, result.indexById);
+					const auditBody =
+						result.warnings.length > 0
+							? `${auditText}\n\nWarnings:\n${result.warnings
+									.map((w) => `  - ${w}`)
+									.join("\n")}`
+							: auditText;
 					return {
-						content: [
-							{
-								type: "text",
-								text: formatThreadAudit(result.verdicts, result.indexById),
-							},
-						],
+						content: [{ type: "text", text: auditBody }],
 						details: {
-							ok: true,
+							ok: !auditParseFailed,
 							verdicts: result.verdicts,
 							warnings: result.warnings,
 						},
+						...(auditParseFailed ? { isError: true } : {}),
 					};
 				}
 
