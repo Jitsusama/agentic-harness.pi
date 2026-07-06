@@ -133,6 +133,13 @@ export interface ReviewerRunArtifacts {
 	readonly stderrPath: string;
 	readonly progressPath: string;
 	readonly resultPath: string;
+	/**
+	 * File the reviewer's verify_output tool writes its
+	 * validated payload to. The supervisor reads it back
+	 * out-of-band so a large review never rides the
+	 * size-capped event stream.
+	 */
+	readonly verifiedOutputPath: string;
 }
 
 export { extractUsageFromPiStream } from "./stream.js";
@@ -200,6 +207,13 @@ export interface ReviewerVerification {
 	readonly output?: unknown;
 	/** Whether finalAssistantText was materialized from the verified payload. */
 	readonly canonicalText?: boolean;
+	/**
+	 * Whether the output arrived out-of-band, from the
+	 * verify-output file rather than the event stream. When
+	 * set, the payload bypassed every stream and text size
+	 * cap, so the parent must not re-apply them.
+	 */
+	readonly outOfBand?: boolean;
 }
 
 export interface RunPiResult {
@@ -517,7 +531,10 @@ export async function runReviewer(
 			}
 		: verification;
 	const verified = verificationForResult?.ok
-		? verifiedOutputText(verificationForResult.output)
+		? verifiedOutputText(
+				verificationForResult.output,
+				verificationForResult.outOfBand === true,
+			)
 		: null;
 	const verifiedText = verified?.text ?? null;
 	const hasRunnerCanonicalText =
@@ -625,12 +642,16 @@ const MAX_VERIFIED_OUTPUT_BYTES = 512 * 1024;
 
 function verifiedOutputText(
 	output: unknown,
+	outOfBand = false,
 ): { readonly text: string | null; readonly warning?: string } | null {
 	if (output === undefined) return null;
-	return truncateBytes(
-		JSON.stringify(output, null, 2),
-		MAX_VERIFIED_OUTPUT_BYTES,
-	);
+	const text = JSON.stringify(output, null, 2);
+	// Out-of-band output already travelled on a file, past
+	// every stream and text cap on purpose. Re-truncating it
+	// here would resurrect the very failure the file avoids,
+	// so a trusted payload passes through whole.
+	if (outOfBand) return { text };
+	return truncateBytes(text, MAX_VERIFIED_OUTPUT_BYTES);
 }
 
 function verificationWithoutOutput(

@@ -93,6 +93,7 @@ export class ReviewerArtifactsStore {
 			stderrPath: join(reviewerDir, "stderr.log"),
 			progressPath: join(reviewerDir, "progress.json"),
 			resultPath: join(reviewerDir, "result.json"),
+			verifiedOutputPath: join(reviewerDir, "verified-output.json"),
 		};
 	}
 

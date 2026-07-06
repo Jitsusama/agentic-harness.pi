@@ -579,6 +579,47 @@ describe("runReviewer — result extraction", () => {
 		expect(result.verification?.ok).toBe(true);
 	});
 
+	it("passes a large out-of-band verified payload through without truncation", async () => {
+		// Out-of-band output already travelled on a file, past
+		// the stream and text caps on purpose. The parent must
+		// not re-apply its own 512 KB verified-output cap, or a
+		// large-but-valid review would be dropped at the last
+		// step. A payload over that cap must survive whole.
+		const bigDiscussion = "x".repeat(600 * 1024);
+		const { runPi } = fakeRun({
+			finalAssistantText: "",
+			verification: {
+				called: true,
+				ok: true,
+				stage: "council",
+				count: 1,
+				outOfBand: true,
+				output: {
+					findings: [
+						{
+							location: { kind: "global" },
+							label: "issue",
+							subject: "Big",
+							discussion: bigDiscussion,
+						},
+					],
+				},
+			},
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			expectedVerificationStage: "council",
+			requiresVerification: true,
+			runPi,
+		});
+
+		expect(result.finalAssistantText).toContain(bigDiscussion);
+		expect(result.verification?.ok).toBe(true);
+	});
+
 	it("uses successful verify_output payload as the canonical final text", async () => {
 		const { runPi } = fakeRun({
 			stdout: assistantEvent("not parseable"),

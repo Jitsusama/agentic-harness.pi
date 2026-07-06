@@ -38,6 +38,14 @@ export type ValidateResult =
 			readonly ok: true;
 			readonly count: number;
 			readonly warnings?: readonly string[];
+			/**
+			 * The normalized payload (JSON-string parsed, severities
+			 * normalized) that passed the schema. The verify tool
+			 * persists this out-of-band so the parent reads the object
+			 * from a file rather than scraping it off the size-capped
+			 * event stream.
+			 */
+			readonly value: unknown;
 	  }
 	| {
 			readonly ok: false;
@@ -117,7 +125,7 @@ export function validateOutput(
 	}
 
 	const count = contract.itemCount(candidate);
-	return { ok: true, count, warnings };
+	return { ok: true, count, warnings, value: candidate };
 }
 
 function mergeWarnings(

@@ -16,9 +16,38 @@
  * one place.
  */
 
+import { writeFile } from "node:fs/promises";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { type StageContract, validateOutput } from "./validate.js";
+
+/**
+ * Env var naming the file where a successful verification
+ * envelope is written. The subagent supervisor sets it
+ * before spawning the reviewer so the validated payload
+ * travels out-of-band, on a file, instead of riding the
+ * size-capped stdout event stream that used to drop large
+ * reviews. Unset outside a supervised run, in which case
+ * the tool behaves exactly as before.
+ */
+const VERIFY_OUTPUT_PATH_ENV = "SUBAGENT_VERIFY_OUTPUT_PATH";
+
+/**
+ * Persist a successful verification envelope to the path in
+ * {@link VERIFY_OUTPUT_PATH_ENV}, when the supervisor set
+ * it. Best-effort: a write failure must not fail the
+ * reviewer, which still returns its result on the stream.
+ */
+async function persistVerifiedOutput(envelope: unknown): Promise<void> {
+	const path = process.env[VERIFY_OUTPUT_PATH_ENV];
+	if (!path) return;
+	try {
+		await writeFile(path, JSON.stringify(envelope), "utf-8");
+	} catch {
+		// The stream path remains as a fallback, so a failed
+		// out-of-band write degrades rather than breaks.
+	}
+}
 
 /** Register a `verify_output` tool that validates against `contract`. */
 export function registerVerifyExtension(
@@ -46,13 +75,28 @@ export function registerVerifyExtension(
 			const result = validateOutput(contract, params.output);
 			const stage = contract.stage;
 			if (result.ok) {
+				// Write the validated object to the out-of-band
+				// envelope file so the parent reads it whole,
+				// past the event-stream and assistant-text caps
+				// that silently dropped large reviews.
+				await persistVerifiedOutput({
+					ok: true,
+					stage,
+					count: result.count,
+					...(result.warnings ? { warnings: result.warnings } : {}),
+					output: result.value,
+				});
 				const lines = [
 					`ok: true. ${result.count} item${result.count === 1 ? "" : "s"} passed schema for stage=${stage}.`,
 					...renderWarnings(result.warnings),
 				];
+				// Keep the streamed details small: the payload rides
+				// the out-of-band file, not this event line (which
+				// the parent caps). Drop `value` from what we stream.
+				const { value: _value, ...streamedResult } = result;
 				return {
 					content: [{ type: "text", text: lines.join("\n") }],
-					details: { ...result, stage },
+					details: { ...streamedResult, stage },
 				};
 			}
 			const lines = [
