@@ -26,6 +26,7 @@ import {
 import type { ReviewContextProviderBroker } from "./review-context.js";
 import { reviewerFailureBanner } from "./reviewer-outcome.js";
 import { composeRunAddendum } from "./run-intent.js";
+import { formatReviewStackContext } from "./stack-context.js";
 import type { PrWorkflowState } from "./state.js";
 import {
 	loadReviewThreadPromptContext,
@@ -210,7 +211,11 @@ export async function runCouncilAction(
 		branch: target.branch,
 		stage: "council",
 	});
-	const promptAddendum = composeRunAddendum(providerAddendum, input.intent);
+	const promptAddendum = composeRunAddendum(
+		providerAddendum,
+		input.intent,
+		formatReviewStackContext(state.pr.stack),
+	);
 
 	// Resolve each reviewer's persona to a charter up front, keyed
 	// by reviewer id. The map is the council's filesystem-free view
@@ -367,7 +372,11 @@ export async function retryCouncilReviewer(
 		branch: target.branch,
 		stage: "council",
 	});
-	const promptAddendum = composeRunAddendum(providerAddendum, input.intent);
+	const promptAddendum = composeRunAddendum(
+		providerAddendum,
+		input.intent,
+		formatReviewStackContext(pr.stack),
+	);
 	const charters = buildCharterMap([reviewer], input.resolveCharter);
 	const output = await runOneCouncilReviewer({
 		runId: lastRun.id,
