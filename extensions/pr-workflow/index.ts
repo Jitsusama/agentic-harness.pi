@@ -1514,7 +1514,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				if (params.action === "decide") {
 					if (params.findingIds && params.findingIds.length > 0) {
 						const batch = decideBatchAction(state, {
-							findingIds: params.findingIds,
+							findingIds: [...new Set(params.findingIds)],
 							verdict: params.verdict,
 							scope: params.scope,
 							note: params.note,
@@ -1849,7 +1849,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 
 				if (params.action === "resolve") {
 					if (params.threadIndices && params.threadIndices.length > 0) {
-						const indices = params.threadIndices;
+						const indices = [...new Set(params.threadIndices)];
 						const threadsForGate = indices
 							.map((i) => state.threads?.threads[i - 1])
 							.filter((t): t is NonNullable<typeof t> => t !== undefined);
@@ -2608,6 +2608,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						previousRef.number !== loaded.reference.number)
 				) {
 					const reclaimed = await reclaimSessionWorktrees();
+					// The reviewer cache is keyed by reviewed content, so
+					// entries from the previous PR can never be reused here;
+					// drop them on the switch so the cache does not grow with
+					// every PR visited in a session.
+					state.council.reviewerCache.clear();
 					// Surface the outcome the way reset does, so a release
 					// failure on the switch edge is not silent.
 					if (reclaimed.errors.length > 0) {
