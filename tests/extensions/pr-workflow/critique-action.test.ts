@@ -575,4 +575,42 @@ describe("retryCritiqueReviewer", () => {
 		// fast's pre-existing critique untouched.
 		expect(fast?.critiques[0].position).toBe("disagree");
 	});
+
+	it("drives the progress panel so a critique retry is visible and cancellable", async () => {
+		const state = withFullPipeline();
+		state.council.lastCritique = {
+			id: "critique-1",
+			startedAt: "2026-01-01T00:10:00Z",
+			judgeRunId: "j-1",
+			reviewerOutputs: [{ reviewerId: "skeptic", critiques: [], warnings: [] }],
+			warnings: [],
+		};
+		const events: string[] = [];
+		const progress = {
+			start: () => events.push("start"),
+			reviewerStarted: () => events.push("started"),
+			reviewerActivity: () => events.push("activity"),
+			reviewerCompleted: () => events.push("completed"),
+			reviewerCancelled: () => events.push("cancelled"),
+			reviewerFailed: () => events.push("failed"),
+			finish: () => events.push("finish"),
+		};
+		const result = await retryCritiqueReviewer({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			progress,
+			dispatch: async (opts) => ({
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: JSON.stringify({ critiques: [] }),
+				stderr: "",
+				warnings: [],
+			}),
+			reviewerId: "skeptic",
+		});
+		expect(result.ok).toBe(true);
+		expect(events).toContain("start");
+		expect(events).toContain("started");
+		expect(events).toContain("completed");
+	});
 });

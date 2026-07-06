@@ -55,6 +55,13 @@ export type AuditThreadsActionResult =
 			/** Thread id to 1-based display index in the full snapshot. */
 			indexById: Map<string, number>;
 			warnings: string[];
+			/**
+			 * How many unresolved threads were sent to the auditor.
+			 * Lets the caller tell "nothing to audit" (zero) apart from
+			 * "the auditor returned nothing parseable" (positive count,
+			 * empty verdicts).
+			 */
+			audited: number;
 	  }
 	| { ok: false; error: string };
 
@@ -87,7 +94,13 @@ export async function auditThreadsAction(
 		(t) => t.kind === "review-thread" && !t.isResolved,
 	);
 	if (threads.length === 0) {
-		return { ok: true, verdicts: [], indexById: new Map(), warnings: [] };
+		return {
+			ok: true,
+			verdicts: [],
+			indexById: new Map(),
+			warnings: [],
+			audited: 0,
+		};
 	}
 
 	// reply/resolve target the 1-based position in the FULL snapshot,
@@ -142,6 +155,10 @@ export async function auditThreadsAction(
 			reviewer: input.auditor,
 			prompt,
 			cwd: handle.path,
+			// A stable-per-run id keys the auditor into the artifact
+			// store, so a crash mid-audit leaves a recoverable run the
+			// way every sibling dispatch does.
+			runId: `thread-audit-${metadata.head.sha}-${Date.now()}`,
 			signal: input.signal,
 			onEvent: (event) => {
 				const activity = summarizeStreamActivity(event);
@@ -170,6 +187,7 @@ export async function auditThreadsAction(
 			verdicts: parsed.verdicts,
 			indexById,
 			warnings: [...dispatched.warnings, ...parsed.warnings],
+			audited: threads.length,
 		};
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

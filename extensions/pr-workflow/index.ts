@@ -1109,6 +1109,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					for (const e of charters.errors) {
 						ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
 					}
+					const progress = createCouncilProgressReporter(
+						ctx,
+						progressControls(),
+					);
 					const result = await runWithCancellableReviewers(
 						"council-retry",
 						({ registry, dispatch }) =>
@@ -1121,7 +1125,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								resolveCharter: charters.resolve,
 								...(params.intent ? { intent: params.intent } : {}),
 								reviewerId,
+								progress,
 							}),
+						progress,
 					);
 					if (!result.ok) {
 						return {
@@ -1376,6 +1382,10 @@ export default function prWorkflow(pi: ExtensionAPI) {
 					for (const e of critiqueCharters.errors) {
 						ctx.ui.notify(`Persona "${e.id}" skipped: ${e.error}`, "warning");
 					}
+					const progress = createCouncilProgressReporter(
+						ctx,
+						progressControls(),
+					);
 					const result = await runWithCancellableReviewers(
 						"critique-retry",
 						({ registry, dispatch }) =>
@@ -1388,7 +1398,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								resolveCharter: critiqueCharters.resolve,
 								...(params.intent ? { intent: params.intent } : {}),
 								reviewerId,
+								progress,
 							}),
+						progress,
 					);
 					if (!result.ok) {
 						return {
@@ -1502,7 +1514,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				if (params.action === "decide") {
 					if (params.findingIds && params.findingIds.length > 0) {
 						const batch = decideBatchAction(state, {
-							findingIds: params.findingIds,
+							findingIds: [...new Set(params.findingIds)],
 							verdict: params.verdict,
 							scope: params.scope,
 							note: params.note,
@@ -1837,7 +1849,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 
 				if (params.action === "resolve") {
 					if (params.threadIndices && params.threadIndices.length > 0) {
-						const indices = params.threadIndices;
+						const indices = [...new Set(params.threadIndices)];
 						const threadsForGate = indices
 							.map((i) => state.threads?.threads[i - 1])
 							.filter((t): t is NonNullable<typeof t> => t !== undefined);
@@ -2437,18 +2449,31 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							isError: true,
 						};
 					}
+					// A positive audited count with no verdicts means the
+					// auditor ran but returned nothing parseable; do not let
+					// that read as a clean "nothing to audit", and surface the
+					// diagnostics in the visible output rather than only in
+					// details.
+					const auditParseFailed =
+						result.audited > 0 && result.verdicts.length === 0;
+					const auditText = auditParseFailed
+						? `The auditor returned no usable verdicts for ${result.audited} thread(s). ` +
+							"Re-run action=audit-threads."
+						: formatThreadAudit(result.verdicts, result.indexById);
+					const auditBody =
+						result.warnings.length > 0
+							? `${auditText}\n\nWarnings:\n${result.warnings
+									.map((w) => `  - ${w}`)
+									.join("\n")}`
+							: auditText;
 					return {
-						content: [
-							{
-								type: "text",
-								text: formatThreadAudit(result.verdicts, result.indexById),
-							},
-						],
+						content: [{ type: "text", text: auditBody }],
 						details: {
-							ok: true,
+							ok: !auditParseFailed,
 							verdicts: result.verdicts,
 							warnings: result.warnings,
 						},
+						...(auditParseFailed ? { isError: true } : {}),
 					};
 				}
 
@@ -2583,6 +2608,11 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						previousRef.number !== loaded.reference.number)
 				) {
 					const reclaimed = await reclaimSessionWorktrees();
+					// The reviewer cache is keyed by reviewed content, so
+					// entries from the previous PR can never be reused here;
+					// drop them on the switch so the cache does not grow with
+					// every PR visited in a session.
+					state.council.reviewerCache.clear();
 					// Surface the outcome the way reset does, so a release
 					// failure on the switch edge is not silent.
 					if (reclaimed.errors.length > 0) {

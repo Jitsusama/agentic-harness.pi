@@ -37,6 +37,13 @@ the block.
   shape: `location`, `label`, `subject`, `discussion`,
   plus the optional `decorations`, `severity`,
   `confidence`, `threadRelation` fields.
+- Add the optional decision-briefing fields, same as the
+  single-PR judge: `recommendation` (one decision-oriented
+  clause on what to do, distinct from `discussion`),
+  `impact` (one clause naming the consequence of leaving
+  it unaddressed) and `cluster` (a short root-cause label
+  shared by findings from the same underlying cause, so
+  they group in the view).
 - Add optional `raisedBy` (round-1 reviewer ids) and
   `sourceFindingIds` (round-1 finding ids) to record
   attribution. Omit both when the finding is judge

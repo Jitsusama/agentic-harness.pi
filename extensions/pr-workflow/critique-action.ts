@@ -220,6 +220,12 @@ export interface RetryCritiqueReviewerInput {
 	readonly resolveCharter?: (personaId: string) => string | undefined;
 	/** The user's per-run intent for this retry, merged into the prompt addendum. */
 	readonly intent?: string;
+	/**
+	 * Optional progress observer. A retry is one full-length
+	 * critique subagent; the panel renders its activity and, by
+	 * capturing the keyboard, is what makes the run cancellable.
+	 */
+	readonly progress?: CouncilProgress;
 }
 
 /**
@@ -320,6 +326,7 @@ export async function retryCritiqueReviewer(
 		threadContext,
 		signal: input.signal,
 		charterFor: (id) => charters.get(id),
+		...(input.progress ? { progress: input.progress } : {}),
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	lastCritique.reviewerOutputs[existingIndex] = output;
@@ -388,6 +395,7 @@ async function retryStackCritiqueReviewer(
 		dispatch: input.dispatch,
 		threadContext,
 		signal: input.signal,
+		...(input.progress ? { progress: input.progress } : {}),
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	stackCritique.reviewerOutputs[existingIndex] = output;

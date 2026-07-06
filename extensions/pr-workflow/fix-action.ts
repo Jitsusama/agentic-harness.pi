@@ -167,6 +167,12 @@ function formatNextFix(
 	if (context.homePrNumber !== undefined) {
 		lines.push(`Targets PR #${context.homePrNumber} (cross-PR stack finding).`);
 	}
+	if (context.homePrNumber !== undefined && context.target === null) {
+		lines.push(
+			`Home PR #${context.homePrNumber} is not in the loaded stack, so there is no branch to commit to. ` +
+				"Load the stack that contains it, then retry; do not apply this fix to the cursor PR.",
+		);
+	}
 	lines.push(`Location: ${formatLocation(context.finding)}`);
 	if (worktree) {
 		// The agent must `cd` here before editing and

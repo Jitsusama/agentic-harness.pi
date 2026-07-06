@@ -849,6 +849,44 @@ describe("retryCouncilReviewer", () => {
 		expect(result.ok).toBe(true);
 		expect(captured).toBe("Hunt escalation.");
 	});
+
+	it("drives the progress panel so a retry is visible and cancellable", async () => {
+		const state = loadedState();
+		state.council.roster = [{ id: "fast", model: "m" }];
+		state.council.lastRun = {
+			id: "council-1",
+			startedAt: "2026-01-01T00:00:00Z",
+			target: { kind: "diff", prNumber: 42 },
+			reviewerOutputs: [{ reviewerId: "fast", findings: [], warnings: [] }],
+		};
+		const events: string[] = [];
+		const progress = {
+			start: () => events.push("start"),
+			reviewerStarted: () => events.push("started"),
+			reviewerActivity: () => events.push("activity"),
+			reviewerCompleted: () => events.push("completed"),
+			reviewerCancelled: () => events.push("cancelled"),
+			reviewerFailed: () => events.push("failed"),
+			finish: () => events.push("finish"),
+		};
+		const result = await retryCouncilReviewer({
+			state,
+			registry: new WorktreeRegistry(fakeProvider()),
+			progress,
+			dispatch: async (opts) => ({
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: JSON.stringify({ findings: [] }),
+				stderr: "",
+				warnings: [],
+			}),
+			reviewerId: "fast",
+		});
+		expect(result.ok).toBe(true);
+		expect(events).toContain("start");
+		expect(events).toContain("started");
+		expect(events).toContain("completed");
+	});
 });
 
 describe("runCouncilAction concurrency", () => {

@@ -128,11 +128,19 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 			};
 			const abortHandler = (): void => {
 				void (async () => {
-					await store.requestReviewerCancellation(
-						effectiveRunId,
-						effectiveReviewerId,
-						"parent-abort",
-					);
+					// Write the cancel file first so the supervisor can stop
+					// its detached child gracefully, but never let a write
+					// failure skip the kill or surface as an unhandled
+					// rejection: the SIGTERM below is the backstop.
+					try {
+						await store.requestReviewerCancellation(
+							effectiveRunId,
+							effectiveReviewerId,
+							"parent-abort",
+						);
+					} catch {
+						// Best-effort: the kill still stops the supervisor.
+					}
 					supervisor.kill("SIGTERM");
 				})();
 			};

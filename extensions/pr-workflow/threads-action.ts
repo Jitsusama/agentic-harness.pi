@@ -319,8 +319,20 @@ export async function resolveThreadsAction(input: {
 }): Promise<ResolveThreadsResult> {
 	const resolved: number[] = [];
 	const failed: { index: number; error: string }[] = [];
+	// Each successful resolve bumps the snapshot version in
+	// place. The caller captures every expectation up front at
+	// one version, so without accounting for those self-inflicted
+	// bumps the drift guard would reject every sibling after the
+	// first. Track how far our own resolves have advanced the
+	// version and offset each expectation by it, so the guard
+	// still catches genuine external drift but ignores our own.
+	let selfBumps = 0;
 	for (const index of input.indices) {
-		const expect = input.expectFor?.(index);
+		const base = input.expectFor?.(index);
+		const expect = base
+			? { threadId: base.threadId, version: base.version + selfBumps }
+			: undefined;
+		const before = input.state.threads?.version;
 		const result = await resolveThreadAction({
 			state: input.state,
 			index,
@@ -328,6 +340,9 @@ export async function resolveThreadsAction(input: {
 			...(input.now ? { now: input.now } : {}),
 			...(expect ? { expect } : {}),
 		});
+		const after = input.state.threads?.version;
+		if (before !== undefined && after !== undefined)
+			selfBumps += after - before;
 		if (result.ok) resolved.push(index);
 		else failed.push({ index, error: result.error });
 	}
