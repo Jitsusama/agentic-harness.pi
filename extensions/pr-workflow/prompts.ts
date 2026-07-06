@@ -12,6 +12,7 @@
  */
 
 import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
+import { isGeneratedPath } from "./generated-files.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import {
 	reviewDiscoveryStandard,
@@ -41,6 +42,16 @@ export interface ReviewerPromptInput {
  */
 export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 	const sections: string[] = [];
+
+	// Omit generated and vendored files from the inline diff
+	// so the reviewer spends its attention and prompt budget
+	// on hand-written code. Guard against blanking the diff:
+	// if every changed file is generated, show them all
+	// rather than hand the reviewer nothing.
+	const reviewable = input.files.filter((f) => !isGeneratedPath(f.path));
+	const omitted = input.files.filter((f) => isGeneratedPath(f.path));
+	const files = reviewable.length > 0 ? reviewable : input.files;
+	const omittedForNote = reviewable.length > 0 ? omitted : [];
 
 	sections.push(
 		"You are a senior code reviewer participating in a multi-model code review " +
@@ -91,7 +102,17 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 		sections.push(input.prDescription.trim());
 	}
 
-	if (input.files.length > 0) {
+	if (omittedForNote.length > 0) {
+		sections.push("## Omitted generated files");
+		sections.push(
+			"These changed files are generated or vendored and are left out " +
+				"of the diff below. Read them with your tools if a finding " +
+				"depends on them, but do not review them for style: " +
+				omittedForNote.map((f) => f.path).join(", "),
+		);
+	}
+
+	if (files.length > 0) {
 		sections.push("## Anchorable line ranges");
 		sections.push(
 			"Line-kind findings should anchor to the lines listed below. " +
@@ -101,14 +122,14 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 				"Use `file`- or `global`-kind for issues that span the file or " +
 				"scope as a whole.",
 		);
-		sections.push(renderAnchorableLineRanges(input.files));
+		sections.push(renderAnchorableLineRanges(files));
 	}
 
 	sections.push("## Diff");
-	if (input.files.length === 0) {
+	if (files.length === 0) {
 		sections.push("(no files changed)");
 	} else {
-		for (const file of input.files) {
+		for (const file of files) {
 			sections.push(renderFile(file));
 		}
 	}

@@ -107,6 +107,36 @@ describe("buildReviewerPrompt", () => {
 		expect(prompt).toContain("-old line");
 	});
 
+	it("omits generated files from the diff but names them in a note", () => {
+		// Reviewers should not spend attention or prompt
+		// budget on generated output. The diff drops the
+		// lockfile while a note tells the reviewer it exists.
+		const prompt = buildReviewerPrompt({
+			prTitle: "Bump deps",
+			prDescription: "",
+			files: [file({ path: "src/a.ts" }), file({ path: "pnpm-lock.yaml" })],
+		});
+		expect(prompt).toContain("Omitted generated files");
+		expect(prompt).toContain("pnpm-lock.yaml");
+		expect(prompt).toContain("src/a.ts");
+		// The lockfile's diff body is not rendered.
+		expect(prompt).not.toContain("## Diff\n\npnpm-lock.yaml");
+	});
+
+	it("shows every file when they are all generated rather than blanking the diff", () => {
+		// If filtering would leave nothing to review, fall
+		// back to the full list so the reviewer is never
+		// handed an empty diff.
+		const prompt = buildReviewerPrompt({
+			prTitle: "Lockfile only",
+			prDescription: "",
+			files: [file({ path: "pnpm-lock.yaml" })],
+		});
+		expect(prompt).not.toContain("Omitted generated files");
+		expect(prompt).toContain("pnpm-lock.yaml");
+		expect(prompt).not.toContain("(no files changed)");
+	});
+
 	it("renders new-side anchorable line ranges separately from old-side", () => {
 		// Council finding [26]: don't mix old- and new-side
 		// line numbers in the same range list. Reviewers need
