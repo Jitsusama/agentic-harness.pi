@@ -64,6 +64,7 @@ import {
 	retryCritiqueReviewer,
 	runCritiqueAction,
 } from "./critique-action.js";
+import { decideBatchAction } from "./decide-action.js";
 import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
 import type { ConventionalLabel } from "./findings.js";
 import { formatCompactFindingsView } from "./findings-view.js";
@@ -567,7 +568,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						"review body + inline comments + skipped findings that `post` " +
 						"would build, without firing the gate or contacting GitHub. " +
 						"Use to preview which findings will degrade to body before posting. " +
-						"decide: record the user's verdict on a single finding. " +
+						"decide: record the user's verdict on a single finding (findingId), " +
+						"or on many at once by passing findingIds with one batchable verdict " +
+						"(endorse, dismiss, promote, fix, qualify). " +
 						"post: send eligible findings to GitHub as a PR review. " +
 						"stack: render the discovered PR stack with cursor highlighted. " +
 						"stack-next: re-load the next PR downstream of the cursor. " +
@@ -836,7 +839,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			findingId: Type.Optional(
 				Type.Integer({
 					description:
-						"Finding id from the most-recent judge run. Required for action=decide.",
+						"Finding id from the most-recent judge run. Required for action=decide (single). Omit when passing findingIds for a batch decide.",
+				}),
+			),
+			findingIds: Type.Optional(
+				Type.Array(Type.Integer(), {
+					description:
+						"Finding ids for a batch action=decide: apply one verdict to every id in the list. Only the override-free verdicts are batchable (endorse, dismiss, promote, fix, qualify); edit stays a single-finding decide via findingId. Shared note/reason/instructions apply to the whole batch.",
 				}),
 			),
 			reviewerId: Type.Optional(
@@ -1483,12 +1492,27 @@ export default function prWorkflow(pi: ExtensionAPI) {
 				}
 
 				if (params.action === "decide") {
+					if (params.findingIds && params.findingIds.length > 0) {
+						const batch = decideBatchAction(state, {
+							findingIds: params.findingIds,
+							verdict: params.verdict,
+							scope: params.scope,
+							note: params.note,
+							reason: params.reason,
+							instructions: params.instructions,
+						});
+						return {
+							content: [{ type: "text", text: batch.summary }],
+							details: batch.details,
+							...(batch.isError ? { isError: true } : {}),
+						};
+					}
 					if (typeof params.findingId !== "number") {
 						return {
 							content: [
 								{
 									type: "text",
-									text: "decide requires a `findingId` argument.",
+									text: "decide requires a `findingId` argument (or `findingIds` for a batch).",
 								},
 							],
 							details: { ok: false, error: "missing findingId" },
