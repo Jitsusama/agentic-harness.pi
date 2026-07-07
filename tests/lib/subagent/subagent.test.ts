@@ -377,11 +377,12 @@ describe("runReviewer — usage extraction", () => {
 		});
 	});
 
-	it("prefers the last assistant message_end's usage when the stream has many", async () => {
-		// During a multi-step turn pi emits partial usage
-		// updates and a final one. The reviewer dispatcher
-		// should adopt the LAST cumulative figure, not the
-		// first.
+	it("sums usage across every assistant message_end in the stream", async () => {
+		// A multi-step turn emits one message_end per LLM
+		// round-trip, each carrying that request's own usage
+		// (not a running total). The run's true usage is their
+		// sum, so the dispatcher accumulates rather than
+		// keeping only the last.
 		const { runPi } = fakeRun({
 			stdout: [
 				JSON.stringify({
@@ -422,8 +423,8 @@ describe("runReviewer — usage extraction", () => {
 			cwd: "/tmp/wt",
 			runPi,
 		});
-		expect(result.usage?.tokens.total).toBe(300);
-		expect(result.usage?.cost.total).toBeCloseTo(0.02);
+		expect(result.usage?.tokens.total).toBe(450);
+		expect(result.usage?.cost.total).toBeCloseTo(0.03);
 	});
 
 	it("ignores usage on non-assistant messages", async () => {
