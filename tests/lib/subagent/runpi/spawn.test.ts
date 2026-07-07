@@ -67,7 +67,7 @@ function makeFakeChild(): {
 }
 
 describe("createSpawnRunPi", () => {
-	it("invokes the provided spawn with the pi binary and the supplied args/cwd", async () => {
+	it("invokes the provided spawn as the install's node running its entry, then the args", async () => {
 		const fake = makeFakeChild();
 		const calls: Array<{
 			command: string;
@@ -76,7 +76,10 @@ describe("createSpawnRunPi", () => {
 			detached: boolean;
 		}> = [];
 		const runPi = createSpawnRunPi({
-			binary: "pi",
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
 			spawn: (command, args, opts) => {
 				calls.push({
 					command,
@@ -97,8 +100,9 @@ describe("createSpawnRunPi", () => {
 			cwd: "/tmp/wt",
 		});
 		expect(calls).toHaveLength(1);
-		expect(calls[0].command).toBe("pi");
+		expect(calls[0].command).toBe("/nix/store/node-22/bin/node");
 		expect(calls[0].args).toEqual([
+			"/nix/store/pi/dist/cli.js",
 			"--mode",
 			"json",
 			"--no-session",
@@ -112,7 +116,10 @@ describe("createSpawnRunPi", () => {
 	it("collects stdout, stderr and exit code into the RunPiResult", async () => {
 		const fake = makeFakeChild();
 		const runPi = createSpawnRunPi({
-			binary: "pi",
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
 			spawn: () => {
 				queueMicrotask(() => {
 					fake.stdout.write("line 1\n");
@@ -135,7 +142,10 @@ describe("createSpawnRunPi", () => {
 		// can treat it the same as any other crash.
 		const fake = makeFakeChild();
 		const runPi = createSpawnRunPi({
-			binary: "missing-pi",
+			piInstall: {
+				node: "/nix/store/missing/bin/node",
+				entry: "/nix/store/missing/dist/cli.js",
+			},
 			spawn: () => {
 				queueMicrotask(() => {
 					fake.emitError(new Error("ENOENT: missing-pi"));
@@ -150,7 +160,10 @@ describe("createSpawnRunPi", () => {
 		const fake = makeFakeChild();
 		const events: Record<string, unknown>[] = [];
 		const runPi = createSpawnRunPi({
-			binary: "pi",
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
 			spawn: () => {
 				queueMicrotask(() => {
 					fake.stdout.write('{"type":"agent_start"}\n');
@@ -178,7 +191,10 @@ describe("createSpawnRunPi", () => {
 		const fake = makeFakeChild();
 		const events: Record<string, unknown>[] = [];
 		const runPi = createSpawnRunPi({
-			binary: "pi",
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
 			spawn: () => {
 				queueMicrotask(() => {
 					fake.stdout.write('{"type":"tool_execu');
@@ -205,7 +221,10 @@ describe("createSpawnRunPi", () => {
 		const fake = makeFakeChild();
 		const events: Record<string, unknown>[] = [];
 		const runPi = createSpawnRunPi({
-			binary: "pi",
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
 			spawn: () => {
 				queueMicrotask(() => {
 					fake.stdout.write("not json at all\n");
@@ -230,7 +249,10 @@ describe("createSpawnRunPi", () => {
 	it("swallows observer errors so a broken callback can't kill the run", async () => {
 		const fake = makeFakeChild();
 		const runPi = createSpawnRunPi({
-			binary: "pi",
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
 			spawn: () => {
 				queueMicrotask(() => {
 					fake.stdout.end('{"type":"agent_end"}\n');
@@ -258,7 +280,10 @@ describe("createSpawnRunPi", () => {
 			return true;
 		};
 		const runPi = createSpawnRunPi({
-			binary: "pi",
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
 			spawn: () => fake.child as unknown as ChildProcess,
 			timeoutMs: 1,
 			killGraceMs: 50,
@@ -284,7 +309,10 @@ describe("createSpawnRunPi", () => {
 			return true;
 		};
 		const runPi = createSpawnRunPi({
-			binary: "pi",
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
 			spawn: () => fake.child as unknown as ChildProcess,
 		});
 		const ac = new AbortController();
@@ -311,7 +339,10 @@ describe("createSpawnRunPi", () => {
 			return true;
 		};
 		const runPi = createSpawnRunPi({
-			binary: "pi",
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
 			spawn: () => fake.child as unknown as ChildProcess,
 			timeoutMs: 60_000,
 			killGraceMs: 50,
@@ -334,7 +365,10 @@ describe("createSpawnRunPi", () => {
 		// see the no-op without runtime surprise.
 		const fake = makeFakeChild();
 		const runPi = createSpawnRunPi({
-			binary: "pi",
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
 			spawn: () => {
 				queueMicrotask(() => {
 					fake.stdout.end('{"type":"agent_end"}\n');
@@ -363,7 +397,10 @@ describe("createSpawnRunPi", () => {
 		// channel is optional).
 		const fake = makeFakeChild();
 		const runPi = createSpawnRunPi({
-			binary: "pi",
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
 			spawn: () => {
 				queueMicrotask(() => {
 					fake.stdout.end('{"type":"agent_end"}\n');
@@ -388,7 +425,10 @@ describe("createSpawnRunPi", () => {
 			return true;
 		};
 		const runPi = createSpawnRunPi({
-			binary: "pi",
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
 			spawn: () => fake.child as unknown as ChildProcess,
 		});
 		const ac = new AbortController();

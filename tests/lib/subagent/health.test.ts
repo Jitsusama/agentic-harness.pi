@@ -16,30 +16,36 @@ import {
 // retry suggestion.
 
 describe("createSubagentHealthCheck", () => {
-	it("returns null when the captured runtime path still exists", () => {
+	it("returns null when every install path still exists", () => {
 		const check = createSubagentHealthCheck({
-			runtimePath: "/nix/store/abc-pi-0.75.5/bin/pi",
-			exists: (p) => p === "/nix/store/abc-pi-0.75.5/bin/pi",
+			paths: [
+				"/nix/store/node-22/bin/node",
+				"/nix/store/abc-pi-0.75.5/dist/cli.js",
+			],
+			exists: () => true,
 		});
 		expect(check()).toBeNull();
 	});
 
-	it("reports a structured error when the runtime path is gone", () => {
+	it("reports the first missing install path", () => {
 		const check = createSubagentHealthCheck({
-			runtimePath: "/nix/store/abc-pi-0.75.3/bin/pi",
-			exists: () => false,
+			paths: [
+				"/nix/store/node-22/bin/node",
+				"/nix/store/abc-pi-0.75.3/dist/cli.js",
+			],
+			exists: (p) => p === "/nix/store/node-22/bin/node",
 		});
 		const result = check();
 		expect(result).not.toBeNull();
-		expect(result?.path).toBe("/nix/store/abc-pi-0.75.3/bin/pi");
+		expect(result?.path).toBe("/nix/store/abc-pi-0.75.3/dist/cli.js");
 		expect(result?.message).toMatch(/restart pi/i);
-		expect(result?.message).toContain("/nix/store/abc-pi-0.75.3/bin/pi");
+		expect(result?.message).toContain("/nix/store/abc-pi-0.75.3/dist/cli.js");
 	});
 
-	it("caches the existence answer so repeated dispatches don't re-stat", () => {
+	it("caches the answer so repeated dispatches don't re-stat", () => {
 		let calls = 0;
 		const check = createSubagentHealthCheck({
-			runtimePath: "/nix/store/abc-pi-0.75.5/bin/pi",
+			paths: ["/nix/store/abc-pi-0.75.5/dist/cli.js"],
 			exists: () => {
 				calls++;
 				return true;
@@ -49,8 +55,8 @@ describe("createSubagentHealthCheck", () => {
 		check();
 		check();
 		// One existence probe per process lifetime is
-		// sufficient — pi cannot restore a deleted nix
-		// store entry without restarting itself.
+		// sufficient — pi cannot restore a deleted install
+		// path without restarting itself.
 		expect(calls).toBe(1);
 	});
 });

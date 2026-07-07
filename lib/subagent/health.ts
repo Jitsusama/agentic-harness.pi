@@ -16,9 +16,10 @@
  * a clear "restart pi" advisory:
  *
  *   - `createSubagentHealthCheck` probes the running pi
- *     binary path before dispatch. The default instance
- *     is bound to `process.execPath` and `fs.existsSync`;
- *     tests inject fakes.
+ *     install paths before dispatch. The default instance
+ *     is bound to the resolved parent install (the node
+ *     binary and the entry script, dereferenced) and
+ *     `fs.existsSync`; tests inject fakes.
  *
  *   - `detectStaleInstallInStderr` matches the ENOENT
  *     shape every failing subagent emits and returns the
@@ -28,6 +29,7 @@
  */
 
 import { existsSync } from "node:fs";
+import { resolveParentPiInstall } from "./install.js";
 
 /**
  * Stable prefix every consumer can grep on to detect the
@@ -45,7 +47,8 @@ export interface SubagentRuntimeError {
 
 /** Dependencies for `createSubagentHealthCheck`. */
 export interface SubagentHealthDeps {
-	readonly runtimePath: string;
+	/** Every install path that must exist for dispatch to succeed. */
+	readonly paths: readonly string[];
 	readonly exists: (path: string) => boolean;
 }
 
@@ -64,15 +67,16 @@ export function createSubagentHealthCheck(
 	let cached: SubagentRuntimeError | null | undefined;
 	return () => {
 		if (cached !== undefined) return cached;
-		if (deps.exists(deps.runtimePath)) {
+		const missing = deps.paths.find((path) => !deps.exists(path));
+		if (missing === undefined) {
 			cached = null;
 			return null;
 		}
 		cached = {
-			path: deps.runtimePath,
+			path: missing,
 			message:
-				`${STALE_RUNTIME_WARNING_PREFIX} the running pi binary at ` +
-				`\`${deps.runtimePath}\` no longer exists on disk. Pi was likely ` +
+				`${STALE_RUNTIME_WARNING_PREFIX} the running pi install at ` +
+				`\`${missing}\` no longer exists on disk. Pi was likely ` +
 				"updated (nix gc, brew upgrade, etc.) mid-session; restart pi to " +
 				"load the new binary. Subagent dispatch will fail until you do.",
 		};
@@ -87,11 +91,13 @@ export function createSubagentHealthCheck(
  * factory above stays exported for tests and any consumer
  * that wants a fresh probe.
  */
-export const checkSubagentRuntime: () => SubagentRuntimeError | null =
-	createSubagentHealthCheck({
-		runtimePath: process.execPath,
+export const checkSubagentRuntime: () => SubagentRuntimeError | null = (() => {
+	const install = resolveParentPiInstall();
+	return createSubagentHealthCheck({
+		paths: [install.node, install.entry].filter((p) => p.length > 0),
 		exists: existsSync,
 	});
+})();
 
 /**
  * Pattern that matches the canonical "stale pi install"

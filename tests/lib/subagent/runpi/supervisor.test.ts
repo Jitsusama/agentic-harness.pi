@@ -87,14 +87,14 @@ describe("createSupervisorRunPi", () => {
 			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"supervised"}],usage:{input:1,output:2,totalTokens:3,cost:{total:0.01}}}})+"\\n");`,
 		);
 		const runPi = createSupervisorRunPi({
-			binary: process.execPath,
+			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
 			idleTimeoutMs: 10_000,
 			timeoutMs: 10_000,
 		});
 
 		const result = await runPi({
-			args: [childPath],
+			args: [],
 			cwd: stateDir,
 			runId: "run",
 			reviewerId: "fast",
@@ -118,14 +118,14 @@ describe("createSupervisorRunPi", () => {
 			].join("\n"),
 		);
 		const runPi = createSupervisorRunPi({
-			binary: process.execPath,
+			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
 			idleTimeoutMs: 10_000,
 			timeoutMs: 10_000,
 		});
 
 		const result = await runPi({
-			args: [childPath],
+			args: [],
 			cwd: stateDir,
 			runId: "run",
 			reviewerId: "verified",
@@ -164,7 +164,7 @@ describe("createSupervisorRunPi", () => {
 			].join("\n"),
 		);
 		const runPi = createSupervisorRunPi({
-			binary: process.execPath,
+			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
 			idleTimeoutMs: 10_000,
 			timeoutMs: 10_000,
@@ -175,7 +175,7 @@ describe("createSupervisorRunPi", () => {
 		});
 
 		const result = await runPi({
-			args: [childPath],
+			args: [],
 			cwd: stateDir,
 			runId: "run",
 			reviewerId: "oob",
@@ -206,14 +206,14 @@ describe("createSupervisorRunPi", () => {
 			].join("\n"),
 		);
 		const runPi = createSupervisorRunPi({
-			binary: process.execPath,
+			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
 			idleTimeoutMs: 10_000,
 			timeoutMs: 10_000,
 		});
 
 		const result = await runPi({
-			args: [childPath],
+			args: [],
 			cwd: stateDir,
 			runId: "run",
 			reviewerId: "unkeyed",
@@ -235,7 +235,7 @@ describe("createSupervisorRunPi", () => {
 			].join("\n"),
 		);
 		const runPi = createSupervisorRunPi({
-			binary: process.execPath,
+			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
 			maxEventBytes: 80,
 			maxEventRotations: 2,
@@ -244,7 +244,7 @@ describe("createSupervisorRunPi", () => {
 		});
 
 		const result = await runPi({
-			args: [childPath],
+			args: [],
 			cwd: stateDir,
 			runId: "run",
 			reviewerId: "noisy",
@@ -273,7 +273,7 @@ describe("createSupervisorRunPi", () => {
 			cwd: string;
 		}> = [];
 		const runPi = createSupervisorRunPi({
-			binary: "pi",
+			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
 			nodeBinary: "node",
 			supervisorPath: "/pkg/reviewer-supervisor.mjs",
 			stateDir,
@@ -337,7 +337,7 @@ describe("createSupervisorRunPi", () => {
 		const fake = makeFakeChild();
 		const events: Record<string, unknown>[] = [];
 		const runPi = createSupervisorRunPi({
-			binary: "pi",
+			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
 			nodeBinary: "node",
 			supervisorPath: "/pkg/reviewer-supervisor.mjs",
 			stateDir,
@@ -392,7 +392,7 @@ describe("createSupervisorRunPi", () => {
 		const fake = makeFakeChild();
 		let captured: { timeoutMs?: number; idleTimeoutMs?: number } = {};
 		const runPi = createSupervisorRunPi({
-			binary: "pi",
+			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
 			nodeBinary: "node",
 			supervisorPath: "/pkg/reviewer-supervisor.mjs",
 			stateDir,
@@ -449,7 +449,7 @@ describe("createSupervisorRunPi", () => {
 		const fake = makeFakeChild();
 		let captured: { timeoutMs?: number; idleTimeoutMs?: number } = {};
 		const runPi = createSupervisorRunPi({
-			binary: "pi",
+			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
 			nodeBinary: "node",
 			supervisorPath: "/pkg/reviewer-supervisor.mjs",
 			stateDir,
@@ -498,7 +498,7 @@ describe("createSupervisorRunPi", () => {
 			markSpawned = resolve;
 		});
 		const runPi = createSupervisorRunPi({
-			binary: "pi",
+			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
 			nodeBinary: "node",
 			supervisorPath: "/pkg/reviewer-supervisor.mjs",
 			stateDir,

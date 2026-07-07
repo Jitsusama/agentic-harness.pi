@@ -14,6 +14,7 @@ import {
 	spawn as nodeSpawn,
 	type SpawnOptions,
 } from "node:child_process";
+import type { PiInstall } from "../install.js";
 import type { RunPi, RunPiResult } from "../subagent.js";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
@@ -25,8 +26,13 @@ export type SpawnFn = (
 
 /** Configuration for the spawn-backed `RunPi`. */
 export interface SpawnRunPiConfig {
-	/** Path or PATH name of the pi binary. */
-	readonly binary: string;
+	/**
+	 * The pinned parent pi install. The child is launched as
+	 * `install.node install.entry ...args` so it runs the
+	 * parent's exact install rather than whatever bare `pi`
+	 * resolves to on PATH.
+	 */
+	readonly piInstall: PiInstall;
 	/** Spawn function. Inject a fake for unit tests. */
 	readonly spawn?: SpawnFn;
 	/** Hard wall-clock limit for one subagent run. */
@@ -75,11 +81,15 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 			);
 		}
 		return new Promise<RunPiResult>((resolve, reject) => {
-			const child = spawnFn(config.binary, args, {
-				cwd,
-				detached: true,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
+			const child = spawnFn(
+				config.piInstall.node,
+				[config.piInstall.entry, ...args],
+				{
+					cwd,
+					detached: true,
+					stdio: ["ignore", "pipe", "pipe"],
+				},
+			);
 
 			const stdoutChunks: Buffer[] = [];
 			const stderrChunks: Buffer[] = [];
