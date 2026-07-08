@@ -11,9 +11,9 @@ right the first time, and the gates have less to block.
 A skill loads its body into context only when read, and
 compaction later evicts it. The conventions then drift out of
 the model's working memory mid-session, which is exactly when it
-reoffends. This block rides `before_agent_start`, so it is
-resident and compaction-immune: it is reapplied every turn and
-survives the eviction the gates exist to backstop.
+reoffends. This block rides the resident prompt coordinator, so
+it is resident and compaction-immune: it is reapplied every turn
+and survives the eviction the gates exist to backstop.
 
 The gates still enforce regardless of context. This block is the
 always-on baseline that reduces how often they have to fire, not
@@ -42,4 +42,7 @@ directory does not pay the token cost.
 - `scope.ts` decides whether a directory is inside a git work
   tree via `git rev-parse --is-inside-work-tree`, failing closed
   so the block is omitted rather than injected on a guess.
-- `index.ts` wires the two to `before_agent_start`.
+- `index.ts` registers the two as a prompt contributor at the
+  top of the resident block, via `lib/prompt`. The
+  prompt-coordinator extension owns the single
+  `before_agent_start` hook that appends the frozen block.
