@@ -23,6 +23,8 @@ export interface Finding {
 	readonly evidence?: string;
 }
 
+import { firstJsonArray } from "../../lib/internal/json-array.js";
+
 /** Turns to route interrupts to asides after one fires. */
 export const IMMUNE_WINDOW = 2;
 
@@ -39,11 +41,11 @@ function isSeverity(value: unknown): value is Severity {
  * parseable array yields no findings.
  */
 export function parseFindings(reply: string): Finding[] {
-	const match = reply.match(/\[[\s\S]*\]/);
-	if (!match) return [];
+	const array = firstJsonArray(reply);
+	if (!array) return [];
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(match[0]);
+		parsed = JSON.parse(array);
 	} catch {
 		return [];
 	}

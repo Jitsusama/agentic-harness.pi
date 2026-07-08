@@ -82,6 +82,11 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		ctxRef = ctx;
+		// Reset the per-session tally so a session switch in a live
+		// process does not carry the previous session's run count and
+		// cost into the new session's status line.
+		sessionRuns = 0;
+		sessionCost = 0;
 		if (store === null) {
 			const dir = packageStateDir("observability");
 			mkdirSync(dir, { recursive: true });

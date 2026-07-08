@@ -40,6 +40,12 @@ describe("parseRules", () => {
 		expect(parseRules(reply)).toEqual(["one", "two"]);
 	});
 
+	it("recovers the array despite a trailing bracket in prose", () => {
+		const reply =
+			'Here are the rules: ["Always test.", "Never force push."]. See issue [123].';
+		expect(parseRules(reply)).toEqual(["Always test.", "Never force push."]);
+	});
+
 	it("falls back to bullet and numbered lines", () => {
 		const reply = "- first rule\n2. second rule\n* third";
 		expect(parseRules(reply)).toEqual(["first rule", "second rule", "third"]);

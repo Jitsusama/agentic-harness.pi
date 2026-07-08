@@ -21,9 +21,8 @@
 export function processGlobal<T>(key: string, create: () => T): T {
 	const symbol = Symbol.for(key);
 	const store = globalThis as Record<symbol, T | undefined>;
-	const existing = store[symbol];
-	if (existing !== undefined) return existing;
-	const value = create();
-	store[symbol] = value;
-	return value;
+	// Test presence with `in`, not truthiness, so a value that is
+	// legitimately undefined or falsy is still created only once.
+	if (!(symbol in store)) store[symbol] = create();
+	return store[symbol] as T;
 }

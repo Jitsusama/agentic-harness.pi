@@ -26,6 +26,14 @@ describe("parseFindings", () => {
 		expect(parseFindings("[not json")).toEqual([]);
 	});
 
+	it("recovers findings despite a trailing bracket in prose", () => {
+		const reply =
+			'Findings: [{"severity":"blocker","claim":"deletes prod"}] (see schema.sql [line 42])';
+		expect(parseFindings(reply)).toEqual([
+			{ severity: "blocker", claim: "deletes prod" },
+		]);
+	});
+
 	it("omits evidence when blank", () => {
 		expect(
 			parseFindings('[{"severity":"aside","claim":"c","evidence":"  "}]'),

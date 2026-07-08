@@ -77,6 +77,8 @@ const NOTE_MARKER = "[advisor]";
 const MAX_STEPS = 6;
 /** Reset the caching context once it grows past this many chars. */
 const MAX_CONTEXT_CHARS = 60_000;
+/** Wall-clock bound on one whole review (model plus tool steps). */
+const REVIEW_TIMEOUT_MS = 60_000;
 
 /** A finding the advisor injected, to skip on later reviews. */
 function isAdvisorNote(text: string): boolean {
@@ -138,10 +140,19 @@ export default function advisor(pi: ExtensionAPI) {
 	let cursor = 0;
 	let immuneTurns = 0;
 	let runSeq = 0;
+	// True while a review awaits the model, so overlapping turn_end
+	// events do not run concurrent reviews over the shared context.
+	let reviewing = false;
+	// Bumped on every context reset; a review captures it before its
+	// await and refuses to write back if a reset intervened.
+	let generation = 0;
 
 	function resetContext(): void {
+		generation += 1;
 		messages = [];
 		cursor = 0;
+		immuneTurns = 0;
+		runSeq = 0;
 	}
 
 	pi.on("session_start", async () => {
@@ -207,12 +218,19 @@ export default function advisor(pi: ExtensionAPI) {
 	});
 
 	pi.on("turn_end", async (_event, ctx: ExtensionContext) => {
-		if (!enabled) return;
+		// Skip while a prior review is still in flight: single-flight
+		// reviews keep the shared context from being mutated by two
+		// runs at once. The skipped turn is picked up by the next
+		// review, which sees it in the accumulated delta.
+		if (!enabled || reviewing) return;
+		reviewing = true;
 		try {
 			await review(ctx);
 		} catch {
 			// The advisor is advisory: a failure in it must never
 			// disturb the turn it was watching.
+		} finally {
+			reviewing = false;
 		}
 	});
 
@@ -222,17 +240,19 @@ export default function advisor(pi: ExtensionAPI) {
 		// rewritten, so the old cursor and context no longer apply.
 		if (entries.length < cursor) resetContext();
 
+		const startGen = generation;
 		const deltaEntries = entries.slice(cursor);
-		cursor = entries.length;
 
 		const turns = entriesToTurns(deltaEntries).filter(
 			(t) => !isAdvisorNote(t.text),
 		);
 		if (turns.length === 0) {
+			cursor = entries.length;
 			immuneTurns = nextImmuneTurns(immuneTurns, false);
 			return;
 		}
 		if (!isSubstantiveTurn(toolNamesOf(deltaEntries))) {
+			cursor = entries.length;
 			immuneTurns = nextImmuneTurns(immuneTurns, false);
 			return;
 		}
@@ -245,14 +265,23 @@ export default function advisor(pi: ExtensionAPI) {
 		});
 
 		const startedAt = Date.now();
+		// Bound the whole review: without a signal a stalled model
+		// call or a wedged search tool would hang the review forever.
+		const signal = AbortSignal.timeout(REVIEW_TIMEOUT_MS);
 		const result = await runInvestigation(ctx.modelRegistry, {
 			systemPrompt: advisorCharter(),
 			messages,
-			tools: investigationTools(ctx.cwd),
+			tools: investigationTools(ctx.cwd, signal),
 			maxSteps: MAX_STEPS,
 			current: ctx.model,
+			signal,
 		});
+		// A compaction or reset during the await invalidated the
+		// context; drop this review's writeback rather than resurrect
+		// the stale prefix the reset just cleared.
+		if (generation !== startGen) return;
 		messages = result.messages;
+		cursor = entries.length;
 		recordCost(ctx, result, startedAt);
 
 		if (!result.ok) return;

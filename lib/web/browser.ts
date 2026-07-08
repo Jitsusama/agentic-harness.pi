@@ -155,6 +155,15 @@ export async function newPage(): Promise<Page> {
 /** Shut down the shared Chrome instance if it's running. */
 export async function closeBrowser(): Promise<void> {
 	const state = sharedState();
+	// Wait out an in-flight launch so a browser that resolves after
+	// close is not orphaned past the intended shutdown.
+	if (state.launching) {
+		try {
+			await state.launching;
+		} catch {
+			// A failed launch leaves nothing to close.
+		}
+	}
 	const b = state.browser;
 	if (!b) return;
 

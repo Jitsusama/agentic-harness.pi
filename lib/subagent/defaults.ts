@@ -10,10 +10,15 @@
  * `--extension` / `--skill` injections even when ambient
  * inheritance is disabled.
  *
- * The registry is process-global on purpose. Pi loads
- * every extension into one Node process, so module-level
- * state is the right scope: one credentials helper, one
- * registry, every subagent picks it up.
+ * The registry must be genuinely process-global. Pi loads
+ * each extension as its own module instance, so a plain
+ * module-level Set would give each extension a separate
+ * registry: an extension registering a default (e.g. a
+ * credentials helper) would land it in its own copy, while
+ * a reviewer spawned from a different extension would read
+ * an empty one. Holding it on globalThis via processGlobal
+ * makes registration in any instance visible to every
+ * runReviewer.
  *
  * The canonical way for an outside pi extension to add a
  * default is to listen for the `subagent-workflow:ready:v1`
@@ -24,8 +29,16 @@
  * and tightly-coupled internal callers.
  */
 
-const defaultExtensions = new Set<string>();
-const defaultSkills = new Set<string>();
+import { processGlobal } from "../internal/process-global.js";
+
+const defaultExtensions = processGlobal(
+	"pi:subagent-default-extensions",
+	() => new Set<string>(),
+);
+const defaultSkills = processGlobal(
+	"pi:subagent-default-skills",
+	() => new Set<string>(),
+);
 
 /**
  * Register an extension file that should be loaded into

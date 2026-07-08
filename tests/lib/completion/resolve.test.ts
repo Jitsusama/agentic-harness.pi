@@ -37,6 +37,10 @@ describe("pickModel", () => {
 		expect(pickModel(available, opus, {})).toBe(glm);
 	});
 
+	it("honours a provider named without a model", () => {
+		expect(pickModel(available, glm, { provider: "openai" })).toBe(gpt);
+	});
+
 	it("falls back to the current model when no GLM is present", () => {
 		expect(pickModel([opus, gpt], opus, {})).toBe(opus);
 	});

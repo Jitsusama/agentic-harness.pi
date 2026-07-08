@@ -48,6 +48,8 @@ const STATUS_KEY = "verification-workflow";
 const SYNCABLE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 /** How long a medium-layer check command may run. */
 const CHECK_TIMEOUT_MS = 300_000;
+/** Cap on captured check output held in memory (a rolling tail). */
+const MAX_CAPTURE_BYTES = 512 * 1024;
 
 export default function verificationWorkflow(pi: ExtensionAPI) {
 	const state = createVerificationState();
@@ -97,7 +99,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			return;
 		}
 
-		const errors = await collectErrors(backend, files);
+		const { errors, failed } = await collectErrors(backend, files);
 		const tddPhase =
 			getLastEntry<{ phase?: string }>(ctx, "tdd-workflow")?.phase ?? "idle";
 		const verdict = fastLayerVerdict({
@@ -123,6 +125,13 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			state.pending = [];
 			state.outcome = "failing";
 		} else if (verdict.reason.includes("TDD")) {
+			state.outcome = "deferred";
+		} else if (failed) {
+			// The server errored for the touched files, so "no errors"
+			// is not "checked clean": report deferred rather than lie
+			// green and unblock a commit on unchecked code.
+			state.attempts = 0;
+			state.pending = [];
 			state.outcome = "deferred";
 		} else {
 			state.attempts = 0;
@@ -210,18 +219,27 @@ interface VerifyDetails {
 	readonly command?: string;
 }
 
+interface DiagnosticsResult {
+	readonly errors: FileError[];
+	/** True when a diagnostics call threw, so "no errors" is not "checked clean". */
+	readonly failed: boolean;
+}
+
 async function collectErrors(
 	backend: { diagnostics: (path: string) => Promise<readonly unknown[]> },
 	files: readonly string[],
-): Promise<FileError[]> {
+): Promise<DiagnosticsResult> {
 	const errors: FileError[] = [];
+	let failed = false;
 	for (const path of files) {
 		let diagnostics: readonly unknown[];
 		try {
 			diagnostics = await backend.diagnostics(path);
 		} catch {
-			// A file with no resolvable server degrades to no errors
-			// here; the medium layer is the fallback.
+			// The server errored for a file it was expected to serve.
+			// Remember that so the caller does not report "clean" for a
+			// check that never actually ran.
+			failed = true;
 			continue;
 		}
 		for (const raw of diagnostics) {
@@ -239,7 +257,7 @@ async function collectErrors(
 			});
 		}
 	}
-	return errors;
+	return { errors, failed };
 }
 
 interface ProjectInfo {
@@ -335,15 +353,25 @@ function runCommand(
 		};
 		const timer = setTimeout(killGroup, CHECK_TIMEOUT_MS);
 		const onAbort = () => killGroup();
-		signal?.addEventListener("abort", onAbort, { once: true });
+		// addEventListener does not fire for a signal that is already
+		// aborted, so kill up front in that case; otherwise the
+		// detached suite would run to the timeout after an abort.
+		if (signal?.aborted) killGroup();
+		else signal?.addEventListener("abort", onAbort, { once: true });
 		const cleanup = () => {
 			clearTimeout(timer);
 			signal?.removeEventListener("abort", onAbort);
 		};
 
+		// Keep a rolling tail rather than the whole stream, so a
+		// runaway command cannot grow the buffer without bound for the
+		// whole timeout window; the tail is what the summary keeps.
 		let output = "";
 		const onData = (chunk: Buffer) => {
 			output += chunk.toString();
+			if (output.length > MAX_CAPTURE_BYTES) {
+				output = output.slice(output.length - MAX_CAPTURE_BYTES);
+			}
 		};
 		child.stdout?.on("data", onData);
 		child.stderr?.on("data", onData);
