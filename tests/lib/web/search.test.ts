@@ -2,7 +2,61 @@ import { describe, expect, it } from "vitest";
 import {
 	extractBingUrl,
 	extractDuckDuckGoUrl,
+	firstProviderResults,
+	type SearchResult,
 } from "../../../lib/web/search.js";
+
+const PROVIDER_A = { name: "a" } as never;
+const PROVIDER_B = { name: "b" } as never;
+const hit: SearchResult = { title: "t", url: "u", snippet: "s" };
+
+describe("firstProviderResults", () => {
+	it("returns the first provider that yields results", async () => {
+		const tried: string[] = [];
+		const out = await firstProviderResults(
+			[PROVIDER_A, PROVIDER_B],
+			async (p) => {
+				tried.push((p as { name: string }).name);
+				return [hit];
+			},
+		);
+		expect(out).toEqual([hit]);
+		expect(tried).toEqual(["a"]);
+	});
+
+	it("falls through an empty provider to the next", async () => {
+		const tried: string[] = [];
+		const out = await firstProviderResults(
+			[PROVIDER_A, PROVIDER_B],
+			async (p) => {
+				const name = (p as { name: string }).name;
+				tried.push(name);
+				return name === "a" ? [] : [hit];
+			},
+		);
+		expect(out).toEqual([hit]);
+		expect(tried).toEqual(["a", "b"]);
+	});
+
+	it("falls through a throwing provider to the next", async () => {
+		const out = await firstProviderResults(
+			[PROVIDER_A, PROVIDER_B],
+			async (p) => {
+				if ((p as { name: string }).name === "a") throw new Error("boom");
+				return [hit];
+			},
+		);
+		expect(out).toEqual([hit]);
+	});
+
+	it("returns empty when every provider is empty", async () => {
+		const out = await firstProviderResults(
+			[PROVIDER_A, PROVIDER_B],
+			async () => [],
+		);
+		expect(out).toEqual([]);
+	});
+});
 
 /** Build a base64url string the way Bing encodes its `u` param. */
 function toBase64Url(value: string): string {
