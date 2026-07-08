@@ -178,13 +178,28 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 				state.outcome = run.code === 0 ? "clean" : "failing";
 				refreshStatus(ctxRef, state);
 			}
-			const header =
-				run.code === 0
-					? `Passed: ${resolved.command}`
-					: `Failed (exit ${run.code}): ${resolved.command}`;
+			// A passing run needs only its summary; a failing one keeps
+			// the captured tail so the errors are there to act on.
+			if (run.code === 0) {
+				const tail = run.output.split("\n").slice(-12).join("\n").trim();
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Passed: ${resolved.command}\n\n${tail}`.trim(),
+						},
+					],
+					details: { ok: true, command: resolved.command },
+				};
+			}
 			return {
-				content: [{ type: "text", text: `${header}\n\n${run.output}`.trim() }],
-				details: { ok: run.code === 0, command: resolved.command },
+				content: [
+					{
+						type: "text",
+						text: `Failed (exit ${run.code}): ${resolved.command}\n\n${run.output}`.trim(),
+					},
+				],
+				details: { ok: false, command: resolved.command },
 			};
 		},
 	});
@@ -269,30 +284,79 @@ interface CommandResult {
 	readonly output: string;
 }
 
+/**
+ * Strip ANSI escape sequences (colour and cursor control) from
+ * captured output. A test runner emits these even into a pipe, and
+ * left in the returned text they smear the TUI when the result is
+ * rendered.
+ */
+// ESC[ control sequences (colour, cursor) and ESC] ... BEL (OSC).
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI escapes requires the ESC and BEL control bytes.
+const ANSI_PATTERN = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*\u0007/g;
+
+export function stripAnsi(text: string): string {
+	return text.replace(ANSI_PATTERN, "");
+}
+
 function runCommand(
 	command: string,
 	cwd: string,
 	signal: AbortSignal | undefined,
 ): Promise<CommandResult> {
 	return new Promise((resolvePromise) => {
+		// The child runs in its own session (detached) with no stdin
+		// and piped output. Detaching removes the controlling terminal,
+		// so a test-runner descendant cannot write progress straight to
+		// pi's screen and clobber the status line; the pipes are still
+		// captured here. The environment forces plain, non-interactive
+		// output so nothing tries cursor control in the first place.
 		const child = spawn(command, {
 			cwd,
 			shell: true,
-			signal,
-			timeout: CHECK_TIMEOUT_MS,
+			detached: true,
+			stdio: ["ignore", "pipe", "pipe"],
+			env: {
+				...process.env,
+				CI: "true",
+				NO_COLOR: "1",
+				FORCE_COLOR: "0",
+				TERM: "dumb",
+			},
 		});
+
+		// Kill the whole process group, not just the shell, so detached
+		// test workers do not outlive an abort or a timeout.
+		const killGroup = () => {
+			try {
+				if (child.pid) process.kill(-child.pid, "SIGKILL");
+			} catch {
+				// Already gone, or never grouped; nothing to reap.
+			}
+		};
+		const timer = setTimeout(killGroup, CHECK_TIMEOUT_MS);
+		const onAbort = () => killGroup();
+		signal?.addEventListener("abort", onAbort, { once: true });
+		const cleanup = () => {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", onAbort);
+		};
+
 		let output = "";
-		child.stdout?.on("data", (chunk) => {
+		const onData = (chunk: Buffer) => {
 			output += chunk.toString();
-		});
-		child.stderr?.on("data", (chunk) => {
-			output += chunk.toString();
-		});
+		};
+		child.stdout?.on("data", onData);
+		child.stderr?.on("data", onData);
 		child.on("error", (err) => {
-			resolvePromise({ code: 1, output: `${output}\n${err.message}`.trim() });
+			cleanup();
+			resolvePromise({
+				code: 1,
+				output: stripAnsi(`${output}\n${err.message}`).trim(),
+			});
 		});
 		child.on("close", (code) => {
-			resolvePromise({ code: code ?? 1, output: truncate(output) });
+			cleanup();
+			resolvePromise({ code: code ?? 1, output: truncate(stripAnsi(output)) });
 		});
 	});
 }
