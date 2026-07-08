@@ -9,6 +9,8 @@
  * their own.
  */
 
+import { firstJsonArray } from "../internal/json-array.js";
+
 /** One turn of a conversation, reduced to role and text. */
 export interface Turn {
 	readonly role: "user" | "assistant";
@@ -71,10 +73,10 @@ export function distillUserPrompt(transcript: string, focus?: string): string {
  * or numbered lines when the model wrapped the array in prose.
  */
 export function parseRules(reply: string): string[] {
-	const match = reply.match(/\[[\s\S]*\]/);
-	if (match) {
+	const array = firstJsonArray(reply);
+	if (array) {
 		try {
-			const parsed = JSON.parse(match[0]);
+			const parsed = JSON.parse(array);
 			if (Array.isArray(parsed)) {
 				return parsed
 					.filter((r): r is string => typeof r === "string")
