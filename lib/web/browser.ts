@@ -175,6 +175,16 @@ export async function closeBrowser(): Promise<void> {
 		b.process()?.kill("SIGKILL");
 	} finally {
 		state.browser = undefined;
+		// Reclaim this run's profile dir on a graceful close rather
+		// than leaving it for the next run's startup sweep.
+		try {
+			fs.rmSync(path.join(PROFILE_ROOT, String(process.pid)), {
+				recursive: true,
+				force: true,
+			});
+		} catch {
+			// Best-effort cleanup; the next launch sweeps leftovers.
+		}
 	}
 }
 

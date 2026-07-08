@@ -35,7 +35,23 @@ function mintId(): string {
 	return randomBytes(4).toString("hex");
 }
 
-/** Read and parse the store file, tolerating a missing file. */
+/** True for a record with the string fields a rule requires. */
+function isValidRule(value: unknown): value is GovernanceRule {
+	const r = value as Partial<GovernanceRule>;
+	return (
+		typeof r?.id === "string" &&
+		typeof r?.text === "string" &&
+		typeof r?.createdAt === "string"
+	);
+}
+
+/**
+ * Read and parse the store file, tolerating a missing file. A
+ * file that will not parse is moved aside (never overwritten in
+ * place) so a hand-edit typo cannot silently erase every rule on
+ * the next write; the caller then starts from empty. Malformed
+ * individual entries are dropped rather than rendered as blanks.
+ */
 function readRules(path: string): GovernanceRule[] {
 	let raw: string;
 	try {
@@ -44,14 +60,22 @@ function readRules(path: string): GovernanceRule[] {
 		// No file yet: an empty store is the correct starting point.
 		return [];
 	}
+	let parsed: unknown;
 	try {
-		const parsed = JSON.parse(raw);
-		return Array.isArray(parsed) ? (parsed as GovernanceRule[]) : [];
+		parsed = JSON.parse(raw);
 	} catch {
-		// A corrupt file must not crash the session; start empty
-		// rather than throw, and the next write heals the file.
+		// Preserve the unparseable file under a new name and remove it
+		// from the path so the next read starts clean and the next
+		// write does not clobber the user's (recoverable) content.
+		try {
+			renameSync(path, `${path}.corrupt-${Date.now()}`);
+		} catch {
+			// Could not move it aside; leave it and start empty anyway.
+		}
 		return [];
 	}
+	if (!Array.isArray(parsed)) return [];
+	return parsed.filter(isValidRule);
 }
 
 /** Write the rule set atomically. */
@@ -63,14 +87,16 @@ function writeRules(path: string, rules: GovernanceRule[]): void {
 }
 
 /**
- * Open the rule store backed by the file at `path`. The file is
- * read once into memory; every mutation rewrites it atomically.
+ * Open the rule store backed by the file at `path`. Every
+ * operation reads through to the file, so two extensions holding
+ * their own store over the same path (correction capture and the
+ * advisor) always see each other's writes, and a hand-edit is
+ * picked up without a restart. Writes are atomic.
  */
 export function openRuleStore(path: string): RuleStore {
-	let rules = readRules(path);
 	return {
 		list() {
-			return [...rules];
+			return readRules(path);
 		},
 		add(rule) {
 			const filed: GovernanceRule = {
@@ -79,22 +105,18 @@ export function openRuleStore(path: string): RuleStore {
 				createdAt: new Date().toISOString(),
 				...(rule.source ? { source: rule.source } : {}),
 			};
-			rules = [...rules, filed];
-			writeRules(path, rules);
+			writeRules(path, [...readRules(path), filed]);
 			return filed;
 		},
 		remove(id) {
-			const next = rules.filter((r) => r.id !== id);
-			const removed = next.length !== rules.length;
-			if (removed) {
-				rules = next;
-				writeRules(path, rules);
-			}
+			const current = readRules(path);
+			const next = current.filter((r) => r.id !== id);
+			const removed = next.length !== current.length;
+			if (removed) writeRules(path, next);
 			return removed;
 		},
 		replaceAll(next) {
-			rules = [...next];
-			writeRules(path, rules);
+			writeRules(path, [...next]);
 		},
 	};
 }

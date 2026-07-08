@@ -15,6 +15,14 @@ describe("stripAnsi", () => {
 		expect(stripAnsi("\u001b]0;title\u0007text")).toBe("text");
 	});
 
+	it("removes an OSC sequence terminated by ST (ESC backslash)", () => {
+		expect(stripAnsi("\u001b]0;title\u001b\\text")).toBe("text");
+	});
+
+	it("removes a CSI sequence with an extended parameter class", () => {
+		expect(stripAnsi("a\u001b[38:5:200mb\u001b[0m")).toBe("ab");
+	});
+
 	it("leaves plain text untouched", () => {
 		expect(stripAnsi("Tests 2220 passed")).toBe("Tests 2220 passed");
 	});

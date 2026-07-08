@@ -29,11 +29,15 @@ interface SearchProvider {
 
 /** Extract the real URL from a DuckDuckGo redirect link. */
 export function extractDuckDuckGoUrl(ddgHref: string): string {
-	try {
-		const match = ddgHref.match(/uddg=([^&]+)/);
-		if (match) return decodeURIComponent(match[1]);
-	} catch {
-		// Fall through to the raw-href handling below.
+	const match = ddgHref.match(/uddg=([^&]+)/);
+	if (match) {
+		try {
+			return decodeURIComponent(match[1]);
+		} catch {
+			// Malformed encoding: return the href unchanged rather than
+			// promoting the redirect wrapper as if it were the target.
+			return ddgHref;
+		}
 	}
 	if (ddgHref.startsWith("//")) return `https:${ddgHref}`;
 	return ddgHref;
