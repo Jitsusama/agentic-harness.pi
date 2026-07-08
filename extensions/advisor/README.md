@@ -31,8 +31,10 @@ each turn.
 
 It is bounded and quiet by design:
 
-- **Off by default, opt-in** through the `PI_ADVISOR` environment
-  variable. Without it, nothing is wired.
+- **Off by default, turned on in conversation.** Ask for it and
+  the agent calls the `advisor` tool (enable, disable or status);
+  the choice persists across sessions. While off, the turn-end
+  handler returns at once, so nothing is paid.
 - **Substantive turns only.** A turn that only read or answered a
   question is skipped; a turn that edited, wrote, committed or
   acted is reviewed.

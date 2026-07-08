@@ -10,10 +10,11 @@
  *
  * It runs on a cheap side model (GLM via the proxy) and keeps one
  * long-lived context per session, so its prefix caches turn to
- * turn. It is off by default and opt-in through the `PI_ADVISOR`
- * environment variable, watches the main agent only (subagents
- * load an isolated config without it), and self-heals its review
- * cursor when the transcript is compacted or rewritten.
+ * turn. It is off by default and turned on by asking for it in
+ * conversation, which calls the `advisor` tool; the choice
+ * persists across sessions. It watches the main agent only
+ * (subagents load an isolated config without it), and self-heals
+ * its review cursor when the transcript is compacted or rewritten.
  */
 
 import { mkdirSync } from "node:fs";
@@ -22,6 +23,8 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import { Text } from "@mariozechner/pi-tui";
+import { Type } from "@sinclair/typebox";
 import { runInvestigation } from "../../lib/completion/index.js";
 import {
 	condenseTranscript,
@@ -41,6 +44,7 @@ import {
 	nextImmuneTurns,
 	parseFindings,
 } from "./findings.js";
+import { loadAdvisorEnabled, saveAdvisorEnabled } from "./settings.js";
 import { isSubstantiveTurn } from "./substantive.js";
 import { investigationTools } from "./tools.js";
 
@@ -73,12 +77,6 @@ const NOTE_MARKER = "[advisor]";
 const MAX_STEPS = 6;
 /** Reset the caching context once it grows past this many chars. */
 const MAX_CONTEXT_CHARS = 60_000;
-
-/** True for a truthy opt-in environment value. */
-function optedIn(): boolean {
-	const value = process.env.PI_ADVISOR?.toLowerCase();
-	return value === "1" || value === "true" || value === "yes" || value === "on";
-}
 
 /** A finding the advisor injected, to skip on later reviews. */
 function isAdvisorNote(text: string): boolean {
@@ -119,9 +117,12 @@ function formatFinding(finding: Finding): string {
 }
 
 export default function advisor(pi: ExtensionAPI) {
-	// Off by default: without the opt-in, nothing is wired, so a
-	// session that did not ask for the advisor pays nothing.
-	if (!optedIn()) return;
+	// Off until turned on in conversation. The flag is loaded at
+	// session start and flipped by the advisor tool; while off, the
+	// turn_end handler returns at once, so a session that did not
+	// ask for the advisor pays nothing.
+	let enabled = false;
+	const settingsPath = () => join(dataDir("advisor"), "settings.json");
 
 	let store: RuleStore | null = null;
 	function ruleStore(): RuleStore {
@@ -143,12 +144,70 @@ export default function advisor(pi: ExtensionAPI) {
 		cursor = 0;
 	}
 
-	pi.on("session_start", async () => resetContext());
+	pi.on("session_start", async () => {
+		enabled = loadAdvisorEnabled(settingsPath());
+		resetContext();
+	});
 	// A compaction rewrites the transcript, so any index into it is
 	// stale; drop the cursor and the cached context and start fresh.
 	pi.on("session_compact", async () => resetContext());
 
+	pi.registerTool({
+		name: "advisor",
+		label: "Advisor",
+		description:
+			"Turn the background advisor on or off, or check its status. " +
+			"The advisor is a second cheap model that reviews your " +
+			"substantive turns against the captured rules and raises " +
+			"evidence-backed notes. It is off by default; enable it when you " +
+			"want a second set of eyes, and the choice persists across " +
+			"sessions until disabled.",
+		parameters: Type.Object({
+			action: Type.Union(
+				[
+					Type.Literal("enable"),
+					Type.Literal("disable"),
+					Type.Literal("status"),
+				],
+				{ description: "Turn the advisor on, off, or report its state." },
+			),
+		}),
+		renderCall(args, theme) {
+			const label = theme.fg("toolTitle", theme.bold("advisor "));
+			const action = typeof args.action === "string" ? args.action : "status";
+			return new Text(label + theme.fg("dim", action), 0, 0);
+		},
+		async execute(_toolCallId, params) {
+			if (params.action === "status") {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `Advisor is ${enabled ? "enabled" : "disabled"}.`,
+						},
+					],
+					details: { enabled },
+				};
+			}
+			enabled = params.action === "enable";
+			saveAdvisorEnabled(settingsPath(), enabled);
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: enabled
+							? "Advisor enabled. It will review substantive turns this " +
+								"session and future ones until you disable it."
+							: "Advisor disabled. It will not run until you enable it again.",
+					},
+				],
+				details: { enabled },
+			};
+		},
+	});
+
 	pi.on("turn_end", async (_event, ctx: ExtensionContext) => {
+		if (!enabled) return;
 		try {
 			await review(ctx);
 		} catch {
