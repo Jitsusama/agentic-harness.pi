@@ -27,8 +27,10 @@ export {
 	type StandaloneBackendOptions,
 } from "./standalone/backend.js";
 export type {
+	CodeAction,
 	Diagnostic,
 	DiagnosticSeverity,
+	HoverInfo,
 	LspBackend,
 	LspBackendEntry,
 	LspLocation,

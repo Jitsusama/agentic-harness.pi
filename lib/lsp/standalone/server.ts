@@ -9,7 +9,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import {
 	createMessageConnection,
 	type MessageConnection,
@@ -18,26 +18,42 @@ import {
 } from "vscode-jsonrpc/node";
 import {
 	type ClientCapabilities,
+	CodeActionRequest,
 	DefinitionRequest,
 	DidChangeTextDocumentNotification,
 	DidOpenTextDocumentNotification,
+	type DocumentSymbol,
+	DocumentSymbolRequest,
+	HoverRequest,
 	InitializedNotification,
 	InitializeRequest,
 	type Location,
 	type LocationLink,
+	type WorkspaceEdit as ProtocolWorkspaceEdit,
 	PublishDiagnosticsNotification,
 	ReferencesRequest,
+	RenameRequest,
+	type SymbolInformation,
+	type WorkspaceSymbol,
+	WorkspaceSymbolRequest,
 } from "vscode-languageserver-protocol";
 import type { ServerConfig } from "../config.js";
 import type {
+	CodeAction,
 	Diagnostic,
 	DiagnosticSeverity,
+	HoverInfo,
 	LspLocation,
+	LspRange,
 	LspTarget,
+	SymbolInfo,
+	WorkspaceEdit,
 } from "../types.js";
 import {
+	applyProtocolEdits,
 	fileToUri,
 	fromProtocolRange,
+	type LspProtocolTextEdit,
 	languageIdFor,
 	toLines,
 	toProtocolPosition,
@@ -181,6 +197,84 @@ export class StandaloneServer {
 		return this.toLocations(result);
 	}
 
+	/** Documentation for the symbol under the target, or null. */
+	async hover(target: LspTarget): Promise<HoverInfo | null> {
+		await this.ensureReady(target.path);
+		const result = await this.connection.sendRequest(HoverRequest.type, {
+			textDocument: { uri: fileToUri(target.path) },
+			position: toProtocolPosition(this.linesFor(target.path), target.position),
+		});
+		if (!result) return null;
+		const contents = hoverText(result.contents);
+		if (!contents) return null;
+		return result.range
+			? {
+					contents,
+					range: fromProtocolRange(this.linesFor(target.path), result.range),
+				}
+			: { contents };
+	}
+
+	/** Symbols declared in one file. */
+	async documentSymbols(path: string): Promise<SymbolInfo[]> {
+		await this.ensureReady(path);
+		const result = await this.connection.sendRequest(
+			DocumentSymbolRequest.type,
+			{ textDocument: { uri: fileToUri(path) } },
+		);
+		if (!result) return [];
+		const lines = this.linesFor(path);
+		return result.flatMap((item) =>
+			"location" in item
+				? [this.fromSymbolInformation(item)]
+				: this.flattenDocumentSymbol(path, lines, item),
+		);
+	}
+
+	/** Symbols across the project matching a query. */
+	async workspaceSymbols(query: string): Promise<SymbolInfo[]> {
+		const result = await this.connection.sendRequest(
+			WorkspaceSymbolRequest.type,
+			{ query },
+		);
+		if (!result) return [];
+		return result.map((item) => this.fromSymbolInformation(item));
+	}
+
+	/** Rename the symbol under the target and apply the edits. */
+	async rename(target: LspTarget, newName: string): Promise<WorkspaceEdit> {
+		await this.ensureReady(target.path);
+		const edit = await this.connection.sendRequest(RenameRequest.type, {
+			textDocument: { uri: fileToUri(target.path) },
+			position: toProtocolPosition(this.linesFor(target.path), target.position),
+			newName,
+		});
+		if (!edit) return { changes: [] };
+		return this.applyWorkspaceEdit(edit);
+	}
+
+	/** Code actions the server offers for a file, optionally at a range. */
+	async codeActions(path: string, range?: LspRange): Promise<CodeAction[]> {
+		await this.ensureReady(path);
+		const lines = this.linesFor(path);
+		const protocolRange = range
+			? {
+					start: toProtocolPosition(lines, range.start),
+					end: toProtocolPosition(lines, range.end),
+				}
+			: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } };
+		const result = await this.connection.sendRequest(CodeActionRequest.type, {
+			textDocument: { uri: fileToUri(path) },
+			range: protocolRange,
+			context: { diagnostics: [] },
+		});
+		if (!result) return [];
+		return result.map((item) => ({
+			title: item.title,
+			...("kind" in item && item.kind ? { kind: item.kind } : {}),
+		}));
+	}
+
 	/** Re-sync a document after pi edited it, so diagnostics stay current. */
 	syncDocument(path: string, text: string): void {
 		const uri = fileToUri(path);
@@ -293,6 +387,95 @@ export class StandaloneServer {
 		};
 	}
 
+	/**
+	 * Apply a protocol workspace edit to disk, updating caches
+	 * and re-syncing open documents, and return what changed in
+	 * tool coordinates.
+	 */
+	private applyWorkspaceEdit(edit: ProtocolWorkspaceEdit): WorkspaceEdit {
+		const byUri = new Map<string, LspProtocolTextEdit[]>();
+		const plainEdits = (
+			edits: readonly {
+				range: LspProtocolTextEdit["range"];
+				newText?: string;
+			}[],
+		): LspProtocolTextEdit[] =>
+			edits.flatMap((e) =>
+				typeof e.newText === "string"
+					? [{ range: e.range, newText: e.newText }]
+					: [],
+			);
+		if (edit.changes) {
+			for (const [uri, edits] of Object.entries(edit.changes)) {
+				byUri.set(uri, plainEdits(edits));
+			}
+		}
+		if (edit.documentChanges) {
+			for (const change of edit.documentChanges) {
+				if ("textDocument" in change && "edits" in change) {
+					byUri.set(change.textDocument.uri, plainEdits(change.edits));
+				}
+			}
+		}
+		const changes: WorkspaceEdit["changes"][number][] = [];
+		for (const [uri, edits] of byUri) {
+			const path = uriToFile(uri);
+			const original = readFileSync(path, "utf8");
+			const updated = applyProtocolEdits(original, edits);
+			writeFileSync(path, updated);
+			const lines = toLines(original);
+			changes.push({
+				path,
+				edits: edits.map((e) => ({
+					range: fromProtocolRange(lines, e.range),
+					newText: e.newText,
+				})),
+			});
+			// Keep the server in step with what we just wrote.
+			this.syncDocument(path, updated);
+		}
+		return { changes };
+	}
+
+	private fromSymbolInformation(
+		item: SymbolInformation | WorkspaceSymbol,
+	): SymbolInfo {
+		const location = item.location;
+		const path = uriToFile(location.uri);
+		// A WorkspaceSymbol may carry only a uri, without a range.
+		const range =
+			"range" in location
+				? fromProtocolRange(this.linesFor(path), location.range)
+				: {
+						start: { line: 1, character: 0 },
+						end: { line: 1, character: 0 },
+					};
+		return {
+			name: item.name,
+			kind: symbolKindName(item.kind),
+			location: { path, range },
+			...(item.containerName ? { containerName: item.containerName } : {}),
+		};
+	}
+
+	private flattenDocumentSymbol(
+		path: string,
+		lines: readonly string[],
+		symbol: DocumentSymbol,
+		container?: string,
+	): SymbolInfo[] {
+		const self: SymbolInfo = {
+			name: symbol.name,
+			kind: symbolKindName(symbol.kind),
+			location: { path, range: fromProtocolRange(lines, symbol.range) },
+			...(container ? { containerName: container } : {}),
+		};
+		const children = (symbol.children ?? []).flatMap((child) =>
+			this.flattenDocumentSymbol(path, lines, child, symbol.name),
+		);
+		return [self, ...children];
+	}
+
 	private toLocations(
 		result: Location | Location[] | LocationLink[] | null,
 	): LspLocation[] {
@@ -313,6 +496,50 @@ export class StandaloneServer {
 			};
 		});
 	}
+}
+
+function hoverText(contents: unknown): string {
+	if (contents === null || contents === undefined) return "";
+	if (typeof contents === "string") return contents;
+	if (Array.isArray(contents)) return contents.map(hoverText).join("\n");
+	if (typeof contents === "object") {
+		const value = (contents as { value?: unknown }).value;
+		if (typeof value === "string") return value;
+	}
+	return "";
+}
+
+const SYMBOL_KINDS: Readonly<Record<number, string>> = {
+	1: "file",
+	2: "module",
+	3: "namespace",
+	4: "package",
+	5: "class",
+	6: "method",
+	7: "property",
+	8: "field",
+	9: "constructor",
+	10: "enum",
+	11: "interface",
+	12: "function",
+	13: "variable",
+	14: "constant",
+	15: "string",
+	16: "number",
+	17: "boolean",
+	18: "array",
+	19: "object",
+	20: "key",
+	21: "null",
+	22: "enum-member",
+	23: "struct",
+	24: "event",
+	25: "operator",
+	26: "type-parameter",
+};
+
+function symbolKindName(kind: number): string {
+	return SYMBOL_KINDS[kind] ?? "symbol";
 }
 
 function withTimeout<T>(

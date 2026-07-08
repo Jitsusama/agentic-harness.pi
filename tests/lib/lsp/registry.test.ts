@@ -14,6 +14,11 @@ function fakeBackend(name: string): LspBackend {
 		diagnostics: async () => [],
 		definition: async () => [],
 		references: async () => [],
+		hover: async () => null,
+		documentSymbols: async () => [],
+		workspaceSymbols: async () => [],
+		rename: async () => ({ changes: [] }),
+		codeActions: async () => [],
 		dispose: async () => {},
 	};
 }

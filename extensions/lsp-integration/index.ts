@@ -22,14 +22,18 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
+	type CodeAction,
 	createStandaloneBackend,
 	type Diagnostic,
+	type HoverInfo,
 	type LspLocation,
 	MissingServerError,
 	registerLspBackend,
 	resolveLspBackend,
 	type StandaloneBackend,
+	type SymbolInfo,
 	unregisterLspBackend,
+	type WorkspaceEdit,
 } from "../../lib/lsp/index.js";
 
 const STANDALONE = "standalone";
@@ -44,6 +48,8 @@ interface LspToolDetails {
 	readonly operation?: string;
 	readonly count?: number;
 }
+
+const POSITION_OPS = new Set(["definition", "references", "hover", "rename"]);
 
 export default function lspIntegration(pi: ExtensionAPI) {
 	let backend: StandaloneBackend | null = null;
@@ -93,12 +99,14 @@ export default function lspIntegration(pi: ExtensionAPI) {
 		label: "LSP",
 		description:
 			"Semantic code intelligence from a real language server. " +
-			"operation=diagnostics reports the problems in a file; " +
-			"operation=definition finds where the symbol at a position is " +
-			"defined; operation=references finds every use of it. Positions " +
-			"are a 1-indexed line and a 0-indexed byte column, the same " +
-			"coordinates read and grep report. Prefer this over grep for " +
-			"exact definitions and references.",
+			"Operations: diagnostics (problems in a file), definition and " +
+			"references (where a symbol is defined and used), hover (its " +
+			"type and docs), document_symbols (what a file declares), " +
+			"workspace_symbols (search symbols by query), rename (rename a " +
+			"symbol project-wide and write the edits), and code_actions. " +
+			"Positions are a 1-indexed line and a 0-indexed byte column, the " +
+			"same coordinates read and grep report. Prefer this over grep for " +
+			"exact definitions, references and safe renames.",
 		promptSnippet:
 			"Use the lsp tool for exact definitions, references and diagnostics " +
 			"instead of guessing from a text search.",
@@ -108,20 +116,38 @@ export default function lspIntegration(pi: ExtensionAPI) {
 					Type.Literal("diagnostics"),
 					Type.Literal("definition"),
 					Type.Literal("references"),
+					Type.Literal("hover"),
+					Type.Literal("document_symbols"),
+					Type.Literal("workspace_symbols"),
+					Type.Literal("rename"),
+					Type.Literal("code_actions"),
 				],
 				{ description: "Which intelligence operation to run." },
 			),
-			path: Type.String({ description: "File path the operation targets." }),
+			path: Type.Optional(
+				Type.String({
+					description:
+						"File path the operation targets. Not needed for workspace_symbols.",
+				}),
+			),
 			line: Type.Optional(
 				Type.Number({
 					description:
-						"1-indexed line. Required for definition and references.",
+						"1-indexed line. Required for definition, references, hover and rename.",
 				}),
 			),
 			character: Type.Optional(
 				Type.Number({
 					description:
-						"0-indexed byte column. Required for definition and references.",
+						"0-indexed byte column. Required for definition, references, hover and rename.",
+				}),
+			),
+			newName: Type.Optional(
+				Type.String({ description: "New name. Required for rename." }),
+			),
+			query: Type.Optional(
+				Type.String({
+					description: "Search text. Required for workspace_symbols.",
 				}),
 			),
 		}),
@@ -130,55 +156,77 @@ export default function lspIntegration(pi: ExtensionAPI) {
 			params,
 		): Promise<AgentToolResult<LspToolDetails>> {
 			const active = resolveLspBackend() ?? ensureBackend();
-			const path = isAbsolute(params.path)
-				? params.path
-				: resolve(process.cwd(), params.path);
+			const op = params.operation;
+			const text = (
+				body: string,
+				count?: number,
+			): AgentToolResult<LspToolDetails> => ({
+				content: [{ type: "text", text: body }],
+				details: {
+					ok: true,
+					operation: op,
+					...(count === undefined ? {} : { count }),
+				},
+			});
+			const bad = (body: string): AgentToolResult<LspToolDetails> => ({
+				content: [{ type: "text", text: body }],
+				details: { ok: false, operation: op },
+			});
+			const absolute = (p: string): string =>
+				isAbsolute(p) ? p : resolve(process.cwd(), p);
+
 			try {
-				if (params.operation === "diagnostics") {
-					const diagnostics = await active.diagnostics(path);
-					return {
-						content: [{ type: "text", text: formatDiagnostics(diagnostics) }],
-						details: {
-							ok: true,
-							operation: "diagnostics",
-							count: diagnostics.length,
-						},
-					};
+				if (op === "workspace_symbols") {
+					if (!params.query) return bad("workspace_symbols needs a query.");
+					const symbols = await active.workspaceSymbols(params.query);
+					return text(formatSymbols(symbols), symbols.length);
 				}
-				if (params.line === undefined || params.character === undefined) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: `${params.operation} needs a line and character position.`,
-							},
-						],
-						details: { ok: false, operation: params.operation },
-					};
+				if (!params.path) return bad(`${op} needs a path.`);
+				const path = absolute(params.path);
+
+				if (op === "diagnostics") {
+					const diagnostics = await active.diagnostics(path);
+					return text(formatDiagnostics(diagnostics), diagnostics.length);
+				}
+				if (op === "document_symbols") {
+					const symbols = await active.documentSymbols(path);
+					return text(formatSymbols(symbols), symbols.length);
+				}
+				if (op === "code_actions") {
+					const actions = await active.codeActions(path);
+					return text(formatCodeActions(actions), actions.length);
+				}
+
+				// The remaining operations are position-based.
+				if (
+					POSITION_OPS.has(op) &&
+					(params.line === undefined || params.character === undefined)
+				) {
+					return bad(`${op} needs a line and character position.`);
 				}
 				const target = {
 					path,
-					position: { line: params.line, character: params.character },
-				};
-				const locations =
-					params.operation === "definition"
-						? await active.definition(target)
-						: await active.references(target);
-				return {
-					content: [{ type: "text", text: formatLocations(locations) }],
-					details: {
-						ok: true,
-						operation: params.operation,
-						count: locations.length,
+					position: {
+						line: params.line ?? 1,
+						character: params.character ?? 0,
 					},
 				};
-			} catch (err) {
-				if (err instanceof MissingServerError) {
-					return {
-						content: [{ type: "text", text: err.message }],
-						details: { ok: false, operation: params.operation },
-					};
+				if (op === "hover") {
+					const hover = await active.hover(target);
+					return text(hover ? formatHover(hover) : "No hover information.");
 				}
+				if (op === "rename") {
+					if (!params.newName) return bad("rename needs a newName.");
+					const edit = await active.rename(target, params.newName);
+					return text(formatWorkspaceEdit(edit), edit.changes.length);
+				}
+				const locations =
+					op === "definition"
+						? await active.definition(target)
+						: await active.references(target);
+				return text(formatLocations(locations), locations.length);
+			} catch (err) {
+				if (err instanceof MissingServerError) return bad(err.message);
 				throw err;
 			}
 		},
@@ -201,4 +249,37 @@ function formatLocations(locations: readonly LspLocation[]): string {
 	return locations
 		.map((l) => `${l.path}:${l.range.start.line}:${l.range.start.character}`)
 		.join("\n");
+}
+
+function formatSymbols(symbols: readonly SymbolInfo[]): string {
+	if (symbols.length === 0) return "No symbols.";
+	return symbols
+		.map((s) => {
+			const where = `${s.location.path}:${s.location.range.start.line}`;
+			const container = s.containerName ? ` in ${s.containerName}` : "";
+			return `${s.kind} ${s.name}${container} (${where})`;
+		})
+		.join("\n");
+}
+
+function formatHover(hover: HoverInfo): string {
+	return hover.contents.trim() || "No hover information.";
+}
+
+function formatCodeActions(actions: readonly CodeAction[]): string {
+	if (actions.length === 0) return "No code actions.";
+	return actions
+		.map((a) => (a.kind ? `${a.title} [${a.kind}]` : a.title))
+		.join("\n");
+}
+
+function formatWorkspaceEdit(edit: WorkspaceEdit): string {
+	if (edit.changes.length === 0) return "Rename made no changes.";
+	const files = edit.changes.length;
+	const edits = edit.changes.reduce((n, c) => n + c.edits.length, 0);
+	const lines = edit.changes.map((c) => `- ${c.path}: ${c.edits.length} edits`);
+	return [
+		`Renamed and wrote ${edits} edits across ${files} files:`,
+		...lines,
+	].join("\n");
 }

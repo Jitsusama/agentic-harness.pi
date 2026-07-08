@@ -20,10 +20,15 @@ import {
 	serversForFile,
 } from "../config.js";
 import type {
+	CodeAction,
 	Diagnostic,
+	HoverInfo,
 	LspBackend,
 	LspLocation,
+	LspRange,
 	LspTarget,
+	SymbolInfo,
+	WorkspaceEdit,
 } from "../types.js";
 import { StandaloneServer } from "./server.js";
 
@@ -127,6 +132,36 @@ export function createStandaloneBackend(
 		async references(target: LspTarget): Promise<LspLocation[]> {
 			const [server] = await resolveInstances(target.path, true);
 			return server.references(target);
+		},
+
+		async hover(target: LspTarget): Promise<HoverInfo | null> {
+			const [server] = await resolveInstances(target.path, true);
+			return server.hover(target);
+		},
+
+		async documentSymbols(path: string): Promise<SymbolInfo[]> {
+			const [server] = await resolveInstances(path, true);
+			return server.documentSymbols(path);
+		},
+
+		async workspaceSymbols(query: string): Promise<SymbolInfo[]> {
+			// Workspace symbols carry no file, so they search every
+			// server already running; nothing is spawned on demand.
+			const live = await Promise.all([...pool.values()]);
+			const results = await Promise.all(
+				live.map((server) => server.workspaceSymbols(query)),
+			);
+			return results.flat();
+		},
+
+		async rename(target: LspTarget, newName: string): Promise<WorkspaceEdit> {
+			const [server] = await resolveInstances(target.path, true);
+			return server.rename(target, newName);
+		},
+
+		async codeActions(path: string, range?: LspRange): Promise<CodeAction[]> {
+			const [server] = await resolveInstances(path, true);
+			return server.codeActions(path, range);
 		},
 
 		syncDocument(path: string, text: string): void {

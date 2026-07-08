@@ -86,3 +86,39 @@ export function fromProtocolRange(
 		end: fromProtocolPosition(lines, range.end),
 	};
 }
+
+/** A protocol text edit: a UTF-16 range and its replacement. */
+export interface LspProtocolTextEdit {
+	readonly range: LspProtocolRange;
+	readonly newText: string;
+}
+
+/**
+ * Apply LSP protocol edits to a document's text. Protocol
+ * positions are UTF-16 offsets, which match a JavaScript
+ * string's own indexing, so an edit's absolute offset is the
+ * line's start offset plus its character. Edits apply from
+ * the end backwards so earlier splices never shift later
+ * offsets.
+ */
+export function applyProtocolEdits(
+	text: string,
+	edits: readonly LspProtocolTextEdit[],
+): string {
+	const lineStarts = [0];
+	for (let i = 0; i < text.length; i++) {
+		if (text[i] === "\n") lineStarts.push(i + 1);
+	}
+	const offsetOf = (pos: LspProtocolPosition): number =>
+		(lineStarts[pos.line] ?? text.length) + pos.character;
+	const ordered = [...edits].sort(
+		(a, b) => offsetOf(b.range.start) - offsetOf(a.range.start),
+	);
+	let result = text;
+	for (const edit of ordered) {
+		const start = offsetOf(edit.range.start);
+		const end = offsetOf(edit.range.end);
+		result = result.slice(0, start) + edit.newText + result.slice(end);
+	}
+	return result;
+}

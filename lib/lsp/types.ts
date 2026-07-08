@@ -71,6 +71,18 @@ export interface SymbolInfo {
 	readonly containerName?: string;
 }
 
+/** Hover documentation for a position, as plain text or markdown. */
+export interface HoverInfo {
+	readonly contents: string;
+	readonly range?: LspRange;
+}
+
+/** A code action the server offers at a position or range. */
+export interface CodeAction {
+	readonly title: string;
+	readonly kind?: string;
+}
+
 /**
  * A registered backend and the rule for when it may serve.
  * Lower priority resolves first, so the Neovim backend can
@@ -103,6 +115,19 @@ export interface LspBackend {
 	definition(target: LspTarget): Promise<readonly LspLocation[]>;
 	/** Every reference to the symbol under the target. */
 	references(target: LspTarget): Promise<readonly LspLocation[]>;
+	/** Documentation for the symbol under the target, or null. */
+	hover(target: LspTarget): Promise<HoverInfo | null>;
+	/** Symbols declared in one file. */
+	documentSymbols(path: string): Promise<readonly SymbolInfo[]>;
+	/** Symbols across the project matching a query. */
+	workspaceSymbols(query: string): Promise<readonly SymbolInfo[]>;
+	/**
+	 * Rename the symbol under the target across its root and
+	 * apply the edits, returning what changed.
+	 */
+	rename(target: LspTarget, newName: string): Promise<WorkspaceEdit>;
+	/** Code actions the server offers for a file, optionally at a range. */
+	codeActions(path: string, range?: LspRange): Promise<readonly CodeAction[]>;
 	/** Release every server the backend holds open. */
 	dispose(): Promise<void>;
 }

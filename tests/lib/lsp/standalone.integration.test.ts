@@ -1,4 +1,11 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -127,4 +134,34 @@ describe.skipIf(!hasServer)("standalone backend (live server)", () => {
 			backend.diagnostics("/tmp/nowhere/file.rs"),
 		).rejects.toBeInstanceOf(MissingServerError);
 	});
+
+	it(
+		"renames a symbol across every file under the root and writes the edits",
+		async () => {
+			// An isolated project so the rename never touches real source.
+			const dir = mkdtempSync(join(tmpdir(), "lsp-rename-"));
+			writeFileSync(
+				join(dir, "tsconfig.json"),
+				JSON.stringify({ compilerOptions: {}, include: ["*.ts"] }),
+			);
+			const a = join(dir, "a.ts");
+			const b = join(dir, "b.ts");
+			writeFileSync(a, 'export const greeting = "hi";\n');
+			writeFileSync(
+				b,
+				'import { greeting } from "./a";\nexport const msg = greeting + "!";\n',
+			);
+			const edit = await backend.rename(
+				{ path: a, position: locate(a, "greeting") },
+				"salutation",
+			);
+			expect(edit.changes.length).toBeGreaterThanOrEqual(2);
+			expect(readFileSync(a, "utf8")).toContain("salutation");
+			const updatedB = readFileSync(b, "utf8");
+			expect(updatedB).toContain("salutation");
+			expect(updatedB).not.toContain("greeting");
+			rmSync(dir, { recursive: true, force: true });
+		},
+		LIVE_TIMEOUT_MS,
+	);
 });
