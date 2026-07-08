@@ -61,9 +61,16 @@ export class BrowserSession {
 	/** Open a fresh session with its own tab and CDP channel. */
 	static async open(name: string): Promise<BrowserSession> {
 		const page = await newPage();
-		const cdp = await page.createCDPSession();
-		await cdp.send("Accessibility.enable");
-		return new BrowserSession(name, page, cdp);
+		try {
+			const cdp = await page.createCDPSession();
+			await cdp.send("Accessibility.enable");
+			return new BrowserSession(name, page, cdp);
+		} catch (err) {
+			// Do not leak the tab if the CDP channel could not be set
+			// up; close it before surfacing the failure.
+			await page.close().catch(() => {});
+			throw err;
+		}
 	}
 
 	/** Navigate the tab to a URL and wait for the network to settle. */
