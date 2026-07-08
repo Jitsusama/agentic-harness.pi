@@ -4,9 +4,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { PassThrough } from "node:stream";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.js";
 import { createSupervisorRunPi } from "../../../../lib/subagent/runpi/supervisor.js";
+
+// Every test here spawns the real node supervisor, sometimes two
+// process levels deep. Under parallel suite load the OS can take
+// several seconds just to start those processes, which blows the 5s
+// default test timeout and shows up as flaky. Set the timeout at
+// collection time: a beforeAll runs after the tests are already
+// registered with the default, so it never takes effect. The
+// supervisor's own idle and wall-clock timeouts remain the real
+// guard against a genuinely wedged run.
+vi.setConfig({ testTimeout: 30_000 });
 
 interface FakeChild {
 	stdout: Readable;
@@ -70,15 +80,6 @@ async function tempStateDir(): Promise<string> {
 }
 
 describe("createSupervisorRunPi", () => {
-	// Every test here spawns the real node supervisor, sometimes two
-	// process levels deep. Under parallel suite load the OS can take
-	// several seconds just to start those processes, which blows the 5s
-	// default test timeout and shows up as flaky. Give them ample wall
-	// clock; the supervisor's own idle and wall-clock timeouts (seconds,
-	// set per test) remain the real guard against a genuinely wedged run.
-	beforeAll(() => {
-		vi.setConfig({ testTimeout: 30_000 });
-	});
 	it("runs the real supervisor script against a JSON-emitting child", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "child.mjs");

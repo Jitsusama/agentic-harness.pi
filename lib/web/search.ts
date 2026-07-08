@@ -125,24 +125,40 @@ async function runProvider(
 }
 
 /**
- * Search the web, trying each provider in turn until one
- * returns results. A provider that errors or returns nothing
- * hands off to the next; when all are exhausted the result is
- * an empty list.
+ * Try each provider in order and return the first non-empty
+ * result. A provider that throws or returns nothing hands off to
+ * the next; when all are exhausted the result is an empty list.
+ * The runner is passed in so the fallback order can be exercised
+ * without a live browser.
  */
-export async function webSearch(
-	query: string,
-	numResults: number = 10,
-	signal?: AbortSignal,
+export async function firstProviderResults(
+	providers: readonly SearchProvider[],
+	run: (provider: SearchProvider) => Promise<SearchResult[]>,
 ): Promise<SearchResult[]> {
-	for (const provider of PROVIDERS) {
-		if (signal?.aborted) return [];
+	for (const provider of providers) {
 		try {
-			const results = await runProvider(provider, query, numResults, signal);
+			const results = await run(provider);
 			if (results.length > 0) return results;
 		} catch {
 			// This provider failed; fall through to the next one.
 		}
 	}
 	return [];
+}
+
+/**
+ * Search the web, trying each provider in turn until one
+ * returns results. DuckDuckGo is primary and Bing is the
+ * fallback; when all are exhausted the result is an empty list.
+ */
+export async function webSearch(
+	query: string,
+	numResults: number = 10,
+	signal?: AbortSignal,
+): Promise<SearchResult[]> {
+	return firstProviderResults(PROVIDERS, (provider) =>
+		signal?.aborted
+			? Promise.resolve([])
+			: runProvider(provider, query, numResults, signal),
+	);
 }
