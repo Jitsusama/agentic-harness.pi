@@ -137,11 +137,20 @@ export class StandaloneServer {
 			child.kill();
 			throw new Error(`failed to open stdio for ${config.name}`);
 		}
+		// Killing the server mid-write (on dispose) makes the jsonrpc
+		// writer hit EPIPE on a destroyed stream. That is expected at
+		// teardown, so swallow it here rather than let it surface as an
+		// unhandled stream error.
+		stdin.on("error", () => {});
+		stdout.on("error", () => {});
 		const connection = createMessageConnection(
 			new StreamMessageReader(stdout),
 			new StreamMessageWriter(stdin),
 		);
 		const server = new StandaloneServer(config.name, root, child, connection);
+		// Swallow transport errors (a write after the child is killed);
+		// they are expected during dispose and must not go unhandled.
+		connection.onError(() => {});
 		connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
 			server.diagnostics.set(
 				params.uri,
@@ -162,7 +171,9 @@ export class StandaloneServer {
 			WARMUP_TIMEOUT_MS,
 			`initialize ${config.name}`,
 		);
-		connection.sendNotification(InitializedNotification.type, {});
+		connection
+			.sendNotification(InitializedNotification.type, {})
+			.catch(() => {});
 		return server;
 	}
 
@@ -284,10 +295,12 @@ export class StandaloneServer {
 		}
 		this.lineCache.set(uri, toLines(text));
 		this.version += 1;
-		this.connection.sendNotification(DidChangeTextDocumentNotification.type, {
-			textDocument: { uri, version: this.version },
-			contentChanges: [{ text }],
-		});
+		this.connection
+			.sendNotification(DidChangeTextDocumentNotification.type, {
+				textDocument: { uri, version: this.version },
+				contentChanges: [{ text }],
+			})
+			.catch(() => {});
 	}
 
 	/** Release the connection and kill the server process. */
@@ -323,15 +336,17 @@ export class StandaloneServer {
 		const text = readFileSync(path, "utf8");
 		this.lineCache.set(uri, toLines(text));
 		this.version += 1;
-		this.connection.sendNotification(DidOpenTextDocumentNotification.type, {
-			textDocument: {
-				uri,
-				languageId: languageIdFor(path),
-				version: this.version,
-				text,
-			},
-		});
 		this.openDocs.add(uri);
+		this.connection
+			.sendNotification(DidOpenTextDocumentNotification.type, {
+				textDocument: {
+					uri,
+					languageId: languageIdFor(path),
+					version: this.version,
+					text,
+				},
+			})
+			.catch(() => {});
 	}
 
 	private linesFor(path: string): string[] {

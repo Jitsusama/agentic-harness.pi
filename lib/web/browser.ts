@@ -4,9 +4,54 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
 
 let browser: Browser | undefined;
+
+/**
+ * Parent dir for per-launch Chrome profiles. Each launch gets
+ * its own subdir; a startup sweep removes the ones left behind
+ * by a prior run that a SIGKILL or crash could not clean, which
+ * is the orphan the clean-exit teardown never reclaims.
+ */
+const PROFILE_ROOT = path.join(os.tmpdir(), "pi-web-chrome");
+let lifecycleInstalled = false;
+
+/** Remove profile dirs from earlier runs (their Chrome is long dead). */
+function sweepOrphanProfiles(): void {
+	try {
+		for (const entry of fs.readdirSync(PROFILE_ROOT)) {
+			if (entry === String(process.pid)) continue;
+			fs.rmSync(path.join(PROFILE_ROOT, entry), {
+				recursive: true,
+				force: true,
+			});
+		}
+	} catch {
+		// No profile root yet, or a dir in use by a live sibling; the
+		// next startup sweeps whatever this one could not.
+	}
+}
+
+/**
+ * Kill Chrome and exit on the signals that would otherwise
+ * orphan it (SIGINT, SIGTERM, SIGHUP), and on clean exit. A
+ * hard-killed subagent gets SIGTERM, so this is what keeps the
+ * RELY01 orphan from accumulating.
+ */
+function installLifecycleHandlers(): void {
+	if (lifecycleInstalled) return;
+	lifecycleInstalled = true;
+	process.once("exit", killBrowserSync);
+	for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+		process.once(signal, () => {
+			killBrowserSync();
+			process.exit(0);
+		});
+	}
+}
 
 const CHROME_PATHS = [
 	"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -32,10 +77,15 @@ function findChrome(): string {
 /** Get the shared headless Chrome instance, launching it if needed. */
 export async function getBrowser(): Promise<Browser> {
 	if (browser?.connected) return browser;
+	installLifecycleHandlers();
+	sweepOrphanProfiles();
+	const profileDir = path.join(PROFILE_ROOT, String(process.pid));
+	fs.mkdirSync(profileDir, { recursive: true });
 	const executablePath = process.env.CHROME_PATH || findChrome();
 	browser = await puppeteer.launch({
 		executablePath,
 		headless: true,
+		userDataDir: profileDir,
 		args: [
 			"--no-sandbox",
 			"--disable-setuid-sandbox",
