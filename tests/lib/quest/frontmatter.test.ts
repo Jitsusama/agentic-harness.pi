@@ -60,6 +60,24 @@ describe("quest front-matter", () => {
 		expect(parsed?.frontMatter.eta).toBeUndefined();
 	});
 
+	it("round-trips a verify command and omits it when unset", () => {
+		const withVerify: QuestFrontMatter = {
+			...SAMPLE_QUEST_FM,
+			verify: "pnpm test lib/lsp",
+		};
+		const text = `${serializeQuestFrontMatter(withVerify)}\n# x`;
+		expect(text).toMatch(/^verify: pnpm test lib\/lsp$/m);
+		expect(parseQuestFrontMatter(text)?.frontMatter.verify).toBe(
+			"pnpm test lib/lsp",
+		);
+
+		const without = `${serializeQuestFrontMatter(SAMPLE_QUEST_FM)}\n`;
+		expect(without).not.toMatch(/^verify:/m);
+		expect(
+			parseQuestFrontMatter(`${without}# x`)?.frontMatter.verify,
+		).toBeUndefined();
+	});
+
 	it("encodes a null parent as the literal `null`", () => {
 		const fm: QuestFrontMatter = { ...SAMPLE_QUEST_FM, parent: null };
 		const text = serializeQuestFrontMatter(fm);

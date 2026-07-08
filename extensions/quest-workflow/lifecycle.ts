@@ -148,6 +148,7 @@ export function loadQuest(
 	state.questKind = entry.doc.frontMatter.kind;
 	state.questStatus = entry.doc.frontMatter.status;
 	state.questPriority = entry.doc.frontMatter.priority;
+	state.questVerify = entry.doc.frontMatter.verify ?? null;
 	state.scratchDir = entry.doc.frontMatter.scratchDir ?? null;
 	state.documentPath = null;
 	state.documentId = null;
@@ -181,6 +182,7 @@ export function refreshLoadedSlice(state: QuestState): void {
 	state.questKind = parsed.frontMatter.kind;
 	state.questStatus = parsed.frontMatter.status;
 	state.questPriority = parsed.frontMatter.priority;
+	state.questVerify = parsed.frontMatter.verify ?? null;
 	state.scratchDir = parsed.frontMatter.scratchDir ?? null;
 }
 
@@ -192,6 +194,7 @@ export function unloadQuest(state: QuestState): void {
 	state.questKind = null;
 	state.questStatus = null;
 	state.questPriority = null;
+	state.questVerify = null;
 	state.scratchDir = null;
 	state.documentPath = null;
 	state.documentId = null;
@@ -410,6 +413,12 @@ interface PersistedState {
 	 * the tree or session store.
 	 */
 	cwd: string | null;
+	/**
+	 * The loaded quest's verification command, mirrored from its
+	 * frontmatter so a peer extension can read it from this entry
+	 * without parsing the quest.
+	 */
+	verify?: string | null;
 }
 
 function snapshot(state: QuestState, cwd: string | null): PersistedState {
@@ -417,6 +426,7 @@ function snapshot(state: QuestState, cwd: string | null): PersistedState {
 		questId: state.questId,
 		documentPath: state.documentPath,
 		cwd,
+		verify: state.questVerify,
 	};
 }
 
@@ -465,7 +475,7 @@ export function persist(
 }
 
 function snapshotKey(s: PersistedState): string {
-	return `${s.questId ?? ""}|${s.documentPath ?? ""}|${s.cwd ?? ""}`;
+	return `${s.questId ?? ""}|${s.documentPath ?? ""}|${s.cwd ?? ""}|${s.verify ?? ""}`;
 }
 
 /**

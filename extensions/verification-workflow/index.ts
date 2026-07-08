@@ -4,13 +4,13 @@
  * Closes the trust gap after an edit without stalling an
  * autonomous run. Two cadences:
  *
- *   Fast layer, once per turn. When the agent yields
- *   (agent_end), it asks the resident LSP backend for
- *   diagnostics on only the files touched this turn. New
- *   error-severity problems are injected back as a follow-up
- *   so the agent self-corrects before handing the turn to the
- *   user. It defers entirely while a TDD loop is active, and
- *   caps its fix requests so it never thrashes.
+ *   Fast layer, at the turn boundary. When the agent is about
+ *   to yield, it asks the resident LSP backend for diagnostics
+ *   on the files touched this run. New error-severity problems
+ *   are enqueued as a follow-up so the agent continues and
+ *   self-corrects before handing the turn to the user. It
+ *   defers entirely while a TDD loop is active, and caps its
+ *   fix requests so it never thrashes.
  *
  *   Medium layer, on request. The no-command verify tool runs
  *   the project's resolved check command when the user asks
@@ -30,6 +30,7 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { getLastEntry } from "../../lib/internal/state.js";
+import { setVerificationFailing } from "../../lib/internal/verification/signal.js";
 import { resolveLspBackend } from "../../lib/lsp/index.js";
 import {
 	type FileError,
@@ -66,14 +67,25 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		state.touched.add(isAbsolute(path) ? path : resolve(process.cwd(), path));
 	});
 
-	// Fast layer: at the turn boundary, run the resident LSP over
-	// the files touched this turn plus any still-outstanding ones,
-	// so a fix in a later turn clears the watch. Pi does not let an
-	// event handler enqueue a turn, so the fix request rides the
-	// next request's context (see the context handler below) rather
-	// than auto-triggering one.
-	pi.on("agent_end", async (_event, ctx) => {
+	// Fast layer: when the agent is about to yield (a terminal
+	// turn that ran no tools, so the loop is about to stop), run
+	// the resident LSP over the files touched this run plus any
+	// still-outstanding ones. On new error-severity problems,
+	// enqueue the fix as a follow-up. pi.sendUserMessage with
+	// deliverAs "followUp" feeds the loop's follow-up queue, which
+	// it drains immediately after this event and before it ends
+	// the run (turn_end is emitted just ahead of the follow-up
+	// drain), so the agent continues and self-corrects before the
+	// turn returns to the user.
+	pi.on("turn_end", async (event, ctx) => {
 		ctxRef = ctx;
+		// A turn that executed tools loops again on its own; only
+		// verify when the assistant is about to stop. An errored or
+		// aborted turn is not a clean yield worth checking.
+		const stopReason = (event.message as { stopReason?: string }).stopReason;
+		if (event.toolResults.length > 0) return;
+		if (stopReason === "error" || stopReason === "aborted") return;
+
 		const watched = new Set<string>(state.pending.map((e) => e.path));
 		for (const p of state.touched) watched.add(p);
 		state.touched.clear();
@@ -98,42 +110,26 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		if (verdict.action === "inject") {
 			state.attempts = verdict.attempt;
 			state.pending = [...errors];
-			state.pendingMessage = verdict.message;
 			state.outcome = "failing";
-		} else if (verdict.action === "giveUp") {
-			// Stop nagging and hand the failure back to the user.
+			refreshStatus(ctx, state);
+			// Continue the run so the agent fixes this before yielding.
+			pi.sendUserMessage(verdict.message, { deliverAs: "followUp" });
+			return;
+		}
+		if (verdict.action === "giveUp") {
+			// Stop nagging and let the run end so the user sees the
+			// agent's last word; the status line still shows failing.
 			state.attempts = 0;
 			state.pending = [];
-			state.pendingMessage = null;
 			state.outcome = "failing";
 		} else if (verdict.reason.includes("TDD")) {
 			state.outcome = "deferred";
 		} else {
 			state.attempts = 0;
 			state.pending = [];
-			state.pendingMessage = null;
 			state.outcome = "clean";
 		}
 		refreshStatus(ctx, state);
-	});
-
-	// Deliver the outstanding fix request on the next request the
-	// agent makes, unless a TDD loop is governing the code.
-	pi.on("context", async (event, ctx) => {
-		if (!state.pendingMessage) return;
-		const tddPhase =
-			getLastEntry<{ phase?: string }>(ctx, "tdd-workflow")?.phase ?? "idle";
-		if (tddPhase !== "idle") return;
-		return {
-			messages: [
-				...event.messages,
-				{
-					role: "user" as const,
-					content: state.pendingMessage,
-					timestamp: Date.now(),
-				},
-			],
-		};
 	});
 
 	pi.registerTool({
@@ -153,7 +149,12 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			signal,
 		): Promise<AgentToolResult<VerifyDetails>> {
 			const project = findProject(process.cwd());
+			const questVerify = ctxRef
+				? (getLastEntry<{ verify?: string | null }>(ctxRef, "quest-workflow")
+						?.verify ?? undefined)
+				: undefined;
 			const resolved = resolveCheckCommand({
+				questVerify: questVerify ?? undefined,
 				packageScripts: project?.scripts ?? {},
 				packageManager: project?.packageManager ?? "pnpm",
 			});
@@ -309,6 +310,10 @@ function truncate(output: string, maxLines = 200): string {
 }
 
 function refreshStatus(ctx: ExtensionContext, state: VerificationState): void {
+	// Publish the outcome so the commit guardian can refuse a
+	// commit while checks are red. Only a definite failing verdict
+	// blocks; deferred and unknown leave the signal clear.
+	setVerificationFailing(state.outcome === "failing");
 	const theme = ctx.ui.theme;
 	const label =
 		state.outcome === "clean"

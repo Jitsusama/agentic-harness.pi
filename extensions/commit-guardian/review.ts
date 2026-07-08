@@ -20,6 +20,7 @@ import {
 	runProseGate,
 	sessionGateDeps,
 } from "../../lib/internal/guardian/prose-gate.js";
+import { isVerificationFailing } from "../../lib/internal/verification/signal.js";
 import { promptSingle } from "../../lib/ui/index.js";
 import { extractMessage, isCommitCommand } from "./parse.js";
 import { type CommitValidation, validate } from "./validate.js";
@@ -60,6 +61,20 @@ export function createCommitGuardian(
 			parsed: CommitParsed,
 			ctx: ExtensionContext,
 		): Promise<GuardianResult> {
+			// Refuse a commit while verification reports the code is
+			// failing. This guardian is skipped entirely when git
+			// interception is bypassed, so the bypass toggle is the
+			// escape hatch when the block is wrong or stale.
+			if (isVerificationFailing()) {
+				return {
+					block: true,
+					reason:
+						"Verification reports errors in files changed this run. " +
+						"Fix them before committing, or toggle the git bypass to " +
+						"commit anyway.",
+				};
+			}
+
 			// Block on detectable prose violations in the commit message
 			// body before the human gate; relent to human review on a
 			// repeat. prose-standard governs commit body tone, spelling

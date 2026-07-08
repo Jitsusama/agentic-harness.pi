@@ -143,6 +143,12 @@ Field semantics:
   the one a reopen would resume — the most-recent live
   session, or the most-recent idle one when none is live.
 
+- `verify`: optional shell command the verification
+  workflow runs to check work on this quest, in
+  preference to a project script. Use it to scope the
+  check to the subdirectory or zone the quest touches,
+  e.g. `verify: pnpm test lib/lsp`.
+
 Documents under a quest carry their own smaller
 frontmatter:
 

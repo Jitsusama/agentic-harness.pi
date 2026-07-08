@@ -262,6 +262,7 @@ const KNOWN_QUEST_KEYS = new Set<string>([
 	"pendingPrune",
 	"primaryPlanId",
 	"scratchDir",
+	"verify",
 ]);
 
 const KNOWN_DOCUMENT_KEYS = new Set<string>([
@@ -351,6 +352,8 @@ export function parseQuestFrontMatter(
 	if (scratchDir) frontMatter.scratchDir = scratchDir;
 	const primaryPlanId = asString(raw.primaryPlanId);
 	if (primaryPlanId) frontMatter.primaryPlanId = primaryPlanId;
+	const verify = asString(raw.verify);
+	if (verify) frontMatter.verify = verify;
 	const extras = captureExtras(raw, KNOWN_QUEST_KEYS);
 	if (extras) frontMatter._extra = extras;
 
@@ -435,6 +438,7 @@ export function serializeQuestFrontMatter(fm: QuestFrontMatter): string {
 	}
 	if (fm.scratchDir) payload.scratchDir = fm.scratchDir;
 	if (fm.primaryPlanId) payload.primaryPlanId = fm.primaryPlanId;
+	if (fm.verify) payload.verify = fm.verify;
 	if (fm._extra) {
 		for (const [key, value] of Object.entries(fm._extra)) {
 			if (!(key in payload)) payload[key] = value;
