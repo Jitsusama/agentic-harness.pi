@@ -194,6 +194,12 @@ const NEOVIM_PI_READY = "neovim-pi:ready";
  */
 const RESULTS_RETAIN_FILES = 500;
 const RESULTS_RETAIN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+// Raw reviewer run directories (events, stderr, per-reviewer
+// result files) are bulkier than the distilled result bodies
+// and only needed while a run is live or under recovery, so
+// they age out on a shorter window and a tighter count.
+const REVIEWER_RUNS_RETAIN = 100;
+const REVIEWER_RUNS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 // Upper bound on waiting for cancelled review runs to drain before
 // reclaiming worktrees. Cancellation aborts the subprocesses, so a
 // drain is normally near-instant; this only bounds a reviewer that
@@ -290,6 +296,18 @@ export default function prWorkflow(pi: ExtensionAPI) {
 	} catch {
 		// Retention is advisory; ignore a transient sweep failure.
 	}
+	// Prune old terminal reviewer run directories too, so the raw
+	// artifacts they hold do not accumulate unbounded. Only
+	// terminal runs are removed, so an in-flight or recoverable
+	// run is never touched.
+	void reviewerArtifacts()
+		.cleanupTerminalRuns({
+			maxRuns: REVIEWER_RUNS_RETAIN,
+			maxAgeMs: REVIEWER_RUNS_MAX_AGE_MS,
+		})
+		.catch(() => {
+			// Retention is advisory; ignore a transient sweep failure.
+		});
 	void recoverReviewerRuns(reviewerArtifacts()).then(
 		(summary) => {
 			state.reviewerRecovery = summary;

@@ -40,6 +40,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
+import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
 import {
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
@@ -117,9 +118,29 @@ export interface SubagentWorkflowApi {
 	registerDefaultSkill(path: string): void;
 }
 
+// Raw fleet run directories (per-subagent events, stderr and
+// result files) are only needed while a run is live or under
+// recovery, so they age out on a bounded window and count.
+const FLEET_RUNS_RETAIN = 100;
+const FLEET_RUNS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 export default function subagentWorkflow(pi: ExtensionAPI) {
 	const stateDir = () => packageStateDir("subagent-workflow");
 	const cancellations = new FleetCancellationRegistry();
+
+	// Prune old terminal fleet run directories at session start so
+	// the raw artifacts they hold do not accumulate unbounded.
+	// Only terminal runs are removed, so an in-flight run is safe.
+	pi.on("session_start", async () => {
+		try {
+			await new ReviewerArtifactsStore(stateDir()).cleanupTerminalRuns({
+				maxRuns: FLEET_RUNS_RETAIN,
+				maxAgeMs: FLEET_RUNS_MAX_AGE_MS,
+			});
+		} catch {
+			// Retention is advisory; a transient sweep failure is fine.
+		}
+	});
 	let runPi: ReturnType<typeof createSupervisorRunPi> | null = null;
 	const getRunPi = () => {
 		if (runPi !== null) return runPi;

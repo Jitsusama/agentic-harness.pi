@@ -39,6 +39,7 @@ export class ReviewerStreamParser {
 	private readonly warnings: string[] = [];
 	private truncated = false;
 	private verification: ReviewerVerification | undefined;
+	private verifyAttempts = 0;
 	private readonly pendingVerifyCalls = new Map<
 		string,
 		Record<string, unknown>
@@ -156,6 +157,7 @@ export class ReviewerStreamParser {
 			return;
 		}
 		if (e.type !== "tool_execution_end") return;
+		this.verifyAttempts += 1;
 		const args =
 			(callId ? this.pendingVerifyCalls.get(callId) : undefined) ??
 			objectValue(e.args) ??
@@ -179,6 +181,7 @@ export class ReviewerStreamParser {
 		this.verification = {
 			called: true,
 			ok,
+			attempts: this.verifyAttempts,
 			...(stage !== undefined ? { stage } : {}),
 			...(typeof details.count === "number" ? { count: details.count } : {}),
 			...(Array.isArray(details.warnings)

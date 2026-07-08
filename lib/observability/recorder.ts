@@ -20,7 +20,11 @@ export interface RunRecordInput {
 		readonly exitCode: number;
 		readonly warnings: readonly string[];
 		readonly usage?: { readonly tokens: RunTokens; readonly cost: RunCost };
-		readonly verification?: { readonly ok: boolean };
+		readonly verification?: {
+			readonly ok: boolean;
+			/** Verify attempts observed; one means no retry. */
+			readonly attempts?: number;
+		};
 	};
 }
 
@@ -60,7 +64,10 @@ export function runRecordFrom(input: RunRecordInput): RunRecord {
 				: result.verification.ok
 					? "passed"
 					: "failed",
-		retriesToValid: 0,
+		// Attempts beyond the first that were needed to reach the
+		// recorded verify result. Zero when the first attempt was
+		// the last, whether it passed or the reviewer never retried.
+		retriesToValid: Math.max(0, (result.verification?.attempts ?? 1) - 1),
 		warningCount: result.warnings.length,
 		exitCode: result.exitCode,
 		tokens: result.usage?.tokens ?? ZERO_TOKENS,
