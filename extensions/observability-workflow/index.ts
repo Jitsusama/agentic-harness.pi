@@ -46,6 +46,17 @@ interface ObserveDetails {
 /** Raw per-run rows are kept for a rolling 30-day window, then rolled up. */
 const RAW_ROW_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
+/**
+ * Format the session spend meter: how many runs were recorded
+ * this session and what they cost. It reads as a cumulative
+ * tally, not a live indicator, so it is not mistaken for an agent
+ * that is still running. The sigma marks a total.
+ */
+export function formatRunMeter(runs: number, cost: number): string {
+	const runWord = runs === 1 ? "run" : "runs";
+	return `\u03a3 ${runs} ${runWord} \u00b7 $${cost.toFixed(3)}`;
+}
+
 export default function observabilityWorkflow(pi: ExtensionAPI) {
 	let store: RunStore | null = null;
 	let unregister: (() => void) | null = null;
@@ -65,10 +76,7 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 		}
 		ctxRef.ui.setStatus(
 			STATUS_KEY,
-			ctxRef.ui.theme.fg(
-				"muted",
-				`\u2699 ${sessionRuns} $${sessionCost.toFixed(3)}`,
-			),
+			ctxRef.ui.theme.fg("muted", formatRunMeter(sessionRuns, sessionCost)),
 		);
 	};
 
