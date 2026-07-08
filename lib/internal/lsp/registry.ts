@@ -6,8 +6,16 @@
  */
 
 import type { LspBackendEntry } from "../../lsp/types.js";
+import { processGlobal } from "../process-global.js";
 
-const registry = new Map<string, LspBackendEntry>();
+// Process-global so a backend registered by lsp-integration is
+// seen by verification-workflow and any other extension that
+// resolves it; a module-level Map would give each extension its
+// own, empty registry.
+const registry = processGlobal(
+	"pi:lsp-backends",
+	() => new Map<string, LspBackendEntry>(),
+);
 
 /** Register or overwrite a backend entry by name. */
 export function register(entry: LspBackendEntry): void {

@@ -16,6 +16,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
+import { processGlobal } from "../internal/process-global.js";
 
 /** Process-global browser state, shared across extension module instances. */
 interface SharedBrowserState {
@@ -24,13 +25,8 @@ interface SharedBrowserState {
 	lifecycleInstalled?: boolean;
 }
 
-const STATE_KEY = Symbol.for("pi:web-shared-browser");
-
 function sharedState(): SharedBrowserState {
-	const store = globalThis as Record<symbol, SharedBrowserState | undefined>;
-	store[STATE_KEY] ??= {};
-	// biome-ignore lint/style/noNonNullAssertion: assigned on the line above.
-	return store[STATE_KEY]!;
+	return processGlobal<SharedBrowserState>("pi:web-shared-browser", () => ({}));
 }
 
 /**
