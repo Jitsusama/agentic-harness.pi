@@ -3,9 +3,9 @@
  * conventions the gates enforce, injected into the system prompt
  * every turn so the AI gets them right the first time and the
  * gate has less to block. The block is resident and
- * compaction-immune by virtue of riding before_agent_start, so
- * it survives the context eviction that drops a skill body
- * mid-session.
+ * compaction-immune by virtue of riding the resident prompt
+ * coordinator, so it survives the context eviction that drops a
+ * skill body mid-session.
  *
  * The PR and issue section lists are built from the same
  * constants the section gate enforces, so the reminder and the
