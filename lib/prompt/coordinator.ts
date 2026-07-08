@@ -11,6 +11,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { processGlobal } from "../internal/process-global.js";
 
 /** A source of resident system-prompt text, ordered against its peers. */
 export interface PromptContributor {
@@ -30,7 +31,14 @@ export interface FrozenResidentPrompt {
 	assemble(ctx: ExtensionContext): Promise<string>;
 }
 
-const contributors = new Map<string, PromptContributor>();
+// Process-global so a contributor registered in one extension
+// is seen by the coordinator assembling in another; a
+// module-level Map would give each extension its own, and the
+// resident block would assemble empty.
+const contributors = processGlobal(
+	"pi:prompt-contributors",
+	() => new Map<string, PromptContributor>(),
+);
 
 /** Register or replace a contributor by id. */
 export function registerPromptContributor(

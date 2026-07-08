@@ -1,3 +1,4 @@
+import { processGlobal } from "../internal/process-global.js";
 import type { RunCost, RunRecord, RunTokens } from "./types.js";
 
 /** A sink that persists a run record. */
@@ -76,7 +77,14 @@ export function runRecordFrom(input: RunRecordInput): RunRecord {
 	};
 }
 
-const recorders = new Set<RunRecorder>();
+// Process-global so a producer extension's recordRunEverywhere
+// reaches the sink another extension registered; a module-level
+// Set would give each extension its own, and records would never
+// reach the writer.
+const recorders = processGlobal(
+	"pi:observability-recorders",
+	() => new Set<RunRecorder>(),
+);
 
 /**
  * Register a sink for run records. Returns an unregister
