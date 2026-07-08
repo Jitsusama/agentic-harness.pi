@@ -52,6 +52,10 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 	let ctxRef: ExtensionContext | null = null;
 	let sessionRuns = 0;
 	let sessionCost = 0;
+	// In-flight writes, drained at shutdown so a run recorded just
+	// before the process exits is not lost to the async gap between
+	// recordRun and the sqlite flush.
+	const pendingWrites = new Set<Promise<unknown>>();
 
 	const refreshStatus = (): void => {
 		if (!ctxRef) return;
@@ -87,9 +91,12 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 				sessionRuns += 1;
 				sessionCost += record.cost.total;
 				refreshStatus();
-				void store?.recordRun(record).catch(() => {
-					// Best-effort telemetry: never disturb the run.
-				});
+				const write =
+					store?.recordRun(record).catch(() => {
+						// Best-effort telemetry: never disturb the run.
+					}) ?? Promise.resolve();
+				pendingWrites.add(write);
+				void write.finally(() => pendingWrites.delete(write));
 			});
 		}
 		refreshStatus();
@@ -99,6 +106,9 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 		unregister?.();
 		unregister = null;
 		ctxRef?.ui.setStatus(STATUS_KEY, undefined);
+		// Let in-flight writes reach disk before the store closes, so
+		// a run recorded moments before shutdown is not dropped.
+		await Promise.allSettled([...pendingWrites]);
 		const closing = store;
 		store = null;
 		if (closing) {
