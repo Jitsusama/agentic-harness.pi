@@ -308,9 +308,16 @@ interface CommandResult {
  * left in the returned text they smear the TUI when the result is
  * rendered.
  */
-// ESC[ control sequences (colour, cursor) and ESC] ... BEL (OSC).
-// biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI escapes requires the ESC and BEL control bytes.
-const ANSI_PATTERN = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*\u0007/g;
+// ESC[ control sequences (colour, cursor) with the full 0x30-0x3F
+// parameter class so `:<=>?` are covered, and ESC] OSC sequences
+// terminated by either BEL or ST (ESC backslash). Built from a
+// string so the source carries no literal control bytes; the
+// regex engine expands the \u escapes at construction.
+// biome-ignore lint/complexity/useRegexLiterals: a literal would embed control bytes the linter rejects.
+const ANSI_PATTERN = new RegExp(
+	"\\u001b\\[[0-9:;<=>?]*[ -/]*[@-~]|\\u001b\\][\\s\\S]*?(?:\\u0007|\\u001b\\\\)",
+	"g",
+);
 
 export function stripAnsi(text: string): string {
 	return text.replace(ANSI_PATTERN, "");
