@@ -25,6 +25,10 @@
  */
 
 import type { DiffFile } from "../../lib/internal/github/diff.js";
+import {
+	recordRunEverywhere,
+	runRecordFrom,
+} from "../../lib/observability/index.js";
 import type {
 	CouncilReviewer,
 	RunPi,
@@ -354,6 +358,7 @@ export async function runCouncil(
 		const reusedByReviewer = new Map<string, boolean>();
 		const settled = await Promise.allSettled(
 			options.reviewers.map(async (reviewer) => {
+				const reviewerStartedAt = Date.now();
 				safelyNotify(
 					() => progress.reviewerStarted(reviewer.id),
 					`started(${reviewer.id})`,
@@ -393,6 +398,21 @@ export async function runCouncil(
 					);
 					const value = dispatched.value;
 					reusedByReviewer.set(reviewer.id, dispatched.fromCache);
+					// A cache hit did not actually run the reviewer, so
+					// only a fresh dispatch is worth a telemetry row.
+					if (!dispatched.fromCache) {
+						recordRunEverywhere(
+							runRecordFrom({
+								runId: options.runId,
+								subagentId: reviewer.id,
+								kind: "council",
+								model: reviewer.model ?? "",
+								persona: reviewer.id,
+								startedAt: reviewerStartedAt,
+								result: value,
+							}),
+						);
+					}
 					const parsed = parseReviewerOutput(value.finalAssistantText, {
 						reviewerId: reviewer.id,
 						runId: options.runId,
