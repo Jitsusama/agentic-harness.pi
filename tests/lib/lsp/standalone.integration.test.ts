@@ -23,7 +23,7 @@ const tsserver = join(
 );
 const hasServer = existsSync(tsserver);
 
-/** Generous cap: a cold server spawn plus a large project build. */
+/** Generous cap: a cold server spawn under CI load. */
 const LIVE_TIMEOUT_MS = 45_000;
 
 /**
@@ -43,13 +43,36 @@ function locate(
 }
 
 // The standalone backend needs a real language server on disk;
-// skip cleanly where one was not provisioned. Every op roots at
-// this repo, so the whole suite shares one warm server.
+// skip cleanly where one was not provisioned. Everything roots at
+// one small temp project, so the server builds a tiny program and
+// answers fast and deterministically, and the whole suite shares
+// one warm server.
 describe.skipIf(!hasServer)("standalone backend (live server)", () => {
 	let backend: StandaloneBackend;
-	const offsets = join(repoRoot, "lib", "lsp", "offsets.ts");
+	let project: string;
+	let lib: string;
+	let use: string;
 
 	beforeAll(() => {
+		project = mkdtempSync(join(tmpdir(), "lsp-live-"));
+		writeFileSync(
+			join(project, "tsconfig.json"),
+			JSON.stringify({ compilerOptions: { strict: true }, include: ["*.ts"] }),
+		);
+		writeFileSync(
+			join(project, "package.json"),
+			JSON.stringify({ name: "fix" }),
+		);
+		lib = join(project, "lib.ts");
+		use = join(project, "use.ts");
+		writeFileSync(
+			lib,
+			'export function greeting(name: string): string {\n\treturn "hi " + name;\n}\n',
+		);
+		writeFileSync(
+			use,
+			'import { greeting } from "./lib";\nexport const msg = greeting("world");\n',
+		);
 		const env = {
 			...process.env,
 			PATH: `${join(repoRoot, "node_modules", ".bin")}${delimiter}${process.env.PATH ?? ""}`,
@@ -59,19 +82,13 @@ describe.skipIf(!hasServer)("standalone backend (live server)", () => {
 
 	afterAll(async () => {
 		await backend?.dispose();
+		if (project) rmSync(project, { recursive: true, force: true });
 	});
 
 	it(
 		"reports an error diagnostic for a type mismatch",
 		async () => {
-			// A throwaway file inside the repo's TS project, so the
-			// warm server type-checks it and publishes the error.
-			const broken = join(
-				repoRoot,
-				"lib",
-				"lsp",
-				`__diag_check_${process.pid}.ts`,
-			);
+			const broken = join(project, "broken.ts");
 			writeFileSync(
 				broken,
 				'const n: number = "not a number";\nexport default n;\n',
@@ -87,24 +104,19 @@ describe.skipIf(!hasServer)("standalone backend (live server)", () => {
 	);
 
 	it("binds one server per resolved root", () => {
-		// Every op above roots at the repo, so the pool holds one.
+		// Every op roots at the one temp project, so the pool holds one.
 		expect(backend.serverCount()).toBe(1);
 	});
 
 	it(
-		"finds the definition of a symbol in this repo's own source",
+		"finds the definition of a symbol across the project",
 		async () => {
-			const target = {
-				path: offsets,
-				position: locate(offsets, "utf8ByteLength(ch"),
-			};
-			const locations = await backend.definition(target);
+			const locations = await backend.definition({
+				path: use,
+				position: locate(use, "greeting("),
+			});
 			expect(locations.length).toBeGreaterThan(0);
-			expect(locations[0].path).toBe(offsets);
-			const declLine = readFileSync(offsets, "utf8").split("\n")[
-				locations[0].range.start.line - 1
-			];
-			expect(declLine).toContain("function utf8ByteLength");
+			expect(locations[0].path).toBe(lib);
 		},
 		LIVE_TIMEOUT_MS,
 	);
@@ -112,19 +124,28 @@ describe.skipIf(!hasServer)("standalone backend (live server)", () => {
 	it(
 		"finds references to an exported symbol across the root",
 		async () => {
-			const target = {
-				path: offsets,
-				position: locate(offsets, "export function byteToUtf16"),
-			};
 			const refs = await backend.references({
-				path: target.path,
-				position: {
-					line: target.position.line,
-					character: target.position.character + "export function ".length,
-				},
+				path: lib,
+				position: locate(lib, "greeting"),
 			});
 			expect(refs.length).toBeGreaterThan(1);
-			expect(refs.some((r) => r.path.endsWith("document.ts"))).toBe(true);
+			expect(refs.some((r) => r.path === use)).toBe(true);
+		},
+		LIVE_TIMEOUT_MS,
+	);
+
+	it(
+		"renames a symbol across every file under the root and writes the edits",
+		async () => {
+			const edit = await backend.rename(
+				{ path: lib, position: locate(lib, "greeting") },
+				"salutation",
+			);
+			expect(edit.changes.length).toBeGreaterThanOrEqual(2);
+			expect(readFileSync(lib, "utf8")).toContain("salutation");
+			const updatedUse = readFileSync(use, "utf8");
+			expect(updatedUse).toContain("salutation");
+			expect(updatedUse).not.toContain("greeting");
 		},
 		LIVE_TIMEOUT_MS,
 	);
@@ -134,34 +155,4 @@ describe.skipIf(!hasServer)("standalone backend (live server)", () => {
 			backend.diagnostics("/tmp/nowhere/file.rs"),
 		).rejects.toBeInstanceOf(MissingServerError);
 	});
-
-	it(
-		"renames a symbol across every file under the root and writes the edits",
-		async () => {
-			// An isolated project so the rename never touches real source.
-			const dir = mkdtempSync(join(tmpdir(), "lsp-rename-"));
-			writeFileSync(
-				join(dir, "tsconfig.json"),
-				JSON.stringify({ compilerOptions: {}, include: ["*.ts"] }),
-			);
-			const a = join(dir, "a.ts");
-			const b = join(dir, "b.ts");
-			writeFileSync(a, 'export const greeting = "hi";\n');
-			writeFileSync(
-				b,
-				'import { greeting } from "./a";\nexport const msg = greeting + "!";\n',
-			);
-			const edit = await backend.rename(
-				{ path: a, position: locate(a, "greeting") },
-				"salutation",
-			);
-			expect(edit.changes.length).toBeGreaterThanOrEqual(2);
-			expect(readFileSync(a, "utf8")).toContain("salutation");
-			const updatedB = readFileSync(b, "utf8");
-			expect(updatedB).toContain("salutation");
-			expect(updatedB).not.toContain("greeting");
-			rmSync(dir, { recursive: true, force: true });
-		},
-		LIVE_TIMEOUT_MS,
-	);
 });
