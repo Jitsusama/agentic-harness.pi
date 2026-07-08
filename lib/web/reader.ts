@@ -14,6 +14,7 @@ import { Readability } from "@mozilla/readability";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { newPage } from "./browser.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
+import { captureFullPage } from "./screenshot.js";
 
 /**
  * Thrown when a page redirects to an auth provider and Chrome
@@ -41,6 +42,11 @@ export interface PageContent {
 	length: number;
 	/** Path to full content file, if saved to disk */
 	filePath?: string;
+	/**
+	 * Base64 PNG of the full page, present only when text extraction
+	 * failed and we fell back to a screenshot for a vision model.
+	 */
+	screenshot?: string;
 }
 
 /** Timeout for page navigation in milliseconds. */
@@ -61,14 +67,24 @@ const INLINE_THRESHOLD = 12_000;
 const MAX_CONTENT_LENGTH = 80_000;
 
 /**
+ * Below this many characters, we treat text extraction as failed and
+ * fall back to a full-page screenshot for a vision model rather than
+ * returning a near-empty result or a wall of navigation text.
+ */
+const MIN_TEXT_LENGTH = 200;
+
+/**
  * CSS selectors for elements to strip before Readability processes
  * the page. These are common sources of noise.
  */
 const JUNK_SELECTORS = [
-	// Navigation and chrome
+	// Navigation and chrome. We scope header/footer to page-level
+	// children of body so we strip the site banner and footer without
+	// deleting an article's own <header>/<footer>, which sabotages
+	// Readability's extraction (e.g., Wikipedia wraps content in one).
 	"nav",
-	"header",
-	"footer",
+	"body > header",
+	"body > footer",
 	"[role='navigation']",
 	"[role='banner']",
 	"[role='contentinfo']",
@@ -158,6 +174,37 @@ function stripJunk(doc: Document): void {
 	}
 }
 
+/** Readable content pulled from a page's HTML by Readability. */
+interface Extracted {
+	text: string;
+	title: string;
+	excerpt: string;
+}
+
+/**
+ * Run Readability over the page HTML, stripping junk first. Returns the
+ * article text, title and excerpt, or null when parsing fails or the
+ * page yields no article (the caller falls back to a screenshot).
+ */
+function extractReadable(html: string, url: string): Extracted | null {
+	try {
+		const dom = new JSDOM(html, { url, virtualConsole: quietVirtualConsole() });
+		stripJunk(dom.window.document);
+		const article = new Readability(dom.window.document).parse();
+		if (!article) return null;
+		const text = article.textContent ?? "";
+		return {
+			text,
+			title: article.title ?? "",
+			excerpt: article.excerpt || text.slice(0, 200),
+		};
+	} catch {
+		// JSDOM or Readability threw (e.g., CSS parse errors on a hostile
+		// page). We report failure so the caller falls back to a screenshot.
+		return null;
+	}
+}
+
 /** Clean extracted text: collapse whitespace, strip boilerplate lines. */
 function cleanText(text: string): string {
 	return (
@@ -243,41 +290,33 @@ export async function readPage(
 
 		const html = await page.content();
 
-		let rawText: string;
-		let title: string;
-		let excerpt: string;
-
-		try {
-			const dom = new JSDOM(html, {
-				url,
-				virtualConsole: quietVirtualConsole(),
-			});
-
-			// We strip junk elements before Readability processes the page.
-			stripJunk(dom.window.document);
-
-			const reader = new Readability(dom.window.document);
-			const article = reader.parse();
-
-			if (article) {
-				rawText = article.textContent;
-				title = article.title;
-				excerpt = article.excerpt || rawText.slice(0, 200);
-			} else {
-				// Readability couldn't parse, so we fall through to puppeteer.
-				throw new Error("Readability returned null");
-			}
-		} catch {
-			// JSDOM/Readability failed (e.g., CSS parsing errors), so we
-			// fall back to extracting text directly from the browser.
-			rawText = await page.evaluate(() => document.body?.innerText || "");
-			title = await page.title();
-			excerpt = rawText.slice(0, 200);
-		}
+		const extracted = extractReadable(html, url);
 
 		// We clean and cap the content.
-		const cleaned = cleanText(rawText).slice(0, MAX_CONTENT_LENGTH);
+		const cleaned = extracted
+			? cleanText(extracted.text).slice(0, MAX_CONTENT_LENGTH)
+			: "";
 		const totalLength = cleaned.length;
+
+		// Text extraction failed or yielded too little: fall back to a
+		// full-page screenshot a vision model can read. We do not return
+		// the raw innerText wall of navigation, which misleads the model.
+		if (!extracted || totalLength < MIN_TEXT_LENGTH) {
+			const screenshot = await captureFullPage(page);
+			const title = extracted?.title || (await page.title());
+			return {
+				title,
+				url,
+				content:
+					`Readability could not extract text from this page. ` +
+					`Returning a full-page screenshot to read visually instead.`,
+				excerpt: "",
+				length: 0,
+				screenshot,
+			};
+		}
+
+		const { title, excerpt } = extracted;
 
 		// Small pages: return inline
 		if (totalLength <= INLINE_THRESHOLD) {

@@ -9,6 +9,11 @@
 
 export { type AxNode, renderAxOutline } from "./a11y.js";
 export { closeBrowser, killBrowserSync } from "./browser.js";
+export {
+	type MermaidRender,
+	MermaidRenderError,
+	renderMermaid,
+} from "./mermaid.js";
 export { AuthSetupNeeded, type PageContent, readPage } from "./reader.js";
 export { type SearchResult, webSearch } from "./search.js";
 export {
