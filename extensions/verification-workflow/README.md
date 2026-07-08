@@ -21,6 +21,11 @@ still builds, without grinding an autonomous run to a halt.
   the project's resolved check command and reports whether
   the code still builds and passes. The agent calls it when
   asked whether something works, still builds, or is green.
+  The command runs detached in its own session with no
+  controlling terminal and with plain, non-interactive output
+  forced, so a noisy test runner cannot write over the TUI
+  while it runs; its captured output is stripped of ANSI and a
+  passing run returns only its summary.
 - Surfaces the last outcome on the status line.
 
 ## Restraint
