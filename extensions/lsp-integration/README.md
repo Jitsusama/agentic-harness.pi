@@ -32,6 +32,26 @@ and reports itself available for a paired session, the same
 tool routes to the editor's own servers with no change to how
 it is called.
 
+### Registering an external backend
+
+Pi loads packages with isolated module roots, so a paired
+editor integration cannot import this registry. It registers
+over the shared event bus instead:
+
+- `lsp:register-backend` with `{ name, priority, isAvailable,
+  backend }` adds the backend. The payload is validated (it
+  crosses a trust boundary) and dropped silently if
+  malformed. `priority` below 100 wins over the standalone
+  default; `isAvailable()` gates when it may serve (e.g. only
+  while an editor is paired); `backend` implements the
+  `LspBackend` contract from `lib/lsp`.
+- `lsp:unregister-backend` with `{ name }` removes it.
+- On startup this extension emits `lsp:ready` once, so a
+  provider that loaded first can re-register on receipt.
+
+This mirrors neovim.pi's own `neovim-pi:register-handler`
+bridge, so the handshake is load-order independent.
+
 ## Design
 
 An integration in the package taxonomy: the domain logic

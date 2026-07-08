@@ -32,6 +32,7 @@ import {
 	resolveLspBackend,
 	type StandaloneBackend,
 	type SymbolInfo,
+	toBackendEntry,
 	unregisterLspBackend,
 	type WorkspaceEdit,
 } from "../../lib/lsp/index.js";
@@ -70,6 +71,25 @@ export default function lspIntegration(pi: ExtensionAPI) {
 	pi.on("session_start", async () => {
 		ensureBackend();
 	});
+
+	// A paired editor (neovim.pi) cannot import this registry across
+	// isolated package roots, so it registers its backend over the
+	// shared event bus. We validate the payload (it comes from a
+	// third-party emitter) and add it; a higher-priority editor backend
+	// then wins resolution while it reports itself available.
+	pi.events.on("lsp:register-backend", (data: unknown) => {
+		const entry = toBackendEntry(data);
+		if (entry) registerLspBackend(entry);
+	});
+	pi.events.on("lsp:unregister-backend", (data: unknown) => {
+		if (typeof data === "object" && data !== null) {
+			const name = (data as Record<string, unknown>).name;
+			if (typeof name === "string") unregisterLspBackend(name);
+		}
+	});
+	// Signal that the registry is listening, so a provider that loaded
+	// before us can re-register on receipt.
+	pi.events.emit("lsp:ready", {});
 
 	// Keep the servers current with pi's own edits so diagnostics
 	// track the bytes on disk rather than the bytes at open.
