@@ -85,6 +85,15 @@ describe("extractDuckDuckGoUrl", () => {
 			"https://example.com/x",
 		);
 	});
+
+	it("does not promote the wrapper when uddg is malformed", () => {
+		const href = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fex.com%2F%E0%A4&rut=x";
+		// Malformed percent-encoding must not become an https-promoted
+		// redirect wrapper masquerading as the destination.
+		const out = extractDuckDuckGoUrl(href);
+		expect(out).toBe(href);
+		expect(out.startsWith("https://duckduckgo.com/l/")).toBe(false);
+	});
 });
 
 describe("extractBingUrl", () => {
