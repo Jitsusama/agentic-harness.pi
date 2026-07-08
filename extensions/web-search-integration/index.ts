@@ -28,6 +28,7 @@ interface ReaderDetails {
 	excerpt?: string;
 	length?: number;
 	filePath?: string;
+	screenshot?: boolean;
 }
 
 /** Type guard for successful web_read details. */
@@ -181,8 +182,19 @@ export default function webSearch(pi: ExtensionAPI) {
 				excerpt,
 				filePath,
 				length: contentLength,
+				screenshot,
 			} = result.details;
 			const displayTitle = title || "Page loaded";
+
+			if (screenshot) {
+				return new Text(
+					theme.fg("success", "✓ ") +
+						theme.fg("dim", displayTitle) +
+						theme.fg("muted", " (screenshot: text extraction failed)"),
+					0,
+					0,
+				);
+			}
 			const totalChars = contentLength || text.length;
 
 			let summary =
@@ -207,19 +219,27 @@ export default function webSearch(pi: ExtensionAPI) {
 			try {
 				const result = await readPage(params.url, signal);
 
+				const content: (
+					| { type: "text"; text: string }
+					| { type: "image"; data: string; mimeType: string }
+				)[] = [{ type: "text", text: result.content }];
+				if (result.screenshot) {
+					content.push({
+						type: "image",
+						data: result.screenshot,
+						mimeType: "image/png",
+					});
+				}
+
 				return {
-					content: [
-						{
-							type: "text",
-							text: result.content,
-						},
-					],
+					content,
 					details: {
 						title: result.title,
 						url: result.url,
 						excerpt: result.excerpt,
 						length: result.length,
 						filePath: result.filePath,
+						screenshot: Boolean(result.screenshot),
 					},
 				};
 			} catch (err: unknown) {
