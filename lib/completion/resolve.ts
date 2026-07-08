@@ -47,5 +47,12 @@ export function pickModel(
 		const byId = available.find((m) => m.id === target.model);
 		if (byId) return byId;
 	}
+	// A provider named without a model still narrows the choice, per
+	// the "provider and/or model" contract: honour it before the
+	// GLM guess so an explicit request is not silently dropped.
+	if (target.provider) {
+		const byProvider = available.find((m) => m.provider === target.provider);
+		if (byProvider) return byProvider;
+	}
 	return available.find(looksLikeGlm) ?? current;
 }
