@@ -230,7 +230,7 @@ describe("createSupervisorRunPi", () => {
 		await writeFile(
 			childPath,
 			[
-				`for (let i = 0; i < 20; i++) { process.stdout.write(JSON.stringify({type:"tool_execution_start",toolName:"read",args:{path:"file-" + i}})+"\\n"); await new Promise((resolve) => setImmediate(resolve)); }`,
+				`for (let i = 0; i < 8; i++) { const pad = "x".repeat(120); process.stdout.write(JSON.stringify({type:"tool_execution_start",toolName:"read",args:{path:"file-" + i + "-" + pad}})+"\\n"); await new Promise((resolve) => setTimeout(resolve, 15)); }`,
 				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"still done"}]}})+"\\n");`,
 			].join("\n"),
 		);
