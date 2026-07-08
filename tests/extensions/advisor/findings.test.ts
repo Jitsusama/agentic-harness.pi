@@ -52,9 +52,12 @@ describe("channelFor", () => {
 		expect(channelFor("blocker", 0)).toBe("steer");
 	});
 
-	it("softens interrupts to asides while immune", () => {
+	it("softens a concern to an aside while immune", () => {
 		expect(channelFor("concern", 1)).toBe("aside");
-		expect(channelFor("blocker", 2)).toBe("aside");
+	});
+
+	it("never softens a blocker, even while immune", () => {
+		expect(channelFor("blocker", 2)).toBe("steer");
 	});
 });
 

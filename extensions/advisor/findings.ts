@@ -76,6 +76,10 @@ export function parseFindings(reply: string): Finding[] {
  * immune window, where they soften to asides.
  */
 export function channelFor(severity: Severity, immuneTurns: number): Channel {
+	// A blocker is a likely mistake to fix now, so it always
+	// interrupts; the back-off window must not mute it just because
+	// an earlier concern fired.
+	if (severity === "blocker") return "steer";
 	if (severity === "aside") return "aside";
 	return immuneTurns > 0 ? "aside" : "steer";
 }
