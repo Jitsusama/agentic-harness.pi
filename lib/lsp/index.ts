@@ -12,6 +12,7 @@
  */
 
 export { DEFAULT_SERVERS, type ServerConfig } from "./config.js";
+export { toBackendEntry } from "./external.js";
 export {
 	clearLspBackends,
 	getLspBackend,
