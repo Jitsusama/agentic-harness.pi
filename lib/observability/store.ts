@@ -1,4 +1,4 @@
-import { type Db, openDb } from "./db.js";
+import { type Db, openDb } from "../internal/sqlite/db.js";
 import type {
 	RunRecord,
 	RunRollup,
