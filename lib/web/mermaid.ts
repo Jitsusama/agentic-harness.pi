@@ -13,9 +13,43 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { newPage } from "./browser.js";
 
-/** Pinned Mermaid version, loaded into the render page from jsDelivr. */
+/** Pinned Mermaid version, fetched once from jsDelivr. */
 const MERMAID_CDN =
 	"https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
+
+/** How long to wait for the one-time Mermaid library fetch. */
+const MERMAID_FETCH_TIMEOUT_MS = 15_000;
+
+/** The Mermaid library source, fetched once and reused per process. */
+let cachedMermaidSource: string | undefined;
+
+/**
+ * Fetch the Mermaid library source once, in Node, and cache it.
+ * Injecting the cached content into the render page means the page
+ * itself does no network work mid-render, which is what made
+ * rendering hang under a busy shared browser.
+ */
+async function loadMermaidSource(): Promise<string> {
+	if (cachedMermaidSource) return cachedMermaidSource;
+	let response: Response;
+	try {
+		response = await fetch(MERMAID_CDN, {
+			signal: AbortSignal.timeout(MERMAID_FETCH_TIMEOUT_MS),
+		});
+	} catch {
+		throw new MermaidRenderError(
+			"Could not fetch the Mermaid library (network required). " +
+				"Rendering needs internet access to fetch Mermaid.",
+		);
+	}
+	if (!response.ok) {
+		throw new MermaidRenderError(
+			`Could not fetch the Mermaid library (HTTP ${response.status}).`,
+		);
+	}
+	cachedMermaidSource = await response.text();
+	return cachedMermaidSource;
+}
 
 /** Thrown when Mermaid source cannot be rendered (bad syntax or no library). */
 export class MermaidRenderError extends Error {
@@ -58,12 +92,12 @@ export async function renderMermaid(
 				'<div id="container"></div></body></html>',
 		);
 
+		const mermaidSource = await loadMermaidSource();
 		try {
-			await page.addScriptTag({ url: MERMAID_CDN });
+			await page.addScriptTag({ content: mermaidSource });
 		} catch {
 			throw new MermaidRenderError(
-				"Could not load the Mermaid library (network required). " +
-					"Rendering needs internet access to fetch Mermaid.",
+				"Could not load the Mermaid library into the render page.",
 			);
 		}
 
