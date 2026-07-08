@@ -153,6 +153,14 @@ export interface QuestFrontMatter {
 	 * file-system orderings.
 	 */
 	primaryPlanId?: string;
+	/**
+	 * Verification command for work on this quest, run by the
+	 * verification workflow's medium layer in preference to a
+	 * project script. Lets a quest that spans a subdirectory or
+	 * a single zone name the exact check that proves its work,
+	 * rather than the whole repo's.
+	 */
+	verify?: string;
 }
 
 /** Frontmatter for a quest document (plan, research, etc.). */

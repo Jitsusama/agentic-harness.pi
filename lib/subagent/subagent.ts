@@ -195,6 +195,12 @@ export interface ReviewerVerification {
 	readonly called: boolean;
 	/** Whether the last verify_output call returned ok: true. */
 	readonly ok: boolean;
+	/**
+	 * How many times verify_output ran before the recorded
+	 * result. One means the first attempt was the last; higher
+	 * means the reviewer retried to reach a valid payload.
+	 */
+	readonly attempts?: number;
 	/** Stage passed to verify_output, when available. */
 	readonly stage?: string;
 	/** Count returned by the verifier on success. */

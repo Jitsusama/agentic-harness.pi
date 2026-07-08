@@ -42,6 +42,13 @@ export interface QuestState {
 	questStatus: QuestStatus | null;
 	/** The loaded quest's priority bucket. */
 	questPriority: QuestPriority | null;
+	/**
+	 * The loaded quest's verification command, or null when it
+	 * declares none. Mirrored from the quest frontmatter so the
+	 * verification workflow can read it from this session entry
+	 * without parsing the quest itself.
+	 */
+	questVerify: string | null;
 
 	/**
 	 * The loaded quest's managed scratch directory, or null when it
@@ -105,6 +112,7 @@ export function createQuestState(opts: { questsRoot: string }): QuestState {
 		questKind: null,
 		questStatus: null,
 		questPriority: null,
+		questVerify: null,
 		scratchDir: null,
 		documentPath: null,
 		documentId: null,

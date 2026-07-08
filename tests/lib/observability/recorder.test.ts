@@ -40,6 +40,36 @@ describe("runRecordFrom", () => {
 		expect(record.retriesToValid).toBe(0);
 	});
 
+	it("derives retries-to-valid from the verify attempt count", () => {
+		const base = {
+			runId: "r",
+			subagentId: "s",
+			kind: "council",
+			model: "",
+			persona: "s",
+			startedAt: 0,
+		};
+		const firstTry = runRecordFrom({
+			...base,
+			result: {
+				exitCode: 0,
+				warnings: [],
+				verification: { ok: true, attempts: 1 },
+			},
+		});
+		expect(firstTry.retriesToValid).toBe(0);
+
+		const retried = runRecordFrom({
+			...base,
+			result: {
+				exitCode: 0,
+				warnings: [],
+				verification: { ok: true, attempts: 3 },
+			},
+		});
+		expect(retried.retriesToValid).toBe(2);
+	});
+
 	it("marks a failed verification and zeroes usage when the run carried none", () => {
 		const failed = runRecordFrom({
 			runId: "r",

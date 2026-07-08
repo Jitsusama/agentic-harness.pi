@@ -53,6 +53,22 @@ describe("ReviewerStreamParser", () => {
 		});
 	});
 
+	it("counts verify_output attempts and keeps the last result", () => {
+		const parser = new ReviewerStreamParser();
+		const end = (ok: boolean) =>
+			`${JSON.stringify({
+				type: "tool_execution_end",
+				toolName: "verify_output",
+				result: { content: [], details: { ok } },
+			})}\n`;
+		parser.ingestChunk(end(false));
+		parser.ingestChunk(end(true));
+		const result = parser.finish();
+
+		expect(result.verification?.ok).toBe(true);
+		expect(result.verification?.attempts).toBe(2);
+	});
+
 	it("concatenates multiple text blocks in an assistant message", () => {
 		const parser = new ReviewerStreamParser();
 

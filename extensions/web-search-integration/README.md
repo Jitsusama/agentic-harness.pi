@@ -5,9 +5,11 @@ pages using a headless Chrome browser.
 
 ## Tools
 
-**`web_search`**: Searches the web (via DuckDuckGo) and returns
-titles, URLs and snippets. The agent uses this to research best
-practices, look up APIs, understand problem domains and so on.
+**`web_search`**: Searches the web and returns titles, URLs and
+snippets. The agent uses this to research best practices, look
+up APIs, understand problem domains and so on. DuckDuckGo is the
+primary provider; Bing is the fallback when DuckDuckGo returns
+nothing or errors.
 
 **`web_read`**: Fetches a URL and extracts readable text content
 using Mozilla Readability. Junk elements (ads, nav, cookies,
@@ -29,7 +31,7 @@ instead of consuming the entire content as tokens.
 
 A headless Chrome instance launches on first use and gets
 reused across tool calls within a session. It closes
-automatically when the session ends. Search uses DuckDuckGo's
-HTML interface (Google blocks headless browsers). Page reading
-renders the full page (including JavaScript) before extracting
-content.
+automatically when the session ends. Search tries DuckDuckGo's
+HTML interface first and falls back to Bing's; Google blocks
+headless browsers, so it is not used. Page reading renders the
+full page (including JavaScript) before extracting content.

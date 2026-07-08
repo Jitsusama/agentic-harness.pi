@@ -1,6 +1,6 @@
 /**
  * Session state for the verification workflow: the files
- * touched during the current turn, the errors still
+ * touched during the current run, the errors still
  * outstanding, how many times the fast layer has asked the
  * agent to fix them in a row, and the last outcome for the
  * status line.
@@ -17,8 +17,6 @@ export interface VerificationState {
 	touched: Set<string>;
 	/** Errors still outstanding on files this loop is watching. */
 	pending: FileError[];
-	/** The fix request queued for the next request's context, if any. */
-	pendingMessage: string | null;
 	/** Consecutive fast-layer fix requests since the last clean pass. */
 	attempts: number;
 	/** Last fast-layer outcome, for the status line. */
@@ -33,7 +31,6 @@ export function createVerificationState(): VerificationState {
 	return {
 		touched: new Set(),
 		pending: [],
-		pendingMessage: null,
 		attempts: 0,
 		outcome: "unknown",
 	};
