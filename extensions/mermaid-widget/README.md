@@ -10,6 +10,12 @@ conversation. Given Mermaid source, it renders the diagram to a PNG and
 returns both the file path (to open or embed in a quest planning
 document) and the image inline, so a vision model can see the result.
 
+When a human is at an interactive session, the PNG is also opened in the
+OS image viewer. A binary image cannot be shown in the terminal content
+viewer or an nvim text buffer, so opening it is the one way the person
+who asked for the diagram actually sees it. Subagent and headless runs
+skip this: they have no display and only want the payload.
+
 There is no slash command. The agent invokes the tool when asked to draw
 or visualize something as a diagram.
 
