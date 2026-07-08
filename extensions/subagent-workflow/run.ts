@@ -16,6 +16,10 @@
  * `lib/subagent/`.
  */
 
+import {
+	recordRunEverywhere,
+	runRecordFrom,
+} from "../../lib/observability/index.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
 import type {
 	ReviewerThinkingLevel,
@@ -240,6 +244,7 @@ async function runOneAssignment(
 	warnings: string[],
 ): Promise<FleetSubagentResult> {
 	const registration = run.register(assignment.spec, opts.signal);
+	const startedAt = Date.now();
 	safelyNotify(
 		() => progress.subagentStarted(assignment.spec.id),
 		"subagentStarted",
@@ -265,6 +270,21 @@ async function runOneAssignment(
 		if (registration.wasCancelledByUser()) {
 			throw new SubagentCancelledError(assignment.spec.id);
 		}
+		// Record run telemetry once the subagent has settled
+		// (both success and non-zero exit); cancellations throw
+		// above and are not worth a row. Best-effort: the sink
+		// swallows its own errors.
+		recordRunEverywhere(
+			runRecordFrom({
+				runId: opts.runId,
+				subagentId: assignment.spec.id,
+				kind: "fleet",
+				model: assignment.spec.model ?? "",
+				persona: assignment.spec.id,
+				startedAt,
+				result,
+			}),
+		);
 		if (result.exitCode !== 0) {
 			// pi exited non-zero (1, 124 timeout, 130 SIGINT,
 			// etc.). `runSubagent` captures the exit code on the
