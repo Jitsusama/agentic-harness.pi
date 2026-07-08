@@ -36,6 +36,12 @@ export {
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
 } from "./defaults.js";
+// Parent-install resolution (pins subagents to the running install).
+export {
+	type PiInstall,
+	type ResolvePiInstallDeps,
+	resolveParentPiInstall,
+} from "./install.js";
 export {
 	type RecoveredReviewerProgress,
 	type RecoveredReviewerResult,

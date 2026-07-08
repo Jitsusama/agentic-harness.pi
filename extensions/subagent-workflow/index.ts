@@ -44,6 +44,7 @@ import {
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
 } from "../../lib/subagent/defaults.js";
+import { resolveParentPiInstall } from "../../lib/subagent/install.js";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.js";
 import {
 	FleetCancellationRegistry,
@@ -122,7 +123,10 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 	let runPi: ReturnType<typeof createSupervisorRunPi> | null = null;
 	const getRunPi = () => {
 		if (runPi !== null) return runPi;
-		runPi = createSupervisorRunPi({ binary: "pi", stateDir: stateDir() });
+		runPi = createSupervisorRunPi({
+			piInstall: resolveParentPiInstall(),
+			stateDir: stateDir(),
+		});
 		return runPi;
 	};
 	const controls = () => ({

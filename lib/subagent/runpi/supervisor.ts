@@ -6,6 +6,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { ReviewerArtifactsStore, type ReviewerRunPaths } from "../artifacts.js";
+import type { PiInstall } from "../install.js";
 import type { RunPi, RunPiResult } from "../subagent.js";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
@@ -17,7 +18,13 @@ export type SupervisorSpawnFn = (
 
 /** Configuration for supervised reviewer subprocesses. */
 export interface SupervisorRunPiConfig {
-	readonly binary: string;
+	/**
+	 * The pinned parent pi install. The supervisor launches
+	 * each reviewer as `install.node install.entry ...args`
+	 * so it runs the parent's exact install rather than
+	 * whatever bare `pi` resolves to on PATH.
+	 */
+	readonly piInstall: PiInstall;
 	readonly stateDir: string;
 	readonly nodeBinary?: string;
 	readonly supervisorPath?: string;
@@ -90,8 +97,8 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 			{
 				runId: effectiveRunId,
 				reviewerId: effectiveReviewerId,
-				binary: config.binary,
-				args,
+				binary: config.piInstall.node,
+				args: [config.piInstall.entry, ...args],
 				cwd,
 			},
 			{

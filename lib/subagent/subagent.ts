@@ -410,9 +410,9 @@ export interface RunReviewerResult {
 	readonly stderr: string;
 	readonly warnings: string[];
 	/**
-	 * Token + cost totals from the final assistant
-	 * message_end event. `undefined` when the stream
-	 * carried no usage block (older pi, fake runners).
+	 * Token + cost totals summed across every assistant
+	 * message_end event in the run. `undefined` when the
+	 * stream carried no usage block (older pi, fake runners).
 	 */
 	readonly usage?: ReviewerUsage;
 	/** Result of the reviewer's verify_output calls, when observed. */

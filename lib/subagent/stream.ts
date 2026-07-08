@@ -137,7 +137,7 @@ export class ReviewerStreamParser {
 			this.finalAssistantText = this.truncateAssistantText(text);
 		}
 		const usage = readUsage(message);
-		if (usage !== undefined) this.usage = usage;
+		if (usage !== undefined) this.usage = addUsage(this.usage, usage);
 	}
 
 	private captureVerification(event: unknown): void {
@@ -323,6 +323,36 @@ function readUsage(
 
 function readNumber(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Add one turn's usage onto the running total. A subagent
+ * emits one `message_end` per turn, each carrying that
+ * turn's own usage, so the run total is their sum. Keying
+ * on `message_end` means each turn is counted once, so
+ * summation cannot double-count.
+ */
+function addUsage(
+	total: ReviewerUsage | undefined,
+	turn: ReviewerUsage,
+): ReviewerUsage {
+	if (total === undefined) return turn;
+	return {
+		tokens: {
+			input: total.tokens.input + turn.tokens.input,
+			output: total.tokens.output + turn.tokens.output,
+			cacheRead: total.tokens.cacheRead + turn.tokens.cacheRead,
+			cacheWrite: total.tokens.cacheWrite + turn.tokens.cacheWrite,
+			total: total.tokens.total + turn.tokens.total,
+		},
+		cost: {
+			input: total.cost.input + turn.cost.input,
+			output: total.cost.output + turn.cost.output,
+			cacheRead: total.cost.cacheRead + turn.cost.cacheRead,
+			cacheWrite: total.cost.cacheWrite + turn.cost.cacheWrite,
+			total: total.cost.total + turn.cost.total,
+		},
+	};
 }
 
 function truncate(s: string, max: number): string {

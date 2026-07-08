@@ -72,7 +72,7 @@ describe("ReviewerStreamParser", () => {
 		expect(parser.finish().finalAssistantText).toBe("first\nsecond");
 	});
 
-	it("extracts latest assistant usage", () => {
+	it("extracts a single turn's assistant usage", () => {
 		const usage = {
 			input_tokens: 1,
 			output_tokens: 2,
@@ -98,6 +98,43 @@ describe("ReviewerStreamParser", () => {
 				cacheRead: 0,
 				cacheWrite: 0,
 				total: 0.5,
+			},
+		});
+	});
+
+	it("sums token tiers and cost across every assistant message_end", () => {
+		// A multi-turn subagent emits one message_end per turn,
+		// each with its own usage. The run's true cost is the
+		// sum, so keeping only the last turn undercounts a long
+		// run roughly in proportion to its turn count.
+		const turn1 = {
+			input_tokens: 10,
+			output_tokens: 5,
+			cache_read_input_tokens: 2,
+			cache_creation_input_tokens: 1,
+			cost: { input: 0.25, output: 0.5, cacheRead: 0.125, cacheWrite: 0.0625 },
+		};
+		const turn2 = {
+			input_tokens: 20,
+			output_tokens: 8,
+			cache_read_input_tokens: 4,
+			cache_creation_input_tokens: 3,
+			cost: { input: 0.25, output: 0.5, cacheRead: 0.125, cacheWrite: 0.0625 },
+		};
+		const parser = new ReviewerStreamParser();
+
+		parser.ingestChunk(
+			`${assistantEvent("t1", turn1)}\n${assistantEvent("t2", turn2)}\n`,
+		);
+
+		expect(parser.finish().usage).toEqual({
+			tokens: { input: 30, output: 13, cacheRead: 6, cacheWrite: 4, total: 53 },
+			cost: {
+				input: 0.5,
+				output: 1,
+				cacheRead: 0.25,
+				cacheWrite: 0.125,
+				total: 0,
 			},
 		});
 	});
