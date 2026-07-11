@@ -339,4 +339,43 @@ describe("validateOutput", () => {
 		expect(result.ok).toBe(true);
 		if (result.ok) expect(result.count).toBe(2);
 	});
+
+	it("rejects a council finding with an unknown location kind", () => {
+		const result = validate("council", {
+			findings: [
+				{
+					location: { kind: "bogus" },
+					label: "issue",
+					subject: "s",
+					discussion: "d",
+				},
+			],
+		});
+		expect(result.ok).toBe(false);
+	});
+
+	it("rejects a critique missing its rationale", () => {
+		const result = validate("critique", {
+			critiques: [{ findingId: 1, position: "agree" }],
+		});
+		expect(result.ok).toBe(false);
+	});
+
+	it("rejects a stack-judge per-PR finding missing its discussion", () => {
+		const result = validate("stack-judge", {
+			perPr: {
+				"101": [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "s",
+						raisedBy: ["fast"],
+						sourceFindingIds: [1],
+					},
+				],
+			},
+			crossPr: [],
+		});
+		expect(result.ok).toBe(false);
+	});
 });
