@@ -143,6 +143,9 @@ describe("ReviewerStreamParser", () => {
 			`${assistantEvent("t1", turn1)}\n${assistantEvent("t2", turn2)}\n`,
 		);
 
+		// Neither turn reports an explicit cost total, so each falls
+		// back to the sum of its per-channel costs (0.9375) and the
+		// run total is their sum.
 		expect(parser.finish().usage).toEqual({
 			tokens: { input: 30, output: 13, cacheRead: 6, cacheWrite: 4, total: 53 },
 			cost: {
@@ -150,7 +153,7 @@ describe("ReviewerStreamParser", () => {
 				output: 1,
 				cacheRead: 0.25,
 				cacheWrite: 0.125,
-				total: 0,
+				total: 1.875,
 			},
 		});
 	});
@@ -195,7 +198,84 @@ describe("ReviewerStreamParser", () => {
 	});
 });
 
+function verifyStart(callId: string, args: unknown): string {
+	return `${JSON.stringify({
+		type: "tool_execution_start",
+		toolName: "verify_output",
+		...(callId ? { toolCallId: callId } : {}),
+		args,
+	})}\n`;
+}
+
+function verifyEnd(callId: string, details: unknown = { ok: true }): string {
+	return `${JSON.stringify({
+		type: "tool_execution_end",
+		toolName: "verify_output",
+		...(callId ? { toolCallId: callId } : {}),
+		result: { content: [], details },
+	})}\n`;
+}
+
+describe("captureVerification pairing", () => {
+	it("resolves each end against its own call id, whatever the end order", () => {
+		const parser = new ReviewerStreamParser();
+		parser.ingestChunk(verifyStart("c1", { stage: "council" }));
+		parser.ingestChunk(verifyStart("c2", { stage: "judge" }));
+		// End the second call first, then the first.
+		parser.ingestChunk(verifyEnd("c2"));
+		parser.ingestChunk(verifyEnd("c1"));
+		const result = parser.finish();
+
+		expect(result.verification?.stage).toBe("council");
+		expect(result.verification?.attempts).toBe(2);
+	});
+
+	it("falls back to the last unkeyed start when an end has no call id", () => {
+		const parser = new ReviewerStreamParser();
+		parser.ingestChunk(verifyStart("", { stage: "critique" }));
+		parser.ingestChunk(verifyEnd(""));
+
+		expect(parser.finish().verification?.stage).toBe("critique");
+	});
+
+	it("evicts the oldest pending start once the bound is exceeded", () => {
+		const parser = new ReviewerStreamParser();
+		// Nine keyed starts exceed the pending bound of eight, so the
+		// oldest (c1) is dropped while the newest (c9) survives.
+		for (let n = 1; n <= 9; n++) {
+			parser.ingestChunk(verifyStart(`c${n}`, { stage: `s${n}` }));
+		}
+		parser.ingestChunk(verifyEnd("c9"));
+		expect(parser.finish().verification?.stage).toBe("s9");
+
+		// A late end for the evicted call resolves no args, so no
+		// stage is attributed.
+		parser.ingestChunk(verifyEnd("c1"));
+		expect(parser.finish().verification?.stage).toBeUndefined();
+	});
+
+	it("keeps a non-JSON verifier output as a raw string", () => {
+		const parser = new ReviewerStreamParser();
+		parser.ingestChunk(verifyStart("c1", { output: "not json {" }));
+		parser.ingestChunk(verifyEnd("c1"));
+
+		expect(parser.finish().verification?.output).toBe("not json {");
+	});
+});
+
 describe("extractUsageFromPiStream", () => {
+	it("falls back to the summed channel costs when no total is given", () => {
+		const usage = {
+			input: 1,
+			output: 1,
+			cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 },
+		};
+
+		expect(
+			extractUsageFromPiStream(`${assistantEvent("ok", usage)}\n`)?.cost.total,
+		).toBeCloseTo(0.3, 10);
+	});
+
 	it("uses the streaming parser for compatibility with existing callers", () => {
 		const usage = {
 			input_tokens: 10,

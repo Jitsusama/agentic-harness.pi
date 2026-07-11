@@ -305,6 +305,10 @@ function readUsage(
 	const output = readNumber(u.output ?? u.output_tokens);
 	const cacheRead = readNumber(u.cacheRead ?? u.cache_read_input_tokens);
 	const cacheWrite = readNumber(u.cacheWrite ?? u.cache_creation_input_tokens);
+	const costInput = readNumber(cost.input);
+	const costOutput = readNumber(cost.output);
+	const costCacheRead = readNumber(cost.cacheRead);
+	const costCacheWrite = readNumber(cost.cacheWrite);
 	return {
 		tokens: {
 			input,
@@ -315,11 +319,16 @@ function readUsage(
 				readNumber(u.totalTokens) || input + output + cacheRead + cacheWrite,
 		},
 		cost: {
-			input: readNumber(cost.input),
-			output: readNumber(cost.output),
-			cacheRead: readNumber(cost.cacheRead),
-			cacheWrite: readNumber(cost.cacheWrite),
-			total: readNumber(cost.total ?? u.cost_usd),
+			input: costInput,
+			output: costOutput,
+			cacheRead: costCacheRead,
+			cacheWrite: costCacheWrite,
+			// Mirror the token total: fall back to the sum of the
+			// per-channel costs when no explicit total is reported,
+			// rather than dropping a turn's cost to zero.
+			total:
+				readNumber(cost.total ?? u.cost_usd) ||
+				costInput + costOutput + costCacheRead + costCacheWrite,
 		},
 	};
 }

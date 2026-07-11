@@ -50,11 +50,27 @@ export async function getRepoRoot(pi: ExtensionAPI): Promise<string | null> {
 }
 
 /**
+ * Injectable environment for repository discovery. Defaults to
+ * the real home directory and on-disk git check; tests pass a
+ * fake filesystem so the search order is exercised without
+ * touching disk.
+ */
+export interface RepoDiscoveryDeps {
+	readonly home?: string;
+	readonly isGitRepo?: (dir: string) => boolean;
+}
+
+/**
  * Search common locations on disk for a GitHub repository.
  * Returns the directory path if found, null otherwise.
  */
-export function findRepoOnDisk(owner: string, repo: string): string | null {
-	const home = os.homedir();
+export function findRepoOnDisk(
+	owner: string,
+	repo: string,
+	deps: RepoDiscoveryDeps = {},
+): string | null {
+	const home = deps.home ?? os.homedir();
+	const exists = deps.isGitRepo ?? isGitRepo;
 
 	for (const pattern of REPO_SEARCH_PATHS) {
 		const candidate = path.join(
@@ -62,7 +78,7 @@ export function findRepoOnDisk(owner: string, repo: string): string | null {
 			pattern.replace("{owner}", owner).replace("{repo}", repo),
 		);
 
-		if (isGitRepo(candidate)) {
+		if (exists(candidate)) {
 			return candidate;
 		}
 	}
