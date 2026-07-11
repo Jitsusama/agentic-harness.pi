@@ -266,7 +266,7 @@ interface ProjectInfo {
 	readonly packageManager: string;
 }
 
-function findProject(startDir: string): ProjectInfo | null {
+export function findProject(startDir: string): ProjectInfo | null {
 	let dir = startDir;
 	while (true) {
 		const pkgPath = join(dir, "package.json");
@@ -290,7 +290,7 @@ function findProject(startDir: string): ProjectInfo | null {
 	}
 }
 
-function detectPackageManager(dir: string): string {
+export function detectPackageManager(dir: string): string {
 	if (existsSync(join(dir, "pnpm-lock.yaml"))) return "pnpm";
 	if (existsSync(join(dir, "yarn.lock"))) return "yarn";
 	if (existsSync(join(dir, "package-lock.json"))) return "npm";
@@ -397,7 +397,7 @@ function runCommand(
 }
 
 /** Cap the captured output so a noisy suite does not flood the turn. */
-function truncate(output: string, maxLines = 200): string {
+export function truncate(output: string, maxLines = 200): string {
 	const lines = output.split("\n");
 	if (lines.length <= maxLines) return output.trim();
 	return [

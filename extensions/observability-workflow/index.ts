@@ -206,7 +206,7 @@ function formatRunSummary(s: RunSummaryLike): string {
 	].join("\n");
 }
 
-function formatDigest(
+export function formatDigest(
 	rows: readonly RunRecord[],
 	rollups: readonly RunRollup[],
 ): string {
@@ -247,7 +247,7 @@ interface RunGroup {
 	cost: number;
 }
 
-function groupByRun(rows: readonly RunRecord[]): RunGroup[] {
+export function groupByRun(rows: readonly RunRecord[]): RunGroup[] {
 	const groups = new Map<string, RunGroup>();
 	for (const row of rows) {
 		const group = groups.get(row.runId) ?? {
