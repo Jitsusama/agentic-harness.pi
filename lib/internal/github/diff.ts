@@ -52,10 +52,13 @@ export function buildHunkRanges(files: DiffFile[]): Map<string, HunkRange[]> {
 	for (const file of files) {
 		const ranges: HunkRange[] = [];
 		for (const hunk of file.hunks) {
-			ranges.push({
-				start: hunk.newStart,
-				end: hunk.newStart + hunk.newCount - 1,
-			});
+			// A pure-deletion hunk adds no new-side lines (newCount 0),
+			// so the naive end (newStart + newCount - 1) inverts below
+			// start. Anchor such a hunk at newStart as a single-line
+			// range instead, which is where a deletion comment lands.
+			const end =
+				hunk.newCount > 0 ? hunk.newStart + hunk.newCount - 1 : hunk.newStart;
+			ranges.push({ start: hunk.newStart, end });
 		}
 		map.set(file.path, ranges);
 	}
