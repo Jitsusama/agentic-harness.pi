@@ -32,4 +32,16 @@ describe("applyEdits", () => {
 			]),
 		).toThrow();
 	});
+
+	it("applies a zero-width insertion adjacent to a replacement", () => {
+		// The attribution splice inserts a zero-width edit that can sit
+		// exactly at the end of a replacement. Adjacency (start === the
+		// prior edit's end) must not be mistaken for an overlap.
+		const result = applyEdits("gh pr create", [
+			{ span: { start: 0, end: 2 }, text: "GH" },
+			{ span: { start: 2, end: 2 }, text: "!" },
+		]);
+
+		expect(result).toBe("GH! pr create");
+	});
 });
