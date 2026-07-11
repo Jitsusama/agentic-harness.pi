@@ -29,11 +29,13 @@ let cachedMermaidSource: string | undefined;
  * itself does no network work mid-render, which is what made
  * rendering hang under a busy shared browser.
  */
-async function loadMermaidSource(): Promise<string> {
+export async function loadMermaidSource(
+	fetchImpl: typeof fetch = fetch,
+): Promise<string> {
 	if (cachedMermaidSource) return cachedMermaidSource;
 	let response: Response;
 	try {
-		response = await fetch(MERMAID_CDN, {
+		response = await fetchImpl(MERMAID_CDN, {
 			signal: AbortSignal.timeout(MERMAID_FETCH_TIMEOUT_MS),
 		});
 	} catch {
