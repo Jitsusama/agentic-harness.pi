@@ -1,4 +1,4 @@
-/** Token counts for one run, split by tier. */
+/** Token counts for one run, split by channel. */
 export interface RunTokens {
 	readonly input: number;
 	readonly output: number;
@@ -7,7 +7,11 @@ export interface RunTokens {
 	readonly total: number;
 }
 
-/** Proxy-reported cost for one run, split by tier. */
+/**
+ * Cost for one run in USD, split by channel. Sourced from pi's own
+ * per-turn usage.cost, summed across every message_end turn of the
+ * run, not from any external proxy.
+ */
 export interface RunCost {
 	readonly input: number;
 	readonly output: number;
@@ -42,9 +46,9 @@ export interface RunRecord {
 	readonly warningCount: number;
 	/** Process exit code. */
 	readonly exitCode: number;
-	/** Accumulated token tiers. */
+	/** Token counts summed across the run's turns. */
 	readonly tokens: RunTokens;
-	/** Accumulated proxy-reported cost tiers. */
+	/** Cost summed across the run's turns. */
 	readonly cost: RunCost;
 	/** When the run started, epoch milliseconds. */
 	readonly startedAt: number;

@@ -106,6 +106,37 @@ describe("createSupervisorRunPi", () => {
 		expect(result.usage?.tokens.total).toBe(3);
 		expect(result.artifacts?.resultPath).toContain("result.json");
 	});
+	it("sums usage across every message_end turn, not just the last", async () => {
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "multi-turn-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"turn 1"}],usage:{input:10,output:5,totalTokens:15,cost:{total:0.20}}}})+"\\n");`,
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"turn 2"}],usage:{input:20,output:7,totalTokens:27,cost:{total:0.15}}}})+"\\n");`,
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"turn 3"}],usage:{input:30,output:3,totalTokens:33,cost:{total:0.04}}}})+"\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "multi",
+		});
+
+		expect(result.exitCode).toBe(0);
+		// 15 + 27 + 33 across three turns, not the final turn's 33.
+		expect(result.usage?.tokens.total).toBe(75);
+		// 0.20 + 0.15 + 0.04, not the final turn's 0.04.
+		expect(result.usage?.cost.total).toBeCloseTo(0.39, 10);
+	});
 	it("captures successful verify_output calls and their canonical output", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "verified-child.mjs");
