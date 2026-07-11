@@ -21,9 +21,9 @@ export interface CredentialsFile {
 }
 
 /** Read the credentials file, returning defaults if missing or corrupt. */
-export function readFile(): CredentialsFile {
+export function readFile(filePath: string = CREDENTIALS_PATH): CredentialsFile {
 	try {
-		const raw = fs.readFileSync(CREDENTIALS_PATH, "utf-8");
+		const raw = fs.readFileSync(filePath, "utf-8");
 		return JSON.parse(raw) as CredentialsFile;
 	} catch {
 		// The file doesn't exist or is corrupt, so we start fresh.
@@ -32,8 +32,11 @@ export function readFile(): CredentialsFile {
 }
 
 /** Write the credentials file atomically. */
-export function writeFile(data: CredentialsFile): void {
-	const dir = path.dirname(CREDENTIALS_PATH);
+export function writeFile(
+	data: CredentialsFile,
+	filePath: string = CREDENTIALS_PATH,
+): void {
+	const dir = path.dirname(filePath);
 	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(data, null, "\t"), "utf-8");
+	fs.writeFileSync(filePath, JSON.stringify(data, null, "\t"), "utf-8");
 }
