@@ -284,7 +284,7 @@ export function renderFreeBusy(result: FreeBusyResult): string {
  * Compute free slots by merging all busy periods and finding
  * the gaps within the query window.
  */
-function computeFreeSlots(
+export function computeFreeSlots(
 	busy: BusyPeriod[],
 	windowStart: string,
 	windowEnd: string,
