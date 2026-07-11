@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -75,5 +75,23 @@ describe("read_file tool", () => {
 		const out = await readTool().execute({ path: "a.txt" });
 		expect(out).toContain("line one");
 		expect(out).toContain("line two");
+	});
+
+	it("clamps output that runs past the cap", async () => {
+		writeFileSync(join(root, "big-line.txt"), "x".repeat(5000));
+		const out = await readTool().execute({ path: "big-line.txt" });
+		expect(out).toContain("... (truncated)");
+	});
+
+	it("refuses a non-regular file", async () => {
+		mkdirSync(join(root, "adir"));
+		const out = await readTool().execute({ path: "adir" });
+		expect(out).toMatch(/not a regular file/);
+	});
+
+	it("refuses a file over the read-size cap", async () => {
+		writeFileSync(join(root, "huge.txt"), "x".repeat(1_000_001));
+		const out = await readTool().execute({ path: "huge.txt" });
+		expect(out).toMatch(/too large/);
 	});
 });
