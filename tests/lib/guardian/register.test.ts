@@ -1,9 +1,3 @@
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-	ToolCallEvent,
-	ToolCallEventResult,
-} from "@mariozechner/pi-coding-agent";
 import { beforeEach, describe, expect, it } from "vitest";
 import type {
 	CommandGuardian,
@@ -12,19 +6,25 @@ import type {
 import { registerGuardian } from "../../../lib/guardian/index.js";
 import { clear, list } from "../../../lib/internal/guardian/registry.js";
 
+// Derive the pi and result types from registerGuardian's own signature
+// so the test never imports the pi package directly (which does not
+// resolve cleanly for test files under this tsconfig).
+type Pi = Parameters<typeof registerGuardian>[0];
+type BashEvent = { input: { command: string } };
+type Ctx = { hasUI: boolean };
 type Handler = (
-	event: ToolCallEvent,
-	ctx: ExtensionContext,
-) => Promise<ToolCallEventResult | undefined>;
+	event: BashEvent,
+	ctx: Ctx,
+) => Promise<{ block?: boolean; reason?: string } | undefined>;
 
 /** A fake pi that captures the tool_call handler registerGuardian installs. */
-function captureHandler(): { pi: ExtensionAPI; handler: () => Handler } {
+function captureHandler(): { pi: Pi; handler: () => Handler } {
 	let captured: Handler | undefined;
 	const pi = {
 		on: (event: string, h: Handler) => {
 			if (event === "tool_call") captured = h;
 		},
-	} as unknown as ExtensionAPI;
+	} as unknown as Pi;
 	return {
 		pi,
 		handler: () => {
@@ -34,17 +34,17 @@ function captureHandler(): { pi: ExtensionAPI; handler: () => Handler } {
 	};
 }
 
-function bashEvent(command: string): ToolCallEvent {
+function bashEvent(command: string): BashEvent {
 	return {
 		type: "tool_call",
 		toolCallId: "t1",
 		toolName: "bash",
 		input: { command },
-	} as unknown as ToolCallEvent;
+	} as unknown as BashEvent;
 }
 
-function ctx(hasUI: boolean): ExtensionContext {
-	return { hasUI } as unknown as ExtensionContext;
+function ctx(hasUI: boolean): Ctx {
+	return { hasUI };
 }
 
 /** A guardian whose three steps are fixed per test. */
@@ -73,9 +73,7 @@ describe("registerGuardian pipeline", () => {
 		const result = await handler()(event, ctx(true));
 
 		expect(result).toBeUndefined();
-		expect((event.input as { command: string }).command).toBe(
-			"git commit -m safe",
-		);
+		expect(event.input.command).toBe("git commit -m safe");
 	});
 
 	it("returns a block verbatim and never reaches parse on unsupported shape", async () => {
@@ -98,7 +96,7 @@ describe("registerGuardian pipeline", () => {
 			ctx(true),
 		);
 
-		expect(result && "block" in result && result.block).toBe(true);
+		expect(result?.block).toBe(true);
 		expect(parsed).toBe(false);
 	});
 
@@ -151,8 +149,6 @@ describe("registerGuardian pipeline", () => {
 		const result = await handler()(event, ctx(true));
 
 		expect(result).toBeUndefined();
-		expect((event.input as { command: string }).command).toBe(
-			"git commit -m x",
-		);
+		expect(event.input.command).toBe("git commit -m x");
 	});
 });
