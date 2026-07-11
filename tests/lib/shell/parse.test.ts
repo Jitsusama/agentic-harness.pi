@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
 	extractBody,
+	extractFlag,
+	hasUnquotedHeredoc,
 	matchHeredocs,
+	splitAtCommand,
+	stripShellData,
 	unquote,
 } from "../../../lib/shell/parse.js";
 
@@ -102,5 +106,83 @@ describe("extractBody", () => {
 	it("falls back to the --body flag when there is no heredoc", () => {
 		const command = 'gh pr create --body "Plain body."';
 		expect(extractBody(command, command)).toBe("Plain body.");
+	});
+});
+
+describe("stripShellData", () => {
+	it("drops a comment tail but keeps the commands around it", () => {
+		const result = stripShellData("git commit # not-a-flag\ngit push");
+		expect(result).toContain("git commit");
+		expect(result).toContain("git push");
+		expect(result).not.toContain("not-a-flag");
+	});
+
+	it("keeps a # mid-word after a backslash-newline continuation", () => {
+		// The continuation joins the lines, so the # is not at a word
+		// start and must not begin a comment.
+		expect(stripShellData("a\\\n#x")).toBe("a#x");
+	});
+
+	it("does not treat a # inside single quotes as a comment", () => {
+		// Quoted content is blanked, but the # is data, not a comment,
+		// so the command after the quotes survives.
+		expect(stripShellData("echo 'a # b' bar")).toBe("echo '' bar");
+	});
+
+	it("emits a trailing backslash so the skeleton keeps its shape", () => {
+		expect(stripShellData("cmd \\")).toBe("cmd \\");
+	});
+});
+
+describe("extractFlag", () => {
+	it("survives the single-quote '\\'' idiom", () => {
+		expect(extractFlag("--body 'it'\\''s here'", "body")).toBe("it's here");
+	});
+
+	it("unescapes double-quoted values", () => {
+		expect(extractFlag('--title "a \\"q\\" b"', "title")).toBe('a "q" b');
+	});
+
+	it("reads a plain unquoted value", () => {
+		expect(extractFlag("--body plain", "body")).toBe("plain");
+	});
+
+	it("returns null when the flag is absent", () => {
+		expect(extractFlag("gh pr create", "body")).toBeNull();
+	});
+});
+
+describe("splitAtCommand", () => {
+	it("captures the full prefix across multiple separators", () => {
+		const { prefix, target } = splitAtCommand(
+			"cd /a && git add -A && git commit -m x",
+			/git\s+commit\b/,
+		);
+		expect(prefix).toBe("cd /a && git add -A");
+		expect(target).toBe("git commit -m x");
+	});
+
+	it("splits on a newline separator", () => {
+		const { prefix } = splitAtCommand(
+			"git checkout b\ngh pr create --body y",
+			/gh\s+pr\s+create/,
+		);
+		expect(prefix).toBe("git checkout b");
+	});
+
+	it("returns a null prefix when there is no separator", () => {
+		const { prefix, target } = splitAtCommand(
+			"git commit -m x",
+			/git\s+commit\b/,
+		);
+		expect(prefix).toBeNull();
+		expect(target).toBe("git commit -m x");
+	});
+});
+
+describe("hasUnquotedHeredoc", () => {
+	it("is true for a bare delimiter and false for a quoted one", () => {
+		expect(hasUnquotedHeredoc("cat <<EOF\nx\nEOF")).toBe(true);
+		expect(hasUnquotedHeredoc("cat <<'EOF'\nx\nEOF")).toBe(false);
 	});
 });

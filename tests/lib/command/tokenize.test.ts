@@ -91,6 +91,14 @@ describe("tokenize", () => {
 		).toBe("> out.txt");
 	});
 
+	it("keeps a trailing redirect operator out of argv", () => {
+		// A redirect operator at the end of a segment has no target
+		// word. It must still leave argv clean rather than leaking the
+		// operator in as an argument.
+		const command = tokenize("echo hi >").commands[0];
+		expect(command.argv.map((w) => w.text)).toEqual(["echo", "hi"]);
+	});
+
 	it("captures a self-contained duplication redirect", () => {
 		const source = "make 2>&1";
 		const command = tokenize(source).commands[0];
