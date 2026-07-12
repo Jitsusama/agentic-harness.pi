@@ -31,6 +31,7 @@ import { dataDir } from "../../lib/internal/paths.js";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.js";
 import { discoverQuests } from "../../lib/internal/quest/discovery.js";
 import { currentInstanceId } from "../../lib/internal/quest/process-liveness.js";
+import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.js";
 import {
 	registerBuiltinHandleTypes,
 	registerBuiltinPersonResolvers,
@@ -62,7 +63,7 @@ import {
 	refreshProgress,
 	resolveStartup,
 } from "./lifecycle.js";
-import { showLoaded } from "./lookup.js";
+import { recentSessionHints, showLoaded } from "./lookup.js";
 import { formatQuestList, renderStatus, renderWidget } from "./render.js";
 import {
 	collapseListingPreview,
