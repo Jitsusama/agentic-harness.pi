@@ -138,6 +138,10 @@ export function questIdFromCwd(
 
 	// Otherwise fall back to tree and worktree-alias paths. The longest
 	// covering path wins; a live quest breaks a tie against a sealed one.
+	// Only `scaffolded` trees resolve: an adopted or unmarked tree, and a
+	// `git-worktree:` alias, is a reference to a possibly shared checkout,
+	// so a cwd-only load in a checkout adopted by many quests refuses to
+	// guess rather than magnetize an arbitrary one.
 	let bestId: string | undefined;
 	let bestLen = -1;
 	let bestLive = false;
@@ -145,10 +149,9 @@ export function questIdFromCwd(
 		const fm = entry.doc.frontMatter;
 		const live = !isSealedStatus(fm.status);
 		const paths: string[] = [];
-		for (const a of fm.aliases) {
-			if (a.type === "git-worktree") paths.push(a.value);
+		for (const tree of fm.trees ?? []) {
+			if (tree.origin === "scaffolded") paths.push(tree.path);
 		}
-		for (const tree of fm.trees ?? []) paths.push(tree.path);
 		for (const p of paths) {
 			const real = canonical(p);
 			if (!isUnder(realCwd, real)) continue;

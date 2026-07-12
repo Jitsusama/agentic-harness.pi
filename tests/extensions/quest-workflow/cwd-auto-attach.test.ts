@@ -112,11 +112,10 @@ describe("restoreFromCwd (session_start handler)", () => {
 		expect(fresh.questId).toBeTruthy();
 	});
 
-	it("prefers a live quest over a sealed one sharing the same tree path", () => {
-		// Legacy stores carry colliding aliases (the baseline counted
-		// 279): two quests can name the same worktree. When both cover
-		// the cwd at equal depth, the live quest must win, matching the
-		// explicit load verb's resolver.
+	it("prefers a live quest over a sealed one sharing the same scaffolded tree", () => {
+		// Two quests can scaffold a tree at the same path. When both
+		// cover the cwd at equal depth, the live quest must win,
+		// matching the explicit load verb's resolver.
 		const shared = join(repoRoot, "shared-tree");
 		mkdirSync(shared, { recursive: true });
 		const writeQuest = (id: string, status: string) => {
@@ -124,7 +123,7 @@ describe("restoreFromCwd (session_start handler)", () => {
 			mkdirSync(dir, { recursive: true });
 			writeFileSync(
 				join(dir, "README.md"),
-				`---\nid: ${id}\nkind: quest\nparent: null\nstatus: ${status}\npriority: someday\nrank: 1\nstarted: 2026-01-01\nupdated: 2026-01-01\naliases:\n  - type: git-worktree\n    value: ${shared}\n---\n\n# ${id}\n\nBody.\n`,
+				`---\nid: ${id}\nkind: quest\nparent: null\nstatus: ${status}\npriority: someday\nrank: 1\nstarted: 2026-01-01\nupdated: 2026-01-01\ntrees:\n  - path: ${shared}\n    providerId: git-worktree\n    origin: scaffolded\n---\n\n# ${id}\n\nBody.\n`,
 			);
 		};
 		writeQuest("QEST-20260101-SEALD0", "concluded");
@@ -133,6 +132,22 @@ describe("restoreFromCwd (session_start handler)", () => {
 		const fresh = buildState();
 		restoreFromCwd(fresh, fakePi(), fakeCtx(shared));
 		expect(fresh.questId).toBe("QEST-20260101-LIVE00");
+	});
+
+	it("does not auto-load from an adopted shared checkout", () => {
+		// The bug that motivated the narrowing: a checkout adopted by
+		// several quests must not magnetize a fresh session.
+		const shared = join(repoRoot, "adopted-checkout");
+		mkdirSync(shared, { recursive: true });
+		const dir = join(tmpRoot, "quests", "QEST-20260101-ADOPT0");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "README.md"),
+			`---\nid: QEST-20260101-ADOPT0\nkind: quest\nparent: null\nstatus: active\npriority: someday\nrank: 1\nstarted: 2026-01-01\nupdated: 2026-01-01\ntrees:\n  - path: ${shared}\n    providerId: git-worktree\n    origin: adopted\n---\n\n# Adopted\n\nBody.\n`,
+		);
+		const fresh = buildState();
+		restoreFromCwd(fresh, fakePi(), fakeCtx(shared));
+		expect(fresh.questId).toBeNull();
 	});
 
 	it("does not attach when the cwd is outside every tree", async () => {

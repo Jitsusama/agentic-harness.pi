@@ -84,7 +84,7 @@ async function createQuest(
 describe("questIdFromCwd", () => {
 	function addTree(readmePath: string, treePath: string): void {
 		const text = readFileSync(readmePath, "utf8");
-		const block = `\ntrees:\n  - path: ${treePath}\n    providerId: dev-tree\n    repoRoot: ${treePath}\n    origin: adopted\n---\n`;
+		const block = `\ntrees:\n  - path: ${treePath}\n    providerId: dev-tree\n    repoRoot: ${treePath}\n    origin: scaffolded\n---\n`;
 		writeFileSync(readmePath, text.replace(/\n---\n/, block));
 	}
 

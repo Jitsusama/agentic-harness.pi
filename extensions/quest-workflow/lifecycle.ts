@@ -606,14 +606,17 @@ export function restoreFromCwd(
 		loadQuest(state, pi, dirMatch);
 		return;
 	}
-	// 2. Tree-alias match: the cwd is inside a working
-	//    tree registered on some quest. Walk every quest's
-	//    `git-worktree:` aliases (path values) and the
-	//    quest's `trees:` array; pick the deepest match so
-	//    nested trees resolve to the innermost owner, with a
-	//    live quest breaking a tie against a sealed one. Each
-	//    candidate path is canonicalized so /var and
-	//    /private/var (and bind-mounts in containers) match.
+	// 2. Scaffolded-tree match: the cwd is inside a tree the
+	//    tool created for some quest. Only `scaffolded` trees
+	//    magnetize a fresh session; an adopted or unmarked
+	//    tree, and a `git-worktree:` alias, is a reference to a
+	//    possibly shared checkout, so it never auto-loads (a
+	//    shared checkout adopted by many quests would otherwise
+	//    resolve arbitrarily). Pick the deepest match so nested
+	//    trees resolve to the innermost owner, with a live quest
+	//    breaking a tie against a sealed one. Each candidate path
+	//    is canonicalized so /var and /private/var (and
+	//    bind-mounts in containers) match.
 	let bestQuestId: string | undefined;
 	let bestMatchLen = -1;
 	let bestLive = false;
@@ -632,10 +635,9 @@ export function restoreFromCwd(
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
 		const live = !isSealedStatus(fm.status);
-		for (const a of fm.aliases) {
-			if (a.type === "git-worktree") consider(fm.id, a.value, live);
+		for (const tree of fm.trees ?? []) {
+			if (tree.origin === "scaffolded") consider(fm.id, tree.path, live);
 		}
-		for (const tree of fm.trees ?? []) consider(fm.id, tree.path, live);
 	}
 	if (bestQuestId) loadQuest(state, pi, bestQuestId);
 }
