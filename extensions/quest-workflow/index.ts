@@ -97,7 +97,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		section.value,
 		dataDir("quest-workflow"),
 	);
-	const state = createQuestState({ questsRoot });
+	const state = createQuestState({
+		questsRoot,
+		autoloadFromCwd: section.value.autoloadFromCwd,
+	});
 
 	// Expose the PR-workflow bridge so pr-workflow can
 	// scaffold a sidequest when it loads a PR. The
@@ -428,14 +431,14 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			if (!sessionId) {
 				ctx.ui.notify(
 					"Usage: /quest-resume <session-id>. Run `quest show` to see the loaded quest's attached sessions.",
-					"warn",
+					"warning",
 				);
 				return;
 			}
 			if (!state.questId) {
 				ctx.ui.notify(
 					"No quest loaded. `quest load <id>` first, then /quest-resume.",
-					"warn",
+					"warning",
 				);
 				return;
 			}
@@ -450,7 +453,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			if (!attached) {
 				ctx.ui.notify(
 					`Session ${sessionId} is not attached to ${state.questId}. Use \`quest session-attach\` to attach the current session, or \`quest show\` to see attached sessions.`,
-					"warn",
+					"warning",
 				);
 				return;
 			}
@@ -460,7 +463,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			} catch (err) {
 				ctx.ui.notify(
 					`Could not list sessions: ${(err as Error).message}`,
-					"warn",
+					"warning",
 				);
 				return;
 			}
@@ -468,7 +471,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			if (!hit) {
 				ctx.ui.notify(
 					`Session ${sessionId} not found on disk for ${ctx.cwd}. It may live under a different cwd; open pi in that directory and try again.`,
-					"warn",
+					"warning",
 				);
 				return;
 			}

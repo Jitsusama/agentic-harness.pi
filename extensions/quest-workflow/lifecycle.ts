@@ -6,6 +6,7 @@
  */
 
 import {
+	type Dirent,
 	existsSync,
 	mkdirSync,
 	readdirSync,
@@ -16,7 +17,6 @@ import { join, sep } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-	ToolContext,
 } from "@mariozechner/pi-coding-agent";
 import { sessionsDir } from "../../lib/internal/paths.js";
 import {
@@ -309,7 +309,7 @@ export function sealQuestDocuments(
 	let sealed = 0;
 	for (const kindDir of DOC_KIND_DIRS) {
 		const dir = join(questDir, kindDir);
-		let entries: ReturnType<typeof readdirSync>;
+		let entries: Dirent<string>[];
 		try {
 			entries = readdirSync(dir, { withFileTypes: true });
 		} catch {
@@ -557,7 +557,14 @@ export function resolveStartup(
 	if (restore(state, pi, ctx)) {
 		return { source: "persisted", questId: state.questId };
 	}
-	restoreFromCwd(state, pi, ctx);
+	// The cwd walk is the only path that attaches a fresh session
+	// it never chose. When the user disables it, a fresh session
+	// stays idle rather than adopting whatever quest happens to
+	// own the working tree, which keeps unrelated sessions off the
+	// quest's session list.
+	if (state.autoloadFromCwd) {
+		restoreFromCwd(state, pi, ctx);
+	}
 	return {
 		source: state.questId ? "cwd" : "none",
 		questId: state.questId,
@@ -568,7 +575,7 @@ export function resolveStartup(
 export function restoreFromCwd(
 	state: QuestState,
 	pi: ExtensionAPI,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 ): void {
 	const rawCwd = ctx.cwd;
 	if (!rawCwd) return;

@@ -45,8 +45,11 @@ function ctxWith(opts: {
 	} as unknown as Parameters<typeof resolveStartup>[2];
 }
 
-function buildState() {
-	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
+function buildState(opts?: { autoloadFromCwd?: boolean }) {
+	return createQuestState({
+		questsRoot: join(tmpRoot, "quests"),
+		autoloadFromCwd: opts?.autoloadFromCwd,
+	});
 }
 
 async function createQuest(title: string): Promise<string> {
@@ -117,6 +120,44 @@ describe("resolveStartup precedence", () => {
 		);
 		expect(resolution.source).toBe("none");
 		expect(resolution.questId).toBeNull();
+	});
+
+	it("resolves from the cwd when nothing else matches and cwd autoload is on", async () => {
+		const id = await createQuest("Cwd Match");
+		const questDir = join(tmpRoot, "quests", id);
+		const state = buildState();
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: questDir }),
+		);
+		expect(resolution.source).toBe("cwd");
+		expect(resolution.questId).toBe(id);
+	});
+
+	it("stays idle on a fresh session in a quest dir when cwd autoload is off", async () => {
+		const id = await createQuest("Cwd Match Off");
+		const questDir = join(tmpRoot, "quests", id);
+		const state = buildState({ autoloadFromCwd: false });
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: questDir }),
+		);
+		expect(resolution.source).toBe("none");
+		expect(resolution.questId).toBeNull();
+	});
+
+	it("still honours persisted history when cwd autoload is off", async () => {
+		const persisted = await createQuest("Persisted Off");
+		const state = buildState({ autoloadFromCwd: false });
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: tmpRoot, persistedQuestId: persisted }),
+		);
+		expect(resolution.source).toBe("persisted");
+		expect(resolution.questId).toBe(persisted);
 	});
 
 	// Keep loadQuest referenced so the import contract is exercised.

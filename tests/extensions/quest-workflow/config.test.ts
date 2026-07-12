@@ -37,6 +37,20 @@ describe("parseQuestWorkflowConfig", () => {
 		if (result.ok) throw new Error("expected failure");
 		expect(result.error).toMatch(/questsRoot/);
 	});
+
+	it("accepts an autoloadFromCwd boolean", () => {
+		expect(parseQuestWorkflowConfig({ autoloadFromCwd: false })).toEqual({
+			ok: true,
+			value: { autoloadFromCwd: false },
+		});
+	});
+
+	it("rejects a non-boolean autoloadFromCwd", () => {
+		const result = parseQuestWorkflowConfig({ autoloadFromCwd: "no" });
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("expected failure");
+		expect(result.error).toMatch(/autoloadFromCwd/);
+	});
 });
 
 describe("resolveQuestsRoot", () => {
@@ -62,7 +76,19 @@ describe("summarizeQuestConfig", () => {
 			configPath: "/cfg/config.json",
 			questsRoot: "/custom",
 			questsRootSource: "config",
+			autoloadFromCwd: true,
+			autoloadFromCwdSource: "default",
 		});
+	});
+
+	it("marks a configured autoloadFromCwd as sourced from config", () => {
+		const summary = summarizeQuestConfig({
+			config: { autoloadFromCwd: false },
+			configPath: "/cfg/config.json",
+			dataDir: "/data",
+		});
+		expect(summary.autoloadFromCwd).toBe(false);
+		expect(summary.autoloadFromCwdSource).toBe("config");
 	});
 
 	it("marks a defaulted questsRoot as sourced from default", () => {

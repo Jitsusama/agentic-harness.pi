@@ -36,6 +36,7 @@ export async function configReport(): Promise<QuestResult> {
 	const lines = [
 		`Config file: ${summary.configPath}`,
 		`Quests root: ${summary.questsRoot} (${summary.questsRootSource})`,
+		`Auto-load from cwd: ${summary.autoloadFromCwd} (${summary.autoloadFromCwdSource})`,
 	];
 	if (section.warning) lines.push(`Warning: ${section.warning}`);
 
