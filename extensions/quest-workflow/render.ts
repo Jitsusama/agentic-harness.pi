@@ -134,17 +134,40 @@ const STATUS_NARROW_THRESHOLD = 60;
 const WIDGET_INDENT_COLS = 1;
 
 /**
- * The session-name label pi sets on the terminal tab when
- * a quest loads. A Title Case slice of the title truncated
- * to `SESSION_NAME_LIMIT` characters; longer titles take
- * 19 characters plus an ellipsis. Returns `undefined`
- * when no title is supplied.
+ * The session-name label pi sets on the terminal tab when a quest
+ * loads. When a quest id is supplied, the stable short id (the
+ * trailing segment of `QEST-YYYYMMDD-XXXXXX`) leads so a person
+ * reading wezterm can identify the quest without a query; the id is
+ * kept whole and only the Title Case title is truncated to fit
+ * `SESSION_NAME_LIMIT`. With no id the title alone is used, and with
+ * neither the result is `undefined`.
  */
-export function sessionNameFor(title: string | null): string | undefined {
-	if (!title) return undefined;
-	const cased = titleCase(title);
-	if (cased.length <= SESSION_NAME_LIMIT) return cased;
-	return `${cased.slice(0, SESSION_NAME_LIMIT - 1)}\u2026`;
+export function sessionNameFor(
+	title: string | null,
+	questId?: string,
+): string | undefined {
+	const short = questId ? shortQuestId(questId) : undefined;
+	const cased = title ? titleCase(title) : undefined;
+	if (!short && !cased) return undefined;
+	if (!short) return truncateLabel(cased ?? "");
+	if (!cased) return short;
+	// The id anchors the label, so spend the remaining budget on the
+	// title and drop it entirely rather than crowd the id out.
+	const room = SESSION_NAME_LIMIT - short.length - 1;
+	if (room <= 0) return short;
+	return `${short} ${truncateLabel(cased, room)}`;
+}
+
+/** The stable short id: the trailing segment of a quest id. */
+function shortQuestId(questId: string): string {
+	const segments = questId.split("-");
+	return segments[segments.length - 1] || questId;
+}
+
+/** Title Case text truncated to a budget, with an ellipsis when cut. */
+function truncateLabel(text: string, limit = SESSION_NAME_LIMIT): string {
+	if (text.length <= limit) return text;
+	return `${text.slice(0, limit - 1)}\u2026`;
 }
 
 function titleCase(text: string): string {

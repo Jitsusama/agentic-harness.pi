@@ -161,7 +161,10 @@ export function loadQuest(
 	state.documentTitle = null;
 	state.documentStage = "idle";
 	refreshProgress(state);
-	const sessionName = sessionNameFor(entry.doc.title ?? null);
+	const sessionName = sessionNameFor(
+		entry.doc.title ?? null,
+		entry.doc.frontMatter.id,
+	);
 	if (sessionName) pi.setSessionName?.(sessionName);
 	return { ok: true };
 }
