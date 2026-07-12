@@ -44,6 +44,13 @@ async function git(cwd: string, ...args: string[]) {
 	await execFileAsync("git", args, { cwd });
 }
 
+// The tree path from a tree-add result, asserting success so the
+// discriminated QuestResult narrows to its ok branch.
+function treePathOf(result: Awaited<ReturnType<typeof handle>>): string {
+	if (!result.ok) throw new Error(result.guidance);
+	return (result.details as { tree: { path: string } }).tree.path;
+}
+
 async function makeRepo(): Promise<string> {
 	const dir = mkdtempSync(join(tmpdir(), "cwd-attach-repo-"));
 	await git(dir, "init", "-q", "-b", "main");
@@ -87,8 +94,7 @@ describe("restoreFromCwd (session_start handler)", () => {
 			name: "feature-cwd",
 			cwd: repoRoot,
 		});
-		if (!added.ok) throw new Error(added.guidance);
-		const treePath = (added.details as { tree: { path: string } }).tree.path;
+		const treePath = treePathOf(added);
 		const fresh = buildState();
 		restoreFromCwd(fresh, fakePi(), fakeCtx(treePath));
 		expect(fresh.questId).toBe(questId);
@@ -105,8 +111,7 @@ describe("restoreFromCwd (session_start handler)", () => {
 			name: "feature-sub",
 			cwd: repoRoot,
 		});
-		if (!added.ok) throw new Error(added.guidance);
-		const treePath = (added.details as { tree: { path: string } }).tree.path;
+		const treePath = treePathOf(added);
 		const deep = join(treePath, "src", "deep");
 		mkdirSync(deep, { recursive: true });
 		const fresh = buildState();
@@ -179,8 +184,7 @@ describe("restoreFromCwd (session_start handler)", () => {
 			name: "feature-symlinked",
 			cwd: repoRoot,
 		});
-		if (!added.ok) throw new Error(added.guidance);
-		const treePath = (added.details as { tree: { path: string } }).tree.path;
+		const treePath = treePathOf(added);
 		const realTreePath = realpathSync(treePath);
 		const linkRoot = mkdtempSync(join(tmpdir(), "sym-cwd-"));
 		const linkPath = join(linkRoot, "linked");
@@ -212,8 +216,7 @@ describe("quest load with no id falls back to the cwd-resolved quest", () => {
 			name: "parity",
 			cwd: repoRoot,
 		});
-		if (!added.ok) throw new Error(added.guidance);
-		const treePath = (added.details as { tree: { path: string } }).tree.path;
+		const treePath = treePathOf(added);
 		const fresh1 = buildState();
 		restoreFromCwd(fresh1, fakePi(), fakeCtx(treePath));
 		const fresh2 = buildState();
