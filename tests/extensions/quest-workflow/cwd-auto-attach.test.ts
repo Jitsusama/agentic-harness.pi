@@ -87,6 +87,7 @@ describe("restoreFromCwd (session_start handler)", () => {
 			name: "feature-cwd",
 			cwd: repoRoot,
 		});
+		if (!added.ok) throw new Error(added.guidance);
 		const treePath = (added.details as { tree: { path: string } }).tree.path;
 		const fresh = buildState();
 		restoreFromCwd(fresh, fakePi(), fakeCtx(treePath));
@@ -104,6 +105,7 @@ describe("restoreFromCwd (session_start handler)", () => {
 			name: "feature-sub",
 			cwd: repoRoot,
 		});
+		if (!added.ok) throw new Error(added.guidance);
 		const treePath = (added.details as { tree: { path: string } }).tree.path;
 		const deep = join(treePath, "src", "deep");
 		mkdirSync(deep, { recursive: true });
@@ -177,6 +179,7 @@ describe("restoreFromCwd (session_start handler)", () => {
 			name: "feature-symlinked",
 			cwd: repoRoot,
 		});
+		if (!added.ok) throw new Error(added.guidance);
 		const treePath = (added.details as { tree: { path: string } }).tree.path;
 		const realTreePath = realpathSync(treePath);
 		const linkRoot = mkdtempSync(join(tmpdir(), "sym-cwd-"));
@@ -209,6 +212,7 @@ describe("quest load with no id falls back to the cwd-resolved quest", () => {
 			name: "parity",
 			cwd: repoRoot,
 		});
+		if (!added.ok) throw new Error(added.guidance);
 		const treePath = (added.details as { tree: { path: string } }).tree.path;
 		const fresh1 = buildState();
 		restoreFromCwd(fresh1, fakePi(), fakeCtx(treePath));

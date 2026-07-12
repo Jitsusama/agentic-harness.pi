@@ -15,7 +15,10 @@
  * module.
  */
 
-import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
 import type { QuestPriority } from "../../lib/quest/index.js";
 import { suggestAction } from "./actions.js";
 import type { QuestState } from "./state.js";
@@ -74,7 +77,7 @@ export type { QuestResult, QuestToolParams };
 export async function handle(
 	state: QuestState,
 	pi: ExtensionAPI,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): Promise<QuestResult> {
 	switch (params.action) {

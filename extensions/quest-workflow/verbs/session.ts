@@ -4,7 +4,7 @@
  * window via the registered terminal driver.
  */
 
-import type { ToolContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
 	pickResumeSession,
 	resolveSpawnCwd,
@@ -87,7 +87,7 @@ export function sessionAudit(
 
 export function sessionAttach(
 	state: QuestState,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): QuestResult {
 	if (!state.questId) return refuse("Load a quest first.");
@@ -117,7 +117,7 @@ export function sessionAttach(
 
 export function sessionDetach(
 	state: QuestState,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): QuestResult {
 	if (!state.questId) return refuse("Load a quest first.");
@@ -139,7 +139,7 @@ export function sessionDetach(
 
 export function sessionRename(
 	state: QuestState,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): QuestResult {
 	if (!state.questId) return refuse("Load a quest first.");
@@ -208,7 +208,7 @@ export function resumeMessage(
 
 export async function spawn(
 	state: QuestState,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): Promise<QuestResult> {
 	const layout = (params.layout ??

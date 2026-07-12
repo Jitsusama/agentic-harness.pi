@@ -676,7 +676,8 @@ function linksForQuest(
 			return u ? { ...r, url: u } : { ...r };
 		});
 	let urls = extractRawUrls(me.doc.body, knownRefUrls);
-	if (params.pattern) urls = urls.filter((u) => u.includes(params.pattern));
+	const pattern = params.pattern;
+	if (pattern) urls = urls.filter((u) => u.includes(pattern));
 
 	const incoming: LinkSnippet[] = [];
 	for (const entry of index.quests.values()) {
