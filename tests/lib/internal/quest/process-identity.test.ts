@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
 	currentProcessIdentity,
 	localProcessDeps,
+	probeProcess,
 } from "../../../../lib/internal/quest/process-liveness";
-import { probeProcess } from "../../../../lib/internal/quest/process-liveness";
 
 describe("currentProcessIdentity", () => {
 	it("reports the running process's host, pid and a non-empty start token", () => {

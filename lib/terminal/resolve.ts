@@ -13,7 +13,11 @@
  */
 
 import { get, list } from "../internal/terminal/registry.js";
-import type { TerminalDriver, TerminalRequest } from "./types.js";
+import type {
+	TerminalDriver,
+	TerminalLivenessCapability,
+	TerminalRequest,
+} from "./types.js";
 
 /** Look up a driver by id, or `undefined`. */
 export function getTerminalDriver(id: string): TerminalDriver | undefined {
@@ -23,6 +27,33 @@ export function getTerminalDriver(id: string): TerminalDriver | undefined {
 /** Snapshot of every registered driver. */
 export function listTerminalDrivers(): TerminalDriver[] {
 	return list();
+}
+
+/** Whether a driver implements the optional liveness capability. */
+function hasLivenessCapability(
+	driver: TerminalDriver,
+): driver is TerminalDriver & TerminalLivenessCapability {
+	return (
+		typeof (driver as Partial<TerminalLivenessCapability>).probe ===
+			"function" &&
+		typeof (driver as Partial<TerminalLivenessCapability>).identifyCurrent ===
+			"function"
+	);
+}
+
+/**
+ * Resolve the liveness provider for a recorded driver id. Returns the
+ * registered driver only when it implements the liveness capability;
+ * undefined for an unknown id or a spawn-only driver. Keyed strictly
+ * by id so a recorded handle is probed through its own driver, never
+ * whichever terminal the reader happens to be in.
+ */
+export function getLivenessProvider(
+	driverId: string,
+): (TerminalDriver & TerminalLivenessCapability) | undefined {
+	const driver = get(driverId);
+	if (!driver || !hasLivenessCapability(driver)) return undefined;
+	return driver;
 }
 
 /**

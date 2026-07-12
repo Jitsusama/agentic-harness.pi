@@ -25,7 +25,10 @@ describe("probeProcess", () => {
 	});
 
 	it("returns gone when no process holds the recorded pid", () => {
-		const probe = probeProcess(id(), deps(() => ({ kind: "gone" })));
+		const probe = probeProcess(
+			id(),
+			deps(() => ({ kind: "gone" })),
+		);
 		expect(probe).toBe("gone");
 	});
 
@@ -46,7 +49,10 @@ describe("probeProcess", () => {
 	});
 
 	it("returns unknown when the inspection could not determine the process state", () => {
-		const probe = probeProcess(id(), deps(() => ({ kind: "unknown" })));
+		const probe = probeProcess(
+			id(),
+			deps(() => ({ kind: "unknown" })),
+		);
 		expect(probe).toBe("unknown");
 	});
 });

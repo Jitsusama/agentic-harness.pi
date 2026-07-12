@@ -33,6 +33,57 @@ export interface TerminalRequest {
 	env?: Record<string, string>;
 }
 
+/**
+ * A stable, probeable reference to a terminal surface a pi session
+ * was observed in. Recorded on the session so a later reader can ask
+ * the same driver whether that surface still exists. `scope` is the
+ * mux socket and host fingerprint that makes `value` (a pane id)
+ * meaningful across terminal instances and hosts.
+ */
+export interface TerminalSessionHandle {
+	/** Id of the driver that issued the handle. */
+	driverId: string;
+	/** Driver-specific kind, e.g. "wezterm-pane". */
+	kind: string;
+	/** Host the surface lives on; a foreign host is unprobeable. */
+	hostId: string;
+	/** Mux socket / server fingerprint that scopes `value`. */
+	scope?: string;
+	/** The surface id itself, e.g. a wezterm pane id. */
+	value: string;
+}
+
+/**
+ * A terminal probe outcome. Present and absent are only meaningful
+ * when the probe could actually observe the surface; anything else
+ * (unreachable mux, timeout, foreign scope, unsupported driver) is
+ * unknown, never a false absent.
+ */
+export type TerminalProbe = "present" | "absent" | "unknown";
+
+/**
+ * Optional liveness capability a terminal driver may implement in
+ * addition to spawning. Resolved by the recorded driver id, never by
+ * the reader's current terminal, and probed in one batch per scope
+ * rather than once per handle.
+ */
+export interface TerminalLivenessCapability {
+	/**
+	 * The handle for the surface the current pi process runs in, read
+	 * from the environment, or undefined when this driver is not the
+	 * active terminal.
+	 */
+	identifyCurrent(): TerminalSessionHandle | undefined;
+	/**
+	 * Probe a batch of handles, returning a map keyed by each
+	 * handle's `value`. One transport call per scope.
+	 */
+	probe(
+		handles: readonly TerminalSessionHandle[],
+		signal?: AbortSignal,
+	): Promise<ReadonlyMap<string, TerminalProbe>>;
+}
+
 /** A pluggable terminal driver. */
 export interface TerminalDriver {
 	/** Identifier (e.g. "wezterm", "tmux"). */
