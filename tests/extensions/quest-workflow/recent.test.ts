@@ -8,7 +8,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { recentSessions } from "../../../extensions/quest-workflow/lookup";
+import {
+	recentSessionHints,
+	recentSessions,
+} from "../../../extensions/quest-workflow/lookup";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { sessionsDir } from "../../../lib/internal/paths";
@@ -66,12 +69,16 @@ function attachSessions(
 	);
 }
 
-// A session log whose newest timestamp is now, so the session reads
-// live, optionally naming the quest it last loaded.
-function writeLiveSessionLog(sessionId: string, questId?: string): void {
+// A session log whose newest timestamp is `at` (default now), so the
+// session reads live, optionally naming the quest it last loaded.
+function writeLiveSessionLog(
+	sessionId: string,
+	questId?: string,
+	at: string = new Date().toISOString(),
+): void {
 	const dir = join(sessionsDir(), "--recent-test--");
 	mkdirSync(dir, { recursive: true });
-	const lines = [JSON.stringify({ timestamp: new Date().toISOString() })];
+	const lines = [JSON.stringify({ timestamp: at })];
 	if (questId) {
 		lines.push(
 			JSON.stringify({
@@ -152,5 +159,30 @@ describe("recentSessions", () => {
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error("unreachable");
 		expect(result.message).toContain(q);
+	});
+});
+
+describe("recentSessionHints", () => {
+	it("orders sessions newest activity first without probing", async () => {
+		const state = buildState();
+		const older = await createQuest(state, "Older");
+		const newer = await createQuest(state, "Newer");
+		attachSessions(older, [{ id: "sess-old", cwd: "/w/old" }]);
+		attachSessions(newer, [{ id: "sess-new", cwd: "/w/new" }]);
+		writeLiveSessionLog("sess-old", undefined, "2026-06-01T00:00:00.000Z");
+		writeLiveSessionLog("sess-new", undefined, "2026-06-10T00:00:00.000Z");
+
+		const hints = recentSessionHints(state);
+		expect(hints.map((h) => h.sessionId)).toEqual(["sess-new", "sess-old"]);
+		expect(hints[0]).toMatchObject({ questId: newer, cwd: "/w/new" });
+	});
+
+	it("caps the list and omits sessions with no log activity", async () => {
+		const state = buildState();
+		const q = await createQuest(state, "Quest");
+		attachSessions(q, [{ id: "sess-logged" }, { id: "sess-silent" }]);
+		writeLiveSessionLog("sess-logged");
+		const hints = recentSessionHints(state, 5);
+		expect(hints.map((h) => h.sessionId)).toEqual(["sess-logged"]);
 	});
 });

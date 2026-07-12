@@ -18,6 +18,7 @@ import {
 	summariseSessions,
 } from "../../lib/internal/quest/reopen.js";
 import {
+	activityFromIndex,
 	deriveLiveness,
 	indexSessionFiles,
 	questLastActivity,
@@ -463,6 +464,61 @@ export interface RecentSession {
 }
 
 const RECENT_SESSION_LIMIT = 12;
+const SESSION_HINT_LIMIT = 5;
+
+/**
+ * A cheap, probe-free pointer to prior sessions for the passive
+ * session-start hint. It reads only log activity timestamps and
+ * membership, never a process or terminal probe, because the hard
+ * rule is that nothing probes history on start. Ordered newest
+ * activity first and capped; the authoritative, probed view is
+ * `quest recent`.
+ */
+export interface SessionHint {
+	questId: string;
+	title: string | null;
+	sessionId: string;
+	cwd?: string;
+	lastActivity?: string;
+}
+
+export function recentSessionHints(
+	state: QuestState,
+	limit = SESSION_HINT_LIMIT,
+): SessionHint[] {
+	const { index } = discoverQuests(state.questsRoot);
+	const logIndex = indexSessionFiles(sessionsDir());
+	const bySession = new Map<string, SessionHint>();
+	for (const entry of index.quests.values()) {
+		const fm = entry.doc.frontMatter;
+		for (const session of fm.sessions) {
+			const lastActivity = activityFromIndex(logIndex, session.id);
+			// No log means no activity to point at; skip it rather than
+			// list a session the hint cannot date.
+			if (!lastActivity) continue;
+			const existing = bySession.get(session.id);
+			if (
+				existing?.lastActivity &&
+				Date.parse(existing.lastActivity) >= Date.parse(lastActivity)
+			) {
+				continue;
+			}
+			bySession.set(session.id, {
+				questId: fm.id,
+				title: entry.doc.title ?? null,
+				sessionId: session.id,
+				...(session.cwd ? { cwd: session.cwd } : {}),
+				lastActivity,
+			});
+		}
+	}
+	return [...bySession.values()]
+		.sort(
+			(a, b) =>
+				Date.parse(b.lastActivity ?? "") - Date.parse(a.lastActivity ?? ""),
+		)
+		.slice(0, limit);
+}
 
 export async function recentSessions(
 	state: QuestState,

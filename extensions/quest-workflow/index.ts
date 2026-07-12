@@ -581,6 +581,11 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			}
 		}
 		updateScoreboard(state, ctx);
+		// A passive pointer, nothing more: list the few most recently
+		// active sessions so a fresh shell can see where work was without
+		// probing history or loading anything. The authoritative, probed
+		// view is `quest recent`.
+		showSessionHint(state, ctx);
 	});
 
 	// Tear down the bridge so a session_shutdown followed
@@ -691,5 +696,34 @@ export function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 					render: (width: number) => renderWidget(widgetInput, theme, width),
 					invalidate() {},
 				}),
+	);
+}
+
+/** The most recent sessions the passive start hint will name. */
+const SESSION_HINT_ROWS = 3;
+
+/**
+ * Show a passive, one-shot hint naming the few most recently active
+ * sessions, so a fresh shell can see where work was without probing
+ * history or loading anything. Reads only cheap log activity; it
+ * never probes liveness, never loads a quest and never mutates a
+ * record. Silent when there is nothing recent to point at.
+ */
+function showSessionHint(
+	state: QuestState,
+	ctx: { ui: { notify(message: string, level: "info"): void } },
+): void {
+	const hints = recentSessionHints(state, SESSION_HINT_ROWS);
+	if (hints.length === 0) return;
+	const now = new Date();
+	const lines = hints.map((h) => {
+		const age = formatRelativeAge(h.lastActivity, now);
+		const when = age ? ` (${age})` : "";
+		const where = h.cwd ? ` ${h.cwd}` : "";
+		return `- ${h.questId} ${h.title ?? ""}${where}${when}`.trimEnd();
+	});
+	ctx.ui.notify(
+		`Recent quest sessions:\n${lines.join("\n")}\nRun \`quest recent\` for the live view.`,
+		"info",
 	);
 }
