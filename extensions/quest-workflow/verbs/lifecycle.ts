@@ -8,7 +8,10 @@
 
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
@@ -340,7 +343,7 @@ export async function create(
 export async function load(
 	state: QuestState,
 	pi: ExtensionAPI,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): Promise<QuestResult> {
 	let targetId = params.id;
