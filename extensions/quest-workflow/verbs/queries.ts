@@ -202,11 +202,26 @@ export async function workspace(state: QuestState): Promise<QuestResult> {
 		return ok("No quests are being worked on right now.", { workspace: [] });
 	}
 	const lines = entries.map((e) => {
-		const mark = e.liveness === "live" ? "\u25cf" : "\u25cb";
 		const where = e.cwd ? ` ${e.cwd}` : "";
-		return `${mark} ${e.questId} ${e.title ?? ""} [${e.status}]${where}`.trimEnd();
+		return `${workspaceMark(e.liveness)} ${e.questId} ${e.title ?? ""} [${e.status}]${where}`.trimEnd();
 	});
 	return ok(lines.join("\n"), { workspace: entries });
+}
+
+/** Glyph for a workspace row's liveness. */
+function workspaceMark(liveness: string): string {
+	switch (liveness) {
+		case "live":
+			return "\u25cf"; // filled circle
+		case "idle":
+			return "\u25cb"; // hollow circle
+		case "dead":
+			return "\u2717"; // ballot x
+		case "conflicted":
+			return "\u26a0"; // warning sign
+		default:
+			return "?"; // unknown
+	}
 }
 
 export function ancestors(

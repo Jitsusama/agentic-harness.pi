@@ -21,6 +21,7 @@ import {
 	deriveLiveness,
 	indexSessionFiles,
 	questLastActivity,
+	type SessionLiveness,
 } from "../../lib/internal/quest/session-liveness.js";
 import {
 	getResolutionFallback,
@@ -369,18 +370,33 @@ export interface WorkspaceEntry {
 	kind: string;
 	status: string;
 	priority: string;
-	liveness: "live" | "idle";
+	liveness: SessionLiveness;
 	sessionId: string;
 	cwd?: string;
 	lastActivity?: string;
 }
 
 /**
- * The live workspace: quests with a session that is live (a pi running
- * against it now) or idle (recently active, not detached or dead). This
- * is the "what am I actually working on right now" view, distinct from
- * `list`, which ranks every open quest by priority. Ordered by the
- * liveliest session's most recent activity, newest first.
+ * A session counts as active work when it is live or idle: a pi
+ * running against the quest now, or one recently active.
+ */
+function isActiveWork(liveness: SessionLiveness): boolean {
+	return liveness === "live" || liveness === "idle";
+}
+
+/** Rank for workspace ordering: live first, then idle, then the rest. */
+function livenessRank(liveness: SessionLiveness): number {
+	if (liveness === "live") return 0;
+	if (liveness === "idle") return 1;
+	return 2;
+}
+
+/**
+ * The live workspace: one row per non-detached session of every quest
+ * that has active work, so two live panes on one quest read as two
+ * rows and a crashed pane shows beside its live sibling rather than
+ * being collapsed away. A quest with no live or idle session is left
+ * out entirely. Rows are ordered live first, then by recency.
  */
 export async function workspaceQuests(
 	state: QuestState,
@@ -398,35 +414,45 @@ export async function workspaceQuests(
 		const fm = entry.doc.frontMatter;
 		const views = fm.sessions
 			.map((s) => deriveLiveness(s, snapshot))
-			.filter((v) => v.liveness === "live" || v.liveness === "idle")
-			.sort((a, b) => {
-				const at = a.lastActivity ? Date.parse(a.lastActivity) : 0;
-				const bt = b.lastActivity ? Date.parse(b.lastActivity) : 0;
-				return bt - at;
+			.filter((v) => v.liveness !== "detached")
+			.sort((a, b) =>
+				byRow(a.liveness, a.lastActivity, b.liveness, b.lastActivity),
+			);
+		// A quest earns a place in the workspace only when it has a live
+		// or idle session; its crashed and unknown siblings then ride
+		// along so a crash shows next to the work it died beside.
+		if (!views.some((v) => isActiveWork(v.liveness))) continue;
+		for (const view of views) {
+			entries.push({
+				questId: fm.id,
+				title: entry.doc.title ?? null,
+				kind: fm.kind,
+				status: fm.status,
+				priority: fm.priority,
+				liveness: view.liveness,
+				sessionId: view.id,
+				...(view.cwd ? { cwd: view.cwd } : {}),
+				...(view.lastActivity ? { lastActivity: view.lastActivity } : {}),
 			});
-		const liveliest = views[0];
-		if (!liveliest) continue;
-		entries.push({
-			questId: fm.id,
-			title: entry.doc.title ?? null,
-			kind: fm.kind,
-			status: fm.status,
-			priority: fm.priority,
-			liveness: liveliest.liveness === "live" ? "live" : "idle",
-			sessionId: liveliest.id,
-			...(liveliest.cwd ? { cwd: liveliest.cwd } : {}),
-			...(liveliest.lastActivity
-				? { lastActivity: liveliest.lastActivity }
-				: {}),
-		});
+		}
 	}
-	return entries.sort((a, b) => {
-		// Live quests first, then by recency of the liveliest session.
-		if (a.liveness !== b.liveness) return a.liveness === "live" ? -1 : 1;
-		const at = a.lastActivity ? Date.parse(a.lastActivity) : 0;
-		const bt = b.lastActivity ? Date.parse(b.lastActivity) : 0;
-		return bt - at;
-	});
+	return entries.sort((a, b) =>
+		byRow(a.liveness, a.lastActivity, b.liveness, b.lastActivity),
+	);
+}
+
+/** Order rows live-first, then idle, then the rest, newest activity first. */
+function byRow(
+	aLiveness: SessionLiveness,
+	aActivity: string | undefined,
+	bLiveness: SessionLiveness,
+	bActivity: string | undefined,
+): number {
+	const rank = livenessRank(aLiveness) - livenessRank(bLiveness);
+	if (rank !== 0) return rank;
+	const at = aActivity ? Date.parse(aActivity) : 0;
+	const bt = bActivity ? Date.parse(bActivity) : 0;
+	return bt - at;
 }
 
 /** A session listed active on more than one quest. */
