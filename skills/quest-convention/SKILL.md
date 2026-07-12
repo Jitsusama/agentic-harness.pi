@@ -203,11 +203,17 @@ When a session has ended up active on more than one quest
 (a legacy store, or a lost reconcile), `session-audit` repairs
 it. By default it previews: for each divergent session it
 names the one quest the session's own log records as owner and
-lists the strays it would detach. Pass `force: true` to apply
-the detaches. A session whose log names no current claimant is
-reported conflicted and left untouched for you to resolve by
-loading its true quest; the tool never guesses an owner from a
-liveness probe.
+lists the strays it would detach. It also lists any active
+session whose captured identity a probe reads gone, so a
+crashed pane's stale membership can be cleaned up. Pass
+`force: true` to apply both the divergence detaches and the
+dead detaches. Two safeguards hold: a session whose log names
+no current claimant is reported conflicted and left untouched
+for you to resolve by loading its true quest, and a session
+that is dead only by the recency heuristic (no captured
+identity to probe) is never detached, because a probe must
+have actually observed the process or pane gone before the
+verb acts on it.
 
 ## Session Liveness and Recovery
 
@@ -238,6 +244,15 @@ mutates anything:
 - `quest workspace` is the live view: one row per session,
   never collapsed per quest, so two live panes read as two
   rows and a crash shows beside its live sibling.
+- `quest restore` reconstructs a terminal after a restart.
+  A session records itself in its terminal workspace when
+  it explicitly loads or reopens a quest, so once the panes
+  are gone the set that was open together is still known.
+  Restore previews that set for the current terminal,
+  excludes the panes still on screen, and prints a
+  `pi --session` recipe to reopen the rest. It plans and
+  prints only; you run the recipe, nothing reopens on its
+  own.
 
 To resume a prior session, run `quest recent` and copy the
 resume command for the row you want, rather than reaching

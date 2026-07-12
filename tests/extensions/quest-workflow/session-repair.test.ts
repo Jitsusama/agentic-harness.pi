@@ -5,10 +5,13 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { planSessionRepair } from "../../../extensions/quest-workflow/lookup";
+import {
+	planDeadSessions,
+	planSessionRepair,
+} from "../../../extensions/quest-workflow/lookup";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { sessionsDir } from "../../../lib/internal/paths";
@@ -62,6 +65,26 @@ function makeActive(dir: string, sessionId: string): void {
 		`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
 	);
 }
+// A session carrying a process identity whose pid is almost certainly
+// dead, so a real probe on this host reads it gone rather than falling
+// back to recency.
+function makeActiveDeadProcess(dir: string, sessionId: string): void {
+	const path = join(dir, "README.md");
+	const parsed = parseQuestFrontMatter(readFileSync(path, "utf8"));
+	if (!parsed) throw new Error("unreadable");
+	parsed.frontMatter.sessions = [
+		{
+			id: sessionId,
+			started: new Date().toISOString(),
+			status: "active",
+			process: { hostId: hostname(), pid: 2147483646, startToken: "gone" },
+		},
+	];
+	writeFileSync(
+		path,
+		`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+	);
+}
 function writeLog(sessionId: string, ownerQuestId: string | null): void {
 	const dir = join(sessionsDir(), "--repair-test--");
 	mkdirSync(dir, { recursive: true });
@@ -86,6 +109,25 @@ afterEach(() => {
 	else delete process.env.HOME;
 	rmSync(tmpRoot, { recursive: true, force: true });
 	envGuard.leave();
+});
+
+describe("planDeadSessions", () => {
+	it("lists an active session whose process a probe reads gone", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		makeActiveDeadProcess(join(tmpRoot, "quests", a), "sess-dead");
+		const dead = await planDeadSessions(state);
+		expect(dead).toEqual([{ sessionId: "sess-dead", questId: a }]);
+	});
+
+	it("leaves an identity-less recency-dead session alone", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		// No identity and no log: dead only by the recency heuristic, too
+		// uncertain to detach.
+		makeActive(join(tmpRoot, "quests", a), "sess-quiet");
+		expect(await planDeadSessions(state)).toEqual([]);
+	});
 });
 
 describe("planSessionRepair", () => {

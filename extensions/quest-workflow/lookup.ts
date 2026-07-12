@@ -613,6 +613,47 @@ export function auditSessionMembership(state: QuestState): SessionDivergence[] {
 	return divergences;
 }
 
+/** An active session a probe reads provably dead. */
+export interface DeadSession {
+	sessionId: string;
+	questId: string;
+}
+
+/**
+ * Active sessions whose captured process or terminal identity a probe
+ * reads gone. Only identity-bearing records qualify: with identity,
+ * `deriveLiveness` judges by observation, so "dead" means a real probe
+ * saw the process gone or the pane absent. A record with no identity
+ * is dead only by the recency heuristic, which is too uncertain to
+ * act on, so it is never listed. Async because it probes once over a
+ * snapshot; read-only.
+ */
+export async function planDeadSessions(
+	state: QuestState,
+): Promise<DeadSession[]> {
+	const { index } = discoverQuests(state.questsRoot);
+	const claims = [...index.quests.values()].flatMap((entry) =>
+		entry.doc.frontMatter.sessions
+			.filter((s) => (s.status ?? "active") === "active")
+			.map((session) => ({ entry, session })),
+	);
+	const snapshot = await buildSessionSnapshot(claims.map((c) => c.session));
+	const dead: DeadSession[] = [];
+	for (const { entry, session } of claims) {
+		// Only a captured identity makes "dead" a probe verdict rather
+		// than the recency heuristic, so an identity-less record is never
+		// a detach candidate here.
+		if (!session.process && !session.terminal) continue;
+		if (deriveLiveness(session, snapshot).liveness === "dead") {
+			dead.push({
+				sessionId: session.id,
+				questId: entry.doc.frontMatter.id,
+			});
+		}
+	}
+	return dead;
+}
+
 /** One divergent session the repair can resolve from its log. */
 export interface ResolvableSession {
 	sessionId: string;

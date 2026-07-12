@@ -22,6 +22,7 @@ import {
 import {
 	attachSessionToLoaded,
 	detachSessionFromLoaded,
+	detachSessionInQuestDir,
 	reconcileSessionMembership,
 	renameSessionOnLoaded,
 } from "../lifecycle.js";
@@ -29,6 +30,7 @@ import { buildSessionSnapshot } from "../liveness.js";
 import {
 	auditSessionMembership,
 	getQuestEntry,
+	planDeadSessions,
 	planSessionRepair,
 } from "../lookup.js";
 import type { QuestState } from "../state.js";
@@ -41,20 +43,36 @@ import {
 } from "./shared.js";
 
 /**
- * Report session-to-quest divergence across the store: a session
- * listed active on more than one quest. Read-only; loading a quest
- * reconciles the divergence automatically, and this is how an operator
- * sees it before then.
+ * Repair session-to-quest membership across the store, in two
+ * independent passes read from two authorities:
+ *
+ * - Divergence: a session active on more than one quest is resolved
+ *   to the one its own log names as owner (see `planSessionRepair`).
+ * - Provably dead: an active session whose captured identity a probe
+ *   reads gone is a detach candidate (see `planDeadSessions`). Only
+ *   identity-backed deadness qualifies, so this is an observation the
+ *   user acts on, never the recency heuristic rewriting membership.
+ *
+ * Previews both by default and mutates nothing; `force:true` applies
+ * the divergence detaches and the dead detaches. Conflicted records
+ * (a log naming no claimant) are always left for the user to resolve
+ * by loading the true quest.
  */
-export function sessionAudit(
+export async function sessionAudit(
 	state: QuestState,
 	params: QuestToolParams,
-): QuestResult {
+): Promise<QuestResult> {
 	const plan = planSessionRepair(state);
-	if (plan.resolvable.length === 0 && plan.conflicted.length === 0) {
+	const dead = await planDeadSessions(state);
+	if (
+		plan.resolvable.length === 0 &&
+		plan.conflicted.length === 0 &&
+		dead.length === 0
+	) {
 		return ok("No session divergence: every session is active on one quest.", {
 			divergences: auditSessionMembership(state),
 			plan,
+			dead,
 		});
 	}
 	const resolvableLines = plan.resolvable.map(
@@ -65,24 +83,41 @@ export function sessionAudit(
 		(d) =>
 			`${d.sessionId} conflicted across ${d.questIds.join(", ")} (log names no claimant)`,
 	);
+	const deadLines = dead.map(
+		(d) => `${d.sessionId} dead (probe) on ${d.questId}; would detach`,
+	);
 	if (!params.force) {
 		const parts = [
-			`${plan.resolvable.length} resolvable, ${plan.conflicted.length} conflicted. Pass force:true to apply the resolvable detaches; conflicted records are left for you to resolve by loading the true quest.`,
+			`${plan.resolvable.length} resolvable, ${dead.length} dead, ${plan.conflicted.length} conflicted. Pass force:true to apply the resolvable and dead detaches; conflicted records are left for you to resolve by loading the true quest.`,
 			...resolvableLines,
+			...deadLines,
 			...conflictedLines,
 		];
-		return ok(parts.join("\n"), { plan, applied: false });
+		return ok(parts.join("\n"), { plan, dead, applied: false });
 	}
 	let detached = 0;
 	for (const entry of plan.resolvable) {
 		const gone = reconcileSessionMembership(state, entry.sessionId, entry.keep);
 		detached += gone.length;
 	}
+	let deadDetached = 0;
+	for (const entry of dead) {
+		const target = getQuestEntry(state, entry.questId);
+		if (!target) continue;
+		const result = detachSessionInQuestDir(target.dir, entry.sessionId);
+		if (result.ok && result.detached) deadDetached += 1;
+	}
 	const summary = [
-		`Repaired ${plan.resolvable.length} session(s), detached ${detached} stray membership(s). ${plan.conflicted.length} conflicted record(s) left untouched.`,
+		`Repaired ${plan.resolvable.length} divergent session(s), detached ${detached} stray membership(s); detached ${deadDetached} dead session(s). ${plan.conflicted.length} conflicted record(s) left untouched.`,
 		...conflictedLines,
 	];
-	return ok(summary.join("\n"), { plan, applied: true, detached });
+	return ok(summary.join("\n"), {
+		plan,
+		dead,
+		applied: true,
+		detached,
+		deadDetached,
+	});
 }
 
 export function sessionAttach(

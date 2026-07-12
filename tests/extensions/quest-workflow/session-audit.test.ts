@@ -5,7 +5,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { auditSessionMembership } from "../../../extensions/quest-workflow/lookup";
@@ -55,6 +55,27 @@ function addActiveSession(dir: string, sessionId: string): void {
 	parsed.frontMatter.sessions = [
 		...parsed.frontMatter.sessions.filter((s) => s.id !== sessionId),
 		{ id: sessionId, started: new Date().toISOString(), status: "active" },
+	];
+	writeFileSync(
+		path,
+		`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+	);
+}
+
+// A session with a process identity whose pid is almost certainly
+// dead, so a real probe on this host reads it gone.
+function addDeadProcessSession(dir: string, sessionId: string): void {
+	const path = join(dir, "README.md");
+	const parsed = parseQuestFrontMatter(readFileSync(path, "utf8"));
+	if (!parsed) throw new Error("unreadable");
+	parsed.frontMatter.sessions = [
+		...parsed.frontMatter.sessions.filter((s) => s.id !== sessionId),
+		{
+			id: sessionId,
+			started: new Date().toISOString(),
+			status: "active",
+			process: { hostId: hostname(), pid: 2147483646, startToken: "gone" },
+		},
 	];
 	writeFileSync(
 		path,
@@ -149,5 +170,28 @@ describe("auditSessionMembership", () => {
 			)?.frontMatter.sessions.find((s) => s.id === "sess-r")?.status;
 		expect(statusOn(b.dir)).toBe("active");
 		expect(statusOn(a.dir)).toBe("detached");
+	});
+
+	it("detaches a provably-dead session on force", async () => {
+		const state = buildState();
+		const q = await createQuest(state, "Alpha");
+		addDeadProcessSession(q.dir, "sess-dead");
+
+		const preview = await handle(state, fakePi(), fakeCtx(), {
+			action: "session-audit",
+		});
+		expect(preview.ok).toBe(true);
+		if (!preview.ok) throw new Error("unreachable");
+		expect(preview.message).toContain("sess-dead");
+
+		const applied = await handle(state, fakePi(), fakeCtx(), {
+			action: "session-audit",
+			force: true,
+		});
+		expect(applied.ok).toBe(true);
+		const status = parseQuestFrontMatter(
+			readFileSync(join(q.dir, "README.md"), "utf8"),
+		)?.frontMatter.sessions.find((s) => s.id === "sess-dead")?.status;
+		expect(status).toBe("detached");
 	});
 });
