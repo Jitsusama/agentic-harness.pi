@@ -421,7 +421,7 @@ export async function load(
 
 	let message = `Loaded ${state.questId}: ${state.questTitle ?? ""}`;
 	if (resumable.length > 0) {
-		message += `. ${resumable.length} prior session(s) on file; resume one with \`/quest-resume <id>\``;
+		message += `. ${resumable.length} prior session(s) on file; run \`quest recent\` to pick one to resume`;
 	}
 	if (attached) {
 		message += `. Tracking this pi session on the quest.`;

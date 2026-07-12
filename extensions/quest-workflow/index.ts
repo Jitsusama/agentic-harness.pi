@@ -432,7 +432,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			const sessionId = args?.trim();
 			if (!sessionId) {
 				ctx.ui.notify(
-					"Usage: /quest-resume <session-id>. Run `quest show` to see the loaded quest's attached sessions.",
+					"Usage: /quest-resume <session-id>. Run `quest recent` to list resumable sessions with their ids and resume commands.",
 					"warning",
 				);
 				return;
