@@ -325,6 +325,16 @@ export async function spawn(
 		? undefined
 		: resumeMessage(resume, sessions, now);
 	if (resumeNote) message += ` ${resumeNote}`;
+	// State the quest the new session will load, not merely the one
+	// requested. When the spawned command is pi (fresh or a resume),
+	// the autoload env the spawn ships wins over the session's own
+	// history in resolveStartup, and the target was validated to exist
+	// above, so the load is deterministic. A non-pi command loads no
+	// quest, so the claim is withheld.
+	const spawnsPi = command === "pi" || command.startsWith("pi ");
+	if (spawnsPi) {
+		message += ` The new session will load ${questIdForSpawn}; the spawn autoload wins over its own history.`;
+	}
 	return ok(message, {
 		driver: driver.id,
 		layout,
