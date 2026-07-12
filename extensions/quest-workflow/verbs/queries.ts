@@ -19,6 +19,7 @@ import {
 	findQuestEntries,
 	linksForLoaded,
 	locateOwner,
+	recentSessions,
 	resolveRefQuery,
 	type TreeNode,
 	treeAll,
@@ -206,6 +207,19 @@ export async function workspace(state: QuestState): Promise<QuestResult> {
 		return `${workspaceMark(e.liveness)} ${e.questId} ${e.title ?? ""} [${e.status}]${where}`.trimEnd();
 	});
 	return ok(lines.join("\n"), { workspace: entries });
+}
+
+export async function recent(state: QuestState): Promise<QuestResult> {
+	const rows = await recentSessions(state);
+	if (rows.length === 0) {
+		return ok("No recent pi sessions on any quest.", { recent: [] });
+	}
+	const lines = rows.map((r) => {
+		const where = r.cwd ? ` ${r.cwd}` : "";
+		const resume = r.cwd ? `  → pi --session ${r.sessionId}` : "";
+		return `${workspaceMark(r.liveness)} ${r.questId} ${r.title ?? ""} [${r.liveness}]${where}${resume}`.trimEnd();
+	});
+	return ok(lines.join("\n"), { recent: rows });
 }
 
 /** Glyph for a workspace row's liveness. */

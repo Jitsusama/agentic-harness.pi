@@ -40,6 +40,7 @@ import {
 	find,
 	linksAction,
 	locate,
+	recent,
 	tree,
 	who,
 	workspace,
@@ -173,6 +174,8 @@ export async function handle(
 			return ancestors(state, params);
 		case "workspace":
 			return workspace(state);
+		case "recent":
+			return recent(state);
 		default: {
 			const suggestion = suggestAction(params.action ?? "");
 			const hint = suggestion

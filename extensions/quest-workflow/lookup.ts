@@ -442,6 +442,72 @@ export async function workspaceQuests(
 	);
 }
 
+/**
+ * One row per prior pi session, drawn from every quest's session
+ * index and resolved to a quest, cwd, activity age and read-time
+ * liveness over a single snapshot. Unlike the workspace, it keeps
+ * dead and detached sessions so a crashed session is recoverable
+ * here, and it dedups a session claimed by several quests to the one
+ * its own log names as owner, so the same pane never lists twice.
+ * Ordered newest activity first and capped, since this feeds a
+ * human picker and a start hint, not an exhaustive audit.
+ */
+export interface RecentSession {
+	questId: string;
+	title: string | null;
+	sessionId: string;
+	status: string;
+	liveness: SessionLiveness;
+	cwd?: string;
+	lastActivity?: string;
+}
+
+const RECENT_SESSION_LIMIT = 12;
+
+export async function recentSessions(
+	state: QuestState,
+	limit = RECENT_SESSION_LIMIT,
+): Promise<RecentSession[]> {
+	const { index } = discoverQuests(state.questsRoot);
+	const logIndex = indexSessionFiles(sessionsDir());
+	const claims = [...index.quests.values()].flatMap((entry) =>
+		entry.doc.frontMatter.sessions.map((session) => ({ entry, session })),
+	);
+	const snapshot = await buildSessionSnapshot(claims.map((c) => c.session));
+	// A session claimed by several quests collapses to one row on the
+	// quest its own log names as owner; when the log is silent, the
+	// first claim seen stands so the session is never dropped entirely.
+	const bySession = new Map<string, RecentSession>();
+	for (const { entry, session } of claims) {
+		const fm = entry.doc.frontMatter;
+		const view = deriveLiveness(session, snapshot);
+		const row: RecentSession = {
+			questId: fm.id,
+			title: entry.doc.title ?? null,
+			sessionId: session.id,
+			status: session.status ?? "active",
+			liveness: view.liveness,
+			...(view.cwd ? { cwd: view.cwd } : {}),
+			...(view.lastActivity ? { lastActivity: view.lastActivity } : {}),
+		};
+		const existing = bySession.get(session.id);
+		if (!existing) {
+			bySession.set(session.id, row);
+			continue;
+		}
+		const logPath = logIndex.get(session.id);
+		const owner = logPath ? authoritativeQuestFromLog(logPath) : undefined;
+		if (owner === fm.id) bySession.set(session.id, row);
+	}
+	return [...bySession.values()]
+		.sort((a, b) => {
+			const at = a.lastActivity ? Date.parse(a.lastActivity) : 0;
+			const bt = b.lastActivity ? Date.parse(b.lastActivity) : 0;
+			return bt - at;
+		})
+		.slice(0, limit);
+}
+
 /** Order rows live-first, then idle, then the rest, newest activity first. */
 function byRow(
 	aLiveness: SessionLiveness,
