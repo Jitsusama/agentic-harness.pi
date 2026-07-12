@@ -187,6 +187,28 @@ with the user. The `tree-list` inventory flags any recorded
 tree whose directory has gone missing on disk, so a stale
 entry is visible rather than trusted.
 
+The two origins also magnetize differently. A fresh session,
+and an id-less `quest load`, resolve a quest from the cwd only
+through the quest's own directory and the trees it scaffolded.
+An adopted tree never auto-loads, because a checkout adopted
+by several quests cannot say which one you meant; load such a
+quest by id instead. For the same reason `tree-adopt` warns
+and requires `force: true` before binding a quest to a
+repository's main working tree or to a path another quest
+already tracks. Adoption stays first-class: it is the
+deliberate way to account for a shared checkout, the guard
+only stops it happening by accident.
+
+When a session has ended up active on more than one quest
+(a legacy store, or a lost reconcile), `session-audit` repairs
+it. By default it previews: for each divergent session it
+names the one quest the session's own log records as owner and
+lists the strays it would detach. Pass `force: true` to apply
+the detaches. A session whose log names no current claimant is
+reported conflicted and left untouched for you to resolve by
+loading its true quest; the tool never guesses an owner from a
+liveness probe.
+
 ## The Resuscitate Pattern
 
 A common motion: a sidequest paused weeks ago, a new Slack
