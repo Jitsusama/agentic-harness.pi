@@ -209,6 +209,42 @@ reported conflicted and left untouched for you to resolve by
 loading its true quest; the tool never guesses an owner from a
 liveness probe.
 
+## Session Liveness and Recovery
+
+A quest tracks the pi sessions that worked on it, and the
+tool answers which are alive honestly rather than guessing
+from a clock. Liveness is observed when you ask, never
+stored: a session resolves to live, idle, dead, unknown or
+conflicted from a read-time probe of its recorded process
+and terminal, and unknown is a real answer for a session on
+another host or one the probe could not reach. A stored
+record holds identity, not a verdict.
+
+Three read views serve recovery, and none of them loads or
+mutates anything:
+
+- On session start the tool shows a passive hint naming the
+  few most recently active sessions, so a fresh shell after
+  a crash can see where work was. The hint reads only cheap
+  log activity; it never probes liveness and never loads a
+  quest.
+- `quest recent` is the authoritative picker: one row per
+  prior session across every quest, resolved to its quest,
+  cwd, activity age and probed liveness. It keeps dead and
+  detached sessions so a crashed pane is recoverable, and a
+  session claimed by several quests collapses to the one its
+  own log names as owner. Each row prints its
+  `pi --session <id>` resume command.
+- `quest workspace` is the live view: one row per session,
+  never collapsed per quest, so two live panes read as two
+  rows and a crash shows beside its live sibling.
+
+To resume a prior session, run `quest recent` and copy the
+resume command for the row you want, rather than reaching
+for a raw session id. A loaded quest also names its pi tab
+with its stable short id, so a person scanning wezterm can
+tell the panes apart without a query.
+
 ## The Resuscitate Pattern
 
 A common motion: a sidequest paused weeks ago, a new Slack
