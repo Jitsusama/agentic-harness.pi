@@ -7,9 +7,12 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
 import {
+	canonicalPath,
 	gitTreeRootOf,
+	isMainWorkingTree,
 	isWithin,
 } from "../../../lib/internal/quest/git-signals.js";
 import {
@@ -127,6 +130,25 @@ export function treeAdopt(
 			`${start} is not inside a git working tree. Pass cwd pointing at a path inside the tree you want to adopt; you do not need to change your session's directory.`,
 		);
 	}
+	// Guard a shared checkout before binding: a path another quest
+	// already tracks, or a repository's main working tree, is the shape
+	// that lets many quests bind to one checkout and magnetize a
+	// session ambiguously. Warn and require force rather than adopt
+	// silently; tree-adopt stays first-class, the guard just makes a
+	// shared bind a deliberate act.
+	if (!params.force) {
+		const otherQuest = pathAdoptedByAnotherQuest(state, root);
+		if (otherQuest) {
+			return refuse(
+				`${root} is already tracked by ${otherQuest}. Adopting one checkout on several quests is what makes a fresh session resolve to an arbitrary quest. Pass force:true to adopt it here as well, or scaffold a private worktree with tree-add.`,
+			);
+		}
+		if (isMainWorkingTree(root)) {
+			return refuse(
+				`${root} is a repository's main working tree, not a scaffolded worktree. Adopting a shared main checkout binds this quest to it. Pass force:true to confirm, or scaffold a private worktree with tree-add.`,
+			);
+		}
+	}
 	const provider = resolveTreeProvider(root);
 	// repoRoot is recorded as the adopted tree's own root. For a
 	// linked worktree that is the worktree dir rather than the main
@@ -146,6 +168,27 @@ export function treeAdopt(
 	}
 	appendJourneyEntry(state, `Adopted tree at ${root}.`);
 	return ok(`Adopted tree at ${root}; it will not be auto-pruned.`, { tree });
+}
+
+/**
+ * The id of another quest that already tracks a tree at this path, or
+ * undefined when only the loaded quest (or no quest) does. Paths are
+ * canonicalized so a /var versus /private/var spelling still matches.
+ */
+function pathAdoptedByAnotherQuest(
+	state: QuestState,
+	root: string,
+): string | undefined {
+	const target = canonicalPath(root);
+	const { index } = discoverQuests(state.questsRoot);
+	for (const entry of index.quests.values()) {
+		const fm = entry.doc.frontMatter;
+		if (fm.id === state.questId) continue;
+		for (const tree of fm.trees ?? []) {
+			if (canonicalPath(tree.path) === target) return fm.id;
+		}
+	}
+	return undefined;
 }
 
 export function treeList(state: QuestState): QuestResult {

@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	gitTreeRootOf,
 	isGitignored,
+	isMainWorkingTree,
 	isTracked,
 	isWithin,
 } from "../../../../lib/internal/quest/git-signals";
@@ -104,5 +105,34 @@ describe("isTracked", () => {
 
 	it("is false outside a repository", () => {
 		expect(isTracked(path.join(outside, "x.ts"))).toBe(false);
+	});
+});
+
+describe("isMainWorkingTree", () => {
+	it("is true for a repository's primary checkout", () => {
+		expect(isMainWorkingTree(repo)).toBe(true);
+		expect(isMainWorkingTree(path.join(repo, "src"))).toBe(true);
+	});
+
+	it("is false for a linked worktree", () => {
+		const linked = mkdtempSync(path.join(tmpdir(), "git-signals-linked-"));
+		const worktree = path.join(linked, "wt");
+		execFileSync("git", ["worktree", "add", "-q", worktree], {
+			cwd: repo,
+			stdio: "ignore",
+		});
+		try {
+			expect(isMainWorkingTree(worktree)).toBe(false);
+		} finally {
+			execFileSync("git", ["worktree", "remove", "--force", worktree], {
+				cwd: repo,
+				stdio: "ignore",
+			});
+			rmSync(linked, { recursive: true, force: true });
+		}
+	});
+
+	it("is false outside a repository", () => {
+		expect(isMainWorkingTree(outside)).toBe(false);
 	});
 });
