@@ -30,6 +30,7 @@ import {
 import { dataDir } from "../../lib/internal/paths.js";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.js";
 import { discoverQuests } from "../../lib/internal/quest/discovery.js";
+import { currentInstanceId } from "../../lib/internal/quest/process-liveness.js";
 import {
 	registerBuiltinHandleTypes,
 	registerBuiltinPersonResolvers,
@@ -51,7 +52,8 @@ import {
 import { enforceQuest, isFocusedDocWrite } from "./enforce.js";
 import {
 	attachCurrentSession,
-	detachSessionFromLoaded,
+	captureSessionIdentity,
+	detachSessionIfOwner,
 	listAllQuests,
 	persist,
 	prunePhantomSessionsOnLoaded,
@@ -568,6 +570,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				id: sid,
 				cwd: ctx.cwd,
 				persisted: isPersistedSession(ctx),
+				...captureSessionIdentity(),
 			});
 			// Reconcile on the launch path too, not only the explicit
 			// load verb: a resumed or spawned session lands here, and
@@ -589,9 +592,14 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		// Mark this session detached on the loaded quest so its
 		// liveness reads correctly after the process exits.
-		if (state.questId) {
+		if (state.questId && state.questDir) {
 			const sid = currentSessionId(ctx, undefined);
-			if (sid) detachSessionFromLoaded(state, sid);
+			// Lease-guarded: only release the session when this process
+			// still owns it, so a process that resumed the session is not
+			// detached by our late shutdown.
+			if (sid) {
+				detachSessionIfOwner(state.questDir, sid, currentInstanceId());
+			}
 		}
 		unregisterQuestPrBridge(ownBridge);
 	});

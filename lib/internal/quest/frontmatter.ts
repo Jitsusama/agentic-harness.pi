@@ -165,9 +165,41 @@ function parseSession(raw: unknown): QuestSession | undefined {
 		if (started) session.started = started;
 		const status = asEnum(obj.status, SESSION_STATUSES);
 		if (status) session.status = status;
+		const instanceId = asString(obj.instanceId);
+		if (instanceId) session.instanceId = instanceId;
+		const process = parseSessionProcess(obj.process);
+		if (process) session.process = process;
+		const terminal = parseSessionTerminal(obj.terminal);
+		if (terminal) session.terminal = terminal;
 		return session;
 	}
 	return undefined;
+}
+
+function parseSessionProcess(
+	raw: unknown,
+): QuestSession["process"] | undefined {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const obj = raw as Record<string, unknown>;
+	const hostId = asString(obj.hostId);
+	const startToken = asString(obj.startToken);
+	const pid = typeof obj.pid === "number" ? obj.pid : undefined;
+	if (!hostId || pid === undefined || !startToken) return undefined;
+	return { hostId, pid, startToken };
+}
+
+function parseSessionTerminal(
+	raw: unknown,
+): QuestSession["terminal"] | undefined {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const obj = raw as Record<string, unknown>;
+	const driverId = asString(obj.driverId);
+	const value = asString(obj.value);
+	if (!driverId || !value) return undefined;
+	const terminal: NonNullable<QuestSession["terminal"]> = { driverId, value };
+	const scope = asString(obj.scope);
+	if (scope) terminal.scope = scope;
+	return terminal;
 }
 
 function parseSessions(raw: unknown): QuestSession[] {
@@ -396,6 +428,9 @@ function sessionToPlain(session: QuestSession): Record<string, unknown> {
 	if (session.cwd !== undefined) out.cwd = session.cwd;
 	if (session.started !== undefined) out.started = session.started;
 	if (session.status !== undefined) out.status = session.status;
+	if (session.instanceId !== undefined) out.instanceId = session.instanceId;
+	if (session.process !== undefined) out.process = { ...session.process };
+	if (session.terminal !== undefined) out.terminal = { ...session.terminal };
 	return out;
 }
 

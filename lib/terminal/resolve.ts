@@ -17,6 +17,7 @@ import type {
 	TerminalDriver,
 	TerminalLivenessCapability,
 	TerminalRequest,
+	TerminalSessionHandle,
 } from "./types.js";
 
 /** Look up a driver by id, or `undefined`. */
@@ -54,6 +55,22 @@ export function getLivenessProvider(
 	const driver = get(driverId);
 	if (!driver || !hasLivenessCapability(driver)) return undefined;
 	return driver;
+}
+
+/**
+ * The terminal surface the current pi process runs in, as a
+ * probeable handle, from the first registered liveness-capable
+ * driver that recognises the environment. Undefined when no driver
+ * claims the current terminal (for example a bare shell with no
+ * supported multiplexer).
+ */
+export function identifyCurrentTerminal(): TerminalSessionHandle | undefined {
+	for (const driver of list()) {
+		if (!hasLivenessCapability(driver)) continue;
+		const handle = driver.identifyCurrent();
+		if (handle) return handle;
+	}
+	return undefined;
 }
 
 /**

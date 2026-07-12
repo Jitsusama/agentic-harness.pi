@@ -16,6 +16,7 @@ export {
 export {
 	getLivenessProvider,
 	getTerminalDriver,
+	identifyCurrentTerminal,
 	listTerminalDrivers,
 	resolveDriver,
 	spawnTerminal,

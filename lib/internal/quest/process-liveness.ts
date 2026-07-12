@@ -10,6 +10,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 
 /** Stable identity of a recorded pi process. */
@@ -103,6 +104,18 @@ export function currentProcessIdentity(): ProcessIdentity {
 /** The always-on local floor: this host plus the OS start-token reader. */
 export function localProcessDeps(): ProbeProcessDeps {
 	return { localHostId: hostname(), inspect: readStartToken };
+}
+
+/** Id minted once per pi process, identifying which process holds a session lease. */
+const INSTANCE_ID = randomUUID();
+
+/**
+ * The current pi process's instance id, stable for the life of the
+ * process. Stored on a session at attach so a later shutdown detaches
+ * only when the same instance still owns it.
+ */
+export function currentInstanceId(): string {
+	return INSTANCE_ID;
 }
 
 export function probeProcess(

@@ -36,6 +36,7 @@ import { parseRef, urlForRef } from "../../../lib/refs/index.js";
 import {
 	appendJourneyEntry,
 	attachCurrentSession,
+	captureSessionIdentity,
 	detachSessionInQuestDir,
 	ensureQuestsRoot,
 	focusDocument,
@@ -391,6 +392,7 @@ export async function load(
 		id: sid,
 		cwd: ctx.cwd,
 		persisted: isPersistedSession(ctx),
+		...captureSessionIdentity(),
 	}).attached;
 
 	// Reconcile membership so this session reads active on only the

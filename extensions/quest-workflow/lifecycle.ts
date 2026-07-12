@@ -36,6 +36,10 @@ import {
 } from "../../lib/internal/quest/io.js";
 import { mutateQuestFrontMatter } from "../../lib/internal/quest/mutate.js";
 import {
+	currentInstanceId,
+	currentProcessIdentity,
+} from "../../lib/internal/quest/process-liveness.js";
+import {
 	diffRanks,
 	nextRank,
 	type RankEntry,
@@ -67,6 +71,7 @@ import {
 	type QuestStatus,
 	serializeDocumentFrontMatter,
 } from "../../lib/quest/index.js";
+import { identifyCurrentTerminal } from "../../lib/terminal/index.js";
 import type { Stage } from "./machine.js";
 import { sessionNameFor } from "./render.js";
 import type { QuestState } from "./state.js";
@@ -1027,6 +1032,27 @@ export function attachSessionToLoaded(
 }
 
 /**
+ * Capture the current process's liveness identity for a session
+ * attach: its instance id, OS process identity and the terminal
+ * surface it runs in (when a driver recognises one). Read once at
+ * attach time; the stored handle is what a later reader probes.
+ */
+export function captureSessionIdentity(): {
+	instanceId: string;
+	process: QuestSession["process"];
+	terminal: QuestSession["terminal"];
+} {
+	const handle = identifyCurrentTerminal();
+	return {
+		instanceId: currentInstanceId(),
+		process: currentProcessIdentity(),
+		terminal: handle
+			? { driverId: handle.driverId, value: handle.value, scope: handle.scope }
+			: undefined,
+	};
+}
+
+/**
  * Attach the current pi session to the loaded quest.
  *
  * This is the automatic-capture path: the session_start and
@@ -1038,7 +1064,14 @@ export function attachSessionToLoaded(
  */
 export function attachCurrentSession(
 	state: QuestState,
-	opts: { id: string | undefined; cwd?: string; persisted?: boolean },
+	opts: {
+		id: string | undefined;
+		cwd?: string;
+		persisted?: boolean;
+		instanceId?: string;
+		process?: QuestSession["process"];
+		terminal?: QuestSession["terminal"];
+	},
 ): { attached: boolean } {
 	// An ephemeral session (pi --no-session) has an id but writes no
 	// log, so attaching it would leave a phantom entry that can never
@@ -1051,8 +1084,41 @@ export function attachCurrentSession(
 		status: "active",
 	};
 	if (opts.cwd?.trim()) session.cwd = opts.cwd.trim();
+	if (opts.instanceId) session.instanceId = opts.instanceId;
+	if (opts.process) session.process = opts.process;
+	if (opts.terminal) session.terminal = opts.terminal;
 	const result = attachSessionToLoaded(state, session);
 	return { attached: result.ok };
+}
+
+/**
+ * Detach a session only when the caller's process instance owns the
+ * record, so a process that resumed a session is not detached by the
+ * delayed shutdown of the process that used to hold it. A record with
+ * no recorded instance id is legacy and detaches unconditionally,
+ * preserving the pre-lease behaviour.
+ */
+export function detachSessionIfOwner(
+	questDir: string,
+	sessionId: string,
+	instanceId: string,
+): { ok: true; detached: boolean } | { ok: false; guidance: string } {
+	let detached = false;
+	const result = writeQuestFrontMatter(questDir, (fm) => {
+		let hit = false;
+		const next = fm.sessions.map((s) => {
+			if (s.id !== sessionId || s.status === "detached") return s;
+			// A different live instance owns the record: leave it be.
+			if (s.instanceId !== undefined && s.instanceId !== instanceId) return s;
+			hit = true;
+			return { ...s, status: "detached" as const };
+		});
+		if (!hit) return undefined;
+		detached = true;
+		return { ...fm, sessions: next };
+	});
+	if (!result.ok) return result;
+	return { ok: true, detached };
 }
 
 /**

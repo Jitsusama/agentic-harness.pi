@@ -115,6 +115,31 @@ export interface QuestSession {
 	cwd?: string;
 	started?: string;
 	status?: SessionStatus;
+	/**
+	 * Id minted once per pi process start, identifying which process
+	 * holds this session so the lease can be released only by its owner.
+	 */
+	instanceId?: string;
+	/**
+	 * The OS process identity captured at attach, so liveness can be
+	 * probed later. A bare pid is not enough; the host and start token
+	 * guard against pid reuse and remote processes.
+	 */
+	process?: {
+		hostId: string;
+		pid: number;
+		startToken: string;
+	};
+	/**
+	 * The terminal surface the session ran in, as a probeable handle.
+	 * `scope` is the mux socket that makes `value` (a pane id)
+	 * meaningful across terminal instances and hosts.
+	 */
+	terminal?: {
+		driverId: string;
+		value: string;
+		scope?: string;
+	};
 }
 
 /** Frontmatter for a quest README. */
