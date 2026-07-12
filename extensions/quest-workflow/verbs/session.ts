@@ -22,10 +22,15 @@ import {
 import {
 	attachSessionToLoaded,
 	detachSessionFromLoaded,
+	reconcileSessionMembership,
 	renameSessionOnLoaded,
 } from "../lifecycle.js";
 import { buildSessionSnapshot } from "../liveness.js";
-import { auditSessionMembership, getQuestEntry } from "../lookup.js";
+import {
+	auditSessionMembership,
+	getQuestEntry,
+	planSessionRepair,
+} from "../lookup.js";
 import type { QuestState } from "../state.js";
 import {
 	currentSessionId,
@@ -41,21 +46,43 @@ import {
  * reconciles the divergence automatically, and this is how an operator
  * sees it before then.
  */
-export function sessionAudit(state: QuestState): QuestResult {
-	const divergences = auditSessionMembership(state);
-	if (divergences.length === 0) {
+export function sessionAudit(
+	state: QuestState,
+	params: QuestToolParams,
+): QuestResult {
+	const plan = planSessionRepair(state);
+	if (plan.resolvable.length === 0 && plan.conflicted.length === 0) {
 		return ok("No session divergence: every session is active on one quest.", {
-			divergences,
+			divergences: auditSessionMembership(state),
+			plan,
 		});
 	}
-	const lines = divergences.map(
+	const resolvableLines = plan.resolvable.map(
+		(r) =>
+			`${r.sessionId} -> keep ${r.keep}, detach from ${r.detachFrom.join(", ")}`,
+	);
+	const conflictedLines = plan.conflicted.map(
 		(d) =>
-			`${d.sessionId} active on ${d.questIds.length}: ${d.questIds.join(", ")}`,
+			`${d.sessionId} conflicted across ${d.questIds.join(", ")} (log names no claimant)`,
 	);
-	return ok(
-		`${divergences.length} session(s) active on more than one quest:\n${lines.join("\n")}`,
-		{ divergences },
-	);
+	if (!params.force) {
+		const parts = [
+			`${plan.resolvable.length} resolvable, ${plan.conflicted.length} conflicted. Pass force:true to apply the resolvable detaches; conflicted records are left for you to resolve by loading the true quest.`,
+			...resolvableLines,
+			...conflictedLines,
+		];
+		return ok(parts.join("\n"), { plan, applied: false });
+	}
+	let detached = 0;
+	for (const entry of plan.resolvable) {
+		const gone = reconcileSessionMembership(state, entry.sessionId, entry.keep);
+		detached += gone.length;
+	}
+	const summary = [
+		`Repaired ${plan.resolvable.length} session(s), detached ${detached} stray membership(s). ${plan.conflicted.length} conflicted record(s) left untouched.`,
+		...conflictedLines,
+	];
+	return ok(summary.join("\n"), { plan, applied: true, detached });
 }
 
 export function sessionAttach(

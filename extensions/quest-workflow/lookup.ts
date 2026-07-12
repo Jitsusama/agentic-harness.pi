@@ -23,6 +23,7 @@ import {
 	questLastActivity,
 	type SessionLiveness,
 } from "../../lib/internal/quest/session-liveness.js";
+import { authoritativeQuestFromLog } from "../../lib/internal/quest/session-ownership.js";
 import {
 	getResolutionFallback,
 	type Identity,
@@ -488,6 +489,51 @@ export function auditSessionMembership(state: QuestState): SessionDivergence[] {
 		}
 	}
 	return divergences;
+}
+
+/** One divergent session the repair can resolve from its log. */
+export interface ResolvableSession {
+	sessionId: string;
+	/** The quest the session's log names as its owner; the one kept. */
+	keep: string;
+	/** The quests to detach the session from. */
+	detachFrom: string[];
+}
+
+/** A repair plan for the store's session-to-quest divergence. */
+export interface SessionRepairPlan {
+	resolvable: ResolvableSession[];
+	conflicted: SessionDivergence[];
+}
+
+/**
+ * Plan how to repair sessions active on more than one quest. The
+ * session's own log is the authority: when its last quest-workflow
+ * entry names one of the claimants, that quest is kept and the others
+ * are planned for detach. When the log is missing, cleared, or names
+ * a quest that is not a claimant, the divergence cannot be resolved
+ * from authority and is reported conflicted, never auto-assigned.
+ * Read-only: it computes the plan and mutates nothing.
+ */
+export function planSessionRepair(state: QuestState): SessionRepairPlan {
+	const divergences = auditSessionMembership(state);
+	const logIndex = indexSessionFiles(sessionsDir());
+	const resolvable: ResolvableSession[] = [];
+	const conflicted: SessionDivergence[] = [];
+	for (const divergence of divergences) {
+		const logPath = logIndex.get(divergence.sessionId);
+		const owner = logPath ? authoritativeQuestFromLog(logPath) : undefined;
+		if (owner && divergence.questIds.includes(owner)) {
+			resolvable.push({
+				sessionId: divergence.sessionId,
+				keep: owner,
+				detachFrom: divergence.questIds.filter((id) => id !== owner),
+			});
+		} else {
+			conflicted.push(divergence);
+		}
+	}
+	return { resolvable, conflicted };
 }
 
 export interface WhoParams {

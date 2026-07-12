@@ -153,7 +153,7 @@ export async function handle(
 		case "session-rename":
 			return sessionRename(state, ctx, params);
 		case "session-audit":
-			return sessionAudit(state);
+			return sessionAudit(state, params);
 		case "spawn-tab":
 		case "spawn-pane":
 		case "spawn-window":

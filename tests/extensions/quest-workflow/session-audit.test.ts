@@ -1,10 +1,17 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { auditSessionMembership } from "../../../extensions/quest-workflow/lookup";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import { sessionsDir } from "../../../lib/internal/paths";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
@@ -103,5 +110,44 @@ describe("auditSessionMembership", () => {
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error("unreachable");
 		expect(result.message).toContain("sess-z");
+	});
+
+	it("force applies the repair, detaching the strays but not the owner", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		const b = await createQuest(state, "Bravo");
+		addActiveSession(a.dir, "sess-r");
+		addActiveSession(b.dir, "sess-r");
+		// The session's log names Bravo as its true owner.
+		const logDir = join(sessionsDir(), "--audit-repair--");
+		mkdirSync(logDir, { recursive: true });
+		writeFileSync(
+			join(logDir, "2026-06-04T10-00-00-000Z_sess-r.jsonl"),
+			JSON.stringify({
+				type: "custom",
+				customType: "quest-workflow",
+				data: { questId: b.id },
+			}),
+		);
+
+		// Dry run first: reports the plan, mutates nothing.
+		const preview = await handle(state, fakePi(), fakeCtx(), {
+			action: "session-audit",
+		});
+		expect(preview.ok).toBe(true);
+		expect(auditSessionMembership(state)).toHaveLength(1);
+
+		const applied = await handle(state, fakePi(), fakeCtx(), {
+			action: "session-audit",
+			force: true,
+		});
+		expect(applied.ok).toBe(true);
+		expect(auditSessionMembership(state)).toEqual([]);
+		const statusOn = (dir: string) =>
+			parseQuestFrontMatter(
+				readFileSync(join(dir, "README.md"), "utf8"),
+			)?.frontMatter.sessions.find((s) => s.id === "sess-r")?.status;
+		expect(statusOn(b.dir)).toBe("active");
+		expect(statusOn(a.dir)).toBe("detached");
 	});
 });
