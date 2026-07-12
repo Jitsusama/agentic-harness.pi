@@ -74,6 +74,7 @@ import {
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
 import { currentSessionId, isPersistedSession } from "./verbs/shared.js";
+import { recordCurrentWorkspace } from "./workspace-snapshot.js";
 
 const DEFAULT_WIDTH = 80;
 const CALL_PREFIX_WIDTH = 14;
@@ -579,6 +580,15 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			// on a straggler quest from an earlier run.
 			if (sid && isPersistedSession(ctx) && state.questId) {
 				reconcileSessionMembership(state, sid, state.questId);
+			}
+			// Record the session in its terminal workspace so a later
+			// restart can reconstruct what was open together. Best-effort.
+			if (sid && state.questId) {
+				recordCurrentWorkspace({
+					questId: state.questId,
+					sessionId: sid,
+					cwd: ctx.cwd,
+				});
 			}
 		}
 		updateScoreboard(state, ctx);

@@ -52,6 +52,7 @@ import {
 	unloadQuest,
 } from "../lifecycle.js";
 import { buildRowExpansion, showLoaded, showQuestById } from "../lookup.js";
+import { recordCurrentWorkspace } from "../workspace-snapshot.js";
 
 /**
  * Priority ladder for sorting list output. Lower numbers
@@ -400,6 +401,17 @@ export async function load(
 		persisted: isPersistedSession(ctx),
 		...captureSessionIdentity(),
 	}).attached;
+
+	// Record this session in its terminal workspace so a later restart
+	// can reconstruct the set that was open together. A best-effort
+	// side write; it never blocks the load.
+	if (sid && state.questId) {
+		recordCurrentWorkspace({
+			questId: state.questId,
+			sessionId: sid,
+			cwd: ctx.cwd,
+		});
+	}
 
 	// Reconcile membership so this session reads active on only the
 	// loaded quest, detaching it from any straggler quest an earlier

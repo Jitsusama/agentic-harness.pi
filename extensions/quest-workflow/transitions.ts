@@ -41,6 +41,7 @@ import {
 	linksAction,
 	locate,
 	recent,
+	restore,
 	tree,
 	who,
 	workspace,
@@ -176,6 +177,8 @@ export async function handle(
 			return workspace(state);
 		case "recent":
 			return recent(state);
+		case "restore":
+			return restore();
 		default: {
 			const suggestion = suggestAction(params.action ?? "");
 			const hint = suggestion
