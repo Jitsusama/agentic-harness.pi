@@ -368,7 +368,10 @@ describe("spawn verbs", () => {
 		expect(calls).toHaveLength(1);
 		expect(calls[0].layout).toBe("tab");
 		expect(calls[0].command).toBe("pi");
-		expect(calls[0].cwd).toBe(state.questDir);
+		// With no tree registered, spawn lands in the live session's
+		// cwd (the running test process, so its identity probes as
+		// live), ahead of the quest dir in the resolution order.
+		expect(calls[0].cwd).toBe(tmpRoot);
 		// The spawn ships the loaded quest id so the new
 		// pi can name its session after the quest without
 		// the wezterm/tmux tab-title plumbing.

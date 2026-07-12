@@ -96,7 +96,7 @@ describe("workspaceQuests", () => {
 		// idleOnly gets a session with no log file, so it is dead, not live.
 		attachSession(idleOnly, "sess-dead");
 
-		const entries = workspaceQuests(state);
+		const entries = await workspaceQuests(state);
 		expect(entries.map((e) => e.questId)).toEqual([live]);
 		expect(entries[0]).toMatchObject({
 			liveness: "live",
@@ -107,7 +107,7 @@ describe("workspaceQuests", () => {
 	it("returns empty when nothing is being worked on", async () => {
 		const state = buildState();
 		await createQuest(state, "Dormant");
-		expect(workspaceQuests(state)).toEqual([]);
+		expect(await workspaceQuests(state)).toEqual([]);
 	});
 
 	it("is reachable through the workspace verb", async () => {

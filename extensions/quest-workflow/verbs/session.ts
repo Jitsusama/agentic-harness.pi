@@ -5,7 +5,6 @@
  */
 
 import type { ToolContext } from "@mariozechner/pi-coding-agent";
-import { sessionsDir } from "../../../lib/internal/paths.js";
 import {
 	pickResumeSession,
 	resolveSpawnCwd,
@@ -13,7 +12,6 @@ import {
 import {
 	deriveLiveness,
 	formatRelativeAge,
-	indexSessionFiles,
 	type SessionView,
 } from "../../../lib/internal/quest/session-liveness.js";
 import type { QuestSession } from "../../../lib/quest/index.js";
@@ -26,6 +24,7 @@ import {
 	detachSessionFromLoaded,
 	renameSessionOnLoaded,
 } from "../lifecycle.js";
+import { buildSessionSnapshot } from "../liveness.js";
 import { auditSessionMembership, getQuestEntry } from "../lookup.js";
 import type { QuestState } from "../state.js";
 import {
@@ -218,9 +217,8 @@ export async function spawn(
 	// longer exists self-heals to the next candidate rather
 	// than dropping the new terminal into home.
 	const now = new Date();
-	const store = sessionsDir();
-	const index = indexSessionFiles(store);
-	const sessions = fm.sessions.map((s) => deriveLiveness(s, store, now, index));
+	const snapshot = await buildSessionSnapshot(fm.sessions, { now });
+	const sessions = fm.sessions.map((s) => deriveLiveness(s, snapshot));
 	const resolved = resolveSpawnCwd({
 		questDir: entry.dir,
 		trees: fm.trees ?? [],

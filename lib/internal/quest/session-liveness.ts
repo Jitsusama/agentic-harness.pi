@@ -18,9 +18,68 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { QuestSession } from "../../quest/types.js";
+import type {
+	TerminalProbe,
+	TerminalSessionHandle,
+} from "../../terminal/types.js";
+import type { ProcessIdentity, ProcessProbe } from "./process-liveness.js";
 
-/** How a quest's attached session looks right now. */
-export type SessionLiveness = "live" | "idle" | "detached" | "dead";
+/**
+ * How a quest's attached session looks right now.
+ *
+ * `live` and `dead` are observed through a probe; `unknown` is the
+ * honest answer when the probe could not observe; `idle` is the
+ * recency fallback for a record that carries no probeable identity;
+ * `conflicted` marks a session claimed by more than one quest with no
+ * resolvable owner; `detached` is authoritative membership.
+ */
+export type SessionLiveness =
+	| "live"
+	| "idle"
+	| "detached"
+	| "dead"
+	| "unknown"
+	| "conflicted";
+
+/**
+ * A session's ephemeral, read-time probe result. Never persisted.
+ * A dimension is present only when the session carries the matching
+ * identity, and each dimension is itself tri-state.
+ */
+export interface SessionObservation {
+	process?: ProcessProbe;
+	pane?: TerminalProbe;
+}
+
+/**
+ * Everything the derivation needs, computed once per top-level
+ * request: the reference time, each session's last activity, the
+ * probe observations for sessions that carry identity, and the set
+ * of sessions with unresolved multi-quest ownership. Built by
+ * {@link buildLivenessSnapshot} and consumed by {@link deriveLiveness}.
+ */
+export interface LivenessSnapshot {
+	now: Date;
+	activity: ReadonlyMap<string, string>;
+	observations: ReadonlyMap<string, SessionObservation>;
+	conflicted: ReadonlySet<string>;
+}
+
+/**
+ * Injected dependencies for {@link buildLivenessSnapshot}. Every
+ * side effect (reading a log's activity, probing a process, probing
+ * terminals) is a function so the snapshot builder never shells out
+ * in tests.
+ */
+export interface LivenessSnapshotDeps {
+	now?: Date;
+	activityOf: (sessionId: string) => string | undefined;
+	probeProcess: (id: ProcessIdentity) => ProcessProbe;
+	probeTerminals: (
+		handles: readonly TerminalSessionHandle[],
+	) => Promise<ReadonlyMap<string, TerminalProbe>>;
+	conflicted?: ReadonlySet<string>;
+}
 
 /**
  * Render an activity timestamp as a compact relative string
@@ -144,33 +203,104 @@ export function questLastActivity(
 }
 
 /**
- * Classify an attached session. A detached status wins outright; a
- * session with no log file is dead; recent activity is live and
- * older activity is idle. lastActivity is carried through whenever
- * a log file is found, even for a detached session.
- *
- * Pass a prebuilt {@link indexSessionFiles} map as `index` to
- * resolve the log without re-walking the store. Callers deriving
- * many sessions at once (the `show` view, `spawn`) build it once
- * instead of scanning the store per session.
+ * Build the read-time snapshot for a set of sessions: record each
+ * session's activity, probe every process identity once, and issue
+ * one batched terminal probe for the handles that carry a terminal
+ * identity. A terminal handle's host is taken from the session's
+ * process identity, since a session's terminal lives on the same
+ * host as its process. Runs once per request; the derivation over
+ * it is synchronous.
+ */
+export async function buildLivenessSnapshot(
+	sessions: readonly QuestSession[],
+	deps: LivenessSnapshotDeps,
+): Promise<LivenessSnapshot> {
+	const now = deps.now ?? new Date();
+	const activity = new Map<string, string>();
+	const handles: TerminalSessionHandle[] = [];
+	for (const session of sessions) {
+		const last = deps.activityOf(session.id);
+		if (last) activity.set(session.id, last);
+		if (session.terminal) {
+			handles.push({
+				driverId: session.terminal.driverId,
+				kind: `${session.terminal.driverId}-pane`,
+				hostId: session.process?.hostId ?? "",
+				scope: session.terminal.scope,
+				value: session.terminal.value,
+			});
+		}
+	}
+	const paneProbes =
+		handles.length > 0
+			? await deps.probeTerminals(handles)
+			: new Map<string, TerminalProbe>();
+	const observations = new Map<string, SessionObservation>();
+	for (const session of sessions) {
+		if (!session.process && !session.terminal) continue;
+		const obs: SessionObservation = {};
+		if (session.process) obs.process = deps.probeProcess(session.process);
+		if (session.terminal) {
+			obs.pane = paneProbes.get(session.terminal.value) ?? "unknown";
+		}
+		observations.set(session.id, obs);
+	}
+	return {
+		now,
+		activity,
+		observations,
+		conflicted: deps.conflicted ?? new Set<string>(),
+	};
+}
+
+/**
+ * Classify an attached session over a prebuilt {@link
+ * LivenessSnapshot}. Membership wins first: a detached session reads
+ * detached and a conflicted one reads conflicted, whatever a probe
+ * saw. A session that carries identity is judged by observation
+ * alone (a matching process or a present pane is live; a gone
+ * process or an absent pane is dead; anything the probe could not
+ * resolve is unknown). A record with no captured identity falls back
+ * to the recency window, the only place recency drives liveness.
  */
 export function deriveLiveness(
 	session: QuestSession,
-	sessionDir: string,
-	now: Date,
-	index?: Map<string, string>,
+	snapshot: LivenessSnapshot,
 ): SessionView {
-	const activity = index
-		? activityFromPath(index.get(session.id))
-		: sessionActivity(session.id, sessionDir);
-	const lastActivity = activity?.lastActivity;
+	const lastActivity = snapshot.activity.get(session.id);
 	if (session.status === "detached") {
 		return { ...session, liveness: "detached", lastActivity };
 	}
-	if (!activity) return { ...session, liveness: "dead" };
-	const age = now.getTime() - Date.parse(activity.lastActivity);
+	if (snapshot.conflicted.has(session.id)) {
+		return { ...session, liveness: "conflicted", lastActivity };
+	}
+	const observation = snapshot.observations.get(session.id);
+	if ((session.process || session.terminal) && observation) {
+		return {
+			...session,
+			liveness: observedLiveness(observation),
+			lastActivity,
+		};
+	}
+	if (!lastActivity) return { ...session, liveness: "dead" };
+	const age = snapshot.now.getTime() - Date.parse(lastActivity);
 	const liveness: SessionLiveness = age <= LIVE_WINDOW_MS ? "live" : "idle";
 	return { ...session, liveness, lastActivity };
+}
+
+/**
+ * Reduce a probe observation to a liveness verdict. The process
+ * dimension is authoritative and checked first, so a gone process
+ * reads dead even when a stale pane lingers; a present pane rescues
+ * a session whose process could not be probed; everything else the
+ * probe could not resolve is unknown.
+ */
+function observedLiveness(observation: SessionObservation): SessionLiveness {
+	if (observation.process === "matching") return "live";
+	if (observation.process === "gone") return "dead";
+	if (observation.pane === "present") return "live";
+	if (observation.pane === "absent") return "dead";
+	return "unknown";
 }
 
 /**
@@ -189,6 +319,18 @@ export function sessionActivity(
 	const suffix = `_${id}.jsonl`;
 	const match = findSessionFile(sessionDir, suffix);
 	return activityFromPath(match);
+}
+
+/**
+ * A session's last activity resolved from a prebuilt {@link
+ * indexSessionFiles} map, without re-walking the store. This is the
+ * `activityOf` a real {@link buildLivenessSnapshot} passes in.
+ */
+export function activityFromIndex(
+	index: ReadonlyMap<string, string>,
+	id: string,
+): string | undefined {
+	return activityFromPath(index.get(id))?.lastActivity;
 }
 
 /**

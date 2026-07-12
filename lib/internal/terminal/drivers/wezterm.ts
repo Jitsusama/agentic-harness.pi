@@ -129,23 +129,22 @@ export const wezterm: TerminalDriver & TerminalLivenessCapability = {
 			value: pane,
 		};
 	},
-	async probe(handles) {
-		const observation = await observePanes();
+	async probe(handles, signal) {
+		const observation = await observePanes(signal);
 		return classifyWeztermPanes(handles, observation);
 	},
 };
 
 /** Read the live pane set from the wezterm mux, or report it unreachable. */
-async function observePanes(): Promise<WeztermObservation> {
+async function observePanes(signal?: AbortSignal): Promise<WeztermObservation> {
 	const socket = process.env.WEZTERM_UNIX_SOCKET;
 	if (!socket) return { reachable: false };
 	try {
-		const { stdout } = await execFileAsync("wezterm", [
-			"cli",
-			"list",
-			"--format",
-			"json",
-		]);
+		const { stdout } = await execFileAsync(
+			"wezterm",
+			["cli", "list", "--format", "json"],
+			{ signal },
+		);
 		const panes = JSON.parse(stdout) as Array<{ pane_id?: unknown }>;
 		const live = new Set<string>();
 		for (const pane of panes) {

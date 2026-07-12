@@ -196,8 +196,8 @@ export function locate(
 	return ok(lines.join("\n"), { hits });
 }
 
-export function workspace(state: QuestState): QuestResult {
-	const entries = workspaceQuests(state);
+export async function workspace(state: QuestState): Promise<QuestResult> {
+	const entries = await workspaceQuests(state);
 	if (entries.length === 0) {
 		return ok("No quests are being worked on right now.", { workspace: [] });
 	}

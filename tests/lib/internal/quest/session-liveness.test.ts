@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	deriveLiveness,
+	activityFromIndex,
 	indexSessionFiles,
 	prunePhantomSessions,
 	questLastActivity,
@@ -101,70 +101,22 @@ describe("newestTimestamp via sessionActivity", () => {
 	});
 });
 
-describe("deriveLiveness", () => {
-	const now = new Date("2026-06-04T12:00:00.000Z");
-
-	it("reports detached when the session status is detached", async () => {
-		await writeSession("019det", "--c--", [
+describe("activityFromIndex", () => {
+	it("reads a session's newest activity from a prebuilt index", async () => {
+		await writeSession("019live", "--c--", [
+			{ timestamp: "2026-06-04T11:58:00.000Z" },
 			{ timestamp: "2026-06-04T11:59:00.000Z" },
 		]);
-		const view = deriveLiveness({ id: "019det", status: "detached" }, dir, now);
-		expect(view.liveness).toBe("detached");
-		expect(view.lastActivity).toBe("2026-06-04T11:59:00.000Z");
-	});
-
-	it("reports dead when no log file exists", () => {
-		const view = deriveLiveness({ id: "gone", status: "active" }, dir, now);
-		expect(view.liveness).toBe("dead");
-		expect(view.lastActivity).toBeUndefined();
-	});
-
-	it("reports live for recent activity", async () => {
-		await writeSession("019live", "--c--", [
-			{ timestamp: "2026-06-04T11:58:00.000Z" },
-		]);
-		const view = deriveLiveness({ id: "019live", status: "active" }, dir, now);
-		expect(view.liveness).toBe("live");
-	});
-
-	it("reports idle for stale activity", async () => {
-		await writeSession("019idle", "--c--", [
-			{ timestamp: "2026-06-04T10:00:00.000Z" },
-		]);
-		const view = deriveLiveness({ id: "019idle", status: "active" }, dir, now);
-		expect(view.liveness).toBe("idle");
-	});
-
-	it("matches the directory-walk result when given a prebuilt index", async () => {
-		await writeSession("019live", "--c--", [
-			{ timestamp: "2026-06-04T11:58:00.000Z" },
-		]);
-		await writeSession("019idle", "--d--", [
-			{ timestamp: "2026-06-04T10:00:00.000Z" },
-		]);
 		const index = indexSessionFiles(dir);
-		for (const id of ["019live", "019idle", "gone"]) {
-			const session = { id, status: "active" as const };
-			expect(deriveLiveness(session, dir, now, index)).toEqual(
-				deriveLiveness(session, dir, now),
-			);
-		}
-	});
-
-	it("resolves activity from the index without reading the store directory", async () => {
-		await writeSession("019live", "--c--", [
-			{ timestamp: "2026-06-04T11:58:00.000Z" },
-		]);
-		const index = indexSessionFiles(dir);
-		// A bogus sessionDir would make the directory-walk path fail to
-		// find the log; with the index, liveness still resolves.
-		const view = deriveLiveness(
-			{ id: "019live", status: "active" },
-			"/nonexistent",
-			now,
-			index,
+		expect(activityFromIndex(index, "019live")).toBe(
+			"2026-06-04T11:59:00.000Z",
 		);
-		expect(view.liveness).toBe("live");
+	});
+
+	it("returns undefined for an id the index does not hold", () => {
+		expect(
+			activityFromIndex(indexSessionFiles(dir), "missing"),
+		).toBeUndefined();
 	});
 });
 

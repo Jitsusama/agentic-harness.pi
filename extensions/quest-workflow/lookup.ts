@@ -36,6 +36,7 @@ import {
 	type QuestSession,
 } from "../../lib/quest/index.js";
 import { parseRef, urlForRef } from "../../lib/refs/index.js";
+import { buildSessionSnapshot } from "./liveness.js";
 import type { RowCast, RowDocument, RowJourney } from "./render-rows.js";
 import type { QuestState } from "./state.js";
 
@@ -381,16 +382,22 @@ export interface WorkspaceEntry {
  * `list`, which ranks every open quest by priority. Ordered by the
  * liveliest session's most recent activity, newest first.
  */
-export function workspaceQuests(state: QuestState): WorkspaceEntry[] {
+export async function workspaceQuests(
+	state: QuestState,
+): Promise<WorkspaceEntry[]> {
 	const { index } = discoverQuests(state.questsRoot);
-	const store = sessionsDir();
-	const sessionIndex = indexSessionFiles(store);
-	const now = new Date();
+	// One snapshot across every quest's sessions: derivation is keyed
+	// by session id, so a single store walk and probe pass serves all
+	// quests rather than re-indexing per quest.
+	const allSessions = [...index.quests.values()].flatMap(
+		(entry) => entry.doc.frontMatter.sessions,
+	);
+	const snapshot = await buildSessionSnapshot(allSessions);
 	const entries: WorkspaceEntry[] = [];
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
 		const views = fm.sessions
-			.map((s) => deriveLiveness(s, store, now, sessionIndex))
+			.map((s) => deriveLiveness(s, snapshot))
 			.filter((v) => v.liveness === "live" || v.liveness === "idle")
 			.sort((a, b) => {
 				const at = a.lastActivity ? Date.parse(a.lastActivity) : 0;
@@ -628,13 +635,11 @@ function linksForQuest(
  * is the load verb's job, not this view's. Reads the store fresh
  * against the current time.
  */
-function projectSessions(sessions: QuestSession[]): SessionSummary[] {
-	const store = sessionsDir();
-	const index = indexSessionFiles(store);
-	const now = new Date();
-	return summariseSessions(
-		sessions.map((s) => deriveLiveness(s, store, now, index)),
-	);
+async function projectSessions(
+	sessions: QuestSession[],
+): Promise<SessionSummary[]> {
+	const snapshot = await buildSessionSnapshot(sessions);
+	return summariseSessions(sessions.map((s) => deriveLiveness(s, snapshot)));
 }
 
 export interface DocumentSummary {
@@ -737,7 +742,7 @@ export async function showQuestById(
 		journey,
 		milestones: milestoneCounts(me.doc.body),
 		documents: summariseDocuments(me.documents),
-		sessions: projectSessions(me.doc.frontMatter.sessions),
+		sessions: await projectSessions(me.doc.frontMatter.sessions),
 		links: links?.outgoing ?? { quests: [], refs: [], urls: [] },
 		echoes: links?.incoming ?? [],
 	};
