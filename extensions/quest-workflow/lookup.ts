@@ -597,7 +597,10 @@ export function auditSessionMembership(state: QuestState): SessionDivergence[] {
 	const bySession = new Map<string, string[]>();
 	for (const entry of index.quests.values()) {
 		for (const s of entry.doc.frontMatter.sessions) {
-			if (s.status === "active") {
+			// A missing status reads as active, matching how the rest of
+			// the code treats legacy records, so a status-less duplicate is
+			// still caught as a conflict.
+			if ((s.status ?? "active") === "active") {
 				const list = bySession.get(s.id) ?? [];
 				list.push(entry.doc.frontMatter.id);
 				bySession.set(s.id, list);

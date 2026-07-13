@@ -45,7 +45,12 @@ function currentWorkspace():
 	| undefined {
 	const handle = identifyCurrentTerminal();
 	if (!handle?.scope) return undefined;
-	return { key: `${handle.driverId}:${handle.scope}`, handle };
+	// Include the host: a mux socket path is host-local, so two hosts
+	// could otherwise reuse the same path and collide in the store.
+	return {
+		key: `${handle.hostId}:${handle.driverId}:${handle.scope}`,
+		handle,
+	};
 }
 
 /**

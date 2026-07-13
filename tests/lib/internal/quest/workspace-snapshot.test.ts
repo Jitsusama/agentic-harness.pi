@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -102,6 +102,32 @@ describe("load/save round-trip", () => {
 	it("reads a missing store as empty", () => {
 		expect(loadWorkspaceStore(join(dir, "absent.json"))).toEqual({});
 	});
+
+	it("reads corrupt JSON as empty", () => {
+		const path = join(dir, "corrupt.json");
+		writeFileSync(path, "{ not json", "utf8");
+		expect(loadWorkspaceStore(path)).toEqual({});
+	});
+
+	it("drops a malformed snapshot rather than trusting its shape", () => {
+		const path = join(dir, "mixed.json");
+		// One well-formed key and one whose entries are not an array.
+		writeFileSync(
+			path,
+			JSON.stringify({
+				good: {
+					key: "good",
+					updated: t0,
+					entries: [{ questId: "Q", cwd: "/w", sessionId: "s", updated: t0 }],
+				},
+				bad: { key: "bad", updated: t0, entries: "nope" },
+			}),
+			"utf8",
+		);
+		const store = loadWorkspaceStore(path);
+		expect(snapshotFor(store, "good")?.entries).toHaveLength(1);
+		expect(snapshotFor(store, "bad")).toBeUndefined();
+	});
 });
 
 describe("planWorkspaceRestore", () => {
@@ -135,7 +161,7 @@ describe("restoreRecipe", () => {
 		]);
 		expect(recipe).toHaveLength(1);
 		expect(recipe[0]).toContain("/w/a");
-		expect(recipe[0]).toContain("pi --session sess-a");
+		expect(recipe[0]).toContain("pi --session 'sess-a'");
 	});
 
 	it("single-quotes a cwd with a space so cd does not break", () => {

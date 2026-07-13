@@ -96,15 +96,33 @@ export function loadWorkspaceStore(path: string): WorkspaceStore {
 		// "nothing was ever recorded here."
 		return {};
 	}
+	let parsed: unknown;
 	try {
-		const parsed = JSON.parse(text);
-		if (typeof parsed === "object" && parsed !== null) {
-			return parsed as WorkspaceStore;
-		}
+		parsed = JSON.parse(text);
 	} catch {
 		// Corrupt JSON: discard rather than crash the reader.
+		return {};
 	}
-	return {};
+	if (typeof parsed !== "object" || parsed === null) return {};
+	// Keep only the well-shaped snapshots. A hand-edited or partially
+	// written store must not hand a consumer a snapshot whose entries
+	// are not an array, so a malformed key is dropped, not trusted.
+	const store: WorkspaceStore = {};
+	for (const [key, value] of Object.entries(parsed)) {
+		if (isWorkspaceSnapshot(value)) store[key] = value;
+	}
+	return store;
+}
+
+/** Whether a parsed value has the shape of a {@link WorkspaceSnapshot}. */
+function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
+	if (typeof value !== "object" || value === null) return false;
+	const v = value as Record<string, unknown>;
+	return (
+		typeof v.key === "string" &&
+		typeof v.updated === "string" &&
+		Array.isArray(v.entries)
+	);
 }
 
 /**
@@ -153,7 +171,7 @@ export function planWorkspaceRestore(
 export function restoreRecipe(entries: readonly WorkspaceEntry[]): string[] {
 	return entries.map(
 		(e) =>
-			`(cd ${shellSingleQuote(e.cwd)} && pi --session ${e.sessionId})  # ${e.questId}`,
+			`(cd ${shellSingleQuote(e.cwd)} && pi --session ${shellSingleQuote(e.sessionId)})  # ${e.questId}`,
 	);
 }
 

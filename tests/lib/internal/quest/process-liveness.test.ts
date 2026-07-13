@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	identityFromInspection,
 	interpretPsLookup,
 	type ProcessIdentity,
 	type ProcessInspection,
@@ -58,6 +59,28 @@ describe("probeProcess", () => {
 	});
 });
 
+describe("identityFromInspection", () => {
+	it("builds an identity from a live inspection", () => {
+		expect(
+			identityFromInspection("host-a", 42, {
+				kind: "alive",
+				startToken: "tok",
+			}),
+		).toEqual({ hostId: "host-a", pid: 42, startToken: "tok" });
+	});
+
+	it("records no identity when the start token could not be read", () => {
+		// A synthetic token would later mismatch a real ps reading and
+		// read the session dead, so an unreadable capture yields none.
+		expect(
+			identityFromInspection("host-a", 42, { kind: "gone" }),
+		).toBeUndefined();
+		expect(
+			identityFromInspection("host-a", 42, { kind: "unknown" }),
+		).toBeUndefined();
+	});
+});
+
 describe("interpretPsLookup", () => {
 	it("reads a live process's start token from clean output", () => {
 		expect(
@@ -89,6 +112,18 @@ describe("interpretPsLookup", () => {
 				exitStatus: 1,
 				stdout: "",
 				stderr: "ps: unrecognized option: o\n",
+			}),
+		).toEqual({ kind: "unknown" });
+	});
+
+	it("reads a non-zero exit whose diagnostic went to stdout as unknown", () => {
+		// Some ps variants print the rejection to stdout, not stderr.
+		expect(
+			interpretPsLookup({
+				spawned: true,
+				exitStatus: 1,
+				stdout: "usage: ps [options]\n",
+				stderr: "",
 			}),
 		).toEqual({ kind: "unknown" });
 	});

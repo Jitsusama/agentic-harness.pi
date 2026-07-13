@@ -118,23 +118,43 @@ export function interpretPsLookup(r: {
 			? { kind: "alive", startToken: token }
 			: { kind: "gone" };
 	}
-	return r.stderr.trim().length === 0 ? { kind: "gone" } : { kind: "unknown" };
+	// A non-zero exit is only "no such pid" when ps said nothing at
+	// all; any diagnostic, on either stream, means it could not answer
+	// the query, which is unknown rather than death.
+	const quiet = r.stdout.trim().length === 0 && r.stderr.trim().length === 0;
+	return quiet ? { kind: "gone" } : { kind: "unknown" };
 }
 
-/** A lifetime-stable synthetic token for when the OS reader cannot help. */
-const FALLBACK_START_TOKEN = `pi-${process.pid}-${Date.now()}`;
+/**
+ * Build a probeable process identity from a live inspection, or none
+ * when the start token could not be read. Recording an identity with
+ * a synthetic token would guarantee a later mismatch against a real
+ * ps reading and read the session dead, so an unreadable capture is
+ * left without a process identity and falls back to recency instead.
+ */
+export function identityFromInspection(
+	hostId: string,
+	pid: number,
+	inspection: ProcessInspection,
+): ProcessIdentity | undefined {
+	return inspection.kind === "alive"
+		? { hostId, pid, startToken: inspection.startToken }
+		: undefined;
+}
 
 /**
  * Identity of the currently running pi process, for capture onto the
- * session it is attached to. The start token comes from the OS reader
- * when available, falling back to a lifetime-stable synthetic so the
- * field is never empty.
+ * session it is attached to. Undefined when the OS reader could not
+ * read a real start token: a session then carries no process identity
+ * and its liveness falls back to recency, rather than a synthetic
+ * token that a later probe would read as a dead mismatch.
  */
-export function currentProcessIdentity(): ProcessIdentity {
-	const found = readStartToken(process.pid);
-	const startToken =
-		found.kind === "alive" ? found.startToken : FALLBACK_START_TOKEN;
-	return { hostId: hostname(), pid: process.pid, startToken };
+export function currentProcessIdentity(): ProcessIdentity | undefined {
+	return identityFromInspection(
+		hostname(),
+		process.pid,
+		readStartToken(process.pid),
+	);
 }
 
 /** The always-on local floor: this host plus the OS start-token reader. */

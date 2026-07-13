@@ -9,6 +9,7 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	auditSessionMembership,
 	planDeadSessions,
 	planSessionRepair,
 } from "../../../extensions/quest-workflow/lookup";
@@ -86,6 +87,20 @@ function makeActiveDeadProcess(dir: string, sessionId: string): void {
 		`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
 	);
 }
+// A legacy session record with no status field at all; older files
+// wrote these and the code treats a missing status as active.
+function makeActiveNoStatus(dir: string, sessionId: string): void {
+	const path = join(dir, "README.md");
+	const parsed = parseQuestFrontMatter(readFileSync(path, "utf8"));
+	if (!parsed) throw new Error("unreadable");
+	parsed.frontMatter.sessions = [
+		{ id: sessionId, started: new Date().toISOString() },
+	];
+	writeFileSync(
+		path,
+		`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+	);
+}
 function writeLog(sessionId: string, ownerQuestId: string | null): void {
 	const dir = join(sessionsDir(), "--repair-test--");
 	mkdirSync(dir, { recursive: true });
@@ -110,6 +125,19 @@ afterEach(() => {
 	else delete process.env.HOME;
 	rmSync(tmpRoot, { recursive: true, force: true });
 	envGuard.leave();
+});
+
+describe("auditSessionMembership", () => {
+	it("counts a status-less legacy record as an active claim", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		const b = await createQuest(state, "Bravo");
+		makeActiveNoStatus(join(tmpRoot, "quests", a), "sess-legacy");
+		makeActive(join(tmpRoot, "quests", b), "sess-legacy");
+		expect(auditSessionMembership(state)).toEqual([
+			{ sessionId: "sess-legacy", questIds: [a, b].sort() },
+		]);
+	});
 });
 
 describe("planDeadSessions", () => {

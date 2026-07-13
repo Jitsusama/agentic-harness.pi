@@ -95,6 +95,6 @@ describe("restore verb", () => {
 		// The pane cannot be probed live (no wezterm binary), so the
 		// recorded session is offered for restore with a resume recipe.
 		expect(result.message).toContain(quest);
-		expect(result.message).toContain("pi --session sess-A");
+		expect(result.message).toContain("pi --session 'sess-A'");
 	});
 });
