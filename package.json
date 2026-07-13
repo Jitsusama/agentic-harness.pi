@@ -25,7 +25,8 @@
 		"./people": "./lib/people/index.ts",
 		"./terminal": "./lib/terminal/index.ts",
 		"./quest": "./lib/quest/index.ts",
-		"./tree": "./lib/tree/index.ts"
+		"./tree": "./lib/tree/index.ts",
+		"./mcp": "./lib/mcp/index.ts"
 	},
 	"scripts": {
 		"lint": "biome check .",
@@ -46,6 +47,7 @@
 		]
 	},
 	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@mozilla/readability": "^0.6.0",
 		"google-auth-library": "^9.14.2",
 		"googleapis": "^140.0.1",
@@ -54,7 +56,8 @@
 		"sqlite3": "^5.1.7",
 		"vscode-jsonrpc": "^9.0.1",
 		"vscode-languageserver-protocol": "^3.18.2",
-		"yaml": "^2.9.0"
+		"yaml": "^2.9.0",
+		"zod": "^3.25.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.6",
