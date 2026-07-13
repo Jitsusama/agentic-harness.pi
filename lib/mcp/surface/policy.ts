@@ -55,7 +55,7 @@ export function defaultBackendOf(name: string): string {
 const GLOB_META = /[.+?^${}()|[\]\\]/g;
 
 /** Compile a glob (with `*` wildcards) to an anchored RegExp; all other metacharacters are literal. */
-function globToRegex(pattern: string): RegExp {
+export function globToRegex(pattern: string): RegExp {
 	const escaped = pattern.replace(GLOB_META, "\\$&");
 	return new RegExp(`^${escaped.replace(/\*/g, ".*")}$`);
 }
