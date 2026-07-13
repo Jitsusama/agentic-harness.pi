@@ -128,6 +128,22 @@ describe("load/save round-trip", () => {
 		expect(snapshotFor(store, "good")?.entries).toHaveLength(1);
 		expect(snapshotFor(store, "bad")).toBeUndefined();
 	});
+
+	it("drops a snapshot whose entries array holds a malformed entry", () => {
+		const path = join(dir, "bad-entry.json");
+		writeFileSync(
+			path,
+			JSON.stringify({
+				k: {
+					key: "k",
+					updated: t0,
+					entries: [{ questId: "Q", cwd: 123, sessionId: "s", updated: t0 }],
+				},
+			}),
+			"utf8",
+		);
+		expect(snapshotFor(loadWorkspaceStore(path), "k")).toBeUndefined();
+	});
 });
 
 describe("planWorkspaceRestore", () => {
@@ -174,6 +190,19 @@ describe("restoreRecipe", () => {
 			},
 		]);
 		expect(recipe[0]).toContain("cd '/w/a dir'");
+	});
+
+	it("flattens a newline in the quest id so it cannot break the comment", () => {
+		const recipe = restoreRecipe([
+			{
+				questId: "QEST-1\nrm -rf ~",
+				cwd: "/w/a",
+				sessionId: "sess-a",
+				updated: t0,
+			},
+		]);
+		expect(recipe[0]).not.toContain("\n");
+		expect(recipe[0].split("\n")).toHaveLength(1);
 	});
 
 	it("escapes an embedded single quote so the path cannot break out", () => {

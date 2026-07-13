@@ -114,9 +114,13 @@ export function interpretPsLookup(r: {
 	if (!r.spawned) return { kind: "unknown" };
 	if (r.exitStatus === 0) {
 		const token = r.stdout.trim();
+		// A live pid always prints its start line on a zero exit. An
+		// empty zero-exit is anomalous, not a clean "no such pid" (that
+		// comes via a non-zero exit), so treat it as unknown rather than
+		// declaring death.
 		return token.length > 0
 			? { kind: "alive", startToken: token }
-			: { kind: "gone" };
+			: { kind: "unknown" };
 	}
 	// A non-zero exit is only "no such pid" when ps said nothing at
 	// all; any diagnostic, on either stream, means it could not answer

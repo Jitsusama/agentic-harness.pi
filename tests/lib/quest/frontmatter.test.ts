@@ -50,6 +50,7 @@ const SESSION_WITH_IDENTITY: QuestFrontMatter = {
 				driverId: "wezterm",
 				value: "7",
 				scope: "/sock/gui-1",
+				hostId: "host-a",
 			},
 		},
 	],

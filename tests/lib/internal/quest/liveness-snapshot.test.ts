@@ -156,4 +156,31 @@ describe("buildLivenessSnapshot", () => {
 		});
 		expect(seenHost).toBe("host-z");
 	});
+
+	it("probes the terminal by its own host when no process was captured", async () => {
+		// ps could not read a start token, so no process identity was
+		// captured; the pane must still be probeable by the host recorded
+		// on the terminal itself.
+		const s: QuestSession = {
+			id: "x",
+			status: "active",
+			terminal: {
+				driverId: "wezterm",
+				value: "9",
+				scope: "/s",
+				hostId: "host-term",
+			},
+		};
+		let seenHost: string | undefined;
+		await buildLivenessSnapshot([s], {
+			now: NOW,
+			activityOf: () => undefined,
+			probeProcess: () => "unknown",
+			probeTerminals: async (handles) => {
+				seenHost = handles[0]?.hostId;
+				return new Map();
+			},
+		});
+		expect(seenHost).toBe("host-term");
+	});
 });

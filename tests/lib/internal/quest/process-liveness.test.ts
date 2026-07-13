@@ -128,7 +128,10 @@ describe("interpretPsLookup", () => {
 		).toEqual({ kind: "unknown" });
 	});
 
-	it("reads a zero exit with empty output as gone", () => {
+	it("reads an anomalous zero exit with empty output as unknown, not gone", () => {
+		// A live pid always prints its start line on a zero exit; a clean
+		// "no such pid" comes via a non-zero exit. An empty zero exit is
+		// neither, so it is unknown rather than a false death.
 		expect(
 			interpretPsLookup({
 				spawned: true,
@@ -136,7 +139,7 @@ describe("interpretPsLookup", () => {
 				stdout: "   \n",
 				stderr: "",
 			}),
-		).toEqual({ kind: "gone" });
+		).toEqual({ kind: "unknown" });
 	});
 
 	it("reads a spawn failure as unknown", () => {

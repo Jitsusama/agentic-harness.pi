@@ -212,6 +212,15 @@ export function questLastActivity(
  * host as its process. Runs once per request; the derivation over
  * it is synchronous.
  */
+/**
+ * The host a session's terminal was captured on. Prefer the host
+ * recorded on the terminal itself; fall back to the process host for
+ * a legacy record written before the terminal carried its own host.
+ */
+function terminalHostOf(session: QuestSession): string {
+	return session.terminal?.hostId ?? session.process?.hostId ?? "";
+}
+
 export async function buildLivenessSnapshot(
 	sessions: readonly QuestSession[],
 	deps: LivenessSnapshotDeps,
@@ -226,7 +235,7 @@ export async function buildLivenessSnapshot(
 			handles.push({
 				driverId: session.terminal.driverId,
 				kind: `${session.terminal.driverId}-pane`,
-				hostId: session.process?.hostId ?? "",
+				hostId: terminalHostOf(session),
 				scope: session.terminal.scope,
 				value: session.terminal.value,
 			});
@@ -245,7 +254,7 @@ export async function buildLivenessSnapshot(
 			const key = terminalHandleKey({
 				driverId: session.terminal.driverId,
 				kind: `${session.terminal.driverId}-pane`,
-				hostId: session.process?.hostId ?? "",
+				hostId: terminalHostOf(session),
 				scope: session.terminal.scope,
 				value: session.terminal.value,
 			});

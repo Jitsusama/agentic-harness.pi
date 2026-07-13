@@ -139,6 +139,13 @@ export interface QuestSession {
 		driverId: string;
 		value: string;
 		scope?: string;
+		/**
+		 * Host the terminal was captured on. Carried on the terminal
+		 * itself so a pane stays probeable even when no process
+		 * identity was captured (a host where the start token could not
+		 * be read).
+		 */
+		hostId?: string;
 	};
 }
 

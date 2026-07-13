@@ -199,6 +199,8 @@ function parseSessionTerminal(
 	const terminal: NonNullable<QuestSession["terminal"]> = { driverId, value };
 	const scope = asString(obj.scope);
 	if (scope) terminal.scope = scope;
+	const hostId = asString(obj.hostId);
+	if (hostId) terminal.hostId = hostId;
 	return terminal;
 }
 

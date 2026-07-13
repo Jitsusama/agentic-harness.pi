@@ -1052,7 +1052,12 @@ export function captureSessionIdentity(): {
 		instanceId: currentInstanceId(),
 		process: currentProcessIdentity(),
 		terminal: handle
-			? { driverId: handle.driverId, value: handle.value, scope: handle.scope }
+			? {
+					driverId: handle.driverId,
+					value: handle.value,
+					scope: handle.scope,
+					hostId: handle.hostId,
+				}
 			: undefined,
 	};
 }

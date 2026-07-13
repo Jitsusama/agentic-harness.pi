@@ -121,7 +121,21 @@ function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
 	return (
 		typeof v.key === "string" &&
 		typeof v.updated === "string" &&
-		Array.isArray(v.entries)
+		Array.isArray(v.entries) &&
+		v.entries.every(isWorkspaceEntry)
+	);
+}
+
+/** Whether a parsed value has the shape of a {@link WorkspaceEntry}. */
+function isWorkspaceEntry(value: unknown): value is WorkspaceEntry {
+	if (typeof value !== "object" || value === null) return false;
+	const v = value as Record<string, unknown>;
+	return (
+		typeof v.questId === "string" &&
+		typeof v.cwd === "string" &&
+		typeof v.sessionId === "string" &&
+		typeof v.updated === "string" &&
+		(v.pane === undefined || typeof v.pane === "string")
 	);
 }
 
@@ -171,7 +185,7 @@ export function planWorkspaceRestore(
 export function restoreRecipe(entries: readonly WorkspaceEntry[]): string[] {
 	return entries.map(
 		(e) =>
-			`(cd ${shellSingleQuote(e.cwd)} && pi --session ${shellSingleQuote(e.sessionId)})  # ${e.questId}`,
+			`(cd ${shellSingleQuote(e.cwd)} && pi --session ${shellSingleQuote(e.sessionId)})  # ${commentSafe(e.questId)}`,
 	);
 }
 
@@ -182,4 +196,13 @@ export function restoreRecipe(entries: readonly WorkspaceEntry[]): string[] {
  */
 function shellSingleQuote(value: string): string {
 	return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * Flatten a value for a trailing shell comment. A newline would end
+ * the comment and turn the rest of the recipe into a live command, so
+ * control characters are collapsed to a space.
+ */
+function commentSafe(value: string): string {
+	return value.replace(/[\r\n]+/g, " ").trim();
 }
