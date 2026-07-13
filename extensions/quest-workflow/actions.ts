@@ -62,6 +62,8 @@ export const QUEST_ACTIONS = [
 	"locate",
 	"ancestors",
 	"workspace",
+	"recent",
+	"restore",
 	"session-audit",
 ] as const;
 

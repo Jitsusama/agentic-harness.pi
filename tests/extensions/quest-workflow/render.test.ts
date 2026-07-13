@@ -33,6 +33,26 @@ describe("sessionNameFor", () => {
 		expect(out.endsWith("\u2026")).toBe(true);
 		expect(out).toBe("Quest Workflow UX I\u2026");
 	});
+
+	it("prefixes the stable short quest id when the id is supplied", () => {
+		expect(sessionNameFor("Alpha", "QEST-20260712-KE2P5K")).toBe(
+			"KE2P5K Alpha",
+		);
+	});
+
+	it("shows the short id alone when there is no title", () => {
+		expect(sessionNameFor(null, "QEST-20260712-KE2P5K")).toBe("KE2P5K");
+	});
+
+	it("keeps the short id whole and truncates only the title", () => {
+		const out = sessionNameFor(
+			"A Very Long Quest Title That Overflows",
+			"QEST-20260712-KE2P5K",
+		) as string;
+		expect(out.length).toBe(20);
+		expect(out.startsWith("KE2P5K ")).toBe(true);
+		expect(out.endsWith("\u2026")).toBe(true);
+	});
 });
 
 describe("renderStatus", () => {

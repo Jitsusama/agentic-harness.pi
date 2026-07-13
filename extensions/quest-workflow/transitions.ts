@@ -15,7 +15,10 @@
  * module.
  */
 
-import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
 import type { QuestPriority } from "../../lib/quest/index.js";
 import { suggestAction } from "./actions.js";
 import type { QuestState } from "./state.js";
@@ -37,6 +40,8 @@ import {
 	find,
 	linksAction,
 	locate,
+	recent,
+	restore,
 	tree,
 	who,
 	workspace,
@@ -74,7 +79,7 @@ export type { QuestResult, QuestToolParams };
 export async function handle(
 	state: QuestState,
 	pi: ExtensionAPI,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): Promise<QuestResult> {
 	switch (params.action) {
@@ -153,7 +158,7 @@ export async function handle(
 		case "session-rename":
 			return sessionRename(state, ctx, params);
 		case "session-audit":
-			return sessionAudit(state);
+			return sessionAudit(state, params);
 		case "spawn-tab":
 		case "spawn-pane":
 		case "spawn-window":
@@ -170,6 +175,10 @@ export async function handle(
 			return ancestors(state, params);
 		case "workspace":
 			return workspace(state);
+		case "recent":
+			return recent(state);
+		case "restore":
+			return restore();
 		default: {
 			const suggestion = suggestAction(params.action ?? "");
 			const hint = suggestion

@@ -84,7 +84,7 @@ async function createQuest(
 describe("questIdFromCwd", () => {
 	function addTree(readmePath: string, treePath: string): void {
 		const text = readFileSync(readmePath, "utf8");
-		const block = `\ntrees:\n  - path: ${treePath}\n    providerId: dev-tree\n    repoRoot: ${treePath}\n    origin: adopted\n---\n`;
+		const block = `\ntrees:\n  - path: ${treePath}\n    providerId: dev-tree\n    repoRoot: ${treePath}\n    origin: scaffolded\n---\n`;
 		writeFileSync(readmePath, text.replace(/\n---\n/, block));
 	}
 
@@ -276,6 +276,7 @@ describe("find / who / links", () => {
 			query: "authentication",
 		});
 		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("unreachable");
 		const rows = (result.details as { listing: { rows: { id: string }[] } })
 			.listing.rows;
 		expect(rows.some((r) => r.id === a.id)).toBe(true);
@@ -297,6 +298,7 @@ describe("find / who / links", () => {
 			name: "joel",
 		});
 		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("unreachable");
 		const hits = (result.details as { hits: { subject: string }[] }).hits;
 		expect(hits.length).toBeGreaterThan(0);
 		expect(hits[0].subject.toLowerCase()).toContain("joel");
@@ -321,6 +323,7 @@ describe("find / who / links", () => {
 			action: "links",
 		});
 		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("unreachable");
 		const links = (
 			result.details as {
 				links: {
@@ -368,7 +371,10 @@ describe("spawn verbs", () => {
 		expect(calls).toHaveLength(1);
 		expect(calls[0].layout).toBe("tab");
 		expect(calls[0].command).toBe("pi");
-		expect(calls[0].cwd).toBe(state.questDir);
+		// With no tree registered, spawn lands in the live session's
+		// cwd (the running test process, so its identity probes as
+		// live), ahead of the quest dir in the resolution order.
+		expect(calls[0].cwd).toBe(tmpRoot);
 		// The spawn ships the loaded quest id so the new
 		// pi can name its session after the quest without
 		// the wezterm/tmux tab-title plumbing.
@@ -509,6 +515,7 @@ describe("URL-seeded create", () => {
 			url: "https://github.com/shop/world/pull/99999",
 		});
 		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("unreachable");
 		const path = (result.details as { path: string }).path;
 		const text = readFileSync(path, "utf8");
 		expect(text).toContain("# Seeded title");
@@ -953,6 +960,7 @@ describe("create validation", () => {
 			action: "create",
 			title: "Real Parent",
 		});
+		if (!parent.ok) throw new Error(parent.guidance);
 		const parentId = (parent.details as { id: string }).id;
 		const child = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "create",

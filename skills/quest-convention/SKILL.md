@@ -187,6 +187,79 @@ with the user. The `tree-list` inventory flags any recorded
 tree whose directory has gone missing on disk, so a stale
 entry is visible rather than trusted.
 
+The two origins also magnetize differently. A fresh session,
+and an id-less `quest load`, resolve a quest from the cwd only
+through the quest's own directory and the trees it scaffolded.
+An adopted tree never auto-loads, because a checkout adopted
+by several quests cannot say which one you meant; load such a
+quest by id instead. For the same reason `tree-adopt` warns
+and requires `force: true` before binding a quest to a
+repository's main working tree or to a path another quest
+already tracks. Adoption stays first-class: it is the
+deliberate way to account for a shared checkout, the guard
+only stops it happening by accident.
+
+When a session has ended up active on more than one quest
+(a legacy store, or a lost reconcile), `session-audit` repairs
+it. By default it previews: for each divergent session it
+names the one quest the session's own log records as owner and
+lists the strays it would detach. It also lists any active
+session whose captured identity a probe reads gone, so a
+crashed pane's stale membership can be cleaned up. Pass
+`force: true` to apply both the divergence detaches and the
+dead detaches. Two safeguards hold: a session whose log names
+no current claimant is reported conflicted and left untouched
+for you to resolve by loading its true quest, and a session
+that is dead only by the recency heuristic (no captured
+identity to probe) is never detached, because a probe must
+have actually observed the process or pane gone before the
+verb acts on it.
+
+## Session Liveness and Recovery
+
+A quest tracks the pi sessions that worked on it, and the
+tool answers which are alive honestly rather than guessing
+from a clock. Liveness is observed when you ask, never
+stored: a session resolves to live, idle, dead, unknown or
+conflicted from a read-time probe of its recorded process
+and terminal, and unknown is a real answer for a session on
+another host or one the probe could not reach. A stored
+record holds identity, not a verdict.
+
+Three read views serve recovery, and none of them loads or
+mutates anything:
+
+- On session start the tool shows a passive hint naming the
+  few most recently active sessions, so a fresh shell after
+  a crash can see where work was. The hint reads only cheap
+  log activity; it never probes liveness and never loads a
+  quest.
+- `quest recent` is the authoritative picker: one row per
+  prior session across every quest, resolved to its quest,
+  cwd, activity age and probed liveness. It keeps dead and
+  detached sessions so a crashed pane is recoverable, and a
+  session claimed by several quests collapses to the one its
+  own log names as owner. Each row prints its
+  `pi --session <id>` resume command.
+- `quest workspace` is the live view: one row per session,
+  never collapsed per quest, so two live panes read as two
+  rows and a crash shows beside its live sibling.
+- `quest restore` reconstructs a terminal after a restart.
+  A session records itself in its terminal workspace when
+  it explicitly loads or reopens a quest, so once the panes
+  are gone the set that was open together is still known.
+  Restore previews that set for the current terminal,
+  excludes the panes still on screen, and prints a
+  `pi --session` recipe to reopen the rest. It plans and
+  prints only; you run the recipe, nothing reopens on its
+  own.
+
+To resume a prior session, run `quest recent` and copy the
+resume command for the row you want, rather than reaching
+for a raw session id. A loaded quest also names its pi tab
+with its stable short id, so a person scanning wezterm can
+tell the panes apart without a query.
+
 ## The Resuscitate Pattern
 
 A common motion: a sidequest paused weeks ago, a new Slack

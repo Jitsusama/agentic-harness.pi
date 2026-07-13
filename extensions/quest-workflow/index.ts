@@ -30,6 +30,8 @@ import {
 import { dataDir } from "../../lib/internal/paths.js";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.js";
 import { discoverQuests } from "../../lib/internal/quest/discovery.js";
+import { currentInstanceId } from "../../lib/internal/quest/process-liveness.js";
+import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.js";
 import {
 	registerBuiltinHandleTypes,
 	registerBuiltinPersonResolvers,
@@ -51,7 +53,8 @@ import {
 import { enforceQuest, isFocusedDocWrite } from "./enforce.js";
 import {
 	attachCurrentSession,
-	detachSessionFromLoaded,
+	captureSessionIdentity,
+	detachSessionIfOwner,
 	listAllQuests,
 	persist,
 	prunePhantomSessionsOnLoaded,
@@ -60,7 +63,7 @@ import {
 	refreshProgress,
 	resolveStartup,
 } from "./lifecycle.js";
-import { showLoaded } from "./lookup.js";
+import { recentSessionHints, showLoaded } from "./lookup.js";
 import { formatQuestList, renderStatus, renderWidget } from "./render.js";
 import {
 	collapseListingPreview,
@@ -71,6 +74,7 @@ import {
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
 import { currentSessionId, isPersistedSession } from "./verbs/shared.js";
+import { recordCurrentWorkspace } from "./workspace-snapshot.js";
 
 const DEFAULT_WIDTH = 80;
 const CALL_PREFIX_WIDTH = 14;
@@ -97,7 +101,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		section.value,
 		dataDir("quest-workflow"),
 	);
-	const state = createQuestState({ questsRoot });
+	const state = createQuestState({
+		questsRoot,
+		autoloadFromCwd: section.value.autoloadFromCwd,
+	});
 
 	// Expose the PR-workflow bridge so pr-workflow can
 	// scaffold a sidequest when it loads a PR. The
@@ -427,15 +434,15 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			const sessionId = args?.trim();
 			if (!sessionId) {
 				ctx.ui.notify(
-					"Usage: /quest-resume <session-id>. Run `quest show` to see the loaded quest's attached sessions.",
-					"warn",
+					"Usage: /quest-resume <session-id>. Run `quest recent` to list resumable sessions with their ids and resume commands.",
+					"warning",
 				);
 				return;
 			}
 			if (!state.questId) {
 				ctx.ui.notify(
 					"No quest loaded. `quest load <id>` first, then /quest-resume.",
-					"warn",
+					"warning",
 				);
 				return;
 			}
@@ -450,7 +457,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			if (!attached) {
 				ctx.ui.notify(
 					`Session ${sessionId} is not attached to ${state.questId}. Use \`quest session-attach\` to attach the current session, or \`quest show\` to see attached sessions.`,
-					"warn",
+					"warning",
 				);
 				return;
 			}
@@ -460,7 +467,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			} catch (err) {
 				ctx.ui.notify(
 					`Could not list sessions: ${(err as Error).message}`,
-					"warn",
+					"warning",
 				);
 				return;
 			}
@@ -468,7 +475,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			if (!hit) {
 				ctx.ui.notify(
 					`Session ${sessionId} not found on disk for ${ctx.cwd}. It may live under a different cwd; open pi in that directory and try again.`,
-					"warn",
+					"warning",
 				);
 				return;
 			}
@@ -565,6 +572,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				id: sid,
 				cwd: ctx.cwd,
 				persisted: isPersistedSession(ctx),
+				...captureSessionIdentity(),
 			});
 			// Reconcile on the launch path too, not only the explicit
 			// load verb: a resumed or spawned session lands here, and
@@ -573,8 +581,24 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			if (sid && isPersistedSession(ctx) && state.questId) {
 				reconcileSessionMembership(state, sid, state.questId);
 			}
+			// Record the session in its terminal workspace so a later
+			// restart can reconstruct what was open together. Only a
+			// persisted session is resumable, so an ephemeral fan-out
+			// session is never snapshotted. Best-effort.
+			if (sid && isPersistedSession(ctx) && state.questId) {
+				recordCurrentWorkspace({
+					questId: state.questId,
+					sessionId: sid,
+					cwd: ctx.cwd,
+				});
+			}
 		}
 		updateScoreboard(state, ctx);
+		// A passive pointer, nothing more: list the few most recently
+		// active sessions so a fresh shell can see where work was without
+		// probing history or loading anything. The authoritative, probed
+		// view is `quest recent`.
+		showSessionHint(state, ctx);
 	});
 
 	// Tear down the bridge so a session_shutdown followed
@@ -586,9 +610,14 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		// Mark this session detached on the loaded quest so its
 		// liveness reads correctly after the process exits.
-		if (state.questId) {
+		if (state.questId && state.questDir) {
 			const sid = currentSessionId(ctx, undefined);
-			if (sid) detachSessionFromLoaded(state, sid);
+			// Lease-guarded: only release the session when this process
+			// still owns it, so a process that resumed the session is not
+			// detached by our late shutdown.
+			if (sid) {
+				detachSessionIfOwner(state.questDir, sid, currentInstanceId());
+			}
 		}
 		unregisterQuestPrBridge(ownBridge);
 	});
@@ -680,5 +709,34 @@ export function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 					render: (width: number) => renderWidget(widgetInput, theme, width),
 					invalidate() {},
 				}),
+	);
+}
+
+/** The most recent sessions the passive start hint will name. */
+const SESSION_HINT_ROWS = 3;
+
+/**
+ * Show a passive, one-shot hint naming the few most recently active
+ * sessions, so a fresh shell can see where work was without probing
+ * history or loading anything. Reads only cheap log activity; it
+ * never probes liveness, never loads a quest and never mutates a
+ * record. Silent when there is nothing recent to point at.
+ */
+function showSessionHint(
+	state: QuestState,
+	ctx: { ui: { notify(message: string, level: "info"): void } },
+): void {
+	const hints = recentSessionHints(state, SESSION_HINT_ROWS);
+	if (hints.length === 0) return;
+	const now = new Date();
+	const lines = hints.map((h) => {
+		const age = formatRelativeAge(h.lastActivity, now);
+		const when = age ? ` (${age})` : "";
+		const where = h.cwd ? ` ${h.cwd}` : "";
+		return `- ${h.questId} ${h.title ?? ""}${where}${when}`.trimEnd();
+	});
+	ctx.ui.notify(
+		`Recent quest sessions:\n${lines.join("\n")}\nRun \`quest recent\` for the live view.`,
+		"info",
 	);
 }

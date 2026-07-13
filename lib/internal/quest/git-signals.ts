@@ -76,6 +76,29 @@ export function gitTreeRootOf(absPath: string): string | null {
 	return root && root.length > 0 ? root : null;
 }
 
+/**
+ * Whether the target sits in a repository's primary checkout, as
+ * opposed to a linked worktree. The main tree's git-dir equals its
+ * git-common-dir; a linked worktree's git-dir is under
+ * `.git/worktrees/`, so the two differ. False when git cannot answer
+ * or the path is outside any repository, so a doubtful case never
+ * reads as the shared main tree by accident.
+ */
+export function isMainWorkingTree(absPath: string): boolean {
+	// Probe a child path so git runs from the directory itself, the
+	// same trick gitTreeRootOf uses; located() otherwise resolves to
+	// the parent of an existing directory.
+	const { dir } = located(path.join(absPath, ".quest-tree-probe"));
+	const gitDir = git(dir, ["rev-parse", "--path-format=absolute", "--git-dir"]);
+	const commonDir = git(dir, [
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	]);
+	if (!gitDir || !commonDir) return false;
+	return canonicalPath(gitDir) === canonicalPath(commonDir);
+}
+
 /** Whether the target is gitignored at its destination. */
 export function isGitignored(absPath: string): boolean {
 	const { dir, target } = located(absPath);

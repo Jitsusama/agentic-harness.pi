@@ -8,7 +8,10 @@
 
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
@@ -36,6 +39,7 @@ import { parseRef, urlForRef } from "../../../lib/refs/index.js";
 import {
 	appendJourneyEntry,
 	attachCurrentSession,
+	captureSessionIdentity,
 	detachSessionInQuestDir,
 	ensureQuestsRoot,
 	focusDocument,
@@ -48,6 +52,7 @@ import {
 	unloadQuest,
 } from "../lifecycle.js";
 import { buildRowExpansion, showLoaded, showQuestById } from "../lookup.js";
+import { recordCurrentWorkspace } from "../workspace-snapshot.js";
 
 /**
  * Priority ladder for sorting list output. Lower numbers
@@ -134,6 +139,10 @@ export function questIdFromCwd(
 
 	// Otherwise fall back to tree and worktree-alias paths. The longest
 	// covering path wins; a live quest breaks a tie against a sealed one.
+	// Only `scaffolded` trees resolve: an adopted or unmarked tree, and a
+	// `git-worktree:` alias, is a reference to a possibly shared checkout,
+	// so a cwd-only load in a checkout adopted by many quests refuses to
+	// guess rather than magnetize an arbitrary one.
 	let bestId: string | undefined;
 	let bestLen = -1;
 	let bestLive = false;
@@ -141,10 +150,9 @@ export function questIdFromCwd(
 		const fm = entry.doc.frontMatter;
 		const live = !isSealedStatus(fm.status);
 		const paths: string[] = [];
-		for (const a of fm.aliases) {
-			if (a.type === "git-worktree") paths.push(a.value);
+		for (const tree of fm.trees ?? []) {
+			if (tree.origin === "scaffolded") paths.push(tree.path);
 		}
-		for (const tree of fm.trees ?? []) paths.push(tree.path);
 		for (const p of paths) {
 			const real = canonical(p);
 			if (!isUnder(realCwd, real)) continue;
@@ -339,7 +347,7 @@ export async function create(
 export async function load(
 	state: QuestState,
 	pi: ExtensionAPI,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): Promise<QuestResult> {
 	let targetId = params.id;
@@ -391,7 +399,20 @@ export async function load(
 		id: sid,
 		cwd: ctx.cwd,
 		persisted: isPersistedSession(ctx),
+		...captureSessionIdentity(),
 	}).attached;
+
+	// Record this session in its terminal workspace so a later restart
+	// can reconstruct the set that was open together. Only a persisted
+	// session is resumable, so an ephemeral fan-out session is never
+	// snapshotted. A best-effort side write; it never blocks the load.
+	if (sid && isPersistedSession(ctx) && state.questId) {
+		recordCurrentWorkspace({
+			questId: state.questId,
+			sessionId: sid,
+			cwd: ctx.cwd,
+		});
+	}
 
 	// Reconcile membership so this session reads active on only the
 	// loaded quest, detaching it from any straggler quest an earlier
@@ -413,7 +434,7 @@ export async function load(
 
 	let message = `Loaded ${state.questId}: ${state.questTitle ?? ""}`;
 	if (resumable.length > 0) {
-		message += `. ${resumable.length} prior session(s) on file; resume one with \`/quest-resume <id>\``;
+		message += `. ${resumable.length} prior session(s) on file; run \`quest recent\` to pick one to resume`;
 	}
 	if (attached) {
 		message += `. Tracking this pi session on the quest.`;

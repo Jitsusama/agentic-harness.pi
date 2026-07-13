@@ -14,7 +14,9 @@ export {
 	unregisterTerminalDriver,
 } from "./register.js";
 export {
+	getLivenessProvider,
 	getTerminalDriver,
+	identifyCurrentTerminal,
 	listTerminalDrivers,
 	resolveDriver,
 	spawnTerminal,
@@ -22,5 +24,9 @@ export {
 export type {
 	TerminalDriver,
 	TerminalLayout,
+	TerminalLivenessCapability,
+	TerminalProbe,
 	TerminalRequest,
+	TerminalSessionHandle,
 } from "./types.js";
+export { terminalHandleKey } from "./types.js";

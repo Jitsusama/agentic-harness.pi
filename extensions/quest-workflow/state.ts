@@ -30,6 +30,16 @@ export interface QuestState {
 	 */
 	questsRoot: string;
 
+	/**
+	 * Whether a fresh session may auto-load a quest from its
+	 * working directory at session start. When false, a fresh
+	 * session stays idle until an explicit `quest load`; the
+	 * spawn env-var hint and this session's persisted /reload
+	 * history are unaffected. Settled at startup from config;
+	 * defaults to true to preserve the cd-and-attach flow.
+	 */
+	autoloadFromCwd: boolean;
+
 	/** Absolute path to the loaded quest's directory. */
 	questDir: string | null;
 	/** The loaded quest's id (QEST-...). */
@@ -103,9 +113,13 @@ export interface QuestState {
  * this stays a pure constructor with no environment or
  * filesystem side-effects.
  */
-export function createQuestState(opts: { questsRoot: string }): QuestState {
+export function createQuestState(opts: {
+	questsRoot: string;
+	autoloadFromCwd?: boolean;
+}): QuestState {
 	return {
 		questsRoot: opts.questsRoot,
+		autoloadFromCwd: opts.autoloadFromCwd ?? true,
 		questDir: null,
 		questId: null,
 		questTitle: null,

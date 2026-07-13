@@ -18,10 +18,13 @@ import {
 	summariseSessions,
 } from "../../lib/internal/quest/reopen.js";
 import {
+	activityFromIndex,
 	deriveLiveness,
 	indexSessionFiles,
 	questLastActivity,
+	type SessionLiveness,
 } from "../../lib/internal/quest/session-liveness.js";
+import { authoritativeQuestFromLog } from "../../lib/internal/quest/session-ownership.js";
 import {
 	getResolutionFallback,
 	type Identity,
@@ -36,6 +39,7 @@ import {
 	type QuestSession,
 } from "../../lib/quest/index.js";
 import { parseRef, urlForRef } from "../../lib/refs/index.js";
+import { buildSessionSnapshot } from "./liveness.js";
 import type { RowCast, RowDocument, RowJourney } from "./render-rows.js";
 import type { QuestState } from "./state.js";
 
@@ -368,58 +372,210 @@ export interface WorkspaceEntry {
 	kind: string;
 	status: string;
 	priority: string;
-	liveness: "live" | "idle";
+	liveness: SessionLiveness;
 	sessionId: string;
 	cwd?: string;
 	lastActivity?: string;
 }
 
 /**
- * The live workspace: quests with a session that is live (a pi running
- * against it now) or idle (recently active, not detached or dead). This
- * is the "what am I actually working on right now" view, distinct from
- * `list`, which ranks every open quest by priority. Ordered by the
- * liveliest session's most recent activity, newest first.
+ * A session counts as active work when it is live or idle: a pi
+ * running against the quest now, or one recently active.
  */
-export function workspaceQuests(state: QuestState): WorkspaceEntry[] {
+function isActiveWork(liveness: SessionLiveness): boolean {
+	return liveness === "live" || liveness === "idle";
+}
+
+/** Rank for workspace ordering: live first, then idle, then the rest. */
+function livenessRank(liveness: SessionLiveness): number {
+	if (liveness === "live") return 0;
+	if (liveness === "idle") return 1;
+	return 2;
+}
+
+/**
+ * The live workspace: one row per non-detached session of every quest
+ * that has active work, so two live panes on one quest read as two
+ * rows and a crashed pane shows beside its live sibling rather than
+ * being collapsed away. A quest with no live or idle session is left
+ * out entirely. Rows are ordered live first, then by recency.
+ */
+export async function workspaceQuests(
+	state: QuestState,
+): Promise<WorkspaceEntry[]> {
 	const { index } = discoverQuests(state.questsRoot);
-	const store = sessionsDir();
-	const sessionIndex = indexSessionFiles(store);
-	const now = new Date();
+	// One snapshot across every quest's sessions: derivation is keyed
+	// by session id, so a single store walk and probe pass serves all
+	// quests rather than re-indexing per quest.
+	const allSessions = [...index.quests.values()].flatMap(
+		(entry) => entry.doc.frontMatter.sessions,
+	);
+	const snapshot = await buildSessionSnapshot(allSessions);
 	const entries: WorkspaceEntry[] = [];
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
 		const views = fm.sessions
-			.map((s) => deriveLiveness(s, store, now, sessionIndex))
-			.filter((v) => v.liveness === "live" || v.liveness === "idle")
-			.sort((a, b) => {
-				const at = a.lastActivity ? Date.parse(a.lastActivity) : 0;
-				const bt = b.lastActivity ? Date.parse(b.lastActivity) : 0;
-				return bt - at;
+			.map((s) => deriveLiveness(s, snapshot))
+			.filter((v) => v.liveness !== "detached")
+			.sort((a, b) =>
+				byRow(a.liveness, a.lastActivity, b.liveness, b.lastActivity),
+			);
+		// A quest earns a place in the workspace only when it has a live
+		// or idle session; its crashed and unknown siblings then ride
+		// along so a crash shows next to the work it died beside.
+		if (!views.some((v) => isActiveWork(v.liveness))) continue;
+		for (const view of views) {
+			entries.push({
+				questId: fm.id,
+				title: entry.doc.title ?? null,
+				kind: fm.kind,
+				status: fm.status,
+				priority: fm.priority,
+				liveness: view.liveness,
+				sessionId: view.id,
+				...(view.cwd ? { cwd: view.cwd } : {}),
+				...(view.lastActivity ? { lastActivity: view.lastActivity } : {}),
 			});
-		const liveliest = views[0];
-		if (!liveliest) continue;
-		entries.push({
+		}
+	}
+	return entries.sort((a, b) =>
+		byRow(a.liveness, a.lastActivity, b.liveness, b.lastActivity),
+	);
+}
+
+/**
+ * One row per prior pi session, drawn from every quest's session
+ * index and resolved to a quest, cwd, activity age and read-time
+ * liveness over a single snapshot. Unlike the workspace, it keeps
+ * dead and detached sessions so a crashed session is recoverable
+ * here, and it dedups a session claimed by several quests to the one
+ * its own log names as owner, so the same pane never lists twice.
+ * Ordered newest activity first and capped, since this feeds a
+ * human picker and a start hint, not an exhaustive audit.
+ */
+export interface RecentSession {
+	questId: string;
+	title: string | null;
+	sessionId: string;
+	status: string;
+	liveness: SessionLiveness;
+	cwd?: string;
+	lastActivity?: string;
+}
+
+const RECENT_SESSION_LIMIT = 12;
+const SESSION_HINT_LIMIT = 5;
+
+/**
+ * A cheap, probe-free pointer to prior sessions for the passive
+ * session-start hint. It reads only log activity timestamps and
+ * membership, never a process or terminal probe, because the hard
+ * rule is that nothing probes history on start. Ordered newest
+ * activity first and capped; the authoritative, probed view is
+ * `quest recent`.
+ */
+export interface SessionHint {
+	questId: string;
+	title: string | null;
+	sessionId: string;
+	cwd?: string;
+	lastActivity?: string;
+}
+
+export function recentSessionHints(
+	state: QuestState,
+	limit = SESSION_HINT_LIMIT,
+): SessionHint[] {
+	const { index } = discoverQuests(state.questsRoot);
+	const logIndex = indexSessionFiles(sessionsDir());
+	const bySession = new Map<string, SessionHint>();
+	for (const entry of index.quests.values()) {
+		const fm = entry.doc.frontMatter;
+		for (const session of fm.sessions) {
+			const lastActivity = activityFromIndex(logIndex, session.id);
+			// No log means no activity to point at; skip it rather than
+			// list a session the hint cannot date.
+			if (!lastActivity) continue;
+			const existing = bySession.get(session.id);
+			if (
+				existing?.lastActivity &&
+				Date.parse(existing.lastActivity) >= Date.parse(lastActivity)
+			) {
+				continue;
+			}
+			bySession.set(session.id, {
+				questId: fm.id,
+				title: entry.doc.title ?? null,
+				sessionId: session.id,
+				...(session.cwd ? { cwd: session.cwd } : {}),
+				lastActivity,
+			});
+		}
+	}
+	return [...bySession.values()]
+		.sort(
+			(a, b) =>
+				Date.parse(b.lastActivity ?? "") - Date.parse(a.lastActivity ?? ""),
+		)
+		.slice(0, limit);
+}
+
+export async function recentSessions(
+	state: QuestState,
+	limit = RECENT_SESSION_LIMIT,
+): Promise<RecentSession[]> {
+	const { index } = discoverQuests(state.questsRoot);
+	const logIndex = indexSessionFiles(sessionsDir());
+	const claims = [...index.quests.values()].flatMap((entry) =>
+		entry.doc.frontMatter.sessions.map((session) => ({ entry, session })),
+	);
+	const snapshot = await buildSessionSnapshot(claims.map((c) => c.session));
+	// A session claimed by several quests collapses to one row on the
+	// quest its own log names as owner; when the log is silent, the
+	// first claim seen stands so the session is never dropped entirely.
+	const bySession = new Map<string, RecentSession>();
+	for (const { entry, session } of claims) {
+		const fm = entry.doc.frontMatter;
+		const view = deriveLiveness(session, snapshot);
+		const row: RecentSession = {
 			questId: fm.id,
 			title: entry.doc.title ?? null,
-			kind: fm.kind,
-			status: fm.status,
-			priority: fm.priority,
-			liveness: liveliest.liveness === "live" ? "live" : "idle",
-			sessionId: liveliest.id,
-			...(liveliest.cwd ? { cwd: liveliest.cwd } : {}),
-			...(liveliest.lastActivity
-				? { lastActivity: liveliest.lastActivity }
-				: {}),
-		});
+			sessionId: session.id,
+			status: session.status ?? "active",
+			liveness: view.liveness,
+			...(view.cwd ? { cwd: view.cwd } : {}),
+			...(view.lastActivity ? { lastActivity: view.lastActivity } : {}),
+		};
+		const existing = bySession.get(session.id);
+		if (!existing) {
+			bySession.set(session.id, row);
+			continue;
+		}
+		const logPath = logIndex.get(session.id);
+		const owner = logPath ? authoritativeQuestFromLog(logPath) : undefined;
+		if (owner === fm.id) bySession.set(session.id, row);
 	}
-	return entries.sort((a, b) => {
-		// Live quests first, then by recency of the liveliest session.
-		if (a.liveness !== b.liveness) return a.liveness === "live" ? -1 : 1;
-		const at = a.lastActivity ? Date.parse(a.lastActivity) : 0;
-		const bt = b.lastActivity ? Date.parse(b.lastActivity) : 0;
-		return bt - at;
-	});
+	return [...bySession.values()]
+		.sort((a, b) => {
+			const at = a.lastActivity ? Date.parse(a.lastActivity) : 0;
+			const bt = b.lastActivity ? Date.parse(b.lastActivity) : 0;
+			return bt - at;
+		})
+		.slice(0, limit);
+}
+
+/** Order rows live-first, then idle, then the rest, newest activity first. */
+function byRow(
+	aLiveness: SessionLiveness,
+	aActivity: string | undefined,
+	bLiveness: SessionLiveness,
+	bActivity: string | undefined,
+): number {
+	const rank = livenessRank(aLiveness) - livenessRank(bLiveness);
+	if (rank !== 0) return rank;
+	const at = aActivity ? Date.parse(aActivity) : 0;
+	const bt = bActivity ? Date.parse(bActivity) : 0;
+	return bt - at;
 }
 
 /** A session listed active on more than one quest. */
@@ -441,7 +597,10 @@ export function auditSessionMembership(state: QuestState): SessionDivergence[] {
 	const bySession = new Map<string, string[]>();
 	for (const entry of index.quests.values()) {
 		for (const s of entry.doc.frontMatter.sessions) {
-			if (s.status === "active") {
+			// A missing status reads as active, matching how the rest of
+			// the code treats legacy records, so a status-less duplicate is
+			// still caught as a conflict.
+			if ((s.status ?? "active") === "active") {
 				const list = bySession.get(s.id) ?? [];
 				list.push(entry.doc.frontMatter.id);
 				bySession.set(s.id, list);
@@ -455,6 +614,92 @@ export function auditSessionMembership(state: QuestState): SessionDivergence[] {
 		}
 	}
 	return divergences;
+}
+
+/** An active session a probe reads provably dead. */
+export interface DeadSession {
+	sessionId: string;
+	questId: string;
+}
+
+/**
+ * Active sessions whose captured process or terminal identity a probe
+ * reads gone. Only identity-bearing records qualify: with identity,
+ * `deriveLiveness` judges by observation, so "dead" means a real probe
+ * saw the process gone or the pane absent. A record with no identity
+ * is dead only by the recency heuristic, which is too uncertain to
+ * act on, so it is never listed. Async because it probes once over a
+ * snapshot; read-only.
+ */
+export async function planDeadSessions(
+	state: QuestState,
+): Promise<DeadSession[]> {
+	const { index } = discoverQuests(state.questsRoot);
+	const claims = [...index.quests.values()].flatMap((entry) =>
+		entry.doc.frontMatter.sessions
+			.filter((s) => (s.status ?? "active") === "active")
+			.map((session) => ({ entry, session })),
+	);
+	const snapshot = await buildSessionSnapshot(claims.map((c) => c.session));
+	const dead: DeadSession[] = [];
+	for (const { entry, session } of claims) {
+		// Only a captured identity makes "dead" a probe verdict rather
+		// than the recency heuristic, so an identity-less record is never
+		// a detach candidate here.
+		if (!session.process && !session.terminal) continue;
+		if (deriveLiveness(session, snapshot).liveness === "dead") {
+			dead.push({
+				sessionId: session.id,
+				questId: entry.doc.frontMatter.id,
+			});
+		}
+	}
+	return dead;
+}
+
+/** One divergent session the repair can resolve from its log. */
+export interface ResolvableSession {
+	sessionId: string;
+	/** The quest the session's log names as its owner; the one kept. */
+	keep: string;
+	/** The quests to detach the session from. */
+	detachFrom: string[];
+}
+
+/** A repair plan for the store's session-to-quest divergence. */
+export interface SessionRepairPlan {
+	resolvable: ResolvableSession[];
+	conflicted: SessionDivergence[];
+}
+
+/**
+ * Plan how to repair sessions active on more than one quest. The
+ * session's own log is the authority: when its last quest-workflow
+ * entry names one of the claimants, that quest is kept and the others
+ * are planned for detach. When the log is missing, cleared, or names
+ * a quest that is not a claimant, the divergence cannot be resolved
+ * from authority and is reported conflicted, never auto-assigned.
+ * Read-only: it computes the plan and mutates nothing.
+ */
+export function planSessionRepair(state: QuestState): SessionRepairPlan {
+	const divergences = auditSessionMembership(state);
+	const logIndex = indexSessionFiles(sessionsDir());
+	const resolvable: ResolvableSession[] = [];
+	const conflicted: SessionDivergence[] = [];
+	for (const divergence of divergences) {
+		const logPath = logIndex.get(divergence.sessionId);
+		const owner = logPath ? authoritativeQuestFromLog(logPath) : undefined;
+		if (owner && divergence.questIds.includes(owner)) {
+			resolvable.push({
+				sessionId: divergence.sessionId,
+				keep: owner,
+				detachFrom: divergence.questIds.filter((id) => id !== owner),
+			});
+		} else {
+			conflicted.push(divergence);
+		}
+	}
+	return { resolvable, conflicted };
 }
 
 export interface WhoParams {
@@ -597,7 +842,8 @@ function linksForQuest(
 			return u ? { ...r, url: u } : { ...r };
 		});
 	let urls = extractRawUrls(me.doc.body, knownRefUrls);
-	if (params.pattern) urls = urls.filter((u) => u.includes(params.pattern));
+	const pattern = params.pattern;
+	if (pattern) urls = urls.filter((u) => u.includes(pattern));
 
 	const incoming: LinkSnippet[] = [];
 	for (const entry of index.quests.values()) {
@@ -628,13 +874,11 @@ function linksForQuest(
  * is the load verb's job, not this view's. Reads the store fresh
  * against the current time.
  */
-function projectSessions(sessions: QuestSession[]): SessionSummary[] {
-	const store = sessionsDir();
-	const index = indexSessionFiles(store);
-	const now = new Date();
-	return summariseSessions(
-		sessions.map((s) => deriveLiveness(s, store, now, index)),
-	);
+async function projectSessions(
+	sessions: QuestSession[],
+): Promise<SessionSummary[]> {
+	const snapshot = await buildSessionSnapshot(sessions);
+	return summariseSessions(sessions.map((s) => deriveLiveness(s, snapshot)));
 }
 
 export interface DocumentSummary {
@@ -737,7 +981,7 @@ export async function showQuestById(
 		journey,
 		milestones: milestoneCounts(me.doc.body),
 		documents: summariseDocuments(me.documents),
-		sessions: projectSessions(me.doc.frontMatter.sessions),
+		sessions: await projectSessions(me.doc.frontMatter.sessions),
 		links: links?.outgoing ?? { quests: [], refs: [], urls: [] },
 		echoes: links?.incoming ?? [],
 	};

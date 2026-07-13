@@ -6,6 +6,7 @@
  */
 
 import {
+	type Dirent,
 	existsSync,
 	mkdirSync,
 	readdirSync,
@@ -16,7 +17,6 @@ import { join, sep } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-	ToolContext,
 } from "@mariozechner/pi-coding-agent";
 import { sessionsDir } from "../../lib/internal/paths.js";
 import {
@@ -35,6 +35,10 @@ import {
 	atomicWriteUnderLock,
 } from "../../lib/internal/quest/io.js";
 import { mutateQuestFrontMatter } from "../../lib/internal/quest/mutate.js";
+import {
+	currentInstanceId,
+	currentProcessIdentity,
+} from "../../lib/internal/quest/process-liveness.js";
 import {
 	diffRanks,
 	nextRank,
@@ -67,6 +71,7 @@ import {
 	type QuestStatus,
 	serializeDocumentFrontMatter,
 } from "../../lib/quest/index.js";
+import { identifyCurrentTerminal } from "../../lib/terminal/index.js";
 import type { Stage } from "./machine.js";
 import { sessionNameFor } from "./render.js";
 import type { QuestState } from "./state.js";
@@ -156,7 +161,10 @@ export function loadQuest(
 	state.documentTitle = null;
 	state.documentStage = "idle";
 	refreshProgress(state);
-	const sessionName = sessionNameFor(entry.doc.title ?? null);
+	const sessionName = sessionNameFor(
+		entry.doc.title ?? null,
+		entry.doc.frontMatter.id,
+	);
 	if (sessionName) pi.setSessionName?.(sessionName);
 	return { ok: true };
 }
@@ -309,7 +317,7 @@ export function sealQuestDocuments(
 	let sealed = 0;
 	for (const kindDir of DOC_KIND_DIRS) {
 		const dir = join(questDir, kindDir);
-		let entries: ReturnType<typeof readdirSync>;
+		let entries: Dirent<string>[];
 		try {
 			entries = readdirSync(dir, { withFileTypes: true });
 		} catch {
@@ -557,7 +565,14 @@ export function resolveStartup(
 	if (restore(state, pi, ctx)) {
 		return { source: "persisted", questId: state.questId };
 	}
-	restoreFromCwd(state, pi, ctx);
+	// The cwd walk is the only path that attaches a fresh session
+	// it never chose. When the user disables it, a fresh session
+	// stays idle rather than adopting whatever quest happens to
+	// own the working tree, which keeps unrelated sessions off the
+	// quest's session list.
+	if (state.autoloadFromCwd) {
+		restoreFromCwd(state, pi, ctx);
+	}
 	return {
 		source: state.questId ? "cwd" : "none",
 		questId: state.questId,
@@ -568,7 +583,7 @@ export function resolveStartup(
 export function restoreFromCwd(
 	state: QuestState,
 	pi: ExtensionAPI,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 ): void {
 	const rawCwd = ctx.cwd;
 	if (!rawCwd) return;
@@ -594,14 +609,17 @@ export function restoreFromCwd(
 		loadQuest(state, pi, dirMatch);
 		return;
 	}
-	// 2. Tree-alias match: the cwd is inside a working
-	//    tree registered on some quest. Walk every quest's
-	//    `git-worktree:` aliases (path values) and the
-	//    quest's `trees:` array; pick the deepest match so
-	//    nested trees resolve to the innermost owner, with a
-	//    live quest breaking a tie against a sealed one. Each
-	//    candidate path is canonicalized so /var and
-	//    /private/var (and bind-mounts in containers) match.
+	// 2. Scaffolded-tree match: the cwd is inside a tree the
+	//    tool created for some quest. Only `scaffolded` trees
+	//    magnetize a fresh session; an adopted or unmarked
+	//    tree, and a `git-worktree:` alias, is a reference to a
+	//    possibly shared checkout, so it never auto-loads (a
+	//    shared checkout adopted by many quests would otherwise
+	//    resolve arbitrarily). Pick the deepest match so nested
+	//    trees resolve to the innermost owner, with a live quest
+	//    breaking a tie against a sealed one. Each candidate path
+	//    is canonicalized so /var and /private/var (and
+	//    bind-mounts in containers) match.
 	let bestQuestId: string | undefined;
 	let bestMatchLen = -1;
 	let bestLive = false;
@@ -620,10 +638,9 @@ export function restoreFromCwd(
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
 		const live = !isSealedStatus(fm.status);
-		for (const a of fm.aliases) {
-			if (a.type === "git-worktree") consider(fm.id, a.value, live);
+		for (const tree of fm.trees ?? []) {
+			if (tree.origin === "scaffolded") consider(fm.id, tree.path, live);
 		}
-		for (const tree of fm.trees ?? []) consider(fm.id, tree.path, live);
 	}
 	if (bestQuestId) loadQuest(state, pi, bestQuestId);
 }
@@ -1020,6 +1037,32 @@ export function attachSessionToLoaded(
 }
 
 /**
+ * Capture the current process's liveness identity for a session
+ * attach: its instance id, OS process identity and the terminal
+ * surface it runs in (when a driver recognises one). Read once at
+ * attach time; the stored handle is what a later reader probes.
+ */
+export function captureSessionIdentity(): {
+	instanceId: string;
+	process: QuestSession["process"];
+	terminal: QuestSession["terminal"];
+} {
+	const handle = identifyCurrentTerminal();
+	return {
+		instanceId: currentInstanceId(),
+		process: currentProcessIdentity(),
+		terminal: handle
+			? {
+					driverId: handle.driverId,
+					value: handle.value,
+					scope: handle.scope,
+					hostId: handle.hostId,
+				}
+			: undefined,
+	};
+}
+
+/**
  * Attach the current pi session to the loaded quest.
  *
  * This is the automatic-capture path: the session_start and
@@ -1031,7 +1074,14 @@ export function attachSessionToLoaded(
  */
 export function attachCurrentSession(
 	state: QuestState,
-	opts: { id: string | undefined; cwd?: string; persisted?: boolean },
+	opts: {
+		id: string | undefined;
+		cwd?: string;
+		persisted?: boolean;
+		instanceId?: string;
+		process?: QuestSession["process"];
+		terminal?: QuestSession["terminal"];
+	},
 ): { attached: boolean } {
 	// An ephemeral session (pi --no-session) has an id but writes no
 	// log, so attaching it would leave a phantom entry that can never
@@ -1044,8 +1094,41 @@ export function attachCurrentSession(
 		status: "active",
 	};
 	if (opts.cwd?.trim()) session.cwd = opts.cwd.trim();
+	if (opts.instanceId) session.instanceId = opts.instanceId;
+	if (opts.process) session.process = opts.process;
+	if (opts.terminal) session.terminal = opts.terminal;
 	const result = attachSessionToLoaded(state, session);
 	return { attached: result.ok };
+}
+
+/**
+ * Detach a session only when the caller's process instance owns the
+ * record, so a process that resumed a session is not detached by the
+ * delayed shutdown of the process that used to hold it. A record with
+ * no recorded instance id is legacy and detaches unconditionally,
+ * preserving the pre-lease behaviour.
+ */
+export function detachSessionIfOwner(
+	questDir: string,
+	sessionId: string,
+	instanceId: string,
+): { ok: true; detached: boolean } | { ok: false; guidance: string } {
+	let detached = false;
+	const result = writeQuestFrontMatter(questDir, (fm) => {
+		let hit = false;
+		const next = fm.sessions.map((s) => {
+			if (s.id !== sessionId || s.status === "detached") return s;
+			// A different live instance owns the record: leave it be.
+			if (s.instanceId !== undefined && s.instanceId !== instanceId) return s;
+			hit = true;
+			return { ...s, status: "detached" as const };
+		});
+		if (!hit) return undefined;
+		detached = true;
+		return { ...fm, sessions: next };
+	});
+	if (!result.ok) return result;
+	return { ok: true, detached };
 }
 
 /**

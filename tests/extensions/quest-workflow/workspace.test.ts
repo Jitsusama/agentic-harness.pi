@@ -48,12 +48,18 @@ async function createQuest(
 }
 
 function attachSession(id: string, sessionId: string): void {
+	attachSessions(id, [sessionId]);
+}
+
+function attachSessions(id: string, sessionIds: string[]): void {
 	const path = join(tmpRoot, "quests", id, "README.md");
 	const parsed = parseQuestFrontMatter(readFileSync(path, "utf8"));
 	if (!parsed) throw new Error("unreadable");
-	parsed.frontMatter.sessions = [
-		{ id: sessionId, started: new Date().toISOString(), status: "active" },
-	];
+	parsed.frontMatter.sessions = sessionIds.map((sessionId) => ({
+		id: sessionId,
+		started: new Date().toISOString(),
+		status: "active" as const,
+	}));
 	writeFileSync(
 		path,
 		`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
@@ -96,7 +102,7 @@ describe("workspaceQuests", () => {
 		// idleOnly gets a session with no log file, so it is dead, not live.
 		attachSession(idleOnly, "sess-dead");
 
-		const entries = workspaceQuests(state);
+		const entries = await workspaceQuests(state);
 		expect(entries.map((e) => e.questId)).toEqual([live]);
 		expect(entries[0]).toMatchObject({
 			liveness: "live",
@@ -107,7 +113,21 @@ describe("workspaceQuests", () => {
 	it("returns empty when nothing is being worked on", async () => {
 		const state = buildState();
 		await createQuest(state, "Dormant");
-		expect(workspaceQuests(state)).toEqual([]);
+		expect(await workspaceQuests(state)).toEqual([]);
+	});
+
+	it("shows a crashed pane beside its live sibling as two rows", async () => {
+		const state = buildState();
+		const quest = await createQuest(state, "Two Panes");
+		attachSessions(quest, ["sess-live", "sess-dead"]);
+		writeLiveSessionLog("sess-live");
+		// sess-dead has no log, so it derives dead by the recency fallback.
+		const entries = await workspaceQuests(state);
+		expect(entries).toHaveLength(2);
+		expect(entries.every((e) => e.questId === quest)).toBe(true);
+		expect(entries.map((e) => e.sessionId)).toEqual(["sess-live", "sess-dead"]);
+		expect(entries[0].liveness).toBe("live");
+		expect(entries[1].liveness).toBe("dead");
 	});
 
 	it("is reachable through the workspace verb", async () => {

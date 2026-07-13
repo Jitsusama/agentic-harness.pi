@@ -19,6 +19,7 @@ import {
 	findQuestEntries,
 	linksForLoaded,
 	locateOwner,
+	recentSessions,
 	resolveRefQuery,
 	type TreeNode,
 	treeAll,
@@ -33,6 +34,7 @@ import {
 	renderRowBrief,
 } from "../render-rows.js";
 import type { QuestState } from "../state.js";
+import { planCurrentWorkspaceRestore } from "../workspace-snapshot.js";
 import {
 	ok,
 	type QuestResult,
@@ -196,17 +198,78 @@ export function locate(
 	return ok(lines.join("\n"), { hits });
 }
 
-export function workspace(state: QuestState): QuestResult {
-	const entries = workspaceQuests(state);
+export async function workspace(state: QuestState): Promise<QuestResult> {
+	const entries = await workspaceQuests(state);
 	if (entries.length === 0) {
 		return ok("No quests are being worked on right now.", { workspace: [] });
 	}
 	const lines = entries.map((e) => {
-		const mark = e.liveness === "live" ? "\u25cf" : "\u25cb";
 		const where = e.cwd ? ` ${e.cwd}` : "";
-		return `${mark} ${e.questId} ${e.title ?? ""} [${e.status}]${where}`.trimEnd();
+		return `${workspaceMark(e.liveness)} ${e.questId} ${e.title ?? ""} [${e.status}]${where}`.trimEnd();
 	});
 	return ok(lines.join("\n"), { workspace: entries });
+}
+
+export async function restore(): Promise<QuestResult> {
+	const view = await planCurrentWorkspaceRestore();
+	if ("reason" in view) return ok(view.reason, { restore: null });
+	const { plan, recipe } = view;
+	if (plan.toRestore.length === 0) {
+		return ok(
+			`All ${plan.alreadyLive.length} recorded session(s) are already live; nothing to restore.`,
+			{ restore: { toRestore: [], alreadyLive: plan.alreadyLive } },
+		);
+	}
+	const rows = plan.toRestore.map(
+		(e) => `- ${e.questId} ${e.cwd} (session ${e.sessionId})`,
+	);
+	const liveNote =
+		plan.alreadyLive.length > 0
+			? `\n${plan.alreadyLive.length} recorded session(s) already live, excluded.`
+			: "";
+	const body = [
+		`${plan.toRestore.length} session(s) to restore:`,
+		...rows,
+		"",
+		"Run to reopen them:",
+		...recipe,
+	].join("\n");
+	return ok(`${body}${liveNote}`, {
+		restore: {
+			toRestore: plan.toRestore,
+			alreadyLive: plan.alreadyLive,
+			recipe,
+		},
+	});
+}
+
+export async function recent(state: QuestState): Promise<QuestResult> {
+	const rows = await recentSessions(state);
+	if (rows.length === 0) {
+		return ok("No recent pi sessions on any quest.", { recent: [] });
+	}
+	const lines = rows.map((r) => {
+		const where = r.cwd ? ` ${r.cwd}` : "";
+		const resume = r.cwd ? `  → pi --session ${r.sessionId}` : "";
+		return `${workspaceMark(r.liveness)} ${r.questId} ${r.title ?? ""} [${r.liveness}]${where}${resume}`.trimEnd();
+	});
+	return ok(lines.join("\n"), { recent: rows });
+}
+
+/** Glyph for a workspace row's liveness. */
+function workspaceMark(liveness: string): string {
+	switch (liveness) {
+		case "live":
+			return "\u25cf"; // filled circle
+		case "idle":
+			return "\u25cb"; // hollow circle
+		case "dead":
+			return "\u2717"; // ballot x
+		case "conflicted":
+			return "\u26a0"; // warning sign
+		default:
+			return "?"; // unknown
+	}
 }
 
 export function ancestors(

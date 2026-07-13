@@ -16,6 +16,14 @@ export const QUEST_WORKFLOW_SLUG = "quest-workflow";
 export interface QuestWorkflowConfig {
 	/** Where the quest tree lives; defaults to the data dir. */
 	questsRoot?: string;
+	/**
+	 * Whether a fresh session may auto-load a quest from its
+	 * working directory at session start. Defaults to true, the
+	 * cd-into-a-tree-and-attach flow. Set false to keep fresh
+	 * sessions idle until an explicit `quest load`; /reload
+	 * restore and spawn hints still work.
+	 */
+	autoloadFromCwd?: boolean;
 }
 
 /** Parse the quest-workflow section, defaulting an absent section to empty. */
@@ -26,11 +34,19 @@ export const parseQuestWorkflowConfig: SectionParse<QuestWorkflowConfig> = (
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
 		return { ok: false, error: "quest-workflow config must be an object" };
 	}
-	const questsRoot = (value as Record<string, unknown>).questsRoot;
+	const record = value as Record<string, unknown>;
+	const questsRoot = record.questsRoot;
 	if (questsRoot !== undefined && typeof questsRoot !== "string") {
 		return { ok: false, error: "questsRoot must be a string" };
 	}
-	return { ok: true, value: questsRoot === undefined ? {} : { questsRoot } };
+	const autoloadFromCwd = record.autoloadFromCwd;
+	if (autoloadFromCwd !== undefined && typeof autoloadFromCwd !== "boolean") {
+		return { ok: false, error: "autoloadFromCwd must be a boolean" };
+	}
+	const parsed: QuestWorkflowConfig = {};
+	if (questsRoot !== undefined) parsed.questsRoot = questsRoot;
+	if (autoloadFromCwd !== undefined) parsed.autoloadFromCwd = autoloadFromCwd;
+	return { ok: true, value: parsed };
 };
 
 /**
@@ -49,6 +65,8 @@ export interface QuestConfigSummary {
 	configPath: string;
 	questsRoot: string;
 	questsRootSource: "config" | "default";
+	autoloadFromCwd: boolean;
+	autoloadFromCwdSource: "config" | "default";
 }
 
 /**
@@ -67,5 +85,8 @@ export function summarizeQuestConfig(opts: {
 		questsRoot: resolveQuestsRoot(opts.config, opts.dataDir),
 		questsRootSource:
 			opts.config.questsRoot !== undefined ? "config" : "default",
+		autoloadFromCwd: opts.config.autoloadFromCwd ?? true,
+		autoloadFromCwdSource:
+			opts.config.autoloadFromCwd !== undefined ? "config" : "default",
 	};
 }

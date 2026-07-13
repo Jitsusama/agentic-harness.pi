@@ -37,11 +37,38 @@ const SAMPLE_QUEST_FM: QuestFrontMatter = {
 	],
 };
 
+const SESSION_WITH_IDENTITY: QuestFrontMatter = {
+	...SAMPLE_QUEST_FM,
+	aliases: [],
+	sessions: [
+		{
+			id: "live-session",
+			status: "active",
+			instanceId: "inst-42",
+			process: { hostId: "host-a", pid: 4321, startToken: "Sat Jul 12" },
+			terminal: {
+				driverId: "wezterm",
+				value: "7",
+				scope: "/sock/gui-1",
+				hostId: "host-a",
+			},
+		},
+	],
+};
+
 describe("quest front-matter", () => {
 	it("round-trips through serialize and parse", () => {
 		const text = `${serializeQuestFrontMatter(SAMPLE_QUEST_FM)}\n# Title\n`;
 		const parsed = parseQuestFrontMatter(text);
 		expect(parsed?.frontMatter).toEqual(SAMPLE_QUEST_FM);
+	});
+
+	it("round-trips a session's captured liveness identity", () => {
+		const text = `${serializeQuestFrontMatter(SESSION_WITH_IDENTITY)}\n# Title\n`;
+		const parsed = parseQuestFrontMatter(text);
+		expect(parsed?.frontMatter.sessions).toEqual(
+			SESSION_WITH_IDENTITY.sessions,
+		);
 	});
 
 	it("omits due and eta when not set", () => {

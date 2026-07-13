@@ -1,4 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -8,7 +14,30 @@ import {
 } from "../../../extensions/quest-workflow/lifecycle";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import {
+	parseQuestFrontMatter,
+	serializeQuestFrontMatter,
+} from "../../../lib/quest/index";
 import { createEnvGuard } from "./_helpers";
+
+function addTree(
+	id: string,
+	treePath: string,
+	origin: "scaffolded" | "adopted",
+): void {
+	mkdirSync(treePath, { recursive: true });
+	const readme = join(tmpRoot, "quests", id, "README.md");
+	const parsed = parseQuestFrontMatter(readFileSync(readme, "utf8"));
+	if (!parsed) throw new Error("unreadable quest");
+	parsed.frontMatter.trees = [
+		...(parsed.frontMatter.trees ?? []),
+		{ path: treePath, providerId: "git-worktree", origin },
+	];
+	writeFileSync(
+		readme,
+		`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+	);
+}
 
 let tmpRoot: string;
 
@@ -45,8 +74,11 @@ function ctxWith(opts: {
 	} as unknown as Parameters<typeof resolveStartup>[2];
 }
 
-function buildState() {
-	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
+function buildState(opts?: { autoloadFromCwd?: boolean }) {
+	return createQuestState({
+		questsRoot: join(tmpRoot, "quests"),
+		autoloadFromCwd: opts?.autoloadFromCwd,
+	});
 }
 
 async function createQuest(title: string): Promise<string> {
@@ -119,10 +151,76 @@ describe("resolveStartup precedence", () => {
 		expect(resolution.questId).toBeNull();
 	});
 
+	it("resolves from the cwd when nothing else matches and cwd autoload is on", async () => {
+		const id = await createQuest("Cwd Match");
+		const questDir = join(tmpRoot, "quests", id);
+		const state = buildState();
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: questDir }),
+		);
+		expect(resolution.source).toBe("cwd");
+		expect(resolution.questId).toBe(id);
+	});
+
+	it("stays idle on a fresh session in a quest dir when cwd autoload is off", async () => {
+		const id = await createQuest("Cwd Match Off");
+		const questDir = join(tmpRoot, "quests", id);
+		const state = buildState({ autoloadFromCwd: false });
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: questDir }),
+		);
+		expect(resolution.source).toBe("none");
+		expect(resolution.questId).toBeNull();
+	});
+
+	it("still honours persisted history when cwd autoload is off", async () => {
+		const persisted = await createQuest("Persisted Off");
+		const state = buildState({ autoloadFromCwd: false });
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: tmpRoot, persistedQuestId: persisted }),
+		);
+		expect(resolution.source).toBe("persisted");
+		expect(resolution.questId).toBe(persisted);
+	});
+
 	// Keep loadQuest referenced so the import contract is exercised.
 	it("loadQuest resolves a known id", async () => {
 		const id = await createQuest("Known");
 		const state = buildState();
 		expect(loadQuest(state, fakePi(), id).ok).toBe(true);
+	});
+
+	it("resolves from a scaffolded tree the quest owns", async () => {
+		const id = await createQuest("Scaffolded Tree");
+		const treePath = join(tmpRoot, "work", "scaffolded");
+		addTree(id, treePath, "scaffolded");
+		const state = buildState();
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: treePath }),
+		);
+		expect(resolution.source).toBe("cwd");
+		expect(resolution.questId).toBe(id);
+	});
+
+	it("never auto-loads from an adopted tree", async () => {
+		const id = await createQuest("Adopted Tree");
+		const treePath = join(tmpRoot, "work", "adopted");
+		addTree(id, treePath, "adopted");
+		const state = buildState();
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: treePath }),
+		);
+		expect(resolution.source).toBe("none");
+		expect(resolution.questId).toBeNull();
 	});
 });

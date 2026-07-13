@@ -7,7 +7,7 @@
  * wires the action name to one of these handlers.
  */
 
-import type { ToolContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 export interface QuestToolParams {
 	action: string;
@@ -73,7 +73,7 @@ export function ok(
  * fallback for tests and tool params that override it.
  */
 export function currentSessionId(
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	fallback: string | undefined,
 ): string | undefined {
 	if (fallback) return fallback;
@@ -98,7 +98,7 @@ export function currentSessionId(
  * (pi --no-session); a missing accessor defaults to true so the
  * common case still attaches and older harnesses keep working.
  */
-export function isPersistedSession(ctx: ToolContext): boolean {
+export function isPersistedSession(ctx: ExtensionContext): boolean {
 	try {
 		const sm = (
 			ctx as unknown as {

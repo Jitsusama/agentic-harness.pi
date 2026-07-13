@@ -4,8 +4,7 @@
  * window via the registered terminal driver.
  */
 
-import type { ToolContext } from "@mariozechner/pi-coding-agent";
-import { sessionsDir } from "../../../lib/internal/paths.js";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
 	pickResumeSession,
 	resolveSpawnCwd,
@@ -13,7 +12,6 @@ import {
 import {
 	deriveLiveness,
 	formatRelativeAge,
-	indexSessionFiles,
 	type SessionView,
 } from "../../../lib/internal/quest/session-liveness.js";
 import type { QuestSession } from "../../../lib/quest/index.js";
@@ -23,10 +21,19 @@ import {
 } from "../../../lib/terminal/index.js";
 import {
 	attachSessionToLoaded,
+	captureSessionIdentity,
 	detachSessionFromLoaded,
+	detachSessionInQuestDir,
+	reconcileSessionMembership,
 	renameSessionOnLoaded,
 } from "../lifecycle.js";
-import { auditSessionMembership, getQuestEntry } from "../lookup.js";
+import { buildSessionSnapshot } from "../liveness.js";
+import {
+	auditSessionMembership,
+	getQuestEntry,
+	planDeadSessions,
+	planSessionRepair,
+} from "../lookup.js";
 import type { QuestState } from "../state.js";
 import {
 	currentSessionId,
@@ -37,31 +44,93 @@ import {
 } from "./shared.js";
 
 /**
- * Report session-to-quest divergence across the store: a session
- * listed active on more than one quest. Read-only; loading a quest
- * reconciles the divergence automatically, and this is how an operator
- * sees it before then.
+ * Repair session-to-quest membership across the store, in two
+ * independent passes read from two authorities:
+ *
+ * - Divergence: a session active on more than one quest is resolved
+ *   to the one its own log names as owner (see `planSessionRepair`).
+ * - Provably dead: an active session whose captured identity a probe
+ *   reads gone is a detach candidate (see `planDeadSessions`). Only
+ *   identity-backed deadness qualifies, so this is an observation the
+ *   user acts on, never the recency heuristic rewriting membership.
+ *
+ * Previews both by default and mutates nothing; `force:true` applies
+ * the divergence detaches and the dead detaches. Conflicted records
+ * (a log naming no claimant) are always left for the user to resolve
+ * by loading the true quest.
  */
-export function sessionAudit(state: QuestState): QuestResult {
-	const divergences = auditSessionMembership(state);
-	if (divergences.length === 0) {
+export async function sessionAudit(
+	state: QuestState,
+	params: QuestToolParams,
+): Promise<QuestResult> {
+	const plan = planSessionRepair(state);
+	// A session whose claims are conflicted is left for the user to
+	// resolve by loading its true quest; the dead pass must respect that
+	// same rule, so a dead-and-conflicted session is not force-detached
+	// out from under the unresolved decision.
+	const conflictedIds = new Set(plan.conflicted.map((d) => d.sessionId));
+	const dead = (await planDeadSessions(state)).filter(
+		(d) => !conflictedIds.has(d.sessionId),
+	);
+	if (
+		plan.resolvable.length === 0 &&
+		plan.conflicted.length === 0 &&
+		dead.length === 0
+	) {
 		return ok("No session divergence: every session is active on one quest.", {
-			divergences,
+			divergences: auditSessionMembership(state),
+			plan,
+			dead,
 		});
 	}
-	const lines = divergences.map(
+	const resolvableLines = plan.resolvable.map(
+		(r) =>
+			`${r.sessionId} -> keep ${r.keep}, detach from ${r.detachFrom.join(", ")}`,
+	);
+	const conflictedLines = plan.conflicted.map(
 		(d) =>
-			`${d.sessionId} active on ${d.questIds.length}: ${d.questIds.join(", ")}`,
+			`${d.sessionId} conflicted across ${d.questIds.join(", ")} (log names no claimant)`,
 	);
-	return ok(
-		`${divergences.length} session(s) active on more than one quest:\n${lines.join("\n")}`,
-		{ divergences },
+	const deadLines = dead.map(
+		(d) => `${d.sessionId} dead (probe) on ${d.questId}; would detach`,
 	);
+	if (!params.force) {
+		const parts = [
+			`${plan.resolvable.length} resolvable, ${dead.length} dead, ${plan.conflicted.length} conflicted. Pass force:true to apply the resolvable and dead detaches; conflicted records are left for you to resolve by loading the true quest.`,
+			...resolvableLines,
+			...deadLines,
+			...conflictedLines,
+		];
+		return ok(parts.join("\n"), { plan, dead, applied: false });
+	}
+	let detached = 0;
+	for (const entry of plan.resolvable) {
+		const gone = reconcileSessionMembership(state, entry.sessionId, entry.keep);
+		detached += gone.length;
+	}
+	let deadDetached = 0;
+	for (const entry of dead) {
+		const target = getQuestEntry(state, entry.questId);
+		if (!target) continue;
+		const result = detachSessionInQuestDir(target.dir, entry.sessionId);
+		if (result.ok && result.detached) deadDetached += 1;
+	}
+	const summary = [
+		`Repaired ${plan.resolvable.length} divergent session(s), detached ${detached} stray membership(s); detached ${deadDetached} dead session(s). ${plan.conflicted.length} conflicted record(s) left untouched.`,
+		...conflictedLines,
+	];
+	return ok(summary.join("\n"), {
+		plan,
+		dead,
+		applied: true,
+		detached,
+		deadDetached,
+	});
 }
 
 export function sessionAttach(
 	state: QuestState,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): QuestResult {
 	if (!state.questId) return refuse("Load a quest first.");
@@ -79,6 +148,15 @@ export function sessionAttach(
 	if (params.name?.trim()) session.name = params.name.trim();
 	if (params.cwd?.trim()) session.cwd = params.cwd.trim();
 	else if (ctx.cwd) session.cwd = ctx.cwd;
+	// Capture liveness identity only when attaching this process's own
+	// session; an explicit sessionId for another session must not be
+	// tagged with our process and terminal.
+	if (id === currentSessionId(ctx, undefined)) {
+		const identity = captureSessionIdentity();
+		session.instanceId = identity.instanceId;
+		if (identity.process) session.process = identity.process;
+		if (identity.terminal) session.terminal = identity.terminal;
+	}
 	const result = attachSessionToLoaded(state, session);
 	if (!result.ok) return refuse(result.guidance);
 	return ok(
@@ -91,7 +169,7 @@ export function sessionAttach(
 
 export function sessionDetach(
 	state: QuestState,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): QuestResult {
 	if (!state.questId) return refuse("Load a quest first.");
@@ -113,7 +191,7 @@ export function sessionDetach(
 
 export function sessionRename(
 	state: QuestState,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): QuestResult {
 	if (!state.questId) return refuse("Load a quest first.");
@@ -182,7 +260,7 @@ export function resumeMessage(
 
 export async function spawn(
 	state: QuestState,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): Promise<QuestResult> {
 	const layout = (params.layout ??
@@ -218,9 +296,8 @@ export async function spawn(
 	// longer exists self-heals to the next candidate rather
 	// than dropping the new terminal into home.
 	const now = new Date();
-	const store = sessionsDir();
-	const index = indexSessionFiles(store);
-	const sessions = fm.sessions.map((s) => deriveLiveness(s, store, now, index));
+	const snapshot = await buildSessionSnapshot(fm.sessions, { now });
+	const sessions = fm.sessions.map((s) => deriveLiveness(s, snapshot));
 	const resolved = resolveSpawnCwd({
 		questDir: entry.dir,
 		trees: fm.trees ?? [],
@@ -265,6 +342,16 @@ export async function spawn(
 		? undefined
 		: resumeMessage(resume, sessions, now);
 	if (resumeNote) message += ` ${resumeNote}`;
+	// State the quest the new session will load, not merely the one
+	// requested. When the spawned command is pi (fresh or a resume),
+	// the autoload env the spawn ships wins over the session's own
+	// history in resolveStartup, and the target was validated to exist
+	// above, so the load is deterministic. A non-pi command loads no
+	// quest, so the claim is withheld.
+	const spawnsPi = command === "pi" || command.startsWith("pi ");
+	if (spawnsPi) {
+		message += ` The new session will load ${questIdForSpawn}; the spawn autoload wins over its own history.`;
+	}
 	return ok(message, {
 		driver: driver.id,
 		layout,

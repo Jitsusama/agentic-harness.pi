@@ -95,6 +95,15 @@ sessions:
     cwd: /Users/joel/world
     started: 2026-06-03T18:14:00Z
     status: active
+    instanceId: 2b1f9c7a-0e44-4a1b-9c3e-8d5f6a2b1c00
+    process:
+      hostId: studio.local
+      pid: 48213
+      startToken: Tue Jun  3 18:14:00 2026
+    terminal:
+      driverId: wezterm
+      value: "7"
+      scope: /run/user/1000/wezterm/gui-sock-1
   - id: 71c4f0c8-2b9a-49e3-bb87-2a3a96c12f4d
     status: detached
 ---
@@ -130,18 +139,29 @@ Field semantics:
   Only persisted sessions are recorded: an ephemeral
   `pi --no-session` run (a subagent or council fan-out)
   is never attached, so it cannot leave a log-less
-  phantom. Loading a quest detaches the session from the
+  phantom. An attached session may also carry a captured
+  identity so its liveness can be probed rather than
+  guessed: `instanceId` (minted once per pi process),
+  `process` (`hostId`, `pid`, `startToken`, guarding pid
+  reuse and remote hosts), and `terminal` (`driverId`,
+  `value`, optional `scope` and `hostId`, a probeable
+  handle to the pane; `hostId` is the host the terminal
+  was captured on, so a pane stays probeable even when no
+  process identity was recorded). All three are optional; a legacy record without
+  them still reads by activity recency. Loading a quest detaches the session from the
   quest it is leaving, and reconciles membership by
   detaching the session from any other quest that still
   lists it active, so one session reads `active` on at
   most the quest it is on even after a lost state or an
   earlier run left a straggler; it also prunes any
-  detached entry whose session log no longer exists. `show` lists
-  each session with its derived liveness (`live`, `idle`,
-  `detached`, or `dead` for an attached id with no log on
-  disk), relative last-active age, and a marker on
-  the one a reopen would resume — the most-recent live
-  session, or the most-recent idle one when none is live.
+  detached entry whose session log no longer exists. Liveness
+  is observed when read, never stored: `show`, `workspace` and
+  `recent` derive each session's state from a read-time probe
+  of its recorded process and terminal, one of `live`, `idle`,
+  `dead`, `detached`, `conflicted` or `unknown` (a session on
+  another host or one the probe could not reach reads
+  `unknown`, never a false `dead`). They also show a relative
+  last-active age and mark the session a reopen would resume.
 
 - `verify`: optional shell command the verification
   workflow runs to check work on this quest, in
