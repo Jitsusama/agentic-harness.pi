@@ -81,6 +81,34 @@ describe("attachCurrentSession identity capture", () => {
 	});
 });
 
+describe("session-attach identity capture", () => {
+	it("captures the current process identity when attaching the current session", async () => {
+		const state = buildState();
+		const dir = await createQuest(state);
+		const r = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "session-attach",
+		});
+		expect(r.ok).toBe(true);
+		const s = sessionOf(dir, "sess-1");
+		expect(typeof s?.instanceId).toBe("string");
+		expect(s?.instanceId?.length).toBeGreaterThan(0);
+		expect(s?.process?.pid).toBe(process.pid);
+	});
+
+	it("does not attribute the current identity to a different session id", async () => {
+		const state = buildState();
+		const dir = await createQuest(state);
+		const r = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "session-attach",
+			sessionId: "sess-OTHER",
+		});
+		expect(r.ok).toBe(true);
+		const s = sessionOf(dir, "sess-OTHER");
+		expect(s?.instanceId).toBeUndefined();
+		expect(s?.process).toBeUndefined();
+	});
+});
+
 describe("detachSessionIfOwner (instance lease)", () => {
 	it("detaches when the caller's instance owns the record", async () => {
 		const state = buildState();

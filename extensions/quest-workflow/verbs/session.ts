@@ -21,6 +21,7 @@ import {
 } from "../../../lib/terminal/index.js";
 import {
 	attachSessionToLoaded,
+	captureSessionIdentity,
 	detachSessionFromLoaded,
 	detachSessionInQuestDir,
 	reconcileSessionMembership,
@@ -63,7 +64,14 @@ export async function sessionAudit(
 	params: QuestToolParams,
 ): Promise<QuestResult> {
 	const plan = planSessionRepair(state);
-	const dead = await planDeadSessions(state);
+	// A session whose claims are conflicted is left for the user to
+	// resolve by loading its true quest; the dead pass must respect that
+	// same rule, so a dead-and-conflicted session is not force-detached
+	// out from under the unresolved decision.
+	const conflictedIds = new Set(plan.conflicted.map((d) => d.sessionId));
+	const dead = (await planDeadSessions(state)).filter(
+		(d) => !conflictedIds.has(d.sessionId),
+	);
 	if (
 		plan.resolvable.length === 0 &&
 		plan.conflicted.length === 0 &&
@@ -140,6 +148,15 @@ export function sessionAttach(
 	if (params.name?.trim()) session.name = params.name.trim();
 	if (params.cwd?.trim()) session.cwd = params.cwd.trim();
 	else if (ctx.cwd) session.cwd = ctx.cwd;
+	// Capture liveness identity only when attaching this process's own
+	// session; an explicit sessionId for another session must not be
+	// tagged with our process and terminal.
+	if (id === currentSessionId(ctx, undefined)) {
+		const identity = captureSessionIdentity();
+		session.instanceId = identity.instanceId;
+		if (identity.process) session.process = identity.process;
+		if (identity.terminal) session.terminal = identity.terminal;
+	}
 	const result = attachSessionToLoaded(state, session);
 	if (!result.ok) return refuse(result.guidance);
 	return ok(

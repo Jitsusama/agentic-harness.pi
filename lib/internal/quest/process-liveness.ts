@@ -60,29 +60,65 @@ export interface ProbeProcessDeps {
  */
 function readStartToken(pid: number): ProcessInspection {
 	try {
-		const out = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+		const stdout = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
 			encoding: "utf8",
-		}).trim();
-		return out.length > 0
-			? { kind: "alive", startToken: out }
-			: { kind: "gone" };
+		});
+		return interpretPsLookup({
+			spawned: true,
+			exitStatus: 0,
+			stdout,
+			stderr: "",
+		});
 	} catch (error) {
-		// `ps` exits non-zero when no process holds the pid: that is
-		// gone. A spawn failure (ps absent, unsupported platform) is
-		// unknown, never death.
-		if (isExitStatusError(error)) return { kind: "gone" };
-		return { kind: "unknown" };
+		return interpretPsLookup(psLookupFromError(error));
 	}
 }
 
-/** Whether an execFile error is a clean non-zero exit, not a spawn failure. */
-function isExitStatusError(error: unknown): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		"status" in error &&
-		typeof (error as { status: unknown }).status === "number"
-	);
+/** Read the observable facts of a failed `ps` run off the thrown error. */
+function psLookupFromError(error: unknown): {
+	spawned: boolean;
+	exitStatus: number | null;
+	stdout: string;
+	stderr: string;
+} {
+	const e = (error ?? {}) as {
+		status?: unknown;
+		stdout?: unknown;
+		stderr?: unknown;
+	};
+	const exitStatus = typeof e.status === "number" ? e.status : null;
+	return {
+		// A numeric exit status means `ps` ran; no status means it never
+		// spawned (absent binary, unsupported platform).
+		spawned: exitStatus !== null,
+		exitStatus,
+		stdout: typeof e.stdout === "string" ? e.stdout : "",
+		stderr: typeof e.stderr === "string" ? e.stderr : "",
+	};
+}
+
+/**
+ * Map the observable facts of a `ps -o lstart=` lookup to an
+ * inspection. Only a clean non-zero exit that printed no diagnostic
+ * is `gone` (the pid holds no process); a diagnostic on stderr means
+ * `ps` rejected the query (an unsupported option on a minimal `ps`),
+ * and a lookup that never spawned is `unknown`, so an inability to
+ * probe is never read as death.
+ */
+export function interpretPsLookup(r: {
+	spawned: boolean;
+	exitStatus: number | null;
+	stdout: string;
+	stderr: string;
+}): ProcessInspection {
+	if (!r.spawned) return { kind: "unknown" };
+	if (r.exitStatus === 0) {
+		const token = r.stdout.trim();
+		return token.length > 0
+			? { kind: "alive", startToken: token }
+			: { kind: "gone" };
+	}
+	return r.stderr.trim().length === 0 ? { kind: "gone" } : { kind: "unknown" };
 }
 
 /** A lifetime-stable synthetic token for when the OS reader cannot help. */

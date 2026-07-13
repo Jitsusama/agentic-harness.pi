@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	interpretPsLookup,
 	type ProcessIdentity,
 	type ProcessInspection,
 	probeProcess,
@@ -54,5 +55,63 @@ describe("probeProcess", () => {
 			deps(() => ({ kind: "unknown" })),
 		);
 		expect(probe).toBe("unknown");
+	});
+});
+
+describe("interpretPsLookup", () => {
+	it("reads a live process's start token from clean output", () => {
+		expect(
+			interpretPsLookup({
+				spawned: true,
+				exitStatus: 0,
+				stdout: "Mon Jun  1 10:00:00 2026\n",
+				stderr: "",
+			}),
+		).toEqual({ kind: "alive", startToken: "Mon Jun  1 10:00:00 2026" });
+	});
+
+	it("reads a clean non-zero exit with no diagnostic as gone", () => {
+		expect(
+			interpretPsLookup({
+				spawned: true,
+				exitStatus: 1,
+				stdout: "",
+				stderr: "",
+			}),
+		).toEqual({ kind: "gone" });
+	});
+
+	it("reads a non-zero exit that printed a diagnostic as unknown, not death", () => {
+		// BusyBox ps rejects the query rather than reporting no such pid.
+		expect(
+			interpretPsLookup({
+				spawned: true,
+				exitStatus: 1,
+				stdout: "",
+				stderr: "ps: unrecognized option: o\n",
+			}),
+		).toEqual({ kind: "unknown" });
+	});
+
+	it("reads a zero exit with empty output as gone", () => {
+		expect(
+			interpretPsLookup({
+				spawned: true,
+				exitStatus: 0,
+				stdout: "   \n",
+				stderr: "",
+			}),
+		).toEqual({ kind: "gone" });
+	});
+
+	it("reads a spawn failure as unknown", () => {
+		expect(
+			interpretPsLookup({
+				spawned: false,
+				exitStatus: null,
+				stdout: "",
+				stderr: "",
+			}),
+		).toEqual({ kind: "unknown" });
 	});
 });

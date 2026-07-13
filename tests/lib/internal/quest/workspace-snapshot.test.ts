@@ -137,4 +137,31 @@ describe("restoreRecipe", () => {
 		expect(recipe[0]).toContain("/w/a");
 		expect(recipe[0]).toContain("pi --session sess-a");
 	});
+
+	it("single-quotes a cwd with a space so cd does not break", () => {
+		const recipe = restoreRecipe([
+			{
+				questId: "QEST-1",
+				cwd: "/w/a dir",
+				sessionId: "sess-a",
+				updated: t0,
+			},
+		]);
+		expect(recipe[0]).toContain("cd '/w/a dir'");
+	});
+
+	it("escapes an embedded single quote so the path cannot break out", () => {
+		const recipe = restoreRecipe([
+			{
+				questId: "QEST-1",
+				cwd: "/w/a'; rm -rf ~",
+				sessionId: "sess-a",
+				updated: t0,
+			},
+		]);
+		// The dangerous quote is closed, escaped and reopened, never left
+		// as a bare quote that ends the quoting.
+		expect(recipe[0]).toContain("'/w/a'\\''; rm -rf ~'");
+		expect(recipe[0]).not.toContain("&& rm -rf");
+	});
 });

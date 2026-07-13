@@ -18,9 +18,10 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { QuestSession } from "../../quest/types.js";
-import type {
-	TerminalProbe,
-	TerminalSessionHandle,
+import {
+	type TerminalProbe,
+	type TerminalSessionHandle,
+	terminalHandleKey,
 } from "../../terminal/types.js";
 import type { ProcessIdentity, ProcessProbe } from "./process-liveness.js";
 
@@ -241,7 +242,14 @@ export async function buildLivenessSnapshot(
 		const obs: SessionObservation = {};
 		if (session.process) obs.process = deps.probeProcess(session.process);
 		if (session.terminal) {
-			obs.pane = paneProbes.get(session.terminal.value) ?? "unknown";
+			const key = terminalHandleKey({
+				driverId: session.terminal.driverId,
+				kind: `${session.terminal.driverId}-pane`,
+				hostId: session.process?.hostId ?? "",
+				scope: session.terminal.scope,
+				value: session.terminal.value,
+			});
+			obs.pane = paneProbes.get(key) ?? "unknown";
 		}
 		observations.set(session.id, obs);
 	}

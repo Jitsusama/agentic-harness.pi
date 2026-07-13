@@ -9,8 +9,10 @@
  * probe the restore verb uses to exclude panes still on screen.
  */
 
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.js";
+import { withQuestLock } from "../../lib/internal/quest/io.js";
 import {
 	loadWorkspaceStore,
 	planWorkspaceRestore,
@@ -61,15 +63,23 @@ export function recordCurrentWorkspace(input: {
 	if (!current) return;
 	try {
 		const path = workspaceSnapshotPath();
-		const store = loadWorkspaceStore(path);
-		const next = recordWorkspaceEntry(store, current.key, {
-			questId: input.questId,
-			cwd: input.cwd,
-			sessionId: input.sessionId,
-			pane: current.handle.value,
-			now: new Date().toISOString(),
+		const dir = dirname(path);
+		mkdirSync(dir, { recursive: true });
+		// Serialize the load-modify-save across panes: two sessions
+		// recording at once would otherwise lose one entry to a last-
+		// writer-wins race. The lock is the same advisory file-creation
+		// lock the quest READMEs use.
+		withQuestLock(dir, () => {
+			const store = loadWorkspaceStore(path);
+			const next = recordWorkspaceEntry(store, current.key, {
+				questId: input.questId,
+				cwd: input.cwd,
+				sessionId: input.sessionId,
+				pane: current.handle.value,
+				now: new Date().toISOString(),
+			});
+			saveWorkspaceStore(path, next);
 		});
-		saveWorkspaceStore(path, next);
 	} catch {
 		// A side record must never break the load that triggered it.
 	}

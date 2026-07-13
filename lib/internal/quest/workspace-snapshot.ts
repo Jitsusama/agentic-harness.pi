@@ -10,8 +10,9 @@
  * it is a side record the restore verb reads.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { atomicWriteFile } from "./io.js";
 
 /** One session recorded as open in a workspace. */
 export interface WorkspaceEntry {
@@ -106,10 +107,15 @@ export function loadWorkspaceStore(path: string): WorkspaceStore {
 	return {};
 }
 
-/** Write the store to disk, creating the parent directory on demand. */
+/**
+ * Write the store to disk, creating the parent directory on demand.
+ * The write is atomic (temp file plus rename) so a concurrent reader
+ * never sees a half-written store; callers that read-modify-write
+ * should still hold a lock to avoid a lost update.
+ */
 export function saveWorkspaceStore(path: string, store: WorkspaceStore): void {
 	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${JSON.stringify(store, null, 2)}\n`);
+	atomicWriteFile(path, `${JSON.stringify(store, null, 2)}\n`);
 }
 
 export interface RestorePlan {
@@ -139,10 +145,23 @@ export function planWorkspaceRestore(
 
 /**
  * A printable recipe that reopens each session in its own directory,
- * the fallback path when the terminal cannot be driven directly.
+ * the fallback path when the terminal cannot be driven directly. The
+ * cwd is shell-quoted because it is a filesystem path the user pastes
+ * into a shell: a space would break the `cd` and a metacharacter
+ * could inject a command.
  */
 export function restoreRecipe(entries: readonly WorkspaceEntry[]): string[] {
 	return entries.map(
-		(e) => `(cd ${e.cwd} && pi --session ${e.sessionId})  # ${e.questId}`,
+		(e) =>
+			`(cd ${shellSingleQuote(e.cwd)} && pi --session ${e.sessionId})  # ${e.questId}`,
 	);
+}
+
+/**
+ * Wrap a value in single quotes for safe shell interpolation. An
+ * embedded single quote is closed, escaped and reopened (`'\''`), the
+ * standard POSIX idiom, so the value cannot break out of the quoting.
+ */
+function shellSingleQuote(value: string): string {
+	return `'${value.replaceAll("'", "'\\''")}'`;
 }

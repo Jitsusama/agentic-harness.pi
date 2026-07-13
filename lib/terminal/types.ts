@@ -75,13 +75,25 @@ export interface TerminalLivenessCapability {
 	 */
 	identifyCurrent(): TerminalSessionHandle | undefined;
 	/**
-	 * Probe a batch of handles, returning a map keyed by each
-	 * handle's `value`. One transport call per scope.
+	 * Probe a batch of handles, returning a map keyed by
+	 * {@link terminalHandleKey}. One transport call per scope. The key
+	 * is host, scope and value together, not the bare pane value, since
+	 * a pane id is only unique within one terminal instance.
 	 */
 	probe(
 		handles: readonly TerminalSessionHandle[],
 		signal?: AbortSignal,
 	): Promise<ReadonlyMap<string, TerminalProbe>>;
+}
+
+/**
+ * The stable key a probe result is keyed by. A pane value is only
+ * unique within one terminal instance, so two instances can both hold
+ * pane "0"; keying by host, scope and value keeps their probe results
+ * from colliding when a batch spans instances.
+ */
+export function terminalHandleKey(handle: TerminalSessionHandle): string {
+	return `${handle.hostId}\u0000${handle.scope ?? ""}\u0000${handle.value}`;
 }
 
 /** A pluggable terminal driver. */

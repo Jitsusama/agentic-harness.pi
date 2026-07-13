@@ -403,9 +403,10 @@ export async function load(
 	}).attached;
 
 	// Record this session in its terminal workspace so a later restart
-	// can reconstruct the set that was open together. A best-effort
-	// side write; it never blocks the load.
-	if (sid && state.questId) {
+	// can reconstruct the set that was open together. Only a persisted
+	// session is resumable, so an ephemeral fan-out session is never
+	// snapshotted. A best-effort side write; it never blocks the load.
+	if (sid && isPersistedSession(ctx) && state.questId) {
 		recordCurrentWorkspace({
 			questId: state.questId,
 			sessionId: sid,

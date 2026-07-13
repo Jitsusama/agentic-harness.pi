@@ -26,6 +26,7 @@ import {
 	getLivenessProvider,
 	type TerminalProbe,
 	type TerminalSessionHandle,
+	terminalHandleKey,
 } from "../../lib/terminal/index.js";
 
 /** How long to wait on one driver's batched terminal probe before giving up. */
@@ -67,8 +68,10 @@ export async function probeLivePaneValues(
 	const handles = paneValues.map((value) => ({ ...template, value }));
 	const probes = await probeTerminalsByDriver(handles);
 	const live = new Set<string>();
-	for (const [value, probe] of probes) {
-		if (probe === "present") live.add(value);
+	for (const handle of handles) {
+		if (probes.get(terminalHandleKey(handle)) === "present") {
+			live.add(handle.value);
+		}
 	}
 	return live;
 }
@@ -92,22 +95,42 @@ async function probeTerminalsByDriver(
 	for (const [driverId, group] of byDriver) {
 		const provider = getLivenessProvider(driverId);
 		if (!provider) {
-			for (const handle of group) merged.set(handle.value, "unknown");
+			for (const handle of group) {
+				merged.set(terminalHandleKey(handle), "unknown");
+			}
 			continue;
 		}
 		const controller = new AbortController();
-		const timer = setTimeout(
-			() => controller.abort(),
-			TERMINAL_PROBE_TIMEOUT_MS,
-		);
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		// Race the probe against an independent timeout rather than only
+		// aborting the signal: a driver that ignores its AbortSignal would
+		// otherwise hang the whole snapshot. The timeout wins with a
+		// sentinel and every handle in the group reads unknown.
+		const timeout = new Promise<"timeout">((resolve) => {
+			timer = setTimeout(() => {
+				controller.abort();
+				resolve("timeout");
+			}, TERMINAL_PROBE_TIMEOUT_MS);
+		});
 		try {
-			const result = await provider.probe(group, controller.signal);
-			for (const [value, probe] of result) merged.set(value, probe);
+			const result = await Promise.race([
+				provider.probe(group, controller.signal),
+				timeout,
+			]);
+			if (result === "timeout") {
+				for (const handle of group) {
+					merged.set(terminalHandleKey(handle), "unknown");
+				}
+			} else {
+				for (const [key, probe] of result) merged.set(key, probe);
+			}
 		} catch {
-			// Probe failed or timed out: unknown, not a false absent.
-			for (const handle of group) merged.set(handle.value, "unknown");
+			// Probe failed: unknown, not a false absent.
+			for (const handle of group) {
+				merged.set(terminalHandleKey(handle), "unknown");
+			}
 		} finally {
-			clearTimeout(timer);
+			if (timer) clearTimeout(timer);
 		}
 	}
 	return merged;

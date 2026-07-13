@@ -62,8 +62,9 @@ function addActiveSession(dir: string, sessionId: string): void {
 	);
 }
 
-// A session with a process identity whose pid is almost certainly
-// dead, so a real probe on this host reads it gone.
+// A session with a process identity in the valid pid range but almost
+// certainly not running, so a real probe reads it gone. An
+// out-of-range pid would draw a ps diagnostic and read unknown.
 function addDeadProcessSession(dir: string, sessionId: string): void {
 	const path = join(dir, "README.md");
 	const parsed = parseQuestFrontMatter(readFileSync(path, "utf8"));
@@ -74,7 +75,7 @@ function addDeadProcessSession(dir: string, sessionId: string): void {
 			id: sessionId,
 			started: new Date().toISOString(),
 			status: "active",
-			process: { hostId: hostname(), pid: 2147483646, startToken: "gone" },
+			process: { hostId: hostname(), pid: 99998, startToken: "gone" },
 		},
 	];
 	writeFileSync(

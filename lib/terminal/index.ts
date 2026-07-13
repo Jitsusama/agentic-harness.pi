@@ -29,3 +29,4 @@ export type {
 	TerminalRequest,
 	TerminalSessionHandle,
 } from "./types.js";
+export { terminalHandleKey } from "./types.js";

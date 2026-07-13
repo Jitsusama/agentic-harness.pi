@@ -6,9 +6,10 @@ import {
 	type LivenessSnapshot,
 } from "../../../../lib/internal/quest/session-liveness";
 import type { QuestSession } from "../../../../lib/quest/types";
-import type {
-	TerminalProbe,
-	TerminalSessionHandle,
+import {
+	type TerminalProbe,
+	type TerminalSessionHandle,
+	terminalHandleKey,
 } from "../../../../lib/terminal/index";
 
 const NOW = new Date("2026-06-04T12:00:00.000Z");
@@ -121,7 +122,7 @@ describe("buildLivenessSnapshot", () => {
 			probeTerminals: async (handles) => {
 				probedHandles.push([...handles]);
 				const out = new Map<string, TerminalProbe>();
-				for (const h of handles) out.set(h.value, "present");
+				for (const h of handles) out.set(terminalHandleKey(h), "present");
 				return out;
 			},
 		});

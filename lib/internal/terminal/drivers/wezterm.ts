@@ -12,12 +12,13 @@
 import { execFile, spawn as nodeSpawn } from "node:child_process";
 import { hostname } from "node:os";
 import { promisify } from "node:util";
-import type {
-	TerminalDriver,
-	TerminalLivenessCapability,
-	TerminalProbe,
-	TerminalRequest,
-	TerminalSessionHandle,
+import {
+	type TerminalDriver,
+	type TerminalLivenessCapability,
+	type TerminalProbe,
+	type TerminalRequest,
+	type TerminalSessionHandle,
+	terminalHandleKey,
 } from "../../../terminal/types.js";
 import { wrapCommandWithEnv } from "./shared.js";
 
@@ -44,7 +45,7 @@ export function classifyWeztermPanes(
 ): Map<string, TerminalProbe> {
 	const out = new Map<string, TerminalProbe>();
 	for (const handle of handles) {
-		out.set(handle.value, classifyOne(handle, observation));
+		out.set(terminalHandleKey(handle), classifyOne(handle, observation));
 	}
 	return out;
 }
