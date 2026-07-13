@@ -20,12 +20,16 @@ export type Invoke = (
 	signal?: AbortSignal,
 ) => Promise<McpToolResult>;
 
-/** A tool's execute after the front-end has wrapped it (gate, arg massaging). */
+/**
+ * A tool's execute after the front-end has wrapped it (gate, arg massaging).
+ * It returns the transport-shaped result; the core applies the shaper and
+ * converts to pi content afterwards, so a gate never touches shaping.
+ */
 export type WrappedExecute = (
 	args: Record<string, unknown>,
 	ctx: ExtensionContext,
 	signal?: AbortSignal,
-) => Promise<AgentToolResult<unknown>>;
+) => Promise<McpToolResult>;
 
 /** The outcome of a confirmation gate: approved with data, redirected with a note, or cancelled. */
 export type ConfirmResult<T> =

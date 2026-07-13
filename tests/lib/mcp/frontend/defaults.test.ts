@@ -144,7 +144,7 @@ describe("makeDefaultWrap", () => {
 		expect(JSON.stringify(out.content)).toContain("do it differently");
 	});
 
-	it("throws when the result is an error", async () => {
+	it("passes an errored transport result through for the core to handle", async () => {
 		const invoke = vi.fn(async () =>
 			result([{ type: "text", text: "boom" }], { isError: true }),
 		);
@@ -152,6 +152,8 @@ describe("makeDefaultWrap", () => {
 			invoke,
 			tool("read_thing"),
 		);
-		await expect(wrapped({}, ctx)).rejects.toThrow("boom");
+		const out = await wrapped({}, ctx);
+		expect(out.isError).toBe(true);
+		expect(out.content).toEqual([{ type: "text", text: "boom" }]);
 	});
 });

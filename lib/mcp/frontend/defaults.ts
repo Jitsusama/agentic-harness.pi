@@ -1,5 +1,5 @@
 import type { AgentToolResult } from "@mariozechner/pi-coding-agent";
-import { joinTextContent, truncateForDisplay } from "../content.js";
+import { truncateForDisplay } from "../content.js";
 import { renderDefaultCall } from "../render/call.js";
 import { CANCELLED_TEXT, renderDefaultResult } from "../render/result.js";
 import type { McpContent, McpTool, McpToolResult } from "../types.js";
@@ -96,7 +96,8 @@ export function toAgentContent(
  * The default execution wrapper. Non-write calls pass straight through. A write
  * runs the injected gate first: cancel returns the cancel sentinel, a redirect
  * returns the note for the model to act on, and approval invokes with the
- * (possibly edited) args. An errored result is thrown, per pi's tool contract.
+ * (possibly edited) args. The transport-shaped result is returned unchanged;
+ * the core shapes and converts it afterwards.
  */
 export function makeDefaultWrap(opts: {
 	writeSignal: (tool: McpTool) => boolean;
@@ -110,26 +111,14 @@ export function makeDefaultWrap(opts: {
 		if (opts.writeSignal(tool) && opts.showGate) {
 			const decision = await opts.showGate(tool, args);
 			if (decision === null)
-				return {
-					content: [{ type: "text", text: CANCELLED_TEXT }],
-					details: undefined,
-				};
-			if (!decision.approved) {
+				return { content: [{ type: "text", text: CANCELLED_TEXT }] };
+			if (!decision.approved)
 				return {
 					content: [{ type: "text", text: `Redirected: ${decision.redirect}` }],
-					details: undefined,
 				};
-			}
 			effectiveArgs = decision.data;
 		}
-
-		const result = await invoke(effectiveArgs, signal);
-		if (result.isError)
-			throw new Error(joinTextContent(result) || "Tool call failed.");
-		return {
-			content: toAgentContent(result),
-			details: result.structuredContent,
-		};
+		return invoke(effectiveArgs, signal);
 	};
 }
 
