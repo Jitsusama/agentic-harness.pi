@@ -33,13 +33,19 @@ export type ConfirmResult<T> =
 	| { approved: false; redirect: string }
 	| null;
 
-/** The slice of pi's tool-render context the front-end hooks receive. */
+/**
+ * What the front-end hooks receive: pi's tool-render state plus the tool being
+ * rendered and how many servers are mounted, both added by the host so a
+ * renderer can title the call and decide whether to show a server prefix.
+ */
 export interface FrontEndRenderContext {
 	expanded: boolean;
 	isPartial: boolean;
 	isError: boolean;
 	args: Record<string, unknown>;
 	toolCallId: string;
+	tool: McpTool;
+	serverCount: number;
 }
 
 /**
