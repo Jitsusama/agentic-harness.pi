@@ -144,8 +144,10 @@ Field semantics:
   guessed: `instanceId` (minted once per pi process),
   `process` (`hostId`, `pid`, `startToken`, guarding pid
   reuse and remote hosts), and `terminal` (`driverId`,
-  `value`, optional `scope`, a probeable handle to the
-  pane). All three are optional; a legacy record without
+  `value`, optional `scope` and `hostId`, a probeable
+  handle to the pane; `hostId` is the host the terminal
+  was captured on, so a pane stays probeable even when no
+  process identity was recorded). All three are optional; a legacy record without
   them still reads by activity recency. Loading a quest detaches the session from the
   quest it is leaving, and reconciles membership by
   detaching the session from any other quest that still

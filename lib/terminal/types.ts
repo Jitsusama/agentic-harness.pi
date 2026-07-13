@@ -93,7 +93,7 @@ export interface TerminalLivenessCapability {
  * from colliding when a batch spans instances.
  */
 export function terminalHandleKey(handle: TerminalSessionHandle): string {
-	return `${handle.hostId}\u0000${handle.scope ?? ""}\u0000${handle.value}`;
+	return `${handle.driverId}\u0000${handle.hostId}\u0000${handle.scope ?? ""}\u0000${handle.value}`;
 }
 
 /** A pluggable terminal driver. */
