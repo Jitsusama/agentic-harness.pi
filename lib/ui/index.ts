@@ -55,6 +55,15 @@ export {
 	renderPipelineProgressLines,
 	type StageState,
 } from "./pipeline-progress.js";
+// ── Toggle list ─────────────────────────────────────────────
+export {
+	initToggleModel,
+	promptToggleList,
+	type ToggleListConfig,
+	type ToggleListModel,
+	type ToggleRow,
+	type ToggleSection,
+} from "./prompt-toggle-list.js";
 
 // ── Text layout ─────────────────────────────────────────────
 export { contentWrapWidth, wordWrap } from "./text-layout.js";
