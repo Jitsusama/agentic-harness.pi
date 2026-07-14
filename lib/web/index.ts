@@ -8,7 +8,11 @@
  */
 
 export { type AxNode, renderAxOutline } from "./a11y.js";
-export { closeBrowser, killBrowserSync } from "./browser.js";
+export {
+	BrowserLaunchFailed,
+	closeBrowser,
+	killBrowserSync,
+} from "./browser.js";
 export {
 	type MermaidRender,
 	MermaidRenderError,

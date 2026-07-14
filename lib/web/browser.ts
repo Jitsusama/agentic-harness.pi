@@ -12,17 +12,196 @@
  * one profile no matter how many extensions reach for it.
  */
 
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import { processGlobal } from "../internal/process-global.js";
 
+/** How many times to try launching Chrome before giving up. */
+const LAUNCH_ATTEMPTS = 3;
+
+/** Backoff before each retry, in milliseconds. The array length is
+ * LAUNCH_ATTEMPTS - 1; a Chrome self-update window clears in seconds. */
+const LAUNCH_BACKOFF_MS = [500, 1500];
+
+/** Close the shared browser after this long with no new page opened. */
+const IDLE_TIMEOUT_MS = 5 * 60_000;
+
+/** Diagnostic detail teased out of a failed Chrome launch. */
+export interface LaunchFailureInfo {
+	exitCode?: number;
+	chromeStderr?: string;
+}
+
+/** Parse a Puppeteer launch error into an exit code and Chrome's stderr. */
+export function classifyLaunchError(err: unknown): LaunchFailureInfo {
+	const message = err instanceof Error ? err.message : String(err);
+	const info: LaunchFailureInfo = {};
+	const code = message.match(/Code:\s*(\d+)/);
+	if (code) info.exitCode = Number(code[1]);
+	// Puppeteer frames Chrome's own output between a `stderr:` header
+	// and its troubleshooting footer; lift whatever sits in between.
+	const stderr = message.match(/stderr:\s*\n([\s\S]*?)\n\s*TROUBLESHOOTING/);
+	const captured = stderr?.[1]?.trim();
+	if (captured) info.chromeStderr = captured;
+	return info;
+}
+
+/** Build a human-readable message for a launch that never came up. */
+export function formatLaunchFailure(
+	info: LaunchFailureInfo,
+	attempts: number,
+): string {
+	const code =
+		info.exitCode === undefined ? "" : ` (exit code ${info.exitCode})`;
+	const lines = [
+		`Chrome could not be launched after ${attempts} attempts${code}.`,
+		"This is often transient on macOS when Chrome is auto-updating in " +
+			"the background, and retrying in a minute usually clears it. If it " +
+			"keeps failing, check that Google Chrome opens normally, or set " +
+			"CHROME_PATH to a working binary.",
+	];
+	if (info.chromeStderr) lines.push("", "Chrome said:", info.chromeStderr);
+	return lines.join("\n");
+}
+
+/** Thrown when Chrome could not be launched after the retry budget. */
+export class BrowserLaunchFailed extends Error {
+	readonly exitCode?: number;
+	readonly chromeStderr?: string;
+	constructor(info: LaunchFailureInfo, attempts: number) {
+		super(formatLaunchFailure(info, attempts));
+		this.name = "BrowserLaunchFailed";
+		this.exitCode = info.exitCode;
+		this.chromeStderr = info.chromeStderr;
+	}
+}
+
+/** Signal delivery, injectable so the reaping logic is testable. */
+type GroupKill = (pid: number, signal: string) => void;
+
+const defaultGroupKill: GroupKill = (pid, signal) => {
+	process.kill(pid, signal);
+};
+
+/**
+ * Kill a detached Chrome's whole process group, falling back to the
+ * bare pid. Chrome is spawned detached, so its pgid equals its pid;
+ * the negative pid reaps every helper (GPU, network, renderers) that
+ * a lone pid kill would leave to reparent to launchd.
+ */
+export function killPidGroup(
+	pid: number,
+	groupKill: GroupKill = defaultGroupKill,
+): void {
+	try {
+		groupKill(-pid, "SIGKILL");
+	} catch {
+		// The group is gone or unkillable; try the leader on its own.
+		try {
+			groupKill(pid, "SIGKILL");
+		} catch {
+			// Nothing left to kill; the process already exited.
+		}
+	}
+}
+
+/** Kill a live browser process tree: group first, then proc.kill fallback. */
+export function killTree(
+	proc:
+		| { pid?: number; kill: (signal?: NodeJS.Signals) => boolean }
+		| null
+		| undefined,
+	groupKill: GroupKill = defaultGroupKill,
+): void {
+	const pid = proc?.pid;
+	if (!proc || !pid) return;
+	try {
+		groupKill(-pid, "SIGKILL");
+	} catch {
+		// Group kill failed; fall back to Puppeteer's own process handle.
+		try {
+			proc.kill("SIGKILL");
+		} catch {
+			// Already dead.
+		}
+	}
+}
+
+/** Inputs for reaping Chrome processes and profile dirs a dead pi left behind. */
+export interface ReapOrphansOptions {
+	root: string;
+	currentPid: number;
+	listEntries: () => string[];
+	findProcs: (profileDir: string) => number[];
+	killPid: (pid: number) => void;
+	removeDir: (dir: string) => void;
+}
+
+/** Kill orphaned Chrome trees, then remove their stale profile dirs. */
+export function reapOrphans(opts: ReapOrphansOptions): void {
+	for (const entry of opts.listEntries()) {
+		if (entry === String(opts.currentPid)) continue;
+		const dir = path.join(opts.root, entry);
+		// Argv-path match is the interlock against pid reuse: only a
+		// process that still names this exact profile dir is ours to kill.
+		for (const pid of opts.findProcs(dir)) {
+			try {
+				opts.killPid(pid);
+			} catch {
+				// A kill can lose a race with the process exiting; the dir
+				// removal below still reclaims the space.
+			}
+		}
+		opts.removeDir(dir);
+	}
+}
+
+/** A countdown that closes an idle browser and rearms on use. */
+export interface IdleCloser {
+	touch(): void;
+	cancel(): void;
+}
+
+/** Inputs for the idle-close countdown; timers are injectable for tests. */
+export interface IdleCloserOptions {
+	idleMs: number;
+	close: () => void;
+	setTimer?: (fn: () => void, ms: number) => NodeJS.Timeout;
+	clearTimer?: (id: NodeJS.Timeout) => void;
+}
+
+/** Build an idle-close countdown that rearms on touch and stops on cancel. */
+export function createIdleCloser(opts: IdleCloserOptions): IdleCloser {
+	const setTimer = opts.setTimer ?? setTimeout;
+	const clearTimer = opts.clearTimer ?? clearTimeout;
+	let timer: NodeJS.Timeout | undefined;
+	const cancel = () => {
+		if (timer !== undefined) {
+			clearTimer(timer);
+			timer = undefined;
+		}
+	};
+	return {
+		touch() {
+			cancel();
+			timer = setTimer(() => {
+				timer = undefined;
+				opts.close();
+			}, opts.idleMs);
+		},
+		cancel,
+	};
+}
+
 /** Process-global browser state, shared across extension module instances. */
 interface SharedBrowserState {
 	browser?: Browser;
 	launching?: Promise<Browser>;
 	lifecycleInstalled?: boolean;
+	idle?: IdleCloser;
 }
 
 function sharedState(): SharedBrowserState {
@@ -37,20 +216,52 @@ function sharedState(): SharedBrowserState {
  */
 const PROFILE_ROOT = path.join(os.tmpdir(), "pi-web-chrome");
 
-/** Remove profile dirs from earlier runs (their Chrome is long dead). */
-function sweepOrphanProfiles(): void {
+/**
+ * Find live pids whose argv still names `profileDir`. The path is
+ * unique per pi pid, so a match is our orphaned Chrome and not an
+ * innocent process that inherited a reused pid.
+ */
+function findProcsForProfile(profileDir: string): number[] {
 	try {
-		for (const entry of fs.readdirSync(PROFILE_ROOT)) {
-			if (entry === String(process.pid)) continue;
-			fs.rmSync(path.join(PROFILE_ROOT, entry), {
-				recursive: true,
-				force: true,
-			});
+		const out = execFileSync("ps", ["-eo", "pid=,command="], {
+			encoding: "utf8",
+			maxBuffer: 8 * 1024 * 1024,
+		});
+		const pids: number[] = [];
+		for (const line of out.split("\n")) {
+			if (!line.includes(profileDir)) continue;
+			const pid = Number.parseInt(line.trim(), 10);
+			if (Number.isFinite(pid) && pid !== process.pid) pids.push(pid);
 		}
+		return pids;
 	} catch {
-		// No profile root yet, or a dir in use by a live sibling; the
-		// next startup sweeps whatever this one could not.
+		// No ps, or it failed; skip process reaping and just drop dirs.
+		return [];
 	}
+}
+
+/**
+ * Reap Chrome trees and profile dirs left behind by a prior run.
+ * A clean exit reclaims its own dir, so anything else under the
+ * root belongs to a pi that a SIGKILL or crash could not clean up:
+ * kill the orphaned Chrome group, then drop its dir.
+ */
+function reapOrphanProfiles(): void {
+	reapOrphans({
+		root: PROFILE_ROOT,
+		currentPid: process.pid,
+		listEntries: () => {
+			try {
+				return fs.readdirSync(PROFILE_ROOT);
+			} catch {
+				// No profile root yet; nothing to reap.
+				return [];
+			}
+		},
+		findProcs: findProcsForProfile,
+		killPid: (pid) => killPidGroup(pid),
+		removeDir: (dir) => fs.rmSync(dir, { recursive: true, force: true }),
+	});
 }
 
 /**
@@ -93,11 +304,15 @@ function findChrome(): string {
 	);
 }
 
-/** Launch a fresh headless Chrome against this process's profile. */
-async function launchBrowser(): Promise<Browser> {
-	installLifecycleHandlers();
-	sweepOrphanProfiles();
+const sleep = (ms: number) =>
+	new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Launch headless Chrome once, against a freshly reset profile. */
+async function launchOnce(): Promise<Browser> {
 	const profileDir = path.join(PROFILE_ROOT, String(process.pid));
+	// Reset the profile so a half-dead Chrome's SingletonLock from a
+	// prior attempt cannot poison this one.
+	fs.rmSync(profileDir, { recursive: true, force: true });
 	fs.mkdirSync(profileDir, { recursive: true });
 	const executablePath = process.env.CHROME_PATH || findChrome();
 	return puppeteer.launch({
@@ -109,11 +324,45 @@ async function launchBrowser(): Promise<Browser> {
 			"--disable-setuid-sandbox",
 			"--disable-gpu",
 			"--disable-dev-shm-usage",
-			"--disable-logging",
-			"--log-level=3",
+			// Route Chrome's own errors to stderr (at v=0, errors only) so
+			// a failed launch carries a real reason. dumpio stays false, so
+			// none of this reaches the user's terminal on success.
+			"--enable-logging=stderr",
+			"--v=0",
 		],
 		dumpio: false,
 	});
+}
+
+/**
+ * Launch Chrome with a bounded retry. A Chrome self-update on macOS
+ * makes the first spawn exit before its DevTools endpoint appears;
+ * the window is brief, so a short backoff usually rides it out. A
+ * failed puppeteer.launch group-kills its own child, and each
+ * attempt resets the profile, so retries never stack orphans.
+ */
+async function launchBrowser(): Promise<Browser> {
+	installLifecycleHandlers();
+	reapOrphanProfiles();
+	let lastError: unknown;
+	for (let attempt = 1; attempt <= LAUNCH_ATTEMPTS; attempt++) {
+		try {
+			return await launchOnce();
+		} catch (err) {
+			lastError = err;
+			// Chrome-not-found is a settled misconfig, not a transient; do
+			// not burn retries or reshape its already-clear message.
+			if (err instanceof Error && err.message.includes("Chrome not found")) {
+				throw err;
+			}
+			const backoff = LAUNCH_BACKOFF_MS[attempt - 1];
+			if (backoff !== undefined) await sleep(backoff);
+		}
+	}
+	throw new BrowserLaunchFailed(
+		classifyLaunchError(lastError),
+		LAUNCH_ATTEMPTS,
+	);
 }
 
 /**
@@ -129,15 +378,36 @@ export async function getBrowser(): Promise<Browser> {
 	state.launching = launchBrowser();
 	try {
 		state.browser = await state.launching;
+		idleCloser().touch();
 		return state.browser;
 	} finally {
 		state.launching = undefined;
 	}
 }
 
+/**
+ * The idle-close countdown, created once per process. When it
+ * fires it shuts the shared browser down; a later getBrowser
+ * relaunches, which also picks up a Chrome that updated in the
+ * meantime rather than reusing a version pinned hours ago.
+ */
+function idleCloser(): IdleCloser {
+	const state = sharedState();
+	if (!state.idle) {
+		state.idle = createIdleCloser({
+			idleMs: IDLE_TIMEOUT_MS,
+			close: () => {
+				void closeBrowser();
+			},
+		});
+	}
+	return state.idle;
+}
+
 /** Open a new browser tab with a standard user agent string. */
 export async function newPage(): Promise<Page> {
 	const b = await getBrowser();
+	idleCloser().touch();
 	const page = await b.newPage();
 	try {
 		await page.setUserAgent(
@@ -167,12 +437,13 @@ export async function closeBrowser(): Promise<void> {
 	const b = state.browser;
 	if (!b) return;
 
+	state.idle?.cancel();
 	try {
 		if (b.connected) await b.close();
 	} catch {
-		// Graceful close failed. Kill the Chrome process tree so it
-		// doesn't linger as an orphan.
-		b.process()?.kill("SIGKILL");
+		// Graceful close failed. Kill the whole Chrome process group so
+		// no helper (GPU, network, renderer) lingers as an orphan.
+		killTree(b.process());
 	} finally {
 		state.browser = undefined;
 		// Reclaim this run's profile dir on a graceful close rather
@@ -194,9 +465,12 @@ export async function closeBrowser(): Promise<void> {
  */
 export function killBrowserSync(): void {
 	const state = sharedState();
+	state.idle?.cancel();
 	const b = state.browser;
 	if (!b) return;
 
-	b.process()?.kill("SIGKILL");
+	// Group-kill so the helper tree dies with the leader instead of
+	// reparenting to launchd.
+	killTree(b.process());
 	state.browser = undefined;
 }
