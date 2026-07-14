@@ -687,16 +687,19 @@ async function runClose(state: SharedBrowserState): Promise<void> {
 	if (!b) return;
 
 	state.idle?.cancel();
+	const proc = b.process();
 	try {
 		if (b.connected) await b.close();
 	} catch {
-		// Graceful close failed. Kill the whole Chrome process group so
-		// no helper (GPU, network, renderer) lingers as an orphan.
-		killTree(b.process());
+		// Graceful close failed; the force-kill below handles it.
 	} finally {
+		// Always group-kill the tree. After a graceful close this is a
+		// harmless no-op, but it is the only teardown for a browser whose
+		// DevTools client has disconnected while its process still runs.
+		killTree(proc);
 		state.browser = undefined;
-		// Reclaim this run's profile dir on a graceful close rather
-		// than leaving it for the next run's startup sweep.
+		// Reclaim this run's profile dir rather than leaving it for the
+		// next run's startup sweep.
 		try {
 			fs.rmSync(ownProfileDir(), { recursive: true, force: true });
 		} catch {
