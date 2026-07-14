@@ -177,41 +177,30 @@ function ownerAlive(
 	return Number.isFinite(pid) && opts.isPidAlive(pid);
 }
 
-/**
- * The Chrome pids to reap for a proven-dead owner, and whether that
- * set is proven. Exact-profile discovery is authoritative and is
- * unioned with a still-verifying recorded pid, so no stray Chrome on
- * the profile is missed. When discovery could not run and no recorded
- * pid verifies, the set is unproven and the caller retains the dir.
- */
-function killTargets(
+/** True when a probe reports the pid still names this exact profile. */
+function stillOurs(
 	opts: ReapOrphansOptions,
-	owner: OwnerRecord | undefined,
+	pid: number,
 	dir: string,
-): { pids: number[]; proven: boolean } {
-	const pids = new Set<number>();
-	let proven = false;
-	const discovered = opts.findProcsByProfile(dir);
-	if (discovered !== undefined) {
-		for (const pid of discovered) pids.add(pid);
-		proven = true;
+): boolean {
+	try {
+		return opts.verifyBrowser(pid, dir);
+	} catch {
+		// Cannot confirm, so treat it as still present and fail safe.
+		return true;
 	}
-	const recorded = owner?.browserPid;
-	if (recorded && opts.verifyBrowser(recorded, dir)) {
-		pids.add(recorded);
-		proven = true;
-	}
-	return { pids: [...pids], proven };
 }
 
 /**
  * Reap Chrome trees and profile dirs a prior run left behind. Each
- * dir is reaped only when its owning pi is dead. The kill set is the
- * exact-profile matches unioned with a verifying recorded pid; the
- * dir is removed only once that set is proven, so a failed probe
- * retains the dir for a later sweep rather than dropping the only
- * handle to a still-running orphan. Every step is best-effort: one
- * bad entry can never abort the sweep or block a launch.
+ * dir is reaped only when its owning pi is dead. The candidate kill
+ * set is the exact-profile matches unioned with a recorded pid; each
+ * candidate is re-verified immediately before it is signalled, so a
+ * pid that exited and was reused is never group-killed. The dir is
+ * removed only once discovery has run and a fresh check confirms no
+ * candidate still names it, so a failed probe or a surviving process
+ * keeps the dir for a later sweep. Every step is best-effort: one bad
+ * entry can never abort the sweep or block a launch.
  */
 export function reapOrphans(opts: ReapOrphansOptions): void {
 	for (const entry of opts.listEntries()) {
@@ -224,8 +213,14 @@ export function reapOrphans(opts: ReapOrphansOptions): void {
 				// Unreadable record; treat as no record.
 			}
 			if (ownerAlive(opts, entry, owner)) continue;
-			const { pids, proven } = killTargets(opts, owner, dir);
-			for (const pid of pids) {
+
+			const discovered = opts.findProcsByProfile(dir);
+			const candidates = new Set<number>(discovered ?? []);
+			if (owner?.browserPid) candidates.add(owner.browserPid);
+			for (const pid of candidates) {
+				// Re-verify at signalling time: a stale discovery entry or a
+				// pid that has since been reused must not be group-killed.
+				if (!stillOurs(opts, pid, dir)) continue;
 				try {
 					opts.killPid(pid);
 				} catch {
@@ -233,7 +228,14 @@ export function reapOrphans(opts: ReapOrphansOptions): void {
 					// reclaims the dir.
 				}
 			}
-			if (!proven) continue; // keep the dir until the orphan is provable
+
+			// Remove the dir only when discovery ran and nothing we targeted
+			// still names the profile. A failed probe or a survivor keeps it.
+			if (discovered === undefined) continue;
+			const cleared = [...candidates].every(
+				(pid) => !stillOurs(opts, pid, dir),
+			);
+			if (!cleared) continue;
 			try {
 				opts.removeDir(dir);
 			} catch {
@@ -374,9 +376,7 @@ function verifyBrowser(pid: number, profileDir: string): boolean {
 		const cmd = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
 			encoding: "utf8",
 		});
-		return new RegExp(
-			`(?:^|\\s)--user-data-dir=${escapeRegExp(profileDir)}(?:\\s|$)`,
-		).test(cmd);
+		return namesProfile(cmd, profileDir);
 	} catch {
 		return false;
 	}
@@ -384,6 +384,17 @@ function verifyBrowser(pid: number, profileDir: string): boolean {
 
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * True when `command` carries this exact profile as its
+ * --user-data-dir. Both sides of the value are anchored, so neither a
+ * longer sibling path nor a differently-prefixed flag can collide.
+ */
+export function namesProfile(command: string, profileDir: string): boolean {
+	return new RegExp(
+		`(?:^|\\s)--user-data-dir=${escapeRegExp(profileDir)}(?:\\s|$)`,
+	).test(command);
 }
 
 /**
@@ -397,14 +408,9 @@ function findProcsByProfile(profileDir: string): number[] | undefined {
 			encoding: "utf8",
 			maxBuffer: 8 * 1024 * 1024,
 		});
-		// Anchor both sides of the value so neither a longer sibling path
-		// nor a differently-prefixed flag can collide.
-		const token = new RegExp(
-			`(?:^|\\s)--user-data-dir=${escapeRegExp(profileDir)}(?:\\s|$)`,
-		);
 		const pids: number[] = [];
 		for (const line of out.split("\n")) {
-			if (!token.test(line)) continue;
+			if (!namesProfile(line, profileDir)) continue;
 			const pid = Number.parseInt(line.trim(), 10);
 			if (Number.isFinite(pid) && pid !== process.pid) pids.push(pid);
 		}
@@ -713,4 +719,11 @@ export function killBrowserSync(): void {
 	// reparenting to launchd.
 	killTree(b.process());
 	state.browser = undefined;
+	// Reclaim this run's profile dir on a signal exit too, not only on a
+	// graceful close, so a Ctrl-C does not strand it for the next sweep.
+	try {
+		fs.rmSync(ownProfileDir(), { recursive: true, force: true });
+	} catch {
+		// Best-effort; a later run's reaper removes whatever remains.
+	}
 }

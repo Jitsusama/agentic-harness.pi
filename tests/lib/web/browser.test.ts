@@ -6,6 +6,7 @@ import {
 	formatLaunchFailure,
 	killPidGroup,
 	killTree,
+	namesProfile,
 	reapOrphans,
 	shouldCloseWhenIdle,
 } from "../../../lib/web/browser.js";
@@ -168,6 +169,34 @@ describe("createIdleCloser", () => {
 	});
 });
 
+describe("namesProfile", () => {
+	const dir = "/tmp/pi-web-chrome/1234-abcd";
+
+	it("matches a command that uses this exact profile", () => {
+		expect(namesProfile(`chrome --user-data-dir=${dir} --headless`, dir)).toBe(
+			true,
+		);
+		// Also at end of line.
+		expect(namesProfile(`chrome --user-data-dir=${dir}`, dir)).toBe(true);
+	});
+
+	it("rejects a longer sibling profile path (prefix collision)", () => {
+		expect(namesProfile(`chrome --user-data-dir=${dir}0 --headless`, dir)).toBe(
+			false,
+		);
+	});
+
+	it("rejects a differently-prefixed flag that ends with the value", () => {
+		expect(
+			namesProfile(`chrome --some-user-data-dir=${dir} --headless`, dir),
+		).toBe(false);
+	});
+
+	it("does not match when the profile is absent", () => {
+		expect(namesProfile("chrome --headless about:blank", dir)).toBe(false);
+	});
+});
+
 describe("killPidGroup", () => {
 	it("kills the negative pid (the whole group) first", () => {
 		const calls: Array<[number, string]> = [];
@@ -210,28 +239,46 @@ describe("killTree", () => {
 
 describe("reapOrphans", () => {
 	type Rec = { piPid: number; browserPid?: number };
+	const base = (dir: string) => dir.split("/").pop() ?? "";
 
-	/** A reaper harness: alive pids, owners, discovery (empty vs failed). */
+	/**
+	 * A stateful reaper harness. `live` maps a profile to the Chrome pids
+	 * actually running on it; a kill removes the pid (unless it is in
+	 * `unkillable`, simulating a signal that did not take). `stale` are
+	 * pids discovery reports but which no longer verify (a TOCTOU snapshot).
+	 */
 	function harness(opts: {
 		entries: string[];
 		owners?: Record<string, Rec>;
 		alive?: number[];
-		verify?: (pid: number, dir: string) => boolean;
-		discover?: Record<string, number[]>; // dir basename -> pids
-		probeFails?: boolean; // findProcsByProfile returns undefined
+		live?: Record<string, number[]>;
+		stale?: Record<string, number[]>;
+		unkillable?: number[];
+		probeFails?: boolean;
 	}) {
 		const killed: number[] = [];
 		const removed: string[] = [];
-		const base = (dir: string) => dir.split("/").pop() ?? "";
+		const state: Record<string, number[]> = {};
+		for (const [k, pids] of Object.entries(opts.live ?? {}))
+			state[k] = [...pids];
+		const names = (pid: number, dir: string) =>
+			(state[base(dir)] ?? []).includes(pid);
 		reapOrphans({
 			root: "/root",
 			listEntries: () => opts.entries,
 			readOwner: (dir) => opts.owners?.[base(dir)],
 			isPidAlive: (pid) => (opts.alive ?? []).includes(pid),
-			verifyBrowser: opts.verify ?? (() => true),
+			verifyBrowser: names,
 			findProcsByProfile: (dir) =>
-				opts.probeFails ? undefined : (opts.discover?.[base(dir)] ?? []),
-			killPid: (pid) => killed.push(pid),
+				opts.probeFails
+					? undefined
+					: [...(state[base(dir)] ?? []), ...(opts.stale?.[base(dir)] ?? [])],
+			killPid: (pid) => {
+				killed.push(pid);
+				if ((opts.unkillable ?? []).includes(pid)) return;
+				for (const k of Object.keys(state))
+					state[k] = state[k].filter((p) => p !== pid);
+			},
 			removeDir: (dir) => removed.push(dir),
 		});
 		return { killed, removed };
@@ -242,6 +289,7 @@ describe("reapOrphans", () => {
 			entries: ["200-a"],
 			owners: { "200-a": { piPid: 200, browserPid: 900 } },
 			alive: [200],
+			live: { "200-a": [900] },
 		});
 		expect(killed).toEqual([]);
 		expect(removed).toEqual([]);
@@ -251,7 +299,8 @@ describe("reapOrphans", () => {
 		const { killed, removed } = harness({
 			entries: ["200-a"],
 			owners: { "200-a": { piPid: 200, browserPid: 900 } },
-			alive: [], // owner 200 is gone
+			alive: [],
+			live: { "200-a": [900] },
 		});
 		expect(killed).toEqual([900]);
 		expect(removed).toEqual(["/root/200-a"]);
@@ -262,7 +311,7 @@ describe("reapOrphans", () => {
 			entries: ["200-a"],
 			owners: { "200-a": { piPid: 200, browserPid: 900 } },
 			alive: [],
-			discover: { "200-a": [901] }, // a stray Chrome on the same profile
+			live: { "200-a": [900, 901] }, // a stray Chrome on the same profile
 		});
 		expect(killed.sort()).toEqual([900, 901]);
 		expect(removed).toEqual(["/root/200-a"]);
@@ -273,9 +322,20 @@ describe("reapOrphans", () => {
 			entries: ["200-a"],
 			owners: { "200-a": { piPid: 200 } }, // crashed before recording
 			alive: [],
-			discover: { "200-a": [903] },
+			live: { "200-a": [903] },
 		});
 		expect(killed).toEqual([903]);
+		expect(removed).toEqual(["/root/200-a"]);
+	});
+
+	it("skips a stale discovered pid that no longer verifies", () => {
+		const { killed, removed } = harness({
+			entries: ["200-a"],
+			alive: [],
+			live: { "200-a": [] },
+			stale: { "200-a": [901] }, // discovery snapshot, but 901 already gone
+		});
+		expect(killed).toEqual([]); // never signalled a pid that no longer verifies
 		expect(removed).toEqual(["/root/200-a"]);
 	});
 
@@ -292,67 +352,68 @@ describe("reapOrphans", () => {
 		const { killed, removed } = harness({
 			entries: ["200-a"],
 			alive: [],
-			discover: { "200-a": [904] },
+			live: { "200-a": [904] },
 		});
 		expect(killed).toEqual([904]);
 		expect(removed).toEqual(["/root/200-a"]);
 	});
 
-	it("removes a dead owner's dir when discovery proves no Chrome remains", () => {
+	it("removes a dead owner's dir when nothing remains on it", () => {
 		const { killed, removed } = harness({
 			entries: ["200-a"],
 			owners: { "200-a": { piPid: 200, browserPid: 900 } },
 			alive: [],
-			verify: () => false, // recorded pid gone
-			discover: { "200-a": [] }, // discovery ran, found nothing
+			live: { "200-a": [] }, // Chrome already exited
 		});
 		expect(killed).toEqual([]);
 		expect(removed).toEqual(["/root/200-a"]);
 	});
 
-	it("falls back to a verified recorded pid when discovery fails", () => {
+	it("retains the dir when discovery could not run", () => {
 		const { killed, removed } = harness({
 			entries: ["200-a"],
 			owners: { "200-a": { piPid: 200, browserPid: 900 } },
 			alive: [],
-			probeFails: true,
+			live: { "200-a": [900] },
+			probeFails: true, // ps failed, so we cannot confirm the profile is clear
+		});
+		// The recorded pid is still killed, but the dir is kept for a retry.
+		expect(killed).toEqual([900]);
+		expect(removed).toEqual([]);
+	});
+
+	it("retains the dir when a signalled pid does not die", () => {
+		const { killed, removed } = harness({
+			entries: ["200-a"],
+			owners: { "200-a": { piPid: 200, browserPid: 900 } },
+			alive: [],
+			live: { "200-a": [900] },
+			unkillable: [900], // kill was sent but the process survived
 		});
 		expect(killed).toEqual([900]);
-		expect(removed).toEqual(["/root/200-a"]);
+		expect(removed).toEqual([]); // kept: a survivor still names the profile
 	});
 
-	it("retains a dead owner's dir when the kill set cannot be proven", () => {
-		const { killed, removed } = harness({
-			entries: ["200-a"],
-			owners: { "200-a": { piPid: 200, browserPid: 900 } },
-			alive: [],
-			verify: () => false, // recorded pid does not verify
-			probeFails: true, // and discovery could not run
-		});
-		expect(killed).toEqual([]);
-		expect(removed).toEqual([]); // retained for a future sweep
-	});
-
-	it("never throws when a kill or a removal fails", () => {
+	it("never throws when a kill or a removal fails, and keeps sweeping", () => {
 		const removed: string[] = [];
 		expect(() =>
 			reapOrphans({
 				root: "/root",
 				listEntries: () => ["200-a", "300-b"],
-				readOwner: () => ({ piPid: 1, browserPid: 9 }),
+				// 200-a has a live-verifying Chrome whose kill throws; 300-b is empty.
+				readOwner: (dir) =>
+					dir.endsWith("200-a") ? { piPid: 1, browserPid: 9 } : undefined,
 				isPidAlive: () => false,
-				verifyBrowser: () => true,
-				findProcsByProfile: () => [9],
+				verifyBrowser: (pid) => pid === 9,
+				findProcsByProfile: () => [],
 				killPid: () => {
 					throw new Error("kill lost the race");
 				},
-				removeDir: (dir) => {
-					if (dir.endsWith("200-a")) throw new Error("EACCES");
-					removed.push(dir);
-				},
+				removeDir: (dir) => removed.push(dir),
 			}),
 		).not.toThrow();
-		// A bad entry does not abort the sweep; the next dir still processes.
+		// 200-a is retained (its Chrome still verifies after the failed kill);
+		// the sweep still reaches 300-b and removes it.
 		expect(removed).toEqual(["/root/300-b"]);
 	});
 });
