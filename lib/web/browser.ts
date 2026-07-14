@@ -13,6 +13,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -142,8 +143,6 @@ export function killTree(
 export interface OwnerRecord {
 	/** Pid of the owning pi process. */
 	piPid: number;
-	/** Start-time token of the owning pi, so a reused pid is distinguishable. */
-	piStart: string;
 	/** Pid (and process-group leader) of the Chrome this pi launched. */
 	browserPid?: number;
 }
@@ -154,56 +153,65 @@ export interface ReapOrphansOptions {
 	listEntries: () => string[];
 	readOwner: (profileDir: string) => OwnerRecord | undefined;
 	isPidAlive: (pid: number) => boolean;
-	startTimeOf: (pid: number) => string | undefined;
 	verifyBrowser: (pid: number, profileDir: string) => boolean;
-	findProcsByProfile: (profileDir: string) => number[];
+	/** Pids naming this exact profile, or undefined when the probe failed. */
+	findProcsByProfile: (profileDir: string) => number[] | undefined;
 	killPid: (pid: number) => void;
 	removeDir: (dir: string) => void;
 }
 
-/** True when a profile's owning pi is provably still running. */
+/**
+ * True when a profile's owning pi is still running. Liveness is keyed
+ * on the pid alone: a generation-unique profile directory means a
+ * reused pid can never collide with a live owner's directory, so a
+ * pid that is alive is treated as the owner and kept. This fails
+ * closed, a reused pid only ever leaks a stale directory rather than
+ * killing a live browser.
+ */
 function ownerAlive(
 	opts: ReapOrphansOptions,
 	entry: string,
 	owner: OwnerRecord | undefined,
 ): boolean {
 	const pid = owner ? owner.piPid : Number.parseInt(entry, 10);
-	if (!Number.isFinite(pid) || !opts.isPidAlive(pid)) return false;
-	// The pid is alive. Without a recorded start time there is nothing to
-	// compare, so fall safe and treat it as alive rather than reaping a
-	// possibly-live owner. With a record, a start-time match proves it is
-	// the same process and not a reused pid; an unprobeable start also
-	// falls safe (keep) so a transient ps failure never kills a sibling.
-	if (!owner) return true;
-	const start = opts.startTimeOf(pid);
-	return start === undefined || start === owner.piStart;
+	return Number.isFinite(pid) && opts.isPidAlive(pid);
 }
 
 /**
- * The Chrome pids to reap for a proven-dead owner's profile: the
- * recorded browser pid when it still verifies, otherwise whatever
- * still names this exact profile dir. Rediscovery covers a Chrome
- * orphaned before its pid was recorded (or a failed record write),
- * and stays safe because the owner is already proven dead and the
- * match is exact.
+ * The Chrome pids to reap for a proven-dead owner, and whether that
+ * set is proven. Exact-profile discovery is authoritative and is
+ * unioned with a still-verifying recorded pid, so no stray Chrome on
+ * the profile is missed. When discovery could not run and no recorded
+ * pid verifies, the set is unproven and the caller retains the dir.
  */
 function killTargets(
 	opts: ReapOrphansOptions,
 	owner: OwnerRecord | undefined,
 	dir: string,
-): number[] {
+): { pids: number[]; proven: boolean } {
+	const pids = new Set<number>();
+	let proven = false;
+	const discovered = opts.findProcsByProfile(dir);
+	if (discovered !== undefined) {
+		for (const pid of discovered) pids.add(pid);
+		proven = true;
+	}
 	const recorded = owner?.browserPid;
-	if (recorded && opts.verifyBrowser(recorded, dir)) return [recorded];
-	return opts.findProcsByProfile(dir);
+	if (recorded && opts.verifyBrowser(recorded, dir)) {
+		pids.add(recorded);
+		proven = true;
+	}
+	return { pids: [...pids], proven };
 }
 
 /**
  * Reap Chrome trees and profile dirs a prior run left behind. Each
- * dir is reaped only when its owning pi is proven dead, so a live
- * sibling is left untouched. The Chrome to kill is the recorded pid
- * when it still verifies, else whatever exactly matches the profile.
- * Every step is best-effort: one bad entry can never abort the sweep
- * or block a launch.
+ * dir is reaped only when its owning pi is dead. The kill set is the
+ * exact-profile matches unioned with a verifying recorded pid; the
+ * dir is removed only once that set is proven, so a failed probe
+ * retains the dir for a later sweep rather than dropping the only
+ * handle to a still-running orphan. Every step is best-effort: one
+ * bad entry can never abort the sweep or block a launch.
  */
 export function reapOrphans(opts: ReapOrphansOptions): void {
 	for (const entry of opts.listEntries()) {
@@ -216,14 +224,16 @@ export function reapOrphans(opts: ReapOrphansOptions): void {
 				// Unreadable record; treat as no record.
 			}
 			if (ownerAlive(opts, entry, owner)) continue;
-			for (const pid of killTargets(opts, owner, dir)) {
+			const { pids, proven } = killTargets(opts, owner, dir);
+			for (const pid of pids) {
 				try {
 					opts.killPid(pid);
 				} catch {
-					// Lost a race with the process exiting; the dir removal
-					// below still reclaims the space.
+					// Lost a race with the process exiting; a later sweep
+					// reclaims the dir.
 				}
 			}
+			if (!proven) continue; // keep the dir until the orphan is provable
 			try {
 				opts.removeDir(dir);
 			} catch {
@@ -311,6 +321,22 @@ function sharedState(): SharedBrowserState {
  */
 const PROFILE_ROOT = path.join(os.tmpdir(), "pi-web-chrome");
 
+/**
+ * This process's own profile directory, resolved once and shared
+ * across extension module instances. The name carries a random
+ * generation nonce alongside the pid, so a reused pid can never
+ * collide with a previous run's directory and the reaper can treat
+ * a live pid as its owner without a fragile start-time probe.
+ */
+function ownProfileDir(): string {
+	return processGlobal("pi:web-chrome-profile", () =>
+		path.join(
+			PROFILE_ROOT,
+			`${process.pid}-${crypto.randomBytes(6).toString("hex")}`,
+		),
+	);
+}
+
 /** The ownership record path inside a profile dir. */
 function ownerFile(profileDir: string): string {
 	return path.join(profileDir, "owner.json");
@@ -321,26 +347,11 @@ function readOwnerRecord(profileDir: string): OwnerRecord | undefined {
 	try {
 		const raw = fs.readFileSync(ownerFile(profileDir), "utf8");
 		const rec = JSON.parse(raw);
-		if (typeof rec?.piPid === "number" && typeof rec?.piStart === "string") {
-			return rec;
-		}
+		if (typeof rec?.piPid === "number") return rec;
 	} catch {
 		// No record, or malformed; the caller treats this as no record.
 	}
 	return undefined;
-}
-
-/** A stable start-time token for a pid, or undefined when it is not running. */
-function pidStartTime(pid: number): string | undefined {
-	try {
-		const out = execFileSync("ps", ["-p", String(pid), "-o", "lstart="], {
-			encoding: "utf8",
-		}).trim();
-		return out || undefined;
-	} catch {
-		// ps exits non-zero when the pid is gone.
-		return undefined;
-	}
 }
 
 /** True when a pid names a live process (EPERM still means it exists). */
@@ -364,7 +375,7 @@ function verifyBrowser(pid: number, profileDir: string): boolean {
 			encoding: "utf8",
 		});
 		return new RegExp(
-			`--user-data-dir=${escapeRegExp(profileDir)}(?:\\s|$)`,
+			`(?:^|\\s)--user-data-dir=${escapeRegExp(profileDir)}(?:\\s|$)`,
 		).test(cmd);
 	} catch {
 		return false;
@@ -380,14 +391,16 @@ function escapeRegExp(value: string): string {
  * as an exact argument so a longer sibling path never collides. Used
  * only to rediscover an orphan whose owner is already proven dead.
  */
-function findProcsByProfile(profileDir: string): number[] {
+function findProcsByProfile(profileDir: string): number[] | undefined {
 	try {
 		const out = execFileSync("ps", ["-eo", "pid=,command="], {
 			encoding: "utf8",
 			maxBuffer: 8 * 1024 * 1024,
 		});
+		// Anchor both sides of the value so neither a longer sibling path
+		// nor a differently-prefixed flag can collide.
 		const token = new RegExp(
-			`--user-data-dir=${escapeRegExp(profileDir)}(?:\\s|$)`,
+			`(?:^|\\s)--user-data-dir=${escapeRegExp(profileDir)}(?:\\s|$)`,
 		);
 		const pids: number[] = [];
 		for (const line of out.split("\n")) {
@@ -397,24 +410,16 @@ function findProcsByProfile(profileDir: string): number[] {
 		}
 		return pids;
 	} catch {
-		return [];
+		// The probe itself failed: signal "unknown", not "none", so a
+		// still-running orphan is not mistaken for an empty result.
+		return undefined;
 	}
 }
 
 /** This pi's own start-time token, resolved once. */
-let ownStart: string | undefined;
-function ownStartTime(): string {
-	if (ownStart === undefined) ownStart = pidStartTime(process.pid) ?? "";
-	return ownStart;
-}
-
 /** Record who owns this profile and which Chrome pid it launched. */
 function writeOwnerRecord(profileDir: string, browserPid?: number): void {
-	const record: OwnerRecord = {
-		piPid: process.pid,
-		piStart: ownStartTime(),
-		browserPid,
-	};
+	const record: OwnerRecord = { piPid: process.pid, browserPid };
 	try {
 		fs.writeFileSync(ownerFile(profileDir), JSON.stringify(record));
 	} catch {
@@ -442,7 +447,6 @@ function reapOrphanProfiles(): void {
 		},
 		readOwner: readOwnerRecord,
 		isPidAlive,
-		startTimeOf: pidStartTime,
 		verifyBrowser,
 		findProcsByProfile,
 		killPid: (pid) => killPidGroup(pid),
@@ -495,7 +499,7 @@ const sleep = (ms: number) =>
 
 /** Launch headless Chrome once, against a freshly reset profile. */
 async function launchOnce(executablePath: string): Promise<Browser> {
-	const profileDir = path.join(PROFILE_ROOT, String(process.pid));
+	const profileDir = ownProfileDir();
 	// Reset the profile so a half-dead Chrome's SingletonLock from a
 	// prior attempt cannot poison this one.
 	fs.rmSync(profileDir, { recursive: true, force: true });
@@ -688,10 +692,7 @@ async function runClose(state: SharedBrowserState): Promise<void> {
 		// Reclaim this run's profile dir on a graceful close rather
 		// than leaving it for the next run's startup sweep.
 		try {
-			fs.rmSync(path.join(PROFILE_ROOT, String(process.pid)), {
-				recursive: true,
-				force: true,
-			});
+			fs.rmSync(ownProfileDir(), { recursive: true, force: true });
 		} catch {
 			// Best-effort cleanup; the next launch sweeps leftovers.
 		}
