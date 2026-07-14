@@ -742,8 +742,14 @@ export function killBrowserSync(): void {
 	if (!b) return;
 
 	// Group-kill so the helper tree dies with the leader instead of
-	// reparenting to launchd.
-	killTree(b.process());
+	// reparenting to launchd, but only for a process we can still confirm
+	// is ours: a live CDP connection proves it, otherwise verify by exact
+	// profile so a crashed-and-reused pid is never signalled.
+	const proc = b.process();
+	const pid = proc?.pid;
+	if (pid && (b.connected || verifyBrowser(pid, ownProfileDir()))) {
+		killTree(proc);
+	}
 	state.browser = undefined;
 	// Reclaim this run's profile dir on a signal exit too, not only on a
 	// graceful close, so a Ctrl-C does not strand it for the next sweep.
