@@ -704,6 +704,8 @@ async function runClose(state: SharedBrowserState): Promise<void> {
 
 	state.idle?.cancel();
 	const proc = b.process();
+	const pid = proc?.pid;
+	const dir = ownProfileDir();
 	let closedGracefully = false;
 	try {
 		if (b.connected) {
@@ -717,16 +719,22 @@ async function runClose(state: SharedBrowserState): Promise<void> {
 		// close-failed browser), and only while the pid still verifies as
 		// our Chrome. After a clean close the pid is gone and could be
 		// reused, so signalling its group would be unsafe.
-		const pid = proc?.pid;
-		const verifies = pid ? verifyBrowser(pid, ownProfileDir()) : false;
-		if (shouldForceKill(closedGracefully, verifies)) killTree(proc);
+		if (
+			shouldForceKill(closedGracefully, pid ? verifyBrowser(pid, dir) : false)
+		) {
+			killTree(proc);
+		}
 		state.browser = undefined;
-		// Reclaim this run's profile dir rather than leaving it for the
-		// next run's startup sweep.
-		try {
-			fs.rmSync(ownProfileDir(), { recursive: true, force: true });
-		} catch {
-			// Best-effort cleanup; the next launch sweeps leftovers.
+		// Reclaim the profile only once the process is gone: a clean close,
+		// or a post-teardown check that no longer finds it. Otherwise keep
+		// the dir so the next run's reaper still has a handle to a survivor.
+		const gone = closedGracefully || !pid || !verifyBrowser(pid, dir);
+		if (gone) {
+			try {
+				fs.rmSync(dir, { recursive: true, force: true });
+			} catch {
+				// Best-effort cleanup; the next launch sweeps leftovers.
+			}
 		}
 	}
 }
@@ -743,19 +751,19 @@ export function killBrowserSync(): void {
 
 	// Group-kill so the helper tree dies with the leader instead of
 	// reparenting to launchd, but only for a process we can still confirm
-	// is ours: a live CDP connection proves it, otherwise verify by exact
-	// profile so a crashed-and-reused pid is never signalled.
+	// is ours by its exact profile, so neither a stale CDP connection nor
+	// a crashed-and-reused pid is ever signalled. Reclaim the dir only
+	// when it was ours to kill; otherwise leave it for the next reaper.
 	const proc = b.process();
 	const pid = proc?.pid;
-	if (pid && (b.connected || verifyBrowser(pid, ownProfileDir()))) {
+	const dir = ownProfileDir();
+	if (pid && verifyBrowser(pid, dir)) {
 		killTree(proc);
+		try {
+			fs.rmSync(dir, { recursive: true, force: true });
+		} catch {
+			// Best-effort; a later run's reaper removes whatever remains.
+		}
 	}
 	state.browser = undefined;
-	// Reclaim this run's profile dir on a signal exit too, not only on a
-	// graceful close, so a Ctrl-C does not strand it for the next sweep.
-	try {
-		fs.rmSync(ownProfileDir(), { recursive: true, force: true });
-	} catch {
-		// Best-effort; a later run's reaper removes whatever remains.
-	}
 }
