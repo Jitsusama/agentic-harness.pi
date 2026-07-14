@@ -157,6 +157,7 @@ export function createSurfaceManager(deps: {
 	function adaptHelper(
 		helper: HelperDescriptor,
 		parameters: TSchema,
+		renderResult?: ToolRegistrationDescriptor["renderResult"],
 	): ToolRegistrationDescriptor {
 		const syntheticTool: McpTool = {
 			serverId: server.id,
@@ -181,9 +182,32 @@ export function createSurfaceManager(deps: {
 			},
 			renderCall: (args, theme) =>
 				renderDefaultCall(syntheticTool, args, theme, { multiServer: false }),
-			renderResult: (result, options, theme, context) =>
-				renderDefaultResult(result, options, theme, context),
+			renderResult:
+				renderResult ??
+				((result, options, theme, context) =>
+					renderDefaultResult(result, options, theme, context)),
 		};
+	}
+
+	// The run-tool helper proxies an arbitrary tool, so its result is rendered
+	// through that tool's resolved front-end (the same renderer a direct tool
+	// would use), not the generic default. Shaping already rides the dispatch
+	// path, so a provider now styles its tools whether they are direct or behind
+	// the helper.
+	function runToolRenderResult(
+		result: AgentToolResult<unknown>,
+		options: ToolRenderResultOptions,
+		theme: Theme,
+		context: PiRenderContext,
+	): Component {
+		const name = (context.args as Record<string, unknown> | undefined)?.name;
+		const tool = typeof name === "string" ? toolsByName.get(name) : undefined;
+		if (!tool) return renderDefaultResult(result, options, theme, context);
+		return registry.resolve(tool).renderResult(result, options, theme, {
+			...context,
+			tool,
+			serverCount: serverCount(),
+		});
 	}
 
 	function buildHelpers(cfg: SurfaceConfig): ToolRegistrationDescriptor[] {
@@ -216,7 +240,13 @@ export function createSurfaceManager(deps: {
 				arguments: Type.Optional(Type.Unknown()),
 			}),
 		];
-		return helpers.map((helper, index) => adaptHelper(helper, params[index]));
+		return helpers.map((helper, index) =>
+			adaptHelper(
+				helper,
+				params[index],
+				index === 2 ? runToolRenderResult : undefined,
+			),
+		);
 	}
 
 	async function runReconcile(): Promise<SurfaceDelta> {
