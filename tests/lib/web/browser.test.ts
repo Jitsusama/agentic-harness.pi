@@ -132,6 +132,23 @@ describe("createIdleCloser", () => {
 		expect(closes).toBe(1);
 	});
 
+	it("unrefs the timer so it never keeps the process alive", () => {
+		let unrefs = 0;
+		const timer = {
+			unref: () => {
+				unrefs++;
+			},
+		} as unknown as NodeJS.Timeout;
+		const closer = createIdleCloser({
+			idleMs: 1000,
+			close: () => {},
+			setTimer: () => timer,
+			clearTimer: () => {},
+		});
+		closer.touch();
+		expect(unrefs).toBe(1);
+	});
+
 	it("cancel stops a pending close", () => {
 		const t = fakeTimers();
 		let closes = 0;
@@ -194,23 +211,25 @@ describe("killTree", () => {
 describe("reapOrphans", () => {
 	type Rec = { piPid: number; piStart: string; browserPid?: number };
 
-	/** A reaper harness: alive pids and their start times, plus owners. */
+	/** A reaper harness: alive pids and start times, owners, discovery. */
 	function harness(opts: {
 		entries: string[];
 		owners?: Record<string, Rec>;
-		alive?: Record<number, string>; // pid -> start time
+		alive?: Record<number, string | undefined>; // pid -> start time (or undefined)
 		verify?: (pid: number, dir: string) => boolean;
+		discover?: Record<string, number[]>; // dir basename -> pids
 	}) {
 		const killed: number[] = [];
 		const removed: string[] = [];
+		const base = (dir: string) => dir.split("/").pop() ?? "";
 		reapOrphans({
 			root: "/root",
-			currentPid: 100,
 			listEntries: () => opts.entries,
-			readOwner: (dir) => opts.owners?.[dir.split("/").pop() ?? ""],
-			isPidAlive: (pid) => pid in (opts.alive ?? {}),
+			readOwner: (dir) => opts.owners?.[base(dir)],
+			isPidAlive: (pid) => Object.hasOwn(opts.alive ?? {}, pid),
 			startTimeOf: (pid) => opts.alive?.[pid],
 			verifyBrowser: opts.verify ?? (() => true),
+			findProcsByProfile: (dir) => opts.discover?.[base(dir)] ?? [],
 			killPid: (pid) => killed.push(pid),
 			removeDir: (dir) => removed.push(dir),
 		});
@@ -222,6 +241,16 @@ describe("reapOrphans", () => {
 			entries: ["200"],
 			owners: { "200": { piPid: 200, piStart: "T1", browserPid: 900 } },
 			alive: { 200: "T1" },
+		});
+		expect(killed).toEqual([]);
+		expect(removed).toEqual([]);
+	});
+
+	it("keeps a live owner whose start time cannot be probed", () => {
+		const { killed, removed } = harness({
+			entries: ["200"],
+			owners: { "200": { piPid: 200, piStart: "T1", browserPid: 900 } },
+			alive: { 200: undefined }, // alive, but ps could not report a start
 		});
 		expect(killed).toEqual([]);
 		expect(removed).toEqual([]);
@@ -247,14 +276,26 @@ describe("reapOrphans", () => {
 		expect(removed).toEqual(["/root/200"]);
 	});
 
-	it("skips the kill but still removes when the browser no longer verifies", () => {
+	it("rediscovers the kill target when the recorded pid no longer verifies", () => {
 		const { killed, removed } = harness({
 			entries: ["200"],
 			owners: { "200": { piPid: 200, piStart: "T1", browserPid: 900 } },
 			alive: {},
-			verify: () => false, // pid 900 is gone or reused by a non-Chrome
+			verify: () => false, // recorded pid 900 is gone or not our Chrome
+			discover: { "200": [901, 902] }, // but Chrome is found by exact profile
 		});
-		expect(killed).toEqual([]);
+		expect(killed).toEqual([901, 902]);
+		expect(removed).toEqual(["/root/200"]);
+	});
+
+	it("rediscovers the kill target when no browser pid was recorded", () => {
+		const { killed, removed } = harness({
+			entries: ["200"],
+			owners: { "200": { piPid: 200, piStart: "T1" } }, // crashed before record
+			alive: {},
+			discover: { "200": [903] },
+		});
+		expect(killed).toEqual([903]);
 		expect(removed).toEqual(["/root/200"]);
 	});
 
@@ -267,22 +308,14 @@ describe("reapOrphans", () => {
 		expect(removed).toEqual([]);
 	});
 
-	it("without an owner record, removes a dir whose pid is dead", () => {
+	it("without an owner record, reaps a dir whose pid is dead", () => {
 		const { killed, removed } = harness({
 			entries: ["200"],
 			alive: {},
+			discover: { "200": [904] },
 		});
-		expect(killed).toEqual([]);
+		expect(killed).toEqual([904]);
 		expect(removed).toEqual(["/root/200"]);
-	});
-
-	it("never touches the current pid's own dir", () => {
-		const { killed, removed } = harness({
-			entries: ["100"],
-			alive: {},
-		});
-		expect(killed).toEqual([]);
-		expect(removed).toEqual([]);
 	});
 
 	it("never throws when a kill or a removal fails", () => {
@@ -290,12 +323,12 @@ describe("reapOrphans", () => {
 		expect(() =>
 			reapOrphans({
 				root: "/root",
-				currentPid: 100,
 				listEntries: () => ["200", "300"],
 				readOwner: () => ({ piPid: 1, piStart: "T", browserPid: 9 }),
 				isPidAlive: () => false,
 				startTimeOf: () => undefined,
 				verifyBrowser: () => true,
+				findProcsByProfile: () => [],
 				killPid: () => {
 					throw new Error("kill lost the race");
 				},

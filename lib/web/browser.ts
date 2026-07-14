@@ -151,12 +151,12 @@ export interface OwnerRecord {
 /** Inputs for reaping Chrome trees and profile dirs a dead pi left behind. */
 export interface ReapOrphansOptions {
 	root: string;
-	currentPid: number;
 	listEntries: () => string[];
 	readOwner: (profileDir: string) => OwnerRecord | undefined;
 	isPidAlive: (pid: number) => boolean;
 	startTimeOf: (pid: number) => string | undefined;
 	verifyBrowser: (pid: number, profileDir: string) => boolean;
+	findProcsByProfile: (profileDir: string) => number[];
 	killPid: (pid: number) => void;
 	removeDir: (dir: string) => void;
 }
@@ -167,31 +167,47 @@ function ownerAlive(
 	entry: string,
 	owner: OwnerRecord | undefined,
 ): boolean {
-	if (owner) {
-		// A live pid alone is not proof: the pid may have been reused, so
-		// require the start time to match the one we recorded.
-		if (!opts.isPidAlive(owner.piPid)) return false;
-		const start = opts.startTimeOf(owner.piPid);
-		return start !== undefined && start === owner.piStart;
-	}
-	// No record (an interrupted or pre-record launch): fall back to bare
-	// liveness of the dir-name pid so a live owner is never reaped.
-	const pid = Number.parseInt(entry, 10);
-	return Number.isFinite(pid) && opts.isPidAlive(pid);
+	const pid = owner ? owner.piPid : Number.parseInt(entry, 10);
+	if (!Number.isFinite(pid) || !opts.isPidAlive(pid)) return false;
+	// The pid is alive. Without a recorded start time there is nothing to
+	// compare, so fall safe and treat it as alive rather than reaping a
+	// possibly-live owner. With a record, a start-time match proves it is
+	// the same process and not a reused pid; an unprobeable start also
+	// falls safe (keep) so a transient ps failure never kills a sibling.
+	if (!owner) return true;
+	const start = opts.startTimeOf(pid);
+	return start === undefined || start === owner.piStart;
+}
+
+/**
+ * The Chrome pids to reap for a proven-dead owner's profile: the
+ * recorded browser pid when it still verifies, otherwise whatever
+ * still names this exact profile dir. Rediscovery covers a Chrome
+ * orphaned before its pid was recorded (or a failed record write),
+ * and stays safe because the owner is already proven dead and the
+ * match is exact.
+ */
+function killTargets(
+	opts: ReapOrphansOptions,
+	owner: OwnerRecord | undefined,
+	dir: string,
+): number[] {
+	const recorded = owner?.browserPid;
+	if (recorded && opts.verifyBrowser(recorded, dir)) return [recorded];
+	return opts.findProcsByProfile(dir);
 }
 
 /**
  * Reap Chrome trees and profile dirs a prior run left behind. Each
- * dir is reaped only when its owning pi is proven dead; a live
- * sibling is left untouched. The recorded browser pid is killed only
- * after an exact re-verification, so a reused pid is never mistaken
- * for our Chrome. Every step is best-effort: one bad entry can never
- * abort the sweep or block a launch.
+ * dir is reaped only when its owning pi is proven dead, so a live
+ * sibling is left untouched. The Chrome to kill is the recorded pid
+ * when it still verifies, else whatever exactly matches the profile.
+ * Every step is best-effort: one bad entry can never abort the sweep
+ * or block a launch.
  */
 export function reapOrphans(opts: ReapOrphansOptions): void {
 	for (const entry of opts.listEntries()) {
 		try {
-			if (entry === String(opts.currentPid)) continue;
 			const dir = path.join(opts.root, entry);
 			let owner: OwnerRecord | undefined;
 			try {
@@ -200,10 +216,9 @@ export function reapOrphans(opts: ReapOrphansOptions): void {
 				// Unreadable record; treat as no record.
 			}
 			if (ownerAlive(opts, entry, owner)) continue;
-			const browserPid = owner?.browserPid;
-			if (browserPid && opts.verifyBrowser(browserPid, dir)) {
+			for (const pid of killTargets(opts, owner, dir)) {
 				try {
-					opts.killPid(browserPid);
+					opts.killPid(pid);
 				} catch {
 					// Lost a race with the process exiting; the dir removal
 					// below still reclaims the space.
@@ -265,6 +280,9 @@ export function createIdleCloser(opts: IdleCloserOptions): IdleCloser {
 				timer = undefined;
 				opts.close();
 			}, opts.idleMs);
+			// A pending idle close must not, by itself, hold the event loop
+			// open and delay process exit.
+			(timer as { unref?: () => void }).unref?.();
 		},
 		cancel,
 	};
@@ -275,6 +293,8 @@ interface SharedBrowserState {
 	browser?: Browser;
 	launching?: Promise<Browser>;
 	closing?: Promise<void>;
+	/** Count of page acquisitions in flight, so an idle close defers to them. */
+	pending?: number;
 	lifecycleInstalled?: boolean;
 	idle?: IdleCloser;
 }
@@ -355,6 +375,32 @@ function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Pids that still name `profileDir` as their --user-data-dir, matched
+ * as an exact argument so a longer sibling path never collides. Used
+ * only to rediscover an orphan whose owner is already proven dead.
+ */
+function findProcsByProfile(profileDir: string): number[] {
+	try {
+		const out = execFileSync("ps", ["-eo", "pid=,command="], {
+			encoding: "utf8",
+			maxBuffer: 8 * 1024 * 1024,
+		});
+		const token = new RegExp(
+			`--user-data-dir=${escapeRegExp(profileDir)}(?:\\s|$)`,
+		);
+		const pids: number[] = [];
+		for (const line of out.split("\n")) {
+			if (!token.test(line)) continue;
+			const pid = Number.parseInt(line.trim(), 10);
+			if (Number.isFinite(pid) && pid !== process.pid) pids.push(pid);
+		}
+		return pids;
+	} catch {
+		return [];
+	}
+}
+
 /** This pi's own start-time token, resolved once. */
 let ownStart: string | undefined;
 function ownStartTime(): string {
@@ -386,7 +432,6 @@ function writeOwnerRecord(profileDir: string, browserPid?: number): void {
 function reapOrphanProfiles(): void {
 	reapOrphans({
 		root: PROFILE_ROOT,
-		currentPid: process.pid,
 		listEntries: () => {
 			try {
 				return fs.readdirSync(PROFILE_ROOT);
@@ -399,6 +444,7 @@ function reapOrphanProfiles(): void {
 		isPidAlive,
 		startTimeOf: pidStartTime,
 		verifyBrowser,
+		findProcsByProfile,
 		killPid: (pid) => killPidGroup(pid),
 		removeDir: (dir) => fs.rmSync(dir, { recursive: true, force: true }),
 	});
@@ -563,28 +609,44 @@ async function closeIfUnused(): Promise<void> {
 				return;
 			}
 		} catch {
-			// Could not read pages; fall through and close.
+			// Could not read pages; fall through to the pending check.
 		}
+	}
+	// A page acquisition may have started during the async pages read.
+	// This check and closeBrowser's synchronous prologue (which sets
+	// state.closing) run with no await between them, so a newPage that
+	// reserved a lease either is seen here or waits on state.closing.
+	if ((state.pending ?? 0) > 0) {
+		idleCloser().touch();
+		return;
 	}
 	await closeBrowser();
 }
 
 /** Open a new browser tab with a standard user agent string. */
 export async function newPage(): Promise<Page> {
-	const b = await getBrowser();
-	idleCloser().touch();
-	const page = await b.newPage();
+	const state = sharedState();
+	// Reserve a lease synchronously, before any await, so an idle close
+	// firing concurrently sees the in-flight acquisition and defers.
+	state.pending = (state.pending ?? 0) + 1;
 	try {
-		await page.setUserAgent(
-			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-				"AppleWebKit/537.36 (KHTML, like Gecko) " +
-				"Chrome/131.0.0.0 Safari/537.36",
-		);
-	} catch (err) {
-		await page.close();
-		throw err;
+		const b = await getBrowser();
+		idleCloser().touch();
+		const page = await b.newPage();
+		try {
+			await page.setUserAgent(
+				"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+					"AppleWebKit/537.36 (KHTML, like Gecko) " +
+					"Chrome/131.0.0.0 Safari/537.36",
+			);
+		} catch (err) {
+			await page.close();
+			throw err;
+		}
+		return page;
+	} finally {
+		state.pending = (state.pending ?? 1) - 1;
 	}
-	return page;
 }
 
 /** Shut down the shared Chrome instance if it's running. */
