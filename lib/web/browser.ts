@@ -53,6 +53,7 @@ export function classifyLaunchError(err: unknown): LaunchFailureInfo {
 export function formatLaunchFailure(
 	info: LaunchFailureInfo,
 	attempts: number,
+	fallback?: string,
 ): string {
 	const code =
 		info.exitCode === undefined ? "" : ` (exit code ${info.exitCode})`;
@@ -64,6 +65,10 @@ export function formatLaunchFailure(
 			"CHROME_PATH to a working binary.",
 	];
 	if (info.chromeStderr) lines.push("", "Chrome said:", info.chromeStderr);
+	// When the failure is not a parseable Chrome exit (an EACCES or
+	// ENOSPC from the profile, say), keep the raw reason rather than
+	// discarding it behind the generic hint.
+	else if (fallback) lines.push("", fallback);
 	return lines.join("\n");
 }
 
@@ -71,11 +76,14 @@ export function formatLaunchFailure(
 export class BrowserLaunchFailed extends Error {
 	readonly exitCode?: number;
 	readonly chromeStderr?: string;
-	constructor(info: LaunchFailureInfo, attempts: number) {
-		super(formatLaunchFailure(info, attempts));
+	constructor(cause: unknown, attempts: number) {
+		const info = classifyLaunchError(cause);
+		const fallback = cause instanceof Error ? cause.message : String(cause);
+		super(formatLaunchFailure(info, attempts, fallback));
 		this.name = "BrowserLaunchFailed";
 		this.exitCode = info.exitCode;
 		this.chromeStderr = info.chromeStderr;
+		this.cause = cause;
 	}
 }
 
@@ -130,33 +138,99 @@ export function killTree(
 	}
 }
 
-/** Inputs for reaping Chrome processes and profile dirs a dead pi left behind. */
+/** What a pi records about the Chrome it owns, written into its profile dir. */
+export interface OwnerRecord {
+	/** Pid of the owning pi process. */
+	piPid: number;
+	/** Start-time token of the owning pi, so a reused pid is distinguishable. */
+	piStart: string;
+	/** Pid (and process-group leader) of the Chrome this pi launched. */
+	browserPid?: number;
+}
+
+/** Inputs for reaping Chrome trees and profile dirs a dead pi left behind. */
 export interface ReapOrphansOptions {
 	root: string;
 	currentPid: number;
 	listEntries: () => string[];
-	findProcs: (profileDir: string) => number[];
+	readOwner: (profileDir: string) => OwnerRecord | undefined;
+	isPidAlive: (pid: number) => boolean;
+	startTimeOf: (pid: number) => string | undefined;
+	verifyBrowser: (pid: number, profileDir: string) => boolean;
 	killPid: (pid: number) => void;
 	removeDir: (dir: string) => void;
 }
 
-/** Kill orphaned Chrome trees, then remove their stale profile dirs. */
+/** True when a profile's owning pi is provably still running. */
+function ownerAlive(
+	opts: ReapOrphansOptions,
+	entry: string,
+	owner: OwnerRecord | undefined,
+): boolean {
+	if (owner) {
+		// A live pid alone is not proof: the pid may have been reused, so
+		// require the start time to match the one we recorded.
+		if (!opts.isPidAlive(owner.piPid)) return false;
+		const start = opts.startTimeOf(owner.piPid);
+		return start !== undefined && start === owner.piStart;
+	}
+	// No record (an interrupted or pre-record launch): fall back to bare
+	// liveness of the dir-name pid so a live owner is never reaped.
+	const pid = Number.parseInt(entry, 10);
+	return Number.isFinite(pid) && opts.isPidAlive(pid);
+}
+
+/**
+ * Reap Chrome trees and profile dirs a prior run left behind. Each
+ * dir is reaped only when its owning pi is proven dead; a live
+ * sibling is left untouched. The recorded browser pid is killed only
+ * after an exact re-verification, so a reused pid is never mistaken
+ * for our Chrome. Every step is best-effort: one bad entry can never
+ * abort the sweep or block a launch.
+ */
 export function reapOrphans(opts: ReapOrphansOptions): void {
 	for (const entry of opts.listEntries()) {
-		if (entry === String(opts.currentPid)) continue;
-		const dir = path.join(opts.root, entry);
-		// Argv-path match is the interlock against pid reuse: only a
-		// process that still names this exact profile dir is ours to kill.
-		for (const pid of opts.findProcs(dir)) {
+		try {
+			if (entry === String(opts.currentPid)) continue;
+			const dir = path.join(opts.root, entry);
+			let owner: OwnerRecord | undefined;
 			try {
-				opts.killPid(pid);
+				owner = opts.readOwner(dir);
 			} catch {
-				// A kill can lose a race with the process exiting; the dir
-				// removal below still reclaims the space.
+				// Unreadable record; treat as no record.
 			}
+			if (ownerAlive(opts, entry, owner)) continue;
+			const browserPid = owner?.browserPid;
+			if (browserPid && opts.verifyBrowser(browserPid, dir)) {
+				try {
+					opts.killPid(browserPid);
+				} catch {
+					// Lost a race with the process exiting; the dir removal
+					// below still reclaims the space.
+				}
+			}
+			try {
+				opts.removeDir(dir);
+			} catch {
+				// A busy or unreadable dir must not block launches; the next
+				// startup sweeps whatever this one could not.
+			}
+		} catch {
+			// Defensive: never let one entry abort the whole sweep.
 		}
-		opts.removeDir(dir);
 	}
+}
+
+/**
+ * Puppeteer opens one blank page on launch, so a browser with no
+ * consumer page open sits at this count. A higher count means work
+ * is in flight.
+ */
+const INITIAL_PAGE_COUNT = 1;
+
+/** Decide whether an idle browser is truly unused and safe to close. */
+export function shouldCloseWhenIdle(openPageCount: number): boolean {
+	return openPageCount <= INITIAL_PAGE_COUNT;
 }
 
 /** A countdown that closes an idle browser and rearms on use. */
@@ -200,6 +274,7 @@ export function createIdleCloser(opts: IdleCloserOptions): IdleCloser {
 interface SharedBrowserState {
 	browser?: Browser;
 	launching?: Promise<Browser>;
+	closing?: Promise<void>;
 	lifecycleInstalled?: boolean;
 	idle?: IdleCloser;
 }
@@ -216,35 +291,97 @@ function sharedState(): SharedBrowserState {
  */
 const PROFILE_ROOT = path.join(os.tmpdir(), "pi-web-chrome");
 
-/**
- * Find live pids whose argv still names `profileDir`. The path is
- * unique per pi pid, so a match is our orphaned Chrome and not an
- * innocent process that inherited a reused pid.
- */
-function findProcsForProfile(profileDir: string): number[] {
+/** The ownership record path inside a profile dir. */
+function ownerFile(profileDir: string): string {
+	return path.join(profileDir, "owner.json");
+}
+
+/** Read a profile's ownership record, or undefined if absent or unreadable. */
+function readOwnerRecord(profileDir: string): OwnerRecord | undefined {
 	try {
-		const out = execFileSync("ps", ["-eo", "pid=,command="], {
-			encoding: "utf8",
-			maxBuffer: 8 * 1024 * 1024,
-		});
-		const pids: number[] = [];
-		for (const line of out.split("\n")) {
-			if (!line.includes(profileDir)) continue;
-			const pid = Number.parseInt(line.trim(), 10);
-			if (Number.isFinite(pid) && pid !== process.pid) pids.push(pid);
+		const raw = fs.readFileSync(ownerFile(profileDir), "utf8");
+		const rec = JSON.parse(raw);
+		if (typeof rec?.piPid === "number" && typeof rec?.piStart === "string") {
+			return rec;
 		}
-		return pids;
 	} catch {
-		// No ps, or it failed; skip process reaping and just drop dirs.
-		return [];
+		// No record, or malformed; the caller treats this as no record.
+	}
+	return undefined;
+}
+
+/** A stable start-time token for a pid, or undefined when it is not running. */
+function pidStartTime(pid: number): string | undefined {
+	try {
+		const out = execFileSync("ps", ["-p", String(pid), "-o", "lstart="], {
+			encoding: "utf8",
+		}).trim();
+		return out || undefined;
+	} catch {
+		// ps exits non-zero when the pid is gone.
+		return undefined;
+	}
+}
+
+/** True when a pid names a live process (EPERM still means it exists). */
+function isPidAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (err) {
+		return (err as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
+/**
+ * Confirm a single pid is still the Chrome we launched for `profileDir`,
+ * by matching its --user-data-dir argument exactly. This guards the
+ * kill against a reused pid now owned by an unrelated process.
+ */
+function verifyBrowser(pid: number, profileDir: string): boolean {
+	try {
+		const cmd = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+			encoding: "utf8",
+		});
+		return new RegExp(
+			`--user-data-dir=${escapeRegExp(profileDir)}(?:\\s|$)`,
+		).test(cmd);
+	} catch {
+		return false;
+	}
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** This pi's own start-time token, resolved once. */
+let ownStart: string | undefined;
+function ownStartTime(): string {
+	if (ownStart === undefined) ownStart = pidStartTime(process.pid) ?? "";
+	return ownStart;
+}
+
+/** Record who owns this profile and which Chrome pid it launched. */
+function writeOwnerRecord(profileDir: string, browserPid?: number): void {
+	const record: OwnerRecord = {
+		piPid: process.pid,
+		piStart: ownStartTime(),
+		browserPid,
+	};
+	try {
+		fs.writeFileSync(ownerFile(profileDir), JSON.stringify(record));
+	} catch {
+		// A missing record only downgrades a future reap to bare-pid
+		// liveness, so a write failure is not worth failing the launch.
 	}
 }
 
 /**
  * Reap Chrome trees and profile dirs left behind by a prior run.
- * A clean exit reclaims its own dir, so anything else under the
- * root belongs to a pi that a SIGKILL or crash could not clean up:
- * kill the orphaned Chrome group, then drop its dir.
+ * A dir is reaped only when its owning pi is provably dead, so a
+ * live sibling pi keeps its browser; the recorded Chrome pid is
+ * killed only after an exact re-verify.
  */
 function reapOrphanProfiles(): void {
 	reapOrphans({
@@ -258,7 +395,10 @@ function reapOrphanProfiles(): void {
 				return [];
 			}
 		},
-		findProcs: findProcsForProfile,
+		readOwner: readOwnerRecord,
+		isPidAlive,
+		startTimeOf: pidStartTime,
+		verifyBrowser,
 		killPid: (pid) => killPidGroup(pid),
 		removeDir: (dir) => fs.rmSync(dir, { recursive: true, force: true }),
 	});
@@ -308,14 +448,13 @@ const sleep = (ms: number) =>
 	new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Launch headless Chrome once, against a freshly reset profile. */
-async function launchOnce(): Promise<Browser> {
+async function launchOnce(executablePath: string): Promise<Browser> {
 	const profileDir = path.join(PROFILE_ROOT, String(process.pid));
 	// Reset the profile so a half-dead Chrome's SingletonLock from a
 	// prior attempt cannot poison this one.
 	fs.rmSync(profileDir, { recursive: true, force: true });
 	fs.mkdirSync(profileDir, { recursive: true });
-	const executablePath = process.env.CHROME_PATH || findChrome();
-	return puppeteer.launch({
+	const browser = await puppeteer.launch({
 		executablePath,
 		headless: true,
 		userDataDir: profileDir,
@@ -332,6 +471,10 @@ async function launchOnce(): Promise<Browser> {
 		],
 		dumpio: false,
 	});
+	// Record ownership so a later run can tell our live Chrome from an
+	// orphan and know exactly which pid to reap.
+	writeOwnerRecord(profileDir, browser.process()?.pid);
+	return browser;
 }
 
 /**
@@ -344,25 +487,22 @@ async function launchOnce(): Promise<Browser> {
 async function launchBrowser(): Promise<Browser> {
 	installLifecycleHandlers();
 	reapOrphanProfiles();
+	// Resolve the binary once, before the loop. A missing Chrome is a
+	// settled misconfig, not a transient, so it throws its own clear
+	// error immediately instead of being retried or sniffed for by
+	// message text.
+	const executablePath = process.env.CHROME_PATH || findChrome();
 	let lastError: unknown;
 	for (let attempt = 1; attempt <= LAUNCH_ATTEMPTS; attempt++) {
 		try {
-			return await launchOnce();
+			return await launchOnce(executablePath);
 		} catch (err) {
 			lastError = err;
-			// Chrome-not-found is a settled misconfig, not a transient; do
-			// not burn retries or reshape its already-clear message.
-			if (err instanceof Error && err.message.includes("Chrome not found")) {
-				throw err;
-			}
 			const backoff = LAUNCH_BACKOFF_MS[attempt - 1];
 			if (backoff !== undefined) await sleep(backoff);
 		}
 	}
-	throw new BrowserLaunchFailed(
-		classifyLaunchError(lastError),
-		LAUNCH_ATTEMPTS,
-	);
+	throw new BrowserLaunchFailed(lastError, LAUNCH_ATTEMPTS);
 }
 
 /**
@@ -373,6 +513,9 @@ async function launchBrowser(): Promise<Browser> {
  */
 export async function getBrowser(): Promise<Browser> {
 	const state = sharedState();
+	// Wait out an in-flight teardown so we never hand back a browser that
+	// is closing, nor race a relaunch against its profile removal.
+	if (state.closing) await state.closing;
 	if (state.browser?.connected) return state.browser;
 	if (state.launching) return state.launching;
 	state.launching = launchBrowser();
@@ -397,11 +540,33 @@ function idleCloser(): IdleCloser {
 		state.idle = createIdleCloser({
 			idleMs: IDLE_TIMEOUT_MS,
 			close: () => {
-				void closeBrowser();
+				void closeIfUnused();
 			},
 		});
 	}
 	return state.idle;
+}
+
+/**
+ * The idle timer fired. Close only if no consumer page is open;
+ * otherwise a session or in-flight read is still using the browser,
+ * so rearm the countdown instead of closing under it.
+ */
+async function closeIfUnused(): Promise<void> {
+	const state = sharedState();
+	const b = state.browser;
+	if (b?.connected) {
+		try {
+			const pages = await b.pages();
+			if (!shouldCloseWhenIdle(pages.length)) {
+				idleCloser().touch();
+				return;
+			}
+		} catch {
+			// Could not read pages; fall through and close.
+		}
+	}
+	await closeBrowser();
 }
 
 /** Open a new browser tab with a standard user agent string. */
@@ -425,6 +590,18 @@ export async function newPage(): Promise<Page> {
 /** Shut down the shared Chrome instance if it's running. */
 export async function closeBrowser(): Promise<void> {
 	const state = sharedState();
+	// One teardown at a time: a second caller (say the idle timer and an
+	// explicit close) awaits the same operation rather than racing it.
+	if (state.closing) return state.closing;
+	state.closing = runClose(state);
+	try {
+		await state.closing;
+	} finally {
+		state.closing = undefined;
+	}
+}
+
+async function runClose(state: SharedBrowserState): Promise<void> {
 	// Wait out an in-flight launch so a browser that resolves after
 	// close is not orphaned past the intended shutdown.
 	if (state.launching) {

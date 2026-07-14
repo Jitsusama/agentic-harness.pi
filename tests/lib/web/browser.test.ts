@@ -7,6 +7,7 @@ import {
 	killPidGroup,
 	killTree,
 	reapOrphans,
+	shouldCloseWhenIdle,
 } from "../../../lib/web/browser.js";
 
 /** A hand-driven timer stand-in: one pending callback, fired on demand. */
@@ -79,6 +80,18 @@ describe("formatLaunchFailure", () => {
 	it("omits the exit code clause when the code is unknown", () => {
 		const msg = formatLaunchFailure({}, 3);
 		expect(msg).not.toContain("exit code");
+	});
+});
+
+describe("shouldCloseWhenIdle", () => {
+	it("closes when only the initial blank page remains", () => {
+		expect(shouldCloseWhenIdle(1)).toBe(true);
+		expect(shouldCloseWhenIdle(0)).toBe(true);
+	});
+
+	it("stays open while a consumer page is present", () => {
+		expect(shouldCloseWhenIdle(2)).toBe(false);
+		expect(shouldCloseWhenIdle(5)).toBe(false);
 	});
 });
 
@@ -179,53 +192,143 @@ describe("killTree", () => {
 });
 
 describe("reapOrphans", () => {
-	it("kills matching processes and removes dirs, skipping the live pid", () => {
+	type Rec = { piPid: number; piStart: string; browserPid?: number };
+
+	/** A reaper harness: alive pids and their start times, plus owners. */
+	function harness(opts: {
+		entries: string[];
+		owners?: Record<string, Rec>;
+		alive?: Record<number, string>; // pid -> start time
+		verify?: (pid: number, dir: string) => boolean;
+	}) {
 		const killed: number[] = [];
 		const removed: string[] = [];
 		reapOrphans({
-			root: "/tmp/pi-web-chrome",
+			root: "/root",
 			currentPid: 100,
-			listEntries: () => ["100", "200", "300"],
-			findProcs: (dir) => (dir.endsWith("200") ? [17579, 17588] : []),
+			listEntries: () => opts.entries,
+			readOwner: (dir) => opts.owners?.[dir.split("/").pop() ?? ""],
+			isPidAlive: (pid) => pid in (opts.alive ?? {}),
+			startTimeOf: (pid) => opts.alive?.[pid],
+			verifyBrowser: opts.verify ?? (() => true),
 			killPid: (pid) => killed.push(pid),
 			removeDir: (dir) => removed.push(dir),
 		});
-		// The live pid's own dir is left completely alone.
-		expect(removed).not.toContain("/tmp/pi-web-chrome/100");
-		// Every stale dir is removed; only the matched procs are killed.
-		expect(removed).toEqual([
-			"/tmp/pi-web-chrome/200",
-			"/tmp/pi-web-chrome/300",
-		]);
-		expect(killed).toEqual([17579, 17588]);
+		return { killed, removed };
+	}
+
+	it("leaves a live sibling's profile completely alone", () => {
+		const { killed, removed } = harness({
+			entries: ["200"],
+			owners: { "200": { piPid: 200, piStart: "T1", browserPid: 900 } },
+			alive: { 200: "T1" },
+		});
+		expect(killed).toEqual([]);
+		expect(removed).toEqual([]);
 	});
 
-	it("still removes a stale dir when a kill throws", () => {
-		const removed: string[] = [];
-		reapOrphans({
-			root: "/tmp/pi-web-chrome",
-			currentPid: 100,
-			listEntries: () => ["200"],
-			findProcs: () => [1],
-			killPid: () => {
-				throw new Error("gone");
-			},
-			removeDir: (dir) => removed.push(dir),
+	it("reaps a dead owner: kills the recorded browser, removes the dir", () => {
+		const { killed, removed } = harness({
+			entries: ["200"],
+			owners: { "200": { piPid: 200, piStart: "T1", browserPid: 900 } },
+			alive: {}, // owner 200 is gone
 		});
-		expect(removed).toEqual(["/tmp/pi-web-chrome/200"]);
+		expect(killed).toEqual([900]);
+		expect(removed).toEqual(["/root/200"]);
+	});
+
+	it("treats a reused owner pid as dead (start time mismatch)", () => {
+		const { killed, removed } = harness({
+			entries: ["200"],
+			owners: { "200": { piPid: 200, piStart: "T1", browserPid: 900 } },
+			alive: { 200: "T2" }, // pid reused by a different process
+		});
+		expect(killed).toEqual([900]);
+		expect(removed).toEqual(["/root/200"]);
+	});
+
+	it("skips the kill but still removes when the browser no longer verifies", () => {
+		const { killed, removed } = harness({
+			entries: ["200"],
+			owners: { "200": { piPid: 200, piStart: "T1", browserPid: 900 } },
+			alive: {},
+			verify: () => false, // pid 900 is gone or reused by a non-Chrome
+		});
+		expect(killed).toEqual([]);
+		expect(removed).toEqual(["/root/200"]);
+	});
+
+	it("without an owner record, skips a dir whose pid is still alive", () => {
+		const { killed, removed } = harness({
+			entries: ["200"],
+			alive: { 200: "T1" },
+		});
+		expect(killed).toEqual([]);
+		expect(removed).toEqual([]);
+	});
+
+	it("without an owner record, removes a dir whose pid is dead", () => {
+		const { killed, removed } = harness({
+			entries: ["200"],
+			alive: {},
+		});
+		expect(killed).toEqual([]);
+		expect(removed).toEqual(["/root/200"]);
+	});
+
+	it("never touches the current pid's own dir", () => {
+		const { killed, removed } = harness({
+			entries: ["100"],
+			alive: {},
+		});
+		expect(killed).toEqual([]);
+		expect(removed).toEqual([]);
+	});
+
+	it("never throws when a kill or a removal fails", () => {
+		const removed: string[] = [];
+		expect(() =>
+			reapOrphans({
+				root: "/root",
+				currentPid: 100,
+				listEntries: () => ["200", "300"],
+				readOwner: () => ({ piPid: 1, piStart: "T", browserPid: 9 }),
+				isPidAlive: () => false,
+				startTimeOf: () => undefined,
+				verifyBrowser: () => true,
+				killPid: () => {
+					throw new Error("kill lost the race");
+				},
+				removeDir: (dir) => {
+					if (dir.endsWith("200")) throw new Error("EACCES");
+					removed.push(dir);
+				},
+			}),
+		).not.toThrow();
+		// A bad entry does not abort the sweep; the next dir still processes.
+		expect(removed).toEqual(["/root/300"]);
 	});
 });
 
 describe("BrowserLaunchFailed", () => {
-	it("is an Error subclass carrying the exit code and stderr", () => {
-		const err = new BrowserLaunchFailed(
-			{ exitCode: 21, chromeStderr: "boom" },
-			3,
-		);
+	it("derives the exit code and stderr from a Puppeteer cause", () => {
+		const err = new BrowserLaunchFailed(new Error(PUPPETEER_ERROR), 3);
 		expect(err).toBeInstanceOf(Error);
 		expect(err.name).toBe("BrowserLaunchFailed");
 		expect(err.exitCode).toBe(21);
-		expect(err.chromeStderr).toBe("boom");
+		expect(err.chromeStderr).toContain("framework version mismatch");
 		expect(err.message).toContain("3 attempts");
+		expect(err.cause).toBeInstanceOf(Error);
+	});
+
+	it("preserves a non-Chrome failure that has no parseable code", () => {
+		const fsError = Object.assign(new Error("EACCES: permission denied"), {
+			code: "EACCES",
+		});
+		const err = new BrowserLaunchFailed(fsError, 3);
+		expect(err.exitCode).toBeUndefined();
+		// The real cause is not swallowed: it shows in the message and cause.
+		expect(err.message).toContain("EACCES");
+		expect(err.cause).toBe(fsError);
 	});
 });
