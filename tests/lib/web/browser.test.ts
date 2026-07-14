@@ -9,6 +9,7 @@ import {
 	namesProfile,
 	reapOrphans,
 	shouldCloseWhenIdle,
+	shouldForceKill,
 } from "../../../lib/web/browser.js";
 
 /** A hand-driven timer stand-in: one pending callback, fired on demand. */
@@ -81,6 +82,22 @@ describe("formatLaunchFailure", () => {
 	it("omits the exit code clause when the code is unknown", () => {
 		const msg = formatLaunchFailure({}, 3);
 		expect(msg).not.toContain("exit code");
+	});
+});
+
+describe("shouldForceKill", () => {
+	it("does not force-kill after a successful graceful close", () => {
+		// The process is already gone; its pid may have been reused.
+		expect(shouldForceKill(true, true)).toBe(false);
+		expect(shouldForceKill(true, false)).toBe(false);
+	});
+
+	it("force-kills a not-cleanly-closed process that still verifies", () => {
+		expect(shouldForceKill(false, true)).toBe(true);
+	});
+
+	it("does not signal a process that no longer verifies as ours", () => {
+		expect(shouldForceKill(false, false)).toBe(false);
 	});
 });
 

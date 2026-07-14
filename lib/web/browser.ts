@@ -260,6 +260,19 @@ export function shouldCloseWhenIdle(openPageCount: number): boolean {
 	return openPageCount <= INITIAL_PAGE_COUNT;
 }
 
+/**
+ * Decide whether teardown should force-kill the browser process group.
+ * Never after a clean graceful close, since the pid is already gone and
+ * could be reused; only when the close did not happen and the process
+ * still verifies as our Chrome.
+ */
+export function shouldForceKill(
+	closedGracefully: boolean,
+	stillVerifies: boolean,
+): boolean {
+	return !closedGracefully && stillVerifies;
+}
+
 /** A countdown that closes an idle browser and rearms on use. */
 export interface IdleCloser {
 	touch(): void;
@@ -573,6 +586,9 @@ export async function getBrowser(): Promise<Browser> {
 	// is closing, nor race a relaunch against its profile removal.
 	if (state.closing) await state.closing;
 	if (state.browser?.connected) return state.browser;
+	// A browser that exists but has disconnected is stale: retire it (and
+	// its still-running process) before launching a replacement.
+	if (state.browser) await closeBrowser();
 	if (state.launching) return state.launching;
 	state.launching = launchBrowser();
 	try {
@@ -688,15 +704,22 @@ async function runClose(state: SharedBrowserState): Promise<void> {
 
 	state.idle?.cancel();
 	const proc = b.process();
+	let closedGracefully = false;
 	try {
-		if (b.connected) await b.close();
+		if (b.connected) {
+			await b.close();
+			closedGracefully = true;
+		}
 	} catch {
 		// Graceful close failed; the force-kill below handles it.
 	} finally {
-		// Always group-kill the tree. After a graceful close this is a
-		// harmless no-op, but it is the only teardown for a browser whose
-		// DevTools client has disconnected while its process still runs.
-		killTree(proc);
+		// Force-kill only when we did not cleanly close (a disconnected or
+		// close-failed browser), and only while the pid still verifies as
+		// our Chrome. After a clean close the pid is gone and could be
+		// reused, so signalling its group would be unsafe.
+		const pid = proc?.pid;
+		const verifies = pid ? verifyBrowser(pid, ownProfileDir()) : false;
+		if (shouldForceKill(closedGracefully, verifies)) killTree(proc);
 		state.browser = undefined;
 		// Reclaim this run's profile dir rather than leaving it for the
 		// next run's startup sweep.
