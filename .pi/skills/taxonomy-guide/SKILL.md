@@ -102,6 +102,13 @@ behavioural contract.
 - **-widget**: adds UI elements to the interface. Visual
   components like content viewers, status indicators and
   panel controls.
+- **-provider**: contributes a `FrontEndProvider` to an MCP
+  host over the `pi.events` bus, decorating a subset of a
+  server's tools (shape, render or wrap) without importing the
+  host's registry. Distinct from a `-widget`, which adds
+  standalone UI, and from an `-integration`, which hosts a
+  service. Because the seam is the bus, a provider can live in
+  a different package from its host.
 
 Every extension must have exactly one suffix. If an extension
 seems to fit multiple categories, the *primary* behavioural

@@ -77,6 +77,14 @@ it does:
   `content-viewer-widget`, `status-line-widget`,
   `panel-zoom-widget`
 
+- **Providers** (`*-provider`): contribute a `FrontEndProvider`
+  to an MCP host over the `pi.events` bus, decorating a subset
+  of a server's tools (shape, render or wrap) without importing
+  the host's registry. Distinct from a `*-widget`, which adds
+  standalone UI, and from an `*-integration`, which hosts a
+  service. The seam is the bus, so a provider can live in a
+  different package from its host.
+
 - **Verifiers** (`*-verify`): expose a tool that subagents
   call to self-validate their structured output against the
   parent extension's schema before completion. Loaded into
