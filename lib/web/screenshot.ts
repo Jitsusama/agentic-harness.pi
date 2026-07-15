@@ -1,13 +1,46 @@
 /**
- * Full-page screenshot capture.
+ * Bounded, tiled screenshot capture.
  *
  * Scrolls the page to the bottom first so lazy-loaded content renders,
- * then captures the whole page rather than just the viewport. Used as
- * the graceful fallback when text extraction fails: a page Readability
- * cannot parse returns a screenshot a vision model can read.
+ * then captures the page as an ordered stack of vertical bands rather
+ * than one full-page image. Each band stays under the model provider's
+ * image dimension limit, so a long page can never produce an image the
+ * model rejects. A page taller than the tile budget is truncated and the
+ * caller is told.
  */
 
 import type { Page } from "puppeteer-core";
+
+/** A vertical slice of the page to capture, in page pixels. */
+export interface TileBand {
+	y: number;
+	height: number;
+}
+
+/** An ordered set of clip bands covering a page, with a truncation flag. */
+export interface TilePlan {
+	bands: TileBand[];
+	truncated: boolean;
+}
+
+/**
+ * Plan the vertical clip bands that tile a page of the given height. No
+ * band exceeds `bandHeight`, and the plan stops at `maxTiles`, reporting
+ * `truncated` when the page runs past the tile budget.
+ */
+export function planTiles(
+	pageHeight: number,
+	opts: { bandHeight: number; maxTiles: number },
+): TilePlan {
+	const { bandHeight, maxTiles } = opts;
+	const bands: TileBand[] = [];
+	for (let y = 0; y < pageHeight && bands.length < maxTiles; y += bandHeight) {
+		bands.push({ y, height: Math.min(bandHeight, pageHeight - y) });
+	}
+	const last = bands.at(-1);
+	const covered = last ? last.y + last.height : 0;
+	return { bands, truncated: covered < pageHeight };
+}
 
 /** Milliseconds to wait between scroll steps for lazy content to load. */
 const SCROLL_STEP_WAIT = 100;
@@ -41,15 +74,57 @@ async function scrollToBottom(page: Page): Promise<void> {
 }
 
 /**
- * Capture a full-page PNG screenshot as a base64 string, scrolling first
- * so lazy content is present in the capture.
+ * Fixed capture width in CSS pixels. Well under the provider's long-edge
+ * downscale threshold, so width is never the offending dimension.
  */
-export async function captureFullPage(page: Page): Promise<string> {
+const CAPTURE_WIDTH = 1280;
+
+/**
+ * Height of each tile in CSS pixels. Kept under the standard tier's
+ * 1568-pixel long-edge limit so a tile is not downscaled and its text
+ * stays legible.
+ */
+const BAND_HEIGHT = 1500;
+
+/**
+ * Ceiling on the number of tiles per page. Eight 1500-pixel bands cover
+ * 12000 pixels of page while staying well under the 20-image request
+ * rule, so a runaway page never floods the response.
+ */
+const MAX_TILES = 8;
+
+/** A tiled capture: ordered base64 PNGs plus whether the page overran the budget. */
+export interface TiledCapture {
+	tiles: string[];
+	truncated: boolean;
+}
+
+/**
+ * Capture the page as an ordered stack of PNG tiles, each a base64 string.
+ * Scrolls first so lazy content renders, fixes the viewport width, then
+ * clips successive vertical bands planned by `planTiles`. No tile exceeds
+ * the band height, and the capture stops at the tile ceiling.
+ */
+export async function captureTiles(page: Page): Promise<TiledCapture> {
+	await page.setViewport({ width: CAPTURE_WIDTH, height: 1024 });
 	await scrollToBottom(page);
-	const shot = await page.screenshot({
-		fullPage: true,
-		type: "png",
-		encoding: "base64",
+	const pageHeight = await page.evaluate(() =>
+		Math.ceil(document.documentElement.scrollHeight),
+	);
+	const { bands, truncated } = planTiles(pageHeight, {
+		bandHeight: BAND_HEIGHT,
+		maxTiles: MAX_TILES,
 	});
-	return typeof shot === "string" ? shot : Buffer.from(shot).toString("base64");
+	const tiles: string[] = [];
+	for (const band of bands) {
+		const shot = await page.screenshot({
+			type: "png",
+			encoding: "base64",
+			clip: { x: 0, y: band.y, width: CAPTURE_WIDTH, height: band.height },
+		});
+		tiles.push(
+			typeof shot === "string" ? shot : Buffer.from(shot).toString("base64"),
+		);
+	}
+	return { tiles, truncated };
 }

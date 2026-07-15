@@ -18,7 +18,12 @@ export {
 	MermaidRenderError,
 	renderMermaid,
 } from "./mermaid.js";
-export { AuthSetupNeeded, type PageContent, readPage } from "./reader.js";
+export {
+	AuthSetupNeeded,
+	formatManifest,
+	type PageBundle,
+	readPage,
+} from "./reader.js";
 export { type SearchResult, webSearch } from "./search.js";
 export {
 	type ActResult,

@@ -1,20 +1,23 @@
 /**
- * Page reader: fetches a URL with headless Chrome and extracts
- * readable content using Mozilla Readability.
+ * Page reader: fetches a URL with headless Chrome and returns a bundle
+ * of representations the model can pick and choose from.
  *
- * Cleans junk DOM elements before extraction, collapses whitespace
- * after, and saves large pages to temp files so the LLM can
- * selectively explore them with read/grep.
+ * Every read produces, where available, cleaned article text (via
+ * defuddle), the rendered inner text, the rendered DOM and a bounded
+ * stack of screenshot tiles. The heavy artifacts are written to a temp
+ * bundle directory; the tool returns a compact manifest of pointers so
+ * the model opens only what it needs rather than having every
+ * representation rendered into context at once.
  */
 
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { Readability } from "@mozilla/readability";
+import { Defuddle } from "defuddle/node";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { newPage } from "./browser.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
-import { captureFullPage } from "./screenshot.js";
+import { captureTiles } from "./screenshot.js";
 
 /**
  * Thrown when a page redirects to an auth provider and Chrome
@@ -31,22 +34,28 @@ export class AuthSetupNeeded extends Error {
 	}
 }
 
-/** Content extracted from a web page after cleaning and readability processing. */
-export interface PageContent {
+/**
+ * A page captured as a bundle of representations on disk. Each optional
+ * path points at one representation in `dir`; the model opens whichever
+ * it needs with the read tool.
+ */
+export interface PageBundle {
 	title: string;
 	url: string;
-	/** Inline content (short pages) or summary + pointer (large pages) */
-	content: string;
+	/** A short inline snippet so the model can judge relevance without opening a file. */
 	excerpt: string;
-	/** Total characters of cleaned content */
-	length: number;
-	/** Path to full content file, if saved to disk */
-	filePath?: string;
-	/**
-	 * Base64 PNG of the full page, present only when text extraction
-	 * failed and we fell back to a screenshot for a vision model.
-	 */
-	screenshot?: string;
+	/** The bundle directory holding every artifact. */
+	dir: string;
+	/** Path to the cleaned article markdown, when extraction found an article. */
+	article?: string;
+	/** Path to the rendered inner text. */
+	innertext?: string;
+	/** Path to the rendered DOM (HTML). */
+	dom?: string;
+	/** Paths to the screenshot tiles, top to bottom. */
+	screenshots: string[];
+	/** True when the page ran past the screenshot tile budget and was cut short. */
+	truncated: boolean;
 }
 
 /** Timeout for page navigation in milliseconds. */
@@ -55,92 +64,18 @@ const PAGE_LOAD_TIMEOUT = 20_000;
 /** Wait time for dynamic content to render after load. */
 const DYNAMIC_CONTENT_WAIT = 1_500;
 
-/**
- * Content shorter than this is returned inline.
- * Longer content is saved to a temp file.
- */
-const INLINE_THRESHOLD = 12_000;
+/** Absolute max characters we write for any single text artifact. */
+const MAX_CONTENT_LENGTH = 200_000;
+
+/** Below this word count we treat defuddle's article as empty and skip it. */
+const MIN_ARTICLE_WORDS = 30;
+
+/** Characters of the best available text used for the inline excerpt. */
+const EXCERPT_LENGTH = 500;
 
 /**
- * Absolute max we'll extract from a page, even for the temp file.
- */
-const MAX_CONTENT_LENGTH = 80_000;
-
-/**
- * Below this many characters, we treat text extraction as failed and
- * fall back to a full-page screenshot for a vision model rather than
- * returning a near-empty result or a wall of navigation text.
- */
-const MIN_TEXT_LENGTH = 200;
-
-/**
- * CSS selectors for elements to strip before Readability processes
- * the page. These are common sources of noise.
- */
-const JUNK_SELECTORS = [
-	// Navigation and chrome. We scope header/footer to page-level
-	// children of body so we strip the site banner and footer without
-	// deleting an article's own <header>/<footer>, which sabotages
-	// Readability's extraction (e.g., Wikipedia wraps content in one).
-	"nav",
-	"body > header",
-	"body > footer",
-	"[role='navigation']",
-	"[role='banner']",
-	"[role='contentinfo']",
-
-	// Ads
-	".ad",
-	".ads",
-	".adsbygoogle",
-	".advertisement",
-	"[data-ad]",
-	"[data-ad-slot]",
-	"[id*='google_ads']",
-	"ins.adsbygoogle",
-	"[class*='ad-container']",
-	"[class*='ad-wrapper']",
-	"[class*='sponsored']",
-
-	// Cookie / consent banners
-	"[class*='cookie']",
-	"[class*='consent']",
-	"[id*='cookie']",
-	"[id*='consent']",
-	"[class*='gdpr']",
-
-	// Social sharing
-	"[class*='social-share']",
-	"[class*='share-button']",
-	"[class*='social-links']",
-
-	// Comments
-	"[class*='comment']",
-	"[id*='comment']",
-	"#disqus_thread",
-
-	// Related articles / recommendations
-	"[class*='related-']",
-	"[class*='recommended']",
-	"[class*='more-stories']",
-	"[class*='read-next']",
-	"[class*='you-may-also']",
-
-	// Popups / modals / overlays
-	"[class*='modal']",
-	"[class*='popup']",
-	"[class*='overlay']",
-	"[class*='newsletter']",
-	"[class*='subscribe']",
-
-	// Skip links and screen reader only
-	"[class*='skip-link']",
-	".sr-only",
-	".screen-reader-text",
-];
-
-/**
- * Lines matching these patterns are stripped after extraction.
+ * Lines matching these patterns are stripped from the rendered inner
+ * text after extraction.
  */
 const BOILERPLATE_PATTERNS = [
 	/^advertisement$/i,
@@ -156,71 +91,62 @@ const BOILERPLATE_PATTERNS = [
 	/^subscribe to/i,
 	/^newsletter/i,
 	/^click here/i,
-	/^credit:\s/i,
-	/^photo by\s/i,
-	/^image:\s/i,
-	/^\(photo:/i,
 ];
 
-/** Strip junk elements from the DOM before Readability. */
-function stripJunk(doc: Document): void {
-	for (const selector of JUNK_SELECTORS) {
-		try {
-			const els = doc.querySelectorAll(selector);
-			for (const el of els) el.remove();
-		} catch {
-			// The selector is invalid on this page, so we skip it.
-		}
-	}
-}
-
-/** Readable content pulled from a page's HTML by Readability. */
-interface Extracted {
-	text: string;
-	title: string;
-	excerpt: string;
-}
-
 /**
- * Run Readability over the page HTML, stripping junk first. Returns the
- * article text, title and excerpt, or null when parsing fails or the
- * page yields no article (the caller falls back to a screenshot).
+ * Turn a page bundle into the compact pointer manifest the tool returns.
+ * Lists only the representations that exist, names the screenshot tile
+ * count, and adds a truncation note when the page overran the budget.
  */
-function extractReadable(html: string, url: string): Extracted | null {
-	try {
-		const dom = new JSDOM(html, { url, virtualConsole: quietVirtualConsole() });
-		stripJunk(dom.window.document);
-		const article = new Readability(dom.window.document).parse();
-		if (!article) return null;
-		const text = article.textContent ?? "";
-		return {
-			text,
-			title: article.title ?? "",
-			excerpt: article.excerpt || text.slice(0, 200),
-		};
-	} catch {
-		// JSDOM or Readability threw (e.g., CSS parse errors on a hostile
-		// page). We report failure so the caller falls back to a screenshot.
-		return null;
+export function formatManifest(bundle: PageBundle): string {
+	const lines: string[] = [`# ${bundle.title}`, `Source: ${bundle.url}`, ""];
+	if (bundle.excerpt) lines.push(bundle.excerpt, "");
+	lines.push(
+		"Captured this page as a bundle of representations. Open whichever " +
+			"you need with the read tool:",
+		"",
+	);
+	if (bundle.article) {
+		lines.push(`- article (markdown): ${bundle.article}`);
 	}
+	if (bundle.innertext) {
+		lines.push(`- inner text: ${bundle.innertext}`);
+	}
+	if (bundle.dom) {
+		lines.push(`- DOM (HTML): ${bundle.dom}`);
+	}
+	if (bundle.screenshots.length > 0) {
+		const first = bundle.screenshots[0];
+		const last = bundle.screenshots.at(-1);
+		const range =
+			bundle.screenshots.length === 1 ? first : `${first} ... ${last}`;
+		lines.push(
+			`- screenshot tiles (${bundle.screenshots.length}, top to bottom): ${range}`,
+		);
+	}
+	if (bundle.truncated) {
+		lines.push(
+			"",
+			"Note: the page was taller than the screenshot budget, so the " +
+				"tiles were truncated. Read the inner text or DOM for the rest.",
+		);
+	}
+	return lines.join("\n");
 }
 
 /** Clean extracted text: collapse whitespace, strip boilerplate lines. */
 function cleanText(text: string): string {
-	return (
-		text
-			.split("\n")
-			.map((line) => line.trimEnd())
-			.filter((line) => {
-				const trimmed = line.trim();
-				if (!trimmed) return true; // keep single blank lines (collapsed below)
-				return !BOILERPLATE_PATTERNS.some((p) => p.test(trimmed));
-			})
-			.join("\n")
-			// We collapse 3+ consecutive newlines down to 2.
-			.replace(/\n{3,}/g, "\n\n")
-			.trim()
-	);
+	return text
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.filter((line) => {
+			const trimmed = line.trim();
+			if (!trimmed) return true;
+			return !BOILERPLATE_PATTERNS.some((p) => p.test(trimmed));
+		})
+		.join("\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
 }
 
 /**
@@ -229,8 +155,6 @@ function cleanText(text: string): string {
  */
 function quietVirtualConsole() {
 	const vc = new VirtualConsole();
-	// Forward everything except CSS parse errors, which are noisy
-	// and harmless on most pages.
 	vc.on("error", (msg: string) => {
 		if (!msg.includes("Could not parse CSS stylesheet")) {
 			console.error(msg);
@@ -241,22 +165,67 @@ function quietVirtualConsole() {
 	return vc;
 }
 
-/** Save content to a temp file and return the path. */
-function saveToTemp(title: string, url: string, content: string): string {
-	const id = crypto.randomBytes(6).toString("hex");
-	const dir = path.join("/tmp", "pi-web-read", id);
-	fs.mkdirSync(dir, { recursive: true });
-	const filePath = path.join(dir, "page.md");
-	const header = `# ${title}\n\nSource: ${url}\n\n`;
-	fs.writeFileSync(filePath, header + content, "utf-8");
+/** Extracted article from defuddle: markdown content, title and word count. */
+interface Article {
+	markdown: string;
+	title: string;
+	wordCount: number;
+}
+
+/**
+ * Run defuddle over the page HTML to extract the main content as
+ * markdown. Returns null when defuddle throws or finds too little to be
+ * a real article.
+ */
+async function extractArticle(
+	html: string,
+	url: string,
+): Promise<Article | null> {
+	try {
+		const dom = new JSDOM(html, { url, virtualConsole: quietVirtualConsole() });
+		const result = await Defuddle(dom.window.document, url, {
+			markdown: true,
+			useAsync: false,
+		});
+		if (!result || result.wordCount < MIN_ARTICLE_WORDS) return null;
+		return {
+			markdown: result.contentMarkdown ?? result.content ?? "",
+			title: result.title ?? "",
+			wordCount: result.wordCount,
+		};
+	} catch {
+		// Defuddle or JSDOM threw (e.g., CSS parse errors on a hostile
+		// page). Article extraction is optional; the bundle still has the
+		// inner text, DOM and screenshots, so we report no article.
+		return null;
+	}
+}
+
+/** Write one text artifact to the bundle dir and return its path. */
+function writeText(dir: string, name: string, content: string): string {
+	const filePath = path.join(dir, name);
+	fs.writeFileSync(filePath, content.slice(0, MAX_CONTENT_LENGTH), "utf-8");
 	return filePath;
 }
 
-/** Fetch a URL, extract readable content, and save large pages to disk. */
+/** Write the screenshot tiles to the bundle dir and return their paths. */
+function writeTiles(dir: string, tiles: string[]): string[] {
+	return tiles.map((data, i) => {
+		const name = `shot-${String(i + 1).padStart(2, "0")}.png`;
+		const filePath = path.join(dir, name);
+		fs.writeFileSync(filePath, Buffer.from(data, "base64"));
+		return filePath;
+	});
+}
+
+/**
+ * Fetch a URL and capture it as a bundle of representations on disk:
+ * article markdown, rendered inner text, DOM and screenshot tiles.
+ */
 export async function readPage(
 	url: string,
 	signal?: AbortSignal,
-): Promise<PageContent> {
+): Promise<PageBundle> {
 	const page = await newPage();
 	try {
 		if (signal?.aborted) throw new Error("Aborted");
@@ -269,13 +238,11 @@ export async function readPage(
 
 		if (signal?.aborted) throw new Error("Aborted");
 
-		// We wait briefly for dynamic content to load.
 		await page.evaluate(
 			(ms) => new Promise((r) => setTimeout(r, ms)),
 			DYNAMIC_CONTENT_WAIT,
 		);
 
-		// We detect auth redirects (e.g., Google SSO, OAuth).
 		const finalUrl = page.url();
 		const authRedirect =
 			finalUrl.includes("accounts.google.com") ||
@@ -289,53 +256,45 @@ export async function readPage(
 		}
 
 		const html = await page.content();
+		const rendered = cleanText(
+			await page.evaluate(() => document.body.innerText ?? ""),
+		);
+		const article = await extractArticle(html, url);
 
-		const extracted = extractReadable(html, url);
+		// The screenshot tiles come last because captureTiles resizes the
+		// viewport and scrolls; the HTML and inner text are already captured.
+		const { tiles, truncated } = await captureTiles(page);
 
-		// We clean and cap the content.
-		const cleaned = extracted
-			? cleanText(extracted.text).slice(0, MAX_CONTENT_LENGTH)
-			: "";
-		const totalLength = cleaned.length;
+		const id = crypto.randomBytes(6).toString("hex");
+		const dir = path.join("/tmp", "pi-web-read", id);
+		fs.mkdirSync(dir, { recursive: true });
 
-		// Text extraction failed or yielded too little: fall back to a
-		// full-page screenshot a vision model can read. We do not return
-		// the raw innerText wall of navigation, which misleads the model.
-		if (!extracted || totalLength < MIN_TEXT_LENGTH) {
-			const screenshot = await captureFullPage(page);
-			const title = extracted?.title || (await page.title());
-			return {
-				title,
-				url,
-				content:
-					`Readability could not extract text from this page. ` +
-					`Returning a full-page screenshot to read visually instead.`,
-				excerpt: "",
-				length: 0,
-				screenshot,
-			};
-		}
+		const title = article?.title || (await page.title());
+		const excerpt = (article?.markdown || rendered).slice(0, EXCERPT_LENGTH);
 
-		const { title, excerpt } = extracted;
-
-		// Small pages: return inline
-		if (totalLength <= INLINE_THRESHOLD) {
-			return { title, url, content: cleaned, excerpt, length: totalLength };
-		}
-
-		// Large pages: save to temp file, return summary + pointer
-		const filePath = saveToTemp(title, url, cleaned);
-		const inlineSummary =
-			cleaned.slice(0, INLINE_THRESHOLD) +
-			`\n\n[... ${totalLength - INLINE_THRESHOLD} more characters in ${filePath}: use read tool to explore]`;
+		const articlePath = article
+			? writeText(
+					dir,
+					"article.md",
+					`# ${title}\n\nSource: ${url}\n\n${article.markdown}`,
+				)
+			: undefined;
+		const innertextPath = rendered
+			? writeText(dir, "innertext.txt", rendered)
+			: undefined;
+		const domPath = writeText(dir, "dom.html", html);
+		const screenshots = writeTiles(dir, tiles);
 
 		return {
 			title,
 			url,
-			content: inlineSummary,
 			excerpt,
-			length: totalLength,
-			filePath,
+			dir,
+			article: articlePath,
+			innertext: innertextPath,
+			dom: domPath,
+			screenshots,
+			truncated,
 		};
 	} finally {
 		await page.close();
