@@ -1,12 +1,13 @@
 /**
  * Bounded, tiled screenshot capture.
  *
- * Scrolls the page to the bottom first so lazy-loaded content renders,
- * then captures the page as an ordered stack of vertical bands rather
- * than one full-page image. Each band stays under the model provider's
- * image dimension limit, so a long page can never produce an image the
- * model rejects. A page taller than the tile budget is truncated and the
- * caller is told.
+ * `preparePage` settles the page (capture-width viewport, lazy-content
+ * scroll) so every representation is read from one state. `captureTiles`
+ * then captures the page as an ordered stack of vertical bands rather than
+ * one full-page image. Each band stays under the model provider's image
+ * dimension limit, so a long page can never produce an image the model
+ * rejects. A page taller than the tile budget is truncated and the caller
+ * is told.
  */
 
 import type { Page } from "puppeteer-core";
@@ -100,14 +101,23 @@ export interface TiledCapture {
 }
 
 /**
- * Capture the page as an ordered stack of PNG tiles, each a base64 string.
- * Scrolls first so lazy content renders, fixes the viewport width, then
- * clips successive vertical bands planned by `planTiles`. No tile exceeds
- * the band height, and the capture stops at the tile ceiling.
+ * Settle the page into the state every representation is captured from:
+ * fix the viewport to the capture width, then scroll to the bottom so
+ * lazy-loaded content renders, returning to the top. Call this once before
+ * reading the DOM, inner text or screenshots so they all agree.
  */
-export async function captureTiles(page: Page): Promise<TiledCapture> {
+export async function preparePage(page: Page): Promise<void> {
 	await page.setViewport({ width: CAPTURE_WIDTH, height: 1024 });
 	await scrollToBottom(page);
+}
+
+/**
+ * Capture the page as an ordered stack of PNG tiles, each a base64 string,
+ * by clipping successive vertical bands planned by `planTiles`. No tile
+ * exceeds the band height, and the capture stops at the tile ceiling.
+ * Assumes `preparePage` has already settled the viewport and lazy content.
+ */
+export async function captureTiles(page: Page): Promise<TiledCapture> {
 	const pageHeight = await page.evaluate(() =>
 		Math.ceil(document.documentElement.scrollHeight),
 	);

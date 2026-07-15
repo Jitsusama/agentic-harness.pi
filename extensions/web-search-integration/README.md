@@ -11,21 +11,26 @@ up APIs, understand problem domains and so on. DuckDuckGo is the
 primary provider; Bing is the fallback when DuckDuckGo returns
 nothing or errors.
 
-**`web_read`**: Fetches a URL and extracts readable text content
-using Mozilla Readability. Junk elements (ads, nav, cookies,
-comments, social buttons, related articles) are stripped before
-extraction, and boilerplate lines are removed after.
+**`web_read`**: Fetches a URL and captures it as a bundle of
+representations written to a private temp directory: article
+markdown (extracted with defuddle), the rendered inner text, the
+DOM and bounded screenshot tiles. The tool returns a compact
+manifest of file paths plus a short excerpt, so the agent opens
+only the representation it needs with `read` (offset/limit for
+prose, viewing a screenshot tile as an image) or `grep`, instead
+of pulling every representation into context.
 
-Pages under ~12k characters come back inline. Larger pages get
-saved to `/tmp/pi-web-read/<id>/page.md` so the agent can
-explore them selectively with `read` (offset/limit) or `grep`
-instead of consuming the entire content as tokens.
+Screenshots are captured as fixed-width vertical tiles, each
+kept under the model provider's image dimension limit, so a long
+page can never produce an image the model rejects. A page taller
+than the tile budget is truncated and the manifest says so. Old
+bundles are reaped at session start so authenticated captures do
+not linger in the temp dir.
 
 ## Requirements
 
 - Google Chrome installed (or set `CHROME_PATH` env var)
-- Dependencies: `puppeteer-core`, `@mozilla/readability`,
-  `jsdom`
+- Dependencies: `puppeteer-core`, `defuddle`, `jsdom`
 
 ## How It Works
 

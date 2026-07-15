@@ -23,10 +23,14 @@ import {
 } from "../../lib/web/cookies/index.js";
 import {
 	AuthSetupNeeded,
-	formatManifest,
 	readPage,
+	reapStaleBundles,
 } from "../../lib/web/reader.js";
 import { webSearch as doSearch } from "../../lib/web/search.js";
+import { formatManifest } from "./manifest.js";
+
+/** Age past which a stale page bundle is reaped at session start. */
+const BUNDLE_MAX_AGE_MS = 6 * 60 * 60 * 1_000;
 
 /** Details returned by web_read on success. */
 interface ReaderDetails {
@@ -225,7 +229,7 @@ export default function webSearch(pi: ExtensionAPI) {
 						url: bundle.url,
 						excerpt: bundle.excerpt,
 						dir: bundle.dir,
-						tiles: bundle.screenshots.length,
+						tiles: bundle.screenshotPaths.length,
 						truncated: bundle.truncated,
 					},
 				};
@@ -291,6 +295,16 @@ export default function webSearch(pi: ExtensionAPI) {
 				);
 			}
 		},
+	});
+
+	// Reclaim page bundles left in the system temp dir by prior sessions
+	// and crashes, so authenticated captures don't linger.
+	pi.on("session_start", async () => {
+		try {
+			reapStaleBundles(BUNDLE_MAX_AGE_MS);
+		} catch {
+			// Reaping is best-effort housekeeping; never block session start.
+		}
 	});
 
 	// We clean up the browser when the session ends gracefully.
