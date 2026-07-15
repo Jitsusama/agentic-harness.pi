@@ -5,8 +5,11 @@
  *   - web_search: search the web via headless Chrome
  *   - web_read: fetch and extract readable content from a URL
  *
- * Uses puppeteer-core (existing Chrome install), @mozilla/readability,
- * and jsdom. Custom renderCall/renderResult keep TUI output compact.
+ * Uses puppeteer-core (existing Chrome install), defuddle and jsdom.
+ * web_read returns a bundle of representations (article, inner text, DOM,
+ * screenshot tiles) written to disk, plus a pointer manifest so the model
+ * opens only what it needs. Custom renderCall/renderResult keep TUI output
+ * compact.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -18,7 +21,11 @@ import {
 	StaleKeyError,
 	setupChromeKey,
 } from "../../lib/web/cookies/index.js";
-import { AuthSetupNeeded, readPage } from "../../lib/web/reader.js";
+import {
+	AuthSetupNeeded,
+	formatManifest,
+	readPage,
+} from "../../lib/web/reader.js";
 import { webSearch as doSearch } from "../../lib/web/search.js";
 
 /** Details returned by web_read on success. */
@@ -26,9 +33,9 @@ interface ReaderDetails {
 	title?: string;
 	url?: string;
 	excerpt?: string;
-	length?: number;
-	filePath?: string;
-	screenshot?: boolean;
+	dir?: string;
+	tiles?: number;
+	truncated?: boolean;
 }
 
 /** Type guard for successful web_read details. */
@@ -77,7 +84,8 @@ export default function webSearch(pi: ExtensionAPI) {
 		},
 
 		renderResult(result, { expanded }, theme) {
-			const text = result.content?.[0]?.text || "";
+			const first = result.content?.[0];
+			const text = first?.type === "text" ? first.text : "";
 			if (hasErrorDetails(result.details) || text.startsWith("Search failed")) {
 				return new Text(theme.fg("error", text), 0, 0);
 			}
@@ -113,6 +121,7 @@ export default function webSearch(pi: ExtensionAPI) {
 								text: "No results found.",
 							},
 						],
+						details: { count: 0 },
 					};
 				}
 
@@ -124,6 +133,7 @@ export default function webSearch(pi: ExtensionAPI) {
 
 				return {
 					content: [{ type: "text", text }],
+					details: { count: results.length },
 				};
 			} catch (err: unknown) {
 				const msg = err instanceof Error ? err.message : String(err);
@@ -134,6 +144,7 @@ export default function webSearch(pi: ExtensionAPI) {
 							text: `Search failed: ${msg}`,
 						},
 					],
+					details: { error: true },
 				};
 			}
 		},
@@ -148,7 +159,7 @@ export default function webSearch(pi: ExtensionAPI) {
 			"Fetch a URL and extract readable content (article text, docs, etc.).",
 		promptGuidelines: [
 			"Use web_read to get full content from URLs found via web_search.",
-			"Large pages are saved to a temp file: use the read tool with offset/limit or grep to explore specific sections rather than reading the entire file.",
+			"web_read captures the page as a bundle on disk (article markdown, inner text, DOM and screenshot tiles) and returns a manifest of file paths. Open the representation you need with the read tool: read the article or inner text for prose, grep the DOM for structure, or view a screenshot tile as an image. You do not have to open all of them.",
 		],
 		parameters: Type.Object({
 			url: Type.String({ description: "URL to fetch and read" }),
@@ -169,7 +180,8 @@ export default function webSearch(pi: ExtensionAPI) {
 		},
 
 		renderResult(result, { expanded }, theme) {
-			const text = result.content?.[0]?.text || "";
+			const first = result.content?.[0];
+			const text = first?.type === "text" ? first.text : "";
 			if (
 				!isReaderDetails(result.details) ||
 				text.startsWith("Failed to read page")
@@ -177,32 +189,19 @@ export default function webSearch(pi: ExtensionAPI) {
 				return new Text(theme.fg("error", text), 0, 0);
 			}
 
-			const {
-				title,
-				excerpt,
-				filePath,
-				length: contentLength,
-				screenshot,
-			} = result.details;
+			const { title, excerpt, dir, tiles, truncated } = result.details;
 			const displayTitle = title || "Page loaded";
 
-			if (screenshot) {
-				return new Text(
-					theme.fg("success", "✓ ") +
-						theme.fg("dim", displayTitle) +
-						theme.fg("muted", " (screenshot: text extraction failed)"),
-					0,
-					0,
-				);
-			}
-			const totalChars = contentLength || text.length;
-
+			const tileNote =
+				tiles && tiles > 0
+					? ` (${tiles} tile${tiles === 1 ? "" : "s"}${truncated ? ", truncated" : ""})`
+					: "";
 			let summary =
 				theme.fg("success", "✓ ") +
 				theme.fg("dim", displayTitle) +
-				theme.fg("muted", ` (${Math.round(totalChars / 1000)}k chars)`);
-			if (filePath) {
-				summary += theme.fg("muted", ` → ${filePath}`);
+				theme.fg("muted", tileNote);
+			if (dir) {
+				summary += theme.fg("muted", ` → ${dir}`);
 			}
 			if (excerpt) {
 				summary += `\n  ${theme.fg("dim", excerpt)}`;
@@ -217,29 +216,17 @@ export default function webSearch(pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params, signal) {
 			try {
-				const result = await readPage(params.url, signal);
-
-				const content: (
-					| { type: "text"; text: string }
-					| { type: "image"; data: string; mimeType: string }
-				)[] = [{ type: "text", text: result.content }];
-				if (result.screenshot) {
-					content.push({
-						type: "image",
-						data: result.screenshot,
-						mimeType: "image/png",
-					});
-				}
+				const bundle = await readPage(params.url, signal);
 
 				return {
-					content,
+					content: [{ type: "text", text: formatManifest(bundle) }],
 					details: {
-						title: result.title,
-						url: result.url,
-						excerpt: result.excerpt,
-						length: result.length,
-						filePath: result.filePath,
-						screenshot: Boolean(result.screenshot),
+						title: bundle.title,
+						url: bundle.url,
+						excerpt: bundle.excerpt,
+						dir: bundle.dir,
+						tiles: bundle.screenshots.length,
+						truncated: bundle.truncated,
 					},
 				};
 			} catch (err: unknown) {
@@ -300,14 +287,14 @@ export default function webSearch(pi: ExtensionAPI) {
 			} else {
 				ctx.ui.notify(
 					"Failed to set up Chrome cookie key. Was the Keychain prompt denied?",
-					"warn",
+					"warning",
 				);
 			}
 		},
 	});
 
 	// We clean up the browser when the session ends gracefully.
-	pi.on("session_end", async () => {
+	pi.on("session_shutdown", async () => {
 		process.removeListener("exit", killBrowserSync);
 		await closeBrowser();
 	});
