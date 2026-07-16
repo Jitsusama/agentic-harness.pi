@@ -330,6 +330,16 @@ export function diskSink(root: string = sessionDir()): BundleSink {
 	};
 }
 
+/** True when a directory's mtime is older than the given age. */
+function olderThan(dir: string, now: number, maxAgeMs: number): boolean {
+	try {
+		return now - fs.statSync(dir).mtimeMs > maxAgeMs;
+	} catch {
+		// The directory vanished under us; treat it as not stale.
+		return false;
+	}
+}
+
 /** Remove immediate subdirectories of `root` for which `stale` returns true. */
 function reapDir(
 	root: string,
@@ -356,10 +366,10 @@ function reapDir(
 
 /**
  * Reap bundle directories that no live session owns. The current root is
- * keyed by process id, so a directory is abandoned exactly when its pid is
- * no longer alive; the legacy root predates pid keying and is swept by age.
- * The collaborators are parameters so the destructive sweep is testable
- * against a throwaway root.
+ * keyed by process id, so a pid-named directory is abandoned exactly when
+ * its pid is no longer alive; any stray entry there, and the whole legacy
+ * root, are swept by age instead. The collaborators are parameters so the
+ * destructive sweep is testable against a throwaway root.
  */
 export function reapBundles(opts: {
 	root: string;
@@ -368,17 +378,17 @@ export function reapBundles(opts: {
 	now: number;
 	legacyMaxAgeMs: number;
 }): void {
-	reapDir(opts.root, (_dir, name) => {
+	reapDir(opts.root, (dir, name) => {
 		const pid = Number(name);
-		return Number.isInteger(pid) && !opts.isPidAlive(pid);
+		// A pid-named dir is abandoned when its process is gone; any other
+		// entry (e.g. from an older layout) has no owner, so fall back to age.
+		return Number.isInteger(pid)
+			? !opts.isPidAlive(pid)
+			: olderThan(dir, opts.now, opts.legacyMaxAgeMs);
 	});
-	reapDir(opts.legacyRoot, (dir) => {
-		try {
-			return opts.now - fs.statSync(dir).mtimeMs > opts.legacyMaxAgeMs;
-		} catch {
-			return false;
-		}
-	});
+	reapDir(opts.legacyRoot, (dir) =>
+		olderThan(dir, opts.now, opts.legacyMaxAgeMs),
+	);
 }
 
 /**

@@ -185,6 +185,21 @@ describe("reapBundles", () => {
 		expect(fs.existsSync(live)).toBe(true);
 	});
 
+	it("sweeps a stray non-pid dir in the current root by age", () => {
+		const now = 1_000_000_000_000;
+		const stray = path.join(root, "r-legacy-layout");
+		fs.mkdirSync(stray);
+		fs.utimesSync(stray, new Date(now - 10_000), new Date(now - 10_000));
+		reapBundles({
+			root,
+			legacyRoot,
+			isPidAlive: () => true,
+			now,
+			legacyMaxAgeMs: 5_000,
+		});
+		expect(fs.existsSync(stray)).toBe(false);
+	});
+
 	it("sweeps the legacy root by age", () => {
 		const now = 1_000_000_000_000;
 		const stale = path.join(legacyRoot, "r-stale");
