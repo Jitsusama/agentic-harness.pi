@@ -7,16 +7,18 @@
  * browser from lib/web, so it inherits that hardened lifecycle rather
  * than managing its own browser.
  *
- * The result carries both the PNG file path (to open or embed in a quest
- * document) and the image inline, so a vision model can see the diagram.
- * When a human is at an interactive session, the PNG is also opened in the
- * OS image viewer: neither the terminal content viewer nor an nvim text
- * buffer can display a binary image, so opening it is the one way the
- * person who asked for the diagram actually sees it.
+ * The result carries the PNG path (portable raster, and the inline image
+ * a vision model sees), the SVG path (crisp vector, the human's readable
+ * copy) and the image inline. When a human is at an interactive session,
+ * the SVG is opened in the browser: neither the terminal content viewer
+ * nor an nvim text buffer can display a diagram, and the browser is the
+ * one reliably crisp, infinitely zoomable SVG viewer, so opening it is
+ * how the person who asked for the diagram actually reads it.
  */
 
 import { spawn } from "node:child_process";
 import { platform } from "node:os";
+import { pathToFileURL } from "node:url";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -40,40 +42,48 @@ function osOpenCommand(): { command: string; args: string[] } | null {
 }
 
 /**
- * Open a rendered PNG in the OS image viewer, detached and
- * best-effort. A missing opener or a spawn failure is ignored:
- * the file path is still in the result for the user to open.
+ * Open a rendered SVG in the default browser, detached and best-effort.
+ * The file is passed as a file:// URL so the OS routes it to the browser
+ * (the reliably crisp, zoomable SVG viewer) rather than to whichever app
+ * happens to own the .svg extension. A missing opener or a spawn failure
+ * is ignored: the file paths are still in the result for the user.
  */
-function openInViewer(pngPath: string): void {
+function openInBrowser(filePath: string): void {
 	const opener = osOpenCommand();
 	if (!opener) return;
+	const url = pathToFileURL(filePath).href;
 	try {
-		const child = spawn(opener.command, [...opener.args, pngPath], {
+		const child = spawn(opener.command, [...opener.args, url], {
 			detached: true,
 			stdio: "ignore",
 		});
 		child.on("error", () => {
-			// No opener on PATH; the returned path is the fallback.
+			// No opener on PATH; the returned paths are the fallback.
 		});
 		child.unref();
 	} catch {
-		// Spawn refused; the returned path is the fallback.
+		// Spawn refused; the returned paths are the fallback.
 	}
 }
 
 /** Details returned by render_mermaid. */
 interface MermaidDetails {
 	pngPath?: string;
+	svgPath?: string;
 	error?: string;
 }
 
 /** Type guard for a successful render. */
-function isSuccess(details: unknown): details is { pngPath: string } {
+function isSuccess(
+	details: unknown,
+): details is { pngPath: string; svgPath: string } {
 	return (
 		typeof details === "object" &&
 		details !== null &&
 		"pngPath" in details &&
-		typeof (details as Record<string, unknown>).pngPath === "string"
+		typeof (details as Record<string, unknown>).pngPath === "string" &&
+		"svgPath" in details &&
+		typeof (details as Record<string, unknown>).svgPath === "string"
 	);
 }
 
@@ -87,15 +97,17 @@ export default function mermaidWidget(pi: ExtensionAPI) {
 		name: "render_mermaid",
 		label: "Render Mermaid",
 		description:
-			"Render Mermaid diagram source to a PNG image. Returns the file " +
-			"path and the rendered diagram inline. Use when asked to draw or " +
-			"visualize something as a diagram, or to embed a diagram in a " +
-			"quest planning document.",
+			"Render Mermaid diagram source to a crisp SVG plus a PNG scaled " +
+			"to the vision-model pixel budget. Returns both file paths and the " +
+			"PNG inline. Use when asked to draw or visualize something as a " +
+			"diagram, or to embed a diagram in a quest planning document.",
 		promptSnippet:
-			"Render Mermaid source to a PNG diagram (file path plus inline image).",
+			"Render Mermaid source to an SVG plus a capped PNG (paths plus inline image).",
 		promptGuidelines: [
 			"Use render_mermaid to turn Mermaid source into a diagram rather than leaving it as prose.",
-			"Pass an explicit path to write the PNG beside a quest document you want to embed it in.",
+			"It writes two files: an SVG (crisp at any zoom, for humans to read) and a PNG (the inline image and a portable raster) beside it.",
+			"Pass an explicit path (the PNG path) to write the pair beside a quest document you want to embed it in; the SVG lands next to it with the same base name.",
+			"Embed the PNG in markdown for portability; point a human at the SVG when they need to read a dense diagram closely.",
 			"Rendering needs internet access to load the Mermaid library.",
 		],
 		parameters: Type.Object({
@@ -121,7 +133,8 @@ export default function mermaidWidget(pi: ExtensionAPI) {
 			}
 			return new Text(
 				theme.fg("success", "\u2713 ") +
-					theme.fg("dim", result.details.pngPath),
+					theme.fg("dim", `${result.details.svgPath} (svg)`) +
+					theme.fg("dim", `  ${result.details.pngPath} (png)`),
 				0,
 				0,
 			);
@@ -129,7 +142,7 @@ export default function mermaidWidget(pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params) {
 			try {
-				const { pngPath, base64 } = await renderMermaid(
+				const { pngPath, svgPath, base64 } = await renderMermaid(
 					params.source,
 					params.path,
 				);
@@ -139,13 +152,16 @@ export default function mermaidWidget(pi: ExtensionAPI) {
 				// `mode` is read defensively: the field is present at
 				// runtime but absent from the older typecheck types.
 				const mode = (ctxRef as { mode?: string } | null)?.mode;
-				if (mode === "tui") openInViewer(pngPath);
+				if (mode === "tui") openInBrowser(svgPath);
 				return {
 					content: [
-						{ type: "text" as const, text: `Rendered diagram to ${pngPath}` },
+						{
+							type: "text" as const,
+							text: `Rendered diagram to ${svgPath} (svg) and ${pngPath} (png)`,
+						},
 						{ type: "image" as const, data: base64, mimeType: "image/png" },
 					],
-					details: { pngPath },
+					details: { pngPath, svgPath } satisfies MermaidDetails,
 				};
 			} catch (err: unknown) {
 				const msg =

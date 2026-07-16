@@ -2,7 +2,43 @@ import { describe, expect, it } from "vitest";
 import {
 	loadMermaidSource,
 	MermaidRenderError,
+	pngRenderScale,
 } from "../../../lib/web/mermaid.js";
+
+const MAX_LONG_EDGE = 2576;
+const MAX_PIXELS = 3_750_000;
+const MAX_UPSCALE = 4;
+
+describe("pngRenderScale", () => {
+	it("scales a tiny diagram up to the upscale ceiling, not past it", () => {
+		expect(pngRenderScale({ width: 100, height: 80 })).toBe(MAX_UPSCALE);
+	});
+
+	it("holds a wide diagram at the long-edge cap", () => {
+		const scale = pngRenderScale({ width: 5000, height: 1000 });
+		expect(Math.round(5000 * scale)).toBe(MAX_LONG_EDGE);
+		expect(5000 * scale).toBeLessThanOrEqual(MAX_LONG_EDGE);
+	});
+
+	it("holds a squarish diagram at the megapixel cap", () => {
+		const scale = pngRenderScale({ width: 3000, height: 3000 });
+		expect(3000 * scale * (3000 * scale)).toBeLessThanOrEqual(MAX_PIXELS + 1);
+		// The long edge is comfortably under its own cap: area binds first.
+		expect(3000 * scale).toBeLessThan(MAX_LONG_EDGE);
+	});
+
+	it("never crosses either cap for a medium diagram", () => {
+		const scale = pngRenderScale({ width: 1000, height: 800 });
+		expect(1000 * scale).toBeLessThanOrEqual(MAX_LONG_EDGE);
+		expect(1000 * scale * (800 * scale)).toBeLessThanOrEqual(MAX_PIXELS + 1);
+		expect(scale).toBeLessThanOrEqual(MAX_UPSCALE);
+	});
+
+	it("falls back to a scale of 1 for degenerate dimensions", () => {
+		expect(pngRenderScale({ width: 0, height: 0 })).toBe(1);
+		expect(pngRenderScale({ width: -10, height: 100 })).toBe(1);
+	});
+});
 
 describe("loadMermaidSource error mapping", () => {
 	it("maps a rejected fetch to a network MermaidRenderError", async () => {
