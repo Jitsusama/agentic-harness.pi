@@ -66,6 +66,21 @@ export function pngRenderScale({ width, height }: Dimensions): number {
 	return Math.min(capScale, PNG_MAX_UPSCALE);
 }
 
+/**
+ * Final integer PNG dimensions for a diagram of the given intrinsic
+ * size. The continuous scale is chosen so the unrounded box fits the
+ * budget; flooring to whole pixels can only shrink it, so the returned
+ * dimensions never cross the long-edge or total-area cap even after
+ * integerization (which independent rounding would not guarantee).
+ */
+export function pngPixelSize({ width, height }: Dimensions): Dimensions {
+	const scale = pngRenderScale({ width, height });
+	return {
+		width: Math.max(1, Math.floor(width * scale)),
+		height: Math.max(1, Math.floor(height * scale)),
+	};
+}
+
 /** The Mermaid library source, fetched once and reused per process. */
 let cachedMermaidSource: string | undefined;
 
@@ -109,9 +124,9 @@ export class MermaidRenderError extends Error {
 
 /** A rendered Mermaid diagram. */
 export interface MermaidRender {
-	/** Absolute path to the PNG file on disk. */
+	/** Path to the PNG file on disk (the caller's path, or a temp path). */
 	pngPath: string;
-	/** Absolute path to the SVG file on disk (crisp at any zoom). */
+	/** Path to the SVG file on disk, beside the PNG (crisp at any zoom). */
 	svgPath: string;
 	/** Base64 PNG, for returning to a vision model inline. */
 	base64: string;
@@ -135,6 +150,11 @@ function svgPathFor(pngPath: string): string {
 	return path.join(parsed.dir, `${parsed.name}.svg`);
 }
 
+/** True when a value is a finite number greater than zero. */
+function isPositiveFinite(n: number | undefined): n is number {
+	return typeof n === "number" && Number.isFinite(n) && n > 0;
+}
+
 /** What the render page reports back: the SVG string and its size, or an error. */
 interface RenderedSvg {
 	svg?: string;
@@ -147,16 +167,23 @@ interface RenderedSvg {
  * Render Mermaid source to an SVG and a PNG on disk and return their
  * paths plus a base64 copy of the PNG and its final dimensions. The SVG
  * is the vector artifact (crisp at any zoom); the PNG is rasterized from
- * it at a scale that fills the vision-model pixel budget without
- * crossing it. Reuses the shared headless browser. Throws
- * MermaidRenderError when the library cannot load or the source is
- * invalid.
+ * it, scaled toward the vision-model pixel budget (up to an upscale
+ * ceiling) without crossing it. The output path must name the PNG; the
+ * SVG is written beside it with the same base name. Reuses the shared
+ * headless browser. Throws MermaidRenderError when the library cannot
+ * load, the path is not a PNG, or the source is invalid.
  */
 export async function renderMermaid(
 	source: string,
 	outputPath?: string,
 ): Promise<MermaidRender> {
 	const pngPath = outputPath ?? defaultOutputPath();
+	if (!pngPath.toLowerCase().endsWith(".png")) {
+		throw new MermaidRenderError(
+			"render_mermaid output path must end in .png; the SVG is " +
+				"written beside it with the same base name.",
+		);
+	}
 	const svgPath = svgPathFor(pngPath);
 	const page = await newPage();
 	try {
@@ -185,13 +212,15 @@ export async function renderMermaid(
 				if (!container) return { error: "Render container missing." };
 				container.innerHTML = svg;
 				const el = container.querySelector("svg");
-				if (!el) return { error: "Mermaid produced no SVG output." };
+				if (!(el instanceof SVGSVGElement)) {
+					return { error: "Mermaid produced no SVG output." };
+				}
 				// Prefer the viewBox for the true intrinsic size; a Mermaid SVG
 				// carries width:100% and a max-width, so its bounding box can be
 				// clamped to the viewport rather than its natural size.
-				const vb = el.viewBox?.baseVal;
-				let width = vb?.width ?? 0;
-				let height = vb?.height ?? 0;
+				const vb = el.viewBox.baseVal;
+				let width = vb.width;
+				let height = vb.height;
 				if (!width || !height) {
 					const box = el.getBoundingClientRect();
 					width = box.width;
@@ -211,33 +240,32 @@ export async function renderMermaid(
 			);
 		}
 
-		// The SVG is the crisp, zoomable artifact; keep it verbatim.
-		fs.mkdirSync(path.dirname(svgPath), { recursive: true });
-		fs.writeFileSync(svgPath, rendered.svg, "utf8");
+		const intrinsicWidth = rendered.width;
+		const intrinsicHeight = rendered.height;
+		if (
+			!isPositiveFinite(intrinsicWidth) ||
+			!isPositiveFinite(intrinsicHeight)
+		) {
+			throw new MermaidRenderError(
+				"Mermaid produced a diagram with no measurable size.",
+			);
+		}
 
-		// Size the PNG to fill the vision-model budget, then pin the SVG to
-		// those pixels and remove its max-width so the capture is not clamped.
-		const intrinsic = {
-			width: rendered.width ?? 0,
-			height: rendered.height ?? 0,
-		};
-		const scale = pngRenderScale(intrinsic);
-		const width = Math.max(1, Math.round(intrinsic.width * scale));
-		const height = Math.max(1, Math.round(intrinsic.height * scale));
-
-		await page.setViewport({
-			width: Math.max(width, 1),
-			height: Math.max(height, 1),
-			deviceScaleFactor: 1,
+		// Size the PNG toward the vision-model budget, then pin the SVG to
+		// those pixels and drop its max-width so the capture is not clamped
+		// to the viewport.
+		const { width, height } = pngPixelSize({
+			width: intrinsicWidth,
+			height: intrinsicHeight,
 		});
+		await page.setViewport({ width, height, deviceScaleFactor: 1 });
 		await page.evaluate(
 			(w, h) => {
 				const el = document.querySelector("#container svg");
-				if (!el) return;
+				if (!(el instanceof SVGElement)) return;
 				el.setAttribute("width", String(w));
 				el.setAttribute("height", String(h));
-				// biome-ignore lint/suspicious/noExplicitAny: SVGElement has a style property at runtime.
-				(el as any).style.maxWidth = "none";
+				el.style.maxWidth = "none";
 			},
 			width,
 			height,
@@ -251,7 +279,12 @@ export async function renderMermaid(
 		const shot = await element.screenshot({ type: "png", encoding: "base64" });
 		const base64 =
 			typeof shot === "string" ? shot : Buffer.from(shot).toString("base64");
+
+		// Commit both artifacts only after a successful capture, so a mid-
+		// render failure never leaves a stray or half-written file on disk.
 		fs.mkdirSync(path.dirname(pngPath), { recursive: true });
+		fs.mkdirSync(path.dirname(svgPath), { recursive: true });
+		fs.writeFileSync(svgPath, rendered.svg, "utf8");
 		fs.writeFileSync(pngPath, Buffer.from(base64, "base64"));
 		return { pngPath, svgPath, base64, width, height };
 	} finally {
