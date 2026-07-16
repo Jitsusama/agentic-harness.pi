@@ -50,6 +50,12 @@ const SCROLL_STEP_WAIT = 100;
 const MAX_SCROLL_STEPS = 40;
 
 /**
+ * Milliseconds to wait after resizing and scrolling for the reflow and
+ * any scroll-triggered lazy loads to settle before capture.
+ */
+const SETTLE_WAIT = 500;
+
+/**
  * Scroll to the bottom in viewport-sized steps to trigger lazy-loaded
  * content, then return to the top so the capture starts from the top.
  */
@@ -109,6 +115,12 @@ export interface TiledCapture {
 export async function preparePage(page: Page): Promise<void> {
 	await page.setViewport({ width: CAPTURE_WIDTH, height: 1024 });
 	await scrollToBottom(page);
+	// Let the resize reflow and any scroll-triggered lazy loads settle so
+	// the text, DOM and screenshots that follow agree on one rendered state.
+	await page.evaluate(
+		(ms) => new Promise((r) => setTimeout(r, ms)),
+		SETTLE_WAIT,
+	);
 }
 
 /**

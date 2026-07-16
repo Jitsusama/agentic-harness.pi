@@ -21,9 +21,11 @@ import {
   text, the DOM and bounded screenshot tiles. Returns a
   `PageBundle` of file paths so the caller can let the model open
   only what it needs.
-- **`reapStaleBundles(maxAgeMs)`** — remove page-bundle
-  directories older than the given age. Call at session start to
-  reclaim captures left by prior sessions and crashes.
+- **`reapAbandonedBundles()`** — remove page-bundle
+  directories owned by sessions that are no longer running. Call
+  at session start to reclaim captures left by crashes.
+- **`cleanupSessionBundles()`** — remove this session's own
+  bundle directory. Call at session shutdown.
 - **`closeBrowser()`** — shut down the shared Chrome instance.
   Call at session end.
 

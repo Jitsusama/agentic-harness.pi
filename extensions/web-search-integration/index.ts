@@ -23,14 +23,12 @@ import {
 } from "../../lib/web/cookies/index.js";
 import {
 	AuthSetupNeeded,
+	cleanupSessionBundles,
 	readPage,
-	reapStaleBundles,
+	reapAbandonedBundles,
 } from "../../lib/web/reader.js";
 import { webSearch as doSearch } from "../../lib/web/search.js";
 import { formatManifest } from "./manifest.js";
-
-/** Age past which a stale page bundle is reaped at session start. */
-const BUNDLE_MAX_AGE_MS = 6 * 60 * 60 * 1_000;
 
 /** Details returned by web_read on success. */
 interface ReaderDetails {
@@ -297,19 +295,21 @@ export default function webSearch(pi: ExtensionAPI) {
 		},
 	});
 
-	// Reclaim page bundles left in the system temp dir by prior sessions
-	// and crashes, so authenticated captures don't linger.
+	// Reclaim page bundles left in the system temp dir by sessions that are
+	// no longer running, so authenticated captures don't linger.
 	pi.on("session_start", async () => {
 		try {
-			reapStaleBundles(BUNDLE_MAX_AGE_MS);
+			reapAbandonedBundles();
 		} catch {
 			// Reaping is best-effort housekeeping; never block session start.
 		}
 	});
 
-	// We clean up the browser when the session ends gracefully.
+	// We clean up the browser and this session's page bundles when the
+	// session ends gracefully.
 	pi.on("session_shutdown", async () => {
 		process.removeListener("exit", killBrowserSync);
+		cleanupSessionBundles();
 		await closeBrowser();
 	});
 

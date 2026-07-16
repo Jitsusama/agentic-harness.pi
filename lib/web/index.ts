@@ -20,9 +20,10 @@ export {
 } from "./mermaid.js";
 export {
 	AuthSetupNeeded,
+	cleanupSessionBundles,
 	type PageBundle,
 	readPage,
-	reapStaleBundles,
+	reapAbandonedBundles,
 } from "./reader.js";
 export { type SearchResult, webSearch } from "./search.js";
 export {

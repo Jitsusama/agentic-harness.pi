@@ -5,9 +5,11 @@
  * Every read settles the page once (capture-width viewport, dynamic-content
  * wait, lazy-content scroll) and then snapshots article markdown (via
  * defuddle), the rendered inner text, the DOM and a bounded stack of
- * screenshot tiles from that one state. The artifacts are written to a
- * private per-read directory; the caller turns the returned paths into a
- * pointer manifest so the model opens only what it needs.
+ * screenshot tiles from that one state. Artifacts are written to a private,
+ * per-session directory keyed by process id, so a crashed session's
+ * captures can be reaped without touching a live one. The caller turns the
+ * returned paths into a pointer manifest so the model opens only what it
+ * needs.
  */
 
 import * as fs from "node:fs";
@@ -15,9 +17,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Defuddle } from "defuddle/node";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { newPage } from "./browser.js";
+import type { Page } from "puppeteer-core";
+import { isPidAlive, newPage } from "./browser.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
-import { captureTiles, preparePage } from "./screenshot.js";
+import { captureTiles, preparePage, type TiledCapture } from "./screenshot.js";
 
 /**
  * Thrown when a page redirects to an auth provider and Chrome
@@ -70,7 +73,7 @@ export interface Article {
 /**
  * The raw representations captured from a settled page, before they are
  * written to disk. Keeps capture (browser I/O) separate from assembly
- * (pure file layout) so the assembly is testable without a browser.
+ * (pure file layout) so each is testable on its own.
  */
 export interface Captured {
 	/** The final URL after redirects. */
@@ -97,6 +100,13 @@ export interface BundleSink {
 	writeBinary(name: string, base64: string): string;
 }
 
+/** Collaborators of `capturePage`, injected so the orchestration is testable. */
+export interface CaptureDeps {
+	preparePage(page: Page): Promise<void>;
+	captureTiles(page: Page): Promise<TiledCapture>;
+	extractArticle(html: string, url: string): Promise<Article | null>;
+}
+
 /** Timeout for page navigation in milliseconds. */
 const PAGE_LOAD_TIMEOUT = 20_000;
 
@@ -112,14 +122,37 @@ const MIN_ARTICLE_WORDS = 30;
 /** Upper bound on the page-controlled title we carry inline. */
 const MAX_TITLE_LENGTH = 300;
 
-/** Root under the system temp dir for all page bundles. */
+/**
+ * Upper bound on any single text artifact written to disk. Generous enough
+ * that real pages are never touched, but it caps a pathological page so it
+ * cannot fill the disk. When it bites, the file says so in-band rather than
+ * ending silently.
+ */
+const MAX_ARTIFACT_CHARS = 5_000_000;
+
+/** Root under the system temp dir for this platform's page bundles. */
 const BUNDLE_ROOT = path.join(os.tmpdir(), "pi-web-read");
+
+/** Where earlier versions wrote bundles, swept by age so they don't linger. */
+const LEGACY_BUNDLE_ROOT = "/tmp/pi-web-read";
+
+/** Age past which a legacy bundle directory is reaped. */
+const LEGACY_MAX_AGE_MS = 6 * 60 * 60 * 1_000;
 
 /** Owner-only directory permissions for a bundle. */
 const DIR_MODE = 0o700;
 
 /** Owner-only file permissions for a bundle artifact. */
 const FILE_MODE = 0o600;
+
+/** URL fragments that mark a redirect to an auth provider. */
+const AUTH_URL_MARKERS = [
+	"accounts.google.com",
+	"/oauth",
+	"/login",
+	"/signin",
+	"/auth",
+];
 
 /**
  * Lines matching these patterns are stripped from the rendered inner
@@ -141,30 +174,53 @@ const BOILERPLATE_PATTERNS = [
 	/^click here/i,
 ];
 
+/** True when a final URL indicates a redirect to an auth provider. */
+export function isAuthRedirect(url: string): boolean {
+	return AUTH_URL_MARKERS.some((marker) => url.includes(marker));
+}
+
+/** Collapse a page-controlled string to a single trimmed line. */
+function oneLine(text: string): string {
+	return text.replace(/\s+/g, " ").trim();
+}
+
 /**
- * Assemble a bundle from captured representations by writing each one in
- * full through the sink. The DOM is always written; the article and inner
- * text are written only when present; every screenshot tile gets an
- * ordered, zero-padded name. The page-controlled title is bounded.
+ * Cap a text artifact at the size bound, appending a visible marker when it
+ * bites so a reader never mistakes a cut-off file for a complete one.
+ */
+function capArtifact(content: string): string {
+	if (content.length <= MAX_ARTIFACT_CHARS) return content;
+	return `${content.slice(0, MAX_ARTIFACT_CHARS)}\n\n[truncated at ${MAX_ARTIFACT_CHARS} characters]`;
+}
+
+/**
+ * Assemble a bundle from captured representations by writing each one
+ * through the sink. The DOM is always written; the article and inner text
+ * are written only when present; every screenshot tile gets an ordered,
+ * zero-padded name. Text is capped with a visible marker, and the
+ * page-controlled title and excerpt are flattened to a single line so they
+ * cannot impersonate the manifest's own structure.
  */
 export function assembleBundle(
 	captured: Captured,
 	sink: BundleSink,
 ): PageBundle {
-	const title = captured.title.slice(0, MAX_TITLE_LENGTH);
+	const title = oneLine(captured.title).slice(0, MAX_TITLE_LENGTH);
 	const body = captured.article?.markdown || captured.innerText;
-	const excerpt = body.slice(0, EXCERPT_LENGTH);
+	const excerpt = oneLine(body).slice(0, EXCERPT_LENGTH);
 
 	const articlePath = captured.article
 		? sink.writeText(
 				"article.md",
-				`# ${title}\n\nSource: ${captured.url}\n\n${captured.article.markdown}`,
+				capArtifact(
+					`# ${title}\n\nSource: ${captured.url}\n\n${captured.article.markdown}`,
+				),
 			)
 		: undefined;
 	const innerTextPath = captured.innerText
-		? sink.writeText("innertext.txt", captured.innerText)
+		? sink.writeText("innertext.txt", capArtifact(captured.innerText))
 		: undefined;
-	const domPath = sink.writeText("dom.html", captured.html);
+	const domPath = sink.writeText("dom.html", capArtifact(captured.html));
 	const screenshotPaths = captured.tiles.map((data, i) =>
 		sink.writeBinary(`shot-${String(i + 1).padStart(2, "0")}.png`, data),
 	);
@@ -242,8 +298,13 @@ async function extractArticle(
 	}
 }
 
+/** This session's private bundle directory, keyed by process id. */
+function sessionDir(): string {
+	return path.join(BUNDLE_ROOT, String(process.pid));
+}
+
 /** A filesystem sink that creates a private bundle dir and writes 0600 files. */
-export function diskSink(root: string = BUNDLE_ROOT): BundleSink {
+export function diskSink(root: string = sessionDir()): BundleSink {
 	fs.mkdirSync(root, { recursive: true, mode: DIR_MODE });
 	// The "r-" prefix keeps the temp dir inside root, where the reaper
 	// looks, rather than creating a sibling of it.
@@ -269,32 +330,78 @@ export function diskSink(root: string = BUNDLE_ROOT): BundleSink {
 	};
 }
 
-/**
- * Remove bundle directories older than the given age. Run at session start
- * to reclaim authenticated captures left by prior sessions and crashes,
- * without tracking directories across sessions.
- */
-export function reapStaleBundles(
-	maxAgeMs: number,
-	now = Date.now(),
-	root: string = BUNDLE_ROOT,
+/** Remove immediate subdirectories of `root` for which `stale` returns true. */
+function reapDir(
+	root: string,
+	stale: (dir: string, name: string) => boolean,
 ): void {
 	let entries: fs.Dirent[];
 	try {
 		entries = fs.readdirSync(root, { withFileTypes: true });
 	} catch {
-		// No bundle root yet, nothing to reap.
+		// The root does not exist, so there is nothing to reap.
 		return;
 	}
 	for (const entry of entries) {
 		if (!entry.isDirectory()) continue;
 		const dir = path.join(root, entry.name);
 		try {
-			const age = now - fs.statSync(dir).mtimeMs;
-			if (age > maxAgeMs) fs.rmSync(dir, { recursive: true, force: true });
+			if (stale(dir, entry.name))
+				fs.rmSync(dir, { recursive: true, force: true });
 		} catch {
 			// The directory vanished under us or is unreadable; skip it.
 		}
+	}
+}
+
+/**
+ * Reap bundle directories that no live session owns. The current root is
+ * keyed by process id, so a directory is abandoned exactly when its pid is
+ * no longer alive; the legacy root predates pid keying and is swept by age.
+ * The collaborators are parameters so the destructive sweep is testable
+ * against a throwaway root.
+ */
+export function reapBundles(opts: {
+	root: string;
+	legacyRoot: string;
+	isPidAlive: (pid: number) => boolean;
+	now: number;
+	legacyMaxAgeMs: number;
+}): void {
+	reapDir(opts.root, (_dir, name) => {
+		const pid = Number(name);
+		return Number.isInteger(pid) && !opts.isPidAlive(pid);
+	});
+	reapDir(opts.legacyRoot, (dir) => {
+		try {
+			return opts.now - fs.statSync(dir).mtimeMs > opts.legacyMaxAgeMs;
+		} catch {
+			return false;
+		}
+	});
+}
+
+/**
+ * Reap bundle directories left behind by sessions that are no longer
+ * running. Safe to call at session start; it never touches a live
+ * session's directory.
+ */
+export function reapAbandonedBundles(): void {
+	reapBundles({
+		root: BUNDLE_ROOT,
+		legacyRoot: LEGACY_BUNDLE_ROOT,
+		isPidAlive,
+		now: Date.now(),
+		legacyMaxAgeMs: LEGACY_MAX_AGE_MS,
+	});
+}
+
+/** Remove this session's bundle directory. Call at session shutdown. */
+export function cleanupSessionBundles(): void {
+	try {
+		fs.rmSync(sessionDir(), { recursive: true, force: true });
+	} catch {
+		// Best-effort cleanup; the reaper reclaims it later if this fails.
 	}
 }
 
@@ -303,10 +410,78 @@ function throwIfAborted(signal?: AbortSignal): void {
 	if (signal?.aborted) throw new Error("Aborted");
 }
 
+const defaultCaptureDeps: CaptureDeps = {
+	preparePage,
+	captureTiles,
+	extractArticle,
+};
+
+/**
+ * Navigate a prepared page and capture every representation from one
+ * settled state: DOM, inner text, article and screenshot tiles. Relative
+ * links resolve against the final redirected URL, and a missing document
+ * body falls back to the document text so non-HTML pages still yield a
+ * capture. Cancellation is honoured between the expensive steps.
+ */
+export async function capturePage(
+	page: Page,
+	url: string,
+	signal?: AbortSignal,
+	deps: CaptureDeps = defaultCaptureDeps,
+): Promise<Captured> {
+	await page.goto(url, {
+		waitUntil: "domcontentloaded",
+		timeout: PAGE_LOAD_TIMEOUT,
+	});
+	throwIfAborted(signal);
+
+	await page.evaluate(
+		(ms) => new Promise((r) => setTimeout(r, ms)),
+		DYNAMIC_CONTENT_WAIT,
+	);
+
+	const finalUrl = page.url();
+	if (isAuthRedirect(finalUrl) && !isSetUp()) {
+		throw new AuthSetupNeeded();
+	}
+
+	throwIfAborted(signal);
+
+	// Settle the page once so text, DOM and screenshots agree on one state.
+	await deps.preparePage(page);
+
+	const html = await page.content();
+	const rendered = cleanText(
+		await page.evaluate(
+			() =>
+				document.body?.innerText ?? document.documentElement?.textContent ?? "",
+		),
+	);
+	const article = await deps.extractArticle(html, finalUrl);
+	const title = article?.title || (await page.title());
+
+	throwIfAborted(signal);
+
+	// Screenshots are always captured so a text-only bundle still carries a
+	// visual representation the model can fall back to.
+	const { tiles, truncated } = await deps.captureTiles(page);
+
+	throwIfAborted(signal);
+
+	return {
+		url: finalUrl,
+		title,
+		html,
+		innerText: rendered,
+		article,
+		tiles,
+		truncated,
+	};
+}
+
 /**
  * Fetch a URL and capture it as a bundle of representations on disk:
- * article markdown, rendered inner text, DOM and screenshot tiles. All
- * representations are taken from one settled page state.
+ * article markdown, rendered inner text, DOM and screenshot tiles.
  */
 export async function readPage(
 	url: string,
@@ -315,70 +490,16 @@ export async function readPage(
 	const page = await newPage();
 	try {
 		throwIfAborted(signal);
-
 		await injectCookies(page, url);
-		await page.goto(url, {
-			waitUntil: "domcontentloaded",
-			timeout: PAGE_LOAD_TIMEOUT,
-		});
-
-		throwIfAborted(signal);
-
-		await page.evaluate(
-			(ms) => new Promise((r) => setTimeout(r, ms)),
-			DYNAMIC_CONTENT_WAIT,
-		);
-
-		const finalUrl = page.url();
-		const authRedirect =
-			finalUrl.includes("accounts.google.com") ||
-			finalUrl.includes("/oauth") ||
-			finalUrl.includes("/login") ||
-			finalUrl.includes("/signin") ||
-			finalUrl.includes("/auth");
-
-		if (authRedirect && !isSetUp()) {
-			throw new AuthSetupNeeded();
+		const captured = await capturePage(page, url, signal);
+		const sink = diskSink();
+		try {
+			return assembleBundle(captured, sink);
+		} catch (err) {
+			// Don't leave a half-written bundle behind on a failed assembly.
+			fs.rmSync(sink.dir, { recursive: true, force: true });
+			throw err;
 		}
-
-		throwIfAborted(signal);
-
-		// Settle the page once (capture-width viewport, lazy-content scroll)
-		// so text, DOM and screenshots all reflect the same rendered state.
-		await preparePage(page);
-
-		const html = await page.content();
-		const rendered = cleanText(
-			await page.evaluate(
-				() =>
-					document.body?.innerText ??
-					document.documentElement?.textContent ??
-					"",
-			),
-		);
-		const article = await extractArticle(html, finalUrl);
-		const title = article?.title || (await page.title());
-
-		throwIfAborted(signal);
-
-		// Screenshots are always captured so a text-only bundle still carries
-		// a visual representation the model can fall back to.
-		const { tiles, truncated } = await captureTiles(page);
-
-		throwIfAborted(signal);
-
-		return assembleBundle(
-			{
-				url: finalUrl,
-				title,
-				html,
-				innerText: rendered,
-				article,
-				tiles,
-				truncated,
-			},
-			diskSink(),
-		);
 	} finally {
 		await page.close();
 	}
