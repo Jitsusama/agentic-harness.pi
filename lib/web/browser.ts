@@ -370,7 +370,7 @@ function readOwnerRecord(profileDir: string): OwnerRecord | undefined {
 }
 
 /** True when a pid names a live process (EPERM still means it exists). */
-function isPidAlive(pid: number): boolean {
+export function isPidAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
 		return true;

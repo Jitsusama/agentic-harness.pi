@@ -23,10 +23,12 @@ import {
 } from "../../lib/web/cookies/index.js";
 import {
 	AuthSetupNeeded,
-	formatManifest,
+	cleanupSessionBundles,
 	readPage,
+	reapAbandonedBundles,
 } from "../../lib/web/reader.js";
 import { webSearch as doSearch } from "../../lib/web/search.js";
+import { formatManifest } from "./manifest.js";
 
 /** Details returned by web_read on success. */
 interface ReaderDetails {
@@ -225,7 +227,7 @@ export default function webSearch(pi: ExtensionAPI) {
 						url: bundle.url,
 						excerpt: bundle.excerpt,
 						dir: bundle.dir,
-						tiles: bundle.screenshots.length,
+						tiles: bundle.screenshotPaths.length,
 						truncated: bundle.truncated,
 					},
 				};
@@ -293,9 +295,21 @@ export default function webSearch(pi: ExtensionAPI) {
 		},
 	});
 
-	// We clean up the browser when the session ends gracefully.
+	// Reclaim page bundles left in the system temp dir by sessions that are
+	// no longer running, so authenticated captures don't linger.
+	pi.on("session_start", async () => {
+		try {
+			reapAbandonedBundles();
+		} catch {
+			// Reaping is best-effort housekeeping; never block session start.
+		}
+	});
+
+	// We clean up the browser and this session's page bundles when the
+	// session ends gracefully.
 	pi.on("session_shutdown", async () => {
 		process.removeListener("exit", killBrowserSync);
+		cleanupSessionBundles();
 		await closeBrowser();
 	});
 
