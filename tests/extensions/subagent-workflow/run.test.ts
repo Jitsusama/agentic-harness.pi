@@ -301,6 +301,37 @@ describe("dispatchFleet", () => {
 		expect(events.some((e) => e.startsWith("failed:bad-exit:"))).toBe(true);
 	});
 
+	it("reports a terminal provider error as failed even when pi exits zero", async () => {
+		// A dropped model stream ends the final turn on an error
+		// while the child still exits 0. The orchestrator must
+		// treat the structured terminal error as a failure, not
+		// report the partial output as a clean completion.
+		const cancellations = new FleetCancellationRegistry();
+		const { progress, events } = recordingProgress();
+		const runPi: RunPi = async () => ({
+			exitCode: 0,
+			lines: [],
+			finalAssistantText: "partial",
+			stderr: "",
+			warnings: [],
+			error: {
+				stopReason: "error",
+				message:
+					"OpenAI Responses stream ended before a terminal response event",
+			},
+		});
+		const result = await dispatchFleet({
+			runId: "r-terminal",
+			assignments: [assignment("dropped").assignment],
+			runPi,
+			cancellations,
+			progress,
+		});
+		expect(result.results[0].state).toBe("failed");
+		expect(result.results[0].error).toMatch(/stream ended/);
+		expect(events.some((e) => e.startsWith("failed:dropped:"))).toBe(true);
+	});
+
 	it("inlines a stderr tail into the failure reason and preserves the full text", async () => {
 		// The previous test confirmed exit-code propagation;
 		// this one pins the new contract: an LLM caller acting
