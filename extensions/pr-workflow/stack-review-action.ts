@@ -231,6 +231,7 @@ export async function runStackReviewAction(
 							? { thinkingLevel: reviewer.thinkingLevel }
 							: {}),
 						...(reviewer.tools ? { tools: reviewer.tools } : {}),
+						...(request.sha ? { revision: request.sha } : {}),
 						prompt: reviewPrompt,
 					});
 					const { value, fromCache } = await dispatchWithCache(

@@ -239,6 +239,7 @@ export async function runOneCouncilReviewer(
 				? { thinkingLevel: options.reviewer.thinkingLevel }
 				: {}),
 			...(options.reviewer.tools ? { tools: options.reviewer.tools } : {}),
+			...(options.target.sha ? { revision: options.target.sha } : {}),
 			prompt,
 		});
 		const dispatched = await dispatchWithCache(
@@ -387,6 +388,7 @@ export async function runCouncil(
 							? { thinkingLevel: reviewer.thinkingLevel }
 							: {}),
 						...(reviewer.tools ? { tools: reviewer.tools } : {}),
+						...(options.target.sha ? { revision: options.target.sha } : {}),
 						prompt,
 					});
 					const dispatched = await dispatchWithCache(
