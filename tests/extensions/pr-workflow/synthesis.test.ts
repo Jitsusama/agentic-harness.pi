@@ -445,6 +445,69 @@ describe("decideFinding", () => {
 		}
 	});
 
+	it("accepts an edit that only overrides the decorations", async () => {
+		// Flipping a judge's blocking finding to
+		// non-blocking shouldn't force a dismiss and a
+		// full re-author. Decorations alone satisfy the
+		// "at least one override" check.
+		const state = createPrWorkflowState();
+		const blocking: Finding = {
+			...judgedFinding(10, "Race in the retry loop"),
+			decorations: ["blocking"],
+		};
+		state.council.lastJudge = makeJudge([blocking]);
+		const result = decideFinding(state, {
+			findingId: 10,
+			verdict: "edit",
+			decorations: ["non-blocking"],
+		});
+		expect(result.ok).toBe(true);
+		const decision = state.council.decisions.get(10);
+		if (decision?.verdict === "edit") {
+			expect(decision.decorations).toEqual(["non-blocking"]);
+		}
+		expect(effectiveFinding(blocking, decision ?? null).decorations).toEqual([
+			"non-blocking",
+		]);
+	});
+
+	it("clears the decorations when the edit passes an empty list", async () => {
+		const state = createPrWorkflowState();
+		const blocking: Finding = {
+			...judgedFinding(10, "Race in the retry loop"),
+			decorations: ["blocking"],
+		};
+		state.council.lastJudge = makeJudge([blocking]);
+		const result = decideFinding(state, {
+			findingId: 10,
+			verdict: "edit",
+			decorations: [],
+		});
+		expect(result.ok).toBe(true);
+		expect(
+			effectiveFinding(blocking, state.council.decisions.get(10) ?? null)
+				.decorations,
+		).toEqual([]);
+	});
+
+	it("leaves the decorations intact when the edit does not touch them", async () => {
+		const state = createPrWorkflowState();
+		const blocking: Finding = {
+			...judgedFinding(10, "Race in the retry loop"),
+			decorations: ["blocking"],
+		};
+		state.council.lastJudge = makeJudge([blocking]);
+		decideFinding(state, {
+			findingId: 10,
+			verdict: "edit",
+			label: "nitpick",
+		});
+		expect(
+			effectiveFinding(blocking, state.council.decisions.get(10) ?? null)
+				.decorations,
+		).toEqual(["blocking"]);
+	});
+
 	it("records subject, discussion and label together when all three are edited", async () => {
 		const state = withJudge();
 		const result = decideFinding(state, {

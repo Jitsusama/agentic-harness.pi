@@ -814,7 +814,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			decorations: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"Conventional Comments decorations for action=add-finding, e.g. blocking or non-blocking.",
+						"Conventional Comments decorations, e.g. blocking or non-blocking. Used by action=add-finding, and by action=decide verdict=edit to override a finding's decorations in place (pass an empty list to clear them, for example to flip a blocking finding to non-blocking).",
 				}),
 			),
 			severity: Type.Optional(
@@ -894,13 +894,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			subject: Type.Optional(
 				Type.String({
 					description:
-						"Used by action=add-finding, and by verdict=edit to override the finding's subject before promotion. With verdict=edit, may be combined with `discussion`, `label` and/or location overrides (`file`, `start`, `end`, `side`); at least one must be provided.",
+						"Used by action=add-finding, and by verdict=edit to override the finding's subject before promotion. With verdict=edit, may be combined with `discussion`, `label`, `decorations` and/or location overrides (`file`, `start`, `end`, `side`); at least one must be provided.",
 				}),
 			),
 			discussion: Type.Optional(
 				Type.String({
 					description:
-						"Used by action=add-finding, and by verdict=edit to override the finding's discussion before promotion. With verdict=edit, may be combined with `subject`, `label` and/or location overrides; at least one must be provided.",
+						"Used by action=add-finding, and by verdict=edit to override the finding's discussion before promotion. With verdict=edit, may be combined with `subject`, `label`, `decorations` and/or location overrides; at least one must be provided.",
 				}),
 			),
 			reason: Type.Optional(
@@ -1590,6 +1590,7 @@ ${reviewValidationDirective()}`,
 						instructions: params.instructions,
 						scope: params.scope,
 						label: params.label,
+						decorations: params.decorations,
 						file: params.file,
 						start: params.start,
 						end: params.end,
@@ -3058,6 +3059,7 @@ interface BuildDecideInputArgs {
 	instructions: string | undefined;
 	scope: "pr" | "stack" | undefined;
 	label: ConventionalLabel | undefined;
+	decorations: readonly string[] | undefined;
 	file: string | undefined;
 	start: number | undefined;
 	end: number | undefined;
@@ -3078,6 +3080,9 @@ function buildDecideInput(args: BuildDecideInputArgs): DecideFindingInput {
 				subject: args.subject,
 				discussion: args.discussion,
 				label: args.label,
+				...(args.decorations !== undefined
+					? { decorations: args.decorations }
+					: {}),
 				file: args.file,
 				start: args.start,
 				end: args.end,
