@@ -21,6 +21,7 @@ import type { ReviewContextProviderBroker } from "./review-context.js";
 import { reviewerFailureBanner } from "./reviewer-outcome.js";
 import { composeRunAddendum } from "./run-intent.js";
 import type { PrWorkflowState } from "./state.js";
+import { stackReviewOverwriteNote } from "./synthesis.js";
 import {
 	loadReviewThreadPromptContext,
 	type ReviewThreadsFetcher,
@@ -96,7 +97,7 @@ export interface RunJudgeActionInput {
 
 /** Result of running the judge. */
 export type JudgeActionResult =
-	| { ok: true; run: JudgeRun }
+	| { ok: true; run: JudgeRun; warnings?: readonly string[] }
 	| { ok: false; error: string };
 
 /**
@@ -177,8 +178,15 @@ export async function runJudgeAction(
 		throw error;
 	}
 	rememberParticipantIdentity(state, "judge", state.council.judge);
+	// Capture the note before the commit overwrites the run
+	// whose provenance it reads.
+	const overwriteNote = stackReviewOverwriteNote(state, pinnedPrNumber);
 	commitJudgeRun(state, pinnedPrNumber, run);
-	return { ok: true, run };
+	return {
+		ok: true,
+		run,
+		...(overwriteNote ? { warnings: [overwriteNote] } : {}),
+	};
 }
 
 /**

@@ -64,6 +64,13 @@ export interface JudgeRun {
 	readonly consolidatedFindings: Finding[];
 	readonly warnings: string[];
 	/**
+	 * Set to "stack-review" when this per-PR run was produced
+	 * by a stack review rather than a dedicated per-PR judge.
+	 * Lets the findings view label the run's origin and lets a
+	 * later per-PR council or judge warn before replacing it.
+	 */
+	readonly provenance?: "stack-review";
+	/**
 	 * Token + cost totals for the judge subagent. May be
 	 * undefined when the dispatcher didn't surface usage.
 	 */

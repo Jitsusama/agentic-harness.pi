@@ -15,6 +15,7 @@ import {
 	decideFindings,
 	effectiveFinding,
 	formatFindingsView,
+	stackReviewOverwriteNote,
 } from "../../../extensions/pr-workflow/synthesis.js";
 import { expectFailure } from "./fixtures.js";
 
@@ -91,6 +92,55 @@ function judgedFinding(id: number, subject: string): Finding {
 		agreement: { raisedBy: ["fast", "skeptic"], sourceFindingIds: [] },
 	};
 }
+
+describe("stack-review provenance", () => {
+	function stackReviewJudge(findings: Finding[]): JudgeRun {
+		return { ...makeJudge(findings), provenance: "stack-review" };
+	}
+
+	it("labels findings that came from a stack review in the view", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = stackReviewJudge([judgedFinding(10, "Race")]);
+		expect(formatFindingsView(state).toLowerCase()).toContain("stack review");
+	});
+
+	it("does not add the label for an ordinary per-PR judge run", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([judgedFinding(10, "Race")]);
+		expect(formatFindingsView(state).toLowerCase()).not.toContain(
+			"came from a stack review",
+		);
+	});
+
+	it("returns an overwrite note when the cursor's findings came from a stack review", () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "x",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+		state.council.lastJudge = stackReviewJudge([judgedFinding(10, "Race")]);
+		const note = stackReviewOverwriteNote(state, 42);
+		expect(note).not.toBeNull();
+		expect(note).toContain("42");
+		expect(note?.toLowerCase()).toContain("review");
+	});
+
+	it("returns null when the current findings are an ordinary judge run", () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "x",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+		state.council.lastJudge = makeJudge([judgedFinding(10, "Race")]);
+		expect(stackReviewOverwriteNote(state, 42)).toBeNull();
+	});
+});
 
 describe("formatFindingsView", () => {
 	it("lists every consolidated finding with its id, subject, label and raisedBy", async () => {

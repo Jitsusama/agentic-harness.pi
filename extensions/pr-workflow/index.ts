@@ -1105,10 +1105,21 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							`Council ran with ${result.run.reviewerOutputs.length} reviewers; gathered ${findingsCount} findings.`,
 						);
 					}
-					return {
-						content: [{ type: "text", text: formatCouncilSummary(result.run) }],
-						details: { ok: true, run: result.run },
-					};
+					{
+						const warningSuffix =
+							result.warnings && result.warnings.length > 0
+								? `\n\n${result.warnings.join("\n")}`
+								: "";
+						return {
+							content: [
+								{
+									type: "text",
+									text: `${formatCouncilSummary(result.run)}${warningSuffix}`,
+								},
+							],
+							details: { ok: true, run: result.run },
+						};
+					}
 				}
 
 				if (params.action === "council-retry") {
@@ -1280,17 +1291,25 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							: `Judge consolidated to ${result.run.consolidatedFindings.length} findings.`;
 						logQuestJourneyForPr(state.pr.reference, journey);
 					}
-					return {
-						content: [
-							{
-								type: "text",
-								text: `${formatJudgeSummary(result.run)}
+					{
+						const warningPrefix =
+							result.warnings && result.warnings.length > 0
+								? `${result.warnings.join("\n")}
+
+`
+								: "";
+						return {
+							content: [
+								{
+									type: "text",
+									text: `${warningPrefix}${formatJudgeSummary(result.run)}
 
 ${reviewValidationDirective()}`,
-							},
-						],
-						details: { ok: true, run: result.run },
-					};
+								},
+							],
+							details: { ok: true, run: result.run },
+						};
+					}
 				}
 
 				if (params.action === "review") {

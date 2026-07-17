@@ -570,6 +570,24 @@ function buildDecision(
  * current decision (or "pending"). The output is what
  * the agent surfaces during round-4 conversation.
  */
+/**
+ * When the cursor PR's live findings came from a stack
+ * review, return a note a later per-PR council or judge can
+ * surface before it replaces them; otherwise null. The stack
+ * review can regenerate them with action=review.
+ */
+export function stackReviewOverwriteNote(
+	state: PrWorkflowState,
+	prNumber: number,
+): string | null {
+	if (state.pr?.reference.number !== prNumber) return null;
+	if (state.council.lastJudge?.provenance !== "stack-review") return null;
+	return (
+		`This replaced the stack review's per-PR findings for #${prNumber}. ` +
+		"Re-run action=review to regenerate them."
+	);
+}
+
 export function formatFindingsView(state: PrWorkflowState): string {
 	const judge = state.council.lastJudge;
 	if (judge === null) {
@@ -582,6 +600,16 @@ export function formatFindingsView(state: PrWorkflowState): string {
 		return "Judge consolidated 0 findings; nothing to decide on.";
 	}
 	const lines: string[] = [];
+	if (judge.provenance === "stack-review") {
+		lines.push(
+			"These per-PR findings came from a stack review. Running a per-PR",
+		);
+		lines.push(
+			"council or judge on this PR replaces them; re-run action=review to",
+		);
+		lines.push("regenerate them.");
+		lines.push("");
+	}
 	for (const finding of judge.consolidatedFindings) {
 		const decision = state.council.decisions.get(finding.id) ?? null;
 		const display = effectiveFinding(finding, decision);

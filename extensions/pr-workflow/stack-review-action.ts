@@ -796,6 +796,7 @@ function writePerPrJudgeRuns(input: {
 			selfSignal: input.selfSignal,
 			consolidatedFindings: findings,
 			warnings: [...input.warnings],
+			provenance: "stack-review",
 		};
 		if (pr.reference.number === input.cursorPrNumber) {
 			input.state.council.lastRun = null;
