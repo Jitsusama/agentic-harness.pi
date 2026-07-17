@@ -621,7 +621,7 @@ export function formatFindingsView(state: PrWorkflowState): string {
 		const decision = state.council.decisions.get(finding.id) ?? null;
 		const display = effectiveFinding(finding, decision);
 		lines.push(
-			`[${finding.id}] [${display.label}] ${display.subject} ${renderLocation(finding.location)}`,
+			`[${finding.id}] [${display.label}${renderDecorationsSuffix(display.decorations)}] ${display.subject} ${renderLocation(finding.location)}`,
 		);
 		const raisedBy = finding.agreement?.raisedBy ?? [];
 		if (raisedBy.length > 0) {
@@ -776,6 +776,16 @@ export function effectiveFinding<T extends Finding>(
 		decorations: decision.decorations ?? finding.decorations,
 		location: decision.location ?? finding.location,
 	};
+}
+
+/**
+ * Render a finding's effective decorations as a parenthetical
+ * suffix after the label, so an edit that changes them shows
+ * the new value in the view (not just the pre-edit original).
+ * Empty decorations render nothing.
+ */
+function renderDecorationsSuffix(decorations: readonly string[]): string {
+	return decorations.length > 0 ? ` (${decorations.join(", ")})` : "";
 }
 
 function renderDecision(decision: FindingDecision | null): string {
