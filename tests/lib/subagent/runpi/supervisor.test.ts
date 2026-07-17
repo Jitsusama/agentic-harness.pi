@@ -106,6 +106,40 @@ describe("createSupervisorRunPi", () => {
 		expect(result.usage?.tokens.total).toBe(3);
 		expect(result.artifacts?.resultPath).toContain("result.json");
 	});
+	it("sets the child's PI_PACKAGE_DIR to the pinned package dir", async () => {
+		// End-to-end proof of the mid-session-upgrade fix: the
+		// child echoes its own PI_PACKAGE_DIR, and it must equal
+		// the immutable store path the parent pinned, not whatever
+		// stale value the parent's environment carried.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:String(process.env.PI_PACKAGE_DIR)}]}})+"\\n");`,
+		);
+		const pinned = "/nix/store/pinned-pi-0.80.7/lib/node_modules/pi-monorepo";
+		const runPi = createSupervisorRunPi({
+			piInstall: {
+				node: process.execPath,
+				entry: childPath,
+				packageDir: pinned,
+			},
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "fast",
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(result.finalAssistantText).toBe(pinned);
+	});
+
 	it("persists the reviewer session and reports the minted session path", async () => {
 		// The supervisor swaps --no-session for --session-dir
 		// pointing at a private per-reviewer directory, then

@@ -16,12 +16,32 @@
 
 import { realpathSync } from "node:fs";
 
-/** A pinned pi install: the node binary and its entry script. */
+/** A pinned pi install: the node binary, entry script and asset dir. */
 export interface PiInstall {
 	/** Absolute, dereferenced path to the node binary. */
 	readonly node: string;
 	/** Absolute, dereferenced path to the pi entry script. */
 	readonly entry: string;
+	/**
+	 * Absolute, dereferenced value of the parent's
+	 * `PI_PACKAGE_DIR`, when it is set. Pi resolves every
+	 * bundled asset (the theme it loads at startup, its
+	 * package.json, README) through `getPackageDir()`, which
+	 * honours `PI_PACKAGE_DIR` before it self-locates from the
+	 * entry script. Launchers that manage versioned installs
+	 * (the Shopify nix wrapper, for one) point this at a
+	 * `~/.pi/pkg/pi-<version>` symlink and delete the old
+	 * symlink on upgrade. A child that inherits the raw value
+	 * then reads its theme from a path the upgrade removed and
+	 * crashes at startup. Dereferencing the symlink to its
+	 * immutable store target at capture time pins the child's
+	 * assets to the parent's exact install, which the running
+	 * parent holds present for the whole session. `undefined`
+	 * when the parent has no `PI_PACKAGE_DIR` (plain npm/brew
+	 * installs self-locate from the entry script and need no
+	 * override).
+	 */
+	readonly packageDir?: string;
 }
 
 /** Dependencies for {@link resolveParentPiInstall}. */
@@ -32,6 +52,12 @@ export interface ResolvePiInstallDeps {
 	readonly argv: readonly string[];
 	/** Symlink dereferencing, normally `fs.realpathSync`. */
 	readonly realpath: (p: string) => string;
+	/**
+	 * The parent's `PI_PACKAGE_DIR`, normally
+	 * `process.env.PI_PACKAGE_DIR`. Undefined or empty when
+	 * the parent self-locates from its entry script.
+	 */
+	readonly piPackageDir?: string;
 }
 
 /**
@@ -51,10 +77,15 @@ export function resolveParentPiInstall(
 	const execPath = deps.execPath ?? process.execPath;
 	const argv = deps.argv ?? process.argv;
 	const realpath = deps.realpath ?? realpathSync;
+	const piPackageDir =
+		"piPackageDir" in deps ? deps.piPackageDir : process.env.PI_PACKAGE_DIR;
 	const entryPath = argv[1] ?? "";
 	return {
 		node: dereference(execPath, realpath),
 		entry: dereference(entryPath, realpath),
+		...(piPackageDir
+			? { packageDir: dereference(piPackageDir, realpath) }
+			: {}),
 	};
 }
 

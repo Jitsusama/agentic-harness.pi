@@ -53,26 +53,27 @@ export interface SubagentHealthDeps {
 }
 
 /**
- * Build a health check bound to a captured runtime path.
+ * Build a health check bound to captured runtime paths.
  *
- * The check runs the existence probe at most once per
- * factory and memoises the answer. Pi cannot restore a
- * deleted nix store entry (or brew cellar entry) without
- * restarting itself, so re-stat'ing on every dispatch
- * would burn syscalls for no signal.
+ * The check caches only a *failure*: once an install path
+ * is found missing, the answer is fixed, because pi cannot
+ * restore a deleted nix store entry (or brew cellar entry)
+ * without restarting itself. While the paths are all
+ * present it re-probes on every dispatch, so a deletion
+ * that lands mid-session (the exact scenario this module
+ * exists for) is caught on the next dispatch rather than
+ * masked by a stale "healthy" memo. The probe is a handful
+ * of `existsSync` calls, cheap enough to run per dispatch.
  */
 export function createSubagentHealthCheck(
 	deps: SubagentHealthDeps,
 ): () => SubagentRuntimeError | null {
-	let cached: SubagentRuntimeError | null | undefined;
+	let cachedError: SubagentRuntimeError | undefined;
 	return () => {
-		if (cached !== undefined) return cached;
+		if (cachedError !== undefined) return cachedError;
 		const missing = deps.paths.find((path) => !deps.exists(path));
-		if (missing === undefined) {
-			cached = null;
-			return null;
-		}
-		cached = {
+		if (missing === undefined) return null;
+		cachedError = {
 			path: missing,
 			message:
 				`${STALE_RUNTIME_WARNING_PREFIX} the running pi install at ` +
@@ -80,7 +81,7 @@ export function createSubagentHealthCheck(
 				"updated (nix gc, brew upgrade, etc.) mid-session; restart pi to " +
 				"load the new binary. Subagent dispatch will fail until you do.",
 		};
-		return cached;
+		return cachedError;
 	};
 }
 
@@ -94,7 +95,9 @@ export function createSubagentHealthCheck(
 export const checkSubagentRuntime: () => SubagentRuntimeError | null = (() => {
 	const install = resolveParentPiInstall();
 	return createSubagentHealthCheck({
-		paths: [install.node, install.entry].filter((p) => p.length > 0),
+		paths: [install.node, install.entry, install.packageDir].filter(
+			(p): p is string => typeof p === "string" && p.length > 0,
+		),
 		exists: existsSync,
 	});
 })();

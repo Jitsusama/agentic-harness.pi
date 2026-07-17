@@ -134,6 +134,14 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 				runId: effectiveRunId,
 				reviewerId: effectiveReviewerId,
 				binary: config.piInstall.node,
+				// Pin the child's asset resolution (theme, package.json)
+				// to the parent's dereferenced install. The supervisor
+				// sets PI_PACKAGE_DIR from this so a mid-session upgrade
+				// that deletes the versioned symlink cannot strand the
+				// child on a path that no longer exists.
+				...(config.piInstall.packageDir
+					? { piPackageDir: config.piInstall.packageDir }
+					: {}),
 				// Only persist the session when the caller asked for
 				// it (the reviewer path, to enable resume). Fleet jobs
 				// leave persistSession false and stay ephemeral on the
@@ -274,6 +282,7 @@ function buildRequest(
 		readonly runId: string;
 		readonly reviewerId: string;
 		readonly binary: string;
+		readonly piPackageDir?: string;
 		readonly args: readonly string[];
 		readonly cwd: string;
 	},
