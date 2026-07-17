@@ -79,6 +79,12 @@ export function withSessionPersistence(
 	args: readonly string[],
 	sessionDir: string,
 ): string[] {
+	// A resume already names its session file with --session,
+	// and an explicit --session-dir is honoured as-is. Either
+	// way the session is handled, so leave the args untouched.
+	if (args.includes("--session") || args.includes("--session-dir")) {
+		return [...args];
+	}
 	const index = args.indexOf("--no-session");
 	if (index === -1) {
 		return [...args, "--session-dir", sessionDir];

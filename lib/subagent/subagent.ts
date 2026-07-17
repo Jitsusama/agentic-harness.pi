@@ -28,7 +28,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getSubagentDefaults } from "./defaults.js";
 import { checkSubagentRuntime, detectStaleInstallInStderr } from "./health.js";
-import { describeReviewerError, type ReviewerError } from "./reviewer-error.js";
+import {
+	classifyReviewerError,
+	describeReviewerError,
+	type ReviewerError,
+} from "./reviewer-error.js";
 
 export type { ReviewerError } from "./reviewer-error.js";
 
@@ -408,6 +412,15 @@ export interface RunReviewerOptions {
 	 * short-circuit without touching the real binary.
 	 */
 	readonly checkRuntime?: SubagentRuntimeCheck;
+	/**
+	 * Whether to automatically resume once when the run ends
+	 * on a transient error and a session was persisted.
+	 * Defaults to true. The resume reopens the reviewer's own
+	 * session, so its investigation is not re-run; only the
+	 * final synthesis reruns, riding the prompt cache. Set
+	 * false to opt out (the fleet caller, deterministic tests).
+	 */
+	readonly autoResume?: boolean;
 }
 
 /** Token + cost figures for one reviewer subagent run. */
@@ -546,6 +559,132 @@ export async function runReviewer(
 		await rm(promptFile, { force: true }).catch(() => {});
 	}
 
+	let outcome = assembleReviewerResult(options, result);
+	// A transient drop leaves the investigation intact in the
+	// persisted session, so resume once from there rather than
+	// re-running from scratch. Fatal errors and runs with no
+	// session are left to surface untouched.
+	if (
+		options.autoResume !== false &&
+		outcome.error !== undefined &&
+		result.artifacts?.sessionPath !== undefined &&
+		classifyReviewerError(outcome.error) === "transient"
+	) {
+		const resumeResult = await dispatchResume(
+			options,
+			result.artifacts.sessionPath,
+			extraExtensions,
+			extraSkills,
+		);
+		outcome = mergeResumeOutcome(
+			outcome,
+			assembleReviewerResult(options, resumeResult),
+		);
+	}
+	return outcome;
+}
+
+/**
+ * The continuation prompt for a resumed reviewer. The prior
+ * investigation is already in the session, so the resume
+ * must not repeat it; it only has to finish and verify.
+ */
+const RESUME_CONTINUATION_PROMPT =
+	"Your previous turn was interrupted before you finished, likely by a " +
+	"dropped model stream. Do not restart your investigation or repeat any " +
+	"tool calls; your prior work is already in this session. Review what you " +
+	"have and call verify_output with your complete result now.";
+
+/**
+ * Resume a dropped reviewer from its persisted session. Same
+ * model, tools, extensions and system prompt as the initial
+ * run, reusing the run and reviewer ids so it lands in the
+ * same artifacts directory and continues the same session.
+ */
+async function dispatchResume(
+	options: RunReviewerOptions,
+	sessionPath: string,
+	extraExtensions: readonly string[],
+	extraSkills: readonly string[],
+): Promise<RunPiResult> {
+	const args = composeArgs({
+		spec: options.reviewer,
+		prompt: RESUME_CONTINUATION_PROMPT,
+		systemPrompt: options.systemPrompt,
+		isolated: options.isolated,
+		resumeSessionPath: sessionPath,
+		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
+		...(extraSkills.length > 0 ? { extraSkills } : {}),
+	});
+	return options.runPi({
+		args,
+		cwd: options.cwd,
+		...(options.runId ? { runId: options.runId } : {}),
+		reviewerId: options.reviewer.id,
+		signal: options.signal,
+		onEvent: options.onEvent,
+		...(options.timeoutMs !== undefined
+			? { timeoutMs: options.timeoutMs }
+			: {}),
+		...(options.idleTimeoutMs !== undefined
+			? { idleTimeoutMs: options.idleTimeoutMs }
+			: {}),
+	});
+}
+
+/**
+ * Fold a resume attempt into the initial outcome. The resume
+ * is authoritative for the final state, and its usage is
+ * added to the initial run's so the reported cost is the
+ * true total. A note records whether the resume recovered
+ * the reviewer or also failed.
+ */
+function mergeResumeOutcome(
+	initial: RunReviewerResult,
+	resume: RunReviewerResult,
+): RunReviewerResult {
+	const recovered =
+		resume.error === undefined && resume.verification?.ok !== false;
+	const note = recovered
+		? "Resumed the reviewer from its persisted session after a transient error."
+		: "Auto-resume from the persisted session also failed after the transient error; not retried further.";
+	const usage = sumReviewerUsage(initial.usage, resume.usage);
+	return {
+		...resume,
+		warnings: [...initial.warnings, note, ...resume.warnings],
+		...(usage ? { usage } : {}),
+	};
+}
+
+/** Sum two optional usage totals, channel by channel. */
+function sumReviewerUsage(
+	a: ReviewerUsage | undefined,
+	b: ReviewerUsage | undefined,
+): ReviewerUsage | undefined {
+	if (!a) return b;
+	if (!b) return a;
+	return {
+		tokens: {
+			input: a.tokens.input + b.tokens.input,
+			output: a.tokens.output + b.tokens.output,
+			cacheRead: a.tokens.cacheRead + b.tokens.cacheRead,
+			cacheWrite: a.tokens.cacheWrite + b.tokens.cacheWrite,
+			total: a.tokens.total + b.tokens.total,
+		},
+		cost: {
+			input: a.cost.input + b.cost.input,
+			output: a.cost.output + b.cost.output,
+			cacheRead: a.cost.cacheRead + b.cost.cacheRead,
+			cacheWrite: a.cost.cacheWrite + b.cost.cacheWrite,
+			total: a.cost.total + b.cost.total,
+		},
+	};
+}
+
+function assembleReviewerResult(
+	options: RunReviewerOptions,
+	result: RunPiResult,
+): RunReviewerResult {
 	const parsed = extractRunPiOutput(result);
 	const requiresVerification = options.requiresVerification === true;
 	const verification =
@@ -797,6 +936,12 @@ interface ComposeArgsInput {
 	readonly isolated?: boolean;
 	readonly extraExtensions?: readonly string[];
 	readonly extraSkills?: readonly string[];
+	/**
+	 * When set, reopen this session file (--session) and
+	 * continue it instead of starting a fresh ephemeral run
+	 * (--no-session). Used by the auto-resume path.
+	 */
+	readonly resumeSessionPath?: string;
 }
 
 /**
@@ -814,7 +959,14 @@ async function writeReviewerPrompt(prompt: string): Promise<string> {
 }
 
 function composeArgs(input: ComposeArgsInput): string[] {
-	const args: string[] = ["--mode", "json", "--no-session", "-p"];
+	const args: string[] = [
+		"--mode",
+		"json",
+		...(input.resumeSessionPath
+			? ["--session", input.resumeSessionPath]
+			: ["--no-session"]),
+		"-p",
+	];
 	if (input.spec.model) {
 		args.push("--model", input.spec.model);
 	}
