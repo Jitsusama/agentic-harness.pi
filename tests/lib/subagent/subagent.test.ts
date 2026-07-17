@@ -1,6 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+	clearSubagentDefaults,
+	registerSubagentDefaultExtension,
+} from "../../../lib/subagent/index.js";
+import {
 	type CouncilReviewer,
 	type ReviewerError,
 	type ReviewerVerification,
@@ -230,6 +234,50 @@ describe("runReviewer — auto-resume", () => {
 		});
 		expect(calls).toHaveLength(1);
 		expect(result.error?.message).toContain("No API key");
+	});
+
+	it("carries the registered default extension into the resume dispatch", async () => {
+		// The credential-providing extension is registered as a
+		// subagent default so it survives isolation. A resume
+		// must inherit it too, or the resumed reviewer cannot
+		// authenticate. Credentials are fetched live by that
+		// extension on each call, so nothing is snapshotted.
+		clearSubagentDefaults();
+		registerSubagentDefaultExtension("/abs/creds.ts");
+		try {
+			const { runPi, calls } = scriptedRun([
+				{
+					exitCode: 0,
+					finalAssistantText: "",
+					error: TRANSIENT,
+					artifacts: {
+						runDir: "/r",
+						reviewerDir: "/r/rev",
+						eventsPath: "/r/rev/events.ndjson",
+						stderrPath: "/r/rev/stderr.log",
+						progressPath: "/r/rev/progress.json",
+						resultPath: "/r/rev/result.json",
+						verifiedOutputPath: "/r/rev/verified-output.json",
+						sessionDir: "/r/rev/session",
+						sessionPath: "/r/rev/session/s.jsonl",
+					},
+				},
+				{ exitCode: 0, finalAssistantText: "", error: TRANSIENT },
+			]);
+			await runReviewer({
+				reviewer: REVIEWER,
+				prompt: "p",
+				cwd: "/tmp/wt",
+				runPi,
+				requiresVerification: true,
+			});
+			expect(calls).toHaveLength(2);
+			const resumeArgs = calls[1].args;
+			expect(resumeArgs).toContain("--extension");
+			expect(resumeArgs).toContain("/abs/creds.ts");
+		} finally {
+			clearSubagentDefaults();
+		}
 	});
 
 	it("does not resume when no session was persisted", async () => {
