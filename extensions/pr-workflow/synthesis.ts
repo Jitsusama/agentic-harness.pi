@@ -580,8 +580,15 @@ export function stackReviewOverwriteNote(
 	state: PrWorkflowState,
 	prNumber: number,
 ): string | null {
-	if (state.pr?.reference.number !== prNumber) return null;
-	if (state.council.lastJudge?.provenance !== "stack-review") return null;
+	// The run about to be replaced is the cursor's live findings
+	// when prNumber is under the cursor, or its stashed snapshot
+	// when the cursor moved away during the run. Check whichever
+	// applies so a replacement is never silent either way.
+	const priorRun =
+		state.pr?.reference.number === prNumber
+			? state.council.lastJudge
+			: (state.stackRuns.get(prNumber)?.lastJudge ?? null);
+	if (priorRun?.provenance !== "stack-review") return null;
 	return (
 		`This replaced the stack review's per-PR findings for #${prNumber}. ` +
 		"Re-run action=review to regenerate them."

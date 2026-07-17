@@ -128,6 +128,29 @@ describe("stack-review provenance", () => {
 		expect(note?.toLowerCase()).toContain("review");
 	});
 
+	it("returns a note for a navigated-away PR whose snapshot came from a stack review", () => {
+		// When the cursor moved during a run, the replaced
+		// run lives in stackRuns[prNumber], not
+		// council.lastJudge; the note must still fire.
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 7 },
+			loadedAt: "x",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+		state.stackRuns.set(42, {
+			lastRun: null,
+			lastJudge: stackReviewJudge([judgedFinding(10, "Race")]),
+			lastCritique: null,
+			decisions: new Map(),
+		});
+		const note = stackReviewOverwriteNote(state, 42);
+		expect(note).not.toBeNull();
+		expect(note).toContain("42");
+	});
+
 	it("returns null when the current findings are an ordinary judge run", () => {
 		const state = createPrWorkflowState();
 		state.pr = {
