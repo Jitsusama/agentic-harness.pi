@@ -121,6 +121,7 @@ import {
 	PR_WORKFLOW_REGISTER_REVIEW_CONTEXT_PROVIDER,
 	ReviewContextProviderBroker,
 } from "./review-context.js";
+import { reviewValidationDirective } from "./review-directive.js";
 import { createGitHubPrSearch } from "./search.js";
 import { buildStack, type StackEntry } from "./stack.js";
 import {
@@ -1280,7 +1281,14 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						logQuestJourneyForPr(state.pr.reference, journey);
 					}
 					return {
-						content: [{ type: "text", text: formatJudgeSummary(result.run) }],
+						content: [
+							{
+								type: "text",
+								text: `${formatJudgeSummary(result.run)}
+
+${reviewValidationDirective()}`,
+							},
+						],
 						details: { ok: true, run: result.run },
 					};
 				}
@@ -1327,7 +1335,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						content: [
 							{
 								type: "text",
-								text: formatStackReviewActionSummary(result.run),
+								text: `${formatStackReviewActionSummary(result.run)}
+
+${reviewValidationDirective()}`,
 							},
 						],
 						details: { ok: true, run: result.run },
