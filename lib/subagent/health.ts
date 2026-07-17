@@ -29,7 +29,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { resolveParentPiInstall } from "./install.js";
+import { getParentPiInstall } from "./install.js";
 
 /**
  * Stable prefix every consumer can grep on to detect the
@@ -93,7 +93,7 @@ export function createSubagentHealthCheck(
  * that wants a fresh probe.
  */
 export const checkSubagentRuntime: () => SubagentRuntimeError | null = (() => {
-	const install = resolveParentPiInstall();
+	const install = getParentPiInstall();
 	return createSubagentHealthCheck({
 		paths: [install.node, install.entry, install.packageDir].filter(
 			(p): p is string => typeof p === "string" && p.length > 0,

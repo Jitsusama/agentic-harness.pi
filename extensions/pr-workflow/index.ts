@@ -32,7 +32,7 @@ import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { findOrCreateSidequestForPr } from "../../lib/internal/quest/pr-sidequest.js";
 import { getQuestPrBridge } from "../../lib/quest/pr-bridge.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
-import { resolveParentPiInstall } from "../../lib/subagent/install.js";
+import { getParentPiInstall } from "../../lib/subagent/install.js";
 import { recoverReviewerRuns } from "../../lib/subagent/recovery.js";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.js";
 import {
@@ -420,7 +420,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 		councilDeps = {
 			registry: new WorktreeRegistry(worktreeProviders),
 			runPi: createSupervisorRunPi({
-				piInstall: resolveParentPiInstall(),
+				piInstall: getParentPiInstall(),
 				stateDir: prWorkflowStateDir(),
 			}),
 		};

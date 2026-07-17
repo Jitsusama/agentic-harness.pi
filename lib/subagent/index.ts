@@ -38,6 +38,7 @@ export {
 } from "./defaults.js";
 // Parent-install resolution (pins subagents to the running install).
 export {
+	getParentPiInstall,
 	type PiInstall,
 	type ResolvePiInstallDeps,
 	resolveParentPiInstall,

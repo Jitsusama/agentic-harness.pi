@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { resolveParentPiInstall } from "../../../lib/subagent/install";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	getParentPiInstall,
+	resolveParentPiInstall,
+} from "../../../lib/subagent/install";
+
+const STARTUP_INSTALL_KEY = Symbol.for("pi.subagent.startupPiInstall");
+function clearStartupSnapshot(): void {
+	delete (globalThis as Record<symbol, unknown>)[STARTUP_INSTALL_KEY];
+}
 
 // A running pi is reached through profile symlinks that a
 // package upgrade can repoint mid-session. Spawning a child
@@ -14,6 +22,7 @@ describe("resolveParentPiInstall", () => {
 		const install = resolveParentPiInstall({
 			execPath: "/profile/bin/node",
 			argv: ["/profile/bin/node", "/profile/lib/cli.js", "--mode", "json"],
+			piPackageDir: undefined,
 			realpath: (p) =>
 				p === "/profile/bin/node"
 					? "/nix/store/node-22/bin/node"
@@ -29,6 +38,7 @@ describe("resolveParentPiInstall", () => {
 		const install = resolveParentPiInstall({
 			execPath: "/gone/bin/node",
 			argv: ["/gone/bin/node", "/gone/dist/cli.js"],
+			piPackageDir: undefined,
 			realpath: () => {
 				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
 			},
@@ -67,23 +77,6 @@ describe("resolveParentPiInstall", () => {
 		expect(install.packageDir).toBeUndefined();
 	});
 
-	// Extensions resolve the install lazily, on the first
-	// dispatch, which can land after a mid-session upgrade has
-	// deleted the versioned symlink. A bare call must therefore
-	// return a snapshot captured at startup, not re-read a
-	// mutated environment.
-	it("returns a stable startup snapshot immune to later env changes", () => {
-		const first = resolveParentPiInstall();
-		const previous = process.env.PI_PACKAGE_DIR;
-		process.env.PI_PACKAGE_DIR = "/tmp/pi-pkg-changed-after-startup";
-		try {
-			expect(resolveParentPiInstall()).toBe(first);
-		} finally {
-			if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
-			else process.env.PI_PACKAGE_DIR = previous;
-		}
-	});
-
 	it("keeps the raw PI_PACKAGE_DIR when it cannot be dereferenced", () => {
 		const install = resolveParentPiInstall({
 			execPath: "/usr/bin/node",
@@ -97,5 +90,54 @@ describe("resolveParentPiInstall", () => {
 			},
 		});
 		expect(install.packageDir).toBe("/home/x/.pi/pkg/pi-0.80.7");
+	});
+});
+
+// The startup accessor is what production spawns and the health
+// check use. It must capture the install once, before a
+// mid-session upgrade can delete the versioned symlink, and hand
+// that same reading to every later caller — including after a
+// /reload, which pi runs with jiti's module cache off, so a
+// module-level constant would recompute against the mutated,
+// post-upgrade environment.
+describe("getParentPiInstall", () => {
+	beforeEach(() => clearStartupSnapshot());
+
+	it("captures once and ignores later environment changes", () => {
+		const previous = process.env.PI_PACKAGE_DIR;
+		process.env.PI_PACKAGE_DIR = "/tmp/pi-pkg-at-startup";
+		try {
+			const first = getParentPiInstall();
+			// A mid-session upgrade mutates the environment and, in
+			// reality, deletes the old symlink. The accessor must keep
+			// the pre-upgrade reading rather than re-probe.
+			process.env.PI_PACKAGE_DIR = "/tmp/pi-pkg-after-upgrade-deleted";
+			expect(getParentPiInstall()).toBe(first);
+			expect(first.packageDir).toBe("/tmp/pi-pkg-at-startup");
+		} finally {
+			if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
+			else process.env.PI_PACKAGE_DIR = previous;
+		}
+	});
+
+	it("survives a reload: a fresh module instance reuses the first snapshot", async () => {
+		const previous = process.env.PI_PACKAGE_DIR;
+		process.env.PI_PACKAGE_DIR = "/tmp/pi-pkg-reload-startup";
+		try {
+			const first = getParentPiInstall();
+			// Simulate pi's /reload: re-evaluate the module (jiti runs
+			// with moduleCache off) against a mutated environment. The
+			// globalThis stash must win over the fresh module's probe.
+			vi.resetModules();
+			process.env.PI_PACKAGE_DIR = "/tmp/pi-pkg-reload-after-upgrade";
+			const { getParentPiInstall: reloaded } = await import(
+				"../../../lib/subagent/install"
+			);
+			expect(reloaded().packageDir).toBe("/tmp/pi-pkg-reload-startup");
+			expect(reloaded()).toEqual(first);
+		} finally {
+			if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
+			else process.env.PI_PACKAGE_DIR = previous;
+		}
 	});
 });
