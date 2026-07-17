@@ -227,6 +227,10 @@ export async function runStackReviewAction(
 					const cacheKey = reviewerCacheKey({
 						reviewerId: reviewer.id,
 						...(reviewer.model ? { model: reviewer.model } : {}),
+						...(reviewer.thinkingLevel
+							? { thinkingLevel: reviewer.thinkingLevel }
+							: {}),
+						...(reviewer.tools ? { tools: reviewer.tools } : {}),
 						prompt: reviewPrompt,
 					});
 					const { value, fromCache } = await dispatchWithCache(

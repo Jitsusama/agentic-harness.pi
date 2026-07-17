@@ -35,6 +35,18 @@ describe("reviewerCacheKey", () => {
 		expect(reviewerCacheKey({ ...base, charter: "c2" })).not.toBe(key);
 		expect(reviewerCacheKey({ ...base, reviewerId: "b" })).not.toBe(key);
 	});
+
+	it("changes when execution-affecting settings change", () => {
+		const base = { reviewerId: "a", model: "m", prompt: "p" };
+		const key = reviewerCacheKey(base);
+		expect(reviewerCacheKey({ ...base, thinkingLevel: "high" })).not.toBe(key);
+		expect(reviewerCacheKey({ ...base, tools: ["read", "bash"] })).not.toBe(
+			key,
+		);
+		expect(reviewerCacheKey({ ...base, thinkingLevel: "high" })).not.toBe(
+			reviewerCacheKey({ ...base, thinkingLevel: "low" }),
+		);
+	});
 });
 
 describe("isCacheableDispatch", () => {

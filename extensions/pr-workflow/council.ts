@@ -235,6 +235,10 @@ export async function runOneCouncilReviewer(
 			reviewerId: options.reviewer.id,
 			...(options.reviewer.model ? { model: options.reviewer.model } : {}),
 			...(charter ? { charter } : {}),
+			...(options.reviewer.thinkingLevel
+				? { thinkingLevel: options.reviewer.thinkingLevel }
+				: {}),
+			...(options.reviewer.tools ? { tools: options.reviewer.tools } : {}),
 			prompt,
 		});
 		const dispatched = await dispatchWithCache(
@@ -379,6 +383,10 @@ export async function runCouncil(
 						reviewerId: reviewer.id,
 						...(reviewer.model ? { model: reviewer.model } : {}),
 						...(charter ? { charter } : {}),
+						...(reviewer.thinkingLevel
+							? { thinkingLevel: reviewer.thinkingLevel }
+							: {}),
+						...(reviewer.tools ? { tools: reviewer.tools } : {}),
 						prompt,
 					});
 					const dispatched = await dispatchWithCache(
