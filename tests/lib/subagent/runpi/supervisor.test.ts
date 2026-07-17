@@ -129,12 +129,23 @@ describe("createSupervisorRunPi", () => {
 			timeoutMs: 10_000,
 		});
 
-		const result = await runPi({
-			args: [],
-			cwd: stateDir,
-			runId: "run",
-			reviewerId: "fast",
-		});
+		// Set a conflicting parent value so the assertion proves the
+		// override beats inheritance, not merely that the variable is
+		// present. This is the deleted-symlink path the fix targets.
+		const previous = process.env.PI_PACKAGE_DIR;
+		process.env.PI_PACKAGE_DIR = "/Users/x/.pi/pkg/pi-0.80.7-deleted";
+		let result: Awaited<ReturnType<typeof runPi>>;
+		try {
+			result = await runPi({
+				args: [],
+				cwd: stateDir,
+				runId: "run",
+				reviewerId: "fast",
+			});
+		} finally {
+			if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
+			else process.env.PI_PACKAGE_DIR = previous;
+		}
 
 		expect(result.exitCode).toBe(0);
 		expect(result.finalAssistantText).toBe(pinned);

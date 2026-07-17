@@ -67,6 +67,23 @@ describe("resolveParentPiInstall", () => {
 		expect(install.packageDir).toBeUndefined();
 	});
 
+	// Extensions resolve the install lazily, on the first
+	// dispatch, which can land after a mid-session upgrade has
+	// deleted the versioned symlink. A bare call must therefore
+	// return a snapshot captured at startup, not re-read a
+	// mutated environment.
+	it("returns a stable startup snapshot immune to later env changes", () => {
+		const first = resolveParentPiInstall();
+		const previous = process.env.PI_PACKAGE_DIR;
+		process.env.PI_PACKAGE_DIR = "/tmp/pi-pkg-changed-after-startup";
+		try {
+			expect(resolveParentPiInstall()).toBe(first);
+		} finally {
+			if (previous === undefined) delete process.env.PI_PACKAGE_DIR;
+			else process.env.PI_PACKAGE_DIR = previous;
+		}
+	});
+
 	it("keeps the raw PI_PACKAGE_DIR when it cannot be dereferenced", () => {
 		const install = resolveParentPiInstall({
 			execPath: "/usr/bin/node",

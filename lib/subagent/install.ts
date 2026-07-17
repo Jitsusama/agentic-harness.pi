@@ -34,14 +34,27 @@ export interface PiInstall {
 	 * symlink on upgrade. A child that inherits the raw value
 	 * then reads its theme from a path the upgrade removed and
 	 * crashes at startup. Dereferencing the symlink to its
-	 * immutable store target at capture time pins the child's
-	 * assets to the parent's exact install, which the running
-	 * parent holds present for the whole session. `undefined`
+	 * store target at startup pins the child's assets to the
+	 * parent's exact install: a symlink rotation on upgrade
+	 * cannot move it, and the running parent keeps the store
+	 * target present under normal operation. An explicit store
+	 * garbage-collection can still remove it out from under a
+	 * live session, which is why the health check re-probes
+	 * this path rather than trusting it forever. `undefined`
 	 * when the parent has no `PI_PACKAGE_DIR` (plain npm/brew
 	 * installs self-locate from the entry script and need no
 	 * override).
 	 */
 	readonly packageDir?: string;
+}
+
+/**
+ * Whether a caller injected any dependency. An injected call
+ * (tests, or a consumer that wants a fresh probe) recomputes;
+ * a bare call returns the startup snapshot below.
+ */
+function hasInjectedDeps(deps: Partial<ResolvePiInstallDeps>): boolean {
+	return Object.keys(deps).length > 0;
 }
 
 /** Dependencies for {@link resolveParentPiInstall}. */
@@ -74,9 +87,31 @@ export interface ResolvePiInstallDeps {
 export function resolveParentPiInstall(
 	deps: Partial<ResolvePiInstallDeps> = {},
 ): PiInstall {
+	// A bare call returns the snapshot captured at module load
+	// (process startup). Extensions resolve the install lazily,
+	// on the first subagent dispatch, which can be minutes into a
+	// session — after a mid-session upgrade has already deleted
+	// the versioned `~/.pi/pkg/pi-<version>` symlink that
+	// `PI_PACKAGE_DIR` names. Dereferencing it then would throw
+	// and fall back to the dead path, re-opening the very crash
+	// this pin exists to prevent. Capturing at startup
+	// dereferences the symlink while it still resolves, pinning
+	// the child to the live store target for the whole session.
+	// An injected call always recomputes so tests stay pure.
+	if (!hasInjectedDeps(deps)) return startupPiInstall;
+	return computeParentPiInstall(deps);
+}
+
+function computeParentPiInstall(
+	deps: Partial<ResolvePiInstallDeps>,
+): PiInstall {
 	const execPath = deps.execPath ?? process.execPath;
 	const argv = deps.argv ?? process.argv;
 	const realpath = deps.realpath ?? realpathSync;
+	// `in`, not `??`: a caller that passes `piPackageDir: undefined`
+	// is declaring the parent has no PI_PACKAGE_DIR, which must not
+	// fall through to `process.env`. `??` cannot tell that explicit
+	// undefined from an absent key.
 	const piPackageDir =
 		"piPackageDir" in deps ? deps.piPackageDir : process.env.PI_PACKAGE_DIR;
 	const entryPath = argv[1] ?? "";
@@ -88,6 +123,14 @@ export function resolveParentPiInstall(
 			: {}),
 	};
 }
+
+/**
+ * The parent's install, captured once at module load. This runs
+ * at process startup, before any mid-session upgrade, so the
+ * dereferenced paths are the live store targets rather than a
+ * symlink a later upgrade may delete.
+ */
+const startupPiInstall: PiInstall = computeParentPiInstall({});
 
 function dereference(path: string, realpath: (p: string) => string): string {
 	if (!path) return path;
