@@ -7,6 +7,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { ReviewerArtifactsStore, type ReviewerRunPaths } from "../artifacts.js";
 import type { PiInstall } from "../install.js";
+import type { ReviewerError } from "../reviewer-error.js";
 import type { RunPi, RunPiResult } from "../subagent.js";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
@@ -49,6 +50,7 @@ interface SupervisorResultFile {
 	readonly warnings?: readonly string[];
 	readonly stderrTail?: string;
 	readonly verification?: RunPiResult["verification"];
+	readonly error?: ReviewerError;
 	readonly artifacts?: RunPiResult["artifacts"];
 }
 
