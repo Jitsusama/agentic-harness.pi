@@ -315,6 +315,28 @@ describe("buildReviewPayload", () => {
 		);
 	});
 
+	it("reflects an edit decision's decorations in the posted header", async () => {
+		// A decorations edit must reach GitHub, not just the
+		// findings view: flipping a blocking finding to
+		// non-blocking changes what lands in the comment.
+		const state = createPrWorkflowState();
+		state.council.lastJudge = judge([
+			lineFinding(10, "Race", {
+				label: "issue",
+				decorations: ["blocking"],
+			}),
+		]);
+		state.council.decisions.set(10, {
+			findingId: 10,
+			verdict: "edit",
+			decorations: ["non-blocking"],
+			decidedAt: "x",
+		});
+		const header = buildReviewPayload(state).comments[0].body.split("\n", 1)[0];
+		expect(header).toContain("(non-blocking)");
+		expect(header).not.toContain("(blocking)");
+	});
+
 	it("omits the decoration group cleanly when no decorations are present", async () => {
 		const state = createPrWorkflowState();
 		state.council.lastJudge = judge([

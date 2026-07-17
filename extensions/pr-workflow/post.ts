@@ -282,7 +282,10 @@ function renderStackBodyEntry(
 	finding: StackFinding,
 	decision: FindingDecision,
 ): string {
-	const { subject, discussion, label } = effectiveFinding(finding, decision);
+	const { subject, discussion, label, decorations } = effectiveFinding(
+		finding,
+		decision,
+	);
 	const lines: string[] = [];
 	const spansSentence =
 		finding.spans.length === 1
@@ -291,7 +294,7 @@ function renderStackBodyEntry(
 	lines.push(
 		renderConventionalCommentHeader({
 			label,
-			decorations: finding.decorations,
+			decorations,
 			subject,
 		}),
 	);
@@ -501,12 +504,15 @@ function renderCommentBody(
 	finding: Finding,
 	decision: FindingDecision,
 ): string {
-	const { subject, discussion, label } = effectiveFinding(finding, decision);
+	const { subject, discussion, label, decorations } = effectiveFinding(
+		finding,
+		decision,
+	);
 	const lines: string[] = [];
 	lines.push(
 		renderConventionalCommentHeader({
 			label,
-			decorations: finding.decorations,
+			decorations,
 			subject,
 		}),
 	);
@@ -535,13 +541,13 @@ function renderBodyEntry(
 	decision: FindingDecision,
 ): string {
 	const projected = effectiveFinding(finding, decision);
-	const { subject, discussion, label } = projected;
+	const { subject, discussion, label, decorations } = projected;
 	const where = renderLocationForBody(projected.location);
 	const lines: string[] = [];
 	lines.push(
 		renderConventionalCommentHeader({
 			label,
-			decorations: finding.decorations,
+			decorations,
 			subject,
 		}),
 	);
