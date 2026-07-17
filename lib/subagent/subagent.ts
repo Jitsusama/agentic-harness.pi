@@ -417,8 +417,11 @@ export interface RunReviewerOptions {
 	 * on a transient error and a session was persisted.
 	 * Defaults to true. The resume reopens the reviewer's own
 	 * session, so its investigation is not re-run; only the
-	 * final synthesis reruns, riding the prompt cache. Set
-	 * false to opt out (the fleet caller, deterministic tests).
+	 * final synthesis reruns, riding the prompt cache. Resume
+	 * is a no-op unless a session was persisted, so a caller
+	 * that does not persist one (the fleet path) never resumes
+	 * regardless; set false to opt out explicitly, which
+	 * deterministic tests do.
 	 */
 	readonly autoResume?: boolean;
 }
@@ -649,9 +652,22 @@ function mergeResumeOutcome(
 		? "Resumed the reviewer from its persisted session after a transient error."
 		: "Auto-resume from the persisted session also failed after the transient error; not retried further.";
 	const usage = sumReviewerUsage(initial.usage, resume.usage);
+	// On a clean recovery the initial attempt's transient-error
+	// warning is no longer something the user must act on, and
+	// leaving it in reads as though the reviewer failed. Drop
+	// just that one warning (regenerated exactly, not
+	// fuzzy-matched), keeping any other warnings the first
+	// attempt produced.
+	const initialError = initial.error;
+	const initialWarnings =
+		recovered && initialError !== undefined
+			? initial.warnings.filter(
+					(warning) => warning !== describeReviewerError(initialError),
+				)
+			: initial.warnings;
 	return {
 		...resume,
-		warnings: [...initial.warnings, note, ...resume.warnings],
+		warnings: [...initialWarnings, note, ...resume.warnings],
 		...(usage ? { usage } : {}),
 	};
 }
@@ -1120,6 +1136,13 @@ export interface SubagentRunResult {
 	readonly warnings: readonly string[];
 	readonly usage?: SubagentUsage;
 	readonly verification?: SubagentVerification;
+	/**
+	 * Structured terminal error when the final turn stopped on
+	 * a provider or transport failure. A crashed stream still
+	 * exits 0, so without this a dropped fleet subagent reads
+	 * as a clean completion.
+	 */
+	readonly error?: ReviewerError;
 }
 
 /**
@@ -1171,6 +1194,7 @@ export async function runSubagent(opts: {
 		warnings: result.warnings,
 		...(result.usage ? { usage: result.usage } : {}),
 		...(result.verification ? { verification: result.verification } : {}),
+		...(result.error ? { error: result.error } : {}),
 	};
 }
 
