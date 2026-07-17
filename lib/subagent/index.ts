@@ -48,6 +48,13 @@ export {
 	type RecoverySummary,
 	recoverReviewerRuns,
 } from "./recovery.js";
+// Reviewer error classification.
+export {
+	classifyReviewerError,
+	describeReviewerError,
+	type ReviewerError,
+	type ReviewerErrorClass,
+} from "./reviewer-error.js";
 // Runner implementations.
 export { createSpawnRunPi } from "./runpi/spawn.js";
 export { createSupervisorRunPi } from "./runpi/supervisor.js";

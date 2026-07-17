@@ -28,6 +28,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getSubagentDefaults } from "./defaults.js";
 import { checkSubagentRuntime, detectStaleInstallInStderr } from "./health.js";
+import { describeReviewerError, type ReviewerError } from "./reviewer-error.js";
+
+export type { ReviewerError } from "./reviewer-error.js";
 
 /**
  * Synthetic exit code used when `runReviewer` short-
@@ -220,20 +223,6 @@ export interface ReviewerVerification {
 	 * cap, so the parent must not re-apply them.
 	 */
 	readonly outOfBand?: boolean;
-}
-
-/**
- * A reviewer's final turn ending in a provider or transport
- * error rather than a normal stop. A dropped model stream
- * (the child still exits 0) is the common case: without this
- * signal the drop is indistinguishable from a reviewer that
- * finished but never called verify_output.
- */
-export interface ReviewerError {
-	/** The terminal turn's stop reason, e.g. "error". */
-	readonly stopReason: string;
-	/** The provider or transport error message, verbatim. */
-	readonly message: string;
 }
 
 export interface RunPiResult {
@@ -630,19 +619,6 @@ export async function runReviewer(
 			: {}),
 		...(result.error ? { error: result.error } : {}),
 	};
-}
-
-/**
- * Human-readable warning for a reviewer's terminal error. A
- * dropped model stream is called out as transient, since it
- * is the recoverable case; any other terminal error is
- * reported by its stop reason.
- */
-function describeReviewerError(error: ReviewerError): string {
-	if (/stream (ended|closed|dropped)/i.test(error.message)) {
-		return `Reviewer model stream ended before it could report (transient provider error): ${error.message}`;
-	}
-	return `Reviewer run ended on a ${error.stopReason} error: ${error.message}`;
 }
 
 interface ExtractedRunPiOutput {
