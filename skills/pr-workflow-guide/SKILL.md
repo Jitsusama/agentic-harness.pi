@@ -459,6 +459,22 @@ Otherwise skip to round 4.
 
 ### When a reviewer crashes
 
+A reviewer that dies on a transient provider error (a
+dropped or reset model stream, a timeout, a 5xx, a rate
+limit) is now resumed automatically. The runner persists
+each reviewer's session to a private directory, so on a
+transient drop it reopens that session once and finishes
+from where it left off, riding the prompt cache rather than
+re-running the investigation. You do not act on these: they
+recover silently, and only a second failure surfaces. A
+fatal error (missing credentials, unknown model, bad
+thinking level) is never resumed, because a resume would
+hit the same wall; it surfaces with the fix instead.
+
+So when a retry hint does reach you, it is either a fatal
+config problem to fix or a genuinely empty reviewer, not a
+transient blip that resume already handled.
+
 When the council or critique summary surfaces a retry
 hint ("reviewer X returned no findings with warnings"),
 read the warnings BEFORE proposing a retry. The result
@@ -513,6 +529,18 @@ stack judge that would normally start after fan-out.
   (overwrites `lastJudge`).
 
 ### Round 4: user synthesis
+
+The judge and stack-review output ends with a validation
+directive: the consolidated findings are unvalidated
+candidates from reviewer subagents, which can be
+confidently wrong. Before you present anything, run the
+pass the directive names: validate each finding against the
+real source (open the cited files and lines), collapse
+duplicates and near-duplicates, group what survives by root
+cause, and restate it as author-facing direction. Then walk
+the validated set with the user and say what you dropped and
+why. The judge consolidating a finding is not evidence it is
+true; your reading of the source is.
 
 Round 4 is conversation, not a panel. Walk findings
 with the user. Translate intent to `decide` calls:
