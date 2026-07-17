@@ -28,6 +28,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getSubagentDefaults } from "./defaults.js";
 import { checkSubagentRuntime, detectStaleInstallInStderr } from "./health.js";
+import {
+	classifyReviewerError,
+	describeReviewerError,
+	type ReviewerError,
+} from "./reviewer-error.js";
+
+export type { ReviewerError } from "./reviewer-error.js";
 
 /**
  * Synthetic exit code used when `runReviewer` short-
@@ -140,6 +147,18 @@ export interface ReviewerRunArtifacts {
 	 * size-capped event stream.
 	 */
 	readonly verifiedOutputPath: string;
+	/**
+	 * Private per-reviewer directory pi persists the session
+	 * into (via --session-dir). Kept out of the user's session
+	 * list so a supervised run leaves no trace there.
+	 */
+	readonly sessionDir?: string;
+	/**
+	 * The session file pi minted inside sessionDir, discovered
+	 * after the run. Absent when the reviewer crashed before
+	 * writing a session. This is what a resume reopens.
+	 */
+	readonly sessionPath?: string;
 }
 
 export { extractUsageFromPiStream } from "./stream.js";
@@ -238,6 +257,11 @@ export interface RunPiResult {
 	readonly stderrTail?: string;
 	/** Result of the reviewer's verify_output calls, when observed. */
 	readonly verification?: ReviewerVerification;
+	/**
+	 * The terminal turn's error, when the run ended on a
+	 * provider or transport failure rather than a clean stop.
+	 */
+	readonly error?: ReviewerError;
 	/** Durable files backing this run, when available. */
 	readonly artifacts?: ReviewerRunArtifacts;
 }
@@ -259,6 +283,14 @@ export type RunPi = (opts: {
 	 * broken observer can't kill the run.
 	 */
 	readonly onEvent?: (event: RunPiStreamEvent) => void;
+	/**
+	 * Whether this run should persist its pi session so a
+	 * later resume can reopen it. Defaults to false: a run is
+	 * ephemeral unless the caller asks to keep the transcript.
+	 * The reviewer path sets it true (paired with autoResume);
+	 * fleet jobs leave it false and stay ephemeral.
+	 */
+	readonly persistSession?: boolean;
 	/**
 	 * Per-call hard wall-clock timeout in milliseconds.
 	 * Overrides the runner's configured default. Use for
@@ -388,6 +420,18 @@ export interface RunReviewerOptions {
 	 * short-circuit without touching the real binary.
 	 */
 	readonly checkRuntime?: SubagentRuntimeCheck;
+	/**
+	 * Whether to automatically resume once when the run ends
+	 * on a transient error and a session was persisted.
+	 * Defaults to true. The resume reopens the reviewer's own
+	 * session, so its investigation is not re-run; only the
+	 * final synthesis reruns, riding the prompt cache. Resume
+	 * is a no-op unless a session was persisted, so a caller
+	 * that does not persist one (the fleet path) never resumes
+	 * regardless; set false to opt out explicitly, which
+	 * deterministic tests do.
+	 */
+	readonly autoResume?: boolean;
 }
 
 /** Token + cost figures for one reviewer subagent run. */
@@ -423,6 +467,14 @@ export interface RunReviewerResult {
 	readonly usage?: ReviewerUsage;
 	/** Result of the reviewer's verify_output calls, when observed. */
 	readonly verification?: ReviewerVerification;
+	/**
+	 * The terminal turn's error, when the run ended on a
+	 * provider or transport failure rather than a clean stop.
+	 * Carried through so the dispatcher can tell a dropped
+	 * reviewer from one that merely never verified, and decide
+	 * whether the failure is worth resuming.
+	 */
+	readonly error?: ReviewerError;
 }
 
 /**
@@ -505,6 +557,10 @@ export async function runReviewer(
 			reviewerId: options.reviewer.id,
 			signal: options.signal,
 			onEvent: options.onEvent,
+			// Persist the session only when a resume could use it.
+			// The fleet path opts out of autoResume, so its jobs
+			// stay ephemeral rather than leaving transcripts behind.
+			persistSession: options.autoResume !== false,
 			...(options.timeoutMs !== undefined
 				? { timeoutMs: options.timeoutMs }
 				: {}),
@@ -518,6 +574,150 @@ export async function runReviewer(
 		await rm(promptFile, { force: true }).catch(() => {});
 	}
 
+	let outcome = assembleReviewerResult(options, result);
+	// A transient drop leaves the investigation intact in the
+	// persisted session, so resume once from there rather than
+	// re-running from scratch. Fatal errors and runs with no
+	// session are left to surface untouched.
+	if (
+		options.autoResume !== false &&
+		outcome.error !== undefined &&
+		// A verified first attempt is authoritative; never let a
+		// resume replace a good result with a failed retry.
+		outcome.verification?.ok !== true &&
+		// A cancelled run must not resume: the user asked to stop.
+		options.signal?.aborted !== true &&
+		result.artifacts?.sessionPath !== undefined &&
+		classifyReviewerError(outcome.error) === "transient"
+	) {
+		const resumeResult = await dispatchResume(
+			options,
+			result.artifacts.sessionPath,
+			extraExtensions,
+			extraSkills,
+		);
+		outcome = mergeResumeOutcome(
+			outcome,
+			assembleReviewerResult(options, resumeResult),
+		);
+	}
+	return outcome;
+}
+
+/**
+ * The continuation prompt for a resumed reviewer. The prior
+ * investigation is already in the session, so the resume
+ * must not repeat it; it only has to finish and verify.
+ */
+const RESUME_CONTINUATION_PROMPT =
+	"Your previous turn was interrupted before you finished, likely by a " +
+	"dropped model stream. Do not restart your investigation or repeat any " +
+	"tool calls; your prior work is already in this session. Review what you " +
+	"have and call verify_output with your complete result now.";
+
+/**
+ * Resume a dropped reviewer from its persisted session. Same
+ * model, tools, extensions and system prompt as the initial
+ * run, reusing the run and reviewer ids so it lands in the
+ * same artifacts directory and continues the same session.
+ */
+async function dispatchResume(
+	options: RunReviewerOptions,
+	sessionPath: string,
+	extraExtensions: readonly string[],
+	extraSkills: readonly string[],
+): Promise<RunPiResult> {
+	const args = composeArgs({
+		spec: options.reviewer,
+		prompt: RESUME_CONTINUATION_PROMPT,
+		systemPrompt: options.systemPrompt,
+		isolated: options.isolated,
+		resumeSessionPath: sessionPath,
+		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
+		...(extraSkills.length > 0 ? { extraSkills } : {}),
+	});
+	return options.runPi({
+		args,
+		cwd: options.cwd,
+		...(options.runId ? { runId: options.runId } : {}),
+		reviewerId: options.reviewer.id,
+		signal: options.signal,
+		onEvent: options.onEvent,
+		...(options.timeoutMs !== undefined
+			? { timeoutMs: options.timeoutMs }
+			: {}),
+		...(options.idleTimeoutMs !== undefined
+			? { idleTimeoutMs: options.idleTimeoutMs }
+			: {}),
+	});
+}
+
+/**
+ * Fold a resume attempt into the initial outcome. The resume
+ * is authoritative for the final state, and its usage is
+ * added to the initial run's so the reported cost is the
+ * true total. A note records whether the resume recovered
+ * the reviewer or also failed.
+ */
+function mergeResumeOutcome(
+	initial: RunReviewerResult,
+	resume: RunReviewerResult,
+): RunReviewerResult {
+	const recovered =
+		resume.error === undefined && resume.verification?.ok !== false;
+	const note = recovered
+		? "Resumed the reviewer from its persisted session after a transient error."
+		: "Auto-resume from the persisted session also failed after the transient error; not retried further.";
+	const usage = sumReviewerUsage(initial.usage, resume.usage);
+	// On a clean recovery the initial attempt's transient-error
+	// warning is no longer something the user must act on, and
+	// leaving it in reads as though the reviewer failed. Drop
+	// just that one warning (regenerated exactly, not
+	// fuzzy-matched), keeping any other warnings the first
+	// attempt produced.
+	const initialError = initial.error;
+	const initialWarnings =
+		recovered && initialError !== undefined
+			? initial.warnings.filter(
+					(warning) => warning !== describeReviewerError(initialError),
+				)
+			: initial.warnings;
+	return {
+		...resume,
+		warnings: [...initialWarnings, note, ...resume.warnings],
+		...(usage ? { usage } : {}),
+	};
+}
+
+/** Sum two optional usage totals, channel by channel. */
+function sumReviewerUsage(
+	a: ReviewerUsage | undefined,
+	b: ReviewerUsage | undefined,
+): ReviewerUsage | undefined {
+	if (!a) return b;
+	if (!b) return a;
+	return {
+		tokens: {
+			input: a.tokens.input + b.tokens.input,
+			output: a.tokens.output + b.tokens.output,
+			cacheRead: a.tokens.cacheRead + b.tokens.cacheRead,
+			cacheWrite: a.tokens.cacheWrite + b.tokens.cacheWrite,
+			total: a.tokens.total + b.tokens.total,
+		},
+		cost: {
+			input: a.cost.input + b.cost.input,
+			output: a.cost.output + b.cost.output,
+			cacheRead: a.cost.cacheRead + b.cost.cacheRead,
+			cacheWrite: a.cost.cacheWrite + b.cost.cacheWrite,
+			total: a.cost.total + b.cost.total,
+		},
+	};
+}
+
+function assembleReviewerResult(
+	options: RunReviewerOptions,
+	result: RunPiResult,
+): RunReviewerResult {
 	const parsed = extractRunPiOutput(result);
 	const requiresVerification = options.requiresVerification === true;
 	const verification =
@@ -581,6 +781,13 @@ export async function runReviewer(
 		if (staleMessage) warnings.push(staleMessage);
 	}
 
+	// A reviewer's final turn can die on a provider or
+	// transport error while the child still exits 0. Name it
+	// so the drop is not mistaken for a reviewer that simply
+	// never verified, and carry it on the result so the
+	// dispatcher can decide whether it is worth resuming.
+	if (result.error) warnings.push(describeReviewerError(result.error));
+
 	return {
 		reviewerId: options.reviewer.id,
 		exitCode: result.exitCode,
@@ -594,6 +801,7 @@ export async function runReviewer(
 		...(verificationForResult
 			? { verification: verificationWithoutOutput(verificationForResult) }
 			: {}),
+		...(result.error ? { error: result.error } : {}),
 	};
 }
 
@@ -761,6 +969,12 @@ interface ComposeArgsInput {
 	readonly isolated?: boolean;
 	readonly extraExtensions?: readonly string[];
 	readonly extraSkills?: readonly string[];
+	/**
+	 * When set, reopen this session file (--session) and
+	 * continue it instead of starting a fresh ephemeral run
+	 * (--no-session). Used by the auto-resume path.
+	 */
+	readonly resumeSessionPath?: string;
 }
 
 /**
@@ -778,7 +992,14 @@ async function writeReviewerPrompt(prompt: string): Promise<string> {
 }
 
 function composeArgs(input: ComposeArgsInput): string[] {
-	const args: string[] = ["--mode", "json", "--no-session", "-p"];
+	const args: string[] = [
+		"--mode",
+		"json",
+		...(input.resumeSessionPath
+			? ["--session", input.resumeSessionPath]
+			: ["--no-session"]),
+		"-p",
+	];
 	if (input.spec.model) {
 		args.push("--model", input.spec.model);
 	}
@@ -932,6 +1153,13 @@ export interface SubagentRunResult {
 	readonly warnings: readonly string[];
 	readonly usage?: SubagentUsage;
 	readonly verification?: SubagentVerification;
+	/**
+	 * Structured terminal error when the final turn stopped on
+	 * a provider or transport failure. A crashed stream still
+	 * exits 0, so without this a dropped fleet subagent reads
+	 * as a clean completion.
+	 */
+	readonly error?: ReviewerError;
 }
 
 /**
@@ -966,6 +1194,11 @@ export async function runSubagent(opts: {
 		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
 		...(extraSkills.length > 0 ? { extraSkills } : {}),
 		...(verify ? { requiresVerification: true } : {}),
+		// Fleet jobs are ephemeral: no session is persisted and a
+		// transient drop is not resumed. Resume is a reviewer-path
+		// affordance that assumes a verify contract fleet jobs may
+		// not have.
+		autoResume: false,
 		...(job.timeoutMs !== undefined ? { timeoutMs: job.timeoutMs } : {}),
 		...(job.idleTimeoutMs !== undefined
 			? { idleTimeoutMs: job.idleTimeoutMs }
@@ -983,6 +1216,7 @@ export async function runSubagent(opts: {
 		warnings: result.warnings,
 		...(result.usage ? { usage: result.usage } : {}),
 		...(result.verification ? { verification: result.verification } : {}),
+		...(result.error ? { error: result.error } : {}),
 	};
 }
 

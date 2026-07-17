@@ -28,6 +28,7 @@ import { reviewerFailureBanner } from "./reviewer-outcome.js";
 import { composeRunAddendum } from "./run-intent.js";
 import { formatReviewStackContext } from "./stack-context.js";
 import type { PrWorkflowState } from "./state.js";
+import { stackReviewOverwriteNote } from "./synthesis.js";
 import {
 	loadReviewThreadPromptContext,
 	type ReviewThreadsFetcher,
@@ -147,7 +148,7 @@ export interface RunCouncilActionInput {
 
 /** Result of a council action run. */
 export type CouncilActionResult =
-	| { ok: true; run: CouncilRun }
+	| { ok: true; run: CouncilRun; warnings?: readonly string[] }
 	| { ok: false; error: string };
 
 /**
@@ -243,8 +244,15 @@ export async function runCouncilAction(
 		...(promptAddendum ? { promptAddendum } : {}),
 	});
 	rememberParticipantIdentities(state, "reviewer", state.council.roster);
+	// Capture the note before the commit clears the run whose
+	// provenance it reads.
+	const overwriteNote = stackReviewOverwriteNote(state, pinnedPrNumber);
 	commitCouncilRun(state, pinnedPrNumber, run);
-	return { ok: true, run };
+	return {
+		ok: true,
+		run,
+		...(overwriteNote ? { warnings: [overwriteNote] } : {}),
+	};
 }
 
 /**

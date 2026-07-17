@@ -15,6 +15,7 @@ import {
 	decideFindings,
 	effectiveFinding,
 	formatFindingsView,
+	stackReviewOverwriteNote,
 } from "../../../extensions/pr-workflow/synthesis.js";
 import { expectFailure } from "./fixtures.js";
 
@@ -91,6 +92,78 @@ function judgedFinding(id: number, subject: string): Finding {
 		agreement: { raisedBy: ["fast", "skeptic"], sourceFindingIds: [] },
 	};
 }
+
+describe("stack-review provenance", () => {
+	function stackReviewJudge(findings: Finding[]): JudgeRun {
+		return { ...makeJudge(findings), provenance: "stack-review" };
+	}
+
+	it("labels findings that came from a stack review in the view", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = stackReviewJudge([judgedFinding(10, "Race")]);
+		expect(formatFindingsView(state).toLowerCase()).toContain("stack review");
+	});
+
+	it("does not add the label for an ordinary per-PR judge run", () => {
+		const state = createPrWorkflowState();
+		state.council.lastJudge = makeJudge([judgedFinding(10, "Race")]);
+		expect(formatFindingsView(state).toLowerCase()).not.toContain(
+			"came from a stack review",
+		);
+	});
+
+	it("returns an overwrite note when the cursor's findings came from a stack review", () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "x",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+		state.council.lastJudge = stackReviewJudge([judgedFinding(10, "Race")]);
+		const note = stackReviewOverwriteNote(state, 42);
+		expect(note).not.toBeNull();
+		expect(note).toContain("42");
+		expect(note?.toLowerCase()).toContain("review");
+	});
+
+	it("returns a note for a navigated-away PR whose snapshot came from a stack review", () => {
+		// When the cursor moved during a run, the replaced
+		// run lives in stackRuns[prNumber], not
+		// council.lastJudge; the note must still fire.
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 7 },
+			loadedAt: "x",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+		state.stackRuns.set(42, {
+			lastRun: null,
+			lastJudge: stackReviewJudge([judgedFinding(10, "Race")]),
+			lastCritique: null,
+			decisions: new Map(),
+		});
+		const note = stackReviewOverwriteNote(state, 42);
+		expect(note).not.toBeNull();
+		expect(note).toContain("42");
+	});
+
+	it("returns null when the current findings are an ordinary judge run", () => {
+		const state = createPrWorkflowState();
+		state.pr = {
+			reference: { owner: "o", repo: "r", number: 42 },
+			loadedAt: "x",
+			metadata: null,
+			files: null,
+			stack: null,
+		};
+		state.council.lastJudge = makeJudge([judgedFinding(10, "Race")]);
+		expect(stackReviewOverwriteNote(state, 42)).toBeNull();
+	});
+});
 
 describe("formatFindingsView", () => {
 	it("lists every consolidated finding with its id, subject, label and raisedBy", async () => {
@@ -443,6 +516,69 @@ describe("decideFinding", () => {
 		if (decision?.verdict === "edit") {
 			expect(decision.discussion).toBeUndefined();
 		}
+	});
+
+	it("accepts an edit that only overrides the decorations", async () => {
+		// Flipping a judge's blocking finding to
+		// non-blocking shouldn't force a dismiss and a
+		// full re-author. Decorations alone satisfy the
+		// "at least one override" check.
+		const state = createPrWorkflowState();
+		const blocking: Finding = {
+			...judgedFinding(10, "Race in the retry loop"),
+			decorations: ["blocking"],
+		};
+		state.council.lastJudge = makeJudge([blocking]);
+		const result = decideFinding(state, {
+			findingId: 10,
+			verdict: "edit",
+			decorations: ["non-blocking"],
+		});
+		expect(result.ok).toBe(true);
+		const decision = state.council.decisions.get(10);
+		if (decision?.verdict === "edit") {
+			expect(decision.decorations).toEqual(["non-blocking"]);
+		}
+		expect(effectiveFinding(blocking, decision ?? null).decorations).toEqual([
+			"non-blocking",
+		]);
+	});
+
+	it("clears the decorations when the edit passes an empty list", async () => {
+		const state = createPrWorkflowState();
+		const blocking: Finding = {
+			...judgedFinding(10, "Race in the retry loop"),
+			decorations: ["blocking"],
+		};
+		state.council.lastJudge = makeJudge([blocking]);
+		const result = decideFinding(state, {
+			findingId: 10,
+			verdict: "edit",
+			decorations: [],
+		});
+		expect(result.ok).toBe(true);
+		expect(
+			effectiveFinding(blocking, state.council.decisions.get(10) ?? null)
+				.decorations,
+		).toEqual([]);
+	});
+
+	it("leaves the decorations intact when the edit does not touch them", async () => {
+		const state = createPrWorkflowState();
+		const blocking: Finding = {
+			...judgedFinding(10, "Race in the retry loop"),
+			decorations: ["blocking"],
+		};
+		state.council.lastJudge = makeJudge([blocking]);
+		decideFinding(state, {
+			findingId: 10,
+			verdict: "edit",
+			label: "nitpick",
+		});
+		expect(
+			effectiveFinding(blocking, state.council.decisions.get(10) ?? null)
+				.decorations,
+		).toEqual(["blocking"]);
 	});
 
 	it("records subject, discussion and label together when all three are edited", async () => {

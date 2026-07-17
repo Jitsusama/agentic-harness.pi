@@ -459,6 +459,22 @@ Otherwise skip to round 4.
 
 ### When a reviewer crashes
 
+A reviewer that dies on a transient provider error (a
+dropped or reset model stream, a timeout, a 5xx, a rate
+limit) is now resumed automatically. The runner persists
+each reviewer's session to a private directory, so on a
+transient drop it reopens that session once and finishes
+from where it left off, riding the prompt cache rather than
+re-running the investigation. You do not act on these: they
+recover silently, and only a second failure surfaces. A
+fatal error (missing credentials, unknown model, bad
+thinking level) is never resumed, because a resume would
+hit the same wall; it surfaces with the fix instead.
+
+So when a retry hint does reach you, it is either a fatal
+config problem to fix or a genuinely empty reviewer, not a
+transient blip that resume already handled.
+
 When the council or critique summary surfaces a retry
 hint ("reviewer X returned no findings with warnings"),
 read the warnings BEFORE proposing a retry. The result
@@ -514,6 +530,18 @@ stack judge that would normally start after fan-out.
 
 ### Round 4: user synthesis
 
+The judge and stack-review output ends with a validation
+directive: the consolidated findings are unvalidated
+candidates from reviewer subagents, which can be
+confidently wrong. Before you present anything, run the
+pass the directive names: validate each finding against the
+real source (open the cited files and lines), collapse
+duplicates and near-duplicates, group what survives by root
+cause, and restate it as author-facing direction. Then walk
+the validated set with the user and say what you dropped and
+why. The judge consolidating a finding is not evidence it is
+true; your reading of the source is.
+
 Round 4 is conversation, not a panel. Walk findings
 with the user. Translate intent to `decide` calls:
 
@@ -556,6 +584,16 @@ pr_workflow action=post event=REQUEST_CHANGES body="Holding this one until X"
 The tool refuses empty reviews. If `findings` shows
 nothing endorsed/qualified/edited/promoted, push back
 before calling `post`.
+
+**Head-drift warning.** Inline findings anchor to the
+diff fetched when the PR was loaded. At post time the
+tool re-fetches the current head and, if it advanced
+since review, warns in both the post gate and the
+returned result that the anchors may be stale. When you
+see it, reload the PR to re-fetch the diff and re-review
+before posting, or post knowing some inline comments may
+land on the wrong lines. The check is advisory: it never
+blocks a post on its own.
 
 `fix`-verdicted findings are excluded from the posted
 review by design ("I'll handle this myself"). Mix
@@ -712,6 +750,16 @@ Workflow:
    return `perPr` plus `crossPr` findings. The judge
    consolidates the same shape.
 
+   If a stack reviewer crashes or comes back
+   unverified, just re-run `action=review`. Stack
+   review reuses the reviewers that already verified
+   (their result is cached against the unchanged stack
+   prompt) and only re-runs the ones that failed, so
+   recovery does not pay for the whole fan-out again.
+   The summary marks the reused reviewers. A changed
+   stack re-runs everyone, since the diff changes the
+   prompt.
+
 4. Ask whether the user wants critique. If they do, run:
 
    ```
@@ -724,7 +772,14 @@ Workflow:
 5. Per-PR findings appear in `findings` for the
    cursor PR. Stack findings appear in a
    'Stack-level findings (decide with scope=stack)'
-   section, with S-prefixed ids.
+   section, with S-prefixed ids. The per-PR findings
+   from a stack review are labelled as such in the
+   view. Running a per-PR `council` or `judge` on that
+   PR replaces them (and the actions say so when they
+   do); re-run `action=review` to regenerate them.
+   So do not re-run a per-PR council after a stack
+   review unless you mean to replace the stack review's
+   findings for that PR.
 
 6. Decide on cross-PR findings with `scope="stack"`:
 
@@ -896,7 +951,7 @@ the finding correctly.
 |---|---|---|
 | `endorse` | — | Finding stands as written. Posts. |
 | `qualify` | `note` | Keep but soften / mark non-blocking. Note appears as `> Qualifier: ...` in the posted comment. |
-| `edit` | `subject` and/or `discussion` | Replace the finding's text before posting. At least one field. |
+| `edit` | one of `subject`, `discussion`, `label`, `decorations` or a location override | Replace the finding's text, label, decorations or location before posting. Pass `decorations: []` to clear them, for example to flip a blocking finding to non-blocking, without a dismiss-and-re-author. |
 | `dismiss` | `reason` (optional but expected) | Drop. Does not post. |
 | `promote` | — | Explicit "include in posted review". Mostly redundant with endorse; use when the user wants to mark something as posting-bound without endorsing the prose. |
 | `fix` | `instructions` (optional) | "I'll handle this myself; don't post a comment." Bookmarks the finding for self-application. The main agent (or the user) does the edit in their real checkout when ready. |

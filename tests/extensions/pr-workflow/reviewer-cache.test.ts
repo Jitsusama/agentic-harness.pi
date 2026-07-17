@@ -35,6 +35,28 @@ describe("reviewerCacheKey", () => {
 		expect(reviewerCacheKey({ ...base, charter: "c2" })).not.toBe(key);
 		expect(reviewerCacheKey({ ...base, reviewerId: "b" })).not.toBe(key);
 	});
+
+	it("changes when execution-affecting settings change", () => {
+		const base = { reviewerId: "a", model: "m", prompt: "p" };
+		const key = reviewerCacheKey(base);
+		expect(reviewerCacheKey({ ...base, thinkingLevel: "high" })).not.toBe(key);
+		expect(reviewerCacheKey({ ...base, tools: ["read", "bash"] })).not.toBe(
+			key,
+		);
+		expect(reviewerCacheKey({ ...base, thinkingLevel: "high" })).not.toBe(
+			reviewerCacheKey({ ...base, thinkingLevel: "low" }),
+		);
+	});
+
+	it("changes when the reviewed revision changes", () => {
+		// The reviewer reads full files from the worktree at a
+		// sha, so two heads with identical diff text but
+		// different surrounding content must not collide.
+		const base = { reviewerId: "a", model: "m", prompt: "p" };
+		expect(reviewerCacheKey({ ...base, revision: "sha1" })).not.toBe(
+			reviewerCacheKey({ ...base, revision: "sha2" }),
+		);
+	});
 });
 
 describe("isCacheableDispatch", () => {

@@ -51,6 +51,13 @@ export type FindingDecision =
 			readonly subject?: string;
 			readonly discussion?: string;
 			readonly label?: ConventionalLabel;
+			/**
+			 * Optional decorations override. An empty array is a
+			 * deliberate clear (flip a blocking finding to
+			 * non-blocking); `undefined` inherits the finding's
+			 * own decorations.
+			 */
+			readonly decorations?: readonly string[];
 			/** Optional location override applied to the finding's `location`. */
 			readonly location?: FindingLocation;
 			readonly decidedAt: string;
@@ -116,6 +123,7 @@ export type DecideFindingInput = WithScope<
 			subject?: string;
 			discussion?: string;
 			label?: ConventionalLabel;
+			decorations?: readonly string[];
 			/** Inline location-override fields, flattened to mirror `add-finding`. */
 			file?: string;
 			start?: number;
@@ -316,12 +324,19 @@ function validateInput(
 			typeof input.discussion === "string" &&
 			input.discussion.trim().length > 0;
 		const labelGiven = typeof input.label === "string";
+		const decorationsGiven = input.decorations !== undefined;
 		const locationGiven = hasLocationOverride(input);
-		if (!subjectGiven && !discussionGiven && !labelGiven && !locationGiven) {
+		if (
+			!subjectGiven &&
+			!discussionGiven &&
+			!labelGiven &&
+			!decorationsGiven &&
+			!locationGiven
+		) {
 			return {
 				ok: false,
 				error:
-					"edit verdict requires at least one of `subject`, `discussion`, `label` or a location override (`file`, `start`, `end`, `side`).",
+					"edit verdict requires at least one of `subject`, `discussion`, `label`, `decorations` or a location override (`file`, `start`, `end`, `side`).",
 			};
 		}
 		if (locationGiven) {
@@ -477,6 +492,21 @@ function normalizeOverride(value: string | undefined): string | undefined {
 	return value.trim().length === 0 ? undefined : value;
 }
 
+/**
+ * Trim and drop blank decorations, mirroring the
+ * `add-finding` boundary. An empty result is kept (not
+ * collapsed to `undefined`), because clearing a finding's
+ * decorations is a legitimate edit: it is how a blocking
+ * finding becomes non-blocking.
+ */
+function normalizeEditDecorations(
+	decorations: readonly string[],
+): readonly string[] {
+	return decorations
+		.map((decoration) => decoration.trim())
+		.filter((decoration) => decoration.length > 0);
+}
+
 function maybeLocation(
 	original: FindingLocation,
 	override: LocationOverrideInput,
@@ -507,6 +537,9 @@ function buildDecision(
 				subject: normalizeOverride(input.subject),
 				discussion: normalizeOverride(input.discussion),
 				label: input.label,
+				...(input.decorations !== undefined
+					? { decorations: normalizeEditDecorations(input.decorations) }
+					: {}),
 				...(hasLocationOverride(input) && originalLocation
 					? maybeLocation(originalLocation, input)
 					: {}),
@@ -537,6 +570,31 @@ function buildDecision(
  * current decision (or "pending"). The output is what
  * the agent surfaces during round-4 conversation.
  */
+/**
+ * When the cursor PR's live findings came from a stack
+ * review, return a note a later per-PR council or judge can
+ * surface before it replaces them; otherwise null. The stack
+ * review can regenerate them with action=review.
+ */
+export function stackReviewOverwriteNote(
+	state: PrWorkflowState,
+	prNumber: number,
+): string | null {
+	// The run about to be replaced is the cursor's live findings
+	// when prNumber is under the cursor, or its stashed snapshot
+	// when the cursor moved away during the run. Check whichever
+	// applies so a replacement is never silent either way.
+	const priorRun =
+		state.pr?.reference.number === prNumber
+			? state.council.lastJudge
+			: (state.stackRuns.get(prNumber)?.lastJudge ?? null);
+	if (priorRun?.provenance !== "stack-review") return null;
+	return (
+		`This replaced the stack review's per-PR findings for #${prNumber}. ` +
+		"Re-run action=review to regenerate them."
+	);
+}
+
 export function formatFindingsView(state: PrWorkflowState): string {
 	const judge = state.council.lastJudge;
 	if (judge === null) {
@@ -549,11 +607,21 @@ export function formatFindingsView(state: PrWorkflowState): string {
 		return "Judge consolidated 0 findings; nothing to decide on.";
 	}
 	const lines: string[] = [];
+	if (judge.provenance === "stack-review") {
+		lines.push(
+			"These per-PR findings came from a stack review. Running a per-PR",
+		);
+		lines.push(
+			"council or judge on this PR replaces them; re-run action=review to",
+		);
+		lines.push("regenerate them.");
+		lines.push("");
+	}
 	for (const finding of judge.consolidatedFindings) {
 		const decision = state.council.decisions.get(finding.id) ?? null;
 		const display = effectiveFinding(finding, decision);
 		lines.push(
-			`[${finding.id}] [${display.label}] ${display.subject} ${renderLocation(finding.location)}`,
+			`[${finding.id}] [${display.label}${renderDecorationsSuffix(display.decorations)}] ${display.subject} ${renderLocation(finding.location)}`,
 		);
 		const raisedBy = finding.agreement?.raisedBy ?? [];
 		if (raisedBy.length > 0) {
@@ -673,6 +741,11 @@ function pushEditOriginals(
 	if (typeof decision.label === "string") {
 		lines.push(`     original label: ${finding.label}`);
 	}
+	if (decision.decorations !== undefined) {
+		const original =
+			finding.decorations.length > 0 ? finding.decorations.join(", ") : "none";
+		lines.push(`     original decorations: ${original}`);
+	}
 	if (decision.location !== undefined) {
 		lines.push(`     original location: ${renderLocation(finding.location)}`);
 	}
@@ -700,8 +773,19 @@ export function effectiveFinding<T extends Finding>(
 		subject: decision.subject ?? finding.subject,
 		discussion: decision.discussion ?? finding.discussion,
 		label: decision.label ?? finding.label,
+		decorations: decision.decorations ?? finding.decorations,
 		location: decision.location ?? finding.location,
 	};
+}
+
+/**
+ * Render a finding's effective decorations as a parenthetical
+ * suffix after the label, so an edit that changes them shows
+ * the new value in the view (not just the pre-edit original).
+ * Empty decorations render nothing.
+ */
+function renderDecorationsSuffix(decorations: readonly string[]): string {
+	return decorations.length > 0 ? ` (${decorations.join(", ")})` : "";
 }
 
 function renderDecision(decision: FindingDecision | null): string {

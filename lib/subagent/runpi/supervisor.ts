@@ -7,6 +7,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { ReviewerArtifactsStore, type ReviewerRunPaths } from "../artifacts.js";
 import type { PiInstall } from "../install.js";
+import type { ReviewerError } from "../reviewer-error.js";
 import type { RunPi, RunPiResult } from "../subagent.js";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
@@ -49,6 +50,7 @@ interface SupervisorResultFile {
 	readonly warnings?: readonly string[];
 	readonly stderrTail?: string;
 	readonly verification?: RunPiResult["verification"];
+	readonly error?: ReviewerError;
 	readonly artifacts?: RunPiResult["artifacts"];
 }
 
@@ -63,6 +65,39 @@ const DEFAULT_STDERR_TAIL_BYTES = 8 * 1024;
 const DEFAULT_MAX_LINE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_ASSISTANT_TEXT_BYTES = 512 * 1024;
 const DEFAULT_MAX_WARNINGS = 20;
+
+/**
+ * Rewrite composed reviewer args to persist the session.
+ *
+ * The composed args default to `--no-session` because the
+ * fleet and legacy runners want ephemeral runs. The
+ * supervisor owns a private per-reviewer artifacts
+ * directory, so it swaps that flag for `--session-dir
+ * <dir>`, giving a dropped reviewer a session to resume
+ * without ever writing to the user's session list. When the
+ * flag is absent the session dir is appended.
+ */
+export function withSessionPersistence(
+	args: readonly string[],
+	sessionDir: string,
+): string[] {
+	// A resume already names its session file with --session,
+	// and an explicit --session-dir is honoured as-is. Either
+	// way the session is handled, so leave the args untouched.
+	if (args.includes("--session") || args.includes("--session-dir")) {
+		return [...args];
+	}
+	const index = args.indexOf("--no-session");
+	if (index === -1) {
+		return [...args, "--session-dir", sessionDir];
+	}
+	return [
+		...args.slice(0, index),
+		"--session-dir",
+		sessionDir,
+		...args.slice(index + 1),
+	];
+}
 
 /** Build a `RunPi` backed by durable reviewer supervisor jobs. */
 export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
@@ -80,6 +115,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 		onEvent,
 		runId,
 		reviewerId,
+		persistSession,
 		timeoutMs,
 		idleTimeoutMs,
 	}) {
@@ -98,7 +134,16 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 				runId: effectiveRunId,
 				reviewerId: effectiveReviewerId,
 				binary: config.piInstall.node,
-				args: [config.piInstall.entry, ...args],
+				// Only persist the session when the caller asked for
+				// it (the reviewer path, to enable resume). Fleet jobs
+				// leave persistSession false and stay ephemeral on the
+				// composed `--no-session`.
+				args: [
+					config.piInstall.entry,
+					...(persistSession
+						? withSessionPersistence(args, paths.sessionDir)
+						: args),
+				],
 				cwd,
 			},
 			{
@@ -202,6 +247,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 							...(result.verification
 								? { verification: result.verification }
 								: {}),
+							...(result.error ? { error: result.error } : {}),
 							...(result.artifacts ? { artifacts: result.artifacts } : {}),
 						};
 					}

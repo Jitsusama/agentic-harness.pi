@@ -315,6 +315,28 @@ async function runOneAssignment(
 				...(result.usage ? { usage: result.usage } : {}),
 			};
 		}
+		if (result.error !== undefined) {
+			// A dropped model stream ends the final turn on an
+			// error while the child still exits 0. Treat the
+			// structured terminal error as a failure so the host
+			// agent never acts on partial output as if it were
+			// complete.
+			const message = `pi run ended on a ${result.error.stopReason} error: ${result.error.message}`;
+			safelyNotify(
+				() => progress.subagentFailed(assignment.spec.id, message),
+				"subagentFailed",
+				warnings,
+			);
+			return {
+				id: assignment.spec.id,
+				finalAssistantText: result.finalAssistantText,
+				warnings: result.warnings,
+				state: "failed",
+				error: message,
+				...(result.stderr ? { stderr: result.stderr } : {}),
+				...(result.usage ? { usage: result.usage } : {}),
+			};
+		}
 		safelyNotify(
 			() =>
 				progress.subagentCompleted(assignment.spec.id, {

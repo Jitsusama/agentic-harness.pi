@@ -123,12 +123,62 @@ export interface PostReviewActionInput {
 	 * prose-standard before the review reaches GitHub.
 	 */
 	readonly proseGate?: (texts: string[]) => string | undefined;
+	/**
+	 * Optional resolver for the PR's current head sha. When
+	 * supplied, the action compares it against the head the
+	 * diff was reviewed against and warns on drift, so stale
+	 * inline anchors are never posted silently. Returning
+	 * `undefined` (or throwing) skips the check.
+	 */
+	readonly currentHead?: (ref: PRReference) => Promise<string | undefined>;
 }
 
 /** Result of `postReviewAction`. */
 export type PostReviewActionResult =
-	| { ok: true; payload: ReviewPayload }
+	| { ok: true; payload: ReviewPayload; warnings?: readonly string[] }
 	| { ok: false; error: string };
+
+/**
+ * Describe how the PR head drifted between the reviewed diff
+ * and now. Returns `null` when the shas match or either is
+ * unknown; otherwise a sentence naming both short shas so the
+ * user can judge whether the inline anchors are still sound.
+ */
+/**
+ * Resolve the head-drift warning for a post: fetch the
+ * current head and compare it against the reviewed head.
+ * Advisory, so a missing resolver or a failed fetch yields
+ * null rather than blocking a post the user is ready to send.
+ */
+async function resolveHeadDrift(
+	currentHead: PostReviewActionInput["currentHead"],
+	ref: PRReference,
+	reviewedSha: string | undefined,
+): Promise<string | null> {
+	if (!currentHead) return null;
+	try {
+		return describeHeadDrift(reviewedSha, await currentHead(ref));
+	} catch {
+		// Head freshness is advisory; a fetch failure must not
+		// block a review the user is ready to post.
+		return null;
+	}
+}
+
+export function describeHeadDrift(
+	reviewedSha: string | undefined,
+	currentSha: string | undefined,
+): string | null {
+	if (!reviewedSha || !currentSha) return null;
+	if (reviewedSha === currentSha) return null;
+	const short = (sha: string): string => sha.slice(0, 7);
+	return (
+		`The PR head advanced from ${short(reviewedSha)} to ${short(currentSha)} ` +
+		"since the diff was loaded. The inline anchors were computed against the " +
+		"reviewed head, so some comments may land on the wrong lines. Reload the PR " +
+		"to re-fetch the diff and re-review, or post knowing the anchors may be stale."
+	);
+}
 
 /**
  * Render the working state as a GitHub review payload.
@@ -253,7 +303,10 @@ function renderStackBodyEntry(
 	finding: StackFinding,
 	decision: FindingDecision,
 ): string {
-	const { subject, discussion, label } = effectiveFinding(finding, decision);
+	const { subject, discussion, label, decorations } = effectiveFinding(
+		finding,
+		decision,
+	);
 	const lines: string[] = [];
 	const spansSentence =
 		finding.spans.length === 1
@@ -262,7 +315,7 @@ function renderStackBodyEntry(
 	lines.push(
 		renderConventionalCommentHeader({
 			label,
-			decorations: finding.decorations,
+			decorations,
 			subject,
 		}),
 	);
@@ -327,6 +380,12 @@ export async function postReviewAction(
 		};
 	}
 
+	// Capture the reviewed head before any await so the drift
+	// check compares against the diff the payload was built
+	// from, not whatever a concurrent load might swap in during
+	// the fetch.
+	const reviewedHeadSha = input.state.pr.metadata?.head.sha;
+
 	let summary = renderSummary(input.state, payload, input.body, input.event);
 
 	// Enforce prose-standard on the review text before the user
@@ -342,10 +401,25 @@ export async function postReviewAction(
 		if (block) return { ok: false, error: block };
 	}
 
-	if (input.gate) {
-		const outcome = await input.gate(
-			buildGateSummary(input.state, input.event, payload, summary),
-		);
+	// Build the gate summary from the same pre-await state the
+	// payload and body were built from, then run the head-drift
+	// check (its fetch is the only yield here) and fold the
+	// warning in. Doing the read before the await keeps the
+	// payload, body and gate summary mutually consistent even if
+	// a concurrent load lands during the fetch.
+	const gateSummary = input.gate
+		? buildGateSummary(input.state, input.event, payload, summary)
+		: null;
+	const headDriftWarning = await resolveHeadDrift(
+		input.currentHead,
+		targetRef,
+		reviewedHeadSha,
+	);
+	if (input.gate && gateSummary) {
+		const outcome = await input.gate({
+			...gateSummary,
+			...(headDriftWarning ? { headDriftWarning } : {}),
+		});
 		if (!outcome.approved) {
 			return { ok: false, error: outcome.reason };
 		}
@@ -362,7 +436,11 @@ export async function postReviewAction(
 		const message = error instanceof Error ? error.message : String(error);
 		return { ok: false, error: `Post failed: ${message}` };
 	}
-	return { ok: true, payload: { ...payload, body: summary } };
+	return {
+		ok: true,
+		payload: { ...payload, body: summary },
+		...(headDriftWarning ? { warnings: [headDriftWarning] } : {}),
+	};
 }
 
 /**
@@ -377,6 +455,7 @@ function buildGateSummary(
 	event: ReviewEvent,
 	payload: ReviewPayload,
 	body: string,
+	extras: { headDriftWarning?: string } = {},
 ): PostGateSummary {
 	const judgeFindings = state.council.lastJudge?.consolidatedFindings ?? [];
 	const stackFindings = state.stackFindingRun?.findings ?? [];
@@ -434,6 +513,9 @@ function buildGateSummary(
 		skippedCount: payload.skipped.length,
 		findings: lines,
 		skipped,
+		...(extras.headDriftWarning
+			? { headDriftWarning: extras.headDriftWarning }
+			: {}),
 	};
 }
 
@@ -442,12 +524,15 @@ function renderCommentBody(
 	finding: Finding,
 	decision: FindingDecision,
 ): string {
-	const { subject, discussion, label } = effectiveFinding(finding, decision);
+	const { subject, discussion, label, decorations } = effectiveFinding(
+		finding,
+		decision,
+	);
 	const lines: string[] = [];
 	lines.push(
 		renderConventionalCommentHeader({
 			label,
-			decorations: finding.decorations,
+			decorations,
 			subject,
 		}),
 	);
@@ -476,13 +561,13 @@ function renderBodyEntry(
 	decision: FindingDecision,
 ): string {
 	const projected = effectiveFinding(finding, decision);
-	const { subject, discussion, label } = projected;
+	const { subject, discussion, label, decorations } = projected;
 	const where = renderLocationForBody(projected.location);
 	const lines: string[] = [];
 	lines.push(
 		renderConventionalCommentHeader({
 			label,
-			decorations: finding.decorations,
+			decorations,
 			subject,
 		}),
 	);

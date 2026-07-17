@@ -66,7 +66,7 @@ import {
 	runCritiqueAction,
 } from "./critique-action.js";
 import { decideBatchAction } from "./decide-action.js";
-import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
+import { fetchFileContent, fetchPrHeadSha, fetchPrMetadata } from "./fetch.js";
 import type { ConventionalLabel } from "./findings.js";
 import { formatCompactFindingsView } from "./findings-view.js";
 import {
@@ -121,6 +121,7 @@ import {
 	PR_WORKFLOW_REGISTER_REVIEW_CONTEXT_PROVIDER,
 	ReviewContextProviderBroker,
 } from "./review-context.js";
+import { reviewValidationDirective } from "./review-directive.js";
 import { createGitHubPrSearch } from "./search.js";
 import { buildStack, type StackEntry } from "./stack.js";
 import {
@@ -813,7 +814,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			decorations: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"Conventional Comments decorations for action=add-finding, e.g. blocking or non-blocking.",
+						"Conventional Comments decorations, e.g. blocking or non-blocking. Used by action=add-finding, and by action=decide verdict=edit to override a finding's decorations in place (pass an empty list to clear them, for example to flip a blocking finding to non-blocking).",
 				}),
 			),
 			severity: Type.Optional(
@@ -893,13 +894,13 @@ export default function prWorkflow(pi: ExtensionAPI) {
 			subject: Type.Optional(
 				Type.String({
 					description:
-						"Used by action=add-finding, and by verdict=edit to override the finding's subject before promotion. With verdict=edit, may be combined with `discussion`, `label` and/or location overrides (`file`, `start`, `end`, `side`); at least one must be provided.",
+						"Used by action=add-finding, and by verdict=edit to override the finding's subject before promotion. With verdict=edit, may be combined with `discussion`, `label`, `decorations` and/or location overrides (`file`, `start`, `end`, `side`); at least one must be provided.",
 				}),
 			),
 			discussion: Type.Optional(
 				Type.String({
 					description:
-						"Used by action=add-finding, and by verdict=edit to override the finding's discussion before promotion. With verdict=edit, may be combined with `subject`, `label` and/or location overrides; at least one must be provided.",
+						"Used by action=add-finding, and by verdict=edit to override the finding's discussion before promotion. With verdict=edit, may be combined with `subject`, `label`, `decorations` and/or location overrides; at least one must be provided.",
 				}),
 			),
 			reason: Type.Optional(
@@ -1104,10 +1105,21 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							`Council ran with ${result.run.reviewerOutputs.length} reviewers; gathered ${findingsCount} findings.`,
 						);
 					}
-					return {
-						content: [{ type: "text", text: formatCouncilSummary(result.run) }],
-						details: { ok: true, run: result.run },
-					};
+					{
+						const warningSuffix =
+							result.warnings && result.warnings.length > 0
+								? `\n\n${result.warnings.join("\n")}`
+								: "";
+						return {
+							content: [
+								{
+									type: "text",
+									text: `${formatCouncilSummary(result.run)}${warningSuffix}`,
+								},
+							],
+							details: { ok: true, run: result.run },
+						};
+					}
 				}
 
 				if (params.action === "council-retry") {
@@ -1279,10 +1291,25 @@ export default function prWorkflow(pi: ExtensionAPI) {
 							: `Judge consolidated to ${result.run.consolidatedFindings.length} findings.`;
 						logQuestJourneyForPr(state.pr.reference, journey);
 					}
-					return {
-						content: [{ type: "text", text: formatJudgeSummary(result.run) }],
-						details: { ok: true, run: result.run },
-					};
+					{
+						const warningPrefix =
+							result.warnings && result.warnings.length > 0
+								? `${result.warnings.join("\n")}
+
+`
+								: "";
+						return {
+							content: [
+								{
+									type: "text",
+									text: `${warningPrefix}${formatJudgeSummary(result.run)}
+
+${reviewValidationDirective()}`,
+								},
+							],
+							details: { ok: true, run: result.run },
+						};
+					}
 				}
 
 				if (params.action === "review") {
@@ -1327,7 +1354,9 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						content: [
 							{
 								type: "text",
-								text: formatStackReviewActionSummary(result.run),
+								text: `${formatStackReviewActionSummary(result.run)}
+
+${reviewValidationDirective()}`,
 							},
 						],
 						details: { ok: true, run: result.run },
@@ -1580,6 +1609,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						instructions: params.instructions,
 						scope: params.scope,
 						label: params.label,
+						decorations: params.decorations,
 						file: params.file,
 						start: params.start,
 						end: params.end,
@@ -1646,6 +1676,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						exec,
 						gate,
 						proseGate: buildReviewProseGate(sessionGateDeps(ctx, pi)),
+						currentHead: (ref) => fetchPrHeadSha(pi, ref),
 					});
 					if (!result.ok) {
 						return {
@@ -1658,11 +1689,15 @@ export default function prWorkflow(pi: ExtensionAPI) {
 						result.payload.skipped.length === 0
 							? ""
 							: ` (${result.payload.skipped.length} skipped)`;
+					const warningSuffix =
+						result.warnings && result.warnings.length > 0
+							? `\n\n${result.warnings.join("\n")}`
+							: "";
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Review posted as ${event}: ${result.payload.includedFindingIds.length} finding(s)${skippedSummary}.`,
+								text: `Review posted as ${event}: ${result.payload.includedFindingIds.length} finding(s)${skippedSummary}.${warningSuffix}`,
 							},
 						],
 						details: { ok: true, payload: result.payload },
@@ -3048,6 +3083,7 @@ interface BuildDecideInputArgs {
 	instructions: string | undefined;
 	scope: "pr" | "stack" | undefined;
 	label: ConventionalLabel | undefined;
+	decorations: readonly string[] | undefined;
 	file: string | undefined;
 	start: number | undefined;
 	end: number | undefined;
@@ -3068,6 +3104,9 @@ function buildDecideInput(args: BuildDecideInputArgs): DecideFindingInput {
 				subject: args.subject,
 				discussion: args.discussion,
 				label: args.label,
+				...(args.decorations !== undefined
+					? { decorations: args.decorations }
+					: {}),
 				file: args.file,
 				start: args.start,
 				end: args.end,

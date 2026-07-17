@@ -106,6 +106,120 @@ describe("createSupervisorRunPi", () => {
 		expect(result.usage?.tokens.total).toBe(3);
 		expect(result.artifacts?.resultPath).toContain("result.json");
 	});
+	it("persists the reviewer session and reports the minted session path", async () => {
+		// The supervisor swaps --no-session for --session-dir
+		// pointing at a private per-reviewer directory, then
+		// discovers the session file pi minted there so a
+		// dropped reviewer can be resumed. The fake child reads
+		// its own --session-dir arg and writes a session file,
+		// standing in for pi's session writer.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "session-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`import { mkdirSync, writeFileSync } from "node:fs";`,
+				`const i = process.argv.indexOf("--session-dir");`,
+				`if (i === -1) { process.exit(3); }`,
+				`const dir = process.argv[i + 1];`,
+				`mkdirSync(dir, { recursive: true });`,
+				`writeFileSync(dir + "/2026-01-01T00-00-00-000Z_abc.jsonl", "{}\\n");`,
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: ["--mode", "json", "--no-session", "-p", "prompt"],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "sessioned",
+			persistSession: true,
+		});
+
+		expect(result.artifacts?.sessionDir).toContain("session");
+		expect(result.artifacts?.sessionPath).toContain(".jsonl");
+		const sessionPath = result.artifacts?.sessionPath;
+		if (!sessionPath) throw new Error("missing session path");
+		expect((await stat(sessionPath)).isFile()).toBe(true);
+	});
+
+	it("stays ephemeral when persistSession is not requested", async () => {
+		// Fleet jobs do not opt into persistence, so the
+		// supervisor must leave the composed --no-session in
+		// place and mint no session file. The child fails if it
+		// sees --session-dir, proving the flag never reached pi.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "ephemeral-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`if (process.argv.includes("--session-dir")) { process.exit(3); }`,
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: ["--mode", "json", "--no-session", "-p", "prompt"],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "ephemeral",
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(result.artifacts?.sessionPath).toBeUndefined();
+	});
+
+	it("reports a terminal model-stream error instead of a clean completion", async () => {
+		// A reviewer can investigate fully and then have its
+		// final turn die when the provider drops the stream.
+		// The child still exits 0, so the supervisor must read
+		// the errored assistant turn and surface a structured
+		// error rather than reporting a silent success.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "errored-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"working"}],stopReason:"toolUse"}})+"\\n");`,
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[],stopReason:"error",errorMessage:"OpenAI Responses stream ended before a terminal response event"}})+"\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "errored",
+		});
+
+		expect(result.error?.stopReason).toBe("error");
+		expect(result.error?.message).toContain("stream ended");
+		// The persisted result records the honest state, not a
+		// silent "complete".
+		const resultPath = result.artifacts?.resultPath;
+		if (!resultPath) throw new Error("missing result path");
+		const persisted = JSON.parse(await readFile(resultPath, "utf-8"));
+		expect(persisted.state).toBe("errored");
+	});
+
 	it("sums usage across every message_end turn, not just the last", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "multi-turn-child.mjs");

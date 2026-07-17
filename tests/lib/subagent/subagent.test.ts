@@ -1,9 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+	clearSubagentDefaults,
+	registerSubagentDefaultExtension,
+} from "../../../lib/subagent/index.js";
+import {
 	type CouncilReviewer,
+	type ReviewerError,
 	type ReviewerVerification,
 	type RunPi,
+	type RunPiResult,
 	runReviewer,
 } from "../../../lib/subagent/subagent.js";
 
@@ -46,6 +52,7 @@ function fakeRun(result: {
 	exitCode?: number;
 	finalAssistantText?: string;
 	verification?: ReviewerVerification;
+	error?: ReviewerError;
 }): { runPi: RunPi; calls: Array<{ args: string[]; cwd: string }> } {
 	const calls: Array<{ args: string[]; cwd: string }> = [];
 	const runPi: RunPi = async (opts) => {
@@ -58,10 +65,335 @@ function fakeRun(result: {
 				? { finalAssistantText: result.finalAssistantText }
 				: {}),
 			...(result.verification ? { verification: result.verification } : {}),
+			...(result.error ? { error: result.error } : {}),
 		};
 	};
 	return { runPi, calls };
 }
+
+describe("runReviewer — reviewer error surfacing", () => {
+	it("carries a terminal model-stream error and names it in a warning", async () => {
+		// A reviewer can do a full investigation and then have
+		// its final synthesis turn die when the provider drops
+		// the stream. The child still exits 0, so without an
+		// explicit error signal the drop reads as a clean run
+		// that merely forgot to verify. runReviewer must carry
+		// the structured error through and name it, so the
+		// dropped reviewer is distinguishable from a reviewer
+		// that finished but never called verify_output.
+		const { runPi } = fakeRun({
+			exitCode: 0,
+			finalAssistantText: "",
+			error: {
+				stopReason: "error",
+				message:
+					"OpenAI Responses stream ended before a terminal response event",
+			},
+		});
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			requiresVerification: true,
+		});
+		expect(result.error?.stopReason).toBe("error");
+		expect(result.error?.message).toContain("stream ended");
+		expect(
+			result.warnings.some((w) => /stream/i.test(w) && /transient/i.test(w)),
+		).toBe(true);
+	});
+});
+
+// Returns each queued RunPiResult on successive calls (the
+// last repeats), recording the args of every call so a test
+// can assert the resume dispatch shape.
+function scriptedRun(results: RunPiResult[]): {
+	runPi: RunPi;
+	calls: Array<{ args: string[]; cwd: string; persistSession?: boolean }>;
+} {
+	const calls: Array<{
+		args: string[];
+		cwd: string;
+		persistSession?: boolean;
+	}> = [];
+	const runPi: RunPi = async (opts) => {
+		calls.push({
+			args: opts.args,
+			cwd: opts.cwd,
+			persistSession: opts.persistSession,
+		});
+		const index = Math.min(calls.length - 1, results.length - 1);
+		return results[index];
+	};
+	return { runPi, calls };
+}
+
+const TRANSIENT: ReviewerError = {
+	stopReason: "error",
+	message: "OpenAI Responses stream ended before a terminal response event",
+};
+
+describe("runReviewer — auto-resume", () => {
+	it("resumes once from the session after a transient error and returns the verified outcome", async () => {
+		const { runPi, calls } = scriptedRun([
+			{
+				exitCode: 0,
+				finalAssistantText: "",
+				error: TRANSIENT,
+				artifacts: {
+					runDir: "/r",
+					reviewerDir: "/r/rev",
+					eventsPath: "/r/rev/events.ndjson",
+					stderrPath: "/r/rev/stderr.log",
+					progressPath: "/r/rev/progress.json",
+					resultPath: "/r/rev/result.json",
+					verifiedOutputPath: "/r/rev/verified-output.json",
+					sessionDir: "/r/rev/session",
+					sessionPath: "/r/rev/session/s.jsonl",
+				},
+			},
+			{
+				exitCode: 0,
+				finalAssistantText: "",
+				verification: {
+					called: true,
+					ok: true,
+					outOfBand: true,
+					stage: "council",
+					output: { findings: [] },
+				},
+			},
+		]);
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			requiresVerification: true,
+			expectedVerificationStage: "council",
+		});
+		expect(calls).toHaveLength(2);
+		const resumeArgs = calls[1].args;
+		expect(resumeArgs).toContain("--session");
+		expect(resumeArgs[resumeArgs.indexOf("--session") + 1]).toBe(
+			"/r/rev/session/s.jsonl",
+		);
+		expect(resumeArgs).not.toContain("--no-session");
+		expect(result.verification?.ok).toBe(true);
+		expect(result.error).toBeUndefined();
+		expect(result.warnings.some((w) => /resum/i.test(w))).toBe(true);
+	});
+
+	it("resumes at most once and surfaces the error when the resume also fails", async () => {
+		const withSession: RunPiResult = {
+			exitCode: 0,
+			finalAssistantText: "",
+			error: TRANSIENT,
+			artifacts: {
+				runDir: "/r",
+				reviewerDir: "/r/rev",
+				eventsPath: "/r/rev/events.ndjson",
+				stderrPath: "/r/rev/stderr.log",
+				progressPath: "/r/rev/progress.json",
+				resultPath: "/r/rev/result.json",
+				verifiedOutputPath: "/r/rev/verified-output.json",
+				sessionDir: "/r/rev/session",
+				sessionPath: "/r/rev/session/s.jsonl",
+			},
+		};
+		const { runPi, calls } = scriptedRun([withSession, withSession]);
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+			requiresVerification: true,
+		});
+		expect(calls).toHaveLength(2);
+		expect(result.error?.stopReason).toBe("error");
+	});
+
+	it("does not resume a fatal error", async () => {
+		const { runPi, calls } = scriptedRun([
+			{
+				exitCode: 0,
+				finalAssistantText: "",
+				error: { stopReason: "error", message: "No API key found for openai" },
+				artifacts: {
+					runDir: "/r",
+					reviewerDir: "/r/rev",
+					eventsPath: "/r/rev/events.ndjson",
+					stderrPath: "/r/rev/stderr.log",
+					progressPath: "/r/rev/progress.json",
+					resultPath: "/r/rev/result.json",
+					verifiedOutputPath: "/r/rev/verified-output.json",
+					sessionDir: "/r/rev/session",
+					sessionPath: "/r/rev/session/s.jsonl",
+				},
+			},
+		]);
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+			requiresVerification: true,
+		});
+		expect(calls).toHaveLength(1);
+		expect(result.error?.message).toContain("No API key");
+	});
+
+	it("carries the registered default extension into the resume dispatch", async () => {
+		// The credential-providing extension is registered as a
+		// subagent default so it survives isolation. A resume
+		// must inherit it too, or the resumed reviewer cannot
+		// authenticate. Credentials are fetched live by that
+		// extension on each call, so nothing is snapshotted.
+		clearSubagentDefaults();
+		registerSubagentDefaultExtension("/abs/creds.ts");
+		try {
+			const { runPi, calls } = scriptedRun([
+				{
+					exitCode: 0,
+					finalAssistantText: "",
+					error: TRANSIENT,
+					artifacts: {
+						runDir: "/r",
+						reviewerDir: "/r/rev",
+						eventsPath: "/r/rev/events.ndjson",
+						stderrPath: "/r/rev/stderr.log",
+						progressPath: "/r/rev/progress.json",
+						resultPath: "/r/rev/result.json",
+						verifiedOutputPath: "/r/rev/verified-output.json",
+						sessionDir: "/r/rev/session",
+						sessionPath: "/r/rev/session/s.jsonl",
+					},
+				},
+				{ exitCode: 0, finalAssistantText: "", error: TRANSIENT },
+			]);
+			await runReviewer({
+				reviewer: REVIEWER,
+				prompt: "p",
+				cwd: "/tmp/wt",
+				runPi,
+				requiresVerification: true,
+			});
+			expect(calls).toHaveLength(2);
+			const resumeArgs = calls[1].args;
+			expect(resumeArgs).toContain("--extension");
+			expect(resumeArgs).toContain("/abs/creds.ts");
+		} finally {
+			clearSubagentDefaults();
+		}
+	});
+
+	it("does not resume when no session was persisted", async () => {
+		const { runPi, calls } = scriptedRun([
+			{ exitCode: 0, finalAssistantText: "", error: TRANSIENT },
+		]);
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+			requiresVerification: true,
+		});
+		expect(calls).toHaveLength(1);
+		expect(result.error?.stopReason).toBe("error");
+	});
+
+	const SESSION_ARTIFACTS = {
+		runDir: "/r",
+		reviewerDir: "/r/rev",
+		eventsPath: "/r/rev/events.ndjson",
+		stderrPath: "/r/rev/stderr.log",
+		progressPath: "/r/rev/progress.json",
+		resultPath: "/r/rev/result.json",
+		verifiedOutputPath: "/r/rev/verified-output.json",
+		sessionDir: "/r/rev/session",
+		sessionPath: "/r/rev/session/s.jsonl",
+	};
+
+	it("does not resume a first attempt that already verified", async () => {
+		// A verified result is good; a transient error flag on
+		// the same run must not trigger a resume that could
+		// replace it with a failed one.
+		const { runPi, calls } = scriptedRun([
+			{
+				exitCode: 0,
+				finalAssistantText: "",
+				error: TRANSIENT,
+				verification: {
+					called: true,
+					ok: true,
+					outOfBand: true,
+					stage: "council",
+					output: { findings: [] },
+				},
+				artifacts: SESSION_ARTIFACTS,
+			},
+		]);
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+			requiresVerification: true,
+			expectedVerificationStage: "council",
+		});
+		expect(calls).toHaveLength(1);
+		expect(result.verification?.ok).toBe(true);
+	});
+
+	it("does not resume when the abort signal has fired", async () => {
+		const controller = new AbortController();
+		controller.abort();
+		const { runPi, calls } = scriptedRun([
+			{
+				exitCode: 0,
+				finalAssistantText: "",
+				error: TRANSIENT,
+				artifacts: SESSION_ARTIFACTS,
+			},
+		]);
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi,
+			requiresVerification: true,
+			signal: controller.signal,
+		});
+		expect(calls).toHaveLength(1);
+		expect(result.error?.stopReason).toBe("error");
+	});
+
+	it("requests session persistence only when autoResume is enabled", async () => {
+		const { runPi: onRunPi, calls: onCalls } = scriptedRun([
+			{ exitCode: 0, finalAssistantText: "", verification: undefined },
+		]);
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi: onRunPi,
+		});
+		expect(onCalls[0].persistSession).toBe(true);
+
+		const { runPi: offRunPi, calls: offCalls } = scriptedRun([
+			{ exitCode: 0, finalAssistantText: "" },
+		]);
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "p",
+			cwd: "/tmp/wt",
+			runPi: offRunPi,
+			autoResume: false,
+		});
+		expect(offCalls[0].persistSession).toBe(false);
+	});
+});
 
 describe("runReviewer — argument composition", () => {
 	it("passes the reviewer model via --model and tools via --tools (csv)", async () => {

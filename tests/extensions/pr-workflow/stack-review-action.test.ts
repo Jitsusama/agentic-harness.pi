@@ -297,6 +297,74 @@ describe("runStackReviewAction guards", () => {
 });
 
 describe("runStackReviewAction", () => {
+	it("reuses a verified reviewer on a re-run and only re-runs the unverified one", async () => {
+		// A dropped or unverified stack reviewer should be the
+		// only one that pays to re-run; a reviewer whose
+		// verified result is cached for the identical stack
+		// prompt is reused, so recovering does not re-run the
+		// whole fan-out.
+		const calls: Record<string, number> = {};
+		const reviewerBody = jsonBlock({
+			perPr: {
+				"101": [
+					{
+						location: { kind: "global" },
+						label: "issue",
+						subject: "round one",
+						discussion: "d",
+					},
+				],
+				"102": [],
+			},
+			crossPr: [],
+		});
+		const disp: CouncilDispatch = async ({ reviewer: r }) => {
+			calls[r.id] = (calls[r.id] ?? 0) + 1;
+			if (r.id === "judge") {
+				return {
+					reviewerId: r.id,
+					exitCode: 0,
+					finalAssistantText: jsonBlock({
+						selfSignal: { confidence: "high", rationale: "clean" },
+						perPr: { "101": [], "102": [] },
+						crossPr: [],
+					}),
+					stderr: "",
+					warnings: [],
+				};
+			}
+			// `fast` verifies and is cacheable; `skeptic` never
+			// verifies, so it must re-run every time.
+			const verified = r.id === "fast";
+			return {
+				reviewerId: r.id,
+				exitCode: 0,
+				finalAssistantText: reviewerBody,
+				stderr: "",
+				warnings: [],
+				...(verified ? { verification: { ok: true, called: true } } : {}),
+			};
+		};
+		const state = buildState();
+		const registry = new WorktreeRegistry(fakeProvider());
+		const first = await runStackReviewAction({
+			state,
+			registry,
+			dispatch: disp,
+			fetchers: fetchers(),
+		});
+		expect(first.ok).toBe(true);
+		const second = await runStackReviewAction({
+			state,
+			registry,
+			dispatch: disp,
+			fetchers: fetchers(),
+		});
+		expect(second.ok).toBe(true);
+		expect(calls.fast).toBe(1);
+		expect(calls.skeptic).toBe(2);
+	});
+
 	it("runs stack-wide reviewers and writes per-PR plus cross-PR findings", async () => {
 		const state = buildState();
 		state.nextFindingId = 20;

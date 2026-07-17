@@ -29,12 +29,28 @@ export function reviewerCacheKey(input: {
 	reviewerId: string;
 	model?: string;
 	charter?: string;
+	thinkingLevel?: string;
+	tools?: readonly string[];
+	revision?: string;
 	prompt: string;
 }): string {
 	const material = JSON.stringify({
 		id: input.reviewerId,
 		model: input.model ?? null,
 		charter: input.charter ?? null,
+		// The reviewer reads full files from the worktree at a
+		// sha, so the reviewed revision is part of the input even
+		// though the prompt only carries the diff: two heads with
+		// identical hunks but different surrounding content must
+		// not share a cache entry.
+		revision: input.revision ?? null,
+		// Execution-affecting settings belong in the key: a
+		// reviewer bumped to a higher thinking level or a
+		// different tool palette is a different dispatch, so a
+		// changed setting must miss rather than serve the stale
+		// lower-effort result.
+		thinking: input.thinkingLevel ?? null,
+		tools: input.tools ?? null,
 		prompt: input.prompt,
 	});
 	return createHash("sha256").update(material).digest("hex");
