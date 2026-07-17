@@ -139,6 +139,7 @@ describe("createSupervisorRunPi", () => {
 			cwd: stateDir,
 			runId: "run",
 			reviewerId: "sessioned",
+			persistSession: true,
 		});
 
 		expect(result.artifacts?.sessionDir).toContain("session");
@@ -146,6 +147,38 @@ describe("createSupervisorRunPi", () => {
 		const sessionPath = result.artifacts?.sessionPath;
 		if (!sessionPath) throw new Error("missing session path");
 		expect((await stat(sessionPath)).isFile()).toBe(true);
+	});
+
+	it("stays ephemeral when persistSession is not requested", async () => {
+		// Fleet jobs do not opt into persistence, so the
+		// supervisor must leave the composed --no-session in
+		// place and mint no session file. The child fails if it
+		// sees --session-dir, proving the flag never reached pi.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "ephemeral-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`if (process.argv.includes("--session-dir")) { process.exit(3); }`,
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: ["--mode", "json", "--no-session", "-p", "prompt"],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "ephemeral",
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(result.artifacts?.sessionPath).toBeUndefined();
 	});
 
 	it("reports a terminal model-stream error instead of a clean completion", async () => {

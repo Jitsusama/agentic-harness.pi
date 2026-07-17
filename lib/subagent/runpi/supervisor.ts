@@ -115,6 +115,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 		onEvent,
 		runId,
 		reviewerId,
+		persistSession,
 		timeoutMs,
 		idleTimeoutMs,
 	}) {
@@ -133,9 +134,15 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 				runId: effectiveRunId,
 				reviewerId: effectiveReviewerId,
 				binary: config.piInstall.node,
+				// Only persist the session when the caller asked for
+				// it (the reviewer path, to enable resume). Fleet jobs
+				// leave persistSession false and stay ephemeral on the
+				// composed `--no-session`.
 				args: [
 					config.piInstall.entry,
-					...withSessionPersistence(args, paths.sessionDir),
+					...(persistSession
+						? withSessionPersistence(args, paths.sessionDir)
+						: args),
 				],
 				cwd,
 			},

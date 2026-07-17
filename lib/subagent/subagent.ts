@@ -284,6 +284,14 @@ export type RunPi = (opts: {
 	 */
 	readonly onEvent?: (event: RunPiStreamEvent) => void;
 	/**
+	 * Whether this run should persist its pi session so a
+	 * later resume can reopen it. Defaults to false: a run is
+	 * ephemeral unless the caller asks to keep the transcript.
+	 * The reviewer path sets it true (paired with autoResume);
+	 * fleet jobs leave it false and stay ephemeral.
+	 */
+	readonly persistSession?: boolean;
+	/**
 	 * Per-call hard wall-clock timeout in milliseconds.
 	 * Overrides the runner's configured default. Use for
 	 * one-off long-running subagents (soak tests, recovery
@@ -549,6 +557,10 @@ export async function runReviewer(
 			reviewerId: options.reviewer.id,
 			signal: options.signal,
 			onEvent: options.onEvent,
+			// Persist the session only when a resume could use it.
+			// The fleet path opts out of autoResume, so its jobs
+			// stay ephemeral rather than leaving transcripts behind.
+			persistSession: options.autoResume !== false,
 			...(options.timeoutMs !== undefined
 				? { timeoutMs: options.timeoutMs }
 				: {}),
@@ -570,6 +582,11 @@ export async function runReviewer(
 	if (
 		options.autoResume !== false &&
 		outcome.error !== undefined &&
+		// A verified first attempt is authoritative; never let a
+		// resume replace a good result with a failed retry.
+		outcome.verification?.ok !== true &&
+		// A cancelled run must not resume: the user asked to stop.
+		options.signal?.aborted !== true &&
 		result.artifacts?.sessionPath !== undefined &&
 		classifyReviewerError(outcome.error) === "transient"
 	) {
@@ -1177,6 +1194,11 @@ export async function runSubagent(opts: {
 		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
 		...(extraSkills.length > 0 ? { extraSkills } : {}),
 		...(verify ? { requiresVerification: true } : {}),
+		// Fleet jobs are ephemeral: no session is persisted and a
+		// transient drop is not resumed. Resume is a reviewer-path
+		// affordance that assumes a verify contract fleet jobs may
+		// not have.
+		autoResume: false,
 		...(job.timeoutMs !== undefined ? { timeoutMs: job.timeoutMs } : {}),
 		...(job.idleTimeoutMs !== undefined
 			? { idleTimeoutMs: job.idleTimeoutMs }
