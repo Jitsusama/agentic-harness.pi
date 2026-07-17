@@ -585,6 +585,16 @@ The tool refuses empty reviews. If `findings` shows
 nothing endorsed/qualified/edited/promoted, push back
 before calling `post`.
 
+**Head-drift warning.** Inline findings anchor to the
+diff fetched when the PR was loaded. At post time the
+tool re-fetches the current head and, if it advanced
+since review, warns in both the post gate and the
+returned result that the anchors may be stale. When you
+see it, reload the PR to re-fetch the diff and re-review
+before posting, or post knowing some inline comments may
+land on the wrong lines. The check is advisory: it never
+blocks a post on its own.
+
 `fix`-verdicted findings are excluded from the posted
 review by design ("I'll handle this myself"). Mix
 `endorse` and `fix` freely on the same council run;
@@ -752,7 +762,14 @@ Workflow:
 5. Per-PR findings appear in `findings` for the
    cursor PR. Stack findings appear in a
    'Stack-level findings (decide with scope=stack)'
-   section, with S-prefixed ids.
+   section, with S-prefixed ids. The per-PR findings
+   from a stack review are labelled as such in the
+   view. Running a per-PR `council` or `judge` on that
+   PR replaces them (and the actions say so when they
+   do); re-run `action=review` to regenerate them.
+   So do not re-run a per-PR council after a stack
+   review unless you mean to replace the stack review's
+   findings for that PR.
 
 6. Decide on cross-PR findings with `scope="stack"`:
 
@@ -924,7 +941,7 @@ the finding correctly.
 |---|---|---|
 | `endorse` | — | Finding stands as written. Posts. |
 | `qualify` | `note` | Keep but soften / mark non-blocking. Note appears as `> Qualifier: ...` in the posted comment. |
-| `edit` | `subject` and/or `discussion` | Replace the finding's text before posting. At least one field. |
+| `edit` | one of `subject`, `discussion`, `label`, `decorations` or a location override | Replace the finding's text, label, decorations or location before posting. Pass `decorations: []` to clear them, for example to flip a blocking finding to non-blocking, without a dismiss-and-re-author. |
 | `dismiss` | `reason` (optional but expected) | Drop. Does not post. |
 | `promote` | — | Explicit "include in posted review". Mostly redundant with endorse; use when the user wants to mark something as posting-bound without endorsing the prose. |
 | `fix` | `instructions` (optional) | "I'll handle this myself; don't post a comment." Bookmarks the finding for self-application. The main agent (or the user) does the edit in their real checkout when ready. |
