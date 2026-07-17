@@ -68,6 +68,8 @@ export interface StackReviewerOutput {
 	readonly warnings: string[];
 	/** Result of this reviewer's verify_output calls, when observed. */
 	readonly verification?: ReviewerVerification;
+	/** True when this output was reused from the session cache rather than re-run. */
+	readonly reused?: boolean;
 }
 
 /** Caller-supplied context for stack-review parsing. */

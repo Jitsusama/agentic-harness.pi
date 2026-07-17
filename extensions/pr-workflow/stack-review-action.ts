@@ -32,6 +32,7 @@ import {
 	rememberParticipantIdentity,
 } from "./participant-identities.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
+import { dispatchWithCache, reviewerCacheKey } from "./reviewer-cache.js";
 import { reviewerFailureBanner } from "./reviewer-outcome.js";
 import type { StackFinding, StackFindingRun } from "./stack-findings.js";
 import {
@@ -208,6 +209,7 @@ export async function runStackReviewAction(
 			...(stackReviewAddendum ? { promptAddendum: stackReviewAddendum } : {}),
 		});
 
+		const reusedByReviewer = new Map<string, boolean>();
 		const settled = await Promise.allSettled(
 			state.council.roster.map(async (reviewer) => {
 				safelyNotify(
@@ -216,16 +218,38 @@ export async function runStackReviewAction(
 					progressWarnings,
 				);
 				try {
-					const value = await input.dispatch({
-						reviewer,
+					// Route through the session reviewer cache so a
+					// re-run reuses reviewers whose verified result is
+					// already stored for this exact stack prompt, and
+					// only re-dispatches the ones that crashed or never
+					// verified. The key is the reviewed content, so a
+					// changed stack changes the prompt and misses.
+					const cacheKey = reviewerCacheKey({
+						reviewerId: reviewer.id,
+						...(reviewer.model ? { model: reviewer.model } : {}),
 						prompt: reviewPrompt,
-						cwd: handle.path,
-						runId,
-						signal: input.signal,
-						expectedVerificationStage: "stack-review",
-						onEvent: (event) =>
-							notifyActivity(progress, progressWarnings, reviewer.id, event),
 					});
+					const { value, fromCache } = await dispatchWithCache(
+						state.council.reviewerCache,
+						cacheKey,
+						() =>
+							input.dispatch({
+								reviewer,
+								prompt: reviewPrompt,
+								cwd: handle.path,
+								runId,
+								signal: input.signal,
+								expectedVerificationStage: "stack-review",
+								onEvent: (event) =>
+									notifyActivity(
+										progress,
+										progressWarnings,
+										reviewer.id,
+										event,
+									),
+							}),
+					);
+					reusedByReviewer.set(reviewer.id, fromCache);
 					const parsed = parseStackReviewOutput(value.finalAssistantText, {
 						runId,
 						reviewerId: reviewer.id,
@@ -303,6 +327,7 @@ export async function runStackReviewAction(
 				...(result.value.verification
 					? { verification: result.value.verification }
 					: {}),
+				...(reusedByReviewer.get(reviewer.id) ? { reused: true } : {}),
 			};
 			for (const warning of output.warnings)
 				warnings.push(`${reviewer.id}: ${warning}`);
@@ -514,7 +539,8 @@ function renderReviewerVerificationLines(
 			: verification.called
 				? "verification failed"
 				: "not verified";
-		lines.push(`▸ ${output.reviewerId} — ${badge}`);
+		const reused = output.reused ? " · reused (input unchanged)" : "";
+		lines.push(`▸ ${output.reviewerId} — ${badge}${reused}`);
 		if (verification.ok) continue;
 		if (!verification.called) {
 			lines.push("  ! verify_output not called");
