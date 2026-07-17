@@ -144,6 +144,27 @@ export type PostReviewActionResult =
  * unknown; otherwise a sentence naming both short shas so the
  * user can judge whether the inline anchors are still sound.
  */
+/**
+ * Resolve the head-drift warning for a post: fetch the
+ * current head and compare it against the reviewed head.
+ * Advisory, so a missing resolver or a failed fetch yields
+ * null rather than blocking a post the user is ready to send.
+ */
+async function resolveHeadDrift(
+	currentHead: PostReviewActionInput["currentHead"],
+	ref: PRReference,
+	reviewedSha: string | undefined,
+): Promise<string | null> {
+	if (!currentHead) return null;
+	try {
+		return describeHeadDrift(reviewedSha, await currentHead(ref));
+	} catch {
+		// Head freshness is advisory; a fetch failure must not
+		// block a review the user is ready to post.
+		return null;
+	}
+}
+
 export function describeHeadDrift(
 	reviewedSha: string | undefined,
 	currentSha: string | undefined,
@@ -359,25 +380,11 @@ export async function postReviewAction(
 		};
 	}
 
-	// Detect whether the PR head advanced since the diff was
-	// reviewed. The reviewed head is the sha the loaded
-	// metadata (and therefore the diff and its anchors)
-	// corresponds to; a fresh fetch tells us the current head.
-	// A failed fetch is non-fatal: we simply skip the check.
-	let headDriftWarning: string | null = null;
-	if (input.currentHead) {
-		try {
-			const currentSha = await input.currentHead(targetRef);
-			headDriftWarning = describeHeadDrift(
-				input.state.pr.metadata?.head.sha,
-				currentSha,
-			);
-		} catch {
-			// Head freshness is advisory; a fetch failure must
-			// not block a review the user is ready to post.
-			headDriftWarning = null;
-		}
-	}
+	// Capture the reviewed head before any await so the drift
+	// check compares against the diff the payload was built
+	// from, not whatever a concurrent load might swap in during
+	// the fetch.
+	const reviewedHeadSha = input.state.pr.metadata?.head.sha;
 
 	let summary = renderSummary(input.state, payload, input.body, input.event);
 
@@ -394,12 +401,25 @@ export async function postReviewAction(
 		if (block) return { ok: false, error: block };
 	}
 
-	if (input.gate) {
-		const outcome = await input.gate(
-			buildGateSummary(input.state, input.event, payload, summary, {
-				...(headDriftWarning ? { headDriftWarning } : {}),
-			}),
-		);
+	// Build the gate summary from the same pre-await state the
+	// payload and body were built from, then run the head-drift
+	// check (its fetch is the only yield here) and fold the
+	// warning in. Doing the read before the await keeps the
+	// payload, body and gate summary mutually consistent even if
+	// a concurrent load lands during the fetch.
+	const gateSummary = input.gate
+		? buildGateSummary(input.state, input.event, payload, summary)
+		: null;
+	const headDriftWarning = await resolveHeadDrift(
+		input.currentHead,
+		targetRef,
+		reviewedHeadSha,
+	);
+	if (input.gate && gateSummary) {
+		const outcome = await input.gate({
+			...gateSummary,
+			...(headDriftWarning ? { headDriftWarning } : {}),
+		});
 		if (!outcome.approved) {
 			return { ok: false, error: outcome.reason };
 		}
