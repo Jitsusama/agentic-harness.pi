@@ -64,6 +64,33 @@ const DEFAULT_MAX_LINE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_ASSISTANT_TEXT_BYTES = 512 * 1024;
 const DEFAULT_MAX_WARNINGS = 20;
 
+/**
+ * Rewrite composed reviewer args to persist the session.
+ *
+ * The composed args default to `--no-session` because the
+ * fleet and legacy runners want ephemeral runs. The
+ * supervisor owns a private per-reviewer artifacts
+ * directory, so it swaps that flag for `--session-dir
+ * <dir>`, giving a dropped reviewer a session to resume
+ * without ever writing to the user's session list. When the
+ * flag is absent the session dir is appended.
+ */
+export function withSessionPersistence(
+	args: readonly string[],
+	sessionDir: string,
+): string[] {
+	const index = args.indexOf("--no-session");
+	if (index === -1) {
+		return [...args, "--session-dir", sessionDir];
+	}
+	return [
+		...args.slice(0, index),
+		"--session-dir",
+		sessionDir,
+		...args.slice(index + 1),
+	];
+}
+
 /** Build a `RunPi` backed by durable reviewer supervisor jobs. */
 export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 	const spawnFn = config.spawn ?? (nodeSpawn as SupervisorSpawnFn);
@@ -98,7 +125,10 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 				runId: effectiveRunId,
 				reviewerId: effectiveReviewerId,
 				binary: config.piInstall.node,
-				args: [config.piInstall.entry, ...args],
+				args: [
+					config.piInstall.entry,
+					...withSessionPersistence(args, paths.sessionDir),
+				],
 				cwd,
 			},
 			{

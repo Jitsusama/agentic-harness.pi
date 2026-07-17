@@ -106,6 +106,48 @@ describe("createSupervisorRunPi", () => {
 		expect(result.usage?.tokens.total).toBe(3);
 		expect(result.artifacts?.resultPath).toContain("result.json");
 	});
+	it("persists the reviewer session and reports the minted session path", async () => {
+		// The supervisor swaps --no-session for --session-dir
+		// pointing at a private per-reviewer directory, then
+		// discovers the session file pi minted there so a
+		// dropped reviewer can be resumed. The fake child reads
+		// its own --session-dir arg and writes a session file,
+		// standing in for pi's session writer.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "session-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`import { mkdirSync, writeFileSync } from "node:fs";`,
+				`const i = process.argv.indexOf("--session-dir");`,
+				`if (i === -1) { process.exit(3); }`,
+				`const dir = process.argv[i + 1];`,
+				`mkdirSync(dir, { recursive: true });`,
+				`writeFileSync(dir + "/2026-01-01T00-00-00-000Z_abc.jsonl", "{}\\n");`,
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: ["--mode", "json", "--no-session", "-p", "prompt"],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "sessioned",
+		});
+
+		expect(result.artifacts?.sessionDir).toContain("session");
+		expect(result.artifacts?.sessionPath).toContain(".jsonl");
+		const sessionPath = result.artifacts?.sessionPath;
+		if (!sessionPath) throw new Error("missing session path");
+		expect((await stat(sessionPath)).isFile()).toBe(true);
+	});
+
 	it("reports a terminal model-stream error instead of a clean completion", async () => {
 		// A reviewer can investigate fully and then have its
 		// final turn die when the provider drops the stream.

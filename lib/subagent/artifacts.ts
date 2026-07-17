@@ -25,6 +25,8 @@ export interface ReviewerRunPaths extends ReviewerRunArtifacts {
 	readonly requestPath: string;
 	readonly leasePath: string;
 	readonly cancelPath: string;
+	/** Always set for a supervised run; the session lives here. */
+	readonly sessionDir: string;
 }
 
 /** Paths owned by a whole reviewer run. */
@@ -94,6 +96,7 @@ export class ReviewerArtifactsStore {
 			progressPath: join(reviewerDir, "progress.json"),
 			resultPath: join(reviewerDir, "result.json"),
 			verifiedOutputPath: join(reviewerDir, "verified-output.json"),
+			sessionDir: join(reviewerDir, "session"),
 		};
 	}
 

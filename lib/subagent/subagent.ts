@@ -143,6 +143,18 @@ export interface ReviewerRunArtifacts {
 	 * size-capped event stream.
 	 */
 	readonly verifiedOutputPath: string;
+	/**
+	 * Private per-reviewer directory pi persists the session
+	 * into (via --session-dir). Kept out of the user's session
+	 * list so a supervised run leaves no trace there.
+	 */
+	readonly sessionDir?: string;
+	/**
+	 * The session file pi minted inside sessionDir, discovered
+	 * after the run. Absent when the reviewer crashed before
+	 * writing a session. This is what a resume reopens.
+	 */
+	readonly sessionPath?: string;
 }
 
 export { extractUsageFromPiStream } from "./stream.js";
