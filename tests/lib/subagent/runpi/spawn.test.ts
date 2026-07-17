@@ -113,6 +113,61 @@ describe("createSpawnRunPi", () => {
 		expect(calls[0].detached).toBe(true);
 	});
 
+	it("overrides the child's PI_PACKAGE_DIR with the pinned package dir", async () => {
+		// A mid-session upgrade deletes the versioned symlink the
+		// inherited PI_PACKAGE_DIR names, so the child must be told
+		// the immutable store path the parent captured at startup.
+		const fake = makeFakeChild();
+		let captured: NodeJS.ProcessEnv | undefined;
+		const runPi = createSpawnRunPi({
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+				packageDir: "/nix/store/pi-0.80.7/lib/node_modules/pi-monorepo",
+			},
+			spawn: (_command, _args, opts) => {
+				captured = opts.env;
+				queueMicrotask(() => {
+					fake.stdout.end("");
+					fake.stderr.end("");
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+		await runPi({ args: [], cwd: "/tmp" });
+		expect(captured?.PI_PACKAGE_DIR).toBe(
+			"/nix/store/pi-0.80.7/lib/node_modules/pi-monorepo",
+		);
+	});
+
+	it("leaves the child env untouched when no package dir was captured", async () => {
+		// Plain npm/brew installs self-locate from the entry
+		// script and set no PI_PACKAGE_DIR, so the spawn must not
+		// invent one.
+		const fake = makeFakeChild();
+		let sawEnvKey = true;
+		const runPi = createSpawnRunPi({
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
+			spawn: (_command, _args, opts) => {
+				sawEnvKey = opts.env !== undefined;
+				queueMicrotask(() => {
+					fake.stdout.end("");
+					fake.stderr.end("");
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+		await runPi({ args: [], cwd: "/tmp" });
+		// No env override object is passed, so the child inherits
+		// the parent environment unchanged.
+		expect(sawEnvKey).toBe(false);
+	});
+
 	it("collects stdout, stderr and exit code into the RunPiResult", async () => {
 		const fake = makeFakeChild();
 		const runPi = createSpawnRunPi({

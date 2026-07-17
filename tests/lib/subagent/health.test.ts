@@ -42,22 +42,56 @@ describe("createSubagentHealthCheck", () => {
 		expect(result?.message).toContain("/nix/store/abc-pi-0.75.3/dist/cli.js");
 	});
 
-	it("caches the answer so repeated dispatches don't re-stat", () => {
-		let calls = 0;
+	it("re-probes while healthy so a mid-session deletion is caught", () => {
+		// The whole point of this module is a path that vanishes
+		// mid-session. A memo of "healthy" would mask exactly that,
+		// so while every path is present the check re-probes, and a
+		// later deletion surfaces on the next dispatch.
+		let present = true;
 		const check = createSubagentHealthCheck({
 			paths: ["/nix/store/abc-pi-0.75.5/dist/cli.js"],
+			exists: () => present,
+		});
+		expect(check()).toBeNull();
+		expect(check()).toBeNull();
+		present = false;
+		const result = check();
+		expect(result).not.toBeNull();
+		expect(result?.message).toMatch(/restart pi/i);
+	});
+
+	it("caches a detected failure so it never re-stats a known-dead path", () => {
+		// A deleted install cannot come back without a restart, so
+		// once the check has seen a missing path it fixes that
+		// answer and stops probing.
+		let calls = 0;
+		const check = createSubagentHealthCheck({
+			paths: ["/nix/store/abc-pi-0.75.3/dist/cli.js"],
 			exists: () => {
 				calls++;
-				return true;
+				return false;
 			},
 		});
+		const first = check();
 		check();
 		check();
-		check();
-		// One existence probe per process lifetime is
-		// sufficient — pi cannot restore a deleted install
-		// path without restarting itself.
+		expect(first).not.toBeNull();
 		expect(calls).toBe(1);
+	});
+
+	it("reports a missing package dir, not just the binary paths", () => {
+		// The theme crash is a missing PI_PACKAGE_DIR, which lives
+		// alongside the node and entry paths in the probe set.
+		const check = createSubagentHealthCheck({
+			paths: [
+				"/nix/store/node-22/bin/node",
+				"/nix/store/abc-pi-0.80.7/dist/cli.js",
+				"/home/x/.pi/pkg/pi-0.80.7",
+			],
+			exists: (p) => p !== "/home/x/.pi/pkg/pi-0.80.7",
+		});
+		const result = check();
+		expect(result?.path).toBe("/home/x/.pi/pkg/pi-0.80.7");
 	});
 });
 

@@ -88,6 +88,22 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 					cwd,
 					detached: true,
 					stdio: ["ignore", "pipe", "pipe"],
+					// Pin the child's asset resolution to the parent's
+					// dereferenced install. Pi reads PI_PACKAGE_DIR to
+					// find its theme and package.json; the raw inherited
+					// value can name a versioned symlink a mid-session
+					// upgrade deletes, so override it with the immutable
+					// store path captured at startup. Left untouched when
+					// the parent had no PI_PACKAGE_DIR (self-locating
+					// installs need no override).
+					...(config.piInstall.packageDir
+						? {
+								env: {
+									...process.env,
+									PI_PACKAGE_DIR: config.piInstall.packageDir,
+								},
+							}
+						: {}),
 				},
 			);
 
