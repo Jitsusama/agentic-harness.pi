@@ -750,6 +750,16 @@ Workflow:
    return `perPr` plus `crossPr` findings. The judge
    consolidates the same shape.
 
+   If a stack reviewer crashes or comes back
+   unverified, just re-run `action=review`. Stack
+   review reuses the reviewers that already verified
+   (their result is cached against the unchanged stack
+   prompt) and only re-runs the ones that failed, so
+   recovery does not pay for the whole fan-out again.
+   The summary marks the reused reviewers. A changed
+   stack re-runs everyone, since the diff changes the
+   prompt.
+
 4. Ask whether the user wants critique. If they do, run:
 
    ```
