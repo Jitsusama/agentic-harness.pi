@@ -132,6 +132,42 @@ export async function fetchPrMetadata(
 	return parsePrMetadata(raw);
 }
 
+const HEAD_SHA_QUERY = `query PrHeadSha($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) { headRefOid }
+  }
+}`;
+
+/**
+ * Fetch just the PR's current head sha.
+ *
+ * A narrow companion to `fetchPrMetadata` for the post-time
+ * drift check, where the full metadata round trip would be
+ * wasteful. Returns `undefined` rather than throwing when the
+ * response shape is unexpected, so an advisory check never
+ * breaks a post the user is ready to send.
+ */
+export async function fetchPrHeadSha(
+	pi: ExtensionAPI,
+	reference: PRReference,
+): Promise<string | undefined> {
+	const raw = await runGraphQL<unknown>(pi, HEAD_SHA_QUERY, {
+		owner: reference.owner,
+		repo: reference.repo,
+		number: reference.number,
+	});
+	if (!isRecord(raw)) return undefined;
+	const data = isRecord(raw.data) ? raw.data : undefined;
+	const repository =
+		data && isRecord(data.repository) ? data.repository : undefined;
+	const pr =
+		repository && isRecord(repository.pullRequest)
+			? repository.pullRequest
+			: undefined;
+	const sha = pr?.headRefOid;
+	return typeof sha === "string" ? sha : undefined;
+}
+
 /**
  * Fetch a file's contents at a specific ref via `gh api`.
  *

@@ -41,6 +41,23 @@ describe("renderPostGateContent", () => {
 		expect(text).toContain("1 in body");
 	});
 
+	it("shows the head-drift warning when one is present", () => {
+		const lines = renderPostGateContent(
+			summary({
+				headDriftWarning:
+					"The PR head advanced from aaaaaaa to bbbbbbb since the diff was loaded.",
+			}),
+		)(fakeTheme(), 80);
+		const text = lines.join("\n");
+		expect(text).toMatch(/head/i);
+		expect(text).toContain("aaaaaaa");
+	});
+
+	it("omits the head-drift line when there is no drift", () => {
+		const lines = renderPostGateContent(summary())(fakeTheme(), 80);
+		expect(lines.join("\n")).not.toMatch(/head advanced/i);
+	});
+
 	it("includes the review body verbatim", () => {
 		const lines = renderPostGateContent(
 			summary({ body: "First line.\nSecond line." }),

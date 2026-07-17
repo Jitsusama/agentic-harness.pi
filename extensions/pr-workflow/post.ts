@@ -123,12 +123,41 @@ export interface PostReviewActionInput {
 	 * prose-standard before the review reaches GitHub.
 	 */
 	readonly proseGate?: (texts: string[]) => string | undefined;
+	/**
+	 * Optional resolver for the PR's current head sha. When
+	 * supplied, the action compares it against the head the
+	 * diff was reviewed against and warns on drift, so stale
+	 * inline anchors are never posted silently. Returning
+	 * `undefined` (or throwing) skips the check.
+	 */
+	readonly currentHead?: (ref: PRReference) => Promise<string | undefined>;
 }
 
 /** Result of `postReviewAction`. */
 export type PostReviewActionResult =
-	| { ok: true; payload: ReviewPayload }
+	| { ok: true; payload: ReviewPayload; warnings?: readonly string[] }
 	| { ok: false; error: string };
+
+/**
+ * Describe how the PR head drifted between the reviewed diff
+ * and now. Returns `null` when the shas match or either is
+ * unknown; otherwise a sentence naming both short shas so the
+ * user can judge whether the inline anchors are still sound.
+ */
+export function describeHeadDrift(
+	reviewedSha: string | undefined,
+	currentSha: string | undefined,
+): string | null {
+	if (!reviewedSha || !currentSha) return null;
+	if (reviewedSha === currentSha) return null;
+	const short = (sha: string): string => sha.slice(0, 7);
+	return (
+		`The PR head advanced from ${short(reviewedSha)} to ${short(currentSha)} ` +
+		"since the diff was loaded. The inline anchors were computed against the " +
+		"reviewed head, so some comments may land on the wrong lines. Reload the PR " +
+		"to re-fetch the diff and re-review, or post knowing the anchors may be stale."
+	);
+}
 
 /**
  * Render the working state as a GitHub review payload.
@@ -327,6 +356,26 @@ export async function postReviewAction(
 		};
 	}
 
+	// Detect whether the PR head advanced since the diff was
+	// reviewed. The reviewed head is the sha the loaded
+	// metadata (and therefore the diff and its anchors)
+	// corresponds to; a fresh fetch tells us the current head.
+	// A failed fetch is non-fatal: we simply skip the check.
+	let headDriftWarning: string | null = null;
+	if (input.currentHead) {
+		try {
+			const currentSha = await input.currentHead(targetRef);
+			headDriftWarning = describeHeadDrift(
+				input.state.pr.metadata?.head.sha,
+				currentSha,
+			);
+		} catch {
+			// Head freshness is advisory; a fetch failure must
+			// not block a review the user is ready to post.
+			headDriftWarning = null;
+		}
+	}
+
 	let summary = renderSummary(input.state, payload, input.body, input.event);
 
 	// Enforce prose-standard on the review text before the user
@@ -344,7 +393,9 @@ export async function postReviewAction(
 
 	if (input.gate) {
 		const outcome = await input.gate(
-			buildGateSummary(input.state, input.event, payload, summary),
+			buildGateSummary(input.state, input.event, payload, summary, {
+				...(headDriftWarning ? { headDriftWarning } : {}),
+			}),
 		);
 		if (!outcome.approved) {
 			return { ok: false, error: outcome.reason };
@@ -362,7 +413,11 @@ export async function postReviewAction(
 		const message = error instanceof Error ? error.message : String(error);
 		return { ok: false, error: `Post failed: ${message}` };
 	}
-	return { ok: true, payload: { ...payload, body: summary } };
+	return {
+		ok: true,
+		payload: { ...payload, body: summary },
+		...(headDriftWarning ? { warnings: [headDriftWarning] } : {}),
+	};
 }
 
 /**
@@ -377,6 +432,7 @@ function buildGateSummary(
 	event: ReviewEvent,
 	payload: ReviewPayload,
 	body: string,
+	extras: { headDriftWarning?: string } = {},
 ): PostGateSummary {
 	const judgeFindings = state.council.lastJudge?.consolidatedFindings ?? [];
 	const stackFindings = state.stackFindingRun?.findings ?? [];
@@ -434,6 +490,9 @@ function buildGateSummary(
 		skippedCount: payload.skipped.length,
 		findings: lines,
 		skipped,
+		...(extras.headDriftWarning
+			? { headDriftWarning: extras.headDriftWarning }
+			: {}),
 	};
 }
 

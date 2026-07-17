@@ -34,6 +34,8 @@ export interface PostGateSummary {
 	readonly skippedCount: number;
 	readonly findings: readonly PostGateFindingLine[];
 	readonly skipped: readonly PostGateSkippedLine[];
+	/** Set when the PR head advanced since the diff was reviewed. */
+	readonly headDriftWarning?: string;
 }
 
 /**
@@ -67,6 +69,16 @@ export function renderPostGateContent(
 		}
 		if (summary.skippedCount > 0) {
 			lines.push(theme.fg("warning", `  ${summary.skippedCount} skipped`));
+		}
+
+		if (summary.headDriftWarning) {
+			lines.push("");
+			for (const driftLine of wordWrap(
+				summary.headDriftWarning,
+				wrapWidth - 1,
+			)) {
+				lines.push(theme.fg("warning", ` ${driftLine}`));
+			}
 		}
 
 		if (summary.body.length > 0) {

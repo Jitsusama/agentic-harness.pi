@@ -66,7 +66,7 @@ import {
 	runCritiqueAction,
 } from "./critique-action.js";
 import { decideBatchAction } from "./decide-action.js";
-import { fetchFileContent, fetchPrMetadata } from "./fetch.js";
+import { fetchFileContent, fetchPrHeadSha, fetchPrMetadata } from "./fetch.js";
 import type { ConventionalLabel } from "./findings.js";
 import { formatCompactFindingsView } from "./findings-view.js";
 import {
@@ -1657,6 +1657,7 @@ ${reviewValidationDirective()}`,
 						exec,
 						gate,
 						proseGate: buildReviewProseGate(sessionGateDeps(ctx, pi)),
+						currentHead: (ref) => fetchPrHeadSha(pi, ref),
 					});
 					if (!result.ok) {
 						return {
@@ -1669,11 +1670,15 @@ ${reviewValidationDirective()}`,
 						result.payload.skipped.length === 0
 							? ""
 							: ` (${result.payload.skipped.length} skipped)`;
+					const warningSuffix =
+						result.warnings && result.warnings.length > 0
+							? `\n\n${result.warnings.join("\n")}`
+							: "";
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Review posted as ${event}: ${result.payload.includedFindingIds.length} finding(s)${skippedSummary}.`,
+								text: `Review posted as ${event}: ${result.payload.includedFindingIds.length} finding(s)${skippedSummary}.${warningSuffix}`,
 							},
 						],
 						details: { ok: true, payload: result.payload },

@@ -3,6 +3,7 @@ import type { Finding } from "../../../extensions/pr-workflow/findings.js";
 import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
 import {
 	buildReviewPayload,
+	describeHeadDrift,
 	type PostReviewExec,
 	type PostReviewGate,
 	postReviewAction,
@@ -180,6 +181,25 @@ function loadPr(state: ReturnType<typeof createPrWorkflowState>): void {
 		stack: null,
 	};
 }
+
+describe("describeHeadDrift", () => {
+	it("returns null when the reviewed and current heads match", () => {
+		expect(describeHeadDrift("abc123", "abc123")).toBeNull();
+	});
+
+	it("returns null when either sha is unknown", () => {
+		expect(describeHeadDrift(undefined, "abc123")).toBeNull();
+		expect(describeHeadDrift("abc123", undefined)).toBeNull();
+	});
+
+	it("describes the drift when the heads differ", () => {
+		const message = describeHeadDrift("aaaaaaa1111", "bbbbbbb2222");
+		expect(message).not.toBeNull();
+		expect(message).toMatch(/head/i);
+		expect(message).toContain("aaaaaaa");
+		expect(message).toContain("bbbbbbb");
+	});
+});
 
 describe("buildReviewPayload", () => {
 	it("includes findings with endorse, qualify, edit, or promote verdicts", async () => {
@@ -662,6 +682,61 @@ describe("postReviewAction", () => {
 		});
 		return state;
 	}
+
+	it("warns and surfaces head drift when the PR head advanced since review", async () => {
+		// The diff was reviewed against headsha1 (see
+		// loadPr). If the head has since advanced, the
+		// inline anchors may be stale, so the post must not
+		// go out silently: the gate sees a drift line and
+		// the result carries a warning.
+		const state = withJudgeAndDecision();
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+		let gateSawDrift: string | undefined;
+		const gate: PostReviewGate = vi.fn(async (summary) => {
+			gateSawDrift = summary.headDriftWarning;
+			return { approved: true as const, body: summary.body };
+		});
+		const result = await postReviewAction({
+			state,
+			event: "COMMENT",
+			exec,
+			gate,
+			currentHead: async () => "headsha2",
+		});
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.warnings?.join(" ")).toMatch(/head/i);
+		}
+		expect(gateSawDrift).toMatch(/head/i);
+	});
+
+	it("does not warn when the head is unchanged since review", async () => {
+		const state = withJudgeAndDecision();
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const result = await postReviewAction({
+			state,
+			event: "COMMENT",
+			exec,
+			currentHead: async () => "headsha1",
+		});
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.warnings ?? []).toEqual([]);
+		}
+	});
+
+	it("posts normally when the current head cannot be determined", async () => {
+		const state = withJudgeAndDecision();
+		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const result = await postReviewAction({
+			state,
+			event: "COMMENT",
+			exec,
+			currentHead: async () => undefined,
+		});
+		expect(result.ok).toBe(true);
+		expect(exec).toHaveBeenCalledTimes(1);
+	});
 
 	it("calls the exec boundary with the ref, event, body and comments", async () => {
 		const state = withJudgeAndDecision();
