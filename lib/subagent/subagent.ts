@@ -222,6 +222,20 @@ export interface ReviewerVerification {
 	readonly outOfBand?: boolean;
 }
 
+/**
+ * A reviewer's final turn ending in a provider or transport
+ * error rather than a normal stop. A dropped model stream
+ * (the child still exits 0) is the common case: without this
+ * signal the drop is indistinguishable from a reviewer that
+ * finished but never called verify_output.
+ */
+export interface ReviewerError {
+	/** The terminal turn's stop reason, e.g. "error". */
+	readonly stopReason: string;
+	/** The provider or transport error message, verbatim. */
+	readonly message: string;
+}
+
 export interface RunPiResult {
 	/** Raw stdout. Legacy runners may still return this; supervised runners should not. */
 	readonly stdout?: string;
@@ -238,6 +252,11 @@ export interface RunPiResult {
 	readonly stderrTail?: string;
 	/** Result of the reviewer's verify_output calls, when observed. */
 	readonly verification?: ReviewerVerification;
+	/**
+	 * The terminal turn's error, when the run ended on a
+	 * provider or transport failure rather than a clean stop.
+	 */
+	readonly error?: ReviewerError;
 	/** Durable files backing this run, when available. */
 	readonly artifacts?: ReviewerRunArtifacts;
 }
@@ -423,6 +442,14 @@ export interface RunReviewerResult {
 	readonly usage?: ReviewerUsage;
 	/** Result of the reviewer's verify_output calls, when observed. */
 	readonly verification?: ReviewerVerification;
+	/**
+	 * The terminal turn's error, when the run ended on a
+	 * provider or transport failure rather than a clean stop.
+	 * Carried through so the dispatcher can tell a dropped
+	 * reviewer from one that merely never verified, and decide
+	 * whether the failure is worth resuming.
+	 */
+	readonly error?: ReviewerError;
 }
 
 /**
@@ -581,6 +608,13 @@ export async function runReviewer(
 		if (staleMessage) warnings.push(staleMessage);
 	}
 
+	// A reviewer's final turn can die on a provider or
+	// transport error while the child still exits 0. Name it
+	// so the drop is not mistaken for a reviewer that simply
+	// never verified, and carry it on the result so the
+	// dispatcher can decide whether it is worth resuming.
+	if (result.error) warnings.push(describeReviewerError(result.error));
+
 	return {
 		reviewerId: options.reviewer.id,
 		exitCode: result.exitCode,
@@ -594,7 +628,21 @@ export async function runReviewer(
 		...(verificationForResult
 			? { verification: verificationWithoutOutput(verificationForResult) }
 			: {}),
+		...(result.error ? { error: result.error } : {}),
 	};
+}
+
+/**
+ * Human-readable warning for a reviewer's terminal error. A
+ * dropped model stream is called out as transient, since it
+ * is the recoverable case; any other terminal error is
+ * reported by its stop reason.
+ */
+function describeReviewerError(error: ReviewerError): string {
+	if (/stream (ended|closed|dropped)/i.test(error.message)) {
+		return `Reviewer model stream ended before it could report (transient provider error): ${error.message}`;
+	}
+	return `Reviewer run ended on a ${error.stopReason} error: ${error.message}`;
 }
 
 interface ExtractedRunPiOutput {

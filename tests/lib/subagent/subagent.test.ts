@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
 	type CouncilReviewer,
+	type ReviewerError,
 	type ReviewerVerification,
 	type RunPi,
 	runReviewer,
@@ -46,6 +47,7 @@ function fakeRun(result: {
 	exitCode?: number;
 	finalAssistantText?: string;
 	verification?: ReviewerVerification;
+	error?: ReviewerError;
 }): { runPi: RunPi; calls: Array<{ args: string[]; cwd: string }> } {
 	const calls: Array<{ args: string[]; cwd: string }> = [];
 	const runPi: RunPi = async (opts) => {
@@ -58,10 +60,45 @@ function fakeRun(result: {
 				? { finalAssistantText: result.finalAssistantText }
 				: {}),
 			...(result.verification ? { verification: result.verification } : {}),
+			...(result.error ? { error: result.error } : {}),
 		};
 	};
 	return { runPi, calls };
 }
+
+describe("runReviewer — reviewer error surfacing", () => {
+	it("carries a terminal model-stream error and names it in a warning", async () => {
+		// A reviewer can do a full investigation and then have
+		// its final synthesis turn die when the provider drops
+		// the stream. The child still exits 0, so without an
+		// explicit error signal the drop reads as a clean run
+		// that merely forgot to verify. runReviewer must carry
+		// the structured error through and name it, so the
+		// dropped reviewer is distinguishable from a reviewer
+		// that finished but never called verify_output.
+		const { runPi } = fakeRun({
+			exitCode: 0,
+			finalAssistantText: "",
+			error: {
+				stopReason: "error",
+				message:
+					"OpenAI Responses stream ended before a terminal response event",
+			},
+		});
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			requiresVerification: true,
+		});
+		expect(result.error?.stopReason).toBe("error");
+		expect(result.error?.message).toContain("stream ended");
+		expect(
+			result.warnings.some((w) => /stream/i.test(w) && /transient/i.test(w)),
+		).toBe(true);
+	});
+});
 
 describe("runReviewer — argument composition", () => {
 	it("passes the reviewer model via --model and tools via --tools (csv)", async () => {

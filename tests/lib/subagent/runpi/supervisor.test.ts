@@ -106,6 +106,45 @@ describe("createSupervisorRunPi", () => {
 		expect(result.usage?.tokens.total).toBe(3);
 		expect(result.artifacts?.resultPath).toContain("result.json");
 	});
+	it("reports a terminal model-stream error instead of a clean completion", async () => {
+		// A reviewer can investigate fully and then have its
+		// final turn die when the provider drops the stream.
+		// The child still exits 0, so the supervisor must read
+		// the errored assistant turn and surface a structured
+		// error rather than reporting a silent success.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "errored-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"working"}],stopReason:"toolUse"}})+"\\n");`,
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[],stopReason:"error",errorMessage:"OpenAI Responses stream ended before a terminal response event"}})+"\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 10_000,
+			timeoutMs: 10_000,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "errored",
+		});
+
+		expect(result.error?.stopReason).toBe("error");
+		expect(result.error?.message).toContain("stream ended");
+		// The persisted result records the honest state, not a
+		// silent "complete".
+		const resultPath = result.artifacts?.resultPath;
+		if (!resultPath) throw new Error("missing result path");
+		const persisted = JSON.parse(await readFile(resultPath, "utf-8"));
+		expect(persisted.state).toBe("errored");
+	});
+
 	it("sums usage across every message_end turn, not just the last", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "multi-turn-child.mjs");

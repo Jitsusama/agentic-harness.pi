@@ -202,6 +202,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 							...(result.verification
 								? { verification: result.verification }
 								: {}),
+							...(result.error ? { error: result.error } : {}),
 							...(result.artifacts ? { artifacts: result.artifacts } : {}),
 						};
 					}
