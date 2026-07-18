@@ -18,6 +18,7 @@ export {
 	contentByteSize,
 	DEFAULT_RESULT_CEILING_BYTES,
 	enforceResultCeiling,
+	type SpillTarget,
 } from "./ceiling.js";
 // ── Config panel ────────────────────────────────────────────
 export {
@@ -64,7 +65,6 @@ export {
 	createFrontEndRegistry,
 	type FrontEndRegistry,
 } from "./frontend/registry.js";
-
 // ── Front-end seam ──────────────────────────────────────────
 export type {
 	ConfirmResult,
@@ -84,6 +84,13 @@ export {
 	modeBadge,
 	renderToolDiscovery,
 } from "./render/tools-list.js";
+// ── Result store ─────────────────────────────────────
+export {
+	createResultStore,
+	HandleExpiredError,
+	type ResultStore,
+	type StoredResult,
+} from "./store.js";
 // ── Progressive helpers ─────────────────────────────────────
 export {
 	createProgressiveHelpers,

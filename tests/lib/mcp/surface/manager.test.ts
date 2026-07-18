@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { McpConnection } from "../../../../lib/mcp/connection.js";
 import { defaultResolved } from "../../../../lib/mcp/frontend/defaults.js";
 import { createFrontEndRegistry } from "../../../../lib/mcp/frontend/registry.js";
+import { createResultStore } from "../../../../lib/mcp/store.js";
 import { createSurfaceManager } from "../../../../lib/mcp/surface/manager.js";
 import {
 	defaultBackendOf,
@@ -203,6 +204,42 @@ describe("createSurfaceManager", () => {
 		);
 		expect(totalBytes).toBeLessThanOrEqual(500);
 		expect(textBlocks.map((b) => b.text).join("\n")).toContain("Result capped");
+		fs.rmSync(storageDir, { recursive: true, force: true });
+	});
+
+	it("spills an oversized result through the store and puts the handle in the notice", async () => {
+		const huge = "x".repeat(5000);
+		const conn = fakeConnection([tool("observe_query")], () => ({
+			content: [{ type: "text", text: huge }],
+		}));
+		const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mgr-store-"));
+		const store = createResultStore({ dir: storageDir });
+		const m = createSurfaceManager({
+			server,
+			connection: conn,
+			config: () => config(),
+			registry: createFrontEndRegistry({
+				backendOf: defaultBackendOf,
+				defaults: defaultResolved({ writeSignal: () => false }),
+			}),
+			resultCeiling: { limitBytes: 500, store },
+		});
+		const [descriptor] = (await m.reconcile()).added;
+		const result = await descriptor.execute(
+			"id",
+			{},
+			undefined,
+			undefined,
+			ctx,
+		);
+		const notice = result.content
+			.filter((b): b is { type: "text"; text: string } => b.type === "text")
+			.map((b) => b.text)
+			.join("\n");
+		const match = notice.match(/handle ([\w-]+)/);
+		expect(match).not.toBeNull();
+		const handle = (match as RegExpMatchArray)[1];
+		expect(store.read(handle)).toBe(huge);
 		fs.rmSync(storageDir, { recursive: true, force: true });
 	});
 

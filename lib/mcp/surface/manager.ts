@@ -11,15 +11,17 @@ import { type TSchema, Type } from "typebox";
 import {
 	DEFAULT_RESULT_CEILING_BYTES,
 	enforceResultCeiling,
+	type SpillTarget,
 } from "../ceiling.js";
 import type { McpConnection } from "../connection.js";
-import { joinTextContent } from "../content.js";
+import { joinTextContent, spillToFile } from "../content.js";
 import { toAgentContent } from "../frontend/defaults.js";
 import type { FrontEndRegistry } from "../frontend/registry.js";
 import type { FrontEndRenderContext, Invoke } from "../frontend/types.js";
 import { renderDefaultCall } from "../render/call.js";
 import { renderDefaultResult } from "../render/result.js";
 import type { DiscoveryEntry } from "../render/tools-list.js";
+import type { ResultStore } from "../store.js";
 import type { McpServerConfig, McpTool, McpToolResult } from "../types.js";
 import { createProgressiveHelpers, type HelperDescriptor } from "./helpers.js";
 import {
@@ -89,15 +91,26 @@ export function createSurfaceManager(deps: {
 	policy?: ServerPolicy;
 	serverCount?: () => number;
 	/** The absolute cap on any result's model-facing content, and where oversized payloads spill. */
-	resultCeiling?: { limitBytes?: number; storageDir?: () => string };
+	resultCeiling?: {
+		limitBytes?: number;
+		storageDir?: () => string;
+		store?: ResultStore;
+	};
 }): SurfaceManager {
 	const { server, connection, config, registry, policy } = deps;
 	const serverCount = deps.serverCount ?? (() => 1);
 	const ceilingBytes =
 		deps.resultCeiling?.limitBytes ?? DEFAULT_RESULT_CEILING_BYTES;
+	const ceilingStore = deps.resultCeiling?.store;
 	const ceilingStorageDir =
 		deps.resultCeiling?.storageDir ??
 		(() => path.join(os.tmpdir(), "pi-mcp-results"));
+	// A store-backed spill hands the model a queryable handle; without one, spill
+	// straight to a directory so the ceiling still preserves the payload.
+	const ceilingSpill = (text: string): SpillTarget =>
+		ceilingStore
+			? ceilingStore.put(text)
+			: { path: spillToFile(text, ceilingStorageDir()) };
 	const backendOf = server.backendOf ?? policy?.backendOf ?? defaultBackendOf;
 	const namespace = server.helperNamespace ?? server.id;
 	const prefix = server.toolNamePrefix ?? "";
@@ -139,7 +152,7 @@ export function createSurfaceManager(deps: {
 		const shaped = resolved.shape(result, tool);
 		const capped = enforceResultCeiling(shaped, result, {
 			limitBytes: ceilingBytes,
-			storageDir: ceilingStorageDir(),
+			spill: ceilingSpill,
 		});
 		return { ...result, content: capped };
 	}

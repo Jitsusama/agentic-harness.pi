@@ -4,10 +4,19 @@ import type { McpContent, McpToolResult } from "./types.js";
 /** A byte ceiling at or above the 200KB soft default, so it never tightens an already-capped tool. */
 export const DEFAULT_RESULT_CEILING_BYTES = 256 * 1024;
 
+/** Where a spilled payload landed: a path to read, and an optional queryable handle. */
+export interface SpillTarget {
+	path: string;
+	handle?: string;
+}
+
 /** Where and how hard to cap a result's model-facing content. */
 export interface CeilingOptions {
 	limitBytes: number;
+	/** A directory to spill an oversized payload into, used when `spill` is absent. */
 	storageDir?: string;
+	/** Spill the full payload and return where it landed; throws on failure. Preferred over `storageDir`. */
+	spill?: (text: string) => SpillTarget;
 }
 
 /** How a resource_link is rendered to the model by toAgentContent. */
@@ -50,7 +59,7 @@ export function enforceResultCeiling(
 	const originalBytes = contentByteSize(shaped);
 	if (originalBytes <= opts.limitBytes) return shaped;
 
-	const spill = trySpill(joinTextContent(raw), opts.storageDir);
+	const spill = trySpill(joinTextContent(raw), opts);
 	const droppedImages = shaped.filter((b) => b.type === "image").length;
 	const notice = ceilingNotice({
 		limitBytes: opts.limitBytes,
@@ -82,13 +91,19 @@ function textFacing(content: McpContent[]): string {
 	return parts.join("\n");
 }
 
-/** The outcome of a spill: a path on success, or an error message on failure. */
-type SpillOutcome = { path: string } | { error: string };
+/** The outcome of a spill: where it landed on success, or an error message on failure. */
+type SpillOutcome = SpillTarget | { error: string };
 
-function trySpill(text: string, dir: string | undefined): SpillOutcome {
-	if (!dir) return { error: "no storage location configured" };
+function trySpill(text: string, opts: CeilingOptions): SpillOutcome {
+	const dir = opts.storageDir;
+	const spill =
+		opts.spill ??
+		(dir
+			? (t: string): SpillTarget => ({ path: spillToFile(t, dir) })
+			: undefined);
+	if (!spill) return { error: "no storage location configured" };
 	try {
-		return { path: spillToFile(text, dir) };
+		return spill(text);
 	} catch (err) {
 		return { error: err instanceof Error ? err.message : String(err) };
 	}
@@ -104,11 +119,18 @@ function ceilingNotice(info: {
 		info.droppedImages > 0
 			? ` ${info.droppedImages} image block(s) omitted.`
 			: "";
-	const fate =
-		"path" in info.spill
-			? `The full ${info.originalBytes}-byte result was saved to ${info.spill.path}. Read or query that file for the remainder.`
-			: `The full ${info.originalBytes}-byte result could not be saved (${info.spill.error}) and the remainder was dropped.`;
+	const fate = spillFate(info.originalBytes, info.spill);
 	return `[Result capped at ${info.limitBytes} bytes. ${fate}${dropped}]`;
+}
+
+/** Describe where the full payload went, naming the queryable handle when the spill produced one. */
+function spillFate(originalBytes: number, spill: SpillOutcome): string {
+	if ("error" in spill)
+		return `The full ${originalBytes}-byte result could not be saved (${spill.error}) and the remainder was dropped.`;
+	const where = spill.handle
+		? `saved under handle ${spill.handle} (${spill.path})`
+		: `saved to ${spill.path}`;
+	return `The full ${originalBytes}-byte result was ${where}. Read or query it for the remainder.`;
 }
 
 /** Slice text to at most `maxBytes` utf-8 bytes without splitting a multi-byte character. */
