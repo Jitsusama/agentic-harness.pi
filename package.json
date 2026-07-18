@@ -38,6 +38,9 @@
 		"test:coverage": "vitest run --coverage"
 	},
 	"packageManager": "pnpm@9.15.0",
+	"engines": {
+		"node": ">=22.19.0"
+	},
 	"pnpm": {
 		"overrides": {
 			"google-auth-library": "10.9.0"
