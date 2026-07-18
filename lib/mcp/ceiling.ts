@@ -17,6 +17,8 @@ export interface CeilingOptions {
 	storageDir?: string;
 	/** Spill the full payload and return where it landed; throws on failure. Preferred over `storageDir`. */
 	spill?: (text: string) => SpillTarget;
+	/** A caller-specific next step appended to the notice, e.g. how to ask for less. */
+	guidance?: string;
 }
 
 /** How a resource_link is rendered to the model by toAgentContent. */
@@ -71,6 +73,7 @@ export function enforceResultCeiling(
 			originalBytes,
 			spill,
 			droppedImages,
+			guidance: opts.guidance,
 		}),
 		opts.limitBytes,
 	);
@@ -121,13 +124,15 @@ function ceilingNotice(info: {
 	originalBytes: number;
 	spill: SpillOutcome | undefined;
 	droppedImages: number;
+	guidance?: string;
 }): string {
 	const dropped =
 		info.droppedImages > 0
 			? ` ${info.droppedImages} image block(s) omitted.`
 			: "";
 	const fate = spillFate(info.originalBytes, info.spill);
-	return `[Result capped at ${info.limitBytes} bytes. ${fate}${dropped}]`;
+	const guidance = info.guidance ? ` ${info.guidance}` : "";
+	return `[Result capped at ${info.limitBytes} bytes. ${fate}${dropped}${guidance}]`;
 }
 
 /** Describe where the full payload went, naming the queryable handle when the spill produced one. */

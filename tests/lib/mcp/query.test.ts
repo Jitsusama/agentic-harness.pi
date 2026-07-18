@@ -91,11 +91,22 @@ describe("queryStoredJson", () => {
 		expect(JSON.parse(dataOf(out))).toHaveLength(0);
 	});
 
-	it("explains when nothing matches rather than returning an empty blob", () => {
+	it("explains when nothing matches and points at field names and dotted keys", () => {
 		const store = createResultStore({ dir });
 		const { handle } = store.put(JSON.stringify({ a: 1 }));
 		const out = queryStoredJson(store, handle, "$.missing");
-		expect(textOf(out).toLowerCase()).toContain("no match");
+		const text = textOf(out).toLowerCase();
+		expect(text).toContain("no match");
+		expect(text).toContain("bracket notation");
+	});
+
+	it("points a malformed dotted-key expression at bracket notation", () => {
+		const store = createResultStore({ dir });
+		const { handle } = store.put(JSON.stringify({ events: [{ "a.b": 1 }] }));
+		// A filter that dot-navigates a dotted key throws inside eval; the note
+		// should steer toward bracket notation rather than just echoing the error.
+		const out = queryStoredJson(store, handle, "$.events[?(@.a.b==1)]");
+		expect(textOf(out)).toContain("bracket notation");
 	});
 
 	it("re-caps an oversized query result through the store", () => {
@@ -114,5 +125,6 @@ describe("queryStoredJson", () => {
 			)
 			.reduce((sum, b) => sum + Buffer.byteLength(b.text, "utf-8"), 0);
 		expect(totalBytes).toBeLessThanOrEqual(1000);
+		expect(textOf(out)).toContain("project fewer fields");
 	});
 });

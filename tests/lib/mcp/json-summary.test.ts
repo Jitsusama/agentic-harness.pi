@@ -55,6 +55,15 @@ describe("summarizeJson", () => {
 		expect(out).toContain("b");
 	});
 
+	it("stops tallying past the element bound and samples the first element", () => {
+		const rows = Array.from({ length: 30 }, (_, i) => ({ status: i % 2 }));
+		const out = summarizeJson(rows, { maxElements: 10 });
+		expect(out).toContain("array(30, first=");
+		// No value tally is shown, because that would be a partial scan dressed up
+		// as an exact count.
+		expect(out).not.toContain("×");
+	});
+
 	it("reports a scalar root by type and, for strings, length", () => {
 		expect(summarizeJson("hello")).toBe("string(5)");
 		expect(summarizeJson(42)).toBe("number");
@@ -97,6 +106,8 @@ describe("jsonSummaryContent", () => {
 		const text = textOf(out);
 		expect(text).toContain("events: array(3");
 		expect(text).toContain("h1");
+		// The notice steers toward bracket notation for dotted keys.
+		expect(text).toContain("bracket notation");
 	});
 
 	it("returns undefined when the payload exceeds the parse gate", () => {
