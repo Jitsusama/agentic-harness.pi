@@ -1,10 +1,13 @@
 import type { AgentToolResult } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it } from "vitest";
+import { RESULT_VIEW_KEY } from "../../../../lib/mcp/json-summary.js";
 import {
 	CANCELLED_TEXT,
 	classifyResult,
 	collapsePreview,
+	formatBytes,
 	resultText,
+	resultViewOf,
 } from "../../../../lib/mcp/render/result.js";
 
 function textResult(...texts: string[]): AgentToolResult<unknown> {
@@ -39,6 +42,41 @@ describe("classifyResult", () => {
 
 	it("classifies ordinary output as preview", () => {
 		expect(classifyResult("some rows", false)).toBe("preview");
+	});
+});
+
+describe("resultViewOf", () => {
+	it("reads a well-formed view off the result details", () => {
+		const result: AgentToolResult<unknown> = {
+			content: [],
+			details: {
+				[RESULT_VIEW_KEY]: {
+					pretty: "{\n  a: number\n}",
+					handle: "h1",
+					path: "/tmp/x",
+					bytes: 2048,
+				},
+			},
+		};
+		expect(resultViewOf(result)?.handle).toBe("h1");
+	});
+
+	it("ignores details with no view and malformed views", () => {
+		expect(resultViewOf({ content: [], details: undefined })).toBeUndefined();
+		expect(
+			resultViewOf({ content: [], details: { [RESULT_VIEW_KEY]: 42 } }),
+		).toBeUndefined();
+		expect(
+			resultViewOf({ content: [], details: { [RESULT_VIEW_KEY]: {} } }),
+		).toBeUndefined();
+	});
+});
+
+describe("formatBytes", () => {
+	it("renders bytes, KB and MB across the thresholds", () => {
+		expect(formatBytes(512)).toBe("512 B");
+		expect(formatBytes(2048)).toBe("2 KB");
+		expect(formatBytes(2_500_000)).toBe("2.4 MB");
 	});
 });
 

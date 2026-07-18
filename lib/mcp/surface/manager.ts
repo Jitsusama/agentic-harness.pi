@@ -19,7 +19,11 @@ import { joinTextContent } from "../content.js";
 import { toAgentContent } from "../frontend/defaults.js";
 import type { FrontEndRegistry } from "../frontend/registry.js";
 import type { FrontEndRenderContext, Invoke } from "../frontend/types.js";
-import { jsonSummaryContent } from "../json-summary.js";
+import {
+	jsonSummaryContent,
+	RESULT_VIEW_KEY,
+	type ResultView,
+} from "../json-summary.js";
 import { renderDefaultCall } from "../render/call.js";
 import { renderDefaultResult } from "../render/result.js";
 import type { DiscoveryEntry } from "../render/tools-list.js";
@@ -168,14 +172,38 @@ export function createSurfaceManager(deps: {
 			connection.callTool(tool.name, callArgs, { signal: callSignal });
 		const result = await resolved.wrap(invoke, tool)(args, ctx, signal);
 		const shaped = resolved.shape(result, tool);
-		const enriched = maybeSummarizeJson(shaped, result, tool);
+		const { content: enriched, view } = maybeSummarizeJson(
+			shaped,
+			result,
+			tool,
+		);
 		const capped = enforceResultCeiling(enriched, result, {
 			limitBytes: ceilingBytes,
 			spill: ceilingSpill,
 			guidance:
 				"To get a smaller result, re-run the source tool with a tighter query: add filters, lower the limit, or shorten the time range.",
 		});
-		return { ...result, content: capped };
+		return {
+			...result,
+			content: capped,
+			structuredContent: withView(result, view),
+		};
+	}
+
+	// The render view rides on structuredContent, which the renderer reads but the
+	// model never sees, so the terminal can show a friendlier shape than the digest.
+	function withView(
+		result: McpToolResult,
+		view: ResultView | undefined,
+	): unknown {
+		if (!view) return result.structuredContent;
+		const base =
+			result.structuredContent &&
+			typeof result.structuredContent === "object" &&
+			!Array.isArray(result.structuredContent)
+				? (result.structuredContent as Record<string, unknown>)
+				: {};
+		return { ...base, [RESULT_VIEW_KEY]: view };
 	}
 
 	// When the policy declares a tool's payload as JSON and the shaped result
@@ -186,15 +214,17 @@ export function createSurfaceManager(deps: {
 		shaped: McpToolResult["content"],
 		result: McpToolResult,
 		tool: McpTool,
-	): McpToolResult["content"] {
-		if (policy?.contentType?.(tool) !== "application/json") return shaped;
-		if (contentByteSize(shaped) <= ceilingBytes) return shaped;
+	): { content: McpToolResult["content"]; view?: ResultView } {
+		if (policy?.contentType?.(tool) !== "application/json")
+			return { content: shaped };
+		if (contentByteSize(shaped) <= ceilingBytes) return { content: shaped };
 		const summary = jsonSummaryContent({
 			rawText: joinTextContent(result),
 			spill: ceilingSpill,
 			parseGateBytes: jsonParseGateBytes,
 		});
-		return summary ?? shaped;
+		if (!summary) return { content: shaped };
+		return { content: summary.content, view: summary.view };
 	}
 
 	function buildDescriptor(tool: McpTool): ToolRegistrationDescriptor {
