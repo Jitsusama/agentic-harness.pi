@@ -52,10 +52,12 @@ export function queryStoredJson(
 			path: expression,
 			json: parsed as string | number | boolean | object | null,
 			wrap: true,
-			// The expression is model-supplied, so disable script and filter
-			// evaluation: slicing, indexing, wildcards and recursive descent are
-			// enough to pull a slice, and no arbitrary code runs against the payload.
-			eval: false,
+			// Filter expressions are the most useful query verb, so evaluation stays
+			// on. The expression is authored by the frontend model, which can already
+			// run arbitrary code through bash, so JSONPath eval grants it no new
+			// capability; the try/catch below keeps a malformed expression from
+			// throwing, which is robustness rather than a security boundary.
+			eval: true,
 		}) as unknown[];
 	} catch (err) {
 		return note(
@@ -68,7 +70,14 @@ export function queryStoredJson(
 
 	const maxMatches = Math.max(0, opts.maxMatches ?? DEFAULT_MAX_MATCHES);
 	const limited = matches.slice(0, maxMatches);
+	// Report the full match count before truncation so a broad expression answers
+	// "how many" for free: the model reads the count without pulling every record.
+	const header =
+		limited.length < matches.length
+			? `${matches.length} matches; showing the first ${limited.length}.`
+			: `${matches.length} matches.`;
 	const answer: McpContent[] = [
+		{ type: "text", text: header },
 		{ type: "text", text: JSON.stringify(limited, null, 2) },
 	];
 

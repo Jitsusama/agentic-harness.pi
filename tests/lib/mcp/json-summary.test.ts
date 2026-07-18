@@ -23,10 +23,36 @@ describe("summarizeJson", () => {
 		expect(out).toContain("missing: null");
 	});
 
-	it("reports an array length and samples the first element", () => {
-		const out = summarizeJson([{ a: 1 }, { a: 2 }, { a: 3 }]);
+	it("profiles an array of objects with per-key value counts", () => {
+		const out = summarizeJson([
+			{ status: 200 },
+			{ status: 200 },
+			{ status: 200 },
+			{ status: 500 },
+		]);
+		expect(out).toContain("array(4");
+		expect(out).toContain("status: 200×3");
+		expect(out).toContain("500");
+	});
+
+	it("unions keys across a heterogeneous array of objects", () => {
+		const out = summarizeJson([{ a: 1 }, { b: 2 }]);
+		expect(out).toContain("a:");
+		expect(out).toContain("b:");
+	});
+
+	it("collapses a high-cardinality field to a distinct count", () => {
+		const rows = Array.from({ length: 60 }, (_, i) => ({ id: `req-${i}` }));
+		const out = summarizeJson(rows);
+		expect(out).toContain("distinct");
+		expect(out).not.toContain("req-42");
+	});
+
+	it("profiles a scalar array by value frequency", () => {
+		const out = summarizeJson(["a", "a", "b"]);
 		expect(out).toContain("array(3");
-		expect(out).toContain("a: number");
+		expect(out).toContain("a×2");
+		expect(out).toContain("b");
 	});
 
 	it("reports a scalar root by type and, for strings, length", () => {
