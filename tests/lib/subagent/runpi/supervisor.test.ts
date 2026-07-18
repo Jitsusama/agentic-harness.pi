@@ -9,14 +9,16 @@ import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.js";
 import { createSupervisorRunPi } from "../../../../lib/subagent/runpi/supervisor.js";
 
 // Every test here spawns the real node supervisor, sometimes two
-// process levels deep. Under parallel suite load the OS can take
-// several seconds just to start those processes, which blows the 5s
-// default test timeout and shows up as flaky. Set the timeout at
-// collection time: a beforeAll runs after the tests are already
-// registered with the default, so it never takes effect. The
-// supervisor's own idle and wall-clock timeouts remain the real
-// guard against a genuinely wedged run.
-vi.setConfig({ testTimeout: 30_000 });
+// process levels deep. Under parallel suite load the OS can take tens
+// of seconds just to schedule and start those processes, which blows
+// the 5s default test timeout and shows up as flaky. The timeout here
+// is slack for that scheduling latency, not a real work budget: each
+// run pins the supervisor's own idle and wall-clock timeouts far
+// lower, so a genuinely wedged run still fails fast. Paired with the
+// worker cap in vitest.config.ts, this keeps the file green under a
+// saturated fork pool. Set at collection time, since a beforeAll runs
+// after the tests are already registered with the default.
+vi.setConfig({ testTimeout: 60_000 });
 
 interface FakeChild {
 	stdout: Readable;
