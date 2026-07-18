@@ -243,6 +243,48 @@ describe("createSurfaceManager", () => {
 		fs.rmSync(storageDir, { recursive: true, force: true });
 	});
 
+	it("summarizes an oversized JSON result the policy declares, with a handle", async () => {
+		const payload = JSON.stringify({
+			events: Array.from({ length: 400 }, (_, i) => ({
+				id: i,
+				blob: "z".repeat(50),
+			})),
+			status: "ok",
+		});
+		const conn = fakeConnection([tool("observe_query")], () => ({
+			content: [{ type: "text", text: payload }],
+		}));
+		const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mgr-json-"));
+		const store = createResultStore({ dir: storageDir });
+		const m = createSurfaceManager({
+			server,
+			connection: conn,
+			config: () => config(),
+			registry: createFrontEndRegistry({
+				backendOf: defaultBackendOf,
+				defaults: defaultResolved({ writeSignal: () => false }),
+			}),
+			policy: { contentType: () => "application/json" },
+			resultCeiling: { limitBytes: 500, store, jsonParseGateBytes: 100_000 },
+		});
+		const [descriptor] = (await m.reconcile()).added;
+		const result = await descriptor.execute(
+			"id",
+			{},
+			undefined,
+			undefined,
+			ctx,
+		);
+		const text = result.content
+			.filter((b): b is { type: "text"; text: string } => b.type === "text")
+			.map((b) => b.text)
+			.join("\n");
+		expect(text).toContain("events: array(400");
+		const handle = (text.match(/handle ([\w-]+)/) as RegExpMatchArray)[1];
+		expect(JSON.parse(store.read(handle))).toHaveProperty("status", "ok");
+		fs.rmSync(storageDir, { recursive: true, force: true });
+	});
+
 	it("caps an oversized result through the run_tool passthrough too", async () => {
 		const huge = "x".repeat(5000);
 		const conn = fakeConnection([tool("observe_query")], () => ({

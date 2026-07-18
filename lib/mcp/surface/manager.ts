@@ -9,6 +9,7 @@ import type {
 import type { Component } from "@mariozechner/pi-tui";
 import { type TSchema, Type } from "typebox";
 import {
+	contentByteSize,
 	DEFAULT_RESULT_CEILING_BYTES,
 	enforceResultCeiling,
 	type SpillTarget,
@@ -18,6 +19,7 @@ import { joinTextContent, spillToFile } from "../content.js";
 import { toAgentContent } from "../frontend/defaults.js";
 import type { FrontEndRegistry } from "../frontend/registry.js";
 import type { FrontEndRenderContext, Invoke } from "../frontend/types.js";
+import { jsonSummaryContent } from "../json-summary.js";
 import { renderDefaultCall } from "../render/call.js";
 import { renderDefaultResult } from "../render/result.js";
 import type { DiscoveryEntry } from "../render/tools-list.js";
@@ -95,6 +97,8 @@ export function createSurfaceManager(deps: {
 		limitBytes?: number;
 		storageDir?: () => string;
 		store?: ResultStore;
+		/** The largest payload the JSON strategy will parse; above it the ceiling spills raw. Defaults to 8x the ceiling. */
+		jsonParseGateBytes?: number;
 	};
 }): SurfaceManager {
 	const { server, connection, config, registry, policy } = deps;
@@ -111,6 +115,8 @@ export function createSurfaceManager(deps: {
 		ceilingStore
 			? ceilingStore.put(text)
 			: { path: spillToFile(text, ceilingStorageDir()) };
+	const jsonParseGateBytes =
+		deps.resultCeiling?.jsonParseGateBytes ?? ceilingBytes * 8;
 	const backendOf = server.backendOf ?? policy?.backendOf ?? defaultBackendOf;
 	const namespace = server.helperNamespace ?? server.id;
 	const prefix = server.toolNamePrefix ?? "";
@@ -150,11 +156,31 @@ export function createSurfaceManager(deps: {
 			connection.callTool(tool.name, callArgs, { signal: callSignal });
 		const result = await resolved.wrap(invoke, tool)(args, ctx, signal);
 		const shaped = resolved.shape(result, tool);
-		const capped = enforceResultCeiling(shaped, result, {
+		const enriched = maybeSummarizeJson(shaped, result, tool);
+		const capped = enforceResultCeiling(enriched, result, {
 			limitBytes: ceilingBytes,
 			spill: ceilingSpill,
 		});
 		return { ...result, content: capped };
+	}
+
+	// When the policy declares a tool's payload as JSON and the shaped result
+	// would exceed the ceiling, summarize the structure and stash the full body
+	// behind a handle rather than head-slicing it. Anything the strategy declines
+	// (over the parse gate, or not JSON) falls through to the ceiling untouched.
+	function maybeSummarizeJson(
+		shaped: McpToolResult["content"],
+		result: McpToolResult,
+		tool: McpTool,
+	): McpToolResult["content"] {
+		if (policy?.contentType?.(tool) !== "application/json") return shaped;
+		if (contentByteSize(shaped) <= ceilingBytes) return shaped;
+		const summary = jsonSummaryContent({
+			rawText: joinTextContent(result),
+			spill: ceilingSpill,
+			parseGateBytes: jsonParseGateBytes,
+		});
+		return summary ?? shaped;
 	}
 
 	function buildDescriptor(tool: McpTool): ToolRegistrationDescriptor {

@@ -75,6 +75,13 @@ export type {
 	ResolvedFrontEnd,
 	WrappedExecute,
 } from "./frontend/types.js";
+// ── JSON summary ─────────────────────────────────────
+export {
+	type JsonSummaryContentOptions,
+	type JsonSummaryOptions,
+	jsonSummaryContent,
+	summarizeJson,
+} from "./json-summary.js";
 // ── Rendering ───────────────────────────────────────────────
 export { renderDefaultCall } from "./render/call.js";
 export { CANCELLED_TEXT, renderDefaultResult } from "./render/result.js";
