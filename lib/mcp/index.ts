@@ -82,6 +82,8 @@ export {
 	jsonSummaryContent,
 	summarizeJson,
 } from "./json-summary.js";
+// ── Query ───────────────────────────────────────────────
+export { type QueryOptions, queryStoredJson } from "./query.js";
 // ── Rendering ───────────────────────────────────────────────
 export { renderDefaultCall } from "./render/call.js";
 export { CANCELLED_TEXT, renderDefaultResult } from "./render/result.js";
