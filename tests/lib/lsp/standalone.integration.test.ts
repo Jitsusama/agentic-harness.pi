@@ -15,13 +15,8 @@ import {
 } from "../../../lib/lsp/index.js";
 
 const repoRoot = resolve(__dirname, "..", "..", "..");
-const tsserver = join(
-	repoRoot,
-	"node_modules",
-	".bin",
-	"typescript-language-server",
-);
-const hasServer = existsSync(tsserver);
+const serverBin = join(repoRoot, "node_modules", ".bin", "tsc");
+const hasServer = existsSync(serverBin);
 
 /** Generous cap: a cold server spawn under CI load. */
 const LIVE_TIMEOUT_MS = 45_000;

@@ -11,26 +11,25 @@
 		"isolatedModules": true,
 		"resolveJsonModule": true,
 		"types": ["node"],
-		"baseUrl": ".",
 		"paths": {
 			"@mariozechner/pi-coding-agent": [
-				"node_modules/@earendil-works/pi-coding-agent"
+				"./node_modules/@earendil-works/pi-coding-agent"
 			],
 			"@mariozechner/pi-coding-agent/*": [
-				"node_modules/@earendil-works/pi-coding-agent/*"
+				"./node_modules/@earendil-works/pi-coding-agent/*"
 			],
-			"@mariozechner/pi-tui": ["node_modules/@earendil-works/pi-tui"],
-			"@mariozechner/pi-tui/*": ["node_modules/@earendil-works/pi-tui/*"],
-			"@mariozechner/pi-ai": ["node_modules/@earendil-works/pi-ai"],
-			"@mariozechner/pi-ai/*": ["node_modules/@earendil-works/pi-ai/*"],
-			"@sinclair/typebox": ["node_modules/typebox"],
+			"@mariozechner/pi-tui": ["./node_modules/@earendil-works/pi-tui"],
+			"@mariozechner/pi-tui/*": ["./node_modules/@earendil-works/pi-tui/*"],
+			"@mariozechner/pi-ai": ["./node_modules/@earendil-works/pi-ai"],
+			"@mariozechner/pi-ai/*": ["./node_modules/@earendil-works/pi-ai/*"],
+			"@sinclair/typebox": ["./node_modules/typebox"],
 			"@sinclair/typebox/value": [
-				"node_modules/typebox/build/value/index.d.mts"
+				"./node_modules/typebox/build/value/index.d.mts"
 			],
 			"@sinclair/typebox/compile": [
-				"node_modules/typebox/build/compile/index.d.mts"
+				"./node_modules/typebox/build/compile/index.d.mts"
 			],
-			"@sinclair/typebox/*": ["node_modules/typebox/*"]
+			"@sinclair/typebox/*": ["./node_modules/typebox/*"]
 		}
 	},
 	"include": ["extensions/**/*.ts", "lib/**/*.ts", "tests/**/*.ts"],

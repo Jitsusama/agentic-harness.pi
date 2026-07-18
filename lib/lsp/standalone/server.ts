@@ -1,15 +1,16 @@
 /**
  * One language server, spawned and supervised over stdio.
  *
- * Owns the JSON-RPC connection, the initialize handshake, the
- * open-document set and the latest diagnostics each document
- * published. Positions cross the boundary here: the tool's
+ * Owns the JSON-RPC connection, the initialize handshake and
+ * the open-document set, and pulls diagnostics on demand.
+ * Positions cross the boundary here: the tool's
  * byte columns convert to LSP's UTF-16 columns on the way in
  * and back on the way out.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { basename } from "node:path";
 import {
 	createMessageConnection,
 	type MessageConnection,
@@ -19,9 +20,12 @@ import {
 import {
 	type ClientCapabilities,
 	CodeActionRequest,
+	ConfigurationRequest,
 	DefinitionRequest,
 	DidChangeTextDocumentNotification,
 	DidOpenTextDocumentNotification,
+	DocumentDiagnosticReportKind,
+	DocumentDiagnosticRequest,
 	type DocumentSymbol,
 	DocumentSymbolRequest,
 	HoverRequest,
@@ -30,10 +34,13 @@ import {
 	type Location,
 	type LocationLink,
 	type WorkspaceEdit as ProtocolWorkspaceEdit,
-	PublishDiagnosticsNotification,
 	ReferencesRequest,
+	RegistrationRequest,
 	RenameRequest,
 	type SymbolInformation,
+	UnregistrationRequest,
+	WorkDoneProgressCreateRequest,
+	WorkspaceFoldersRequest,
 	type WorkspaceSymbol,
 	WorkspaceSymbolRequest,
 } from "vscode-languageserver-protocol";
@@ -61,15 +68,17 @@ import {
 } from "./document.js";
 
 /**
- * Client capabilities advertised at initialize. A server
- * that respects capabilities pushes diagnostics only when the
- * client declares publishDiagnostics and synchronization, so
- * these are load-bearing, not decorative.
+ * Client capabilities advertised at initialize. TypeScript 7's
+ * native LSP answers diagnostics on demand rather than pushing
+ * them, and drives the client with dynamic registration and
+ * workspace queries, so the diagnostic, configuration,
+ * workspaceFolders and workDoneProgress capabilities are
+ * load-bearing, not decorative.
  */
 const CLIENT_CAPABILITIES: ClientCapabilities = {
 	textDocument: {
 		synchronization: { didSave: true, dynamicRegistration: true },
-		publishDiagnostics: { relatedInformation: true },
+		diagnostic: { dynamicRegistration: true },
 		definition: { linkSupport: true },
 		references: {},
 		hover: { contentFormat: ["markdown", "plaintext"] },
@@ -77,13 +86,17 @@ const CLIENT_CAPABILITIES: ClientCapabilities = {
 		rename: { prepareSupport: true },
 		codeAction: {},
 	},
-	workspace: { workspaceEdit: { documentChanges: true } },
+	workspace: {
+		workspaceEdit: { documentChanges: true },
+		configuration: true,
+		workspaceFolders: true,
+		didChangeConfiguration: { dynamicRegistration: true },
+	},
+	window: { workDoneProgress: true },
 };
 
 /** How long a cold initialize may take before we give up. */
 const WARMUP_TIMEOUT_MS = 15_000;
-/** Quiet window after the last diagnostics publish before we read them. */
-const DIAGNOSTICS_SETTLE_MS = 300;
 /** Hard cap on waiting for a document's diagnostics. Generous
  * because it also bounds the first request against a cold,
  * large project whose program is still building. */
@@ -111,8 +124,6 @@ const SEVERITY: Readonly<Record<number, DiagnosticSeverity>> = {
 export class StandaloneServer {
 	private readonly openDocs = new Set<string>();
 	private readonly lineCache = new Map<string, string[]>();
-	private readonly diagnostics = new Map<string, ProtocolDiagnostic[]>();
-	private readonly diagWaiters = new Set<(uri: string) => void>();
 	private version = 0;
 
 	private constructor(
@@ -151,18 +162,26 @@ export class StandaloneServer {
 		// Swallow transport errors (a write after the child is killed);
 		// they are expected during dispose and must not go unhandled.
 		connection.onError(() => {});
-		connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
-			server.diagnostics.set(
-				params.uri,
-				params.diagnostics as unknown as ProtocolDiagnostic[],
-			);
-			for (const waiter of server.diagWaiters) waiter(params.uri);
-		});
+		// TypeScript 7's native LSP drives the client with dynamic
+		// capability registration and workspace queries, and stalls until
+		// they are answered. Accept registration as a no-op, answer
+		// configuration with defaults, grant progress tokens, and report
+		// the resolved project root as the one workspace folder.
+		connection.onRequest(RegistrationRequest.type, () => undefined);
+		connection.onRequest(UnregistrationRequest.type, () => undefined);
+		connection.onRequest(ConfigurationRequest.type, (params) =>
+			params.items.map(() => ({})),
+		);
+		connection.onRequest(WorkDoneProgressCreateRequest.type, () => undefined);
+		connection.onRequest(WorkspaceFoldersRequest.type, () => [
+			{ uri: fileToUri(root), name: basename(root) },
+		]);
 		connection.listen();
 		await withTimeout(
 			connection.sendRequest(InitializeRequest.type, {
 				processId: process.pid,
 				rootUri: fileToUri(root),
+				workspaceFolders: [{ uri: fileToUri(root), name: basename(root) }],
 				capabilities: CLIENT_CAPABILITIES,
 				...(config.initOptions
 					? { initializationOptions: config.initOptions }
@@ -179,10 +198,8 @@ export class StandaloneServer {
 
 	/** Problems the server reports against the file's current bytes. */
 	async diagnose(path: string): Promise<Diagnostic[]> {
-		const uri = fileToUri(path);
 		this.ensureOpen(path);
-		await this.settleDiagnostics(uri);
-		const raw = this.diagnostics.get(uri) ?? [];
+		const raw = await this.pullDiagnostics(path);
 		const lines = this.linesFor(path);
 		return raw.map((d) => this.toDiagnostic(path, lines, d));
 	}
@@ -316,18 +333,38 @@ export class StandaloneServer {
 	/**
 	 * Open the target and wait for the server to finish building
 	 * the project's program before a type-intelligence request.
-	 * tsserver answers references and definition only across files
-	 * in the loaded program, and it publishes a file's diagnostics
-	 * once that program is built, so the first publish is a
-	 * deterministic readiness signal. Cached per file so warm
-	 * requests skip the wait.
+	 * The native server answers references and definition only
+	 * across files in the loaded program, and a pull-diagnostics
+	 * request resolves only once that program is built, so the
+	 * first pull is a deterministic readiness signal. Cached per
+	 * file so warm requests skip the wait.
 	 */
 	private async ensureReady(path: string): Promise<void> {
 		const uri = fileToUri(path);
 		const alreadyOpen = this.openDocs.has(uri);
 		this.ensureOpen(path);
 		if (alreadyOpen) return;
-		await this.settleDiagnostics(uri);
+		// Force the program to build; the response is the readiness gate.
+		await this.pullDiagnostics(path).catch(() => {});
+	}
+
+	/**
+	 * Pull the current diagnostics for a file. TypeScript 7's native
+	 * LSP computes them on request and resolves once the program is
+	 * built, so this both reports problems and gates readiness.
+	 */
+	private async pullDiagnostics(path: string): Promise<ProtocolDiagnostic[]> {
+		const report = await withTimeout(
+			this.connection.sendRequest(DocumentDiagnosticRequest.type, {
+				textDocument: { uri: fileToUri(path) },
+			}),
+			DIAGNOSTICS_TIMEOUT_MS,
+			`diagnostics ${path}`,
+		);
+		if (report?.kind === DocumentDiagnosticReportKind.Full) {
+			return report.items as unknown as ProtocolDiagnostic[];
+		}
+		return [];
 	}
 
 	private ensureOpen(path: string): void {
@@ -356,35 +393,6 @@ export class StandaloneServer {
 		const lines = toLines(readFileSync(path, "utf8"));
 		this.lineCache.set(uri, lines);
 		return lines;
-	}
-
-	private settleDiagnostics(uri: string): Promise<void> {
-		return new Promise((resolve) => {
-			let settleTimer: ReturnType<typeof setTimeout>;
-			let done = false;
-			const finish = (): void => {
-				if (done) return;
-				done = true;
-				clearTimeout(settleTimer);
-				clearTimeout(hardTimer);
-				this.diagWaiters.delete(onPublish);
-				resolve();
-			};
-			const arm = (): void => {
-				clearTimeout(settleTimer);
-				settleTimer = setTimeout(finish, DIAGNOSTICS_SETTLE_MS);
-			};
-			const onPublish = (published: string): void => {
-				if (published === uri) arm();
-			};
-			const hardTimer = setTimeout(finish, DIAGNOSTICS_TIMEOUT_MS);
-			this.diagWaiters.add(onPublish);
-			// Only start the quiet-window countdown once at least one
-			// publish has landed. Arming before the first publish would
-			// return empty for any server slower than the settle window;
-			// the hard timeout still bounds a server that never speaks.
-			if (this.diagnostics.has(uri)) arm();
-		});
 	}
 
 	private toDiagnostic(
