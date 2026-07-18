@@ -73,15 +73,40 @@ export function createStandaloneBackend(
 	const instanceFor = (
 		server: ServerConfig,
 		root: string,
+		binary: string,
 	): Promise<StandaloneServer> => {
 		const key = poolKey(server.name, root);
 		const existing = pool.get(key);
 		if (existing) return existing;
-		const binary = resolveBinary(server.command, root, env);
-		if (!binary) throw new Error(`binary ${server.command} not found`);
 		const started = StandaloneServer.start(server, root, binary);
 		pool.set(key, started);
 		return started;
+	};
+
+	// Resolve a server's effective command and args for a root. A
+	// server with a `resolve` hook picks its binary per project (the
+	// TypeScript entry chooses the native LSP or the classic wrapper
+	// by version); a null result means nothing compatible is present.
+	const effectiveServer = (
+		server: ServerConfig,
+		root: string,
+	): { config: ServerConfig; binary: string } | { reason: string } => {
+		const resolved = server.resolve
+			? server.resolve(root, env)
+			: { command: server.command, args: server.args };
+		if (!resolved) {
+			return {
+				reason: `${server.name}: no compatible server for this project's TypeScript version`,
+			};
+		}
+		const binary = resolveBinary(resolved.command, root, env);
+		if (!binary) {
+			return { reason: `${server.name}: binary ${resolved.command} not found` };
+		}
+		return {
+			config: { ...server, command: resolved.command, args: resolved.args },
+			binary,
+		};
 	};
 
 	const resolveInstances = async (
@@ -99,11 +124,12 @@ export function createStandaloneBackend(
 				reasons.push(`${server.name}: no project root marker found`);
 				continue;
 			}
-			if (!resolveBinary(server.command, root, env)) {
-				reasons.push(`${server.name}: binary ${server.command} not found`);
+			const eff = effectiveServer(server, root);
+			if ("reason" in eff) {
+				reasons.push(eff.reason);
 				continue;
 			}
-			instances.push(await instanceFor(server, root));
+			instances.push(await instanceFor(eff.config, root, eff.binary));
 			if (typeOnly) break;
 		}
 		if (instances.length === 0) {
