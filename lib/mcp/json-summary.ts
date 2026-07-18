@@ -7,11 +7,16 @@ export interface JsonSummaryOptions {
 	maxDepth?: number;
 	maxBytes?: number;
 	maxElements?: number;
+	/** Render the shape across indented lines instead of one compact line. */
+	pretty?: boolean;
 }
 
 const DEFAULT_MAX_KEYS = 40;
 const DEFAULT_MAX_DEPTH = 3;
 const DEFAULT_MAX_BYTES = 6000;
+// The pretty form spends bytes on newlines and indentation, so it gets a larger
+// cap: it is a terminal-only view a human reads on demand, never model context.
+const DEFAULT_PRETTY_MAX_BYTES = 20000;
 // Above this many array elements the profile stops tallying values and falls
 // back to a first-element sample. Tallying is linear in element count, so this
 // keeps the walk bounded no matter how large the parsed payload is, and it means
@@ -30,11 +35,12 @@ const MAX_VALUE_LEN = 24;
 /**
  * Render a bounded structural summary of a parsed JSON value.
  *
- * An object becomes its top-level keys mapped to value types, an array becomes
- * its length with a sample of the first element, and a scalar becomes its type
- * (with the length, for a string). Recursion stops at `maxDepth`, only `maxKeys`
- * object keys are shown before the rest are counted, and the whole string is
- * hard-capped at `maxBytes` so the summary can never itself blow the budget.
+ * An object becomes its keys mapped to value profiles, an array of objects
+ * becomes its length plus a per-key value-frequency profile, and a scalar
+ * becomes its type. Recursion stops at `maxDepth`, only `maxKeys` keys are shown
+ * before the rest are counted, arrays past `maxElements` degrade to a sample so
+ * the walk stays bounded, and the whole string is capped at `maxBytes`. With
+ * `pretty` the same shape is laid out across indented lines for a human to read.
  */
 export function summarizeJson(
 	value: unknown,
@@ -42,9 +48,14 @@ export function summarizeJson(
 ): string {
 	const maxKeys = opts.maxKeys ?? DEFAULT_MAX_KEYS;
 	const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
-	const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
 	const maxElements = opts.maxElements ?? DEFAULT_MAX_ELEMENTS;
-	return capBytes(describe(value, 0, maxDepth, maxKeys, maxElements), maxBytes);
+	const pretty = opts.pretty ?? false;
+	const maxBytes =
+		opts.maxBytes ?? (pretty ? DEFAULT_PRETTY_MAX_BYTES : DEFAULT_MAX_BYTES);
+	return capBytes(
+		describe(value, 0, maxDepth, maxKeys, maxElements, pretty),
+		maxBytes,
+	);
 }
 
 /** Inputs for turning an oversized JSON payload into a summary plus a stored handle. */
@@ -55,17 +66,45 @@ export interface JsonSummaryContentOptions {
 	summary?: JsonSummaryOptions;
 }
 
+/** The key under which the terminal-only render view rides on structuredContent. */
+export const RESULT_VIEW_KEY = "__mcpResultView";
+
 /**
- * Turn an oversized JSON payload into model-facing content: a bounded shape
- * summary and a notice naming the stored handle. Returns undefined when the
- * payload is larger than the parse gate or does not parse as JSON, so the
+ * A terminal-only view of a summarized result. It travels on structuredContent,
+ * which the renderer reads but the model never sees, so it can hold a fuller,
+ * friendlier shape than the compact digest handed to the model.
+ */
+export interface ResultView {
+	/** The multi-line, indented shape shown when the result is expanded. */
+	pretty: string;
+	/** The stored handle, when the payload was stashed behind one. */
+	handle?: string;
+	/** Where the full payload landed on disk. */
+	path: string;
+	/** The size of the full payload in bytes. */
+	bytes: number;
+}
+
+/** The model-facing content plus the terminal-only view for a summarized result. */
+export interface JsonSummaryResult {
+	content: McpContent[];
+	view: ResultView;
+}
+
+/**
+ * Turn an oversized JSON payload into model-facing content and a terminal view.
+ *
+ * The content is a compact shape summary and a notice naming the stored handle,
+ * exactly what the model receives. The view carries a friendlier multi-line
+ * shape for the terminal, laid out from the same parse. Returns undefined when
+ * the payload is larger than the parse gate or does not parse as JSON, so the
  * caller can fall back to the absolute ceiling.
  */
 export function jsonSummaryContent(
 	opts: JsonSummaryContentOptions,
-): McpContent[] | undefined {
-	if (Buffer.byteLength(opts.rawText, "utf-8") > opts.parseGateBytes)
-		return undefined;
+): JsonSummaryResult | undefined {
+	const bytes = Buffer.byteLength(opts.rawText, "utf-8");
+	if (bytes > opts.parseGateBytes) return undefined;
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(opts.rawText);
@@ -81,10 +120,11 @@ export function jsonSummaryContent(
 		return undefined;
 	}
 	const summary = summarizeJson(parsed, opts.summary);
+	const pretty = summarizeJson(parsed, { ...opts.summary, pretty: true });
 	const where = target.handle
 		? `handle ${target.handle} (${target.path})`
 		: target.path;
-	return [
+	const content: McpContent[] = [
 		{ type: "text", text: `JSON result summary:\n${summary}` },
 		{
 			type: "text",
@@ -98,6 +138,15 @@ export function jsonSummaryContent(
 				'so a broad expression still answers "how many".]',
 		},
 	];
+	return {
+		content,
+		view: { pretty, handle: target.handle, path: target.path, bytes },
+	};
+}
+
+/** The indentation for a given nesting depth in the pretty layout. */
+function pad(depth: number): string {
+	return "  ".repeat(depth);
 }
 
 function describe(
@@ -106,10 +155,11 @@ function describe(
 	maxDepth: number,
 	maxKeys: number,
 	maxElements: number,
+	pretty: boolean,
 ): string {
 	if (value === null) return "null";
 	if (Array.isArray(value))
-		return describeArray(value, depth, maxDepth, maxKeys, maxElements);
+		return describeArray(value, depth, maxDepth, maxKeys, maxElements, pretty);
 	if (typeof value === "object")
 		return describeObject(
 			value as Record<string, unknown>,
@@ -117,6 +167,7 @@ function describe(
 			maxDepth,
 			maxKeys,
 			maxElements,
+			pretty,
 		);
 	if (typeof value === "string") return `string(${value.length})`;
 	return typeof value;
@@ -128,6 +179,7 @@ function describeArray(
 	maxDepth: number,
 	maxKeys: number,
 	maxElements: number,
+	pretty: boolean,
 ): string {
 	if (value.length === 0) return "array(0)";
 	if (depth >= maxDepth) return `array(${value.length})`;
@@ -135,14 +187,28 @@ function describeArray(
 	// count is too large to profile without an unbounded walk, so show the shape
 	// and let the handle carry the detail a query can pull.
 	if (value.length > maxElements) {
-		const first = describe(value[0], depth + 1, maxDepth, maxKeys, maxElements);
+		const first = describe(
+			value[0],
+			depth + 1,
+			maxDepth,
+			maxKeys,
+			maxElements,
+			pretty,
+		);
 		return `array(${value.length}, first=${first})`;
 	}
 	if (value.every(isScalar))
 		return `array(${value.length}) of ${profileScalars(value)}`;
 	if (value.every(isPlainObject))
-		return `array(${value.length}) of {${profileObjectArray(value, maxKeys)}}`;
-	const first = describe(value[0], depth + 1, maxDepth, maxKeys, maxElements);
+		return `array(${value.length}) of {${profileObjectArray(value, depth, maxKeys, pretty)}}`;
+	const first = describe(
+		value[0],
+		depth + 1,
+		maxDepth,
+		maxKeys,
+		maxElements,
+		pretty,
+	);
 	return `array(${value.length}, first=${first})`;
 }
 
@@ -157,7 +223,12 @@ function isPlainObject(value: unknown): boolean {
 }
 
 /** Profile an array of objects: each key mapped to a profile of its values. */
-function profileObjectArray(rows: unknown[], maxKeys: number): string {
+function profileObjectArray(
+	rows: unknown[],
+	depth: number,
+	maxKeys: number,
+	pretty: boolean,
+): string {
 	const keys: string[] = [];
 	const seen = new Set<string>();
 	for (const row of rows)
@@ -175,7 +246,7 @@ function profileObjectArray(rows: unknown[], maxKeys: number): string {
 	});
 	const rest = keys.length - shown.length;
 	if (rest > 0) parts.push(`(+${rest} more)`);
-	return parts.join(", ");
+	return joinEntries(parts, depth, pretty);
 }
 
 /** Profile one field's collected values: scalars by frequency, else by type. */
@@ -232,17 +303,30 @@ function describeObject(
 	maxDepth: number,
 	maxKeys: number,
 	maxElements: number,
+	pretty: boolean,
 ): string {
 	const keys = Object.keys(value);
 	if (depth >= maxDepth) return `object(${keys.length} keys)`;
 	const shown = keys.slice(0, maxKeys);
 	const parts = shown.map(
 		(key) =>
-			`${key}: ${describe(value[key], depth + 1, maxDepth, maxKeys, maxElements)}`,
+			`${key}: ${describe(value[key], depth + 1, maxDepth, maxKeys, maxElements, pretty)}`,
 	);
 	const rest = keys.length - shown.length;
 	if (rest > 0) parts.push(`(+${rest} more)`);
-	return `{${parts.join(", ")}}`;
+	return `{${joinEntries(parts, depth, pretty)}}`;
+}
+
+/**
+ * Join the entries of an object or object-array profile. Compact form runs them
+ * on one line; pretty form puts each on its own indented line so a human can
+ * scan the shape, with the closing brace back at the parent's indentation.
+ */
+function joinEntries(parts: string[], depth: number, pretty: boolean): string {
+	if (!pretty) return parts.join(", ");
+	if (parts.length === 0) return "";
+	const inner = pad(depth + 1);
+	return `\n${parts.map((part) => inner + part).join("\n")}\n${pad(depth)}`;
 }
 
 /** Hard-cap a summary to `maxBytes`, cutting on a character boundary and marking the cut. */

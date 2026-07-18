@@ -55,6 +55,18 @@ describe("summarizeJson", () => {
 		expect(out).toContain("b");
 	});
 
+	it("lays the shape across indented lines in pretty mode", () => {
+		const compact = summarizeJson({ events: [{ a: 1 }], status: "ok" });
+		const pretty = summarizeJson(
+			{ events: [{ a: 1 }], status: "ok" },
+			{ pretty: true },
+		);
+		expect(compact).not.toContain("\n");
+		expect(pretty).toContain("\n");
+		expect(pretty).toContain("events:");
+		expect(pretty).toContain("status:");
+	});
+
 	it("stops tallying past the element bound and samples the first element", () => {
 		const rows = Array.from({ length: 30 }, (_, i) => ({ status: i % 2 }));
 		const out = summarizeJson(rows, { maxElements: 10 });
@@ -103,11 +115,26 @@ describe("jsonSummaryContent", () => {
 			parseGateBytes: 10_000,
 		});
 		expect(spill).toHaveBeenCalledWith(raw);
-		const text = textOf(out);
+		const text = textOf(out?.content);
 		expect(text).toContain("events: array(3");
 		expect(text).toContain("h1");
 		// The notice steers toward bracket notation for dotted keys.
 		expect(text).toContain("bracket notation");
+	});
+
+	it("carries a terminal view with a friendly multi-line shape and byte size", () => {
+		const raw = JSON.stringify({ events: [{ a: 1 }, { a: 2 }], status: "ok" });
+		const spill = vi.fn(() => ({ path: "/tmp/x", handle: "h1" }));
+		const out = jsonSummaryContent({
+			rawText: raw,
+			spill,
+			parseGateBytes: 10_000,
+		});
+		expect(out?.view.handle).toBe("h1");
+		expect(out?.view.bytes).toBe(Buffer.byteLength(raw, "utf-8"));
+		// The pretty shape is laid out across lines, unlike the compact digest.
+		expect(out?.view.pretty).toContain("\n");
+		expect(out?.view.pretty).toContain("events:");
 	});
 
 	it("returns undefined when the payload exceeds the parse gate", () => {
