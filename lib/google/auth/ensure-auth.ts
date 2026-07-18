@@ -92,7 +92,7 @@ export async function ensureAuthenticated(
 			{ label: "Cancel", value: "no" },
 		],
 	});
-	if (!result || result.type !== "option" || result.value !== "yes") {
+	if (result?.type !== "option" || result.value !== "yes") {
 		throw new Error(AUTH_MESSAGES.cancelled);
 	}
 

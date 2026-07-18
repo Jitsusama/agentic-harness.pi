@@ -111,7 +111,7 @@ async function runSetupWizard(
 		],
 	});
 
-	if (!choice || choice.type !== "option") return null;
+	if (choice?.type !== "option") return null;
 
 	switch (choice.value) {
 		case "browser":
@@ -194,11 +194,7 @@ async function setupViaCurl(
 		],
 	});
 
-	if (
-		!instructions ||
-		instructions.type !== "option" ||
-		instructions.value !== "continue"
-	) {
+	if (instructions?.type !== "option" || instructions.value !== "continue") {
 		return null;
 	}
 
@@ -284,7 +280,7 @@ async function setupViaOAuth(
 		],
 	});
 
-	if (!proceed || proceed.type !== "option" || proceed.value !== "continue") {
+	if (proceed?.type !== "option" || proceed.value !== "continue") {
 		return null;
 	}
 

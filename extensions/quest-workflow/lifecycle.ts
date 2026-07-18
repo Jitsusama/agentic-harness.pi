@@ -514,7 +514,7 @@ export function restore(
 	ctx: ExtensionContext,
 ): boolean {
 	const saved = getLastEntry<PersistedState>(ctx, SESSION_KEY);
-	if (!saved || !saved.questId) return false;
+	if (!saved?.questId) return false;
 	const result = loadQuest(state, pi, saved.questId);
 	if (!result.ok) return false;
 	if (saved.documentPath) {

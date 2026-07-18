@@ -309,7 +309,7 @@ describe("persisted cwd", () => {
 		const last = entries
 			.filter((e) => e.customType === "quest-workflow")
 			.at(-1);
-		expect((last?.data as { cwd?: string }).cwd).toBe("/work/here");
+		expect((last?.data as { cwd?: string })?.cwd).toBe("/work/here");
 	});
 });
 
