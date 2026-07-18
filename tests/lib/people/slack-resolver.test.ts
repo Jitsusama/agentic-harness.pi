@@ -10,7 +10,12 @@ vi.mock("../../../lib/slack/resolvers/user", () => ({
 }));
 
 vi.mock("../../../lib/slack/api/client", () => ({
-	SlackClient: vi.fn().mockImplementation(() => ({})),
+	// Bare vi.fn() is constructable and returns a truthy mock instance,
+	// which is all the resolver checks before handing the client to the
+	// separately-mocked resolveUser. An arrow implementation would fail
+	// under `new` in Vitest 4, and a function expression trips
+	// useArrowFunction, so the auto-mock is the honest fit here.
+	SlackClient: vi.fn(),
 }));
 
 import {

@@ -480,51 +480,47 @@ describe("runCouncil", () => {
 		expect(events).toContain("finish");
 	});
 
-	it(
-		"dispatches reviewers concurrently (not serially)",
-		async () => {
-			// The user expects council members to run in
-			// parallel. We assert that by gating the FIRST
-			// reviewer in the input order on a barrier the
-			// SECOND must release. A serial impl can't
-			// proceed: the first reviewer never returns
-			// because nothing signals it; the second never
-			// starts because the first hasn't finished.
-			// Concurrent impl: both start, second releases
-			// the barrier, first returns, then second.
-			let release!: () => void;
-			const barrier = new Promise<void>((r) => {
-				release = r;
-			});
-			const dispatch: CouncilDispatch = async (opts) => {
-				if (opts.reviewer.id === "skeptic") {
-					// Waits to be "unblocked" by the second one.
-					await barrier;
-				} else {
-					release();
-				}
-				return {
-					reviewerId: opts.reviewer.id,
-					exitCode: 0,
-					finalAssistantText: findingsJson([]),
-					stderr: "",
-					warnings: [],
-				};
+	it("dispatches reviewers concurrently (not serially)", async () => {
+		// The user expects council members to run in
+		// parallel. We assert that by gating the FIRST
+		// reviewer in the input order on a barrier the
+		// SECOND must release. A serial impl can't
+		// proceed: the first reviewer never returns
+		// because nothing signals it; the second never
+		// starts because the first hasn't finished.
+		// Concurrent impl: both start, second releases
+		// the barrier, first returns, then second.
+		let release!: () => void;
+		const barrier = new Promise<void>((r) => {
+			release = r;
+		});
+		const dispatch: CouncilDispatch = async (opts) => {
+			if (opts.reviewer.id === "skeptic") {
+				// Waits to be "unblocked" by the second one.
+				await barrier;
+			} else {
+				release();
+			}
+			return {
+				reviewerId: opts.reviewer.id,
+				exitCode: 0,
+				finalAssistantText: findingsJson([]),
+				stderr: "",
+				warnings: [],
 			};
-			// Skeptic FIRST in input order. Serial impl
-			// would deadlock here (skeptic blocks; fast
-			// never dispatched).
-			const run = await runCouncil({
-				runId: "r",
-				target: TARGET,
-				reviewers: [REVIEWER_B, REVIEWER_A],
-				registry: new WorktreeRegistry(fakeWorktreeProvider()),
-				dispatch,
-			});
-			expect(run.reviewerOutputs).toHaveLength(2);
-		},
-		{ timeout: 1000 },
-	);
+		};
+		// Skeptic FIRST in input order. Serial impl
+		// would deadlock here (skeptic blocks; fast
+		// never dispatched).
+		const run = await runCouncil({
+			runId: "r",
+			target: TARGET,
+			reviewers: [REVIEWER_B, REVIEWER_A],
+			registry: new WorktreeRegistry(fakeWorktreeProvider()),
+			dispatch,
+		});
+		expect(run.reviewerOutputs).toHaveLength(2);
+	}, 1000);
 
 	it("carries each reviewer's usage block through to ReviewerOutput", async () => {
 		// Cost tracking lives at the ReviewerOutput level so
