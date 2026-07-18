@@ -38,13 +38,14 @@ export interface ServerConfig {
  * the rest arrive as the harness reaches for them.
  */
 export const DEFAULT_SERVERS: Readonly<Record<string, ServerConfig>> = {
-	"typescript-language-server": {
-		name: "typescript-language-server",
-		command: "typescript-language-server",
-		args: ["--stdio"],
+	typescript: {
+		name: "typescript",
+		// TypeScript 7's native compiler ships its own language server
+		// over stdio, replacing the retired tsserver-based wrapper.
+		command: "tsc",
+		args: ["--lsp", "--stdio"],
 		fileTypes: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
 		rootMarkers: ["tsconfig.json", "jsconfig.json", "package.json"],
-		initOptions: { hostInfo: "agentic-harness" },
 	},
 };
 

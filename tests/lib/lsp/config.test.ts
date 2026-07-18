@@ -23,7 +23,7 @@ afterAll(() => {
 describe("serversForFile", () => {
 	it("matches the TypeScript server to a .ts file", () => {
 		const matched = serversForFile("src/foo.ts");
-		expect(matched.map((s) => s.name)).toContain("typescript-language-server");
+		expect(matched.map((s) => s.name)).toContain("typescript");
 	});
 
 	it("returns nothing for an unhandled extension", () => {
@@ -32,7 +32,7 @@ describe("serversForFile", () => {
 
 	it("skips a disabled server", () => {
 		const servers: Record<string, ServerConfig> = {
-			ts: { ...DEFAULT_SERVERS["typescript-language-server"], disabled: true },
+			ts: { ...DEFAULT_SERVERS.typescript, disabled: true },
 		};
 		expect(serversForFile("foo.ts", servers)).toEqual([]);
 	});
