@@ -8,6 +8,7 @@ import {
 	resolveRoot,
 	type ServerConfig,
 	serversForFile,
+	typescriptMajorAt,
 } from "../../../lib/lsp/config.js";
 
 const tmpRoots: string[] = [];
@@ -88,5 +89,61 @@ describe("resolveBinary", () => {
 	it("returns null when the command resolves nowhere", () => {
 		const from = tmp();
 		expect(resolveBinary("nope-not-here", from, { PATH: "" })).toBeNull();
+	});
+});
+
+// Build a project root with an optional installed TypeScript version
+// and a set of stub binaries under node_modules/.bin.
+function tsProject(version: string | null, bins: readonly string[]): string {
+	const root = tmp();
+	if (version !== null) {
+		const pkgDir = join(root, "node_modules", "typescript");
+		mkdirSync(pkgDir, { recursive: true });
+		writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ version }));
+	}
+	const binDir = join(root, "node_modules", ".bin");
+	mkdirSync(binDir, { recursive: true });
+	for (const bin of bins) {
+		const path = join(binDir, bin);
+		writeFileSync(path, "#!/bin/sh\n");
+		chmodSync(path, 0o755);
+	}
+	return root;
+}
+
+describe("typescriptMajorAt", () => {
+	it("reads the installed TypeScript major version", () => {
+		expect(typescriptMajorAt(tsProject("7.0.2", []))).toBe(7);
+		expect(typescriptMajorAt(tsProject("5.9.3", []))).toBe(5);
+	});
+
+	it("returns null when TypeScript is not installed", () => {
+		expect(typescriptMajorAt(tmp())).toBeNull();
+	});
+});
+
+describe("typescript server resolution", () => {
+	const resolve = DEFAULT_SERVERS.typescript.resolve;
+	const env = { PATH: "" };
+
+	it("selects the native LSP for TypeScript 7 and newer", () => {
+		const root = tsProject("7.0.2", ["tsc"]);
+		expect(resolve?.(root, env)).toEqual({
+			command: "tsc",
+			args: ["--lsp", "--stdio"],
+		});
+	});
+
+	it("selects the classic wrapper for older TypeScript when present", () => {
+		const root = tsProject("5.9.3", ["typescript-language-server"]);
+		expect(resolve?.(root, env)).toEqual({
+			command: "typescript-language-server",
+			args: ["--stdio"],
+		});
+	});
+
+	it("returns null for older TypeScript with no classic wrapper", () => {
+		const root = tsProject("5.9.3", ["tsc"]);
+		expect(resolve?.(root, env)).toBeNull();
 	});
 });
