@@ -38,16 +38,14 @@ export interface McpConnection {
 // Passthrough schemas: the SDK strips unknown per-tool keys under its own zod
 // schema, so we parse loosely to keep non-standard fields (for example a
 // `surface` block) reaching `raw`.
-const LooseTool = z.object({ name: z.string() }).passthrough();
-const LooseToolsResult = z
-	.object({ tools: z.array(LooseTool).default([]) })
-	.passthrough();
-const LooseCallResult = z
-	.object({
-		content: z.array(z.unknown()).default([]),
-		isError: z.boolean().optional(),
-	})
-	.passthrough();
+const LooseTool = z.looseObject({ name: z.string() });
+const LooseToolsResult = z.looseObject({
+	tools: z.array(LooseTool).default([]),
+});
+const LooseCallResult = z.looseObject({
+	content: z.array(z.unknown()).default([]),
+	isError: z.boolean().optional(),
+});
 
 const HTTP_STATUS_FLOOR = 100;
 const HTTP_STATUS_CEIL = 600;
