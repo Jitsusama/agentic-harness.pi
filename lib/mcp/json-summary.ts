@@ -10,7 +10,15 @@ export interface JsonSummaryOptions {
 
 const DEFAULT_MAX_KEYS = 40;
 const DEFAULT_MAX_DEPTH = 3;
-const DEFAULT_MAX_BYTES = 2000;
+const DEFAULT_MAX_BYTES = 6000;
+// How a profiled field's values are rendered: at most this many distinct values
+// listed before folding the rest into a "(+N more)" tail, and above the high
+// cardinality cutoff no values are listed at all, only the type and the distinct
+// count, so an id-like field opts itself out instead of listing noise. Long
+// scalar values are clipped so one value cannot dominate the summary.
+const TOP_VALUES = 6;
+const HIGH_CARDINALITY = 50;
+const MAX_VALUE_LEN = 24;
 
 /**
  * Render a bounded structural summary of a parsed JSON value.
@@ -72,7 +80,12 @@ export function jsonSummaryContent(
 		{ type: "text", text: `JSON result summary:\n${summary}` },
 		{
 			type: "text",
-			text: `[Full JSON saved under ${where}. Query it with a JSONPath expression, or read the file, for the full data.]`,
+			text:
+				`[Full JSON stashed under ${where}; available this session. ` +
+				"Query it with a JSONPath expression that projects the fields you need " +
+				"(e.g. $.events[0:20].id), rather than $.events[*], which returns whole " +
+				"records. A query returns a bounded number of matches and reports the " +
+				'total match count, so a broad expression still answers "how many".]',
 		},
 	];
 }
@@ -105,8 +118,92 @@ function describeArray(
 ): string {
 	if (value.length === 0) return "array(0)";
 	if (depth >= maxDepth) return `array(${value.length})`;
+	if (value.every(isScalar))
+		return `array(${value.length}) of ${profileScalars(value)}`;
+	if (value.every(isPlainObject))
+		return `array(${value.length}) of {${profileObjectArray(value, maxKeys)}}`;
 	const first = describe(value[0], depth + 1, maxDepth, maxKeys);
 	return `array(${value.length}, first=${first})`;
+}
+
+/** A JSON scalar for profiling: a primitive or null, never an object or array. */
+function isScalar(value: unknown): boolean {
+	return value === null || typeof value !== "object";
+}
+
+/** A plain (non-array) object, the shape the object-array profile expects. */
+function isPlainObject(value: unknown): boolean {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Profile an array of objects: each key mapped to a profile of its values. */
+function profileObjectArray(rows: unknown[], maxKeys: number): string {
+	const keys: string[] = [];
+	const seen = new Set<string>();
+	for (const row of rows)
+		for (const key of Object.keys(row as Record<string, unknown>))
+			if (!seen.has(key)) {
+				seen.add(key);
+				keys.push(key);
+			}
+	const shown = keys.slice(0, maxKeys);
+	const parts = shown.map((key) => {
+		const values = rows
+			.map((row) => (row as Record<string, unknown>)[key])
+			.filter((v) => v !== undefined);
+		return `${key}: ${profileField(values)}`;
+	});
+	const rest = keys.length - shown.length;
+	if (rest > 0) parts.push(`(+${rest} more)`);
+	return parts.join(", ");
+}
+
+/** Profile one field's collected values: scalars by frequency, else by type. */
+function profileField(values: unknown[]): string {
+	if (values.every(isScalar)) return profileScalars(values);
+	if (values.every(isPlainObject)) return "object";
+	if (values.every(Array.isArray)) return "array";
+	return "mixed";
+}
+
+/**
+ * Profile a list of scalar values by frequency. Below the cardinality cutoff the
+ * most common values are listed with their counts; above it only the type and
+ * the distinct count are shown so a high-cardinality field stays compact.
+ */
+function profileScalars(values: unknown[]): string {
+	const counts = new Map<string, { value: unknown; count: number }>();
+	for (const value of values) {
+		const key = JSON.stringify(value) ?? "null";
+		const entry = counts.get(key);
+		if (entry) entry.count++;
+		else counts.set(key, { value, count: 1 });
+	}
+	if (counts.size > HIGH_CARDINALITY)
+		return `${scalarType(values)} (${counts.size} distinct)`;
+	const ranked = [...counts.values()].sort((a, b) => b.count - a.count);
+	const listed = ranked
+		.slice(0, TOP_VALUES)
+		.map((e) =>
+			e.count > 1 ? `${display(e.value)}×${e.count}` : display(e.value),
+		)
+		.join(", ");
+	const rest = ranked.length - TOP_VALUES;
+	return rest > 0 ? `${listed}, (+${rest} more)` : listed;
+}
+
+/** The shared type name of a list of scalars, or "mixed" when they disagree. */
+function scalarType(values: unknown[]): string {
+	const types = new Set(values.map((v) => (v === null ? "null" : typeof v)));
+	return types.size === 1 ? [...types][0] : "mixed";
+}
+
+/** Render a scalar value for display, clipping a long string so it cannot dominate. */
+function display(value: unknown): string {
+	if (typeof value !== "string") return String(value);
+	return value.length > MAX_VALUE_LEN
+		? `${value.slice(0, MAX_VALUE_LEN)}...`
+		: value;
 }
 
 function describeObject(

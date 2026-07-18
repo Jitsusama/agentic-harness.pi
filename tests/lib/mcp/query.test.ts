@@ -23,6 +23,14 @@ function textOf(content: McpContent[]): string {
 		.join("\n");
 }
 
+// The matched-slice JSON is the last text block; a header block precedes it.
+function dataOf(content: McpContent[]): string {
+	const texts = content.filter(
+		(b): b is Extract<McpContent, { type: "text" }> => b.type === "text",
+	);
+	return texts[texts.length - 1]?.text ?? "";
+}
+
 describe("queryStoredJson", () => {
 	it("returns the matched slice of a stored payload", () => {
 		const store = createResultStore({ dir });
@@ -30,8 +38,33 @@ describe("queryStoredJson", () => {
 			JSON.stringify({ events: [{ id: 1 }, { id: 2 }, { id: 3 }] }),
 		);
 		const out = queryStoredJson(store, handle, "$.events[*].id");
-		const parsed = JSON.parse(textOf(out));
+		const parsed = JSON.parse(dataOf(out));
 		expect(parsed).toEqual([1, 2, 3]);
+	});
+
+	it("reports the full match count even when the slice is truncated", () => {
+		const store = createResultStore({ dir });
+		const { handle } = store.put(
+			JSON.stringify({ xs: Array.from({ length: 100 }, (_, i) => i) }),
+		);
+		const out = queryStoredJson(store, handle, "$.xs[*]", { maxMatches: 5 });
+		expect(textOf(out)).toContain("100 matches; showing the first 5");
+		expect(JSON.parse(dataOf(out))).toHaveLength(5);
+	});
+
+	it("runs a filter expression and can project a single field from the matches", () => {
+		const store = createResultStore({ dir });
+		const { handle } = store.put(
+			JSON.stringify({
+				events: [
+					{ id: 1, status: 200 },
+					{ id: 2, status: 500 },
+					{ id: 3, status: 500 },
+				],
+			}),
+		);
+		const out = queryStoredJson(store, handle, "$.events[?(@.status==500)].id");
+		expect(JSON.parse(dataOf(out))).toEqual([2, 3]);
 	});
 
 	it("caps the number of matches returned", () => {
@@ -40,7 +73,7 @@ describe("queryStoredJson", () => {
 			JSON.stringify({ xs: Array.from({ length: 100 }, (_, i) => i) }),
 		);
 		const out = queryStoredJson(store, handle, "$.xs[*]", { maxMatches: 5 });
-		expect(JSON.parse(textOf(out))).toHaveLength(5);
+		expect(JSON.parse(dataOf(out))).toHaveLength(5);
 	});
 
 	it("explains an unknown handle rather than throwing", () => {
@@ -55,18 +88,7 @@ describe("queryStoredJson", () => {
 			JSON.stringify({ xs: Array.from({ length: 20 }, (_, i) => i) }),
 		);
 		const out = queryStoredJson(store, handle, "$.xs[*]", { maxMatches: -5 });
-		expect(JSON.parse(textOf(out))).toHaveLength(0);
-	});
-
-	it("does not execute a filter expression against the payload", () => {
-		const store = createResultStore({ dir });
-		const { handle } = store.put(
-			JSON.stringify({ xs: [{ id: 1 }, { id: 2 }] }),
-		);
-		// With script evaluation disabled jsonpath-plus refuses the filter rather
-		// than running code; the call reports that, never throws.
-		const out = queryStoredJson(store, handle, "$.xs[?(@.id>1)]");
-		expect(textOf(out).toLowerCase()).toContain("prevented");
+		expect(JSON.parse(dataOf(out))).toHaveLength(0);
 	});
 
 	it("explains when nothing matches rather than returning an empty blob", () => {
