@@ -44,16 +44,22 @@ export function createResultStore(deps: {
 	const entries = new Map<string, { path: string; bytes: number }>();
 	let totalBytes = 0;
 
-	function evictWhileOver(): void {
+	// Evict oldest entries while over quota, never the one just added: a payload
+	// larger than the whole quota is still the current result and must remain
+	// readable, so it is kept even though it alone exceeds maxBytes. Disk is only
+	// counted as reclaimed when the file is actually removed.
+	function evictWhileOver(keep: string): void {
 		if (deps.maxBytes === undefined) return;
 		for (const [handle, entry] of entries) {
 			if (totalBytes <= deps.maxBytes) break;
-			entries.delete(handle);
-			totalBytes -= entry.bytes;
+			if (handle === keep) continue;
 			try {
 				fs.rmSync(entry.path, { force: true });
+				totalBytes -= entry.bytes;
+				entries.delete(handle);
 			} catch {
-				// Best-effort eviction; a file we cannot remove is already unusable.
+				// A file we cannot remove still occupies disk, so leave its byte count
+				// standing and its handle live rather than lying about reclaimed space.
 			}
 		}
 	}
@@ -65,7 +71,7 @@ export function createResultStore(deps: {
 			const handle = fileHandle(path);
 			entries.set(handle, { path, bytes });
 			totalBytes += bytes;
-			evictWhileOver();
+			evictWhileOver(handle);
 			return { handle, path, bytes };
 		},
 		read(handle) {
@@ -80,7 +86,8 @@ export function createResultStore(deps: {
 			}
 		},
 		has(handle) {
-			return entries.has(handle);
+			const entry = entries.get(handle);
+			return entry !== undefined && fs.existsSync(entry.path);
 		},
 		clear() {
 			for (const entry of entries.values()) {

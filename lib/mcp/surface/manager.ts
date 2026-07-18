@@ -15,7 +15,7 @@ import {
 	type SpillTarget,
 } from "../ceiling.js";
 import type { McpConnection } from "../connection.js";
-import { joinTextContent, spillToFile } from "../content.js";
+import { joinTextContent } from "../content.js";
 import { toAgentContent } from "../frontend/defaults.js";
 import type { FrontEndRegistry } from "../frontend/registry.js";
 import type { FrontEndRenderContext, Invoke } from "../frontend/types.js";
@@ -23,7 +23,7 @@ import { jsonSummaryContent } from "../json-summary.js";
 import { renderDefaultCall } from "../render/call.js";
 import { renderDefaultResult } from "../render/result.js";
 import type { DiscoveryEntry } from "../render/tools-list.js";
-import type { ResultStore } from "../store.js";
+import { createResultStore, type ResultStore } from "../store.js";
 import type { McpServerConfig, McpTool, McpToolResult } from "../types.js";
 import { createProgressiveHelpers, type HelperDescriptor } from "./helpers.js";
 import {
@@ -77,6 +77,10 @@ export interface SurfaceManager {
 }
 
 const MAX_EMITTED_NAME = 47;
+// The disk quota for the internal fallback store, used only when a host wires no
+// store of its own; large enough to hold a few spilled results, bounded so an
+// unconfigured host cannot accumulate them without limit.
+const DEFAULT_FALLBACK_STORE_BYTES = 64 * 1024 * 1024;
 
 /**
  * Create a manager that lists a connection's tools, resolves each to a mode and
@@ -105,16 +109,19 @@ export function createSurfaceManager(deps: {
 	const serverCount = deps.serverCount ?? (() => 1);
 	const ceilingBytes =
 		deps.resultCeiling?.limitBytes ?? DEFAULT_RESULT_CEILING_BYTES;
-	const ceilingStore = deps.resultCeiling?.store;
 	const ceilingStorageDir =
 		deps.resultCeiling?.storageDir ??
 		(() => path.join(os.tmpdir(), "pi-mcp-results"));
-	// A store-backed spill hands the model a queryable handle; without one, spill
-	// straight to a directory so the ceiling still preserves the payload.
-	const ceilingSpill = (text: string): SpillTarget =>
-		ceilingStore
-			? ceilingStore.put(text)
-			: { path: spillToFile(text, ceilingStorageDir()) };
+	// A store hands the model a queryable handle and bounds disk with a quota. When
+	// the host wires none, fall back to an internal quota-bounded store rather than
+	// an unbounded directory, so an unconfigured host still cannot fill the disk.
+	const ceilingStore =
+		deps.resultCeiling?.store ??
+		createResultStore({
+			dir: ceilingStorageDir(),
+			maxBytes: DEFAULT_FALLBACK_STORE_BYTES,
+		});
+	const ceilingSpill = (text: string): SpillTarget => ceilingStore.put(text);
 	const jsonParseGateBytes =
 		deps.resultCeiling?.jsonParseGateBytes ?? ceilingBytes * 8;
 	const backendOf = server.backendOf ?? policy?.backendOf ?? defaultBackendOf;

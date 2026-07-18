@@ -38,6 +38,22 @@ describe("createResultStore", () => {
 		expect(store.read(second.handle)).toBe("bbbbbb");
 	});
 
+	it("keeps a payload that alone exceeds the quota readable", () => {
+		const store = createResultStore({ dir, maxBytes: 4 });
+		const stored = store.put("a much larger payload than the quota");
+		expect(store.read(stored.handle)).toBe(
+			"a much larger payload than the quota",
+		);
+		expect(store.has(stored.handle)).toBe(true);
+	});
+
+	it("has returns false once the backing file vanishes", () => {
+		const store = createResultStore({ dir });
+		const stored = store.put("payload");
+		fs.rmSync(stored.path);
+		expect(store.has(stored.handle)).toBe(false);
+	});
+
 	it("clear removes files and makes every handle expire", () => {
 		const store = createResultStore({ dir });
 		const stored = store.put("payload");

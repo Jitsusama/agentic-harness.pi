@@ -81,6 +81,19 @@ describe("jsonSummaryContent", () => {
 		expect(spill).not.toHaveBeenCalled();
 	});
 
+	it("returns undefined when the spill fails, so the caller falls back to the ceiling", () => {
+		const raw = JSON.stringify({ events: [1, 2, 3] });
+		const spill = vi.fn(() => {
+			throw new Error("disk full");
+		});
+		const out = jsonSummaryContent({
+			rawText: raw,
+			spill,
+			parseGateBytes: 10_000,
+		});
+		expect(out).toBeUndefined();
+	});
+
 	it("returns undefined for text that is not JSON", () => {
 		const spill = vi.fn(() => ({ path: "/tmp/x", handle: "h1" }));
 		const out = jsonSummaryContent({

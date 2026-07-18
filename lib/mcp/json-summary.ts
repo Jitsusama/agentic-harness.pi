@@ -56,7 +56,14 @@ export function jsonSummaryContent(
 	} catch {
 		return undefined;
 	}
-	const target = opts.spill(opts.rawText);
+	// Fail closed: if the payload cannot be stored, decline so the caller falls
+	// back to the absolute ceiling rather than crashing the tool call.
+	let target: SpillTarget;
+	try {
+		target = opts.spill(opts.rawText);
+	} catch {
+		return undefined;
+	}
 	const summary = summarizeJson(parsed, opts.summary);
 	const where = target.handle
 		? `handle ${target.handle} (${target.path})`

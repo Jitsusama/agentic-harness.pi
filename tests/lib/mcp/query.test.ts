@@ -49,6 +49,26 @@ describe("queryStoredJson", () => {
 		expect(textOf(out).toLowerCase()).toContain("handle");
 	});
 
+	it("clamps a negative maxMatches instead of returning almost everything", () => {
+		const store = createResultStore({ dir });
+		const { handle } = store.put(
+			JSON.stringify({ xs: Array.from({ length: 20 }, (_, i) => i) }),
+		);
+		const out = queryStoredJson(store, handle, "$.xs[*]", { maxMatches: -5 });
+		expect(JSON.parse(textOf(out))).toHaveLength(0);
+	});
+
+	it("does not execute a filter expression against the payload", () => {
+		const store = createResultStore({ dir });
+		const { handle } = store.put(
+			JSON.stringify({ xs: [{ id: 1 }, { id: 2 }] }),
+		);
+		// With script evaluation disabled jsonpath-plus refuses the filter rather
+		// than running code; the call reports that, never throws.
+		const out = queryStoredJson(store, handle, "$.xs[?(@.id>1)]");
+		expect(textOf(out).toLowerCase()).toContain("prevented");
+	});
+
 	it("explains when nothing matches rather than returning an empty blob", () => {
 		const store = createResultStore({ dir });
 		const { handle } = store.put(JSON.stringify({ a: 1 }));

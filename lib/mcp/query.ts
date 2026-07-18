@@ -13,6 +13,7 @@ export interface QueryOptions {
 }
 
 const DEFAULT_MAX_MATCHES = 100;
+const MAX_EXPRESSION_ECHO = 200;
 
 /**
  * Run a JSONPath expression against a stored JSON payload and return the matched
@@ -51,6 +52,10 @@ export function queryStoredJson(
 			path: expression,
 			json: parsed as string | number | boolean | object | null,
 			wrap: true,
+			// The expression is model-supplied, so disable script and filter
+			// evaluation: slicing, indexing, wildcards and recursive descent are
+			// enough to pull a slice, and no arbitrary code runs against the payload.
+			eval: false,
 		}) as unknown[];
 	} catch (err) {
 		return note(
@@ -59,9 +64,9 @@ export function queryStoredJson(
 	}
 
 	if (matches.length === 0)
-		return note(`no matches for expression ${expression}`);
+		return note(`no matches for expression ${echo(expression)}`);
 
-	const maxMatches = opts.maxMatches ?? DEFAULT_MAX_MATCHES;
+	const maxMatches = Math.max(0, opts.maxMatches ?? DEFAULT_MAX_MATCHES);
 	const limited = matches.slice(0, maxMatches);
 	const answer: McpContent[] = [
 		{ type: "text", text: JSON.stringify(limited, null, 2) },
@@ -77,7 +82,14 @@ export function queryStoredJson(
 	);
 }
 
-/** A single-block explanatory result for a query that could not run. */
+/** A single-block explanatory result for a query that could not run, itself bounded. */
 function note(message: string): McpContent[] {
-	return [{ type: "text", text: `[${message}]` }];
+	return [{ type: "text", text: `[${echo(message)}]` }];
+}
+
+/** Bound a model-supplied string echoed back into a message so it cannot itself bloat the result. */
+function echo(text: string): string {
+	return text.length > MAX_EXPRESSION_ECHO
+		? `${text.slice(0, MAX_EXPRESSION_ECHO)}...`
+		: text;
 }

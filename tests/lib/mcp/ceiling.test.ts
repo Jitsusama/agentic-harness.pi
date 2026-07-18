@@ -137,6 +137,28 @@ describe("enforceResultCeiling", () => {
 		expect(textOf(out)).not.toContain(huge);
 	});
 
+	it("reports dropped non-text content honestly and writes no spill file", () => {
+		const content: McpContent[] = [
+			{ type: "image", data: "A".repeat(5000), mimeType: "image/png" },
+		];
+		const out = enforceResultCeiling(content, result(content), {
+			limitBytes: 500,
+			storageDir: dir,
+		});
+		expect(textOf(out).toLowerCase()).toContain("dropped");
+		expect(textOf(out)).not.toContain("saved to");
+		expect(fs.readdirSync(dir)).toHaveLength(0);
+	});
+
+	it("stays within a limit smaller than the notice itself", () => {
+		const content: McpContent[] = [{ type: "text", text: "x".repeat(5000) }];
+		const out = enforceResultCeiling(content, result(content), {
+			limitBytes: 40,
+			storageDir: dir,
+		});
+		expect(contentByteSize(out)).toBeLessThanOrEqual(40);
+	});
+
 	it("keeps a default ceiling at or above the 200KB soft default", () => {
 		expect(DEFAULT_RESULT_CEILING_BYTES).toBeGreaterThanOrEqual(200 * 1024);
 	});

@@ -59,14 +59,21 @@ export function enforceResultCeiling(
 	const originalBytes = contentByteSize(shaped);
 	if (originalBytes <= opts.limitBytes) return shaped;
 
-	const spill = trySpill(joinTextContent(raw), opts);
+	// Only the text carries into a spill; a result with no text (binary only) has
+	// nothing meaningful to save, so the notice must say the content was dropped
+	// rather than claim an empty file holds it.
+	const rawText = joinTextContent(raw);
+	const spill = rawText.length > 0 ? trySpill(rawText, opts) : undefined;
 	const droppedImages = shaped.filter((b) => b.type === "image").length;
-	const notice = ceilingNotice({
-		limitBytes: opts.limitBytes,
-		originalBytes,
-		spill,
-		droppedImages,
-	});
+	const notice = sliceUtf8(
+		ceilingNotice({
+			limitBytes: opts.limitBytes,
+			originalBytes,
+			spill,
+			droppedImages,
+		}),
+		opts.limitBytes,
+	);
 
 	const headBudget = Math.max(
 		0,
@@ -112,7 +119,7 @@ function trySpill(text: string, opts: CeilingOptions): SpillOutcome {
 function ceilingNotice(info: {
 	limitBytes: number;
 	originalBytes: number;
-	spill: SpillOutcome;
+	spill: SpillOutcome | undefined;
 	droppedImages: number;
 }): string {
 	const dropped =
@@ -124,7 +131,12 @@ function ceilingNotice(info: {
 }
 
 /** Describe where the full payload went, naming the queryable handle when the spill produced one. */
-function spillFate(originalBytes: number, spill: SpillOutcome): string {
+function spillFate(
+	originalBytes: number,
+	spill: SpillOutcome | undefined,
+): string {
+	if (spill === undefined)
+		return `The ${originalBytes} bytes were non-text content and were dropped.`;
 	if ("error" in spill)
 		return `The full ${originalBytes}-byte result could not be saved (${spill.error}) and the remainder was dropped.`;
 	const where = spill.handle
