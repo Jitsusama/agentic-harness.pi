@@ -17,6 +17,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { clearTimeout, setTimeout } from "node:timers";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import { processGlobal } from "../internal/process-global.js";
 
@@ -289,7 +290,8 @@ export interface IdleCloserOptions {
 
 /** Build an idle-close countdown that rearms on touch and stops on cancel. */
 export function createIdleCloser(opts: IdleCloserOptions): IdleCloser {
-	const setTimer = opts.setTimer ?? setTimeout;
+	const setTimer: (fn: () => void, ms: number) => NodeJS.Timeout =
+		opts.setTimer ?? setTimeout;
 	const clearTimer = opts.clearTimer ?? clearTimeout;
 	let timer: NodeJS.Timeout | undefined;
 	const cancel = () => {
