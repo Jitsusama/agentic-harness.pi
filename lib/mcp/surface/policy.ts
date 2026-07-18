@@ -40,6 +40,8 @@ export interface ServerPolicy {
 	truncationLimits?(
 		tool: McpTool,
 	): { maxLines: number; maxBytes: number } | null;
+	/** The content type of a tool's text payload (for example `application/json`), enabling structured shaping. */
+	contentType?(tool: McpTool): string | undefined;
 	/** A one-line hint describing what a backend group is for. */
 	hint?(backend: string): string;
 	/** Group a tool name under a backend, overriding the first-token default. */

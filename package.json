@@ -52,6 +52,7 @@
 		"google-auth-library": "^9.14.2",
 		"googleapis": "^140.0.1",
 		"jsdom": "^28.1.0",
+		"jsonpath-plus": "^10.4.0",
 		"puppeteer-core": "^24.38.0",
 		"sqlite3": "^5.1.7",
 		"vscode-jsonrpc": "^9.0.1",

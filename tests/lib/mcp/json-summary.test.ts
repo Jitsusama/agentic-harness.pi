@@ -1,0 +1,107 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+	jsonSummaryContent,
+	summarizeJson,
+} from "../../../lib/mcp/json-summary.js";
+import type { McpContent } from "../../../lib/mcp/types.js";
+
+function textOf(content: McpContent[] | undefined): string {
+	return (content ?? [])
+		.filter(
+			(b): b is Extract<McpContent, { type: "text" }> => b.type === "text",
+		)
+		.map((b) => b.text)
+		.join("\n");
+}
+
+describe("summarizeJson", () => {
+	it("lists top-level object keys with their value types", () => {
+		const out = summarizeJson({ name: "x", count: 3, ok: true, missing: null });
+		expect(out).toContain("name: string");
+		expect(out).toContain("count: number");
+		expect(out).toContain("ok: boolean");
+		expect(out).toContain("missing: null");
+	});
+
+	it("reports an array length and samples the first element", () => {
+		const out = summarizeJson([{ a: 1 }, { a: 2 }, { a: 3 }]);
+		expect(out).toContain("array(3");
+		expect(out).toContain("a: number");
+	});
+
+	it("reports a scalar root by type and, for strings, length", () => {
+		expect(summarizeJson("hello")).toBe("string(5)");
+		expect(summarizeJson(42)).toBe("number");
+		expect(summarizeJson(null)).toBe("null");
+	});
+
+	it("caps the number of object keys shown and counts the rest", () => {
+		const big: Record<string, number> = {};
+		for (let i = 0; i < 100; i++) big[`k${i}`] = i;
+		const out = summarizeJson(big, { maxKeys: 5 });
+		expect(out).toContain("k0: number");
+		expect(out).toContain("(+95 more)");
+		expect(out).not.toContain("k99");
+	});
+
+	it("stops recursing past the depth budget", () => {
+		const deep = { a: { b: { c: { d: 1 } } } };
+		const out = summarizeJson(deep, { maxDepth: 2 });
+		expect(out).not.toContain("d: number");
+	});
+
+	it("never exceeds the byte cap", () => {
+		const big: Record<string, string> = {};
+		for (let i = 0; i < 100; i++) big[`key-number-${i}`] = "value";
+		const out = summarizeJson(big, { maxKeys: 100, maxBytes: 80 });
+		expect(Buffer.byteLength(out, "utf-8")).toBeLessThanOrEqual(80);
+	});
+});
+
+describe("jsonSummaryContent", () => {
+	it("summarizes parseable JSON under the gate and spills the full payload", () => {
+		const raw = JSON.stringify({ events: [1, 2, 3], status: "ok" });
+		const spill = vi.fn(() => ({ path: "/tmp/x", handle: "h1" }));
+		const out = jsonSummaryContent({
+			rawText: raw,
+			spill,
+			parseGateBytes: 10_000,
+		});
+		expect(spill).toHaveBeenCalledWith(raw);
+		const text = textOf(out);
+		expect(text).toContain("events: array(3");
+		expect(text).toContain("h1");
+	});
+
+	it("returns undefined when the payload exceeds the parse gate", () => {
+		const raw = JSON.stringify({ a: "x".repeat(1000) });
+		const spill = vi.fn(() => ({ path: "/tmp/x", handle: "h1" }));
+		const out = jsonSummaryContent({ rawText: raw, spill, parseGateBytes: 50 });
+		expect(out).toBeUndefined();
+		expect(spill).not.toHaveBeenCalled();
+	});
+
+	it("returns undefined when the spill fails, so the caller falls back to the ceiling", () => {
+		const raw = JSON.stringify({ events: [1, 2, 3] });
+		const spill = vi.fn(() => {
+			throw new Error("disk full");
+		});
+		const out = jsonSummaryContent({
+			rawText: raw,
+			spill,
+			parseGateBytes: 10_000,
+		});
+		expect(out).toBeUndefined();
+	});
+
+	it("returns undefined for text that is not JSON", () => {
+		const spill = vi.fn(() => ({ path: "/tmp/x", handle: "h1" }));
+		const out = jsonSummaryContent({
+			rawText: "not json at all",
+			spill,
+			parseGateBytes: 10_000,
+		});
+		expect(out).toBeUndefined();
+		expect(spill).not.toHaveBeenCalled();
+	});
+});

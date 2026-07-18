@@ -1,3 +1,5 @@
+import * as os from "node:os";
+import * as path from "node:path";
 import type {
 	AgentToolResult,
 	ExtensionContext,
@@ -6,14 +8,22 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import type { Component } from "@mariozechner/pi-tui";
 import { type TSchema, Type } from "typebox";
+import {
+	contentByteSize,
+	DEFAULT_RESULT_CEILING_BYTES,
+	enforceResultCeiling,
+	type SpillTarget,
+} from "../ceiling.js";
 import type { McpConnection } from "../connection.js";
 import { joinTextContent } from "../content.js";
 import { toAgentContent } from "../frontend/defaults.js";
 import type { FrontEndRegistry } from "../frontend/registry.js";
 import type { FrontEndRenderContext, Invoke } from "../frontend/types.js";
+import { jsonSummaryContent } from "../json-summary.js";
 import { renderDefaultCall } from "../render/call.js";
 import { renderDefaultResult } from "../render/result.js";
 import type { DiscoveryEntry } from "../render/tools-list.js";
+import { createResultStore, type ResultStore } from "../store.js";
 import type { McpServerConfig, McpTool, McpToolResult } from "../types.js";
 import { createProgressiveHelpers, type HelperDescriptor } from "./helpers.js";
 import {
@@ -67,6 +77,10 @@ export interface SurfaceManager {
 }
 
 const MAX_EMITTED_NAME = 47;
+// The disk quota for the internal fallback store, used only when a host wires no
+// store of its own; large enough to hold a few spilled results, bounded so an
+// unconfigured host cannot accumulate them without limit.
+const DEFAULT_FALLBACK_STORE_BYTES = 64 * 1024 * 1024;
 
 /**
  * Create a manager that lists a connection's tools, resolves each to a mode and
@@ -82,9 +96,34 @@ export function createSurfaceManager(deps: {
 	registry: FrontEndRegistry;
 	policy?: ServerPolicy;
 	serverCount?: () => number;
+	/** The absolute cap on any result's model-facing content, and where oversized payloads spill. */
+	resultCeiling?: {
+		limitBytes?: number;
+		storageDir?: () => string;
+		store?: ResultStore;
+		/** The largest payload the JSON strategy will parse; above it the ceiling spills raw. Defaults to 8x the ceiling. */
+		jsonParseGateBytes?: number;
+	};
 }): SurfaceManager {
 	const { server, connection, config, registry, policy } = deps;
 	const serverCount = deps.serverCount ?? (() => 1);
+	const ceilingBytes =
+		deps.resultCeiling?.limitBytes ?? DEFAULT_RESULT_CEILING_BYTES;
+	const ceilingStorageDir =
+		deps.resultCeiling?.storageDir ??
+		(() => path.join(os.tmpdir(), "pi-mcp-results"));
+	// A store hands the model a queryable handle and bounds disk with a quota. When
+	// the host wires none, fall back to an internal quota-bounded store rather than
+	// an unbounded directory, so an unconfigured host still cannot fill the disk.
+	const ceilingStore =
+		deps.resultCeiling?.store ??
+		createResultStore({
+			dir: ceilingStorageDir(),
+			maxBytes: DEFAULT_FALLBACK_STORE_BYTES,
+		});
+	const ceilingSpill = (text: string): SpillTarget => ceilingStore.put(text);
+	const jsonParseGateBytes =
+		deps.resultCeiling?.jsonParseGateBytes ?? ceilingBytes * 8;
 	const backendOf = server.backendOf ?? policy?.backendOf ?? defaultBackendOf;
 	const namespace = server.helperNamespace ?? server.id;
 	const prefix = server.toolNamePrefix ?? "";
@@ -123,7 +162,32 @@ export function createSurfaceManager(deps: {
 		const invoke: Invoke = (callArgs, callSignal) =>
 			connection.callTool(tool.name, callArgs, { signal: callSignal });
 		const result = await resolved.wrap(invoke, tool)(args, ctx, signal);
-		return { ...result, content: resolved.shape(result, tool) };
+		const shaped = resolved.shape(result, tool);
+		const enriched = maybeSummarizeJson(shaped, result, tool);
+		const capped = enforceResultCeiling(enriched, result, {
+			limitBytes: ceilingBytes,
+			spill: ceilingSpill,
+		});
+		return { ...result, content: capped };
+	}
+
+	// When the policy declares a tool's payload as JSON and the shaped result
+	// would exceed the ceiling, summarize the structure and stash the full body
+	// behind a handle rather than head-slicing it. Anything the strategy declines
+	// (over the parse gate, or not JSON) falls through to the ceiling untouched.
+	function maybeSummarizeJson(
+		shaped: McpToolResult["content"],
+		result: McpToolResult,
+		tool: McpTool,
+	): McpToolResult["content"] {
+		if (policy?.contentType?.(tool) !== "application/json") return shaped;
+		if (contentByteSize(shaped) <= ceilingBytes) return shaped;
+		const summary = jsonSummaryContent({
+			rawText: joinTextContent(result),
+			spill: ceilingSpill,
+			parseGateBytes: jsonParseGateBytes,
+		});
+		return summary ?? shaped;
 	}
 
 	function buildDescriptor(tool: McpTool): ToolRegistrationDescriptor {

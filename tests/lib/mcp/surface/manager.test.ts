@@ -1,8 +1,12 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { Text } from "@mariozechner/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import type { McpConnection } from "../../../../lib/mcp/connection.js";
 import { defaultResolved } from "../../../../lib/mcp/frontend/defaults.js";
 import { createFrontEndRegistry } from "../../../../lib/mcp/frontend/registry.js";
+import { createResultStore } from "../../../../lib/mcp/store.js";
 import { createSurfaceManager } from "../../../../lib/mcp/surface/manager.js";
 import {
 	defaultBackendOf,
@@ -165,6 +169,151 @@ describe("createSurfaceManager", () => {
 			{ a: 1 },
 			{ signal: undefined },
 		);
+	});
+
+	it("caps an oversized result through dispatch, regardless of shaper", async () => {
+		const huge = "x".repeat(5000);
+		const conn = fakeConnection([tool("observe_query")], () => ({
+			content: [{ type: "text", text: huge }],
+		}));
+		const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mgr-ceiling-"));
+		const m = createSurfaceManager({
+			server,
+			connection: conn,
+			config: () => config(),
+			registry: createFrontEndRegistry({
+				backendOf: defaultBackendOf,
+				defaults: defaultResolved({ writeSignal: () => false }),
+			}),
+			resultCeiling: { limitBytes: 500, storageDir: () => storageDir },
+		});
+		const [descriptor] = (await m.reconcile()).added;
+		const result = await descriptor.execute(
+			"id",
+			{},
+			undefined,
+			undefined,
+			ctx,
+		);
+		const textBlocks = result.content.filter(
+			(b): b is { type: "text"; text: string } => b.type === "text",
+		);
+		const totalBytes = textBlocks.reduce(
+			(sum, b) => sum + Buffer.byteLength(b.text, "utf-8"),
+			0,
+		);
+		expect(totalBytes).toBeLessThanOrEqual(500);
+		expect(textBlocks.map((b) => b.text).join("\n")).toContain("Result capped");
+		fs.rmSync(storageDir, { recursive: true, force: true });
+	});
+
+	it("spills an oversized result through the store and puts the handle in the notice", async () => {
+		const huge = "x".repeat(5000);
+		const conn = fakeConnection([tool("observe_query")], () => ({
+			content: [{ type: "text", text: huge }],
+		}));
+		const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mgr-store-"));
+		const store = createResultStore({ dir: storageDir });
+		const m = createSurfaceManager({
+			server,
+			connection: conn,
+			config: () => config(),
+			registry: createFrontEndRegistry({
+				backendOf: defaultBackendOf,
+				defaults: defaultResolved({ writeSignal: () => false }),
+			}),
+			resultCeiling: { limitBytes: 500, store },
+		});
+		const [descriptor] = (await m.reconcile()).added;
+		const result = await descriptor.execute(
+			"id",
+			{},
+			undefined,
+			undefined,
+			ctx,
+		);
+		const notice = result.content
+			.filter((b): b is { type: "text"; text: string } => b.type === "text")
+			.map((b) => b.text)
+			.join("\n");
+		const match = notice.match(/handle ([\w-]+)/);
+		expect(match).not.toBeNull();
+		const handle = (match as RegExpMatchArray)[1];
+		expect(store.read(handle)).toBe(huge);
+		fs.rmSync(storageDir, { recursive: true, force: true });
+	});
+
+	it("summarizes an oversized JSON result the policy declares, with a handle", async () => {
+		const payload = JSON.stringify({
+			events: Array.from({ length: 400 }, (_, i) => ({
+				id: i,
+				blob: "z".repeat(50),
+			})),
+			status: "ok",
+		});
+		const conn = fakeConnection([tool("observe_query")], () => ({
+			content: [{ type: "text", text: payload }],
+		}));
+		const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mgr-json-"));
+		const store = createResultStore({ dir: storageDir });
+		const m = createSurfaceManager({
+			server,
+			connection: conn,
+			config: () => config(),
+			registry: createFrontEndRegistry({
+				backendOf: defaultBackendOf,
+				defaults: defaultResolved({ writeSignal: () => false }),
+			}),
+			policy: { contentType: () => "application/json" },
+			resultCeiling: { limitBytes: 500, store, jsonParseGateBytes: 100_000 },
+		});
+		const [descriptor] = (await m.reconcile()).added;
+		const result = await descriptor.execute(
+			"id",
+			{},
+			undefined,
+			undefined,
+			ctx,
+		);
+		const text = result.content
+			.filter((b): b is { type: "text"; text: string } => b.type === "text")
+			.map((b) => b.text)
+			.join("\n");
+		expect(text).toContain("events: array(400");
+		const handle = (text.match(/handle ([\w-]+)/) as RegExpMatchArray)[1];
+		expect(JSON.parse(store.read(handle))).toHaveProperty("status", "ok");
+		fs.rmSync(storageDir, { recursive: true, force: true });
+	});
+
+	it("caps an oversized result through the run_tool passthrough too", async () => {
+		const huge = "x".repeat(5000);
+		const conn = fakeConnection([tool("observe_query")], () => ({
+			content: [{ type: "text", text: huge }],
+		}));
+		const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mgr-pass-"));
+		const m = createSurfaceManager({
+			server,
+			connection: conn,
+			config: () => config({ progressive: ["observe"] }),
+			registry: createFrontEndRegistry({
+				backendOf: defaultBackendOf,
+				defaults: defaultResolved({ writeSignal: () => false }),
+			}),
+			resultCeiling: { limitBytes: 500, storageDir: () => storageDir },
+		});
+		const runTool = (await m.reconcile()).progressiveHelpers[2];
+		const result = await runTool.execute(
+			"id",
+			{ name: "observe_query", arguments: {} },
+			undefined,
+			undefined,
+			ctx,
+		);
+		const totalBytes = result.content
+			.filter((b): b is { type: "text"; text: string } => b.type === "text")
+			.reduce((sum, b) => sum + Buffer.byteLength(b.text, "utf-8"), 0);
+		expect(totalBytes).toBeLessThanOrEqual(500);
+		fs.rmSync(storageDir, { recursive: true, force: true });
 	});
 
 	it("throws from execute when the call errors", async () => {
