@@ -61,12 +61,18 @@ export function queryStoredJson(
 		}) as unknown[];
 	} catch (err) {
 		return note(
-			`invalid JSONPath expression: ${err instanceof Error ? err.message : String(err)}`,
+			`invalid JSONPath expression: ${err instanceof Error ? err.message : String(err)}. ` +
+				"If a field name contains dots it is a single literal key, so match it " +
+				"with bracket notation like @['a.b.c'] rather than dot access.",
 		);
 	}
 
 	if (matches.length === 0)
-		return note(`no matches for expression ${echo(expression)}`);
+		return note(
+			`no matches for expression ${echo(expression)}. Field names are ` +
+				"case-sensitive; check the result summary for the exact names, and match " +
+				"a dotted key with bracket notation like @['a.b.c'].",
+		);
 
 	const maxMatches = Math.max(0, opts.maxMatches ?? DEFAULT_MAX_MATCHES);
 	const limited = matches.slice(0, maxMatches);
@@ -87,6 +93,8 @@ export function queryStoredJson(
 		{
 			limitBytes: opts.limitBytes ?? DEFAULT_RESULT_CEILING_BYTES,
 			spill: (text) => store.put(text),
+			guidance:
+				"To get a smaller result, project fewer fields or add a filter to your JSONPath expression.",
 		},
 	);
 }

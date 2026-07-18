@@ -101,7 +101,7 @@ export function createSurfaceManager(deps: {
 		limitBytes?: number;
 		storageDir?: () => string;
 		store?: ResultStore;
-		/** The largest payload the JSON strategy will parse; above it the ceiling spills raw. Defaults to 8x the ceiling. */
+		/** The largest payload the JSON strategy will parse; above it the ceiling spills raw. Defaults to the store quota, since a payload we cannot store is not worth digesting. */
 		jsonParseGateBytes?: number;
 	};
 }): SurfaceManager {
@@ -122,8 +122,13 @@ export function createSurfaceManager(deps: {
 			maxBytes: DEFAULT_FALLBACK_STORE_BYTES,
 		});
 	const ceilingSpill = (text: string): SpillTarget => ceilingStore.put(text);
+	// Parse and digest JSON up to what the store can actually hold. Parsing costs
+	// milliseconds even at multiple megabytes, and the model-facing digest stays
+	// tiny regardless of input size, so the only reason to decline is a payload too
+	// large to keep. The element bound inside summarizeJson keeps the walk cheap
+	// even when a payload near this size is a huge array of small rows.
 	const jsonParseGateBytes =
-		deps.resultCeiling?.jsonParseGateBytes ?? ceilingBytes * 8;
+		deps.resultCeiling?.jsonParseGateBytes ?? DEFAULT_FALLBACK_STORE_BYTES;
 	const backendOf = server.backendOf ?? policy?.backendOf ?? defaultBackendOf;
 	const namespace = server.helperNamespace ?? server.id;
 	const prefix = server.toolNamePrefix ?? "";
@@ -167,6 +172,8 @@ export function createSurfaceManager(deps: {
 		const capped = enforceResultCeiling(enriched, result, {
 			limitBytes: ceilingBytes,
 			spill: ceilingSpill,
+			guidance:
+				"To get a smaller result, re-run the source tool with a tighter query: add filters, lower the limit, or shorten the time range.",
 		});
 		return { ...result, content: capped };
 	}

@@ -159,6 +159,16 @@ describe("enforceResultCeiling", () => {
 		expect(contentByteSize(out)).toBeLessThanOrEqual(40);
 	});
 
+	it("appends caller guidance to the notice so a capped result points somewhere", () => {
+		const content: McpContent[] = [{ type: "text", text: "x".repeat(5000) }];
+		const out = enforceResultCeiling(content, result(content), {
+			limitBytes: 500,
+			storageDir: dir,
+			guidance: "Re-run with a tighter query.",
+		});
+		expect(textOf(out)).toContain("Re-run with a tighter query.");
+	});
+
 	it("keeps a default ceiling at or above the 200KB soft default", () => {
 		expect(DEFAULT_RESULT_CEILING_BYTES).toBeGreaterThanOrEqual(200 * 1024);
 	});

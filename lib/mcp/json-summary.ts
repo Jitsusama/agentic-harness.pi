@@ -6,11 +6,18 @@ export interface JsonSummaryOptions {
 	maxKeys?: number;
 	maxDepth?: number;
 	maxBytes?: number;
+	maxElements?: number;
 }
 
 const DEFAULT_MAX_KEYS = 40;
 const DEFAULT_MAX_DEPTH = 3;
 const DEFAULT_MAX_BYTES = 6000;
+// Above this many array elements the profile stops tallying values and falls
+// back to a first-element sample. Tallying is linear in element count, so this
+// keeps the walk bounded no matter how large the parsed payload is, and it means
+// a reported value count is always over the whole array, never a partial scan
+// dressed up as exact. Every realistic result sits far below it.
+const DEFAULT_MAX_ELEMENTS = 20000;
 // How a profiled field's values are rendered: at most this many distinct values
 // listed before folding the rest into a "(+N more)" tail, and above the high
 // cardinality cutoff no values are listed at all, only the type and the distinct
@@ -36,7 +43,8 @@ export function summarizeJson(
 	const maxKeys = opts.maxKeys ?? DEFAULT_MAX_KEYS;
 	const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
 	const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
-	return capBytes(describe(value, 0, maxDepth, maxKeys), maxBytes);
+	const maxElements = opts.maxElements ?? DEFAULT_MAX_ELEMENTS;
+	return capBytes(describe(value, 0, maxDepth, maxKeys, maxElements), maxBytes);
 }
 
 /** Inputs for turning an oversized JSON payload into a summary plus a stored handle. */
@@ -84,8 +92,10 @@ export function jsonSummaryContent(
 				`[Full JSON stashed under ${where}; available this session. ` +
 				"Query it with a JSONPath expression that projects the fields you need " +
 				"(e.g. $.events[0:20].id), rather than $.events[*], which returns whole " +
-				"records. A query returns a bounded number of matches and reports the " +
-				'total match count, so a broad expression still answers "how many".]',
+				"records. A field name containing dots is a single literal key, so match " +
+				"it with bracket notation like $.events[?(@['a.b.c']=='x')]. A query " +
+				"returns a bounded number of matches and reports the total match count, " +
+				'so a broad expression still answers "how many".]',
 		},
 	];
 }
@@ -95,16 +105,18 @@ function describe(
 	depth: number,
 	maxDepth: number,
 	maxKeys: number,
+	maxElements: number,
 ): string {
 	if (value === null) return "null";
 	if (Array.isArray(value))
-		return describeArray(value, depth, maxDepth, maxKeys);
+		return describeArray(value, depth, maxDepth, maxKeys, maxElements);
 	if (typeof value === "object")
 		return describeObject(
 			value as Record<string, unknown>,
 			depth,
 			maxDepth,
 			maxKeys,
+			maxElements,
 		);
 	if (typeof value === "string") return `string(${value.length})`;
 	return typeof value;
@@ -115,14 +127,22 @@ function describeArray(
 	depth: number,
 	maxDepth: number,
 	maxKeys: number,
+	maxElements: number,
 ): string {
 	if (value.length === 0) return "array(0)";
 	if (depth >= maxDepth) return `array(${value.length})`;
+	// Past the element bound, sample the first element instead of tallying: the
+	// count is too large to profile without an unbounded walk, so show the shape
+	// and let the handle carry the detail a query can pull.
+	if (value.length > maxElements) {
+		const first = describe(value[0], depth + 1, maxDepth, maxKeys, maxElements);
+		return `array(${value.length}, first=${first})`;
+	}
 	if (value.every(isScalar))
 		return `array(${value.length}) of ${profileScalars(value)}`;
 	if (value.every(isPlainObject))
 		return `array(${value.length}) of {${profileObjectArray(value, maxKeys)}}`;
-	const first = describe(value[0], depth + 1, maxDepth, maxKeys);
+	const first = describe(value[0], depth + 1, maxDepth, maxKeys, maxElements);
 	return `array(${value.length}, first=${first})`;
 }
 
@@ -211,12 +231,14 @@ function describeObject(
 	depth: number,
 	maxDepth: number,
 	maxKeys: number,
+	maxElements: number,
 ): string {
 	const keys = Object.keys(value);
 	if (depth >= maxDepth) return `object(${keys.length} keys)`;
 	const shown = keys.slice(0, maxKeys);
 	const parts = shown.map(
-		(key) => `${key}: ${describe(value[key], depth + 1, maxDepth, maxKeys)}`,
+		(key) =>
+			`${key}: ${describe(value[key], depth + 1, maxDepth, maxKeys, maxElements)}`,
 	);
 	const rest = keys.length - shown.length;
 	if (rest > 0) parts.push(`(+${rest} more)`);
