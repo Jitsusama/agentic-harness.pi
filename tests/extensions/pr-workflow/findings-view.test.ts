@@ -393,7 +393,7 @@ describe("formatCompactFindingsView", () => {
 			verdict: "fix",
 		});
 		const decision = state.council.decisions.get(1);
-		if (!decision || decision.verdict !== "fix") {
+		if (decision?.verdict !== "fix") {
 			throw new Error("setup: expected fix decision");
 		}
 		state.council.decisions.set(1, {

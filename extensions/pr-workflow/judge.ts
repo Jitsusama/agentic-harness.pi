@@ -607,7 +607,7 @@ function autoInheritLineLocation(
 	}> = [];
 	for (const sourceId of sourceIds) {
 		const source = byId.get(sourceId);
-		if (!source || source.location.kind !== "line") {
+		if (source?.location.kind !== "line") {
 			return { location: raw.location };
 		}
 		if (source.location.file !== raw.location.file) {

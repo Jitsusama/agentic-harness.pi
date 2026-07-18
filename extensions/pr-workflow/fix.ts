@@ -94,7 +94,7 @@ export function getNextFix(state: PrWorkflowState): FixContext | null {
 	if (judge !== null) {
 		for (const finding of judge.consolidatedFindings) {
 			const decision = state.council.decisions.get(finding.id);
-			if (!decision || decision.verdict !== "fix") continue;
+			if (decision?.verdict !== "fix") continue;
 			if (decision.resolvedBy || decision.skipped) continue;
 			return {
 				findingId: finding.id,
@@ -112,7 +112,7 @@ export function getNextFix(state: PrWorkflowState): FixContext | null {
 	if (stackRun !== null) {
 		for (const finding of stackRun.findings) {
 			const decision = state.stackDecisions.get(finding.id);
-			if (!decision || decision.verdict !== "fix") continue;
+			if (decision?.verdict !== "fix") continue;
 			if (decision.resolvedBy || decision.skipped) continue;
 			return {
 				findingId: finding.id,
