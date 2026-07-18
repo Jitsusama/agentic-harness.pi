@@ -1,3 +1,5 @@
+import * as os from "node:os";
+import * as path from "node:path";
 import type {
 	AgentToolResult,
 	ExtensionContext,
@@ -6,6 +8,10 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import type { Component } from "@mariozechner/pi-tui";
 import { type TSchema, Type } from "typebox";
+import {
+	DEFAULT_RESULT_CEILING_BYTES,
+	enforceResultCeiling,
+} from "../ceiling.js";
 import type { McpConnection } from "../connection.js";
 import { joinTextContent } from "../content.js";
 import { toAgentContent } from "../frontend/defaults.js";
@@ -82,9 +88,16 @@ export function createSurfaceManager(deps: {
 	registry: FrontEndRegistry;
 	policy?: ServerPolicy;
 	serverCount?: () => number;
+	/** The absolute cap on any result's model-facing content, and where oversized payloads spill. */
+	resultCeiling?: { limitBytes?: number; storageDir?: () => string };
 }): SurfaceManager {
 	const { server, connection, config, registry, policy } = deps;
 	const serverCount = deps.serverCount ?? (() => 1);
+	const ceilingBytes =
+		deps.resultCeiling?.limitBytes ?? DEFAULT_RESULT_CEILING_BYTES;
+	const ceilingStorageDir =
+		deps.resultCeiling?.storageDir ??
+		(() => path.join(os.tmpdir(), "pi-mcp-results"));
 	const backendOf = server.backendOf ?? policy?.backendOf ?? defaultBackendOf;
 	const namespace = server.helperNamespace ?? server.id;
 	const prefix = server.toolNamePrefix ?? "";
@@ -123,7 +136,12 @@ export function createSurfaceManager(deps: {
 		const invoke: Invoke = (callArgs, callSignal) =>
 			connection.callTool(tool.name, callArgs, { signal: callSignal });
 		const result = await resolved.wrap(invoke, tool)(args, ctx, signal);
-		return { ...result, content: resolved.shape(result, tool) };
+		const shaped = resolved.shape(result, tool);
+		const capped = enforceResultCeiling(shaped, result, {
+			limitBytes: ceilingBytes,
+			storageDir: ceilingStorageDir(),
+		});
+		return { ...result, content: capped };
 	}
 
 	function buildDescriptor(tool: McpTool): ToolRegistrationDescriptor {

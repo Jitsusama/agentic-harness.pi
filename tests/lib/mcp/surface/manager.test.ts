@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { Text } from "@mariozechner/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import type { McpConnection } from "../../../../lib/mcp/connection.js";
@@ -165,6 +168,73 @@ describe("createSurfaceManager", () => {
 			{ a: 1 },
 			{ signal: undefined },
 		);
+	});
+
+	it("caps an oversized result through dispatch, regardless of shaper", async () => {
+		const huge = "x".repeat(5000);
+		const conn = fakeConnection([tool("observe_query")], () => ({
+			content: [{ type: "text", text: huge }],
+		}));
+		const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mgr-ceiling-"));
+		const m = createSurfaceManager({
+			server,
+			connection: conn,
+			config: () => config(),
+			registry: createFrontEndRegistry({
+				backendOf: defaultBackendOf,
+				defaults: defaultResolved({ writeSignal: () => false }),
+			}),
+			resultCeiling: { limitBytes: 500, storageDir: () => storageDir },
+		});
+		const [descriptor] = (await m.reconcile()).added;
+		const result = await descriptor.execute(
+			"id",
+			{},
+			undefined,
+			undefined,
+			ctx,
+		);
+		const textBlocks = result.content.filter(
+			(b): b is { type: "text"; text: string } => b.type === "text",
+		);
+		const totalBytes = textBlocks.reduce(
+			(sum, b) => sum + Buffer.byteLength(b.text, "utf-8"),
+			0,
+		);
+		expect(totalBytes).toBeLessThanOrEqual(500);
+		expect(textBlocks.map((b) => b.text).join("\n")).toContain("Result capped");
+		fs.rmSync(storageDir, { recursive: true, force: true });
+	});
+
+	it("caps an oversized result through the run_tool passthrough too", async () => {
+		const huge = "x".repeat(5000);
+		const conn = fakeConnection([tool("observe_query")], () => ({
+			content: [{ type: "text", text: huge }],
+		}));
+		const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mgr-pass-"));
+		const m = createSurfaceManager({
+			server,
+			connection: conn,
+			config: () => config({ progressive: ["observe"] }),
+			registry: createFrontEndRegistry({
+				backendOf: defaultBackendOf,
+				defaults: defaultResolved({ writeSignal: () => false }),
+			}),
+			resultCeiling: { limitBytes: 500, storageDir: () => storageDir },
+		});
+		const runTool = (await m.reconcile()).progressiveHelpers[2];
+		const result = await runTool.execute(
+			"id",
+			{ name: "observe_query", arguments: {} },
+			undefined,
+			undefined,
+			ctx,
+		);
+		const totalBytes = result.content
+			.filter((b): b is { type: "text"; text: string } => b.type === "text")
+			.reduce((sum, b) => sum + Buffer.byteLength(b.text, "utf-8"), 0);
+		expect(totalBytes).toBeLessThanOrEqual(500);
+		fs.rmSync(storageDir, { recursive: true, force: true });
 	});
 
 	it("throws from execute when the call errors", async () => {

@@ -12,6 +12,13 @@
  * from here.
  */
 
+// ── Ceiling ─────────────────────────────────────────────────
+export {
+	type CeilingOptions,
+	contentByteSize,
+	DEFAULT_RESULT_CEILING_BYTES,
+	enforceResultCeiling,
+} from "./ceiling.js";
 // ── Config panel ────────────────────────────────────────────
 export {
 	changedValues,
