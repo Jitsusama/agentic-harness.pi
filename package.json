@@ -38,6 +38,11 @@
 		"test:coverage": "vitest run --coverage"
 	},
 	"packageManager": "pnpm@9.15.0",
+	"pnpm": {
+		"overrides": {
+			"google-auth-library": "10.9.0"
+		}
+	},
 	"pi": {
 		"extensions": [
 			"./extensions"
@@ -49,12 +54,12 @@
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"defuddle": "^0.19.1",
-		"google-auth-library": "^9.14.2",
-		"googleapis": "^140.0.1",
-		"jsdom": "^28.1.0",
+		"google-auth-library": "^10.9.0",
+		"googleapis": "^173.0.0",
+		"jsdom": "^29.1.1",
 		"jsonpath-plus": "^10.4.0",
-		"puppeteer-core": "^24.38.0",
-		"sqlite3": "^5.1.7",
+		"puppeteer-core": "^25.3.0",
+		"sqlite3": "^6.0.1",
 		"vscode-jsonrpc": "^9.0.1",
 		"vscode-languageserver-protocol": "^3.18.2",
 		"yaml": "^2.9.0",
