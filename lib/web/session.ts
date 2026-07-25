@@ -23,7 +23,9 @@ import {
 	ANNOUNCE_BINDING,
 	ANNOUNCEMENT_OBSERVER,
 	type Announcement,
+	type AnnouncementCandidate,
 	type AxNode,
+	CANDIDATE_REGISTRY,
 	normalizeAxTree,
 	type RawAxNode,
 	renderAxOutline,
@@ -103,6 +105,16 @@ export class BrowserSession {
 	/** What the page announced, oldest first, within its budget. */
 	private readonly announcements: RingBuffer<Announcement> =
 		createRingBuffer<Announcement>();
+
+	/**
+	 * What the browser said about each nominated region, keyed by
+	 * document epoch and registry index. Null means the browser
+	 * ruled it not live.
+	 */
+	private readonly livenessByRegion = new Map<
+		string,
+		Announcement["politeness"] | null
+	>();
 
 	private constructor(
 		readonly name: string,
@@ -216,12 +228,94 @@ export class BrowserSession {
 	 * once and survives navigation; the observer is registered
 	 * for every document, so announcements made during load are
 	 * caught too.
+	 *
+	 * Candidates arrive faster than they can be ruled on, so they
+	 * are resolved one at a time along a chain. Resolving them
+	 * concurrently would let a slow lookup overtake a fast one and
+	 * record two announcements out of the order they were said.
 	 */
 	private async listenForAnnouncements(): Promise<void> {
-		await this.page.exposeFunction(ANNOUNCE_BINDING, (entry: Announcement) => {
-			this.announcements.push(entry);
-		});
+		let queue: Promise<void> = Promise.resolve();
+		await this.page.exposeFunction(
+			ANNOUNCE_BINDING,
+			(candidate: AnnouncementCandidate) => {
+				queue = queue.then(() => this.recordIfLive(candidate));
+			},
+		);
 		await this.page.evaluateOnNewDocument(ANNOUNCEMENT_OBSERVER);
+	}
+
+	/**
+	 * Record a nominated change only if the browser calls its
+	 * region live, at the politeness the browser computed.
+	 */
+	private async recordIfLive(candidate: AnnouncementCandidate): Promise<void> {
+		const politeness = await this.politenessOf(candidate);
+		if (!politeness) return;
+		this.announcements.push({
+			politeness,
+			text: candidate.text,
+			at: candidate.at,
+		});
+	}
+
+	/**
+	 * Ask the browser what it computed for a nominated region.
+	 *
+	 * The answer is cached per document: liveness is a property of
+	 * the markup, and a navigation starts a new registry with a
+	 * new epoch, so a stale entry can never be read back.
+	 */
+	private async politenessOf(
+		candidate: AnnouncementCandidate,
+	): Promise<Announcement["politeness"] | undefined> {
+		const key = `${candidate.epoch}:${candidate.index}`;
+		const known = this.livenessByRegion.get(key);
+		if (known !== undefined) return known ?? undefined;
+
+		const computed = await this.readLiveness(candidate.index);
+		this.livenessByRegion.set(key, computed ?? null);
+		return computed;
+	}
+
+	/** Read a region's computed live politeness from the AX tree. */
+	private async readLiveness(
+		index: number,
+	): Promise<Announcement["politeness"] | undefined> {
+		let objectId: string | undefined;
+		try {
+			const { result } = await this.cdp.send("Runtime.evaluate", {
+				expression: `globalThis[${JSON.stringify(CANDIDATE_REGISTRY)}][${index}]`,
+			});
+			objectId = result.objectId;
+			if (!objectId) return undefined;
+
+			const { node } = await this.cdp.send("DOM.describeNode", { objectId });
+			const { nodes } = await this.cdp.send("Accessibility.getPartialAXTree", {
+				backendNodeId: node.backendNodeId,
+				fetchRelatives: false,
+			});
+			// The nominated node is last; anything before it is the
+			// ancestry the protocol threw in.
+			const target = nodes.at(-1);
+			const live = target?.properties?.find((p) => p.name === "live")?.value
+				.value;
+			if (live === "polite" || live === "assertive") return live;
+			return undefined;
+		} catch {
+			// The page can navigate or drop the node between the
+			// nomination and the lookup. A change nobody can point at
+			// any more is not worth reporting as an announcement.
+			return undefined;
+		} finally {
+			if (objectId) {
+				await this.cdp
+					.send("Runtime.releaseObject", { objectId })
+					// Releasing a handle the page already discarded is
+					// not a failure worth surfacing.
+					.catch(() => {});
+			}
+		}
 	}
 
 	/**

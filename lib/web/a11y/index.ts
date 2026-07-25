@@ -11,6 +11,8 @@ export {
 	ANNOUNCE_BINDING,
 	ANNOUNCEMENT_OBSERVER,
 	type Announcement,
+	type AnnouncementCandidate,
+	CANDIDATE_REGISTRY,
 	renderAnnouncements,
 } from "./announcements.js";
 export { isWeakName, type NameSource, nameSource } from "./naming.js";
