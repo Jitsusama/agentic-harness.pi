@@ -13,9 +13,15 @@
  * different lifetime.
  */
 
-import type { CDPSession, ElementHandle, Page } from "puppeteer-core";
+import type {
+	BrowserContext,
+	CDPSession,
+	ElementHandle,
+	Page,
+} from "puppeteer-core";
 import { type AxNode, renderAxOutline } from "./a11y.js";
-import { newPage } from "./browser.js";
+import { newContextPage } from "./browser.js";
+import { injectCookies, isSetUp } from "./cookies/index.js";
 import {
 	ambiguityRefusal,
 	notFoundRefusal,
@@ -56,31 +62,65 @@ export type ActFailure = { ok: false; refusal: TargetRefusal };
 /** The outcome of an act call. */
 export type ActResult = { ok: true } | ActFailure;
 
+/** How a session should behave for its whole life. */
+export interface SessionOptions {
+	/**
+	 * Carry the user's own Chrome cookies into this session, so
+	 * internal apps that expect a signed-in browser are drivable.
+	 * Off by default: a session is a clean user unless asked.
+	 */
+	readonly cookies?: boolean;
+}
+
+/** Chrome cookie injection was asked for but is not set up. */
+export class CookieSetupNeeded extends Error {
+	constructor() {
+		super(
+			"Chrome cookie injection is not set up. Run the " +
+				"/setup-chrome-cookies command, or open the session " +
+				"without cookies.",
+		);
+		this.name = "CookieSetupNeeded";
+	}
+}
+
 /** A driveable browser session over a single tab. */
 export class BrowserSession {
 	private constructor(
 		readonly name: string,
 		private readonly page: Page,
 		private readonly cdp: CDPSession,
+		private readonly context: BrowserContext,
+		private readonly options: SessionOptions,
 	) {}
 
-	/** Open a fresh session with its own tab and CDP channel. */
-	static async open(name: string): Promise<BrowserSession> {
-		const page = await newPage();
+	/**
+	 * Open a fresh session in a browser context of its own, so
+	 * its cookies, storage and cache belong to it alone.
+	 */
+	static async open(
+		name: string,
+		options: SessionOptions = {},
+	): Promise<BrowserSession> {
+		if (options.cookies && !isSetUp()) throw new CookieSetupNeeded();
+		const { page, context } = await newContextPage();
 		try {
 			const cdp = await page.createCDPSession();
 			await cdp.send("Accessibility.enable");
-			return new BrowserSession(name, page, cdp);
+			return new BrowserSession(name, page, cdp, context, options);
 		} catch (err) {
-			// Do not leak the tab if the CDP channel could not be set
-			// up; close it before surfacing the failure.
-			await page.close().catch(() => {});
+			// Do not leak the context if the CDP channel could not be
+			// set up; close it before surfacing the failure.
+			await context.close().catch(() => {});
 			throw err;
 		}
 	}
 
 	/** Navigate the tab to a URL and wait for the network to settle. */
 	async navigate(url: string): Promise<void> {
+		// Cookies are per-domain, so they are injected against the
+		// URL we are about to visit rather than once at open.
+		if (this.options.cookies) await injectCookies(this.page, url);
 		await this.page.goto(url, { waitUntil: "networkidle2" });
 	}
 
@@ -111,14 +151,16 @@ export class BrowserSession {
 		return { ok: true };
 	}
 
-	/** Close the tab. */
+	/** Close the tab and the context holding its state. */
 	async close(): Promise<void> {
 		try {
 			await this.cdp.detach();
 		} catch {
-			// The session may already be gone; closing the page is enough.
+			// The session may already be gone; closing the context is enough.
 		}
-		await this.page.close();
+		// Closing the context disposes its pages along with the
+		// cookies, storage and cache they accumulated.
+		await this.context.close();
 	}
 
 	private async resolve(

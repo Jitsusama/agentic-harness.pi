@@ -7,7 +7,7 @@
  */
 
 import { closeBrowser } from "../../lib/web/browser.js";
-import { BrowserSession } from "../../lib/web/session.js";
+import { BrowserSession, type SessionOptions } from "../../lib/web/session.js";
 
 /** Close a session after this long without use. */
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -25,8 +25,12 @@ interface Held {
 export interface SessionRegistry {
 	/** Whether a session is currently open under this name. */
 	has(name: string): boolean;
-	/** The named session, opening one when none is live. */
-	acquire(name: string): Promise<BrowserSession>;
+	/**
+	 * The named session, opening one when none is live. Options
+	 * apply only to an open; an existing session keeps the ones
+	 * it was opened with.
+	 */
+	acquire(name: string, options?: SessionOptions): Promise<BrowserSession>;
 	/** Close one session; false when none was open. */
 	close(name: string): Promise<boolean>;
 	/** Close every session and the shared browser. */
@@ -51,13 +55,13 @@ export function createSessionRegistry(): SessionRegistry {
 			return sessions.has(name);
 		},
 
-		async acquire(name) {
+		async acquire(name, options) {
 			const existing = sessions.get(name);
 			if (existing) {
 				touch(name, existing);
 				return existing.opening;
 			}
-			const held: Held = { opening: BrowserSession.open(name) };
+			const held: Held = { opening: BrowserSession.open(name, options) };
 			sessions.set(name, held);
 			touch(name, held);
 			try {

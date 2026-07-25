@@ -18,7 +18,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { clearTimeout, setTimeout } from "node:timers";
-import puppeteer, { type Browser, type Page } from "puppeteer-core";
+import puppeteer, {
+	type Browser,
+	type BrowserContext,
+	type Page,
+} from "puppeteer-core";
 import { processGlobal } from "../internal/process-global.js";
 
 /** How many times to try launching Chrome before giving up. */
@@ -651,27 +655,71 @@ async function closeIfUnused(): Promise<void> {
 	await closeBrowser();
 }
 
+/** The user agent every tab we open presents. */
+const USER_AGENT =
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+	"AppleWebKit/537.36 (KHTML, like Gecko) " +
+	"Chrome/131.0.0.0 Safari/537.36";
+
 /** Open a new browser tab with a standard user agent string. */
 export async function newPage(): Promise<Page> {
+	return withLease(async (b) => {
+		const page = await b.newPage();
+		return dressPage(page);
+	});
+}
+
+/**
+ * Open a tab in a browser context of its own: separate
+ * cookies, storage and cache from every other context in the
+ * shared Chrome. Two sessions opened this way are two
+ * genuinely independent users. Closing the context closes the
+ * tabs inside it and leaves its siblings alone.
+ */
+export async function newContextPage(): Promise<{
+	page: Page;
+	context: BrowserContext;
+}> {
+	return withLease(async (b) => {
+		const context = await b.createBrowserContext();
+		try {
+			const page = await dressPage(await context.newPage());
+			return { page, context };
+		} catch (err) {
+			// Do not leave an empty context behind on a failed open.
+			await context.close().catch(() => {});
+			throw err;
+		}
+	});
+}
+
+/** Give a fresh tab the user agent we present everywhere. */
+async function dressPage(page: Page): Promise<Page> {
+	try {
+		await page.setUserAgent(USER_AGENT);
+	} catch (err) {
+		await page.close();
+		throw err;
+	}
+	return page;
+}
+
+/**
+ * Run an acquisition against the shared browser while holding
+ * a lease, so an idle close firing concurrently sees the
+ * in-flight work and defers instead of pulling Chrome out from
+ * under it.
+ */
+async function withLease<T>(
+	acquire: (browser: Browser) => Promise<T>,
+): Promise<T> {
 	const state = sharedState();
-	// Reserve a lease synchronously, before any await, so an idle close
-	// firing concurrently sees the in-flight acquisition and defers.
+	// Reserve the lease synchronously, before any await.
 	state.pending = (state.pending ?? 0) + 1;
 	try {
 		const b = await getBrowser();
 		idleCloser().touch();
-		const page = await b.newPage();
-		try {
-			await page.setUserAgent(
-				"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-					"AppleWebKit/537.36 (KHTML, like Gecko) " +
-					"Chrome/131.0.0.0 Safari/537.36",
-			);
-		} catch (err) {
-			await page.close();
-			throw err;
-		}
-		return page;
+		return await acquire(b);
 	} finally {
 		state.pending = (state.pending ?? 1) - 1;
 	}

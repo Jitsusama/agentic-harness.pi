@@ -9,6 +9,10 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import {
+	type BrowserSession,
+	CookieSetupNeeded,
+} from "../../lib/web/session.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
 import { pageView } from "./see.js";
@@ -30,6 +34,14 @@ const parameters = Type.Object({
 		Type.String({ description: "Session name. Defaults to 'default'." }),
 	),
 	url: Type.Optional(Type.String({ description: "URL for open or navigate." })),
+	cookies: Type.Optional(
+		Type.Boolean({
+			description:
+				"Carry your own Chrome cookies into this session, for sites " +
+				"you are already signed in to. Applies when the session is " +
+				"first opened. Defaults to false: a session is a clean user.",
+		}),
+	),
 });
 
 /** Register the navigation half of the browser family. */
@@ -42,7 +54,8 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			"opens a session if none is live; kind 'open' starts a session, with " +
 			"a url if you have one; kind 'close' disposes it. Passing just a url " +
 			"navigates. Navigating returns the page's accessibility outline, so " +
-			"you see where you landed.",
+			"you see where you landed. Each session gets its own cookies and " +
+			"storage, so two named sessions are two independent users.",
 		promptSnippet:
 			"Move a browser session with browser_go (navigate, open, close).",
 		parameters,
@@ -65,7 +78,20 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return refusal(name, kind, "navigate needs a url.");
 			}
 
-			const session = await registry.acquire(name);
+			let session: BrowserSession;
+			try {
+				session = await registry.acquire(name, {
+					...(params.cookies === undefined ? {} : { cookies: params.cookies }),
+				});
+			} catch (err) {
+				// Asking for cookies that are not set up is a fixable
+				// mistake, so say how to fix it rather than throwing.
+				if (err instanceof CookieSetupNeeded) {
+					return refusal(name, kind, err.message);
+				}
+				throw err;
+			}
+
 			if (!params.url) {
 				return answer(name, kind, `Opened session '${name}'.`);
 			}
