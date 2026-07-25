@@ -11,6 +11,7 @@ export {
 	type AxNode,
 	type AxProperties,
 	normalizeAxTree,
+	type RawAxNode,
 	renderAxOutline,
 } from "./a11y/index.js";
 export {
