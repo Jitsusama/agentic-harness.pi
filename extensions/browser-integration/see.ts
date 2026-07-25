@@ -9,7 +9,11 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import type { Skeleton, TreeScope } from "../../lib/web/a11y/index.js";
+import {
+	renderAnnouncements,
+	type Skeleton,
+	type TreeScope,
+} from "../../lib/web/a11y/index.js";
 import type { BrowserSession, Observation } from "../../lib/web/session.js";
 import { describeRefusal, parseTarget } from "../../lib/web/target/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
@@ -30,12 +34,20 @@ export async function pageView(session: BrowserSession): Promise<string> {
 
 const parameters = Type.Object({
 	kind: Type.Optional(
-		Type.Union([Type.Literal("page"), Type.Literal("reading")], {
-			description:
-				"page: the accessibility outline of what is on screen, " +
-				"the default. reading: the same page narrated the way a " +
-				"screen reader would say it, in reading order.",
-		}),
+		Type.Union(
+			[
+				Type.Literal("page"),
+				Type.Literal("reading"),
+				Type.Literal("announcements"),
+			],
+			{
+				description:
+					"page: the accessibility outline of what is on screen, " +
+					"the default. reading: the same page narrated the way a " +
+					"screen reader would say it. announcements: what the page " +
+					"said out loud through its live regions.",
+			},
+		),
 	),
 	session: Type.Optional(
 		Type.String({ description: "Session name. Defaults to 'default'." }),
@@ -51,6 +63,14 @@ const parameters = Type.Object({
 		Type.Integer({
 			minimum: 1,
 			description: "Keep this many levels of the outline. Omit for all of it.",
+		}),
+	),
+	since: Type.Optional(
+		Type.Integer({
+			minimum: 0,
+			description:
+				"For announcements: read only what arrived after this " +
+				"cursor, which the previous read returned.",
 		}),
 	),
 	only: Type.Optional(
@@ -99,6 +119,16 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				);
 			}
 			const session = await registry.acquire(name);
+
+			if (kind === "announcements") {
+				const { entries, cursor, dropped } = session.heard(params.since ?? 0);
+				return answer(
+					name,
+					kind,
+					`${renderAnnouncements(entries, dropped)}\n\ncursor: ${cursor}`,
+				);
+			}
+
 			const scope: TreeScope = {
 				...(params.depth === undefined ? {} : { depth: params.depth }),
 				...(params.only === undefined ? {} : { only: params.only as Skeleton }),

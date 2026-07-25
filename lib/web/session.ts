@@ -20,6 +20,9 @@ import type {
 	Page,
 } from "puppeteer-core";
 import {
+	ANNOUNCE_BINDING,
+	ANNOUNCEMENT_OBSERVER,
+	type Announcement,
 	type AxNode,
 	normalizeAxTree,
 	type RawAxNode,
@@ -38,6 +41,11 @@ import {
 	type Target,
 	type TargetRefusal,
 } from "./target/index.js";
+import {
+	createRingBuffer,
+	type Recorded,
+	type RingBuffer,
+} from "./telemetry/index.js";
 
 /** How a page should be laid out for reading. */
 export type PageForm = "outline" | "reading";
@@ -92,6 +100,10 @@ export class CookieSetupNeeded extends Error {
 
 /** A driveable browser session over a single tab. */
 export class BrowserSession {
+	/** What the page announced, oldest first, within its budget. */
+	private readonly announcements: RingBuffer<Announcement> =
+		createRingBuffer<Announcement>();
+
 	private constructor(
 		readonly name: string,
 		private readonly page: Page,
@@ -113,7 +125,9 @@ export class BrowserSession {
 		try {
 			const cdp = await page.createCDPSession();
 			await cdp.send("Accessibility.enable");
-			return new BrowserSession(name, page, cdp, context, options);
+			const session = new BrowserSession(name, page, cdp, context, options);
+			await session.listenForAnnouncements();
+			return session;
 		} catch (err) {
 			// Do not leak the context if the CDP channel could not be
 			// set up; close it before surfacing the failure.
@@ -195,6 +209,35 @@ export class BrowserSession {
 		}
 		await handle.element.dispose();
 		return { ok: true };
+	}
+
+	/**
+	 * Start hearing what the page says. The binding is installed
+	 * once and survives navigation; the observer is registered
+	 * for every document, so announcements made during load are
+	 * caught too.
+	 */
+	private async listenForAnnouncements(): Promise<void> {
+		await this.page.exposeFunction(ANNOUNCE_BINDING, (entry: Announcement) => {
+			this.announcements.push(entry);
+		});
+		await this.page.evaluateOnNewDocument(ANNOUNCEMENT_OBSERVER);
+	}
+
+	/**
+	 * What the page has announced since a cursor, with the cursor
+	 * to read from next time and how many were dropped.
+	 */
+	heard(since = 0): {
+		entries: readonly Recorded<Announcement>[];
+		cursor: number;
+		dropped: number;
+	} {
+		return {
+			entries: this.announcements.since(since),
+			cursor: this.announcements.cursor,
+			dropped: this.announcements.dropped,
+		};
 	}
 
 	/** Close the tab and the context holding its state. */

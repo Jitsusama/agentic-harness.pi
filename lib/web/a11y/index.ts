@@ -8,10 +8,12 @@
  */
 
 export {
-	isWeakName,
-	type NameSource,
-	nameSource,
-} from "./naming.js";
+	ANNOUNCE_BINDING,
+	ANNOUNCEMENT_OBSERVER,
+	type Announcement,
+	renderAnnouncements,
+} from "./announcements.js";
+export { isWeakName, type NameSource, nameSource } from "./naming.js";
 export { renderAxOutline } from "./outline.js";
 export { renderReading } from "./reading.js";
 export {
