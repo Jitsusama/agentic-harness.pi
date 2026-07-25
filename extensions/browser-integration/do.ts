@@ -75,7 +75,8 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return refusal(
 					name,
 					params.kind,
-					"action 'type' needs the text to enter.",
+					`action 'type' needs the text to enter into role ` +
+						`${params.role} name "${params.name}".`,
 				);
 			}
 
