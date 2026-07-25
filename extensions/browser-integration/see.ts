@@ -9,17 +9,23 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import type { BrowserSession } from "../../lib/web/session.js";
+import type { Skeleton, TreeScope } from "../../lib/web/a11y/index.js";
+import type { BrowserSession, Observation } from "../../lib/web/session.js";
+import { describeRefusal, parseTarget } from "../../lib/web/target/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
+
+/** Lay an observation out for reading: where you are, then what is there. */
+function render(observed: Observation): string {
+	return `${observed.title}\n${observed.url}\n\n${observed.outline}`;
+}
 
 /**
  * The page as the caller should read it: where they are, then
  * the accessibility outline of what is there.
  */
 export async function pageView(session: BrowserSession): Promise<string> {
-	const observed = await session.observe();
-	return `${observed.title}\n${observed.url}\n\n${observed.outline}`;
+	return render(await session.observe());
 }
 
 const parameters = Type.Object({
@@ -33,6 +39,34 @@ const parameters = Type.Object({
 	session: Type.Optional(
 		Type.String({ description: "Session name. Defaults to 'default'." }),
 	),
+	within: Type.Optional(
+		Type.String({
+			description:
+				"Read only the branch under this element, named as " +
+				"'role name', e.g. 'navigation Main' or 'form Checkout'.",
+		}),
+	),
+	depth: Type.Optional(
+		Type.Integer({
+			minimum: 1,
+			description: "Keep this many levels of the outline. Omit for all of it.",
+		}),
+	),
+	only: Type.Optional(
+		Type.Union(
+			[
+				Type.Literal("landmarks"),
+				Type.Literal("headings"),
+				Type.Literal("interactive"),
+			],
+			{
+				description:
+					"Reduce the page to one kind of thing: 'landmarks' for " +
+					"how it is laid out, 'headings' for its outline, " +
+					"'interactive' for what you can operate.",
+			},
+		),
+	),
 });
 
 /** Register the reading half of the browser family. */
@@ -44,7 +78,9 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 			"Read the current state of a browser session without changing it. " +
 			"kind 'page' (the default) returns the page's accessibility outline: " +
 			"the roles and names of everything on screen, which is how you name " +
-			"elements when you act on them.",
+			"elements when you act on them. On a large page, narrow it: 'only' " +
+			"reduces to landmarks, headings or interactive elements, 'depth' " +
+			"keeps the top levels, and 'within' reads one branch.",
 		promptSnippet:
 			"Read a browser page with browser_see; act on it with browser_do.",
 		parameters,
@@ -60,7 +96,30 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				);
 			}
 			const session = await registry.acquire(name);
-			return answer(name, kind, await pageView(session));
+			const scope: TreeScope = {
+				...(params.depth === undefined ? {} : { depth: params.depth }),
+				...(params.only === undefined ? {} : { only: params.only as Skeleton }),
+			};
+
+			if (params.within === undefined) {
+				return answer(name, kind, render(await session.observe(scope)));
+			}
+
+			const target = parseTarget(params.within);
+			if (!target) {
+				return refusal(
+					name,
+					kind,
+					`Could not read '${params.within}' as an element. Name it as ` +
+						`'role name', e.g. 'navigation Main', or as a role on its ` +
+						`own, e.g. 'main'.`,
+				);
+			}
+			const result = await session.observeWithin(target, scope);
+			if (!result.ok) {
+				return refusal(name, kind, describeRefusal(target, result.refusal));
+			}
+			return answer(name, kind, render(result.observation));
 		},
 	});
 }

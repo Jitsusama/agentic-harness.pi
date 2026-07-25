@@ -9,6 +9,12 @@
 
 export { renderAxOutline } from "./outline.js";
 export {
+	type Skeleton,
+	scopeTree,
+	subtreeAt,
+	type TreeScope,
+} from "./scope.js";
+export {
 	type AxNode,
 	type AxProperties,
 	normalizeAxTree,

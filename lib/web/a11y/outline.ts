@@ -7,25 +7,7 @@
  * the surface act refusals, audits and page reads all quote.
  */
 
-import type { AxNode } from "./tree.js";
-
-/** Roles that add no meaning on their own and are folded away when unnamed. */
-const NOISE_ROLES = new Set([
-	"generic",
-	"none",
-	"presentation",
-	"document",
-	"RootWebArea",
-	"InlineTextBox",
-	"StaticText",
-	"text",
-]);
-
-/** Whether a node earns its own line in the outline. */
-function isMeaningful(node: AxNode): boolean {
-	if (node.name.trim().length > 0) return true;
-	return !NOISE_ROLES.has(node.role);
-}
+import { type AxNode, isMeaningful } from "./tree.js";
 
 /**
  * Render the tree as a nested role-and-name outline, with the

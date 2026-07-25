@@ -12,6 +12,7 @@ export {
 	type TargetRefusal,
 } from "./refusals.js";
 export {
+	parseTarget,
 	resolveTarget,
 	type Target,
 	type TargetResolution,

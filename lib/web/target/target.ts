@@ -86,3 +86,28 @@ export function resolveTarget(root: AxNode, target: Target): TargetResolution {
 		? { kind: "resolved", backendDomId: only.backendDomId }
 		: { kind: "notFound" };
 }
+
+/**
+ * Read a target written the way the outline prints it.
+ *
+ * The role is the first word, since roles are single words and
+ * names routinely are not. Quotes around the name are allowed,
+ * because a caller copying from the outline will bring them.
+ * A bare role targets the unnamed element of that role, which
+ * is how landmarks usually appear.
+ */
+export function parseTarget(spec: string): Target | undefined {
+	const trimmed = spec.trim();
+	if (!trimmed) return undefined;
+	const split = trimmed.indexOf(" ");
+	if (split < 0) return { role: trimmed, name: "" };
+	return {
+		role: trimmed.slice(0, split),
+		name: unquote(trimmed.slice(split + 1).trim()),
+	};
+}
+
+/** Drop a matched pair of surrounding quotes. */
+function unquote(name: string): string {
+	return name.replace(/^(["'])(.*)\1$/, "$2");
+}

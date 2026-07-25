@@ -166,6 +166,29 @@ function carriedText(node: AxNode): string {
 	return node.children.map(carriedText).join("").trim();
 }
 
+/** Roles that add no meaning on their own and are folded away when unnamed. */
+const NOISE_ROLES = new Set([
+	"generic",
+	"none",
+	"presentation",
+	"document",
+	"RootWebArea",
+	"InlineTextBox",
+	"StaticText",
+	"text",
+]);
+
+/**
+ * Whether a node says anything on its own. An unnamed wrapper
+ * does not: it is scaffolding the page needed and the reader
+ * does not. Rendering folds these away, and scoping does not
+ * count them as a level, so the two agree on what a level is.
+ */
+export function isMeaningful(node: AxNode): boolean {
+	if (node.name.trim().length > 0) return true;
+	return !NOISE_ROLES.has(node.role);
+}
+
 /** Collect a node's reported properties into a flat record. */
 function readProperties(node: RawAxNode): AxProperties {
 	const properties: Record<string, string | number | boolean> = {};

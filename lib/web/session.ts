@@ -24,6 +24,9 @@ import {
 	normalizeAxTree,
 	type RawAxNode,
 	renderAxOutline,
+	scopeTree,
+	subtreeAt,
+	type TreeScope,
 } from "./a11y/index.js";
 import { newContextPage } from "./browser.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
@@ -55,6 +58,11 @@ export type ActFailure = { ok: false; refusal: TargetRefusal };
 
 /** The outcome of an act call. */
 export type ActResult = { ok: true } | ActFailure;
+
+/** The outcome of reading one named branch of a page. */
+export type ObserveResult =
+	| { ok: true; observation: Observation }
+	| { ok: false; refusal: TargetRefusal };
 
 /** How a session should behave for its whole life. */
 export interface SessionOptions {
@@ -118,9 +126,45 @@ export class BrowserSession {
 		await this.page.goto(url, { waitUntil: "networkidle2" });
 	}
 
-	/** Render the page's accessibility outline, plus url and title. */
-	async observe(): Promise<Observation> {
+	/**
+	 * Render the page's accessibility outline, plus url and
+	 * title. A scope narrows the tree before it is rendered; with
+	 * none, the whole page is read.
+	 */
+	async observe(scope: TreeScope = {}): Promise<Observation> {
 		const tree = await this.axTree();
+		return await this.describe(scopeTree(tree, scope));
+	}
+
+	/**
+	 * Read one branch of the page, named the way the caller names
+	 * anything else. Unlike a whole-page read this can fail, so
+	 * it reports what would have worked instead.
+	 */
+	async observeWithin(
+		target: Target,
+		scope: TreeScope = {},
+	): Promise<ObserveResult> {
+		const tree = await this.axTree();
+		const resolution = resolveTarget(tree, target);
+		if (resolution.kind === "ambiguous") {
+			return { ok: false, refusal: ambiguityRefusal(tree, target) };
+		}
+		if (resolution.kind === "notFound") {
+			return { ok: false, refusal: notFoundRefusal(tree, target) };
+		}
+		const branch = subtreeAt(tree, resolution.backendDomId);
+		if (!branch) {
+			return { ok: false, refusal: notFoundRefusal(tree, target) };
+		}
+		return {
+			ok: true,
+			observation: await this.describe(scopeTree(branch, scope)),
+		};
+	}
+
+	/** Wrap a tree as an observation of where the session is. */
+	private async describe(tree: AxNode): Promise<Observation> {
 		return {
 			url: this.page.url(),
 			title: await this.page.title(),
