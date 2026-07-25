@@ -7,6 +7,13 @@
  */
 
 export {
+	ANIMATIONS_PROBE,
+	type Animation,
+	normalizeAnimations,
+	type RawAnimation,
+	renderAnimations,
+} from "./animations.js";
+export {
 	type BoxModel,
 	centreOf,
 	cornersOf,
@@ -15,7 +22,21 @@ export {
 	type RawBoxModel,
 	type Rect,
 } from "./box.js";
+export {
+	type Listener,
+	normalizeListeners,
+	type RawListener,
+	renderListeners,
+} from "./listeners.js";
 export { OCCLUDER_PROBE } from "./probes.js";
+export {
+	diffStyles,
+	type PseudoState,
+	type PseudoVariant,
+	renderVariants,
+	SETTLE_PROBE,
+	type StyleChange,
+} from "./pseudo.js";
 export {
 	renderBox,
 	renderStyles,

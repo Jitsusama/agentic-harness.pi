@@ -15,9 +15,13 @@ import {
 	type TreeScope,
 } from "../../lib/web/a11y/index.js";
 import {
+	type PseudoState,
+	renderAnimations,
 	renderBox,
+	renderListeners,
 	renderStyles,
 	renderTrace,
+	renderVariants,
 	renderVisibility,
 } from "../../lib/web/element/index.js";
 import type {
@@ -47,6 +51,9 @@ function renderInspection(found: Inspection): string {
 	];
 	if (found.box) sections.push("", renderBox(found.box));
 	if (found.styles) sections.push("", renderStyles(found.styles));
+	if (found.variants) sections.push("", renderVariants(found.variants));
+	if (found.listeners) sections.push("", renderListeners(found.listeners));
+	if (found.animations) sections.push("", renderAnimations(found.animations));
 	if (found.trace) sections.push("", renderTrace(found.trace));
 	return sections.join("\n");
 }
@@ -102,6 +109,28 @@ const parameters = Type.Object({
 				"For element: trace why this one CSS property has the " +
 				"value it has, through every rule that had a say.",
 		}),
+	),
+	behaviour: Type.Optional(
+		Type.Boolean({
+			description:
+				"For element: also report what is listening on it and " +
+				"what is animating, which answers why a click did nothing.",
+		}),
+	),
+	states: Type.Optional(
+		Type.Array(
+			Type.Union([
+				Type.Literal("hover"),
+				Type.Literal("focus"),
+				Type.Literal("active"),
+				Type.Literal("focus-visible"),
+			]),
+			{
+				description:
+					"For element: hold each of these states and report what " +
+					"changes, which is how to check a focus ring exists.",
+			},
+		),
 	),
 	depth: Type.Optional(
 		Type.Integer({
@@ -187,6 +216,12 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				const found = await session.inspect(target, {
 					...(params.styles === undefined ? {} : { styles: params.styles }),
 					...(params.why === undefined ? {} : { why: params.why }),
+					...(params.behaviour === undefined
+						? {}
+						: { behaviour: params.behaviour }),
+					...(params.states === undefined
+						? {}
+						: { states: params.states as PseudoState[] }),
 				});
 				if (!found.ok) {
 					return refusal(name, kind, describeRefusal(target, found.refusal));

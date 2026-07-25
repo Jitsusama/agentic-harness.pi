@@ -37,13 +37,24 @@ import {
 import { newContextPage } from "./browser.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
 import {
+	ANIMATIONS_PROBE,
+	type Animation,
 	type BoxModel,
 	centreOf,
 	cornersOf,
+	diffStyles,
 	judgeVisibility,
+	type Listener,
+	normalizeAnimations,
 	normalizeBoxModel,
+	normalizeListeners,
 	OCCLUDER_PROBE,
+	type PseudoState,
+	type PseudoVariant,
+	type RawAnimation,
 	type RawBoxModel,
+	type RawListener,
+	SETTLE_PROBE,
 	type VisibilityVerdict,
 } from "./element/index.js";
 import {
@@ -81,6 +92,10 @@ export interface InspectOptions {
 	readonly styles?: readonly string[];
 	/** Trace why this one property has the value it has. */
 	readonly why?: string;
+	/** Also report what is listening and what is moving. */
+	readonly behaviour?: boolean;
+	/** Hold each of these states and report what changes. */
+	readonly states?: readonly PseudoState[];
 }
 
 /** Everything the browser will say about one element. */
@@ -90,7 +105,21 @@ export interface Inspection {
 	readonly box?: BoxModel;
 	readonly styles?: readonly StyleGroup[];
 	readonly trace?: PropertyTrace;
+	readonly listeners?: readonly Listener[];
+	readonly animations?: readonly Animation[];
+	readonly variants?: readonly PseudoVariant[];
 }
+
+/**
+ * How long to let a state settle before reading it.
+ *
+ * Forcing a state starts whatever transition the page declared,
+ * so a reading taken at once catches the resting values and
+ * reports that nothing changed. The wait is on the browser's
+ * own promise that its animations have finished; this only caps
+ * a page that keeps starting new ones.
+ */
+const SETTLE_CAP_MS = 2000;
 
 /** An inspection, or the refusal that stopped it. */
 export type InspectResult =
@@ -493,24 +522,172 @@ export class BrowserSession {
 		});
 
 		const initials = await this.initials();
+		const curated =
+			styles === undefined
+				? undefined
+				: curateStyles(styles, {
+						...(initials === undefined ? {} : { initials }),
+						...(options.styles === undefined ? {} : { only: options.styles }),
+					});
+
+		const wantsBehaviour = options.behaviour === true && objectId !== undefined;
+		const variants =
+			options.states && objectId && curated
+				? await this.variantsOf(
+						backendNodeId,
+						objectId,
+						curated,
+						options.states,
+						initials,
+						options,
+					)
+				: undefined;
+
 		return {
 			node,
 			visibility,
 			...(box === undefined ? {} : { box }),
-			...(styles === undefined
-				? {}
-				: {
-						styles: curateStyles(styles, {
-							...(initials === undefined ? {} : { initials }),
-							...(options.styles === undefined ? {} : { only: options.styles }),
-						}),
-					}),
+			...(curated === undefined ? {} : { styles: curated }),
+			...(wantsBehaviour && objectId
+				? {
+						listeners: await this.listenersOf(objectId),
+						animations: await this.animationsOf(objectId),
+					}
+				: {}),
+			...(variants === undefined ? {} : { variants }),
 			...(options.why === undefined
 				? {}
 				: {
 						trace: await this.traceOf(backendNodeId, options.why, styles),
 					}),
 		};
+	}
+
+	/** What is listening on the element. */
+	private async listenersOf(objectId: string): Promise<readonly Listener[]> {
+		try {
+			const { listeners } = (await this.cdp.send(
+				"DOMDebugger.getEventListeners",
+				{ objectId },
+			)) as { listeners: RawListener[] };
+			return normalizeListeners(listeners);
+		} catch {
+			// Without the debugger agent this one section is missing;
+			// the rest of the inspection still stands.
+			return [];
+		}
+	}
+
+	/** What is moving on the element. */
+	private async animationsOf(objectId: string): Promise<readonly Animation[]> {
+		try {
+			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: ANIMATIONS_PROBE,
+				returnByValue: true,
+			});
+			return normalizeAnimations((result.value ?? []) as RawAnimation[]);
+		} catch {
+			// A page that navigated mid-inspection has nothing left to
+			// report here.
+			return [];
+		}
+	}
+
+	/**
+	 * How the element looks in each state, against how it looks at
+	 * rest.
+	 *
+	 * The forced state is always released afterwards, including
+	 * when a reading throws part way through. Leaving a page stuck
+	 * in a forced hover would quietly corrupt every later
+	 * observation of it.
+	 */
+	private async variantsOf(
+		backendNodeId: number,
+		objectId: string,
+		atRest: readonly StyleGroup[],
+		states: readonly PseudoState[],
+		initials: ComputedStyles | undefined,
+		options: InspectOptions,
+	): Promise<readonly PseudoVariant[]> {
+		const nodeId = await this.frontendNodeFor(backendNodeId);
+		if (nodeId === undefined) return [];
+
+		const variants: PseudoVariant[] = [];
+		try {
+			for (const state of states) {
+				await this.cdp.send("CSS.forcePseudoState", {
+					nodeId,
+					forcedPseudoClasses: [state],
+				});
+				await this.settle(objectId);
+				const held = await this.stylesOf(objectId);
+				if (!held) continue;
+				variants.push({
+					state,
+					changes: diffStyles(
+						atRest,
+						curateStyles(held, {
+							...(initials === undefined ? {} : { initials }),
+							...(options.styles === undefined ? {} : { only: options.styles }),
+						}),
+					),
+				});
+			}
+		} finally {
+			await this.cdp
+				.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] })
+				// A page that navigated took the forced state with it.
+				.catch(() => {});
+			// Releasing the state starts the transition back, so the
+			// element is only truly as it was found once that has
+			// finished. Without this the next reading catches it part
+			// way home and reports a colour nobody chose.
+			await this.settle(objectId);
+		}
+		return variants;
+	}
+
+	/**
+	 * Let whatever the forced state started finish before reading.
+	 *
+	 * Without this the reading catches a transition at its resting
+	 * values and reports that the state changes nothing, which is
+	 * exactly backwards.
+	 */
+	private async settle(objectId: string): Promise<void> {
+		try {
+			await this.cdp.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: SETTLE_PROBE,
+				arguments: [{ value: SETTLE_CAP_MS }],
+				awaitPromise: true,
+				returnByValue: true,
+			});
+		} catch {
+			// A reading taken early is worse than one taken late, but
+			// neither is worth abandoning the inspection over.
+		}
+	}
+
+	/** The front-end node id, which the CSS agent works in. */
+	private async frontendNodeFor(
+		backendNodeId: number,
+	): Promise<number | undefined> {
+		try {
+			// A front-end id only exists once the document has been
+			// walked at least once.
+			await this.cdp.send("DOM.getDocument", { depth: 0 });
+			const { nodeIds } = await this.cdp.send(
+				"DOM.pushNodesByBackendIdsToFrontend",
+				{ backendNodeIds: [backendNodeId] },
+			);
+			return nodeIds[0];
+		} catch {
+			// Without a front-end id the CSS agent cannot be addressed.
+			return undefined;
+		}
 	}
 
 	/** The element's four boxes, or nothing when it has none. */
@@ -574,15 +751,8 @@ export class BrowserSession {
 		styles: ComputedStyles | undefined,
 	): Promise<PropertyTrace | undefined> {
 		try {
-			// The cascade is asked for by front-end node id, which only
-			// exists once the document has been walked.
-			await this.cdp.send("DOM.getDocument", { depth: 0 });
-			const { nodeIds } = await this.cdp.send(
-				"DOM.pushNodesByBackendIdsToFrontend",
-				{ backendNodeIds: [backendNodeId] },
-			);
-			const nodeId = nodeIds[0];
-			if (!nodeId) return undefined;
+			const nodeId = await this.frontendNodeFor(backendNodeId);
+			if (nodeId === undefined) return undefined;
 			const raw = (await this.cdp.send("CSS.getMatchedStylesForNode", {
 				nodeId,
 			})) as RawMatchedStyles;
