@@ -17,11 +17,13 @@ import { answer, refusal } from "./result.js";
 import { pageView } from "./see.js";
 
 const parameters = Type.Object({
-	kind: Type.Literal("act", {
-		description:
-			"act: operate an element named by role and accessible name. " +
-			"The only kind so far.",
-	}),
+	kind: Type.Optional(
+		Type.Literal("act", {
+			description:
+				"act: operate an element named by role and accessible name. " +
+				"The default, and the only kind so far.",
+		}),
+	),
 	session: Type.Optional(
 		Type.String({ description: "Session name. Defaults to 'default'." }),
 	),
@@ -62,10 +64,11 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 		parameters,
 		async execute(_id, params) {
 			const name = params.session ?? DEFAULT_SESSION;
+			const kind = params.kind ?? "act";
 			if (!registry.has(name)) {
 				return refusal(
 					name,
-					params.kind,
+					kind,
 					`No session '${name}'. Navigate somewhere with browser_go first.`,
 				);
 			}
@@ -74,7 +77,7 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			if (!action) {
 				return refusal(
 					name,
-					params.kind,
+					kind,
 					`action 'type' needs the text to enter into role ` +
 						`${params.role} name "${params.name}".`,
 				);
@@ -85,11 +88,11 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			if (!result.ok) {
 				return refusal(
 					name,
-					params.kind,
+					kind,
 					describeRefusal(action.target, result.refusal),
 				);
 			}
-			return answer(name, params.kind, await pageView(session));
+			return answer(name, kind, await pageView(session));
 		},
 	});
 }
