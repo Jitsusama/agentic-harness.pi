@@ -14,7 +14,17 @@ import {
 	type Skeleton,
 	type TreeScope,
 } from "../../lib/web/a11y/index.js";
-import type { BrowserSession, Observation } from "../../lib/web/session.js";
+import {
+	renderBox,
+	renderStyles,
+	renderTrace,
+	renderVisibility,
+} from "../../lib/web/element/index.js";
+import type {
+	BrowserSession,
+	Inspection,
+	Observation,
+} from "../../lib/web/session.js";
 import { describeRefusal, parseTarget } from "../../lib/web/target/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
@@ -22,6 +32,23 @@ import { answer, refusal } from "./result.js";
 /** Lay an observation out for reading: where you are, then what is there. */
 function render(observed: Observation): string {
 	return `${observed.title}\n${observed.url}\n\n${observed.outline}`;
+}
+
+/**
+ * One element, in the order the questions get asked: what it
+ * is, whether it can be seen, where it sits, how it is styled
+ * and why.
+ */
+function renderInspection(found: Inspection): string {
+	const sections = [
+		`${found.node.role} ${found.node.name}`.trim(),
+		"",
+		renderVisibility(found.visibility),
+	];
+	if (found.box) sections.push("", renderBox(found.box));
+	if (found.styles) sections.push("", renderStyles(found.styles));
+	if (found.trace) sections.push("", renderTrace(found.trace));
+	return sections.join("\n");
 }
 
 /**
@@ -39,13 +66,15 @@ const parameters = Type.Object({
 				Type.Literal("page"),
 				Type.Literal("reading"),
 				Type.Literal("announcements"),
+				Type.Literal("element"),
 			],
 			{
 				description:
 					"page: the accessibility outline of what is on screen, " +
 					"the default. reading: the same page narrated the way a " +
 					"screen reader would say it. announcements: what the page " +
-					"said out loud through its live regions.",
+					"said out loud through its live regions. element: " +
+					"everything about one element, named with 'within'.",
 			},
 		),
 	),
@@ -56,7 +85,22 @@ const parameters = Type.Object({
 		Type.String({
 			description:
 				"Read only the branch under this element, named as " +
-				"'role name', e.g. 'navigation Main' or 'form Checkout'.",
+				"'role name', e.g. 'navigation Main' or 'form Checkout'. " +
+				"For kind 'element', the element to inspect.",
+		}),
+	),
+	styles: Type.Optional(
+		Type.Array(Type.String(), {
+			description:
+				"For element: report exactly these CSS properties instead " +
+				"of the curated set.",
+		}),
+	),
+	why: Type.Optional(
+		Type.String({
+			description:
+				"For element: trace why this one CSS property has the " +
+				"value it has, through every rule that had a say.",
 		}),
 	),
 	depth: Type.Optional(
@@ -127,6 +171,27 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 					kind,
 					`${renderAnnouncements(entries, dropped)}\n\ncursor: ${cursor}`,
 				);
+			}
+
+			if (kind === "element") {
+				const target = parseTarget(params.within ?? "");
+				if (!target) {
+					return refusal(
+						name,
+						kind,
+						"Name the element to inspect in 'within', as 'role name', " +
+							"e.g. 'button Save'. browser_see kind \"page\" lists what " +
+							"is there.",
+					);
+				}
+				const found = await session.inspect(target, {
+					...(params.styles === undefined ? {} : { styles: params.styles }),
+					...(params.why === undefined ? {} : { why: params.why }),
+				});
+				if (!found.ok) {
+					return refusal(name, kind, describeRefusal(target, found.refusal));
+				}
+				return answer(name, kind, renderInspection(found.inspection));
 			}
 
 			const scope: TreeScope = {

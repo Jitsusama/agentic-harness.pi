@@ -37,6 +37,29 @@ import {
 import { newContextPage } from "./browser.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
 import {
+	type BoxModel,
+	centreOf,
+	cornersOf,
+	judgeVisibility,
+	normalizeBoxModel,
+	OCCLUDER_PROBE,
+	type RawBoxModel,
+	type VisibilityVerdict,
+} from "./element/index.js";
+import {
+	asCall,
+	COMPUTED_STYLE_PROBE,
+	type ComputedStyles,
+	curateStyles,
+	INITIALS_PROBE,
+	normalizeCascade,
+	type PropertyTrace,
+	type RawMatchedStyles,
+	SHORTHAND_PROPERTIES,
+	type StyleGroup,
+	traceProperty,
+} from "./styles/index.js";
+import {
 	ambiguityRefusal,
 	notFoundRefusal,
 	resolveTarget,
@@ -51,6 +74,28 @@ import {
 
 /** How a page should be laid out for reading. */
 export type PageForm = "outline" | "reading";
+
+/** What else to gather while inspecting an element. */
+export interface InspectOptions {
+	/** Exactly these properties instead of the curated set. */
+	readonly styles?: readonly string[];
+	/** Trace why this one property has the value it has. */
+	readonly why?: string;
+}
+
+/** Everything the browser will say about one element. */
+export interface Inspection {
+	readonly node: AxNode;
+	readonly visibility: VisibilityVerdict;
+	readonly box?: BoxModel;
+	readonly styles?: readonly StyleGroup[];
+	readonly trace?: PropertyTrace;
+}
+
+/** An inspection, or the refusal that stopped it. */
+export type InspectResult =
+	| { readonly ok: true; readonly inspection: Inspection }
+	| { readonly ok: false; readonly refusal: TargetRefusal };
 
 /** The result of observing a page. */
 export interface Observation {
@@ -116,6 +161,9 @@ export class BrowserSession {
 		Announcement["politeness"] | null
 	>();
 
+	/** What every property computes to untouched, read once. */
+	private initialStyles?: ComputedStyles;
+
 	private constructor(
 		readonly name: string,
 		private readonly page: Page,
@@ -137,6 +185,10 @@ export class BrowserSession {
 		try {
 			const cdp = await page.createCDPSession();
 			await cdp.send("Accessibility.enable");
+			// The element domain reads boxes and the cascade, which
+			// need the DOM and CSS agents running.
+			await cdp.send("DOM.enable");
+			await cdp.send("CSS.enable");
 			const session = new BrowserSession(name, page, cdp, context, options);
 			await session.listenForAnnouncements();
 			return session;
@@ -344,6 +396,270 @@ export class BrowserSession {
 		// Closing the context disposes its pages along with the
 		// cookies, storage and cache they accumulated.
 		await this.context.close();
+	}
+
+	/**
+	 * Everything worth knowing about one element.
+	 *
+	 * Each fact is asked of the browser rather than worked out
+	 * here: the box from the layout engine, the occluder from a
+	 * hit test, the styles from the cascade, the announcement from
+	 * the accessibility tree.
+	 */
+	async inspect(
+		target: Target,
+		options: InspectOptions = {},
+	): Promise<InspectResult> {
+		const tree = await this.axTree();
+		const resolution = resolveTarget(tree, target);
+		if (resolution.kind === "notFound") {
+			return { ok: false, refusal: notFoundRefusal(tree, target) };
+		}
+		if (resolution.kind === "ambiguous") {
+			return { ok: false, refusal: ambiguityRefusal(tree, target) };
+		}
+
+		const node = subtreeAt(tree, resolution.backendDomId) ?? tree;
+		const objectId = await this.objectFor(resolution.backendDomId);
+		try {
+			return {
+				ok: true,
+				inspection: await this.inspectNode(
+					resolution.backendDomId,
+					objectId,
+					node,
+					options,
+				),
+			};
+		} finally {
+			await this.release(objectId);
+		}
+	}
+
+	/**
+	 * A handle on the element inside this session.
+	 *
+	 * Object identifiers belong to the protocol session that
+	 * minted them, so puppeteer's own handles are unusable here.
+	 * A backend node id is the identity both sides agree on.
+	 */
+	private async objectFor(backendNodeId: number): Promise<string | undefined> {
+		try {
+			const { object } = await this.cdp.send("DOM.resolveNode", {
+				backendNodeId,
+			});
+			return object.objectId;
+		} catch {
+			// The node can go out of the document between being named
+			// and being looked at; the inspection reports what it can.
+			return undefined;
+		}
+	}
+
+	/** Let go of a handle, whether or not the page still has it. */
+	private async release(objectId: string | undefined): Promise<void> {
+		if (!objectId) return;
+		await this.cdp
+			.send("Runtime.releaseObject", { objectId })
+			// Releasing a handle the page already dropped is not a
+			// failure worth surfacing.
+			.catch(() => {});
+	}
+
+	/** Gather every fact about an element the browser will give. */
+	private async inspectNode(
+		backendNodeId: number,
+		objectId: string | undefined,
+		node: AxNode,
+		options: InspectOptions,
+	): Promise<Inspection> {
+		const box = await this.boxOf(backendNodeId);
+		const styles = objectId ? await this.stylesOf(objectId) : undefined;
+		const viewport = await this.viewport();
+		const coveredBy =
+			box && objectId ? await this.occluderOf(objectId, box) : undefined;
+
+		const visibility = judgeVisibility({
+			rendered: box !== undefined,
+			...(box === undefined ? {} : { border: box.border }),
+			...(viewport === undefined ? {} : { viewport }),
+			...(coveredBy === undefined ? {} : { coveredBy }),
+			...(styles?.opacity === undefined
+				? {}
+				: { opacity: Number(styles.opacity) }),
+			...(styles?.visibility === undefined
+				? {}
+				: { visibility: styles.visibility }),
+		});
+
+		const initials = await this.initials();
+		return {
+			node,
+			visibility,
+			...(box === undefined ? {} : { box }),
+			...(styles === undefined
+				? {}
+				: {
+						styles: curateStyles(styles, {
+							...(initials === undefined ? {} : { initials }),
+							...(options.styles === undefined ? {} : { only: options.styles }),
+						}),
+					}),
+			...(options.why === undefined
+				? {}
+				: {
+						trace: await this.traceOf(backendNodeId, options.why, styles),
+					}),
+		};
+	}
+
+	/** The element's four boxes, or nothing when it has none. */
+	private async boxOf(backendNodeId: number): Promise<BoxModel | undefined> {
+		try {
+			const { model } = (await this.cdp.send("DOM.getBoxModel", {
+				backendNodeId,
+			})) as { model: RawBoxModel };
+			return normalizeBoxModel(model);
+		} catch {
+			// An element with display none has no box at all, and the
+			// protocol says so by refusing. That is an answer, not a
+			// failure: the visibility verdict reports it as unrendered.
+			return undefined;
+		}
+	}
+
+	/** Every computed property of the element, as the browser has it. */
+	private async stylesOf(
+		objectId: string,
+	): Promise<ComputedStyles | undefined> {
+		try {
+			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: COMPUTED_STYLE_PROBE,
+				arguments: [{ value: SHORTHAND_PROPERTIES }],
+				returnByValue: true,
+			});
+			return result.value as ComputedStyles;
+		} catch {
+			// A page that navigated mid-inspection leaves nothing to
+			// read; the rest of the inspection still stands.
+			return undefined;
+		}
+	}
+
+	/**
+	 * What every property computes to untouched, read once per
+	 * session. These decide which values were actually chosen.
+	 */
+	private async initials(): Promise<ComputedStyles | undefined> {
+		if (this.initialStyles) return this.initialStyles;
+		try {
+			const { result } = await this.cdp.send("Runtime.evaluate", {
+				expression: asCall(INITIALS_PROBE, SHORTHAND_PROPERTIES),
+				returnByValue: true,
+			});
+			this.initialStyles = result.value as ComputedStyles;
+			return this.initialStyles;
+		} catch {
+			// Without these nothing is suppressed as a default, which
+			// is verbose but never wrong.
+			return undefined;
+		}
+	}
+
+	/** Why one property has the value it has. */
+	private async traceOf(
+		backendNodeId: number,
+		property: string,
+		styles: ComputedStyles | undefined,
+	): Promise<PropertyTrace | undefined> {
+		try {
+			// The cascade is asked for by front-end node id, which only
+			// exists once the document has been walked.
+			await this.cdp.send("DOM.getDocument", { depth: 0 });
+			const { nodeIds } = await this.cdp.send(
+				"DOM.pushNodesByBackendIdsToFrontend",
+				{ backendNodeIds: [backendNodeId] },
+			);
+			const nodeId = nodeIds[0];
+			if (!nodeId) return undefined;
+			const raw = (await this.cdp.send("CSS.getMatchedStylesForNode", {
+				nodeId,
+			})) as RawMatchedStyles;
+			return traceProperty(normalizeCascade(raw), property, styles?.[property]);
+		} catch {
+			// The cascade domain needs the CSS agent; without it the
+			// rest of the inspection is still worth returning.
+			return undefined;
+		}
+	}
+
+	/** The area a person can currently see. */
+	private async viewport(): Promise<
+		{ width: number; height: number } | undefined
+	> {
+		try {
+			const metrics = (await this.cdp.send("Page.getLayoutMetrics")) as {
+				cssVisualViewport?: { clientWidth: number; clientHeight: number };
+			};
+			const seen = metrics.cssVisualViewport;
+			if (!seen) return undefined;
+			return { width: seen.clientWidth, height: seen.clientHeight };
+		} catch {
+			// Without the viewport an element is judged on everything
+			// else known about it rather than not at all.
+			return undefined;
+		}
+	}
+
+	/**
+	 * What is painted over the element, if anything.
+	 *
+	 * The browser is asked what it would hit at the element's own
+	 * centre and corners. Anything the element contains counts as
+	 * itself, since a click there still reaches it.
+	 */
+	private async occluderOf(
+		objectId: string,
+		box: BoxModel,
+	): Promise<string | undefined> {
+		const points = [centreOf(box.border), ...cornersOf(box.border, 2)];
+		for (const point of points) {
+			const hit = await this.hitTest(objectId, point);
+			if (hit) return hit;
+		}
+		return undefined;
+	}
+
+	/** Who receives a click at one point, when it is not us. */
+	private async hitTest(
+		objectId: string,
+		point: { x: number; y: number },
+	): Promise<string | undefined> {
+		let hitObjectId: string | undefined;
+		try {
+			const { backendNodeId } = await this.cdp.send("DOM.getNodeForLocation", {
+				x: Math.round(point.x),
+				y: Math.round(point.y),
+			});
+			hitObjectId = await this.objectFor(backendNodeId);
+			if (!hitObjectId) return undefined;
+
+			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: OCCLUDER_PROBE,
+				arguments: [{ objectId: hitObjectId }],
+				returnByValue: true,
+			});
+			return (result.value as string | null) ?? undefined;
+		} catch {
+			// A point outside the viewport cannot be hit tested. The
+			// verdict already reports that as being off screen, so
+			// there is nothing further to say here.
+			return undefined;
+		} finally {
+			await this.release(hitObjectId);
+		}
 	}
 
 	private async resolve(
