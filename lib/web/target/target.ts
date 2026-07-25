@@ -8,10 +8,10 @@
  * element.
  */
 
-import type { AxNode } from "./a11y.js";
+import type { AxNode } from "../a11y.js";
 
 /** How the model addresses an element. */
-export interface SemanticTarget {
+export interface Target {
 	readonly role: string;
 	readonly name: string;
 	/** Restrict to descendants of a container with this name (and optional role). */
@@ -26,7 +26,13 @@ export type TargetResolution =
 	| { kind: "ambiguous"; count: number }
 	| { kind: "notFound" };
 
-function eq(a: string, b: string): boolean {
+/**
+ * How this module compares a written role or name to the one
+ * in the tree: case and surrounding whitespace never decide a
+ * match. Shared with the refusal ladder so both agree on what
+ * counts as the same name.
+ */
+export function foldEquals(a: string, b: string): boolean {
 	return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
@@ -37,17 +43,14 @@ function flatten(node: AxNode, into: AxNode[]): void {
 }
 
 /** The subtrees whose container matches, or the whole tree when none is asked for. */
-function scopes(
-	root: AxNode,
-	container: SemanticTarget["container"],
-): AxNode[] {
+function scopes(root: AxNode, container: Target["container"]): AxNode[] {
 	if (!container) return [root];
 	const all: AxNode[] = [];
 	flatten(root, all);
 	return all.filter(
 		(node) =>
-			eq(node.name, container.name) &&
-			(container.role === undefined || eq(node.role, container.role)),
+			foldEquals(node.name, container.name) &&
+			(container.role === undefined || foldEquals(node.role, container.role)),
 	);
 }
 
@@ -55,16 +58,16 @@ function scopes(
  * Resolve a semantic target to a backend id, or report that it
  * matched nothing or more than one node.
  */
-export function resolveTarget(
-	root: AxNode,
-	target: SemanticTarget,
-): TargetResolution {
+export function resolveTarget(root: AxNode, target: Target): TargetResolution {
 	const matches: AxNode[] = [];
 	for (const scope of scopes(root, target.container)) {
 		const nodes: AxNode[] = [];
 		flatten(scope, nodes);
 		for (const node of nodes) {
-			if (eq(node.role, target.role) && eq(node.name, target.name)) {
+			if (
+				foldEquals(node.role, target.role) &&
+				foldEquals(node.name, target.name)
+			) {
 				matches.push(node);
 			}
 		}

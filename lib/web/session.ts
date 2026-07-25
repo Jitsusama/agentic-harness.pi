@@ -16,7 +16,13 @@
 import type { CDPSession, ElementHandle, Page } from "puppeteer-core";
 import { type AxNode, renderAxOutline } from "./a11y.js";
 import { newPage } from "./browser.js";
-import { resolveTarget, type SemanticTarget } from "./target.js";
+import {
+	ambiguityRefusal,
+	notFoundRefusal,
+	resolveTarget,
+	type Target,
+	type TargetRefusal,
+} from "./target/index.js";
 
 /** A raw CDP accessibility node (the fields we read). */
 interface RawAxNode {
@@ -36,16 +42,16 @@ export interface Observation {
 	readonly outline: string;
 }
 
-/** An action to perform against the page. */
-export type PageAction =
-	| { kind: "navigate"; url: string }
-	| { kind: "click"; target: SemanticTarget }
-	| { kind: "type"; target: SemanticTarget; text: string };
+/** An action that operates on a named element. */
+export type TargetedAction =
+	| { kind: "click"; target: Target }
+	| { kind: "type"; target: Target; text: string };
 
-/** Why an act could not target an element. */
-export type ActFailure =
-	| { ok: false; reason: "ambiguous"; count: number }
-	| { ok: false; reason: "notFound" };
+/** An action to perform against the page. */
+export type PageAction = { kind: "navigate"; url: string } | TargetedAction;
+
+/** Why an act could not target an element, and what would work. */
+export type ActFailure = { ok: false; refusal: TargetRefusal };
 
 /** The outcome of an act call. */
 export type ActResult = { ok: true } | ActFailure;
@@ -116,15 +122,17 @@ export class BrowserSession {
 	}
 
 	private async resolve(
-		target: SemanticTarget,
+		target: Target,
 	): Promise<{ ok: true; element: ElementHandle } | ActFailure> {
 		// Confirm uniqueness against our own outline so an ambiguous
-		// target becomes a re-observe prompt rather than a wrong click.
-		const resolution = resolveTarget(await this.axTree(), target);
-		if (resolution.kind === "notFound")
-			return { ok: false, reason: "notFound" };
+		// target becomes a prompt to narrow it rather than a wrong click.
+		const tree = await this.axTree();
+		const resolution = resolveTarget(tree, target);
+		if (resolution.kind === "notFound") {
+			return { ok: false, refusal: notFoundRefusal(tree, target) };
+		}
 		if (resolution.kind === "ambiguous") {
-			return { ok: false, reason: "ambiguous", count: resolution.count };
+			return { ok: false, refusal: ambiguityRefusal(tree, target) };
 		}
 		// Drive the real element through the browser's own accessibility
 		// matching (puppeteer's aria selector), honouring an ordinal.
@@ -135,7 +143,7 @@ export class BrowserSession {
 		for (let i = 0; i < handles.length; i++) {
 			if (i !== index) await handles[i].dispose();
 		}
-		if (!element) return { ok: false, reason: "notFound" };
+		if (!element) return { ok: false, refusal: notFoundRefusal(tree, target) };
 		return { ok: true, element };
 	}
 

@@ -10,8 +10,8 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import type { PageAction } from "../../lib/web/session.js";
-import type { SemanticTarget } from "../../lib/web/target.js";
+import type { TargetedAction } from "../../lib/web/session.js";
+import { describeRefusal, type Target } from "../../lib/web/target/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
 import { pageView } from "./see.js";
@@ -85,12 +85,7 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return refusal(
 					name,
 					params.kind,
-					result.reason === "ambiguous"
-						? `Ambiguous: ${result.count} elements match role ` +
-								`'${params.role}' name '${params.name}'. Narrow it with ` +
-								`container or ordinal.`
-						: `No element matches role '${params.role}' name ` +
-								`'${params.name}'.`,
+					describeRefusal(action.target, result.refusal),
 				);
 			}
 			return answer(name, params.kind, await pageView(session));
@@ -106,8 +101,8 @@ function buildAction(params: {
 	text?: string;
 	container?: string;
 	ordinal?: number;
-}): PageAction | null {
-	const target: SemanticTarget = {
+}): TargetedAction | null {
+	const target: Target = {
 		role: params.role,
 		name: params.name,
 		...(params.ordinal ? { ordinal: params.ordinal } : {}),

@@ -34,6 +34,6 @@ export {
 } from "./session.js";
 export {
 	resolveTarget,
-	type SemanticTarget,
+	type Target as SemanticTarget,
 	type TargetResolution,
-} from "./target.js";
+} from "./target/index.js";

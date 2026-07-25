@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AxNode } from "../../../lib/web/a11y.js";
-import { resolveTarget } from "../../../lib/web/target.js";
+import type { AxNode } from "../../../../lib/web/a11y.js";
+import { resolveTarget } from "../../../../lib/web/target/target.js";
 
 function n(
 	role: string,
