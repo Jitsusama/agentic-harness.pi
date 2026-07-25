@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AxNode } from "../../../../lib/web/a11y.js";
+import type { AxNode } from "../../../../lib/web/a11y/index.js";
 import {
 	ambiguityRefusal,
 	describeRefusal,
@@ -10,8 +10,56 @@ import { resolveTarget } from "../../../../lib/web/target/target.js";
 let nextId = 1;
 
 function node(role: string, name: string, children: AxNode[] = []): AxNode {
-	return { role, name, backendDomId: nextId++, children };
+	return { role, name, backendDomId: nextId++, properties: {}, children };
 }
+
+describe("notFoundRefusal candidates are actionable", () => {
+	it("never offers a text node as something to act on", () => {
+		// Text carrying a near-miss name is not a thing a caller
+		// can click, so proposing it wastes the retry.
+		const root = node("RootWebArea", "Shop", [
+			node("StaticText", "Checkout"),
+			node("button", "Check out"),
+		]);
+
+		const refusal = notFoundRefusal(root, {
+			role: "button",
+			name: "Checkout",
+		});
+
+		expect(refusal.candidates.length).toBeGreaterThan(0);
+		for (const candidate of refusal.candidates) {
+			expect(candidate.target.role).not.toBe("StaticText");
+		}
+	});
+
+	it("does not cite the page root as if it were a landmark", () => {
+		// Everything is in the root, so saying so narrows nothing.
+		const root = node("RootWebArea", "Rich", [node("button", "Details")]);
+
+		const refusal = notFoundRefusal(root, {
+			role: "button",
+			name: "Detials",
+		});
+
+		expect(
+			describeRefusal({ role: "button", name: "Detials" }, refusal),
+		).not.toContain("RootWebArea");
+	});
+
+	it("still offers a real control when only text matched better", () => {
+		const root = node("RootWebArea", "Shop", [
+			node("StaticText", "Submit"),
+			node("button", "Submit order"),
+		]);
+
+		const refusal = notFoundRefusal(root, { role: "button", name: "Submit" });
+
+		expect(refusal.candidates.map((c) => c.target.name)).toEqual([
+			"Submit order",
+		]);
+	});
+});
 
 describe("ambiguityRefusal", () => {
 	it("offers a candidate for every element the target matched", () => {

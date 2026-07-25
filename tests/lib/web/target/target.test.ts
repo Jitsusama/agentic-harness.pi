@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AxNode } from "../../../../lib/web/a11y.js";
+import type { AxNode } from "../../../../lib/web/a11y/index.js";
 import { resolveTarget } from "../../../../lib/web/target/target.js";
 
 function n(
@@ -9,8 +9,8 @@ function n(
 	children: AxNode[] = [],
 ): AxNode {
 	return backendDomId === undefined
-		? { role, name, children }
-		: { role, name, backendDomId, children };
+		? { role, name, properties: {}, children }
+		: { role, name, backendDomId, properties: {}, children };
 }
 
 const page: AxNode = n("RootWebArea", "", undefined, [

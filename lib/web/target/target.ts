@@ -8,7 +8,7 @@
  * element.
  */
 
-import type { AxNode } from "../a11y.js";
+import type { AxNode } from "../a11y/index.js";
 
 /** How the model addresses an element. */
 export interface Target {

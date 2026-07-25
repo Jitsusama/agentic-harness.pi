@@ -7,7 +7,12 @@
  * implementation details: use `webSearch` and `readPage`.
  */
 
-export { type AxNode, renderAxOutline } from "./a11y.js";
+export {
+	type AxNode,
+	type AxProperties,
+	normalizeAxTree,
+	renderAxOutline,
+} from "./a11y/index.js";
 export {
 	BrowserLaunchFailed,
 	closeBrowser,

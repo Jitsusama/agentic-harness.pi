@@ -19,7 +19,12 @@ import type {
 	ElementHandle,
 	Page,
 } from "puppeteer-core";
-import { type AxNode, renderAxOutline } from "./a11y.js";
+import {
+	type AxNode,
+	normalizeAxTree,
+	type RawAxNode,
+	renderAxOutline,
+} from "./a11y/index.js";
 import { newContextPage } from "./browser.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
 import {
@@ -29,17 +34,6 @@ import {
 	type Target,
 	type TargetRefusal,
 } from "./target/index.js";
-
-/** A raw CDP accessibility node (the fields we read). */
-interface RawAxNode {
-	nodeId: string;
-	parentId?: string;
-	backendDOMNodeId?: number;
-	childIds?: string[];
-	role?: { value?: string };
-	name?: { value?: string };
-	ignored?: boolean;
-}
 
 /** The result of observing a page. */
 export interface Observation {
@@ -193,22 +187,6 @@ export class BrowserSession {
 		const { nodes } = (await this.cdp.send("Accessibility.getFullAXTree")) as {
 			nodes: RawAxNode[];
 		};
-		const byId = new Map(nodes.map((node) => [node.nodeId, node]));
-		const build = (id: string): AxNode => {
-			const raw = byId.get(id);
-			if (!raw) return { role: "", name: "", children: [] };
-			const children = (raw.childIds ?? [])
-				.filter((childId) => byId.has(childId))
-				.map(build);
-			const backend = raw.backendDOMNodeId;
-			return {
-				role: raw.role?.value ?? "",
-				name: raw.name?.value ?? "",
-				...(backend !== undefined ? { backendDomId: backend } : {}),
-				children,
-			};
-		};
-		const root = nodes.find((node) => !node.parentId) ?? nodes[0];
-		return root ? build(root.nodeId) : { role: "", name: "", children: [] };
+		return normalizeAxTree(nodes);
 	}
 }

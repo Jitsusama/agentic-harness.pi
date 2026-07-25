@@ -7,7 +7,7 @@
  * without wondering whether it resolves.
  */
 
-import type { AxNode } from "../a11y.js";
+import type { AxNode } from "../a11y/index.js";
 import { foldEquals, resolveTarget, type Target } from "./target.js";
 
 /** A target the caller could use instead, and why it is offered. */
@@ -113,8 +113,16 @@ function distinguishingContainer(
 
 /** The closest ancestor with a name, for describing where a match sits. */
 function nearestNamed(match: Located): AxNode | undefined {
-	return [...match.ancestors].reverse().find((one) => one.name.trim() !== "");
+	return [...match.ancestors]
+		.reverse()
+		.find((one) => one.name.trim() !== "" && !NON_CONTAINERS.has(one.role));
 }
+
+/**
+ * Roles that contain everything and therefore locate nothing.
+ * "In the page" is true of every element and helps no one.
+ */
+const NON_CONTAINERS = new Set(["RootWebArea"]);
 
 /** Whether a proposed target lands on exactly the intended node. */
 function resolvesTo(root: AxNode, proposal: Target, intended: AxNode): boolean {
@@ -171,6 +179,7 @@ export function notFoundRefusal(root: AxNode, target: Target): TargetRefusal {
 	const candidates: TargetCandidate[] = [];
 
 	const ranked = locate(root)
+		.filter((located) => isActionable(located.node))
 		.map((located) => nearMiss(located, target))
 		.filter((miss): miss is NearMiss => miss !== undefined)
 		.sort((a, b) => a.rank - b.rank);
@@ -188,6 +197,25 @@ export function notFoundRefusal(root: AxNode, target: Target): TargetRefusal {
 	}
 
 	return { reason: "notFound", candidates };
+}
+
+/**
+ * Roles that carry text but cannot be operated. Offering one
+ * as a candidate spends the caller's next call on something
+ * that was never going to work.
+ */
+const INERT_ROLES = new Set([
+	"StaticText",
+	"InlineTextBox",
+	"text",
+	"LabelText",
+	"ListMarker",
+	"RootWebArea",
+]);
+
+/** Whether a node is something a caller could actually act on. */
+function isActionable(node: AxNode): boolean {
+	return !INERT_ROLES.has(node.role);
 }
 
 /** How near this node is to what was asked for, if at all. */
