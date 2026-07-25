@@ -2,10 +2,10 @@
  * Asking the browser for style facts.
  *
  * These are page sources rather than functions, for the same
- * reason the accessibility observer is: whatever compiles this
- * module may rewrite function bodies, and the page has never
- * heard of the helpers that rewriting introduces. Source text
- * survives compilation untouched.
+ * reason the accessibility observer is: the compiler wraps
+ * named inner bindings in a __name helper the page has never
+ * heard of, so a serialized function that declares helpers of
+ * its own throws on arrival. Source text survives untouched.
  *
  * They exist so that nothing in this domain has to restate what
  * a browser already computes. CSS knowledge written down here

@@ -2,9 +2,10 @@
  * Asking the browser about one element.
  *
  * Page sources rather than functions, for the same reason the
- * accessibility observer is: whatever compiles this module may
- * rewrite function bodies, and the page has never heard of the
- * helpers that rewriting introduces.
+ * accessibility observer is: the compiler wraps named inner
+ * bindings in a __name helper the page has never heard of, so
+ * a serialized function that declares helpers of its own
+ * throws on arrival.
  */
 
 /**

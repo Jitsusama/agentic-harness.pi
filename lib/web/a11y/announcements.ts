@@ -65,12 +65,14 @@ export interface AnnouncementCandidate {
  * Watch the page for anything that might be spoken.
  *
  * This is plain JavaScript source rather than a function, on
- * purpose. Anything injected into a page is serialized by
- * whatever compiled this module, and a compiler that rewrites
- * function bodies (esbuild's name helpers, a coverage
- * instrumenter) emits source referencing helpers the page has
- * never heard of, which throws before the observer registers.
- * Source text survives that untouched.
+ * purpose. Injecting a function serializes whatever the
+ * compiler made of it, and esbuild's keepNames wraps every
+ * named inner binding in a call to a __name helper. The page
+ * has never heard of __name, so the script throws before it
+ * registers, and nothing says so. A lone inline arrow is safe,
+ * which is why the simple evaluate callbacks elsewhere in this
+ * library are still written as functions; anything declaring
+ * helpers of its own is not. Source text survives untouched.
  *
  * It runs before the page's own scripts, so changes made during
  * load are caught too. It reports through a binding the session
