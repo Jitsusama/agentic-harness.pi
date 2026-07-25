@@ -27,13 +27,32 @@ const parameters = Type.Object({
 	session: Type.Optional(
 		Type.String({ description: "Session name. Defaults to 'default'." }),
 	),
-	action: Type.Union([Type.Literal("click"), Type.Literal("type")], {
-		description: "Click the element, or type into it.",
-	}),
+	action: Type.Union(
+		[
+			Type.Literal("click"),
+			Type.Literal("type"),
+			Type.Literal("hover"),
+			Type.Literal("focus"),
+			Type.Literal("clear"),
+			Type.Literal("select"),
+			Type.Literal("scrollTo"),
+		],
+		{
+			description:
+				"click or type into the element; hover or focus it to " +
+				"reveal state-dependent behaviour; clear empties a field; " +
+				"select chooses an option by its text; scrollTo brings it " +
+				"into view.",
+		},
+	),
 	role: Type.String({ description: "The target element's role." }),
 	name: Type.String({ description: "The target's accessible name." }),
 	text: Type.Optional(
-		Type.String({ description: "For action 'type': the text to enter." }),
+		Type.String({
+			description:
+				"For action 'type': the text to enter. For 'select': the " +
+				"option to choose.",
+		}),
 	),
 	container: Type.Optional(
 		Type.String({
@@ -75,10 +94,14 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 
 			const action = buildAction(params);
 			if (!action) {
+				const needs =
+					params.action === "select"
+						? "the option to choose in"
+						: "the text to enter into";
 				return refusal(
 					name,
 					kind,
-					`action 'type' needs the text to enter into role ` +
+					`action '${params.action}' needs ${needs} role ` +
 						`${params.role} name "${params.name}".`,
 				);
 			}
@@ -86,20 +109,45 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			const session = await registry.acquire(name);
 			const result = await session.act(action);
 			if (!result.ok) {
+				if ("blocked" in result) {
+					return refusal(
+						name,
+						kind,
+						`Waited ${result.blocked.waitedMs}ms but role ${params.role} ` +
+							`name "${params.name}" never became ready: ` +
+							`${result.blocked.blocker}.`,
+					);
+				}
 				return refusal(
 					name,
 					kind,
 					describeRefusal(action.target, result.refusal),
 				);
 			}
-			return answer(name, kind, await pageView(session));
+			const view = await pageView(session);
+			// Say when the page kept the caller waiting, so a slow
+			// interaction is visible rather than merely felt.
+			return answer(
+				name,
+				kind,
+				result.waitedMs
+					? `Waited ${result.waitedMs}ms for it to be ready.\n\n${view}`
+					: view,
+			);
 		},
 	});
 }
 
 /** Turn the tool's flat parameters into a page action. */
 function buildAction(params: {
-	action: "click" | "type";
+	action:
+		| "click"
+		| "type"
+		| "hover"
+		| "focus"
+		| "clear"
+		| "select"
+		| "scrollTo";
 	role: string;
 	name: string;
 	text?: string;
@@ -112,9 +160,11 @@ function buildAction(params: {
 		...(params.ordinal ? { ordinal: params.ordinal } : {}),
 		...(params.container ? { container: { name: params.container } } : {}),
 	};
-	if (params.action === "type") {
+	// Typing and selecting are the only actions that carry a
+	// value, and neither means anything without one.
+	if (params.action === "type" || params.action === "select") {
 		if (params.text === undefined) return null;
-		return { kind: "type", target, text: params.text };
+		return { kind: params.action, target, text: params.text };
 	}
-	return { kind: "click", target };
+	return { kind: params.action, target };
 }

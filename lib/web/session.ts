@@ -37,12 +37,15 @@ import {
 import { newContextPage } from "./browser.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
 import {
+	type Actionability,
+	type ActionabilityFacts,
 	ANIMATIONS_PROBE,
 	type Animation,
 	type BoxModel,
 	centreOf,
 	cornersOf,
 	diffStyles,
+	judgeActionability,
 	judgeVisibility,
 	type Listener,
 	normalizeAnimations,
@@ -54,7 +57,10 @@ import {
 	type RawAnimation,
 	type RawBoxModel,
 	type RawListener,
+	type Rect,
+	SELECT_TEXT_PROBE,
 	SETTLE_PROBE,
+	sameBox,
 	type VisibilityVerdict,
 } from "./element/index.js";
 import {
@@ -136,7 +142,32 @@ export interface Observation {
 /** An action that operates on a named element. */
 export type TargetedAction =
 	| { kind: "click"; target: Target }
-	| { kind: "type"; target: Target; text: string };
+	| { kind: "type"; target: Target; text: string }
+	| { kind: "hover"; target: Target }
+	| { kind: "focus"; target: Target }
+	| { kind: "clear"; target: Target }
+	| { kind: "select"; target: Target; text: string }
+	| { kind: "scrollTo"; target: Target };
+
+/**
+ * How long to wait for an element to become ready, and how
+ * often to look. A page that animates a dialog in takes a few
+ * hundred milliseconds, and waiting is far cheaper than a click
+ * that silently misses.
+ */
+const READY_BUDGET_MS = 2000;
+const READY_POLL_MS = 100;
+
+/**
+ * Whether an action arrives by pointer.
+ *
+ * A pointer has to reach the element's centre unobstructed and
+ * on screen. Everything else addresses the element directly and
+ * would succeed where a click could not.
+ */
+function usesPointer(action: TargetedAction): boolean {
+	return action.kind === "click" || action.kind === "hover";
+}
 
 /** An action to perform against the page. */
 export type PageAction = { kind: "navigate"; url: string } | TargetedAction;
@@ -144,8 +175,18 @@ export type PageAction = { kind: "navigate"; url: string } | TargetedAction;
 /** Why an act could not target an element, and what would work. */
 export type ActFailure = { ok: false; refusal: TargetRefusal };
 
+/** An element that never became ready, and what held it up. */
+export interface Blocked {
+	readonly ready: false;
+	readonly waitedMs: number;
+	readonly blocker: string;
+}
+
 /** The outcome of an act call. */
-export type ActResult = { ok: true } | ActFailure;
+export type ActResult =
+	| { ok: true; waitedMs?: number }
+	| ActFailure
+	| { ok: false; blocked: Blocked };
 
 /** The outcome of reading one named branch of a page. */
 export type ObserveResult =
@@ -192,6 +233,13 @@ export class BrowserSession {
 
 	/** What every property computes to untouched, read once. */
 	private initialStyles?: ComputedStyles;
+
+	/**
+	 * Announcements still being ruled on. Candidates resolve one
+	 * at a time along this chain, so a slow lookup cannot overtake
+	 * a fast one and record two out of the order they were said.
+	 */
+	private pending: Promise<void> = Promise.resolve();
 
 	private constructor(
 		readonly name: string,
@@ -293,14 +341,26 @@ export class BrowserSession {
 			await this.navigate(action.url);
 			return { ok: true };
 		}
+		// Readiness is established before targeting, because an
+		// element that has not appeared yet is the commonest reason
+		// an action is early rather than wrong.
+		const ready = await this.awaitReady(action.target, usesPointer(action));
+		if (!ready.ready) {
+			// Never showing up and never existing look the same from
+			// here, and only one of them has a spelling suggestion
+			// worth making, so ask the targeting to explain itself.
+			const missing = await this.resolve(action.target);
+			if (!missing.ok) return missing;
+			await missing.element.dispose();
+			return { ok: false, blocked: ready };
+		}
+
 		const handle = await this.resolve(action.target);
 		if (!handle.ok) return handle;
-		if (action.kind === "click") {
-			await handle.element.click();
-		} else {
-			await handle.element.type(action.text);
-		}
+
+		await this.perform(action, handle.element, ready.backendDomId);
 		await handle.element.dispose();
+		if (ready.waitedMs > 0) return { ok: true, waitedMs: ready.waitedMs };
 		return { ok: true };
 	}
 
@@ -316,11 +376,10 @@ export class BrowserSession {
 	 * record two announcements out of the order they were said.
 	 */
 	private async listenForAnnouncements(): Promise<void> {
-		let queue: Promise<void> = Promise.resolve();
 		await this.page.exposeFunction(
 			ANNOUNCE_BINDING,
 			(candidate: AnnouncementCandidate) => {
-				queue = queue.then(() => this.recordIfLive(candidate));
+				this.pending = this.pending.then(() => this.recordIfLive(candidate));
 			},
 		);
 		await this.page.evaluateOnNewDocument(ANNOUNCEMENT_OBSERVER);
@@ -403,11 +462,15 @@ export class BrowserSession {
 	 * What the page has announced since a cursor, with the cursor
 	 * to read from next time and how many were dropped.
 	 */
-	heard(since = 0): {
+	async heard(since = 0): Promise<{
 		entries: readonly Recorded<Announcement>[];
 		cursor: number;
 		dropped: number;
-	} {
+	}> {
+		// A candidate raised a moment ago is still being ruled on.
+		// Answering before the browser has spoken would report
+		// silence for something the page just said.
+		await this.pending;
 		return {
 			entries: this.announcements.since(since),
 			cursor: this.announcements.cursor,
@@ -561,6 +624,173 @@ export class BrowserSession {
 						trace: await this.traceOf(backendNodeId, options.why, styles),
 					}),
 		};
+	}
+
+	/** Carry out an action against an element judged ready. */
+	private async perform(
+		action: TargetedAction,
+		element: ElementHandle,
+		backendNodeId: number,
+	): Promise<void> {
+		switch (action.kind) {
+			case "click":
+				await element.click();
+				return;
+			case "type":
+				await element.type(action.text);
+				return;
+			case "hover":
+				await element.hover();
+				return;
+			case "focus":
+				await element.focus();
+				return;
+			case "select":
+				await element.select(action.text);
+				return;
+			case "scrollTo":
+				await element.scrollIntoView();
+				return;
+			case "clear": {
+				// Select what is there and delete it, so the page sees
+				// the same input and change events it would from a
+				// person at a keyboard. The field is asked to select
+				// itself rather than triple clicked, so clearing works
+				// under an overlay, and rather than sending a select-all
+				// shortcut, so there is no platform to guess at.
+				await element.focus();
+				// Resolved through our own session: an identifier minted
+				// by puppeteer's connection means nothing on this one.
+				const objectId = await this.objectFor(backendNodeId);
+				try {
+					if (objectId) {
+						await this.cdp.send("Runtime.callFunctionOn", {
+							objectId,
+							functionDeclaration: SELECT_TEXT_PROBE,
+							returnByValue: true,
+						});
+					}
+				} finally {
+					await this.release(objectId);
+				}
+				await this.page.keyboard.press("Backspace");
+				return;
+			}
+		}
+	}
+
+	/**
+	 * Wait until an element can actually be acted on.
+	 *
+	 * A click on an element that is not ready does nothing and
+	 * says nothing, leaving a caller believing the page was acted
+	 * on. So readiness is established first, and when the budget
+	 * runs out the condition still in the way is reported rather
+	 * than the action being attempted regardless.
+	 */
+	private async awaitReady(
+		target: Target,
+		pointer: boolean,
+	): Promise<
+		{ ready: true; waitedMs: number; backendDomId: number } | Blocked
+	> {
+		const started = Date.now();
+		let previous: Rect | undefined;
+		let last: Actionability = {
+			ready: false,
+			blocker: "it is not in the page",
+		};
+
+		while (Date.now() - started < READY_BUDGET_MS) {
+			const look = await this.readinessOf(target, previous, pointer);
+			previous = look.box;
+			last = judgeActionability(look.facts);
+			if (last.ready && look.backendDomId !== undefined) {
+				return {
+					ready: true,
+					waitedMs: Date.now() - started,
+					backendDomId: look.backendDomId,
+				};
+			}
+			await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
+		}
+		return {
+			ready: false,
+			waitedMs: Date.now() - started,
+			blocker: last.blocker ?? "it never became ready",
+		};
+	}
+
+	/** One look at whether an element is ready. */
+	private async readinessOf(
+		target: Target,
+		previous: Rect | undefined,
+		pointer: boolean,
+	): Promise<{
+		facts: ActionabilityFacts;
+		box: Rect | undefined;
+		backendDomId?: number;
+	}> {
+		const tree = await this.axTree();
+		const resolution = resolveTarget(tree, target);
+		if (resolution.kind !== "resolved") {
+			return {
+				facts: { present: false, enabled: false, settled: false },
+				box: undefined,
+			};
+		}
+
+		const node = subtreeAt(tree, resolution.backendDomId);
+		const box = await this.boxOf(resolution.backendDomId);
+
+		// Where the click lands only matters when there is a click.
+		// Focusing, typing, choosing an option and scrolling all
+		// reach an element the pointer could not, so holding them to
+		// a pointer's standard refuses work that would have
+		// succeeded. Being rendered at a real size still matters to
+		// every action, so that part of the verdict always applies.
+		const viewport = pointer ? await this.viewport() : undefined;
+		const coveredBy =
+			pointer && box
+				? await this.coveredAtCentre(resolution.backendDomId, box)
+				: undefined;
+		const visibility = judgeVisibility({
+			rendered: box !== undefined,
+			...(box === undefined ? {} : { border: box.border }),
+			...(viewport === undefined ? {} : { viewport }),
+			...(coveredBy === undefined ? {} : { coveredBy }),
+		});
+		return {
+			facts: {
+				present: true,
+				visibility,
+				// The tree reports what the browser exposes to assistive
+				// technology, which is the same disabled a person meets.
+				enabled: node?.properties.disabled !== true,
+				settled: sameBox(previous, box?.border),
+			},
+			box: box?.border,
+			backendDomId: resolution.backendDomId,
+		};
+	}
+
+	/**
+	 * Whether something is painted over the element's centre.
+	 *
+	 * Only the centre, unlike a full inspection: this runs on
+	 * every poll, and the centre is where a click is aimed.
+	 */
+	private async coveredAtCentre(
+		backendNodeId: number,
+		box: BoxModel,
+	): Promise<string | undefined> {
+		const objectId = await this.objectFor(backendNodeId);
+		if (!objectId) return undefined;
+		try {
+			return await this.hitTest(objectId, centreOf(box.border));
+		} finally {
+			await this.release(objectId);
+		}
 	}
 
 	/** What is listening on the element. */

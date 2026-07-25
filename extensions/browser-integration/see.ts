@@ -194,7 +194,9 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 			const session = await registry.acquire(name);
 
 			if (kind === "announcements") {
-				const { entries, cursor, dropped } = session.heard(params.since ?? 0);
+				const { entries, cursor, dropped } = await session.heard(
+					params.since ?? 0,
+				);
 				return answer(
 					name,
 					kind,

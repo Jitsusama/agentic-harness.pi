@@ -16,6 +16,23 @@
  * itself, since a click there still reaches it. Returns a short
  * description of the obstruction, or null when there is none.
  */
+/**
+ * Select everything in a text field, the way the field itself
+ * offers to.
+ *
+ * Runs with the element as its receiver. Used instead of a
+ * triple click so that clearing a field does not need an
+ * unobstructed centre, and instead of a select-all shortcut so
+ * there is no platform to guess at.
+ */
+export const SELECT_TEXT_PROBE = `function () {
+  if (typeof this.select === "function") {
+    this.select();
+    return true;
+  }
+  return false;
+}`;
+
 export const OCCLUDER_PROBE = `function (hit) {
   if (!hit || hit === this || this.contains(hit)) return null;
   var described = hit.nodeName.toLowerCase();

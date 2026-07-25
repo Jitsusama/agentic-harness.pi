@@ -7,6 +7,12 @@
  */
 
 export {
+	type Actionability,
+	type ActionabilityFacts,
+	judgeActionability,
+	sameBox,
+} from "./actionable.js";
+export {
 	ANIMATIONS_PROBE,
 	type Animation,
 	normalizeAnimations,
@@ -28,7 +34,7 @@ export {
 	type RawListener,
 	renderListeners,
 } from "./listeners.js";
-export { OCCLUDER_PROBE } from "./probes.js";
+export { OCCLUDER_PROBE, SELECT_TEXT_PROBE } from "./probes.js";
 export {
 	diffStyles,
 	type PseudoState,
