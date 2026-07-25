@@ -13,6 +13,17 @@ export {
 	SHORTHAND_PROPERTIES,
 } from "./capture.js";
 export {
+	type Declaration,
+	type DeclarationOrigin,
+	normalizeCascade,
+	type PropertyTrace,
+	type RawCssProperty,
+	type RawCssRule,
+	type RawMatchedStyles,
+	type RawRuleMatch,
+	traceProperty,
+} from "./cascade.js";
+export {
 	type ComputedStyles,
 	type CurateOptions,
 	curateStyles,
