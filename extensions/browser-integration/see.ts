@@ -30,10 +30,11 @@ export async function pageView(session: BrowserSession): Promise<string> {
 
 const parameters = Type.Object({
 	kind: Type.Optional(
-		Type.Literal("page", {
+		Type.Union([Type.Literal("page"), Type.Literal("reading")], {
 			description:
-				"page: the accessibility outline of what is on screen. " +
-				"The default, and the only kind so far.",
+				"page: the accessibility outline of what is on screen, " +
+				"the default. reading: the same page narrated the way a " +
+				"screen reader would say it, in reading order.",
 		}),
 	),
 	session: Type.Optional(
@@ -78,9 +79,11 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 			"Read the current state of a browser session without changing it. " +
 			"kind 'page' (the default) returns the page's accessibility outline: " +
 			"the roles and names of everything on screen, which is how you name " +
-			"elements when you act on them. On a large page, narrow it: 'only' " +
-			"reduces to landmarks, headings or interactive elements, 'depth' " +
-			"keeps the top levels, and 'within' reads one branch.",
+			"elements when you act on them. kind 'reading' narrates the same " +
+			"page as a screen reader would, which is how you review what the " +
+			"experience is like without sight. On a large page, narrow it: " +
+			"'only' reduces to landmarks, headings or interactive elements, " +
+			"'depth' keeps the top levels, and 'within' reads one branch.",
 		promptSnippet:
 			"Read a browser page with browser_see; act on it with browser_do.",
 		parameters,
@@ -101,8 +104,9 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				...(params.only === undefined ? {} : { only: params.only as Skeleton }),
 			};
 
+			const form = kind === "reading" ? "reading" : "outline";
 			if (params.within === undefined) {
-				return answer(name, kind, render(await session.observe(scope)));
+				return answer(name, kind, render(await session.observe(scope, form)));
 			}
 
 			const target = parseTarget(params.within);
@@ -115,7 +119,7 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 						`own, e.g. 'main'.`,
 				);
 			}
-			const result = await session.observeWithin(target, scope);
+			const result = await session.observeWithin(target, scope, form);
 			if (!result.ok) {
 				return refusal(name, kind, describeRefusal(target, result.refusal));
 			}

@@ -12,6 +12,20 @@
  * analyzed by the same code.
  */
 
+import { type NameSource, nameSource } from "./naming.js";
+
+/** One way Chrome tried to name an element. */
+export interface RawAxNameSource {
+	type: string;
+	attribute?: string;
+	nativeSource?: string;
+	value?: { type?: string; value?: string | number };
+	/** Chrome found a name here but a higher-priority source won. */
+	superseded?: boolean;
+	/** The page pointed this source at something that is not there. */
+	invalid?: boolean;
+}
+
 /** A property Chrome reports against an accessibility node. */
 export interface RawAxProperty {
 	name: string;
@@ -25,7 +39,7 @@ export interface RawAxNode {
 	backendDOMNodeId?: number;
 	childIds?: string[];
 	role?: { value?: string };
-	name?: { value?: string };
+	name?: { value?: string; sources?: RawAxNameSource[] };
 	description?: { value?: string };
 	value?: { type?: string; value?: string | number };
 	properties?: RawAxProperty[];
@@ -43,6 +57,8 @@ export interface AxNode {
 	readonly backendDomId?: number;
 	/** The control's current value, when it has one. */
 	readonly value?: string | number;
+	/** Which mechanism produced the accessible name. */
+	readonly nameFrom?: NameSource;
 	readonly description?: string;
 	readonly properties: AxProperties;
 	readonly children: readonly AxNode[];
@@ -114,12 +130,16 @@ export function normalizeAxTree(nodes: readonly RawAxNode[]): AxNode {
 
 		const backend = rawNode.backendDOMNodeId;
 		const description = rawNode.description?.value;
+		// Only say where a name came from when the capture
+		// actually reported the mechanisms it tried.
+		const from = rawNode.name?.sources ? nameSource(rawNode) : undefined;
 		return [
 			{
 				role,
 				name,
 				...(backend !== undefined ? { backendDomId: backend } : {}),
 				...(value !== undefined ? { value } : {}),
+				...(from ? { nameFrom: from } : {}),
 				...(description ? { description } : {}),
 				properties: readProperties(rawNode),
 				children,

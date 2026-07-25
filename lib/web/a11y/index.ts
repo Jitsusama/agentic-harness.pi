@@ -7,7 +7,13 @@
  * or read back from a fixture is analyzed by the same code.
  */
 
+export {
+	isWeakName,
+	type NameSource,
+	nameSource,
+} from "./naming.js";
 export { renderAxOutline } from "./outline.js";
+export { renderReading } from "./reading.js";
 export {
 	type Skeleton,
 	scopeTree,
@@ -17,7 +23,9 @@ export {
 export {
 	type AxNode,
 	type AxProperties,
+	isMeaningful,
 	normalizeAxTree,
+	type RawAxNameSource,
 	type RawAxNode,
 	type RawAxProperty,
 } from "./tree.js";

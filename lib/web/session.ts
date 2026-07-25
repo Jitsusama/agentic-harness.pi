@@ -24,6 +24,7 @@ import {
 	normalizeAxTree,
 	type RawAxNode,
 	renderAxOutline,
+	renderReading,
 	scopeTree,
 	subtreeAt,
 	type TreeScope,
@@ -37,6 +38,9 @@ import {
 	type Target,
 	type TargetRefusal,
 } from "./target/index.js";
+
+/** How a page should be laid out for reading. */
+export type PageForm = "outline" | "reading";
 
 /** The result of observing a page. */
 export interface Observation {
@@ -131,9 +135,12 @@ export class BrowserSession {
 	 * title. A scope narrows the tree before it is rendered; with
 	 * none, the whole page is read.
 	 */
-	async observe(scope: TreeScope = {}): Promise<Observation> {
+	async observe(
+		scope: TreeScope = {},
+		form: PageForm = "outline",
+	): Promise<Observation> {
 		const tree = await this.axTree();
-		return await this.describe(scopeTree(tree, scope));
+		return await this.describe(scopeTree(tree, scope), form);
 	}
 
 	/**
@@ -144,6 +151,7 @@ export class BrowserSession {
 	async observeWithin(
 		target: Target,
 		scope: TreeScope = {},
+		form: PageForm = "outline",
 	): Promise<ObserveResult> {
 		const tree = await this.axTree();
 		const resolution = resolveTarget(tree, target);
@@ -159,16 +167,16 @@ export class BrowserSession {
 		}
 		return {
 			ok: true,
-			observation: await this.describe(scopeTree(branch, scope)),
+			observation: await this.describe(scopeTree(branch, scope), form),
 		};
 	}
 
 	/** Wrap a tree as an observation of where the session is. */
-	private async describe(tree: AxNode): Promise<Observation> {
+	private async describe(tree: AxNode, form: PageForm): Promise<Observation> {
 		return {
 			url: this.page.url(),
 			title: await this.page.title(),
-			outline: renderAxOutline(tree),
+			outline: form === "reading" ? renderReading(tree) : renderAxOutline(tree),
 		};
 	}
 
