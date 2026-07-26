@@ -17,6 +17,11 @@
 export { type Citable, type Cited, cite } from "./cite.js";
 export { type JsonSummaryOptions, summarizeJson } from "./digest.js";
 export {
+	citeListing,
+	LISTING_BUDGET_BYTES,
+	type Listing,
+} from "./listing.js";
+export {
 	cleanupSessionResults,
 	ensureSessionResultDir,
 	isPidAlive,
@@ -34,10 +39,11 @@ export {
 	queryStored,
 	type TextBlock,
 } from "./query.js";
-export { spillText } from "./spill.js";
+export { type SpilledPayload, spillText } from "./spill.js";
 export {
 	createResultStore,
 	HandleExpiredError,
 	type ResultStore,
 	type StoredResult,
 } from "./store.js";
+export { type BudgetedView, withinLineBudget } from "./view.js";

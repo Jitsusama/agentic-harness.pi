@@ -20,12 +20,12 @@ import {
 	cleanupSessionResults,
 	DEFAULT_MAX_MATCHES,
 	isPidAlive,
+	openSessionStore,
 	queryStored,
 	RESULT_ROOT,
 	reapAbandonedResults,
 } from "../../lib/result/index.js";
 import { renderQueryCall, renderQueryResult } from "./render.js";
-import { forgetSessionStore, sessionStore } from "./store.js";
 
 /** What the tool reports alongside its text, for the renderers. */
 export interface QueryDetails {
@@ -83,7 +83,10 @@ export default function resultStore(pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params) {
 			const answer = queryStored(
-				sessionStore(),
+				// Opened per call rather than held: the store is its
+				// directory, so an instance is a name and a quota rather
+				// than state worth keeping alive between answers.
+				openSessionStore(),
 				params.handle,
 				params.expression,
 				params.maxMatches === undefined
@@ -113,6 +116,5 @@ export default function resultStore(pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async () => {
 		cleanupSessionResults();
-		forgetSessionStore();
 	});
 }

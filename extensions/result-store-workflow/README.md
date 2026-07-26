@@ -50,7 +50,6 @@ taxonomy's rule is that the primary behavioural contract wins.
 | File | Holds |
 |---|---|
 | `index.ts` | Tool registration and session lifecycle |
-| `store.ts` | The session's store, created once and shared |
 | `render.ts` | How a query reads in the transcript |
 
 The store, the query language, the digest and the citation rule
