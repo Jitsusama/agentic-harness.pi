@@ -6,12 +6,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	type CapturedTarget,
 	ENHANCED_TARGET_PX,
 	type HitTarget,
 	judgeTarget,
 	judgeTargets,
 	MINIMUM_TARGET_PX,
 	renderTargets,
+	targetFindings,
 } from "../../../../lib/web/audit/target.js";
 
 const at = (
@@ -177,5 +179,62 @@ describe("renderTargets", () => {
 		const out = renderTargets(judgeTargets(many));
 		expect(out).toContain("and 30 more");
 		expect(out.split("\n").length).toBeLessThan(16);
+	});
+});
+
+describe("target verdicts reach the accessibility report", () => {
+	// Measured off the fixture: three 16 by 16 buttons two pixels
+	// apart, one inline link in a sentence, one 48 by 48 button.
+	const captured: CapturedTarget[] = [
+		{
+			id: "t0",
+			selector: "a",
+			rect: { x: 139.8, y: 108.9, width: 88.6, height: 18 },
+			inline: true,
+		},
+		{
+			id: "t1",
+			selector: "button.tiny",
+			rect: { x: 28, y: 160.9, width: 16, height: 16 },
+		},
+		{
+			id: "t2",
+			selector: "button.tiny",
+			rect: { x: 46, y: 160.9, width: 16, height: 16 },
+		},
+		{
+			id: "t3",
+			selector: "button.tiny",
+			rect: { x: 64, y: 160.9, width: 16, height: 16 },
+		},
+		{
+			id: "t4",
+			selector: "button.big",
+			rect: { x: 28, y: 186.9, width: 48, height: 48 },
+		},
+	];
+
+	it("reports the crowded undersized targets and nothing else", () => {
+		// 2.5.8 was measured by nothing at all: axe ships
+		// target-size disabled and this arithmetic had no caller.
+		const findings = targetFindings(captured);
+
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.criteria).toEqual(["2.5.8"]);
+		expect(findings[0]?.nodes.map((node) => node.selector)).toEqual([
+			"button.tiny",
+			"button.tiny",
+			"button.tiny",
+		]);
+	});
+
+	it("says nothing when every target is big enough or excepted", () => {
+		const roomy = captured.filter((target) => target.id === "t4");
+		expect(targetFindings(roomy)).toEqual([]);
+	});
+
+	it("excepts a link inside a sentence", () => {
+		const inline = captured.filter((target) => target.inline);
+		expect(targetFindings(inline)).toEqual([]);
 	});
 });

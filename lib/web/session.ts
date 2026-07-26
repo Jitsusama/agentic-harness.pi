@@ -188,10 +188,12 @@ import {
 	type A11yFinding,
 	type AxFacts,
 	buildStructure,
+	type CapturedTarget,
 	type PageBox,
 	type RawAxeRun,
 	readAxeRun,
 	type StructureNode,
+	TARGET_CAPTURE,
 	type VisualNode,
 	visualCaptureSource,
 } from "./audit/index.js";
@@ -1861,6 +1863,28 @@ export class BrowserSession {
 	 * element: a page of any size would otherwise cost thousands
 	 * of round trips to answer one question.
 	 */
+	/**
+	 * Every pointer target on the page, with the facts WCAG 2.5.8
+	 * needs to judge its size.
+	 *
+	 * Separate from layout() because the two ask different
+	 * questions: layout wants everything drawn, this wants only
+	 * what a finger has to hit, plus the two exceptions the
+	 * criterion turns on.
+	 */
+	async targets(): Promise<readonly CapturedTarget[]> {
+		await this.ready();
+		const response = await this.cdp.send("Runtime.evaluate", {
+			expression: TARGET_CAPTURE,
+			returnByValue: true,
+		});
+		if (response.exceptionDetails) {
+			const threw = describeThrow(response.exceptionDetails);
+			throw new Error(`Could not measure the targets: ${threw.message}`);
+		}
+		return response.result.value as readonly CapturedTarget[];
+	}
+
 	async layout(): Promise<{
 		readonly nodes: readonly VisualNode[];
 		readonly viewport: PageBox;

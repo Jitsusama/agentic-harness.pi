@@ -26,6 +26,7 @@ import {
 	SUPERSEDED_BY,
 	standingOf,
 	tallyFindings,
+	targetFindings,
 	widthsToSweep,
 } from "../../lib/web/audit/index.js";
 import { renderComparison } from "../../lib/web/compare/index.js";
@@ -222,18 +223,24 @@ async function runOnce(
 		// ours are the structural questions it leaves alone or
 		// files as opinion; a reader should not have to know
 		// which came from where to act on either.
-		const [fromAxe, structure] = await Promise.all([
+		// Target size is ours to check. axe ships target-size
+		// disabled by default and we do not turn it on, so WCAG 2.5.8
+		// was measured by nothing at all while the arithmetic for it
+		// sat exported, tested and unreachable from any tool.
+		const [fromAxe, structure, targets] = await Promise.all([
 			session.audit(),
 			session.structure(),
+			session.targets(),
 		]);
 		const findings = mergeFindings(
 			fromAxe,
-			analyseStructure(structure),
+			[...analyseStructure(structure), ...targetFindings(targets)],
 			SUPERSEDED_BY,
 		);
 		const measured =
 			`Checked ${structure.length} elements against the axe rule ` +
-			"set and seven structural rules.";
+			`set and our structural rules, and ${targets.length} pointer ` +
+			"targets against WCAG 2.5.8.";
 		return renderAudit(findings, tallyFindings(findings), {
 			...(params.rule === undefined ? {} : { rule: params.rule }),
 			measured,

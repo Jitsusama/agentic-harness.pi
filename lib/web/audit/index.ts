@@ -57,7 +57,7 @@ export {
 	undecidable,
 } from "./contrast.js";
 export { overallOf, type Part, renderHealth } from "./health.js";
-export { visualCaptureSource } from "./probe.js";
+export { TARGET_CAPTURE, visualCaptureSource } from "./probe.js";
 export {
 	MAX_LISTED_NODES,
 	renderAudit,
@@ -92,6 +92,7 @@ export {
 	worstOf,
 } from "./sweep.js";
 export {
+	type CapturedTarget,
 	ENHANCED_TARGET_PX,
 	type HitTarget,
 	judgeTarget,
@@ -101,6 +102,7 @@ export {
 	type TargetException,
 	type TargetLevel,
 	type TargetVerdict,
+	targetFindings,
 } from "./target.js";
 export {
 	renderVerdict,

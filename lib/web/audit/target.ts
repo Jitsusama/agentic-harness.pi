@@ -11,6 +11,7 @@
  */
 
 import type { Rect } from "../element/box.js";
+import type { A11yFinding } from "./axe.js";
 
 /**
  * Something a person is expected to hit.
@@ -210,4 +211,63 @@ export function renderTargets(verdicts: readonly TargetVerdict[]): string {
 
 function round(value: number): number {
 	return Math.round(value * 10) / 10;
+}
+
+/**
+ * A captured target, as the page reports it.
+ *
+ * Carries the selector alongside the facts the judgment needs,
+ * so a finding can point at something a reader can find.
+ */
+export interface CapturedTarget extends HitTarget {
+	readonly selector: string;
+}
+
+/**
+ * Turn target verdicts into findings, so they merge with the
+ * rest of the accessibility report instead of living apart.
+ *
+ * Failures are violations of a real criterion. An excepted
+ * target is not reported at all: the exception is the criterion
+ * working as written, not a thing to look at.
+ */
+export function targetFindings(
+	targets: readonly CapturedTarget[],
+	level: TargetLevel = "AA",
+): readonly A11yFinding[] {
+	const byId = new Map(targets.map((target) => [target.id, target]));
+	const failed = judgeTargets(targets, level).filter(
+		(verdict) => !verdict.passes,
+	);
+	if (failed.length === 0) return [];
+
+	const required = failed[0]?.required ?? MINIMUM_TARGET_PX;
+	return [
+		{
+			rule: "target-is-big-enough",
+			kind: "violation",
+			impact: "serious",
+			authority: "wcag",
+			criteria: [level === "AAA" ? "2.5.5" : "2.5.8"],
+			levels: [level],
+			help:
+				`A pointer target smaller than ${required} by ${required} ` +
+				"pixels, with no larger alternative and not enough clear " +
+				"space around it to be excepted.",
+			nodes: failed.map((verdict) => ({
+				selector: byId.get(verdict.id)?.selector ?? verdict.id,
+				html: "",
+				messages: [
+					`Measured ${Math.round(verdict.width)} by ` +
+						`${Math.round(verdict.height)} pixels` +
+						(verdict.crowdedBy && verdict.crowdedBy.length > 0
+							? `, and too close to ${verdict.crowdedBy.length} other ` +
+								`${
+									verdict.crowdedBy.length === 1 ? "target" : "targets"
+								} to be excepted for spacing.`
+							: "."),
+				],
+			})),
+		},
+	];
 }

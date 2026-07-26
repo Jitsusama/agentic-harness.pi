@@ -107,10 +107,10 @@ every keystroke, both show here and in no rule set.
 
 ### 4. Contrast and target size
 
-`check accessibility` covers contrast through axe. Reach for the
-arithmetic directly when you need a specific pair judged, a
-focus indicator assessed, or a design token checked before it
-ships.
+`check accessibility` covers both. Contrast comes from axe.
+Target size is measured here, because axe ships its target-size
+rule disabled, so nothing else in the report would answer WCAG
+2.5.8. Look for the rule `target-is-big-enough`.
 
 Colours are converted by the browser, never guessed, because
 `getComputedStyle` returns `oklch` and `color(display-p3 ...)`
@@ -121,13 +121,21 @@ Target size has an exception that decides most real cases: a
 small target with open space around it passes, and the same
 target crowded by neighbours does not. Reporting size alone
 would fail every link in a paragraph and pass a row of cramped
-icon buttons.
+icon buttons. A link inside a sentence is excepted outright.
+
+One exception is deliberately not claimed. WCAG excuses a
+control whose size the browser chose and the author never
+touched, and nothing the page can be asked distinguishes that
+from a stylesheet choosing the same size. So a default-sized
+native control is reported rather than excused, unless it has
+the clear space the spacing exception asks for. Judge those
+yourself; do not report them as settled failures.
 
 ### 5. Under the conditions that break it
 
 ```
 browser_check kind:"accessibility" widths:[375, 768, 1280]
-browser_go kind:"emulate" media:"prefers-contrast: more"
+browser_go kind:"emulate" contrast:"more"
 browser_go kind:"emulate" vision:"deuteranopia"
 ```
 
