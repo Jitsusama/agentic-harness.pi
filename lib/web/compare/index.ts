@@ -13,6 +13,13 @@
  */
 
 export {
+	type BaselineProvenance,
+	describeDrift,
+	parse,
+	sidecarFor,
+	stringify,
+} from "./provenance.js";
+export {
 	type AttributedRegion,
 	attributeRegions,
 	CELL_SIZE,

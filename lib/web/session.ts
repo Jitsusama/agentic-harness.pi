@@ -29,6 +29,7 @@ import type {
 // the 255 entries instead would mean maintaining a second
 // opinion about which keys exist, and being wrong separately.
 import { _keyDefinitions } from "puppeteer-core/internal/common/USKeyboardLayout.js";
+import { dataDir } from "../internal/paths.js";
 import {
 	ANNOUNCE_BINDING,
 	ANNOUNCEMENT_OBSERVER,
@@ -54,6 +55,13 @@ import {
 import { newContextPage } from "./browser.js";
 import { compareImages, readPng } from "./compare/images.js";
 import type { Comparison } from "./compare/index.js";
+import {
+	type BaselineProvenance,
+	describeDrift,
+	parse as parseProvenance,
+	sidecarFor,
+	stringify,
+} from "./compare/provenance.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
 import {
 	type Actionability,
@@ -83,7 +91,6 @@ import {
 	type VisibilityVerdict,
 } from "./element/index.js";
 import {
-	BUNDLE_ROOT,
 	type BundleSink,
 	DIR_MODE,
 	diskSink,
@@ -2517,14 +2524,33 @@ export class BrowserSession {
 			"base64",
 		);
 
+		const takenUnder = this.provenance();
 		if (options.update || !existsSync(baselinePath)) {
 			mkdirSync(path.dirname(baselinePath), {
 				recursive: true,
 				mode: DIR_MODE,
 			});
 			writeFileSync(baselinePath, shot, { mode: FILE_MODE });
+			writeFileSync(sidecarFor(baselinePath), stringify(takenUnder), {
+				mode: FILE_MODE,
+			});
 			this.written.push(baselinePath);
 			return { comparison: undefined, recorded: baselinePath, artifacts: [] };
+		}
+
+		// Refuse rather than diff two different subjects. A baseline
+		// recorded before this library stored provenance has none, and
+		// is compared as before rather than being thrown away.
+		const sidecar = sidecarFor(baselinePath);
+		const was = existsSync(sidecar)
+			? parseProvenance(readFileSync(sidecar, "utf8"))
+			: undefined;
+		const differs = was && describeDrift(was, takenUnder);
+		if (differs) {
+			return {
+				comparison: { kind: "incomparable", because: differs },
+				artifacts: [],
+			};
 		}
 
 		const { nodes } = await this.layout();
@@ -2567,12 +2593,40 @@ export class BrowserSession {
 	/**
 	 * Where this session's baselines live.
 	 *
-	 * Beside the bundle rather than inside it: a bundle is swept
-	 * away with the session, and a baseline that vanished between
-	 * runs would compare against nothing every time.
+	 * Under the data directory, not the bundle root. This used to
+	 * sit at BUNDLE_ROOT/baselines, which the bundle reaper treats
+	 * as an ownerless directory (the name is not a pid) and deletes
+	 * once it is six hours old. Writing a baseline touches the
+	 * session subdirectory rather than its parent, so the parent's
+	 * age kept climbing and a stable set of baselines was reaped on
+	 * a timer. The next comparison then found nothing, recorded the
+	 * current page as truth and reported a warning, which is data
+	 * loss wearing a first run's clothes.
+	 *
+	 * A baseline is a durable artifact the user asked for and may
+	 * want to look at, which is what dataDir is for.
 	 */
 	private baselineDir(): string {
-		return path.join(BUNDLE_ROOT, "baselines", this.name);
+		return path.join(dataDir("browser-integration"), "baselines", this.name);
+	}
+
+	/**
+	 * What a baseline was taken under, stored beside the image.
+	 *
+	 * Without this a comparison cannot tell a regression from a
+	 * change of subject: record on one page, navigate to another,
+	 * and the diff reports confident failures attributed to the
+	 * second page's elements. The size check alone cannot see it,
+	 * because two pages at one viewport are the same size.
+	 */
+	private provenance(): BaselineProvenance {
+		const viewport = this.emulation.viewport;
+		return {
+			url: this.url,
+			...(viewport?.width === undefined ? {} : { width: viewport.width }),
+			...(viewport?.height === undefined ? {} : { height: viewport.height }),
+			deviceScaleFactor: viewport?.deviceScaleFactor ?? 1,
+		};
 	}
 
 	/** Carry out an action against an element judged ready. */
