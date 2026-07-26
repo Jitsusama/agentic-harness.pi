@@ -18,7 +18,22 @@ import { createSupervisorRunPi } from "../../../../lib/subagent/runpi/supervisor
 // worker cap in vitest.config.ts, this keeps the file green under a
 // saturated fork pool. Set at collection time, since a beforeAll runs
 // after the tests are already registered with the default.
+//
+// The retry is a stopgap and is not offered as a fix. On CI, and only
+// there, a spawned supervisor occasionally never reports at all: it
+// blew a sixty-second budget before the parent had a deadline of its
+// own, and now trips that deadline instead. The same file takes
+// sixty-five milliseconds locally, passes with the machine saturated
+// by twelve spinners, and passes in full under ten, so the condition
+// is environmental and remains unidentified. One retry keeps a green
+// main from depending on it while the cause is still open; a retry
+// that fires is still reported, so this hides nothing. The parent's
+// deadline, not this retry, is what stops such a run hanging a real
+// fleet job for ever.
 vi.setConfig({ testTimeout: 60_000 });
+
+/** See the note above: a stopgap for an unidentified CI-only hang. */
+const FLAKY_ON_CI = { retry: 1 };
 
 interface FakeChild {
 	stdout: Readable;
@@ -81,7 +96,7 @@ async function tempStateDir(): Promise<string> {
 	return mkdtemp(join(tmpdir(), "pr-runpi-supervisor-"));
 }
 
-describe("createSupervisorRunPi", () => {
+describe("createSupervisorRunPi", FLAKY_ON_CI, () => {
 	it("runs the real supervisor script against a JSON-emitting child", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "child.mjs");
