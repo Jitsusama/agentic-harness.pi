@@ -104,6 +104,21 @@ async function tempStateDir(): Promise<string> {
  * annoying; on CI, where these tests fail and here they do not, it
  * is the whole difference between evidence and another rerun.
  */
+/**
+ * What these tests allow a nested spawn, rather than what they
+ * expect it to need.
+ *
+ * These used to pin ten seconds, which was meaningless while the
+ * supervisor raised anything shorter than forty-five minutes to its
+ * floor, and dangerous the moment that floor became a default: a
+ * doubly-nested node spawn on a loaded four-core runner can take
+ * longer than ten seconds to get going, and CI failed about one run
+ * in three with the supervisor still reporting "running". None of
+ * these tests are about how long a run may take, so the number only
+ * has to be beyond suspicion.
+ */
+const GENEROUS_MS = 120_000;
+
 function expectRan(result: RunPiResult): void {
 	if (result.exitCode !== 0) {
 		throw new Error(
@@ -126,8 +141,8 @@ describe("createSupervisorRunPi", () => {
 		const runPi = createSupervisorRunPi({
 			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
-			idleTimeoutMs: 10_000,
-			timeoutMs: 10_000,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
 		});
 
 		const result = await runPi({
@@ -161,8 +176,8 @@ describe("createSupervisorRunPi", () => {
 				packageDir: pinned,
 			},
 			stateDir,
-			idleTimeoutMs: 10_000,
-			timeoutMs: 10_000,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
 		});
 
 		// Set a conflicting parent value so the assertion proves the
@@ -211,8 +226,8 @@ describe("createSupervisorRunPi", () => {
 		const runPi = createSupervisorRunPi({
 			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
-			idleTimeoutMs: 10_000,
-			timeoutMs: 10_000,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
 		});
 
 		const result = await runPi({
@@ -247,8 +262,8 @@ describe("createSupervisorRunPi", () => {
 		const runPi = createSupervisorRunPi({
 			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
-			idleTimeoutMs: 10_000,
-			timeoutMs: 10_000,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
 		});
 
 		const result = await runPi({
@@ -280,8 +295,8 @@ describe("createSupervisorRunPi", () => {
 		const runPi = createSupervisorRunPi({
 			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
-			idleTimeoutMs: 10_000,
-			timeoutMs: 10_000,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
 		});
 
 		const result = await runPi({
@@ -315,8 +330,8 @@ describe("createSupervisorRunPi", () => {
 		const runPi = createSupervisorRunPi({
 			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
-			idleTimeoutMs: 10_000,
-			timeoutMs: 10_000,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
 		});
 
 		const result = await runPi({
@@ -347,8 +362,8 @@ describe("createSupervisorRunPi", () => {
 		const runPi = createSupervisorRunPi({
 			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
-			idleTimeoutMs: 10_000,
-			timeoutMs: 10_000,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
 		});
 
 		const result = await runPi({
@@ -393,8 +408,8 @@ describe("createSupervisorRunPi", () => {
 		const runPi = createSupervisorRunPi({
 			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
-			idleTimeoutMs: 10_000,
-			timeoutMs: 10_000,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
 			// Both caps are far below the 4 KB payload; out-of-band
 			// delivery must ignore them.
 			maxLineBytes: 256,
@@ -435,8 +450,8 @@ describe("createSupervisorRunPi", () => {
 		const runPi = createSupervisorRunPi({
 			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
-			idleTimeoutMs: 10_000,
-			timeoutMs: 10_000,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
 		});
 
 		const result = await runPi({
@@ -466,8 +481,8 @@ describe("createSupervisorRunPi", () => {
 			stateDir,
 			maxEventBytes: 80,
 			maxEventRotations: 2,
-			idleTimeoutMs: 10_000,
-			timeoutMs: 10_000,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
 		});
 
 		const result = await runPi({
@@ -557,6 +572,47 @@ describe("createSupervisorRunPi", () => {
 			warnings: ["from-result"],
 		});
 		expect(result.stdout).toBeUndefined();
+	});
+
+	it("honours the leash it was given, rather than its own floor", async () => {
+		// The supervisor used to raise any requested timeout to a
+		// forty-five minute floor with Math.max, so a caller asking for
+		// a short leash silently got the floor. The parent defaults to
+		// the same numbers, so it protected nothing and only overruled
+		// people.
+		//
+		// It also made this script's own watchdog unreachable in a test,
+		// and that is what cost an afternoon: when CI failed with the
+		// supervisor still "running" at the parent's deadline, the
+		// supervisor had nothing of its own to say, because nothing of
+		// its own could ever fire. The parent killed it and reported
+		// silence, one run in three.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "mute.mjs");
+		// A reviewer that never says anything and never exits.
+		await writeFile(childPath, "setTimeout(() => {}, 600000);\n");
+
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 3_000,
+			timeoutMs: 30_000,
+			// Well past the leash, so the supervisor is what gives up.
+			supervisorGraceMs: 30_000,
+		});
+
+		const started = Date.now();
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "mute",
+		});
+
+		// The supervisor's own idle watchdog, not the parent's deadline.
+		expect(Date.now() - started).toBeLessThan(20_000);
+		expect(result.exitCode).not.toBe(0);
+		expect((result.warnings ?? []).join(" ")).toMatch(/idle/i);
 	});
 
 	it("finishes on the terminal event, not on the process", async () => {
