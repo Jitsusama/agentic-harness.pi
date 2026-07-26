@@ -210,7 +210,7 @@ export function readAxeRun(run: RawAxeRun): readonly A11yFinding[] {
 }
 
 /** Worst first, and what is known broken before what might be. */
-function orderFindings(
+export function orderFindings(
 	findings: readonly A11yFinding[],
 ): readonly A11yFinding[] {
 	return [...findings].sort((a, b) => {

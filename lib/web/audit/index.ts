@@ -56,6 +56,7 @@ export {
 	textThreshold,
 	undecidable,
 } from "./contrast.js";
+export { visualCaptureSource } from "./probe.js";
 export {
 	MAX_LISTED_NODES,
 	renderAudit,
@@ -90,3 +91,18 @@ export {
 	type TargetLevel,
 	type TargetVerdict,
 } from "./target.js";
+export {
+	ASPECT_TOLERANCE,
+	analyseVisual,
+	brokenImages,
+	clippedContent,
+	distortedImages,
+	escapedElements,
+	HIDDEN_BOX_PX,
+	horizontalOverflow,
+	isVisuallyHidden,
+	SMALL_TEXT_PX,
+	tinyText,
+	type Viewport,
+	type VisualNode,
+} from "./visual.js";

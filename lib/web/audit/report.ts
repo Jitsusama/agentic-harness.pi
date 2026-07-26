@@ -6,7 +6,17 @@
  * arrived inside forty kilobytes of markup is not a finding.
  */
 
-import type { A11yFinding, AxeTally, Impact } from "./axe.js";
+import {
+	type A11yFinding,
+	type AxeTally,
+	type Impact,
+	orderFindings,
+} from "./axe.js";
+
+/** Say a count with the noun that agrees with it. */
+function count(many: number, one: string, plural = `${one}s`): string {
+	return `${many} ${many === 1 ? one : plural}`;
+}
 
 /** How many elements to name under a rule before counting. */
 export const MAX_LISTED_NODES = 5;
@@ -39,18 +49,23 @@ export function renderSummary(tally: AxeTally): string {
 			.map((impact) => `${tally.byImpact[impact]} ${impact}`)
 			.join(", ");
 		parts.push(
-			`${tally.violations} rules failed across ${tally.elements} ` +
-				`elements: ${severities}.`,
+			`${count(tally.violations, "rule")} failed across ` +
+				`${count(tally.elements, "element")}: ${severities}.`,
 		);
 		parts.push(
-			`${tally.wcag} are WCAG criteria, ${tally.bestPractice} are ` +
-				"best practice.",
+			`${
+				tally.wcag === 1
+					? "1 is a WCAG criterion"
+					: `${tally.wcag} are WCAG criteria`
+			}, ${tally.bestPractice} best practice.`,
 		);
 	}
 	if (tally.needsReview > 0) {
 		parts.push(
-			`${tally.needsReview} rules on ${tally.reviewElements} elements ` +
-				"need a person to look: axe could not decide on its own.",
+			`${count(tally.needsReview, "rule")} on ` +
+				`${count(tally.reviewElements, "element")} ` +
+				`${tally.needsReview === 1 ? "needs" : "need"} a person to ` +
+				"look: nothing could decide on its own.",
 		);
 	}
 	return parts.join(" ");
@@ -79,11 +94,8 @@ function describeRule(finding: A11yFinding): string {
 		finding.criteria.length > 0
 			? `WCAG ${finding.criteria.join(", ")}`
 			: "best practice";
-	const count =
-		finding.nodes.length === 1
-			? "1 element"
-			: `${finding.nodes.length} elements`;
-	return `${finding.impact.padEnd(8)} ${finding.rule.padEnd(28)} ${count.padEnd(12)} ${where}`;
+	const hits = count(finding.nodes.length, "element");
+	return `${finding.impact.padEnd(8)} ${finding.rule.padEnd(28)} ${hits.padEnd(12)} ${where}`;
 }
 
 /** Everything known about one rule, for when it is asked about. */
@@ -112,7 +124,7 @@ export function renderFinding(finding: A11yFinding): string {
 	}
 	if (finding.nodes.length > MAX_LISTED_NODES) {
 		lines.push(
-			`  ... and ${finding.nodes.length - MAX_LISTED_NODES} more elements`,
+			`  ... and ${count(finding.nodes.length - MAX_LISTED_NODES, "more element")}`,
 		);
 	}
 	if (finding.helpUrl) {
@@ -123,10 +135,16 @@ export function renderFinding(finding: A11yFinding): string {
 
 /** The whole report, summary first. */
 export function renderAudit(
-	findings: readonly A11yFinding[],
+	unordered: readonly A11yFinding[],
 	tally: AxeTally,
 	options: { readonly rule?: string } = {},
 ): string {
+	// Ordered here rather than trusted from the caller. A report
+	// that claims to lead with the worst thing found has to do so
+	// however the findings were assembled: the layout rules build
+	// their list in rule order, and reported a serious finding
+	// below a moderate one until this was moved here.
+	const findings = orderFindings(unordered);
 	if (options.rule) {
 		// A rule can be reported twice, once as a failure and once as
 		// undecided: colour contrast does exactly this when some text

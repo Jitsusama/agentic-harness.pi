@@ -13,6 +13,7 @@ import { Type } from "@sinclair/typebox";
 import { analyseWalk, renderWalk } from "../../lib/web/a11y/index.js";
 import {
 	analyseStructure,
+	analyseVisual,
 	mergeFindings,
 	renderAudit,
 	SUPERSEDED_BY,
@@ -23,20 +24,29 @@ import { answer, refusal } from "./result.js";
 
 const parameters = Type.Object({
 	kind: Type.Optional(
-		Type.Union([Type.Literal("keyboard"), Type.Literal("accessibility")], {
-			description:
-				"keyboard: tab through the page and report what a person " +
-				"using only a keyboard can reach. accessibility: run the " +
-				"axe WCAG rule set and report what failed, what is only " +
-				"best practice, and what needs a person to look. " +
-				"Defaults to keyboard.",
-		}),
+		Type.Union(
+			[
+				Type.Literal("keyboard"),
+				Type.Literal("accessibility"),
+				Type.Literal("visual"),
+			],
+			{
+				description:
+					"keyboard: tab through the page and report what a person " +
+					"using only a keyboard can reach. accessibility: run the " +
+					"axe WCAG rule set and report what failed, what is only " +
+					"best practice, and what needs a person to look. visual: " +
+					"report what the layout did wrong, from sideways scroll " +
+					"and clipped text to images that did not load. " +
+					"Defaults to keyboard.",
+			},
+		),
 	),
 	rule: Type.Optional(
 		Type.String({
 			description:
-				"For accessibility: name one rule from the index to see the " +
-				"elements it hit and how to fix them.",
+				"For accessibility and visual: name one rule from the index " +
+				"to see the elements it hit and how to fix them.",
 		}),
 	),
 	session: Type.Optional(
@@ -66,7 +76,9 @@ export function registerCheck(
 			"page; it moves focus to do this and puts it back afterwards. " +
 			"kind 'accessibility' runs the axe WCAG rule set and reports what " +
 			"failed, keeping standards apart from best practice and naming " +
-			"what it could not decide.",
+			"what it could not decide. kind 'visual' reports what the layout " +
+			"did wrong: sideways scroll, clipped text, escaped elements, " +
+			"images that did not load or are drawn at the wrong shape.",
 		promptSnippet:
 			"Judge a browser page with browser_check: kind 'keyboard' walks the " +
 			"tab order, kind 'accessibility' runs the WCAG rule set.",
@@ -98,6 +110,18 @@ export function registerCheck(
 					analyseStructure(structure),
 					SUPERSEDED_BY,
 				);
+				return answer(
+					name,
+					kind,
+					renderAudit(findings, tallyFindings(findings), {
+						...(params.rule === undefined ? {} : { rule: params.rule }),
+					}),
+				);
+			}
+
+			if (kind === "visual") {
+				const { nodes, viewport } = await session.layout();
+				const findings = analyseVisual(nodes, viewport);
 				return answer(
 					name,
 					kind,

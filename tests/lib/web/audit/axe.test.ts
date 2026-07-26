@@ -293,6 +293,22 @@ describe("mergeFindings", () => {
 		expect(merged.some((f) => f.rule === "heading-skips-level")).toBe(true);
 	});
 
+	it("orders findings the caller handed over unsorted", () => {
+		// The layout rules build their list in rule order, so a
+		// report that ordered only what came from axe put a serious
+		// finding below a moderate one.
+		const jumbled = [
+			...readAxeRun({
+				violations: [{ id: "z-moderate", impact: "moderate", nodes: [{}] }],
+			}),
+			...readAxeRun({
+				violations: [{ id: "a-critical", impact: "critical", nodes: [{}] }],
+			}),
+		];
+		const out = renderAudit(jumbled, tallyFindings(jumbled));
+		expect(out.indexOf("a-critical")).toBeLessThan(out.indexOf("z-moderate"));
+	});
+
 	it("interleaves both sets by severity rather than by origin", () => {
 		const merged = mergeFindings(readAxeRun(RUN), ours);
 		const impacts = merged
@@ -346,13 +362,33 @@ describe("renderSummary", () => {
 
 	it("always separates WCAG from best practice", () => {
 		const out = renderSummary(tallyFindings(readAxeRun(RUN)));
-		expect(out).toContain("2 are WCAG criteria, 2 are best practice");
+		expect(out).toContain("2 are WCAG criteria, 2 best practice");
 	});
 
 	it("reports what needs a person rather than burying it", () => {
 		expect(renderSummary(tallyFindings(readAxeRun(RUN)))).toContain(
-			"1 rules on 1 elements need a person to look",
+			"1 rule on 1 element needs a person to look",
 		);
+	});
+
+	it("agrees with itself grammatically when a count is one", () => {
+		// This line is the one every reader sees, so "1 rules failed"
+		// is a small error in a conspicuous place.
+		const single = tallyFindings(
+			readAxeRun({
+				violations: [
+					{
+						id: "solo",
+						impact: "serious",
+						tags: ["wcag2a", "wcag111"],
+						nodes: [{}],
+					},
+				],
+			}),
+		);
+		const out = renderSummary(single);
+		expect(out).toContain("1 rule failed across 1 element");
+		expect(out).toContain("1 is a WCAG criterion");
 	});
 });
 

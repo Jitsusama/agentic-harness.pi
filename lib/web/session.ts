@@ -173,6 +173,9 @@ import {
 	type RawAxeRun,
 	readAxeRun,
 	type StructureNode,
+	type Viewport,
+	type VisualNode,
+	visualCaptureSource,
 } from "./audit/index.js";
 import {
 	describeThrow,
@@ -1716,6 +1719,32 @@ export class BrowserSession {
 			});
 		}
 		return buildStructure(nodes, facts);
+	}
+
+	/**
+	 * What the layout actually did, as the browser measured it.
+	 *
+	 * Read in one page-side pass rather than a protocol call per
+	 * element: a page of any size would otherwise cost thousands
+	 * of round trips to answer one question.
+	 */
+	async layout(): Promise<{
+		readonly nodes: readonly VisualNode[];
+		readonly viewport: Viewport;
+	}> {
+		await this.ready();
+		const response = await this.cdp.send("Runtime.evaluate", {
+			expression: visualCaptureSource(),
+			returnByValue: true,
+		});
+		if (response.exceptionDetails) {
+			const threw = describeThrow(response.exceptionDetails);
+			throw new Error(`Could not read the layout: ${threw.message}`);
+		}
+		return response.result.value as {
+			nodes: readonly VisualNode[];
+			viewport: Viewport;
+		};
 	}
 
 	/** Run a page-side source string and read back its value. */
