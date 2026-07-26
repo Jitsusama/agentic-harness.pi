@@ -31,6 +31,90 @@ const node = (
 	...over,
 });
 
+describe("a reference to something not built yet", () => {
+	// Mirrors real markup from two widely used React widget
+	// libraries: a collapsed combobox and a collapsed toggle
+	// button, each naming a popup that only exists once opened.
+	// axe declines to fail these while aria-expanded is "false",
+	// and says so in its own source; this rule used to call them
+	// critical, so a correct page opened with two critical WCAG
+	// failures.
+	it("excuses aria-controls while the widget is collapsed", () => {
+		expect(
+			brokenReferences([
+				node({
+					id: "toggle",
+					attributes: {
+						"aria-controls": "menu-that-is-not-there",
+						"aria-expanded": "false",
+					},
+				}),
+			]),
+		).toEqual([]);
+	});
+
+	it("excuses aria-owns on the same grounds", () => {
+		expect(
+			brokenReferences([
+				node({
+					id: "owner",
+					attributes: { "aria-owns": "ghost", "aria-expanded": "false" },
+				}),
+			]),
+		).toEqual([]);
+	});
+
+	it("still fails aria-controls once the widget says it is open", () => {
+		// Expanded and pointing at nothing is a real defect: the
+		// popup is supposedly on screen and cannot be found.
+		const [found] = brokenReferences([
+			node({
+				id: "open",
+				attributes: { "aria-controls": "ghost", "aria-expanded": "true" },
+			}),
+		]);
+		expect(found?.rule).toBe("reference-resolves");
+	});
+
+	it("still fails aria-controls when there is no disclosure at all", () => {
+		// No aria-expanded means this is not a widget that reveals
+		// anything, so there is nothing to wait for.
+		const [found] = brokenReferences([
+			node({ id: "plain", attributes: { "aria-controls": "ghost" } }),
+		]);
+		expect(found?.rule).toBe("reference-resolves");
+	});
+
+	it("never excuses aria-labelledby, which erases the name", () => {
+		// The excuse is about things rendered on demand. A name is
+		// not one of them, collapsed or not.
+		const [found] = brokenReferences([
+			node({
+				id: "named",
+				attributes: {
+					"aria-labelledby": "ghost",
+					"aria-expanded": "false",
+				},
+			}),
+		]);
+		expect(found?.rule).toBe("reference-resolves");
+	});
+
+	it("excuses a deselected tab, as axe does", () => {
+		expect(
+			brokenReferences([
+				node({
+					id: "tab",
+					attributes: {
+						"aria-controls": "panel",
+						"aria-selected": "false",
+					},
+				}),
+			]),
+		).toEqual([]);
+	});
+});
+
 describe("brokenReferences", () => {
 	it("catches an aria-labelledby pointing at nothing", () => {
 		const [found] = brokenReferences([

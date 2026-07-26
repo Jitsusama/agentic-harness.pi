@@ -140,7 +140,40 @@ function nodeOf(node: StructureNode, message: string): FindingNode {
  * element ends up with no accessible name at all rather than
  * falling back to its content. That makes this more severe than
  * the "invalid attribute value" it is usually filed under.
+ *
+ * Two attributes are not like the others. aria-controls and
+ * aria-owns routinely point at something the widget has not built
+ * yet: a closed combobox or disclosure has no popup in the
+ * document, and every popular menu library ships exactly that
+ * markup. axe settles it the same way and says so in its own
+ * source, refusing to fail either attribute while aria-expanded
+ * is "false". This rule used to fail both as critical, so a real
+ * app opened with two critical WCAG failures for a pattern that
+ * is correct.
  */
+/**
+ * Attributes whose target may legitimately not exist yet.
+ *
+ * Both name something the widget owns and renders on demand, so
+ * their absence while collapsed says nothing about correctness.
+ */
+const DEFERS_TO_EXPANDED = new Set(["aria-controls", "aria-owns"]);
+
+/**
+ * Whether a widget is currently showing what it controls.
+ *
+ * Absent aria-expanded means this is not a disclosure at all, so
+ * there is no excuse to extend: only an explicit "false" earns
+ * one. aria-selected is included because axe treats a deselected
+ * tab the same way, and for the same reason.
+ */
+function isExpanded(node: StructureNode): boolean {
+	return (
+		node.attributes["aria-expanded"] !== "false" &&
+		node.attributes["aria-selected"] !== "false"
+	);
+}
+
 export function brokenReferences(
 	nodes: readonly StructureNode[],
 ): readonly A11yFinding[] {
@@ -159,6 +192,7 @@ export function brokenReferences(
 			const wanted = single ? [value.trim()] : value.trim().split(/\s+/);
 			const missing = wanted.filter((id) => id !== "" && !present.has(id));
 			if (missing.length === 0) continue;
+			if (DEFERS_TO_EXPANDED.has(attribute) && !isExpanded(node)) continue;
 			broken.push(
 				nodeOf(
 					node,
