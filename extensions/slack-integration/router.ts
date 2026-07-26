@@ -64,6 +64,7 @@ import {
 	type ToolContent,
 	type ToolResult,
 } from "../../lib/slack/types.js";
+import { boundedAnswer } from "./bounded.js";
 import {
 	confirmEditMessage,
 	confirmReaction,
@@ -153,10 +154,18 @@ function collectGatedText(action: string, params: ActionParams): string {
 
 /** Shorthand for a simple text result. */
 function text(content: string, details?: unknown): ToolResult {
-	return { content: [{ type: "text", text: content }], details };
+	// Every list-shaped action arrives here, so this is the one place
+	// the whole family needs to keep its answers bounded.
+	return {
+		content: [{ type: "text", text: boundedAnswer(content, details) }],
+		details,
+	};
 }
 
 /** Build a result with text and optional file content. */
+// Note: file content is not bounded here. An attached file is what
+// the caller asked for by name, and half of one is no use.
+
 function textWithFiles(
 	content: string,
 	files: DownloadedFile[],

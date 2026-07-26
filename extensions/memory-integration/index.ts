@@ -31,6 +31,7 @@ import {
 	resolveScope,
 } from "../../lib/memory/index.js";
 import { registerPromptContributor } from "../../lib/prompt/index.js";
+import { citeListing, openSessionStore } from "../../lib/result/index.js";
 
 /** Memory recall sits just below the conventions in the resident block. */
 const MEMORY_ORDER = 10;
@@ -165,7 +166,19 @@ export default function memoryIntegration(pi: ExtensionAPI) {
 				...(params.limit ? { limit: params.limit } : {}),
 			});
 			return {
-				content: [{ type: "text", text: formatFacts(facts) }],
+				content: [
+					{
+						type: "text",
+						text: citeListing(openSessionStore(), {
+							view: formatFacts(facts),
+							records: facts,
+							unit: "facts",
+							narrowing:
+								"Narrow with 'query' to a keyword or tag, or lower " +
+								"'limit'.",
+						}),
+					},
+				],
 				details: { ok: true, count: facts.length },
 			};
 		},

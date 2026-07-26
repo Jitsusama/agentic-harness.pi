@@ -15,6 +15,11 @@
  */
 
 export { type Citable, type Cited, cite } from "./cite.js";
+export {
+	boundedByDetails,
+	type DetailRecords,
+	recordsIn,
+} from "./details.js";
 export { type JsonSummaryOptions, summarizeJson } from "./digest.js";
 export {
 	citeListing,
