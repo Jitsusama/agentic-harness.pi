@@ -10,6 +10,8 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
+	ACTION_VIEW_BUDGET_BYTES,
+	OUTLINE_BUDGET_BYTES,
 	renderAnnouncements,
 	type Skeleton,
 	type TreeScope,
@@ -56,10 +58,14 @@ import {
 	refusal,
 	sessionInPlay,
 } from "./result.js";
+import { pageAnswer } from "./stored.js";
 
-/** Lay an observation out for reading: where you are, then what is there. */
-function render(observed: Observation): string {
-	return `${observed.title}\n${observed.url}\n\n${observed.outline}`;
+/**
+ * Lay an observation out for reading: where you are, then what is
+ * there, bounded, with the whole tree stored when it did not fit.
+ */
+function render(observed: Observation, budget: number): string {
+	return pageAnswer(observed, budget);
 }
 
 /**
@@ -192,8 +198,11 @@ function renderInspection(found: Inspection): string {
  * The page as the caller should read it: where they are, then
  * the accessibility outline of what is there.
  */
-export async function pageView(session: BrowserSession): Promise<string> {
-	return render(await session.observe());
+export async function pageView(
+	session: BrowserSession,
+	budget: number = ACTION_VIEW_BUDGET_BYTES,
+): Promise<string> {
+	return render(await session.observe(), budget);
 }
 
 /**
@@ -431,6 +440,15 @@ const parameters = Type.Object({
 				"reported, however many are shown.",
 		}),
 	),
+	budget: Type.Optional(
+		Type.Number({
+			description:
+				"For page and reading: how many bytes of outline to return " +
+				`before storing the rest. Defaults to ${OUTLINE_BUDGET_BYTES}. ` +
+				"Whatever is cut stays queryable by handle, so narrowing with " +
+				"'only', 'depth' or 'within' is usually better than raising this.",
+		}),
+	),
 });
 
 /** Register the reading half of the browser family. */
@@ -639,9 +657,17 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				...(params.only === undefined ? {} : { only: params.only as Skeleton }),
 			};
 
+			// A caller who asked to see the page gets the generous budget;
+			// the tighter one is for the view that follows an action nobody
+			// asked a page read of.
+			const budget = params.budget ?? OUTLINE_BUDGET_BYTES;
 			const form = kind === "reading" ? "reading" : "outline";
 			if (params.within === undefined) {
-				return answer(name, kind, render(await session.observe(scope, form)));
+				return answer(
+					name,
+					kind,
+					render(await session.observe(scope, form), budget),
+				);
 			}
 
 			const target = parseTarget(params.within);
@@ -658,7 +684,7 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 			if (!result.ok) {
 				return refusal(name, kind, describeRefusal(target, result.refusal));
 			}
-			return answer(name, kind, render(result.observation));
+			return answer(name, kind, render(result.observation, budget));
 		},
 	});
 }

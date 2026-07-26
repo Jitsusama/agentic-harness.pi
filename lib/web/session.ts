@@ -351,6 +351,15 @@ export interface Observation {
 	readonly url: string;
 	readonly title: string;
 	readonly outline: string;
+	/**
+	 * The tree the outline was rendered from, already scoped.
+	 *
+	 * The rendered outline is for reading and the tree is for
+	 * querying, and a caller who stores one so the other can be
+	 * narrowed needs them to be the same capture. Deriving the tree
+	 * again afterwards would read a page that has moved on.
+	 */
+	readonly tree: AxNode;
 }
 
 /** An action that operates on a named element. */
@@ -1006,6 +1015,7 @@ export class BrowserSession {
 			url: this.page.url(),
 			title: await this.page.title(),
 			outline: form === "reading" ? renderReading(tree) : renderAxOutline(tree),
+			tree,
 		};
 	}
 

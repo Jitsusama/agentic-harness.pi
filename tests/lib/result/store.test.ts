@@ -32,6 +32,23 @@ describe("createResultStore", () => {
 		expect(reader.read(stored.handle)).toBe('{"outline":"deep"}');
 	});
 
+	it("gives one handle to one payload, however often it is stored", () => {
+		// Found by driving: a navigation and the page read after it both
+		// cited the same outline under different handles, so the session
+		// held two copies of a megabyte and neither citation was wrong.
+		const store = createResultStore({ dir });
+		const outline = JSON.stringify({ nodes: [{ role: "heading" }] });
+
+		const first = store.put(outline);
+		const again = store.put(outline);
+
+		expect(again.handle).toBe(first.handle);
+		expect(fs.readdirSync(dir).filter((n) => n.endsWith(".json"))).toHaveLength(
+			1,
+		);
+		expect(store.read(first.handle)).toBe(outline);
+	});
+
 	it("counts what is on disk, not what it remembers writing", () => {
 		// Two instances over one directory, each with the same quota:
 		// the quota is the directory's, so the second instance evicts

@@ -15,6 +15,12 @@ export {
 	CANDIDATE_REGISTRY,
 	renderAnnouncements,
 } from "./announcements.js";
+export {
+	ACTION_VIEW_BUDGET_BYTES,
+	type BudgetedOutline,
+	OUTLINE_BUDGET_BYTES,
+	withinOutlineBudget,
+} from "./budget.js";
 export { isWeakName, type NameSource, nameSource } from "./naming.js";
 export { renderAxOutline } from "./outline.js";
 export { renderReading } from "./reading.js";

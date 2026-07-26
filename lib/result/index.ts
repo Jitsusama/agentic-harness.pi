@@ -20,6 +20,7 @@ export {
 	cleanupSessionResults,
 	ensureSessionResultDir,
 	isPidAlive,
+	openSessionStore,
 	RESULT_ROOT,
 	reapAbandonedResults,
 	SESSION_QUOTA_BYTES,

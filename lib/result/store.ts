@@ -26,6 +26,10 @@
  * same reason handles resolve that way: several instances share
  * one directory, and a quota each of them enforced privately would
  * be a quota multiplied by however many there happened to be.
+ *
+ * Payloads are named after their content, so a page read repeated
+ * across several answers costs one file and yields one handle
+ * rather than a fresh megabyte each time.
  */
 
 import * as fs from "node:fs";
@@ -71,7 +75,7 @@ export interface ResultStore {
  * and this is what minting produces, so anything else is not a
  * handle and is refused before it reaches the filesystem.
  */
-const HANDLE_PATTERN = /^result-[0-9a-f]{16}(?:-\d+)?$/;
+const HANDLE_PATTERN = /^result-[0-9a-f]{16}$/;
 
 /** The extension every stored payload is written under. */
 const PAYLOAD_EXTENSION = ".json";
@@ -123,8 +127,12 @@ export function createResultStore(deps: {
 		put(text) {
 			const written = spillText(text, deps.dir);
 			const bytes = Buffer.byteLength(text, "utf-8");
-			evictWhileOver(path.basename(written));
-			return { handle: handleFor(written), path: written, bytes };
+			evictWhileOver(path.basename(written.path));
+			return {
+				handle: handleFor(written.path),
+				path: written.path,
+				bytes,
+			};
 		},
 		read(handle) {
 			const file = pathFor(handle);

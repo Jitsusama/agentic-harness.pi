@@ -18,6 +18,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { createResultStore, type ResultStore } from "./store.js";
 
 /** Where every session's stored payloads are rooted. */
 export const RESULT_ROOT = path.join(os.tmpdir(), "pi-tool-results");
@@ -45,6 +46,27 @@ export function ensureSessionResultDir(): string {
 	const dir = sessionResultDir();
 	fs.mkdirSync(dir, { recursive: true, mode: DIR_MODE });
 	return dir;
+}
+
+/**
+ * A store over this session's directory.
+ *
+ * Every family opens its own, because the store is its directory:
+ * two instances over one directory see the same payloads and
+ * enforce one quota between them. That is what lets the browser
+ * tools cite a handle the query tool can read without either
+ * extension importing the other, or a mutable instance being
+ * passed around a package that has no place to keep one.
+ *
+ * Not memoized here on purpose. Session lifetime belongs to the
+ * extension, and an instance holds nothing worth reusing beyond
+ * the directory it names.
+ */
+export function openSessionStore(): ResultStore {
+	return createResultStore({
+		dir: ensureSessionResultDir(),
+		maxBytes: SESSION_QUOTA_BYTES,
+	});
 }
 
 /** Whether a process is still running. */
