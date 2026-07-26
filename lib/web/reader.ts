@@ -13,13 +13,18 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { Defuddle } from "defuddle/node";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { Page } from "puppeteer-core";
 import { isPidAlive, newPage } from "./browser.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
+import {
+	BUNDLE_ROOT,
+	type BundleSink,
+	diskSink,
+	sessionDir,
+} from "./envelope/sink.js";
 import { captureTiles, preparePage, type TiledCapture } from "./screenshot.js";
 
 /**
@@ -89,16 +94,12 @@ export interface Captured {
 
 /**
  * The disk side of bundle assembly, injected so assembly can be tested
- * without touching the filesystem. The real sink creates a private
- * directory and writes each artifact with owner-only permissions.
+ * without touching the filesystem. Defined in the envelope, since
+ * everything that outgrows a response needs somewhere to go, and
+ * re-exported here for the readers that have always imported it from
+ * this module.
  */
-export interface BundleSink {
-	dir: string;
-	/** Write a text artifact and return its path. */
-	writeText(name: string, content: string): string;
-	/** Write a binary artifact from base64 and return its path. */
-	writeBinary(name: string, base64: string): string;
-}
+export type { BundleSink } from "./envelope/sink.js";
 
 /** Collaborators of `capturePage`, injected so the orchestration is testable. */
 export interface CaptureDeps {
@@ -130,20 +131,11 @@ const MAX_TITLE_LENGTH = 300;
  */
 const MAX_ARTIFACT_CHARS = 5_000_000;
 
-/** Root under the system temp dir for this platform's page bundles. */
-const BUNDLE_ROOT = path.join(os.tmpdir(), "pi-web-read");
-
 /** Where earlier versions wrote bundles, swept by age so they don't linger. */
 const LEGACY_BUNDLE_ROOT = "/tmp/pi-web-read";
 
 /** Age past which a legacy bundle directory is reaped. */
 const LEGACY_MAX_AGE_MS = 6 * 60 * 60 * 1_000;
-
-/** Owner-only directory permissions for a bundle. */
-const DIR_MODE = 0o700;
-
-/** Owner-only file permissions for a bundle artifact. */
-const FILE_MODE = 0o600;
 
 /** URL fragments that mark a redirect to an auth provider. */
 const AUTH_URL_MARKERS = [
@@ -298,37 +290,7 @@ async function extractArticle(
 	}
 }
 
-/** This session's private bundle directory, keyed by process id. */
-function sessionDir(): string {
-	return path.join(BUNDLE_ROOT, String(process.pid));
-}
-
-/** A filesystem sink that creates a private bundle dir and writes 0600 files. */
-export function diskSink(root: string = sessionDir()): BundleSink {
-	fs.mkdirSync(root, { recursive: true, mode: DIR_MODE });
-	// The "r-" prefix keeps the temp dir inside root, where the reaper
-	// looks, rather than creating a sibling of it.
-	const dir = fs.mkdtempSync(path.join(root, "r-"));
-	fs.chmodSync(dir, DIR_MODE);
-	return {
-		dir,
-		writeText(name, content) {
-			const filePath = path.join(dir, name);
-			fs.writeFileSync(filePath, content, {
-				encoding: "utf-8",
-				mode: FILE_MODE,
-			});
-			return filePath;
-		},
-		writeBinary(name, base64) {
-			const filePath = path.join(dir, name);
-			fs.writeFileSync(filePath, Buffer.from(base64, "base64"), {
-				mode: FILE_MODE,
-			});
-			return filePath;
-		},
-	};
-}
+export { diskSink } from "./envelope/sink.js";
 
 /** True when a directory's mtime is older than the given age. */
 function olderThan(dir: string, now: number, maxAgeMs: number): boolean {

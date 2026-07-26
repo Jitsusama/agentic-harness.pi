@@ -725,3 +725,51 @@ describe("createSupervisorRunPi", () => {
 		expect(fake.kills).toContain("SIGTERM");
 	});
 });
+
+describe("a reviewer that leaves something running behind it", () => {
+	it("finishes instead of waiting for pipes nobody will close", async () => {
+		// "close" fires when the child has exited AND its stdio has
+		// closed, and those are different events. A reviewer that
+		// starts a background process which inherits its pipes keeps
+		// them open after it exits, so "close" never arrives and the
+		// supervisor waited for ever. The wall-clock watchdog does
+		// not help: it kills a child that is already dead.
+		//
+		// This is ordinary behaviour for a reviewer, and it hung the
+		// whole run. Before the fix this test did not fail, it hung,
+		// which is how it reached CI as a flake in another file.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			[
+				'import { spawn } from "node:child_process";',
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"answered"}]}})+"\\n");`,
+				// Inherits the pipes and outlives its parent. Short
+				// enough to reap itself if anything goes wrong here.
+				'spawn(process.execPath, ["-e", "setTimeout(()=>{}, 15000)"],',
+				'  { stdio: "inherit" }).unref();',
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 30_000,
+			timeoutMs: 30_000,
+		});
+
+		const started = Date.now();
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "lingering",
+		});
+
+		// The answer still arrives; only the waiting is bounded.
+		expect(result.finalAssistantText).toBe("answered");
+		// Well inside the 30s the supervisor was told it could take,
+		// so this proves the grace path rather than a timeout.
+		expect(Date.now() - started).toBeLessThan(15_000);
+	});
+});

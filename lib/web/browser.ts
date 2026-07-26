@@ -18,7 +18,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { clearTimeout, setTimeout } from "node:timers";
-import puppeteer, { type Browser, type Page } from "puppeteer-core";
+import puppeteer, {
+	type Browser,
+	type BrowserContext,
+	type Page,
+} from "puppeteer-core";
 import { processGlobal } from "../internal/process-global.js";
 
 /** How many times to try launching Chrome before giving up. */
@@ -541,11 +545,78 @@ async function launchOnce(executablePath: string): Promise<Browser> {
 			"--v=0",
 		],
 		dumpio: false,
+		// Talk to Chrome over stdio rather than a DevTools websocket.
+		// A socket is a TCP handle that holds the event loop and
+		// cannot be unref'd through puppeteer's public surface, which
+		// is what kept a finished script running until the idle close
+		// fired. Pipes can be, and this also stops the browser
+		// listening on a port it has no reason to.
+		pipe: true,
 	});
 	// Record ownership so a later run can tell our live Chrome from an
 	// orphan and know exactly which pid to reap.
 	writeOwnerRecord(profileDir, browser.process()?.pid);
+	releaseEventLoop(browser.process());
 	return browser;
+}
+
+/**
+ * Stop the warm browser from being the only reason this process
+ * stays alive.
+ *
+ * The browser is kept between sessions so the next call does not
+ * pay a second and a half to launch Chrome again. But its child
+ * process, its stdio pipes and its DevTools socket all hold the
+ * event loop, so a script that opened a session, did its work
+ * and closed it sat there until the five-minute idle close fired
+ * and only then exited. Measured: two and a half seconds of
+ * work, three hundred and one seconds of wall clock, three and a
+ * half seconds of CPU. Anything wiring this into CI would have
+ * read that as a hang.
+ *
+ * unref does not close anything. The browser stays usable and
+ * the idle close still runs; it just stops counting as a reason
+ * to keep running. A pi session has its own handles and is
+ * unaffected, and a script exits when its own work is done.
+ */
+export function releaseEventLoop(child: LoopHandle | null): void {
+	if (!child) return;
+	child.unref();
+	for (const pipe of child.stdio) nudge(pipe, "unref");
+}
+
+/**
+ * The part of a child process this cares about.
+ *
+ * stdio is left loose because a pipe's declared stream type does
+ * not carry ref and unref even though a socket-backed one has
+ * them, so each entry is asked rather than assumed.
+ */
+export interface LoopHandle {
+	ref(): void;
+	unref(): void;
+	readonly stdio: readonly unknown[];
+}
+
+/** Ask a stdio entry to ref or unref itself, if it can. */
+function nudge(pipe: unknown, how: "ref" | "unref"): void {
+	if (typeof pipe !== "object" || pipe === null) return;
+	const method = (pipe as Record<string, unknown>)[how];
+	if (typeof method === "function") method.call(pipe);
+}
+
+/**
+ * Keep the process alive for as long as a teardown needs.
+ *
+ * The inverse of releaseEventLoop. Closing a browser is several
+ * round trips, and once nothing is ref'd Node is free to exit
+ * in the middle of them, which leaves the caller's promise
+ * hanging and Chrome to be reaped as an orphan next run.
+ */
+export function holdEventLoop(child: LoopHandle | null): void {
+	if (!child) return;
+	child.ref();
+	for (const pipe of child.stdio) nudge(pipe, "ref");
 }
 
 /**
@@ -651,27 +722,71 @@ async function closeIfUnused(): Promise<void> {
 	await closeBrowser();
 }
 
+/** The user agent every tab we open presents. */
+const USER_AGENT =
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+	"AppleWebKit/537.36 (KHTML, like Gecko) " +
+	"Chrome/131.0.0.0 Safari/537.36";
+
 /** Open a new browser tab with a standard user agent string. */
 export async function newPage(): Promise<Page> {
+	return withLease(async (b) => {
+		const page = await b.newPage();
+		return dressPage(page);
+	});
+}
+
+/**
+ * Open a tab in a browser context of its own: separate
+ * cookies, storage and cache from every other context in the
+ * shared Chrome. Two sessions opened this way are two
+ * genuinely independent users. Closing the context closes the
+ * tabs inside it and leaves its siblings alone.
+ */
+export async function newContextPage(): Promise<{
+	page: Page;
+	context: BrowserContext;
+}> {
+	return withLease(async (b) => {
+		const context = await b.createBrowserContext();
+		try {
+			const page = await dressPage(await context.newPage());
+			return { page, context };
+		} catch (err) {
+			// Do not leave an empty context behind on a failed open.
+			await context.close().catch(() => {});
+			throw err;
+		}
+	});
+}
+
+/** Give a fresh tab the user agent we present everywhere. */
+async function dressPage(page: Page): Promise<Page> {
+	try {
+		await page.setUserAgent(USER_AGENT);
+	} catch (err) {
+		await page.close();
+		throw err;
+	}
+	return page;
+}
+
+/**
+ * Run an acquisition against the shared browser while holding
+ * a lease, so an idle close firing concurrently sees the
+ * in-flight work and defers instead of pulling Chrome out from
+ * under it.
+ */
+async function withLease<T>(
+	acquire: (browser: Browser) => Promise<T>,
+): Promise<T> {
 	const state = sharedState();
-	// Reserve a lease synchronously, before any await, so an idle close
-	// firing concurrently sees the in-flight acquisition and defers.
+	// Reserve the lease synchronously, before any await.
 	state.pending = (state.pending ?? 0) + 1;
 	try {
 		const b = await getBrowser();
 		idleCloser().touch();
-		const page = await b.newPage();
-		try {
-			await page.setUserAgent(
-				"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-					"AppleWebKit/537.36 (KHTML, like Gecko) " +
-					"Chrome/131.0.0.0 Safari/537.36",
-			);
-		} catch (err) {
-			await page.close();
-			throw err;
-		}
-		return page;
+		return await acquire(b);
 	} finally {
 		state.pending = (state.pending ?? 1) - 1;
 	}
@@ -706,6 +821,13 @@ async function runClose(state: SharedBrowserState): Promise<void> {
 
 	state.idle?.cancel();
 	const proc = b.process();
+	// Take the handles back before tearing down. They are unref'd
+	// while the browser sits warm, so that a finished script is not
+	// held open by a browser nobody is using; but a close in
+	// progress is work worth staying alive for, and without this
+	// Node exited mid-teardown and the caller's await never
+	// settled. Symmetry with releaseEventLoop at launch.
+	holdEventLoop(proc);
 	const pid = proc?.pid;
 	const dir = ownProfileDir();
 	let closedGracefully = false;

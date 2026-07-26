@@ -18,8 +18,14 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     renderers, resolvers and types (public)
   - `lib/google/`: Google Workspace API clients,
     authentication, renderers and types (public)
-  - `lib/web/`: web search and page reading via headless
-    Chrome (public)
+  - `lib/web/`: driving a browser and reading back everything
+    it knows, plus web search and one-shot page reading
+    (public). Split into subdomain barrels: `a11y`, `audit`,
+    `compare`, `design`, `element`, `envelope`, `environment`,
+    `evaluate`, `input`, `perf`, `snapshot`, `sourcemap`,
+    `styles`, `target`, `telemetry`, `wait`. Every one but
+    `session` is pure and capture-agnostic, enforced by
+    `tests/lib/web/purity.test.ts`
   - `lib/guardian/`: guardian contract, registration and
     redirect formatting (public)
   - `lib/shell/`: shell command parsing: flag extraction,
@@ -71,7 +77,8 @@ it does:
 
 - **Integrations** (`*-integration`): bridge to external
   services via registered tools.
-  `google-workspace-integration`, `web-search-integration`
+  `google-workspace-integration`, `web-search-integration`,
+  `browser-integration`
 
 - **Widgets** (`*-widget`): add UI elements to the interface.
   `content-viewer-widget`, `status-line-widget`,
@@ -235,8 +242,9 @@ specific files depending on what they need.
 ### Integration Architecture
 
 Integration extensions (`*-integration`) bridge to external
-services. Their domain logic — API clients, authentication,
-renderers, types — lives in `lib/` as a public library.
+services. Their domain logic, meaning API clients,
+authentication, renderers and types, lives in `lib/` as a
+public library.
 The extension keeps only Pi-specific wiring: tool
 registration, `renderCall`/`renderResult`, slash commands,
 confirmation gates and session lifecycle.
@@ -252,6 +260,19 @@ return it. The extension wraps this in a cache (`Map` or
 local variable) so repeated tool calls within a session
 reuse the same client. The library stays pure; the
 extension owns session lifetime.
+
+**Analysis must not require the service.** Where an
+integration's library also analyses what the service returned,
+that analysis takes serializable data and returns answers, with
+no path back to the client that fetched it. `lib/web` holds the
+strongest form of this: every subdomain but `session` can judge
+a stored capture, or one taken by a different tool entirely,
+and none of them can start a browser. It is worth stating
+because it breaks silently. A disk sink that imported the page
+reader once dragged `jsdom` into anything writing a PNG, and
+neither the types nor the tests noticed. `tests/lib/web/
+purity.test.ts` walks the import graph and fails when an
+analysis barrel reaches something heavy.
 
 ### `index.ts` Is for Registration and Wiring
 
