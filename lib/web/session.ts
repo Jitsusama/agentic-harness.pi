@@ -166,6 +166,7 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(_keyDefinitions));
 
 import {
 	describeThrow,
+	type EvalFrame,
 	type EvalOutcome,
 	type EvalValue,
 	evaluationSource,
@@ -176,6 +177,12 @@ import {
 	type IndexedNode,
 	type RawSnapshot,
 } from "./snapshot/index.js";
+import {
+	authoredPosition,
+	parseSourceMap,
+	resolveMapUrl,
+	type SourceMap,
+} from "./sourcemap/index.js";
 import {
 	asCall,
 	COMPUTED_STYLE_PROBE,
@@ -450,6 +457,15 @@ export class BrowserSession {
 	/** Everything this session has put on disk, in order. */
 	private readonly written: string[] = [];
 
+	/** Which map each script and stylesheet named, unresolved. */
+	private readonly mapUrls = new Map<string, string>();
+
+	/** Maps already fetched. A null records one that will not come. */
+	private readonly maps = new Map<string, SourceMap | null>();
+
+	/** Which URL each stylesheet id belongs to. */
+	private readonly sheetUrls = new Map<string, string>();
+
 	/** Files the page has handed back. */
 	private readonly downloadLog = createDownloadRecorder();
 
@@ -494,6 +510,7 @@ export class BrowserSession {
 			await session.listenForDialogs();
 			await session.listenForLifecycle();
 			await session.listenForDownloads();
+			await session.listenForSourceMaps();
 			return session;
 		} catch (err) {
 			// Do not leak the context if the CDP channel could not be
@@ -782,6 +799,107 @@ export class BrowserSession {
 	 * out lazily would simply stop responding. Recovery therefore
 	 * happens the moment the crash is announced.
 	 */
+	/**
+	 * Note which map belongs to which script and stylesheet.
+	 *
+	 * Chrome reports the map's URL and stops there. It does no
+	 * resolving of its own, because in a browser that is the
+	 * devtools front end's job, so a session that wants authored
+	 * positions has to keep the note itself.
+	 *
+	 * The map is not fetched here. Most sessions never throw, and
+	 * fetching every map a page mentions would cost a request per
+	 * bundle to answer a question nobody asked.
+	 */
+	private async listenForSourceMaps(): Promise<void> {
+		this.cdp.on("Debugger.scriptParsed", (event) => {
+			if (!event.sourceMapURL || !event.url) return;
+			this.mapUrls.set(event.url, event.sourceMapURL);
+		});
+		this.cdp.on("CSS.styleSheetAdded", (event) => {
+			const { sourceURL, sourceMapURL, styleSheetId } = event.header;
+			if (!sourceMapURL || !sourceURL) return;
+			this.mapUrls.set(sourceURL, sourceMapURL);
+			// The cascade names a stylesheet by id, not by URL, so the
+			// two have to be joined here while both are in hand.
+			this.sheetUrls.set(styleSheetId, sourceURL);
+		});
+		await this.cdp.send("Debugger.enable");
+	}
+
+	/**
+	 * Fetch and decode the map for a file, once.
+	 *
+	 * The fetch goes through the page rather than through node,
+	 * because the page is already on the right origin with the
+	 * right cookies. A map behind a login is unreachable any
+	 * other way.
+	 *
+	 * A failure is cached as firmly as a success. A map that 404s
+	 * will still 404 on the next frame of the same stack, and
+	 * asking again once per frame is how one bad path turns into
+	 * a dozen requests.
+	 */
+	private async mapFor(fileUrl: string): Promise<SourceMap | undefined> {
+		const cached = this.maps.get(fileUrl);
+		if (cached !== undefined) return cached ?? undefined;
+
+		const declared = this.mapUrls.get(fileUrl);
+		if (!declared) return undefined;
+		const located = resolveMapUrl(fileUrl, declared);
+		if (!located) {
+			this.maps.set(fileUrl, null);
+			return undefined;
+		}
+
+		let json: string | undefined;
+		if (located.kind === "inline") {
+			json = located.json;
+		} else {
+			try {
+				const response = await this.cdp.send("Runtime.evaluate", {
+					expression: `fetch(${JSON.stringify(located.url)})
+						.then((r) => (r.ok ? r.text() : null))
+						.catch(() => null)`,
+					awaitPromise: true,
+					returnByValue: true,
+				});
+				const body = response.result.value;
+				if (typeof body === "string") json = body;
+			} catch {
+				// A page that navigated away mid-fetch is not a reason
+				// to lose the stack we were annotating.
+			}
+		}
+
+		const parsed = json === undefined ? undefined : parseSourceMap(json);
+		this.maps.set(fileUrl, parsed ?? null);
+		return parsed;
+	}
+
+	/**
+	 * Tell each frame of a stack where it was written.
+	 *
+	 * A frame with no map keeps its generated position rather than
+	 * being dropped: half a stack is worse than a raw one.
+	 */
+	async resolveFrames(
+		frames: readonly EvalFrame[],
+	): Promise<readonly EvalFrame[]> {
+		return Promise.all(
+			frames.map(async (frame) => {
+				if (!frame.url) return frame;
+				const map = await this.mapFor(frame.url);
+				if (!map) return frame;
+				const authored = authoredPosition(map, {
+					line: frame.lineNumber,
+					column: frame.columnNumber,
+				});
+				return authored === undefined ? frame : { ...frame, authored };
+			}),
+		);
+	}
+
 	private async listenForLifecycle(): Promise<void> {
 		const { frameTree } = await this.cdp.send("Page.getFrameTree");
 		const log = createLifecycleRecorder(frameTree.frame.id);
@@ -1487,9 +1605,13 @@ export class BrowserSession {
 				userGesture: true,
 			});
 			if (response.exceptionDetails) {
+				const threw = describeThrow(response.exceptionDetails);
 				return {
 					ok: false,
-					threw: describeThrow(response.exceptionDetails),
+					threw: {
+						...threw,
+						frames: await this.resolveFrames(threw.frames),
+					},
 				};
 			}
 			const value = response.result.value as EvalValue | undefined;
@@ -2468,12 +2590,57 @@ export class BrowserSession {
 			const raw = (await this.cdp.send("CSS.getMatchedStylesForNode", {
 				nodeId,
 			})) as RawMatchedStyles;
-			return traceProperty(normalizeCascade(raw), property, styles?.[property]);
+			const trace = traceProperty(
+				normalizeCascade(raw),
+				property,
+				styles?.[property],
+			);
+			return trace === undefined ? undefined : await this.authorTrace(trace);
 		} catch {
 			// The cascade domain needs the CSS agent; without it the
 			// rest of the inspection is still worth returning.
 			return undefined;
 		}
+	}
+
+	/**
+	 * Tell each declaration in a trace where it was written.
+	 *
+	 * A build step that rewrote the CSS makes the reported line
+	 * useless in the same way a minified stack frame is: it names
+	 * a file nobody edits. The winner is usually the declaration
+	 * somebody wants to go and change, so it is the one that most
+	 * needs an address that exists.
+	 */
+	private async authorTrace(trace: PropertyTrace): Promise<PropertyTrace> {
+		const declarations = await Promise.all(
+			trace.declarations.map(async (declaration) => {
+				const { source } = declaration;
+				if (source?.styleSheet === undefined || source.line === undefined) {
+					return declaration;
+				}
+				const url = this.sheetUrls.get(source.styleSheet);
+				if (url === undefined) return declaration;
+				const map = await this.mapFor(url);
+				if (!map) return declaration;
+				const authored = authoredPosition(map, {
+					line: source.line,
+					column: source.column ?? 0,
+				});
+				if (authored === undefined) return declaration;
+				return { ...declaration, source: { ...source, authored } };
+			}),
+		);
+		// The winner is compared by identity, so it has to be
+		// re-found among the rebuilt declarations rather than kept.
+		const winnerAt = trace.winner
+			? trace.declarations.indexOf(trace.winner)
+			: -1;
+		return {
+			...trace,
+			declarations,
+			...(winnerAt < 0 ? {} : { winner: declarations[winnerAt] }),
+		};
 	}
 
 	/** The area a person can currently see. */

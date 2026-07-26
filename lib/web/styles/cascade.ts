@@ -62,6 +62,8 @@ export type DeclarationOrigin =
 	| "inline"
 	| "inherited";
 
+import type { AuthoredPosition } from "../sourcemap/index.js";
+
 /** One declaration that had a say in a property's value. */
 export interface Declaration {
 	readonly property: string;
@@ -74,6 +76,8 @@ export interface Declaration {
 		readonly styleSheet?: string;
 		readonly line?: number;
 		readonly column?: number;
+		/** Where the rule was written, when a source map said. */
+		readonly authored?: AuthoredPosition;
 	};
 	/** The shorthand that set this, when a shorthand did. */
 	readonly via?: string;

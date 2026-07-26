@@ -6,12 +6,16 @@
  * point of being able to run code against a live page.
  */
 
+import type { AuthoredPosition } from "../sourcemap/index.js";
+
 /** One frame of a page-side stack. */
 export interface EvalFrame {
 	readonly functionName: string;
 	readonly url: string;
 	readonly lineNumber: number;
 	readonly columnNumber: number;
+	/** Where the frame was authored, when a source map said. */
+	readonly authored?: AuthoredPosition;
 }
 
 /** The page threw. */
@@ -87,6 +91,22 @@ export function describeThrow(details: RawExceptionDetails): EvalThrew {
 /** How much of a rendered value to inline before diverting it. */
 export const MAX_INLINE_RESULT = 4096;
 
+/**
+ * Say where a frame is, preferring where it was written.
+ *
+ * The generated position is kept beside the authored one rather
+ * than replaced by it. They disagree often enough, through a
+ * stale map or a bundler quirk, that hiding what the browser
+ * actually reported would remove the only way to notice.
+ */
+function describeFrame(frame: EvalFrame): string {
+	const generated = `${frame.url}:${frame.lineNumber + 1}:${frame.columnNumber}`;
+	if (!frame.authored) return generated;
+	const { source, line, column, name } = frame.authored;
+	const called = name === undefined ? "" : ` (${name})`;
+	return `${source}:${line + 1}:${column}${called}\n    built from ${generated}`;
+}
+
 /** Say what happened. */
 export function renderEvaluation(outcome: EvalOutcome): string {
 	if (!outcome.ok && "refused" in outcome) return outcome.refused;
@@ -106,10 +126,7 @@ export function renderEvaluation(outcome: EvalOutcome): string {
 		if (useful.length > 0) {
 			lines.push("");
 			for (const frame of useful) {
-				lines.push(
-					`  ${frame.functionName} ${frame.url}:` +
-						`${frame.lineNumber + 1}:${frame.columnNumber}`,
-				);
+				lines.push(`  ${frame.functionName} ${describeFrame(frame)}`);
 			}
 		}
 		return lines.join("\n");

@@ -90,7 +90,16 @@ function renderDeclaration(declaration: Declaration, won: boolean): string {
 	if (declaration.origin === "user-agent") parts.push("(browser default)");
 	if (declaration.origin === "inherited") parts.push("(inherited)");
 	if (declaration.via) parts.push(`via ${declaration.via}`);
-	if (declaration.source?.line !== undefined) {
+	const authored = declaration.source?.authored;
+	if (authored) {
+		// The authored position is the one worth reading, but the
+		// generated line stays beside it: a stale map is a real
+		// thing, and hiding the disagreement hides the bug.
+		parts.push(`${authored.source}:${authored.line + 1}`);
+		if (declaration.source?.line !== undefined) {
+			parts.push(`(built line ${declaration.source.line + 1})`);
+		}
+	} else if (declaration.source?.line !== undefined) {
 		parts.push(`line ${declaration.source.line + 1}`);
 	}
 	return parts.join("  ");
