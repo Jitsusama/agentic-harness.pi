@@ -12,6 +12,7 @@ export {
 	type TargetRefusal,
 } from "./refusals.js";
 export {
+	foldEquals,
 	parseTarget,
 	resolveTarget,
 	type Target,

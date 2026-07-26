@@ -28,6 +28,14 @@ export {
 	renderArg,
 } from "./console.js";
 export {
+	answerFor,
+	DEFAULT_DIALOG_POLICY,
+	type DialogEvent,
+	type DialogKind,
+	type DialogPolicy,
+	renderDialogs,
+} from "./dialogs.js";
+export {
 	type Har,
 	type HarEntry,
 	type HarOptions,

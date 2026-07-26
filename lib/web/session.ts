@@ -86,12 +86,17 @@ import {
 	type TargetRefusal,
 } from "./target/index.js";
 import {
+	answerFor,
 	type BrowserLogged,
 	browserEntry,
 	type ConsoleCalled,
 	consoleEntry,
 	createNetworkRecorder,
 	createRingBuffer,
+	DEFAULT_DIALOG_POLICY,
+	type DialogEvent,
+	type DialogKind,
+	type DialogPolicy,
 	exceptionEntry,
 	type LogEntry,
 	type NetworkRequest,
@@ -277,6 +282,12 @@ export class BrowserSession {
 	/** Every request the page has made since it opened. */
 	private readonly requestLog = createNetworkRecorder();
 
+	/** Every dialog the page has raised, and how it was answered. */
+	private readonly dialogLog: DialogEvent[] = [];
+
+	/** How dialogs get answered while nobody is watching. */
+	private dialogPolicy: DialogPolicy = DEFAULT_DIALOG_POLICY;
+
 	/** How many pictures have been taken, so none overwrites another. */
 	private shots = 0;
 
@@ -319,6 +330,7 @@ export class BrowserSession {
 			await session.listenForAnnouncements();
 			await session.listenForLogs();
 			await session.listenForRequests();
+			await session.listenForDialogs();
 			return session;
 		} catch (err) {
 			// Do not leak the context if the CDP channel could not be
@@ -376,6 +388,51 @@ export class BrowserSession {
 			this.requestLog.apply({ kind: "failed", event });
 		});
 		await this.cdp.send("Network.enable");
+	}
+
+	/**
+	 * Answer dialogs, because an unanswered one stops the page.
+	 *
+	 * Until something replies, no script runs and no action lands,
+	 * so there is no such thing as declining to have a policy.
+	 * Every answer given is recorded, since a dismissed confirm
+	 * changes what the page did next and the reader has to be able
+	 * to see that it happened.
+	 */
+	private async listenForDialogs(): Promise<void> {
+		this.cdp.on("Page.javascriptDialogOpening", (event) => {
+			const kind = event.type as DialogKind;
+			const reply = answerFor(kind, this.dialogPolicy);
+			this.dialogLog.push({
+				kind,
+				message: event.message,
+				accepted: reply.accept,
+				...(event.defaultPrompt === undefined || event.defaultPrompt === ""
+					? {}
+					: { defaultPrompt: event.defaultPrompt }),
+				...(reply.promptText === undefined ? {} : { reply: reply.promptText }),
+				...(event.url === undefined ? {} : { url: event.url }),
+			});
+			this.cdp
+				.send("Page.handleJavaScriptDialog", reply)
+				// A dialog the page closed itself is already gone, and
+				// failing to answer it is not news.
+				.catch(() => {});
+		});
+		await this.cdp.send("Page.enable");
+	}
+
+	/** Decide how dialogs will be answered from here on. */
+	setDialogPolicy(policy: DialogPolicy): void {
+		this.dialogPolicy = policy;
+	}
+
+	/** How dialogs are currently answered. */
+	get dialogs(): {
+		readonly policy: DialogPolicy;
+		readonly seen: readonly DialogEvent[];
+	} {
+		return { policy: this.dialogPolicy, seen: this.dialogLog };
 	}
 
 	/** Every request the page has made. */

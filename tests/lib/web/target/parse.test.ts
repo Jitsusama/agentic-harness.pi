@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTarget } from "../../../../lib/web/target/index.js";
+import { foldEquals, parseTarget } from "../../../../lib/web/target/index.js";
 
 describe("parseTarget", () => {
 	it("reads a role and a name", () => {
@@ -41,5 +41,21 @@ describe("parseTarget", () => {
 	it("reports nothing for a spec with no role in it", () => {
 		expect(parseTarget("")).toBeUndefined();
 		expect(parseTarget("   ")).toBeUndefined();
+	});
+});
+
+describe("foldEquals", () => {
+	it("ignores case and surrounding space", () => {
+		expect(foldEquals("  Add To Cart ", "add to cart")).toBe(true);
+		expect(foldEquals("button", "link")).toBe(false);
+	});
+
+	it("treats a missing name as an empty one, rather than throwing", () => {
+		// parseTarget yields "" for a bare role and a node with
+		// nothing to call it normalizes the same way, so the two have
+		// to compare equal instead of crashing a caller.
+		expect(foldEquals(undefined, "")).toBe(true);
+		expect(foldEquals(undefined, undefined)).toBe(true);
+		expect(foldEquals("button", undefined)).toBe(false);
 	});
 });

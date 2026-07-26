@@ -32,8 +32,16 @@ export type TargetResolution =
  * match. Shared with the refusal ladder so both agree on what
  * counts as the same name.
  */
-export function foldEquals(a: string, b: string): boolean {
-	return a.trim().toLowerCase() === b.trim().toLowerCase();
+export function foldEquals(
+	a: string | undefined,
+	b: string | undefined,
+): boolean {
+	// A missing name and an empty one are the same thing here:
+	// parseTarget already yields "" for a bare role, and a node
+	// with nothing to call it normalizes the same way. Accepting
+	// undefined keeps a caller outside TypeScript from getting a
+	// TypeError three frames down instead of an answer.
+	return (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
 }
 
 /** Every node under (and including) root, depth-first. */
