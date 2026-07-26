@@ -36,6 +36,9 @@ const parameters = Type.Object({
 				Type.Literal("open"),
 				Type.Literal("navigate"),
 				Type.Literal("close"),
+				Type.Literal("reload"),
+				Type.Literal("back"),
+				Type.Literal("forward"),
 				Type.Literal("dialogs"),
 				Type.Literal("emulate"),
 				Type.Literal("storage"),
@@ -46,6 +49,8 @@ const parameters = Type.Object({
 					"open: start a session (optionally at a url). " +
 					"navigate: go to a url, opening a session when none is live. " +
 					"close: dispose the session. " +
+					"reload: fetch the current page again. " +
+					"back and forward: step through the session's history. " +
 					"dialogs: decide how alerts and confirms get answered, and " +
 					"read back the ones already seen. " +
 					"emulate: be a different visitor, by device, viewport, media " +
@@ -477,6 +482,18 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 					return refusal(name, kind, err.message);
 				}
 				throw err;
+			}
+
+			if (kind === "reload") {
+				await session.reload();
+				return answer(name, kind, `Reloaded ${session.url}.`);
+			}
+
+			if (kind === "back" || kind === "forward") {
+				const moved = await session.step(kind);
+				return moved.ok
+					? answer(name, kind, `Went ${kind} to ${moved.url}.`)
+					: refusal(name, kind, moved.refusal);
 			}
 
 			if (kind === "network") {

@@ -740,6 +740,66 @@ export class BrowserSession {
 		await this.page.goto(url, { waitUntil: "networkidle2" });
 	}
 
+	/** Where the session currently is. */
+	get url(): string {
+		return this.page.url();
+	}
+
+	/**
+	 * Fetch the page again.
+	 *
+	 * ignoreCache is the useful default for a developer, who
+	 * reloads to see a change they just made. A reload that served
+	 * the old file back would be the one thing it must not do.
+	 */
+	async reload(): Promise<void> {
+		await this.ready();
+		await this.page.reload({ waitUntil: "networkidle2" });
+	}
+
+	/**
+	 * Step through the history the session accumulated.
+	 *
+	 * Refuses rather than doing nothing at either end. Silently
+	 * staying put looks identical to a page that ignored the
+	 * request, and the caller then has no way to tell whether
+	 * going back was possible at all.
+	 *
+	 * The refusal is driven by the thrown error, not by a null
+	 * return. Puppeteer returns null whenever a navigation has no
+	 * HTTP response, which includes about:blank and same-document
+	 * moves, so reading null as failure reported a successful step
+	 * back to about:blank as an impossible one. An absent entry is
+	 * what throws.
+	 */
+	async step(direction: "back" | "forward"): Promise<
+		| { readonly ok: true; readonly url: string }
+		| {
+				readonly ok: false;
+				readonly refusal: string;
+		  }
+	> {
+		await this.ready();
+		try {
+			if (direction === "back") {
+				await this.page.goBack({ waitUntil: "networkidle2" });
+			} else {
+				await this.page.goForward({ waitUntil: "networkidle2" });
+			}
+		} catch {
+			return {
+				ok: false,
+				refusal:
+					direction === "back"
+						? "There is nothing behind this page in the session's " +
+							"history. It is where the session started."
+						: "There is nothing ahead of this page. Going forward " +
+							"only works after going back.",
+			};
+		}
+		return { ok: true, url: this.page.url() };
+	}
+
 	/**
 	 * Render the page's accessibility outline, plus url and
 	 * title. A scope narrows the tree before it is rendered; with
