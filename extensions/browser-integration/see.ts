@@ -34,6 +34,7 @@ import type {
 import { describeRefusal, parseTarget } from "../../lib/web/target/index.js";
 import {
 	type NetworkRequest,
+	renderDownloads,
 	renderLogs,
 	renderRequests,
 } from "../../lib/web/telemetry/index.js";
@@ -189,6 +190,7 @@ const parameters = Type.Object({
 				Type.Literal("logs"),
 				Type.Literal("requests"),
 				Type.Literal("status"),
+				Type.Literal("downloads"),
 				Type.Literal("element"),
 				Type.Literal("shot"),
 			],
@@ -198,7 +200,8 @@ const parameters = Type.Object({
 					"the default. reading: the same page narrated the way a " +
 					"screen reader would say it. logs: what the page said, " +
 					"threw, or had refused for it. requests: what the page " +
-					"asked the network for. status: where this session stands, " +
+					"asked the network for. downloads: files the page handed " +
+					"back. status: where this session stands, " +
 					"including what it is pretending to be. announcements: " +
 					"what the page " +
 					"said out loud through its live regions. element: " +
@@ -367,6 +370,10 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				);
 			}
 			const session = await registry.acquire(name);
+
+			if (kind === "downloads") {
+				return answer(name, kind, renderDownloads(session.downloads()));
+			}
 
 			if (kind === "status") {
 				return answer(name, kind, renderStatus(await session.status()));

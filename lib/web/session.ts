@@ -107,6 +107,7 @@ import {
 	browserEntry,
 	type ConsoleCalled,
 	consoleEntry,
+	createDownloadRecorder,
 	createLifecycleRecorder,
 	createNetworkRecorder,
 	createRingBuffer,
@@ -114,6 +115,8 @@ import {
 	type DialogEvent,
 	type DialogKind,
 	type DialogPolicy,
+	type DownloadRecord,
+	type DownloadState,
 	exceptionEntry,
 	type LifecycleEvent,
 	type LifecycleRecorder,
@@ -340,6 +343,9 @@ export class BrowserSession {
 	/** Everything this session has put on disk, in order. */
 	private readonly written: string[] = [];
 
+	/** Files the page has handed back. */
+	private readonly downloadLog = createDownloadRecorder();
+
 	/**
 	 * Announcements still being ruled on. Candidates resolve one
 	 * at a time along this chain, so a slow lookup cannot overtake
@@ -380,6 +386,7 @@ export class BrowserSession {
 			await session.listenForRequests();
 			await session.listenForDialogs();
 			await session.listenForLifecycle();
+			await session.listenForDownloads();
 			return session;
 		} catch (err) {
 			// Do not leak the context if the CDP channel could not be
@@ -754,6 +761,60 @@ export class BrowserSession {
 	 */
 	private async ready(): Promise<void> {
 		if (this.recovery) await this.recovery;
+	}
+
+	/**
+	 * Catch files the page hands back.
+	 *
+	 * The behaviour has to be set against this session's browser
+	 * context, not merely the connection. Set without the context
+	 * id, Chrome cancels every download in a non-default context
+	 * and writes nothing, which looks exactly like a page that
+	 * never offered a file.
+	 */
+	private async listenForDownloads(): Promise<void> {
+		if (!this.bundle) this.bundle = diskSink();
+		this.cdp.on("Browser.downloadWillBegin", (event) => {
+			this.downloadLog.apply({
+				kind: "begin",
+				guid: event.guid,
+				url: event.url,
+				suggestedFilename: event.suggestedFilename,
+			});
+		});
+		this.cdp.on("Browser.downloadProgress", (event) => {
+			this.downloadLog.apply({
+				kind: "progress",
+				guid: event.guid,
+				state: event.state as DownloadState,
+				...(event.totalBytes === undefined
+					? {}
+					: { totalBytes: event.totalBytes }),
+				...(event.receivedBytes === undefined
+					? {}
+					: { receivedBytes: event.receivedBytes }),
+				...("filePath" in event && typeof event.filePath === "string"
+					? { filePath: event.filePath }
+					: {}),
+			});
+			if (event.state === "completed") {
+				const landed = this.downloadLog
+					.all()
+					.find((record) => record.guid === event.guid);
+				if (landed?.filePath) this.written.push(landed.filePath);
+			}
+		});
+		await this.cdp.send("Browser.setDownloadBehavior", {
+			behavior: "allow",
+			downloadPath: this.bundle.dir,
+			eventsEnabled: true,
+			browserContextId: this.context.id,
+		});
+	}
+
+	/** Files the page has handed back. */
+	downloads(): readonly DownloadRecord[] {
+		return this.downloadLog.all();
 	}
 
 	/** Where the page has been. */

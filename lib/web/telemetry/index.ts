@@ -36,6 +36,14 @@ export {
 	renderDialogs,
 } from "./dialogs.js";
 export {
+	createDownloadRecorder,
+	type DownloadInput,
+	type DownloadRecord,
+	type DownloadRecorder,
+	type DownloadState,
+	renderDownloads,
+} from "./downloads.js";
+export {
 	type Har,
 	type HarEntry,
 	type HarOptions,
