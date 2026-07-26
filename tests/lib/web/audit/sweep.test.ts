@@ -139,3 +139,24 @@ describe("reading a rendered report back", () => {
 		expect(condition.detail).toContain("detail here");
 	});
 });
+
+describe("a standing is never invented as approval", () => {
+	it("reads an unrecognised report as undecided, not as a pass", () => {
+		// This defaulted to pass, and two drill-down renderers
+		// returned prose with no verdict head, so a swept rule
+		// query reported PASS at every width while the rule it
+		// named was failing at all of them. Approval is the one
+		// answer a fallback must not invent.
+		expect(standingOf("Nothing was reported for 'color-contrast'.")).toBe(
+			"warn",
+		);
+		expect(standingOf("")).toBe("warn");
+		expect(standingOf("3 colours cluster closely.")).toBe("warn");
+	});
+
+	it("still reads the standings it does recognise", () => {
+		expect(standingOf("PASS  Nothing failed.")).toBe("pass");
+		expect(standingOf("WARN  Something needs a person.")).toBe("warn");
+		expect(standingOf("FAIL  Two rules failed.")).toBe("fail");
+	});
+});

@@ -141,10 +141,21 @@ export function widthsToSweep(
 	}));
 }
 
-/** Read a verdict's standing back out of a rendered report. */
+/**
+ * Read a verdict's standing back out of a rendered report.
+ *
+ * A report that carries no verdict head reads as "warn", never
+ * "pass". This defaulted to pass once, and because two drill-down
+ * renderers returned bare prose, a swept rule query reported PASS
+ * at every width while the named rule was failing at all of them.
+ * Approval is the one answer a parser must never invent: prefer
+ * the standing a caller passes as data, and treat this as the
+ * fallback for prose we did not produce.
+ */
 export function standingOf(report: string): Standing {
 	if (report.startsWith("FAIL")) return "fail";
-	return report.startsWith("WARN") ? "warn" : "pass";
+	if (report.startsWith("PASS")) return "pass";
+	return "warn";
 }
 
 /** Read a verdict's headline back out of a rendered report. */

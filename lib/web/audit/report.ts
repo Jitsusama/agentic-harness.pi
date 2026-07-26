@@ -11,6 +11,7 @@ import {
 	type AxeTally,
 	type Impact,
 	orderFindings,
+	tallyFindings,
 } from "./axe.js";
 import { renderVerdict, standingFor, type Verdict } from "./verdict.js";
 
@@ -152,15 +153,42 @@ export function renderAudit(
 		// sits on a gradient. Showing only the first would hide the
 		// half that most needs a person.
 		const found = findings.filter((finding) => finding.rule === options.rule);
+		// A drill-down carries a verdict head like every other answer.
+		// It used to return bare prose, and a caller that recovered the
+		// standing by reading the first word then scored it a pass, so
+		// a swept rule query reported PASS at every width while the
+		// rule was failing at all of them.
 		if (found.length === 0) {
 			const names = [...new Set(findings.map((finding) => finding.rule))]
 				.slice(0, MAX_LISTED_NODES)
 				.join(", ");
-			return names === ""
-				? `Nothing was reported for '${options.rule}', and nothing failed.`
-				: `Nothing was reported for '${options.rule}'. Reported: ${names}.`;
+			return renderVerdict(
+				{
+					standing: "pass",
+					headline:
+						names === ""
+							? `Nothing was reported for '${options.rule}', and ` +
+								"nothing failed."
+							: `Nothing was reported for '${options.rule}'.`,
+					...(names === "" ? {} : { measured: `Reported: ${names}.` }),
+				},
+				"",
+			);
 		}
-		return found.map(renderFinding).join("\n\n");
+		const ruleTally = tallyFindings(found);
+		return renderVerdict(
+			{
+				standing: standingFor({
+					failures: ruleTally.violations,
+					warnings: ruleTally.needsReview,
+				}),
+				headline: `${options.rule}: ${renderSummary(ruleTally)}`,
+				...(options.measured === undefined
+					? {}
+					: { measured: options.measured }),
+			},
+			found.map(renderFinding).join("\n\n"),
+		);
 	}
 
 	const index = renderIndex(findings);

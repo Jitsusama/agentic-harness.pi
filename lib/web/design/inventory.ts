@@ -238,13 +238,34 @@ export function renderInventory(
 		const found = dimensions.find(
 			(dimension) => dimension.property === options.property,
 		);
+		// Like the audit's rule drill-down, this carries a verdict head
+		// so a caller reading the standing gets it from the answer
+		// rather than from the shape of the prose.
 		if (!found) {
-			return (
-				`Nothing was sampled for '${options.property}'. Sampled: ` +
-				`${dimensions.map((dimension) => dimension.property).join(", ")}.`
+			return renderVerdict(
+				{
+					standing: "warn",
+					headline: `Nothing was sampled for '${options.property}'.`,
+					measured: `Sampled: ${dimensions
+						.map((dimension) => dimension.property)
+						.join(", ")}.`,
+				},
+				"",
 			);
 		}
-		return renderDimension(found, Number.POSITIVE_INFINITY);
+		return renderVerdict(
+			{
+				standing: found.clusters.length > 0 ? "warn" : "pass",
+				headline:
+					found.clusters.length > 0
+						? `${found.property}: ${found.clusters.length} cluster` +
+							`${found.clusters.length === 1 ? "" : "s"} close enough to ` +
+							"look accidental."
+						: `${found.property}: no two values were close enough to ` +
+							"look accidental.",
+			},
+			renderDimension(found, Number.POSITIVE_INFINITY),
+		);
 	}
 
 	const drifting = dimensions.filter(
