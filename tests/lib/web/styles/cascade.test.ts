@@ -487,3 +487,160 @@ describe("traceProperty", () => {
 		expect(trace.winner).toBeUndefined();
 	});
 });
+
+/**
+ * A capture of the cascade fixture, whose shape and behaviour
+ * were both read off a live browser:
+ *
+ *   body    { color: red !important }
+ *   .outer  { color: green }
+ *   .mid    { color: purple }
+ *   .btn    { color: navy }
+ *
+ * Chrome renders the button navy. The protocol reports the
+ * inherited chain nearest-ancestor first, which is the order
+ * used here.
+ */
+const CHAIN: RawMatchedStyles = {
+	inherited: [
+		{
+			matchedCSSRules: [
+				{
+					rule: {
+						origin: "regular",
+						selectorList: { text: ".mid" },
+						style: {
+							cssProperties: [
+								{ name: "color", value: "purple", text: "color: purple" },
+							],
+						},
+					},
+				},
+			],
+		},
+		{
+			matchedCSSRules: [
+				{
+					rule: {
+						origin: "regular",
+						selectorList: { text: ".outer" },
+						style: {
+							cssProperties: [
+								{ name: "color", value: "green", text: "color: green" },
+							],
+						},
+					},
+				},
+			],
+		},
+		{
+			matchedCSSRules: [
+				{
+					rule: {
+						origin: "regular",
+						selectorList: { text: "body" },
+						style: {
+							cssProperties: [
+								{
+									name: "color",
+									value: "red",
+									text: "color: red !important",
+									important: true,
+								},
+								{ name: "padding", value: "40px", text: "padding: 40px" },
+							],
+						},
+					},
+				},
+			],
+		},
+	],
+	matchedCSSRules: [
+		{
+			rule: {
+				origin: "regular",
+				selectorList: { text: ".btn" },
+				style: {
+					cssProperties: [
+						{ name: "color", value: "navy", text: "color: navy" },
+					],
+				},
+			},
+		},
+	],
+};
+
+describe("the winner is the one the browser applied", () => {
+	it("does not let an inherited important beat the element's own rule", () => {
+		// Measured: Chrome renders this button rgb(0, 0, 128).
+		// A flat bonus for importance reported red, because
+		// inherited plus important outscored author. Importance is
+		// resolved during the parent's own cascade, and an
+		// inherited value only reaches a child that declares none.
+		const trace = traceProperty(normalizeCascade(CHAIN), "color");
+
+		expect(trace.winner).toMatchObject({ value: "navy", origin: "author" });
+	});
+
+	it("ranks the nearer ancestor above the further one", () => {
+		// The protocol reports the chain nearest first, and the
+		// tie-break takes the declaration that came last, so
+		// pushing it as given crowned the root.
+		const inherited = traceProperty(
+			normalizeCascade(CHAIN),
+			"color",
+		).declarations.filter((one) => one.origin === "inherited");
+
+		expect(inherited.map((one) => one.value)).toEqual([
+			"red",
+			"purple",
+			"green",
+		]);
+	});
+
+	it("leaves an ancestor's padding out of a padding trace", () => {
+		// padding does not inherit, so body's is not a candidate
+		// for the button's and must not be offered as one.
+		const trace = traceProperty(normalizeCascade(CHAIN), "padding");
+
+		expect(trace.declarations).toEqual([]);
+	});
+
+	it("keeps a user-agent important above an author important", () => {
+		const weights = normalizeCascade({
+			matchedCSSRules: [
+				{
+					rule: {
+						origin: "user-agent",
+						selectorList: { text: "button" },
+						style: {
+							cssProperties: [
+								{ name: "color", value: "buttontext", important: true },
+							],
+						},
+					},
+				},
+				{
+					rule: {
+						origin: "regular",
+						selectorList: { text: ".btn" },
+						style: {
+							cssProperties: [
+								{
+									name: "color",
+									value: "navy",
+									text: "color: navy !important",
+									important: true,
+								},
+							],
+						},
+					},
+				},
+			],
+		});
+
+		expect(traceProperty(weights, "color").winner).toMatchObject({
+			origin: "user-agent",
+		});
+	});
+});

@@ -7,7 +7,110 @@
  * here. A capture arrives with the rules in ascending order of
  * strength and this reads them back the way a person asks the
  * question, strongest first, with the winner named.
+ *
+ * One declared exception: which properties inherit. The protocol
+ * reports an ancestor's whole matched rule and has no call that
+ * answers whether a given property inherits, so that set is
+ * written down here from the specification. It is stable, it is
+ * finite, and without it an ancestor's padding is offered as an
+ * explanation for a child's padding, which is how a rule that
+ * had no say came to be named the winner.
  */
+
+/**
+ * The properties that inherit, per the CSS specification.
+ *
+ * Only these can be supplied to a child by an ancestor, so only
+ * these belong in the inherited band of a trace. Shorthands are
+ * listed beside their longhands because a capture reports both.
+ */
+const INHERITED_PROPERTIES = new Set([
+	"azimuth",
+	"border-collapse",
+	"border-spacing",
+	"caption-side",
+	"caret-color",
+	"color",
+	"color-scheme",
+	"cursor",
+	"direction",
+	"empty-cells",
+	"font",
+	"font-family",
+	"font-feature-settings",
+	"font-kerning",
+	"font-language-override",
+	"font-optical-sizing",
+	"font-size",
+	"font-size-adjust",
+	"font-stretch",
+	"font-style",
+	"font-synthesis",
+	"font-variant",
+	"font-variant-caps",
+	"font-variant-east-asian",
+	"font-variant-ligatures",
+	"font-variant-numeric",
+	"font-variation-settings",
+	"font-weight",
+	"hanging-punctuation",
+	"hyphens",
+	"image-orientation",
+	"image-rendering",
+	"letter-spacing",
+	"line-break",
+	"line-height",
+	"list-style",
+	"list-style-image",
+	"list-style-position",
+	"list-style-type",
+	"orphans",
+	"overflow-wrap",
+	"paint-order",
+	"pointer-events",
+	"quotes",
+	"ruby-align",
+	"ruby-position",
+	"tab-size",
+	"text-align",
+	"text-align-last",
+	"text-anchor",
+	"text-combine-upright",
+	"text-decoration-skip-ink",
+	"text-emphasis",
+	"text-emphasis-color",
+	"text-emphasis-position",
+	"text-emphasis-style",
+	"text-indent",
+	"text-justify",
+	"text-orientation",
+	"text-rendering",
+	"text-shadow",
+	"text-size-adjust",
+	"text-transform",
+	"text-underline-offset",
+	"text-underline-position",
+	"text-wrap",
+	"visibility",
+	"white-space",
+	"widows",
+	"word-break",
+	"word-spacing",
+	"writing-mode",
+	"-webkit-font-smoothing",
+	"-webkit-text-fill-color",
+	"-webkit-text-stroke",
+	"-webkit-text-stroke-color",
+	"-webkit-text-stroke-width",
+]);
+
+/**
+ * Whether an ancestor's declaration of this property can reach a
+ * descendant. Custom properties always can.
+ */
+export function inherits(property: string): boolean {
+	return property.startsWith("--") || INHERITED_PROPERTIES.has(property);
+}
 
 /** A declaration as the capture reported it. */
 export interface RawCssProperty {
@@ -98,9 +201,23 @@ export function normalizeCascade(
 ): readonly Declaration[] {
 	const declarations: Declaration[] = [];
 
-	for (const { matchedCSSRules } of raw.inherited ?? []) {
+	// Furthest ancestor first. The protocol reports the chain from
+	// the immediate parent upward, and the tie-break among equal
+	// weights takes the declaration that came last, so pushing the
+	// chain as given crowned the root over the nearer ancestor.
+	// Measured on a two-ancestor page: .outer beat .mid.
+	//
+	// Only properties that inherit are kept. An ancestor's padding
+	// is not a candidate for a child's padding, and including it
+	// let a rule that had no say be named the winner over the
+	// value the browser actually computed.
+	for (const { matchedCSSRules } of [...(raw.inherited ?? [])].reverse()) {
 		for (const match of matchedCSSRules ?? []) {
-			declarations.push(...fromRule(match.rule, "inherited"));
+			declarations.push(
+				...fromRule(match.rule, "inherited").filter((declaration) =>
+					inherits(declaration.property),
+				),
+			);
 		}
 	}
 	for (const match of raw.matchedCSSRules ?? []) {
@@ -235,16 +352,29 @@ function sourceOf(
  * way.
  */
 function weightOf(declaration: Declaration): number {
-	const BANDS: Record<DeclarationOrigin, number> = {
-		inherited: 0,
-		"user-agent": 1,
-		author: 2,
-		inline: 3,
-	};
-	// An important declaration outranks every normal one, and
-	// keeps its origin's order among other important ones.
-	const IMPORTANT = 10;
-	return BANDS[declaration.origin] + (declaration.important ? IMPORTANT : 0);
+	// The cascade's origin order, weakest first, with importance
+	// folded in rather than added on top.
+	//
+	// A flat bonus for importance got two things wrong. It let an
+	// inherited important declaration beat the element's own rule,
+	// and it put an author important declaration above a
+	// user-agent important one, which inverts the spec.
+	//
+	// Inheritance stays at the bottom whatever its importance,
+	// because importance is resolved during the parent's own
+	// cascade and an inherited value only reaches the child when
+	// the child declares nothing itself. Measured: with
+	// `body { color: red !important }` above `.btn { color: navy }`
+	// the browser renders navy, and this used to report red.
+	const RANK: Record<DeclarationOrigin, { normal: number; important: number }> =
+		{
+			inherited: { normal: 0, important: 1 },
+			"user-agent": { normal: 2, important: 7 },
+			author: { normal: 3, important: 5 },
+			inline: { normal: 4, important: 6 },
+		};
+	const rank = RANK[declaration.origin];
+	return declaration.important ? rank.important : rank.normal;
 }
 
 /** Read back everything that had a say in one property. */
