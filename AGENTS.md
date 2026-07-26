@@ -138,12 +138,36 @@ they all work independently.
 - Imports from pi use `@mariozechner/pi-coding-agent`,
   `@mariozechner/pi-ai` and `@mariozechner/pi-tui`. These
   are provided by pi at runtime; do not add them to
-  `dependencies`. The matching `@earendil-works/*`
-  packages (and `typebox`) are installed as
-  `devDependencies` so `tsc` can resolve the imports;
-  `tsconfig.json` maps the `@mariozechner/*` specifiers
-  to the `@earendil-works/*` packages on disk. The
-  runtime contract is unchanged.
+  `dependencies`. They appear in three other places, each
+  for its own reason, and all three are enforced by
+  `tests/package/runtime-deps.test.ts`:
+  - `peerDependencies` at `"*"`, under the current
+    `@earendil-works/*` names, because that is the
+    relationship: pi hands these to an extension at load
+    time, and which version is the host's business.
+  - `peerDependenciesMeta` marking every one optional,
+    because npm installs a root package's peers otherwise
+    and pi runs `npm install --omit=dev` on a git install.
+    Measured: without the flag, one declaration pulled 189
+    packages into a clean tree, among them a deprecated
+    copy of pi's whole runtime three minor versions
+    behind. A second copy of pi's modules is a different
+    copy, and the instanceof checks in its own APIs stop
+    holding.
+  - `devDependencies`, so `tsc` has the real declarations
+    on disk. Naming the same packages here as in
+    `peerDependencies` is also what stops pnpm installing
+    its own: pnpm installs peers by default and ignores
+    the optional flag, but it finds these already
+    satisfied. Consumers never receive them, since
+    `--omit=dev` skips the list entirely.
+
+  `tsconfig.json` maps the `@mariozechner/*` specifiers to
+  the `@earendil-works/*` packages on disk. Those are the
+  same packages under an old name that pi's loader still
+  aliases, and the old name is published deprecated, so the
+  imports are worth migrating when something else brings
+  the code past them.
 - Every mechanical rule a skill states is tracked in
   [`docs/convention-coverage.md`](./docs/convention-coverage.md)
   against the gate that enforces it. When adding a rule to a
@@ -422,8 +446,12 @@ request via `.github/workflows/ci.yml`.
   are provided at runtime (`@mariozechner/pi-coding-agent`,
   `@mariozechner/pi-ai`, `@mariozechner/pi-tui`). The
   matching `@earendil-works/*` packages live in
-  `devDependencies` for typecheck only and must not be
+  `peerDependencies` at `"*"`, marked optional, and in
+  `devDependencies` for typecheck; they must not be
   imported under those names from production code.
+  Do not drop the optional flag on a pi peer: npm then
+  installs a stale second copy of pi's runtime into every
+  consumer's tree.
   Third-party dependencies belong in the root
   `package.json`'s `dependencies`, not in extension-local
   package.json files. Library code lives in `lib/` and

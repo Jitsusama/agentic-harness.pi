@@ -39,6 +39,23 @@ const PROVIDED_BY_PI = /^@mariozechner\/pi-|^(?:@sinclair\/)?typebox$/;
  * dependencies, for the same reason pi's own modules do not.
  */
 
+/**
+ * What to declare for each pi specifier the code imports.
+ *
+ * The two spellings are the same packages: pi renamed them and its
+ * loader still aliases the old names, which is what this repo
+ * imports. The manifest names the packages that exist, because a
+ * peer nobody can resolve is not a promise, and because the old
+ * ones are published deprecated.
+ */
+const PI_PEER_FOR = new Map([
+	["@mariozechner/pi-ai", "@earendil-works/pi-ai"],
+	["@mariozechner/pi-coding-agent", "@earendil-works/pi-coding-agent"],
+	["@mariozechner/pi-tui", "@earendil-works/pi-tui"],
+	["typebox", "typebox"],
+	["@sinclair/typebox", "typebox"],
+]);
+
 /** Files that ship and run, as opposed to files that test them. */
 function sourceFiles(dir: string): string[] {
 	const found: string[] = [];
@@ -87,6 +104,8 @@ describe("what ships can load", () => {
 	) as {
 		dependencies?: Record<string, string>;
 		devDependencies?: Record<string, string>;
+		peerDependencies?: Record<string, string>;
+		peerDependenciesMeta?: Record<string, { optional?: boolean }>;
 	};
 	const declared = new Set(Object.keys(manifest.dependencies ?? {}));
 	const forDevelopmentOnly = new Set(
@@ -133,5 +152,64 @@ describe("what ships can load", () => {
 	it("does not bundle its own copy of what pi provides", () => {
 		const shadowed = [...declared].filter((pkg) => PROVIDED_BY_PI.test(pkg));
 		expect(shadowed).toEqual([]);
+	});
+
+	describe("what pi provides", () => {
+		/** The pi packages this code actually imports, by manifest name. */
+		const needed = new Set<string>();
+		for (const dir of ["lib", "extensions"]) {
+			for (const file of sourceFiles(join(root, dir))) {
+				for (const line of readFileSync(file, "utf8").split("\n")) {
+					const pkg = runtimeImport(line);
+					const peer = pkg ? PI_PEER_FOR.get(pkg) : undefined;
+					if (peer) needed.add(peer);
+				}
+			}
+		}
+		const peers = manifest.peerDependencies ?? {};
+		const meta = manifest.peerDependenciesMeta ?? {};
+
+		it("finds the pi imports, so a pass means something", () => {
+			expect(needed.has("@earendil-works/pi-coding-agent")).toBe(true);
+		});
+
+		it("declares them as peers, which is what pi's own docs ask for", () => {
+			// A peer says what the host must provide, which is exactly the
+			// relationship: pi hands these to an extension at load time.
+			const missing = [...needed].filter((pkg) => peers[pkg] === undefined);
+			expect(missing).toEqual([]);
+		});
+
+		it("asks for any version, because the host decides which", () => {
+			// A range would be a claim about which pi this runs under, and
+			// the answer is whichever one loaded it.
+			const pinned = [...needed].filter((pkg) => peers[pkg] !== "*");
+			expect(pinned).toEqual([]);
+		});
+
+		it("marks every one optional, or a consumer gets a second pi", () => {
+			// Measured, not assumed. npm installs a root package's peers
+			// unless they are optional, and pi runs `npm install --omit=dev`
+			// on a git install. Declaring these without the optional flag
+			// pulled 189 packages into a test tree, including a deprecated
+			// copy of pi's whole runtime three minor versions behind. A
+			// second copy of pi's modules is a different copy, and the
+			// instanceof checks in its APIs stop holding.
+			const required = [...needed].filter(
+				(pkg) => meta[pkg]?.optional !== true,
+			);
+			expect(required).toEqual([]);
+		});
+
+		it("keeps them installed here, so types resolve", () => {
+			// pnpm does not install optional peers, and typecheck needs the
+			// real declarations on disk. Naming the same packages in both
+			// lists is also what keeps pnpm from deciding a peer is missing
+			// and installing its own: it finds them already satisfied.
+			const absent = [...needed].filter(
+				(pkg) => !forDevelopmentOnly.has(pkg) && !declared.has(pkg),
+			);
+			expect(absent).toEqual([]);
+		});
 	});
 });
