@@ -109,6 +109,23 @@ import {
 	type WaitOutcome,
 } from "./wait/index.js";
 
+/**
+ * The styles a snapshot carries by default.
+ *
+ * Enough to answer why something is not where it should be,
+ * without dragging the whole computed style of every node into
+ * the answer.
+ */
+const SNAPSHOT_STYLES: readonly string[] = [
+	"display",
+	"visibility",
+	"opacity",
+	"position",
+	"color",
+	"background-color",
+	"font-size",
+];
+
 /** Extra stops beyond two full passes, to show a cycle clearly. */
 const WALK_SLACK = 4;
 
@@ -148,6 +165,11 @@ const MS_PER_SECOND = 1000;
 const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(_keyDefinitions));
 
 import { captureTiles } from "./screenshot.js";
+import {
+	flattenSnapshot,
+	type IndexedNode,
+	type RawSnapshot,
+} from "./snapshot/index.js";
 import {
 	asCall,
 	COMPUTED_STYLE_PROBE,
@@ -1414,6 +1436,26 @@ export class BrowserSession {
 			unreachable: collected.unreachable,
 			...(escapeFreed === undefined ? {} : { escapeFreed }),
 		};
+	}
+
+	/**
+	 * The whole page flattened, frames and shadow content
+	 * included.
+	 *
+	 * The style properties have to be named up front because the
+	 * protocol returns their values as a bare array positioned
+	 * against the request. Asking for a handful keeps the snapshot
+	 * small; asking for none still gives geometry and structure.
+	 */
+	async snapshot(
+		styleProperties: readonly string[] = SNAPSHOT_STYLES,
+	): Promise<readonly IndexedNode[]> {
+		await this.ready();
+		const raw = await this.cdp.send("DOMSnapshot.captureSnapshot", {
+			computedStyles: [...styleProperties],
+			includeDOMRects: true,
+		});
+		return flattenSnapshot(raw as unknown as RawSnapshot, styleProperties);
 	}
 
 	/** Run a page-side source string and read back its value. */

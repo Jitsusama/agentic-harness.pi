@@ -31,6 +31,14 @@ import type {
 	Observation,
 	Shot,
 } from "../../lib/web/session.js";
+import {
+	describeNode,
+	find,
+	type IndexedNode,
+	isElement,
+	type Query,
+	tally,
+} from "../../lib/web/snapshot/index.js";
 import { describeRefusal, parseTarget } from "../../lib/web/target/index.js";
 import {
 	type NetworkRequest,
@@ -191,6 +199,7 @@ const parameters = Type.Object({
 				Type.Literal("requests"),
 				Type.Literal("status"),
 				Type.Literal("downloads"),
+				Type.Literal("query"),
 				Type.Literal("element"),
 				Type.Literal("shot"),
 			],
@@ -200,7 +209,10 @@ const parameters = Type.Object({
 					"the default. reading: the same page narrated the way a " +
 					"screen reader would say it. logs: what the page said, " +
 					"threw, or had refused for it. requests: what the page " +
-					"asked the network for. downloads: files the page handed " +
+					"asked the network for. query: search the whole page, " +
+					"frames and shadow content included, for nodes matching " +
+					"a tag, attribute, class or text. downloads: files the " +
+					"page handed " +
 					"back. status: where this session stands, " +
 					"including what it is pretending to be. announcements: " +
 					"what the page " +
@@ -339,6 +351,47 @@ const parameters = Type.Object({
 			},
 		),
 	),
+	tag: Type.Optional(
+		Type.String({ description: "For query: the tag name to look for." }),
+	),
+	attribute: Type.Optional(
+		Type.String({
+			description:
+				"For query: an attribute that must be present, e.g. " +
+				"'data-testid'. Pair with value to require a value too.",
+		}),
+	),
+	value: Type.Optional(
+		Type.String({ description: "For query: the attribute's value." }),
+	),
+	className: Type.Optional(
+		Type.String({ description: "For query: a class the node carries." }),
+	),
+	text: Type.Optional(
+		Type.String({
+			description: "For query: text the node must contain.",
+		}),
+	),
+	rendered: Type.Optional(
+		Type.Boolean({
+			description:
+				"For query: true for only what the browser drew, false for " +
+				"only what it did not, which is how you find out why " +
+				"something is missing.",
+		}),
+	),
+	inShadow: Type.Optional(
+		Type.Boolean({
+			description: "For query: restrict to content inside shadow roots.",
+		}),
+	),
+	limit: Type.Optional(
+		Type.Number({
+			description:
+				"For query: how many matches to list. The total is always " +
+				"reported, however many are shown.",
+		}),
+	),
 });
 
 /** Register the reading half of the browser family. */
@@ -370,6 +423,35 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				);
 			}
 			const session = await registry.acquire(name);
+
+			if (kind === "query") {
+				const nodes = await session.snapshot();
+				return answer(
+					name,
+					kind,
+					runQuery(
+						nodes,
+						{
+							...(params.tag === undefined ? {} : { tag: params.tag }),
+							...(params.attribute === undefined
+								? {}
+								: { attribute: params.attribute }),
+							...(params.value === undefined ? {} : { value: params.value }),
+							...(params.className === undefined
+								? {}
+								: { className: params.className }),
+							...(params.text === undefined ? {} : { text: params.text }),
+							...(params.rendered === undefined
+								? {}
+								: { rendered: params.rendered }),
+							...(params.inShadow === undefined
+								? {}
+								: { inShadow: params.inShadow }),
+						},
+						params.limit,
+					),
+				);
+			}
 
 			if (kind === "downloads") {
 				return answer(name, kind, renderDownloads(session.downloads()));
@@ -514,4 +596,64 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 			return answer(name, kind, render(result.observation));
 		},
 	});
+}
+
+/** How many matches to list before summarising instead. */
+const DEFAULT_QUERY_LIMIT = 25;
+
+/**
+ * Run a query and report it.
+ *
+ * The total always comes first and is always the real total. A
+ * listing that quietly shows the first twenty-five of four
+ * hundred is how somebody concludes there are twenty-five.
+ */
+function runQuery(
+	nodes: readonly IndexedNode[],
+	query: Query,
+	limit?: number,
+): string {
+	const asked = Object.keys(query).length > 0;
+	if (!asked) {
+		// With no query the useful answer is the shape of the page,
+		// not every node in it.
+		const byTag = tally(nodes.filter(isElement), (node) =>
+			node.nodeName.toLowerCase(),
+		);
+		const frames = new Set(nodes.map((node) => node.documentUrl));
+		return [
+			`${nodes.length} nodes across ${frames.size} document` +
+				`${frames.size === 1 ? "" : "s"}.`,
+			`${nodes.filter((node) => !node.rendered).length} were not rendered, ` +
+				`${nodes.filter((node) => node.inShadow).length} are inside ` +
+				"shadow roots.",
+			"",
+			"Most common elements:",
+			...byTag
+				.slice(0, DEFAULT_QUERY_LIMIT)
+				.map(
+					(entry) => `  ${entry.count.toString().padStart(4)}  ${entry.key}`,
+				),
+			"",
+			"Narrow it with tag, attribute, className, text, rendered " +
+				"or inShadow.",
+		].join("\n");
+	}
+
+	const found = find(nodes, query);
+	if (found.length === 0) {
+		return "Nothing on the page matches that, in any frame or shadow root.";
+	}
+
+	const cap = limit ?? DEFAULT_QUERY_LIMIT;
+	const shown = found.slice(0, cap);
+	const lines = [
+		`${found.length} match${found.length === 1 ? "" : "es"}.`,
+		"",
+		...shown.map((node) => `  ${describeNode(node)}`),
+	];
+	if (found.length > shown.length) {
+		lines.push("", `Showing ${shown.length}. Raise limit to see the rest.`);
+	}
+	return lines.join("\n");
 }
