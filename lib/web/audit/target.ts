@@ -10,16 +10,17 @@
  * precisely backwards.
  */
 
-/** A rectangle in CSS pixels, as the browser reports one. */
-export interface Rect {
-	readonly x: number;
-	readonly y: number;
-	readonly width: number;
-	readonly height: number;
-}
+import type { Rect } from "../element/box.js";
 
-/** Something a person is expected to hit. */
-export interface Target {
+/**
+ * Something a person is expected to hit.
+ *
+ * Named for the criterion rather than called a Target, because
+ * a target elsewhere in this library is an element named by
+ * role and accessible name so it can be acted on. Two meanings
+ * for one word in one library is a trap worth avoiding.
+ */
+export interface HitTarget {
 	readonly id: string;
 	readonly rect: Rect;
 	/**
@@ -72,7 +73,7 @@ function centre(rect: Rect): { x: number; y: number } {
 }
 
 /** Whether a target is under the size the rule asks for. */
-function undersized(target: Target, required: number): boolean {
+function undersized(target: HitTarget, required: number): boolean {
 	return target.rect.width < required || target.rect.height < required;
 }
 
@@ -88,7 +89,11 @@ function undersized(target: Target, required: number): boolean {
  * of a large one, which is exactly the crowding the criterion
  * exists to catch.
  */
-function clashes(target: Target, other: Target, required: number): boolean {
+function clashes(
+	target: HitTarget,
+	other: HitTarget,
+	required: number,
+): boolean {
 	const radius = required / 2;
 	const from = centre(target.rect);
 
@@ -119,8 +124,8 @@ function clashes(target: Target, other: Target, required: number): boolean {
  * against its neighbours at all.
  */
 export function judgeTarget(
-	target: Target,
-	neighbours: readonly Target[],
+	target: HitTarget,
+	neighbours: readonly HitTarget[],
 	level: TargetLevel = "AA",
 ): TargetVerdict {
 	const required = level === "AAA" ? ENHANCED_TARGET_PX : MINIMUM_TARGET_PX;
@@ -149,7 +154,7 @@ export function judgeTarget(
 	return { ...base, passes: false, crowdedBy };
 }
 
-function outrightException(target: Target): TargetException | undefined {
+function outrightException(target: HitTarget): TargetException | undefined {
 	if (target.inline) return "inline";
 	if (target.userAgentControlled) return "user-agent";
 	if (target.hasLargerAlternative) return "alternative";
@@ -159,7 +164,7 @@ function outrightException(target: Target): TargetException | undefined {
 
 /** Judge every target against every other. */
 export function judgeTargets(
-	targets: readonly Target[],
+	targets: readonly HitTarget[],
 	level: TargetLevel = "AA",
 ): readonly TargetVerdict[] {
 	return targets.map((target) => judgeTarget(target, targets, level));

@@ -7,11 +7,11 @@
 import { describe, expect, it } from "vitest";
 import {
 	ENHANCED_TARGET_PX,
+	type HitTarget,
 	judgeTarget,
 	judgeTargets,
 	MINIMUM_TARGET_PX,
 	renderTargets,
-	type Target,
 } from "../../../../lib/web/audit/target.js";
 
 const at = (
@@ -20,8 +20,8 @@ const at = (
 	y: number,
 	width = 20,
 	height = 20,
-	extra: Partial<Target> = {},
-): Target => ({ id, rect: { x, y, width, height }, ...extra });
+	extra: Partial<HitTarget> = {},
+): HitTarget => ({ id, rect: { x, y, width, height }, ...extra });
 
 describe("judgeTarget", () => {
 	it("passes a target at exactly the minimum", () => {
@@ -41,7 +41,7 @@ describe("judgeTarget", () => {
 		// right against the small target. Treating every neighbour as
 		// a circle passes exactly the crowding this rule is for.
 		const small = at("small", 0, 0);
-		const wide: Target = {
+		const wide: HitTarget = {
 			id: "wide",
 			rect: { x: 12, y: 0, width: 400, height: 40 },
 		};
@@ -52,7 +52,7 @@ describe("judgeTarget", () => {
 
 	it("clears a full size neighbour whose box is far enough off", () => {
 		const small = at("small", 0, 0);
-		const wide: Target = {
+		const wide: HitTarget = {
 			id: "wide",
 			rect: { x: 100, y: 0, width: 400, height: 40 },
 		};

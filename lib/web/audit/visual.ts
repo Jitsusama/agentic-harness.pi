@@ -47,8 +47,15 @@ export interface VisualNode {
 	readonly text?: string;
 }
 
-/** The page as a whole, which some rules need. */
-export interface Viewport {
+/**
+ * The page as a whole, which some rules need.
+ *
+ * Named PageBox rather than Viewport because it carries the
+ * document's full extent as well as the visible area, and
+ * because a Viewport elsewhere in this library means only the
+ * part a person can see.
+ */
+export interface PageBox {
 	readonly width: number;
 	readonly height: number;
 	readonly documentWidth: number;
@@ -121,7 +128,7 @@ export function isVisuallyHidden(node: VisualNode): boolean {
  */
 export function horizontalOverflow(
 	nodes: readonly VisualNode[],
-	viewport: Viewport,
+	viewport: PageBox,
 ): readonly A11yFinding[] {
 	if (viewport.documentWidth <= viewport.width + SUBPIXEL) return [];
 
@@ -208,7 +215,7 @@ export function clippedContent(
  */
 export function escapedElements(
 	nodes: readonly VisualNode[],
-	viewport: Viewport,
+	viewport: PageBox,
 ): readonly A11yFinding[] {
 	const found = nodes
 		.filter((node) => node.rect.width > 0 && node.rect.height > 0)
@@ -324,7 +331,7 @@ export function tinyText(nodes: readonly VisualNode[]): readonly A11yFinding[] {
 /** Every layout rule, run against one capture. */
 export function analyseVisual(
 	nodes: readonly VisualNode[],
-	viewport: Viewport,
+	viewport: PageBox,
 ): readonly A11yFinding[] {
 	return [
 		...horizontalOverflow(nodes, viewport),

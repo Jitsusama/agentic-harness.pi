@@ -52,7 +52,8 @@ import {
 	type WalkStop,
 } from "./a11y/index.js";
 import { newContextPage } from "./browser.js";
-import { type Comparison, compareImages, readPng } from "./compare/index.js";
+import { compareImages, readPng } from "./compare/images.js";
+import type { Comparison } from "./compare/index.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
 import {
 	type Actionability,
@@ -179,10 +180,10 @@ import {
 	type A11yFinding,
 	type AxFacts,
 	buildStructure,
+	type PageBox,
 	type RawAxeRun,
 	readAxeRun,
 	type StructureNode,
-	type Viewport,
 	type VisualNode,
 	visualCaptureSource,
 } from "./audit/index.js";
@@ -1821,7 +1822,7 @@ export class BrowserSession {
 	 */
 	async layout(): Promise<{
 		readonly nodes: readonly VisualNode[];
-		readonly viewport: Viewport;
+		readonly viewport: PageBox;
 	}> {
 		await this.ready();
 		const response = await this.cdp.send("Runtime.evaluate", {
@@ -1834,7 +1835,7 @@ export class BrowserSession {
 		}
 		return response.result.value as {
 			nodes: readonly VisualNode[];
-			viewport: Viewport;
+			viewport: PageBox;
 		};
 	}
 

@@ -16,12 +16,12 @@ import {
 	escapedElements,
 	horizontalOverflow,
 	isVisuallyHidden,
+	type PageBox,
 	tinyText,
-	type Viewport,
 	type VisualNode,
 } from "../../../../lib/web/audit/visual.js";
 
-const VIEWPORT: Viewport = {
+const VIEWPORT: PageBox = {
 	width: 800,
 	height: 600,
 	documentWidth: 3064,

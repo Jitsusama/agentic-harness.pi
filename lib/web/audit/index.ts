@@ -93,12 +93,11 @@ export {
 } from "./sweep.js";
 export {
 	ENHANCED_TARGET_PX,
+	type HitTarget,
 	judgeTarget,
 	judgeTargets,
 	MINIMUM_TARGET_PX,
-	type Rect,
 	renderTargets,
-	type Target,
 	type TargetException,
 	type TargetLevel,
 	type TargetVerdict,
@@ -119,8 +118,8 @@ export {
 	HIDDEN_BOX_PX,
 	horizontalOverflow,
 	isVisuallyHidden,
+	type PageBox,
 	SMALL_TEXT_PX,
 	tinyText,
-	type Viewport,
 	type VisualNode,
 } from "./visual.js";
