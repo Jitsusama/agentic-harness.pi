@@ -334,8 +334,19 @@ async function runOnce(
 
 	if (kind === "design") {
 		const samples = await session.styleSamples();
-		return renderInventory(takeInventory(samples), {
-			...(params.rule === undefined ? {} : { property: params.rule }),
+		const inventory = takeInventory(samples);
+		return listAnswer({
+			view: renderInventory(inventory, {
+				...(params.rule === undefined ? {} : { property: params.rule }),
+			}),
+			// The samples rather than the inventory: a caller asking which
+			// elements use a colour wants the elements, and the inventory
+			// is the tally that hid them.
+			records: samples,
+			unit: "style samples",
+			narrowing:
+				"Name one property in 'rule' to see every value and where it " +
+				"is used.",
 		});
 	}
 
