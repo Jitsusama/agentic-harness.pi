@@ -93,8 +93,19 @@ export function throttleNames(): readonly string[] {
  * Patterns are globs because that is what the protocol's own
  * request interception uses, so one vocabulary covers both what
  * we match locally and what we ask Chrome to intercept.
+ *
+ * Both arguments are strings and transposing them is silent, so
+ * they are named rather than positional. That is not a
+ * hypothetical: the first caller outside this file passed them
+ * the wrong way round and got a confident false.
  */
-export function matchesPattern(pattern: string, url: string): boolean {
+export function matchesPattern({
+	pattern,
+	url,
+}: {
+	pattern: string;
+	url: string;
+}): boolean {
 	if (pattern === "*") return true;
 	const expression = pattern
 		// Escape everything a regular expression would read, then
@@ -115,7 +126,7 @@ export function ruleFor(
 	rules: readonly NetworkRule[],
 	url: string,
 ): NetworkRule | undefined {
-	return rules.find((rule) => matchesPattern(rule.pattern, url));
+	return rules.find((rule) => matchesPattern({ pattern: rule.pattern, url }));
 }
 
 /** What the network is currently being made to do. */

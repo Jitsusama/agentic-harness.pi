@@ -24,6 +24,11 @@ import {
 } from "../../lib/web/input/index.js";
 import type { BrowserSession, TargetedAction } from "../../lib/web/session.js";
 import { describeRefusal, type Target } from "../../lib/web/target/index.js";
+import {
+	DEFAULT_QUIET_MS,
+	renderWait,
+	type WaitCondition,
+} from "../../lib/web/wait/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
 import { pageView } from "./see.js";
@@ -31,19 +36,72 @@ import { pageView } from "./see.js";
 const parameters = Type.Object({
 	kind: Type.Optional(
 		Type.Union(
-			[Type.Literal("act"), Type.Literal("press"), Type.Literal("input")],
+			[
+				Type.Literal("act"),
+				Type.Literal("press"),
+				Type.Literal("input"),
+				Type.Literal("wait"),
+			],
 			{
 				description:
 					"act: operate an element named by role and accessible " +
 					"name, the default. press: send a chord or a sequence of " +
 					"them, like 'Ctrl+Shift+K' or 'Tab Tab Enter', wherever " +
 					"focus is. input: raw pointer and touch gestures at " +
-					"coordinates, for what semantics cannot reach.",
+					"coordinates, for what semantics cannot reach. wait: hold " +
+					"until the page reaches a state, saying what it saw if it " +
+					"never does.",
 			},
 		),
 	),
 	session: Type.Optional(
 		Type.String({ description: "Session name. Defaults to 'default'." }),
+	),
+	for: Type.Optional(
+		Type.Union(
+			[
+				Type.Literal("selector"),
+				Type.Literal("gone"),
+				Type.Literal("text"),
+				Type.Literal("idle"),
+				Type.Literal("request"),
+				Type.Literal("animations"),
+				Type.Literal("duration"),
+			],
+			{
+				description:
+					"For wait: selector or gone for an element appearing or " +
+					"leaving, text for words on the page, idle for the " +
+					"network going quiet, request for one matching a pattern " +
+					"finishing, animations for motion settling, duration to " +
+					"simply pass time.",
+			},
+		),
+	),
+	selector: Type.Optional(
+		Type.String({
+			description: "For wait selector and gone: the CSS selector.",
+		}),
+	),
+	pattern: Type.Optional(
+		Type.String({
+			description:
+				"For wait request: a url pattern, e.g. '*/api/save'. The " +
+				"answer reports the status it got.",
+		}),
+	),
+	quietMs: Type.Optional(
+		Type.Number({
+			description: "For wait idle: how long counts as quiet.",
+		}),
+	),
+	ms: Type.Optional(
+		Type.Number({ description: "For wait duration: how long to wait." }),
+	),
+	timeoutMs: Type.Optional(
+		Type.Number({
+			description: "For wait: how long before giving up. Defaults to 10s.",
+		}),
 	),
 	keys: Type.Optional(
 		Type.String({
@@ -184,6 +242,21 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				);
 			}
 
+			if (kind === "wait") {
+				const built = buildCondition(params);
+				if ("error" in built) return refusal(name, kind, built.error);
+				const session = await registry.acquire(name);
+				const outcome = await session.waitFor(
+					built.condition,
+					params.timeoutMs,
+				);
+				return answer(
+					name,
+					kind,
+					`${renderWait(outcome)}\n\n${await pageView(session)}`,
+				);
+			}
+
 			if (kind === "press") {
 				if (!params.keys) {
 					return refusal(name, kind, "press needs keys, e.g. 'Ctrl+Enter'.");
@@ -273,6 +346,55 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			);
 		},
 	});
+}
+
+/** Turn the tool's flat parameters into a wait condition. */
+function buildCondition(params: {
+	for?: string;
+	selector?: string;
+	text?: string;
+	pattern?: string;
+	quietMs?: number;
+	ms?: number;
+}): { condition: WaitCondition } | { error: string } {
+	switch (params.for) {
+		case "selector":
+		case "gone":
+			if (!params.selector) {
+				return { error: `wait '${params.for}' needs a selector.` };
+			}
+			return {
+				condition: { kind: params.for, selector: params.selector },
+			};
+		case "text":
+			if (!params.text) return { error: "wait 'text' needs text." };
+			return { condition: { kind: "text", text: params.text } };
+		case "idle":
+			return {
+				condition: {
+					kind: "idle",
+					quietMs: params.quietMs ?? DEFAULT_QUIET_MS,
+				},
+			};
+		case "request":
+			if (!params.pattern) {
+				return { error: "wait 'request' needs a pattern, e.g. '*/api/*'." };
+			}
+			return { condition: { kind: "request", pattern: params.pattern } };
+		case "animations":
+			return { condition: { kind: "animations" } };
+		case "duration":
+			if (params.ms === undefined) {
+				return { error: "wait 'duration' needs ms." };
+			}
+			return { condition: { kind: "duration", ms: params.ms } };
+		default:
+			return {
+				error:
+					"wait needs a 'for': selector, gone, text, idle, request, " +
+					"animations or duration.",
+			};
+	}
 }
 
 /** Parameters a gesture might be given. */

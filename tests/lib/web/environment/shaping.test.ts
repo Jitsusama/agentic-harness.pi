@@ -49,26 +49,36 @@ describe("throttleProfile", () => {
 
 describe("matchesPattern", () => {
 	it("matches everything under a star", () => {
-		expect(matchesPattern("*", "http://a/b")).toBe(true);
+		expect(matchesPattern({ pattern: "*", url: "http://a/b" })).toBe(true);
 	});
 
 	it("matches a glob", () => {
-		expect(matchesPattern("*/api/*", "http://a/api/data")).toBe(true);
-		expect(matchesPattern("*.css", "http://a/style.css")).toBe(true);
+		expect(
+			matchesPattern({ pattern: "*/api/*", url: "http://a/api/data" }),
+		).toBe(true);
+		expect(
+			matchesPattern({ pattern: "*.css", url: "http://a/style.css" }),
+		).toBe(true);
 	});
 
 	it("matches a plain fragment, which is how people actually type", () => {
-		expect(matchesPattern("/api/data", "http://a/api/data?x=1")).toBe(true);
+		expect(
+			matchesPattern({ pattern: "/api/data", url: "http://a/api/data?x=1" }),
+		).toBe(true);
 	});
 
 	it("does not match what it should not", () => {
-		expect(matchesPattern("*.css", "http://a/script.js")).toBe(false);
+		expect(
+			matchesPattern({ pattern: "*.css", url: "http://a/script.js" }),
+		).toBe(false);
 	});
 
 	it("treats regex characters in a pattern as literal text", () => {
 		// A url is full of dots and question marks; a pattern that
 		// read them as regex would match far too much.
-		expect(matchesPattern("a.css", "http://x/aXcss")).toBe(false);
+		expect(matchesPattern({ pattern: "a.css", url: "http://x/aXcss" })).toBe(
+			false,
+		);
 	});
 });
 

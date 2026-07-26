@@ -78,6 +78,7 @@ import {
 	divergences,
 	type EmulationState,
 	ENVIRONMENT_PROBE,
+	matchesPattern,
 	mediaFeaturesOf,
 	mergeEmulation,
 	type NetworkRule,
@@ -94,6 +95,21 @@ import {
 	parseChords,
 	type TouchStep,
 } from "./input/index.js";
+import {
+	inFlight,
+	isIdle,
+	type WaitCondition,
+	type WaitOutcome,
+} from "./wait/index.js";
+
+/** How long a wait runs before it gives up and says so. */
+const DEFAULT_WAIT_MS = 10_000;
+
+/** How often a wait looks again. */
+const WAIT_POLL_MS = 100;
+
+/** Milliseconds in a second, where two clocks have to meet. */
+const MS_PER_SECOND = 1000;
 
 /**
  * Every key the driver knows how to send.
@@ -355,6 +371,18 @@ export class BrowserSession {
 	/** Whether the interceptor is currently attached. */
 	private intercepting = false;
 
+	/**
+	 * Wall seconds minus the protocol's monotonic seconds.
+	 *
+	 * The protocol's clock counts from when the browser started,
+	 * so it reads around 586,000 while ours reads 1.78 billion.
+	 * Comparing a recorded request against our own clock without
+	 * this correction does not merely give a wrong answer, it
+	 * gives a confidently idle one, because every request looks
+	 * like it finished aeons ago.
+	 */
+	private clockOffset?: number;
+
 	/** How dialogs get answered while nobody is watching. */
 	private dialogPolicy: DialogPolicy = DEFAULT_DIALOG_POLICY;
 
@@ -456,6 +484,12 @@ export class BrowserSession {
 	 */
 	private async listenForRequests(): Promise<void> {
 		this.cdp.on("Network.requestWillBeSent", (event) => {
+			// This is the one event carrying both clocks at once, which
+			// makes it the only place the offset between them can be
+			// learned rather than assumed.
+			if (event.wallTime !== undefined) {
+				this.clockOffset = event.wallTime - event.timestamp;
+			}
 			this.requestLog.apply({ kind: "sent", event });
 		});
 		this.cdp.on("Network.responseReceived", (event) => {
@@ -1288,6 +1322,166 @@ export class BrowserSession {
 	/** Whether the page believes it is being touched. */
 	get touchEmulated(): boolean {
 		return this.emulation.touch === true;
+	}
+
+	/**
+	 * Wait for the page to reach a state, and say what happened.
+	 *
+	 * The timeout is a real answer rather than an error. A page
+	 * that never reaches the state is the finding, so the outcome
+	 * carries what was true instead.
+	 */
+	async waitFor(
+		condition: WaitCondition,
+		timeoutMs: number = DEFAULT_WAIT_MS,
+	): Promise<WaitOutcome> {
+		await this.ready();
+		const startedAt = Date.now();
+		const waited = () => Date.now() - startedAt;
+
+		if (condition.kind === "duration") {
+			await new Promise((resolve) => setTimeout(resolve, condition.ms));
+			return { met: true, waitedMs: waited(), condition };
+		}
+
+		while (waited() < timeoutMs) {
+			const reached = await this.check(condition);
+			if (reached.met) {
+				return {
+					met: true,
+					waitedMs: waited(),
+					condition,
+					...(reached.detail === undefined ? {} : { detail: reached.detail }),
+				};
+			}
+			await new Promise((resolve) => setTimeout(resolve, WAIT_POLL_MS));
+		}
+
+		const missed = await this.check(condition);
+		return {
+			met: false,
+			waitedMs: waited(),
+			condition,
+			...(missed.saw === undefined ? {} : { saw: missed.saw }),
+		};
+	}
+
+	/**
+	 * Now, on the protocol's clock, so it can be compared with
+	 * what requests carry.
+	 *
+	 * Before any request has been seen there is no offset to
+	 * apply, but there are also no requests to compare against,
+	 * so the figure cannot mislead anyone.
+	 */
+	private protocolNow(): number {
+		return Date.now() / MS_PER_SECOND - (this.clockOffset ?? 0);
+	}
+
+	/** Look once: is the condition true right now? */
+	private async check(
+		condition: WaitCondition,
+	): Promise<{ met: boolean; detail?: string; saw?: string }> {
+		switch (condition.kind) {
+			case "selector":
+			case "gone": {
+				const found = await this.page.$(condition.selector).catch(() => null);
+				const present = found !== null;
+				if (found) await found.dispose();
+				const met = condition.kind === "selector" ? present : !present;
+				return {
+					met,
+					...(met
+						? {}
+						: {
+								saw: present
+									? "It is still there."
+									: "Nothing matches that selector.",
+							}),
+				};
+			}
+			case "text": {
+				const has = await this.page
+					.evaluate(
+						(needle: string) =>
+							(document.body?.innerText ?? "").includes(needle),
+						condition.text,
+					)
+					.catch(() => false);
+				return {
+					met: has,
+					...(has ? {} : { saw: "The page does not contain it." }),
+				};
+			}
+			case "idle": {
+				const requests = this.requests();
+				const met = isIdle(requests, condition.quietMs, this.protocolNow());
+				const busy = inFlight(requests);
+				return {
+					met,
+					...(met
+						? {}
+						: {
+								saw:
+									busy.length > 0
+										? `${busy.length} still in flight, including ` +
+											`${busy[0]?.url}.`
+										: "The page keeps starting new requests.",
+							}),
+				};
+			}
+			case "request": {
+				const matched = this.requests().filter(
+					(request) =>
+						matchesPattern({
+							pattern: condition.pattern,
+							url: request.url,
+						}) && request.state !== "pending",
+				);
+				const last = matched.at(-1);
+				if (!last) {
+					const pending = this.requests().filter((request) =>
+						matchesPattern({
+							pattern: condition.pattern,
+							url: request.url,
+						}),
+					);
+					return {
+						met: false,
+						saw:
+							pending.length > 0
+								? `${pending.length} matching, none finished yet.`
+								: "Nothing has requested it.",
+					};
+				}
+				return {
+					met: true,
+					detail:
+						last.state === "complete"
+							? `${last.method} ${last.url} answered ${last.status}.`
+							: `${last.method} ${last.url} ${last.state}: ${last.failure}.`,
+				};
+			}
+			case "animations": {
+				const running = await this.page
+					.evaluate(
+						() =>
+							document
+								.getAnimations()
+								.filter((animation) => animation.playState === "running")
+								.length,
+					)
+					.catch(() => 0);
+				return {
+					met: running === 0,
+					...(running === 0
+						? {}
+						: { saw: `${running} animations are still running.` }),
+				};
+			}
+			case "duration":
+				return { met: true };
+		}
 	}
 
 	/**
