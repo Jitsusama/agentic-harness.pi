@@ -33,12 +33,16 @@ export async function getDocContent(
 ): Promise<DocContent> {
 	const docs = google.docs({ version: "v1", auth });
 
-	// The includeTabsContent parameter is supported by the
-	// REST API but missing from the googleapis v140 types.
+	// `includeTabsContent` was missing from the googleapis v140 types
+	// and is present as of v173, so the cast that used to paper over
+	// it is gone. It was worse than unnecessary: `get` is overloaded,
+	// and Parameters<...>[0] selected the overload whose first
+	// argument is a response callback, which made this call resolve to
+	// void and every read of `doc.data` below an error.
 	const doc = await docs.documents.get({
 		documentId,
 		includeTabsContent: true,
-	} as Parameters<typeof docs.documents.get>[0]);
+	});
 
 	const title = doc.data.title || "Untitled";
 	const rawTabs = (doc.data as DocumentWithTabs).tabs;

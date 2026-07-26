@@ -2,7 +2,7 @@
  * Render tool result display for Google Workspace actions.
  */
 
-import type { Theme } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
 interface RenderOptions {
@@ -35,25 +35,36 @@ interface ResultDetails {
 	nextPageToken?: string;
 }
 
-interface ResultContent {
-	text?: string;
+/**
+ * A result as pi hands it to a renderer.
+ *
+ * Blocks are text or image, and only text carries text, so the
+ * first block is narrowed rather than read for a field it may not
+ * have. This used to describe every block as optionally having
+ * text, which typechecked against nothing pi actually passes.
+ */
+interface RenderableResult {
+	content?: readonly ({ type: "text"; text: string } | { type: string })[];
+	details?: unknown;
 }
 
-interface ToolResult {
-	content?: ResultContent[];
-	details?: unknown;
+/** The text of a result's first block, when it has one. */
+function leadingText(result: RenderableResult): string {
+	const first = result.content?.[0];
+	if (first === undefined || first.type !== "text") return "";
+	return (first as { type: "text"; text: string }).text;
 }
 
 /**
  * Render a Google Workspace tool result with action-specific formatting.
  */
 export function renderGoogleResult(
-	result: ToolResult,
+	result: RenderableResult,
 	options: RenderOptions,
 	theme: Theme,
 ): Text {
 	const d = result.details as ResultDetails | undefined;
-	const textContent = result.content?.[0]?.text || "";
+	const textContent = leadingText(result);
 
 	// We check for errors.
 	if (

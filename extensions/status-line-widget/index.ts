@@ -18,7 +18,7 @@
 
 import * as path from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { getPanelHeightGlyph } from "../../lib/ui/panel-height.js";
 
@@ -86,7 +86,7 @@ interface FooterData {
 function buildCandidate(
 	d: FooterData,
 	level: number,
-	theme: { fg: (color: string, text: string) => string },
+	theme: { fg: (color: ThemeColor, text: string) => string },
 ): { left: string[]; right: string[] } {
 	// Degradation flags
 	const useShortDir = level >= 1;

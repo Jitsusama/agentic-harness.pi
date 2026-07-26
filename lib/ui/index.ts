@@ -21,6 +21,11 @@ export {
 export {
 	type CodeRenderOptions,
 	languageFromPath,
+	// The companion to `CodeRenderOptions.preHighlighted`: a caller
+	// that highlights once and renders repeatedly needs this to
+	// produce the lines the option takes, so leaving it out of the
+	// barrel made that option unusable from outside.
+	preHighlightCode,
 	renderCode,
 	renderDiff,
 	renderMarkdown,

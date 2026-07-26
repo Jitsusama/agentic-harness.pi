@@ -23,10 +23,16 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
  * opt in through the one sanctioned mutation site (register.ts)
  * rather than touching event.input.command directly.
  */
-export type GuardianResult =
-	| undefined
-	| { block: true; reason: string }
-	| { rewrite: string };
+export type GuardianResult = undefined | GuardianBlock | { rewrite: string };
+
+/**
+ * A refusal, named so a function that can only refuse can say so.
+ *
+ * Returning the whole union from something that never rewrites made
+ * the rewrite variant leak into pi's tool-call result, which accepts
+ * a block and nothing else.
+ */
+export type GuardianBlock = { block: true; reason: string };
 
 /** Allow the command as-is. Named constant for self-documenting returns. */
 export const ALLOW: GuardianResult = undefined;

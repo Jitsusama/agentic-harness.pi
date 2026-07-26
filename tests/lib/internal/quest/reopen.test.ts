@@ -100,7 +100,7 @@ describe("resolveSpawnCwd", () => {
 			// A recorded tree path that no longer exists: resolution
 			// heals past it, and nothing else resolves, so it lands on the
 			// quest dir but must still report that a stale record was met.
-			trees: [{ path: "/gone" }],
+			trees: [{ path: "/gone", providerId: "git-worktree" }],
 			sessions: [],
 			exists: none,
 		});

@@ -8,7 +8,7 @@ import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
 } from "../../../lib/refs/index";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 
@@ -93,9 +93,8 @@ describe("reparent verb", () => {
 			id: child.id,
 			parent: parent.id,
 		});
-		expect(result.ok).toBe(true);
 		expect(parentOf(child.id)).toBe(parent.id);
-		const details = result.details as {
+		const details = succeeded(result).details as {
 			changes: { id: string; newParent: string | null }[];
 		};
 		expect(details.changes).toEqual([
@@ -117,7 +116,7 @@ describe("reparent verb", () => {
 		expect(result.ok).toBe(true);
 		// Nothing written: the child stays top-level.
 		expect(parentOf(child.id)).toBe("null");
-		const details = result.details as { dryRun: boolean };
+		const details = succeeded(result).details as { dryRun: boolean };
 		expect(details.dryRun).toBe(true);
 	});
 
@@ -183,8 +182,7 @@ describe("reparent verb", () => {
 			id: `${child.id},QEST-20260604-GONE99`,
 			parent: parent.id,
 		});
-		expect(result.ok).toBe(false);
-		expect(result.guidance).toMatch(/GONE99/);
+		expect(refused(result).guidance).toMatch(/GONE99/);
 		// The valid target was not moved: the batch is atomic.
 		expect(parentOf(child.id)).toBe("null");
 	});
@@ -220,8 +218,7 @@ describe("reparent verb", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
 		});
-		expect(result.ok).toBe(false);
-		expect(result.guidance).toMatch(/nothing to undo/i);
+		expect(refused(result).guidance).toMatch(/nothing to undo/i);
 	});
 
 	it("refuses undo when nothing has been done", async () => {
@@ -230,8 +227,7 @@ describe("reparent verb", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
 		});
-		expect(result.ok).toBe(false);
-		expect(result.guidance).toMatch(/nothing to undo/i);
+		expect(refused(result).guidance).toMatch(/nothing to undo/i);
 	});
 
 	it("bulk retires a comma-separated set and is undoable", async () => {
@@ -425,8 +421,7 @@ describe("reparent verb", () => {
 			action: "retire",
 			id: `${a.id},${b.id}`,
 		});
-		expect(result.ok).toBe(false);
-		expect(result.guidance).toMatch(/reason/i);
+		expect(refused(result).guidance).toMatch(/reason/i);
 	});
 
 	it("bulk refuses the whole set when a target is missing", async () => {
@@ -436,8 +431,7 @@ describe("reparent verb", () => {
 			action: "conclude",
 			id: `${a.id},QEST-20260604-GONE99`,
 		});
-		expect(result.ok).toBe(false);
-		expect(result.guidance).toMatch(/GONE99/);
+		expect(refused(result).guidance).toMatch(/GONE99/);
 		expect(statusOf(a.id)).toBe("active");
 	});
 
@@ -459,9 +453,8 @@ describe("reparent verb", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
 		});
-		expect(result.ok).toBe(true);
 		expect(parentOf(child.id)).toBe(other.id);
-		const details = result.details as { skipped: string[] };
+		const details = succeeded(result).details as { skipped: string[] };
 		expect(details.skipped).toContain(child.id);
 	});
 

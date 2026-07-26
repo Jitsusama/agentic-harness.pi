@@ -13,7 +13,9 @@ import { createEnvGuard } from "./_helpers";
 
 let tmpRoot: string;
 let savedHome: string | undefined;
-let spawned: { command: string; cwd: string } | undefined;
+// `cwd` mirrors the request, where it is optional: a driver may be
+// asked to spawn without one and inherit the caller's directory.
+let spawned: { command: string; cwd: string | undefined } | undefined;
 
 function fakePi() {
 	return { setSessionName: () => {} } as unknown as Parameters<

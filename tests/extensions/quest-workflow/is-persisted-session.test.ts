@@ -1,9 +1,9 @@
-import type { ToolContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { isPersistedSession } from "../../../extensions/quest-workflow/verbs/shared";
 
-const ctx = (sessionManager: unknown): ToolContext =>
-	({ sessionManager }) as unknown as ToolContext;
+const ctx = (sessionManager: unknown): ExtensionContext =>
+	({ sessionManager }) as unknown as ExtensionContext;
 
 describe("isPersistedSession", () => {
 	it("is true when the accessor reports a persisted session", () => {

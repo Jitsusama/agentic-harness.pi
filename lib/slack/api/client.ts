@@ -76,6 +76,24 @@ export interface SlackApiResponse {
  *   - OAuth user tokens (xoxp-): token sent in body, no cookie
  *   - Browser session tokens (xoxc-): token in body + cookie in header
  */
+/**
+ * The bytes of a buffer, in a form fetch will take.
+ *
+ * A Node Buffer is not one of the byte-array types the fetch body
+ * accepts, and a plain view over its memory is not either: a typed
+ * array now carries the kind of buffer it sits on, and a Buffer's is
+ * only known to be array-buffer-like. The common case, a buffer
+ * backed by an ordinary ArrayBuffer, is passed without copying; the
+ * shared-memory case, which an uploaded file is never on, copies
+ * rather than refuses.
+ */
+function uploadable(body: Buffer): Uint8Array<ArrayBuffer> {
+	const backing = body.buffer;
+	return backing instanceof ArrayBuffer
+		? new Uint8Array(backing, body.byteOffset, body.byteLength)
+		: new Uint8Array(body);
+}
+
 export class SlackClient {
 	constructor(
 		private readonly token: string,
@@ -269,6 +287,8 @@ export class SlackClient {
 	 * when using browser tokens so auth stays encapsulated.
 	 */
 	async upload(url: string, body: Buffer, signal?: AbortSignal): Promise<void> {
+		// See `uploadable`: a Node Buffer is not one of the byte-array
+		// types fetch accepts.
 		const headers: Record<string, string> = {
 			"Content-Type": "application/octet-stream",
 		};
@@ -279,7 +299,7 @@ export class SlackClient {
 		const response = await fetch(url, {
 			method: "POST",
 			headers,
-			body,
+			body: uploadable(body),
 			signal,
 		});
 

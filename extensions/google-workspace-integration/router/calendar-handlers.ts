@@ -121,8 +121,12 @@ export async function handleCreateEvent(
 		};
 	}
 
+	// Declared out here because the failure path below quotes the
+	// times back. Inside the try it was out of scope in the catch, so
+	// the message meant to explain the failure would itself have
+	// thrown, turning a reportable error into a crash.
+	const eventData = confirmResult.data;
 	try {
-		const eventData = confirmResult.data;
 		const event = await createEvent(auth, {
 			summary: eventData.summary,
 			start: eventData.start,
@@ -179,14 +183,23 @@ export async function handleUpdateEvent(
 
 	// We confirm if it has attendees.
 	if (hasAttendees) {
-		const confirmResult = await confirmUpdateEvent(ctx, eventId, existing, {
-			summary,
-			start,
-			end,
-			description,
-			location,
-			attendees,
-		});
+		// The gate describes an event to a person, so it takes attendees
+		// as the addresses it will show. The API returns them as records
+		// carrying a response status and a display name, and the two are
+		// not the same type however alike they read.
+		const confirmResult = await confirmUpdateEvent(
+			ctx,
+			eventId,
+			{
+				summary: existing.summary,
+				start: existing.start,
+				end: existing.end,
+				description: existing.description,
+				location: existing.location,
+				attendees: existing.attendees?.map((a) => a.email),
+			},
+			{ summary, start, end, description, location, attendees },
+		);
 
 		if (!confirmResult) {
 			return {

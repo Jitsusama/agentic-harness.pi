@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { ToolContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
@@ -84,7 +84,7 @@ export function stageTransition(
 	state: QuestState,
 	action: TransitionAction,
 	params: QuestToolParams,
-	_ctx: ToolContext,
+	_ctx: ExtensionContext,
 ): QuestResult {
 	if (!state.questDir) {
 		return refuse(
@@ -375,7 +375,7 @@ function concludeDocumentById(
 	state: QuestState,
 	action: "conclude" | "retire",
 	params: QuestToolParams,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 	id: string,
 	subdir: string,
 ): QuestResult {
@@ -414,7 +414,7 @@ export async function concludeOrRetire(
 	state: QuestState,
 	action: "conclude" | "retire",
 	params: QuestToolParams,
-	ctx: ToolContext,
+	ctx: ExtensionContext,
 ): Promise<QuestResult> {
 	// An explicit id targets that id rather than the loaded quest, so
 	// naming an id never silently falls through to the loaded quest.

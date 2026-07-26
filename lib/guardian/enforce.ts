@@ -9,14 +9,14 @@
  */
 
 import { tokenize } from "../command/index.js";
-import type { GuardianResult } from "./types.js";
+import type { GuardianBlock } from "./types.js";
 
 /**
  * Block a command whose shape is outside the supported grammar,
  * with a reason that asks for a simpler form. Returns undefined
  * (allow) for a supported shape.
  */
-export function blockIfUnsupported(command: string): GuardianResult {
+export function blockIfUnsupported(command: string): GuardianBlock | undefined {
 	const line = tokenize(command);
 	if (line.supported) return undefined;
 	return {

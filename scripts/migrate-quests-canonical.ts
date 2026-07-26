@@ -206,6 +206,26 @@ function summarizeDocMoves(plan: DocPlan): string {
 	return lines.join("\n");
 }
 
+/**
+ * Where the quests live when `--root` says nothing.
+ *
+ * The extension resolves this from the data directory pi hands it,
+ * which a standalone script has no access to, so the documented
+ * default is spelled out here. The call existed with nothing behind
+ * it, which is why `homedir` and `join` were imported and unused.
+ */
+function defaultQuestsRoot(): string {
+	return join(
+		homedir(),
+		".local",
+		"share",
+		"pi",
+		"agentic-harness.pi",
+		"quest-workflow",
+		"quests",
+	);
+}
+
 function main(): void {
 	const args = process.argv.slice(2);
 	const dryRun = args.includes("--dry-run");

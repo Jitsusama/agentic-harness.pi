@@ -8,7 +8,7 @@
  */
 
 import { StringEnum } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
@@ -106,7 +106,7 @@ const MAX_PREVIEWS = 5;
 /** Render message previews with resolved usernames for collapsed view. */
 function renderMessagePreviews(
 	msgs: MessagePreview[],
-	theme: { fg: (color: string, text: string) => string },
+	theme: { fg: (color: ThemeColor, text: string) => string },
 ): string {
 	const shown = msgs.slice(0, MAX_PREVIEWS);
 	const lines = shown.map((m) => {
@@ -170,6 +170,9 @@ const ENV_OAUTH_CONFIG: OAuthApp = {
 /** Session history key for persisting Slack identity. */
 const SESSION_KEY = "slack-identity";
 
+/** Names the injected identity note, so pi can tell it from prose. */
+const IDENTITY_CONTEXT_TYPE = "slack-integration-identity";
+
 export default function slackIntegration(pi: ExtensionAPI) {
 	/** Cached authenticated client. */
 	let cachedClient: SlackClient | null = null;
@@ -222,17 +225,21 @@ export default function slackIntegration(pi: ExtensionAPI) {
 	});
 
 	// Inject identity into agent context when known.
+	//
+	// Written against an older shape that took a list of content
+	// blocks. The hook now takes one custom message, which is what
+	// every other context injection in this package returns, so this
+	// says the same thing the way the rest of them do.
 	pi.on("before_agent_start", async () => {
-		if (!session.userHandle) return;
+		if (!session.userHandle) return undefined;
 		return {
-			messages: [
-				{
-					type: "text" as const,
-					text:
-						`The authenticated Slack user is @${session.userHandle}` +
-						` (${session.userId}). Use this handle for from: queries.`,
-				},
-			],
+			message: {
+				customType: IDENTITY_CONTEXT_TYPE,
+				content:
+					`The authenticated Slack user is @${session.userHandle}` +
+					` (${session.userId}). Use this handle for from: queries.`,
+				display: false,
+			},
 		};
 	});
 
@@ -458,6 +465,10 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		}),
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			// Pi wants `details` present on every result; the routers treat
+			// it as optional, since most actions have nothing structured to
+			// attach. Reconciled here at the one seam between them rather
+			// than at the fifty-odd places a result is built.
 			try {
 				const client = await getClient(ctx);
 				const result = await routeAction(
@@ -470,7 +481,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				if (params.action === "get_user") {
 					captureIdentityIfSelf(result);
 				}
-				return result;
+				return { content: result.content, details: result.details };
 			} catch (error) {
 				// Auth and setup errors need human action, so format
 				// them as tool output. All other errors (API failures,
@@ -484,6 +495,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 								text: formatAuthError(error),
 							},
 						],
+						details: undefined,
 					};
 				}
 				throw error;
@@ -561,7 +573,11 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		},
 
 		renderResult(result, options, theme) {
-			const textContent = result.content?.[0]?.text || "";
+			// A result's first block is text for every Slack action, but the
+			// type allows an image, and an image has no text to read.
+			const first = result.content?.[0];
+			const textContent =
+				first !== undefined && first.type === "text" ? first.text : "";
 			const d = result.details as Record<string, unknown> | undefined;
 
 			// Errors

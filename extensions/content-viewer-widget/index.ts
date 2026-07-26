@@ -132,7 +132,7 @@ export default function contentViewer(pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const filePath = args?.trim();
 			if (!filePath) {
-				ctx.ui.notify("Usage: /view <file-path>", "warn");
+				ctx.ui.notify("Usage: /view <file-path>", "warning");
 				return;
 			}
 
@@ -142,7 +142,7 @@ export default function contentViewer(pi: ExtensionAPI) {
 				content = fs.readFileSync(resolved, "utf-8");
 			} catch (err: unknown) {
 				const msg = err instanceof Error ? err.message : String(err);
-				ctx.ui.notify(`Cannot read file: ${msg}`, "warn");
+				ctx.ui.notify(`Cannot read file: ${msg}`, "warning");
 				return;
 			}
 
