@@ -393,14 +393,33 @@ function buildCondition(params: {
 	quietMs?: number;
 	ms?: number;
 }): { condition: WaitCondition } | { error: string } {
-	switch (params.for) {
+	// Zero ceremony, the same rule the rest of this family follows:
+	// when the arguments already say what is meant, naming the kind
+	// as well is a toll. `ms: 500` is a duration and nothing else,
+	// and `pattern` is a request; refusing those asked the caller
+	// to repeat themselves.
+	const inferred =
+		params.for ??
+		(params.selector !== undefined
+			? "selector"
+			: params.text !== undefined
+				? "text"
+				: params.pattern !== undefined
+					? "request"
+					: params.quietMs !== undefined
+						? "idle"
+						: params.ms !== undefined
+							? "duration"
+							: undefined);
+
+	switch (inferred) {
 		case "selector":
 		case "gone":
 			if (!params.selector) {
-				return { error: `wait '${params.for}' needs a selector.` };
+				return { error: `wait '${inferred}' needs a selector.` };
 			}
 			return {
-				condition: { kind: params.for, selector: params.selector },
+				condition: { kind: inferred, selector: params.selector },
 			};
 		case "text":
 			if (!params.text) return { error: "wait 'text' needs text." };
