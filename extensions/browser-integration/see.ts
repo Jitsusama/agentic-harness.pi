@@ -31,6 +31,7 @@ import type {
 	Shot,
 } from "../../lib/web/session.js";
 import { describeRefusal, parseTarget } from "../../lib/web/target/index.js";
+import { renderLogs } from "../../lib/web/telemetry/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
 
@@ -101,6 +102,7 @@ const parameters = Type.Object({
 				Type.Literal("page"),
 				Type.Literal("reading"),
 				Type.Literal("announcements"),
+				Type.Literal("logs"),
 				Type.Literal("element"),
 				Type.Literal("shot"),
 			],
@@ -108,7 +110,8 @@ const parameters = Type.Object({
 				description:
 					"page: the accessibility outline of what is on screen, " +
 					"the default. reading: the same page narrated the way a " +
-					"screen reader would say it. announcements: what the page " +
+					"screen reader would say it. logs: what the page said, " +
+					"threw, or had refused for it. announcements: what the page " +
 					"said out loud through its live regions. element: " +
 					"everything about one element, named with 'within'. " +
 					"shot: a picture, written to disk and reported by path.",
@@ -190,11 +193,19 @@ const parameters = Type.Object({
 			description: "Keep this many levels of the outline. Omit for all of it.",
 		}),
 	),
+	level: Type.Optional(
+		Type.String({
+			description:
+				"For logs: keep only this level, in the browser's own " +
+				"vocabulary (error, warning, info, log, debug).",
+		}),
+	),
 	since: Type.Optional(
 		Type.Integer({
 			minimum: 0,
 			description:
-				"For announcements: read only what arrived after this " +
+				"For logs and announcements: read only what arrived after " +
+				"this " +
 				"cursor, which the previous read returned.",
 		}),
 	),
@@ -244,6 +255,19 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				);
 			}
 			const session = await registry.acquire(name);
+
+			if (kind === "logs") {
+				const captured = session.logs(params.since);
+				const wanted = params.level
+					? {
+							...captured,
+							entries: captured.entries.filter(
+								({ item }) => item.level === params.level,
+							),
+						}
+					: captured;
+				return answer(name, kind, renderLogs(wanted));
+			}
 
 			if (kind === "announcements") {
 				const { entries, cursor, dropped } = await session.heard(

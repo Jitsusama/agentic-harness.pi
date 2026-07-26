@@ -86,7 +86,13 @@ import {
 	type TargetRefusal,
 } from "./target/index.js";
 import {
+	type BrowserLogged,
+	browserEntry,
+	type ConsoleCalled,
+	consoleEntry,
 	createRingBuffer,
+	exceptionEntry,
+	type LogEntry,
 	type Recorded,
 	type RingBuffer,
 } from "./telemetry/index.js";
@@ -262,6 +268,9 @@ export class BrowserSession {
 	/** Where this session's images are written, made on demand. */
 	private bundle?: BundleSink;
 
+	/** Everything the page has said since it opened. */
+	private readonly logBuffer = createRingBuffer<LogEntry>();
+
 	/** How many pictures have been taken, so none overwrites another. */
 	private shots = 0;
 
@@ -299,6 +308,7 @@ export class BrowserSession {
 			await cdp.send("CSS.enable");
 			const session = new BrowserSession(name, page, cdp, context, options);
 			await session.listenForAnnouncements();
+			await session.listenForLogs();
 			return session;
 		} catch (err) {
 			// Do not leak the context if the CDP channel could not be
@@ -306,6 +316,54 @@ export class BrowserSession {
 			await context.close().catch(() => {});
 			throw err;
 		}
+	}
+
+	/**
+	 * Listen for everything the page says, from the moment it
+	 * opens.
+	 *
+	 * Three sources, because no one of them is complete. The
+	 * console is what the page chose to say; exceptions are what
+	 * it did not choose; and the browser's own log carries what
+	 * the page never hears at all, a resource that failed to load
+	 * or a request the browser refused.
+	 */
+	private async listenForLogs(): Promise<void> {
+		this.cdp.on("Runtime.consoleAPICalled", (event) => {
+			this.logBuffer.push(consoleEntry(event as ConsoleCalled));
+		});
+		this.cdp.on("Runtime.exceptionThrown", (event) => {
+			this.logBuffer.push(
+				exceptionEntry(event.exceptionDetails, event.timestamp),
+			);
+		});
+		this.cdp.on("Log.entryAdded", (event) => {
+			const logged = event as { entry: BrowserLogged };
+			this.logBuffer.push(browserEntry(logged.entry));
+		});
+		await this.cdp.send("Runtime.enable");
+		await this.cdp.send("Log.enable");
+	}
+
+	/**
+	 * What the page has said, from a cursor onward.
+	 *
+	 * The buffer survives navigation on purpose: a message logged
+	 * just before a redirect is often the one that explains it.
+	 */
+	logs(since?: number): {
+		readonly entries: readonly Recorded<LogEntry>[];
+		readonly dropped: number;
+		readonly cursor: number;
+	} {
+		return {
+			entries:
+				since === undefined
+					? this.logBuffer.all()
+					: this.logBuffer.since(since),
+			dropped: this.logBuffer.dropped,
+			cursor: this.logBuffer.cursor,
+		};
 	}
 
 	/** Navigate the tab to a URL and wait for the network to settle. */

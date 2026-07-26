@@ -12,3 +12,19 @@ export {
 	type Recorded,
 	type RingBuffer,
 } from "./buffer.js";
+export {
+	type BrowserLogged,
+	browserEntry,
+	type CallFrame,
+	type ConsoleCalled,
+	consoleEntry,
+	consoleText,
+	type ExceptionThrown,
+	exceptionEntry,
+	type LogEntry,
+	type RemoteArg,
+	type RemotePreview,
+	type RemotePreviewProperty,
+	renderArg,
+} from "./console.js";
+export { type Captured, renderLogs } from "./view.js";
