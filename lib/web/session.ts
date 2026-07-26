@@ -536,6 +536,9 @@ export class BrowserSession {
 		private readonly options: SessionOptions,
 	) {}
 
+	/** Wall clock time of the last operation. See ready(). */
+	private usedAt = Date.now();
+
 	/**
 	 * Open a fresh session in a browser context of its own, so
 	 * its cookies, storage and cache belong to it alone.
@@ -1102,7 +1105,19 @@ export class BrowserSession {
 	 * hanging on a renderer that is never coming back.
 	 */
 	private async ready(): Promise<void> {
+		// Every operation passes through here, which makes it the one
+		// honest place to record that the session is being used. The
+		// registry reaps on idleness, and it used to measure that
+		// from when a call started rather than from the last thing
+		// the session did, so a health sweep or a long wait could
+		// have the browser closed out from under it mid-call.
+		this.usedAt = Date.now();
 		if (this.recovery) await this.recovery;
+	}
+
+	/** When this session last did anything, for the idle reaper. */
+	get lastUsedAt(): number {
+		return this.usedAt;
 	}
 
 	/**
@@ -1165,15 +1180,6 @@ export class BrowserSession {
 	}
 
 	/**
-	 * Pretend to be a different visitor, then report what the page
-	 * actually experiences.
-	 *
-	 * The intent is kept whole and re-applied in full, because
-	 * Chrome's media emulation forgets anything a call omits, so
-	 * asking for reduced motion after asking for dark mode would
-	 * otherwise turn the dark mode back off.
-	 */
-	/**
 	 * Put the emulation back exactly as it was.
 	 *
 	 * emulate merges, which is right for a caller adding one
@@ -1188,6 +1194,15 @@ export class BrowserSession {
 		await this.applyEmulation();
 	}
 
+	/**
+	 * Pretend to be a different visitor, then report what the page
+	 * actually experiences.
+	 *
+	 * The intent is kept whole and re-applied in full, because
+	 * Chrome's media emulation forgets anything a call omits, so
+	 * asking for reduced motion after asking for dark mode would
+	 * otherwise turn the dark mode back off.
+	 */
 	async emulate(change: EmulationState = {}): Promise<{
 		asked: EmulationState;
 		observed: ObservedEnvironment;
@@ -1235,17 +1250,26 @@ export class BrowserSession {
 			rate: state.cpuThrottle ?? 1,
 		});
 
-		if (state.timezone !== undefined) {
-			await this.cdp.send("Emulation.setTimezoneOverride", {
-				timezoneId: state.timezone,
-			});
-		}
-		if (state.locale !== undefined) {
-			await this.cdp.send("Emulation.setLocaleOverride", {
-				locale: state.locale,
-			});
-		}
-		if (state.geolocation !== undefined) {
+		// These three are sent whatever their state, because an
+		// override with no arguments is how the protocol clears one.
+		// Guarding them on being defined meant nothing could ever
+		// take them off again: a session that emulated Tokyo once
+		// stayed in Tokyo for its life, quietly recolouring every
+		// later reading, while restoreEmulation's own doc promised it
+		// replaced the state wholesale.
+		await this.cdp.send(
+			"Emulation.setTimezoneOverride",
+			state.timezone === undefined
+				? { timezoneId: "" }
+				: { timezoneId: state.timezone },
+		);
+		await this.cdp.send(
+			"Emulation.setLocaleOverride",
+			state.locale === undefined ? {} : { locale: state.locale },
+		);
+		if (state.geolocation === undefined) {
+			await this.cdp.send("Emulation.clearGeolocationOverride");
+		} else {
 			await this.cdp.send("Emulation.setGeolocationOverride", {
 				latitude: state.geolocation.latitude,
 				longitude: state.geolocation.longitude,
@@ -1392,13 +1416,25 @@ export class BrowserSession {
 	> {
 		try {
 			await this.grantClipboard();
-			const { result } = await this.cdp.send("Runtime.evaluate", {
+			const response = await this.cdp.send("Runtime.evaluate", {
 				expression: "navigator.clipboard.readText()",
 				awaitPromise: true,
 				userGesture: true,
 				returnByValue: true,
 			});
-			return { ok: true, text: String(result.value ?? "") };
+			// Runtime.evaluate resolves with exceptionDetails rather
+			// than rejecting, so a refused permission arrived here as
+			// an undefined value and was reported as an empty
+			// clipboard. "Nothing is on the clipboard" and "the page
+			// would not let us look" are different answers, and only
+			// one of them is about the page.
+			if (response.exceptionDetails) {
+				return {
+					ok: false,
+					why: describeThrow(response.exceptionDetails).message,
+				};
+			}
+			return { ok: true, text: String(response.result.value ?? "") };
 		} catch (err) {
 			return { ok: false, why: String(err) };
 		}
@@ -1408,11 +1444,17 @@ export class BrowserSession {
 	async writeClipboard(text: string): Promise<void> {
 		await this.ready();
 		await this.grantClipboard();
-		await this.cdp.send("Runtime.evaluate", {
+		const response = await this.cdp.send("Runtime.evaluate", {
 			expression: `navigator.clipboard.writeText(${JSON.stringify(text)})`,
 			awaitPromise: true,
 			userGesture: true,
 		});
+		// This inspected nothing at all, so a refused write was
+		// reported to the caller as a success.
+		if (response.exceptionDetails) {
+			const threw = describeThrow(response.exceptionDetails);
+			throw new Error(`Could not write the clipboard: ${threw.message}`);
+		}
 	}
 
 	/** Ask for clipboard access against this context. */
@@ -1547,9 +1589,21 @@ export class BrowserSession {
 			for (const modifier of chord.modifiers) {
 				await this.page.keyboard.down(modifier);
 			}
-			await this.page.keyboard.press(chord.key as KeyInput);
-			for (const modifier of [...chord.modifiers].reverse()) {
-				await this.page.keyboard.up(modifier);
+			try {
+				await this.page.keyboard.press(chord.key as KeyInput);
+			} finally {
+				// Whatever the key press did, the modifiers come back up.
+				// A chord that threw mid-press used to leave Control or
+				// Meta logically held for the life of a session that is
+				// long lived by design, so every later click became a
+				// modified click and the symptom appeared calls away
+				// from the cause.
+				for (const modifier of [...chord.modifiers].reverse()) {
+					await this.page.keyboard.up(modifier).catch(() => {
+						// The page may be gone; there is no key state left
+						// to corrupt if it is.
+					});
+				}
 			}
 			pressed.push([...chord.modifiers, chord.key].join("+"));
 		}
@@ -1830,6 +1884,11 @@ export class BrowserSession {
 	 * both, and every structural rule needs both.
 	 */
 	async structure(): Promise<readonly StructureNode[]> {
+		// Every sibling read waits out a crash recovery first, and
+		// this one did not. Promise.all evaluates this.cdp.send when
+		// the array is built, so a call landing during recovery sent
+		// getFullAXTree down the channel recover() was replacing.
+		await this.ready();
 		const [nodes, tree] = await Promise.all([
 			this.snapshot(),
 			this.cdp.send("Accessibility.getFullAXTree") as Promise<{
@@ -1989,8 +2048,17 @@ export class BrowserSession {
 			return { met: true, waitedMs: waited(), condition };
 		}
 
+		// Where the request log stood when the wait began. Waiting
+		// for a request used to search the whole session's log, which
+		// is never cleared, so the second lap of an observe-act-wait
+		// loop was satisfied instantly by the previous lap's response
+		// and reported its old status. That is a green wait in the
+		// log hiding a race, which is the most expensive shape of
+		// test defect to chase.
+		const since = this.protocolNow();
+
 		while (waited() < timeoutMs) {
-			const reached = await this.check(condition);
+			const reached = await this.check(condition, since);
 			if (reached.met) {
 				return {
 					met: true,
@@ -2026,11 +2094,30 @@ export class BrowserSession {
 	/** Look once: is the condition true right now? */
 	private async check(
 		condition: WaitCondition,
+		/**
+		 * Protocol time the wait began. A request that finished
+		 * before this belongs to an earlier lap and cannot satisfy
+		 * the condition.
+		 */
+		since?: number,
 	): Promise<{ met: boolean; detail?: string; saw?: string }> {
 		switch (condition.kind) {
 			case "selector":
 			case "gone": {
-				const found = await this.page.$(condition.selector).catch(() => null);
+				// A probe that could not run is not an absent element. A
+				// detached frame or a dead renderer used to come back as
+				// null, which satisfied kind "gone" outright, so the wait
+				// succeeded precisely when the page was broken and the
+				// real failure surfaced several calls later.
+				let found: ElementHandle | null;
+				try {
+					found = await this.page.$(condition.selector);
+				} catch (error) {
+					return {
+						met: false,
+						saw: `The page could not be asked: ${String(error)}`,
+					};
+				}
 				const present = found !== null;
 				if (found) await found.dispose();
 				const met = condition.kind === "selector" ? present : !present;
@@ -2076,7 +2163,10 @@ export class BrowserSession {
 				};
 			}
 			case "request": {
-				const matched = this.requests().filter(
+				const fresh = this.requests().filter(
+					(request) => since === undefined || request.startedAt >= since,
+				);
+				const matched = fresh.filter(
 					(request) =>
 						matchesPattern({
 							pattern: condition.pattern,
@@ -2085,7 +2175,7 @@ export class BrowserSession {
 				);
 				const last = matched.at(-1);
 				if (!last) {
-					const pending = this.requests().filter((request) =>
+					const pending = fresh.filter((request) =>
 						matchesPattern({
 							pattern: condition.pattern,
 							url: request.url,
@@ -2108,15 +2198,24 @@ export class BrowserSession {
 				};
 			}
 			case "animations": {
-				const running = await this.page
-					.evaluate(
+				// Catching to zero declared the animations settled
+				// whenever the probe itself failed, which is the same
+				// false pass as the selector arm above.
+				let running: number;
+				try {
+					running = await this.page.evaluate(
 						() =>
 							document
 								.getAnimations()
 								.filter((animation) => animation.playState === "running")
 								.length,
-					)
-					.catch(() => 0);
+					);
+				} catch (error) {
+					return {
+						met: false,
+						saw: `The page could not be asked: ${String(error)}`,
+					};
+				}
 				return {
 					met: running === 0,
 					...(running === 0

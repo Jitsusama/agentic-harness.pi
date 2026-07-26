@@ -4,6 +4,10 @@
  * A session is a live browser under a caller-chosen name. It
  * disposes after an idle stretch and again at shutdown, so a
  * conversation that wanders off does not leak a browser.
+ *
+ * Idle is measured from the last thing the session did, not from
+ * when the last call started, so a long-running call is never
+ * reaped underneath itself.
  */
 
 import { closeBrowser } from "../../lib/web/browser.js";
@@ -44,8 +48,28 @@ export function createSessionRegistry(): SessionRegistry {
 	const touch = (name: string, held: Held): void => {
 		clearTimeout(held.idle);
 		held.idle = setTimeout(() => {
-			sessions.delete(name);
-			void held.opening.then((session) => session.close()).catch(() => {});
+			// Idle means the session has done nothing, not that a call
+			// started a while ago. The timer used to be set only when a
+			// call began, so anything running longer than the timeout
+			// (a health sweep across four widths, an uncapped wait) had
+			// its browser closed out from under it, and the cleanup
+			// that followed then failed against a dead session and
+			// masked whichever error actually happened.
+			void held.opening
+				.then(async (session) => {
+					const quietFor = Date.now() - session.lastUsedAt;
+					if (quietFor < IDLE_TIMEOUT_MS) {
+						touch(name, held);
+						return;
+					}
+					sessions.delete(name);
+					await session.close();
+				})
+				.catch(() => {
+					// A session that never opened, or one already closed:
+					// either way there is nothing left to reap.
+					sessions.delete(name);
+				});
 		}, IDLE_TIMEOUT_MS);
 		held.idle.unref?.();
 	};
