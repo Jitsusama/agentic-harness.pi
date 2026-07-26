@@ -32,7 +32,13 @@ import type { RunPiResult } from "../../../../lib/subagent/subagent.js";
 // and then wedges, which is what CI looked like, no longer costs
 // the caller anything, and the test below reproduces that shape
 // deliberately.
-vi.setConfig({ testTimeout: 60_000 });
+// The timeout ladder matters more than any rung on it. The
+// supervisor gives up first and says which watchdog fired, then the
+// parent gives up and reports its post-mortem, and only then does
+// vitest give up, which reports nothing but a duration. CI failed
+// at 60006ms on a run that had plenty left to say, because the rungs
+// were in the other order.
+vi.setConfig({ testTimeout: 90_000 });
 
 interface FakeChild {
 	stdout: Readable;
@@ -116,8 +122,13 @@ async function tempStateDir(): Promise<string> {
  * in three with the supervisor still reporting "running". None of
  * these tests are about how long a run may take, so the number only
  * has to be beyond suspicion.
+ *
+ * It also has to leave room above it. This plus the parent's grace
+ * must stay under the file's test timeout, or vitest kills the run
+ * before either watchdog can explain itself, which is how the same
+ * fault came back reported as "60006ms" and nothing else.
  */
-const GENEROUS_MS = 120_000;
+const GENEROUS_MS = 40_000;
 
 function expectRan(result: RunPiResult): void {
 	if (result.exitCode !== 0) {
