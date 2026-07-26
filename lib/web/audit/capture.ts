@@ -123,6 +123,51 @@ export function buildStructure(
 		return chain;
 	};
 
+	/**
+	 * Whether anything from here up has been made inert.
+	 *
+	 * inert takes a subtree out of the focus order without changing
+	 * how any of it looks, so no style or markup question about the
+	 * element itself can see it. A closed dialog is the ordinary
+	 * case, and its contents are usually aria-hidden too, which is
+	 * exactly the pair that made this matter: on one real page 45
+	 * controls inside two closed dialogs were reported as critical
+	 * WCAG failures for being aria-hidden and focusable, when none
+	 * of the 45 could take focus at all.
+	 */
+	const inertHere = (node: IndexedNode): boolean => {
+		if (node.attributes.inert !== undefined) return true;
+		for (const id of ancestorsOf(node)) {
+			if (byId.get(id)?.attributes.inert !== undefined) return true;
+		}
+		return false;
+	};
+
+	/**
+	 * Whether focus could actually land here, for a node the
+	 * accessibility tree declined to describe.
+	 *
+	 * Markup says an input is focusable. It cannot say that this one
+	 * was never laid out, sits under visibility:hidden, or belongs
+	 * to an inert subtree, and each of those settles the question
+	 * the other way. Measured on one real page, 48 controls met the
+	 * markup test inside aria-hidden subtrees and exactly none of
+	 * them could take focus: 42 hidden by visibility, 3 by display,
+	 * 3 inert. Reported as they were, that is 48 critical WCAG
+	 * failures on a page with none.
+	 *
+	 * visibility is asked of the element rather than its ancestors
+	 * because it inherits, so the computed value already carries
+	 * the answer, including a child that opts back in with
+	 * visibility:visible.
+	 */
+	const couldTakeFocus = (node: IndexedNode): boolean => {
+		if (!node.rendered) return false;
+		const visibility = node.styles.visibility;
+		if (visibility === "hidden" || visibility === "collapse") return false;
+		return !inertHere(node);
+	};
+
 	return nodes
 		.filter((node) => node.nodeName !== "#text" && node.nodeName !== "#comment")
 
@@ -147,7 +192,12 @@ export function buildStructure(
 				// always answered no, and the rule built on that question
 				// could never fire. Fall back to the markup, which is
 				// where focusability comes from in the first place.
-				focusable: fact?.focusable ?? focusableByMarkup(node),
+				//
+				// The fallback has to carry its own weight, though: see
+				// couldTakeFocus, which is what stops a page's closed
+				// dialogs arriving as a wall of critical failures.
+				focusable:
+					fact?.focusable ?? (focusableByMarkup(node) && couldTakeFocus(node)),
 				rendered: node.rendered,
 				ancestors: ancestorsOf(node),
 				html: openingTag(node),
