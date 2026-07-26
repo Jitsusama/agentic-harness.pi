@@ -500,23 +500,60 @@ function installLifecycleHandlers(): void {
 
 const CHROME_PATHS = [
 	"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+	"/Applications/Chromium.app/Contents/MacOS/Chromium",
 	"/usr/bin/google-chrome",
 	"/usr/bin/google-chrome-stable",
 	"/usr/bin/chromium",
 	"/usr/bin/chromium-browser",
+	// Ubuntu ships Chromium as a snap, which lands here and on no
+	// other path in this list.
+	"/snap/bin/chromium",
 ];
+
+/** Whether a path is there, treating an unreadable path as absent. */
+function present(p: string): boolean {
+	try {
+		return fs.existsSync(p);
+	} catch {
+		// An unreadable path is no use to us either way, so it counts
+		// as absent and the caller moves on.
+		return false;
+	}
+}
 
 function findChrome(): string {
 	for (const p of CHROME_PATHS) {
-		try {
-			if (fs.existsSync(p)) return p;
-		} catch {
-			// Chrome isn't installed at this path, so we try the next one.
-		}
+		if (present(p)) return p;
 	}
 	throw new Error(
 		"Chrome not found. Install Google Chrome or set CHROME_PATH.",
 	);
+}
+
+/**
+ * Settle on the binary to launch, refusing a configured path that is
+ * not there.
+ *
+ * CHROME_PATH used to be taken on trust, so a stale or mistyped
+ * value fell through to the launch loop: three attempts, two
+ * backoffs, and then a message whose first line blamed a Chrome
+ * auto-update. None of that is true of a path that does not exist,
+ * and no amount of retrying fixes it. A missing Chrome was already
+ * treated as the settled misconfig it is; this is the same fault
+ * arriving by a different door.
+ */
+export function resolveChromePath(
+	configured: string | undefined,
+	exists: (p: string) => boolean = present,
+): string {
+	if (!configured) return findChrome();
+	if (!exists(configured))
+		throw new Error(
+			`CHROME_PATH is set to ${configured}, which does not exist. ` +
+				"Point it at a Chrome or Chromium binary, or unset it to use " +
+				"the installed browser.",
+		);
+	return configured;
 }
 
 const sleep = (ms: number) =>
@@ -633,7 +670,7 @@ async function launchBrowser(): Promise<Browser> {
 	// settled misconfig, not a transient, so it throws its own clear
 	// error immediately instead of being retried or sniffed for by
 	// message text.
-	const executablePath = process.env.CHROME_PATH || findChrome();
+	const executablePath = resolveChromePath(process.env.CHROME_PATH);
 	let lastError: unknown;
 	for (let attempt = 1; attempt <= LAUNCH_ATTEMPTS; attempt++) {
 		try {

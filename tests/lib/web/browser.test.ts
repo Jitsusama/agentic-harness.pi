@@ -10,6 +10,7 @@ import {
 	namesProfile,
 	reapOrphans,
 	releaseEventLoop,
+	resolveChromePath,
 	shouldCloseWhenIdle,
 	shouldForceKill,
 } from "../../../lib/web/browser.js";
@@ -507,5 +508,41 @@ describe("the warm browser does not hold the process open", () => {
 	it("says nothing about a browser with no child process", () => {
 		expect(() => releaseEventLoop(null)).not.toThrow();
 		expect(() => holdEventLoop(null)).not.toThrow();
+	});
+});
+
+describe("resolveChromePath", () => {
+	it("refuses a configured path that is not there, without retrying", () => {
+		// CHROME_PATH was taken on trust, so a stale value fell into
+		// the launch loop and came back after three attempts under a
+		// headline blaming a Chrome auto-update. A path that does not
+		// exist is a settled misconfig: say so, once, and name it.
+		expect(() => resolveChromePath("/nope/chrome", () => false)).toThrow(
+			/\/nope\/chrome, which does not exist/,
+		);
+	});
+
+	it("names CHROME_PATH in the refusal so the reader knows what to fix", () => {
+		expect(() => resolveChromePath("/nope/chrome", () => false)).toThrow(
+			/CHROME_PATH/,
+		);
+	});
+
+	it("takes a configured path that is there", () => {
+		expect(resolveChromePath("/opt/chrome", () => true)).toBe("/opt/chrome");
+	});
+
+	it("falls back to discovery when nothing is configured", () => {
+		// Undefined means "find it yourself", which must not be read as
+		// a configured path that happens to be missing: the two have
+		// different causes and different fixes, so they must not share
+		// a message. Asserting on the message rather than on whether
+		// this machine has Chrome keeps the test true either way.
+		try {
+			expect(resolveChromePath(undefined)).toMatch(/\S/);
+		} catch (error) {
+			expect(String(error)).toMatch(/Chrome not found/);
+			expect(String(error)).not.toMatch(/CHROME_PATH is set to/);
+		}
 	});
 });
