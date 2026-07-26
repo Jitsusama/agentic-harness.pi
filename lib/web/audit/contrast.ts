@@ -123,15 +123,20 @@ function judged(
 	extra: { readonly large: boolean },
 ): ContrastVerdict {
 	const exact = contrastRatio(foreground, background);
-	// Rounded before comparing, because a ratio quoted as 4.5
-	// that fails on the fourth decimal reads as a bug report
-	// against the tool rather than against the page.
+	// Reported rounded, judged exact.
+	//
+	// Rounding before the comparison passed 4.4951 as AA, which is
+	// leniency in the one module that must not have any: it
+	// disagrees with axe on the same pair inside the same report,
+	// and the direction of the error is always to approve. A ratio
+	// that reads 4.5 and fails is worth one line of explanation;
+	// a failure reported as a pass is not worth anything.
 	const ratio = Math.round(exact * RATIO_PLACES) / RATIO_PLACES;
 	return {
 		kind: "judged",
 		ratio,
 		required,
-		passes: ratio >= required,
+		passes: exact >= required,
 		level,
 		foreground,
 		background,

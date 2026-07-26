@@ -42,6 +42,15 @@ export function matches(node: IndexedNode, query: Query): boolean {
 		const held = node.attributes[query.attribute];
 		if (held === undefined) return false;
 		if (query.value !== undefined && held !== query.value) return false;
+	} else if (query.value !== undefined) {
+		// A value with no attribute to hold it. This used to fall
+		// through every predicate and return the whole document,
+		// rendered as a real total with the first page of nodes under
+		// it: an authoritative-looking answer to a filter that was
+		// never applied, which is the worst way for a read tool to
+		// fail. Match any attribute carrying the value instead.
+		const anywhere = Object.values(node.attributes).includes(query.value);
+		if (!anywhere) return false;
 	}
 	if (query.className !== undefined) {
 		const classes = (node.attributes.class ?? "").split(/\s+/);

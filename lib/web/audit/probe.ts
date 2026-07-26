@@ -103,6 +103,9 @@ export function visualCaptureSource(): string {
 			height: innerHeight,
 			documentWidth: document.documentElement.scrollWidth,
 			documentHeight: document.documentElement.scrollHeight,
+			// The offset the rects above were taken against, so a
+			// caller working in viewport coordinates can get back.
+			scrollX, scrollY,
 		},
 		nodes,
 	};

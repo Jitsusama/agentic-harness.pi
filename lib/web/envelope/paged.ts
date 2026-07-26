@@ -79,7 +79,11 @@ export function paginate<T>(
 	return {
 		...summary,
 		items,
-		...(remaining > 0
+		// A cursor needs something to point at. With a limit of zero
+		// there are no items and this read index -1, so asking for an
+		// empty window of a non-empty list threw a TypeError instead
+		// of answering with nothing.
+		...(remaining > 0 && items.length > 0
 			? { nextCursor: String(shape.idOf(items[items.length - 1])) }
 			: {}),
 		...(cut > 0 ? { elided: elision(cut, budget, shape.more) } : {}),

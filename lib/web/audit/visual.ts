@@ -76,6 +76,17 @@ export interface PageBox {
 	readonly height: number;
 	readonly documentWidth: number;
 	readonly documentHeight: number;
+	/**
+	 * How far the page was scrolled when this was captured.
+	 *
+	 * Rects are recorded in document coordinates, and a screenshot
+	 * is in viewport coordinates. Anything joining the two needs
+	 * the offset between them, and without it a visual diff
+	 * attributed its regions to whatever happened to sit at those
+	 * coordinates at the top of the page.
+	 */
+	readonly scrollX?: number;
+	readonly scrollY?: number;
 }
 
 /** Below this, text is hard to read for many people. */

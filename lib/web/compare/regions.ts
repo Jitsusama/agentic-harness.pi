@@ -265,12 +265,24 @@ export function renderComparison(
 			// a failure: it is usually the renderer, not the page.
 			standing: noise ? "warn" : "fail",
 			headline:
-				`${changedPixels} pixels differ, ${percent} percent of the ` +
-				`image, across ${regions.length} ` +
-				`${regions.length === 1 ? "region" : "separate regions"}.`,
+				regions.length === 0
+					? // Clustering drops anything under a few pixels, while
+						// the changed count keeps them, so a change scattered
+						// thinly across the image used to render a failure
+						// headline over an empty body: nowhere to look and
+						// nothing to do.
+						`${changedPixels} pixels differ, ${percent} percent of ` +
+						"the image, too scattered to gather into a region."
+					: `${changedPixels} pixels differ, ${percent} percent of the ` +
+						`image, across ${regions.length} ` +
+						`${regions.length === 1 ? "region" : "separate regions"}.`,
 			measured: noise
 				? "That is small enough to be rendering noise rather than a change."
-				: `Compared every pixel of ${width} by ${height}.`,
+				: regions.length === 0
+					? `Compared every pixel of ${width} by ${height}. Look at ` +
+						"the diff image below; single-pixel differences spread " +
+						"over an image are usually a font or antialiasing change."
+					: `Compared every pixel of ${width} by ${height}.`,
 		},
 		lines.join("\n"),
 	);

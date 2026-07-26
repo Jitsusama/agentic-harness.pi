@@ -1909,7 +1909,14 @@ export class BrowserSession {
 				...(axNode.name?.value === undefined
 					? {}
 					: { name: axNode.name.value }),
-				focusable: focusable?.value?.value === true,
+				// Left absent when the tree did not say, rather than
+				// flattened to false. An ignored node carries no
+				// properties at all, and reporting that as "cannot take
+				// focus" is how the hidden-but-focusable rule ended up
+				// unable to see its own subject.
+				...(focusable === undefined
+					? {}
+					: { focusable: focusable.value?.value === true }),
 			});
 		}
 		return buildStructure(nodes, facts);
@@ -2710,10 +2717,22 @@ export class BrowserSession {
 			};
 		}
 
-		const { nodes } = await this.layout();
+		// The screenshot is of the viewport; the rects are in
+		// document coordinates. The two only coincide at scroll
+		// origin, and driving the page before checking it is the
+		// loop this tool teaches, so every region was attributed to
+		// whatever sat at those coordinates at the top of the page
+		// once anything had scrolled.
+		const { nodes, viewport } = await this.layout();
+		const offsetX = viewport.scrollX ?? 0;
+		const offsetY = viewport.scrollY ?? 0;
 		const placed = nodes.map((node) => ({
 			selector: node.selector,
-			rect: node.rect,
+			rect: {
+				...node.rect,
+				x: node.rect.x - offsetX,
+				y: node.rect.y - offsetY,
+			},
 		}));
 
 		const { comparison, image } = compareImages(

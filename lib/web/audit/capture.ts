@@ -22,11 +22,39 @@ export interface AxFacts {
 	readonly backendNodeId: number;
 	readonly role?: string;
 	readonly name?: string;
-	readonly focusable: boolean;
+	/** Absent when the tree did not say, which it does not for
+	 * any node it ignored. Not the same as false. */
+	readonly focusable?: boolean;
 }
 
 /** Roles the browser reports for things nobody can see. */
 const INVISIBLE_ROLES = new Set(["none", "presentation", "InlineTextBox"]);
+
+/** Elements the browser lets focus land on without being told. */
+const FOCUSABLE_TAGS = new Set([
+	"BUTTON",
+	"INPUT",
+	"SELECT",
+	"TEXTAREA",
+	"SUMMARY",
+]);
+
+/**
+ * Whether the markup makes this focusable.
+ *
+ * Used when the accessibility tree declines to say, which it
+ * does for every node it ignored, including everything inside an
+ * aria-hidden subtree. That is precisely the case the
+ * hidden-but-focusable rule is about, so without this the rule
+ * has no way to see its own subject.
+ */
+function focusableByMarkup(node: IndexedNode): boolean {
+	const tabindex = node.attributes.tabindex;
+	if (tabindex !== undefined) return Number(tabindex) > -1;
+	if (node.attributes.disabled !== undefined) return false;
+	if (node.nodeName === "A") return node.attributes.href !== undefined;
+	return FOCUSABLE_TAGS.has(node.nodeName);
+}
 
 /**
  * Give an element an address a person can act on.
@@ -97,6 +125,7 @@ export function buildStructure(
 
 	return nodes
 		.filter((node) => node.nodeName !== "#text" && node.nodeName !== "#comment")
+
 		.map((node) => {
 			const fact = byBackendId.get(node.backendNodeId);
 			const role =
@@ -110,7 +139,15 @@ export function buildStructure(
 				...(fact?.name === undefined || fact.name === ""
 					? {}
 					: { name: fact.name }),
-				focusable: fact?.focusable ?? false,
+				// The accessibility tree only reports focusable on nodes
+				// it did not ignore, and an aria-hidden subtree is exactly
+				// what it ignores: measured against a live page, every
+				// ignored node arrives with an empty property list. So
+				// asking the tree whether a hidden thing can take focus
+				// always answered no, and the rule built on that question
+				// could never fire. Fall back to the markup, which is
+				// where focusability comes from in the first place.
+				focusable: fact?.focusable ?? focusableByMarkup(node),
 				rendered: node.rendered,
 				ancestors: ancestorsOf(node),
 				html: openingTag(node),

@@ -372,3 +372,41 @@ describe("analyseStructure", () => {
 		).toEqual([]);
 	});
 });
+
+describe("a rule has to be able to see its own subject", () => {
+	it("finds a focusable control inside an aria-hidden subtree", () => {
+		// The accessibility tree reports no properties at all for a
+		// node it ignored, and an aria-hidden subtree is exactly
+		// what it ignores. Reading focusable off the tree therefore
+		// always answered false here and this critical rule could
+		// never fire on the case it exists for. Measured against a
+		// live page before changing it: zero findings.
+		const nodes: StructureNode[] = [
+			{
+				id: "n1",
+				selector: "div",
+				tag: "div",
+				attributes: { "aria-hidden": "true" },
+				focusable: false,
+				rendered: true,
+				ancestors: [],
+				html: '<div aria-hidden="true">',
+			},
+			{
+				id: "n2",
+				selector: "#reachable",
+				tag: "button",
+				attributes: { id: "reachable" },
+				focusable: true,
+				rendered: true,
+				ancestors: ["n1"],
+				html: '<button id="reachable">',
+			},
+		];
+
+		const found = hiddenButFocusable(nodes);
+
+		expect(found).toHaveLength(1);
+		expect(found[0]?.nodes[0]?.selector).toBe("#reachable");
+	});
+});

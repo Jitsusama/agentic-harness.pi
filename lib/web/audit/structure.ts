@@ -541,6 +541,12 @@ export const SUPERSEDED_BY: Readonly<Record<string, string>> = {
 	"heading-skips-level": "heading-order",
 	"no-positive-tabindex": "tabindex",
 	"landmark-distinguishable": "landmark-unique",
+	// Both of these overlap an axe rule that was missing from this
+	// map, so one defect was reported twice, at critical, and the
+	// violation count the accessibility skill tells a reader to
+	// compare across a change was doubled with it.
+	"hidden-focusable": "aria-hidden-focus",
+	"aria-field-has-name": "aria-input-field-name",
 };
 
 /** Every structural rule, run against one capture. */

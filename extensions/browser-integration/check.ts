@@ -332,8 +332,19 @@ async function sweep(
 	const conditions: Condition[] = [];
 	try {
 		for (const { label, setting } of widthsToSweep(widths)) {
+			// The whole viewport object is replaced, not merged into,
+			// so anything left out of this literal reverts to a
+			// default. Passing only a width and height silently reset
+			// the device pixel ratio to 1 and the mobile flag to false
+			// for the length of the sweep, which changes how the page
+			// renders and re-rasterizes every per-width baseline at a
+			// different scale from a plain compare in the same session.
 			await session.emulate({
-				viewport: { width: setting.width, height },
+				viewport: {
+					...before.viewport,
+					width: setting.width,
+					height,
+				},
 			});
 			conditions.push(conditionFrom(label, await run(label)));
 		}
