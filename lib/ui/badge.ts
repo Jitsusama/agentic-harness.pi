@@ -13,7 +13,7 @@
  *   - `renderBar`: visual fraction as a filled/empty character bar
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 
 /** Semantic kinds. Each maps to a glyph and theme colour. */
 export type BadgeKind =

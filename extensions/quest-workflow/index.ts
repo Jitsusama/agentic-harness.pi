@@ -15,13 +15,13 @@
  * slash commands for the primary surface.
  */
 
-import { StringEnum } from "@mariozechner/pi-ai";
+import { StringEnum } from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
 	ToolCallEventResult,
-} from "@mariozechner/pi-coding-agent";
-import { keyHint, SessionManager } from "@mariozechner/pi-coding-agent";
-import { Text, truncateToWidth } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import { keyHint, SessionManager } from "@earendil-works/pi-coding-agent";
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
 	getSection,
@@ -665,7 +665,7 @@ interface WidgetComponent {
 	dispose?(): void;
 }
 
-type Theme = import("@mariozechner/pi-coding-agent").Theme;
+type Theme = import("@earendil-works/pi-coding-agent").Theme;
 
 interface UiSink {
 	setStatus(key: string, value: string | undefined): void;

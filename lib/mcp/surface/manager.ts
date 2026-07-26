@@ -5,8 +5,8 @@ import type {
 	ExtensionContext,
 	Theme,
 	ToolRenderResultOptions,
-} from "@mariozechner/pi-coding-agent";
-import type { Component } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
 import { type TSchema, Type } from "typebox";
 import {
 	contentByteSize,

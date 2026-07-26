@@ -4,7 +4,7 @@
  * Redirect annotations return feedback for the agent to adjust.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	type PromptResult,
 	promptSingle,

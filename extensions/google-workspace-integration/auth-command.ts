@@ -3,7 +3,7 @@
  * Uses OAuth 2.0 with automatic device/web flow fallback.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
 import {
 	listAccounts,

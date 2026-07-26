@@ -328,7 +328,14 @@ is followed by judgment, not by a regex.
   package managers disagreeing: pnpm installs peers regardless of
   the flag, and the reason it stays quiet here is that the peers
   name the same packages the `devDependencies` already provide.
-  A third AGENTS.md rule is gated for the same reason:
+  One more rule sits beside it in the same file:
+  🟢 no source file imports the deprecated `@mariozechner/*`
+  spelling of a pi package. Pi's loader still aliases the old
+  names, which is what makes their return invisible until compat
+  is removed and every such import stops resolving at once. It
+  reads raw text rather than the import scanner, since a
+  deprecated specifier is wrong in a type-only position too.
+  A further AGENTS.md rule is gated for the same reason:
   🟢 a tool that can answer with a payload larger than a context
   window stores it and cites a handle, or answers with a path on
   disk, rather than inlining or truncating it.

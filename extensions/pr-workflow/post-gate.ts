@@ -18,7 +18,7 @@
  * reply/resolve gates.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { promptSingle } from "../../lib/ui/panel.js";
 import { withHiddenWorking } from "./gate-working.js";
 import { type PostGateOutcome, postGateOutcome } from "./post-gate-outcome.js";

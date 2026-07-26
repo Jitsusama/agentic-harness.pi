@@ -19,7 +19,7 @@
  *     (complete)    (running)     (pending)  (pending)    (pending)
  */
 
-import type { Theme, ThemeColor } from "@mariozechner/pi-coding-agent";
+import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 
 /** Possible state of a single stage. */
 export type StageState =

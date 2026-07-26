@@ -3,7 +3,7 @@
  * Supports both "TVs and Limited Input devices" and "Desktop app" credentials.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Credentials } from "google-auth-library";
 import { view } from "../../ui/index.js";
 import { openInBrowser } from "./browser.js";

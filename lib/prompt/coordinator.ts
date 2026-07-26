@@ -10,7 +10,7 @@
  * than several extensions each appending independently.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { processGlobal } from "../internal/process-global.js";
 
 /** A source of resident system-prompt text, ordered against its peers. */

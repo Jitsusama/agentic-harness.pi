@@ -4,7 +4,7 @@
  * these helpers are the only place that shape is minted.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getLastEntry } from "../internal/state.js";
 import type { Scope } from "./types.js";
 

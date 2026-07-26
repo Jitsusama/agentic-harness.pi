@@ -5,8 +5,8 @@
  * that all prompt types share.
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { KeyAction, ListChoice, PromptView } from "./types.js";
 
 /**

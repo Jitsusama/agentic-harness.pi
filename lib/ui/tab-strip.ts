@@ -13,13 +13,13 @@
  *   - Ctrl+number jumps to tab N directly
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
 	Key,
 	matchesKey,
 	truncateToWidth,
 	visibleWidth,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 import { GLYPH, type TabStatus } from "./types.js";
 
 /** Width of ellipsis segment including spacing. */

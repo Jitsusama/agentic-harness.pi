@@ -7,7 +7,7 @@
  * auth, ctx) so handlers that need fewer just ignore the rest.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
 import type { ActionParams, ToolResult } from "../../lib/google/types.js";
 import { boundedByDetails, openSessionStore } from "../../lib/result/index.js";

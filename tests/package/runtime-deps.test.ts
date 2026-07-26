@@ -27,7 +27,8 @@ const root = new URL("../..", import.meta.url).pathname;
  * unnecessary: a second copy of pi's own modules is a different
  * copy, and the instanceof checks stop working.
  */
-const PROVIDED_BY_PI = /^@mariozechner\/pi-|^(?:@sinclair\/)?typebox$/;
+const PROVIDED_BY_PI =
+	/^@(?:earendil-works|mariozechner)\/pi-|^(?:@sinclair\/)?typebox$/;
 
 /**
  * Note on the two spellings of typebox.
@@ -42,13 +43,18 @@ const PROVIDED_BY_PI = /^@mariozechner\/pi-|^(?:@sinclair\/)?typebox$/;
 /**
  * What to declare for each pi specifier the code imports.
  *
- * The two spellings are the same packages: pi renamed them and its
- * loader still aliases the old names, which is what this repo
- * imports. The manifest names the packages that exist, because a
- * peer nobody can resolve is not a promise, and because the old
- * ones are published deprecated.
+ * The old @mariozechner names are the same packages under the name
+ * pi published them under before the rename. Its loader still
+ * aliases them and they still resolve, but they are published
+ * deprecated, so the code imports the current ones. The old
+ * spellings stay in this map rather than being deleted: it is what
+ * makes an accidental return to them declare the right peer instead
+ * of demanding a dependency on pi.
  */
 const PI_PEER_FOR = new Map([
+	["@earendil-works/pi-ai", "@earendil-works/pi-ai"],
+	["@earendil-works/pi-coding-agent", "@earendil-works/pi-coding-agent"],
+	["@earendil-works/pi-tui", "@earendil-works/pi-tui"],
 	["@mariozechner/pi-ai", "@earendil-works/pi-ai"],
 	["@mariozechner/pi-coding-agent", "@earendil-works/pi-coding-agent"],
 	["@mariozechner/pi-tui", "@earendil-works/pi-tui"],
@@ -199,6 +205,30 @@ describe("what ships can load", () => {
 				(pkg) => meta[pkg]?.optional !== true,
 			);
 			expect(required).toEqual([]);
+		});
+
+		it("imports them under the name pi publishes today", () => {
+			// The old @mariozechner spelling still resolves, because pi's
+			// loader aliases it, and that is what makes leaving it alone
+			// tempting and its return invisible. The packages are published
+			// deprecated and pi's own comment says the aliases stay only
+			// until compat is removed, at which point every one of these
+			// imports stops resolving at once.
+			//
+			// Raw text rather than the import scanner above, which skips
+			// type-only imports on purpose: a deprecated specifier is
+			// wrong in a type position too, and there were 183 of them
+			// across 133 files when this was written.
+			const offenders: string[] = [];
+			for (const dir of ["lib", "extensions", "tests"]) {
+				for (const file of sourceFiles(join(root, dir))) {
+					// This file names the old spelling to recognize it.
+					if (file.endsWith("runtime-deps.test.ts")) continue;
+					if (readFileSync(file, "utf8").includes("@mariozechner/"))
+						offenders.push(file.slice(root.length));
+				}
+			}
+			expect(offenders).toEqual([]);
 		});
 
 		it("keeps them installed here, so types resolve", () => {

@@ -135,9 +135,9 @@ they all work independently.
   (for browsing). Do not duplicate content between them.
 - **Never put a README.md in the `skills/` root.** Pi treats
   any `.md` file there as a skill.
-- Imports from pi use `@mariozechner/pi-coding-agent`,
-  `@mariozechner/pi-ai` and `@mariozechner/pi-tui`. These
-  are provided by pi at runtime; do not add them to
+- Imports from pi use `@earendil-works/pi-coding-agent`,
+  `@earendil-works/pi-ai` and `@earendil-works/pi-tui`.
+  These are provided by pi at runtime; do not add them to
   `dependencies`. They appear in three other places, each
   for its own reason, and all three are enforced by
   `tests/package/runtime-deps.test.ts`:
@@ -162,12 +162,13 @@ they all work independently.
     satisfied. Consumers never receive them, since
     `--omit=dev` skips the list entirely.
 
-  `tsconfig.json` maps the `@mariozechner/*` specifiers to
-  the `@earendil-works/*` packages on disk. Those are the
-  same packages under an old name that pi's loader still
-  aliases, and the old name is published deprecated, so the
-  imports are worth migrating when something else brings
-  the code past them.
+  Pi's loader also aliases the older `@mariozechner/*`
+  spelling, which this repo imported until every site was
+  migrated. Do not reintroduce it: those packages are
+  published deprecated, pi's loader comment says the compat
+  aliases stay only until compat is removed, and the
+  `tsconfig.json` and vitest mappings that used to bridge
+  the two names are gone.
 - Every mechanical rule a skill states is tracked in
   [`docs/convention-coverage.md`](./docs/convention-coverage.md)
   against the gate that enforces it. When adding a rule to a
@@ -443,15 +444,15 @@ request via `.github/workflows/ci.yml`.
 
 - Do not add build tooling, bundlers or transpilation steps.
 - Do not add pi's own packages to `dependencies`. They
-  are provided at runtime (`@mariozechner/pi-coding-agent`,
-  `@mariozechner/pi-ai`, `@mariozechner/pi-tui`). The
-  matching `@earendil-works/*` packages live in
-  `peerDependencies` at `"*"`, marked optional, and in
-  `devDependencies` for typecheck; they must not be
-  imported under those names from production code.
+  are provided at runtime
+  (`@earendil-works/pi-coding-agent`,
+  `@earendil-works/pi-ai`, `@earendil-works/pi-tui`), and
+  they live in `peerDependencies` at `"*"`, marked
+  optional, plus `devDependencies` for typecheck.
   Do not drop the optional flag on a pi peer: npm then
   installs a stale second copy of pi's runtime into every
-  consumer's tree.
+  consumer's tree. Do not import the deprecated
+  `@mariozechner/*` spelling.
   Third-party dependencies belong in the root
   `package.json`'s `dependencies`, not in extension-local
   package.json files. Library code lives in `lib/` and

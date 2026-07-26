@@ -18,7 +18,7 @@
 
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import type { ToolCallEventResult } from "@mariozechner/pi-coding-agent";
+import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import {
 	bashWriteTargets,
 	classifyBashWrite,

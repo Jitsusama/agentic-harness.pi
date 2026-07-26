@@ -6,7 +6,7 @@
  * context overlay.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { PRReference } from "./pr-reference.js";
 
 /** A parsed diff file with hunks. */

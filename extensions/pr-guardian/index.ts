@@ -5,7 +5,7 @@
  * formatted PR description for user review before execution.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerGuardian } from "../../lib/guardian/register.js";
 import { createPrGuardian } from "./review.js";
 

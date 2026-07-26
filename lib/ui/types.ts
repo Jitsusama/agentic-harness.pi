@@ -11,7 +11,7 @@
  *   - Options (Type B): numbered list for dynamic choices
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 
 /** Semantic glyphs: roguelike-inspired geometric set. */
 export const GLYPH = {

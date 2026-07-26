@@ -18,7 +18,7 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type { QuestPriority } from "../../lib/quest/index.js";
 import { suggestAction } from "./actions.js";
 import type { QuestState } from "./state.js";

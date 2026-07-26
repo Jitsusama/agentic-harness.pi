@@ -28,15 +28,17 @@ export default defineConfig({
 		},
 	},
 	resolve: {
-		// Pi 0.74's loader rewrites the @sinclair/typebox
-		// imports onto its bundled `typebox` package at
-		// runtime. Mirror that mapping for vitest so the
-		// same imports work in tests without a separate
-		// alias in every file.
+		// Pi's loader rewrites the @sinclair/typebox imports
+		// onto its bundled `typebox` package at runtime.
+		// Mirror that mapping for vitest so the same imports
+		// work in tests without a separate alias in every
+		// file.
+		//
+		// The three pi packages used to be aliased here too,
+		// from the old @mariozechner names onto the current
+		// ones. The code imports the current names now, so
+		// there is nothing left to rewrite.
 		alias: {
-			"@mariozechner/pi-ai": "@earendil-works/pi-ai",
-			"@mariozechner/pi-coding-agent": "@earendil-works/pi-coding-agent",
-			"@mariozechner/pi-tui": "@earendil-works/pi-tui",
 			"@sinclair/typebox/value": "typebox/value",
 			"@sinclair/typebox/compile": "typebox/compile",
 			"@sinclair/typebox": "typebox",

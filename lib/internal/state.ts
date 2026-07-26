@@ -7,7 +7,7 @@
 import type {
 	ContextEvent,
 	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 /** Type guard for custom entries with a specific customType. */
 function isCustomEntry(

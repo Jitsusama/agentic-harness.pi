@@ -11,7 +11,7 @@ import {
 	type ExtensionAPI,
 	isToolCallEventType,
 	type ToolCallEventResult,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { record, register } from "../internal/guardian/registry.js";
 import { stripHeredocBodies, stripShellData } from "../shell/parse.js";
 import { blockIfUnsupported } from "./enforce.js";

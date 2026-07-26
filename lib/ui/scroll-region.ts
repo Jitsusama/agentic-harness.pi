@@ -8,13 +8,13 @@
  * horizontal scroll (code content).
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
 	Key,
 	matchesKey,
 	truncateToWidth,
 	visibleWidth,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 import { getPanelHeightFraction } from "./panel-height.js";
 import { GLYPH } from "./types.js";
 

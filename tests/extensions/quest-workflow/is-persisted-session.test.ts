@@ -1,4 +1,4 @@
-import type { ToolContext } from "@mariozechner/pi-coding-agent";
+import type { ToolContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { isPersistedSession } from "../../../extensions/quest-workflow/verbs/shared";
 

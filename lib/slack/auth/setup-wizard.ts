@@ -11,7 +11,7 @@
  *      May require workspace admin approval.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { promptSingle, view } from "../../ui/index.js";
 import { SlackClient } from "../api/client.js";
 import { extractFromBrowser } from "./browser-extract.js";

@@ -2,8 +2,8 @@
  * Render tool call display for Google Workspace actions.
  */
 
-import type { Theme } from "@mariozechner/pi-tui";
-import { Text } from "@mariozechner/pi-tui";
+import type { Theme } from "@earendil-works/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 
 interface RenderOptions {
 	terminalWidth?: number;

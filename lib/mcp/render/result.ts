@@ -2,8 +2,8 @@ import type {
 	AgentToolResult,
 	Theme,
 	ToolRenderResultOptions,
-} from "@mariozechner/pi-coding-agent";
-import { type Component, Text } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import { type Component, Text } from "@earendil-works/pi-tui";
 import { RESULT_VIEW_KEY, type ResultView } from "../json-summary.js";
 
 /** The slice of pi's ToolRenderContext the default result renderer reads. */

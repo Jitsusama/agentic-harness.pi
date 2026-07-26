@@ -15,7 +15,7 @@ import {
 	type ExtensionAPI,
 	isToolCallEventType,
 	type ToolCallEventResult,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { isGitBypassed } from "../../lib/internal/git/bypass.js";
 import { stripHeredocBodies, stripShellData } from "../../lib/shell/parse.js";
 import {

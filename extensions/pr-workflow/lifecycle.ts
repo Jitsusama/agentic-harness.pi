@@ -24,7 +24,7 @@ import { createHash } from "node:crypto";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import { getLastEntry } from "../../lib/internal/state.js";
 import type { CouncilReviewer } from "../../lib/subagent/subagent.js";

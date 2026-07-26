@@ -9,8 +9,8 @@
  * tool row in a padded box, and taking the default pads it twice.
  */
 
-import type { AgentToolResult, Theme } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import type { QueryDetails } from "./index.js";
 
 /** How much of an expression is shown before it is clipped. */

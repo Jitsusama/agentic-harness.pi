@@ -1,4 +1,4 @@
-import type { EventBus } from "@mariozechner/pi-coding-agent";
+import type { EventBus } from "@earendil-works/pi-coding-agent";
 import type { FrontEndRegistry } from "./registry.js";
 import type { FrontEndMatcher, FrontEndProvider } from "./types.js";
 

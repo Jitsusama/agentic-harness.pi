@@ -13,7 +13,7 @@
  * command opens a scrollable panel and dismisses on Esc.
  */
 
-import type { ExtensionAPI, Theme } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import {
 	type GuardianOutcome,
 	list,

@@ -9,7 +9,7 @@
  *     module runs the web redirect flow to get a user token.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { view } from "../../ui/index.js";
 import { SlackClient } from "../api/client.js";
 import { openInBrowser } from "./browser.js";

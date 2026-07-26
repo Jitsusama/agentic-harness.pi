@@ -18,12 +18,12 @@ Before building any UI, follow this sequence:
    from there. Follow links to related docs as needed.
 
 2. **Read the type declarations** for the specific component
-   you need. The `@mariozechner/pi-tui` package's
+   you need. The `@earendil-works/pi-tui` package's
    `dist/index.d.ts` and `dist/components/*.d.ts` files show
    the exact API surface.
 
 3. **Read the higher-level components** exported by
-   `@mariozechner/pi-coding-agent` in its
+   `@earendil-works/pi-coding-agent` in its
    `dist/modes/interactive/components/index.d.ts`.
 
 4. **Check this project's `lib/ui/`** for existing
@@ -57,7 +57,7 @@ public vs internal code.
 
 ## What's Available (Orientation Only; Verify Against Source)
 
-**From `@mariozechner/pi-tui`:**
+**From `@earendil-works/pi-tui`:**
 
 | Need | Component |
 |------|-----------|
@@ -78,7 +78,7 @@ public vs internal code.
 | Text width / truncation / wrapping | `visibleWidth`, `truncateToWidth`, `wrapTextWithAnsi` |
 | Fuzzy search | `fuzzyMatch`, `fuzzyFilter` |
 
-**From `@mariozechner/pi-coding-agent`:**
+**From `@earendil-works/pi-coding-agent`:**
 
 | Need | Component |
 |------|-----------|

@@ -7,7 +7,7 @@
  * keys and their Shift variants.
  */
 
-import { Key, type KeyId, matchesKey, parseKey } from "@mariozechner/pi-tui";
+import { Key, type KeyId, matchesKey, parseKey } from "@earendil-works/pi-tui";
 import type { KeyAction } from "./types.js";
 
 /**

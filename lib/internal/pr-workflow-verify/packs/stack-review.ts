@@ -17,7 +17,7 @@
  * `skills/pr-workflow-stack-review-output/`.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { stackReviewContract } from "../contracts.js";
 import { registerVerifyExtension } from "../extension.js";
 

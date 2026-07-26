@@ -5,7 +5,7 @@
  * clear credentials.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SlackClient } from "../../lib/slack/api/client.js";
 import {
 	clearAllConfig,

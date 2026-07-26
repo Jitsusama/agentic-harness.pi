@@ -9,7 +9,7 @@
  * stubbing out a process boundary.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { runGraphQL } from "../../lib/internal/github/graphql.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 

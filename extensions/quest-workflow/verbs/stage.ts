@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { ToolContext } from "@mariozechner/pi-coding-agent";
+import type { ToolContext } from "@earendil-works/pi-coding-agent";
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";

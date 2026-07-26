@@ -17,7 +17,7 @@
  * agent prose or user input.
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 
 /** Glyph that prefixes every narration line. */
 export const NARRATION_GLYPH = "※";
