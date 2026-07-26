@@ -301,6 +301,18 @@ is followed by judgment, not by a regex.
 - **Tool integration guides**: `google-workspace-guide`,
   `slack-guide`'s methodology sections, `browser-guide`.
   Translate user intent to API calls; not artifact shape.
+  Two of AGENTS.md's own package rules are gated even so,
+  because both fail silently on the machine that breaks them
+  and fatally on someone else's:
+  🟢 every package imported for its values by `lib/` or
+  `extensions/` is declared in `dependencies`, and
+  🟢 nothing pi provides at runtime is redeclared there, since a
+  second copy of pi's modules is a different copy and the
+  `instanceof` checks stop working.
+  Both live in `tests/package/runtime-deps.test.ts`, which reads
+  the manifest against the imports. Type-only imports are
+  exempt, since they vanish before the code runs. A user hit the
+  first of these as `Cannot find module 'pixelmatch'`.
 - **Audit methodology**: `browser-accessibility-guide`. Its
   rules are about how to conduct and report an audit, and the
   claims most worth enforcing are enforced at the source rather
