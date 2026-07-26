@@ -12,7 +12,7 @@
  * one profile no matter how many extensions reach for it.
  */
 
-import { execFileSync } from "node:child_process";
+import { type ChildProcess, execFileSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -545,11 +545,78 @@ async function launchOnce(executablePath: string): Promise<Browser> {
 			"--v=0",
 		],
 		dumpio: false,
+		// Talk to Chrome over stdio rather than a DevTools websocket.
+		// A socket is a TCP handle that holds the event loop and
+		// cannot be unref'd through puppeteer's public surface, which
+		// is what kept a finished script running until the idle close
+		// fired. Pipes can be, and this also stops the browser
+		// listening on a port it has no reason to.
+		pipe: true,
 	});
 	// Record ownership so a later run can tell our live Chrome from an
 	// orphan and know exactly which pid to reap.
 	writeOwnerRecord(profileDir, browser.process()?.pid);
+	releaseEventLoop(browser.process());
 	return browser;
+}
+
+/**
+ * Stop the warm browser from being the only reason this process
+ * stays alive.
+ *
+ * The browser is kept between sessions so the next call does not
+ * pay a second and a half to launch Chrome again. But its child
+ * process, its stdio pipes and its DevTools socket all hold the
+ * event loop, so a script that opened a session, did its work
+ * and closed it sat there until the five-minute idle close fired
+ * and only then exited. Measured: two and a half seconds of
+ * work, three hundred and one seconds of wall clock, three and a
+ * half seconds of CPU. Anything wiring this into CI would have
+ * read that as a hang.
+ *
+ * unref does not close anything. The browser stays usable and
+ * the idle close still runs; it just stops counting as a reason
+ * to keep running. A pi session has its own handles and is
+ * unaffected, and a script exits when its own work is done.
+ */
+export function releaseEventLoop(child: LoopHandle | null): void {
+	if (!child) return;
+	child.unref();
+	for (const pipe of child.stdio) nudge(pipe, "unref");
+}
+
+/**
+ * The part of a child process this cares about.
+ *
+ * stdio is left loose because a pipe's declared stream type does
+ * not carry ref and unref even though a socket-backed one has
+ * them, so each entry is asked rather than assumed.
+ */
+export interface LoopHandle {
+	ref(): void;
+	unref(): void;
+	readonly stdio: readonly unknown[];
+}
+
+/** Ask a stdio entry to ref or unref itself, if it can. */
+function nudge(pipe: unknown, how: "ref" | "unref"): void {
+	if (typeof pipe !== "object" || pipe === null) return;
+	const method = (pipe as Record<string, unknown>)[how];
+	if (typeof method === "function") method.call(pipe);
+}
+
+/**
+ * Keep the process alive for as long as a teardown needs.
+ *
+ * The inverse of releaseEventLoop. Closing a browser is several
+ * round trips, and once nothing is ref'd Node is free to exit
+ * in the middle of them, which leaves the caller's promise
+ * hanging and Chrome to be reaped as an orphan next run.
+ */
+export function holdEventLoop(child: LoopHandle | null): void {
+	if (!child) return;
+	child.ref();
+	for (const pipe of child.stdio) nudge(pipe, "ref");
 }
 
 /**
@@ -754,6 +821,13 @@ async function runClose(state: SharedBrowserState): Promise<void> {
 
 	state.idle?.cancel();
 	const proc = b.process();
+	// Take the handles back before tearing down. They are unref'd
+	// while the browser sits warm, so that a finished script is not
+	// held open by a browser nobody is using; but a close in
+	// progress is work worth staying alive for, and without this
+	// Node exited mid-teardown and the caller's await never
+	// settled. Symmetry with releaseEventLoop at launch.
+	holdEventLoop(proc);
 	const pid = proc?.pid;
 	const dir = ownProfileDir();
 	let closedGracefully = false;

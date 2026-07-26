@@ -4,10 +4,12 @@ import {
 	classifyLaunchError,
 	createIdleCloser,
 	formatLaunchFailure,
+	holdEventLoop,
 	killPidGroup,
 	killTree,
 	namesProfile,
 	reapOrphans,
+	releaseEventLoop,
 	shouldCloseWhenIdle,
 	shouldForceKill,
 } from "../../../lib/web/browser.js";
@@ -455,5 +457,55 @@ describe("BrowserLaunchFailed", () => {
 		// The real cause is not swallowed: it shows in the message and cause.
 		expect(err.message).toContain("EACCES");
 		expect(err.cause).toBe(fsError);
+	});
+});
+
+describe("the warm browser does not hold the process open", () => {
+	const fakeChild = () => {
+		const calls: string[] = [];
+		const pipe = (name: string) => ({
+			ref: () => calls.push(`${name}:ref`),
+			unref: () => calls.push(`${name}:unref`),
+		});
+		return {
+			calls,
+			handle: {
+				ref: () => calls.push("proc:ref"),
+				unref: () => calls.push("proc:unref"),
+				stdio: [pipe("in"), pipe("out"), pipe("err"), null],
+			},
+		};
+	};
+
+	it("releases the child and every pipe once it is launched", () => {
+		// Chrome is kept warm between sessions so the next call does
+		// not pay to launch it again, but its process, pipes and
+		// socket all hold the event loop. A script that opened a
+		// session, worked and closed it sat for the full five-minute
+		// idle span before exiting: measured at 301 seconds of wall
+		// clock for 2.5 seconds of work.
+		const { calls, handle } = fakeChild();
+
+		releaseEventLoop(handle);
+
+		expect(calls).toEqual(["proc:unref", "in:unref", "out:unref", "err:unref"]);
+	});
+
+	it("takes the handles back for a teardown", () => {
+		// The inverse matters just as much. With nothing ref'd, Node
+		// is free to exit in the middle of a close, which leaves the
+		// caller's await unsettled and Chrome to be reaped as an
+		// orphan on the next run. That is exactly what happened
+		// before this existed.
+		const { calls, handle } = fakeChild();
+
+		holdEventLoop(handle);
+
+		expect(calls).toEqual(["proc:ref", "in:ref", "out:ref", "err:ref"]);
+	});
+
+	it("says nothing about a browser with no child process", () => {
+		expect(() => releaseEventLoop(null)).not.toThrow();
+		expect(() => holdEventLoop(null)).not.toThrow();
 	});
 });
