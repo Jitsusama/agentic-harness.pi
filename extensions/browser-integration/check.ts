@@ -93,8 +93,9 @@ const parameters = Type.Object({
 				"Run the same check at each of these viewport widths and " +
 				"report a table. Most layout and contrast faults are " +
 				"conditional, so a single width can pass a page that is " +
-				"unusable on a phone. Works with visual, accessibility, " +
-				"design and compare.",
+				"unusable on a phone. Works with every kind. Note that " +
+				"perf measures the load, which a resize does not repeat, " +
+				"so its rows will be the same at every width.",
 		}),
 	),
 	at: Type.Optional(
@@ -168,15 +169,14 @@ export function registerCheck(
 			const session = await registry.acquire(name);
 
 			if (params.widths && params.widths.length > 0) {
-				if (kind === "keyboard") {
-					return refusal(
-						name,
-						kind,
-						"A keyboard walk moves focus and restores it, which " +
-							"does not survive being resized underneath it. Run " +
-							"it at one width at a time.",
-					);
-				}
+				// keyboard used to be refused here, on the grounds that a
+				// walk cannot survive being resized underneath it. It is
+				// not: the sweep resizes and then runs, never during, and
+				// the walk now puts focus and scroll back where it found
+				// them. The refusal was also a fiction, because health is
+				// swept and runs the same walk at every width, so anyone
+				// who hit the refusal could route around it by asking for
+				// health and never learn what it was protecting.
 				return answer(
 					name,
 					kind,

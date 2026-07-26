@@ -1,13 +1,17 @@
 /**
  * browser_do: change the page.
  *
- * Three kinds, in decreasing order of how much they know about
+ * Five kinds, in decreasing order of how much they know about
  * the page. act names an element the way it reads in the
  * outline. press sends keys wherever focus already is. input
  * sends raw gestures at coordinates, which is the only way to
- * reach a drag, a wheel or a swipe. Every call answers with a
- * fresh page view, so the caller always sees the result of what
- * it just did.
+ * reach a drag, a wheel or a swipe. wait holds until the page
+ * reaches a state it gets to on its own. eval runs an
+ * expression and describes what came back.
+ *
+ * The three that change the page answer with a fresh page view,
+ * so the caller sees the result of what it just did. wait and
+ * eval answer with what they were asked for.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";

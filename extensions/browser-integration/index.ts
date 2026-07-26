@@ -3,13 +3,15 @@
  *
  * A family of tools over named, persistent browser sessions,
  * named for what the caller is doing: browser_go to be
- * somewhere, browser_see to read the page, browser_do to
- * change it. Elements are named the way they read in the
+ * somewhere and to set the conditions, browser_see to read the
+ * page, browser_do to change it, browser_check to form a
+ * verdict about it. Elements are named the way they read in the
  * accessibility outline, so the same vocabulary works for
  * seeing and for acting.
  *
- * Sessions dispose on idle and at shutdown, on the hardened
- * shared browser lifecycle, so nothing leaks.
+ * Sessions dispose after a stretch with no activity and again
+ * at shutdown, on the hardened shared browser lifecycle, so
+ * nothing leaks and nothing is closed mid-call.
  *
  * No slash command: the agent (or a subagent) drives the tools.
  */

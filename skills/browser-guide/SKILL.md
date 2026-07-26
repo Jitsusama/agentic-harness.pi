@@ -77,8 +77,9 @@ habit.
 
 ## The Loop
 
-Observe, act, observe. Every `browser_do` returns a short health
-trailer so you can see what the action did without asking again.
+Observe, act, observe. The three `browser_do` kinds that change
+the page answer with a fresh page view, so you see the result of
+what you just did without asking again.
 
 When something does not work, the order that finds it fastest:
 
@@ -229,7 +230,9 @@ what the browser actually did. Read that part.
 
 ## Sessions and Cleanup
 
-Sessions persist until closed or the pi session ends. Close one
+A session lives until you close it, the pi session ends, or it
+goes a few minutes without being used. Idle means no activity,
+so a long check is never closed underneath itself. Close one
 when a task is done and another is starting against a different
 site, so state, storage and emulation do not leak between them.
 

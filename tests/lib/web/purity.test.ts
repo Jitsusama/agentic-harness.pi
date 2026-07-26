@@ -65,14 +65,33 @@ function heavyReachableFrom(
 	seen.add(entry);
 
 	const source = readFileSync(entry, "utf8");
+	// Four shapes, because a walker that enforces a documented
+	// guarantee has to see every way a module can be reached.
+	// This used to require a `from` clause, which misses a bare
+	// side-effect import and an await import(), and this tree
+	// already contains the second of those.
 	const specifiers = [
+		// import x from "y" / export { x } from "y"
 		...source.matchAll(/^\s*(?:import|export)[^'"]*?from\s+["']([^"']+)["']/gm),
+		// import "y"
+		...source.matchAll(/^\s*import\s+["']([^"']+)["']/gm),
+		// import("y"), including await import("y")
+		...source.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/g),
+		// require("y")
+		...source.matchAll(/\brequire\s*\(\s*["']([^"']+)["']\s*\)/g),
 	].map((found) => found[1] ?? "");
 
 	const hits: string[] = [];
 	for (const specifier of specifiers) {
 		if (!specifier.startsWith(".")) {
-			if (HEAVY.includes(specifier)) {
+			// By package, not by exact specifier: pngjs/browser and
+			// axe-core/axe.min.js are the same dependency arriving
+			// through a subpath, and an exact-name test waves them
+			// through.
+			const pkg = specifier.startsWith("@")
+				? specifier.split("/").slice(0, 2).join("/")
+				: (specifier.split("/")[0] ?? specifier);
+			if (HEAVY.includes(pkg)) {
 				hits.push(
 					[...chain, entry, specifier]
 						.map((step) => step.replace(`${ROOT}/`, ""))
@@ -86,7 +105,18 @@ function heavyReachableFrom(
 			specifier.replace(/\.js$/, ".ts"),
 		);
 		if (!existsSync(next)) next = next.replace(/\.ts$/, "/index.ts");
-		if (!existsSync(next)) continue;
+		if (!existsSync(next)) {
+			// A relative import we cannot resolve is a hole in the
+			// walk, and skipping it quietly means a rename can take a
+			// whole subtree out of the guarantee while the suite stays
+			// green. Fail loudly instead.
+			throw new Error(
+				`Could not resolve '${specifier}' from ${entry.replace(
+					`${ROOT}/`,
+					"",
+				)}. The purity walk cannot vouch for what it cannot follow.`,
+			);
+		}
 		hits.push(...heavyReachableFrom(next, seen, [...chain, entry]));
 	}
 	return hits;

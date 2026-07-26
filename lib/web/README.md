@@ -63,10 +63,13 @@ capture, or one taken by Playwright or raw CDP.
 
 That is enforced rather than intended:
 [`tests/lib/web/purity.test.ts`](../../tests/lib/web/purity.test.ts)
-walks the static imports from each analysis barrel and fails if
-any reaches puppeteer, jsdom, pixelmatch, pngjs or axe. It had
-been broken three times by accident before the test existed,
-never visibly.
+walks the imports from each analysis barrel and fails if any
+reaches puppeteer, jsdom, pixelmatch, pngjs or axe. It follows
+static imports, bare side-effect imports, dynamic `import()` and
+`require()`, matches by package rather than by exact specifier
+so a subpath cannot slip past, and refuses to skip a relative
+import it cannot resolve. It had been broken twice by accident
+before the test existed, both times invisibly.
 
 ### The Session Is the Full Verb Surface
 
