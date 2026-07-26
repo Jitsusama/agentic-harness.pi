@@ -1096,6 +1096,21 @@ export class BrowserSession {
 	 * asking for reduced motion after asking for dark mode would
 	 * otherwise turn the dark mode back off.
 	 */
+	/**
+	 * Put the emulation back exactly as it was.
+	 *
+	 * emulate merges, which is right for a caller adding one
+	 * condition and wrong for anything that has to undo itself: a
+	 * merge cannot clear a field, so a sweep that widened the
+	 * viewport could never restore a session that had none. This
+	 * replaces the state wholesale.
+	 */
+	async restoreEmulation(state: EmulationState): Promise<void> {
+		await this.ready();
+		this.emulation = state;
+		await this.applyEmulation();
+	}
+
 	async emulate(change: EmulationState = {}): Promise<{
 		asked: EmulationState;
 		observed: ObservedEnvironment;

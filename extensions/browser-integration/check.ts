@@ -9,19 +9,24 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import { type Static, Type } from "@sinclair/typebox";
 import { analyseWalk, renderWalk } from "../../lib/web/a11y/index.js";
 import {
 	analyseStructure,
 	analyseVisual,
+	type Condition,
+	conditionFrom,
 	mergeFindings,
 	renderAudit,
+	renderSweep,
 	renderVerdict,
 	SUPERSEDED_BY,
 	tallyFindings,
+	widthsToSweep,
 } from "../../lib/web/audit/index.js";
 import { renderComparison } from "../../lib/web/compare/index.js";
 import { renderInventory, takeInventory } from "../../lib/web/design/index.js";
+import type { BrowserSession } from "../../lib/web/session.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
 
@@ -68,6 +73,23 @@ const parameters = Type.Object({
 				"For compare: which baseline to measure against. Name it " +
 				"after the state being held still, e.g. 'checkout-empty'. " +
 				"Defaults to 'default'.",
+		}),
+	),
+	widths: Type.Optional(
+		Type.Array(Type.Number(), {
+			description:
+				"Run the same check at each of these viewport widths and " +
+				"report a table. Most layout and contrast faults are " +
+				"conditional, so a single width can pass a page that is " +
+				"unusable on a phone. Works with visual, accessibility, " +
+				"design and compare.",
+		}),
+	),
+	at: Type.Optional(
+		Type.String({
+			description:
+				"After a sweep, name one condition from the table, e.g. " +
+				"'375px', to see its report in full.",
 		}),
 	),
 	update: Type.Optional(
@@ -126,106 +148,178 @@ export function registerCheck(
 
 			const session = await registry.acquire(name);
 
-			if (kind === "accessibility") {
-				// Two rule sets, one report. axe is the WCAG baseline and
-				// ours are the structural questions it leaves alone or
-				// files as opinion; a reader should not have to know
-				// which came from where to act on either.
-				const [fromAxe, structure] = await Promise.all([
-					session.audit(),
-					session.structure(),
-				]);
-				const findings = mergeFindings(
-					fromAxe,
-					analyseStructure(structure),
-					SUPERSEDED_BY,
-				);
-				const measured =
-					`Checked ${structure.length} elements against the axe rule ` +
-					"set and seven structural rules.";
-				return answer(
-					name,
-					kind,
-					renderAudit(findings, tallyFindings(findings), {
-						...(params.rule === undefined ? {} : { rule: params.rule }),
-						measured,
-					}),
-				);
-			}
-
-			if (kind === "compare") {
-				const { comparison, recorded, artifacts } =
-					await session.compareToBaseline(params.baseline ?? "default", {
-						...(params.update === undefined ? {} : { update: params.update }),
-					});
-				if (!comparison) {
-					// Not a pass: nothing was judged. Recording a baseline
-					// and reporting PASS would let a first run look like a
-					// clean one forever after.
-					return answer(
+			if (params.widths && params.widths.length > 0) {
+				if (kind === "keyboard") {
+					return refusal(
 						name,
 						kind,
-						renderVerdict(
-							{
-								standing: "warn",
-								headline: "No baseline existed, so this run became one.",
-								measured: `Recorded at ${recorded}. Run this again after a change.`,
-							},
-							"",
-						),
+						"A keyboard walk moves focus and restores it, which " +
+							"does not survive being resized underneath it. Run " +
+							"it at one width at a time.",
 					);
 				}
-				return answer(name, kind, renderComparison(comparison, artifacts));
-			}
-
-			if (kind === "design") {
-				const samples = await session.styleSamples();
 				return answer(
 					name,
 					kind,
-					renderInventory(takeInventory(samples), {
-						...(params.rule === undefined ? {} : { property: params.rule }),
-					}),
-				);
-			}
-
-			if (kind === "visual") {
-				const { nodes, viewport } = await session.layout();
-				const findings = analyseVisual(nodes, viewport);
-				return answer(
-					name,
-					kind,
-					renderAudit(findings, tallyFindings(findings), {
-						...(params.rule === undefined ? {} : { rule: params.rule }),
-						measured:
-							`Measured ${nodes.length} drawn elements in a ` +
-							`${viewport.width} by ${viewport.height} viewport.`,
-					}),
-				);
-			}
-
-			const capture = await session.keyboardWalk(params.maxStops);
-			if (capture.candidates.length === 0) {
-				return answer(
-					name,
-					kind,
-					renderVerdict(
-						{
-							// A page of prose legitimately has no controls, and a
-							// broken application looks identical from here.
-							standing: "warn",
-							headline: "Nothing on this page can hold focus.",
-							measured:
-								"A page with no focusable controls cannot be used " +
-								"with a keyboard at all, which is either the point " +
-								"or the bug.",
-						},
-						"",
+					await sweep(session, params.widths, params.at, (at) =>
+						runOnce(session, kind, {
+							...params,
+							baseline: baselineAt(params, at),
+						}),
 					),
 				);
 			}
 
-			return answer(name, kind, renderWalk(analyseWalk(capture)));
+			return answer(name, kind, await runOnce(session, kind, params));
 		},
 	});
+}
+
+/** What check does under one set of conditions. */
+type CheckParams = Static<typeof parameters>;
+
+/**
+ * Run one kind of check once and render it.
+ *
+ * Separate from the tool body so a sweep can call it repeatedly
+ * under different conditions and collect the reports, rather
+ * than each kind growing its own loop.
+ */
+async function runOnce(
+	session: BrowserSession,
+	kind: string,
+	params: CheckParams,
+): Promise<string> {
+	if (kind === "accessibility") {
+		// Two rule sets, one report. axe is the WCAG baseline and
+		// ours are the structural questions it leaves alone or
+		// files as opinion; a reader should not have to know
+		// which came from where to act on either.
+		const [fromAxe, structure] = await Promise.all([
+			session.audit(),
+			session.structure(),
+		]);
+		const findings = mergeFindings(
+			fromAxe,
+			analyseStructure(structure),
+			SUPERSEDED_BY,
+		);
+		const measured =
+			`Checked ${structure.length} elements against the axe rule ` +
+			"set and seven structural rules.";
+		return renderAudit(findings, tallyFindings(findings), {
+			...(params.rule === undefined ? {} : { rule: params.rule }),
+			measured,
+		});
+	}
+
+	if (kind === "compare") {
+		const { comparison, recorded, artifacts } = await session.compareToBaseline(
+			params.baseline ?? "default",
+			{
+				...(params.update === undefined ? {} : { update: params.update }),
+			},
+		);
+		if (!comparison) {
+			// Not a pass: nothing was judged. Recording a baseline
+			// and reporting PASS would let a first run look like a
+			// clean one forever after.
+			return renderVerdict(
+				{
+					standing: "warn",
+					headline: "No baseline existed, so this run became one.",
+					measured: `Recorded at ${recorded}. Run this again after a change.`,
+				},
+				"",
+			);
+		}
+		return renderComparison(comparison, artifacts);
+	}
+
+	if (kind === "design") {
+		const samples = await session.styleSamples();
+		return renderInventory(takeInventory(samples), {
+			...(params.rule === undefined ? {} : { property: params.rule }),
+		});
+	}
+
+	if (kind === "visual") {
+		const { nodes, viewport } = await session.layout();
+		const findings = analyseVisual(nodes, viewport);
+		return renderAudit(findings, tallyFindings(findings), {
+			...(params.rule === undefined ? {} : { rule: params.rule }),
+			measured:
+				`Measured ${nodes.length} drawn elements in a ` +
+				`${viewport.width} by ${viewport.height} viewport.`,
+		});
+	}
+
+	const capture = await session.keyboardWalk(params.maxStops);
+	if (capture.candidates.length === 0) {
+		return renderVerdict(
+			{
+				// A page of prose legitimately has no controls, and a
+				// broken application looks identical from here.
+				standing: "warn",
+				headline: "Nothing on this page can hold focus.",
+				measured:
+					"A page with no focusable controls cannot be used " +
+					"with a keyboard at all, which is either the point " +
+					"or the bug.",
+			},
+			"",
+		);
+	}
+
+	return renderWalk(analyseWalk(capture));
+}
+
+/**
+ * Run a check at each width and report the table.
+ *
+ * The viewport is put back afterwards, because a check should
+ * not leave the session somewhere the caller did not put it.
+ */
+async function sweep(
+	session: BrowserSession,
+	widths: readonly number[],
+	only: string | undefined,
+	run: (label: string) => Promise<string>,
+): Promise<string> {
+	// Restoring means the size the page was actually at, not the
+	// absence of an override. Clearing the override hands the page
+	// back to the real window, which is not where it started:
+	// puppeteer sets its own default viewport, so a session that
+	// had emulated nothing still came back 756 by 469 from 800 by
+	// 600. So the measured size is captured and re-asserted.
+	const before = session.emulated;
+	const { viewport: was } = await session.layout();
+	const height = before.viewport?.height ?? was.height;
+	const conditions: Condition[] = [];
+	try {
+		for (const { label, setting } of widthsToSweep(widths)) {
+			await session.emulate({
+				viewport: { width: setting.width, height },
+			});
+			conditions.push(conditionFrom(label, await run(label)));
+		}
+	} finally {
+		await session.restoreEmulation({
+			...before,
+			viewport: before.viewport ?? { width: was.width, height: was.height },
+		});
+	}
+	return renderSweep(conditions, {
+		...(only === undefined ? {} : { only }),
+	});
+}
+
+/**
+ * Keep each width's baseline apart.
+ *
+ * One baseline across every width would compare a phone against
+ * a desktop and refuse on size, every time.
+ */
+function baselineAt(params: CheckParams, at: string): string {
+	return `${params.baseline ?? "default"}-${at}`;
 }

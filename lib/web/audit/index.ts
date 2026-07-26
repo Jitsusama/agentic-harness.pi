@@ -80,6 +80,17 @@ export {
 	SUPERSEDED_BY,
 } from "./structure.js";
 export {
+	type Condition,
+	conditionFrom,
+	DEFAULT_WIDTHS,
+	headlineOf,
+	renderSweep,
+	type Sweepable,
+	standingOf,
+	widthsToSweep,
+	worstOf,
+} from "./sweep.js";
+export {
 	ENHANCED_TARGET_PX,
 	judgeTarget,
 	judgeTargets,
