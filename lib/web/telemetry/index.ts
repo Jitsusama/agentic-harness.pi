@@ -43,6 +43,7 @@ export {
 	type DownloadState,
 	renderDownloads,
 } from "./downloads.js";
+export { failureText } from "./failure.js";
 export {
 	type Har,
 	type HarEntry,

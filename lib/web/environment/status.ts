@@ -10,7 +10,7 @@
  */
 
 import type { DialogPolicy, LifecycleEvent } from "../telemetry/index.js";
-import type { EmulationState } from "./emulation.js";
+import type { Divergence, EmulationState } from "./emulation.js";
 import type { NetworkRule, ThrottleConditions } from "./shaping.js";
 
 /** Everything worth knowing about a session at a glance. */
@@ -19,6 +19,8 @@ export interface SessionStatus {
 	readonly url: string;
 	readonly title: string;
 	readonly emulation: EmulationState;
+	/** Where the page disagrees with what is being emulated. */
+	readonly gaps?: readonly Divergence[];
 	readonly rules: readonly NetworkRule[];
 	readonly throttle?: ThrottleConditions;
 	readonly dialogPolicy: DialogPolicy;
@@ -50,6 +52,20 @@ export function renderStatus(status: SessionStatus): string {
 
 	const pretending = describeEmulation(status.emulation);
 	if (pretending) lines.push("", `  pretending: ${pretending}`);
+	// Only ever claimed with the page's agreement.
+	//
+	// An override sent to a renderer that a navigation then replaced
+	// goes nowhere, and Chrome gives no signal when that happens. It
+	// is now applied again on arrival and checked against the page,
+	// which fixes nearly every case, but a browser that loses it
+	// anyway must not be described as a phone: reading "pretending:
+	// iPhone 15 Pro" while the page cannot detect a touch screen is
+	// how a tester concludes a site is broken on mobile when it is
+	// the tool that is wrong. So the claim carries the page's answer
+	// with it, and the reader is told which part did not take.
+	for (const gap of status.gaps ?? []) {
+		lines.push(`  not landed: ${gap.what} is ${gap.observed}`);
+	}
 
 	if (status.throttle?.offline) {
 		lines.push("  network: offline");

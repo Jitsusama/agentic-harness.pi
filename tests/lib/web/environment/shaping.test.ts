@@ -10,10 +10,34 @@ import {
 	matchesPattern,
 	type NetworkRule,
 	renderShaping,
+	resolveThrottle,
 	ruleFor,
 	throttleNames,
 	throttleProfile,
 } from "../../../../lib/web/environment/shaping.js";
+
+describe("asking for a network by name", () => {
+	// Naming a profile is the natural thing to write and was the one
+	// thing that did not work: the fields were read off the string,
+	// none were found, and nothing was shaped. A navigation then came
+	// back 200 while the caller believed the network was offline.
+	it("means the conditions that name stands for", () => {
+		expect(resolveThrottle("offline").offline).toBe(true);
+		expect(resolveThrottle("slow-3g").download).toBeGreaterThan(0);
+	});
+
+	it("accepts conditions given directly, unchanged", () => {
+		const spelled = { offline: false, download: 1, upload: 2, latency: 3 };
+		expect(resolveThrottle(spelled)).toBe(spelled);
+	});
+
+	it("refuses a network that does not exist, and lists the ones that do", () => {
+		// Loud, because carrying on at full speed would misreport
+		// whatever the caller measures next.
+		expect(() => resolveThrottle("dial-up")).toThrow(/dial-up/);
+		expect(() => resolveThrottle("dial-up")).toThrow(/slow-3g/);
+	});
+});
 
 describe("throttleProfile", () => {
 	it("goes properly offline", () => {

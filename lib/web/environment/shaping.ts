@@ -88,6 +88,35 @@ export function throttleNames(): readonly string[] {
 }
 
 /**
+ * The conditions a caller means, named or spelled out.
+ *
+ * A profile name is the natural thing to write and was the one
+ * thing that did not work: passed a name, the library read the
+ * fields it wanted off a string, found nothing, and shaped
+ * nothing. A navigation then came back 200 while the caller
+ * believed the network was offline, which is the worst kind of
+ * quiet failure because the test appears to have run.
+ *
+ * Throws on a name that is not a profile. A caller who names a
+ * network that does not exist cannot be given one, and continuing
+ * at full speed would misreport whatever they measure next.
+ */
+export function resolveThrottle(
+	value: ThrottleConditions | string,
+): ThrottleConditions {
+	if (typeof value !== "string") return value;
+	const profile = throttleProfile(value);
+	if (!profile) {
+		throw new Error(
+			`No network profile named '${value}'. ` +
+				`Try one of ${throttleNames().join(", ")}, or give the ` +
+				"conditions directly.",
+		);
+	}
+	return profile;
+}
+
+/**
  * Whether a url answers to a pattern.
  *
  * Patterns are globs because that is what the protocol's own

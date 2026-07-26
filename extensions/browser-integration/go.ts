@@ -311,6 +311,21 @@ function emulationFrom(params: {
 	return { state: state as EmulationState, clear };
 }
 
+/**
+ * What to say when the page never arrived.
+ *
+ * Being offline on purpose is a normal thing to be, so this reads
+ * as a report rather than a scolding, and points at the log that
+ * holds the detail.
+ */
+function arrivalFailed(failure: string): string {
+	return (
+		`The page did not arrive: ${failure}. Nothing was loaded, and ` +
+		"the session is still where it was. The attempt is in the " +
+		"request log: read requests with filter failed."
+	);
+}
+
 /** Turn the tool's flat parameters into a shaping change. */
 function shapingFrom(params: {
 	mock?: string;
@@ -472,16 +487,35 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				throw err;
 			}
 
+			// Reloading and stepping through history land on a page just
+			// as navigating does, so they answer the same way. They used
+			// to report only a URL, which meant confirming where you
+			// actually ended up took a second call, and a reload that
+			// changed the page said exactly as much as one that did not.
 			if (kind === "reload") {
-				await session.reload();
-				return answer(name, kind, `Reloaded ${session.url}.`);
+				const again = await session.reload();
+				if (again.failure) {
+					return refusal(name, kind, arrivalFailed(again.failure));
+				}
+				return answer(
+					name,
+					kind,
+					`Reloaded ${session.url}.\n\n${await pageView(session)}`,
+				);
 			}
 
 			if (kind === "back" || kind === "forward") {
 				const moved = await session.step(kind);
-				return moved.ok
-					? answer(name, kind, `Went ${kind} to ${moved.url}.`)
-					: refusal(name, kind, moved.refusal);
+				if (!moved.ok) return refusal(name, kind, moved.refusal);
+				// Stepping back past the first navigation lands on the blank
+				// page the session started on. That is the truth, but an
+				// outline of nothing reads like a fault, so it is named.
+				const landed =
+					moved.url === "about:blank"
+						? "This is the blank page the session started on, " +
+							"before its first navigation."
+						: await pageView(session);
+				return answer(name, kind, `Went ${kind} to ${moved.url}.\n\n${landed}`);
 			}
 
 			if (kind === "network") {
@@ -528,7 +562,8 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			if (!params.url) {
 				return answer(name, kind, `Opened session '${name}'.`);
 			}
-			const { status } = await session.navigate(params.url);
+			const { status, failure } = await session.navigate(params.url);
+			if (failure) return refusal(name, kind, arrivalFailed(failure));
 			// An error page looks like a page. Saying the status up
 			// front is the difference between checking the site and
 			// checking its 404, which every later check would

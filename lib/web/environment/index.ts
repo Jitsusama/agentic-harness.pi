@@ -29,6 +29,7 @@ export {
 	matchesPattern,
 	type NetworkRule,
 	renderShaping,
+	resolveThrottle,
 	ruleFor,
 	type ShapeAction,
 	THROTTLE_PROFILES,

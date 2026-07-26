@@ -102,6 +102,15 @@ export function createLifecycleRecorder(
 				pendingReason = undefined;
 				return;
 			}
+			// A framework that announces its route on startup says the
+			// page it is already on, so a plain arrival was recorded
+			// twice: once as the navigation and once as the app noticing
+			// it. That made the trail longer than the number of pages
+			// visited, which is misleading when the trail is what you are
+			// counting history depth from. A route change to where we
+			// already are is not a move.
+			const last = events[events.length - 1];
+			if (last && "url" in last && last.url === input.url) return;
 			events.push({
 				kind: "routeChanged",
 				url: input.url,

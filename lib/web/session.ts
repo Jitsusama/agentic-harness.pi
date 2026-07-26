@@ -113,6 +113,7 @@ import {
 	mergeEmulation,
 	type NetworkRule,
 	type ObservedEnvironment,
+	resolveThrottle,
 	ruleFor,
 	type SessionStatus,
 	type StorageSnapshot,
@@ -269,6 +270,7 @@ import {
 	type DownloadRecord,
 	type DownloadState,
 	exceptionEntry,
+	failureText,
 	type LifecycleEvent,
 	type LifecycleRecorder,
 	type LogEntry,
@@ -369,6 +371,14 @@ export type TargetedAction =
  */
 const READY_BUDGET_MS = 2000;
 const READY_POLL_MS = 100;
+
+/**
+ * How many times to put an override to a page before believing it.
+ *
+ * Three is one hopeful application plus two answers from the page
+ * itself, which is enough for every case measured and cannot spin.
+ */
+const EMULATION_SETTLE_TRIES = 3;
 
 /** Touch points a touch device is given, matching a common phone. */
 const TOUCH_POINTS = 5;
@@ -775,12 +785,23 @@ export class BrowserSession {
 	}
 
 	/** Navigate the tab to a URL and wait for the network to settle. */
-	async navigate(url: string): Promise<{ status?: number }> {
+	async navigate(url: string): Promise<{ status?: number; failure?: string }> {
 		await this.ready();
 		// Cookies are per-domain, so they are injected against the
 		// URL we are about to visit rather than once at open.
 		if (this.options.cookies) await injectCookies(this.page, url);
-		const response = await this.page.goto(url, { waitUntil: "networkidle2" });
+		// A navigation that never arrives is an answer, not an
+		// exception. Offline, or against a host that does not resolve,
+		// this threw a raw driver error straight past a doc that
+		// promises the opposite two lines below, and the caller got a
+		// stack trace where it had asked a question. What the network
+		// said is the useful part, so it is returned.
+		let response: Awaited<ReturnType<Page["goto"]>> = null;
+		try {
+			response = await this.page.goto(url, { waitUntil: "networkidle2" });
+		} catch (error) {
+			return { failure: failureText(error) };
+		}
 		await this.reassertEmulation();
 		// Chrome's idle heuristics fire before a client-rendered app
 		// has anything on screen, so this waits for the DOM as well.
@@ -808,11 +829,18 @@ export class BrowserSession {
 	 * reloads to see a change they just made. A reload that served
 	 * the old file back would be the one thing it must not do.
 	 */
-	async reload(): Promise<void> {
+	async reload(): Promise<{ failure?: string }> {
 		await this.ready();
-		await this.page.reload({ waitUntil: "networkidle2" });
+		try {
+			await this.page.reload({ waitUntil: "networkidle2" });
+		} catch (error) {
+			// Same reasoning as navigate: reloading with no network is a
+			// thing a tester does deliberately.
+			return { failure: failureText(error) };
+		}
 		await this.reassertEmulation();
 		await this.settlePage();
+		return {};
 	}
 
 	/**
@@ -903,7 +931,22 @@ export class BrowserSession {
 			}
 			await this.reassertEmulation();
 			await this.settlePage();
-		} catch {
+		} catch (error) {
+			// Not every failure here is an empty history. Stepping back
+			// with the network off fails too, and this used to answer
+			// that there was nothing behind the page: a confident, wrong
+			// account of the session's own history, which is the kind of
+			// lie that sends someone looking in the wrong place.
+			const said = failureText(error);
+			if (!/History entry/i.test(said)) {
+				return {
+					ok: false,
+					refusal:
+						`Going ${direction} did not arrive: ${said}. The page ` +
+						"is where it was. Read requests to see what the network " +
+						"did.",
+				};
+			}
 			return {
 				ok: false,
 				refusal:
@@ -1139,6 +1182,15 @@ export class BrowserSession {
 				frameId: event.frame.id,
 				url: event.frame.url,
 			});
+			// Re-asserting once the navigating call returns is not enough.
+			// A document that commits in a new process arrives on its own
+			// schedule, sometimes after the call has already resolved, and
+			// whatever was overridden on the old renderer does not come
+			// with it. Measured: with only the post-call re-assert, one
+			// navigation in five still lost its touch screen. Doing it
+			// here as well means the override follows the document rather
+			// than the call, which is the thing it was always about.
+			if (event.frame.parentId === undefined) this.reassertOnArrival();
 		});
 		this.cdp.on("Page.navigatedWithinDocument", (event) => {
 			log.apply({
@@ -1394,6 +1446,64 @@ export class BrowserSession {
 	private async reassertEmulation(): Promise<void> {
 		if (Object.keys(this.emulation).length === 0) return;
 		await this.applyEmulation();
+
+		// Applying is not the same as having applied.
+		//
+		// A document that commits in a new process arrives on its own
+		// schedule, and an override sent to the renderer it replaces
+		// goes nowhere. Sending it again once the navigating call
+		// returns fixed most of it; sending it again on the arrival
+		// event fixed more; neither made it certain, because both are
+		// still guesses about when the renderer is ready. Under load,
+		// one navigation in five still came back without its touch
+		// screen while the report said "pretending: iPhone 15 Pro".
+		//
+		// So this stops guessing and asks. The page is the authority on
+		// what the page believes, which is the same principle the rest
+		// of this library is built on, and it is the only version of
+		// this that can be relied on rather than hoped for.
+		for (let attempt = 1; attempt < EMULATION_SETTLE_TRIES; attempt++) {
+			if (await this.emulationLanded()) return;
+			await this.applyEmulation();
+		}
+	}
+
+	/**
+	 * Whether the page agrees with what is being emulated.
+	 *
+	 * Only touch is checked. It is the override that gets lost, and
+	 * the one a page can answer for in a single cheap question; a
+	 * viewport that has not caught up is reported as a divergence
+	 * rather than silently wrong, and everything else survives.
+	 * Returns true when it cannot tell, so a page that will not
+	 * answer is not mistaken for one that disagrees.
+	 */
+	private async emulationLanded(): Promise<boolean> {
+		const wanted = this.effectiveEmulation.touch ?? false;
+		try {
+			const seen = await this.page.evaluate("navigator.maxTouchPoints > 0");
+			return seen === wanted;
+		} catch {
+			// A page mid-navigation or mid-teardown cannot answer, and
+			// guessing wrong here would mean applying overrides in a loop.
+			return true;
+		}
+	}
+
+	/**
+	 * Re-assert emulation from a protocol event, without waiting.
+	 *
+	 * An event handler cannot be awaited and must not throw, so the
+	 * promise is dropped deliberately and a failure is ignored: the
+	 * navigating call re-asserts too, and a page being torn down
+	 * while this runs is the ordinary way for it to fail.
+	 */
+	private reassertOnArrival(): void {
+		if (Object.keys(this.emulation).length === 0) return;
+		void this.applyEmulation().catch(() => {
+			// A closing or navigating page rejects these; the call-site
+			// re-assert is the one that has to succeed.
+		});
 	}
 
 	/**
@@ -1679,7 +1789,8 @@ export class BrowserSession {
 	 */
 	async shape(change: {
 		rules?: readonly NetworkRule[];
-		throttle?: ThrottleConditions;
+		/** Conditions, or the name of a profile such as slow-3g. */
+		throttle?: ThrottleConditions | string;
 		clear?: boolean;
 	}): Promise<{
 		rules: readonly NetworkRule[];
@@ -1692,7 +1803,10 @@ export class BrowserSession {
 			this.throttle = undefined;
 		} else {
 			if (change.rules) this.rules = [...this.rules, ...change.rules];
-			if (change.throttle) this.throttle = change.throttle;
+			// Resolved here so a profile name is as good as the conditions
+			// it stands for. Passed a name, this used to read the fields
+			// it wanted off a string, find none, and shape nothing at all.
+			if (change.throttle) this.throttle = resolveThrottle(change.throttle);
 		}
 
 		await this.cdp.send("Network.emulateNetworkConditions", {
@@ -2444,11 +2558,21 @@ export class BrowserSession {
 		const logs = this.logs();
 		const heard = await this.heard(0);
 		const requests = this.requests();
+		// Checked rather than recited. What is being emulated is what
+		// this session asked for, and a navigation can quietly drop part
+		// of it, so the page is asked whether it agrees before status
+		// says it is pretending to be a phone.
+		const blank = this.page.url() === "about:blank";
+		const gaps =
+			blank || Object.keys(this.emulation).length === 0
+				? []
+				: divergences(this.effectiveEmulation, await this.observeEnvironment());
 		return {
 			name: this.name,
 			url: this.page.url(),
 			title: await this.page.title().catch(() => ""),
 			emulation: this.emulation,
+			...(gaps.length === 0 ? {} : { gaps }),
 			rules: this.rules,
 			...(this.throttle === undefined ? {} : { throttle: this.throttle }),
 			dialogPolicy: this.dialogPolicy,

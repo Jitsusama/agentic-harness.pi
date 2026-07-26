@@ -30,6 +30,45 @@ describe("createLifecycleRecorder", () => {
 		]);
 	});
 
+	it("does not count an app announcing the page it is on", () => {
+		// A framework tells the router its route at startup, which is
+		// the page just navigated to. Recorded as a move, a plain
+		// arrival appeared twice and the trail was longer than the
+		// number of pages visited, which misleads anyone counting
+		// history depth from it.
+		const log = createLifecycleRecorder(MAIN);
+		log.apply({ kind: "navigated", frameId: MAIN, url: "http://a/tree" });
+		log.apply({
+			kind: "within",
+			frameId: MAIN,
+			url: "http://a/tree",
+			navigationType: "historyApi",
+		});
+		expect(log.all()).toEqual([{ kind: "navigated", url: "http://a/tree" }]);
+	});
+
+	it("counts a route change that actually goes somewhere", () => {
+		const log = createLifecycleRecorder(MAIN);
+		log.apply({ kind: "navigated", frameId: MAIN, url: "http://a/tree" });
+		log.apply({
+			kind: "within",
+			frameId: MAIN,
+			url: "http://a/tree/areas",
+			navigationType: "historyApi",
+		});
+		expect(log.all()).toHaveLength(2);
+	});
+
+	it("counts a return to a page left in between", () => {
+		// Coming back is a move, so only the immediately preceding
+		// entry can make one redundant.
+		const log = createLifecycleRecorder(MAIN);
+		for (const url of ["http://a/one", "http://a/two", "http://a/one"]) {
+			log.apply({ kind: "within", frameId: MAIN, url });
+		}
+		expect(log.all()).toHaveLength(3);
+	});
+
 	it("ignores a subframe, which is not where the session is", () => {
 		const log = createLifecycleRecorder(MAIN);
 		log.apply({
