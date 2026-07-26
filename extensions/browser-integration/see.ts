@@ -24,6 +24,7 @@ import {
 	renderVariants,
 	renderVisibility,
 } from "../../lib/web/element/index.js";
+import { renderStatus } from "../../lib/web/environment/index.js";
 import type {
 	BrowserSession,
 	Inspection,
@@ -187,6 +188,7 @@ const parameters = Type.Object({
 				Type.Literal("announcements"),
 				Type.Literal("logs"),
 				Type.Literal("requests"),
+				Type.Literal("status"),
 				Type.Literal("element"),
 				Type.Literal("shot"),
 			],
@@ -196,7 +198,9 @@ const parameters = Type.Object({
 					"the default. reading: the same page narrated the way a " +
 					"screen reader would say it. logs: what the page said, " +
 					"threw, or had refused for it. requests: what the page " +
-					"asked the network for. announcements: what the page " +
+					"asked the network for. status: where this session stands, " +
+					"including what it is pretending to be. announcements: " +
+					"what the page " +
 					"said out loud through its live regions. element: " +
 					"everything about one element, named with 'within'. " +
 					"shot: a picture, written to disk and reported by path.",
@@ -363,6 +367,10 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				);
 			}
 			const session = await registry.acquire(name);
+
+			if (kind === "status") {
+				return answer(name, kind, renderStatus(await session.status()));
+			}
 
 			if (kind === "requests") {
 				const all = session.requests();

@@ -76,6 +76,7 @@ import {
 	type NetworkRule,
 	type ObservedEnvironment,
 	ruleFor,
+	type SessionStatus,
 	type StorageSnapshot,
 	type ThrottleConditions,
 } from "./environment/index.js";
@@ -336,6 +337,9 @@ export class BrowserSession {
 	/** How many archives have been written, for the same reason. */
 	private archives = 0;
 
+	/** Everything this session has put on disk, in order. */
+	private readonly written: string[] = [];
+
 	/**
 	 * Announcements still being ruled on. Candidates resolve one
 	 * at a time along this chain, so a slow lookup cannot overtake
@@ -501,10 +505,12 @@ export class BrowserSession {
 
 		if (!this.bundle) this.bundle = diskSink();
 		this.archives += 1;
-		return this.bundle.writeText(
+		const path = this.bundle.writeText(
 			`capture-${String(this.archives).padStart(2, "0")}.har`,
 			JSON.stringify(toHar(requests, { bodies }), null, 2),
 		);
+		this.written.push(path);
+		return path;
 	}
 
 	/**
@@ -1102,6 +1108,38 @@ export class BrowserSession {
 		}
 	}
 
+	/**
+	 * Everything this session has accumulated, in one reading.
+	 *
+	 * Emulation, interception and dialog policy all change what
+	 * every other reading means, and none of them is visible in
+	 * those readings, so they are gathered here.
+	 */
+	async status(): Promise<SessionStatus> {
+		await this.ready();
+		const logs = this.logs();
+		const heard = await this.heard(0);
+		const requests = this.requests();
+		return {
+			name: this.name,
+			url: this.page.url(),
+			title: await this.page.title().catch(() => ""),
+			emulation: this.emulation,
+			rules: this.rules,
+			...(this.throttle === undefined ? {} : { throttle: this.throttle }),
+			dialogPolicy: this.dialogPolicy,
+			dialogsSeen: this.dialogLog.length,
+			logs: { count: logs.entries.length, cursor: logs.cursor },
+			announcements: { count: heard.entries.length, cursor: heard.cursor },
+			requests: {
+				count: requests.length,
+				failed: requests.filter((request) => request.state === "failed").length,
+			},
+			history: this.history,
+			artifacts: this.written,
+		};
+	}
+
 	/** How the network is currently being bent. */
 	get shaping(): {
 		rules: readonly NetworkRule[];
@@ -1434,6 +1472,11 @@ export class BrowserSession {
 		this.shots += 1;
 		const stamp = String(this.shots).padStart(2, "0");
 
+		const keep = (path: string): string => {
+			this.written.push(path);
+			return path;
+		};
+
 		if (backendNodeId !== undefined) {
 			const box = await this.boxOf(backendNodeId);
 			const clip = box?.border;
@@ -1452,7 +1495,7 @@ export class BrowserSession {
 					: {}),
 			});
 			return {
-				paths: [sink.writeBinary(`element-${stamp}.png`, String(data))],
+				paths: [keep(sink.writeBinary(`element-${stamp}.png`, String(data)))],
 				truncated: false,
 				width: Math.round(clip?.width ?? 0),
 				height: Math.round(clip?.height ?? 0),
@@ -1463,9 +1506,11 @@ export class BrowserSession {
 			const captured = await captureTiles(this.page);
 			return {
 				paths: captured.tiles.map((tile, index) =>
-					sink.writeBinary(
-						`page-${stamp}-${String(index + 1).padStart(2, "0")}.png`,
-						tile,
+					keep(
+						sink.writeBinary(
+							`page-${stamp}-${String(index + 1).padStart(2, "0")}.png`,
+							tile,
+						),
 					),
 				),
 				truncated: captured.truncated,
@@ -1480,7 +1525,7 @@ export class BrowserSession {
 		});
 		const seen = await this.viewport();
 		return {
-			paths: [sink.writeBinary(`viewport-${stamp}.png`, String(data))],
+			paths: [keep(sink.writeBinary(`viewport-${stamp}.png`, String(data)))],
 			truncated: false,
 			width: seen?.width ?? 0,
 			height: seen?.height ?? 0,

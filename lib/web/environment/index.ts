@@ -28,6 +28,7 @@ export {
 	throttleNames,
 	throttleProfile,
 } from "./shaping.js";
+export { renderStatus, type SessionStatus } from "./status.js";
 export {
 	type CookieRecord,
 	renderStorage,
