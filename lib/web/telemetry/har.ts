@@ -156,7 +156,13 @@ function entryOf(request: NetworkRequest, options: HarOptions): HarEntry {
 			cookies: [],
 			headers: pairsOf(request.responseHeaders),
 			content: {
-				size: body ? body.body.length : 0,
+				// Bytes, not characters. This was the length of whatever
+				// string we were holding, which for a base64 body is a
+				// third larger than the content and for text is UTF-16
+				// code units. A body we never fetched now says -1, the
+				// same way bodySize does four lines below, rather than
+				// claiming the response was empty.
+				size: body === undefined ? NOT_APPLICABLE : sizeOf(body),
 				mimeType: request.mimeType ?? contentType ?? "",
 				...(body === undefined ? {} : { text: body.body }),
 				...(body?.base64Encoded ? { encoding: "base64" } : {}),
@@ -255,11 +261,42 @@ function span(start: number | undefined, end: number | undefined): number {
 	return end - start;
 }
 
-/** The sum HAR requires entry.time to equal. */
+/**
+ * The sum HAR requires entry.time to equal.
+ *
+ * ssl is deliberately left out. HAR 1.2 says the TLS handshake
+ * time is also included in connect, and the protocol agrees:
+ * sslStart and sslEnd sit inside connectStart and connectEnd. So
+ * summing every field counted the handshake twice and overstated
+ * the duration of every https request in the archive, in the one
+ * file whose header names this invariant as its reason to exist.
+ */
 function total(timings: HarTimings): number {
-	return Object.values(timings)
-		.filter((value) => value >= 0)
+	const counted: readonly (keyof HarTimings)[] = [
+		"blocked",
+		"dns",
+		"connect",
+		"send",
+		"wait",
+		"receive",
+	];
+	return counted
+		.map((field) => timings[field])
+		.filter((value) => value !== undefined && value >= 0)
 		.reduce((sum, value) => sum + value, 0);
+}
+
+/**
+ * How many bytes a captured body is.
+ *
+ * A base64 body carries four characters for every three bytes,
+ * and a text body counts UTF-16 code units rather than the bytes
+ * that crossed the wire, so neither string's length is a size.
+ */
+function sizeOf(body: { body: string; base64Encoded?: boolean }): number {
+	return body.base64Encoded
+		? Buffer.from(body.body, "base64").length
+		: Buffer.byteLength(body.body, "utf8");
 }
 
 /** Headers as HAR's name and value pairs. */

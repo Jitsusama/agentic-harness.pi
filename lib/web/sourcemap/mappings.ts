@@ -232,17 +232,21 @@ export function resolveMapUrl(
 		if (comma < 0) return undefined;
 		const meta = sourceMapUrl.slice(0, comma);
 		const payload = sourceMapUrl.slice(comma + 1);
-		if (!meta.includes(";base64")) {
-			return { kind: "inline", json: decodeURIComponent(payload) };
-		}
+		// Both branches are guarded, not just the base64 one. A
+		// sourceMappingURL is written by the page, so a stray percent
+		// sign in a plain-text inline map is page input, and
+		// decodeURIComponent throws a URIError on it. That escaped a
+		// function whose own comment promised a malformed data URL
+		// was not worth a thrown error.
 		try {
 			return {
 				kind: "inline",
-				json: Buffer.from(payload, "base64").toString("utf8"),
+				json: meta.includes(";base64")
+					? Buffer.from(payload, "base64").toString("utf8")
+					: decodeURIComponent(payload),
 			};
 		} catch {
-			// A malformed data URL is not worth a thrown error; the
-			// caller simply reports the generated position instead.
+			// The caller simply reports the generated position instead.
 			return undefined;
 		}
 	}

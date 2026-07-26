@@ -746,12 +746,19 @@ export class BrowserSession {
 	}
 
 	/** Navigate the tab to a URL and wait for the network to settle. */
-	async navigate(url: string): Promise<void> {
+	async navigate(url: string): Promise<{ status?: number }> {
 		await this.ready();
 		// Cookies are per-domain, so they are injected against the
 		// URL we are about to visit rather than once at open.
 		if (this.options.cookies) await injectCookies(this.page, url);
-		await this.page.goto(url, { waitUntil: "networkidle2" });
+		const response = await this.page.goto(url, { waitUntil: "networkidle2" });
+		// The status was thrown away, so a 404 or a 500 read as a
+		// successful arrival and every later check judged the error
+		// page. Returned rather than thrown: an error page is
+		// sometimes exactly what a caller means to look at, and the
+		// answer should say which one they got.
+		const status = response?.status();
+		return status === undefined ? {} : { status };
 	}
 
 	/** Where the session currently is. */

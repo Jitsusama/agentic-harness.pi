@@ -56,14 +56,61 @@ describe("toHar", () => {
 	});
 
 	it("keeps entry.time equal to the sum of its timings, as the spec demands", () => {
+		// Named fields, not a reduce over the object. Recomputing
+		// with the same filter the implementation uses is an
+		// identity: it held while ssl was being counted twice, and
+		// would hold for any arithmetic the code chose.
 		const [entry] = toHar([request()]).log.entries;
 		const timings = entry?.timings;
 		if (!entry || !timings) throw new Error("expected an entry");
-		const sum = Object.values(timings)
-			.filter((value): value is number => typeof value === "number")
-			.filter((value) => value >= 0)
-			.reduce((total, value) => total + value, 0);
-		expect(entry.time).toBeCloseTo(sum, 5);
+		const positive = (value: number | undefined) =>
+			value !== undefined && value >= 0 ? value : 0;
+
+		expect(entry.time).toBeCloseTo(
+			positive(timings.blocked) +
+				positive(timings.dns) +
+				positive(timings.connect) +
+				positive(timings.send) +
+				positive(timings.wait) +
+				positive(timings.receive),
+			5,
+		);
+	});
+
+	it("does not count the TLS handshake twice", () => {
+		// HAR 1.2: when ssl is present its time is also included in
+		// connect, so it is excluded from the entry.time sum. The
+		// fixtures elsewhere pin ssl at -1, which is why nothing
+		// exercised this.
+		const secure = request({
+			timing: {
+				requestTime: 100,
+				dnsStart: 0,
+				dnsEnd: 10,
+				connectStart: 10,
+				connectEnd: 60,
+				sslStart: 20,
+				sslEnd: 60,
+				sendStart: 60,
+				sendEnd: 62,
+				receiveHeadersEnd: 90,
+			},
+		});
+		const [entry] = toHar([secure]).log.entries;
+		if (!entry) throw new Error("expected an entry");
+
+		// connect is 50 and holds the 40 of ssl inside it, so a sum
+		// that added both would overstate this entry by 40.
+		expect(entry.timings.ssl).toBe(40);
+		expect(entry.timings.connect).toBe(50);
+		expect(entry.time).toBeLessThan(
+			(entry.timings.ssl ?? 0) +
+				(entry.timings.connect ?? 0) +
+				(entry.timings.dns ?? 0) +
+				(entry.timings.send ?? 0) +
+				(entry.timings.wait ?? 0) +
+				(entry.timings.receive ?? 0),
+		);
 	});
 
 	it("never emits a negative send, wait or receive", () => {

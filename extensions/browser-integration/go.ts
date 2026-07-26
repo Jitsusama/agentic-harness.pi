@@ -543,8 +543,17 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			if (!params.url) {
 				return answer(name, kind, `Opened session '${name}'.`);
 			}
-			await session.navigate(params.url);
-			return answer(name, kind, await pageView(session));
+			const { status } = await session.navigate(params.url);
+			// An error page looks like a page. Saying the status up
+			// front is the difference between checking the site and
+			// checking its 404, which every later check would
+			// otherwise judge without knowing.
+			const arrival =
+				status !== undefined && status >= 400
+					? `The server answered ${status}. What follows is that ` +
+						"response, not the page you asked for.\n\n"
+					: "";
+			return answer(name, kind, `${arrival}${await pageView(session)}`);
 		},
 	});
 }

@@ -244,3 +244,27 @@ describe("parseSourceMap", () => {
 		expect(parseSourceMap('{"hello":"world"}')).toBeUndefined();
 	});
 });
+
+describe("a page-written source map URL cannot throw", () => {
+	it("survives a malformed percent escape in a plain data URL", () => {
+		// A sourceMappingURL is written by the page, so a stray
+		// percent sign is page input. Only the base64 branch was
+		// guarded, and decodeURIComponent threw a URIError straight
+		// out of a function whose comment promised it would not.
+		expect(() =>
+			resolveMapUrl("https://x/app.js", "data:application/json,{%ZZ}"),
+		).not.toThrow();
+		expect(
+			resolveMapUrl("https://x/app.js", "data:application/json,{%ZZ}"),
+		).toBeUndefined();
+	});
+
+	it("still reads a well-formed plain data URL", () => {
+		expect(
+			resolveMapUrl(
+				"https://x/a.js",
+				"data:application/json,%7B%22version%22%3A3%7D",
+			),
+		).toEqual({ kind: "inline", json: '{"version":3}' });
+	});
+});
