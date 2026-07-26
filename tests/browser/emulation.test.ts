@@ -168,31 +168,28 @@ describe.skipIf(!haveChrome)("emulating a device, in a real browser", () => {
 		expect(seen.phoneAgent).toBe(true);
 	});
 
-	it("never claims to be a phone the page cannot see", async () => {
-		// This is the guarantee, and it is deliberately weaker than
-		// "emulation always survives".
-		//
+	it("stays a phone across a navigation that changes process", async () => {
 		// Touch did not survive the first navigation after being set,
 		// so emulate-then-navigate, the order the guide recommends, was
-		// a coin flip while the report said "pretending" either way. It
-		// is now applied when the call returns, applied again when the
-		// document arrives, and then checked against the page and
-		// applied once more if it disagrees. Against a real site that
-		// took it from failing five times in five to passing five in
-		// five.
+		// a coin flip while the report said "pretending" either way.
 		//
-		// Each of those three steps was measured. Applying on the
-		// arrival event alone still lost one navigation in five under a
-		// cross-origin redirect, a slow subresource, a cold session and
-		// a loaded machine. Adding the check against the page closed
-		// that: twelve of twelve through the same shape with the machine
-		// saturated, and the full suite clean five runs in a row.
+		// The cause was ours. A cross-process navigation swaps the
+		// target's protocol session, and the driver listens for that
+		// swap to put its emulation state on the new one; emulation sent
+		// on a session of our own went to the renderer being replaced.
+		// Device metrics are held browser-side and came through
+		// regardless, which is why it looked like a touch-only fault.
 		//
-		// The strong version is still not asserted here, because none of
-		// that is Chrome promising anything. It is three attempts
-		// beating a race I never fully explained, and a test that
-		// depends on winning it would be a test that fails one run in
-		// however-many on a machine slower than this one.
+		// This asserted only the weaker "never claims what the page
+		// denies" while the fault was two workarounds deep and beaten
+		// one time in three. Both workarounds are gone and the strong
+		// version holds: the invariant is checked too, since the report
+		// must stay honest even if a browser ever loses it again.
+		//
+		// Note for whoever changes this next: because the fault was a
+		// race, this catches its return about half the times it runs,
+		// measured by putting the old protocol route back. One green run
+		// is not proof. It has never failed with the fix in place.
 		//
 		// So the assertion is the thing that is true: whatever the
 		// browser does, the tool does not claim more than the page will
@@ -208,12 +205,13 @@ describe.skipIf(!haveChrome)("emulating a device, in a real browser", () => {
 				const answer = await fresh.evaluate("navigator.maxTouchPoints > 0");
 				const pageHasTouch = answer.ok ? answer.result.value === true : true;
 				const { emulation, gaps } = await fresh.status();
-				// Claiming touch is only allowed when the page agrees, or
-				// when the same report admits it did not land.
+				// The page is a phone, and the report agrees with it.
 				const claimsTouch = emulation.device !== undefined;
 				const admits = (gaps ?? []).some((gap) => gap.what === "touch");
-				if (claimsTouch && !pageHasTouch && !admits) {
-					disagreements.push({ attempt, pageHasTouch, gaps });
+				if (!pageHasTouch) {
+					disagreements.push({ attempt, lost: true, gaps });
+				} else if (claimsTouch && admits) {
+					disagreements.push({ attempt, claimedAndDenied: true, gaps });
 				}
 			} finally {
 				await fresh.close();

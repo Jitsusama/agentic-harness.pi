@@ -19,21 +19,19 @@ import { createSupervisorRunPi } from "../../../../lib/subagent/runpi/supervisor
 // saturated fork pool. Set at collection time, since a beforeAll runs
 // after the tests are already registered with the default.
 //
-// The retry is a stopgap and is not offered as a fix. On CI, and only
-// there, a spawned supervisor occasionally never reports at all: it
-// blew a sixty-second budget before the parent had a deadline of its
-// own, and now trips that deadline instead. The same file takes
-// sixty-five milliseconds locally, passes with the machine saturated
-// by twelve spinners, and passes in full under ten, so the condition
-// is environmental and remains unidentified. One retry keeps a green
-// main from depending on it while the cause is still open; a retry
-// that fires is still reported, so this hides nothing. The parent's
-// deadline, not this retry, is what stops such a run hanging a real
-// fleet job for ever.
+// This file carried a retry for a while, for a CI-only hang I could
+// not reproduce: not on macOS, not with the machine saturated by
+// twelve spinners, and not in a two-cpu Linux container running the
+// same suite. What closed it was giving up on reproducing the
+// environment and removing the dependency instead. The parent used
+// to wait for the supervisor's process to exit, so every answer
+// depended on the operating system reporting a process, when the
+// contract was always a file the supervisor writes before it says
+// it is done. It now settles on that. A supervisor that finishes
+// and then wedges, which is what CI looked like, no longer costs
+// the caller anything, and the test below reproduces that shape
+// deliberately.
 vi.setConfig({ testTimeout: 60_000 });
-
-/** See the note above: a stopgap for an unidentified CI-only hang. */
-const FLAKY_ON_CI = { retry: 1 };
 
 interface FakeChild {
 	stdout: Readable;
@@ -96,7 +94,7 @@ async function tempStateDir(): Promise<string> {
 	return mkdtemp(join(tmpdir(), "pr-runpi-supervisor-"));
 }
 
-describe("createSupervisorRunPi", FLAKY_ON_CI, () => {
+describe("createSupervisorRunPi", () => {
 	it("runs the real supervisor script against a JSON-emitting child", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "child.mjs");
@@ -540,6 +538,72 @@ describe("createSupervisorRunPi", FLAKY_ON_CI, () => {
 		expect(result.stdout).toBeUndefined();
 	});
 
+	it("finishes on the terminal event, not on the process", async () => {
+		// The supervisor writes its result file and then says terminal,
+		// in that order, so by the time the parent hears it there is
+		// nothing left to wait for. Waiting for the process to exit
+		// instead made every answer depend on the operating system
+		// telling us about a process, when the contract was always a
+		// file, and every hang this file has had came through that gap.
+		//
+		// So the fake below finishes properly and then wedges: no exit,
+		// no close, pipes still open. That is the shape CI kept hitting.
+		const stateDir = await tempStateDir();
+		const fake = makeFakeChild();
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
+			nodeBinary: "node",
+			supervisorPath: "/pkg/reviewer-supervisor.mjs",
+			stateDir,
+			// Generous, so a pass cannot be the backstop firing early.
+			timeoutMs: 120_000,
+			spawn: (_command, args) => {
+				queueMicrotask(async () => {
+					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
+					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
+						request.paths.resultPath,
+						{
+							exitCode: 0,
+							finalAssistantText: "finished, then wedged",
+							warnings: [],
+							stderrTail: "",
+							artifacts: {
+								runDir: request.paths.runDir,
+								reviewerDir: request.paths.reviewerDir,
+								eventsPath: request.paths.eventsPath,
+								stderrPath: request.paths.stderrPath,
+								progressPath: request.paths.progressPath,
+								resultPath: request.paths.resultPath,
+							},
+						},
+					);
+					// Written, announced, and then nothing: deliberately no
+					// end() on stdout and no exit or close event at all.
+					fake.stdout.write(
+						`${JSON.stringify({
+							type: "terminal",
+							resultPath: request.paths.resultPath,
+						})}\n`,
+					);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+
+		const started = Date.now();
+		const result = await runPi({
+			args: [],
+			cwd: "/tmp/wt",
+			runId: "run-terminal",
+			reviewerId: "wedges-after-finishing",
+		});
+
+		expect(result.finalAssistantText).toBe("finished, then wedged");
+		expect(result.exitCode).toBe(0);
+		// Promptly, rather than after the wall-clock backstop.
+		expect(Date.now() - started).toBeLessThan(5_000);
+	});
+
 	it("forwards supervisor activity events to the live progress hook", async () => {
 		const stateDir = await tempStateDir();
 		const fake = makeFakeChild();
@@ -809,6 +873,11 @@ describe("a supervisor that never reports", () => {
 			stateDir,
 			idleTimeoutMs: 500,
 			timeoutMs: 500,
+			// The default grace is ten seconds of deliberate waiting,
+			// which is the right thing in production and a bad neighbour
+			// in a suite. What is under test is that the deadline fires
+			// at all, not how long it is.
+			supervisorGraceMs: 500,
 			spawn: ((_bin: string, _args: readonly string[]) =>
 				nodeSpawn(process.execPath, [
 					"-e",
@@ -825,7 +894,7 @@ describe("a supervisor that never reports", () => {
 		});
 
 		// Well inside the file's own 60s budget, and it says why.
-		expect(Date.now() - started).toBeLessThan(30_000);
+		expect(Date.now() - started).toBeLessThan(10_000);
 		expect(result.exitCode).not.toBe(0);
 		expect((result.warnings ?? []).join(" ")).toContain("never reported");
 	});

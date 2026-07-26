@@ -373,14 +373,13 @@ const READY_BUDGET_MS = 2000;
 const READY_POLL_MS = 100;
 
 /**
- * How many times to put an override to a page before believing it.
+ * Touch points a touch device is given, matching a common phone.
  *
- * Three is one hopeful application plus two answers from the page
- * itself, which is enough for every case measured and cannot spin.
+ * Layered over the driver's own request, which asks only for touch
+ * to exist. If a navigation ever costs us this command again, the
+ * driver restores touch with one point rather than none, so the
+ * page stays a touch device and only the count degrades.
  */
-const EMULATION_SETTLE_TRIES = 3;
-
-/** Touch points a touch device is given, matching a common phone. */
 const TOUCH_POINTS = 5;
 
 /** Metres of accuracy claimed for an overridden position. */
@@ -1182,15 +1181,6 @@ export class BrowserSession {
 				frameId: event.frame.id,
 				url: event.frame.url,
 			});
-			// Re-asserting once the navigating call returns is not enough.
-			// A document that commits in a new process arrives on its own
-			// schedule, sometimes after the call has already resolved, and
-			// whatever was overridden on the old renderer does not come
-			// with it. Measured: with only the post-call re-assert, one
-			// navigation in five still lost its touch screen. Doing it
-			// here as well means the override follows the document rather
-			// than the call, which is the thing it was always about.
-			if (event.frame.parentId === undefined) this.reassertOnArrival();
 		});
 		this.cdp.on("Page.navigatedWithinDocument", (event) => {
 			log.apply({
@@ -1444,66 +1434,20 @@ export class BrowserSession {
 	 * navigation pays nothing.
 	 */
 	private async reassertEmulation(): Promise<void> {
+		// Kept, though the driver now carries emulation across a
+		// navigation itself, because this same path restores a session
+		// after a crash and because it costs nothing when nothing is
+		// being emulated.
+		//
+		// What is gone is what used to sit under here: a second
+		// application on the document-arrival event, and a loop that
+		// asked the page whether the first two had worked. Both were
+		// workarounds for sending emulation on a protocol session of our
+		// own, and neither made it certain. Removing the cause removed
+		// the need for either, measured twelve times out of twelve
+		// through the shape that used to fail one time in three.
 		if (Object.keys(this.emulation).length === 0) return;
 		await this.applyEmulation();
-
-		// Applying is not the same as having applied.
-		//
-		// A document that commits in a new process arrives on its own
-		// schedule, and an override sent to the renderer it replaces
-		// goes nowhere. Sending it again once the navigating call
-		// returns fixed most of it; sending it again on the arrival
-		// event fixed more; neither made it certain, because both are
-		// still guesses about when the renderer is ready. Under load,
-		// one navigation in five still came back without its touch
-		// screen while the report said "pretending: iPhone 15 Pro".
-		//
-		// So this stops guessing and asks. The page is the authority on
-		// what the page believes, which is the same principle the rest
-		// of this library is built on, and it is the only version of
-		// this that can be relied on rather than hoped for.
-		for (let attempt = 1; attempt < EMULATION_SETTLE_TRIES; attempt++) {
-			if (await this.emulationLanded()) return;
-			await this.applyEmulation();
-		}
-	}
-
-	/**
-	 * Whether the page agrees with what is being emulated.
-	 *
-	 * Only touch is checked. It is the override that gets lost, and
-	 * the one a page can answer for in a single cheap question; a
-	 * viewport that has not caught up is reported as a divergence
-	 * rather than silently wrong, and everything else survives.
-	 * Returns true when it cannot tell, so a page that will not
-	 * answer is not mistaken for one that disagrees.
-	 */
-	private async emulationLanded(): Promise<boolean> {
-		const wanted = this.effectiveEmulation.touch ?? false;
-		try {
-			const seen = await this.page.evaluate("navigator.maxTouchPoints > 0");
-			return seen === wanted;
-		} catch {
-			// A page mid-navigation or mid-teardown cannot answer, and
-			// guessing wrong here would mean applying overrides in a loop.
-			return true;
-		}
-	}
-
-	/**
-	 * Re-assert emulation from a protocol event, without waiting.
-	 *
-	 * An event handler cannot be awaited and must not throw, so the
-	 * promise is dropped deliberately and a failure is ignored: the
-	 * navigating call re-asserts too, and a page being torn down
-	 * while this runs is the ordinary way for it to fail.
-	 */
-	private reassertOnArrival(): void {
-		if (Object.keys(this.emulation).length === 0) return;
-		void this.applyEmulation().catch(() => {
-			// A closing or navigating page rejects these; the call-site
-			// re-assert is the one that has to succeed.
-		});
 	}
 
 	/**
@@ -1525,55 +1469,78 @@ export class BrowserSession {
 	private async applyEmulation(): Promise<void> {
 		const state = this.effectiveEmulation;
 
-		await this.cdp.send("Emulation.setEmulatedMedia", {
-			media: state.media ?? "",
-			features: [...mediaFeaturesOf(state)],
-		});
-		await this.cdp.send("Emulation.setEmulatedVisionDeficiency", {
-			type: state.vision ?? "none",
-		});
+		// Every one of these goes through the driver rather than the
+		// protocol, and that is the whole fix for emulation not
+		// surviving a navigation.
+		//
+		// A cross-process navigation swaps the target's protocol
+		// session. The driver listens for that swap and puts its whole
+		// emulation state to the new session; commands sent on a session
+		// of our own just went to the renderer being replaced. Device
+		// metrics are held browser-side and came through regardless,
+		// which is why this looked like a touch-only fault: touch is a
+		// flag in the renderer, so the page quietly stopped being a
+		// phone while the report still said it was one.
+		//
+		// I had worked around it twice, by applying again when the call
+		// returned and again when the document arrived, and neither made
+		// it certain. Both are gone. This also picks up screen
+		// orientation, which the hand-rolled version never sent.
+		await this.page.emulateMediaType(state.media);
+		await this.page.emulateMediaFeatures([...mediaFeaturesOf(state)]);
+		await this.page.emulateVisionDeficiency(state.vision ?? "none");
 
-		if (state.viewport) {
-			await this.cdp.send("Emulation.setDeviceMetricsOverride", {
-				width: state.viewport.width,
-				height: state.viewport.height,
-				deviceScaleFactor: state.viewport.deviceScaleFactor ?? 1,
-				mobile: state.viewport.mobile ?? false,
-			});
-		} else {
-			await this.cdp.send("Emulation.clearDeviceMetricsOverride");
-		}
-
+		// Screen, touch and user agent go through the driver rather
+		// than the protocol, which is the whole reason they now survive
+		// a navigation.
+		//
+		// A cross-process navigation swaps the target's protocol
+		// session, and puppeteer listens for that swap to put its
+		// emulation state to the new one. Device metrics are held
+		// browser-side and came through regardless; touch is a flag in
+		// the renderer, so a new renderer started without it and the
+		// page stopped being a phone while the report still said it was.
+		// Sending these two commands myself meant opting out of the one
+		// piece of machinery that handles it.
+		await this.page.setViewport(
+			state.viewport
+				? {
+						width: state.viewport.width,
+						height: state.viewport.height,
+						deviceScaleFactor: state.viewport.deviceScaleFactor ?? 1,
+						isMobile: state.viewport.mobile ?? false,
+						hasTouch: state.touch ?? false,
+					}
+				: // Null is how the driver spells "stop overriding", and
+					// touch has to be asked for separately when there is no
+					// viewport to carry it.
+					null,
+		);
+		// The driver asks for a touch screen without saying how many
+		// fingers, which Chrome reads as one; a real phone reports five,
+		// so that is asked for on top.
+		//
+		// Sent every time, including to turn it off. Sending it only
+		// when touch was wanted left a phone that could not stop being
+		// one: this override rides on our own protocol session, the
+		// driver's disable rides on its own, and one session cannot
+		// clear the other's. So the viewport and the user agent went
+		// back to the desktop while the touch screen stayed.
 		await this.cdp.send("Emulation.setTouchEmulationEnabled", {
 			enabled: state.touch ?? false,
 			...(state.touch ? { maxTouchPoints: TOUCH_POINTS } : {}),
 		});
-		// Sent whatever the state, since an empty string is how this
-		// one is taken off again.
-		await this.cdp.send("Emulation.setUserAgentOverride", {
-			userAgent: state.userAgent ?? "",
-		});
-		await this.cdp.send("Emulation.setCPUThrottlingRate", {
-			rate: state.cpuThrottle ?? 1,
-		});
+		// An empty string is how this one is taken off again.
+		await this.page.setUserAgent(state.userAgent ?? "");
+		await this.page.emulateCPUThrottling(state.cpuThrottle ?? null);
 
-		// These three are sent whatever their state, because an
-		// override with no arguments is how the protocol clears one.
-		// Guarding them on being defined meant nothing could ever
-		// take them off again: a session that emulated Tokyo once
-		// stayed in Tokyo for its life, quietly recolouring every
-		// later reading, while restoreEmulation's own doc promised it
-		// replaced the state wholesale.
-		await this.cdp.send(
-			"Emulation.setTimezoneOverride",
-			state.timezone === undefined
-				? { timezoneId: "" }
-				: { timezoneId: state.timezone },
-		);
-		await this.cdp.send(
-			"Emulation.setLocaleOverride",
-			state.locale === undefined ? {} : { locale: state.locale },
-		);
+		// Passed undefined rather than skipped, because an override
+		// with no arguments is how one gets taken off again. Guarding
+		// these on being defined meant nothing could ever be cleared: a
+		// session that emulated Tokyo once stayed in Tokyo for its life,
+		// quietly recolouring every later reading.
+		await this.page.emulateTimezone(state.timezone);
+		await this.page.emulateLocale(state.locale);
 		if (state.geolocation === undefined) {
 			await this.cdp.send("Emulation.clearGeolocationOverride");
 		} else {

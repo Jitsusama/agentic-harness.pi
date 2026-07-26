@@ -31,6 +31,12 @@ export interface SupervisorRunPiConfig {
 	readonly supervisorPath?: string;
 	readonly spawn?: SupervisorSpawnFn;
 	readonly timeoutMs?: number;
+	/**
+	 * How long past its own deadline a supervisor gets before the
+	 * parent stops waiting. Only worth setting to keep a test that
+	 * exercises the backstop from spending the default on waiting.
+	 */
+	readonly supervisorGraceMs?: number;
 	readonly idleTimeoutMs?: number;
 	readonly killGraceMs?: number;
 	readonly maxEventBytes?: number;
@@ -220,6 +226,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 			// would have stopped its own child and reported by then.
 			const effectiveTimeoutMs =
 				timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+			const graceMs = config.supervisorGraceMs ?? SUPERVISOR_GRACE_MS;
 			const deadline = setTimeout(() => {
 				void settle(async () => {
 					supervisor.kill("SIGKILL");
@@ -233,7 +240,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 						warnings: [
 							...warnings,
 							`Reviewer supervisor never reported within ` +
-								`${effectiveTimeoutMs + SUPERVISOR_GRACE_MS}ms and was ` +
+								`${effectiveTimeoutMs + graceMs}ms and was ` +
 								`killed. It was given ${effectiveTimeoutMs}ms to run, so ` +
 								"it either never started or stopped before its own " +
 								"watchdog could.",
@@ -241,7 +248,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 						stderrTail,
 					};
 				});
-			}, effectiveTimeoutMs + SUPERVISOR_GRACE_MS);
+			}, effectiveTimeoutMs + graceMs);
 			deadline.unref?.();
 			const abortHandler = (): void => {
 				void (async () => {
@@ -279,6 +286,19 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 						typeof event.resultPath === "string"
 					) {
 						terminalResultPath = event.resultPath;
+						// The run is over by the supervisor's own account, and
+						// it writes the result file before saying so, so there
+						// is nothing left to wait for.
+						//
+						// Waiting for the process to exit instead made the
+						// answer depend on the operating system telling us
+						// about a process, when the contract was always a file.
+						// Every hang this file has had came through that gap:
+						// stdio held open by something the child started, an
+						// exit notification that never arrived under CI load. A
+						// supervisor that has finished and then wedges no
+						// longer costs the caller anything.
+						void settleFromTerminal(event.resultPath);
 					}
 					try {
 						onEvent?.(event as unknown as Record<string, unknown>);
@@ -298,6 +318,31 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 					throw error;
 				});
 			});
+
+			// Settling on the terminal event leaves the process to finish
+			// on its own, which it does: it exits immediately after
+			// emitting. This is only for the case where it does not, so a
+			// wedged supervisor cannot be left behind for ever. Unref'd,
+			// because nothing should stay alive waiting to do it.
+			function reapAfterTerminal(): void {
+				const reap = setTimeout(() => {
+					if (supervisor.exitCode === null && supervisor.signalCode === null) {
+						supervisor.kill("SIGKILL");
+					}
+				}, graceMs);
+				reap.unref?.();
+			}
+
+			async function settleFromTerminal(resultPath: string): Promise<void> {
+				// Read before settling, not inside it. A settle that throws
+				// rejects the caller's promise, so a terminal event with an
+				// unreadable file would turn a run that merely needs the exit
+				// path into a failed one.
+				const onDisk = await readResult(resultPath);
+				if (!onDisk) return;
+				await settle(async () => fromResult(onDisk, warnings, stderrTail));
+				reapAfterTerminal();
+			}
 			// "close" waits for the process to exit AND for its stdio to
 			// close, and those are not the same event: anything that
 			// inherited the supervisor's pipes and outlived it holds
