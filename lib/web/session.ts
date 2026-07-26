@@ -90,9 +90,11 @@ import {
 	browserEntry,
 	type ConsoleCalled,
 	consoleEntry,
+	createNetworkRecorder,
 	createRingBuffer,
 	exceptionEntry,
 	type LogEntry,
+	type NetworkRequest,
 	type Recorded,
 	type RingBuffer,
 } from "./telemetry/index.js";
@@ -271,6 +273,9 @@ export class BrowserSession {
 	/** Everything the page has said since it opened. */
 	private readonly logBuffer = createRingBuffer<LogEntry>();
 
+	/** Every request the page has made since it opened. */
+	private readonly requestLog = createNetworkRecorder();
+
 	/** How many pictures have been taken, so none overwrites another. */
 	private shots = 0;
 
@@ -309,6 +314,7 @@ export class BrowserSession {
 			const session = new BrowserSession(name, page, cdp, context, options);
 			await session.listenForAnnouncements();
 			await session.listenForLogs();
+			await session.listenForRequests();
 			return session;
 		} catch (err) {
 			// Do not leak the context if the CDP channel could not be
@@ -343,6 +349,54 @@ export class BrowserSession {
 		});
 		await this.cdp.send("Runtime.enable");
 		await this.cdp.send("Log.enable");
+	}
+
+	/**
+	 * Watch every request the page makes.
+	 *
+	 * The protocol reports one request as four separate events
+	 * over its life, so the recorder does the reassembly and this
+	 * only relabels the CDP names it consumes.
+	 */
+	private async listenForRequests(): Promise<void> {
+		this.cdp.on("Network.requestWillBeSent", (event) => {
+			this.requestLog.apply({ kind: "sent", event });
+		});
+		this.cdp.on("Network.responseReceived", (event) => {
+			this.requestLog.apply({ kind: "received", event });
+		});
+		this.cdp.on("Network.loadingFinished", (event) => {
+			this.requestLog.apply({ kind: "finished", event });
+		});
+		this.cdp.on("Network.loadingFailed", (event) => {
+			this.requestLog.apply({ kind: "failed", event });
+		});
+		await this.cdp.send("Network.enable");
+	}
+
+	/** Every request the page has made. */
+	requests(): readonly NetworkRequest[] {
+		return this.requestLog.all();
+	}
+
+	/**
+	 * The body of one recorded reply, fetched on demand.
+	 *
+	 * Bodies are not captured as they stream past: most are never
+	 * asked for, and holding every one would cost far more memory
+	 * than the rest of the session put together. Chrome keeps them
+	 * for the current document, so this asks only when asked.
+	 */
+	async bodyOf(
+		requestId: string,
+	): Promise<{ body: string; base64Encoded: boolean } | undefined> {
+		try {
+			return await this.cdp.send("Network.getResponseBody", { requestId });
+		} catch {
+			// Chrome discards bodies on navigation, and never had one
+			// for a request that failed. Neither is an error here.
+			return undefined;
+		}
 	}
 
 	/**

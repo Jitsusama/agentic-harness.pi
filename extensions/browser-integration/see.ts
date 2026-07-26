@@ -31,13 +31,96 @@ import type {
 	Shot,
 } from "../../lib/web/session.js";
 import { describeRefusal, parseTarget } from "../../lib/web/target/index.js";
-import { renderLogs } from "../../lib/web/telemetry/index.js";
+import {
+	type NetworkRequest,
+	renderLogs,
+	renderRequests,
+} from "../../lib/web/telemetry/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
 
 /** Lay an observation out for reading: where you are, then what is there. */
 function render(observed: Observation): string {
 	return `${observed.title}\n${observed.url}\n\n${observed.outline}`;
+}
+
+/**
+ * Whether a request answers to what the reader asked for.
+ *
+ * One filter over the fields worth filtering by, so "only" can
+ * be a resource type, a state, a status or a fragment of url
+ * without the caller having to say which it meant.
+ */
+function matchesFilter(request: NetworkRequest, only: string): boolean {
+	const needle = only.toLowerCase();
+	return (
+		request.resourceType.toLowerCase() === needle ||
+		request.state === needle ||
+		String(request.status ?? "") === needle ||
+		(needle === "failed" && request.state === "failed") ||
+		(needle === "errors" &&
+			(request.state === "failed" ||
+				(request.status ?? 0) >= FIRST_ERROR_STATUS)) ||
+		request.url.toLowerCase().includes(needle)
+	);
+}
+
+/** Where a status stops being a success. */
+const FIRST_ERROR_STATUS = 400;
+
+/**
+ * The request a reader meant, by the number shown against it.
+ *
+ * The protocol's own id is accepted too, since it is what a
+ * caller holding an earlier capture would have.
+ */
+function pick(
+	requests: readonly NetworkRequest[],
+	choice: string,
+): NetworkRequest | undefined {
+	const ordinal = Number(choice.replace(/^#/, ""));
+	if (Number.isInteger(ordinal) && ordinal >= 1) {
+		return requests[ordinal - 1];
+	}
+	return requests.find((request) => request.id === choice);
+}
+
+/** How much of a body reads inline before it crowds the answer out. */
+const MAX_INLINE_BODY = 16384;
+
+/** A fetched body, capped, with the cap declared. */
+function renderBody(
+	request: NetworkRequest,
+	fetched: { body: string; base64Encoded: boolean } | undefined,
+): string {
+	const url = request.url;
+	if (!fetched) {
+		return (
+			`No body is available for ${url}. Chrome discards bodies on ` +
+			`navigation, and a request that failed never had one.`
+		);
+	}
+
+	// An empty body against a request that plainly transferred
+	// something means Chrome did not keep it, which is a different
+	// fact from the resource being empty, and the one worth saying.
+	if (fetched.body.length === 0 && (request.transferredBytes ?? 0) > 0) {
+		return (
+			`Chrome kept no body for ${url}, though ` +
+			`${request.transferredBytes} bytes were transferred. It ` +
+			`releases bodies it no longer needs, images especially.`
+		);
+	}
+	if (fetched.base64Encoded) {
+		const bytes = Buffer.from(fetched.body, "base64").length;
+		return `Body of ${url}: ${bytes} bytes of binary, not shown.`;
+	}
+	const capped =
+		fetched.body.length > MAX_INLINE_BODY
+			? `${fetched.body.slice(0, MAX_INLINE_BODY)}\n\n[cut after ` +
+				`${MAX_INLINE_BODY} of ${fetched.body.length} bytes]`
+			: fetched.body;
+	return `Body of ${url}:\n${capped}`;
 }
 
 /**
@@ -103,6 +186,7 @@ const parameters = Type.Object({
 				Type.Literal("reading"),
 				Type.Literal("announcements"),
 				Type.Literal("logs"),
+				Type.Literal("requests"),
 				Type.Literal("element"),
 				Type.Literal("shot"),
 			],
@@ -111,7 +195,8 @@ const parameters = Type.Object({
 					"page: the accessibility outline of what is on screen, " +
 					"the default. reading: the same page narrated the way a " +
 					"screen reader would say it. logs: what the page said, " +
-					"threw, or had refused for it. announcements: what the page " +
+					"threw, or had refused for it. requests: what the page " +
+					"asked the network for. announcements: what the page " +
 					"said out loud through its live regions. element: " +
 					"everything about one element, named with 'within'. " +
 					"shot: a picture, written to disk and reported by path.",
@@ -193,6 +278,22 @@ const parameters = Type.Object({
 			description: "Keep this many levels of the outline. Omit for all of it.",
 		}),
 	),
+	filter: Type.Optional(
+		Type.String({
+			description:
+				"For requests: keep only those matching, by resource type " +
+				"(script, image, fetch), by state (failed, pending), by " +
+				"status, by the word 'errors', or by part of the url.",
+		}),
+	),
+	body: Type.Optional(
+		Type.String({
+			description:
+				"For requests: also fetch the body of one request, named " +
+				"by the number shown against it (#3, or just 3). Bodies " +
+				"are not held as they stream past, so this asks now.",
+		}),
+	),
 	level: Type.Optional(
 		Type.String({
 			description:
@@ -255,6 +356,32 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				);
 			}
 			const session = await registry.acquire(name);
+
+			if (kind === "requests") {
+				const all = session.requests();
+				const filter = params.filter;
+				const wanted = filter
+					? all.filter((request) => matchesFilter(request, filter))
+					: all;
+				const listing = renderRequests(wanted);
+				if (!params.body) return answer(name, kind, listing);
+
+				const target = pick(wanted, params.body);
+				if (!target) {
+					return refusal(
+						name,
+						kind,
+						`No request '${params.body}' in this listing. Ask by the ` +
+							`number shown against it, from #1 to #${wanted.length}.`,
+					);
+				}
+				const fetched = await session.bodyOf(target.id);
+				return answer(
+					name,
+					kind,
+					`${listing}\n\n${renderBody(target, fetched)}`,
+				);
+			}
 
 			if (kind === "logs") {
 				const captured = session.logs(params.since);

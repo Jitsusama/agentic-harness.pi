@@ -27,4 +27,18 @@ export {
 	type RemotePreviewProperty,
 	renderArg,
 } from "./console.js";
+export {
+	createNetworkRecorder,
+	type LoadingFailed,
+	type LoadingFinished,
+	type NetworkEvent,
+	type NetworkRecorder,
+	type NetworkRequest,
+	type RedirectHop,
+	type RequestSent,
+	type RequestState,
+	type ResourceTiming,
+	type ResponseReceived,
+} from "./network.js";
+export { renderRequests } from "./requests.js";
 export { type Captured, renderLogs } from "./view.js";
