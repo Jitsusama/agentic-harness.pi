@@ -16,16 +16,21 @@ import {
 	analyseVisual,
 	type Condition,
 	conditionFrom,
+	headlineOf,
 	mergeFindings,
+	type Part,
 	renderAudit,
+	renderHealth,
 	renderSweep,
 	renderVerdict,
 	SUPERSEDED_BY,
+	standingOf,
 	tallyFindings,
 	widthsToSweep,
 } from "../../lib/web/audit/index.js";
 import { renderComparison } from "../../lib/web/compare/index.js";
 import { renderInventory, takeInventory } from "../../lib/web/design/index.js";
+import { measure, renderVitals } from "../../lib/web/perf/index.js";
 import type { BrowserSession } from "../../lib/web/session.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
@@ -39,6 +44,8 @@ const parameters = Type.Object({
 				Type.Literal("visual"),
 				Type.Literal("design"),
 				Type.Literal("compare"),
+				Type.Literal("perf"),
+				Type.Literal("health"),
 			],
 			{
 				description:
@@ -52,7 +59,10 @@ const parameters = Type.Object({
 					"spacing and shadows, and point out values close enough " +
 					"to have been meant as one. compare: photograph the page " +
 					"and diff it against a stored baseline of itself, " +
-					"recording one on the first run. Defaults to keyboard.",
+					"recording one on the first run. perf: what the page " +
+					"cost to show, against the published web vitals " +
+					"thresholds. health: run every check and report one " +
+					"digest. Defaults to keyboard.",
 			},
 		),
 	),
@@ -190,6 +200,15 @@ async function runOnce(
 	kind: string,
 	params: CheckParams,
 ): Promise<string> {
+	if (kind === "health") {
+		return digest(session, params);
+	}
+
+	if (kind === "perf") {
+		const vitals = await session.vitals();
+		return renderVitals(vitals, measure(vitals));
+	}
+
 	if (kind === "accessibility") {
 		// Two rule sets, one report. axe is the WCAG baseline and
 		// ours are the structural questions it leaves alone or
@@ -312,6 +331,56 @@ async function sweep(
 	return renderSweep(conditions, {
 		...(only === undefined ? {} : { only }),
 	});
+}
+
+/** Every check the digest runs, in the order it reports them. */
+const HEALTH_KINDS = [
+	"accessibility",
+	"keyboard",
+	"visual",
+	"perf",
+	"design",
+] as const;
+
+/**
+ * Run every check and report one digest.
+ *
+ * A check that throws becomes a part that says so rather than
+ * ending the digest. One broken check should cost its own line,
+ * not the other four, and a digest that quietly dropped it would
+ * look like coverage it does not have.
+ *
+ * compare is left out on purpose: it needs a baseline and a
+ * decision about what is being held still, which is not a
+ * question a general health check can answer for somebody.
+ */
+async function digest(
+	session: BrowserSession,
+	params: CheckParams,
+): Promise<string> {
+	const parts: Part[] = [];
+	for (const kind of HEALTH_KINDS) {
+		try {
+			const report = await runOnce(session, kind, {
+				...params,
+				rule: undefined,
+			});
+			parts.push({
+				kind,
+				standing: standingOf(report),
+				headline: headlineOf(report),
+			});
+		} catch (error) {
+			const why = error instanceof Error ? error.message : String(error);
+			parts.push({
+				kind,
+				standing: "warn",
+				headline: `Could not run: ${why}`,
+				failedToRun: why,
+			});
+		}
+	}
+	return renderHealth(parts);
 }
 
 /**

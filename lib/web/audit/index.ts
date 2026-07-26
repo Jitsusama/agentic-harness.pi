@@ -56,6 +56,7 @@ export {
 	textThreshold,
 	undecidable,
 } from "./contrast.js";
+export { overallOf, type Part, renderHealth } from "./health.js";
 export { visualCaptureSource } from "./probe.js";
 export {
 	MAX_LISTED_NODES,
