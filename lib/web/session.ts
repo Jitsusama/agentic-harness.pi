@@ -64,6 +64,15 @@ import {
 	type VisibilityVerdict,
 } from "./element/index.js";
 import { type BundleSink, diskSink } from "./envelope/index.js";
+import {
+	type Divergence,
+	divergences,
+	type EmulationState,
+	ENVIRONMENT_PROBE,
+	mediaFeaturesOf,
+	mergeEmulation,
+	type ObservedEnvironment,
+} from "./environment/index.js";
 import { captureTiles } from "./screenshot.js";
 import {
 	asCall,
@@ -200,6 +209,12 @@ export type TargetedAction =
 const READY_BUDGET_MS = 2000;
 const READY_POLL_MS = 100;
 
+/** Touch points a touch device is given, matching a common phone. */
+const TOUCH_POINTS = 5;
+
+/** Metres of accuracy claimed for an overridden position. */
+const GEOLOCATION_ACCURACY = 10;
+
 /**
  * Whether an action arrives by pointer.
  *
@@ -293,6 +308,9 @@ export class BrowserSession {
 
 	/** The recovery in flight, so nothing reads a tab mid-replacement. */
 	private recovery?: Promise<void>;
+
+	/** What this session is pretending to be. */
+	private emulation: EmulationState = {};
 
 	/** How dialogs get answered while nobody is watching. */
 	private dialogPolicy: DialogPolicy = DEFAULT_DIALOG_POLICY;
@@ -689,6 +707,11 @@ export class BrowserSession {
 		await this.listenForRequests();
 		await this.listenForDialogs();
 
+		// A fresh tab knows nothing of what the old one was
+		// pretending, so the standing intent is put back before
+		// anything reads from it.
+		await this.applyEmulation();
+
 		const { frameTree } = await cdp.send("Page.getFrameTree");
 		const log = this.lifecycleLog;
 		if (log) {
@@ -715,6 +738,95 @@ export class BrowserSession {
 	/** Where the page has been. */
 	get history(): readonly LifecycleEvent[] {
 		return this.lifecycleLog?.all() ?? [];
+	}
+
+	/**
+	 * Pretend to be a different visitor, then report what the page
+	 * actually experiences.
+	 *
+	 * The intent is kept whole and re-applied in full, because
+	 * Chrome's media emulation forgets anything a call omits, so
+	 * asking for reduced motion after asking for dark mode would
+	 * otherwise turn the dark mode back off.
+	 */
+	async emulate(change: EmulationState = {}): Promise<{
+		asked: EmulationState;
+		observed: ObservedEnvironment;
+		gaps: readonly Divergence[];
+	}> {
+		await this.ready();
+		this.emulation = mergeEmulation(this.emulation, change);
+		await this.applyEmulation();
+		const observed = await this.observeEnvironment();
+		return {
+			asked: this.emulation,
+			observed,
+			gaps: divergences(this.emulation, observed),
+		};
+	}
+
+	/** Put the whole standing intent to the browser. */
+	private async applyEmulation(): Promise<void> {
+		const state = this.emulation;
+
+		await this.cdp.send("Emulation.setEmulatedMedia", {
+			media: state.media ?? "",
+			features: [...mediaFeaturesOf(state)],
+		});
+		await this.cdp.send("Emulation.setEmulatedVisionDeficiency", {
+			type: state.vision ?? "none",
+		});
+
+		if (state.viewport) {
+			await this.cdp.send("Emulation.setDeviceMetricsOverride", {
+				width: state.viewport.width,
+				height: state.viewport.height,
+				deviceScaleFactor: state.viewport.deviceScaleFactor ?? 1,
+				mobile: state.viewport.mobile ?? false,
+			});
+		} else {
+			await this.cdp.send("Emulation.clearDeviceMetricsOverride");
+		}
+
+		await this.cdp.send("Emulation.setTouchEmulationEnabled", {
+			enabled: state.touch ?? false,
+			...(state.touch ? { maxTouchPoints: TOUCH_POINTS } : {}),
+		});
+		await this.cdp.send("Emulation.setCPUThrottlingRate", {
+			rate: state.cpuThrottle ?? 1,
+		});
+
+		if (state.timezone !== undefined) {
+			await this.cdp.send("Emulation.setTimezoneOverride", {
+				timezoneId: state.timezone,
+			});
+		}
+		if (state.locale !== undefined) {
+			await this.cdp.send("Emulation.setLocaleOverride", {
+				locale: state.locale,
+			});
+		}
+		if (state.geolocation !== undefined) {
+			await this.cdp.send("Emulation.setGeolocationOverride", {
+				latitude: state.geolocation.latitude,
+				longitude: state.geolocation.longitude,
+				accuracy: state.geolocation.accuracy ?? GEOLOCATION_ACCURACY,
+			});
+		}
+	}
+
+	/** What the page says it is experiencing. */
+	private async observeEnvironment(): Promise<ObservedEnvironment> {
+		const { result } = await this.cdp.send("Runtime.evaluate", {
+			expression: ENVIRONMENT_PROBE,
+			returnByValue: true,
+		});
+		return result.value as ObservedEnvironment;
+	}
+
+	/** What this session has asked the browser to pretend. */
+	get emulated(): EmulationState {
+		return this.emulation;
 	}
 
 	private async listenForAnnouncements(): Promise<void> {

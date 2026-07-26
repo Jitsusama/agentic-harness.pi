@@ -9,6 +9,11 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { KnownDevices } from "puppeteer-core";
+import {
+	type EmulationState,
+	renderEnvironment,
+} from "../../lib/web/environment/index.js";
 import {
 	type BrowserSession,
 	CookieSetupNeeded,
@@ -26,6 +31,7 @@ const parameters = Type.Object({
 				Type.Literal("navigate"),
 				Type.Literal("close"),
 				Type.Literal("dialogs"),
+				Type.Literal("emulate"),
 			],
 			{
 				description:
@@ -34,6 +40,8 @@ const parameters = Type.Object({
 					"close: dispose the session. " +
 					"dialogs: decide how alerts and confirms get answered, and " +
 					"read back the ones already seen. " +
+					"emulate: be a different visitor, by device, viewport, media " +
+					"preference, sight, locale or clock. " +
 					"Defaults to navigate with a url, open without one.",
 			},
 		),
@@ -42,6 +50,93 @@ const parameters = Type.Object({
 		Type.String({ description: "Session name. Defaults to 'default'." }),
 	),
 	url: Type.Optional(Type.String({ description: "URL for open or navigate." })),
+	device: Type.Optional(
+		Type.String({
+			description:
+				"For emulate: a device to imitate, by the names Chrome " +
+				"itself ships (for example 'iPhone 15 Pro', 'Pixel 5', " +
+				"'iPad landscape'). Sets viewport, scale and touch " +
+				"together. Pass 'none' to stop imitating one.",
+		}),
+	),
+	width: Type.Optional(
+		Type.Number({ description: "For emulate: viewport width in pixels." }),
+	),
+	height: Type.Optional(
+		Type.Number({ description: "For emulate: viewport height in pixels." }),
+	),
+	colorScheme: Type.Optional(
+		Type.Union([Type.Literal("light"), Type.Literal("dark")], {
+			description: "For emulate: what prefers-color-scheme should say.",
+		}),
+	),
+	reducedMotion: Type.Optional(
+		Type.Boolean({
+			description: "For emulate: whether the visitor asks for reduced motion.",
+		}),
+	),
+	contrast: Type.Optional(
+		Type.Union(
+			[
+				Type.Literal("more"),
+				Type.Literal("less"),
+				Type.Literal("no-preference"),
+			],
+			{ description: "For emulate: what prefers-contrast should say." },
+		),
+	),
+	forcedColors: Type.Optional(
+		Type.Boolean({
+			description:
+				"For emulate: whether a forced colour mode is in effect, as " +
+				"Windows high contrast does.",
+		}),
+	),
+	vision: Type.Optional(
+		Type.Union(
+			[
+				Type.Literal("none"),
+				Type.Literal("achromatopsia"),
+				Type.Literal("blurredVision"),
+				Type.Literal("deuteranopia"),
+				Type.Literal("protanopia"),
+				Type.Literal("tritanopia"),
+				Type.Literal("reducedContrast"),
+			],
+			{
+				description:
+					"For emulate: a sight condition to paint through. Changes " +
+					"what a screenshot shows; invisible to the page's scripts.",
+			},
+		),
+	),
+	media: Type.Optional(
+		Type.Union([Type.Literal("screen"), Type.Literal("print")], {
+			description: "For emulate: which media the page is laid out for.",
+		}),
+	),
+	touch: Type.Optional(
+		Type.Boolean({ description: "For emulate: report a touch screen." }),
+	),
+	timezone: Type.Optional(
+		Type.String({
+			description: "For emulate: an IANA timezone, e.g. 'Asia/Tokyo'.",
+		}),
+	),
+	locale: Type.Optional(
+		Type.String({
+			description:
+				"For emulate: a locale for formatting, e.g. 'fr-CA'. Note " +
+				"this does not reach navigator.language.",
+		}),
+	),
+	cpuThrottle: Type.Optional(
+		Type.Number({
+			description:
+				"For emulate: slow the processor by this factor, 1 being " +
+				"full speed.",
+		}),
+	),
 	accept: Type.Optional(
 		Type.Boolean({
 			description:
@@ -65,6 +160,94 @@ const parameters = Type.Object({
 		}),
 	),
 });
+
+/**
+ * Turn the tool's flat parameters into an emulation intent.
+ *
+ * A device name expands into viewport, scale and touch at once,
+ * using the catalogue Chrome's own tooling ships rather than a
+ * table of our own that would drift from real hardware.
+ */
+function emulationFrom(params: {
+	device?: string;
+	width?: number;
+	height?: number;
+	colorScheme?: "light" | "dark";
+	reducedMotion?: boolean;
+	contrast?: "more" | "less" | "no-preference";
+	forcedColors?: boolean;
+	vision?: string;
+	media?: "screen" | "print";
+	touch?: boolean;
+	timezone?: string;
+	locale?: string;
+	cpuThrottle?: number;
+}): { state: EmulationState } | { error: string } {
+	const state: Record<string, unknown> = {};
+
+	if (params.device !== undefined && params.device !== "none") {
+		const known = KnownDevices[params.device as keyof typeof KnownDevices];
+		if (!known) {
+			// Fall back to the family name, since a wrong model number
+			// is the likeliest way to miss and matching the whole string
+			// would then offer nothing at all.
+			const asked = params.device.toLowerCase();
+			const family = asked.split(" ")[0] ?? asked;
+			const names = Object.keys(KnownDevices);
+			const near = (
+				names.filter((candidate) => candidate.toLowerCase().includes(asked))
+					.length > 0
+					? names.filter((candidate) => candidate.toLowerCase().includes(asked))
+					: names.filter((candidate) =>
+							candidate.toLowerCase().includes(family),
+						)
+			).slice(0, MAX_DEVICE_SUGGESTIONS);
+			return {
+				error:
+					`No device named '${params.device}'.` +
+					(near.length > 0
+						? ` Did you mean ${near.join(", ")}?`
+						: " Chrome ships names like 'iPhone 15 Pro' and 'Pixel 5'."),
+			};
+		}
+		state.device = params.device;
+		state.viewport = {
+			width: known.viewport.width,
+			height: known.viewport.height,
+			deviceScaleFactor: known.viewport.deviceScaleFactor,
+			mobile: known.viewport.isMobile,
+		};
+		state.touch = known.viewport.hasTouch;
+	} else if (params.device === "none") {
+		// An explicit none has to clear the override, which an
+		// absent viewport does and an absent key cannot.
+		state.device = undefined;
+		state.viewport = undefined;
+	}
+
+	if (params.width !== undefined && params.height !== undefined) {
+		state.viewport = { width: params.width, height: params.height };
+	}
+	for (const key of [
+		"colorScheme",
+		"reducedMotion",
+		"contrast",
+		"forcedColors",
+		"vision",
+		"media",
+		"touch",
+		"timezone",
+		"locale",
+		"cpuThrottle",
+	] as const) {
+		if (params[key] !== undefined) state[key] = params[key];
+	}
+
+	return { state: state as EmulationState };
+}
+
+/** How many near-miss device names are worth offering. */
+const MAX_DEVICE_SUGGESTIONS = 5;
 
 /** Register the navigation half of the browser family. */
 export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
@@ -116,6 +299,13 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 					return refusal(name, kind, err.message);
 				}
 				throw err;
+			}
+
+			if (kind === "emulate") {
+				const change = emulationFrom(params);
+				if ("error" in change) return refusal(name, kind, change.error);
+				const { asked, observed, gaps } = await session.emulate(change.state);
+				return answer(name, kind, renderEnvironment(asked, observed, gaps));
 			}
 
 			if (kind === "dialogs") {
