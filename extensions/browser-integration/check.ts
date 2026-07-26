@@ -19,6 +19,7 @@ import {
 	SUPERSEDED_BY,
 	tallyFindings,
 } from "../../lib/web/audit/index.js";
+import { renderInventory, takeInventory } from "../../lib/web/design/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
 
@@ -29,6 +30,7 @@ const parameters = Type.Object({
 				Type.Literal("keyboard"),
 				Type.Literal("accessibility"),
 				Type.Literal("visual"),
+				Type.Literal("design"),
 			],
 			{
 				description:
@@ -37,8 +39,10 @@ const parameters = Type.Object({
 					"axe WCAG rule set and report what failed, what is only " +
 					"best practice, and what needs a person to look. visual: " +
 					"report what the layout did wrong, from sideways scroll " +
-					"and clipped text to images that did not load. " +
-					"Defaults to keyboard.",
+					"and clipped text to images that did not load. design: " +
+					"inventory what the page is built from, colours, type, " +
+					"spacing and shadows, and point out values close enough " +
+					"to have been meant as one. Defaults to keyboard.",
 			},
 		),
 	),
@@ -46,7 +50,8 @@ const parameters = Type.Object({
 		Type.String({
 			description:
 				"For accessibility and visual: name one rule from the index " +
-				"to see the elements it hit and how to fix them.",
+				"to see the elements it hit and how to fix them. For design: " +
+				"name one property to see every value and where it is used.",
 		}),
 	),
 	session: Type.Optional(
@@ -78,7 +83,10 @@ export function registerCheck(
 			"failed, keeping standards apart from best practice and naming " +
 			"what it could not decide. kind 'visual' reports what the layout " +
 			"did wrong: sideways scroll, clipped text, escaped elements, " +
-			"images that did not load or are drawn at the wrong shape.",
+			"images that did not load or are drawn at the wrong shape. " +
+			"kind 'design' inventories the colours, type, spacing and " +
+			"shadows the page actually uses, and points out values close " +
+			"enough to have been meant as one.",
 		promptSnippet:
 			"Judge a browser page with browser_check: kind 'keyboard' walks the " +
 			"tab order, kind 'accessibility' runs the WCAG rule set.",
@@ -115,6 +123,17 @@ export function registerCheck(
 					kind,
 					renderAudit(findings, tallyFindings(findings), {
 						...(params.rule === undefined ? {} : { rule: params.rule }),
+					}),
+				);
+			}
+
+			if (kind === "design") {
+				const samples = await session.styleSamples();
+				return answer(
+					name,
+					kind,
+					renderInventory(takeInventory(samples), {
+						...(params.rule === undefined ? {} : { property: params.rule }),
 					}),
 				);
 			}

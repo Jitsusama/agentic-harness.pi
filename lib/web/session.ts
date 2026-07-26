@@ -177,6 +177,7 @@ import {
 	type VisualNode,
 	visualCaptureSource,
 } from "./audit/index.js";
+import { inventorySource, type StyleSample } from "./design/index.js";
 import {
 	describeThrow,
 	type EvalFrame,
@@ -1745,6 +1746,27 @@ export class BrowserSession {
 			nodes: readonly VisualNode[];
 			viewport: Viewport;
 		};
+	}
+
+	/**
+	 * What the page is built from, sampled element by element.
+	 *
+	 * Read in one page-side pass, and filtered there rather than
+	 * here: an inherited value is not a decision, and carrying
+	 * every element's inherited colour back only to discard it
+	 * would be most of the payload.
+	 */
+	async styleSamples(): Promise<readonly StyleSample[]> {
+		await this.ready();
+		const response = await this.cdp.send("Runtime.evaluate", {
+			expression: inventorySource(),
+			returnByValue: true,
+		});
+		if (response.exceptionDetails) {
+			const threw = describeThrow(response.exceptionDetails);
+			throw new Error(`Could not sample the styles: ${threw.message}`);
+		}
+		return (response.result.value ?? []) as readonly StyleSample[];
 	}
 
 	/** Run a page-side source string and read back its value. */
