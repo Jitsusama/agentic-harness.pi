@@ -48,6 +48,7 @@ import {
 	renderRequests,
 } from "../../lib/web/telemetry/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
+import { renderBrowserCall, renderBrowserResult } from "./render.js";
 import { answer, refusal } from "./result.js";
 
 /** Lay an observation out for reading: where you are, then what is there. */
@@ -415,6 +416,9 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 		promptSnippet:
 			"Read a browser page with browser_see; act on it with browser_do.",
 		parameters,
+		renderCall: (args, theme) => renderBrowserCall("see", args, theme),
+		renderResult: (result, options, theme) =>
+			renderBrowserResult(result, options, theme),
 		async execute(_id, params) {
 			const name = params.session ?? DEFAULT_SESSION;
 			const kind = params.kind ?? "page";

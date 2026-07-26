@@ -31,6 +31,7 @@ import {
 	type WaitCondition,
 } from "../../lib/web/wait/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
+import { renderBrowserCall, renderBrowserResult } from "./render.js";
 import { answer, refusal } from "./result.js";
 import { pageView } from "./see.js";
 
@@ -243,6 +244,9 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			"Act on a browser page with browser_do: target elements by role and " +
 			"accessible name, press chords, or send raw gestures.",
 		parameters,
+		renderCall: (args, theme) => renderBrowserCall("do", args, theme),
+		renderResult: (result, options, theme) =>
+			renderBrowserResult(result, options, theme),
 		async execute(_id, params) {
 			const name = params.session ?? DEFAULT_SESSION;
 			const kind = params.kind ?? "act";

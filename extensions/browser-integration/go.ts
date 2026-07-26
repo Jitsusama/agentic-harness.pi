@@ -26,6 +26,7 @@ import {
 } from "../../lib/web/session.js";
 import { renderDialogs } from "../../lib/web/telemetry/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
+import { renderBrowserCall, renderBrowserResult } from "./render.js";
 import { answer, refusal } from "./result.js";
 import { pageView } from "./see.js";
 
@@ -451,6 +452,9 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			"Move a browser session with browser_go (navigate, open, " +
 			"close, dialogs).",
 		parameters,
+		renderCall: (args, theme) => renderBrowserCall("go", args, theme),
+		renderResult: (result, options, theme) =>
+			renderBrowserResult(result, options, theme),
 		async execute(_id, params) {
 			const name = params.session ?? DEFAULT_SESSION;
 			// A url is an intent to go there; without one there is

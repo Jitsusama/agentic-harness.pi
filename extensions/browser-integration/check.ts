@@ -33,6 +33,7 @@ import { renderInventory, takeInventory } from "../../lib/web/design/index.js";
 import { measure, renderVitals } from "../../lib/web/perf/index.js";
 import type { BrowserSession } from "../../lib/web/session.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
+import { renderBrowserCall, renderBrowserResult } from "./render.js";
 import { answer, refusal } from "./result.js";
 
 const parameters = Type.Object({
@@ -145,6 +146,9 @@ export function registerCheck(
 			"Judge a browser page with browser_check: kind 'keyboard' walks the " +
 			"tab order, kind 'accessibility' runs the WCAG rule set.",
 		parameters,
+		renderCall: (args, theme) => renderBrowserCall("check", args, theme),
+		renderResult: (result, options, theme) =>
+			renderBrowserResult(result, options, theme),
 		async execute(_id, params) {
 			const name = params.session ?? DEFAULT_SESSION;
 			const kind = params.kind ?? "keyboard";
