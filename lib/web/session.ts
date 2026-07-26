@@ -47,6 +47,7 @@ import {
 	type Unreachable,
 	WALK_COLLECT,
 	WALK_READ,
+	WALK_REMEMBER,
 	WALK_RESTORE,
 	type WalkCandidate,
 	type WalkCapture,
@@ -1630,6 +1631,27 @@ export class BrowserSession {
 	 */
 	async keyboardWalk(maxStops?: number): Promise<WalkCapture> {
 		await this.ready();
+
+		// Remember where the caller's focus and viewport were before
+		// disturbing either, so the page can be handed back as found.
+		await this.evaluateJson(WALK_REMEMBER);
+
+		// Start from the top of the document so the first Tab lands
+		// where a reader arriving at the page would land, not
+		// wherever something happened to leave focus.
+		//
+		// This has to happen before the resting styles are collected,
+		// not after. A dialog opened with showModal focuses its first
+		// control, so collecting first recorded that control's focused
+		// appearance as its resting one, and comparing the two later
+		// found no difference and reported a perfectly visible focus
+		// ring as missing.
+		await this.page.evaluate(() => {
+			if (document.activeElement instanceof HTMLElement) {
+				document.activeElement.blur();
+			}
+		});
+
 		const collected = await this.evaluateJson<{
 			candidates: WalkCandidate[];
 			unreachable: Unreachable[];
@@ -1639,15 +1661,6 @@ export class BrowserSession {
 			maxStops ?? collected.candidates.length * 2 + WALK_SLACK,
 			MAX_WALK_STOPS,
 		);
-
-		// Start from the top of the document so the first Tab lands
-		// where a reader arriving at the page would land, not
-		// wherever something happened to leave focus.
-		await this.page.evaluate(() => {
-			if (document.activeElement instanceof HTMLElement) {
-				document.activeElement.blur();
-			}
-		});
 
 		const stops: WalkStop[] = [];
 		for (let step = 0; step < cap; step += 1) {
@@ -1662,12 +1675,26 @@ export class BrowserSession {
 			stops.push(stop as WalkStop);
 		}
 
-		// If the walk ended stuck on one element, find out whether a
-		// keyboard user has any way back. That is the difference
-		// between a modal and a dead end.
+		// If the walk ended stuck somewhere smaller than the page,
+		// find out whether a keyboard user has any way back. That is
+		// the difference between a modal and a dead end.
+		//
+		// The test used to be "any index repeats in the last four
+		// stops", which every page whose tab cycle is three stops or
+		// shorter satisfies on a healthy run, so Escape was pressed on
+		// ordinary login forms. A page is only worth probing when the
+		// loop it settled into is smaller than the set of things it
+		// could have reached.
 		let escapeFreed: boolean | undefined;
 		const tail = stops.slice(-WALK_STUCK_SAMPLE).map((stop) => stop.index);
-		if (tail.length > 0 && new Set(tail).size < tail.length) {
+		const reached = new Set(
+			stops.map((stop) => stop.index).filter((index) => index >= 0),
+		);
+		const loopedSmall =
+			tail.length > 0 &&
+			new Set(tail).size < tail.length &&
+			reached.size < collected.candidates.length;
+		if (loopedSmall) {
 			const before = tail.at(-1);
 			await this.page.keyboard.press("Escape");
 			await this.page.keyboard.press("Tab");
@@ -1677,11 +1704,18 @@ export class BrowserSession {
 
 		await this.evaluateJson(WALK_RESTORE);
 
+		// A walk that used its whole budget has not necessarily seen
+		// the page. Saying so is what stops everything it did not
+		// reach being reported as unreachable.
+		const exhausted =
+			stops.length >= cap && reached.size < collected.candidates.length;
+
 		return {
 			candidates: collected.candidates,
 			stops,
 			unreachable: collected.unreachable,
 			...(escapeFreed === undefined ? {} : { escapeFreed }),
+			...(exhausted ? { cappedAt: cap } : {}),
 		};
 	}
 

@@ -46,4 +46,9 @@ export {
 	type WalkFindings,
 	type WalkStop,
 } from "./walk.js";
-export { WALK_COLLECT, WALK_READ, WALK_RESTORE } from "./walkprobe.js";
+export {
+	WALK_COLLECT,
+	WALK_READ,
+	WALK_REMEMBER,
+	WALK_RESTORE,
+} from "./walkprobe.js";

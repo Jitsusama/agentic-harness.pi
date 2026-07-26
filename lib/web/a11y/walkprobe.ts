@@ -9,6 +9,18 @@
  */
 
 /**
+ * What counts as a modal, from the page's own point of view.
+ *
+ * A dialog that contains focus is doing its job, and a keyboard
+ * checker that cannot tell that from a dead end reports the
+ * reference implementation of the pattern as the defect it
+ * exists to find.
+ */
+const MODAL_SELECTOR =
+	'dialog[open], [role="dialog"][aria-modal="true"], ' +
+	'[role="alertdialog"][aria-modal="true"]';
+
+/**
  * Collect everything the browser will let focus land on, and
  * remember what each looks like at rest.
  *
@@ -23,6 +35,7 @@ export const WALK_COLLECT = `(() => {
 		"[tabindex]", "details", "audio[controls]", "video[controls]",
 		"[contenteditable]",
 	].join(",");
+	const modalSelector = ${JSON.stringify(MODAL_SELECTOR)};
 
 	// checkVisibility is the browser's own answer, and the only
 	// one that is right here. An element inside a display:none
@@ -53,6 +66,7 @@ export const WALK_COLLECT = `(() => {
 	const nameOf = (el) =>
 		(el.getAttribute("aria-label") || el.innerText || el.value ||
 			el.getAttribute("title") || el.getAttribute("alt") || "").trim().slice(0, 60);
+	const inModal = (el) => el.closest(modalSelector) !== null;
 
 	const candidates = focusable.map((el, index) => {
 		const tabindex = el.getAttribute("tabindex");
@@ -61,13 +75,22 @@ export const WALK_COLLECT = `(() => {
 			...(el.id ? { id: el.id } : {}),
 			...(el.getAttribute("role") ? { role: el.getAttribute("role") } : {}),
 			...(tabindex === null ? {} : { tabindex: Number(tabindex) }),
+			...(inModal(el) ? { inModal: true } : {}),
 			resting: styleOf(el),
 		};
 	});
 
-	// Anything that behaves like a control without being one. A
-	// click handler or an interactive role is a promise to the
-	// reader; not being focusable breaks it.
+	// Anything that behaves like a control without being one. An
+	// interactive role is a promise to the reader; not being
+	// focusable breaks it.
+	//
+	// The handler test only sees an inline onclick. A framework
+	// that delegates from the root, which is every React, Vue and
+	// Svelte page, registers nothing this can read, and there is
+	// no cheap document-wide way to ask. So the reason string says
+	// what was actually checked rather than implying more, and the
+	// verdict reports the limit instead of letting silence read as
+	// coverage.
 	const interactiveRoles = new Set([
 		"button", "link", "checkbox", "radio", "switch", "tab",
 		"menuitem", "option", "slider", "textbox",
@@ -86,7 +109,7 @@ export const WALK_COLLECT = `(() => {
 			...(role ? { role } : {}),
 			because: hasRole
 				? "carries role " + role + " but nothing can focus it"
-				: "has a click handler but nothing can focus it",
+				: "has an inline click handler but nothing can focus it",
 		});
 	}
 
@@ -103,6 +126,7 @@ export const WALK_COLLECT = `(() => {
 export const WALK_READ = `(() => {
 	const el = document.activeElement;
 	const list = window.__walkCandidates || [];
+	const modalSelector = ${JSON.stringify(MODAL_SELECTOR)};
 	if (!el || el === document.body || el === document.documentElement) {
 		return { index: -1, tag: el ? el.tagName : "NONE", name: "",
 			inViewport: false, focused: null };
@@ -118,6 +142,7 @@ export const WALK_READ = `(() => {
 		inViewport: box.bottom > 0 && box.right > 0 &&
 			box.top < innerHeight && box.left < innerWidth &&
 			box.width > 0 && box.height > 0,
+		...(el.closest(modalSelector) !== null ? { inModal: true } : {}),
 		focused: {
 			outlineStyle: c.outlineStyle, outlineWidth: c.outlineWidth,
 			outlineColor: c.outlineColor, boxShadow: c.boxShadow,
@@ -127,11 +152,42 @@ export const WALK_READ = `(() => {
 	};
 })()`;
 
-/** Put focus back where the walk found it. */
+/**
+ * Remember where focus and the viewport were before the walk.
+ *
+ * The walk is one of the two reads that deliberately change the
+ * page, so it owes the caller the page it was handed back. Tab
+ * scrolls each stop into view, and the health digest runs the
+ * keyboard check before the visual, performance and design ones,
+ * so a walk that leaves the page scrolled moves the ground under
+ * every measurement that follows it in the same run.
+ */
+export const WALK_REMEMBER = `(() => {
+	window.__walkOrigin = {
+		el: document.activeElement,
+		x: window.scrollX,
+		y: window.scrollY,
+	};
+	return true;
+})()`;
+
+/** Put focus and the scroll position back where the walk found them. */
 export const WALK_RESTORE = `(() => {
+	const origin = window.__walkOrigin;
 	if (document.activeElement && document.activeElement.blur) {
 		document.activeElement.blur();
 	}
+	if (origin) {
+		const el = origin.el;
+		// Refocusing only makes sense if it is still in the document
+		// and could hold focus in the first place; body cannot.
+		if (el && el.isConnected && typeof el.focus === "function" &&
+			el !== document.body && el !== document.documentElement) {
+			try { el.focus({ preventScroll: true }); } catch { /* gone */ }
+		}
+		window.scrollTo(origin.x, origin.y);
+	}
+	window.__walkOrigin = undefined;
 	window.__walkCandidates = undefined;
 	return true;
 })()`;

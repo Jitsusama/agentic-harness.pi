@@ -362,3 +362,125 @@ describe("renderWalk", () => {
 		expect(out).toContain("then the order repeated");
 	});
 });
+
+describe("telling a contained page from a broken one", () => {
+	// A modal that holds focus, exactly as the pattern prescribes:
+	// its two controls cycle, and the three behind it are excluded
+	// on purpose. Index -1 is focus resting on the body between
+	// laps, which headless Chrome does every time round.
+	const modal = () =>
+		capture({
+			candidates: [
+				candidate(0, "Background link"),
+				candidate(1, "Open dialog"),
+				candidate(2, "Another"),
+				candidate(3, "Cancel", { inModal: true }),
+				candidate(4, "Save", { inModal: true }),
+			],
+			// The index sequence a real showModal dialog produced:
+			// captured from the browser rather than imagined, because a
+			// shorter invented one has no detectable cycle at all and
+			// would pass this test for the wrong reason.
+			stops: [4, -1, 3, 4, 3, 4, -1, 3, 4, 3, 4, -1, 3, 4].map((index) =>
+				index < 0
+					? stop(-1, "BODY")
+					: stop(index, index === 3 ? "Cancel" : "Save", { inModal: true }),
+			),
+			cappedAt: 14,
+		});
+
+	it("does not call a correct modal a focus trap", () => {
+		const findings = analyseWalk(modal());
+
+		expect(findings.trap).toBeUndefined();
+		expect(findings.modalHeldFocus).toBe(true);
+		expect(renderWalk(findings)).toMatch(/^PASS/);
+	});
+
+	it("does not blame a modal for the controls it excludes", () => {
+		// The walk laps inside the dialog and spends its whole
+		// budget, so the cap fires. The dialog was the limit, not
+		// the budget, and saying "raise maxStops" would be wrong.
+		const report = renderWalk(analyseWalk(modal()));
+
+		expect(report).not.toContain("maxStops");
+		expect(report).not.toContain("never reached");
+	});
+
+	it("still fails a cycle that is not a modal", () => {
+		// Same shape, no dialog. This is the real defect the check
+		// exists to find, and it must survive the modal exception.
+		const findings = analyseWalk(
+			capture({
+				candidates: [
+					candidate(0, "Outside link"),
+					candidate(1, "Outside button"),
+					candidate(2, "In A"),
+					candidate(3, "In B"),
+				],
+				stops: [2, 3, 2, 3, 2, 3, 2, 3].map((index) =>
+					stop(index, index === 2 ? "In A" : "In B"),
+				),
+				cappedAt: 12,
+			}),
+		);
+
+		expect(findings.trap).toBeDefined();
+		expect(renderWalk(findings)).toMatch(/^FAIL/);
+	});
+});
+
+describe("a walk cut short blames its own budget", () => {
+	it("reports unvisited controls as unvisited, not unreachable", () => {
+		// maxStops is a documented parameter, and it used to be the
+		// shortest route to a fabricated critical verdict: every
+		// control the budget stopped us reaching was counted as a
+		// hard failure against the page.
+		const findings = analyseWalk(
+			capture({
+				candidates: [
+					candidate(0, "One"),
+					candidate(1, "Two"),
+					candidate(2, "Three"),
+				],
+				stops: [stop(0, "One")],
+				cappedAt: 1,
+			}),
+		);
+
+		const report = renderWalk(findings);
+		expect(findings.missed).toHaveLength(2);
+		expect(report).toMatch(/^WARN/);
+		expect(report).toContain("budget");
+	});
+
+	it("fails them when the walk really did finish", () => {
+		const findings = analyseWalk(
+			capture({
+				candidates: [candidate(0, "One"), candidate(1, "Stranded")],
+				stops: [stop(0, "One")],
+			}),
+		);
+
+		expect(renderWalk(findings)).toMatch(/^FAIL/);
+	});
+});
+
+describe("the verdict claims only what a tab walk tested", () => {
+	it("does not say the order is right or the controls work", () => {
+		// Only Tab was pressed, and the order was compared against
+		// document order, so neither visual order nor operability
+		// was tested. The clean headline used to assert both.
+		const report = renderWalk(
+			analyseWalk(
+				capture({
+					candidates: [candidate(0, "One")],
+					stops: [stop(0, "One")],
+				}),
+			),
+		);
+
+		expect(report).toMatch(/^PASS/);
+		expect(report).toContain("Tab reached every control");
+	});
+});

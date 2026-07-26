@@ -41,6 +41,8 @@ export interface WalkCandidate {
 	readonly role?: string;
 	readonly name: string;
 	readonly tabindex?: number;
+	/** Inside an open dialog that is holding focus on purpose. */
+	readonly inModal?: boolean;
 	readonly resting: FocusStyle;
 }
 
@@ -52,6 +54,8 @@ export interface WalkStop {
 	readonly id?: string;
 	readonly name: string;
 	readonly inViewport: boolean;
+	/** Inside an open dialog that is holding focus on purpose. */
+	readonly inModal?: boolean;
 	readonly focused: FocusStyle;
 }
 
@@ -107,6 +111,16 @@ export interface WalkFindings {
 	readonly unreachable: readonly Unreachable[];
 	/** True when the tab order does not follow document order. */
 	readonly reordered: boolean;
+	/**
+	 * The stop budget, when the walk ran out of it.
+	 *
+	 * Set means the page was not walked to the end, so anything in
+	 * `missed` is unvisited rather than unreachable and cannot be
+	 * counted as a failure.
+	 */
+	readonly cappedAt?: number;
+	/** True when focus stayed inside a dialog that meant to hold it. */
+	readonly modalHeldFocus: boolean;
 }
 
 /**
@@ -194,7 +208,40 @@ export function analyseWalk(capture: WalkCapture): WalkFindings {
 	const cycleMembers = new Set(cycle);
 	// A cycle is only a trap when something focusable sits outside
 	// it. A page whose whole tab order loops is working correctly.
-	const trapped = cycle.length > 0 && missed.length > 0;
+	//
+	// Two things that are not traps used to be reported as one.
+	//
+	// A modal dialog contains focus deliberately: that is the
+	// pattern working, and the background controls it excludes are
+	// exactly what lands in `missed`, so the reference
+	// implementation of an accessible dialog produced this check's
+	// loudest possible output.
+	//
+	// A walk cut short by its own budget has not visited the rest
+	// of the page yet. Everything it did not reach is unvisited,
+	// not unreachable, and calling that a trap blames the page for
+	// a limit we imposed.
+	const inModal = (index: number) =>
+		stops.some((stop) => stop.index === index && stop.inModal === true) ||
+		candidates.some(
+			(candidate) => candidate.index === index && candidate.inModal === true,
+		);
+	// Index -1 is focus resting on the body between laps rather
+	// than on any candidate, which headless Chrome does every time
+	// round. It is not a control the dialog failed to contain, so
+	// it must not decide whether the cycle is inside one; leaving
+	// it in made every real modal look like a leak.
+	const cycled = cycle.filter((index) => index >= 0);
+	const modalCycle = cycled.length > 0 && cycled.every(inModal);
+	// A trap and a budget shortfall both end with the walk stopping
+	// early, and telling them apart is the whole job here. The
+	// signal is whether the walk was looping or still finding new
+	// controls when it ran out: a settled cycle smaller than the
+	// page is a trap however long we let it run, while a walk that
+	// was still making progress simply needed more stops.
+	const looping = cycled.length > 0;
+	const trapped = looping && missed.length > 0 && !modalCycle;
+	const ranOut = capture.cappedAt !== undefined && !looping;
 	const trap: Trap | undefined = trapped
 		? {
 				members: [...cycleMembers]
@@ -214,9 +261,13 @@ export function analyseWalk(capture: WalkCapture): WalkFindings {
 	const arrival = stops
 		.map((stop) => stop.index)
 		.filter((index, at, all) => index >= 0 && all.indexOf(index) === at);
-	const reordered = arrival.some(
-		(index, at) => at > 0 && index < (arrival[at - 1] ?? -1),
-	);
+	// A modal legitimately takes focus out of document order: its
+	// controls come after the background ones in the source and
+	// before them in the tab order. Reporting that as a reordered
+	// page blames the dialog for working.
+	const reordered =
+		!modalCycle &&
+		arrival.some((index, at) => at > 0 && index < (arrival[at - 1] ?? -1));
 
 	return {
 		stops,
@@ -235,6 +286,10 @@ export function analyseWalk(capture: WalkCapture): WalkFindings {
 		positiveTabindex,
 		unreachable: capture.unreachable,
 		reordered,
+		...(ranOut && capture.cappedAt !== undefined
+			? { cappedAt: capture.cappedAt }
+			: {}),
+		modalHeldFocus: modalCycle,
 	};
 }
 
@@ -320,9 +375,17 @@ export function renderWalk(findings: WalkFindings): string {
 		lines.push("");
 	}
 
-	if (findings.missed.length > 0 && !findings.trap) {
+	if (
+		findings.missed.length > 0 &&
+		!findings.trap &&
+		!findings.modalHeldFocus
+	) {
 		lines.push(
-			`${findings.missed.length} focusable things were never reached:`,
+			findings.cappedAt === undefined
+				? `${findings.missed.length} focusable things were never reached:`
+				: `${findings.missed.length} focusable things were not visited ` +
+						`before the walk hit its ${findings.cappedAt}-stop budget. ` +
+						"Raise maxStops to walk the rest:",
 		);
 		for (const candidate of findings.missed) {
 			lines.push(`  ${candidate.name || candidate.tag}`);
@@ -345,15 +408,34 @@ export function renderWalk(findings: WalkFindings): string {
 	// A trap or an unreachable control is a page a keyboard user
 	// cannot finish using, so those fail. An invisible ring or a
 	// rearranged order makes the page hard rather than impossible.
+	//
+	// A walk that ran out of budget has not finished looking, so
+	// what it did not reach is unvisited rather than unreachable.
+	// Counting those as failures made the tool's own limit read as
+	// the page's defect, and maxStops the shortest route to a
+	// fabricated critical verdict.
+	//
+	// A modal holding focus excludes the page behind it on purpose,
+	// so what it kept focus away from is neither missed nor a
+	// budget overrun.
+	const excused = findings.cappedAt !== undefined || findings.modalHeldFocus;
 	const failures =
 		(findings.trap ? 1 : 0) +
 		findings.unreachable.length +
-		findings.missed.length;
+		(excused ? 0 : findings.missed.length);
 	const warnings =
 		findings.noIndicator.length +
 		findings.offscreen.length +
 		findings.positiveTabindex.length +
-		(findings.reordered ? 1 : 0);
+		(findings.reordered ? 1 : 0) +
+		// A walk that laps inside a modal always spends its whole
+		// budget and never reaches the page behind. The dialog was the
+		// limit, not the budget, so this is not something to raise.
+		(!findings.modalHeldFocus &&
+		findings.cappedAt !== undefined &&
+		findings.missed.length > 0
+			? 1
+			: 0);
 
 	return renderVerdict(
 		{
@@ -376,11 +458,31 @@ function headlineFor(
 			? "Focus is trapped, though Escape gets out."
 			: "Focus is trapped with no way out but a mouse.";
 	}
+	// Focus held inside a dialog is the pattern working. The
+	// background controls it excludes are what a modal is for, so
+	// they are neither missed nor a budget problem.
+	if (findings.modalHeldFocus) {
+		return (
+			"A modal dialog is holding focus, which is correct. " +
+			`Tab cycles its ${findings.stops.length > 0 ? "controls" : "content"} ` +
+			"and does not reach the page behind it."
+		);
+	}
+	if (findings.cappedAt !== undefined && findings.missed.length > 0) {
+		return (
+			`The walk stopped at its ${findings.cappedAt}-stop budget with ` +
+			`${findings.missed.length} controls not yet visited.`
+		);
+	}
 	if (findings.unreachable.length > 0 || findings.missed.length > 0) {
 		return `${failures} things can be operated but never focused.`;
 	}
 	if (warnings > 0) {
-		return `Everything can be reached, but ${warnings} stops are hard to follow.`;
+		return `Every control was reached, but ${warnings} stops are hard to follow.`;
 	}
-	return "Every control can be reached, in order, with focus visible.";
+	// Only Tab was pressed, and the order was compared against
+	// document order, so this cannot claim the visual order matches
+	// or that the controls operate. Saying "in order, with focus
+	// visible" asserted both.
+	return "Tab reached every control, each with a visible focus ring.";
 }
