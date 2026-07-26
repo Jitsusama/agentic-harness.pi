@@ -19,6 +19,7 @@ import {
 	SUPERSEDED_BY,
 	tallyFindings,
 } from "../../lib/web/audit/index.js";
+import { renderComparison } from "../../lib/web/compare/index.js";
 import { renderInventory, takeInventory } from "../../lib/web/design/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
@@ -31,6 +32,7 @@ const parameters = Type.Object({
 				Type.Literal("accessibility"),
 				Type.Literal("visual"),
 				Type.Literal("design"),
+				Type.Literal("compare"),
 			],
 			{
 				description:
@@ -42,7 +44,9 @@ const parameters = Type.Object({
 					"and clipped text to images that did not load. design: " +
 					"inventory what the page is built from, colours, type, " +
 					"spacing and shadows, and point out values close enough " +
-					"to have been meant as one. Defaults to keyboard.",
+					"to have been meant as one. compare: photograph the page " +
+					"and diff it against a stored baseline of itself, " +
+					"recording one on the first run. Defaults to keyboard.",
 			},
 		),
 	),
@@ -56,6 +60,21 @@ const parameters = Type.Object({
 	),
 	session: Type.Optional(
 		Type.String({ description: "Session name. Defaults to 'default'." }),
+	),
+	baseline: Type.Optional(
+		Type.String({
+			description:
+				"For compare: which baseline to measure against. Name it " +
+				"after the state being held still, e.g. 'checkout-empty'. " +
+				"Defaults to 'default'.",
+		}),
+	),
+	update: Type.Optional(
+		Type.Boolean({
+			description:
+				"For compare: replace the stored baseline with what the " +
+				"page looks like now, accepting the change.",
+		}),
 	),
 	maxStops: Type.Optional(
 		Type.Number({
@@ -86,7 +105,9 @@ export function registerCheck(
 			"images that did not load or are drawn at the wrong shape. " +
 			"kind 'design' inventories the colours, type, spacing and " +
 			"shadows the page actually uses, and points out values close " +
-			"enough to have been meant as one.",
+			"enough to have been meant as one. kind 'compare' diffs the page " +
+			"against a stored baseline of itself and says which regions " +
+			"changed and what they sit on.",
 		promptSnippet:
 			"Judge a browser page with browser_check: kind 'keyboard' walks the " +
 			"tab order, kind 'accessibility' runs the WCAG rule set.",
@@ -125,6 +146,22 @@ export function registerCheck(
 						...(params.rule === undefined ? {} : { rule: params.rule }),
 					}),
 				);
+			}
+
+			if (kind === "compare") {
+				const { comparison, recorded, artifacts } =
+					await session.compareToBaseline(params.baseline ?? "default", {
+						...(params.update === undefined ? {} : { update: params.update }),
+					});
+				if (!comparison) {
+					return answer(
+						name,
+						kind,
+						`Baseline recorded at ${recorded}. Nothing to compare ` +
+							"against yet; run this again after a change to see one.",
+					);
+				}
+				return answer(name, kind, renderComparison(comparison, artifacts));
 			}
 
 			if (kind === "design") {

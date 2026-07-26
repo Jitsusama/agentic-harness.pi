@@ -13,6 +13,8 @@
  * different lifetime.
  */
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import * as path from "node:path";
 import type {
 	BrowserContext,
 	CDPSession,
@@ -50,6 +52,7 @@ import {
 	type WalkStop,
 } from "./a11y/index.js";
 import { newContextPage } from "./browser.js";
+import { type Comparison, compareImages, readPng } from "./compare/index.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
 import {
 	type Actionability,
@@ -78,7 +81,13 @@ import {
 	sameBox,
 	type VisibilityVerdict,
 } from "./element/index.js";
-import { type BundleSink, diskSink } from "./envelope/index.js";
+import {
+	BUNDLE_ROOT,
+	type BundleSink,
+	DIR_MODE,
+	diskSink,
+	FILE_MODE,
+} from "./envelope/index.js";
 import {
 	type CookieRecord,
 	type Divergence,
@@ -2365,6 +2374,93 @@ export class BrowserSession {
 			width: seen?.width ?? 0,
 			height: seen?.height ?? 0,
 		};
+	}
+
+	/**
+	 * Compare the page now against a baseline of it, or record
+	 * one when there is none.
+	 *
+	 * A missing baseline is not a failure. The first run of any
+	 * comparison has nothing to compare against, and refusing
+	 * would make the tool need a setup step it can perform itself.
+	 *
+	 * The elements are read after the shot rather than before, so
+	 * a region is attributed against the layout that was actually
+	 * photographed.
+	 */
+	async compareToBaseline(
+		label: string,
+		options: { readonly update?: boolean; readonly threshold?: number } = {},
+	): Promise<{
+		readonly comparison: Comparison | undefined;
+		readonly recorded?: string;
+		readonly artifacts: readonly string[];
+	}> {
+		await this.ready();
+		const safe = label.replace(/[^a-zA-Z0-9._-]+/g, "-");
+		const baselinePath = path.join(this.baselineDir(), `${safe}.png`);
+
+		const shot = Buffer.from(
+			String(await this.page.screenshot({ type: "png", encoding: "base64" })),
+			"base64",
+		);
+
+		if (options.update || !existsSync(baselinePath)) {
+			mkdirSync(path.dirname(baselinePath), {
+				recursive: true,
+				mode: DIR_MODE,
+			});
+			writeFileSync(baselinePath, shot, { mode: FILE_MODE });
+			this.written.push(baselinePath);
+			return { comparison: undefined, recorded: baselinePath, artifacts: [] };
+		}
+
+		const { nodes } = await this.layout();
+		const placed = nodes.map((node) => ({
+			selector: node.selector,
+			rect: node.rect,
+		}));
+
+		const { comparison, image } = compareImages(
+			readPng(readFileSync(baselinePath)),
+			readPng(shot),
+			placed,
+			{
+				...(options.threshold === undefined
+					? {}
+					: { threshold: options.threshold }),
+				scale: this.emulation.viewport?.deviceScaleFactor ?? 1,
+			},
+		);
+
+		if (image === undefined) return { comparison, artifacts: [] };
+
+		// The three together, because a diff on its own shows where
+		// something changed and never what it changed from.
+		if (!this.bundle) this.bundle = diskSink();
+		const sink = this.bundle;
+		const stamp = String(++this.shots).padStart(2, "0");
+		const artifacts = [
+			sink.writeBinary(
+				`${safe}-${stamp}-baseline.png`,
+				readFileSync(baselinePath).toString("base64"),
+			),
+			sink.writeBinary(`${safe}-${stamp}-current.png`, shot.toString("base64")),
+			sink.writeBinary(`${safe}-${stamp}-diff.png`, image.toString("base64")),
+		];
+		this.written.push(...artifacts);
+		return { comparison, artifacts };
+	}
+
+	/**
+	 * Where this session's baselines live.
+	 *
+	 * Beside the bundle rather than inside it: a bundle is swept
+	 * away with the session, and a baseline that vanished between
+	 * runs would compare against nothing every time.
+	 */
+	private baselineDir(): string {
+		return path.join(BUNDLE_ROOT, "baselines", this.name);
 	}
 
 	/** Carry out an action against an element judged ready. */
