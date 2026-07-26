@@ -202,16 +202,42 @@ describe.skipIf(!haveChrome)("emulating a device, in a real browser", () => {
 			try {
 				await fresh.emulate({ device: "iPhone 15 Pro" });
 				await fresh.navigate(redirectOrigin);
-				const answer = await fresh.evaluate("navigator.maxTouchPoints > 0");
-				const pageHasTouch = answer.ok ? answer.result.value === true : true;
+				// What the page says, in full, because a failure here has to
+				// arrive with its evidence. This flaked once inside the whole
+				// suite and could not be reproduced in seven later runs,
+				// three of them the full suite and four under eight CPU
+				// hogs, so the next occurrence is the only chance to learn
+				// anything and it must not be a bare boolean.
+				const answer = await fresh.evaluate(
+					"({ touchPoints: navigator.maxTouchPoints, " +
+						"width: window.innerWidth, ua: navigator.userAgent })",
+				);
+				const seen = answer.ok ? answer.result.value : undefined;
 				const { emulation, gaps } = await fresh.status();
 				// The page is a phone, and the report agrees with it.
 				const claimsTouch = emulation.device !== undefined;
 				const admits = (gaps ?? []).some((gap) => gap.what === "touch");
-				if (!pageHasTouch) {
-					disagreements.push({ attempt, lost: true, gaps });
+				if (!answer.ok) {
+					// A probe that did not run is not a page that passed. It
+					// used to be read as touch being present, which would let a
+					// real loss through on any run where the evaluate failed.
+					disagreements.push({ attempt, probeFailed: answer, gaps });
+				} else if (
+					!(
+						typeof seen === "object" &&
+						seen !== null &&
+						(seen as { touchPoints?: number }).touchPoints !== undefined &&
+						((seen as { touchPoints: number }).touchPoints ?? 0) > 0
+					)
+				) {
+					disagreements.push({ attempt, lost: true, seen, emulation, gaps });
 				} else if (claimsTouch && admits) {
-					disagreements.push({ attempt, claimedAndDenied: true, gaps });
+					disagreements.push({
+						attempt,
+						claimedAndDenied: true,
+						seen,
+						gaps,
+					});
 				}
 			} finally {
 				await fresh.close();
