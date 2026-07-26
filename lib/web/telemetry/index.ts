@@ -28,6 +28,14 @@ export {
 	renderArg,
 } from "./console.js";
 export {
+	type Har,
+	type HarEntry,
+	type HarOptions,
+	type HarPair,
+	type HarTimings,
+	toHar,
+} from "./har.js";
+export {
 	createNetworkRecorder,
 	type LoadingFailed,
 	type LoadingFinished,

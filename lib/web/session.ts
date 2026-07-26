@@ -97,6 +97,7 @@ import {
 	type NetworkRequest,
 	type Recorded,
 	type RingBuffer,
+	toHar,
 } from "./telemetry/index.js";
 
 /** How a page should be laid out for reading. */
@@ -279,6 +280,9 @@ export class BrowserSession {
 	/** How many pictures have been taken, so none overwrites another. */
 	private shots = 0;
 
+	/** How many archives have been written, for the same reason. */
+	private archives = 0;
+
 	/**
 	 * Announcements still being ruled on. Candidates resolve one
 	 * at a time along this chain, so a slow lookup cannot overtake
@@ -377,6 +381,28 @@ export class BrowserSession {
 	/** Every request the page has made. */
 	requests(): readonly NetworkRequest[] {
 		return this.requestLog.all();
+	}
+
+	/**
+	 * Write a capture out as an HTTP Archive.
+	 *
+	 * Bodies are fetched for the requests being exported, since an
+	 * archive without them answers far fewer questions than one
+	 * with them, and an export is already an explicit ask.
+	 */
+	async exportHar(requests: readonly NetworkRequest[]): Promise<string> {
+		const bodies = new Map<string, { body: string; base64Encoded: boolean }>();
+		for (const request of requests) {
+			const fetched = await this.bodyOf(request.id);
+			if (fetched && fetched.body.length > 0) bodies.set(request.id, fetched);
+		}
+
+		if (!this.bundle) this.bundle = diskSink();
+		this.archives += 1;
+		return this.bundle.writeText(
+			`capture-${String(this.archives).padStart(2, "0")}.har`,
+			JSON.stringify(toHar(requests, { bodies }), null, 2),
+		);
 	}
 
 	/**

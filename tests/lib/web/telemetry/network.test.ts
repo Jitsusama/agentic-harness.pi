@@ -213,6 +213,19 @@ describe("createNetworkRecorder", () => {
 		expect(log.all()).toEqual([]);
 	});
 
+	it("keeps the wall clock apart from the monotonic one", () => {
+		const log = createNetworkRecorder();
+		log.apply({
+			kind: "sent",
+			event: sent({ timestamp: 579968.68, wallTime: 1785025978.64 }),
+		});
+		const [record] = log.all();
+		// The monotonic clock measures spans and means nothing as a
+		// date; the wall clock is the only one that can say when.
+		expect(record?.startedAt).toBe(579968.68);
+		expect(record?.wallTimeSeconds).toBe(1785025978.64);
+	});
+
 	it("keeps requests in the order they were sent", () => {
 		const log = createNetworkRecorder();
 		log.apply({ kind: "sent", event: sent({ requestId: "A" }) });

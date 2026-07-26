@@ -278,6 +278,13 @@ const parameters = Type.Object({
 			description: "Keep this many levels of the outline. Omit for all of it.",
 		}),
 	),
+	har: Type.Optional(
+		Type.Boolean({
+			description:
+				"For requests: also write the listing to disk as an HTTP " +
+				"Archive, which any network tool can open.",
+		}),
+	),
 	filter: Type.Optional(
 		Type.String({
 			description:
@@ -364,6 +371,16 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 					? all.filter((request) => matchesFilter(request, filter))
 					: all;
 				const listing = renderRequests(wanted);
+				if (params.har) {
+					const path = await session.exportHar(wanted);
+					return answer(
+						name,
+						kind,
+						`${listing}\n\nWrote ${wanted.length} of these to an ` +
+							`HTTP Archive, bodies included where Chrome still had ` +
+							`them:\n  ${path}`,
+					);
+				}
 				if (!params.body) return answer(name, kind, listing);
 
 				const target = pick(wanted, params.body);

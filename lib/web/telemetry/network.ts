@@ -54,7 +54,14 @@ export interface NetworkRequest {
 	readonly url: string;
 	readonly method: string;
 	readonly resourceType: string;
+	/** The protocol's monotonic clock, good for measuring spans. */
 	readonly startedAt: number;
+	/**
+	 * Wall clock seconds since the epoch, good for saying when.
+	 * Kept apart from startedAt because the monotonic clock has no
+	 * relationship to any calendar.
+	 */
+	readonly wallTimeSeconds?: number;
 	readonly state: RequestState;
 	readonly requestHeaders: Readonly<Record<string, string>>;
 	readonly redirects: readonly RedirectHop[];
@@ -210,6 +217,9 @@ function applySent(
 		method: event.request.method,
 		resourceType: event.type ?? "Other",
 		startedAt: previous?.startedAt ?? event.timestamp,
+		...((previous?.wallTimeSeconds ?? event.wallTime) === undefined
+			? {}
+			: { wallTimeSeconds: previous?.wallTimeSeconds ?? event.wallTime }),
 		state: "pending",
 		requestHeaders: event.request.headers,
 		redirects,
