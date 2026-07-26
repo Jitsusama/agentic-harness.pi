@@ -423,3 +423,144 @@ describe("analyseVisual", () => {
 		).toEqual([]);
 	});
 });
+
+describe("a deliberate idiom is not a defect", () => {
+	// Read off a live capture of a card grid: a title truncated
+	// with an ellipsis, a description clamped to two lines, and
+	// two images fitted with cover. Every one of these fired
+	// before, which is most of the real web.
+	const ellipsis = el({
+		id: "title",
+		scrollWidth: 420,
+		clientWidth: 182,
+		overflowX: "hidden",
+		textOverflow: "ellipsis",
+		lineClamp: "none",
+		text: "A very long product title",
+	});
+	const clamped = el({
+		id: "clamp",
+		scrollHeight: 96,
+		clientHeight: 48,
+		overflowY: "hidden",
+		textOverflow: "clip",
+		lineClamp: "2",
+		text: "Two lines of description",
+	});
+
+	it("does not call an ellipsis lost content", () => {
+		expect(clippedContent([ellipsis])).toEqual([]);
+	});
+
+	it("does not call a line clamp lost content", () => {
+		expect(clippedContent([clamped])).toEqual([]);
+	});
+
+	it("still reports content clipped with no such promise", () => {
+		const amputated = el({
+			id: "cut",
+			scrollWidth: 420,
+			clientWidth: 182,
+			overflowX: "hidden",
+			textOverflow: "clip",
+			lineClamp: "none",
+			text: "Content nobody can reach",
+		});
+
+		expect(clippedContent([amputated])).toHaveLength(1);
+	});
+
+	it("does not call an object-fit cover image squashed", () => {
+		// 300 by 120 drawn from a 64 by 64 source: a large shape
+		// difference, and not one pixel of it is distorted.
+		const hero = el({
+			id: "hero",
+			tag: "img",
+			rect: { x: 0, y: 0, width: 300, height: 120 },
+			naturalWidth: 64,
+			naturalHeight: 64,
+			objectFit: "cover",
+		});
+
+		expect(distortedImages([hero])).toEqual([]);
+	});
+
+	it("still reports an image that really is stretched", () => {
+		const squashed = el({
+			id: "squashed",
+			tag: "img",
+			rect: { x: 0, y: 0, width: 300, height: 120 },
+			naturalWidth: 64,
+			naturalHeight: 64,
+			objectFit: "fill",
+		});
+
+		expect(distortedImages([squashed])).toHaveLength(1);
+	});
+});
+
+describe("an accusation is only made when it is true", () => {
+	const narrow: PageBox = {
+		width: 800,
+		height: 600,
+		documentWidth: 800,
+		documentHeight: 600,
+	};
+
+	it("does not say an element widened a page that did not widen", () => {
+		// An off-canvas drawer inside a clipping ancestor lives past
+		// the viewport by design. The sibling rule measured this
+		// document as exactly viewport-wide, so accusing the drawer
+		// of dragging it wider made the two rules contradict each
+		// other inside one report.
+		const drawer = el({
+			id: "drawer",
+			rect: { x: 900, y: 0, width: 280, height: 600 },
+		});
+
+		expect(escapedElements([drawer], narrow)).toEqual([]);
+	});
+
+	it("still reports it when the page really is wider", () => {
+		const escaped = el({
+			id: "escaped",
+			rect: { x: 900, y: 0, width: 280, height: 600 },
+		});
+
+		expect(escapedElements([escaped], VIEWPORT)).toHaveLength(1);
+	});
+});
+
+describe("a criterion is cited only when it was measured", () => {
+	it("does not cite reflow from a desktop capture", () => {
+		// 1.4.10 is specified at 320 CSS pixels. Horizontal scroll
+		// at 1280 is a real problem and not that one.
+		const wide: PageBox = {
+			width: 1280,
+			height: 800,
+			documentWidth: 3064,
+			documentHeight: 800,
+		};
+
+		expect(horizontalOverflow([], wide)[0]?.criteria).toEqual([]);
+	});
+
+	it("cites reflow from a phone-width capture", () => {
+		const phone: PageBox = {
+			width: 375,
+			height: 812,
+			documentWidth: 900,
+			documentHeight: 812,
+		};
+
+		expect(horizontalOverflow([], phone)[0]?.criteria).toEqual(["1.4.10"]);
+	});
+
+	it("files a presentational judgment as needing a person", () => {
+		// The rule's own help text calls itself a judgment rather
+		// than a WCAG threshold, and it still failed the check.
+		const small = el({ id: "small", fontSizePx: 9, text: "the small print" });
+
+		expect(tinyText([small])[0]?.kind).toBe("needs-review");
+	});
+});

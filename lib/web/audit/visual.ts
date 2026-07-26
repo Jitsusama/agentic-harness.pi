@@ -14,7 +14,17 @@
  * an opinion; whether an image failed to load is not.
  */
 
-import type { A11yFinding, FindingNode, Impact } from "./axe.js";
+import type { A11yFinding, FindingKind, FindingNode, Impact } from "./axe.js";
+
+/**
+ * The viewport WCAG 1.4.10 Reflow is specified at.
+ *
+ * The criterion asks that content reflow at 320 CSS pixels, so a
+ * capture wider than this has not tested it and must not cite
+ * it. A little headroom above 320 keeps a 375px phone capture,
+ * the usual narrow case, inside the claim.
+ */
+export const REFLOW_WIDTH = 400;
 
 /** One element as the layout rules need to see it. */
 export interface VisualNode {
@@ -37,6 +47,12 @@ export interface VisualNode {
 	readonly overflowY: string;
 	readonly fontSizePx: number;
 	readonly clipPath: string;
+	/** "ellipsis" when text is deliberately truncated with one. */
+	readonly textOverflow?: string;
+	/** A line count when the text is deliberately clamped. */
+	readonly lineClamp?: string;
+	/** How an image fills its box: cover and contain crop, they do not squash. */
+	readonly objectFit?: string;
 	/** An image's own dimensions, zero when it failed to load. */
 	readonly naturalWidth?: number;
 	readonly naturalHeight?: number;
@@ -74,18 +90,33 @@ export const HIDDEN_BOX_PX = 4;
 /** Slack for sub-pixel layout, so rounding is not a finding. */
 const SUBPIXEL = 1;
 
+/**
+ * Assemble one finding.
+ *
+ * `kind` matters as much as `impact`. A rule that measures a
+ * failure files a violation; a rule that reports a judgment
+ * files needs-review, which counts as a warning rather than a
+ * failure. Everything here used to be a violation, so a rule
+ * whose own help text called itself a judgment and not a WCAG
+ * threshold still failed the check on a single 9px disclaimer.
+ *
+ * A criterion is only ever cited when this module measured the
+ * thing the criterion is about. Asserting one an auditor can
+ * disprove costs more credibility than staying quiet.
+ */
 function make(
 	rule: string,
 	impact: Impact,
 	help: string,
 	nodes: readonly FindingNode[],
 	criteria: readonly string[] = [],
+	kind: FindingKind = "violation",
 ): A11yFinding[] {
 	if (nodes.length === 0) return [];
 	return [
 		{
 			rule,
-			kind: "violation",
+			kind,
 			impact,
 			authority: criteria.length > 0 ? "wcag" : "best-practice",
 			criteria,
@@ -98,6 +129,25 @@ function make(
 
 function at(node: VisualNode, message: string): FindingNode {
 	return { selector: node.selector, html: "", messages: [message] };
+}
+
+/**
+ * Whether the author asked for this text to be cut short.
+ *
+ * An ellipsis and a line clamp are promises, not accidents: they
+ * say there is more and the author knows. Their computed
+ * signature (content wider or taller than the box, overflow
+ * hidden) is indistinguishable from a real amputation, so this
+ * is the exception that decides whether the clipping rule is
+ * usable or noise.
+ *
+ * Presentational recognition, like isVisuallyHidden below: the
+ * browser has no notion of a deliberate idiom.
+ */
+function isDeliberatelyTruncated(node: VisualNode): boolean {
+	if (node.textOverflow === "ellipsis") return true;
+	const clamp = node.lineClamp;
+	return clamp !== undefined && clamp !== "none" && clamp !== "";
 }
 
 /**
@@ -159,7 +209,11 @@ export function horizontalOverflow(
 						messages: ["Nothing single element accounts for the width."],
 					},
 				],
-		["1.4.10"],
+		// 1.4.10 Reflow is specified at a 320 CSS pixel viewport.
+		// Citing it from a 1280px capture asserts a criterion that
+		// was not tested; horizontal scrolling at a desktop width is
+		// a real problem, just not that one.
+		viewport.width <= REFLOW_WIDTH ? ["1.4.10"] : [],
 	);
 }
 
@@ -177,6 +231,14 @@ export function clippedContent(
 	const found = nodes
 		.filter((node) => !isVisuallyHidden(node))
 		.filter((node) => node.text)
+		// Truncation that the author asked for is not lost content:
+		// an ellipsis and a line clamp both say "there is more, and I
+		// know". Their computed signature is identical to a real
+		// amputation, so without excepting them this rule fires on
+		// nearly every table cell, card title and breadcrumb on the
+		// real web, at serious severity with a WCAG citation. A rule
+		// that is red on every page gates nothing.
+		.filter((node) => !isDeliberatelyTruncated(node))
 		.filter((node) => {
 			const cutX =
 				node.scrollWidth > node.clientWidth + SUBPIXEL &&
@@ -202,7 +264,10 @@ export function clippedContent(
 		"Content is cut off by a box with overflow hidden. Nothing " +
 			"scrolls it into view, so the remainder is simply lost.",
 		found,
-		["1.4.4"],
+		// Not 1.4.4, which is about text resized to 200 percent and
+		// is a thing this rule never does. The clipping is real and
+		// worth reporting on its own terms.
+		[],
 	);
 }
 
@@ -217,7 +282,18 @@ export function escapedElements(
 	nodes: readonly VisualNode[],
 	viewport: PageBox,
 ): readonly A11yFinding[] {
+	// Say it only when it is true. This rule asserts that an
+	// element drags the page wider, and had no gate on whether the
+	// page actually got wider, while the sibling rule above opens
+	// with exactly that check. So a clipped carousel or an
+	// off-canvas drawer, both of which live beyond the viewport by
+	// design inside a clipping ancestor, were accused of widening
+	// a document this module had already measured as viewport-wide.
+	// The two rules contradicted each other inside one report.
+	if (viewport.documentWidth <= viewport.width + SUBPIXEL) return [];
+
 	const found = nodes
+		.filter((node) => !isVisuallyHidden(node))
 		.filter((node) => node.rect.width > 0 && node.rect.height > 0)
 		.filter((node) => node.rect.x > viewport.width)
 		.map((node) =>
@@ -272,6 +348,18 @@ export function distortedImages(
 ): readonly A11yFinding[] {
 	const found = nodes
 		.filter((node) => node.tag === "img")
+		// cover and contain crop or letterbox; they never distort a
+		// pixel, so comparing drawn shape to source shape says
+		// nothing about them. Without this the standard idiom for
+		// every hero, avatar and thumbnail on the web reports as
+		// squashed, at every width of a sweep. Only fill and
+		// scale-down can actually change the shape.
+		.filter(
+			(node) =>
+				node.objectFit === undefined ||
+				node.objectFit === "fill" ||
+				node.objectFit === "scale-down",
+		)
 		.filter(
 			(node) =>
 				(node.naturalWidth ?? 0) > 0 &&
@@ -325,6 +413,10 @@ export function tinyText(nodes: readonly VisualNode[]): readonly A11yFinding[] {
 			"than a WCAG threshold, which asks instead that the page survive " +
 			"being zoomed.",
 		found,
+		[],
+		// Says of itself that it is an opinion, so it asks for a
+		// person rather than declaring the page broken.
+		"needs-review",
 	);
 }
 

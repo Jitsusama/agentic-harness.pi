@@ -77,6 +77,14 @@ export function visualCaptureSource(): string {
 			overflowY: style.overflowY,
 			fontSizePx: Number.parseFloat(style.fontSize) || 0,
 			clipPath: style.clipPath,
+			// The three properties that separate a deliberate idiom
+			// from a defect. Without them the clipping rule cannot
+			// tell an ellipsis from an amputation, and the image rule
+			// cannot tell a cover crop from a squash, so both fire on
+			// most of the real web.
+			textOverflow: style.textOverflow,
+			lineClamp: style.webkitLineClamp || style.lineClamp || "none",
+			objectFit: style.objectFit,
 		};
 		const text = ownText(el);
 		if (text) node.text = text;
