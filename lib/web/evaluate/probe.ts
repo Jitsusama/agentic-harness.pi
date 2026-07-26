@@ -29,19 +29,58 @@ export const SERIALIZE_BREADTH = 30;
 export const SERIALIZE_STRING = 2048;
 
 /**
+ * Whether a source text is a single JavaScript expression.
+ *
+ * Decided here rather than in the page. The page could answer it
+ * with new Function, but that is exactly what a strict
+ * Content-Security-Policy forbids, and an inspection tool must
+ * not fail on the pages most worth inspecting. The grammar is
+ * the same in both runtimes, and compiling is not running: this
+ * never executes the caller's code, so a reference to a page
+ * global that does not exist here is irrelevant.
+ */
+function isExpression(source: string): boolean {
+	try {
+		new Function(`return (${source});`);
+		return true;
+	} catch {
+		// A syntax error means it is not one expression. Whether it is
+		// valid at all is the page's business to report, not ours.
+		return false;
+	}
+}
+
+/**
+ * How the caller's code is turned into one value.
+ *
+ * An expression is parenthesized so an object literal reads as a
+ * value rather than a block, which is the syntax people trip
+ * over constantly. Anything else is run as a statement list, the
+ * way a console accepts one, because `scrollTo(0, 400); check()`
+ * is a thing people type and it used to come back as
+ * "SyntaxError: Unexpected token ';'", which reads as the
+ * caller's mistake rather than ours. A statement list answers
+ * with whatever it returns.
+ */
+function producer(expression: string): string {
+	return isExpression(expression)
+		? `(${expression})`
+		: `(() => { ${expression} })()`;
+}
+
+/**
  * Build the expression that evaluates a caller's code and
  * describes whatever comes back.
- *
- * The caller's expression is wrapped in parentheses so that an
- * object literal reads as a value rather than a block, which is
- * the one piece of syntax people trip over constantly.
  */
 export function evaluationSource(expression: string): string {
 	return `(() => {
 	const DEPTH = ${SERIALIZE_DEPTH};
 	const BREADTH = ${SERIALIZE_BREADTH};
 	const STRING = ${SERIALIZE_STRING};
-	const seen = new WeakSet();
+	// The chain of ancestors currently being walked, not every
+	// object ever seen: a value reachable by two paths is shared,
+	// and only a value that contains itself is circular.
+	const path = new Set();
 	let clipped = false;
 
 	const describeNode = (node) => {
@@ -58,7 +97,14 @@ export function evaluationSource(expression: string): string {
 		if (value === null) return null;
 		const kind = typeof value;
 		if (kind === "undefined") return "[undefined]";
-		if (kind === "boolean" || kind === "number") return value;
+		if (kind === "boolean") return value;
+		// JSON has no NaN and no Infinity, so passing them straight
+		// through turned three of the answers a console most often
+		// gives into "number: null", which is a wrong answer wearing a
+		// right one's clothes. bigint below is tagged for this reason.
+		if (kind === "number") {
+			return Number.isFinite(value) ? value : String(value);
+		}
 		if (kind === "bigint") return String(value) + "n";
 		if (kind === "symbol") return String(value);
 		if (kind === "string") {
@@ -82,9 +128,22 @@ export function evaluationSource(expression: string): string {
 
 		// Circularity is checked before descending, so a structure
 		// that points at itself is named rather than followed.
-		if (seen.has(value)) return "[circular]";
-		seen.add(value);
+		//
+		// Only an ancestor counts. This used to be every object ever
+		// visited, never unwound, so an object holding the same store
+		// under two keys reported the second as circular when nothing
+		// pointed at itself. The unwind is in the finally below so no
+		// branch can forget it.
+		if (path.has(value)) return "[circular]";
+		path.add(value);
+		try {
+			return descend(value, depth);
+		} finally {
+			path.delete(value);
+		}
+	};
 
+	const descend = (value, depth) => {
 		if (depth >= DEPTH) {
 			clipped = true;
 			return Array.isArray(value) ? "[array, deeper]" : "[object, deeper]";
@@ -136,7 +195,7 @@ export function evaluationSource(expression: string): string {
 		return typeof value;
 	};
 
-	const value = (${expression});
+	const value = ${producer(expression)};
 	return Promise.resolve(value).then((settled) => ({
 		type: typeOf(settled),
 		value: walk(settled, 0),
