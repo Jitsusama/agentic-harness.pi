@@ -34,6 +34,7 @@ export {
 export {
 	composite,
 	contrastRatio,
+	deltaE,
 	formatRgb,
 	isOpaque,
 	isTransparent,

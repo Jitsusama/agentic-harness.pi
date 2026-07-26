@@ -13,7 +13,7 @@
  * judgment is a person's.
  */
 
-import { contrastRatio, type Rgba } from "../audit/colour.js";
+import { deltaE, type Rgba } from "../audit/colour.js";
 import { renderVerdict } from "../audit/verdict.js";
 
 /** One value found on the page, and how often. */
@@ -52,14 +52,28 @@ export interface StyleSample {
 const MAX_EXAMPLES = 3;
 
 /**
- * Colours closer than this are treated as one intent.
+ * Colours closer than this delta E are treated as one intent.
  *
- * Expressed as a contrast ratio against each other rather than a
- * channel distance, because channel distance does not match what
- * anybody can see: eight steps of blue is invisible where eight
- * steps of green is not.
+ * Delta E rather than contrast ratio. Contrast compares relative
+ * luminance only and is blind to hue, so it called pure red and
+ * a mid grey the same colour: their ratio is about 1.001, well
+ * inside any sameness threshold. That is the right measure for
+ * whether text can be read and the wrong one for whether two
+ * values were meant to be one.
+ *
+ * Around 2 is a just-noticeable difference, so 5 catches the
+ * pairs a person would have to look twice at while leaving a
+ * deliberate step in a palette alone.
  */
-export const COLOUR_SAMENESS = 1.05;
+export const COLOUR_SAMENESS = 5;
+
+/**
+ * How close two opacities must be to belong to one intent.
+ *
+ * A solid colour and a half-transparent one are a deliberate
+ * pair, and delta E does not see alpha at all.
+ */
+export const ALPHA_SAMENESS = 0.05;
 
 /**
  * How close two lengths must be to read as one intent.
@@ -158,26 +172,44 @@ export const coloursAreNear: Nearness = (one, other) => {
 	if (!a || !b) return false;
 	// Fully transparent is its own thing, not a near-black.
 	if (a.a === 0 || b.a === 0) return a.a === b.a;
-	return contrastRatio(a, b) < COLOUR_SAMENESS;
+	// Two colours at the same opacity, or near enough. A solid and
+	// a half-transparent version of one colour are a deliberate
+	// pair, not a drift.
+	if (Math.abs((a.a ?? 1) - (b.a ?? 1)) > ALPHA_SAMENESS) return false;
+	return deltaE(a, b) < COLOUR_SAMENESS;
 };
 
-/** Read the first number out of a length or a shadow. */
-function firstLength(css: string): number | undefined {
-	const found = /(-?[\d.]+)px/.exec(css);
-	return found?.[1] === undefined ? undefined : Number(found[1]);
+/** Every pixel length in a value, in order. */
+function lengths(css: string): readonly number[] {
+	return [...css.matchAll(/(-?[\d.]+)px/g)].map((found) => Number(found[1]));
 }
 
-/** Two lengths close enough to have been meant as one. */
-export const lengthsAreNear: Nearness = (one, other) => {
-	const a = firstLength(one);
-	const b = firstLength(other);
-	if (a === undefined || b === undefined) return false;
+/** Two single lengths close enough to have been meant as one. */
+function oneLengthIsNear(a: number, b: number): boolean {
 	if (a === b) return true;
 	// Zero has no neighbours: nothing is nearly nothing.
 	if (a === 0 || b === 0) return false;
 	const apart = Math.abs(a - b);
 	if (apart <= LENGTH_TOLERANCE_PX) return true;
 	return apart / Math.max(Math.abs(a), Math.abs(b)) < LENGTH_SAMENESS;
+}
+
+/**
+ * Two lengths close enough to have been meant as one.
+ *
+ * Every number is compared, not just the first. A value like a
+ * box shadow or a four-sided padding carries several, and
+ * reading only the first made every shadow whose x offset is
+ * 0px cluster with every other, which is all of them, while
+ * `8px 16px` and `8px 4px` read as the same value.
+ */
+export const lengthsAreNear: Nearness = (one, other) => {
+	const a = lengths(one);
+	const b = lengths(other);
+	if (a.length === 0 || b.length === 0) return false;
+	// A different number of parts is a different kind of value.
+	if (a.length !== b.length) return false;
+	return a.every((value, at) => oneLengthIsNear(value, b[at] ?? Number.NaN));
 };
 
 /** Values are the same or they are not. */

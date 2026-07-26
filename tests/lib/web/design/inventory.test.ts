@@ -250,3 +250,45 @@ describe("renderInventory", () => {
 		expect(out).toContain("and 32 more");
 	});
 });
+
+describe("nearness is about how two values look", () => {
+	it("does not call pure red and a mid grey one colour", () => {
+		// Contrast compares relative luminance and nothing else, so
+		// it rates this pair at about 1.001 and any sameness
+		// threshold accepted it. Delta E puts them 104 apart.
+		expect(coloursAreNear("rgb(255, 0, 0)", "rgb(127, 127, 127)")).toBe(false);
+	});
+
+	it("still clusters two greys a step apart", () => {
+		expect(coloursAreNear("rgb(102, 102, 102)", "rgb(104, 104, 104)")).toBe(
+			true,
+		);
+	});
+
+	it("leaves a deliberate palette step alone", () => {
+		// Two neighbouring blues from a real scale.
+		expect(coloursAreNear("rgb(59, 130, 246)", "rgb(37, 99, 235)")).toBe(false);
+	});
+
+	it("keeps a colour apart from its own translucent version", () => {
+		expect(coloursAreNear("rgba(0, 0, 0, 1)", "rgba(0, 0, 0, 0.5)")).toBe(
+			false,
+		);
+	});
+
+	it("compares every length in a value, not just the first", () => {
+		// Reading only the first number made every shadow whose x
+		// offset is 0px cluster with every other, which is all of
+		// them, and called two different paddings one value.
+		expect(lengthsAreNear("0px 1px 2px", "0px 2px 4px")).toBe(false);
+		expect(lengthsAreNear("8px 16px", "8px 4px")).toBe(false);
+	});
+
+	it("still clusters a shadow that drifted slightly", () => {
+		expect(lengthsAreNear("0px 1px 2px", "0px 1px 2.5px")).toBe(true);
+	});
+
+	it("does not cluster values with different numbers of parts", () => {
+		expect(lengthsAreNear("8px", "8px 8px")).toBe(false);
+	});
+});

@@ -145,3 +145,54 @@ export function formatRgb(colour: Rgba): string {
 				Math.round(colour.a * 1000) / 1000
 			})`;
 }
+
+/**
+ * How far apart two colours look, as CIE76 delta E.
+ *
+ * Contrast is not a measure of sameness. It compares relative
+ * luminance only, so it is blind to hue by construction: pure
+ * red and a mid grey differ by a contrast ratio of about 1.001,
+ * which any threshold for "these look the same" will accept.
+ * That is the right answer to "can text be read on this" and the
+ * wrong answer to "are these one colour".
+ *
+ * Delta E is the measure for the second question. Roughly, 1 is
+ * the smallest difference an eye can catch under ideal
+ * conditions, 2 to 3 is a just-noticeable difference in
+ * practice, and anything past about 10 reads as two colours.
+ *
+ * CIE76 rather than CIEDE2000: it is a plain Euclidean distance
+ * in Lab, it is close enough at the small distances this is used
+ * for, and it can be read and checked by anyone.
+ */
+export function deltaE(one: Rgba, other: Rgba): number {
+	const [l1, a1, b1] = toLab(one);
+	const [l2, a2, b2] = toLab(other);
+	return Math.sqrt((l1 - l2) ** 2 + (a1 - a2) ** 2 + (b1 - b2) ** 2);
+}
+
+/** D65, the white point sRGB is defined against. */
+const WHITE = { x: 0.95047, y: 1, z: 1.08883 } as const;
+
+/** The knee in the Lab transfer function. */
+const LAB_EPSILON = 216 / 24389;
+const LAB_KAPPA = 24389 / 27;
+
+/** sRGB to CIELAB, by way of XYZ. */
+function toLab(colour: Rgba): [number, number, number] {
+	const r = linearize(colour.r);
+	const g = linearize(colour.g);
+	const b = linearize(colour.b);
+
+	const x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / WHITE.x;
+	const y = (0.2126729 * r + 0.7151522 * g + 0.072175 * b) / WHITE.y;
+	const z = (0.0193339 * r + 0.119192 * g + 0.9503041 * b) / WHITE.z;
+
+	const f = (value: number): number =>
+		value > LAB_EPSILON ? Math.cbrt(value) : (LAB_KAPPA * value + 16) / 116;
+
+	const fx = f(x);
+	const fy = f(y);
+	const fz = f(z);
+	return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
