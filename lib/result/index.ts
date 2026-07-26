@@ -17,6 +17,15 @@
 export { type Citable, type Cited, cite } from "./cite.js";
 export { type JsonSummaryOptions, summarizeJson } from "./digest.js";
 export {
+	cleanupSessionResults,
+	ensureSessionResultDir,
+	isPidAlive,
+	RESULT_ROOT,
+	reapAbandonedResults,
+	SESSION_QUOTA_BYTES,
+	sessionResultDir,
+} from "./location.js";
+export {
 	DEFAULT_ANSWER_BYTES,
 	DEFAULT_MAX_MATCHES,
 	type QueryAnswer,
