@@ -15,6 +15,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerCheck } from "./check.js";
 import { registerDo } from "./do.js";
 import { registerGo } from "./go.js";
 import { createSessionRegistry } from "./registry.js";
@@ -30,4 +31,5 @@ export default function browserIntegration(pi: ExtensionAPI) {
 	registerGo(pi, registry);
 	registerSee(pi, registry);
 	registerDo(pi, registry);
+	registerCheck(pi, registry);
 }

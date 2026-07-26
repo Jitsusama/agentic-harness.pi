@@ -33,3 +33,17 @@ export {
 	type RawAxNode,
 	type RawAxProperty,
 } from "./tree.js";
+export {
+	analyseWalk,
+	type FocusStyle,
+	type Indicator,
+	indicatorOf,
+	renderWalk,
+	type Trap,
+	type Unreachable,
+	type WalkCandidate,
+	type WalkCapture,
+	type WalkFindings,
+	type WalkStop,
+} from "./walk.js";
+export { WALK_COLLECT, WALK_READ, WALK_RESTORE } from "./walkprobe.js";

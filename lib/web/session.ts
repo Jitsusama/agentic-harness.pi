@@ -41,6 +41,13 @@ import {
 	scopeTree,
 	subtreeAt,
 	type TreeScope,
+	type Unreachable,
+	WALK_COLLECT,
+	WALK_READ,
+	WALK_RESTORE,
+	type WalkCandidate,
+	type WalkCapture,
+	type WalkStop,
 } from "./a11y/index.js";
 import { newContextPage } from "./browser.js";
 import { injectCookies, isSetUp } from "./cookies/index.js";
@@ -101,6 +108,26 @@ import {
 	type WaitCondition,
 	type WaitOutcome,
 } from "./wait/index.js";
+
+/** Extra stops beyond two full passes, to show a cycle clearly. */
+const WALK_SLACK = 4;
+
+/** The hard ceiling on a walk, however large the page. */
+const MAX_WALK_STOPS = 400;
+
+/** How many trailing stops to inspect for being stuck. */
+const WALK_STUCK_SAMPLE = 4;
+
+/** What a stop outside the candidates has for a style. */
+const BLANK_STYLE = {
+	outlineStyle: "none",
+	outlineWidth: "0px",
+	outlineColor: "",
+	boxShadow: "none",
+	backgroundColor: "",
+	borderColor: "",
+	color: "",
+} as const;
 
 /** How long a wait runs before it gives up and says so. */
 const DEFAULT_WAIT_MS = 10_000;
@@ -1317,6 +1344,85 @@ export class BrowserSession {
 				await new Promise((resolve) => setTimeout(resolve, step.pauseMs));
 			}
 		}
+	}
+
+	/**
+	 * Walk the page with the Tab key and report what happened.
+	 *
+	 * This is one of the two reads that deliberately change the
+	 * page, since there is no way to learn where focus goes
+	 * without moving it. Focus is put back afterwards and the
+	 * result says so.
+	 *
+	 * The walk runs to twice the number of focusable things plus a
+	 * little, which is enough for a healthy page to come round
+	 * twice and for a trap to show its cycle. Stopping sooner
+	 * would report a trap as a short page.
+	 */
+	async keyboardWalk(maxStops?: number): Promise<WalkCapture> {
+		await this.ready();
+		const collected = await this.evaluateJson<{
+			candidates: WalkCandidate[];
+			unreachable: Unreachable[];
+		}>(WALK_COLLECT);
+
+		const cap = Math.min(
+			maxStops ?? collected.candidates.length * 2 + WALK_SLACK,
+			MAX_WALK_STOPS,
+		);
+
+		// Start from the top of the document so the first Tab lands
+		// where a reader arriving at the page would land, not
+		// wherever something happened to leave focus.
+		await this.page.evaluate(() => {
+			if (document.activeElement instanceof HTMLElement) {
+				document.activeElement.blur();
+			}
+		});
+
+		const stops: WalkStop[] = [];
+		for (let step = 0; step < cap; step += 1) {
+			await this.page.keyboard.press("Tab");
+			const stop = await this.evaluateJson<WalkStop & { focused: unknown }>(
+				WALK_READ,
+			);
+			if (stop.focused === null) {
+				stops.push({ ...stop, focused: BLANK_STYLE });
+				continue;
+			}
+			stops.push(stop as WalkStop);
+		}
+
+		// If the walk ended stuck on one element, find out whether a
+		// keyboard user has any way back. That is the difference
+		// between a modal and a dead end.
+		let escapeFreed: boolean | undefined;
+		const tail = stops.slice(-WALK_STUCK_SAMPLE).map((stop) => stop.index);
+		if (tail.length > 0 && new Set(tail).size < tail.length) {
+			const before = tail.at(-1);
+			await this.page.keyboard.press("Escape");
+			await this.page.keyboard.press("Tab");
+			const after = await this.evaluateJson<WalkStop>(WALK_READ);
+			escapeFreed = after.index !== before && !tail.includes(after.index);
+		}
+
+		await this.evaluateJson(WALK_RESTORE);
+
+		return {
+			candidates: collected.candidates,
+			stops,
+			unreachable: collected.unreachable,
+			...(escapeFreed === undefined ? {} : { escapeFreed }),
+		};
+	}
+
+	/** Run a page-side source string and read back its value. */
+	private async evaluateJson<T>(source: string): Promise<T> {
+		const { result } = await this.cdp.send("Runtime.evaluate", {
+			expression: source,
+			returnByValue: true,
+		});
+		return result.value as T;
 	}
 
 	/** Whether the page believes it is being touched. */
