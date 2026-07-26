@@ -164,6 +164,12 @@ const MS_PER_SECOND = 1000;
  */
 const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(_keyDefinitions));
 
+import {
+	describeThrow,
+	type EvalOutcome,
+	type EvalValue,
+	evaluationSource,
+} from "./evaluate/index.js";
 import { captureTiles } from "./screenshot.js";
 import {
 	flattenSnapshot,
@@ -1456,6 +1462,52 @@ export class BrowserSession {
 			includeDOMRects: true,
 		});
 		return flattenSnapshot(raw as unknown as RawSnapshot, styleProperties);
+	}
+
+	/**
+	 * Run an expression in the page and describe what came back.
+	 *
+	 * The value is serialized inside the page rather than by the
+	 * protocol, because the protocol does not decline politely: a
+	 * circular object rejects the whole call with "object
+	 * reference chain is too long", losing the evaluation and any
+	 * account of it together.
+	 *
+	 * The protocol can still fail for its own reasons, so that is
+	 * caught too and returned as a refusal rather than thrown. An
+	 * expression that kills the session is not a useful tool.
+	 */
+	async evaluate(expression: string): Promise<EvalOutcome> {
+		await this.ready();
+		try {
+			const response = await this.cdp.send("Runtime.evaluate", {
+				expression: evaluationSource(expression),
+				returnByValue: true,
+				awaitPromise: true,
+				userGesture: true,
+			});
+			if (response.exceptionDetails) {
+				return {
+					ok: false,
+					threw: describeThrow(response.exceptionDetails),
+				};
+			}
+			const value = response.result.value as EvalValue | undefined;
+			if (!value) {
+				return {
+					ok: false,
+					refused: "The page returned nothing the serializer could read.",
+				};
+			}
+			return { ok: true, result: value };
+		} catch (error) {
+			return {
+				ok: false,
+				refused:
+					`The browser refused to run that: ` +
+					`${error instanceof Error ? error.message : String(error)}`,
+			};
+		}
 	}
 
 	/** Run a page-side source string and read back its value. */

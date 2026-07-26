@@ -12,6 +12,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { renderEvaluation } from "../../lib/web/evaluate/index.js";
 import {
 	composeClick,
 	composeDrag,
@@ -41,6 +42,7 @@ const parameters = Type.Object({
 				Type.Literal("press"),
 				Type.Literal("input"),
 				Type.Literal("wait"),
+				Type.Literal("eval"),
 			],
 			{
 				description:
@@ -50,12 +52,22 @@ const parameters = Type.Object({
 					"focus is. input: raw pointer and touch gestures at " +
 					"coordinates, for what semantics cannot reach. wait: hold " +
 					"until the page reaches a state, saying what it saw if it " +
-					"never does.",
+					"never does. eval: run an expression in the page and " +
+					"describe what came back, exceptions included.",
 			},
 		),
 	),
 	session: Type.Optional(
 		Type.String({ description: "Session name. Defaults to 'default'." }),
+	),
+	expression: Type.Optional(
+		Type.String({
+			description:
+				"For eval: the JavaScript to run, as an expression rather " +
+				"than statements. A promise is awaited. DOM nodes, " +
+				"functions and circular structures are described rather " +
+				"than serialized.",
+		}),
 	),
 	for: Type.Optional(
 		Type.Union(
@@ -240,6 +252,19 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 					kind,
 					`No session '${name}'. Navigate somewhere with browser_go first.`,
 				);
+			}
+
+			if (kind === "eval") {
+				if (!params.expression) {
+					return refusal(
+						name,
+						kind,
+						"eval needs an expression, e.g. 'document.title'.",
+					);
+				}
+				const session = await registry.acquire(name);
+				const outcome = await session.evaluate(params.expression);
+				return answer(name, kind, renderEvaluation(outcome));
 			}
 
 			if (kind === "wait") {
