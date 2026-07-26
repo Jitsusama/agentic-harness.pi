@@ -12,8 +12,13 @@ import { Type } from "@sinclair/typebox";
 import { KnownDevices } from "puppeteer-core";
 import {
 	type EmulationState,
+	type NetworkRule,
 	renderEnvironment,
+	renderShaping,
 	renderStorage,
+	type ThrottleConditions,
+	throttleNames,
+	throttleProfile,
 } from "../../lib/web/environment/index.js";
 import {
 	type BrowserSession,
@@ -34,6 +39,7 @@ const parameters = Type.Object({
 				Type.Literal("dialogs"),
 				Type.Literal("emulate"),
 				Type.Literal("storage"),
+				Type.Literal("network"),
 			],
 			{
 				description:
@@ -45,6 +51,7 @@ const parameters = Type.Object({
 					"emulate: be a different visitor, by device, viewport, media " +
 					"preference, sight, locale or clock. " +
 					"storage: read, write or clear what the page has kept. " +
+					"network: mock, block, throttle or go offline. " +
 					"Defaults to navigate with a url, open without one.",
 			},
 		),
@@ -53,6 +60,37 @@ const parameters = Type.Object({
 		Type.String({ description: "Session name. Defaults to 'default'." }),
 	),
 	url: Type.Optional(Type.String({ description: "URL for open or navigate." })),
+	mock: Type.Optional(
+		Type.String({
+			description:
+				"For network: a url pattern to answer ourselves, e.g. " +
+				"'*/api/*'. Give status, body and contentType to say what " +
+				"it answers with.",
+		}),
+	),
+	block: Type.Optional(
+		Type.String({
+			description:
+				"For network: a url pattern to refuse, e.g. '*.png'. Use to " +
+				"see what a page does without an asset it expects.",
+		}),
+	),
+	status: Type.Optional(
+		Type.Number({ description: "For network mock: the status to answer." }),
+	),
+	body: Type.Optional(
+		Type.String({ description: "For network mock: the body to answer with." }),
+	),
+	contentType: Type.Optional(
+		Type.String({ description: "For network mock: what the body is." }),
+	),
+	throttle: Type.Optional(
+		Type.String({
+			description:
+				"For network: a speed to pretend. One of offline, slow-3g, " +
+				"slow-4g, fast-4g, none. The numbers are Chrome's own.",
+		}),
+	),
 	store: Type.Optional(
 		Type.Union(
 			[
@@ -285,6 +323,62 @@ function emulationFrom(params: {
 /** How many near-miss device names are worth offering. */
 const MAX_DEVICE_SUGGESTIONS = 5;
 
+/** Turn the tool's flat parameters into a shaping change. */
+function shapingFrom(params: {
+	mock?: string;
+	block?: string;
+	status?: number;
+	body?: string;
+	contentType?: string;
+	throttle?: string;
+	clear?: boolean;
+}):
+	| {
+			change: {
+				rules?: readonly NetworkRule[];
+				throttle?: ThrottleConditions;
+				clear?: boolean;
+			};
+	  }
+	| { error: string } {
+	if (params.clear) return { change: { clear: true } };
+
+	const rules: NetworkRule[] = [];
+	if (params.mock !== undefined) {
+		rules.push({
+			pattern: params.mock,
+			action: "mock",
+			...(params.status === undefined ? {} : { status: params.status }),
+			...(params.body === undefined ? {} : { body: params.body }),
+			...(params.contentType === undefined
+				? {}
+				: { contentType: params.contentType }),
+		});
+	}
+	if (params.block !== undefined) {
+		rules.push({ pattern: params.block, action: "block" });
+	}
+
+	let throttle: ThrottleConditions | undefined;
+	if (params.throttle !== undefined) {
+		throttle = throttleProfile(params.throttle);
+		if (!throttle) {
+			return {
+				error:
+					`No speed called '${params.throttle}'. Try one of ` +
+					`${throttleNames().join(", ")}.`,
+			};
+		}
+	}
+
+	return {
+		change: {
+			...(rules.length === 0 ? {} : { rules }),
+			...(throttle === undefined ? {} : { throttle }),
+		},
+	};
+}
+
 /**
  * Read, write or empty what the page has kept.
  *
@@ -383,6 +477,13 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 					return refusal(name, kind, err.message);
 				}
 				throw err;
+			}
+
+			if (kind === "network") {
+				const shaped = shapingFrom(params);
+				if ("error" in shaped) return refusal(name, kind, shaped.error);
+				const { rules, throttle } = await session.shape(shaped.change);
+				return answer(name, kind, renderShaping(rules, throttle));
 			}
 
 			if (kind === "storage") {

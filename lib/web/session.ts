@@ -18,6 +18,7 @@ import type {
 	CDPSession,
 	ElementHandle,
 	Page,
+	Protocol,
 } from "puppeteer-core";
 import {
 	ANNOUNCE_BINDING,
@@ -72,8 +73,11 @@ import {
 	ENVIRONMENT_PROBE,
 	mediaFeaturesOf,
 	mergeEmulation,
+	type NetworkRule,
 	type ObservedEnvironment,
+	ruleFor,
 	type StorageSnapshot,
+	type ThrottleConditions,
 } from "./environment/index.js";
 import { captureTiles } from "./screenshot.js";
 import {
@@ -313,6 +317,15 @@ export class BrowserSession {
 
 	/** What this session is pretending to be. */
 	private emulation: EmulationState = {};
+
+	/** Requests being mocked or blocked, first match winning. */
+	private rules: readonly NetworkRule[] = [];
+
+	/** How slow the network is being made, if at all. */
+	private throttle?: ThrottleConditions;
+
+	/** Whether the interceptor is currently attached. */
+	private intercepting = false;
 
 	/** How dialogs get answered while nobody is watching. */
 	private dialogPolicy: DialogPolicy = DEFAULT_DIALOG_POLICY;
@@ -990,6 +1003,111 @@ export class BrowserSession {
 	/** The origin the current page's stores are keyed by. */
 	private async origin(): Promise<string> {
 		return new URL(this.page.url()).origin;
+	}
+
+	/**
+	 * Bend the network: mock a reply, block a request, slow it all
+	 * down, or stop pretending.
+	 *
+	 * Interception is only attached while there is a rule to
+	 * apply. Every paused request has to be answered or the page
+	 * waits on it forever, so an interceptor with nothing to say
+	 * is a liability rather than a neutral bystander.
+	 */
+	async shape(change: {
+		rules?: readonly NetworkRule[];
+		throttle?: ThrottleConditions;
+		clear?: boolean;
+	}): Promise<{
+		rules: readonly NetworkRule[];
+		throttle: ThrottleConditions | undefined;
+	}> {
+		await this.ready();
+
+		if (change.clear) {
+			this.rules = [];
+			this.throttle = undefined;
+		} else {
+			if (change.rules) this.rules = [...this.rules, ...change.rules];
+			if (change.throttle) this.throttle = change.throttle;
+		}
+
+		await this.cdp.send("Network.emulateNetworkConditions", {
+			offline: this.throttle?.offline ?? false,
+			latency: this.throttle?.latency ?? 0,
+			// The protocol reads -1 as no limit, which is not the same
+			// as zero, and zero would mean nothing may pass at all.
+			downloadThroughput: this.throttle?.download || -1,
+			uploadThroughput: this.throttle?.upload || -1,
+		});
+
+		if (this.rules.length === 0) {
+			if (this.intercepting) {
+				await this.cdp.send("Fetch.disable");
+				this.intercepting = false;
+			}
+		} else if (!this.intercepting) {
+			this.cdp.on("Fetch.requestPaused", (event) => {
+				void this.answerPaused(event);
+			});
+			await this.cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
+			this.intercepting = true;
+		}
+
+		return { rules: this.rules, throttle: this.throttle };
+	}
+
+	/**
+	 * Decide what a paused request gets.
+	 *
+	 * Whatever happens, it is answered. A handler that throws and
+	 * says nothing leaves the page waiting forever on a request
+	 * the browser has already stopped for us.
+	 */
+	private async answerPaused(event: {
+		requestId: string;
+		request: { url: string };
+	}): Promise<void> {
+		const rule = ruleFor(this.rules, event.request.url);
+		try {
+			if (rule?.action === "block") {
+				await this.cdp.send("Fetch.failRequest", {
+					requestId: event.requestId,
+					errorReason: (rule.reason ??
+						"BlockedByClient") as Protocol.Network.ErrorReason,
+				});
+				return;
+			}
+			if (rule?.action === "mock") {
+				await this.cdp.send("Fetch.fulfillRequest", {
+					requestId: event.requestId,
+					responseCode: rule.status ?? 200,
+					responseHeaders: [
+						{
+							name: "content-type",
+							value: rule.contentType ?? "text/plain",
+						},
+					],
+					body: Buffer.from(rule.body ?? "").toString("base64"),
+				});
+				return;
+			}
+			await this.cdp.send("Fetch.continueRequest", {
+				requestId: event.requestId,
+			});
+		} catch {
+			// The request may already be resolved, or the page may have
+			// navigated out from under it. Either way there is nothing
+			// left to answer and nothing worth reporting.
+		}
+	}
+
+	/** How the network is currently being bent. */
+	get shaping(): {
+		rules: readonly NetworkRule[];
+		throttle: ThrottleConditions | undefined;
+	} {
+		return { rules: this.rules, throttle: this.throttle };
 	}
 
 	private async listenForAnnouncements(): Promise<void> {

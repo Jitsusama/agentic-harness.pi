@@ -18,6 +18,17 @@ export {
 } from "./emulation.js";
 export { ENVIRONMENT_PROBE } from "./probes.js";
 export {
+	matchesPattern,
+	type NetworkRule,
+	renderShaping,
+	ruleFor,
+	type ShapeAction,
+	THROTTLE_PROFILES,
+	type ThrottleConditions,
+	throttleNames,
+	throttleProfile,
+} from "./shaping.js";
+export {
 	type CookieRecord,
 	renderStorage,
 	type StorageSnapshot,
