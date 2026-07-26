@@ -449,8 +449,10 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			"sessions dismiss them by default; kind 'dialogs' changes that " +
 			"and reports the ones already raised.",
 		promptSnippet:
-			"Move a browser session with browser_go (navigate, open, " +
-			"close, dialogs).",
+			"browser_go puts a browser session somewhere and sets the " +
+			"conditions it runs under: navigate, open, close, reload, " +
+			"back, forward, emulate a device, shape the network, read " +
+			"storage, answer dialogs. Read the browser-guide skill.",
 		parameters,
 		renderCall: (args, theme) => renderBrowserCall("go", args, theme),
 		renderResult: (result, options, theme) =>

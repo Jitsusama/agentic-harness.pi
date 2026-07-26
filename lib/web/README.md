@@ -82,6 +82,79 @@ anything too large for an answer goes to disk with its path
 reported. A budget should shape how something is said, never
 what can be asked.
 
+## Using It From Another Package
+
+Three shapes, from the most coupled to the least.
+
+### A gate that fails a build
+
+Drive a real browser, then judge what it shows.
+
+```ts
+import { BrowserSession } from "./lib/web/index.js";
+import {
+	analyseStructure,
+	mergeFindings,
+	renderAudit,
+	SUPERSEDED_BY,
+	tallyFindings,
+} from "./lib/web/audit/index.js";
+
+const session = await BrowserSession.open("gate");
+await session.navigate("https://example.com/checkout");
+
+const findings = mergeFindings(
+	await session.audit(),
+	analyseStructure(await session.structure()),
+	SUPERSEDED_BY,
+);
+const tally = tallyFindings(findings);
+
+console.log(renderAudit(findings, tally));
+process.exitCode = tally.violations > 0 ? 1 : 0;
+```
+
+### A watcher that reports what moved
+
+The session writes the baseline on the first run and diffs
+against it after that.
+
+```ts
+const { comparison, artifacts } =
+	await session.compareToBaseline("checkout");
+if (comparison?.kind === "compared" && comparison.changedPixels > 0) {
+	for (const region of comparison.regions) {
+		console.log(`${region.selector ?? "somewhere"} changed`);
+	}
+	console.log(artifacts.join("\n"));
+}
+```
+
+### Analysis with no browser at all
+
+The point of the purity rule. Nothing below starts Chrome, and
+the capture can come from Playwright, raw CDP, or a file saved
+last week.
+
+```ts
+import { judgeText } from "./lib/web/audit/index.js";
+import { cumulativeShift } from "./lib/web/perf/index.js";
+import { takeInventory } from "./lib/web/design/index.js";
+
+// Check a design token before it ships.
+judgeText({
+	foreground: { r: 118, g: 118, b: 118, a: 1 },
+	background: { r: 255, g: 255, b: 255, a: 1 },
+	sizing: { fontSizePx: 16, fontWeight: 400 },
+});
+
+// Score layout shifts recorded by something else entirely.
+cumulativeShift(shiftsFromSomewhereElse);
+
+// Inventory a stored capture's styles.
+takeInventory(samplesFromDisk);
+```
+
 ## Testing
 
 Unit tests live under [`tests/lib/web`](../../tests/lib/web),

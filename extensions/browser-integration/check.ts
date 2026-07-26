@@ -143,8 +143,12 @@ export function registerCheck(
 			"against a stored baseline of itself and says which regions " +
 			"changed and what they sit on.",
 		promptSnippet:
-			"Judge a browser page with browser_check: kind 'keyboard' walks the " +
-			"tab order, kind 'accessibility' runs the WCAG rule set.",
+			"browser_check forms a verdict about a page: keyboard, " +
+			"accessibility, visual, design, compare, perf, or health " +
+			"for all of them at once. Every answer opens PASS, WARN or " +
+			"FAIL, where WARN means undecided rather than nearly fine. " +
+			"Read the browser-accessibility-guide skill before " +
+			"reporting an accessibility result.",
 		parameters,
 		renderCall: (args, theme) => renderBrowserCall("check", args, theme),
 		renderResult: (result, options, theme) =>

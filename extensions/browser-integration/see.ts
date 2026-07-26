@@ -414,7 +414,11 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 			"'only' reduces to landmarks, headings or interactive elements, " +
 			"'depth' keeps the top levels, and 'within' reads one branch.",
 		promptSnippet:
-			"Read a browser page with browser_see; act on it with browser_do.",
+			"browser_see reads a page and changes nothing: its " +
+			"accessibility outline, reading order, one element in " +
+			"depth, a query across frames and shadow roots, console " +
+			"and network telemetry, screenshots, vitals, status. Read " +
+			"the browser-guide skill.",
 		parameters,
 		renderCall: (args, theme) => renderBrowserCall("see", args, theme),
 		renderResult: (result, options, theme) =>

@@ -78,6 +78,18 @@ A clean result says what it looked at. "Nothing failed" and
 same verdict and very different reassurances, and the first is
 also what a checker that silently did nothing says.
 
+## Paired Skills
+
+The extension registers the tools; the skills teach the method.
+
+- [`browser-guide`](../../skills/browser-guide): the split
+  between the four verbs, addressing elements by role and
+  accessible name, the observe-act loop, keeping answers inside
+  a budget, and how to read a verdict
+- [`browser-accessibility-guide`](../../skills/browser-accessibility-guide):
+  what order to audit in, what the tools refuse to decide, and
+  how to report findings without overstating them
+
 ## Shape
 
 - `index.ts` registers the four tools and the session registry

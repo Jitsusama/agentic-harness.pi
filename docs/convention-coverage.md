@@ -299,8 +299,17 @@ is followed by judgment, not by a regex.
   These govern when and how to perform an operation, not the
   shape of an artifact that goes through a gate.
 - **Tool integration guides**: `google-workspace-guide`,
-  `slack-guide`'s methodology sections. Translate user intent to
-  API calls; not artifact shape.
+  `slack-guide`'s methodology sections, `browser-guide`.
+  Translate user intent to API calls; not artifact shape.
+- **Audit methodology**: `browser-accessibility-guide`. Its
+  rules are about how to conduct and report an audit, and the
+  claims most worth enforcing are enforced at the source rather
+  than at a gate: the verdict renderer will not emit `PASS` for
+  an undecided result, and the report keeps WCAG criteria and
+  best-practice findings in separate counts. What remains is
+  the instruction not to overstate a clean run, which no regex
+  can check because the overstatement would be in prose the
+  agent writes about a result, not in the result.
 - **GitHub navigation guides**: `github-project-guide`,
   `github-sub-issue-guide`.
 - **Subagent output contracts**: `pr-workflow-council-output`,

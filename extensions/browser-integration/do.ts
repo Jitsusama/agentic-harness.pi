@@ -241,8 +241,11 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			"semantic action expresses. The page view that follows shows what " +
 			"the action did.",
 		promptSnippet:
-			"Act on a browser page with browser_do: target elements by role and " +
-			"accessible name, press chords, or send raw gestures.",
+			"browser_do changes a page: act on an element named by role " +
+			"and accessible name (waiting for it to be actionable), " +
+			"press key chords, send raw pointer and touch gestures, " +
+			"wait for a condition, or evaluate an expression. Read the " +
+			"browser-guide skill.",
 		parameters,
 		renderCall: (args, theme) => renderBrowserCall("do", args, theme),
 		renderResult: (result, options, theme) =>
