@@ -11,16 +11,26 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { analyseWalk, renderWalk } from "../../lib/web/a11y/index.js";
+import { renderAudit, tallyFindings } from "../../lib/web/audit/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
 
 const parameters = Type.Object({
 	kind: Type.Optional(
-		Type.Literal("keyboard", {
+		Type.Union([Type.Literal("keyboard"), Type.Literal("accessibility")], {
 			description:
 				"keyboard: tab through the page and report what a person " +
-				"using only a keyboard can reach. The default, and the only " +
-				"kind so far.",
+				"using only a keyboard can reach. accessibility: run the " +
+				"axe WCAG rule set and report what failed, what is only " +
+				"best practice, and what needs a person to look. " +
+				"Defaults to keyboard.",
+		}),
+	),
+	rule: Type.Optional(
+		Type.String({
+			description:
+				"For accessibility: name one rule from the index to see the " +
+				"elements it hit and how to fix them.",
 		}),
 	),
 	session: Type.Optional(
@@ -47,10 +57,13 @@ export function registerCheck(
 			"Form a verdict about a browser page. kind 'keyboard' tabs through " +
 			"the page and reports focus traps, controls that cannot be reached, " +
 			"focus that cannot be seen and a tab order that does not follow the " +
-			"page. It moves focus to do this and puts it back afterwards.",
+			"page; it moves focus to do this and puts it back afterwards. " +
+			"kind 'accessibility' runs the axe WCAG rule set and reports what " +
+			"failed, keeping standards apart from best practice and naming " +
+			"what it could not decide.",
 		promptSnippet:
 			"Judge a browser page with browser_check: kind 'keyboard' walks the " +
-			"tab order and reports what a keyboard user cannot reach.",
+			"tab order, kind 'accessibility' runs the WCAG rule set.",
 		parameters,
 		async execute(_id, params) {
 			const name = params.session ?? DEFAULT_SESSION;
@@ -64,6 +77,18 @@ export function registerCheck(
 			}
 
 			const session = await registry.acquire(name);
+
+			if (kind === "accessibility") {
+				const findings = await session.audit();
+				return answer(
+					name,
+					kind,
+					renderAudit(findings, tallyFindings(findings), {
+						...(params.rule === undefined ? {} : { rule: params.rule }),
+					}),
+				);
+			}
+
 			const capture = await session.keyboardWalk(params.maxStops);
 			if (capture.candidates.length === 0) {
 				return answer(

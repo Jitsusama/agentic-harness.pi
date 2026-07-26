@@ -164,6 +164,9 @@ const MS_PER_SECOND = 1000;
  */
 const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(_keyDefinitions));
 
+import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { type A11yFinding, type RawAxeRun, readAxeRun } from "./audit/index.js";
 import {
 	describeThrow,
 	type EvalFrame,
@@ -385,6 +388,17 @@ export class CookieSetupNeeded extends Error {
 }
 
 /** A driveable browser session over a single tab. */
+/**
+ * Where axe-core's bundle sits on disk.
+ *
+ * Resolved through node rather than assembled from a relative
+ * path, so it keeps working wherever the package is installed
+ * and however the dependency is hoisted.
+ */
+function axeSource(): string {
+	return createRequire(import.meta.url).resolve("axe-core/axe.min.js");
+}
+
 export class BrowserSession {
 	/** What the page announced, oldest first, within its budget. */
 	private readonly announcements: RingBuffer<Announcement> =
@@ -1630,6 +1644,36 @@ export class BrowserSession {
 					`${error instanceof Error ? error.message : String(error)}`,
 			};
 		}
+	}
+
+	/**
+	 * Run axe-core against the page and read back its findings.
+	 *
+	 * axe is injected fresh on every call rather than kept across
+	 * navigations. It is half a megabyte, but a navigation clears
+	 * the world, and an audit that silently reported nothing
+	 * because the library went away with the last page would be
+	 * worse than a slow one.
+	 *
+	 * Only violations and incomplete results are asked for. Passes
+	 * and inapplicable rules together outweigh them by an order of
+	 * magnitude and answer a question nobody asks.
+	 */
+	async audit(): Promise<readonly A11yFinding[]> {
+		await this.ready();
+		const source = await readFile(axeSource(), "utf8");
+		await this.cdp.send("Runtime.evaluate", { expression: source });
+		const response = await this.cdp.send("Runtime.evaluate", {
+			expression:
+				'axe.run(document, { resultTypes: ["violations", "incomplete"] })',
+			awaitPromise: true,
+			returnByValue: true,
+		});
+		if (response.exceptionDetails) {
+			const threw = describeThrow(response.exceptionDetails);
+			throw new Error(`axe could not run: ${threw.message}`);
+		}
+		return readAxeRun((response.result.value ?? {}) as RawAxeRun);
 	}
 
 	/** Run a page-side source string and read back its value. */

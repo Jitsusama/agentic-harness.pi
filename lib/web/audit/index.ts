@@ -8,6 +8,24 @@
  */
 
 export {
+	type A11yFinding,
+	type Authority,
+	type AxeTally,
+	authorityOf,
+	criteriaOf,
+	type FindingKind,
+	type FindingNode,
+	type Impact,
+	levelsOf,
+	MAX_NODE_HTML,
+	type RawAxeNode,
+	type RawAxeResult,
+	type RawAxeRun,
+	readAxeRun,
+	readResult,
+	tallyFindings,
+} from "./axe.js";
+export {
 	composite,
 	contrastRatio,
 	formatRgb,
@@ -32,6 +50,13 @@ export {
 	textThreshold,
 	undecidable,
 } from "./contrast.js";
+export {
+	MAX_LISTED_NODES,
+	renderAudit,
+	renderFinding,
+	renderIndex,
+	renderSummary,
+} from "./report.js";
 export {
 	ENHANCED_TARGET_PX,
 	judgeTarget,
