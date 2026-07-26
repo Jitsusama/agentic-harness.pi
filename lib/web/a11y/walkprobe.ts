@@ -175,14 +175,35 @@ export const WALK_COLLECT = `(() => {
 		"button", "link", "checkbox", "radio", "switch", "tab",
 		"menuitem", "option", "slider", "textbox",
 	]);
+	// Structure, not controls. A handler on one of these is
+	// delegation or an outside-click listener rather than a promise
+	// that it can be operated.
+	const CONTAINER_TAGS = new Set([
+		"NAV", "HEADER", "FOOTER", "SECTION", "ARTICLE", "ASIDE",
+		"FORM", "UL", "OL", "TABLE", "TBODY", "TR", "DIALOG",
+	]);
+	// Where a framework hangs its delegated click handler. A root
+	// carrying one is not a control that forgot to be focusable, it
+	// is how React, Vue and Svelte deliver every event they have, so
+	// flagging it says nothing except that the page uses a
+	// framework. It read especially badly: the finding named the
+	// element by its text, so the whole header bled into the label,
+	// and on a real app this single false positive was the only
+	// thing failing the keyboard check.
+	const DELEGATES = new Set(["HTML", "BODY", "MAIN", "#document"]);
+
 	const reachable = new Set(focusable);
 	const unreachable = [];
 	for (const el of deepElements(document)) {
 		if (reachable.has(el)) continue;
+		if (DELEGATES.has(el.tagName)) continue;
 		const role = el.getAttribute("role");
 		const hasRole = role && interactiveRoles.has(role);
 		const hasHandler = typeof el.onclick === "function";
 		if (!hasRole && !hasHandler) continue;
+		// A landmark or a section is a container, not a control, even
+		// when something has attached a handler to it.
+		if (hasHandler && !hasRole && CONTAINER_TAGS.has(el.tagName)) continue;
 		if (!visible(el)) continue;
 		// An inert control is not being offered to anybody yet: the
 		// closed search dialog's inputs are inert, look perfectly

@@ -13,12 +13,7 @@ import {
 	orderFindings,
 	tallyFindings,
 } from "./axe.js";
-import { renderVerdict, standingFor, type Verdict } from "./verdict.js";
-
-/** Say a count with the noun that agrees with it. */
-function count(many: number, one: string, plural = `${one}s`): string {
-	return `${many} ${many === 1 ? one : plural}`;
-}
+import { count, renderVerdict, standingFor, type Verdict } from "./verdict.js";
 
 /** How many elements to name under a rule before counting. */
 export const MAX_LISTED_NODES = 5;

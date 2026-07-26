@@ -12,6 +12,7 @@ import {
 	mediaFeaturesOf,
 	mergeEmulation,
 	type ObservedEnvironment,
+	unsupportedFields,
 } from "../../../../lib/web/environment/emulation.js";
 
 const observed = (
@@ -30,6 +31,44 @@ const observed = (
 	language: "en-US",
 	timezone: "America/Toronto",
 	...over,
+});
+
+describe("a request that cannot be honoured says so", () => {
+	// Asking for a flat width is the natural mistake, since that is
+	// how the tool's own surface spells it. Accepted in silence, it
+	// left the page at its old size while reporting no gaps, and I
+	// spent twenty minutes measuring the wrong viewport and
+	// concluding a page was fine.
+	it("names a field it cannot emulate", () => {
+		const [gap] = unsupportedFields({ width: 1024 });
+		expect(gap?.what).toBe("width");
+		expect(gap?.observed).toContain("ignored");
+	});
+
+	it("points at the field that carries it", () => {
+		expect(unsupportedFields({ width: 1024 })[0]?.note).toContain("viewport");
+		expect(unsupportedFields({ language: "fr" })[0]?.note).toContain("locale");
+	});
+
+	it("says nothing about a request it understands", () => {
+		expect(
+			unsupportedFields({
+				viewport: { width: 1024, height: 800 },
+				colorScheme: "dark",
+				vision: "protanopia",
+			}),
+		).toEqual([]);
+	});
+
+	it("ignores a field explicitly set to undefined", () => {
+		// Clearing an override is how the protocol is told to stop, so
+		// an undefined value is a request rather than a mistake.
+		expect(unsupportedFields({ nonsense: undefined })).toEqual([]);
+	});
+
+	it("reports every invented field, not just the first", () => {
+		expect(unsupportedFields({ width: 1, height: 2 })).toHaveLength(2);
+	});
 });
 
 describe("mergeEmulation", () => {

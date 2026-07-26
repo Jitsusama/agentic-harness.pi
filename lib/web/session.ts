@@ -112,6 +112,7 @@ import {
 	type SessionStatus,
 	type StorageSnapshot,
 	type ThrottleConditions,
+	unsupportedFields,
 } from "./environment/index.js";
 import {
 	type ChordRefusal,
@@ -1304,13 +1305,23 @@ export class BrowserSession {
 		gaps: readonly Divergence[];
 	}> {
 		await this.ready();
+		// Anything this cannot emulate is named before it is dropped.
+		// Silently ignoring a field meant a call asking for a 1024px
+		// viewport did nothing, said nothing, and reported no gaps.
+		const ignored = unsupportedFields(
+			change as Readonly<Record<string, unknown>>,
+		);
 		this.emulation = mergeEmulation(this.emulation, change);
 		await this.applyEmulation();
+		// A viewport change reflows the page and a real application
+		// re-renders for it, so the same wait a navigation gets applies
+		// here: without it the next read describes the old layout.
+		await this.settlePage();
 		const observed = await this.observeEnvironment();
 		return {
 			asked: this.emulation,
 			observed,
-			gaps: divergences(this.emulation, observed),
+			gaps: [...ignored, ...divergences(this.emulation, observed)],
 		};
 	}
 

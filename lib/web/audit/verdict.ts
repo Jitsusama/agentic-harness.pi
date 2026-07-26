@@ -15,6 +15,23 @@
 /** How a check came out. */
 export type Standing = "pass" | "warn" | "fail";
 
+/**
+ * Say a count with the noun that agrees with it.
+ *
+ * Lives with the verdict rather than in one report, because every
+ * check writes these sentences and "1 stops are hard to follow"
+ * is the kind of thing that makes a reader trust the numbers less
+ * than they should.
+ */
+export function count(many: number, one: string, plural = `${one}s`): string {
+	return `${many} ${many === 1 ? one : plural}`;
+}
+
+/** The verb that agrees with a count, for the same reason. */
+export function wasWere(many: number): string {
+	return many === 1 ? "was" : "were";
+}
+
 /** The head of any check's answer. */
 export interface Verdict {
 	readonly standing: Standing;

@@ -19,7 +19,12 @@
  * judge it.
  */
 
-import { renderVerdict, standingFor } from "../audit/verdict.js";
+import {
+	count,
+	renderVerdict,
+	standingFor,
+	wasWere,
+} from "../audit/verdict.js";
 
 /** The style properties a focus indicator could live in. */
 export interface FocusStyle {
@@ -499,7 +504,7 @@ export function renderWalk(findings: WalkFindings): string {
 	return renderVerdict(
 		{
 			standing: standingFor({ failures, warnings }),
-			headline: headlineFor(findings, failures, warnings),
+			headline: headlineFor(findings, warnings),
 			measured,
 		},
 		lines.join("\n"),
@@ -507,11 +512,7 @@ export function renderWalk(findings: WalkFindings): string {
 }
 
 /** Say the worst true thing about the walk, in one line. */
-function headlineFor(
-	findings: WalkFindings,
-	failures: number,
-	warnings: number,
-): string {
+function headlineFor(findings: WalkFindings, warnings: number): string {
 	if (findings.trap) {
 		return findings.trap.escapeFreed
 			? "Focus is trapped, though Escape gets out."
@@ -533,8 +534,29 @@ function headlineFor(
 			`${findings.missed.length} controls not yet visited.`
 		);
 	}
-	if (findings.unreachable.length > 0 || findings.missed.length > 0) {
-		return `${failures} things can be operated but never focused.`;
+	// Two different faults, so they are counted and named
+	// separately. Summing them under one sentence reported "6 things
+	// can be operated but never focused" for a page with one such
+	// thing and five unvisited controls, and the report below it
+	// listed the one, so the headline argued with its own detail.
+	if (findings.unreachable.length > 0 && findings.missed.length > 0) {
+		return (
+			`${count(findings.unreachable.length, "thing")} can be operated ` +
+			`but never focused, and ${count(findings.missed.length, "control")} ` +
+			`${wasWere(findings.missed.length)} never reached.`
+		);
+	}
+	if (findings.unreachable.length > 0) {
+		return `${count(
+			findings.unreachable.length,
+			"thing",
+		)} can be operated but never focused.`;
+	}
+	if (findings.missed.length > 0) {
+		return (
+			`${count(findings.missed.length, "control")} ` +
+			`${wasWere(findings.missed.length)} never reached.`
+		);
 	}
 	if (warnings > 0) {
 		return warnings === 1

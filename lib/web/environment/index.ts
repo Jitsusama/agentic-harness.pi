@@ -14,6 +14,7 @@ export {
 	mediaFeaturesOf,
 	mergeEmulation,
 	type ObservedEnvironment,
+	unsupportedFields,
 	type VisionDeficiency,
 } from "./emulation.js";
 export { ENVIRONMENT_PROBE } from "./probes.js";

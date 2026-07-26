@@ -140,6 +140,68 @@ export interface Divergence {
  * repeated the request back would hide exactly the cases worth
  * knowing about.
  */
+/** Every field this library knows how to emulate. */
+const EMULATION_FIELDS: readonly string[] = [
+	"colorScheme",
+	"reducedMotion",
+	"contrast",
+	"forcedColors",
+	"media",
+	"vision",
+	"device",
+	"viewport",
+	"touch",
+	"timezone",
+	"locale",
+	"cpuThrottle",
+	"geolocation",
+];
+
+/** Fields a caller invented, with the one they probably meant. */
+const LIKELY_MEANT: Readonly<Record<string, string>> = {
+	width: "viewport",
+	height: "viewport",
+	deviceScaleFactor: "viewport",
+	mobile: "viewport",
+	scale: "viewport",
+	darkMode: "colorScheme",
+	theme: "colorScheme",
+	timeZone: "timezone",
+	language: "locale",
+};
+
+/**
+ * Report fields that will be ignored, as divergences.
+ *
+ * A request this cannot honour used to be accepted in silence,
+ * echoed back under `asked`, and reported with no gaps at all: a
+ * call asking for a 1024px viewport did nothing, said nothing, and
+ * left the page at 800px while claiming to have been understood.
+ * That cost me twenty minutes of measuring the wrong viewport and
+ * concluding a page was fine.
+ *
+ * Reported rather than thrown because the rest of the request is
+ * still worth applying, and because gaps are already the channel
+ * for "you asked for something you did not get".
+ */
+export function unsupportedFields(
+	change: Readonly<Record<string, unknown>>,
+): readonly Divergence[] {
+	const gaps: Divergence[] = [];
+	for (const key of Object.keys(change)) {
+		if (EMULATION_FIELDS.includes(key)) continue;
+		if (change[key] === undefined) continue;
+		const instead = LIKELY_MEANT[key];
+		gaps.push({
+			what: key,
+			asked: String(change[key]),
+			observed: "ignored, there is no such thing to emulate",
+			...(instead ? { note: `${instead} is the field that carries this` } : {}),
+		});
+	}
+	return gaps;
+}
+
 export function divergences(
 	asked: EmulationState,
 	observed: ObservedEnvironment,
