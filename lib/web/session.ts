@@ -166,7 +166,14 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(_keyDefinitions));
 
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { type A11yFinding, type RawAxeRun, readAxeRun } from "./audit/index.js";
+import {
+	type A11yFinding,
+	type AxFacts,
+	buildStructure,
+	type RawAxeRun,
+	readAxeRun,
+	type StructureNode,
+} from "./audit/index.js";
 import {
 	describeThrow,
 	type EvalFrame,
@@ -1674,6 +1681,41 @@ export class BrowserSession {
 			throw new Error(`axe could not run: ${threw.message}`);
 		}
 		return readAxeRun((response.result.value ?? {}) as RawAxeRun);
+	}
+
+	/**
+	 * The page as the structural rules need to see it.
+	 *
+	 * Two accounts from the browser, joined on the backend node id
+	 * they share: the snapshot for attributes and layout, the
+	 * accessibility tree for roles and names. Neither carries
+	 * both, and every structural rule needs both.
+	 */
+	async structure(): Promise<readonly StructureNode[]> {
+		const [nodes, tree] = await Promise.all([
+			this.snapshot(),
+			this.cdp.send("Accessibility.getFullAXTree") as Promise<{
+				nodes: RawAxNode[];
+			}>,
+		]);
+		const facts: AxFacts[] = [];
+		for (const axNode of tree.nodes) {
+			if (axNode.backendDOMNodeId === undefined) continue;
+			const focusable = axNode.properties?.find(
+				(property) => property.name === "focusable",
+			);
+			facts.push({
+				backendNodeId: axNode.backendDOMNodeId,
+				...(axNode.role?.value === undefined
+					? {}
+					: { role: axNode.role.value }),
+				...(axNode.name?.value === undefined
+					? {}
+					: { name: axNode.name.value }),
+				focusable: focusable?.value?.value === true,
+			});
+		}
+		return buildStructure(nodes, facts);
 	}
 
 	/** Run a page-side source string and read back its value. */

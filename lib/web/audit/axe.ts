@@ -206,11 +206,46 @@ export function readAxeRun(run: RawAxeRun): readonly A11yFinding[] {
 			readResult(result, "needs-review"),
 		),
 	];
-	return findings.sort((a, b) => {
+	return orderFindings(findings);
+}
+
+/** Worst first, and what is known broken before what might be. */
+function orderFindings(
+	findings: readonly A11yFinding[],
+): readonly A11yFinding[] {
+	return [...findings].sort((a, b) => {
 		if (a.kind !== b.kind) return a.kind === "violation" ? -1 : 1;
 		const severity = IMPACTS.indexOf(a.impact) - IMPACTS.indexOf(b.impact);
 		return severity === 0 ? a.rule.localeCompare(b.rule) : severity;
 	});
+}
+
+/**
+ * Put two rule sets into one ordered report.
+ *
+ * A reader should not have to know which rule set caught a
+ * thing in order to act on it, so the sets are interleaved by
+ * severity rather than listed one after the other.
+ *
+ * Where both report the same thing, the primary set wins. Two
+ * entries saying the same thing is worse than either alone, and
+ * the overlap is not always visible from the rule names: a
+ * secondary rule can declare which primary rule supersedes it.
+ */
+export function mergeFindings(
+	primary: readonly A11yFinding[],
+	secondary: readonly A11yFinding[],
+	supersededBy: Readonly<Record<string, string>> = {},
+): readonly A11yFinding[] {
+	const taken = new Set(primary.map((finding) => finding.rule));
+	return orderFindings([
+		...primary,
+		...secondary.filter(
+			(finding) =>
+				!taken.has(finding.rule) &&
+				!taken.has(supersededBy[finding.rule] ?? ""),
+		),
+	]);
 }
 
 /** A count of findings and elements, for a headline. */

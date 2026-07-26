@@ -12,6 +12,7 @@ import {
 	criteriaOf,
 	levelsOf,
 	MAX_NODE_HTML,
+	mergeFindings,
 	type RawAxeRun,
 	readAxeRun,
 	readResult,
@@ -251,6 +252,59 @@ describe("readAxeRun", () => {
 		expect(findings[0]?.impact).toBe("critical");
 	});
 });
+
+describe("mergeFindings", () => {
+	const ours = readAxeRun({
+		violations: [
+			{ id: "heading-skips-level", impact: "moderate", nodes: [{}] },
+			{ id: "reference-resolves", impact: "critical", nodes: [{}] },
+		],
+	});
+
+	it("drops a rule the primary set already reported by name", () => {
+		const merged = mergeFindings(readAxeRun(RUN), ours);
+		expect(
+			merged.filter((finding) => finding.rule === "heading-order"),
+		).toHaveLength(1);
+	});
+
+	it("drops a rule superseded under a different name", () => {
+		// The overlap is invisible from the names alone, which is
+		// why the map exists: axe calls this heading-order.
+		const merged = mergeFindings(readAxeRun(RUN), ours, {
+			"heading-skips-level": "heading-order",
+		});
+		expect(merged.some((f) => f.rule === "heading-skips-level")).toBe(false);
+		expect(merged.some((f) => f.rule === "heading-order")).toBe(true);
+	});
+
+	it("keeps a rule the primary set never reported", () => {
+		const merged = mergeFindings(readAxeRun(RUN), ours, {
+			"heading-skips-level": "heading-order",
+		});
+		expect(merged.some((f) => f.rule === "reference-resolves")).toBe(true);
+	});
+
+	it("keeps a superseded rule when the primary set is absent", () => {
+		// A capture audited without axe must not lose the check.
+		const merged = mergeFindings([], ours, {
+			"heading-skips-level": "heading-order",
+		});
+		expect(merged.some((f) => f.rule === "heading-skips-level")).toBe(true);
+	});
+
+	it("interleaves both sets by severity rather than by origin", () => {
+		const merged = mergeFindings(readAxeRun(RUN), ours);
+		const impacts = merged
+			.filter((finding) => finding.kind === "violation")
+			.map((finding) => finding.impact);
+		expect(impacts).toEqual([...impacts].sort(bySeverity));
+	});
+});
+
+const ORDER = ["critical", "serious", "moderate", "minor"];
+const bySeverity = (a: string, b: string) =>
+	ORDER.indexOf(a) - ORDER.indexOf(b);
 
 describe("tallyFindings", () => {
 	const tally = tallyFindings(readAxeRun(RUN));

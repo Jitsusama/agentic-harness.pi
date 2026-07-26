@@ -18,6 +18,7 @@ export {
 	type Impact,
 	levelsOf,
 	MAX_NODE_HTML,
+	mergeFindings,
 	type RawAxeNode,
 	type RawAxeResult,
 	type RawAxeRun,
@@ -25,6 +26,11 @@ export {
 	readResult,
 	tallyFindings,
 } from "./axe.js";
+export {
+	type AxFacts,
+	buildStructure,
+	selectorFor,
+} from "./capture.js";
 export {
 	composite,
 	contrastRatio,
@@ -57,6 +63,21 @@ export {
 	renderIndex,
 	renderSummary,
 } from "./report.js";
+export {
+	analyseStructure,
+	brokenReferences,
+	formLabelling,
+	headingOutline,
+	hiddenButFocusable,
+	IDREF_ATTRIBUTES,
+	LANDMARK_ROLES,
+	landmarkNaming,
+	manualTabOrder,
+	nestedInteractives,
+	SINGLE_IDREF_ATTRIBUTES,
+	type StructureNode,
+	SUPERSEDED_BY,
+} from "./structure.js";
 export {
 	ENHANCED_TARGET_PX,
 	judgeTarget,

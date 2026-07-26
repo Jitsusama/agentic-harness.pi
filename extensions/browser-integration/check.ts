@@ -11,7 +11,13 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { analyseWalk, renderWalk } from "../../lib/web/a11y/index.js";
-import { renderAudit, tallyFindings } from "../../lib/web/audit/index.js";
+import {
+	analyseStructure,
+	mergeFindings,
+	renderAudit,
+	SUPERSEDED_BY,
+	tallyFindings,
+} from "../../lib/web/audit/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { answer, refusal } from "./result.js";
 
@@ -79,7 +85,19 @@ export function registerCheck(
 			const session = await registry.acquire(name);
 
 			if (kind === "accessibility") {
-				const findings = await session.audit();
+				// Two rule sets, one report. axe is the WCAG baseline and
+				// ours are the structural questions it leaves alone or
+				// files as opinion; a reader should not have to know
+				// which came from where to act on either.
+				const [fromAxe, structure] = await Promise.all([
+					session.audit(),
+					session.structure(),
+				]);
+				const findings = mergeFindings(
+					fromAxe,
+					analyseStructure(structure),
+					SUPERSEDED_BY,
+				);
 				return answer(
 					name,
 					kind,
