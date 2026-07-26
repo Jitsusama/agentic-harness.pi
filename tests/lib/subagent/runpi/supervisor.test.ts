@@ -812,6 +812,6 @@ describe("a supervisor that never reports", () => {
 		// Well inside the file's own 60s budget, and it says why.
 		expect(Date.now() - started).toBeLessThan(30_000);
 		expect(result.exitCode).not.toBe(0);
-		expect(result.warnings.join(" ")).toContain("never reported");
+		expect((result.warnings ?? []).join(" ")).toContain("never reported");
 	});
 });
