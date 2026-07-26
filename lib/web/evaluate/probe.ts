@@ -51,6 +51,100 @@ function isExpression(source: string): boolean {
 }
 
 /**
+ * The offsets of semicolons that end a statement at the top
+ * level, ignoring any inside brackets, strings, templates,
+ * regular expressions or comments.
+ *
+ * Enough to find where the last statement begins. Anything it
+ * gets wrong is caught by compiling the result before use, so a
+ * wrong guess costs the old behaviour rather than a broken call.
+ */
+function topLevelBreaks(source: string): readonly number[] {
+	const breaks: number[] = [];
+	let depth = 0;
+	let quote: string | null = null;
+	let comment: "line" | "block" | null = null;
+	for (let at = 0; at < source.length; at++) {
+		const char = source[at];
+		const next = source[at + 1];
+		if (comment === "line") {
+			if (char === "\n") comment = null;
+			continue;
+		}
+		if (comment === "block") {
+			if (char === "*" && next === "/") {
+				comment = null;
+				at++;
+			}
+			continue;
+		}
+		if (quote) {
+			if (char === "\\") at++;
+			else if (char === quote) quote = null;
+			continue;
+		}
+		if (char === "/" && next === "/") {
+			comment = "line";
+			at++;
+			continue;
+		}
+		if (char === "/" && next === "*") {
+			comment = "block";
+			at++;
+			continue;
+		}
+		if (char === '"' || char === "'" || char === "`") {
+			quote = char;
+			continue;
+		}
+		if (char === "(" || char === "[" || char === "{") depth++;
+		else if (char === ")" || char === "]" || char === "}") depth--;
+		else if (char === ";" && depth === 0) breaks.push(at);
+	}
+	return breaks;
+}
+
+/**
+ * A statement list rewritten so its last expression is its value.
+ *
+ * A console shows the completion value of what you typed, so
+ * `var a = 1; a + 41` answers 42. Run as a plain function body it
+ * answers undefined, because a function returns nothing unless
+ * told to, and that is what this used to do: people paste a
+ * snippet ending in the thing they want to see and got nothing
+ * back, then retyped it with a return. Nobody reads that as the
+ * tool being careful.
+ *
+ * Rewriting rather than using the page's own eval, which would
+ * give these semantics for free, because a page whose policy
+ * forbids eval must still be able to answer.
+ *
+ * Returns undefined when the last statement is not an expression
+ * (a declaration, a loop, a block), since prefixing those with
+ * return is a syntax error. The rewrite is compiled here before
+ * it is offered, so a wrong guess falls back instead of failing
+ * in the page.
+ */
+function withCompletionValue(source: string): string | undefined {
+	const trimmed = source.trimEnd().replace(/;$/, "");
+	const breaks = topLevelBreaks(trimmed);
+	const lastBreak = breaks[breaks.length - 1];
+	if (lastBreak === undefined) return undefined;
+	const head = trimmed.slice(0, lastBreak + 1);
+	const tail = trimmed.slice(lastBreak + 1).trim();
+	if (tail === "") return undefined;
+	const rewritten = `${head} return (${tail});`;
+	try {
+		new Function(rewritten);
+		return rewritten;
+	} catch {
+		// The last statement was not an expression, so it cannot be
+		// returned. The caller still gets the statement list.
+		return undefined;
+	}
+}
+
+/**
  * How the caller's code is turned into one value.
  *
  * An expression is parenthesized so an object literal reads as a
@@ -60,12 +154,13 @@ function isExpression(source: string): boolean {
  * is a thing people type and it used to come back as
  * "SyntaxError: Unexpected token ';'", which reads as the
  * caller's mistake rather than ours. A statement list answers
- * with whatever it returns.
+ * with its last expression, as a console does, and an explicit
+ * return still wins.
  */
 function producer(expression: string): string {
-	return isExpression(expression)
-		? `(${expression})`
-		: `(() => { ${expression} })()`;
+	if (isExpression(expression)) return `(${expression})`;
+	const completing = withCompletionValue(expression);
+	return `(() => { ${completing ?? expression} })()`;
 }
 
 /**
