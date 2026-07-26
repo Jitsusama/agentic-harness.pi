@@ -24,6 +24,22 @@ const request = (over: Partial<NetworkRequest> = {}): NetworkRequest => ({
 });
 
 describe("renderRequests", () => {
+	it("tells an unmatched filter apart from a silent page", () => {
+		// Asked for failures on a page that made eighty requests and
+		// had none, the answer used to be "the page has not requested
+		// anything", which reads as broken telemetry rather than as
+		// good news.
+		expect(renderRequests([], { filter: "failed", recorded: 80 })).toBe(
+			"Nothing matched 'failed', out of 80 requests recorded.",
+		);
+	});
+
+	it("still says the page was silent when it truly was", () => {
+		expect(renderRequests([], { filter: "failed", recorded: 0 })).toBe(
+			"The page has not requested anything.",
+		);
+	});
+
 	it("says nothing was requested rather than printing an empty list", () => {
 		expect(renderRequests([])).toBe("The page has not requested anything.");
 	});

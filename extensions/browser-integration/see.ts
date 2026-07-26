@@ -515,7 +515,10 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				const wanted = filter
 					? all.filter((request) => matchesFilter(request, filter))
 					: all;
-				const listing = renderRequests(wanted);
+				const listing = renderRequests(wanted, {
+					...(filter === undefined ? {} : { filter }),
+					recorded: all.length,
+				});
 				if (params.har) {
 					const path = await session.exportHar(wanted);
 					return answer(

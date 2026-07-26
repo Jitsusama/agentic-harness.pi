@@ -21,8 +21,35 @@ const METHOD_WIDTH = 6;
 /** Width of the status column. */
 const STATUS_WIDTH = 8;
 
-export function renderRequests(requests: readonly NetworkRequest[]): string {
-	if (requests.length === 0) return "The page has not requested anything.";
+/**
+ * What the caller asked for, so an empty answer can say which
+ * kind of empty it is.
+ */
+export interface RequestQuery {
+	/** The filter applied, when one was. */
+	readonly filter?: string;
+	/** How many were recorded before filtering. */
+	readonly recorded?: number;
+}
+
+export function renderRequests(
+	requests: readonly NetworkRequest[],
+	query: RequestQuery = {},
+): string {
+	if (requests.length === 0) {
+		// An empty filtered list is not a silent page, and saying so
+		// was actively misleading: asked for failures on a page that
+		// had made eighty requests and had none, the answer was "the
+		// page has not requested anything", which reads as the
+		// telemetry being broken rather than as good news.
+		if (query.filter !== undefined && (query.recorded ?? 0) > 0) {
+			return (
+				`Nothing matched '${query.filter}', out of ` +
+				`${query.recorded} requests recorded.`
+			);
+		}
+		return "The page has not requested anything.";
+	}
 
 	const lines = [summarize(requests), ""];
 	for (const [index, request] of requests.entries()) {
