@@ -38,12 +38,59 @@ const IMPACT_ORDER: readonly Impact[] = [
  * the difference between failing a standard and disagreeing with
  * a linter.
  */
+/**
+ * Where a tally stands against the standards, which is what the
+ * mark at the top means.
+ *
+ * FAIL is reserved for a criterion that was actually violated.
+ * Best practice is somebody's good advice, not a standard, and a
+ * report that opened with FAIL because a page has two level-one
+ * headings spends the word on an opinion. Anybody gating a build
+ * on it then has to ignore it, and the one time it means a real
+ * violation they will.
+ *
+ * So best-practice failures land with the undecided ones under
+ * WARN, which keeps a single honest meaning for that mark: the
+ * tool will not decide this one for you, either because nothing
+ * could measure it or because whether it matters is a judgment
+ * call. The headline always says which.
+ */
+function standardsPosition(tally: AxeTally): {
+	failures: number;
+	warnings: number;
+} {
+	return {
+		failures: tally.wcag,
+		warnings: tally.needsReview + tally.bestPractice,
+	};
+}
+
 export function renderSummary(tally: AxeTally): string {
 	if (tally.violations === 0 && tally.needsReview === 0) {
 		return "Nothing failed.";
 	}
 
 	const parts: string[] = [];
+	// Say outright when nothing broke a standard, because the mark
+	// above now reads WARN and a reader deserves to know why before
+	// the counts start.
+	if (tally.wcag === 0 && tally.bestPractice > 0) {
+		parts.push(
+			`No WCAG criterion failed. ${count(
+				tally.bestPractice,
+				"best-practice rule",
+			)} did, across ${count(tally.elements, "element")}.`,
+		);
+		if (tally.needsReview > 0) {
+			parts.push(
+				`${count(tally.needsReview, "rule")} on ` +
+					`${count(tally.reviewElements, "element")} ` +
+					`${tally.needsReview === 1 ? "needs" : "need"} a person to ` +
+					"look: nothing could decide on its own.",
+			);
+		}
+		return parts.join(" ");
+	}
 	if (tally.violations > 0) {
 		const severities = IMPACT_ORDER.filter(
 			(impact) => tally.byImpact[impact] > 0,
@@ -178,10 +225,7 @@ export function renderAudit(
 		const ruleTally = tallyFindings(found);
 		return renderVerdict(
 			{
-				standing: standingFor({
-					failures: ruleTally.violations,
-					warnings: ruleTally.needsReview,
-				}),
+				standing: standingFor(standardsPosition(ruleTally)),
 				headline: `${options.rule}: ${renderSummary(ruleTally)}`,
 				...(options.measured === undefined
 					? {}
@@ -193,10 +237,7 @@ export function renderAudit(
 
 	const index = renderIndex(findings);
 	const verdict: Verdict = {
-		standing: standingFor({
-			failures: tally.violations,
-			warnings: tally.needsReview,
-		}),
+		standing: standingFor(standardsPosition(tally)),
 		headline: renderSummary(tally),
 		...(options.measured === undefined ? {} : { measured: options.measured }),
 	};

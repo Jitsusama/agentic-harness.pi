@@ -18,6 +18,7 @@ export {
 	type RawNodes,
 	type RawSnapshot,
 } from "./flatten.js";
+export { HIDDEN_BOX_PX, PRESENTED } from "./presented.js";
 export {
 	describeNode,
 	find,

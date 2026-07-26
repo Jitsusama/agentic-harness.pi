@@ -16,6 +16,7 @@
 
 /** The properties worth sampling, in the order they are read. */
 import { DEEP_DOM } from "../snapshot/deep.js";
+import { PRESENTED } from "../snapshot/presented.js";
 
 export const SAMPLED_PROPERTIES = [
 	"color",
@@ -41,6 +42,7 @@ export const SAMPLED_PROPERTIES = [
 export function inventorySource(): string {
 	return `(() => {
 	${DEEP_DOM}
+	${PRESENTED}
 	const PROPERTIES = ${JSON.stringify(SAMPLED_PROPERTIES)};
 
 	const NOTHING = new Set([
@@ -51,7 +53,11 @@ export function inventorySource(): string {
 	for (const el of deepElements(document)) {
 		const tag = el.tagName.toLowerCase();
 		if (tag === "script" || tag === "style" || tag === "head") continue;
-		if (!el.checkVisibility({ checkVisibilityCSS: true })) continue;
+		// An inventory of what the design actually looks like, so it
+		// samples what somebody can actually see: not a closed
+		// dialog's contents, and not a screen-reader-only label whose
+		// colours nobody ever looks at.
+		if (!presented(el)) continue;
 
 		const own = getComputedStyle(el);
 		const parent = el.parentElement ? getComputedStyle(el.parentElement) : null;

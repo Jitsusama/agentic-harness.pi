@@ -129,7 +129,14 @@ export function levelsOf(tags: readonly string[]): readonly string[] {
  * tells somebody their page fails a standard when it does not.
  */
 export function authorityOf(tags: readonly string[]): Authority {
-	return criteriaOf(tags).length > 0 ? "wcag" : "best-practice";
+	if (criteriaOf(tags).length > 0) return "wcag";
+	// A level tag on its own still says this is a WCAG rule. Every
+	// rule axe ships today carries both, so this changes nothing
+	// today; it matters because the mark at the top of the report
+	// now turns on this answer, and the failure it would cause is
+	// the bad one. Reading a real criterion as advice downgrades a
+	// violation to WARN and hides it.
+	return levelsOf(tags).length > 0 ? "wcag" : "best-practice";
 }
 
 function impactOf(value: string | null | undefined): Impact {

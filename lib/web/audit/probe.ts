@@ -12,6 +12,7 @@
  */
 
 import { DEEP_DOM } from "../snapshot/deep.js";
+import { PRESENTED } from "../snapshot/presented.js";
 
 /** How much text to carry back per element. */
 const MAX_TEXT = 120;
@@ -26,6 +27,7 @@ const MAX_TEXT = 120;
 export function visualCaptureSource(): string {
 	return `(() => {
 	${DEEP_DOM}
+	${PRESENTED}
 	const MAX_TEXT = ${MAX_TEXT};
 
 	const ownText = (el) => {
@@ -55,11 +57,11 @@ export function visualCaptureSource(): string {
 	for (const el of deepElements(document)) {
 		const tag = el.tagName.toLowerCase();
 		if (tag === "script" || tag === "style" || tag === "head") continue;
-		// checkVisibility is the browser's own answer, and the only
-		// one that accounts for a display:none ancestor.
-		if (!el.checkVisibility({ checkOpacity: false, checkVisibilityCSS: true })) {
-			continue;
-		}
+		// Painted at all: the browser's own answer, and the only one
+		// that accounts for a display:none ancestor. Visually-hidden
+		// idioms are not excluded here, because the layout rules
+		// recognise those themselves and want to see them.
+		if (!visible(el)) continue;
 		const rect = el.getBoundingClientRect();
 		const style = getComputedStyle(el);
 		const node = {
@@ -127,16 +129,13 @@ export function visualCaptureSource(): string {
  */
 export const TARGET_CAPTURE = `(() => {
 	${DEEP_DOM}
+	${PRESENTED}
 	const selector = [
 		"a[href]", "button", "input", "select", "textarea", "summary",
 		"[role=button]", "[role=link]", "[role=checkbox]", "[role=radio]",
 		"[role=switch]", "[role=tab]", "[role=menuitem]", "[role=option]",
 	].join(",");
 
-	const visible = (el) =>
-		typeof el.checkVisibility === "function"
-			? el.checkVisibility()
-			: el.getClientRects().length > 0;
 
 	// Inline in the specification's sense: laid out inline, and
 	// sitting among text rather than alone in its own block. A
@@ -169,7 +168,12 @@ export const TARGET_CAPTURE = `(() => {
 	for (const el of deepElements(document)) {
 		if (!el.matches(selector)) continue;
 		if (el.disabled) continue;
-		if (!visible(el)) continue;
+		// Only things a pointer is actually offered. A control inside
+		// a closed dialog is not aimed at, and a screen-reader-only
+		// input is operated through its visible label rather than its
+		// own one-pixel box: reporting those as undersized targets
+		// filed ten failures against a page that has none.
+		if (!presented(el)) continue;
 		const rect = el.getBoundingClientRect();
 		if (rect.width <= 0 || rect.height <= 0) continue;
 		const style = getComputedStyle(el);

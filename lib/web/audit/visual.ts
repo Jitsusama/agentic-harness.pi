@@ -14,6 +14,7 @@
  * an opinion; whether an image failed to load is not.
  */
 
+import { HIDDEN_BOX_PX } from "../snapshot/presented.js";
 import type { A11yFinding, FindingKind, FindingNode, Impact } from "./axe.js";
 
 /**
@@ -95,8 +96,15 @@ export const SMALL_TEXT_PX = 10;
 /** How far an image's shape may differ before it looks wrong. */
 export const ASPECT_TOLERANCE = 0.1;
 
-/** A box no larger than this is a hiding technique, not content. */
-export const HIDDEN_BOX_PX = 4;
+/**
+ * A box no larger than this is a hiding technique, not content.
+ *
+ * Owned by the page-side module that embeds it into the probes, so
+ * the threshold the browser is measured against and the one this
+ * analysis judges by cannot drift apart. Re-exported here because
+ * this is where consumers have always found it.
+ */
+export { HIDDEN_BOX_PX };
 
 /** Slack for sub-pixel layout, so rounding is not a finding. */
 const SUBPIXEL = 1;

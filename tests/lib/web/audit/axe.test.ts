@@ -309,6 +309,87 @@ describe("mergeFindings", () => {
 		expect(out.indexOf("a-critical")).toBeLessThan(out.indexOf("z-moderate"));
 	});
 
+	it("spends FAIL on a criterion, not on advice", () => {
+		// A page with two level-one headings is not a standards
+		// failure, and opening with FAIL over it spends the word that
+		// should mean a real violation. Anybody gating a build on the
+		// mark then has to ignore it.
+		// axe's real tags for this rule, which carries no wcag tag.
+		const advice = readAxeRun({
+			violations: [
+				{
+					id: "region",
+					impact: "moderate",
+					tags: ["cat.keyboard", "best-practice", "RGAAv4", "RGAA-9.2.1"],
+					nodes: [{}, {}],
+				},
+			],
+		});
+		const out = renderAudit(advice, tallyFindings(advice));
+		expect(out).toMatch(/^WARN/);
+		expect(out).toContain("No WCAG criterion failed");
+	});
+
+	it("still spends FAIL on a real criterion", () => {
+		// axe's real tags for image-alt: a level and a criterion.
+		const real = readAxeRun({
+			violations: [
+				{
+					id: "image-alt",
+					impact: "critical",
+					tags: ["cat.text-alternatives", "wcag2a", "wcag111", "section508"],
+					nodes: [{}],
+				},
+			],
+		});
+		expect(renderAudit(real, tallyFindings(real))).toMatch(/^FAIL/);
+	});
+
+	it("treats a level tag with no criterion tag as a standard", () => {
+		// Every rule axe ships carries both, so this is insurance
+		// rather than a case seen in the wild. It is here because the
+		// mark now turns on authority, and misreading a criterion as
+		// advice would quietly downgrade a real violation to WARN.
+		const levelOnly = readAxeRun({
+			violations: [
+				{ id: "invented", impact: "serious", tags: ["wcag2aa"], nodes: [{}] },
+			],
+		});
+		expect(renderAudit(levelOnly, tallyFindings(levelOnly))).toMatch(/^FAIL/);
+	});
+
+	it("fails when a criterion and mere advice arrive together", () => {
+		// The criterion decides it. Advice alongside must not soften
+		// a real violation any more than it should manufacture one.
+		const both = [
+			...readAxeRun({
+				violations: [
+					{
+						id: "image-alt",
+						impact: "critical",
+						tags: ["cat.text-alternatives", "wcag2a", "wcag111"],
+						nodes: [{}],
+					},
+				],
+			}),
+			...readAxeRun({
+				violations: [
+					{
+						id: "region",
+						impact: "moderate",
+						tags: ["cat.keyboard", "best-practice"],
+						nodes: [{}],
+					},
+				],
+			}),
+		];
+		expect(renderAudit(both, tallyFindings(both))).toMatch(/^FAIL/);
+	});
+
+	it("keeps PASS for a page with nothing to say about it", () => {
+		expect(renderAudit([], tallyFindings([]))).toMatch(/^PASS/);
+	});
+
 	it("interleaves both sets by severity rather than by origin", () => {
 		const merged = mergeFindings(readAxeRun(RUN), ours);
 		const impacts = merged

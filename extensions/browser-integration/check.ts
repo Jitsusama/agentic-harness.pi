@@ -240,7 +240,7 @@ async function runOnce(
 		const measured =
 			`Checked ${structure.length} elements against the axe rule ` +
 			`set and our structural rules, and ${targets.length} pointer ` +
-			"targets against WCAG 2.5.8.";
+			`${targets.length === 1 ? "target" : "targets"} against WCAG 2.5.8.`;
 		return renderAudit(findings, tallyFindings(findings), {
 			...(params.rule === undefined ? {} : { rule: params.rule }),
 			measured,
