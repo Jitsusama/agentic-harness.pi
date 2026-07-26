@@ -24,6 +24,7 @@ import { parseSlackUrl } from "../../lib/slack/resolvers/url.js";
 import { displayNameForId } from "../../lib/slack/resolvers/user.js";
 import type { OAuthApp, SlackUser } from "../../lib/slack/types.js";
 import { handleSlackAuthCommand } from "./auth-command.js";
+import { identityContext } from "./context.js";
 import { routeAction } from "./router.js";
 import { createSessionState, type SlackSessionState } from "./state.js";
 
@@ -170,9 +171,6 @@ const ENV_OAUTH_CONFIG: OAuthApp = {
 /** Session history key for persisting Slack identity. */
 const SESSION_KEY = "slack-identity";
 
-/** Names the injected identity note, so pi can tell it from prose. */
-const IDENTITY_CONTEXT_TYPE = "slack-integration-identity";
-
 export default function slackIntegration(pi: ExtensionAPI) {
 	/** Cached authenticated client. */
 	let cachedClient: SlackClient | null = null;
@@ -230,18 +228,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 	// blocks. The hook now takes one custom message, which is what
 	// every other context injection in this package returns, so this
 	// says the same thing the way the rest of them do.
-	pi.on("before_agent_start", async () => {
-		if (!session.userHandle) return undefined;
-		return {
-			message: {
-				customType: IDENTITY_CONTEXT_TYPE,
-				content:
-					`The authenticated Slack user is @${session.userHandle}` +
-					` (${session.userId}). Use this handle for from: queries.`,
-				display: false,
-			},
-		};
-	});
+	pi.on("before_agent_start", async () => identityContext(session));
 
 	pi.registerTool({
 		name: "slack",
