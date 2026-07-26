@@ -7,6 +7,7 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.js";
 import { createSupervisorRunPi } from "../../../../lib/subagent/runpi/supervisor.js";
+import type { RunPiResult } from "../../../../lib/subagent/subagent.js";
 
 // Every test here spawns the real node supervisor, sometimes two
 // process levels deep. Under parallel suite load the OS can take tens
@@ -94,6 +95,26 @@ async function tempStateDir(): Promise<string> {
 	return mkdtemp(join(tmpdir(), "pr-runpi-supervisor-"));
 }
 
+/**
+ * Assert a run succeeded, and say what it reported when it did not.
+ *
+ * `expect(result.exitCode).toBe(0)` prints "expected 1 to be +0"
+ * and throws away the warnings, which is where the supervisor
+ * explains itself. On a machine I can rerun that is merely
+ * annoying; on CI, where these tests fail and here they do not, it
+ * is the whole difference between evidence and another rerun.
+ */
+function expectRan(result: RunPiResult): void {
+	if (result.exitCode !== 0) {
+		throw new Error(
+			`run failed with exit ${result.exitCode}\n` +
+				`warnings: ${JSON.stringify(result.warnings, null, 1)}\n` +
+				`stderr: ${result.stderrTail ?? "(none)"}\n` +
+				`text: ${result.finalAssistantText || "(none)"}`,
+		);
+	}
+}
+
 describe("createSupervisorRunPi", () => {
 	it("runs the real supervisor script against a JSON-emitting child", async () => {
 		const stateDir = await tempStateDir();
@@ -116,7 +137,7 @@ describe("createSupervisorRunPi", () => {
 			reviewerId: "fast",
 		});
 
-		expect(result.exitCode).toBe(0);
+		expectRan(result);
 		expect(result.finalAssistantText).toBe("supervised");
 		expect(result.usage?.tokens.total).toBe(3);
 		expect(result.artifacts?.resultPath).toContain("result.json");
@@ -162,7 +183,7 @@ describe("createSupervisorRunPi", () => {
 			else process.env.PI_PACKAGE_DIR = previous;
 		}
 
-		expect(result.exitCode).toBe(0);
+		expectRan(result);
 		expect(result.finalAssistantText).toBe(pinned);
 	});
 
@@ -237,7 +258,7 @@ describe("createSupervisorRunPi", () => {
 			reviewerId: "ephemeral",
 		});
 
-		expect(result.exitCode).toBe(0);
+		expectRan(result);
 		expect(result.artifacts?.sessionPath).toBeUndefined();
 	});
 
@@ -305,7 +326,7 @@ describe("createSupervisorRunPi", () => {
 			reviewerId: "multi",
 		});
 
-		expect(result.exitCode).toBe(0);
+		expectRan(result);
 		// 15 + 27 + 33 across three turns, not the final turn's 33.
 		expect(result.usage?.tokens.total).toBe(75);
 		// 0.20 + 0.15 + 0.04, not the final turn's 0.04.
@@ -456,7 +477,7 @@ describe("createSupervisorRunPi", () => {
 			reviewerId: "noisy",
 		});
 
-		expect(result.exitCode).toBe(0);
+		expectRan(result);
 		expect(result.finalAssistantText).toBe("still done");
 		const eventsPath = result.artifacts?.eventsPath;
 		expect(eventsPath).toBeDefined();

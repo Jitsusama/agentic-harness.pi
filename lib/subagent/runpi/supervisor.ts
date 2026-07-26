@@ -234,6 +234,10 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 						terminalResultPath ?? paths.resultPath,
 					);
 					if (onDisk) return fromResult(onDisk, warnings, stderrTail);
+					// Everything knowable about why, gathered while the
+					// evidence still exists. A run that gives up has one
+					// chance to say what it saw, and "never reported" on its
+					// own sent me hunting through CI logs for an afternoon.
 					return {
 						exitCode: 1,
 						finalAssistantText: "",
@@ -241,9 +245,8 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 							...warnings,
 							`Reviewer supervisor never reported within ` +
 								`${effectiveTimeoutMs + graceMs}ms and was ` +
-								`killed. It was given ${effectiveTimeoutMs}ms to run, so ` +
-								"it either never started or stopped before its own " +
-								"watchdog could.",
+								`killed. It was given ${effectiveTimeoutMs}ms to run.`,
+							await supervisorPostMortem(supervisor, paths),
 						],
 						stderrTail,
 					};
@@ -395,6 +398,47 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 			});
 		});
 	};
+}
+
+/**
+ * What can still be told about a supervisor that never reported.
+ *
+ * Read from disk and from the process rather than guessed, because
+ * the guesses are all plausible and only one of them is true: a
+ * process that never started looks nothing like one that ran and
+ * died, and both look like silence from here. The supervisor keeps
+ * a lease and a progress file precisely so its state outlives it.
+ */
+async function supervisorPostMortem(
+	supervisor: ChildProcess,
+	paths: ReviewerRunPaths,
+): Promise<string> {
+	// Neither field is set until the process is gone, so both being
+	// null is how "still running" is spelled.
+	const running =
+		supervisor.exitCode === null && supervisor.signalCode === null;
+	const said: string[] = [
+		running
+			? `pid ${supervisor.pid ?? "unknown"} was still running`
+			: `already gone (exit ${supervisor.exitCode}, ` +
+				`signal ${supervisor.signalCode})`,
+	];
+	for (const [what, path] of [
+		["lease", paths.leasePath],
+		["progress", paths.progressPath],
+	] as const) {
+		try {
+			const raw = JSON.parse(await readFile(path, "utf-8")) as {
+				state?: unknown;
+			};
+			said.push(`${what} says ${JSON.stringify(raw.state ?? raw)}`);
+		} catch {
+			// Absent is the interesting answer here: no lease means the
+			// supervisor never got as far as its first write.
+			said.push(`no ${what} file`);
+		}
+	}
+	return `What was found: ${said.join("; ")}.`;
 }
 
 /**
