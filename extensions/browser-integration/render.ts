@@ -11,6 +11,15 @@
  * the verdict mark kept when there is one. A check that says
  * FAIL should still say FAIL when it is collapsed, since that is
  * the whole reason somebody scrolls back.
+ *
+ * Every Text here is built with padding (0, 0). Text defaults to
+ * one column and one row of padding, and pi already wraps a tool
+ * row in a Box that pads it, so accepting the default pads the
+ * same content twice: a blank line above and below every call
+ * and every result, which turns a transcript of short lines into
+ * mostly empty screen. This is the one rule in pi's own
+ * rendering best practices that costs nothing to follow and is
+ * invisible until somebody screenshots the terminal.
  */
 
 import type {
@@ -116,7 +125,7 @@ export function renderBrowserCall(
 		line += theme.fg("dim", ` [${call.session}]`);
 	}
 
-	return new Text(line);
+	return new Text(line, 0, 0);
 }
 
 /** The verdict marks a check may open with. */
@@ -142,20 +151,24 @@ export function renderBrowserResult(
 		.map((part) => (part.type === "text" ? part.text : ""))
 		.join("");
 
-	if (options.expanded) return new Text(content);
+	if (options.expanded) return new Text(content, 0, 0);
 
 	if (meta.ok === false) {
-		return new Text(theme.fg("warning", `refused: ${firstLine(content)}`));
+		return new Text(
+			theme.fg("warning", `refused: ${firstLine(content)}`),
+			0,
+			0,
+		);
 	}
 
 	const head = firstLine(content);
 	const verdict = VERDICTS.find((mark) => head.startsWith(mark));
-	if (!verdict) return new Text(theme.fg("dim", head));
+	if (!verdict) return new Text(theme.fg("dim", head), 0, 0);
 
 	const colour =
 		verdict === "FAIL" ? "error" : verdict === "WARN" ? "warning" : "success";
 	const rest = head.slice(verdict.length).trim();
-	return new Text(`${theme.fg(colour, theme.bold(verdict))} ${rest}`);
+	return new Text(`${theme.fg(colour, theme.bold(verdict))} ${rest}`, 0, 0);
 }
 
 function firstLine(content: string): string {
