@@ -33,7 +33,13 @@ export function observerBootstrap(): string {
 		return first ? tag + "." + first : tag;
 	};
 
-	const vitals = { lcp: null, shifts: [], longTasks: [], paints: {} };
+	const vitals = {
+		lcp: null, shifts: [], longTasks: [], paints: {},
+		// Which observers are actually running, so a measure is only
+		// reported when something was watching for it. A zero from an
+		// observer that never installed is not a zero.
+		installed: [], unavailable: [],
+	};
 	window.__piVitals = vitals;
 
 	const watch = (type, handle) => {
@@ -41,9 +47,14 @@ export function observerBootstrap(): string {
 			new PerformanceObserver((list) => {
 				for (const entry of list.getEntries()) handle(entry);
 			}).observe({ type, buffered: true });
+			vitals.installed.push(type);
 		} catch (error) {
-			// One unsupported entry type must not cost the others.
-			vitals.error = String(error);
+			// One unsupported entry type must not cost the others. It
+			// used to write a single shared error field that the
+			// renderer treated as fatal, so losing longtask on a browser
+			// that does not support it threw away the paints and the
+			// layout shifts that had been collected perfectly well.
+			vitals.unavailable.push(type + ": " + String(error));
 		}
 	};
 

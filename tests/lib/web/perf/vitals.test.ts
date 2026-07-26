@@ -162,7 +162,30 @@ describe("measure", () => {
 		expect(byName.get("largest contentful paint")).toBe("good");
 		expect(byName.get("first contentful paint")).toBe("good");
 		expect(byName.get("cumulative layout shift")).toBe("needs-improvement");
-		expect(byName.get("total blocking time")).toBe("needs-improvement");
+		// 199ms of total blocking time is good: the published TBT
+		// boundaries are 200 and 600. This asserted
+		// needs-improvement, because the rating reused the per-task
+		// long-task pair of 50 and 200, so the test pinned the bug
+		// rather than catching it.
+		expect(byName.get("total blocking time")).toBe("good");
+	});
+
+	it("rates total blocking time against the published boundaries", () => {
+		// A long task's excess over 50ms is what accumulates, so a
+		// task of 50 + n blocks for n. These pick the two boundaries
+		// from the outside: 250 gives 200 (good, at the edge), 651
+		// gives 601 (poor, just past it).
+		const tbtOf = (duration: number) =>
+			measure({
+				...CAPTURE,
+				longTasks: [{ time: 0, duration }],
+			}).find((one) => one.name.includes("blocking"));
+
+		expect(tbtOf(250)?.value).toBe(200);
+		expect(tbtOf(250)?.rating).toBe("good");
+		expect(tbtOf(450)?.rating).toBe("needs-improvement");
+		expect(tbtOf(651)?.value).toBe(601);
+		expect(tbtOf(651)?.rating).toBe("poor");
 	});
 
 	it("rates a page that behaves as good throughout", () => {
@@ -200,7 +223,10 @@ describe("renderVitals", () => {
 	it("warns about a page that paints fast and then misbehaves", () => {
 		const out = renderVitals(CAPTURE, measure(CAPTURE));
 		expect(out.startsWith("WARN")).toBe(true);
-		expect(out).toContain("2 of 5 measures are outside");
+		// One, not two: the 199ms of blocking this fixture produces
+		// is inside the published TBT boundary of 200. Only the
+		// layout shift is outside its threshold.
+		expect(out).toContain("1 of 5 measures are outside");
 	});
 
 	it("names the worst measure, not merely the first bad one", () => {
@@ -240,5 +266,55 @@ describe("renderVitals", () => {
 	it("does not report a clean pass when nothing was measured", () => {
 		const out = renderVitals({ shifts: [], longTasks: [], paints: {} }, []);
 		expect(out.startsWith("WARN")).toBe(true);
+	});
+});
+
+describe("a measure nobody watched for is not a measure", () => {
+	it("does not report a layout shift score when nothing observed one", () => {
+		// The score was pushed unconditionally, so a capture where
+		// no observer installed still answered 0.000 and PASS, and
+		// the renderer's "Nothing was measured" branch could never
+		// be reached through the real pipeline.
+		const blind: Vitals = {
+			shifts: [],
+			longTasks: [],
+			paints: {},
+			installed: [],
+			unavailable: ["layout-shift: not supported"],
+		};
+
+		expect(measure(blind)).toEqual([]);
+		expect(renderVitals(blind, measure(blind))).toContain(
+			"Nothing was measured",
+		);
+	});
+
+	it("keeps the measures it did take when one observer is missing", () => {
+		// One unsupported entry type used to write a shared error
+		// field the renderer treated as fatal, throwing away the
+		// paints and shifts that had been collected perfectly well.
+		const partial: Vitals = {
+			...CAPTURE,
+			installed: ["largest-contentful-paint", "layout-shift", "paint"],
+			unavailable: ["longtask: not supported"],
+		};
+		const out = renderVitals(partial, measure(partial));
+
+		expect(out).toContain("largest contentful paint");
+		expect(out).toContain("longtask");
+	});
+
+	it("will not pass a capture that is missing an observer", () => {
+		const partial: Vitals = {
+			...CAPTURE,
+			shifts: [],
+			longTasks: [],
+			installed: ["largest-contentful-paint", "paint"],
+			unavailable: ["layout-shift: not supported"],
+		};
+
+		expect(renderVitals(partial, measure(partial)).startsWith("WARN")).toBe(
+			true,
+		);
 	});
 });

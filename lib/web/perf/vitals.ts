@@ -52,8 +52,28 @@ export interface Vitals {
 		readonly responseStart: number;
 		readonly transferSize: number;
 	};
-	/** Set when the observers could not be installed. */
+	/** Set when the bootstrap itself could not run at all. */
 	readonly error?: string;
+	/** Entry types that are being observed. */
+	readonly installed?: readonly string[];
+	/** Entry types that could not be observed, and why. */
+	readonly unavailable?: readonly string[];
+}
+
+/**
+ * Whether an entry type was actually being watched.
+ *
+ * An observer that never installed reports nothing, which looks
+ * exactly like a page with nothing to report. Cumulative layout
+ * shift is the one that matters: it was pushed unconditionally,
+ * so a capture where no observer ran still answered 0.000 and
+ * PASS, and the renderer's "Nothing was measured" branch could
+ * never be reached.
+ */
+export function watching(vitals: Vitals, type: string): boolean {
+	// A capture from before this was recorded says nothing either
+	// way; treat it as watching, which is how it behaved then.
+	return vitals.installed === undefined || vitals.installed.includes(type);
 }
 
 /** A shift more than this far after the last one starts a new window. */
@@ -62,13 +82,25 @@ export const SESSION_GAP_MS = 1000;
 /** No session window runs longer than this. */
 export const SESSION_CAP_MS = 5000;
 
-/** The published good and poor boundaries, in order. */
+/**
+ * The published good and poor boundaries, in order.
+ *
+ * `longTask` is the per-task pair: a task over 50ms is long, and
+ * the deduction that turns a set of long tasks into total
+ * blocking time is taken against that 50. `tbt` is the separate
+ * pair for the aggregate. Reusing the per-task numbers to rate
+ * the sum called 210ms of total blocking time poor, when the
+ * published boundary for poor is 600, and because perf sits in
+ * the health digest an ordinary page dragged the whole digest
+ * to FAIL.
+ */
 export const THRESHOLDS = {
 	lcp: { good: 2500, poor: 4000 },
 	cls: { good: 0.1, poor: 0.25 },
 	fcp: { good: 1800, poor: 3000 },
 	ttfb: { good: 800, poor: 1800 },
 	longTask: { good: 50, poor: 200 },
+	tbt: { good: 200, poor: 600 },
 } as const;
 
 /** Rate a measurement against its thresholds. */
@@ -179,19 +211,21 @@ export function measure(vitals: Vitals): readonly Measure[] {
 	}
 
 	const cls = cumulativeShift(vitals.shifts);
-	measures.push({
-		name: "cumulative layout shift",
-		value: Math.round(cls * 1000) / 1000,
-		unit: "score",
-		rating: rate(cls, THRESHOLDS.cls),
-		...(vitals.shifts.length === 0
-			? {}
-			: {
-					detail: `${vitals.shifts.length} shift${
-						vitals.shifts.length === 1 ? "" : "s"
-					}`,
-				}),
-	});
+	if (watching(vitals, "layout-shift")) {
+		measures.push({
+			name: "cumulative layout shift",
+			value: Math.round(cls * 1000) / 1000,
+			unit: "score",
+			rating: rate(cls, THRESHOLDS.cls),
+			...(vitals.shifts.length === 0
+				? {}
+				: {
+						detail: `${vitals.shifts.length} shift${
+							vitals.shifts.length === 1 ? "" : "s"
+						}`,
+					}),
+		});
+	}
 
 	const blocking = vitals.longTasks.reduce(
 		(sum, task) => sum + Math.max(0, task.duration - THRESHOLDS.longTask.good),
@@ -202,7 +236,7 @@ export function measure(vitals: Vitals): readonly Measure[] {
 			name: "total blocking time",
 			value: Math.round(blocking),
 			unit: "ms",
-			rating: rate(blocking, THRESHOLDS.longTask),
+			rating: rate(blocking, THRESHOLDS.tbt),
 			detail: `${vitals.longTasks.length} long task${
 				vitals.longTasks.length === 1 ? "" : "s"
 			}`,

@@ -60,6 +60,13 @@ export function renderVitals(
 		);
 	}
 
+	// Some measures arrived and some observers did not install. Say
+	// both, rather than throwing away what was collected: one
+	// unsupported entry type used to cost the whole report.
+	const missing = vitals.unavailable ?? [];
+
+	const caveat =
+		missing.length === 0 ? "" : ` Not observed: ${missing.join("; ")}.`;
 	const width = Math.max(...measures.map((one) => one.name.length));
 	const lines = measures.map(
 		(one) =>
@@ -85,13 +92,22 @@ export function renderVitals(
 
 	return renderVerdict(
 		{
-			standing: overall(measures),
+			// A partial capture cannot pass: an observer that never
+			// installed reports nothing, which reads the same as a page
+			// with nothing wrong.
+			standing:
+				missing.length > 0 && overall(measures) === "pass"
+					? "warn"
+					: overall(measures),
 			headline:
 				failing.length === 0
-					? "Every measure is within its threshold."
+					? missing.length === 0
+						? "Every measure is within its threshold."
+						: "Every measure taken is within its threshold, but " +
+							`${missing.length} could not be observed.`
 					: `${failing.length} of ${measures.length} measures are outside ` +
 						`their threshold, worst is ${failing[0]?.name}.`,
-			measured: `Measured ${measures.length} of the published web vitals.`,
+			measured: `Measured ${measures.length} of the published web vitals.${caveat}`,
 		},
 		lines.join("\n"),
 	);
