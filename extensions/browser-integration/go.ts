@@ -13,6 +13,7 @@ import { KnownDevices } from "puppeteer-core";
 import {
 	type EmulationState,
 	renderEnvironment,
+	renderStorage,
 } from "../../lib/web/environment/index.js";
 import {
 	type BrowserSession,
@@ -32,6 +33,7 @@ const parameters = Type.Object({
 				Type.Literal("close"),
 				Type.Literal("dialogs"),
 				Type.Literal("emulate"),
+				Type.Literal("storage"),
 			],
 			{
 				description:
@@ -42,6 +44,7 @@ const parameters = Type.Object({
 					"read back the ones already seen. " +
 					"emulate: be a different visitor, by device, viewport, media " +
 					"preference, sight, locale or clock. " +
+					"storage: read, write or clear what the page has kept. " +
 					"Defaults to navigate with a url, open without one.",
 			},
 		),
@@ -50,6 +53,39 @@ const parameters = Type.Object({
 		Type.String({ description: "Session name. Defaults to 'default'." }),
 	),
 	url: Type.Optional(Type.String({ description: "URL for open or navigate." })),
+	store: Type.Optional(
+		Type.Union(
+			[
+				Type.Literal("local"),
+				Type.Literal("session"),
+				Type.Literal("cookies"),
+				Type.Literal("clipboard"),
+				Type.Literal("all"),
+			],
+			{
+				description:
+					"For storage: which store to work with. Defaults to all, " +
+					"which reads everything but the clipboard.",
+			},
+		),
+	),
+	key: Type.Optional(
+		Type.String({
+			description: "For storage: the key to write, with value.",
+		}),
+	),
+	value: Type.Optional(
+		Type.String({
+			description:
+				"For storage: the value to write under key, or the text to " +
+				"put on the clipboard.",
+		}),
+	),
+	clear: Type.Optional(
+		Type.Boolean({
+			description: "For storage: empty the named store instead of reading.",
+		}),
+	),
 	device: Type.Optional(
 		Type.String({
 			description:
@@ -249,6 +285,54 @@ function emulationFrom(params: {
 /** How many near-miss device names are worth offering. */
 const MAX_DEVICE_SUGGESTIONS = 5;
 
+/**
+ * Read, write or empty what the page has kept.
+ *
+ * The clipboard is left out of a bare read: it belongs to the
+ * whole machine rather than to the page, and helping yourself
+ * to it because someone asked what a site had stored would be
+ * a surprise.
+ */
+async function runStorage(
+	session: BrowserSession,
+	params: {
+		store?: "local" | "session" | "cookies" | "clipboard" | "all";
+		key?: string;
+		value?: string;
+		clear?: boolean;
+	},
+): Promise<string> {
+	const store = params.store ?? "all";
+	const wanted = {
+		local: store === "local" || store === "all",
+		session: store === "session" || store === "all",
+		cookies: store === "cookies" || store === "all",
+		clipboard: store === "clipboard",
+	};
+
+	if (params.clear) {
+		await session.clearStorage(wanted);
+		return `Emptied ${store === "all" ? "local storage, session storage and cookies" : store}.`;
+	}
+
+	if (params.value !== undefined) {
+		if (store === "clipboard") {
+			await session.writeClipboard(params.value);
+			return `Put ${JSON.stringify(params.value)} on the clipboard.`;
+		}
+		if (params.key === undefined) {
+			return `Writing to ${store} needs a key as well as a value.`;
+		}
+		if (store !== "local" && store !== "session") {
+			return "Only local and session storage can be written this way.";
+		}
+		await session.setStored(store === "local", params.key, params.value);
+		return `Set ${params.key} in ${store} storage.`;
+	}
+
+	return renderStorage(await session.storage(wanted));
+}
+
 /** Register the navigation half of the browser family. */
 export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 	pi.registerTool({
@@ -299,6 +383,10 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 					return refusal(name, kind, err.message);
 				}
 				throw err;
+			}
+
+			if (kind === "storage") {
+				return answer(name, kind, await runStorage(session, params));
 			}
 
 			if (kind === "emulate") {

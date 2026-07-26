@@ -65,6 +65,7 @@ import {
 } from "./element/index.js";
 import { type BundleSink, diskSink } from "./envelope/index.js";
 import {
+	type CookieRecord,
 	type Divergence,
 	divergences,
 	type EmulationState,
@@ -72,6 +73,7 @@ import {
 	mediaFeaturesOf,
 	mergeEmulation,
 	type ObservedEnvironment,
+	type StorageSnapshot,
 } from "./environment/index.js";
 import { captureTiles } from "./screenshot.js";
 import {
@@ -827,6 +829,167 @@ export class BrowserSession {
 	/** What this session has asked the browser to pretend. */
 	get emulated(): EmulationState {
 		return this.emulation;
+	}
+
+	/**
+	 * Read what the page has kept.
+	 *
+	 * A store that cannot be read says why rather than coming
+	 * back empty, since an empty store and an unreadable one lead
+	 * to opposite conclusions.
+	 */
+	async storage(wanted: {
+		local?: boolean;
+		session?: boolean;
+		cookies?: boolean;
+		clipboard?: boolean;
+	}): Promise<StorageSnapshot> {
+		await this.ready();
+		const snapshot: {
+			local?: readonly (readonly [string, string])[];
+			session?: readonly (readonly [string, string])[];
+			cookies?: readonly CookieRecord[];
+			clipboard?: string;
+			unavailable: Record<string, string>;
+		} = { unavailable: {} };
+
+		if (wanted.local) {
+			snapshot.local = await this.domStorage(true, snapshot.unavailable);
+		}
+		if (wanted.session) {
+			snapshot.session = await this.domStorage(false, snapshot.unavailable);
+		}
+		if (wanted.cookies) {
+			try {
+				const { cookies } = await this.cdp.send("Network.getCookies");
+				snapshot.cookies = cookies as CookieRecord[];
+			} catch (err) {
+				snapshot.unavailable.cookies = String(err);
+			}
+		}
+		if (wanted.clipboard) {
+			const read = await this.clipboard();
+			if (read.ok) snapshot.clipboard = read.text;
+			else snapshot.unavailable.clipboard = read.why;
+		}
+
+		const { unavailable, ...rest } = snapshot;
+		return Object.keys(unavailable).length > 0
+			? { ...rest, unavailable }
+			: rest;
+	}
+
+	/** One of the two DOM stores, keyed by this frame's origin. */
+	private async domStorage(
+		isLocalStorage: boolean,
+		unavailable: Record<string, string>,
+	): Promise<readonly (readonly [string, string])[] | undefined> {
+		const label = isLocalStorage ? "local storage" : "session storage";
+		try {
+			await this.cdp.send("DOMStorage.enable");
+			const { entries } = await this.cdp.send("DOMStorage.getDOMStorageItems", {
+				storageId: { securityOrigin: await this.origin(), isLocalStorage },
+			});
+			// The protocol types an entry as a loose string array; it
+			// is always a key and a value, which is what the pair type
+			// says and what the renderer reads.
+			return entries.map((entry) => [entry[0] ?? "", entry[1] ?? ""] as const);
+		} catch (err) {
+			// A page on about:blank or a file url has no security
+			// origin to key a store by, which is a fact about where we
+			// are rather than a failure to report.
+			unavailable[label] = String(err);
+			return undefined;
+		}
+	}
+
+	/** Put a value into one of the DOM stores. */
+	async setStored(
+		isLocalStorage: boolean,
+		key: string,
+		value: string,
+	): Promise<void> {
+		await this.ready();
+		await this.cdp.send("DOMStorage.enable");
+		await this.cdp.send("DOMStorage.setDOMStorageItem", {
+			storageId: { securityOrigin: await this.origin(), isLocalStorage },
+			key,
+			value,
+		});
+	}
+
+	/** Empty the stores named, and only those. */
+	async clearStorage(wanted: {
+		local?: boolean;
+		session?: boolean;
+		cookies?: boolean;
+	}): Promise<void> {
+		await this.ready();
+		if (wanted.local || wanted.session) {
+			await this.cdp.send("DOMStorage.enable");
+			const securityOrigin = await this.origin();
+			if (wanted.local) {
+				await this.cdp.send("DOMStorage.clear", {
+					storageId: { securityOrigin, isLocalStorage: true },
+				});
+			}
+			if (wanted.session) {
+				await this.cdp.send("DOMStorage.clear", {
+					storageId: { securityOrigin, isLocalStorage: false },
+				});
+			}
+		}
+		if (wanted.cookies) await this.cdp.send("Network.clearBrowserCookies");
+	}
+
+	/**
+	 * Read the clipboard.
+	 *
+	 * Chrome refuses this unless the permission is granted against
+	 * the browser context, not merely the origin, and unless the
+	 * read is attributed to a user gesture. Both were measured;
+	 * either alone still gets a refusal.
+	 */
+	private async clipboard(): Promise<
+		{ ok: true; text: string } | { ok: false; why: string }
+	> {
+		try {
+			await this.grantClipboard();
+			const { result } = await this.cdp.send("Runtime.evaluate", {
+				expression: "navigator.clipboard.readText()",
+				awaitPromise: true,
+				userGesture: true,
+				returnByValue: true,
+			});
+			return { ok: true, text: String(result.value ?? "") };
+		} catch (err) {
+			return { ok: false, why: String(err) };
+		}
+	}
+
+	/** Put text on the clipboard. */
+	async writeClipboard(text: string): Promise<void> {
+		await this.ready();
+		await this.grantClipboard();
+		await this.cdp.send("Runtime.evaluate", {
+			expression: `navigator.clipboard.writeText(${JSON.stringify(text)})`,
+			awaitPromise: true,
+			userGesture: true,
+		});
+	}
+
+	/** Ask for clipboard access against this context. */
+	private async grantClipboard(): Promise<void> {
+		await this.cdp.send("Browser.grantPermissions", {
+			origin: await this.origin(),
+			browserContextId: this.context.id,
+			permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
+		});
+	}
+
+	/** The origin the current page's stores are keyed by. */
+	private async origin(): Promise<string> {
+		return new URL(this.page.url()).origin;
 	}
 
 	private async listenForAnnouncements(): Promise<void> {

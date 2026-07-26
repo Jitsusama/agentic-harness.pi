@@ -17,4 +17,9 @@ export {
 	type VisionDeficiency,
 } from "./emulation.js";
 export { ENVIRONMENT_PROBE } from "./probes.js";
+export {
+	type CookieRecord,
+	renderStorage,
+	type StorageSnapshot,
+} from "./storage.js";
 export { renderEnvironment } from "./view.js";
