@@ -19,6 +19,8 @@
  * judge it.
  */
 
+import { renderVerdict, standingFor } from "../audit/verdict.js";
+
 /** The style properties a focus indicator could live in. */
 export interface FocusStyle {
 	readonly outlineStyle: string;
@@ -256,11 +258,9 @@ export function renderWalk(findings: WalkFindings): string {
 	});
 	const looped = real.length > firstPass.length;
 
-	lines.push(
+	const measured =
 		`Tabbed through ${firstPass.length} distinct stops` +
-			`${looped ? ", then the order repeated" : ""}.`,
-		"",
-	);
+		`${looped ? ", then the order repeated" : ""}.`;
 
 	if (findings.trap) {
 		const names = findings.trap.members
@@ -342,5 +342,45 @@ export function renderWalk(findings: WalkFindings): string {
 		lines.push(`  ... and ${firstPass.length - MAX_LISTED_STOPS} more.`);
 	}
 
-	return lines.join("\n");
+	// A trap or an unreachable control is a page a keyboard user
+	// cannot finish using, so those fail. An invisible ring or a
+	// rearranged order makes the page hard rather than impossible.
+	const failures =
+		(findings.trap ? 1 : 0) +
+		findings.unreachable.length +
+		findings.missed.length;
+	const warnings =
+		findings.noIndicator.length +
+		findings.offscreen.length +
+		findings.positiveTabindex.length +
+		(findings.reordered ? 1 : 0);
+
+	return renderVerdict(
+		{
+			standing: standingFor({ failures, warnings }),
+			headline: headlineFor(findings, failures, warnings),
+			measured,
+		},
+		lines.join("\n"),
+	);
+}
+
+/** Say the worst true thing about the walk, in one line. */
+function headlineFor(
+	findings: WalkFindings,
+	failures: number,
+	warnings: number,
+): string {
+	if (findings.trap) {
+		return findings.trap.escapeFreed
+			? "Focus is trapped, though Escape gets out."
+			: "Focus is trapped with no way out but a mouse.";
+	}
+	if (findings.unreachable.length > 0 || findings.missed.length > 0) {
+		return `${failures} things can be operated but never focused.`;
+	}
+	if (warnings > 0) {
+		return `Everything can be reached, but ${warnings} stops are hard to follow.`;
+	}
+	return "Every control can be reached, in order, with focus visible.";
 }

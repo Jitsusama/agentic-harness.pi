@@ -13,6 +13,8 @@
  * few pixels joins them into the thing that actually moved.
  */
 
+import { renderVerdict } from "../audit/verdict.js";
+
 /** A changed area of the image, in pixels. */
 export interface Region {
 	readonly x: number;
@@ -216,27 +218,31 @@ export function renderComparison(
 	artifacts: readonly string[] = [],
 ): string {
 	if (comparison.kind === "incomparable") {
-		return `The two images cannot be compared: ${comparison.because}`;
+		return renderVerdict(
+			{
+				standing: "warn",
+				headline: "The two images cannot be compared.",
+				measured: comparison.because,
+			},
+			"",
+		);
 	}
 
 	const { changedPixels, fraction, regions, width, height } = comparison;
 	if (changedPixels === 0) {
-		return `Identical. Both are ${width} by ${height}.`;
+		return renderVerdict(
+			{
+				standing: "pass",
+				headline: "Identical to the baseline.",
+				measured: `Compared every pixel of ${width} by ${height}.`,
+			},
+			"",
+		);
 	}
 
 	const percent = (fraction * 100).toFixed(fraction < 0.001 ? 4 : 2);
-	const lines = [
-		`${changedPixels} pixels differ, ${percent} percent of the image, ` +
-			`across ${regions.length} ${
-				regions.length === 1 ? "region" : "separate regions"
-			}.`,
-	];
-	if (fraction < IGNORABLE_FRACTION) {
-		lines.push(
-			"That is small enough to be rendering noise rather than a change.",
-		);
-	}
-	lines.push("");
+	const noise = fraction < IGNORABLE_FRACTION;
+	const lines: string[] = [];
 
 	for (const region of regions.slice(0, MAX_NAMED_REGIONS)) {
 		const where = region.selector ? `  ${region.selector}` : "";
@@ -252,5 +258,20 @@ export function renderComparison(
 	if (artifacts.length > 0) {
 		lines.push("", ...artifacts);
 	}
-	return lines.join("\n");
+
+	return renderVerdict(
+		{
+			// A change too small to see is worth a warning rather than
+			// a failure: it is usually the renderer, not the page.
+			standing: noise ? "warn" : "fail",
+			headline:
+				`${changedPixels} pixels differ, ${percent} percent of the ` +
+				`image, across ${regions.length} ` +
+				`${regions.length === 1 ? "region" : "separate regions"}.`,
+			measured: noise
+				? "That is small enough to be rendering noise rather than a change."
+				: `Compared every pixel of ${width} by ${height}.`,
+		},
+		lines.join("\n"),
+	);
 }

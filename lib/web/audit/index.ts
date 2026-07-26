@@ -92,6 +92,12 @@ export {
 	type TargetVerdict,
 } from "./target.js";
 export {
+	renderVerdict,
+	type Standing,
+	standingFor,
+	type Verdict,
+} from "./verdict.js";
+export {
 	ASPECT_TOLERANCE,
 	analyseVisual,
 	brokenImages,

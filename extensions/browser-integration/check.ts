@@ -16,6 +16,7 @@ import {
 	analyseVisual,
 	mergeFindings,
 	renderAudit,
+	renderVerdict,
 	SUPERSEDED_BY,
 	tallyFindings,
 } from "../../lib/web/audit/index.js";
@@ -139,11 +140,15 @@ export function registerCheck(
 					analyseStructure(structure),
 					SUPERSEDED_BY,
 				);
+				const measured =
+					`Checked ${structure.length} elements against the axe rule ` +
+					"set and seven structural rules.";
 				return answer(
 					name,
 					kind,
 					renderAudit(findings, tallyFindings(findings), {
 						...(params.rule === undefined ? {} : { rule: params.rule }),
+						measured,
 					}),
 				);
 			}
@@ -154,11 +159,20 @@ export function registerCheck(
 						...(params.update === undefined ? {} : { update: params.update }),
 					});
 				if (!comparison) {
+					// Not a pass: nothing was judged. Recording a baseline
+					// and reporting PASS would let a first run look like a
+					// clean one forever after.
 					return answer(
 						name,
 						kind,
-						`Baseline recorded at ${recorded}. Nothing to compare ` +
-							"against yet; run this again after a change to see one.",
+						renderVerdict(
+							{
+								standing: "warn",
+								headline: "No baseline existed, so this run became one.",
+								measured: `Recorded at ${recorded}. Run this again after a change.`,
+							},
+							"",
+						),
 					);
 				}
 				return answer(name, kind, renderComparison(comparison, artifacts));
@@ -183,6 +197,9 @@ export function registerCheck(
 					kind,
 					renderAudit(findings, tallyFindings(findings), {
 						...(params.rule === undefined ? {} : { rule: params.rule }),
+						measured:
+							`Measured ${nodes.length} drawn elements in a ` +
+							`${viewport.width} by ${viewport.height} viewport.`,
 					}),
 				);
 			}
@@ -192,9 +209,19 @@ export function registerCheck(
 				return answer(
 					name,
 					kind,
-					"Nothing on this page can hold focus. A page with no " +
-						"focusable controls cannot be used with a keyboard at all, " +
-						"which is either the point or the bug.",
+					renderVerdict(
+						{
+							// A page of prose legitimately has no controls, and a
+							// broken application looks identical from here.
+							standing: "warn",
+							headline: "Nothing on this page can hold focus.",
+							measured:
+								"A page with no focusable controls cannot be used " +
+								"with a keyboard at all, which is either the point " +
+								"or the bug.",
+						},
+						"",
+					),
 				);
 			}
 

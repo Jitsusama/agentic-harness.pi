@@ -12,6 +12,7 @@ import {
 	type Impact,
 	orderFindings,
 } from "./axe.js";
+import { renderVerdict, standingFor, type Verdict } from "./verdict.js";
 
 /** Say a count with the noun that agrees with it. */
 function count(many: number, one: string, plural = `${one}s`): string {
@@ -38,7 +39,7 @@ const IMPACT_ORDER: readonly Impact[] = [
  */
 export function renderSummary(tally: AxeTally): string {
 	if (tally.violations === 0 && tally.needsReview === 0) {
-		return "No accessibility violations found by axe.";
+		return "Nothing failed.";
 	}
 
 	const parts: string[] = [];
@@ -137,7 +138,7 @@ export function renderFinding(finding: A11yFinding): string {
 export function renderAudit(
 	unordered: readonly A11yFinding[],
 	tally: AxeTally,
-	options: { readonly rule?: string } = {},
+	options: { readonly rule?: string; readonly measured?: string } = {},
 ): string {
 	// Ordered here rather than trusted from the caller. A report
 	// that claims to lead with the worst thing found has to do so
@@ -162,14 +163,19 @@ export function renderAudit(
 		return found.map(renderFinding).join("\n\n");
 	}
 
-	const summary = renderSummary(tally);
 	const index = renderIndex(findings);
-	if (index === "") return summary;
-	return [
-		summary,
-		"",
-		index,
-		"",
-		"Name a rule to see the elements and how to fix them.",
-	].join("\n");
+	const verdict: Verdict = {
+		standing: standingFor({
+			failures: tally.violations,
+			warnings: tally.needsReview,
+		}),
+		headline: renderSummary(tally),
+		...(options.measured === undefined ? {} : { measured: options.measured }),
+	};
+	return renderVerdict(
+		verdict,
+		index === ""
+			? ""
+			: `${index}\n\nName a rule to see the elements and how to fix them.`,
+	);
 }

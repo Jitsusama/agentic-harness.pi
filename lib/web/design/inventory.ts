@@ -14,6 +14,7 @@
  */
 
 import { contrastRatio, type Rgba } from "../audit/colour.js";
+import { renderVerdict } from "../audit/verdict.js";
 
 /** One value found on the page, and how often. */
 export interface Usage {
@@ -226,7 +227,12 @@ export function renderInventory(
 	dimensions: readonly Dimension[],
 	options: { readonly property?: string } = {},
 ): string {
-	if (dimensions.length === 0) return "Nothing was sampled from this page.";
+	if (dimensions.length === 0) {
+		return renderVerdict(
+			{ standing: "warn", headline: "Nothing was sampled from this page." },
+			"",
+		);
+	}
 
 	if (options.property) {
 		const found = dimensions.find(
@@ -244,19 +250,31 @@ export function renderInventory(
 	const drifting = dimensions.filter(
 		(dimension) => dimension.clusters.length > 0,
 	);
-	const lines = [
-		`${dimensions.length} properties sampled. ` +
-			(drifting.length === 0
-				? "No two values were close enough to look accidental."
-				: `${drifting.length} of them hold values close enough to ` +
-					"have been meant as one."),
-		"",
-	];
+	const values = dimensions.reduce(
+		(sum, dimension) => sum + dimension.distinct,
+		0,
+	);
+
+	const lines: string[] = [];
 	for (const dimension of dimensions) {
 		lines.push(renderDimension(dimension, MAX_LISTED), "");
 	}
 	lines.push("Name a property to see every value and where it is used.");
-	return lines.join("\n");
+
+	return renderVerdict(
+		{
+			// Drift is a question, never a failure. Two blues a step
+			// apart may be a hover state, and this cannot tell.
+			standing: drifting.length === 0 ? "pass" : "warn",
+			headline:
+				drifting.length === 0
+					? "No two values were close enough to look accidental."
+					: `${drifting.length} of ${dimensions.length} properties hold ` +
+						"values close enough to have been meant as one.",
+			measured: `Sampled ${values} distinct values across ${dimensions.length} properties.`,
+		},
+		lines.join("\n"),
+	);
 }
 
 function renderDimension(dimension: Dimension, limit: number): string {

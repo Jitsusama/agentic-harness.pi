@@ -195,9 +195,25 @@ describe("renderInventory", () => {
 		expect(renderInventory([])).toContain("Nothing was sampled");
 	});
 
-	it("leads with how many properties look like drift", () => {
+	it("leads with a verdict and how many properties look like drift", () => {
+		const out = renderInventory(takeInventory(GREYS));
+		expect(out).toContain("1 of 1 properties hold values close enough");
+		// Drift is a question rather than a failure: two blues a
+		// step apart may well be a hover state.
+		expect(out.startsWith("WARN")).toBe(true);
+	});
+
+	it("passes a page whose values all stand apart", () => {
+		const clean = takeInventory([
+			sample("a", { color: "rgb(0, 0, 0)" }),
+			sample("b", { color: "rgb(255, 255, 255)" }),
+		]);
+		expect(renderInventory(clean).startsWith("PASS")).toBe(true);
+	});
+
+	it("says what it sampled, so a clean pass is not a shrug", () => {
 		expect(renderInventory(takeInventory(GREYS))).toContain(
-			"1 of them hold values close enough",
+			"Sampled 4 distinct values",
 		);
 	});
 

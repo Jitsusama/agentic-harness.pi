@@ -351,7 +351,7 @@ describe("tallyFindings", () => {
 
 describe("renderSummary", () => {
 	it("says nothing was found when nothing was", () => {
-		expect(renderSummary(tallyFindings([]))).toContain("No accessibility");
+		expect(renderSummary(tallyFindings([]))).toContain("Nothing failed");
 	});
 
 	it("leads with rules, elements and severities", () => {
@@ -445,6 +445,29 @@ describe("renderFinding", () => {
 describe("renderAudit", () => {
 	const findings = readAxeRun(RUN);
 	const tally = tallyFindings(findings);
+
+	it("opens with a verdict every check shares", () => {
+		expect(renderAudit(findings, tally).startsWith("FAIL")).toBe(true);
+		expect(renderAudit([], tallyFindings([])).startsWith("PASS")).toBe(true);
+	});
+
+	it("warns rather than passes when only undecided results remain", () => {
+		// A checker that turns its own uncertainty into approval is
+		// worse than no checker.
+		const unsure = readAxeRun({
+			incomplete: [{ id: "color-contrast", impact: "serious", nodes: [{}] }],
+		});
+		expect(renderAudit(unsure, tallyFindings(unsure)).startsWith("WARN")).toBe(
+			true,
+		);
+	});
+
+	it("says what it measured, so a clean pass is not a shrug", () => {
+		const out = renderAudit([], tallyFindings([]), {
+			measured: "Checked 340 elements against 91 rules.",
+		});
+		expect(out).toContain("340 elements");
+	});
 
 	it("stays short enough to read at a glance", () => {
 		const out = renderAudit(findings, tally);
