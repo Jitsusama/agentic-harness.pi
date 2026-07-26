@@ -81,7 +81,11 @@ difference between a useful finding and a misleading one:
 - **WCAG criteria against best practice.** Both matter, and only
   one means the page fails a standard. Never report a
   best-practice finding as a WCAG failure. The summary counts
-  them separately for exactly this reason
+  them separately for exactly this reason, and the mark at the
+  top follows the same line: `FAIL` means a criterion was
+  violated, while a page whose only findings are best practice
+  opens with `WARN` and says so. A page can be worth improving
+  and still not be failing anything
 - **Failures against what needs a person.** axe declines to
   judge some things, most commonly text over a gradient or an
   image. Those are reported apart and must be relayed apart

@@ -90,6 +90,40 @@ When something does not work, the order that finds it fastest:
    depth, with `why:"<property>"` to trace a style through the
    cascade
 
+## Components and Frames Are Not Walls
+
+Everything that reads or judges the page descends through open
+shadow roots and same-origin frames. A design-system page built
+from custom elements is not a row of empty tags: its buttons are
+found, checked, walked and clicked like any others.
+
+A selector that crosses a boundary is written with `>>`, the way
+devtools and Playwright write it, so a finding against
+`my-card >> button` names something you can go and look at.
+
+Two limits are real and are reported rather than hidden. A closed
+shadow root is unreachable by anybody, us included. A cross-origin
+frame runs in another process and its document cannot be read from
+page script, so those are counted and named, never quietly
+skipped. If a page seems to be missing content you can see, `see
+query` with `inShadow` and the unreachable count in the answer are
+where to look first.
+
+## What Counts as Being on the Page
+
+The checks judge what a person is actually offered, which is not
+the same as what exists in the DOM.
+
+A control inside a closed dialog, or hidden by `visibility`, or in
+an `inert` subtree, is not a keyboard stop, not a pointer target
+and not part of the design. A screen-reader-only label clipped to
+a pixel is not something anybody looks at. None of those are
+reported as faults, because none of them are.
+
+One case deliberately still counts: `opacity: 0`. Such a control
+is still focusable and still clickable, so it is judged, and focus
+landing somewhere invisible is reported as the defect it is.
+
 ## Reading Without Drowning
 
 Every list is paged and every large artifact goes to disk. This
@@ -175,13 +209,25 @@ one width can pass a page that is unusable on a phone.
 Every check opens with `PASS`, `WARN` or `FAIL`, a headline, and
 what was measured.
 
-**`WARN` never means "probably fine".** It means something could
-not be decided, and the two are opposite. Text over a gradient,
-a page with no focusable controls, a comparison with no baseline
-yet: all warn, because reporting them as passes would be a lie
-of the most damaging kind. If you relay a `WARN` to the user as
-a pass, you have introduced the exact failure the tool went out
-of its way to avoid.
+**`WARN` never means "probably fine".** It means the tool will
+not decide this one for you, which is the opposite. There are two
+ways that happens, and the headline always says which.
+
+Nothing could measure it: text over a gradient, a page with no
+focusable controls, a comparison with no baseline yet. Reporting
+any of those as a pass would be a lie of the most damaging kind.
+If you relay a `WARN` to the user as a pass, you have introduced
+the exact failure the tool went out of its way to avoid.
+
+Or nothing was broken but something is still worth your
+judgment. A best-practice rule failing is the common case: two
+level-one headings on a page is somebody's good advice, not a
+standard. Say what it is rather than inflating it.
+
+**`FAIL` means a standard was violated**, and nothing else earns
+it. That is what makes it safe to gate a build on. A check that
+spent `FAIL` on advice would have to be ignored, and then it
+would be ignored the once it mattered.
 
 **Read what was measured before trusting a `PASS`.** "Nothing
 failed" and "nothing failed across 41 elements and the axe rule
