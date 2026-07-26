@@ -94,7 +94,7 @@ export function enforceResultCeiling(
 		0,
 		opts.limitBytes - Buffer.byteLength(notice, "utf-8"),
 	);
-	const head = sliceUtf8(textFacing(shaped), headBudget);
+	const head = headWithin(shaped, headBudget);
 
 	const out: McpContent[] = [];
 	if (head.length > 0) out.push({ type: "text", text: head });
@@ -102,15 +102,59 @@ export function enforceResultCeiling(
 	return out;
 }
 
-/** The text a result contributes to the model: text blocks verbatim, resource_link rendered, binary dropped. */
-function textFacing(content: McpContent[]): string {
+/**
+ * As much of the head as the budget allows, never cutting a block
+ * that cites a handle.
+ *
+ * A block naming a handle is all-or-nothing. Sliced, it hands back
+ * a prefix that reads exactly like a handle, and a caller who
+ * queries it is told it does not exist, with no way to tell a cut
+ * handle from an expired one. This is not hypothetical: the
+ * summary an upstream layer had already stashed behind a handle
+ * arrived here as ordinary head text, got sliced, and CI failed
+ * asking the store for two thirds of a name. It passed locally,
+ * because the notice includes a path and a temp directory on one
+ * machine is longer than on another, which moved the cut.
+ *
+ * Everything else slices as before, so the byte guarantee holds.
+ */
+function headWithin(content: McpContent[], budget: number): string {
+	const kept: string[] = [];
+	let spent = 0;
+	for (const part of textParts(content)) {
+		const cost = Buffer.byteLength(part, "utf-8") + (kept.length > 0 ? 1 : 0);
+		if (CITES_A_HANDLE.test(part)) {
+			// Whole or not at all. Dropping it loses nothing a caller can
+			// follow, because the notice below names a handle for the same
+			// payload.
+			if (spent + cost <= budget) {
+				kept.push(part);
+				spent += cost;
+			}
+			continue;
+		}
+		const room = budget - spent - (kept.length > 0 ? 1 : 0);
+		if (room <= 0) break;
+		const slice = sliceUtf8(part, room);
+		if (slice.length === 0) break;
+		kept.push(slice);
+		spent += Buffer.byteLength(slice, "utf-8") + (kept.length > 1 ? 1 : 0);
+	}
+	return kept.join("\n");
+}
+
+/** A block that names a handle somebody is meant to be able to use. */
+const CITES_A_HANDLE = /handle [A-Za-z0-9][A-Za-z0-9_-]*/;
+
+/** The model-facing text of each block, in order. */
+function textParts(content: McpContent[]): string[] {
 	const parts: string[] = [];
 	for (const block of content) {
 		if (block.type === "text") parts.push(block.text);
 		else if (block.type === "resource_link")
 			parts.push(resourceLinkText(block.uri));
 	}
-	return parts.join("\n");
+	return parts;
 }
 
 /** The outcome of a spill: where it landed on success, or an error message on failure. */
