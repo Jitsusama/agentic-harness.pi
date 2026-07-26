@@ -150,13 +150,32 @@ describe("enforceResultCeiling", () => {
 		expect(fs.readdirSync(dir)).toHaveLength(0);
 	});
 
-	it("stays within a limit smaller than the notice itself", () => {
+	it("keeps the notice whole when the limit cannot hold it", () => {
+		// This used to assert the opposite, that the answer stayed under
+		// the limit whatever it cost. What it cost was the notice, sliced
+		// mid-sentence, and with it the handle naming where the payload
+		// went. Half a handle still reads like a handle: a caller queries
+		// it and is told it does not exist, with no way to tell a cut
+		// handle from an expired one.
+		//
+		// The fault was invisible until a handle grew by one byte and
+		// crossed a tight limit in a different test, which is how a
+		// latent defect usually announces itself.
 		const content: McpContent[] = [{ type: "text", text: "x".repeat(5000) }];
+
 		const out = enforceResultCeiling(content, result(content), {
 			limitBytes: 40,
 			storageDir: dir,
 		});
-		expect(contentByteSize(out)).toBeLessThanOrEqual(40);
+
+		// The head is gone, which is the whole budget spent as intended.
+		expect(out).toHaveLength(1);
+		// And the notice survives entire, closing bracket included, so
+		// whatever it names can be followed.
+		const notice = textOf(out);
+		expect(notice.startsWith("[Result capped at 40 bytes.")).toBe(true);
+		expect(notice.endsWith("]")).toBe(true);
+		expect(notice).toContain("5000");
 	});
 
 	it("appends caller guidance to the notice so a capped result points somewhere", () => {

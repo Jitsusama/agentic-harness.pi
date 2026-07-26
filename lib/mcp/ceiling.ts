@@ -50,8 +50,13 @@ export function contentByteSize(content: McpContent[]): number {
  * payload is spilled to disk (fail-closed: a spill failure never returns the
  * raw content), binary blocks are dropped rather than sliced, the text is
  * byte-sliced on a character boundary to a bounded head, and a notice block
- * reports the original size and where the remainder lives. The returned content
- * is guaranteed to measure at or below the limit.
+ * reports the original size and where the remainder lives.
+ *
+ * The returned content measures at or below the limit whenever the notice
+ * fits, which is every realistic case. The notice itself is never truncated,
+ * so a limit too small to hold it yields just the notice, slightly over
+ * budget: a handle cut in half reads like a handle and resolves to nothing,
+ * which is a worse outcome than a few bytes over.
  */
 export function enforceResultCeiling(
 	shaped: McpContent[],
@@ -67,16 +72,23 @@ export function enforceResultCeiling(
 	const rawText = joinTextContent(raw);
 	const spill = rawText.length > 0 ? trySpill(rawText, opts) : undefined;
 	const droppedImages = shaped.filter((b) => b.type === "image").length;
-	const notice = sliceUtf8(
-		ceilingNotice({
-			limitBytes: opts.limitBytes,
-			originalBytes,
-			spill,
-			droppedImages,
-			guidance: opts.guidance,
-		}),
-		opts.limitBytes,
-	);
+	// The notice is never sliced. It is the only thing that says where
+	// the payload went, and half a handle still looks like a handle:
+	// a caller reads it, queries it, and is told it does not exist.
+	// Slicing it here cost exactly that, and only became visible when
+	// a handle grew by one byte and crossed a tight limit.
+	//
+	// So the head absorbs the whole cost, down to nothing, and in the
+	// pathological case where the notice alone is longer than the
+	// limit the notice still wins. An answer slightly over budget that
+	// can be followed beats one inside budget that cannot.
+	const notice = ceilingNotice({
+		limitBytes: opts.limitBytes,
+		originalBytes,
+		spill,
+		droppedImages,
+		guidance: opts.guidance,
+	});
 
 	const headBudget = Math.max(
 		0,

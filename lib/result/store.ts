@@ -71,11 +71,29 @@ export interface ResultStore {
  *
  * A handle arrives from a language model, which means it can be
  * anything at all, including a relative path with enough parent
- * directories in it to leave the store. Handles are minted here
- * and this is what minting produces, so anything else is not a
- * handle and is refused before it reaches the filesystem.
+ * directories in it to leave the store. This is a guard against
+ * that, not a description of what minting happens to produce: it
+ * allows any name built from letters, digits, dash and underscore,
+ * which cannot escape a directory, and refuses everything else.
+ *
+ * It was briefly the exact minted shape, sixteen hex digits with a
+ * prefix, which is a different and worse rule. It rejects a handle
+ * from any other minting scheme, and it made a truncated handle
+ * indistinguishable from a hostile one when what a caller needed to
+ * hear was that their handle had been cut.
  */
-const HANDLE_PATTERN = /^result-[0-9a-f]{16}$/;
+const HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+/**
+ * What this store minted, as opposed to what it will look up.
+ *
+ * Deciding which files to count against the quota and delete is a
+ * different question from deciding which names are safe to resolve,
+ * and it needs the stricter answer. The directory may hold
+ * somebody else's files, and evicting one of those to make room for
+ * ours would be a quota enforced with other people's data.
+ */
+const MINTED_PATTERN = /^result-[0-9a-f]{16}$/;
 
 /** The extension every stored payload is written under. */
 const PAYLOAD_EXTENSION = ".json";
@@ -175,7 +193,7 @@ function payloadsOnDisk(
 	const found: { path: string; bytes: number; modifiedMs: number }[] = [];
 	for (const name of names) {
 		if (!name.endsWith(PAYLOAD_EXTENSION)) continue;
-		if (!HANDLE_PATTERN.test(name.slice(0, -PAYLOAD_EXTENSION.length)))
+		if (!MINTED_PATTERN.test(name.slice(0, -PAYLOAD_EXTENSION.length)))
 			continue;
 		const full = path.join(dir, name);
 		try {
