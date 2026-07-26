@@ -28,6 +28,7 @@ import type {
 	BrowserSession,
 	Inspection,
 	Observation,
+	Shot,
 } from "../../lib/web/session.js";
 import { describeRefusal, parseTarget } from "../../lib/web/target/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
@@ -36,6 +37,33 @@ import { answer, refusal } from "./result.js";
 /** Lay an observation out for reading: where you are, then what is there. */
 function render(observed: Observation): string {
 	return `${observed.title}\n${observed.url}\n\n${observed.outline}`;
+}
+
+/**
+ * Where the pictures went.
+ *
+ * Images are never returned inline: one screenshot is larger
+ * than the whole response budget and would crowd out the
+ * reading it was meant to illustrate.
+ */
+function renderShot(shot: Shot): string {
+	const size =
+		shot.width > 0 && shot.height > 0
+			? ` (${shot.width} by ${shot.height})`
+			: "";
+	const lines = [
+		shot.paths.length === 1
+			? `Wrote one image${size}:`
+			: `Wrote ${shot.paths.length} images, top to bottom:`,
+		...shot.paths.map((path) => `  ${path}`),
+	];
+	if (shot.truncated) {
+		lines.push(
+			"",
+			"The page ran past the tile budget, so its foot is missing.",
+		);
+	}
+	return lines.join("\n");
 }
 
 /**
@@ -74,6 +102,7 @@ const parameters = Type.Object({
 				Type.Literal("reading"),
 				Type.Literal("announcements"),
 				Type.Literal("element"),
+				Type.Literal("shot"),
 			],
 			{
 				description:
@@ -81,7 +110,8 @@ const parameters = Type.Object({
 					"the default. reading: the same page narrated the way a " +
 					"screen reader would say it. announcements: what the page " +
 					"said out loud through its live regions. element: " +
-					"everything about one element, named with 'within'.",
+					"everything about one element, named with 'within'. " +
+					"shot: a picture, written to disk and reported by path.",
 			},
 		),
 	),
@@ -109,6 +139,28 @@ const parameters = Type.Object({
 				"For element: trace why this one CSS property has the " +
 				"value it has, through every rule that had a say.",
 		}),
+	),
+	fullPage: Type.Optional(
+		Type.Boolean({
+			description:
+				"For shot: capture the whole scrollable page rather than " +
+				"what is on screen. Long pages come back as several tiles.",
+		}),
+	),
+	state: Type.Optional(
+		Type.Union(
+			[
+				Type.Literal("hover"),
+				Type.Literal("focus"),
+				Type.Literal("active"),
+				Type.Literal("focus-visible"),
+			],
+			{
+				description:
+					"For shot: hold this state on the element while " +
+					"capturing, so a hover or focus style can be seen.",
+			},
+		),
 	),
 	behaviour: Type.Optional(
 		Type.Boolean({
@@ -202,6 +254,27 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 					kind,
 					`${renderAnnouncements(entries, dropped)}\n\ncursor: ${cursor}`,
 				);
+			}
+
+			if (kind === "shot") {
+				const target = parseTarget(params.within ?? "");
+				const taken = await session.shoot({
+					...(target === undefined ? {} : { target }),
+					...(params.fullPage === undefined
+						? {}
+						: { fullPage: params.fullPage }),
+					...(params.state === undefined
+						? {}
+						: { state: params.state as PseudoState }),
+				});
+				if (!taken.ok) {
+					return refusal(
+						name,
+						kind,
+						describeRefusal(target ?? { role: "", name: "" }, taken.refusal),
+					);
+				}
+				return answer(name, kind, renderShot(taken.shot));
 			}
 
 			if (kind === "element") {

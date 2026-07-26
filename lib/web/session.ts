@@ -63,6 +63,8 @@ import {
 	sameBox,
 	type VisibilityVerdict,
 } from "./element/index.js";
+import { type BundleSink, diskSink } from "./envelope/index.js";
+import { captureTiles } from "./screenshot.js";
 import {
 	asCall,
 	COMPUTED_STYLE_PROBE,
@@ -130,6 +132,29 @@ const SETTLE_CAP_MS = 2000;
 /** An inspection, or the refusal that stopped it. */
 export type InspectResult =
 	| { readonly ok: true; readonly inspection: Inspection }
+	| { readonly ok: false; readonly refusal: TargetRefusal };
+
+/** What to photograph. */
+export interface ShotOptions {
+	/** One element rather than the page. */
+	readonly target?: Target;
+	/** The whole scrollable page rather than what is on screen. */
+	readonly fullPage?: boolean;
+	/** Hold this state while capturing. */
+	readonly state?: PseudoState;
+}
+
+/** Where the images landed, and what had to be left out. */
+export interface Shot {
+	readonly paths: readonly string[];
+	readonly truncated: boolean;
+	readonly width: number;
+	readonly height: number;
+}
+
+/** A capture, or the refusal that stopped it. */
+export type ShotResult =
+	| { readonly ok: true; readonly shot: Shot }
 	| { readonly ok: false; readonly refusal: TargetRefusal };
 
 /** The result of observing a page. */
@@ -233,6 +258,12 @@ export class BrowserSession {
 
 	/** What every property computes to untouched, read once. */
 	private initialStyles?: ComputedStyles;
+
+	/** Where this session's images are written, made on demand. */
+	private bundle?: BundleSink;
+
+	/** How many pictures have been taken, so none overwrites another. */
+	private shots = 0;
 
 	/**
 	 * Announcements still being ruled on. Candidates resolve one
@@ -623,6 +654,132 @@ export class BrowserSession {
 				: {
 						trace: await this.traceOf(backendNodeId, options.why, styles),
 					}),
+		};
+	}
+
+	/**
+	 * Photograph the page, or one element of it.
+	 *
+	 * Images never come back inline: a screenshot is far larger
+	 * than any response budget and would crowd out the reading it
+	 * was meant to illustrate. They go to the session's bundle
+	 * directory and the answer carries the paths.
+	 *
+	 * A full-page capture is tiled, because a long page makes an
+	 * image taller than a model will accept. The tiling and its
+	 * ceiling are the ones web_read already uses, so a page reads
+	 * the same either way.
+	 */
+	async shoot(options: ShotOptions = {}): Promise<ShotResult> {
+		const target = options.target;
+		let held: number | undefined;
+		try {
+			if (target) {
+				const tree = await this.axTree();
+				const resolution = resolveTarget(tree, target);
+				if (resolution.kind === "notFound") {
+					return { ok: false, refusal: notFoundRefusal(tree, target) };
+				}
+				if (resolution.kind === "ambiguous") {
+					return { ok: false, refusal: ambiguityRefusal(tree, target) };
+				}
+				held = resolution.backendDomId;
+			}
+
+			if (options.state !== undefined) {
+				await this.holdState(held, options.state);
+			}
+			return { ok: true, shot: await this.capture(held, options) };
+		} finally {
+			if (options.state !== undefined) await this.holdState(held, undefined);
+		}
+	}
+
+	/** Force or release a state for the duration of a capture. */
+	private async holdState(
+		backendNodeId: number | undefined,
+		state: PseudoState | undefined,
+	): Promise<void> {
+		if (backendNodeId === undefined) return;
+		const nodeId = await this.frontendNodeFor(backendNodeId);
+		if (nodeId === undefined) return;
+		await this.cdp
+			.send("CSS.forcePseudoState", {
+				nodeId,
+				forcedPseudoClasses: state ? [state] : [],
+			})
+			// A page that navigated took the forced state with it.
+			.catch(() => {});
+		const objectId = await this.objectFor(backendNodeId);
+		try {
+			// Photographing mid-transition catches a state part way
+			// there, which is the one thing a picture must not do.
+			if (objectId) await this.settle(objectId);
+		} finally {
+			await this.release(objectId);
+		}
+	}
+
+	/** Take the picture and write it out. */
+	private async capture(
+		backendNodeId: number | undefined,
+		options: ShotOptions,
+	): Promise<Shot> {
+		if (!this.bundle) this.bundle = diskSink();
+		const sink = this.bundle;
+		this.shots += 1;
+		const stamp = String(this.shots).padStart(2, "0");
+
+		if (backendNodeId !== undefined) {
+			const box = await this.boxOf(backendNodeId);
+			const clip = box?.border;
+			const data = await this.page.screenshot({
+				type: "png",
+				encoding: "base64",
+				...(clip
+					? {
+							clip: {
+								x: clip.x,
+								y: clip.y,
+								width: clip.width,
+								height: clip.height,
+							},
+						}
+					: {}),
+			});
+			return {
+				paths: [sink.writeBinary(`element-${stamp}.png`, String(data))],
+				truncated: false,
+				width: Math.round(clip?.width ?? 0),
+				height: Math.round(clip?.height ?? 0),
+			};
+		}
+
+		if (options.fullPage) {
+			const captured = await captureTiles(this.page);
+			return {
+				paths: captured.tiles.map((tile, index) =>
+					sink.writeBinary(
+						`page-${stamp}-${String(index + 1).padStart(2, "0")}.png`,
+						tile,
+					),
+				),
+				truncated: captured.truncated,
+				width: 0,
+				height: 0,
+			};
+		}
+
+		const data = await this.page.screenshot({
+			type: "png",
+			encoding: "base64",
+		});
+		const seen = await this.viewport();
+		return {
+			paths: [sink.writeBinary(`viewport-${stamp}.png`, String(data))],
+			truncated: false,
+			width: seen?.width ?? 0,
+			height: seen?.height ?? 0,
 		};
 	}
 

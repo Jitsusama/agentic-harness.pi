@@ -7,8 +7,8 @@
  * result is ever unobtainable, only relocated.
  */
 
-import type { BundleSink } from "../reader.js";
 import type { Paged } from "./paged.js";
+import type { BundleSink } from "./sink.js";
 
 /** How the whole list should read on disk. */
 export interface ArtifactOptions<T> {

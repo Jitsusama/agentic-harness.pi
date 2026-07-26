@@ -13,3 +13,11 @@ export {
 	type PageShape,
 	paginate,
 } from "./paged.js";
+export {
+	BUNDLE_ROOT,
+	type BundleSink,
+	DIR_MODE,
+	diskSink,
+	FILE_MODE,
+	sessionDir,
+} from "./sink.js";
