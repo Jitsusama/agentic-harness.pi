@@ -20,6 +20,8 @@ const MODAL_SELECTOR =
 	'dialog[open], [role="dialog"][aria-modal="true"], ' +
 	'[role="alertdialog"][aria-modal="true"]';
 
+import { DEEP_DOM } from "../snapshot/deep.js";
+
 /**
  * Collect everything the browser will let focus land on, and
  * remember what each looks like at rest.
@@ -30,6 +32,7 @@ const MODAL_SELECTOR =
  * the only way to know.
  */
 export const WALK_COLLECT = `(() => {
+	${DEEP_DOM}
 	const selector = [
 		"a[href]", "button", "input", "select", "textarea",
 		"[tabindex]", "details", "audio[controls]", "video[controls]",
@@ -46,7 +49,13 @@ export const WALK_COLLECT = `(() => {
 			? el.checkVisibility()
 			: el.getClientRects().length > 0;
 
-	const focusable = [...document.querySelectorAll(selector)].filter((el) => {
+	// Every focusable thing on the page, including inside open
+	// shadow roots and same-origin frames. Reading only the top
+	// document reported a design-system page as having no
+	// focusable controls at all, which the check then rendered as
+	// "Nothing on this page can hold focus".
+	const focusable = deepElements(document).filter((el) => {
+		if (!el.matches(selector)) return false;
 		if (el.disabled) return false;
 		if (el.getAttribute("tabindex") === "-1") return false;
 		return visible(el);
@@ -97,7 +106,7 @@ export const WALK_COLLECT = `(() => {
 	]);
 	const reachable = new Set(focusable);
 	const unreachable = [];
-	for (const el of document.querySelectorAll("*")) {
+	for (const el of deepElements(document)) {
 		if (reachable.has(el)) continue;
 		const role = el.getAttribute("role");
 		const hasRole = role && interactiveRoles.has(role);
@@ -105,7 +114,7 @@ export const WALK_COLLECT = `(() => {
 		if (!hasRole && !hasHandler) continue;
 		if (!visible(el)) continue;
 		unreachable.push({
-			tag: el.tagName, name: nameOf(el),
+			tag: el.tagName, name: nameOf(el), selector: deepSelectorFor(el),
 			...(role ? { role } : {}),
 			because: hasRole
 				? "carries role " + role + " but nothing can focus it"
@@ -124,7 +133,17 @@ export const WALK_COLLECT = `(() => {
  * selector that might match twice.
  */
 export const WALK_READ = `(() => {
-	const el = document.activeElement;
+	// document.activeElement stops at a shadow host: focus inside a
+	// component reports as the custom element, not the control. So
+	// the walk collected four candidates in a design system and
+	// then matched none of them, reporting zero stops. Descend to
+	// the element that really has focus.
+	let el = document.activeElement;
+	for (let hops = 0; hops < 10; hops++) {
+		const inner = el && el.shadowRoot && el.shadowRoot.activeElement;
+		if (!inner) break;
+		el = inner;
+	}
 	const list = window.__walkCandidates || [];
 	const modalSelector = ${JSON.stringify(MODAL_SELECTOR)};
 	if (!el || el === document.body || el === document.documentElement) {

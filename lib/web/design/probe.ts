@@ -15,6 +15,8 @@
  */
 
 /** The properties worth sampling, in the order they are read. */
+import { DEEP_DOM } from "../snapshot/deep.js";
+
 export const SAMPLED_PROPERTIES = [
 	"color",
 	"background-color",
@@ -38,22 +40,15 @@ export const SAMPLED_PROPERTIES = [
  */
 export function inventorySource(): string {
 	return `(() => {
+	${DEEP_DOM}
 	const PROPERTIES = ${JSON.stringify(SAMPLED_PROPERTIES)};
 
 	const NOTHING = new Set([
 		"none", "normal", "auto", "0px", "rgba(0, 0, 0, 0)", "0px 0px 0px 0px",
 	]);
 
-	const selectorFor = (el) => {
-		const tag = el.tagName.toLowerCase();
-		if (el.id) return "#" + el.id;
-		const first = el.classList[0];
-		if (first) return tag + "." + first;
-		return tag;
-	};
-
 	const samples = [];
-	for (const el of document.querySelectorAll("*")) {
+	for (const el of deepElements(document)) {
 		const tag = el.tagName.toLowerCase();
 		if (tag === "script" || tag === "style" || tag === "head") continue;
 		if (!el.checkVisibility({ checkVisibilityCSS: true })) continue;
@@ -83,7 +78,7 @@ export function inventorySource(): string {
 			values[property] = value;
 		}
 		if (Object.keys(values).length === 0) continue;
-		samples.push({ selector: selectorFor(el), values });
+		samples.push({ selector: deepSelectorFor(el), values });
 	}
 	return samples;
 })()`;

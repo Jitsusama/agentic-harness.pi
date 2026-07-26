@@ -11,6 +11,8 @@
  * the page does not have.
  */
 
+import { DEEP_DOM } from "../snapshot/deep.js";
+
 /** How much text to carry back per element. */
 const MAX_TEXT = 120;
 
@@ -23,6 +25,7 @@ const MAX_TEXT = 120;
  */
 export function visualCaptureSource(): string {
 	return `(() => {
+	${DEEP_DOM}
 	const MAX_TEXT = ${MAX_TEXT};
 
 	const ownText = (el) => {
@@ -49,7 +52,7 @@ export function visualCaptureSource(): string {
 
 	const nodes = [];
 	let index = 0;
-	for (const el of document.querySelectorAll("*")) {
+	for (const el of deepElements(document)) {
 		const tag = el.tagName.toLowerCase();
 		if (tag === "script" || tag === "style" || tag === "head") continue;
 		// checkVisibility is the browser's own answer, and the only
@@ -61,7 +64,7 @@ export function visualCaptureSource(): string {
 		const style = getComputedStyle(el);
 		const node = {
 			id: "v" + index++,
-			selector: selectorFor(el),
+			selector: deepSelectorFor(el),
 			tag,
 			rect: {
 				x: rect.x + scrollX,
@@ -123,22 +126,7 @@ export function visualCaptureSource(): string {
  * user-agent controlled when the page sets no size for it.
  */
 export const TARGET_CAPTURE = `(() => {
-	// Same naming as the visual capture, so a selector in a target
-	// finding reads the same as one in a layout finding.
-	const selectorFor = (el) => {
-		const tag = el.tagName.toLowerCase();
-		if (el.id) return "#" + el.id;
-		const hook = el.getAttribute("data-testid");
-		if (hook) return tag + '[data-testid="' + hook + '"]';
-		const first = el.classList[0];
-		if (first) return tag + "." + first;
-		const parent = el.parentElement;
-		if (!parent) return tag;
-		const kin = [...parent.children].filter((c) => c.tagName === el.tagName);
-		if (kin.length === 1) return tag;
-		return tag + ":nth-of-type(" + (kin.indexOf(el) + 1) + ")";
-	};
-
+	${DEEP_DOM}
 	const selector = [
 		"a[href]", "button", "input", "select", "textarea", "summary",
 		"[role=button]", "[role=link]", "[role=checkbox]", "[role=radio]",
@@ -178,7 +166,8 @@ export const TARGET_CAPTURE = `(() => {
 
 	const targets = [];
 	let index = 0;
-	for (const el of document.querySelectorAll(selector)) {
+	for (const el of deepElements(document)) {
+		if (!el.matches(selector)) continue;
 		if (el.disabled) continue;
 		if (!visible(el)) continue;
 		const rect = el.getBoundingClientRect();
@@ -187,7 +176,7 @@ export const TARGET_CAPTURE = `(() => {
 		const id = "t" + index++;
 		const target = {
 			id,
-			selector: selectorFor(el),
+			selector: deepSelectorFor(el),
 			rect: {
 				x: rect.x + scrollX, y: rect.y + scrollY,
 				width: rect.width, height: rect.height,

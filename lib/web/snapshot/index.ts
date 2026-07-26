@@ -3,6 +3,9 @@
  * questions worth asking of it.
  */
 
+// The page-side traversal every capture shares, so a probe sees
+// the page the snapshot sees rather than only the top document.
+export { DEEP_DOM, DEEP_UNREACHABLE } from "./deep.js";
 export {
 	type Bounds,
 	flattenSnapshot,
