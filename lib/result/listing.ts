@@ -60,11 +60,11 @@ export function citeListing<T>(
 		shown: bounded.shown,
 		total: bounded.total,
 		unit: "lines",
+		// Lines are what the reader can count; records are what is on
+		// disk. Naming both in one sentence replaced a correction
+		// appended after the fact, which contradicted the sentence above
+		// it and made the reader decide which to believe.
+		stored: { count: listing.records.length, unit: listing.unit },
 	});
-	if (cited.handle === undefined) return cited.text;
-	return (
-		`${cited.text}\nThe payload is the ` +
-		`${listing.records.length.toLocaleString()} ${listing.unit} ` +
-		`themselves, not these lines.`
-	);
+	return cited.text;
 }

@@ -17,8 +17,8 @@ Tools that can answer with more than they can show keep the whole
 payload on disk and cite it:
 
 ```
-All 18,004 outline lines are stored under handle
-result-1a2b3c4d5e6f7a8b; this answer shows 96. Query the rest with
+All 18,004 nodes are stored under handle result-1a2b3c4d5e6f7a8b,
+of which this answer renders 96 of 18,004 lines. Query it with
 result_query, projecting the fields you want rather than whole
 records. Shape: {url:string(52), title:string(31),
 nodes:array(18004, first={role:string, name:string, states:array})}
@@ -27,6 +27,12 @@ nodes:array(18004, first={role:string, name:string, states:array})}
 Three things are on offer there: the handle, the shape, and the
 number. Read the shape before writing an expression; it names the
 fields, and a query that guesses a field name comes back empty.
+
+Note which unit each count is in. What is stored is records, the
+nodes or messages or requests themselves. What was rendered is
+lines. An expression is written against the records, so a listing
+that rendered 96 lines may still hold thousands of records, and
+`$[*]` on it returns far more than the view suggested.
 
 ## Query, Do Not Re-Run
 

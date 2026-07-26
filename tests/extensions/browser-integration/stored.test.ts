@@ -142,8 +142,13 @@ describe("listAnswer", () => {
 		expect(text).toContain("Narrow with 'filter'.");
 		// The caller must know the payload holds requests, not lines,
 		// or their first expression will be written against the wrong
-		// shape.
-		expect(text).toContain("600 requests themselves");
+		// shape. Both counts are named in one sentence: what is stored
+		// and how much of the rendering they are looking at. It used to
+		// claim the lines were stored and then append a sentence taking
+		// that back, which driving Slack for real made obvious.
+		expect(text).toContain("All 600 requests are stored under handle");
+		expect(text).toMatch(/renders \d+ of 600 lines/);
+		expect(text).not.toContain("600 lines are stored");
 		const stored = createResultStore({ dir: sessionResultDir() });
 		expect(JSON.parse(stored.read(handle as string))).toHaveLength(600);
 	});

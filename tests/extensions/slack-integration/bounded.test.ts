@@ -80,8 +80,11 @@ describe("boundedAnswer", () => {
 		const stored = createResultStore({ dir: sessionResultDir() });
 		expect(JSON.parse(stored.read(handle as string))).toHaveLength(2_000);
 		// And it names what the payload holds, so the first expression
-		// is written against messages rather than lines.
-		expect(answer).toContain("2,000 messages themselves");
+		// is written against messages rather than lines, without
+		// claiming the lines themselves were stored.
+		expect(answer).toContain("All 2,000 messages are stored under handle");
+		expect(answer).toMatch(/renders \d+ of 2,000 lines/);
+		expect(answer).not.toContain("2,000 lines are stored");
 	});
 
 	it("suggests narrowing in Slack's own vocabulary", () => {

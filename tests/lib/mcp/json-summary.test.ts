@@ -35,6 +35,32 @@ describe("summarizeJson", () => {
 		expect(out).toContain("500");
 	});
 
+	it("says a field is absent rather than saying nothing", () => {
+		// Found by driving real Slack data: a message outside a thread
+		// carries neither a thread timestamp nor a reply count, and the
+		// digest rendered "threadTs: " with nothing after the colon. A
+		// reader cannot tell that from a rendering fault, and it is the
+		// field they are most likely to write an expression against.
+		const out = summarizeJson([
+			{ ts: "1", threadTs: undefined },
+			{ ts: "2", threadTs: undefined },
+		]);
+
+		expect(out).toContain("threadTs: absent on all 2");
+		expect(out).not.toMatch(/threadTs: *[,}]/);
+	});
+
+	it("counts how many records lack a field it does profile", () => {
+		// A field carried by some records is a different shape from one
+		// carried by all of them, and a query written against the first
+		// comes back shorter than the record count for a reason worth
+		// naming here rather than leaving to be guessed.
+		const out = summarizeJson([{ id: 1, replyCount: 4 }, { id: 2 }, { id: 3 }]);
+
+		expect(out).toContain("absent\u00d72");
+		expect(out).toContain("id:");
+	});
+
 	it("unions keys across a heterogeneous array of objects", () => {
 		const out = summarizeJson([{ a: 1 }, { b: 2 }]);
 		expect(out).toContain("a:");

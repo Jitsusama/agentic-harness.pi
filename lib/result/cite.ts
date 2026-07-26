@@ -35,6 +35,20 @@ export interface Citable<T> {
 	readonly total: number;
 	/** What the units are, for a sentence a human can read. */
 	readonly unit: string;
+	/**
+	 * What the payload holds, when that is a different unit from the
+	 * one being counted.
+	 *
+	 * A listing counts lines, because lines are what the reader can
+	 * see and count for themselves, but what gets stored is the
+	 * records those lines were rendered from. Without this the
+	 * citation says all 797 lines are stored, which is false, and the
+	 * family has to append a sentence taking it back. Driving Slack
+	 * for real is what surfaced it: the answer claimed lines were
+	 * stored and then said the payload was not lines, one after the
+	 * other.
+	 */
+	readonly stored?: { readonly count: number; readonly unit: string };
 }
 
 /** An answer, with a handle when there is more to be had. */
@@ -84,11 +98,22 @@ function citation<T>(
 ): string {
 	const held = answer.total.toLocaleString();
 	const seen = answer.shown.toLocaleString();
+	const rest =
+		`Query it with result_query, projecting the fields you want ` +
+		`rather than whole records. Shape: ${digest}`;
+	if (answer.stored !== undefined) {
+		// Two different counts, said once each: what is on disk, and how
+		// much of the rendering the reader is looking at.
+		const kept = answer.stored.count.toLocaleString();
+		return (
+			`All ${kept} ${answer.stored.unit} are stored under handle ` +
+			`${handle}, of which this answer renders ${seen} of ` +
+			`${held} ${answer.unit}. ${rest}`
+		);
+	}
 	return (
 		`All ${held} ${answer.unit} are stored under handle ${handle}; ` +
-		`this answer shows ${seen}. Query the rest with result_query, ` +
-		`projecting the fields you want rather than whole records. ` +
-		`Shape: ${digest}`
+		`this answer shows ${seen}. ${rest}`
 	);
 }
 

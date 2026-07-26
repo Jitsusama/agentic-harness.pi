@@ -171,11 +171,35 @@ function profileObjectArray(
 		const values = rows
 			.map((row) => (row as Record<string, unknown>)[key])
 			.filter((v) => v !== undefined);
-		return `${key}: ${profileField(values)}`;
+		return `${key}: ${describeField(values, rows.length)}`;
 	});
 	const rest = keys.length - shown.length;
 	if (rest > 0) parts.push(`(+${rest} more)`);
 	return joinEntries(parts, depth, pretty);
+}
+
+/**
+ * Profile a field, saying so when it is missing rather than saying
+ * nothing.
+ *
+ * A field can appear in the key set and hold a value on no record at
+ * all, and profiling only the values that exist then produced an
+ * empty string: "threadTs: " followed by the next field. A reader
+ * cannot tell from that whether the field is empty, absent, or a
+ * rendering fault, and it looks most like the last one. Real Slack
+ * data is where it showed up, since a message outside a thread
+ * carries neither a thread timestamp nor a reply count.
+ *
+ * Partial absence is worth the same honesty: a field carried by
+ * half the records is a different shape from one carried by all of
+ * them, and a query written against the first will come back
+ * shorter than expected for a reason the digest could have named.
+ */
+function describeField(values: unknown[], rows: number): string {
+	if (values.length === 0) return `absent on all ${rows}`;
+	const missing = rows - values.length;
+	const profile = profileField(values);
+	return missing > 0 ? `${profile}, absent×${missing}` : profile;
 }
 
 /** Profile one field's collected values: scalars by frequency, else by type. */
