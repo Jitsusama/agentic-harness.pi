@@ -313,6 +313,19 @@ is followed by judgment, not by a regex.
   the manifest against the imports. Type-only imports are
   exempt, since they vanish before the code runs. A user hit the
   first of these as `Cannot find module 'pixelmatch'`.
+  A third AGENTS.md rule is gated for the same reason:
+  🟢 a tool that can answer with a payload larger than a context
+  window stores it and cites a handle, or answers with a path on
+  disk, rather than inlining or truncating it.
+  `tests/package/stored-results.test.ts` requires every
+  tool-registering extension to be accounted for as one of those
+  two, or listed as small. The rule came from a browser action
+  that returned 2.54 MB of accessibility outline: every list in
+  that family had been budgeted for months, and the one path that
+  had not was the one every action ended with. The gate cannot
+  prove an answer is bounded, but it does fail when a family that
+  reached the shared machinery stops reaching it, and when a new
+  tool arrives with the question unanswered.
 - **Audit methodology**: `browser-accessibility-guide`. Its
   rules are about how to conduct and report an audit, and the
   claims most worth enforcing are enforced at the source rather

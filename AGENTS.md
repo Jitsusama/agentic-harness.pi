@@ -26,6 +26,11 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     `styles`, `target`, `telemetry`, `wait`. Every one but
     `session` is pure and capture-agnostic, enforced by
     `tests/lib/web/purity.test.ts`
+  - `lib/result/`: tool answers that are bounded without being
+    lossy: the session result store, the bounded structural
+    digest, the shared JSONPath query and the citation rule
+    (public). `lib/mcp` re-exports it, so the MCP surface and the
+    tool families share one store
   - `lib/guardian/`: guardian contract, registration and
     redirect formatting (public)
   - `lib/shell/`: shell command parsing: flag extraction,
@@ -209,6 +214,30 @@ factory; they're independently motivated and could grow
 separate concerns. When deciding whether to deduplicate, ask
 yourself: are these the same concept, or just coincidentally
 similar right now?
+
+### A Large Answer Is Stored, Not Truncated
+
+A tool that can produce a payload larger than a context window
+keeps the whole payload and hands back a bounded view plus a
+handle. It never inlines everything, and it never truncates into
+oblivion: the caller who needed the part that was cut has to be
+able to reach it without calling the tool again and guessing at
+different arguments.
+
+Use `lib/result`: `citeListing` for a rendered listing whose
+records are to hand, `boundedByDetails` where a family already
+passes its records through a result's details, and `cite` for
+anything shaped differently. A handle is cited exactly when the
+stored payload holds more than the view shows, and that decision
+belongs to `cite` rather than to each family.
+
+Answering with a path on disk is the same bargain by another road
+and is equally acceptable: `web_read` returns a bundle manifest
+and `subagent` names each fan-out result file.
+
+`tests/package/stored-results.test.ts` checks that every
+tool-registering extension has been accounted for one way or the
+other, so a new tool cannot quietly skip the question.
 
 ### Keep Concerns in Their Domain
 
