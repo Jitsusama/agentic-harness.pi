@@ -17,9 +17,16 @@ import type {
 	BrowserContext,
 	CDPSession,
 	ElementHandle,
+	KeyInput,
 	Page,
 	Protocol,
 } from "puppeteer-core";
+// The key table is reached through the driver's declared
+// internal subpath rather than its barrel, which marks the
+// table private and strips it from the public types. Copying
+// the 255 entries instead would mean maintaining a second
+// opinion about which keys exist, and being wrong separately.
+import { _keyDefinitions } from "puppeteer-core/internal/common/USKeyboardLayout.js";
 import {
 	ANNOUNCE_BINDING,
 	ANNOUNCEMENT_OBSERVER,
@@ -80,6 +87,23 @@ import {
 	type StorageSnapshot,
 	type ThrottleConditions,
 } from "./environment/index.js";
+import {
+	type ChordRefusal,
+	type Point,
+	type PointerEventStep,
+	parseChords,
+	type TouchStep,
+} from "./input/index.js";
+
+/**
+ * Every key the driver knows how to send.
+ *
+ * The chord parser is given this rather than keeping its own
+ * copy, so there is one table and it is the one that will
+ * actually be used to dispatch.
+ */
+const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(_keyDefinitions));
+
 import { captureTiles } from "./screenshot.js";
 import {
 	asCall,
@@ -1167,6 +1191,103 @@ export class BrowserSession {
 			// navigated out from under it. Either way there is nothing
 			// left to answer and nothing worth reporting.
 		}
+	}
+
+	/**
+	 * Press a chord, or a sequence of them.
+	 *
+	 * Dispatch goes through the driver's keyboard rather than the
+	 * protocol directly, because the driver owns the layout table
+	 * that turns a key name into a code, a virtual key number and
+	 * the text it produces. Keeping a second opinion about that
+	 * would be a second thing to be wrong about.
+	 */
+	async press(
+		keys: string,
+	): Promise<{ pressed: readonly string[] } | { refusal: ChordRefusal }> {
+		await this.ready();
+		const parsed = parseChords(keys, KNOWN_KEYS);
+		if ("refusal" in parsed) return parsed;
+
+		const pressed: string[] = [];
+		for (const chord of parsed.chords) {
+			for (const modifier of chord.modifiers) {
+				await this.page.keyboard.down(modifier);
+			}
+			await this.page.keyboard.press(chord.key as KeyInput);
+			for (const modifier of [...chord.modifiers].reverse()) {
+				await this.page.keyboard.up(modifier);
+			}
+			pressed.push([...chord.modifiers, chord.key].join("+"));
+		}
+		return { pressed };
+	}
+
+	/** Send raw text as keystrokes, wherever focus happens to be. */
+	async typeRaw(text: string): Promise<void> {
+		await this.ready();
+		await this.page.keyboard.type(text);
+	}
+
+	/** Dispatch a composed mouse gesture. */
+	async pointerGesture(steps: readonly PointerEventStep[]): Promise<void> {
+		await this.ready();
+		for (const step of steps) {
+			await this.cdp.send("Input.dispatchMouseEvent", {
+				type: step.type,
+				x: step.x,
+				y: step.y,
+				button: step.button,
+				clickCount: step.clickCount,
+			});
+		}
+	}
+
+	/** Scroll by wheel, which is not the same as scrolling by script. */
+	async wheel(at: Point, byX: number, byY: number): Promise<void> {
+		await this.ready();
+		await this.cdp.send("Input.dispatchMouseEvent", {
+			type: "mouseWheel",
+			x: at.x,
+			y: at.y,
+			deltaX: byX,
+			deltaY: byY,
+			button: "none",
+			clickCount: 0,
+		});
+	}
+
+	/**
+	 * Dispatch a composed touch gesture.
+	 *
+	 * Touch events reach the page whether or not touch emulation
+	 * is on, so this never refuses. What emulation changes is what
+	 * the page believes about itself: maxTouchPoints and the
+	 * coarse-pointer media query. A page that decides at load time
+	 * whether to attach touch handlers will not have attached any,
+	 * and the gesture lands on nothing, so the caller is told
+	 * rather than stopped.
+	 */
+	async touchGesture(steps: readonly TouchStep[]): Promise<void> {
+		await this.ready();
+		for (const step of steps) {
+			await this.cdp.send("Input.dispatchTouchEvent", {
+				type: step.type,
+				touchPoints: step.points.map((point) => ({
+					x: point.x,
+					y: point.y,
+					id: point.id,
+				})),
+			});
+			if (step.pauseMs) {
+				await new Promise((resolve) => setTimeout(resolve, step.pauseMs));
+			}
+		}
+	}
+
+	/** Whether the page believes it is being touched. */
+	get touchEmulated(): boolean {
+		return this.emulation.touch === true;
 	}
 
 	/**
