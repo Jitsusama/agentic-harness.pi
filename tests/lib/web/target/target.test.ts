@@ -59,3 +59,48 @@ describe("resolveTarget", () => {
 		});
 	});
 });
+
+describe("a resolution names one node, not a position", () => {
+	it("resolves a container-scoped target to that container's node", () => {
+		// The click path used to re-derive the element from a
+		// page-wide aria selector and take index 0, which clicked
+		// the first row's Delete whichever row was asked for. The
+		// resolution has to carry an identity the click can use,
+		// because a position in one list means nothing in another.
+		const rows = n("RootWebArea", "Rows", undefined, [
+			n("group", "Row One", 10, [n("button", "Delete", 11)]),
+			n("group", "Row Two", 20, [n("button", "Delete", 21)]),
+			n("group", "Row Three", 30, [n("button", "Delete", 31)]),
+		]);
+
+		for (const [name, backendDomId] of [
+			["Row One", 11],
+			["Row Two", 21],
+			["Row Three", 31],
+		] as const) {
+			expect(
+				resolveTarget(rows, {
+					role: "button",
+					name: "Delete",
+					container: { name },
+				}),
+			).toEqual({ kind: "resolved", backendDomId });
+		}
+	});
+
+	it("counts the ordinal within the container, not the page", () => {
+		const root = n("RootWebArea", "Rows", undefined, [
+			n("group", "Left", 10, [n("button", "Go", 11), n("button", "Go", 12)]),
+			n("group", "Right", 20, [n("button", "Go", 21), n("button", "Go", 22)]),
+		]);
+
+		expect(
+			resolveTarget(root, {
+				role: "button",
+				name: "Go",
+				container: { name: "Right" },
+				ordinal: 2,
+			}),
+		).toEqual({ kind: "resolved", backendDomId: 22 });
+	});
+});

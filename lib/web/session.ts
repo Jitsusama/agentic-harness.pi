@@ -3069,17 +3069,54 @@ export class BrowserSession {
 		if (resolution.kind === "ambiguous") {
 			return { ok: false, refusal: ambiguityRefusal(tree, target) };
 		}
-		// Drive the real element through the browser's own accessibility
-		// matching (puppeteer's aria selector), honouring an ordinal.
-		const selector = `aria/${target.name}[role="${target.role}"]`;
-		const handles = await this.page.$$(selector);
-		const index = target.ordinal ? target.ordinal - 1 : 0;
-		const element = handles[index];
-		for (let i = 0; i < handles.length; i++) {
-			if (i !== index) await handles[i].dispose();
+
+		// Drive the real element through puppeteer's aria selector, which
+		// brings the scrolling, visibility and hit testing that a raw
+		// protocol click does not. But the selector is page-wide and knows
+		// nothing of a container, and its ordering is its own, so the
+		// candidate that matches is chosen by the identity the resolution
+		// already settled rather than by position in a second list.
+		// Choosing by index here is how a click lands on the wrong row.
+		const handles = await this.page.$$(
+			`aria/${target.name}[role="${target.role}"]`,
+		);
+		let element: ElementHandle | undefined;
+		for (const handle of handles) {
+			if (
+				element === undefined &&
+				(await this.backendIdOf(handle)) === resolution.backendDomId
+			) {
+				element = handle;
+				continue;
+			}
+			await handle.dispose();
 		}
+		// The outline named a node the aria selector does not offer: the
+		// page moved, or the two matchers disagree. Refusing is the only
+		// honest answer, because any handle we still hold is a guess.
 		if (!element) return { ok: false, refusal: notFoundRefusal(tree, target) };
 		return { ok: true, element };
+	}
+
+	/**
+	 * The backend node id behind a handle, or undefined if it has gone.
+	 *
+	 * This asks puppeteer rather than sending DOM.describeNode ourselves
+	 * because a remote object id is scoped to the session that minted it,
+	 * and these handles were minted by puppeteer's session, not ours.
+	 * Resolving them through this.cdp fails for every handle, which reads
+	 * as "no candidate matched" and refuses every act.
+	 */
+	private async backendIdOf(
+		handle: ElementHandle,
+	): Promise<number | undefined> {
+		try {
+			return await handle.backendNodeId();
+		} catch {
+			// The node left the document between the outline and this
+			// lookup. It cannot be the one we resolved, so say so.
+			return undefined;
+		}
 	}
 
 	private async axTree(): Promise<AxNode> {
