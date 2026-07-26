@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	canonicalLengths,
 	clusterUsage,
 	coloursAreNear,
 	exactlyEqual,
@@ -29,6 +30,54 @@ const GREYS = [
 	sample("p.g4", { color: "rgb(120, 120, 120)" }),
 	sample("p.g1b", { color: "rgb(118, 118, 118)" }),
 ];
+
+describe("sub-pixel noise is not a design decision", () => {
+	// Measured on a real page: the same authored line height came
+	// back as both "24px" and "24.0001px", the report clustered
+	// them, and check design warned about drift between a number and
+	// itself. Nobody chose 24.0001px.
+	it("counts one authored length once, however it was computed", () => {
+		const usages = tallyUsage(
+			[
+				sample("p.a", { "line-height": "24px" }),
+				sample("p.b", { "line-height": "24.0001px" }),
+				sample("p.c", { "line-height": "24.000000001px" }),
+			],
+			"line-height",
+		);
+		expect(usages).toHaveLength(1);
+		expect(usages[0]?.value).toBe("24px");
+		expect(usages[0]?.count).toBe(3);
+	});
+
+	it("keeps a difference a person could have meant", () => {
+		// A third of a pixel is small but authored, so it survives.
+		expect(
+			tallyUsage(
+				[
+					sample("p.a", { "line-height": "24px" }),
+					sample("p.b", { "line-height": "24.33px" }),
+				],
+				"line-height",
+			),
+		).toHaveLength(2);
+	});
+
+	it("canonicalises every length in a compound value", () => {
+		expect(canonicalLengths("0px 2.0001px 4px rgba(0, 0, 0, 0.1)")).toBe(
+			"0px 2px 4px rgba(0, 0, 0, 0.1)",
+		);
+	});
+
+	it("leaves a value with no lengths alone", () => {
+		expect(canonicalLengths("rgb(118, 118, 118)")).toBe("rgb(118, 118, 118)");
+		expect(canonicalLengths("none")).toBe("none");
+	});
+
+	it("does not invent a trailing zero as a third spelling", () => {
+		expect(canonicalLengths("24.10px")).toBe("24.1px");
+	});
+});
 
 describe("tallyUsage", () => {
 	it("counts each value and orders by how often it appears", () => {

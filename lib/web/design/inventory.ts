@@ -96,8 +96,9 @@ export function tallyUsage(
 ): readonly Usage[] {
 	const counts = new Map<string, { count: number; examples: string[] }>();
 	for (const sample of samples) {
-		const value = sample.values[property];
-		if (value === undefined || value === "") continue;
+		const raw = sample.values[property];
+		if (raw === undefined || raw === "") continue;
+		const value = canonicalLengths(raw);
 		const entry = counts.get(value) ?? { count: 0, examples: [] };
 		entry.count += 1;
 		if (entry.examples.length < MAX_EXAMPLES)
@@ -178,6 +179,35 @@ export const coloursAreNear: Nearness = (one, other) => {
 	if (Math.abs((a.a ?? 1) - (b.a ?? 1)) > ALPHA_SAMENESS) return false;
 	return deltaE(a, b) < COLOUR_SAMENESS;
 };
+
+/**
+ * How many decimal places of a pixel anyone could have meant.
+ *
+ * A computed length comes back at the precision the layout engine
+ * happens to hold it at, so the same authored value arrives as
+ * both "24px" and "24.0001px". Treated as two values, they then
+ * cluster, and the report announces design drift between a number
+ * and itself: nobody chose 24.0001px, and being told to reconcile
+ * it is worse than being told nothing.
+ */
+const LENGTH_PRECISION = 2;
+
+/**
+ * Collapse sub-pixel noise so one authored value stays one value.
+ *
+ * Only the numbers move, and only in their last decimals, so a
+ * real difference of a third of a pixel survives while the layout
+ * engine's rounding does not.
+ */
+export function canonicalLengths(css: string): string {
+	return css.replace(/(-?[\d.]+)px/g, (whole, number) => {
+		const value = Number(number);
+		if (!Number.isFinite(value)) return whole;
+		// Number() drops a trailing zero, so 24.10 reads back as 24.1
+		// rather than as a third distinct spelling of the same length.
+		return `${Number(value.toFixed(LENGTH_PRECISION))}px`;
+	});
+}
 
 /** Every pixel length in a value, in order. */
 function lengths(css: string): readonly number[] {

@@ -9,6 +9,7 @@
 export {
 	type Cluster,
 	COLOUR_SAMENESS,
+	canonicalLengths,
 	clusterUsage,
 	coloursAreNear,
 	DIMENSIONS,
