@@ -44,6 +44,14 @@ export {
 	toHar,
 } from "./har.js";
 export {
+	createLifecycleRecorder,
+	type LifecycleEvent,
+	type LifecycleInput,
+	type LifecycleKind,
+	type LifecycleRecorder,
+	renderLifecycle,
+} from "./lifecycle.js";
+export {
 	createNetworkRecorder,
 	type LoadingFailed,
 	type LoadingFinished,

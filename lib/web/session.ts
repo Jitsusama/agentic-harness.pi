@@ -91,6 +91,7 @@ import {
 	browserEntry,
 	type ConsoleCalled,
 	consoleEntry,
+	createLifecycleRecorder,
 	createNetworkRecorder,
 	createRingBuffer,
 	DEFAULT_DIALOG_POLICY,
@@ -98,6 +99,8 @@ import {
 	type DialogKind,
 	type DialogPolicy,
 	exceptionEntry,
+	type LifecycleEvent,
+	type LifecycleRecorder,
 	type LogEntry,
 	type NetworkRequest,
 	type Recorded,
@@ -285,6 +288,12 @@ export class BrowserSession {
 	/** Every dialog the page has raised, and how it was answered. */
 	private readonly dialogLog: DialogEvent[] = [];
 
+	/** Where the page has been, and whether it survived. */
+	private lifecycleLog?: LifecycleRecorder;
+
+	/** The recovery in flight, so nothing reads a tab mid-replacement. */
+	private recovery?: Promise<void>;
+
 	/** How dialogs get answered while nobody is watching. */
 	private dialogPolicy: DialogPolicy = DEFAULT_DIALOG_POLICY;
 
@@ -303,8 +312,10 @@ export class BrowserSession {
 
 	private constructor(
 		readonly name: string,
-		private readonly page: Page,
-		private readonly cdp: CDPSession,
+		// The page and its protocol channel are replaced wholesale
+		// when the tab crashes, so neither can be readonly.
+		private page: Page,
+		private cdp: CDPSession,
 		private readonly context: BrowserContext,
 		private readonly options: SessionOptions,
 	) {}
@@ -331,6 +342,7 @@ export class BrowserSession {
 			await session.listenForLogs();
 			await session.listenForRequests();
 			await session.listenForDialogs();
+			await session.listenForLifecycle();
 			return session;
 		} catch (err) {
 			// Do not leak the context if the CDP channel could not be
@@ -505,6 +517,7 @@ export class BrowserSession {
 
 	/** Navigate the tab to a URL and wait for the network to settle. */
 	async navigate(url: string): Promise<void> {
+		await this.ready();
 		// Cookies are per-domain, so they are injected against the
 		// URL we are about to visit rather than once at open.
 		if (this.options.cookies) await injectCookies(this.page, url);
@@ -601,6 +614,109 @@ export class BrowserSession {
 	 * concurrently would let a slow lookup overtake a fast one and
 	 * record two announcements out of the order they were said.
 	 */
+	/**
+	 * Watch where the page goes, and notice if it dies.
+	 *
+	 * The crash half is not optional. After the tab crashes every
+	 * call against it hangs rather than failing, measured against
+	 * a deliberately crashed tab, so a session that waited to find
+	 * out lazily would simply stop responding. Recovery therefore
+	 * happens the moment the crash is announced.
+	 */
+	private async listenForLifecycle(): Promise<void> {
+		const { frameTree } = await this.cdp.send("Page.getFrameTree");
+		const log = createLifecycleRecorder(frameTree.frame.id);
+		this.lifecycleLog = log;
+		this.attachLifecycle(log);
+	}
+
+	/** Point the lifecycle handlers at the current protocol channel. */
+	private attachLifecycle(log: LifecycleRecorder): void {
+		this.cdp.on("Page.frameRequestedNavigation", (event) => {
+			log.apply({
+				kind: "requested",
+				frameId: event.frameId,
+				reason: event.reason,
+			});
+		});
+		this.cdp.on("Page.frameNavigated", (event) => {
+			log.apply({
+				kind: "navigated",
+				frameId: event.frame.id,
+				url: event.frame.url,
+			});
+		});
+		this.cdp.on("Page.navigatedWithinDocument", (event) => {
+			log.apply({
+				kind: "within",
+				frameId: event.frameId,
+				url: event.url,
+				...(event.navigationType === undefined
+					? {}
+					: { navigationType: event.navigationType }),
+			});
+		});
+		this.cdp.on("Inspector.targetCrashed", () => {
+			log.apply({ kind: "crashed" });
+			this.recovery = this.recover();
+		});
+	}
+
+	/**
+	 * Replace the dead tab with a live one.
+	 *
+	 * The context survives a tab crash and can still make pages,
+	 * so the session keeps its identity, its cookies and every
+	 * buffer it has filled; only the tab is new. Watchers have to
+	 * be reinstalled because they were bound to a protocol channel
+	 * that no longer answers.
+	 */
+	private async recover(): Promise<void> {
+		// The dead page will not answer, but closing it does work,
+		// and leaving it would leak a renderer for the session's life.
+		await this.page.close().catch(() => {});
+
+		const page = await this.context.newPage();
+		const cdp = await page.createCDPSession();
+		this.page = page;
+		this.cdp = cdp;
+
+		await cdp.send("Accessibility.enable");
+		await cdp.send("DOM.enable");
+		await cdp.send("CSS.enable");
+		await this.listenForAnnouncements();
+		await this.listenForLogs();
+		await this.listenForRequests();
+		await this.listenForDialogs();
+
+		const { frameTree } = await cdp.send("Page.getFrameTree");
+		const log = this.lifecycleLog;
+		if (log) {
+			// A new tab is a new main frame, and a recorder still
+			// watching the old id would ignore every navigation from
+			// here on while looking perfectly healthy.
+			log.adoptFrame(frameTree.frame.id);
+			this.attachLifecycle(log);
+			log.apply({ kind: "recovered" });
+		}
+	}
+
+	/**
+	 * Wait for any recovery to finish.
+	 *
+	 * Called before anything that touches the tab, so a read that
+	 * arrives during a crash waits for the replacement instead of
+	 * hanging on a renderer that is never coming back.
+	 */
+	private async ready(): Promise<void> {
+		if (this.recovery) await this.recovery;
+	}
+
+	/** Where the page has been. */
+	get history(): readonly LifecycleEvent[] {
+		return this.lifecycleLog?.all() ?? [];
+	}
+
 	private async listenForAnnouncements(): Promise<void> {
 		await this.page.exposeFunction(
 			ANNOUNCE_BINDING,
@@ -1441,6 +1557,10 @@ export class BrowserSession {
 	}
 
 	private async axTree(): Promise<AxNode> {
+		// Nearly every reading starts here, which makes it the right
+		// place to wait out a crash recovery rather than issuing a
+		// call to a renderer that will never answer.
+		await this.ready();
 		const { nodes } = (await this.cdp.send("Accessibility.getFullAXTree")) as {
 			nodes: RawAxNode[];
 		};
