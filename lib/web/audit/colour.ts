@@ -164,6 +164,10 @@ export function formatRgb(colour: Rgba): string {
  * CIE76 rather than CIEDE2000: it is a plain Euclidean distance
  * in Lab, it is close enough at the small distances this is used
  * for, and it can be read and checked by anyone.
+ *
+ * Alpha is not considered. A caller that cares about opacity
+ * should compare it separately, or composite both colours over
+ * a known background first.
  */
 export function deltaE(one: Rgba, other: Rgba): number {
 	const [l1, a1, b1] = toLab(one);

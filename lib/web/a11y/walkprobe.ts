@@ -161,6 +161,8 @@ export const WALK_READ = `(() => {
  * keyboard check before the visual, performance and design ones,
  * so a walk that leaves the page scrolled moves the ground under
  * every measurement that follows it in the same run.
+ *
+ * Paired with WALK_RESTORE below, which puts both back.
  */
 export const WALK_REMEMBER = `(() => {
 	window.__walkOrigin = {

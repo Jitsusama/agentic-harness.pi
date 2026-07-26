@@ -46,6 +46,9 @@ export {
 	type WalkFindings,
 	type WalkStop,
 } from "./walk.js";
+// The page-side halves of the keyboard walk, in the order they
+// run: collect what can hold focus, remember where the caller
+// left things, read each stop, then put the page back.
 export {
 	WALK_COLLECT,
 	WALK_READ,
