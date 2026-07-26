@@ -7,6 +7,13 @@
  */
 
 export {
+	type DeviceCatalogue,
+	type DeviceProfile,
+	deviceEmulation,
+	nearestDevices,
+	noSuchDevice,
+} from "./devices.js";
+export {
 	type Divergence,
 	divergences,
 	type EmulationState,

@@ -23,6 +23,10 @@ import type {
 	Page,
 	Protocol,
 } from "puppeteer-core";
+// Chrome's own device table. It lives behind the driver, which is
+// why resolving a device name is this file's job and not the pure
+// side of the library's.
+import { KnownDevices } from "puppeteer-core";
 // The key table is reached through the driver's declared
 // internal subpath rather than its barrel, which marks the
 // table private and strips it from the public types. Copying
@@ -97,6 +101,7 @@ import {
 	diskSink,
 	FILE_MODE,
 } from "./envelope/index.js";
+import { deviceEmulation, noSuchDevice } from "./environment/devices.js";
 import {
 	type CookieRecord,
 	type Divergence,
@@ -776,6 +781,7 @@ export class BrowserSession {
 		// URL we are about to visit rather than once at open.
 		if (this.options.cookies) await injectCookies(this.page, url);
 		const response = await this.page.goto(url, { waitUntil: "networkidle2" });
+		await this.reassertEmulation();
 		// Chrome's idle heuristics fire before a client-rendered app
 		// has anything on screen, so this waits for the DOM as well.
 		// Without it, navigating to a real application answered with an
@@ -805,6 +811,7 @@ export class BrowserSession {
 	async reload(): Promise<void> {
 		await this.ready();
 		await this.page.reload({ waitUntil: "networkidle2" });
+		await this.reassertEmulation();
 		await this.settlePage();
 	}
 
@@ -891,11 +898,11 @@ export class BrowserSession {
 		try {
 			if (direction === "back") {
 				await this.page.goBack({ waitUntil: "networkidle2" });
-				await this.settlePage();
 			} else {
 				await this.page.goForward({ waitUntil: "networkidle2" });
-				await this.settlePage();
 			}
+			await this.reassertEmulation();
+			await this.settlePage();
 		} catch {
 			return {
 				ok: false,
@@ -1299,7 +1306,11 @@ export class BrowserSession {
 	 * asking for reduced motion after asking for dark mode would
 	 * otherwise turn the dark mode back off.
 	 */
-	async emulate(change: EmulationState = {}): Promise<{
+	async emulate(
+		change: EmulationState = {},
+		/** Overrides to take off, which an absent key cannot express. */
+		clear: readonly (keyof EmulationState)[] = [],
+	): Promise<{
 		asked: EmulationState;
 		observed: ObservedEnvironment;
 		gaps: readonly Divergence[];
@@ -1311,23 +1322,98 @@ export class BrowserSession {
 		const ignored = unsupportedFields(
 			change as Readonly<Record<string, unknown>>,
 		);
-		this.emulation = mergeEmulation(this.emulation, change);
+		this.emulation = mergeEmulation(this.emulation, change, clear);
+		// A device this catalogue has never heard of is reported the
+		// same way as a field with nothing behind it, rather than
+		// echoed back as though it had been honoured.
+		const device = this.emulation.device;
+		const unknown =
+			device !== undefined && !deviceEmulation(device, KnownDevices)
+				? [
+						{
+							what: "device",
+							asked: device,
+							observed: "ignored, no device by that name",
+							note: noSuchDevice(device, KnownDevices),
+						},
+					]
+				: [];
 		await this.applyEmulation();
 		// A viewport change reflows the page and a real application
 		// re-renders for it, so the same wait a navigation gets applies
 		// here: without it the next read describes the old layout.
 		await this.settlePage();
 		const observed = await this.observeEnvironment();
+		// Emulating before navigating is the order this tool asks for,
+		// and it used to be punished for it. There is nothing laid out
+		// on a blank page, so the width comes back as the desktop
+		// default and ontouchstart has no document to be installed on:
+		// two alarming gaps that both come right the moment a real page
+		// loads. Reporting them as divergences sent me measuring the
+		// wrong thing twice. What the page cannot answer yet is not a
+		// discrepancy, so it is held back and said plainly instead.
+		const blank = this.page.url() === "about:blank";
+		const measured = blank
+			? [
+					{
+						what: "the page",
+						asked: "nothing loaded yet",
+						observed: "about:blank",
+						note:
+							"layout and touch cannot be checked until a document " +
+							"is loaded; navigate, then read status to confirm",
+					},
+				]
+			: divergences(this.effectiveEmulation, observed);
 		return {
 			asked: this.emulation,
 			observed,
-			gaps: [...ignored, ...divergences(this.emulation, observed)],
+			// Compared against the effective state, since a device is
+			// the reason a viewport is what it is.
+			gaps: [...ignored, ...unknown, ...measured],
 		};
+	}
+
+	/**
+	 * Put the standing intent to the browser again, after arriving.
+	 *
+	 * Some overrides do not survive the first navigation after they
+	 * are set. Touch is the one that bit: emulating a phone and then
+	 * navigating, which is the order this tool asks for and the guide
+	 * recommends, left maxTouchPoints at zero about as often as not,
+	 * while the width and the user agent came through and the report
+	 * happily said "pretending: iPhone 15 Pro". A phone that a page
+	 * cannot detect the touch screen of is not a phone, and a coin
+	 * flip is worse than a consistent failure.
+	 *
+	 * Re-asserting is cheap and idempotent, and there is precedent:
+	 * crash recovery already does exactly this, for the same reason.
+	 * Skipped when nothing is being emulated, so the ordinary
+	 * navigation pays nothing.
+	 */
+	private async reassertEmulation(): Promise<void> {
+		if (Object.keys(this.emulation).length === 0) return;
+		await this.applyEmulation();
+	}
+
+	/**
+	 * The standing intent with any named device resolved.
+	 *
+	 * A device is shorthand for a viewport and a touch screen, and
+	 * anything the caller said explicitly outranks it: asking for a
+	 * phone and a width means the phone with that width.
+	 */
+	private get effectiveEmulation(): EmulationState {
+		const asked = this.emulation;
+		if (asked.device === undefined) return asked;
+		const fromDevice = deviceEmulation(asked.device, KnownDevices);
+		if (!fromDevice) return asked;
+		return { ...fromDevice, ...asked };
 	}
 
 	/** Put the whole standing intent to the browser. */
 	private async applyEmulation(): Promise<void> {
-		const state = this.emulation;
+		const state = this.effectiveEmulation;
 
 		await this.cdp.send("Emulation.setEmulatedMedia", {
 			media: state.media ?? "",
@@ -1351,6 +1437,11 @@ export class BrowserSession {
 		await this.cdp.send("Emulation.setTouchEmulationEnabled", {
 			enabled: state.touch ?? false,
 			...(state.touch ? { maxTouchPoints: TOUCH_POINTS } : {}),
+		});
+		// Sent whatever the state, since an empty string is how this
+		// one is taken off again.
+		await this.cdp.send("Emulation.setUserAgentOverride", {
+			userAgent: state.userAgent ?? "",
 		});
 		await this.cdp.send("Emulation.setCPUThrottlingRate", {
 			rate: state.cpuThrottle ?? 1,

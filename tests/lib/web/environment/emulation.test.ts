@@ -103,6 +103,43 @@ describe("mergeEmulation", () => {
 	});
 });
 
+describe("taking an override off again", () => {
+	// Skipping undefined is what lets one field be mentioned without
+	// disturbing the rest, and it is also why an absent key cannot
+	// mean "stop". Without a way to say so, a session that emulated
+	// Tokyo once stayed in Tokyo for the rest of its life, and
+	// nothing could stop pretending to be a phone.
+	it("cannot be said by passing nothing", () => {
+		const merged = mergeEmulation(
+			{ timezone: "Asia/Tokyo" },
+			{ timezone: undefined },
+		);
+		expect(merged.timezone).toBe("Asia/Tokyo");
+	});
+
+	it("is said by naming the field", () => {
+		const merged = mergeEmulation({ timezone: "Asia/Tokyo" }, {}, ["timezone"]);
+		expect(merged.timezone).toBeUndefined();
+	});
+
+	it("leaves everything it was not asked about", () => {
+		const merged = mergeEmulation(
+			{ timezone: "Asia/Tokyo", colorScheme: "dark" },
+			{},
+			["timezone"],
+		);
+		expect(merged.colorScheme).toBe("dark");
+	});
+
+	it("lets the same call clear one field and set another", () => {
+		const merged = mergeEmulation({ device: "Pixel 5" }, { media: "print" }, [
+			"device",
+		]);
+		expect(merged.device).toBeUndefined();
+		expect(merged.media).toBe("print");
+	});
+});
+
 describe("mediaFeaturesOf", () => {
 	it("emits every set feature, so one change cannot undo another", () => {
 		// Chrome forgets anything a setEmulatedMedia call omits, so

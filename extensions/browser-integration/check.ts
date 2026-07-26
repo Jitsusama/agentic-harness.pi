@@ -172,6 +172,24 @@ export function registerCheck(
 
 			const session = await registry.acquire(name);
 
+			// A verdict about a page that is not there is worse than no
+			// verdict: about:blank has no lang attribute, no landmark and
+			// no heading, so a health check on it answers FAIL with four
+			// accessibility rules and says nothing about the application
+			// anybody meant to test. A session sits on about:blank before
+			// its first navigation and after going back past it, so this
+			// is easy to reach by accident.
+			if (session.url === "about:blank") {
+				return refusal(
+					name,
+					kind,
+					`Session '${name}' has nothing loaded, so there is nothing ` +
+						"to judge. A blank page fails rules about lang, " +
+						"landmarks and headings, which would say nothing about " +
+						"your page. Navigate with browser_go first.",
+				);
+			}
+
 			if (params.widths && params.widths.length > 0) {
 				// keyboard used to be refused here, on the grounds that a
 				// walk cannot survive being resized underneath it. It is

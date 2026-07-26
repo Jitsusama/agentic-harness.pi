@@ -11,6 +11,10 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { KnownDevices } from "puppeteer-core";
 import {
+	deviceEmulation,
+	noSuchDevice,
+} from "../../lib/web/environment/devices.js";
+import {
 	type EmulationState,
 	type NetworkRule,
 	renderEnvironment,
@@ -262,47 +266,28 @@ function emulationFrom(params: {
 	timezone?: string;
 	locale?: string;
 	cpuThrottle?: number;
-}): { state: EmulationState } | { error: string } {
+}):
+	| { state: EmulationState; clear: readonly (keyof EmulationState)[] }
+	| { error: string } {
 	const state: Record<string, unknown> = {};
+	const clear: (keyof EmulationState)[] = [];
 
 	if (params.device !== undefined && params.device !== "none") {
-		const known = KnownDevices[params.device as keyof typeof KnownDevices];
-		if (!known) {
-			// Fall back to the family name, since a wrong model number
-			// is the likeliest way to miss and matching the whole string
-			// would then offer nothing at all.
-			const asked = params.device.toLowerCase();
-			const family = asked.split(" ")[0] ?? asked;
-			const names = Object.keys(KnownDevices);
-			const near = (
-				names.filter((candidate) => candidate.toLowerCase().includes(asked))
-					.length > 0
-					? names.filter((candidate) => candidate.toLowerCase().includes(asked))
-					: names.filter((candidate) =>
-							candidate.toLowerCase().includes(family),
-						)
-			).slice(0, MAX_DEVICE_SUGGESTIONS);
-			return {
-				error:
-					`No device named '${params.device}'.` +
-					(near.length > 0
-						? ` Did you mean ${near.join(", ")}?`
-						: " Chrome ships names like 'iPhone 15 Pro' and 'Pixel 5'."),
-			};
+		// The library resolves a device name itself, so the name is
+		// all that needs passing on. Refusing here anyway, rather than
+		// letting it come back as a divergence, is worth the
+		// duplication: a typo should stop the call before it changes
+		// anything, and it can be answered with candidates.
+		if (!deviceEmulation(params.device, KnownDevices)) {
+			return { error: noSuchDevice(params.device, KnownDevices) };
 		}
 		state.device = params.device;
-		state.viewport = {
-			width: known.viewport.width,
-			height: known.viewport.height,
-			deviceScaleFactor: known.viewport.deviceScaleFactor,
-			mobile: known.viewport.isMobile,
-		};
-		state.touch = known.viewport.hasTouch;
 	} else if (params.device === "none") {
-		// An explicit none has to clear the override, which an
-		// absent viewport does and an absent key cannot.
-		state.device = undefined;
-		state.viewport = undefined;
+		// An explicit none has to take the override off, and naming
+		// the fields is the only way to say so: a key set to nothing
+		// is indistinguishable from a key left out, so this used to
+		// leave the session pretending to be a phone for ever.
+		clear.push("device", "viewport", "touch", "userAgent");
 	}
 
 	if (params.width !== undefined && params.height !== undefined) {
@@ -323,11 +308,8 @@ function emulationFrom(params: {
 		if (params[key] !== undefined) state[key] = params[key];
 	}
 
-	return { state: state as EmulationState };
+	return { state: state as EmulationState, clear };
 }
-
-/** How many near-miss device names are worth offering. */
-const MAX_DEVICE_SUGGESTIONS = 5;
 
 /** Turn the tool's flat parameters into a shaping change. */
 function shapingFrom(params: {
@@ -516,7 +498,10 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			if (kind === "emulate") {
 				const change = emulationFrom(params);
 				if ("error" in change) return refusal(name, kind, change.error);
-				const { asked, observed, gaps } = await session.emulate(change.state);
+				const { asked, observed, gaps } = await session.emulate(
+					change.state,
+					change.clear,
+				);
 				return answer(name, kind, renderEnvironment(asked, observed, gaps));
 			}
 

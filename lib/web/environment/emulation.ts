@@ -38,6 +38,8 @@ export interface EmulationState {
 		readonly mobile?: boolean;
 	};
 	readonly touch?: boolean;
+	/** What to answer when the page or a server asks who it is. */
+	readonly userAgent?: string;
 	readonly timezone?: string;
 	readonly locale?: string;
 	readonly cpuThrottle?: number;
@@ -82,8 +84,18 @@ export interface MediaFeature {
 export function mergeEmulation(
 	current: EmulationState,
 	change: EmulationState,
+	clear: readonly (keyof EmulationState)[] = [],
 ): EmulationState {
 	const merged: Record<string, unknown> = { ...current };
+	// Skipping undefined is what lets a caller mention one field
+	// without disturbing the rest, and it is also why taking an
+	// override off again needs saying separately: an absent key and
+	// a key set to nothing arrive here as the same thing. Without
+	// this list, nothing could ever be cleared. A session that
+	// emulated Tokyo once stayed in Tokyo for the rest of its life,
+	// quietly recolouring every later reading, and stopping
+	// pretending to be a phone was impossible.
+	for (const key of clear) delete merged[key];
 	for (const [key, value] of Object.entries(change)) {
 		if (value !== undefined) merged[key] = value;
 	}
@@ -151,6 +163,7 @@ const EMULATION_FIELDS: readonly string[] = [
 	"device",
 	"viewport",
 	"touch",
+	"userAgent",
 	"timezone",
 	"locale",
 	"cpuThrottle",
