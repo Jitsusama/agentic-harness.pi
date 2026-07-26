@@ -19,12 +19,23 @@ import {
 	openSessionStore,
 	type ResultStore,
 } from "../../lib/result/index.js";
+import { withinLineBudget } from "../../lib/result/view.js";
 import {
 	type AxNode,
 	type BudgetedOutline,
 	withinOutlineBudget,
 } from "../../lib/web/a11y/index.js";
 import type { Observation } from "../../lib/web/session.js";
+
+/**
+ * What a rendered listing spends before the rest is stored.
+ *
+ * Between the two page budgets: a listing is usually asked for
+ * deliberately, like a page read, but its rows are uniform enough
+ * that the first screenful tells the caller whether they are
+ * looking at the right thing.
+ */
+const LISTING_BUDGET_BYTES = 8_192;
 
 let store: ResultStore | undefined;
 
@@ -92,26 +103,45 @@ function heading(observed: Observation, bounded: BudgetedOutline): string {
 }
 
 /**
- * Store a list of records a family already holds, citing it only
- * when the view showed fewer than there were.
+ * A rendered listing, bounded for reading and stored for querying.
  *
- * The same rule as the page view, for telemetry, findings and
- * anything else that arrives as rows.
+ * Telemetry renderers lay out every record they are given, which
+ * is right of them: a renderer that silently dropped rows would be
+ * lying in a different way. Bounding belongs here, where the
+ * records are still to hand and can be stored.
+ *
+ * The counts are lines, matching the page view, because lines are
+ * what the reader can see and count for themselves. How many
+ * records those lines covered is not knowable from the text, and a
+ * citation nobody can check is a citation nobody should trust.
  */
-export function recordsAnswer<T>(args: {
+export function listAnswer<T>(args: {
 	view: string;
 	records: readonly T[];
-	shown: number;
 	unit: string;
+	narrowing: string;
+	budget?: number;
 }): string {
+	const budget = args.budget ?? LISTING_BUDGET_BYTES;
+	const bounded = withinLineBudget(args.view, budget);
+	if (bounded.cut === 0) return bounded.text;
+
 	const cited = cite(sessionStore(), {
 		payload: args.records,
-		view: args.view,
-		shown: args.shown,
-		total: args.records.length,
-		unit: args.unit,
+		view:
+			`${bounded.text}\n\n` +
+			`Cut ${bounded.cut.toLocaleString()} of ` +
+			`${bounded.total.toLocaleString()} lines to fit the ` +
+			`${budget.toLocaleString()} byte budget. ${args.narrowing}`,
+		shown: bounded.shown,
+		total: bounded.total,
+		unit: "lines",
 	});
-	return cited.text;
+	// The records are what the handle holds, so name them where the
+	// caller will write the expression.
+	return cited.handle === undefined
+		? cited.text
+		: `${cited.text}\nThe payload is the ${args.records.length.toLocaleString()} ${args.unit} themselves, not these lines.`;
 }
 
 /** The tree as a payload: named fields, no protocol ids. */

@@ -12,6 +12,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
 import { analyseWalk, renderWalk } from "../../lib/web/a11y/index.js";
 import {
+	type A11yFinding,
 	analyseStructure,
 	analyseVisual,
 	type Condition,
@@ -42,6 +43,28 @@ import {
 	refusal,
 	sessionInPlay,
 } from "./result.js";
+import { listAnswer } from "./stored.js";
+
+/**
+ * A verdict, bounded, with every finding kept.
+ *
+ * A report naming a hundred elements is exactly the report worth
+ * having and exactly the one that will not fit, and "name one rule
+ * to see its elements" only helps a caller who already knows which
+ * rule they care about. Storing the findings means the whole set
+ * can be filtered by impact, rule or criterion without another
+ * audit run.
+ */
+function auditAnswer(view: string, findings: readonly A11yFinding[]): string {
+	return listAnswer({
+		view,
+		records: findings,
+		unit: "findings",
+		narrowing:
+			"Name one rule in 'rule' to see the elements it hit, or query " +
+			"the findings by impact, rule or criterion.",
+	});
+}
 
 const parameters = Type.Object({
 	kind: Type.Optional(
@@ -277,10 +300,13 @@ async function runOnce(
 			`Checked ${structure.length} elements against the axe rule ` +
 			`set and our structural rules, and ${targets.length} pointer ` +
 			`${targets.length === 1 ? "target" : "targets"} against WCAG 2.5.8.`;
-		return renderAudit(findings, tallyFindings(findings), {
-			...(params.rule === undefined ? {} : { rule: params.rule }),
-			measured,
-		});
+		return auditAnswer(
+			renderAudit(findings, tallyFindings(findings), {
+				...(params.rule === undefined ? {} : { rule: params.rule }),
+				measured,
+			}),
+			findings,
+		);
 	}
 
 	if (kind === "compare") {
@@ -316,12 +342,15 @@ async function runOnce(
 	if (kind === "visual") {
 		const { nodes, viewport } = await session.layout();
 		const findings = analyseVisual(nodes, viewport);
-		return renderAudit(findings, tallyFindings(findings), {
-			...(params.rule === undefined ? {} : { rule: params.rule }),
-			measured:
-				`Measured ${nodes.length} drawn elements in a ` +
-				`${viewport.width} by ${viewport.height} viewport.`,
-		});
+		return auditAnswer(
+			renderAudit(findings, tallyFindings(findings), {
+				...(params.rule === undefined ? {} : { rule: params.rule }),
+				measured:
+					`Measured ${nodes.length} drawn elements in a ` +
+					`${viewport.width} by ${viewport.height} viewport.`,
+			}),
+			findings,
+		);
 	}
 
 	const capture = await session.keyboardWalk(params.maxStops);

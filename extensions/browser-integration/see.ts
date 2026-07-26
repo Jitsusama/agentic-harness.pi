@@ -58,7 +58,7 @@ import {
 	refusal,
 	sessionInPlay,
 } from "./result.js";
-import { pageAnswer } from "./stored.js";
+import { listAnswer, pageAnswer } from "./stored.js";
 
 /**
  * Lay an observation out for reading: where you are, then what is
@@ -506,35 +506,57 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 
 			if (kind === "query") {
 				const nodes = await session.snapshot();
+				const queried = runQuery(
+					nodes,
+					{
+						...(params.tag === undefined ? {} : { tag: params.tag }),
+						...(params.attribute === undefined
+							? {}
+							: { attribute: params.attribute }),
+						...(params.value === undefined ? {} : { value: params.value }),
+						...(params.className === undefined
+							? {}
+							: { className: params.className }),
+						...(params.text === undefined ? {} : { text: params.text }),
+						...(params.rendered === undefined
+							? {}
+							: { rendered: params.rendered }),
+						...(params.inShadow === undefined
+							? {}
+							: { inShadow: params.inShadow }),
+					},
+					params.limit,
+				);
+				// The matches themselves go to the store, so the ones past
+				// the cap are a query away rather than a re-run away.
 				return answer(
 					name,
 					kind,
-					runQuery(
-						nodes,
-						{
-							...(params.tag === undefined ? {} : { tag: params.tag }),
-							...(params.attribute === undefined
-								? {}
-								: { attribute: params.attribute }),
-							...(params.value === undefined ? {} : { value: params.value }),
-							...(params.className === undefined
-								? {}
-								: { className: params.className }),
-							...(params.text === undefined ? {} : { text: params.text }),
-							...(params.rendered === undefined
-								? {}
-								: { rendered: params.rendered }),
-							...(params.inShadow === undefined
-								? {}
-								: { inShadow: params.inShadow }),
-						},
-						params.limit,
-					),
+					queried.matches === undefined
+						? queried.view
+						: listAnswer({
+								view: queried.view,
+								records: queried.matches,
+								unit: "matching nodes",
+								narrowing:
+									"Narrow with tag, attribute, className, text, rendered " +
+									"or inShadow, or raise 'limit'.",
+							}),
 				);
 			}
 
 			if (kind === "downloads") {
-				return answer(name, kind, renderDownloads(session.downloads()));
+				const files = session.downloads();
+				return answer(
+					name,
+					kind,
+					listAnswer({
+						view: renderDownloads(files),
+						records: files,
+						unit: "downloads",
+						narrowing: "Every file is on disk at the path shown.",
+					}),
+				);
 			}
 
 			if (kind === "status") {
@@ -561,7 +583,19 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 							`them:\n  ${path}`,
 					);
 				}
-				if (!params.body) return answer(name, kind, listing);
+				if (!params.body)
+					return answer(
+						name,
+						kind,
+						listAnswer({
+							view: listing,
+							records: wanted,
+							unit: "requests",
+							narrowing:
+								"Narrow with 'filter' by type, state, status or url " +
+								"fragment, or write the archive to disk with 'har'.",
+						}),
+					);
 
 				const target = pick(wanted, params.body);
 				if (!target) {
@@ -590,7 +624,18 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 							),
 						}
 					: captured;
-				return answer(name, kind, renderLogs(wanted));
+				return answer(
+					name,
+					kind,
+					listAnswer({
+						view: renderLogs(wanted),
+						records: wanted.entries.map(({ item }) => item),
+						unit: "log entries",
+						narrowing:
+							"Narrow with 'level' to one severity, or with 'since' to " +
+							"what arrived after a cursor.",
+					}),
+				);
 			}
 
 			if (kind === "announcements") {
@@ -600,7 +645,13 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return answer(
 					name,
 					kind,
-					`${renderAnnouncements(entries, dropped)}\n\ncursor: ${cursor}`,
+					listAnswer({
+						view: `${renderAnnouncements(entries, dropped)}\n\ncursor: ${cursor}`,
+						records: entries.map(({ item }) => item),
+						unit: "announcements",
+						narrowing:
+							"Read from a cursor with 'since' to hear only what is new.",
+					}),
 				);
 			}
 
@@ -692,6 +743,13 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 /** How many matches to list before summarising instead. */
 const DEFAULT_QUERY_LIMIT = 25;
 
+/** A query's answer, and the matches behind it when it found any. */
+interface QueryReport {
+	readonly view: string;
+	/** Absent when the answer was a summary rather than a match list. */
+	readonly matches?: readonly IndexedNode[];
+}
+
 /**
  * Run a query and report it.
  *
@@ -703,7 +761,7 @@ function runQuery(
 	nodes: readonly IndexedNode[],
 	query: Query,
 	limit?: number,
-): string {
+): QueryReport {
 	const asked = Object.keys(query).length > 0;
 	if (!asked) {
 		// With no query the useful answer is the shape of the page,
@@ -712,7 +770,7 @@ function runQuery(
 			node.nodeName.toLowerCase(),
 		);
 		const frames = new Set(nodes.map((node) => node.documentUrl));
-		return [
+		const shape = [
 			`${nodes.length} nodes across ${frames.size} document` +
 				`${frames.size === 1 ? "" : "s"}.`,
 			`${nodes.filter((node) => !node.rendered).length} were not rendered, ` +
@@ -729,11 +787,14 @@ function runQuery(
 			"Narrow it with tag, attribute, className, text, rendered " +
 				"or inShadow.",
 		].join("\n");
+		return { view: shape };
 	}
 
 	const found = find(nodes, query);
 	if (found.length === 0) {
-		return "Nothing on the page matches that, in any frame or shadow root.";
+		return {
+			view: "Nothing on the page matches that, in any frame or shadow root.",
+		};
 	}
 
 	const cap = limit ?? DEFAULT_QUERY_LIMIT;
@@ -746,5 +807,5 @@ function runQuery(
 	if (found.length > shown.length) {
 		lines.push("", `Showing ${shown.length}. Raise limit to see the rest.`);
 	}
-	return lines.join("\n");
+	return { view: lines.join("\n"), matches: found };
 }

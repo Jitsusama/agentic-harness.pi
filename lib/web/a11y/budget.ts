@@ -20,6 +20,8 @@
  * whole thing and discarding it.
  */
 
+import { type BudgetedView, withinLineBudget } from "../../result/view.js";
+
 /**
  * What an explicit read of a page spends on the outline.
  *
@@ -39,13 +41,7 @@ export const OUTLINE_BUDGET_BYTES = 16_384;
 export const ACTION_VIEW_BUDGET_BYTES = 4_096;
 
 /** An outline cut to fit, and what fitting it cost. */
-export interface BudgetedOutline {
-	/** The outline, whole lines only. */
-	readonly text: string;
-	/** Lines the page rendered. */
-	readonly total: number;
-	/** Lines this answer carries. */
-	readonly shown: number;
+export interface BudgetedOutline extends BudgetedView {
 	/** What was cut and how to read it, when anything was. */
 	readonly elided?: string;
 }
@@ -53,32 +49,20 @@ export interface BudgetedOutline {
 /**
  * As much of an outline as the budget affords, and never none.
  *
- * A single line over budget is still returned, because an answer
- * that cut everything tells the caller nothing about where they
- * are. Whole lines only: half a line of outline is not a smaller
- * truth, it is a wrong one, and a caller who reads "butto" has
- * been handed a node that does not exist.
+ * The cutting is the general rule from `lib/result`; what belongs
+ * to the page is the advice about what to do next, since narrowing
+ * a page read has its own vocabulary.
  */
 export function withinOutlineBudget(
 	rendered: string,
 	budget: number,
 ): BudgetedOutline {
-	const lines = rendered.length === 0 ? [] : rendered.split("\n");
-	const kept: string[] = [];
-	let spent = 0;
-	for (const line of lines) {
-		// The newline this line will cost when it is joined back up.
-		const cost = Buffer.byteLength(line, "utf-8") + 1;
-		if (kept.length > 0 && spent + cost > budget) break;
-		kept.push(line);
-		spent += cost;
-	}
-	const cut = lines.length - kept.length;
+	const view = withinLineBudget(rendered, budget);
 	return {
-		text: kept.join("\n"),
-		total: lines.length,
-		shown: kept.length,
-		...(cut > 0 ? { elided: outlineElision(cut, lines.length, budget) } : {}),
+		...view,
+		...(view.cut > 0
+			? { elided: outlineElision(view.cut, view.total, budget) }
+			: {}),
 	};
 }
 
