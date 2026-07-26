@@ -40,28 +40,62 @@ export const WALK_COLLECT = `(() => {
 	].join(",");
 	const modalSelector = ${JSON.stringify(MODAL_SELECTOR)};
 
-	// checkVisibility is the browser's own answer, and the only
-	// one that is right here. An element inside a display:none
-	// parent reports its own display, not none, so asking the
-	// computed style calls a hidden dialog's buttons focusable.
+	// checkVisibility is the browser's own answer, but only if it
+	// is asked the whole question. Bare checkVisibility() reports
+	// on display and nothing else: it calls a visibility:hidden
+	// control focusable, and a real app hides its closed menus and
+	// dialogs that way. Measured on one page: 58 said focusable
+	// against 13 that could actually take focus.
+	//
+	// opacity is deliberately NOT asked about. An opacity:0 control
+	// is still in the focus order, so excluding it would bury a
+	// real defect: focus landing somewhere invisible. That is the
+	// walk's own "no visible focus indicator" finding, and it can
+	// only make it if the element survives to be walked.
 	const visible = (el) =>
 		typeof el.checkVisibility === "function"
-			? el.checkVisibility()
+			? el.checkVisibility({
+					visibilityProperty: true,
+					contentVisibilityAuto: true,
+				})
 			: el.getClientRects().length > 0;
+
+	// inert takes an element out of the focus order without
+	// touching how it looks, so no style question finds it. A
+	// closed dialog's contents are the ordinary case.
+	const inert = (el) =>
+		typeof el.closest === "function" && el.closest("[inert]") !== null;
+
+	// The browser's own answer, and the last word: try it. Style
+	// rules approximate the focus order, but inertness applied by
+	// an open modal is not spelled anywhere in markup, and only an
+	// attempt can settle it. Focusing something unfocusable is a
+	// no-op, so the only elements this can disturb are the ones the
+	// walk is about to tab through anyway, and preventScroll keeps
+	// it from moving the page under us.
+	const canHoldFocus = (el) => {
+		try {
+			el.focus({ preventScroll: true });
+		} catch (error) {
+			return false;
+		}
+		const root = el.getRootNode();
+		return (root.activeElement || document.activeElement) === el;
+	};
 
 	// Every focusable thing on the page, including inside open
 	// shadow roots and same-origin frames. Reading only the top
 	// document reported a design-system page as having no
 	// focusable controls at all, which the check then rendered as
 	// "Nothing on this page can hold focus".
-	const focusable = deepElements(document).filter((el) => {
+	// Everything the cheap tests allow, before focus is touched.
+	const plausible = deepElements(document).filter((el) => {
 		if (!el.matches(selector)) return false;
 		if (el.disabled) return false;
 		if (el.getAttribute("tabindex") === "-1") return false;
-		return visible(el);
+		if (!visible(el)) return false;
+		return !inert(el);
 	});
-
-	window.__walkCandidates = focusable;
 
 	const styleOf = (el) => {
 		const c = getComputedStyle(el);
@@ -77,6 +111,43 @@ export const WALK_COLLECT = `(() => {
 			el.getAttribute("title") || el.getAttribute("alt") || "").trim().slice(0, 60);
 	const inModal = (el) => el.closest(modalSelector) !== null;
 
+	// Resting styles are read now, while focus is still wherever the
+	// page left it, and BEFORE anything below moves focus. Reading
+	// them afterwards records the probe's own focus ring as the
+	// element's resting state, and the element then appears to gain
+	// nothing when focused: the walk reported the last control in
+	// the document as having no focus indicator, on a page where it
+	// has a perfectly good one. That is a false accusation of the
+	// exact defect this check exists to find, so the ordering here
+	// is load-bearing rather than incidental.
+	const resting = new Map(plausible.map((el) => [el, styleOf(el)]));
+
+	// Now the authoritative pass. Style rules only approximate the
+	// focus order: inertness applied by an open modal is written
+	// nowhere in markup, and only an attempt settles it.
+	const restoreFocusTo = document.activeElement;
+	const focusable = plausible.filter(canHoldFocus);
+	try {
+		// blur first, so a body that refuses focus still ends up
+		// without it rather than leaving the last probe's element
+		// focused.
+		if (document.activeElement && document.activeElement.blur) {
+			document.activeElement.blur();
+		}
+		if (
+			restoreFocusTo &&
+			restoreFocusTo !== document.body &&
+			typeof restoreFocusTo.focus === "function"
+		) {
+			restoreFocusTo.focus({ preventScroll: true });
+		}
+	} catch (error) {
+		// Whatever held focus has gone or refuses it; the walk sets
+		// focus from the top anyway, so this is not worth failing on.
+	}
+
+	window.__walkCandidates = focusable;
+
 	const candidates = focusable.map((el, index) => {
 		const tabindex = el.getAttribute("tabindex");
 		return {
@@ -85,7 +156,7 @@ export const WALK_COLLECT = `(() => {
 			...(el.getAttribute("role") ? { role: el.getAttribute("role") } : {}),
 			...(tabindex === null ? {} : { tabindex: Number(tabindex) }),
 			...(inModal(el) ? { inModal: true } : {}),
-			resting: styleOf(el),
+			resting: resting.get(el) || styleOf(el),
 		};
 	});
 
@@ -113,6 +184,11 @@ export const WALK_COLLECT = `(() => {
 		const hasHandler = typeof el.onclick === "function";
 		if (!hasRole && !hasHandler) continue;
 		if (!visible(el)) continue;
+		// An inert control is not being offered to anybody yet: the
+		// closed search dialog's inputs are inert, look perfectly
+		// visible, and tab is right not to reach them. Complaining
+		// here would blame a page for a dialog that is shut.
+		if (inert(el)) continue;
 		unreachable.push({
 			tag: el.tagName, name: nameOf(el), selector: deepSelectorFor(el),
 			...(role ? { role } : {}),

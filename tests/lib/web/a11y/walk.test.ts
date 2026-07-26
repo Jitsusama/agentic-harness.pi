@@ -363,6 +363,81 @@ describe("renderWalk", () => {
 	});
 });
 
+describe("a trap focus walked into and cannot walk out of", () => {
+	// Mirrors a real capture of two links followed by two buttons
+	// that swallow Tab between themselves. Tab from the top reaches
+	// all four, so nothing is unvisited; the links are still
+	// unreachable once focus is inside the pair, which is the whole
+	// complaint. Asking which controls were never visited called
+	// this clean and passed the reference keyboard trap.
+	const oneWay = analyseWalk(
+		capture({
+			candidates: [
+				candidate(0, "Outside link", { tag: "A" }),
+				candidate(1, "Outside button"),
+				candidate(2, "In A"),
+				candidate(3, "In B"),
+			],
+			stops: [
+				stop(0, "Outside link", { tag: "A" }),
+				stop(1, "Outside button"),
+				stop(2, "In A"),
+				stop(3, "In B"),
+				stop(2, "In A"),
+				stop(3, "In B"),
+				stop(2, "In A"),
+				stop(3, "In B"),
+			],
+		}),
+	);
+
+	it("calls it a trap even though every control was visited", () => {
+		expect(oneWay.trap).toBeDefined();
+		expect(oneWay.missed).toEqual([]);
+	});
+
+	it("counts the controls outside the cycle, not the unvisited ones", () => {
+		expect(oneWay.trap?.stranded.map((one) => one.name)).toEqual([
+			"Outside link",
+			"Outside button",
+		]);
+	});
+
+	it("names the stranded controls, since a count is not actionable", () => {
+		const report = renderWalk(oneWay);
+		expect(report).toContain("2 controls are stranded outside it");
+		expect(report).toContain("Outside link");
+		expect(report).toContain("Outside button");
+	});
+
+	it("lists the cycle in document order, not where the repeat began", () => {
+		expect(renderWalk(oneWay)).toContain("tab only ever reaches In A, In B");
+	});
+
+	it("agrees in number when only one control is shut out", () => {
+		const single = analyseWalk(
+			capture({
+				candidates: [candidate(0, "Lonely"), candidate(1, "Ring")],
+				stops: [stop(0, "Lonely"), stop(1, "Ring"), stop(1, "Ring")],
+			}),
+		);
+		expect(renderWalk(single)).toContain("1 control is stranded outside it");
+	});
+
+	it("leaves a page whose whole order cycles alone", () => {
+		// The ordinary case: tab goes round everything and comes back.
+		// A cycle is what a working tab order looks like.
+		const healthy = analyseWalk(
+			capture({
+				candidates: [candidate(0, "One"), candidate(1, "Two")],
+				stops: [stop(0, "One"), stop(1, "Two"), stop(0, "One"), stop(1, "Two")],
+			}),
+		);
+		expect(healthy.trap).toBeUndefined();
+		expect(renderWalk(healthy)).toMatch(/^PASS/);
+	});
+});
+
 describe("telling a contained page from a broken one", () => {
 	// A modal that holds focus, exactly as the pattern prescribes:
 	// its two controls cycle, and the three behind it are excluded

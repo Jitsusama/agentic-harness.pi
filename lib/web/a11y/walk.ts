@@ -92,6 +92,14 @@ export type Indicator =
 export interface Trap {
 	readonly members: readonly WalkStop[];
 	readonly escapeFreed: boolean;
+	/**
+	 * Controls outside the cycle, which is what makes it a trap.
+	 *
+	 * Not the same as the walk's `missed`: these may well have been
+	 * visited on the way in. What matters is that focus cannot get
+	 * back to them once it is inside.
+	 */
+	readonly stranded: readonly WalkCandidate[];
 }
 
 /** What the walk found. */
@@ -130,6 +138,34 @@ export interface WalkFindings {
  * none, so an element with no outline at all still reports three
  * pixels of it. Comparing widths alone would call that a change.
  */
+/**
+ * Say how many controls the trap shut out, and name a few.
+ *
+ * A bare count is the least useful true thing available here: a
+ * reader who is told six controls are stranded still has to go
+ * and find out which. These are the controls a keyboard user can
+ * no longer reach, so they are worth naming.
+ */
+function strandedSentence(stranded: readonly WalkCandidate[]): string {
+	const named = stranded
+		.map((candidate) => candidate.name || candidate.tag)
+		.filter((name) => name.length > 0);
+	const shown = named.slice(0, MAX_NAMED_STRANDED);
+	const rest = named.length - shown.length;
+	const list =
+		shown.length === 0
+			? ""
+			: `: ${shown.join(", ")}${rest > 0 ? `, and ${rest} more` : ""}`;
+	const count =
+		stranded.length === 1
+			? "1 control is stranded outside it"
+			: `${stranded.length} controls are stranded outside it`;
+	return `  ${count}${list}.`;
+}
+
+/** How many stranded controls to name before counting the rest. */
+const MAX_NAMED_STRANDED = 6;
+
 function outlineDrawn(style: FocusStyle): boolean {
 	return style.outlineStyle !== "none";
 }
@@ -240,14 +276,37 @@ export function analyseWalk(capture: WalkCapture): WalkFindings {
 	// page is a trap however long we let it run, while a walk that
 	// was still making progress simply needed more stops.
 	const looping = cycled.length > 0;
-	const trapped = looping && missed.length > 0 && !modalCycle;
+	// What makes a cycle a trap is that focus cannot leave it, so
+	// the question is which controls sit outside it, not which were
+	// never visited.
+	//
+	// Those are different sets, and the difference is the commonest
+	// trap there is. A page that tabs through its header, reaches a
+	// widget and then cycles inside it for ever has visited every
+	// control: nothing is missed, and asking about missed controls
+	// called it clean. The header is still unreachable from inside
+	// the widget, which is the whole complaint. The reference
+	// keydown trap, two buttons swallowing Tab after two ordinary
+	// links, was reported as passing for exactly this reason, and
+	// only looked detected while phantom candidates were padding
+	// the missed list.
+	const outsideCycle = candidates.filter(
+		(candidate) => !cycleMembers.has(candidate.index),
+	);
+	const trapped = looping && outsideCycle.length > 0 && !modalCycle;
 	const ranOut = capture.cappedAt !== undefined && !looping;
 	const trap: Trap | undefined = trapped
 		? {
+				// A cycle has no natural first member: where the repeat
+				// was detected is an arbitrary rotation, so "In B, In A"
+				// read oddly beside a tab order listing In A first.
+				// Document order is the one the reader already has.
 				members: [...cycleMembers]
+					.sort((a, b) => a - b)
 					.map((index) => stops.find((stop) => stop.index === index))
 					.filter((stop): stop is WalkStop => stop !== undefined),
 				escapeFreed: capture.escapeFreed === true,
+				stranded: outsideCycle,
 			}
 		: undefined;
 
@@ -327,7 +386,7 @@ export function renderWalk(findings: WalkFindings): string {
 				? "  Escape does get out, so a keyboard user is not stranded."
 				: "  Escape does not get out either. There is no way back to " +
 						"the page without a mouse.",
-			`  ${findings.missed.length} focusable things are stranded outside it.`,
+			strandedSentence(findings.trap.stranded),
 			"",
 		);
 	}
@@ -478,7 +537,9 @@ function headlineFor(
 		return `${failures} things can be operated but never focused.`;
 	}
 	if (warnings > 0) {
-		return `Every control was reached, but ${warnings} stops are hard to follow.`;
+		return warnings === 1
+			? "Every control was reached, but 1 stop is hard to follow."
+			: `Every control was reached, but ${warnings} stops are hard to follow.`;
 	}
 	// Only Tab was pressed, and the order was compared against
 	// document order, so this cannot claim the visual order matches
