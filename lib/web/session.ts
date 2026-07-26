@@ -194,6 +194,11 @@ import {
 	type EvalValue,
 	evaluationSource,
 } from "./evaluate/index.js";
+import {
+	observerBootstrap,
+	readVitalsSource,
+	type Vitals,
+} from "./perf/index.js";
 import { captureTiles } from "./screenshot.js";
 import {
 	flattenSnapshot,
@@ -545,6 +550,7 @@ export class BrowserSession {
 			await session.listenForLifecycle();
 			await session.listenForDownloads();
 			await session.listenForSourceMaps();
+			await session.watchVitals();
 			return session;
 		} catch (err) {
 			// Do not leak the context if the CDP channel could not be
@@ -1791,6 +1797,36 @@ export class BrowserSession {
 			throw new Error(`Could not sample the styles: ${threw.message}`);
 		}
 		return (response.result.value ?? []) as readonly StyleSample[];
+	}
+
+	/**
+	 * Install the performance observers ahead of every page.
+	 *
+	 * Largest contentful paint and layout shift are events rather
+	 * than state, so an observer registered after a page loads has
+	 * missed them. The buffered flag recovers the timings but not
+	 * the element that painted or the nodes that moved, which is
+	 * the half worth having, so this goes in through the hook that
+	 * runs before the document does.
+	 */
+	private async watchVitals(): Promise<void> {
+		await this.cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+			source: observerBootstrap(),
+		});
+	}
+
+	/** What the current page cost to show. */
+	async vitals(): Promise<Vitals> {
+		await this.ready();
+		const response = await this.cdp.send("Runtime.evaluate", {
+			expression: readVitalsSource(),
+			returnByValue: true,
+		});
+		if (response.exceptionDetails) {
+			const threw = describeThrow(response.exceptionDetails);
+			return { shifts: [], longTasks: [], paints: {}, error: threw.message };
+		}
+		return response.result.value as Vitals;
 	}
 
 	/** Run a page-side source string and read back its value. */

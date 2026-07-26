@@ -25,6 +25,7 @@ import {
 	renderVisibility,
 } from "../../lib/web/element/index.js";
 import { renderStatus } from "../../lib/web/environment/index.js";
+import { measure, renderVitals } from "../../lib/web/perf/index.js";
 import type {
 	BrowserSession,
 	Inspection,
@@ -200,6 +201,7 @@ const parameters = Type.Object({
 				Type.Literal("status"),
 				Type.Literal("downloads"),
 				Type.Literal("query"),
+				Type.Literal("vitals"),
 				Type.Literal("element"),
 				Type.Literal("shot"),
 			],
@@ -209,7 +211,9 @@ const parameters = Type.Object({
 					"the default. reading: the same page narrated the way a " +
 					"screen reader would say it. logs: what the page said, " +
 					"threw, or had refused for it. requests: what the page " +
-					"asked the network for. query: search the whole page, " +
+					"asked the network for. vitals: what the page cost to " +
+					"show, from the browser's own performance observers. " +
+					"query: search the whole page, " +
 					"frames and shadow content included, for nodes matching " +
 					"a tag, attribute, class or text. downloads: files the " +
 					"page handed " +
@@ -423,6 +427,11 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				);
 			}
 			const session = await registry.acquire(name);
+
+			if (kind === "vitals") {
+				const vitals = await session.vitals();
+				return answer(name, kind, renderVitals(vitals, measure(vitals)));
+			}
 
 			if (kind === "query") {
 				const nodes = await session.snapshot();
