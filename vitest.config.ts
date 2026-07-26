@@ -18,8 +18,11 @@ export default defineConfig({
 		include: ["tests/**/*.test.ts"],
 		environment: "node",
 		clearMocks: true,
+		// Only the ceiling is ours to set: vitest 4 dropped the floor
+		// option and sizes the pool itself underneath the cap. The
+		// "never below one worker" part of the note above is the
+		// Math.max on the cap, which still holds.
 		maxWorkers: MAX_WORKERS,
-		minWorkers: 1,
 		coverage: {
 			provider: "v8",
 			include: ["extensions/**/*.ts", "lib/**/*.ts"],
