@@ -50,6 +50,8 @@ export type Departure = "idle" | "closed";
 export interface SessionRegistry {
 	/** Whether a session is currently open under this name. */
 	has(name: string): boolean;
+	/** Every session open right now, in the order they opened. */
+	open(): readonly string[];
 	/**
 	 * How a session by this name went away, when one did.
 	 *
@@ -118,6 +120,10 @@ export function createSessionRegistry(): SessionRegistry {
 	return {
 		has(name) {
 			return sessions.has(name);
+		},
+
+		open() {
+			return [...sessions.keys()];
 		},
 
 		departureOf(name) {

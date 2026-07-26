@@ -51,6 +51,14 @@ Sessions are named and persist across calls. Pass `session` only
 when you want more than one open at once; otherwise everything
 lands in `default`.
 
+If you named a session when you navigated and then leave `session`
+off a later call, the only open session is used and the answer
+says which. With several open, the call is refused and the names
+are listed, because reading a verdict without knowing which page
+it judged is how the wrong page gets fixed. A name you pass is
+never second-guessed, so a typo is reported rather than quietly
+redirected.
+
 ## Address Elements by Role and Name
 
 The page is read as an accessibility outline, and elements are
@@ -165,16 +173,30 @@ query` beats `do eval` returning a large structure.
 
 ### `browser_go`
 
-`navigate`, `open`, `close`, `reload`, `back`, `forward`.
+`navigate`, `open`, `close`, `reload`, `back`, `forward`. All six
+answer with the page they landed on, so you do not need a `see`
+call to confirm where you are. Going back past the first
+navigation lands on the blank page the session opened with, and
+says so.
+
+A navigation that never arrives is reported, not thrown: being
+offline on purpose is a normal thing to be. The attempt is in the
+request log under `filter: failed`.
 
 - `emulate`: a device, viewport, media preference, vision
   deficiency, locale or timezone. Reports where the browser
   diverged from what you asked, which matters: setting a
   device viewport does nothing to a page with no viewport meta
-  tag, and locale overrides never reach `navigator.language`
+  tag, and locale overrides never reach `navigator.language`.
+  Emulating before navigating is fine and is the usual order; a
+  blank page cannot be measured, so it says that rather than
+  inventing divergences. Pass `device: none` to stop pretending,
+  which clears the viewport, touch and user agent together
 - `network`: `mock` a response, `block` a pattern, `throttle` to
   a named profile, or `clear` everything. Interception only
-  attaches while a rule exists
+  attaches while a rule exists. An unknown profile name is
+  refused rather than quietly ignored, because a test that
+  believes it is offline and is not will report the wrong thing
 - `storage`: read, write or clear cookies, local and session
   storage, and the clipboard
 - `dialogs`: decide how alerts and confirms are answered. The
@@ -193,7 +215,9 @@ query` beats `do eval` returning a large structure.
 - `status` is the one to reach for when behaviour makes no
   sense: it reports what the session is pretending to be, what
   it is intercepting, how it answers dialogs, and whether the
-  page has crashed
+  page has crashed. What it is pretending is checked against the
+  page rather than recited, so a `not landed` line means an
+  override did not survive the last navigation
 
 ### `browser_do`
 
@@ -220,7 +244,16 @@ a kind to see that one in full.
 
 Any check but `keyboard` takes `widths` and answers with a table
 across them. Most layout faults are conditional, so a check at
-one width can pass a page that is unusable on a phone.
+one width can pass a page that is unusable on a phone. Keyboard
+reach is conditional too: a sidebar that only exists above a
+thousand pixels can be unreachable there and invisible below, so
+sweep `health` before believing a single-width pass.
+
+A check needs a page. On a session that has not navigated, or one
+that has stepped back past its first navigation, the call is
+refused rather than answered: a blank page has no lang, no
+landmark and no heading, so judging it would report four failures
+about nothing.
 
 ## Reading a Verdict
 

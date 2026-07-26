@@ -9,7 +9,51 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { missingSession } from "../../../extensions/browser-integration/result.js";
+import {
+	chooseSession,
+	missingSession,
+	sessionInPlay,
+} from "../../../extensions/browser-integration/result.js";
+
+describe("which session a call without a name acts on", () => {
+	it("uses the default when it is open", () => {
+		expect(sessionInPlay(undefined, "default", ["default", "fr"])).toEqual({
+			name: "default",
+		});
+	});
+
+	it("uses the only session open, and says which", () => {
+		// Navigating in a session called fr and then asking for a
+		// verdict without repeating the name sent the tool looking for a
+		// session nobody had opened, while the right answer sat there
+		// alone.
+		const chosen = sessionInPlay(undefined, "default", ["fr"]);
+		expect(chosen).toMatchObject({ name: "fr" });
+		expect("note" in chosen && chosen.note).toContain("fr");
+	});
+
+	it("asks which one when several are open", () => {
+		expect(sessionInPlay(undefined, "default", ["fr", "de"])).toEqual({
+			candidates: ["fr", "de"],
+		});
+	});
+
+	it("never second-guesses a name it was given", () => {
+		// A typo is better reported than quietly redirected to whatever
+		// else happens to be open.
+		expect(sessionInPlay("typo", "default", ["fr"])).toEqual({
+			name: "typo",
+		});
+	});
+
+	it("lists the open sessions when it has to ask", () => {
+		expect(chooseSession(["fr", "de"])).toContain("fr, de");
+	});
+
+	it("says how to start when nothing is open", () => {
+		expect(chooseSession([])).toContain("browser_go");
+	});
+});
 
 const OPENS = "Navigate somewhere with browser_go first.";
 

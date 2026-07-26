@@ -153,9 +153,19 @@ export function renderBrowserResult(
 
 	if (options.expanded) return new Text(content, 0, 0);
 
+	// Which session answered, when it is not the obvious one. The
+	// call line can only show what was passed, so a call that named
+	// no session showed none, even when the tool had resolved it to
+	// the only one open. Reading a verdict without knowing which page
+	// it judged is how the wrong page gets fixed.
+	const where =
+		meta.session && meta.session !== "default"
+			? theme.fg("dim", `[${meta.session}] `)
+			: "";
+
 	if (meta.ok === false) {
 		return new Text(
-			theme.fg("warning", `refused: ${firstLine(content)}`),
+			`${where}${theme.fg("warning", `refused: ${firstLine(content)}`)}`,
 			0,
 			0,
 		);
@@ -163,12 +173,16 @@ export function renderBrowserResult(
 
 	const head = firstLine(content);
 	const verdict = VERDICTS.find((mark) => head.startsWith(mark));
-	if (!verdict) return new Text(theme.fg("dim", head), 0, 0);
+	if (!verdict) return new Text(`${where}${theme.fg("dim", head)}`, 0, 0);
 
 	const colour =
 		verdict === "FAIL" ? "error" : verdict === "WARN" ? "warning" : "success";
 	const rest = head.slice(verdict.length).trim();
-	return new Text(`${theme.fg(colour, theme.bold(verdict))} ${rest}`, 0, 0);
+	return new Text(
+		`${where}${theme.fg(colour, theme.bold(verdict))} ${rest}`,
+		0,
+		0,
+	);
 }
 
 function firstLine(content: string): string {

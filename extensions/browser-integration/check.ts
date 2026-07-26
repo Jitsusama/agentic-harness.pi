@@ -35,7 +35,13 @@ import { measure, renderVitals } from "../../lib/web/perf/index.js";
 import type { BrowserSession } from "../../lib/web/session.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { renderBrowserCall, renderBrowserResult } from "./render.js";
-import { answer, missingSession, refusal } from "./result.js";
+import {
+	answer,
+	chooseSession,
+	missingSession,
+	refusal,
+	sessionInPlay,
+} from "./result.js";
 
 const parameters = Type.Object({
 	kind: Type.Optional(
@@ -156,8 +162,16 @@ export function registerCheck(
 		renderResult: (result, options, theme) =>
 			renderBrowserResult(result, options, theme),
 		async execute(_id, params) {
-			const name = params.session ?? DEFAULT_SESSION;
 			const kind = params.kind ?? "keyboard";
+			const chosen = sessionInPlay(
+				params.session,
+				DEFAULT_SESSION,
+				registry.open(),
+			);
+			if ("candidates" in chosen) {
+				return refusal(DEFAULT_SESSION, kind, chooseSession(chosen.candidates));
+			}
+			const name = chosen.name;
 			if (!registry.has(name)) {
 				return refusal(
 					name,

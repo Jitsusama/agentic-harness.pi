@@ -49,6 +49,54 @@ export function refusal(
  * wrong, their navigation and emulation are simply gone, and
  * knowing that is what stops them hunting for a typo.
  */
+/**
+ * Which session a call without a name should act on.
+ *
+ * Falling straight through to "default" made a whole class of
+ * confusion possible: navigate in a session called fr, then ask
+ * for a verdict without repeating the name, and the tool went
+ * looking for a session nobody had opened. The right answer was
+ * sitting there, alone and unambiguous.
+ *
+ * So one open session is used, and said out loud so the reader
+ * knows which page was judged. Several open sessions stay a
+ * refusal, because guessing between them would be worse than
+ * asking: the names are listed instead.
+ */
+export function sessionInPlay(
+	asked: string | undefined,
+	fallback: string,
+	open: readonly string[],
+): { name: string; note?: string } | { candidates: readonly string[] } {
+	// An explicit name is never second-guessed. Someone who names a
+	// session means that session, and a typo is better reported than
+	// quietly redirected to whatever else happens to be open.
+	if (asked !== undefined) return { name: asked };
+	if (open.includes(fallback)) return { name: fallback };
+	if (open.length === 1 && open[0] !== undefined) {
+		return {
+			name: open[0],
+			note: `Using session '${open[0]}', the only one open.`,
+		};
+	}
+	return { candidates: open };
+}
+
+/** Say which sessions are open, when the choice has to be made. */
+export function chooseSession(candidates: readonly string[]): string {
+	if (candidates.length === 0) {
+		return (
+			"No session is open. Navigate somewhere with browser_go " +
+			"first, and this will act on it."
+		);
+	}
+	return (
+		`Several sessions are open: ${candidates.join(", ")}. Name the ` +
+		"one to act on, since picking for you could report on the " +
+		"wrong page."
+	);
+}
+
 export function missingSession(
 	name: string,
 	departure: "idle" | "closed" | undefined,
