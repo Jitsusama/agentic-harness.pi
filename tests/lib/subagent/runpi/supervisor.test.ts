@@ -1,4 +1,4 @@
-import type { ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn as nodeSpawn } from "node:child_process";
 import { mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -771,5 +771,47 @@ describe("a reviewer that leaves something running behind it", () => {
 		// Well inside the 30s the supervisor was told it could take,
 		// so this proves the grace path rather than a timeout.
 		expect(Date.now() - started).toBeLessThan(15_000);
+	});
+});
+
+describe("a supervisor that never reports", () => {
+	it("stops waiting instead of hanging the run for ever", async () => {
+		// Every other way out of runPi is an event from the child. A
+		// supervisor that starts and then wedges before installing its
+		// own watchdog fires none of them, so the promise never
+		// settled and a fleet run waited for ever on a reviewer that
+		// would never answer.
+		//
+		// Substituting spawn for a process that ignores its
+		// instructions and sleeps is the only way to reach that state
+		// deliberately: a working supervisor cannot be asked to wedge.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(childPath, "");
+
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 500,
+			timeoutMs: 500,
+			spawn: ((_bin: string, _args: readonly string[]) =>
+				nodeSpawn(process.execPath, [
+					"-e",
+					"setTimeout(() => {}, 120000)",
+				])) as never,
+		});
+
+		const started = Date.now();
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "wedged",
+		});
+
+		// Well inside the file's own 60s budget, and it says why.
+		expect(Date.now() - started).toBeLessThan(30_000);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.warnings.join(" ")).toContain("never reported");
 	});
 });

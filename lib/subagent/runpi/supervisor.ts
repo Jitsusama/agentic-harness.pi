@@ -61,6 +61,15 @@ interface SupervisorResultFile {
  */
 const STDIO_GRACE_MS = 2_000;
 
+/**
+ * How long past its own deadline a supervisor gets before the
+ * parent stops waiting.
+ *
+ * Room for a slow start and a final write on a loaded machine,
+ * without turning a wedged run into an unbounded one.
+ */
+const SUPERVISOR_GRACE_MS = 10_000;
+
 const DEFAULT_TIMEOUT_MS = 45 * 60 * 1000;
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_KILL_GRACE_MS = 5 * 1000;
@@ -186,6 +195,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 			const settle = async (fn: () => Promise<RunPiResult>): Promise<void> => {
 				if (settled) return;
 				settled = true;
+				clearTimeout(deadline);
 				signal?.removeEventListener("abort", abortHandler);
 				try {
 					resolve(await fn());
@@ -193,6 +203,46 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 					reject(error);
 				}
 			};
+
+			// The last backstop, and the only one that does not depend on
+			// the supervisor working.
+			//
+			// Every other way out of here is an event from the child: it
+			// exits, its pipes close, or it fails to spawn. A supervisor
+			// that starts and then wedges before installing its own
+			// watchdog fires none of them, and this promise never settles,
+			// so a fleet run waits for ever on a reviewer that will never
+			// answer. That is the failure this whole file exists to
+			// prevent, and it was reachable from the outside.
+			//
+			// The supervisor is told how long it may take, so waiting a
+			// little past that is enough: if it were alive and healthy it
+			// would have stopped its own child and reported by then.
+			const effectiveTimeoutMs =
+				timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+			const deadline = setTimeout(() => {
+				void settle(async () => {
+					supervisor.kill("SIGKILL");
+					const onDisk = await readResult(
+						terminalResultPath ?? paths.resultPath,
+					);
+					if (onDisk) return fromResult(onDisk, warnings, stderrTail);
+					return {
+						exitCode: 1,
+						finalAssistantText: "",
+						warnings: [
+							...warnings,
+							`Reviewer supervisor never reported within ` +
+								`${effectiveTimeoutMs + SUPERVISOR_GRACE_MS}ms and was ` +
+								`killed. It was given ${effectiveTimeoutMs}ms to run, so ` +
+								"it either never started or stopped before its own " +
+								"watchdog could.",
+						],
+						stderrTail,
+					};
+				});
+			}, effectiveTimeoutMs + SUPERVISOR_GRACE_MS);
+			deadline.unref?.();
 			const abortHandler = (): void => {
 				void (async () => {
 					// Write the cancel file first so the supervisor can stop
