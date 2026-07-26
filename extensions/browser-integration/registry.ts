@@ -13,8 +13,26 @@
 import { closeBrowser } from "../../lib/web/browser.js";
 import { BrowserSession, type SessionOptions } from "../../lib/web/session.js";
 
-/** Close a session after this long without use. */
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+/**
+ * Close a session after this long without use.
+ *
+ * Generous on purpose. The thing on the other end of these tools
+ * spends most of its time reading, editing and thinking between
+ * browser calls, and half an hour of that is an ordinary stretch.
+ * At five minutes a session would vanish mid-task, taking its
+ * navigation, storage, emulation and network shaping with it, and
+ * the next call would look like a mistake by the caller rather
+ * than a timer that fired.
+ *
+ * The cost of waiting longer is a warm Chrome holding memory. It
+ * is not a process that refuses to exit: the browser's handles are
+ * released once it launches, so an idle session never keeps a
+ * finished script alive, and shutdown disposes everything anyway.
+ */
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** How many closed sessions to remember, to explain their absence. */
+const REMEMBERED_CLOSURES = 16;
 
 /** The session a call lands in when the caller names none. */
 export const DEFAULT_SESSION = "default";
@@ -25,10 +43,20 @@ interface Held {
 	idle?: ReturnType<typeof setTimeout>;
 }
 
+/** Why a session that is not open is not open. */
+export type Departure = "idle" | "closed";
+
 /** The live sessions, keyed by caller-chosen name. */
 export interface SessionRegistry {
 	/** Whether a session is currently open under this name. */
 	has(name: string): boolean;
+	/**
+	 * How a session by this name went away, when one did.
+	 *
+	 * Lets a refusal say what happened instead of implying the
+	 * caller invented the name.
+	 */
+	departureOf(name: string): Departure | undefined;
 	/**
 	 * The named session, opening one when none is live. Options
 	 * apply only to an open; an existing session keeps the ones
@@ -44,6 +72,18 @@ export interface SessionRegistry {
 /** Build a registry of idle-disposing named sessions. */
 export function createSessionRegistry(): SessionRegistry {
 	const sessions = new Map<string, Held>();
+	// Bounded, so a long conversation that opens many sessions does
+	// not accumulate names for ever.
+	const departed = new Map<string, Departure>();
+
+	const remember = (name: string, how: Departure): void => {
+		departed.delete(name);
+		departed.set(name, how);
+		if (departed.size > REMEMBERED_CLOSURES) {
+			const oldest = departed.keys().next();
+			if (!oldest.done) departed.delete(oldest.value);
+		}
+	};
 
 	const touch = (name: string, held: Held): void => {
 		clearTimeout(held.idle);
@@ -63,6 +103,7 @@ export function createSessionRegistry(): SessionRegistry {
 						return;
 					}
 					sessions.delete(name);
+					remember(name, "idle");
 					await session.close();
 				})
 				.catch(() => {
@@ -79,6 +120,10 @@ export function createSessionRegistry(): SessionRegistry {
 			return sessions.has(name);
 		},
 
+		departureOf(name) {
+			return departed.get(name);
+		},
+
 		async acquire(name, options) {
 			const existing = sessions.get(name);
 			if (existing) {
@@ -86,6 +131,7 @@ export function createSessionRegistry(): SessionRegistry {
 				return existing.opening;
 			}
 			const held: Held = { opening: BrowserSession.open(name, options) };
+			departed.delete(name);
 			sessions.set(name, held);
 			touch(name, held);
 			try {
@@ -103,6 +149,7 @@ export function createSessionRegistry(): SessionRegistry {
 			if (!held) return false;
 			clearTimeout(held.idle);
 			sessions.delete(name);
+			remember(name, "closed");
 			await held.opening.then((session) => session.close()).catch(() => {});
 			return true;
 		},

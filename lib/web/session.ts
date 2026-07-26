@@ -123,6 +123,10 @@ import {
 import {
 	inFlight,
 	isIdle,
+	SETTLE_BUDGET_MS,
+	SETTLE_QUIET_MS,
+	type Settled,
+	settleSource,
 	type WaitCondition,
 	type WaitOutcome,
 } from "./wait/index.js";
@@ -373,6 +377,23 @@ const GEOLOCATION_ACCURACY = 10;
  * on screen. Everything else addresses the element directly and
  * would succeed where a click could not.
  */
+/**
+ * Whether the settle probe came back with what it promised.
+ *
+ * Page-side results arrive as unknown, and a navigation landing
+ * mid-evaluate resolves with nothing at all, so this is narrowed
+ * rather than asserted.
+ */
+function isSettled(value: unknown): value is Settled {
+	if (typeof value !== "object" || value === null) return false;
+	const candidate = value as Partial<Settled>;
+	return (
+		typeof candidate.quiet === "boolean" &&
+		typeof candidate.waitedMs === "number" &&
+		typeof candidate.mutations === "number"
+	);
+}
+
 function usesPointer(action: TargetedAction): boolean {
 	return action.kind === "click" || action.kind === "hover";
 }
@@ -538,6 +559,8 @@ export class BrowserSession {
 
 	/** Wall clock time of the last operation. See ready(). */
 	private usedAt = Date.now();
+	/** What the last settle saw, so a reader can qualify its answer. */
+	private lastSettle: Settled | undefined;
 
 	/**
 	 * Open a fresh session in a browser context of its own, so
@@ -752,6 +775,11 @@ export class BrowserSession {
 		// URL we are about to visit rather than once at open.
 		if (this.options.cookies) await injectCookies(this.page, url);
 		const response = await this.page.goto(url, { waitUntil: "networkidle2" });
+		// Chrome's idle heuristics fire before a client-rendered app
+		// has anything on screen, so this waits for the DOM as well.
+		// Without it, navigating to a real application answered with an
+		// outline whose only content was "Loading page".
+		await this.settlePage();
 		// The status was thrown away, so a 404 or a 500 read as a
 		// successful arrival and every later check judged the error
 		// page. Returned rather than thrown: an error page is
@@ -776,6 +804,64 @@ export class BrowserSession {
 	async reload(): Promise<void> {
 		await this.ready();
 		await this.page.reload({ waitUntil: "networkidle2" });
+		await this.settlePage();
+	}
+
+	/**
+	 * Wait for the page to stop changing, so a read that follows
+	 * describes where the page ended up rather than where it was.
+	 *
+	 * Returns what it found instead of throwing on a page that never
+	 * settles: something that animates or polls for ever is still
+	 * worth reading, as long as the answer does not pretend it was
+	 * final.
+	 */
+	async settlePage(): Promise<Settled> {
+		const started = Date.now();
+		let mutations = 0;
+		let quiet = false;
+		// The DOM and the network each miss a case the other catches.
+		//
+		// A client-side navigation waiting on a fetch touches nothing
+		// for as long as the request takes, so the DOM goes quiet and
+		// the page then changes completely a moment later: pressing
+		// Enter on a search box answered with the pre-search page for
+		// exactly this reason. Meanwhile Chrome's network idle fires
+		// before an app that already has its data has rendered any of
+		// it.
+		//
+		// So both have to hold at once, and since satisfying one can
+		// disturb the other, they are rechecked together until they
+		// agree or the budget runs out.
+		while (Date.now() - started < SETTLE_BUDGET_MS) {
+			const left = SETTLE_BUDGET_MS - (Date.now() - started);
+			const outcome = await this.page
+				.evaluate(settleSource(SETTLE_QUIET_MS, left))
+				.catch(() => undefined);
+			if (isSettled(outcome)) {
+				mutations += outcome.mutations;
+				quiet = outcome.quiet;
+			} else {
+				// A navigation landed mid-evaluate, which is itself the
+				// change we are waiting out. Go round again.
+				quiet = false;
+			}
+			if (!quiet) continue;
+			if (inFlight(this.requests()).length === 0) break;
+			// Something is outstanding that may yet rewrite the page.
+			quiet = false;
+		}
+		this.lastSettle = {
+			quiet,
+			waitedMs: Date.now() - started,
+			mutations,
+		};
+		return this.lastSettle;
+	}
+
+	/** What the last settle saw, for a reader that wants to say so. */
+	get settledLast(): Settled | undefined {
+		return this.lastSettle;
 	}
 
 	/**
@@ -804,8 +890,10 @@ export class BrowserSession {
 		try {
 			if (direction === "back") {
 				await this.page.goBack({ waitUntil: "networkidle2" });
+				await this.settlePage();
 			} else {
 				await this.page.goForward({ waitUntil: "networkidle2" });
+				await this.settlePage();
 			}
 		} catch {
 			return {
@@ -2590,7 +2678,7 @@ export class BrowserSession {
 		try {
 			// Photographing mid-transition catches a state part way
 			// there, which is the one thing a picture must not do.
-			if (objectId) await this.settle(objectId);
+			if (objectId) await this.settleForcedState(objectId);
 		} finally {
 			await this.release(objectId);
 		}
@@ -3037,7 +3125,7 @@ export class BrowserSession {
 					nodeId,
 					forcedPseudoClasses: [state],
 				});
-				await this.settle(objectId);
+				await this.settleForcedState(objectId);
 				const held = await this.stylesOf(objectId);
 				if (!held) continue;
 				variants.push({
@@ -3060,7 +3148,7 @@ export class BrowserSession {
 			// element is only truly as it was found once that has
 			// finished. Without this the next reading catches it part
 			// way home and reports a colour nobody chose.
-			await this.settle(objectId);
+			await this.settleForcedState(objectId);
 		}
 		return variants;
 	}
@@ -3072,7 +3160,7 @@ export class BrowserSession {
 	 * values and reports that the state changes nothing, which is
 	 * exactly backwards.
 	 */
-	private async settle(objectId: string): Promise<void> {
+	private async settleForcedState(objectId: string): Promise<void> {
 		try {
 			await this.cdp.send("Runtime.callFunctionOn", {
 				objectId,

@@ -39,3 +39,29 @@ export function refusal(
 		details: { ok: false, session, kind },
 	};
 }
+
+/**
+ * Explain a session that is not there, rather than implying the
+ * caller made the name up.
+ *
+ * A session that timed out looks identical to one that never
+ * existed, and the difference matters: the caller did nothing
+ * wrong, their navigation and emulation are simply gone, and
+ * knowing that is what stops them hunting for a typo.
+ */
+export function missingSession(
+	name: string,
+	departure: "idle" | "closed" | undefined,
+	opens: string,
+): string {
+	if (departure === "idle") {
+		return (
+			`Session '${name}' was closed after sitting idle, so its page, ` +
+			`storage and emulation are gone. ${opens}`
+		);
+	}
+	if (departure === "closed") {
+		return `Session '${name}' was closed earlier. ${opens}`;
+	}
+	return `No session '${name}'. ${opens}`;
+}

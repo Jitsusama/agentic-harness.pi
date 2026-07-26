@@ -35,7 +35,7 @@ import { measure, renderVitals } from "../../lib/web/perf/index.js";
 import type { BrowserSession } from "../../lib/web/session.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { renderBrowserCall, renderBrowserResult } from "./render.js";
-import { answer, refusal } from "./result.js";
+import { answer, missingSession, refusal } from "./result.js";
 
 const parameters = Type.Object({
 	kind: Type.Optional(
@@ -162,7 +162,11 @@ export function registerCheck(
 				return refusal(
 					name,
 					kind,
-					`No session '${name}'. Navigate somewhere with browser_go first.`,
+					missingSession(
+						name,
+						registry.departureOf(name),
+						"Navigate somewhere with browser_go first.",
+					),
 				);
 			}
 

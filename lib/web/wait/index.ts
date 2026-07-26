@@ -11,3 +11,9 @@ export {
 	type WaitCondition,
 	type WaitOutcome,
 } from "./conditions.js";
+export {
+	SETTLE_BUDGET_MS,
+	SETTLE_QUIET_MS,
+	type Settled,
+	settleSource,
+} from "./settle.js";

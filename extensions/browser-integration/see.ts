@@ -49,7 +49,7 @@ import {
 } from "../../lib/web/telemetry/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { renderBrowserCall, renderBrowserResult } from "./render.js";
-import { answer, refusal } from "./result.js";
+import { answer, missingSession, refusal } from "./result.js";
 
 /** Lay an observation out for reading: where you are, then what is there. */
 function render(observed: Observation): string {
@@ -188,6 +188,34 @@ function renderInspection(found: Inspection): string {
  */
 export async function pageView(session: BrowserSession): Promise<string> {
 	return render(await session.observe());
+}
+
+/**
+ * The page after whatever just happened to it has finished
+ * happening.
+ *
+ * Every tool that changes the page answers with a fresh outline,
+ * and on a client-rendered app that outline used to describe the
+ * page as it was before the change landed: pressing Enter on a
+ * search box returned the pre-search page, and the caller then
+ * reasoned confidently about a page that no longer existed.
+ *
+ * A page that never stops changing says so rather than being
+ * waited on for ever, because a reading of a moving page is worth
+ * having as long as nobody is told it was final.
+ */
+export async function settledPageView(
+	session: BrowserSession,
+): Promise<string> {
+	const settled = await session.settlePage();
+	const view = await pageView(session);
+	return settled.quiet
+		? view
+		: `${view}
+
+Still changing after ${settled.waitedMs}ms ` +
+				`(${settled.mutations} DOM changes while waiting), so this is a ` +
+				"snapshot of a page in motion rather than where it ended up.";
 }
 
 const parameters = Type.Object({
@@ -430,8 +458,11 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return refusal(
 					name,
 					kind,
-					`No session '${name}'. Open one with browser_go, or navigate ` +
-						`and it opens itself.`,
+					missingSession(
+						name,
+						registry.departureOf(name),
+						"Open one with browser_go, or navigate and it opens itself.",
+					),
 				);
 			}
 			const session = await registry.acquire(name);

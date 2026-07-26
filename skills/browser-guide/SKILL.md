@@ -75,6 +75,24 @@ the live page.
 before operating it. Do not add a wait before a click out of
 habit.
 
+After anything changes the page, the answer waits for the page to
+stop changing before describing it, so the outline you get is
+where the page ended up rather than where it was. A page that is
+still moving when the budget runs out is described anyway, with a
+line saying so: read that line rather than treating the outline as
+final.
+
+One case it cannot cover. A control that debounces, most often a
+search box, does nothing at all for a moment after you type, and
+nothing distinguishes "about to search in 200ms" from "finished".
+When you need the result of a debounced interaction, wait for the
+thing you expect rather than trusting the settle:
+
+```
+browser_do action:"type" role:"combobox" name:"Search" text:".."
+browser_do for:"text" text:"results"
+```
+
 ## The Loop
 
 Observe, act, observe. The three `browser_do` kinds that change
@@ -277,10 +295,15 @@ what the browser actually did. Read that part.
 ## Sessions and Cleanup
 
 A session lives until you close it, the pi session ends, or it
-goes a few minutes without being used. Idle means no activity,
-so a long check is never closed underneath itself. Close one
-when a task is done and another is starting against a different
-site, so state, storage and emulation do not leak between them.
+goes half an hour without being used. Idle means no activity, so
+a long check is never closed underneath itself. Close one when a
+task is done and another is starting against a different site, so
+state, storage and emulation do not leak between them.
+
+If a session does lapse, the refusal says so rather than claiming
+the name was never used. That distinction matters: it means your
+navigation, storage and emulation are gone and need setting up
+again, not that you mistyped.
 
 Artifacts (screenshots, HAR archives, downloads, baselines) stay
 on disk and are listed by `see status`. Baselines deliberately

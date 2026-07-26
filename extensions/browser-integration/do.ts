@@ -36,8 +36,8 @@ import {
 } from "../../lib/web/wait/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { renderBrowserCall, renderBrowserResult } from "./render.js";
-import { answer, refusal } from "./result.js";
-import { pageView } from "./see.js";
+import { answer, missingSession, refusal } from "./result.js";
+import { settledPageView } from "./see.js";
 
 const parameters = Type.Object({
 	kind: Type.Optional(
@@ -261,7 +261,11 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return refusal(
 					name,
 					kind,
-					`No session '${name}'. Navigate somewhere with browser_go first.`,
+					missingSession(
+						name,
+						registry.departureOf(name),
+						"Navigate somewhere with browser_go first.",
+					),
 				);
 			}
 
@@ -289,7 +293,7 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return answer(
 					name,
 					kind,
-					`${renderWait(outcome)}\n\n${await pageView(session)}`,
+					`${renderWait(outcome)}\n\n${await settledPageView(session)}`,
 				);
 			}
 
@@ -313,7 +317,7 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 					name,
 					kind,
 					`Pressed ${result.pressed.join(", then ")}.\n\n` +
-						`${await pageView(session)}`,
+						`${await settledPageView(session)}`,
 				);
 			}
 
@@ -321,7 +325,11 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				const session = await registry.acquire(name);
 				const done = await runGesture(session, params);
 				if ("error" in done) return refusal(name, kind, done.error);
-				return answer(name, kind, `${done.did}\n\n${await pageView(session)}`);
+				return answer(
+					name,
+					kind,
+					`${done.did}\n\n${await settledPageView(session)}`,
+				);
 			}
 
 			if (!params.action || !params.role || params.name === undefined) {
@@ -370,7 +378,7 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 					describeRefusal(action.target, result.refusal),
 				);
 			}
-			const view = await pageView(session);
+			const view = await settledPageView(session);
 			// Say when the page kept the caller waiting, so a slow
 			// interaction is visible rather than merely felt.
 			return answer(
