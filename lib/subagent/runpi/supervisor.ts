@@ -54,6 +54,13 @@ interface SupervisorResultFile {
 	readonly artifacts?: RunPiResult["artifacts"];
 }
 
+/**
+ * How long a departed supervisor's pipes may stay open before the
+ * run is settled from disk anyway. Long enough for an ordinary
+ * flush, short enough that nobody calls it a hang.
+ */
+const STDIO_GRACE_MS = 2_000;
+
 const DEFAULT_TIMEOUT_MS = 45 * 60 * 1000;
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_KILL_GRACE_MS = 5 * 1000;
@@ -241,24 +248,45 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 					throw error;
 				});
 			});
+			// "close" waits for the process to exit AND for its stdio to
+			// close, and those are not the same event: anything that
+			// inherited the supervisor's pipes and outlived it holds
+			// them open, and the promise then never settles. That is a
+			// hang, not a slow run, which is why this file went flaky
+			// only under load and only in CI, taking the whole 60s test
+			// budget on a case that finishes in 65ms alone.
+			//
+			// So the exit is a backstop for the close. Once the process
+			// is gone the pipes get a short grace to flush, and then the
+			// run is read from disk regardless. "close" still wins the
+			// race in the normal case and nothing changes for it.
+			supervisor.once("exit", (code) => {
+				const grace = setTimeout(() => {
+					void settle(async () => {
+						const onDisk = await readResult(
+							terminalResultPath ?? paths.resultPath,
+						);
+						if (onDisk) return fromResult(onDisk, warnings, stderrTail);
+						return {
+							exitCode: code ?? 1,
+							finalAssistantText: "",
+							warnings: [
+								...warnings,
+								"Reviewer supervisor exited but its output stayed " +
+									"open; something it started is still holding the " +
+									"pipes.",
+							],
+							stderrTail,
+						};
+					});
+				}, STDIO_GRACE_MS);
+				grace.unref?.();
+			});
 			supervisor.once("close", (code) => {
 				void settle(async () => {
 					const resultPath = terminalResultPath ?? paths.resultPath;
 					const result = await readResult(resultPath);
-					if (result) {
-						return {
-							exitCode: result.exitCode,
-							finalAssistantText: result.finalAssistantText,
-							...(result.usage ? { usage: result.usage } : {}),
-							warnings: [...warnings, ...(result.warnings ?? [])],
-							stderrTail: result.stderrTail ?? stderrTail,
-							...(result.verification
-								? { verification: result.verification }
-								: {}),
-							...(result.error ? { error: result.error } : {}),
-							...(result.artifacts ? { artifacts: result.artifacts } : {}),
-						};
-					}
+					if (result) return fromResult(result, warnings, stderrTail);
 					return {
 						exitCode: code ?? 1,
 						finalAssistantText: "",
@@ -271,6 +299,28 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 				});
 			});
 		});
+	};
+}
+
+/**
+ * Turn the supervisor's durable result into the caller's, so the
+ * close path and the exit backstop cannot describe one run two
+ * different ways.
+ */
+function fromResult(
+	result: NonNullable<Awaited<ReturnType<typeof readResult>>>,
+	warnings: readonly string[],
+	stderrTail: string,
+): RunPiResult {
+	return {
+		exitCode: result.exitCode,
+		finalAssistantText: result.finalAssistantText,
+		...(result.usage ? { usage: result.usage } : {}),
+		warnings: [...warnings, ...(result.warnings ?? [])],
+		stderrTail: result.stderrTail ?? stderrTail,
+		...(result.verification ? { verification: result.verification } : {}),
+		...(result.error ? { error: result.error } : {}),
+		...(result.artifacts ? { artifacts: result.artifacts } : {}),
 	};
 }
 
