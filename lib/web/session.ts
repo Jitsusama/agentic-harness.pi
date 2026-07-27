@@ -225,17 +225,13 @@ import {
 	type Vitals,
 } from "./perf/index.js";
 import { captureTiles } from "./screenshot.js";
+import { SourceMapStore } from "./session/sourcemaps.js";
+import type { SessionWires } from "./session/wires.js";
 import {
 	flattenSnapshot,
 	type IndexedNode,
 	type RawSnapshot,
 } from "./snapshot/index.js";
-import {
-	authoredPosition,
-	parseSourceMap,
-	resolveMapUrl,
-	type SourceMap,
-} from "./sourcemap/index.js";
 import {
 	asCall,
 	COMPUTED_STYLE_PROBE,
@@ -561,14 +557,16 @@ export class BrowserSession {
 	/** Everything this session has put on disk, in order. */
 	private readonly written: string[] = [];
 
-	/** Which map each script and stylesheet named, unresolved. */
-	private readonly mapUrls = new Map<string, string>();
+	/** The live view collaborators drive the browser through. */
+	private readonly wires: SessionWires = {
+		page: () => this.page,
+		cdp: () => this.cdp,
+		context: () => this.context,
+		ready: () => this.ready(),
+	};
 
-	/** Maps already fetched. A null records one that will not come. */
-	private readonly maps = new Map<string, SourceMap | null>();
-
-	/** Which URL each stylesheet id belongs to. */
-	private readonly sheetUrls = new Map<string, string>();
+	/** The maps the page has declared, for authored positions. */
+	private readonly sourceMaps = new SourceMapStore(this.wires);
 
 	/** Files the page has handed back. */
 	private readonly downloadLog = createDownloadRecorder();
@@ -619,7 +617,7 @@ export class BrowserSession {
 			await session.listenForDialogs();
 			await session.listenForLifecycle();
 			await session.listenForDownloads();
-			await session.listenForSourceMaps();
+			await session.sourceMaps.listen();
 			await session.watchVitals();
 			return session;
 		} catch (err) {
@@ -1078,84 +1076,6 @@ export class BrowserSession {
 	 * happens the moment the crash is announced.
 	 */
 	/**
-	 * Note which map belongs to which script and stylesheet.
-	 *
-	 * Chrome reports the map's URL and stops there. It does no
-	 * resolving of its own, because in a browser that is the
-	 * devtools front end's job, so a session that wants authored
-	 * positions has to keep the note itself.
-	 *
-	 * The map is not fetched here. Most sessions never throw, and
-	 * fetching every map a page mentions would cost a request per
-	 * bundle to answer a question nobody asked.
-	 */
-	private async listenForSourceMaps(): Promise<void> {
-		this.cdp.on("Debugger.scriptParsed", (event) => {
-			if (!event.sourceMapURL || !event.url) return;
-			this.mapUrls.set(event.url, event.sourceMapURL);
-		});
-		this.cdp.on("CSS.styleSheetAdded", (event) => {
-			const { sourceURL, sourceMapURL, styleSheetId } = event.header;
-			if (!sourceMapURL || !sourceURL) return;
-			this.mapUrls.set(sourceURL, sourceMapURL);
-			// The cascade names a stylesheet by id, not by URL, so the
-			// two have to be joined here while both are in hand.
-			this.sheetUrls.set(styleSheetId, sourceURL);
-		});
-		await this.cdp.send("Debugger.enable");
-	}
-
-	/**
-	 * Fetch and decode the map for a file, once.
-	 *
-	 * The fetch goes through the page rather than through node,
-	 * because the page is already on the right origin with the
-	 * right cookies. A map behind a login is unreachable any
-	 * other way.
-	 *
-	 * A failure is cached as firmly as a success. A map that 404s
-	 * will still 404 on the next frame of the same stack, and
-	 * asking again once per frame is how one bad path turns into
-	 * a dozen requests.
-	 */
-	private async mapFor(fileUrl: string): Promise<SourceMap | undefined> {
-		const cached = this.maps.get(fileUrl);
-		if (cached !== undefined) return cached ?? undefined;
-
-		const declared = this.mapUrls.get(fileUrl);
-		if (!declared) return undefined;
-		const located = resolveMapUrl(fileUrl, declared);
-		if (!located) {
-			this.maps.set(fileUrl, null);
-			return undefined;
-		}
-
-		let json: string | undefined;
-		if (located.kind === "inline") {
-			json = located.json;
-		} else {
-			try {
-				const response = await this.cdp.send("Runtime.evaluate", {
-					expression: `fetch(${JSON.stringify(located.url)})
-						.then((r) => (r.ok ? r.text() : null))
-						.catch(() => null)`,
-					awaitPromise: true,
-					returnByValue: true,
-				});
-				const body = response.result.value;
-				if (typeof body === "string") json = body;
-			} catch {
-				// A page that navigated away mid-fetch is not a reason
-				// to lose the stack we were annotating.
-			}
-		}
-
-		const parsed = json === undefined ? undefined : parseSourceMap(json);
-		this.maps.set(fileUrl, parsed ?? null);
-		return parsed;
-	}
-
-	/**
 	 * Tell each frame of a stack where it was written.
 	 *
 	 * A frame with no map keeps its generated position rather than
@@ -1164,18 +1084,7 @@ export class BrowserSession {
 	async resolveFrames(
 		frames: readonly EvalFrame[],
 	): Promise<readonly EvalFrame[]> {
-		return Promise.all(
-			frames.map(async (frame) => {
-				if (!frame.url) return frame;
-				const map = await this.mapFor(frame.url);
-				if (!map) return frame;
-				const authored = authoredPosition(map, {
-					line: frame.lineNumber,
-					column: frame.columnNumber,
-				});
-				return authored === undefined ? frame : { ...frame, authored };
-			}),
-		);
+		return this.sourceMaps.resolveFrames(frames);
 	}
 
 	private async listenForLifecycle(): Promise<void> {
@@ -3509,14 +3418,10 @@ export class BrowserSession {
 				if (source?.styleSheet === undefined || source.line === undefined) {
 					return declaration;
 				}
-				const url = this.sheetUrls.get(source.styleSheet);
-				if (url === undefined) return declaration;
-				const map = await this.mapFor(url);
-				if (!map) return declaration;
-				const authored = authoredPosition(map, {
-					line: source.line,
-					column: source.column ?? 0,
-				});
+				const authored = await this.sourceMaps.authoredForSheet(
+					source.styleSheet,
+					{ line: source.line, column: source.column ?? 0 },
+				);
 				if (authored === undefined) return declaration;
 				return { ...declaration, source: { ...source, authored } };
 			}),
