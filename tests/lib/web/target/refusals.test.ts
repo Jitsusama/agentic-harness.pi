@@ -34,6 +34,33 @@ describe("notFoundRefusal candidates are actionable", () => {
 		}
 	});
 
+	it("does not call a page close to nothing when it holds the name as text", () => {
+		// A div styled to look like a button, or a label whose control
+		// is named something else, is the commonest reason a target
+		// misses. Saying nothing on the page is close sends the caller
+		// looking for a spelling mistake, when the page has the words
+		// right there and only the role is wrong. The text still must
+		// not be offered as a thing to act on.
+		const root = node("RootWebArea", "Shop", [node("StaticText", "Save")]);
+
+		const refusal = notFoundRefusal(root, { role: "button", name: "Save" });
+		const said = describeRefusal({ role: "button", name: "Save" }, refusal);
+
+		expect(refusal.candidates).toEqual([]);
+		expect(said).not.toContain("nothing on the page is close to it");
+		expect(said).toContain("Save");
+		expect(said).toContain("StaticText");
+	});
+
+	it("still says a page is close to nothing when it is", () => {
+		const root = node("RootWebArea", "Shop", [node("button", "Basket")]);
+
+		const refusal = notFoundRefusal(root, { role: "button", name: "Save" });
+		const said = describeRefusal({ role: "button", name: "Save" }, refusal);
+
+		expect(said).toContain("nothing on the page is close to it");
+	});
+
 	it("does not cite the page root as if it were a landmark", () => {
 		// Everything is in the root, so saying so narrows nothing.
 		const root = node("RootWebArea", "Rich", [node("button", "Details")]);

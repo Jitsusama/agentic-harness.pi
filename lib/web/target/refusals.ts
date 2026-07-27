@@ -20,6 +20,18 @@ export interface TargetCandidate {
 export interface TargetRefusal {
 	readonly reason: "ambiguous" | "notFound" | "notActionable";
 	readonly candidates: readonly TargetCandidate[];
+	/**
+	 * Near misses that were dropped for being text rather than
+	 * controls, described as role and name.
+	 *
+	 * They are not offered as candidates, since acting on text
+	 * spends the caller's next call on something that cannot work.
+	 * They are still the answer more often than not: a div dressed
+	 * as a button, or a label whose control is named something
+	 * else, puts the words on the page under a role nobody can
+	 * act on.
+	 */
+	readonly inert?: readonly string[];
 	/** How long act waited for actionability before giving up. */
 	readonly waitedMs?: number;
 	/** What stood in the way, when the element was not actionable. */
@@ -178,11 +190,11 @@ export function notFoundRefusal(root: AxNode, target: Target): TargetRefusal {
 	const seen = new Set<string>();
 	const candidates: TargetCandidate[] = [];
 
-	const ranked = locate(root)
-		.filter((located) => isActionable(located.node))
+	const near = locate(root)
 		.map((located) => nearMiss(located, target))
 		.filter((miss): miss is NearMiss => miss !== undefined)
 		.sort((a, b) => a.rank - b.rank);
+	const ranked = near.filter((miss) => isActionable(miss.located.node));
 
 	for (const miss of ranked) {
 		if (candidates.length === MAX_CANDIDATES) break;
@@ -196,7 +208,28 @@ export function notFoundRefusal(root: AxNode, target: Target): TargetRefusal {
 		candidates.push({ target: proposal, hint: hintFor(miss, target) });
 	}
 
-	return { reason: "notFound", candidates };
+	// Only worth saying when there is nothing better to offer. A
+	// caller handed three usable targets does not need to hear
+	// about the text as well.
+	const inert =
+		candidates.length > 0
+			? []
+			: [
+					...new Set(
+						near
+							.filter((miss) => !isActionable(miss.located.node))
+							.map(
+								(miss) =>
+									`${miss.located.node.role} "${miss.located.node.name}"`,
+							),
+					),
+				].slice(0, MAX_CANDIDATES);
+
+	return {
+		reason: "notFound",
+		candidates,
+		...(inert.length === 0 ? {} : { inert }),
+	};
 }
 
 /**
@@ -341,9 +374,20 @@ function headline(asked: string, refusal: TargetRefusal): string {
 		const blocking = refusal.blocking ? `: ${refusal.blocking}` : "";
 		return `${asked} did not become actionable${waited}${blocking}.`;
 	}
-	return refusal.candidates.length === 0
-		? `Nothing matches ${asked}, and nothing on the page is close to it.`
-		: `Nothing matches ${asked}. Did you mean:`;
+	if (refusal.candidates.length > 0)
+		return `Nothing matches ${asked}. Did you mean:`;
+	if (refusal.inert && refusal.inert.length > 0) {
+		// The words are on the page under a role nobody can act on,
+		// which is a different problem from a mistyped name and
+		// wants a different next move.
+		return (
+			`Nothing matches ${asked}. The page carries that name as ` +
+			`${refusal.inert.join(", ")}, which is text rather than ` +
+			"something to act on, so the element may be missing the " +
+			"role you expected."
+		);
+	}
+	return `Nothing matches ${asked}, and nothing on the page is close to it.`;
 }
 
 /**
