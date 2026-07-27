@@ -191,7 +191,13 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 		const outcome = await session.waitFor({ kind: "duration", ms: 250 }, 5_000);
 
 		expect(outcome.met).toBe(true);
-		expect(outcome.waitedMs).toBeGreaterThanOrEqual(250);
+		// Measured at 249 once: a timer can come back a whisker early,
+		// and the elapsed figure is rounded from a clock of its own.
+		// The claim worth holding is that it waited about as long as
+		// asked, not that it never rounds down by a millisecond, which
+		// is a property of the platform's clock rather than of this.
+		expect(outcome.waitedMs).toBeGreaterThanOrEqual(240);
+		expect(outcome.waitedMs).toBeLessThan(1_000);
 	});
 
 	it("records the page it went to, not merely that something happened", async () => {
