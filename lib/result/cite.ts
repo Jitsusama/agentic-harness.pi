@@ -107,6 +107,17 @@ export function cite<T>(store: ResultStore, answer: Citable<T>): Cited {
 	};
 }
 
+/**
+ * Whether a query could pick something smaller out of this.
+ *
+ * Objects and arrays have parts to name; a string or a number is
+ * one thing, and every expression that matches it matches the
+ * whole of it.
+ */
+function hasFields(payload: unknown): boolean {
+	return typeof payload === "object" && payload !== null;
+}
+
 /** The sentence that turns a handle into something usable. */
 function citation<T>(
 	answer: Citable<T>,
@@ -125,8 +136,18 @@ function citation<T>(
 				`No tool in this session can read a handle, so this one ` +
 				`cannot be followed; load the result-store-workflow ` +
 				`extension to query it. Shape: ${digest}`
-			: `Query it with ${tool}, projecting the fields you want ` +
-				`rather than whole records. Shape: ${digest}`;
+			: hasFields(answer.payload)
+				? `Query it with ${tool}, projecting the fields you want ` +
+					`rather than whole records. Shape: ${digest}`
+				: // Advice that cannot be followed is worse than none.
+					// Reading the body of a stylesheet stored 211,762
+					// bytes of minified css and said to project the
+					// fields wanted rather than whole records. There are
+					// no fields on a string, and the one expression that
+					// matches it returns every byte, so the advice led
+					// back into the dump the bound had just avoided.
+					`It has no fields to project, so ${tool} can only ` +
+					`return the whole of it at once. Shape: ${digest}`;
 	if (answer.elided && answer.shown >= answer.total) {
 		// Nothing was cut, so there is no shortfall in lines to report.
 		// Saying "renders 12 of 12 lines" next to a handle would invite

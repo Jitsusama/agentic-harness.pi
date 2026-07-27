@@ -80,4 +80,39 @@ describe("renderListeners", () => {
 		// did nothing, so it has to be stated rather than omitted.
 		expect(renderListeners([])).toBe("Nothing is listening on this element.");
 	});
+
+	it("names an ancestor that will catch what this element ignores", () => {
+		// A button whose click was handled by a delegate on the body
+		// was reported as having nothing listening. Measured live: the
+		// click fired and changed the title, and the inspection whose
+		// stated purpose is to answer why a click did nothing gave the
+		// answer that most invites the wrong conclusion.
+		const out = renderListeners(
+			[],
+			[{ element: "body", listeners: normalizeListeners([{ type: "click" }]) }],
+		);
+
+		expect(out).not.toBe("Nothing is listening on this element.");
+		expect(out).toContain("body");
+		expect(out).toContain("click");
+	});
+
+	it("keeps an element's own handlers apart from its ancestors'", () => {
+		// Which one runs first, and which one to go and edit, depend
+		// on knowing whose handler it is.
+		const out = renderListeners(normalizeListeners([{ type: "keydown" }]), [
+			{
+				element: "div#app",
+				listeners: normalizeListeners([{ type: "click" }]),
+			},
+		]);
+
+		expect(out.indexOf("keydown")).toBeLessThan(out.indexOf("div#app"));
+	});
+
+	it("is silent about ancestors when none of them listen", () => {
+		expect(renderListeners([], [])).toBe(
+			"Nothing is listening on this element.",
+		);
+	});
 });

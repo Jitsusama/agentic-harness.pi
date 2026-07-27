@@ -56,6 +56,24 @@ const COLLAPSED = page(
 </main>`,
 );
 
+/**
+ * A button bound the way most frameworks bind: not on the button.
+ *
+ * Measured live before this existed, a button exactly like it
+ * reported "Nothing is listening on this element" while its click
+ * changed the page, from the inspection whose stated purpose is
+ * to explain why a click did nothing.
+ */
+const DELEGATED = page(
+	"Delegated",
+	`<main><h1>Delegated</h1><button type="button" id="save">Save</button></main>
+<script>
+document.body.addEventListener("click", function (event) {
+  if (event.target.id === "save") document.title = "clicked";
+});
+</script>`,
+);
+
 let fixture: Fixture;
 let session: BrowserSession;
 
@@ -66,6 +84,7 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 			{ path: "/other", body: OTHER },
 			{ path: "/trap", body: TRAP },
 			{ path: "/collapsed", body: COLLAPSED },
+			{ path: "/delegated", body: DELEGATED },
 		]);
 		session = await BrowserSession.open("capture-contract");
 		await session.navigate(fixture.url("/subject"));
@@ -218,6 +237,32 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 		expect(found.ok).toBe(true);
 		if (!found.ok) return;
 		expect(found.inspection.box).toBeDefined();
+	});
+
+	it("names the ancestor listening for a button that is not", async () => {
+		try {
+			await session.navigate(fixture.url("/delegated"));
+			const found = await session.inspect(
+				{ role: "button", name: "Save" },
+				{ behaviour: true },
+			);
+
+			expect(found.ok).toBe(true);
+			if (!found.ok) return;
+			// Nothing on the button itself, which was the whole of the
+			// old answer, and a click handler on the body, which is the
+			// half that explains what happens when you press it.
+			expect(found.inspection.listeners).toEqual([]);
+			const delegated = found.inspection.delegated ?? [];
+			expect(delegated.some((on) => on.element.includes("body"))).toBe(true);
+			expect(
+				delegated.some((on) =>
+					on.listeners.some((listener) => listener.type === "click"),
+				),
+			).toBe(true);
+		} finally {
+			await session.navigate(fixture.url("/subject"));
+		}
 	});
 
 	it("refuses to inspect what is not there, rather than inventing a box", async () => {

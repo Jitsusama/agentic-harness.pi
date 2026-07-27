@@ -26,6 +26,39 @@ describe("cite", () => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
+	it("does not offer to project fields from a payload with none", () => {
+		// Reading the body of a stylesheet stored 211,762 bytes of
+		// minified css and advised projecting the fields wanted
+		// rather than whole records. A string has no fields, and the
+		// only expression that matches one returns all of it, so the
+		// advice led straight into the dump the bound had avoided.
+		offerQueryTool("result_query");
+
+		const cited = cite(store, {
+			payload: "x".repeat(5000),
+			view: "first 100 of them",
+			shown: 100,
+			total: 5000,
+			unit: "bytes",
+		});
+
+		expect(cited.text).not.toContain("projecting the fields");
+	});
+
+	it("still offers to project fields from records", () => {
+		offerQueryTool("result_query");
+
+		const cited = cite(store, {
+			payload: Array.from({ length: 40 }, (_, i) => ({ id: i })),
+			view: "first 3 of them",
+			shown: 3,
+			total: 40,
+			unit: "nodes",
+		});
+
+		expect(cited.text).toContain("projecting the fields");
+	});
+
 	it("says nothing when the view already shows everything", () => {
 		const cited = cite(store, {
 			payload: [{ id: 1 }],

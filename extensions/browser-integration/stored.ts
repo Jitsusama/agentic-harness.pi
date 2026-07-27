@@ -104,13 +104,22 @@ function heading(observed: Observation, bounded: BudgetedOutline): string {
  * either return all of it or none.
  */
 export function bodyAnswer(url: string, body: string, budget: number): string {
-	return cite(openSessionStore(), {
+	const cited = cite(openSessionStore(), {
 		payload: body,
 		view: `Body of ${url}:\n${body.slice(0, budget)}`,
 		shown: budget,
 		total: body.length,
 		unit: "bytes",
-	}).text;
+	});
+	// A body is one string, so the handle is all or nothing and the
+	// citation says so. This family is one of the few that has a
+	// third answer, and a reader who wants a whole minified
+	// stylesheet wants it in a file rather than in the transcript.
+	if (cited.handle === undefined) return cited.text;
+	return (
+		`${cited.text} Or ask again with 'har' to write every body ` +
+		"to an archive on disk."
+	);
 }
 
 /**
