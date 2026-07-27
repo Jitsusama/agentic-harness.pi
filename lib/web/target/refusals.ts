@@ -354,7 +354,7 @@ function headline(asked: string, refusal: TargetRefusal): string {
  * name would be telling the caller to pass punctuation back,
  * and the outline it was read from does not show one either.
  */
-function describeTarget(target: Target): string {
+export function describeTarget(target: Target): string {
 	const parts = [
 		target.name
 			? `role ${target.role} name "${target.name}"`

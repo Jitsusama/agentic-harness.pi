@@ -28,7 +28,11 @@ import {
 	type MouseButton,
 } from "../../lib/web/input/index.js";
 import type { BrowserSession, TargetedAction } from "../../lib/web/session.js";
-import { describeRefusal, type Target } from "../../lib/web/target/index.js";
+import {
+	describeRefusal,
+	describeTarget,
+	type Target,
+} from "../../lib/web/target/index.js";
 import {
 	DEFAULT_QUIET_MS,
 	renderWait,
@@ -374,8 +378,8 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return refusal(
 					name,
 					kind,
-					`action '${params.action}' needs ${needs} role ` +
-						`${params.role} name "${params.name}".`,
+					`action '${params.action}' needs ${needs} ` +
+						`${describeTarget({ role: params.role, name: params.name })}.`,
 				);
 			}
 
@@ -386,9 +390,9 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 					return refusal(
 						name,
 						kind,
-						`Waited ${result.blocked.waitedMs}ms but role ${params.role} ` +
-							`name "${params.name}" never became ready: ` +
-							`${result.blocked.blocker}.`,
+						`Waited ${result.blocked.waitedMs}ms but ` +
+							`${describeTarget({ role: params.role, name: params.name })} ` +
+							`never became ready: ${result.blocked.blocker}.`,
 					);
 				}
 				return refusal(
