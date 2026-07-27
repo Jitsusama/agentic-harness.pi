@@ -54,12 +54,19 @@ describe("createResultStore", () => {
 		expect(store.has(stored.handle)).toBe(false);
 	});
 
-	it("clear removes files and makes every handle expire", () => {
+	it("expires a handle whose file somebody else removed", () => {
+		// This is what tearing a session down looks like from inside a
+		// store: the directory goes, and every handle stops resolving.
+		// A store has no clear() of its own, because the directory is
+		// shared and emptying it would take handles other extensions
+		// had already given out.
 		const store = createResultStore({ dir });
 		const stored = store.put("payload");
-		store.clear();
+
+		fs.rmSync(stored.path, { force: true });
+
 		expect(() => store.read(stored.handle)).toThrow(HandleExpiredError);
-		expect(fs.existsSync(stored.path)).toBe(false);
+		expect(store.has(stored.handle)).toBe(false);
 	});
 
 	it("throws HandleExpiredError when the backing file vanishes", () => {

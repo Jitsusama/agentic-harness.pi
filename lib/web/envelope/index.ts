@@ -5,6 +5,7 @@
  */
 
 export { type ArtifactOptions, withArtifact } from "./artifacts.js";
+export { pathComponent } from "./naming.js";
 export {
 	DEFAULT_BUDGET_BYTES,
 	DEFAULT_LIMIT,

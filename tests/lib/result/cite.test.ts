@@ -104,7 +104,6 @@ describe("cite", () => {
 				throw new Error("not reached");
 			},
 			has: () => false,
-			clear: () => {},
 		};
 
 		const cited = cite(broken, {
