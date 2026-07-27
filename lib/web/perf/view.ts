@@ -65,8 +65,15 @@ export function renderVitals(
 	// unsupported entry type used to cost the whole report.
 	const missing = vitals.unavailable ?? [];
 
+	// Naming the one that is never taken, rather than leaving a
+	// count to imply the set. Interaction to next paint needs a
+	// person to interact: nothing here observes event timing, so a
+	// reader told only that four were measured has no way to know
+	// responsiveness was never among them, and assumes it passed.
 	const caveat =
-		missing.length === 0 ? "" : ` Not observed: ${missing.join("; ")}.`;
+		` Interaction to next paint is not among them: it needs an ` +
+		`interaction, and this measures a load.` +
+		(missing.length === 0 ? "" : ` Not observed: ${missing.join("; ")}.`);
 	const width = Math.max(...measures.map((one) => one.name.length));
 	const lines = measures.map(
 		(one) =>
