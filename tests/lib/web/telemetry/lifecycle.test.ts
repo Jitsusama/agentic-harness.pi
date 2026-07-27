@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
 	createLifecycleRecorder,
 	renderLifecycle,
+	strandedByCrash,
 } from "../../../../lib/web/telemetry/lifecycle.js";
 
 const MAIN = "5E6572D6AA7F772EBC72974EA62B0A0B";
@@ -176,5 +177,39 @@ describe("renderLifecycle", () => {
 		]);
 		expect(out).toContain("crashed");
 		expect(out).toContain("recovered");
+	});
+});
+
+describe("strandedByCrash", () => {
+	// Measured on a real crash: the tab is replaced by a blank one
+	// and the replacement is not sent anywhere, so every read after
+	// it describes about:blank. The page read answered with an
+	// empty outline and no explanation, which reads as a page that
+	// has nothing on it rather than a page that is gone.
+	it("knows the session has not been anywhere since the crash", () => {
+		expect(
+			strandedByCrash([
+				{ kind: "navigated", url: "http://a/" },
+				{ kind: "crashed" },
+				{ kind: "recovered" },
+			]),
+		).toBe(true);
+	});
+
+	it("stops saying so once the session has gone somewhere", () => {
+		expect(
+			strandedByCrash([
+				{ kind: "crashed" },
+				{ kind: "recovered" },
+				{ kind: "navigated", url: "http://a/" },
+			]),
+		).toBe(false);
+	});
+
+	it("says nothing of a session that never crashed", () => {
+		expect(strandedByCrash([{ kind: "navigated", url: "http://a/" }])).toBe(
+			false,
+		);
+		expect(strandedByCrash([])).toBe(false);
 	});
 });

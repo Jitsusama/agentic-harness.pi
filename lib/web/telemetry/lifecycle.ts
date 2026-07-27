@@ -57,6 +57,33 @@ export interface LifecycleRecorder {
 	adoptFrame(frameId: string): void;
 }
 
+/**
+ * Whether the session is sitting on the tab that replaced a crash.
+ *
+ * A crash is not the end of a session: the tab is replaced and
+ * everything goes on working. What is not restored is where the
+ * session was, because the replacement starts blank and nothing
+ * sends it back. So every read after a crash describes a blank
+ * page, and describing a blank page accurately is the problem:
+ * an empty outline reads as a page with nothing on it rather
+ * than a page that is gone.
+ *
+ * Asked of the history rather than of the url, because the
+ * question is whether anything has been loaded since, and a
+ * session deliberately sitting on about:blank is not stranded.
+ */
+export function strandedByCrash(history: readonly LifecycleEvent[]): boolean {
+	// Walking back from the end rather than filtering forward:
+	// the first of these two kinds to turn up is the answer, and
+	// findLastIndex is not available on a readonly array here.
+	for (let at = history.length - 1; at >= 0; at -= 1) {
+		const kind = history[at]?.kind;
+		if (kind === "navigated" || kind === "routeChanged") return false;
+		if (kind === "crashed") return true;
+	}
+	return false;
+}
+
 export function createLifecycleRecorder(
 	mainFrameId: string,
 ): LifecycleRecorder {

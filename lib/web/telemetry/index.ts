@@ -59,6 +59,7 @@ export {
 	type LifecycleKind,
 	type LifecycleRecorder,
 	renderLifecycle,
+	strandedByCrash,
 } from "./lifecycle.js";
 export {
 	createNetworkRecorder,
