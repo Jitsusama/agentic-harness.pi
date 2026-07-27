@@ -13,7 +13,12 @@ import type { AxNode } from "../a11y/index.js";
 /** How the model addresses an element. */
 export interface Target {
 	readonly role: string;
-	readonly name: string;
+	/**
+	 * The accessible name, when there is one. An icon button or a
+	 * bare input has none, and the outline shows only its role, so
+	 * a role on its own has to be a way of addressing it.
+	 */
+	readonly name?: string;
 	/** Restrict to descendants of a container with this name (and optional role). */
 	readonly container?: { readonly role?: string; readonly name: string };
 	/** 1-based position among same-named matches ("the second X"). */

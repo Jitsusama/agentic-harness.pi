@@ -224,6 +224,19 @@ function nearMiss(located: Located, target: Target): NearMiss | undefined {
 	if (!name.trim()) return undefined;
 
 	const sameRole = foldEquals(role, target.role);
+
+	// Asking for a control with no name says nothing about names,
+	// so there is no ladder to climb: what is worth offering is
+	// the controls that share the role and do have a name, which
+	// is how the caller will end up addressing one. Running the
+	// ladder anyway made a near miss of every named node on the
+	// page, since every name contains the empty string.
+	if (target.name === undefined || target.name === "") {
+		return sameRole
+			? { located, rank: 0, reason: "same role, and it has a name" }
+			: undefined;
+	}
+
 	const rung = nameRung(name, target.name);
 	if (rung === undefined) return undefined;
 
@@ -238,8 +251,9 @@ function nearMiss(located: Located, target: Target): NearMiss | undefined {
 /** Which rung of the name ladder this name reaches, if any. */
 function nameRung(
 	found: string,
-	asked: string,
+	asked: string | undefined,
 ): { step: number; reason: string } | undefined {
+	if (asked === undefined) return undefined;
 	if (found === asked) return { step: 0, reason: "same name" };
 	if (foldEquals(found, asked)) {
 		return { step: 0, reason: "same name, written differently" };
@@ -332,9 +346,20 @@ function headline(asked: string, refusal: TargetRefusal): string {
 		: `Nothing matches ${asked}. Did you mean:`;
 }
 
-/** A target written the way a caller would pass it back. */
+/**
+ * A target written the way a caller would pass it back.
+ *
+ * A control with no accessible name is addressed by its role
+ * alone, so that is how it is written here. Printing an empty
+ * name would be telling the caller to pass punctuation back,
+ * and the outline it was read from does not show one either.
+ */
 function describeTarget(target: Target): string {
-	const parts = [`role ${target.role} name "${target.name}"`];
+	const parts = [
+		target.name
+			? `role ${target.role} name "${target.name}"`
+			: `role ${target.role}`,
+	];
 	if (target.container) parts.push(`container "${target.container.name}"`);
 	if (target.ordinal !== undefined) parts.push(`ordinal ${target.ordinal}`);
 	return parts.join(" ");

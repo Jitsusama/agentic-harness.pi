@@ -346,12 +346,17 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				);
 			}
 
-			if (!params.action || !params.role || params.name === undefined) {
+			// A name is not required. The outline writes a control that
+			// has no accessible name as its role alone, and demanding a
+			// name here made every one of them unreachable except by
+			// coordinates, which is the escape hatch and not the way in.
+			if (!params.action || !params.role) {
 				return refusal(
 					name,
 					kind,
-					"act needs an action, a role and a name. To send keys " +
-						"without naming an element, use kind 'press'.",
+					"act needs an action and a role, plus the accessible " +
+						"name when the element has one. To send keys without " +
+						"naming an element, use kind 'press'.",
 				);
 			}
 
@@ -628,7 +633,7 @@ function buildAction(params: {
 		| "select"
 		| "scrollTo";
 	role: string;
-	name: string;
+	name?: string;
 	text?: string;
 	container?: string;
 	ordinal?: number;

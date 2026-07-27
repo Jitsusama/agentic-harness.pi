@@ -40,6 +40,7 @@ const FORM = page(
     <button type="button" id="under" onclick="document.getElementById('log').textContent = 'should not happen'">Covered button</button>
     <div id="cover" style="position:absolute;inset:0;background:rgba(0,0,0,0.01)"></div>
   </div>
+  <nav><button type="button" id="icon" onclick="document.getElementById('log').textContent = 'icon'"><svg width="20" height="20" aria-hidden="true"></svg></button></nav>
   <div id="scroller" style="height:2000px"></div>
   <button type="button" id="far">Far below</button>
 </main>`,
@@ -118,6 +119,20 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 
 		expect(result.ok).toBe(true);
 		expect(await logged()).toBe("clicked");
+	});
+
+	it("clicks a control that has no name to be called by", async () => {
+		// An icon button carries no accessible name, so the outline
+		// offers only its role and that has to be enough to act on.
+		// Requiring a name here left it reachable by coordinates and
+		// nothing else.
+		const result = await session.act({
+			kind: "click",
+			target: { role: "button" },
+		});
+
+		expect(result.ok).toBe(true);
+		expect(await logged()).toBe("icon");
 	});
 
 	it("types into a field found by its label", async () => {
