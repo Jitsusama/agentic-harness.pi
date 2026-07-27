@@ -323,7 +323,30 @@ describe.skipIf(!haveChrome)("emulating a device, in a real browser", () => {
 
 		const seen = await asThePageSees();
 		expect(seen.width).toBe(393);
-		expect(seen.touchPoints).toBeGreaterThan(0);
+
+		// Touch is subject to the race documented above: it rides on
+		// the renderer, and a navigation that swaps processes can
+		// land before the override does. This test asserted touch
+		// survived, and so failed roughly one run in three, which
+		// makes it a coin toss reported as a regression. Measured on
+		// clean main: two consecutive failures, then a pass, with no
+		// code changing in between.
+		//
+		// Its gated neighbour already covers the race deliberately.
+		// What belongs here is the invariant that holds every run and
+		// is the thing a caller is actually hurt by: whatever the
+		// browser does with touch, the tool must not claim a phone the
+		// page cannot confirm. Reading "pretending: iPhone 15 Pro"
+		// while the page denies touch is how someone concludes a site
+		// is broken on mobile when the tool is what is broken.
+		// Measured over eight runs: the race fired twice, and both
+		// times the gap was reported rather than the phone claimed.
+		const gaps = (await session.status()).gaps;
+		if (seen.touchPoints === 0) {
+			expect(gaps).toBeDefined();
+		} else {
+			expect(gaps).toBeUndefined();
+		}
 	});
 
 	it("reports no gap when the device really did apply", async () => {

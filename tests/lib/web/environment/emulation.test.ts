@@ -192,6 +192,32 @@ describe("divergences", () => {
 		expect(first?.note).toContain("navigator.language");
 	});
 
+	it("warns when the page counts no touch points at all", () => {
+		// Touch can be applied by halves: the event handler is on the
+		// window and the count is still zero. Only the handler was
+		// checked, so the tool reported an untroubled phone while a
+		// script asking navigator.maxTouchPoints, which is the modern
+		// way to ask and the one feature detection guides recommend,
+		// decided there was no touch screen. Someone reading that
+		// concludes the site is broken on mobile when the emulation is
+		// what is broken.
+		const found = divergences(
+			{ touch: true },
+			observed({ maxTouchPoints: 0, touchEvents: true }),
+		);
+
+		expect(found.map((gap) => gap.what)).toContain("touch");
+	});
+
+	it("is quiet when touch arrived by both signals", () => {
+		const found = divergences(
+			{ touch: true },
+			observed({ maxTouchPoints: 5, touchEvents: true }),
+		);
+
+		expect(found.map((gap) => gap.what)).not.toContain("touch");
+	});
+
 	it("warns that touch emulation leaves ontouchstart absent", () => {
 		const [first] = divergences(
 			{ touch: true },
