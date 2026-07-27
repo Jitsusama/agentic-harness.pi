@@ -103,6 +103,36 @@ describe("tallyUsage", () => {
 });
 
 describe("coloursAreNear", () => {
+	it("keeps one side apart from three", () => {
+		// border-color is a shorthand, so a value can name one side
+		// or four. A single colour and a three-sided value are
+		// different kinds of thing, not a palette that drifted.
+		expect(
+			coloursAreNear(
+				"rgb(200, 204, 209)",
+				"rgb(200, 204, 209) rgb(200, 204, 209) rgb(32, 33, 34)",
+			),
+		).toBe(false);
+	});
+
+	it("reads past the first side before calling two values one", () => {
+		expect(
+			coloursAreNear(
+				"rgb(32, 33, 34) rgb(200, 204, 209) rgb(200, 204, 209)",
+				"rgb(32, 33, 34) rgb(32, 33, 34) rgb(32, 33, 34)",
+			),
+		).toBe(false);
+	});
+
+	it("still pairs multi-sided values that drifted together", () => {
+		expect(
+			coloursAreNear(
+				"rgb(118, 118, 118) rgb(200, 204, 209)",
+				"rgb(119, 119, 119) rgb(201, 205, 210)",
+			),
+		).toBe(true);
+	});
+
 	it("calls two greys one step apart the same intent", () => {
 		expect(coloursAreNear("rgb(118, 118, 118)", "rgb(119, 119, 119)")).toBe(
 			true,
@@ -184,6 +214,30 @@ describe("clusterUsage", () => {
 		expect(clusters[0]?.leader.count).toBe(40);
 		expect(clusters[0]?.nearby).toHaveLength(2);
 		expect(clusters[0]?.total).toBe(43);
+	});
+
+	it("finds no drift in the border colours of a real page", () => {
+		// Every value here is one Wikipedia served on a single view.
+		// Reading only the first colour of each reported three of
+		// them as drift, pairing a one-sided value with a
+		// three-sided one and pairing two values that agree on
+		// nothing but their first side.
+		const clusters = clusterUsage(
+			[
+				usage("rgb(200, 204, 209)", 13),
+				usage("rgb(200, 204, 209) rgb(200, 204, 209) rgb(32, 33, 34)", 13),
+				usage("rgb(32, 33, 34) rgb(200, 204, 209) rgb(200, 204, 209)", 13),
+				usage("rgb(16, 20, 24) rgb(16, 20, 24) rgb(162, 169, 177)", 12),
+				usage(
+					"rgb(32, 33, 34) rgb(32, 33, 34) rgb(32, 33, 34) rgb(162, 169, 177)",
+					5,
+				),
+				usage("rgb(162, 169, 177)", 4),
+			],
+			coloursAreNear,
+		);
+
+		expect(clusters).toEqual([]);
 	});
 
 	it("reports nothing when every value stands alone", () => {
