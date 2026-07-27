@@ -30,12 +30,8 @@ import type {
 import { _keyDefinitions } from "puppeteer-core/internal/common/USKeyboardLayout.js";
 import { dataDir } from "../internal/paths.js";
 import {
-	ANNOUNCE_BINDING,
-	ANNOUNCEMENT_OBSERVER,
 	type Announcement,
-	type AnnouncementCandidate,
 	type AxNode,
-	CANDIDATE_REGISTRY,
 	type FrameAxTree,
 	normalizeAxTree,
 	type RawAxNode,
@@ -165,9 +161,6 @@ const DEFAULT_WAIT_MS = 10_000;
 /** How often a wait looks again. */
 const WAIT_POLL_MS = 100;
 
-/** Milliseconds in a second, where two clocks have to meet. */
-const MS_PER_SECOND = 1000;
-
 /**
  * Every key the driver knows how to send.
  *
@@ -210,6 +203,7 @@ import { ArtifactLedger } from "./session/artifacts.js";
 import { EmulationController } from "./session/emulation.js";
 import { NetworkShaper } from "./session/shaping.js";
 import { SourceMapStore } from "./session/sourcemaps.js";
+import { SessionTelemetry } from "./session/telemetry.js";
 import type { SessionWires } from "./session/wires.js";
 import {
 	flattenSnapshot,
@@ -237,29 +231,14 @@ import {
 	type TargetRefusal,
 } from "./target/index.js";
 import {
-	answerFor,
-	type BrowserLogged,
-	browserEntry,
-	type ConsoleCalled,
-	consoleEntry,
-	createDownloadRecorder,
-	createLifecycleRecorder,
-	createNetworkRecorder,
-	createRingBuffer,
-	DEFAULT_DIALOG_POLICY,
 	type DialogEvent,
-	type DialogKind,
 	type DialogPolicy,
 	type DownloadRecord,
-	type DownloadState,
-	exceptionEntry,
 	failureText,
 	type LifecycleEvent,
-	type LifecycleRecorder,
 	type LogEntry,
 	type NetworkRequest,
 	type Recorded,
-	type RingBuffer,
 	toHar,
 } from "./telemetry/index.js";
 
@@ -457,52 +436,11 @@ function axeSource(): string {
 }
 
 export class BrowserSession {
-	/** What the page announced, oldest first, within its budget. */
-	private readonly announcements: RingBuffer<Announcement> =
-		createRingBuffer<Announcement>();
-
-	/**
-	 * What the browser said about each nominated region, keyed by
-	 * document epoch and registry index. Null means the browser
-	 * ruled it not live.
-	 */
-	private readonly livenessByRegion = new Map<
-		string,
-		Announcement["politeness"] | null
-	>();
-
 	/** What every property computes to untouched, read once. */
 	private initialStyles?: ComputedStyles;
 
-	/** Everything the page has said since it opened. */
-	private readonly logBuffer = createRingBuffer<LogEntry>();
-
-	/** Every request the page has made since it opened. */
-	private readonly requestLog = createNetworkRecorder();
-
-	/** Every dialog the page has raised, and how it was answered. */
-	private readonly dialogLog: DialogEvent[] = [];
-
-	/** Where the page has been, and whether it survived. */
-	private lifecycleLog?: LifecycleRecorder;
-
 	/** The recovery in flight, so nothing reads a tab mid-replacement. */
 	private recovery?: Promise<void>;
-
-	/**
-	 * Wall seconds minus the protocol's monotonic seconds.
-	 *
-	 * The protocol's clock counts from when the browser started,
-	 * so it reads around 586,000 while ours reads 1.78 billion.
-	 * Comparing a recorded request against our own clock without
-	 * this correction does not merely give a wrong answer, it
-	 * gives a confidently idle one, because every request looks
-	 * like it finished aeons ago.
-	 */
-	private clockOffset?: number;
-
-	/** How dialogs get answered while nobody is watching. */
-	private dialogPolicy: DialogPolicy = DEFAULT_DIALOG_POLICY;
 
 	/** The live view collaborators drive the browser through. */
 	private readonly wires: SessionWires = {
@@ -526,15 +464,16 @@ export class BrowserSession {
 	/** The disk side of this session: sink, stamps and ledger. */
 	private readonly artifacts = new ArtifactLedger();
 
-	/** Files the page has handed back. */
-	private readonly downloadLog = createDownloadRecorder();
-
-	/**
-	 * Announcements still being ruled on. Candidates resolve one
-	 * at a time along this chain, so a slow lookup cannot overtake
-	 * a fast one and record two out of the order they were said.
-	 */
-	private pending: Promise<void> = Promise.resolve();
+	/** Everything this session overhears, and its buffers. */
+	private readonly telemetry = new SessionTelemetry(this.wires, {
+		onCrash: () => {
+			this.recovery = this.recover();
+		},
+		downloadDir: () => this.artifacts.sink().dir,
+		keep: (path) => {
+			this.artifacts.keep(path);
+		},
+	});
 
 	private constructor(
 		readonly name: string,
@@ -569,12 +508,12 @@ export class BrowserSession {
 			await cdp.send("DOM.enable");
 			await cdp.send("CSS.enable");
 			const session = new BrowserSession(name, page, cdp, context, options);
-			await session.listenForAnnouncements();
-			await session.listenForLogs();
-			await session.listenForRequests();
-			await session.listenForDialogs();
-			await session.listenForLifecycle();
-			await session.listenForDownloads();
+			await session.telemetry.listenForAnnouncements();
+			await session.telemetry.listenForLogs();
+			await session.telemetry.listenForRequests();
+			await session.telemetry.listenForDialogs();
+			await session.telemetry.listenForLifecycle();
+			await session.telemetry.listenForDownloads();
 			await session.sourceMaps.listen();
 			await session.watchVitals();
 			return session;
@@ -586,97 +525,9 @@ export class BrowserSession {
 		}
 	}
 
-	/**
-	 * Listen for everything the page says, from the moment it
-	 * opens.
-	 *
-	 * Three sources, because no one of them is complete. The
-	 * console is what the page chose to say; exceptions are what
-	 * it did not choose; and the browser's own log carries what
-	 * the page never hears at all, a resource that failed to load
-	 * or a request the browser refused.
-	 */
-	private async listenForLogs(): Promise<void> {
-		this.cdp.on("Runtime.consoleAPICalled", (event) => {
-			this.logBuffer.push(consoleEntry(event as ConsoleCalled));
-		});
-		this.cdp.on("Runtime.exceptionThrown", (event) => {
-			this.logBuffer.push(
-				exceptionEntry(event.exceptionDetails, event.timestamp),
-			);
-		});
-		this.cdp.on("Log.entryAdded", (event) => {
-			const logged = event as { entry: BrowserLogged };
-			this.logBuffer.push(browserEntry(logged.entry));
-		});
-		await this.cdp.send("Runtime.enable");
-		await this.cdp.send("Log.enable");
-	}
-
-	/**
-	 * Watch every request the page makes.
-	 *
-	 * The protocol reports one request as four separate events
-	 * over its life, so the recorder does the reassembly and this
-	 * only relabels the CDP names it consumes.
-	 */
-	private async listenForRequests(): Promise<void> {
-		this.cdp.on("Network.requestWillBeSent", (event) => {
-			// This is the one event carrying both clocks at once, which
-			// makes it the only place the offset between them can be
-			// learned rather than assumed.
-			if (event.wallTime !== undefined) {
-				this.clockOffset = event.wallTime - event.timestamp;
-			}
-			this.requestLog.apply({ kind: "sent", event });
-		});
-		this.cdp.on("Network.responseReceived", (event) => {
-			this.requestLog.apply({ kind: "received", event });
-		});
-		this.cdp.on("Network.loadingFinished", (event) => {
-			this.requestLog.apply({ kind: "finished", event });
-		});
-		this.cdp.on("Network.loadingFailed", (event) => {
-			this.requestLog.apply({ kind: "failed", event });
-		});
-		await this.cdp.send("Network.enable");
-	}
-
-	/**
-	 * Answer dialogs, because an unanswered one stops the page.
-	 *
-	 * Until something replies, no script runs and no action lands,
-	 * so there is no such thing as declining to have a policy.
-	 * Every answer given is recorded, since a dismissed confirm
-	 * changes what the page did next and the reader has to be able
-	 * to see that it happened.
-	 */
-	private async listenForDialogs(): Promise<void> {
-		this.cdp.on("Page.javascriptDialogOpening", (event) => {
-			const kind = event.type as DialogKind;
-			const reply = answerFor(kind, this.dialogPolicy);
-			this.dialogLog.push({
-				kind,
-				message: event.message,
-				accepted: reply.accept,
-				...(event.defaultPrompt === undefined || event.defaultPrompt === ""
-					? {}
-					: { defaultPrompt: event.defaultPrompt }),
-				...(reply.promptText === undefined ? {} : { reply: reply.promptText }),
-				...(event.url === undefined ? {} : { url: event.url }),
-			});
-			this.cdp
-				.send("Page.handleJavaScriptDialog", reply)
-				// A dialog the page closed itself is already gone, and
-				// failing to answer it is not news.
-				.catch(() => {});
-		});
-		await this.cdp.send("Page.enable");
-	}
-
 	/** Decide how dialogs will be answered from here on. */
 	setDialogPolicy(policy: DialogPolicy): void {
-		this.dialogPolicy = policy;
+		this.telemetry.setDialogPolicy(policy);
 	}
 
 	/** How dialogs are currently answered. */
@@ -684,12 +535,12 @@ export class BrowserSession {
 		readonly policy: DialogPolicy;
 		readonly seen: readonly DialogEvent[];
 	} {
-		return { policy: this.dialogPolicy, seen: this.dialogLog };
+		return this.telemetry.dialogs;
 	}
 
 	/** Every request the page has made. */
 	requests(): readonly NetworkRequest[] {
-		return this.requestLog.all();
+		return this.telemetry.requests();
 	}
 
 	/**
@@ -726,13 +577,7 @@ export class BrowserSession {
 	async bodyOf(
 		requestId: string,
 	): Promise<{ body: string; base64Encoded: boolean } | undefined> {
-		try {
-			return await this.cdp.send("Network.getResponseBody", { requestId });
-		} catch {
-			// Chrome discards bodies on navigation, and never had one
-			// for a request that failed. Neither is an error here.
-			return undefined;
-		}
+		return this.telemetry.bodyOf(requestId);
 	}
 
 	/**
@@ -746,14 +591,7 @@ export class BrowserSession {
 		readonly dropped: number;
 		readonly cursor: number;
 	} {
-		return {
-			entries:
-				since === undefined
-					? this.logBuffer.all()
-					: this.logBuffer.since(since),
-			dropped: this.logBuffer.dropped,
-			cursor: this.logBuffer.cursor,
-		};
+		return this.telemetry.logs(since);
 	}
 
 	/** Navigate the tab to a URL and wait for the network to settle. */
@@ -1013,26 +851,6 @@ export class BrowserSession {
 	}
 
 	/**
-	 * Start hearing what the page says. The binding is installed
-	 * once and survives navigation; the observer is registered
-	 * for every document, so announcements made during load are
-	 * caught too.
-	 *
-	 * Candidates arrive faster than they can be ruled on, so they
-	 * are resolved one at a time along a chain. Resolving them
-	 * concurrently would let a slow lookup overtake a fast one and
-	 * record two announcements out of the order they were said.
-	 */
-	/**
-	 * Watch where the page goes, and notice if it dies.
-	 *
-	 * The crash half is not optional. After the tab crashes every
-	 * call against it hangs rather than failing, measured against
-	 * a deliberately crashed tab, so a session that waited to find
-	 * out lazily would simply stop responding. Recovery therefore
-	 * happens the moment the crash is announced.
-	 */
-	/**
 	 * Tell each frame of a stack where it was written.
 	 *
 	 * A frame with no map keeps its generated position rather than
@@ -1042,45 +860,6 @@ export class BrowserSession {
 		frames: readonly EvalFrame[],
 	): Promise<readonly EvalFrame[]> {
 		return this.sourceMaps.resolveFrames(frames);
-	}
-
-	private async listenForLifecycle(): Promise<void> {
-		const { frameTree } = await this.cdp.send("Page.getFrameTree");
-		const log = createLifecycleRecorder(frameTree.frame.id);
-		this.lifecycleLog = log;
-		this.attachLifecycle(log);
-	}
-
-	/** Point the lifecycle handlers at the current protocol channel. */
-	private attachLifecycle(log: LifecycleRecorder): void {
-		this.cdp.on("Page.frameRequestedNavigation", (event) => {
-			log.apply({
-				kind: "requested",
-				frameId: event.frameId,
-				reason: event.reason,
-			});
-		});
-		this.cdp.on("Page.frameNavigated", (event) => {
-			log.apply({
-				kind: "navigated",
-				frameId: event.frame.id,
-				url: event.frame.url,
-			});
-		});
-		this.cdp.on("Page.navigatedWithinDocument", (event) => {
-			log.apply({
-				kind: "within",
-				frameId: event.frameId,
-				url: event.url,
-				...(event.navigationType === undefined
-					? {}
-					: { navigationType: event.navigationType }),
-			});
-		});
-		this.cdp.on("Inspector.targetCrashed", () => {
-			log.apply({ kind: "crashed" });
-			this.recovery = this.recover();
-		});
 	}
 
 	/**
@@ -1105,10 +884,10 @@ export class BrowserSession {
 		await cdp.send("Accessibility.enable");
 		await cdp.send("DOM.enable");
 		await cdp.send("CSS.enable");
-		await this.listenForAnnouncements();
-		await this.listenForLogs();
-		await this.listenForRequests();
-		await this.listenForDialogs();
+		await this.telemetry.listenForAnnouncements();
+		await this.telemetry.listenForLogs();
+		await this.telemetry.listenForRequests();
+		await this.telemetry.listenForDialogs();
 
 		// A fresh tab knows nothing of what the old one was
 		// pretending, so the standing intent is put back before
@@ -1116,15 +895,7 @@ export class BrowserSession {
 		await this.emulation.apply();
 
 		const { frameTree } = await cdp.send("Page.getFrameTree");
-		const log = this.lifecycleLog;
-		if (log) {
-			// A new tab is a new main frame, and a recorder still
-			// watching the old id would ignore every navigation from
-			// here on while looking perfectly healthy.
-			log.adoptFrame(frameTree.frame.id);
-			this.attachLifecycle(log);
-			log.apply({ kind: "recovered" });
-		}
+		this.telemetry.readoptLifecycle(frameTree.frame.id);
 	}
 
 	/**
@@ -1150,62 +921,14 @@ export class BrowserSession {
 		return this.usedAt;
 	}
 
-	/**
-	 * Catch files the page hands back.
-	 *
-	 * The behaviour has to be set against this session's browser
-	 * context, not merely the connection. Set without the context
-	 * id, Chrome cancels every download in a non-default context
-	 * and writes nothing, which looks exactly like a page that
-	 * never offered a file.
-	 */
-	private async listenForDownloads(): Promise<void> {
-		this.cdp.on("Browser.downloadWillBegin", (event) => {
-			this.downloadLog.apply({
-				kind: "begin",
-				guid: event.guid,
-				url: event.url,
-				suggestedFilename: event.suggestedFilename,
-			});
-		});
-		this.cdp.on("Browser.downloadProgress", (event) => {
-			this.downloadLog.apply({
-				kind: "progress",
-				guid: event.guid,
-				state: event.state as DownloadState,
-				...(event.totalBytes === undefined
-					? {}
-					: { totalBytes: event.totalBytes }),
-				...(event.receivedBytes === undefined
-					? {}
-					: { receivedBytes: event.receivedBytes }),
-				...("filePath" in event && typeof event.filePath === "string"
-					? { filePath: event.filePath }
-					: {}),
-			});
-			if (event.state === "completed") {
-				const landed = this.downloadLog
-					.all()
-					.find((record) => record.guid === event.guid);
-				if (landed?.filePath) this.artifacts.keep(landed.filePath);
-			}
-		});
-		await this.cdp.send("Browser.setDownloadBehavior", {
-			behavior: "allow",
-			downloadPath: this.artifacts.sink().dir,
-			eventsEnabled: true,
-			browserContextId: this.context.id,
-		});
-	}
-
 	/** Files the page has handed back. */
 	downloads(): readonly DownloadRecord[] {
-		return this.downloadLog.all();
+		return this.telemetry.downloads();
 	}
 
 	/** Where the page has been. */
 	get history(): readonly LifecycleEvent[] {
-		return this.lifecycleLog?.all() ?? [];
+		return this.telemetry.history;
 	}
 
 	/**
@@ -1941,7 +1664,7 @@ export class BrowserSession {
 		// and reported its old status. That is a green wait in the
 		// log hiding a race, which is the most expensive shape of
 		// test defect to chase.
-		const since = this.protocolNow();
+		const since = this.telemetry.protocolNow();
 
 		while (waited() < timeoutMs) {
 			const reached = await this.check(condition, since);
@@ -1963,18 +1686,6 @@ export class BrowserSession {
 			condition,
 			...(missed.saw === undefined ? {} : { saw: missed.saw }),
 		};
-	}
-
-	/**
-	 * Now, on the protocol's clock, so it can be compared with
-	 * what requests carry.
-	 *
-	 * Before any request has been seen there is no offset to
-	 * apply, but there are also no requests to compare against,
-	 * so the figure cannot mislead anyone.
-	 */
-	private protocolNow(): number {
-		return Date.now() / MS_PER_SECOND - (this.clockOffset ?? 0);
 	}
 
 	/** Look once: is the condition true right now? */
@@ -2033,7 +1744,11 @@ export class BrowserSession {
 			}
 			case "idle": {
 				const requests = this.requests();
-				const met = isIdle(requests, condition.quietMs, this.protocolNow());
+				const met = isIdle(
+					requests,
+					condition.quietMs,
+					this.telemetry.protocolNow(),
+				);
 				const busy = inFlight(requests);
 				return {
 					met,
@@ -2137,8 +1852,8 @@ export class BrowserSession {
 			...(this.shaper.current.throttle === undefined
 				? {}
 				: { throttle: this.shaper.current.throttle }),
-			dialogPolicy: this.dialogPolicy,
-			dialogsSeen: this.dialogLog.length,
+			dialogPolicy: this.telemetry.dialogs.policy,
+			dialogsSeen: this.telemetry.dialogs.seen.length,
 			logs: { count: logs.entries.length, cursor: logs.cursor },
 			announcements: { count: heard.entries.length, cursor: heard.cursor },
 			requests: {
@@ -2158,89 +1873,6 @@ export class BrowserSession {
 		return this.shaper.current;
 	}
 
-	private async listenForAnnouncements(): Promise<void> {
-		await this.page.exposeFunction(
-			ANNOUNCE_BINDING,
-			(candidate: AnnouncementCandidate) => {
-				this.pending = this.pending.then(() => this.recordIfLive(candidate));
-			},
-		);
-		await this.page.evaluateOnNewDocument(ANNOUNCEMENT_OBSERVER);
-	}
-
-	/**
-	 * Record a nominated change only if the browser calls its
-	 * region live, at the politeness the browser computed.
-	 */
-	private async recordIfLive(candidate: AnnouncementCandidate): Promise<void> {
-		const politeness = await this.politenessOf(candidate);
-		if (!politeness) return;
-		this.announcements.push({
-			politeness,
-			text: candidate.text,
-			at: candidate.at,
-		});
-	}
-
-	/**
-	 * Ask the browser what it computed for a nominated region.
-	 *
-	 * The answer is cached per document: liveness is a property of
-	 * the markup, and a navigation starts a new registry with a
-	 * new epoch, so a stale entry can never be read back.
-	 */
-	private async politenessOf(
-		candidate: AnnouncementCandidate,
-	): Promise<Announcement["politeness"] | undefined> {
-		const key = `${candidate.epoch}:${candidate.index}`;
-		const known = this.livenessByRegion.get(key);
-		if (known !== undefined) return known ?? undefined;
-
-		const computed = await this.readLiveness(candidate.index);
-		this.livenessByRegion.set(key, computed ?? null);
-		return computed;
-	}
-
-	/** Read a region's computed live politeness from the AX tree. */
-	private async readLiveness(
-		index: number,
-	): Promise<Announcement["politeness"] | undefined> {
-		let objectId: string | undefined;
-		try {
-			const { result } = await this.cdp.send("Runtime.evaluate", {
-				expression: `globalThis[${JSON.stringify(CANDIDATE_REGISTRY)}][${index}]`,
-			});
-			objectId = result.objectId;
-			if (!objectId) return undefined;
-
-			const { node } = await this.cdp.send("DOM.describeNode", { objectId });
-			const { nodes } = await this.cdp.send("Accessibility.getPartialAXTree", {
-				backendNodeId: node.backendNodeId,
-				fetchRelatives: false,
-			});
-			// The nominated node is last; anything before it is the
-			// ancestry the protocol threw in.
-			const target = nodes.at(-1);
-			const live = target?.properties?.find((p) => p.name === "live")?.value
-				.value;
-			if (live === "polite" || live === "assertive") return live;
-			return undefined;
-		} catch {
-			// The page can navigate or drop the node between the
-			// nomination and the lookup. A change nobody can point at
-			// any more is not worth reporting as an announcement.
-			return undefined;
-		} finally {
-			if (objectId) {
-				await this.cdp
-					.send("Runtime.releaseObject", { objectId })
-					// Releasing a handle the page already discarded is
-					// not a failure worth surfacing.
-					.catch(() => {});
-			}
-		}
-	}
-
 	/**
 	 * What the page has announced since a cursor, with the cursor
 	 * to read from next time and how many were dropped.
@@ -2250,15 +1882,7 @@ export class BrowserSession {
 		cursor: number;
 		dropped: number;
 	}> {
-		// A candidate raised a moment ago is still being ruled on.
-		// Answering before the browser has spoken would report
-		// silence for something the page just said.
-		await this.pending;
-		return {
-			entries: this.announcements.since(since),
-			cursor: this.announcements.cursor,
-			dropped: this.announcements.dropped,
-		};
+		return this.telemetry.heard(since);
 	}
 
 	/** Close the tab and the context holding its state. */
