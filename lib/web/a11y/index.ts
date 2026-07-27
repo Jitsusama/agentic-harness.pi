@@ -39,11 +39,13 @@ export { describeStates, type StateOptions } from "./states.js";
 export {
 	type AxNode,
 	type AxProperties,
+	type FrameAxTree,
 	isMeaningful,
 	normalizeAxTree,
 	type RawAxNameSource,
 	type RawAxNode,
 	type RawAxProperty,
+	spliceFrames,
 } from "./tree.js";
 export {
 	analyseWalk,

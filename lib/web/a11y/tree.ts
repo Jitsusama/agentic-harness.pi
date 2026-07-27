@@ -218,3 +218,81 @@ function readProperties(node: RawAxNode): AxProperties {
 	}
 	return properties;
 }
+
+/** One frame's accessibility tree, and the element that holds it. */
+export interface FrameAxTree {
+	/** Backend DOM node id of the iframe element that owns the frame. */
+	readonly ownerBackendNodeId: number;
+	readonly nodes: readonly RawAxNode[];
+}
+
+/**
+ * Hang each frame's tree under the iframe element that owns it.
+ *
+ * Chrome answers for one frame at a time: the page's tree stops
+ * at an Iframe node with no children, and the frame's own tree
+ * arrives separately, rooted at its own RootWebArea. Left
+ * unjoined, every reading of the page ended at the boundary, and
+ * an outline, a structural audit or a keyboard walk simply did
+ * not contain what the frame held. Nothing said so, which is the
+ * worst part: an embedded checkout form read as an empty box.
+ *
+ * Every frame's nodes are renumbered on the way in. Both trees
+ * number from one, so merging them as they arrive makes the
+ * frame's root a duplicate of the page's, and a walk over the
+ * result either loses nodes or goes round forever.
+ *
+ * Frames whose owner is not present are dropped rather than
+ * attached to the root. That covers a cross-origin frame, which
+ * cannot be read at all, and a frame that went away while we were
+ * asking; inventing a parent for either would put content
+ * somewhere the page does not have it.
+ */
+export function spliceFrames(
+	main: readonly RawAxNode[],
+	frames: readonly FrameAxTree[],
+): RawAxNode[] {
+	if (frames.length === 0) return [...main];
+
+	const merged: RawAxNode[] = main.map((node) => ({ ...node }));
+	const byBackendId = new Map<number, RawAxNode>();
+	for (const node of merged) {
+		if (node.backendDOMNodeId !== undefined) {
+			byBackendId.set(node.backendDOMNodeId, node);
+		}
+	}
+
+	// In order, so a frame nested inside another is spliced after
+	// its parent frame has been merged and its owner is findable.
+	frames.forEach((frame, index) => {
+		const owner = byBackendId.get(frame.ownerBackendNodeId);
+		if (!owner) return;
+
+		const prefix = `f${index}:`;
+		const rename = (id: string): string => `${prefix}${id}`;
+		const renamed = frame.nodes.map((node) => ({
+			...node,
+			nodeId: rename(node.nodeId),
+			...(node.parentId === undefined
+				? {}
+				: { parentId: rename(node.parentId) }),
+			...(node.childIds === undefined
+				? {}
+				: { childIds: node.childIds.map(rename) }),
+		}));
+
+		const root = renamed.find((node) => node.parentId === undefined);
+		if (!root) return;
+		root.parentId = owner.nodeId;
+		owner.childIds = [...(owner.childIds ?? []), root.nodeId];
+
+		for (const node of renamed) {
+			merged.push(node);
+			if (node.backendDOMNodeId !== undefined) {
+				byBackendId.set(node.backendDOMNodeId, node);
+			}
+		}
+	});
+
+	return merged;
+}

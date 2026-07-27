@@ -13,9 +13,26 @@ import { defineConfig } from "vitest/config";
 // parallelism.
 const MAX_WORKERS = Math.max(1, Math.min(4, Math.floor(cpus().length / 2)));
 
+/** Everything that drives a real browser. */
+const BROWSER_TESTS = "tests/browser/**/*.test.ts";
+
+// Pi's loader rewrites the @sinclair/typebox imports onto its
+// bundled `typebox` package at runtime. Mirror that mapping for
+// vitest so the same imports work in tests without a separate
+// alias in every file.
+//
+// Named once and given to each project rather than set at the
+// root: a project does not inherit the root's resolve, and the
+// half of the suite that imports typebox stopped resolving the
+// moment the projects were introduced.
+const ALIAS = {
+	"@sinclair/typebox/value": "typebox/value",
+	"@sinclair/typebox/compile": "typebox/compile",
+	"@sinclair/typebox": "typebox",
+};
+
 export default defineConfig({
 	test: {
-		include: ["tests/**/*.test.ts"],
 		environment: "node",
 		clearMocks: true,
 		// Only the ceiling is ours to set: vitest 4 dropped the floor
@@ -23,6 +40,36 @@ export default defineConfig({
 		// "never below one worker" part of the note above is the
 		// Math.max on the cap, which still holds.
 		maxWorkers: MAX_WORKERS,
+		projects: [
+			{
+				resolve: { alias: ALIAS },
+				test: {
+					name: "unit",
+					include: ["tests/**/*.test.ts"],
+					exclude: [BROWSER_TESTS],
+					maxWorkers: MAX_WORKERS,
+				},
+			},
+			{
+				resolve: { alias: ALIAS },
+				test: {
+					name: "browser",
+					include: [BROWSER_TESTS],
+					// One at a time. Each of these files launches its own
+					// Chrome, so letting the pool run four at once put seven
+					// browsers on the machine and lost a race the emulation
+					// suite documents: under that much contention Chrome can
+					// run a page's first script before an override it was
+					// already sent has landed. That failed only in the full
+					// suite and never alone, which is the worst shape of
+					// flake to debug. The cost is a slower browser lane; the
+					// alternative is a suite that reports races nobody
+					// driving one browser will ever meet.
+					fileParallelism: false,
+					maxWorkers: 1,
+				},
+			},
+		],
 		coverage: {
 			provider: "v8",
 			include: ["extensions/**/*.ts", "lib/**/*.ts"],
@@ -30,21 +77,10 @@ export default defineConfig({
 			reporter: ["text", "html"],
 		},
 	},
-	resolve: {
-		// Pi's loader rewrites the @sinclair/typebox imports
-		// onto its bundled `typebox` package at runtime.
-		// Mirror that mapping for vitest so the same imports
-		// work in tests without a separate alias in every
-		// file.
-		//
-		// The three pi packages used to be aliased here too,
-		// from the old @mariozechner names onto the current
-		// ones. The code imports the current names now, so
-		// there is nothing left to rewrite.
-		alias: {
-			"@sinclair/typebox/value": "typebox/value",
-			"@sinclair/typebox/compile": "typebox/compile",
-			"@sinclair/typebox": "typebox",
-		},
-	},
+	// The three pi packages used to be aliased here too, from the
+	// old @mariozechner names onto the current ones. The code
+	// imports the current names now, so there is nothing left to
+	// rewrite. The typebox mapping that remains lives on each
+	// project, in ALIAS above.
+	resolve: { alias: ALIAS },
 });

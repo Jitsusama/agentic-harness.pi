@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	normalizeAxTree,
 	type RawAxNode,
+	renderAxOutline,
+	spliceFrames,
 } from "../../../../lib/web/a11y/index.js";
 
 /** Build a raw CDP node with sane defaults. */
@@ -337,5 +339,104 @@ describe("normalizeAxTree", () => {
 	it("survives a tree with no nodes at all", () => {
 		const tree = normalizeAxTree([]);
 		expect(tree.children).toEqual([]);
+	});
+});
+
+describe("splicing a frame's tree into the page's", () => {
+	const main: RawAxNode[] = [
+		raw({ nodeId: "1", role: { value: "RootWebArea" }, childIds: ["2"] }),
+		raw({
+			nodeId: "2",
+			role: { value: "Iframe" },
+			name: { value: "Inner frame" },
+			parentId: "1",
+			backendDOMNodeId: 14,
+			childIds: [],
+		}),
+	];
+
+	const inner: RawAxNode[] = [
+		raw({ nodeId: "1", role: { value: "RootWebArea" }, childIds: ["2"] }),
+		raw({
+			nodeId: "2",
+			role: { value: "heading" },
+			name: { value: "Inner heading" },
+			parentId: "1",
+		}),
+	];
+
+	it("hangs the frame's content under the iframe that owns it", () => {
+		// A frame is a boundary for the DOM, not for a reader. Before
+		// this, every reading stopped at the Iframe node and the whole
+		// of what the frame contained was absent.
+		const spliced = spliceFrames(main, [
+			{ ownerBackendNodeId: 14, nodes: inner },
+		]);
+
+		expect(renderAxOutline(normalizeAxTree(spliced))).toContain(
+			"Inner heading",
+		);
+	});
+
+	it("keeps the two frames' node ids apart", () => {
+		// Both trees number their nodes from one. Merged without
+		// renaming, the frame's root collides with the page's, and the
+		// walk either loses nodes or never comes back.
+		const spliced = spliceFrames(main, [
+			{ ownerBackendNodeId: 14, nodes: inner },
+		]);
+
+		expect(new Set(spliced.map((node) => node.nodeId)).size).toBe(
+			spliced.length,
+		);
+	});
+
+	it("leaves the page alone when no iframe owns the frame", () => {
+		// A frame whose owner is not in this tree is not ours to
+		// attach. Hanging it off the root would invent a relationship
+		// the page does not have.
+		const spliced = spliceFrames(main, [
+			{ ownerBackendNodeId: 999, nodes: inner },
+		]);
+
+		expect(spliced).toEqual(main);
+	});
+
+	it("changes nothing when there are no frames", () => {
+		expect(spliceFrames(main, [])).toEqual(main);
+	});
+
+	it("splices a frame inside a frame", () => {
+		// Nesting is ordinary on a page built from embeds, and a pass
+		// that only handles depth one truncates without saying so.
+		const deepest: RawAxNode[] = [
+			raw({ nodeId: "1", role: { value: "RootWebArea" }, childIds: ["2"] }),
+			raw({
+				nodeId: "2",
+				role: { value: "heading" },
+				name: { value: "Deepest heading" },
+				parentId: "1",
+			}),
+		];
+		const middle: RawAxNode[] = [
+			raw({ nodeId: "1", role: { value: "RootWebArea" }, childIds: ["2"] }),
+			raw({
+				nodeId: "2",
+				role: { value: "Iframe" },
+				name: { value: "Deeper frame" },
+				parentId: "1",
+				backendDOMNodeId: 27,
+				childIds: [],
+			}),
+		];
+
+		const spliced = spliceFrames(main, [
+			{ ownerBackendNodeId: 14, nodes: middle },
+			{ ownerBackendNodeId: 27, nodes: deepest },
+		]);
+
+		expect(renderAxOutline(normalizeAxTree(spliced))).toContain(
+			"Deepest heading",
+		);
 	});
 });

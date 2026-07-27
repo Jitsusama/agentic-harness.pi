@@ -41,11 +41,13 @@ import {
 	type AnnouncementCandidate,
 	type AxNode,
 	CANDIDATE_REGISTRY,
+	type FrameAxTree,
 	normalizeAxTree,
 	type RawAxNode,
 	renderAxOutline,
 	renderReading,
 	scopeTree,
+	spliceFrames,
 	subtreeAt,
 	type TreeScope,
 	type Unreachable,
@@ -283,6 +285,12 @@ import {
 
 /** How a page should be laid out for reading. */
 export type PageForm = "outline" | "reading";
+
+/** One node of Chrome's frame tree, as much of it as we read. */
+interface FrameTreeNode {
+	readonly frame: { readonly id: string };
+	readonly childFrames?: readonly FrameTreeNode[];
+}
 
 /** What else to gather while inspecting an element. */
 export interface InspectOptions {
@@ -3664,6 +3672,60 @@ export class BrowserSession {
 		const { nodes } = (await this.cdp.send("Accessibility.getFullAXTree")) as {
 			nodes: RawAxNode[];
 		};
-		return normalizeAxTree(nodes);
+		return normalizeAxTree(spliceFrames(nodes, await this.frameTrees()));
+	}
+
+	/**
+	 * Each same-origin child frame's tree, and what owns it.
+	 *
+	 * Chrome answers for one frame at a time, so a page built from
+	 * embeds read as a row of empty boxes: the outline stopped at
+	 * the Iframe node and said nothing about stopping. Everything
+	 * downstream inherited that, so a keyboard walk skipped an
+	 * embedded form and an audit passed a page it had not seen.
+	 *
+	 * Breadth-first, parents before children, because the splice
+	 * attaches each frame to an owner that must already be in the
+	 * tree by the time its turn comes.
+	 *
+	 * A frame that cannot be read is left out rather than reported
+	 * as empty. Cross-origin frames are the common case and are a
+	 * real limit, not a fault; the count of what could not be read
+	 * belongs to the callers that already report it.
+	 */
+	private async frameTrees(): Promise<readonly FrameAxTree[]> {
+		let tree: { frameTree: FrameTreeNode };
+		try {
+			tree = (await this.cdp.send("Page.getFrameTree")) as {
+				frameTree: FrameTreeNode;
+			};
+		} catch {
+			// No frame tree means nothing to splice, which is the answer
+			// for the overwhelming majority of pages.
+			return [];
+		}
+
+		const queue: FrameTreeNode[] = [...(tree.frameTree.childFrames ?? [])];
+		const collected: FrameAxTree[] = [];
+		while (queue.length > 0) {
+			const node = queue.shift();
+			if (!node) break;
+			queue.push(...(node.childFrames ?? []));
+			const frameId = node.frame.id;
+			try {
+				const { backendNodeId } = (await this.cdp.send("DOM.getFrameOwner", {
+					frameId,
+				})) as { backendNodeId: number };
+				const { nodes } = (await this.cdp.send("Accessibility.getFullAXTree", {
+					frameId,
+				})) as { nodes: RawAxNode[] };
+				collected.push({ ownerBackendNodeId: backendNodeId, nodes });
+			} catch {
+				// A cross-origin frame refuses both calls, and a frame can
+				// be torn down between listing it and asking about it.
+				// Neither is a reason to fail the whole read.
+			}
+		}
+		return collected;
 	}
 }
