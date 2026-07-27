@@ -8,7 +8,7 @@
  */
 
 import { basename } from "node:path";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { GateDeps } from "../../lib/gate/index.js";
 import { getChannelInfo } from "../../lib/slack/api/channels.js";
 import type { SlackClient } from "../../lib/slack/api/client.js";
@@ -64,6 +64,7 @@ import {
 	type ToolContent,
 	type ToolResult,
 } from "../../lib/slack/types.js";
+import { boundedAnswer } from "./bounded.js";
 import {
 	confirmEditMessage,
 	confirmReaction,
@@ -153,16 +154,34 @@ function collectGatedText(action: string, params: ActionParams): string {
 
 /** Shorthand for a simple text result. */
 function text(content: string, details?: unknown): ToolResult {
-	return { content: [{ type: "text", text: content }], details };
+	// One of the family's two exits; `textWithFiles` is the other.
+	return {
+		content: [{ type: "text", text: boundedAnswer(content, details) }],
+		details,
+	};
 }
 
-/** Build a result with text and optional file content. */
+/**
+ * Build a result with text and optional file content.
+ *
+ * Built on top of the plain text result rather than beside it, so
+ * the bounding cannot be skipped here without being skipped
+ * everywhere. It used to be beside it, and this is the path
+ * get_thread and get_message answer on: a thread of any length
+ * came back whole, while the comment on `text` claimed to be the
+ * one place the family bounds its answers. A second exit is easy
+ * to add and easy not to notice, so the structure now forbids one
+ * instead of a comment asking for none.
+ *
+ * Attached files are still not bounded. A file is what the caller
+ * asked for by name, and half of one is no use.
+ */
 function textWithFiles(
 	content: string,
 	files: DownloadedFile[],
 	details?: unknown,
 ): ToolResult {
-	const parts: ToolContent[] = [{ type: "text", text: content }];
+	const parts: ToolContent[] = [...text(content, details).content];
 	for (const file of files) {
 		if (file.kind === "image") {
 			parts.push({ type: "image", data: file.data, mimeType: file.mimeType });

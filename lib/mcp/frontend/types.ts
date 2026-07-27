@@ -3,8 +3,8 @@ import type {
 	ExtensionContext,
 	Theme,
 	ToolRenderResultOptions,
-} from "@mariozechner/pi-coding-agent";
-import type { Component } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
 import type { McpContent, McpTool, McpToolResult } from "../types.js";
 
 /** How a provider selects which tools it applies to. */

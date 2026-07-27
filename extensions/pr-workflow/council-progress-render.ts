@@ -14,14 +14,14 @@
  *   queuing another prompt behind the active tool.
  */
 
-import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import type { AutocompleteProvider } from "@mariozechner/pi-tui";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { AutocompleteProvider } from "@earendil-works/pi-tui";
 import {
 	Key,
 	matchesKey,
 	type TUI,
 	truncateToWidth,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 import {
 	type PipelineStage,
 	renderPipelineProgressLines,

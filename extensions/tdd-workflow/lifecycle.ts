@@ -9,7 +9,7 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { getLastEntry } from "../../lib/internal/state.js";
 import { initialState, type Phase } from "./machine.js";
 import { renderStatus, renderWidget } from "./render.js";

@@ -9,8 +9,8 @@
  * while the loop is idle: the scoreboard is silent between loops.
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth } from "@mariozechner/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { glyph, visualState } from "./glyphs.js";
 import type { LoopState } from "./machine.js";
 

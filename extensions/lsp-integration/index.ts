@@ -19,7 +19,7 @@ import { isAbsolute, resolve } from "node:path";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
 	type CodeAction,
@@ -36,6 +36,7 @@ import {
 	unregisterLspBackend,
 	type WorkspaceEdit,
 } from "../../lib/lsp/index.js";
+import { citeListing, openSessionStore } from "../../lib/result/index.js";
 
 const STANDALONE = "standalone";
 /** The standalone backend registers here; a paired editor sits below it. */
@@ -177,11 +178,32 @@ export default function lspIntegration(pi: ExtensionAPI) {
 		): Promise<AgentToolResult<LspToolDetails>> {
 			const active = resolveLspBackend() ?? ensureBackend();
 			const op = params.operation;
+			// A `records` argument rather than a details heuristic: these
+			// details carry a count, not the findings, and the count is
+			// what the renderers read. References across a large project
+			// are the answer worth bounding here, and passing the array
+			// says plainly which one is being stored.
 			const text = (
 				body: string,
 				count?: number,
+				records?: readonly unknown[],
 			): AgentToolResult<LspToolDetails> => ({
-				content: [{ type: "text", text: body }],
+				content: [
+					{
+						type: "text",
+						text:
+							records === undefined || records.length === 0
+								? body
+								: citeListing(openSessionStore(), {
+										view: body,
+										records,
+										unit: `${op} results`,
+										narrowing:
+											"Ask about one file or one symbol rather than the " +
+											"whole project.",
+									}),
+					},
+				],
 				details: {
 					ok: true,
 					operation: op,
@@ -199,18 +221,22 @@ export default function lspIntegration(pi: ExtensionAPI) {
 				if (op === "workspace_symbols") {
 					if (!params.query) return bad("workspace_symbols needs a query.");
 					const symbols = await active.workspaceSymbols(params.query);
-					return text(formatSymbols(symbols), symbols.length);
+					return text(formatSymbols(symbols), symbols.length, symbols);
 				}
 				if (!params.path) return bad(`${op} needs a path.`);
 				const path = absolute(params.path);
 
 				if (op === "diagnostics") {
 					const diagnostics = await active.diagnostics(path);
-					return text(formatDiagnostics(diagnostics), diagnostics.length);
+					return text(
+						formatDiagnostics(diagnostics),
+						diagnostics.length,
+						diagnostics,
+					);
 				}
 				if (op === "document_symbols") {
 					const symbols = await active.documentSymbols(path);
-					return text(formatSymbols(symbols), symbols.length);
+					return text(formatSymbols(symbols), symbols.length, symbols);
 				}
 				if (op === "code_actions") {
 					const actions = await active.codeActions(path);
@@ -244,7 +270,7 @@ export default function lspIntegration(pi: ExtensionAPI) {
 					op === "definition"
 						? await active.definition(target)
 						: await active.references(target);
-				return text(formatLocations(locations), locations.length);
+				return text(formatLocations(locations), locations.length, locations);
 			} catch (err) {
 				if (err instanceof MissingServerError) return bad(err.message);
 				throw err;

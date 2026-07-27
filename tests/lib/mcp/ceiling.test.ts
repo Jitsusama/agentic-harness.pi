@@ -150,13 +150,32 @@ describe("enforceResultCeiling", () => {
 		expect(fs.readdirSync(dir)).toHaveLength(0);
 	});
 
-	it("stays within a limit smaller than the notice itself", () => {
+	it("keeps the notice whole when the limit cannot hold it", () => {
+		// This used to assert the opposite, that the answer stayed under
+		// the limit whatever it cost. What it cost was the notice, sliced
+		// mid-sentence, and with it the handle naming where the payload
+		// went. Half a handle still reads like a handle: a caller queries
+		// it and is told it does not exist, with no way to tell a cut
+		// handle from an expired one.
+		//
+		// The fault was invisible until a handle grew by one byte and
+		// crossed a tight limit in a different test, which is how a
+		// latent defect usually announces itself.
 		const content: McpContent[] = [{ type: "text", text: "x".repeat(5000) }];
+
 		const out = enforceResultCeiling(content, result(content), {
 			limitBytes: 40,
 			storageDir: dir,
 		});
-		expect(contentByteSize(out)).toBeLessThanOrEqual(40);
+
+		// The head is gone, which is the whole budget spent as intended.
+		expect(out).toHaveLength(1);
+		// And the notice survives entire, closing bracket included, so
+		// whatever it names can be followed.
+		const notice = textOf(out);
+		expect(notice.startsWith("[Result capped at 40 bytes.")).toBe(true);
+		expect(notice.endsWith("]")).toBe(true);
+		expect(notice).toContain("5000");
 	});
 
 	it("appends caller guidance to the notice so a capped result points somewhere", () => {
@@ -171,5 +190,50 @@ describe("enforceResultCeiling", () => {
 
 	it("keeps a default ceiling at or above the 200KB soft default", () => {
 		expect(DEFAULT_RESULT_CEILING_BYTES).toBeGreaterThanOrEqual(200 * 1024);
+	});
+});
+
+describe("what counts as citing a handle", () => {
+	/** A block long enough that the ceiling has to do something. */
+	function bulky(prefix: string): string {
+		return `${prefix} ${"padding text that makes this block large. ".repeat(60)}`;
+	}
+
+	it("slices a block that merely talks about handling things", () => {
+		// The guard exists so half a handle never reaches a caller. It
+		// was written as the word "handle" followed by anything, which
+		// is ordinary English: a block explaining how a function
+		// handles errors was treated as a citation and dropped whole,
+		// costing the caller their entire preview to protect a handle
+		// that was never there.
+		const content: McpContent[] = [
+			{ type: "text", text: bulky("This function must handle errors when") },
+		];
+
+		const out = enforceResultCeiling(content, result(content), {
+			limitBytes: 400,
+			storageDir: dir,
+		});
+
+		expect(textOf(out)).toContain("This function must handle errors");
+	});
+
+	it("keeps a block naming a real handle whole, or not at all", () => {
+		const handle = "result-0123456789abcdef";
+		const content: McpContent[] = [
+			{ type: "text", text: bulky(`Stored under handle ${handle} for`) },
+		];
+
+		const out = enforceResultCeiling(content, result(content), {
+			limitBytes: 400,
+			storageDir: dir,
+		});
+
+		// Either the whole citation survives or none of it does. What
+		// must never happen is a prefix that still reads like a handle,
+		// because looking it up reports an expiry that never occurred.
+		const shown = textOf(out);
+		const partial = shown.includes("handle result-") && !shown.includes(handle);
+		expect(partial).toBe(false);
 	});
 });

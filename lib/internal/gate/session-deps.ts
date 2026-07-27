@@ -11,7 +11,7 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type { GateDeps } from "../../gate/index.js";
 
 /** The custom session-entry type that holds a block signature. */

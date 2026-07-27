@@ -17,7 +17,7 @@
  * panel to render.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { promptSingle } from "../../lib/ui/panel.js";
 import type { ContentRenderer } from "../../lib/ui/types.js";
 import { withHiddenWorking } from "./gate-working.js";

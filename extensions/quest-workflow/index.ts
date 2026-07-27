@@ -15,13 +15,13 @@
  * slash commands for the primary surface.
  */
 
-import { StringEnum } from "@mariozechner/pi-ai";
+import { StringEnum } from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
 	ToolCallEventResult,
-} from "@mariozechner/pi-coding-agent";
-import { keyHint, SessionManager } from "@mariozechner/pi-coding-agent";
-import { Text, truncateToWidth } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import { keyHint, SessionManager } from "@earendil-works/pi-coding-agent";
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
 	getSection,
@@ -42,6 +42,7 @@ import {
 	unregisterQuestPrBridge,
 } from "../../lib/quest/index.js";
 import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
+import { boundedByDetails, openSessionStore } from "../../lib/result/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
 import { registerBuiltinTreeProviders } from "../../lib/tree/index.js";
 import { QUEST_ACTIONS } from "./actions.js";
@@ -320,7 +321,20 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			}
 			updateScoreboard(state, ctx);
 			return {
-				content: [{ type: "text", text: result.message }],
+				content: [
+					{
+						type: "text",
+						// A tree or a listing can run long even with paging,
+						// and this is the one place every action answers from.
+						text: boundedByDetails(openSessionStore(), {
+							text: result.message,
+							details: result.details,
+							narrowing:
+								"Page with 'limit' and 'offset', or narrow with " +
+								"'find', 'status' or 'priority'.",
+						}),
+					},
+				],
 				details: {
 					ok: true,
 					...(result.details ?? {}),
@@ -651,7 +665,7 @@ interface WidgetComponent {
 	dispose?(): void;
 }
 
-type Theme = import("@mariozechner/pi-coding-agent").Theme;
+type Theme = import("@earendil-works/pi-coding-agent").Theme;
 
 interface UiSink {
 	setStatus(key: string, value: string | undefined): void;

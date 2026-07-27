@@ -50,7 +50,7 @@ export interface SideCompletionResult {
  * dynamic import as untyped rather than trying to resolve a
  * subpath the older typecheck dependency lacks.
  */
-const COMPAT_SPECIFIER = "@mariozechner/pi-ai/compat";
+const COMPAT_SPECIFIER = "@earendil-works/pi-ai/compat";
 
 /** Pull the plain text out of a completion's content blocks. */
 function textOf(content: Array<{ type: string; text?: string }>): string {

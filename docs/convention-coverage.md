@@ -313,6 +313,41 @@ is followed by judgment, not by a regex.
   the manifest against the imports. Type-only imports are
   exempt, since they vanish before the code runs. A user hit the
   first of these as `Cannot find module 'pixelmatch'`.
+  The same file gates the other half of that relationship:
+  🟢 every pi package imported at runtime is declared in
+  `peerDependencies` at `"*"` and marked optional in
+  `peerDependenciesMeta`. Pi's own packaging doc asks for the
+  peer declaration; the optional flag is this repo's finding, and
+  it was measured rather than reasoned about. npm installs a root
+  package's peers unless they are optional, and pi runs
+  `npm install --omit=dev` on a git install, so the declaration
+  alone pulled 189 packages into a clean tree, among them a
+  deprecated copy of pi's whole runtime three minor versions
+  behind. That is the same fault the rule above forbids, arriving
+  by a different route. What the gate cannot check is the two
+  package managers disagreeing: pnpm installs peers regardless of
+  the flag, and the reason it stays quiet here is that the peers
+  name the same packages the `devDependencies` already provide.
+  One more rule sits beside it in the same file:
+  🟢 no source file imports the deprecated `@mariozechner/*`
+  spelling of a pi package. Pi's loader still aliases the old
+  names, which is what makes their return invisible until compat
+  is removed and every such import stops resolving at once. It
+  reads raw text rather than the import scanner, since a
+  deprecated specifier is wrong in a type-only position too.
+  A further AGENTS.md rule is gated for the same reason:
+  🟢 a tool that can answer with a payload larger than a context
+  window stores it and cites a handle, or answers with a path on
+  disk, rather than inlining or truncating it.
+  `tests/package/stored-results.test.ts` requires every
+  tool-registering extension to be accounted for as one of those
+  two, or listed as small. The rule came from a browser action
+  that returned 2.54 MB of accessibility outline: every list in
+  that family had been budgeted for months, and the one path that
+  had not was the one every action ended with. The gate cannot
+  prove an answer is bounded, but it does fail when a family that
+  reached the shared machinery stops reaching it, and when a new
+  tool arrives with the question unanswered.
 - **Audit methodology**: `browser-accessibility-guide`. Its
   rules are about how to conduct and report an audit, and the
   claims most worth enforcing are enforced at the source rather

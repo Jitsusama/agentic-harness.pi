@@ -4,7 +4,7 @@
  * Redirect annotations return feedback for the agent to adjust.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	type PromptResult,
 	promptSingle,
@@ -171,6 +171,11 @@ export async function confirmCreateEvent(
 		return { approved: true, data: event };
 	}
 
+	// Held in a const because the guard above narrows the parameter
+	// and a callback does not inherit that: inside the closure the
+	// field is optional again, however plainly it was checked here.
+	const attendees = event.attendees;
+
 	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
 			const lines = [
@@ -184,9 +189,7 @@ export async function confirmCreateEvent(
 			if (event.location) {
 				lines.push(` ${theme.fg("muted", "Where:")} ${event.location}`);
 			}
-			lines.push(
-				` ${theme.fg("muted", "Attendees:")} ${event.attendees.join(", ")}`,
-			);
+			lines.push(` ${theme.fg("muted", "Attendees:")} ${attendees.join(", ")}`);
 			if (event.description) {
 				const wrapWidth = Math.max(20, width - 2);
 				lines.push("");

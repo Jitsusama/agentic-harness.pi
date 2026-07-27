@@ -15,6 +15,12 @@ export {
 	CANDIDATE_REGISTRY,
 	renderAnnouncements,
 } from "./announcements.js";
+export {
+	ACTION_VIEW_BUDGET_BYTES,
+	type BudgetedOutline,
+	OUTLINE_BUDGET_BYTES,
+	withinOutlineBudget,
+} from "./budget.js";
 export { isWeakName, type NameSource, nameSource } from "./naming.js";
 export { renderAxOutline } from "./outline.js";
 export { renderReading } from "./reading.js";
@@ -24,6 +30,10 @@ export {
 	subtreeAt,
 	type TreeScope,
 } from "./scope.js";
+// Exported because a stored page has to carry the same states the
+// rendered outline shows. Two vocabularies for one set of facts
+// would make a payload that disagrees with the view it came from.
+export { describeStates, type StateOptions } from "./states.js";
 export {
 	type AxNode,
 	type AxProperties,

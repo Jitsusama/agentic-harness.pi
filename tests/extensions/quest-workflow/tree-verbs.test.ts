@@ -22,7 +22,7 @@ import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../lib/tree/index";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard, succeeded } from "./_helpers";
 
 const execFileAsync = promisify(execFile);
 
@@ -107,8 +107,11 @@ describe("tree-add", () => {
 			cwd: repoRoot,
 		});
 		expect(result.ok).toBe(true);
-		const tree = (result.details as { tree: { path: string; branch: string } })
-			.tree;
+		const tree = (
+			succeeded(result).details as {
+				tree: { path: string; branch: string };
+			}
+		).tree;
 		expect(tree.path).toBe(join(repoRoot, ".worktrees", "feature-x"));
 		expect(tree.branch).toBe("feature-x");
 		expect(existsSync(tree.path)).toBe(true);
@@ -150,7 +153,8 @@ describe("tree-list", () => {
 			action: "tree-list",
 		});
 		expect(result.ok).toBe(true);
-		const trees = (result.details as { trees: { path: string }[] }).trees;
+		const trees = (succeeded(result).details as { trees: { path: string }[] })
+			.trees;
 		expect(trees).toHaveLength(1);
 		expect(trees[0].path).toBe(join(repoRoot, ".worktrees", "feature-l"));
 	});
@@ -165,7 +169,8 @@ describe("tree-prune", () => {
 			name: "feature-p",
 			cwd: repoRoot,
 		});
-		const treePath = (added.details as { tree: { path: string } }).tree.path;
+		const treePath = (succeeded(added).details as { tree: { path: string } })
+			.tree.path;
 		const pruned = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "tree-prune",
 			target: treePath,
@@ -184,7 +189,8 @@ describe("tree-prune", () => {
 			name: "feature-d",
 			cwd: repoRoot,
 		});
-		const treePath = (added.details as { tree: { path: string } }).tree.path;
+		const treePath = (succeeded(added).details as { tree: { path: string } })
+			.tree.path;
 		writeFileSync(join(treePath, "scratch.txt"), "dirty\n");
 		const pruned = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "tree-prune",
@@ -206,7 +212,8 @@ describe("tree-prune", () => {
 			name: "feature-f",
 			cwd: repoRoot,
 		});
-		const treePath = (added.details as { tree: { path: string } }).tree.path;
+		const treePath = (succeeded(added).details as { tree: { path: string } })
+			.tree.path;
 		writeFileSync(join(treePath, "scratch.txt"), "dirty\n");
 		// Non-force prune first: the refusal records a
 		// pendingPrune entry against this tree's path.
@@ -243,7 +250,8 @@ describe("tree-prune attached-session refusal", () => {
 			name: "feature-s",
 			cwd: repoRoot,
 		});
-		const treePath = (added.details as { tree: { path: string } }).tree.path;
+		const treePath = (succeeded(added).details as { tree: { path: string } })
+			.tree.path;
 		const attachResult = await handle(
 			state,
 			fakePi(),
@@ -271,7 +279,8 @@ describe("retire auto-prunes trees", () => {
 			name: "feature-retire",
 			cwd: repoRoot,
 		});
-		const treePath = (added.details as { tree: { path: string } }).tree.path;
+		const treePath = (succeeded(added).details as { tree: { path: string } })
+			.tree.path;
 		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "retire",
 			scope: "quest",
@@ -297,7 +306,8 @@ describe("retire auto-prunes trees", () => {
 			name: "feature-dirty",
 			cwd: repoRoot,
 		});
-		const treePath = (added.details as { tree: { path: string } }).tree.path;
+		const treePath = (succeeded(added).details as { tree: { path: string } })
+			.tree.path;
 		writeFileSync(join(treePath, "dirt"), "x");
 		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "retire",
@@ -330,8 +340,10 @@ describe("retire auto-prunes trees", () => {
 			name: "feature-multi-b",
 			cwd: repoRoot,
 		});
-		const path1 = (t1.details as { tree: { path: string } }).tree.path;
-		const path2 = (t2.details as { tree: { path: string } }).tree.path;
+		const path1 = (succeeded(t1).details as { tree: { path: string } }).tree
+			.path;
+		const path2 = (succeeded(t2).details as { tree: { path: string } }).tree
+			.path;
 		writeFileSync(join(path1, "dirt"), "x");
 		writeFileSync(join(path2, "dirt"), "x");
 		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
@@ -354,7 +366,8 @@ describe("retire auto-prunes trees", () => {
 			name: "feature-attached",
 			cwd: repoRoot,
 		});
-		const treePath = (added.details as { tree: { path: string } }).tree.path;
+		const treePath = (succeeded(added).details as { tree: { path: string } })
+			.tree.path;
 		await handle(state, fakePi(), fakeCtx(treePath, "sess-live"), {
 			action: "session-attach",
 			cwd: treePath,

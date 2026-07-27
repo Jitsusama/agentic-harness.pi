@@ -58,7 +58,7 @@ export interface InvestigationResult {
 	readonly error?: string;
 }
 
-const COMPAT_SPECIFIER = "@mariozechner/pi-ai/compat";
+const COMPAT_SPECIFIER = "@earendil-works/pi-ai/compat";
 
 const ZERO_USAGE: CompletionUsage = {
 	input: 0,

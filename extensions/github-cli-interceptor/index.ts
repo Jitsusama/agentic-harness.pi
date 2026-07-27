@@ -14,7 +14,7 @@ import {
 	type ExtensionAPI,
 	isToolCallEventType,
 	type ToolCallEventResult,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { stripHeredocBodies, stripShellData } from "../../lib/shell/parse.js";
 import {
 	detectBodyFilePath,

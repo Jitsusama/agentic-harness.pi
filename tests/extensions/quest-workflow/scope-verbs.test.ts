@@ -14,7 +14,7 @@ import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
 } from "../../../lib/refs/index";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 
@@ -378,8 +378,7 @@ describe("tree and expand", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "tree",
 		});
-		expect(result.ok).toBe(true);
-		const details = result.details as {
+		const details = succeeded(result).details as {
 			listing: { rows: { id: string; depth: number }[] };
 		};
 		const parentIdx = details.listing.rows.findIndex((r) => r.id === parent.id);
@@ -388,7 +387,7 @@ describe("tree and expand", () => {
 		// Child sits at depth 1 directly after its parent
 		// in the flattened listing.
 		expect(details.listing.rows[parentIdx + 1].depth).toBe(1);
-		expect(result.message).toMatch(/^ {2}/m);
+		expect(succeeded(result).message).toMatch(/^ {2}/m);
 	});
 
 	it("expand returns the named subtree", async () => {
@@ -405,10 +404,9 @@ describe("tree and expand", () => {
 			action: "expand",
 			id: parent.id,
 		});
-		expect(result.ok).toBe(true);
 		// expand attaches a listing payload with the parent
 		// at depth 0 and each child at depth 1.
-		const details = result.details as {
+		const details = succeeded(result).details as {
 			listing: { rows: { id: string; depth: number }[] };
 		};
 		expect(details.listing.rows[0].id).toBe(parent.id);
@@ -432,8 +430,7 @@ describe("tree and expand", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "tree",
 		});
-		expect(result.ok).toBe(true);
-		const details = result.details as {
+		const details = succeeded(result).details as {
 			listing: {
 				rows: {
 					id: string;
@@ -471,7 +468,7 @@ describe("find with extended filters", () => {
 			parent: "null",
 		});
 		const rows = (
-			result.details as {
+			succeeded(result).details as {
 				listing: { rows: { id: string; kind: string }[] };
 			}
 		).listing.rows;
@@ -495,8 +492,9 @@ describe("find with extended filters", () => {
 			field: "activity",
 			since: "2026-01-01",
 		});
-		const rows = (windowed.details as { listing: { rows: { id: string }[] } })
-			.listing.rows;
+		const rows = (
+			succeeded(windowed).details as { listing: { rows: { id: string }[] } }
+		).listing.rows;
 		expect(rows).toHaveLength(0);
 		const bad = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "find",
@@ -521,8 +519,9 @@ describe("find with extended filters", () => {
 			action: "find",
 			refType: "github-pr",
 		});
-		const rows = (result.details as { listing: { rows: { id: string }[] } })
-			.listing.rows;
+		const rows = (
+			succeeded(result).details as { listing: { rows: { id: string }[] } }
+		).listing.rows;
 		expect(rows.map((r) => r.id)).toEqual([a.id]);
 	});
 });
@@ -553,9 +552,8 @@ describe("show projection", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "show",
 		});
-		expect(result.ok).toBe(true);
 		const projection = (
-			result.details as {
+			succeeded(result).details as {
 				projection: {
 					documents: { kind: string; stage: string }[];
 					sessions: { id: string }[];

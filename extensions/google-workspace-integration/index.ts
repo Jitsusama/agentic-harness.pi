@@ -6,8 +6,8 @@
  * token refresh, and renders content as markdown.
  */
 
-import { StringEnum } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { OAuth2Client } from "google-auth-library";
 import { clearAllConfig } from "../../lib/google/auth/credentials.js";
@@ -197,10 +197,14 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const { action, account: accountName } = params;
 
+			// Pi wants `details` present on every result; the router treats
+			// it as optional, since most actions have nothing structured to
+			// attach. Reconciled at this one seam rather than at each of the
+			// router's own return sites.
 			try {
 				const auth = await getClient(ctx, accountName as string | undefined);
-
-				return await routeAction(action as string, params, auth, ctx);
+				const result = await routeAction(action as string, params, auth, ctx);
+				return { content: result.content, details: result.details };
 			} catch (error) {
 				return {
 					content: [
@@ -209,6 +213,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 							text: formatAuthError(error),
 						},
 					],
+					details: undefined,
 				};
 			}
 		},

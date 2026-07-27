@@ -8,7 +8,7 @@
  * the entity-specific labels.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	ALLOW,
 	formatRedirectBlock,

@@ -1,7 +1,7 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import type { PrCommand } from "../../../extensions/pr-guardian/parse.js";
 import { createPrGuardian } from "../../../extensions/pr-guardian/review.js";
@@ -17,17 +17,11 @@ function noUiContext(): { pi: ExtensionAPI; ctx: ExtensionContext } {
 }
 
 function prCommand(body: string, title = "A Descriptive Title"): PrCommand {
-	return {
-		action: "create",
-		title,
-		body,
-		prefix: null,
-		prPart: "",
-		prNumber: null,
-		extraFlags: [],
-		suffix: null,
-		openerRest: null,
-	};
+	// The command's textual parts (prefix, prPart, extraFlags, suffix,
+	// openerRest) left this type when splicing moved to the command
+	// model; a review only ever reads what is being said, not how the
+	// line was written.
+	return { action: "create", title, body, prNumber: null };
 }
 
 const cleanBody = [
@@ -75,13 +69,7 @@ describe("createPrGuardian review without a UI", () => {
 			action: "edit",
 			title: "attribute replica memory to git subprocesses",
 			body: null,
-			prefix: null,
-			prPart:
-				'gh pr edit 42 --title "attribute replica memory to git subprocesses"',
 			prNumber: "42",
-			extraFlags: [],
-			suffix: null,
-			openerRest: null,
 		};
 		const result = await createPrGuardian(pi).review(titleOnlyEdit, ctx);
 		expect(result && "block" in result).toBe(true);

@@ -33,7 +33,17 @@ beforeAll(() => {
 afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
 function stateFixture(overrides: Partial<QuestState> = {}): QuestState {
-	return {
+	// Assigned onto a complete state rather than spread into a literal.
+	// A Partial may set a required field to undefined, so the spread
+	// form widens every one of them and the result is no longer a
+	// QuestState by the type's own reckoning.
+	const base: QuestState = {
+		// These three were absent until the type was named here, which is
+		// what a spread into a literal hides: nothing was checking that
+		// the fixture resembled the state the code under test receives.
+		autoloadFromCwd: true,
+		questVerify: null,
+		scratchDir: null,
 		questsRoot: "/tmp/quests",
 		questDir: "/tmp/quests/QEST-X",
 		questId: "QEST-X",
@@ -48,8 +58,8 @@ function stateFixture(overrides: Partial<QuestState> = {}): QuestState {
 		documentStage: "draft",
 		done: 0,
 		total: 0,
-		...overrides,
 	};
+	return Object.assign(base, overrides);
 }
 
 describe("quest discipline (plan phase)", () => {

@@ -13,8 +13,8 @@
  *     3. By extension: port one at a time
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey } from "@mariozechner/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { Key, matchesKey } from "@earendil-works/pi-tui";
 import {
 	handleNavigableListInput,
 	type NavigableItem,

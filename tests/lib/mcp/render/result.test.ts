@@ -1,4 +1,4 @@
-import type { AgentToolResult } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { RESULT_VIEW_KEY } from "../../../../lib/mcp/json-summary.js";
 import {

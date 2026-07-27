@@ -16,7 +16,7 @@
  * No slash command: the agent (or a subagent) drives the tools.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerCheck } from "./check.js";
 import { registerDo } from "./do.js";
 import { registerGo } from "./go.js";

@@ -5,12 +5,13 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	applyDocMoves,
 	applyFlatten,
+	defaultQuestsRoot,
 	planDocMoves,
 	planFlatten,
 } from "../../scripts/migrate-quests-canonical";
@@ -167,5 +168,17 @@ describe("applyFlatten + applyDocMoves end to end", () => {
 		);
 		expect(planFlatten(root).nestedMoves).toEqual([]);
 		expect(planDocMoves(root, true).docMoves).toEqual([]);
+	});
+
+	it("knows where the quests live when --root says nothing", () => {
+		// The only line of this script nothing covered was its entry
+		// point, which called a resolver that did not exist. Running it
+		// without --root raised a ReferenceError before it read a single
+		// directory, and every exported planner below stayed green
+		// throughout, because none of them is how the script is used.
+		const root = defaultQuestsRoot();
+
+		expect(root.startsWith(homedir())).toBe(true);
+		expect(root.endsWith("quests")).toBe(true);
 	});
 });

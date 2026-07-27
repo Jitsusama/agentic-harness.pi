@@ -7,9 +7,10 @@
  * auth, ctx) so handlers that need fewer just ignore the rest.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
 import type { ActionParams, ToolResult } from "../../lib/google/types.js";
+import { boundedByDetails, openSessionStore } from "../../lib/result/index.js";
 import {
 	handleCheckAvailability,
 	handleCreateEvent,
@@ -83,5 +84,35 @@ export async function routeAction(
 		};
 	}
 
-	return handler(params, auth, ctx);
+	// Every handler passes through here, so this is the one place the
+	// family needs to keep an answer bounded. An email list, a
+	// calendar sweep or a Drive listing can each be thousands of
+	// records; a document body is one record and passes through
+	// untouched.
+	return bounded(await handler(params, auth, ctx));
+}
+
+/** How a caller asks Google Workspace for a smaller answer. */
+const NARROWING =
+	"Narrow with 'limit', a tighter 'query', or a shorter date range " +
+	"through 'start' and 'end'.";
+
+/**
+ * Bound a result's first text block, citing the records its
+ * details already carry.
+ *
+ * Only the first block is bounded because that is the rendered
+ * listing; anything after it is attached content a caller asked
+ * for by name, and half of an attachment is no use to anybody.
+ */
+function bounded(result: ToolResult): ToolResult {
+	const [first, ...rest] = result.content;
+	if (first === undefined || first.type !== "text") return result;
+	const text = boundedByDetails(openSessionStore(), {
+		text: first.text,
+		details: result.details,
+		narrowing: NARROWING,
+	});
+	if (text === first.text) return result;
+	return { ...result, content: [{ type: "text", text }, ...rest] };
 }

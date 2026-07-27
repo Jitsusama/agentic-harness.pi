@@ -19,8 +19,8 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { StringEnum } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { createMutex } from "../../lib/internal/async-mutex.js";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
@@ -31,6 +31,7 @@ import { postReview } from "../../lib/internal/github/review-post.js";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { findOrCreateSidequestForPr } from "../../lib/internal/quest/pr-sidequest.js";
 import { getQuestPrBridge } from "../../lib/quest/pr-bridge.js";
+import { citeListing, openSessionStore } from "../../lib/result/index.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
 import { getParentPiInstall } from "../../lib/subagent/install.js";
 import { recoverReviewerRuns } from "../../lib/subagent/recovery.js";
@@ -1472,9 +1473,22 @@ ${reviewValidationDirective()}`,
 				}
 
 				if (params.action === "findings") {
-					const text = params.verbose
+					const rendered = params.verbose
 						? formatFindingsView(state)
 						: formatCompactFindingsView(state);
+					// The verbose view is deliberately a wall of text, which is
+					// the right thing to offer and the wrong thing to spend a
+					// context window on unread. Storing the findings means they
+					// can be filtered by label, severity or file without
+					// reading all of them first.
+					const text = citeListing(openSessionStore(), {
+						view: rendered,
+						records: state.council.lastJudge?.consolidatedFindings ?? [],
+						unit: "findings",
+						narrowing:
+							"Use the compact view without 'verbose', or query the " +
+							"findings by label, severity or file.",
+					});
 					return {
 						content: [{ type: "text", text }],
 						details: {

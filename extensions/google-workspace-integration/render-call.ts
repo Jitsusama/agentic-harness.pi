@@ -2,13 +2,19 @@
  * Render tool call display for Google Workspace actions.
  */
 
-import type { Theme } from "@mariozechner/pi-tui";
-import { Text } from "@mariozechner/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 
-interface RenderOptions {
-	terminalWidth?: number;
-	expanded?: boolean;
-}
+/**
+ * Width to lay a call line out for.
+ *
+ * Pi passes a renderer the theme and its render context, and
+ * neither carries a terminal width, so a call line that wants to
+ * elide a long subject has to pick a figure. Eighty is the width
+ * this code already fell back to whenever the old options argument
+ * arrived without one, which was every time.
+ */
+const ASSUMED_WIDTH = 80;
 
 interface CallArgs {
 	action?: string;
@@ -25,11 +31,7 @@ interface CallArgs {
 /**
  * Render a Google Workspace tool call with action-specific formatting.
  */
-export function renderGoogleCall(
-	args: unknown,
-	options: RenderOptions,
-	theme: Theme,
-): Text {
+export function renderGoogleCall(args: unknown, theme: Theme): Text {
 	const a = args as CallArgs;
 	const action = a.action || "?";
 	let text = theme.fg("toolTitle", theme.bold("google "));
@@ -72,7 +74,7 @@ export function renderGoogleCall(
 				}
 			}
 			if (a.subject) {
-				const maxWidth = options.terminalWidth ?? 80;
+				const maxWidth = ASSUMED_WIDTH;
 				const prefixLen = 30; // Approximate length of "google send_email → user@example.com "
 				const availableWidth = maxWidth - prefixLen;
 				const subjectPreview =

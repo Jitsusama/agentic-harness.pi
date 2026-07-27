@@ -13,9 +13,10 @@
  *   - `renderBar`: visual fraction as a filled/empty character bar
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 
 /** Semantic kinds. Each maps to a glyph and theme colour. */
+
 export type BadgeKind =
 	| "critical"
 	| "warning"
@@ -28,7 +29,7 @@ export type BadgeKind =
 	| "rejected";
 
 /** Mapping of badge kind to glyph and colour. */
-const BADGE_STYLE: Record<BadgeKind, { glyph: string; color: string }> = {
+const BADGE_STYLE: Record<BadgeKind, { glyph: string; color: ThemeColor }> = {
 	critical: { glyph: "●", color: "error" },
 	warning: { glyph: "●", color: "warning" },
 	info: { glyph: "●", color: "accent" },
@@ -73,7 +74,7 @@ export interface BarOptions {
 	/** Total bar width in characters. Default: 7. */
 	width?: number;
 	/** Theme colour applied to the bar. Default: "success". */
-	color?: string;
+	color?: ThemeColor;
 	/** Hide the trailing `numerator/denominator` text. Default: false. */
 	hideFraction?: boolean;
 }

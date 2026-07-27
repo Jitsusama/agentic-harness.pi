@@ -19,7 +19,7 @@
  * unrelated cwd does not pay the token cost.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerPromptContributor } from "../../lib/prompt/index.js";
 import { buildBindingRules } from "./rules.js";
 import { isInsideWorkTree } from "./scope.js";

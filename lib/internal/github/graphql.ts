@@ -7,7 +7,7 @@
  * error handling.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /**
  * Execute a typed GraphQL query via `gh api graphql`.

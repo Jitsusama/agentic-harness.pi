@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Text } from "@mariozechner/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import type { McpConnection } from "../../../../lib/mcp/connection.js";
 import { defaultResolved } from "../../../../lib/mcp/frontend/defaults.js";

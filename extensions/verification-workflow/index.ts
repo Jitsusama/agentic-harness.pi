@@ -27,7 +27,7 @@ import type {
 	AgentToolResult,
 	ExtensionAPI,
 	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { getLastEntry } from "../../lib/internal/state.js";
 import { setVerificationFailing } from "../../lib/internal/verification/signal.js";

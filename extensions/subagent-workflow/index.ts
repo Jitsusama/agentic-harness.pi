@@ -36,8 +36,8 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { StringEnum } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";

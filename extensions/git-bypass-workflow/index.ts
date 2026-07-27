@@ -12,7 +12,7 @@
  * extension can be loaded without the others.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	isGitBypassed,
 	setGitBypassed,

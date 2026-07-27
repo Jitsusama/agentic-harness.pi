@@ -18,8 +18,11 @@ export default defineConfig({
 		include: ["tests/**/*.test.ts"],
 		environment: "node",
 		clearMocks: true,
+		// Only the ceiling is ours to set: vitest 4 dropped the floor
+		// option and sizes the pool itself underneath the cap. The
+		// "never below one worker" part of the note above is the
+		// Math.max on the cap, which still holds.
 		maxWorkers: MAX_WORKERS,
-		minWorkers: 1,
 		coverage: {
 			provider: "v8",
 			include: ["extensions/**/*.ts", "lib/**/*.ts"],
@@ -28,15 +31,17 @@ export default defineConfig({
 		},
 	},
 	resolve: {
-		// Pi 0.74's loader rewrites the @sinclair/typebox
-		// imports onto its bundled `typebox` package at
-		// runtime. Mirror that mapping for vitest so the
-		// same imports work in tests without a separate
-		// alias in every file.
+		// Pi's loader rewrites the @sinclair/typebox imports
+		// onto its bundled `typebox` package at runtime.
+		// Mirror that mapping for vitest so the same imports
+		// work in tests without a separate alias in every
+		// file.
+		//
+		// The three pi packages used to be aliased here too,
+		// from the old @mariozechner names onto the current
+		// ones. The code imports the current names now, so
+		// there is nothing left to rewrite.
 		alias: {
-			"@mariozechner/pi-ai": "@earendil-works/pi-ai",
-			"@mariozechner/pi-coding-agent": "@earendil-works/pi-coding-agent",
-			"@mariozechner/pi-tui": "@earendil-works/pi-tui",
 			"@sinclair/typebox/value": "typebox/value",
 			"@sinclair/typebox/compile": "typebox/compile",
 			"@sinclair/typebox": "typebox",

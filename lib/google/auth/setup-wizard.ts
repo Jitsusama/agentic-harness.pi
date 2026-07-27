@@ -3,7 +3,7 @@
  * OAuth credentials and stores them persistently.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { promptSingle } from "../../ui/index.js";
 import {
 	getOAuthApp,

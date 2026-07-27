@@ -13,8 +13,8 @@
  * - Ctrl+Alt+M: toggle minimized (normal ↔ minimized)
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { isKeyRelease, Key, matchesKey } from "@mariozechner/pi-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isKeyRelease, Key, matchesKey } from "@earendil-works/pi-tui";
 import {
 	getPanelHeightMode,
 	setPanelHeightMode,

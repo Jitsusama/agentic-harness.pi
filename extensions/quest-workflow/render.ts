@@ -18,8 +18,8 @@
  * All surfaces fall silent when no quest is loaded.
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth } from "@mariozechner/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 
 import type { QuestEntry } from "../../lib/internal/quest/discovery.js";
 import type {

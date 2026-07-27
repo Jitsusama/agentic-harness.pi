@@ -27,7 +27,8 @@ const root = new URL("../..", import.meta.url).pathname;
  * unnecessary: a second copy of pi's own modules is a different
  * copy, and the instanceof checks stop working.
  */
-const PROVIDED_BY_PI = /^@mariozechner\/pi-|^(?:@sinclair\/)?typebox$/;
+const PROVIDED_BY_PI =
+	/^@(?:earendil-works|mariozechner)\/pi-|^(?:@sinclair\/)?typebox$/;
 
 /**
  * Note on the two spellings of typebox.
@@ -38,6 +39,51 @@ const PROVIDED_BY_PI = /^@mariozechner\/pi-|^(?:@sinclair\/)?typebox$/;
  * this repo uses both in different files. Neither belongs in
  * dependencies, for the same reason pi's own modules do not.
  */
+
+/**
+ * What to declare for each pi specifier the code imports.
+ *
+ * The old @mariozechner names are the same packages under the name
+ * pi published them under before the rename. Its loader still
+ * aliases them and they still resolve, but they are published
+ * deprecated, so the code imports the current ones. The old
+ * spellings stay in this map rather than being deleted: it is what
+ * makes an accidental return to them declare the right peer instead
+ * of demanding a dependency on pi.
+ */
+const PI_PEER_FOR = new Map([
+	["@earendil-works/pi-ai", "@earendil-works/pi-ai"],
+	["@earendil-works/pi-coding-agent", "@earendil-works/pi-coding-agent"],
+	["@earendil-works/pi-tui", "@earendil-works/pi-tui"],
+	["@mariozechner/pi-ai", "@earendil-works/pi-ai"],
+	["@mariozechner/pi-coding-agent", "@earendil-works/pi-coding-agent"],
+	["@mariozechner/pi-tui", "@earendil-works/pi-tui"],
+	["typebox", "typebox"],
+	["@sinclair/typebox", "typebox"],
+]);
+
+/**
+ * The import and export statements in a source file, each as one
+ * string however many lines it was written across.
+ *
+ * Read as statements rather than as lines because the formatter
+ * wraps a long import over several, leaving the specifier on a
+ * closing `} from "x"` line that starts with no keyword. Scanning
+ * line by line skipped every one of those, which is most of them
+ * in this repository, so packages were invisible to a gate whose
+ * whole job is noticing an undeclared dependency.
+ */
+function importStatements(source: string): string[] {
+	const fromClause =
+		/(?:^|\n)[ \t]*(?:import|export)(?:[^;"'`]|"[^"]*"|'[^']*')*?from[ \t]*["'][^"']+["']/g;
+	const bareImport = /(?:^|\n)[ \t]*import[ \t]*["'][^"']+["']/g;
+	const required = /\brequire\([ \t]*["'][^"']+["'][ \t]*\)/g;
+	return [
+		...(source.match(fromClause) ?? []),
+		...(source.match(bareImport) ?? []),
+		...(source.match(required) ?? []),
+	].map((statement) => statement.replace(/\s+/g, " ").trim());
+}
 
 /** Files that ship and run, as opposed to files that test them. */
 function sourceFiles(dir: string): string[] {
@@ -87,6 +133,8 @@ describe("what ships can load", () => {
 	) as {
 		dependencies?: Record<string, string>;
 		devDependencies?: Record<string, string>;
+		peerDependencies?: Record<string, string>;
+		peerDependenciesMeta?: Record<string, { optional?: boolean }>;
 	};
 	const declared = new Set(Object.keys(manifest.dependencies ?? {}));
 	const forDevelopmentOnly = new Set(
@@ -96,8 +144,8 @@ describe("what ships can load", () => {
 	const imported = new Map<string, string[]>();
 	for (const dir of ["lib", "extensions"]) {
 		for (const file of sourceFiles(join(root, dir))) {
-			for (const line of readFileSync(file, "utf8").split("\n")) {
-				const pkg = runtimeImport(line);
+			for (const statement of importStatements(readFileSync(file, "utf8"))) {
+				const pkg = runtimeImport(statement);
 				if (!pkg || PROVIDED_BY_PI.test(pkg)) continue;
 				imported.set(pkg, [
 					...(imported.get(pkg) ?? []),
@@ -133,5 +181,88 @@ describe("what ships can load", () => {
 	it("does not bundle its own copy of what pi provides", () => {
 		const shadowed = [...declared].filter((pkg) => PROVIDED_BY_PI.test(pkg));
 		expect(shadowed).toEqual([]);
+	});
+
+	describe("what pi provides", () => {
+		/** The pi packages this code actually imports, by manifest name. */
+		const needed = new Set<string>();
+		for (const dir of ["lib", "extensions"]) {
+			for (const file of sourceFiles(join(root, dir))) {
+				for (const statement of importStatements(readFileSync(file, "utf8"))) {
+					const pkg = runtimeImport(statement);
+					const peer = pkg ? PI_PEER_FOR.get(pkg) : undefined;
+					if (peer) needed.add(peer);
+				}
+			}
+		}
+		const peers = manifest.peerDependencies ?? {};
+		const meta = manifest.peerDependenciesMeta ?? {};
+
+		it("finds the pi imports, so a pass means something", () => {
+			expect(needed.has("@earendil-works/pi-coding-agent")).toBe(true);
+		});
+
+		it("declares them as peers, which is what pi's own docs ask for", () => {
+			// A peer says what the host must provide, which is exactly the
+			// relationship: pi hands these to an extension at load time.
+			const missing = [...needed].filter((pkg) => peers[pkg] === undefined);
+			expect(missing).toEqual([]);
+		});
+
+		it("asks for any version, because the host decides which", () => {
+			// A range would be a claim about which pi this runs under, and
+			// the answer is whichever one loaded it.
+			const pinned = [...needed].filter((pkg) => peers[pkg] !== "*");
+			expect(pinned).toEqual([]);
+		});
+
+		it("marks every one optional, or a consumer gets a second pi", () => {
+			// Measured, not assumed. npm installs a root package's peers
+			// unless they are optional, and pi runs `npm install --omit=dev`
+			// on a git install. Declaring these without the optional flag
+			// pulled 189 packages into a test tree, including a deprecated
+			// copy of pi's whole runtime three minor versions behind. A
+			// second copy of pi's modules is a different copy, and the
+			// instanceof checks in its APIs stop holding.
+			const required = [...needed].filter(
+				(pkg) => meta[pkg]?.optional !== true,
+			);
+			expect(required).toEqual([]);
+		});
+
+		it("imports them under the name pi publishes today", () => {
+			// The old @mariozechner spelling still resolves, because pi's
+			// loader aliases it, and that is what makes leaving it alone
+			// tempting and its return invisible. The packages are published
+			// deprecated and pi's own comment says the aliases stay only
+			// until compat is removed, at which point every one of these
+			// imports stops resolving at once.
+			//
+			// Raw text rather than the import scanner above, which skips
+			// type-only imports on purpose: a deprecated specifier is
+			// wrong in a type position too, and there were 183 of them
+			// across 133 files when this was written.
+			const offenders: string[] = [];
+			for (const dir of ["lib", "extensions", "tests"]) {
+				for (const file of sourceFiles(join(root, dir))) {
+					// This file names the old spelling to recognize it.
+					if (file.endsWith("runtime-deps.test.ts")) continue;
+					if (readFileSync(file, "utf8").includes("@mariozechner/"))
+						offenders.push(file.slice(root.length));
+				}
+			}
+			expect(offenders).toEqual([]);
+		});
+
+		it("keeps them installed here, so types resolve", () => {
+			// pnpm does not install optional peers, and typecheck needs the
+			// real declarations on disk. Naming the same packages in both
+			// lists is also what keeps pnpm from deciding a peer is missing
+			// and installing its own: it finds them already satisfied.
+			const absent = [...needed].filter(
+				(pkg) => !forDevelopmentOnly.has(pkg) && !declared.has(pkg),
+			);
+			expect(absent).toEqual([]);
+		});
 	});
 });

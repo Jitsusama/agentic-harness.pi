@@ -38,7 +38,7 @@ import type { RunPiResult } from "../../../../lib/subagent/subagent.js";
 // vitest give up, which reports nothing but a duration. CI failed
 // at 60006ms on a run that had plenty left to say, because the rungs
 // were in the other order.
-vi.setConfig({ testTimeout: 90_000 });
+vi.setConfig({ testTimeout: 150_000 });
 
 interface FakeChild {
 	stdout: Readable;
@@ -127,8 +127,17 @@ async function tempStateDir(): Promise<string> {
  * must stay under the file's test timeout, or vitest kills the run
  * before either watchdog can explain itself, which is how the same
  * fault came back reported as "60006ms" and nothing else.
+ *
+ * Forty seconds was still not enough. CI then failed at 50015ms,
+ * which is this leash plus the parent's grace, on a test whose child
+ * prints two lines and exits. A doubly-nested node spawn on a
+ * shared runner is simply slower than I keep assuming, so the
+ * number is now two minutes: far past anything these tests need,
+ * and still under the timeout above it. If a run ever crosses this,
+ * the supervisor's own watchdog reports it rather than vitest
+ * reporting a duration.
  */
-const GENEROUS_MS = 40_000;
+const GENEROUS_MS = 120_000;
 
 function expectRan(result: RunPiResult): void {
 	if (result.exitCode !== 0) {

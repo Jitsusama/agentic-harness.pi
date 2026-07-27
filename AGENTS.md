@@ -26,6 +26,11 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     `styles`, `target`, `telemetry`, `wait`. Every one but
     `session` is pure and capture-agnostic, enforced by
     `tests/lib/web/purity.test.ts`
+  - `lib/result/`: tool answers that are bounded without being
+    lossy: the session result store, the bounded structural
+    digest, the shared JSONPath query and the citation rule
+    (public). `lib/mcp` re-exports it, so the MCP surface and the
+    tool families share one store
   - `lib/guardian/`: guardian contract, registration and
     redirect formatting (public)
   - `lib/shell/`: shell command parsing: flag extraction,
@@ -73,7 +78,7 @@ it does:
   task-scoped orchestration (PR review and reply).
   `quest-workflow`, `tdd-workflow`, `pr-workflow`,
   `ask-workflow`, `git-bypass-workflow`,
-  `guardian-status-workflow`
+  `guardian-status-workflow`, `result-store-workflow`
 
 - **Integrations** (`*-integration`): bridge to external
   services via registered tools.
@@ -130,15 +135,40 @@ they all work independently.
   (for browsing). Do not duplicate content between them.
 - **Never put a README.md in the `skills/` root.** Pi treats
   any `.md` file there as a skill.
-- Imports from pi use `@mariozechner/pi-coding-agent`,
-  `@mariozechner/pi-ai` and `@mariozechner/pi-tui`. These
-  are provided by pi at runtime; do not add them to
-  `dependencies`. The matching `@earendil-works/*`
-  packages (and `typebox`) are installed as
-  `devDependencies` so `tsc` can resolve the imports;
-  `tsconfig.json` maps the `@mariozechner/*` specifiers
-  to the `@earendil-works/*` packages on disk. The
-  runtime contract is unchanged.
+- Imports from pi use `@earendil-works/pi-coding-agent`,
+  `@earendil-works/pi-ai` and `@earendil-works/pi-tui`.
+  These are provided by pi at runtime; do not add them to
+  `dependencies`. They appear in three other places, each
+  for its own reason, and all three are enforced by
+  `tests/package/runtime-deps.test.ts`:
+  - `peerDependencies` at `"*"`, under the current
+    `@earendil-works/*` names, because that is the
+    relationship: pi hands these to an extension at load
+    time, and which version is the host's business.
+  - `peerDependenciesMeta` marking every one optional,
+    because npm installs a root package's peers otherwise
+    and pi runs `npm install --omit=dev` on a git install.
+    Measured: without the flag, one declaration pulled 189
+    packages into a clean tree, among them a deprecated
+    copy of pi's whole runtime three minor versions
+    behind. A second copy of pi's modules is a different
+    copy, and the instanceof checks in its own APIs stop
+    holding.
+  - `devDependencies`, so `tsc` has the real declarations
+    on disk. Naming the same packages here as in
+    `peerDependencies` is also what stops pnpm installing
+    its own: pnpm installs peers by default and ignores
+    the optional flag, but it finds these already
+    satisfied. Consumers never receive them, since
+    `--omit=dev` skips the list entirely.
+
+  Pi's loader also aliases the older `@mariozechner/*`
+  spelling, which this repo imported until every site was
+  migrated. Do not reintroduce it: those packages are
+  published deprecated, pi's loader comment says the compat
+  aliases stay only until compat is removed, and the
+  `tsconfig.json` and vitest mappings that used to bridge
+  the two names are gone.
 - Every mechanical rule a skill states is tracked in
   [`docs/convention-coverage.md`](./docs/convention-coverage.md)
   against the gate that enforces it. When adding a rule to a
@@ -209,6 +239,30 @@ factory; they're independently motivated and could grow
 separate concerns. When deciding whether to deduplicate, ask
 yourself: are these the same concept, or just coincidentally
 similar right now?
+
+### A Large Answer Is Stored, Not Truncated
+
+A tool that can produce a payload larger than a context window
+keeps the whole payload and hands back a bounded view plus a
+handle. It never inlines everything, and it never truncates into
+oblivion: the caller who needed the part that was cut has to be
+able to reach it without calling the tool again and guessing at
+different arguments.
+
+Use `lib/result`: `citeListing` for a rendered listing whose
+records are to hand, `boundedByDetails` where a family already
+passes its records through a result's details, and `cite` for
+anything shaped differently. A handle is cited exactly when the
+stored payload holds more than the view shows, and that decision
+belongs to `cite` rather than to each family.
+
+Answering with a path on disk is the same bargain by another road
+and is equally acceptable: `web_read` returns a bundle manifest
+and `subagent` names each fan-out result file.
+
+`tests/package/stored-results.test.ts` checks that every
+tool-registering extension has been accounted for one way or the
+other, so a new tool cannot quietly skip the question.
 
 ### Keep Concerns in Their Domain
 
@@ -390,11 +444,15 @@ request via `.github/workflows/ci.yml`.
 
 - Do not add build tooling, bundlers or transpilation steps.
 - Do not add pi's own packages to `dependencies`. They
-  are provided at runtime (`@mariozechner/pi-coding-agent`,
-  `@mariozechner/pi-ai`, `@mariozechner/pi-tui`). The
-  matching `@earendil-works/*` packages live in
-  `devDependencies` for typecheck only and must not be
-  imported under those names from production code.
+  are provided at runtime
+  (`@earendil-works/pi-coding-agent`,
+  `@earendil-works/pi-ai`, `@earendil-works/pi-tui`), and
+  they live in `peerDependencies` at `"*"`, marked
+  optional, plus `devDependencies` for typecheck.
+  Do not drop the optional flag on a pi peer: npm then
+  installs a stale second copy of pi's runtime into every
+  consumer's tree. Do not import the deprecated
+  `@mariozechner/*` spelling.
   Third-party dependencies belong in the root
   `package.json`'s `dependencies`, not in extension-local
   package.json files. Library code lives in `lib/` and

@@ -1,4 +1,4 @@
-import type { ContextEvent } from "@mariozechner/pi-coding-agent";
+import type { ContextEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import type { LoopState } from "../../../extensions/tdd-workflow/machine.js";
 import { createTddState } from "../../../extensions/tdd-workflow/state.js";

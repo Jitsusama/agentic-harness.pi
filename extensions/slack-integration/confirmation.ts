@@ -6,7 +6,10 @@
  * guardian pattern used elsewhere in the harness.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type {
+	ExtensionContext,
+	ThemeColor,
+} from "@earendil-works/pi-coding-agent";
 import {
 	type KeyAction,
 	promptSingle,
@@ -315,9 +318,15 @@ export async function confirmUploadFile(
 
 // ── Table preview rendering ─────────────────────────────
 
-/** Theme type from the promptSingle/promptTabbed content callback. */
+/**
+ * Theme type from the promptSingle/promptTabbed content callback.
+ *
+ * `fg` takes pi's own colour union rather than a string: the colour
+ * names are a closed set, and typing them as strings meant a real
+ * theme could not be passed to a function declared to accept one.
+ */
 interface GateTheme {
-	fg: (color: string, text: string) => string;
+	fg: (color: ThemeColor, text: string) => string;
 	bold: (text: string) => string;
 }
 

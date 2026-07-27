@@ -16,7 +16,7 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CritiqueRun } from "../../../extensions/pr-workflow/critique.js";
 import type {

@@ -31,7 +31,7 @@ import {
 	type ExtensionAPI,
 	isToolCallEventType,
 	type ToolCallEventResult,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { effectiveCwd, tokenize } from "../../lib/command/index.js";
 import { ensureCommitHook } from "../../lib/internal/guardian/commit-hook.js";
 import { coAuthorTrailer } from "../../lib/internal/guardian/commit-trailer.js";

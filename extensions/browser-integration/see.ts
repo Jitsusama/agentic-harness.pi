@@ -7,9 +7,11 @@
  * returns once it has changed something.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
+	ACTION_VIEW_BUDGET_BYTES,
+	OUTLINE_BUDGET_BYTES,
 	renderAnnouncements,
 	type Skeleton,
 	type TreeScope,
@@ -56,10 +58,14 @@ import {
 	refusal,
 	sessionInPlay,
 } from "./result.js";
+import { bodyAnswer, listAnswer, pageAnswer } from "./stored.js";
 
-/** Lay an observation out for reading: where you are, then what is there. */
-function render(observed: Observation): string {
-	return `${observed.title}\n${observed.url}\n\n${observed.outline}`;
+/**
+ * Lay an observation out for reading: where you are, then what is
+ * there, bounded, with the whole tree stored when it did not fit.
+ */
+function render(observed: Observation, budget: number): string {
+	return pageAnswer(observed, budget);
 }
 
 /**
@@ -133,12 +139,16 @@ function renderBody(
 		const bytes = Buffer.from(fetched.body, "base64").length;
 		return `Body of ${url}: ${bytes} bytes of binary, not shown.`;
 	}
-	const capped =
-		fetched.body.length > MAX_INLINE_BODY
-			? `${fetched.body.slice(0, MAX_INLINE_BODY)}\n\n[cut after ` +
-				`${MAX_INLINE_BODY} of ${fetched.body.length} bytes]`
-			: fetched.body;
-	return `Body of ${url}:\n${capped}`;
+	if (fetched.body.length <= MAX_INLINE_BODY) {
+		return `Body of ${url}:\n${fetched.body}`;
+	}
+	// Cut and kept, rather than cut and announced. This said how many
+	// bytes it had thrown away and gave no way to ask for them, which
+	// is the thing the rest of this change exists to stop doing.
+	// Bytes, not lines: a response body is content rather than a
+	// rendering, and a minified one is a single line the length of
+	// the file.
+	return bodyAnswer(url, fetched.body, MAX_INLINE_BODY);
 }
 
 /**
@@ -192,8 +202,11 @@ function renderInspection(found: Inspection): string {
  * The page as the caller should read it: where they are, then
  * the accessibility outline of what is there.
  */
-export async function pageView(session: BrowserSession): Promise<string> {
-	return render(await session.observe());
+export async function pageView(
+	session: BrowserSession,
+	budget: number = ACTION_VIEW_BUDGET_BYTES,
+): Promise<string> {
+	return render(await session.observe(), budget);
 }
 
 /**
@@ -431,6 +444,15 @@ const parameters = Type.Object({
 				"reported, however many are shown.",
 		}),
 	),
+	budget: Type.Optional(
+		Type.Number({
+			description:
+				"For page and reading: how many bytes of outline to return " +
+				`before storing the rest. Defaults to ${OUTLINE_BUDGET_BYTES}. ` +
+				"Whatever is cut stays queryable by handle, so narrowing with " +
+				"'only', 'depth' or 'within' is usually better than raising this.",
+		}),
+	),
 });
 
 /** Register the reading half of the browser family. */
@@ -488,35 +510,57 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 
 			if (kind === "query") {
 				const nodes = await session.snapshot();
+				const queried = runQuery(
+					nodes,
+					{
+						...(params.tag === undefined ? {} : { tag: params.tag }),
+						...(params.attribute === undefined
+							? {}
+							: { attribute: params.attribute }),
+						...(params.value === undefined ? {} : { value: params.value }),
+						...(params.className === undefined
+							? {}
+							: { className: params.className }),
+						...(params.text === undefined ? {} : { text: params.text }),
+						...(params.rendered === undefined
+							? {}
+							: { rendered: params.rendered }),
+						...(params.inShadow === undefined
+							? {}
+							: { inShadow: params.inShadow }),
+					},
+					params.limit,
+				);
+				// The matches themselves go to the store, so the ones past
+				// the cap are a query away rather than a re-run away.
 				return answer(
 					name,
 					kind,
-					runQuery(
-						nodes,
-						{
-							...(params.tag === undefined ? {} : { tag: params.tag }),
-							...(params.attribute === undefined
-								? {}
-								: { attribute: params.attribute }),
-							...(params.value === undefined ? {} : { value: params.value }),
-							...(params.className === undefined
-								? {}
-								: { className: params.className }),
-							...(params.text === undefined ? {} : { text: params.text }),
-							...(params.rendered === undefined
-								? {}
-								: { rendered: params.rendered }),
-							...(params.inShadow === undefined
-								? {}
-								: { inShadow: params.inShadow }),
-						},
-						params.limit,
-					),
+					queried.matches === undefined
+						? queried.view
+						: listAnswer({
+								view: queried.view,
+								records: queried.matches,
+								unit: "matching nodes",
+								narrowing:
+									"Narrow with tag, attribute, className, text, rendered " +
+									"or inShadow, or raise 'limit'.",
+							}),
 				);
 			}
 
 			if (kind === "downloads") {
-				return answer(name, kind, renderDownloads(session.downloads()));
+				const files = session.downloads();
+				return answer(
+					name,
+					kind,
+					listAnswer({
+						view: renderDownloads(files),
+						records: files,
+						unit: "downloads",
+						narrowing: "Every file is on disk at the path shown.",
+					}),
+				);
 			}
 
 			if (kind === "status") {
@@ -543,7 +587,19 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 							`them:\n  ${path}`,
 					);
 				}
-				if (!params.body) return answer(name, kind, listing);
+				if (!params.body)
+					return answer(
+						name,
+						kind,
+						listAnswer({
+							view: listing,
+							records: wanted,
+							unit: "requests",
+							narrowing:
+								"Narrow with 'filter' by type, state, status or url " +
+								"fragment, or write the archive to disk with 'har'.",
+						}),
+					);
 
 				const target = pick(wanted, params.body);
 				if (!target) {
@@ -572,7 +628,18 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 							),
 						}
 					: captured;
-				return answer(name, kind, renderLogs(wanted));
+				return answer(
+					name,
+					kind,
+					listAnswer({
+						view: renderLogs(wanted),
+						records: wanted.entries.map(({ item }) => item),
+						unit: "log entries",
+						narrowing:
+							"Narrow with 'level' to one severity, or with 'since' to " +
+							"what arrived after a cursor.",
+					}),
+				);
 			}
 
 			if (kind === "announcements") {
@@ -582,7 +649,13 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return answer(
 					name,
 					kind,
-					`${renderAnnouncements(entries, dropped)}\n\ncursor: ${cursor}`,
+					listAnswer({
+						view: `${renderAnnouncements(entries, dropped)}\n\ncursor: ${cursor}`,
+						records: entries.map(({ item }) => item),
+						unit: "announcements",
+						narrowing:
+							"Read from a cursor with 'since' to hear only what is new.",
+					}),
 				);
 			}
 
@@ -639,9 +712,17 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				...(params.only === undefined ? {} : { only: params.only as Skeleton }),
 			};
 
+			// A caller who asked to see the page gets the generous budget;
+			// the tighter one is for the view that follows an action nobody
+			// asked a page read of.
+			const budget = params.budget ?? OUTLINE_BUDGET_BYTES;
 			const form = kind === "reading" ? "reading" : "outline";
 			if (params.within === undefined) {
-				return answer(name, kind, render(await session.observe(scope, form)));
+				return answer(
+					name,
+					kind,
+					render(await session.observe(scope, form), budget),
+				);
 			}
 
 			const target = parseTarget(params.within);
@@ -658,13 +739,20 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 			if (!result.ok) {
 				return refusal(name, kind, describeRefusal(target, result.refusal));
 			}
-			return answer(name, kind, render(result.observation));
+			return answer(name, kind, render(result.observation, budget));
 		},
 	});
 }
 
 /** How many matches to list before summarising instead. */
 const DEFAULT_QUERY_LIMIT = 25;
+
+/** A query's answer, and the matches behind it when it found any. */
+interface QueryReport {
+	readonly view: string;
+	/** Absent when the answer was a summary rather than a match list. */
+	readonly matches?: readonly IndexedNode[];
+}
 
 /**
  * Run a query and report it.
@@ -677,7 +765,7 @@ function runQuery(
 	nodes: readonly IndexedNode[],
 	query: Query,
 	limit?: number,
-): string {
+): QueryReport {
 	const asked = Object.keys(query).length > 0;
 	if (!asked) {
 		// With no query the useful answer is the shape of the page,
@@ -686,7 +774,7 @@ function runQuery(
 			node.nodeName.toLowerCase(),
 		);
 		const frames = new Set(nodes.map((node) => node.documentUrl));
-		return [
+		const shape = [
 			`${nodes.length} nodes across ${frames.size} document` +
 				`${frames.size === 1 ? "" : "s"}.`,
 			`${nodes.filter((node) => !node.rendered).length} were not rendered, ` +
@@ -703,11 +791,14 @@ function runQuery(
 			"Narrow it with tag, attribute, className, text, rendered " +
 				"or inShadow.",
 		].join("\n");
+		return { view: shape };
 	}
 
 	const found = find(nodes, query);
 	if (found.length === 0) {
-		return "Nothing on the page matches that, in any frame or shadow root.";
+		return {
+			view: "Nothing on the page matches that, in any frame or shadow root.",
+		};
 	}
 
 	const cap = limit ?? DEFAULT_QUERY_LIMIT;
@@ -720,5 +811,5 @@ function runQuery(
 	if (found.length > shown.length) {
 		lines.push("", `Showing ${shown.length}. Raise limit to see the rest.`);
 	}
-	return lines.join("\n");
+	return { view: lines.join("\n"), matches: found };
 }

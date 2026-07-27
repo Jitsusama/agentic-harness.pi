@@ -41,8 +41,8 @@
  *     → MDN docs on CORS
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey, visibleWidth } from "@mariozechner/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { Key, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import { wordWrap } from "./text-layout.js";
 import { CONTENT_INDENT, GLYPH } from "./types.js";
 
@@ -58,7 +58,10 @@ import { CONTENT_INDENT, GLYPH } from "./types.js";
  */
 export type DetailEntry =
 	| string
-	| { text: string; color: import("@mariozechner/pi-coding-agent").ThemeColor };
+	| {
+			text: string;
+			color: import("@earendil-works/pi-coding-agent").ThemeColor;
+	  };
 
 /** A single item in a navigable list. */
 export interface NavigableItem {

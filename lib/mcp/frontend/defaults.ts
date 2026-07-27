@@ -1,4 +1,4 @@
-import type { AgentToolResult } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { truncateForDisplay } from "../content.js";
 import { renderDefaultCall } from "../render/call.js";
 import { CANCELLED_TEXT, renderDefaultResult } from "../render/result.js";

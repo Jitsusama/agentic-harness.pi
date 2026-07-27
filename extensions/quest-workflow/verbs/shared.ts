@@ -7,7 +7,7 @@
  * wires the action name to one of these handlers.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export interface QuestToolParams {
 	action: string;
