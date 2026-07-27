@@ -29,6 +29,7 @@ a browser to get it.
 | [`evaluate/`](./evaluate) | Running an expression and surviving the result |
 | [`input/`](./input) | Key chords, pointer paths, touch gestures |
 | [`perf/`](./perf) | Web vitals from the browser's own observers |
+| [`session/`](./session) | The session's own keepers: telemetry buffers, emulation, shaping, settling, artifacts, source maps. Impure by design, since each drives the live tab |
 | [`snapshot/`](./snapshot) | The whole page flattened, frames and shadow content included, and queries over it |
 | [`sourcemap/`](./sourcemap) | Where generated code was authored |
 | [`styles/`](./styles) | Computed style curation and cascade tracing |

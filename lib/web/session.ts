@@ -21,12 +21,7 @@ import type {
 	ElementHandle,
 	KeyInput,
 	Page,
-	Protocol,
 } from "puppeteer-core";
-// Chrome's own device table. It lives behind the driver, which is
-// why resolving a device name is this file's job and not the pure
-// side of the library's.
-import { KnownDevices } from "puppeteer-core";
 // The key table is reached through the driver's declared
 // internal subpath rather than its barrel, which marks the
 // table private and strips it from the public types. Copying
@@ -35,12 +30,8 @@ import { KnownDevices } from "puppeteer-core";
 import { _keyDefinitions } from "puppeteer-core/internal/common/USKeyboardLayout.js";
 import { dataDir } from "../internal/paths.js";
 import {
-	ANNOUNCE_BINDING,
-	ANNOUNCEMENT_OBSERVER,
 	type Announcement,
-	type AnnouncementCandidate,
 	type AxNode,
-	CANDIDATE_REGISTRY,
 	type FrameAxTree,
 	normalizeAxTree,
 	type RawAxNode,
@@ -97,31 +88,17 @@ import {
 	sameBox,
 	type VisibilityVerdict,
 } from "./element/index.js";
-import {
-	type BundleSink,
-	DIR_MODE,
-	diskSink,
-	FILE_MODE,
-	pathComponent,
-} from "./envelope/index.js";
-import { deviceEmulation, noSuchDevice } from "./environment/devices.js";
+import { DIR_MODE, FILE_MODE, pathComponent } from "./envelope/index.js";
 import {
 	type CookieRecord,
 	type Divergence,
-	divergences,
 	type EmulationState,
-	ENVIRONMENT_PROBE,
 	matchesPattern,
-	mediaFeaturesOf,
-	mergeEmulation,
 	type NetworkRule,
 	type ObservedEnvironment,
-	resolveThrottle,
-	ruleFor,
 	type SessionStatus,
 	type StorageSnapshot,
 	type ThrottleConditions,
-	unsupportedFields,
 } from "./environment/index.js";
 import {
 	type ChordRefusal,
@@ -133,10 +110,7 @@ import {
 import {
 	inFlight,
 	isIdle,
-	SETTLE_BUDGET_MS,
-	SETTLE_QUIET_MS,
 	type Settled,
-	settleSource,
 	type WaitCondition,
 	type WaitOutcome,
 } from "./wait/index.js";
@@ -184,9 +158,6 @@ const DEFAULT_WAIT_MS = 10_000;
 /** How often a wait looks again. */
 const WAIT_POLL_MS = 100;
 
-/** Milliseconds in a second, where two clocks have to meet. */
-const MS_PER_SECOND = 1000;
-
 /**
  * Every key the driver knows how to send.
  *
@@ -225,17 +196,18 @@ import {
 	type Vitals,
 } from "./perf/index.js";
 import { captureTiles } from "./screenshot.js";
+import { ArtifactLedger } from "./session/artifacts.js";
+import { EmulationController } from "./session/emulation.js";
+import { PageSettler } from "./session/settling.js";
+import { NetworkShaper } from "./session/shaping.js";
+import { SourceMapStore } from "./session/sourcemaps.js";
+import { SessionTelemetry } from "./session/telemetry.js";
+import type { SessionWires } from "./session/wires.js";
 import {
 	flattenSnapshot,
 	type IndexedNode,
 	type RawSnapshot,
 } from "./snapshot/index.js";
-import {
-	authoredPosition,
-	parseSourceMap,
-	resolveMapUrl,
-	type SourceMap,
-} from "./sourcemap/index.js";
 import {
 	asCall,
 	COMPUTED_STYLE_PROBE,
@@ -257,29 +229,14 @@ import {
 	type TargetRefusal,
 } from "./target/index.js";
 import {
-	answerFor,
-	type BrowserLogged,
-	browserEntry,
-	type ConsoleCalled,
-	consoleEntry,
-	createDownloadRecorder,
-	createLifecycleRecorder,
-	createNetworkRecorder,
-	createRingBuffer,
-	DEFAULT_DIALOG_POLICY,
 	type DialogEvent,
-	type DialogKind,
 	type DialogPolicy,
 	type DownloadRecord,
-	type DownloadState,
-	exceptionEntry,
 	failureText,
 	type LifecycleEvent,
-	type LifecycleRecorder,
 	type LogEntry,
 	type NetworkRequest,
 	type Recorded,
-	type RingBuffer,
 	toHar,
 } from "./telemetry/index.js";
 
@@ -391,42 +348,12 @@ const READY_BUDGET_MS = 2000;
 const READY_POLL_MS = 100;
 
 /**
- * Touch points a touch device is given, matching a common phone.
- *
- * Layered over the driver's own request, which asks only for touch
- * to exist. If a navigation ever costs us this command again, the
- * driver restores touch with one point rather than none, so the
- * page stays a touch device and only the count degrades.
- */
-const TOUCH_POINTS = 5;
-
-/** Metres of accuracy claimed for an overridden position. */
-const GEOLOCATION_ACCURACY = 10;
-
-/**
  * Whether an action arrives by pointer.
  *
  * A pointer has to reach the element's centre unobstructed and
  * on screen. Everything else addresses the element directly and
  * would succeed where a click could not.
  */
-/**
- * Whether the settle probe came back with what it promised.
- *
- * Page-side results arrive as unknown, and a navigation landing
- * mid-evaluate resolves with nothing at all, so this is narrowed
- * rather than asserted.
- */
-function isSettled(value: unknown): value is Settled {
-	if (typeof value !== "object" || value === null) return false;
-	const candidate = value as Partial<Settled>;
-	return (
-		typeof candidate.quiet === "boolean" &&
-		typeof candidate.waitedMs === "number" &&
-		typeof candidate.mutations === "number"
-	);
-}
-
 function usesPointer(action: TargetedAction): boolean {
 	return action.kind === "click" || action.kind === "hover";
 }
@@ -490,95 +417,47 @@ function axeSource(): string {
 }
 
 export class BrowserSession {
-	/** What the page announced, oldest first, within its budget. */
-	private readonly announcements: RingBuffer<Announcement> =
-		createRingBuffer<Announcement>();
-
-	/**
-	 * What the browser said about each nominated region, keyed by
-	 * document epoch and registry index. Null means the browser
-	 * ruled it not live.
-	 */
-	private readonly livenessByRegion = new Map<
-		string,
-		Announcement["politeness"] | null
-	>();
-
 	/** What every property computes to untouched, read once. */
 	private initialStyles?: ComputedStyles;
-
-	/** Where this session's images are written, made on demand. */
-	private bundle?: BundleSink;
-
-	/** Everything the page has said since it opened. */
-	private readonly logBuffer = createRingBuffer<LogEntry>();
-
-	/** Every request the page has made since it opened. */
-	private readonly requestLog = createNetworkRecorder();
-
-	/** Every dialog the page has raised, and how it was answered. */
-	private readonly dialogLog: DialogEvent[] = [];
-
-	/** Where the page has been, and whether it survived. */
-	private lifecycleLog?: LifecycleRecorder;
 
 	/** The recovery in flight, so nothing reads a tab mid-replacement. */
 	private recovery?: Promise<void>;
 
-	/** What this session is pretending to be. */
-	private emulation: EmulationState = {};
+	/** The live view collaborators drive the browser through. */
+	private readonly wires: SessionWires = {
+		page: () => this.page,
+		cdp: () => this.cdp,
+		context: () => this.context,
+		ready: () => this.ready(),
+	};
 
-	/** Requests being mocked or blocked, first match winning. */
-	private rules: readonly NetworkRule[] = [];
+	/** The maps the page has declared, for authored positions. */
+	private readonly sourceMaps = new SourceMapStore(this.wires);
 
-	/** How slow the network is being made, if at all. */
-	private throttle?: ThrottleConditions;
+	/** What this session pretends to be, and its keeper. */
+	private readonly emulation = new EmulationController(this.wires, {
+		settle: () => this.settlePage(),
+	});
 
-	/** Whether the interceptor is currently attached. */
-	private intercepting = false;
+	/** The rules and throttle this session's network answers to. */
+	private readonly shaper = new NetworkShaper(this.wires);
 
-	/**
-	 * Wall seconds minus the protocol's monotonic seconds.
-	 *
-	 * The protocol's clock counts from when the browser started,
-	 * so it reads around 586,000 while ours reads 1.78 billion.
-	 * Comparing a recorded request against our own clock without
-	 * this correction does not merely give a wrong answer, it
-	 * gives a confidently idle one, because every request looks
-	 * like it finished aeons ago.
-	 */
-	private clockOffset?: number;
+	/** The disk side of this session: sink, stamps and ledger. */
+	private readonly artifacts = new ArtifactLedger();
 
-	/** How dialogs get answered while nobody is watching. */
-	private dialogPolicy: DialogPolicy = DEFAULT_DIALOG_POLICY;
+	/** The wait between a change and an honest reading of it. */
+	private readonly settler = new PageSettler(this.wires, () => this.requests());
 
-	/** How many pictures have been taken, so none overwrites another. */
-	private shots = 0;
-
-	/** How many archives have been written, for the same reason. */
-	private archives = 0;
-
-	/** Everything this session has put on disk, in order. */
-	private readonly written: string[] = [];
-
-	/** Which map each script and stylesheet named, unresolved. */
-	private readonly mapUrls = new Map<string, string>();
-
-	/** Maps already fetched. A null records one that will not come. */
-	private readonly maps = new Map<string, SourceMap | null>();
-
-	/** Which URL each stylesheet id belongs to. */
-	private readonly sheetUrls = new Map<string, string>();
-
-	/** Files the page has handed back. */
-	private readonly downloadLog = createDownloadRecorder();
-
-	/**
-	 * Announcements still being ruled on. Candidates resolve one
-	 * at a time along this chain, so a slow lookup cannot overtake
-	 * a fast one and record two out of the order they were said.
-	 */
-	private pending: Promise<void> = Promise.resolve();
+	/** Everything this session overhears, and its buffers. */
+	private readonly telemetry = new SessionTelemetry(this.wires, {
+		onCrash: () => {
+			this.recovery = this.recover();
+		},
+		downloadDir: () => this.artifacts.sink().dir,
+		keep: (path) => {
+			this.artifacts.keep(path);
+		},
+	});
 
 	private constructor(
 		readonly name: string,
@@ -592,8 +471,6 @@ export class BrowserSession {
 
 	/** Wall clock time of the last operation. See ready(). */
 	private usedAt = Date.now();
-	/** What the last settle saw, so a reader can qualify its answer. */
-	private lastSettle: Settled | undefined;
 
 	/**
 	 * Open a fresh session in a browser context of its own, so
@@ -613,13 +490,13 @@ export class BrowserSession {
 			await cdp.send("DOM.enable");
 			await cdp.send("CSS.enable");
 			const session = new BrowserSession(name, page, cdp, context, options);
-			await session.listenForAnnouncements();
-			await session.listenForLogs();
-			await session.listenForRequests();
-			await session.listenForDialogs();
-			await session.listenForLifecycle();
-			await session.listenForDownloads();
-			await session.listenForSourceMaps();
+			await session.telemetry.listenForAnnouncements();
+			await session.telemetry.listenForLogs();
+			await session.telemetry.listenForRequests();
+			await session.telemetry.listenForDialogs();
+			await session.telemetry.listenForLifecycle();
+			await session.telemetry.listenForDownloads();
+			await session.sourceMaps.listen();
 			await session.watchVitals();
 			return session;
 		} catch (err) {
@@ -630,97 +507,9 @@ export class BrowserSession {
 		}
 	}
 
-	/**
-	 * Listen for everything the page says, from the moment it
-	 * opens.
-	 *
-	 * Three sources, because no one of them is complete. The
-	 * console is what the page chose to say; exceptions are what
-	 * it did not choose; and the browser's own log carries what
-	 * the page never hears at all, a resource that failed to load
-	 * or a request the browser refused.
-	 */
-	private async listenForLogs(): Promise<void> {
-		this.cdp.on("Runtime.consoleAPICalled", (event) => {
-			this.logBuffer.push(consoleEntry(event as ConsoleCalled));
-		});
-		this.cdp.on("Runtime.exceptionThrown", (event) => {
-			this.logBuffer.push(
-				exceptionEntry(event.exceptionDetails, event.timestamp),
-			);
-		});
-		this.cdp.on("Log.entryAdded", (event) => {
-			const logged = event as { entry: BrowserLogged };
-			this.logBuffer.push(browserEntry(logged.entry));
-		});
-		await this.cdp.send("Runtime.enable");
-		await this.cdp.send("Log.enable");
-	}
-
-	/**
-	 * Watch every request the page makes.
-	 *
-	 * The protocol reports one request as four separate events
-	 * over its life, so the recorder does the reassembly and this
-	 * only relabels the CDP names it consumes.
-	 */
-	private async listenForRequests(): Promise<void> {
-		this.cdp.on("Network.requestWillBeSent", (event) => {
-			// This is the one event carrying both clocks at once, which
-			// makes it the only place the offset between them can be
-			// learned rather than assumed.
-			if (event.wallTime !== undefined) {
-				this.clockOffset = event.wallTime - event.timestamp;
-			}
-			this.requestLog.apply({ kind: "sent", event });
-		});
-		this.cdp.on("Network.responseReceived", (event) => {
-			this.requestLog.apply({ kind: "received", event });
-		});
-		this.cdp.on("Network.loadingFinished", (event) => {
-			this.requestLog.apply({ kind: "finished", event });
-		});
-		this.cdp.on("Network.loadingFailed", (event) => {
-			this.requestLog.apply({ kind: "failed", event });
-		});
-		await this.cdp.send("Network.enable");
-	}
-
-	/**
-	 * Answer dialogs, because an unanswered one stops the page.
-	 *
-	 * Until something replies, no script runs and no action lands,
-	 * so there is no such thing as declining to have a policy.
-	 * Every answer given is recorded, since a dismissed confirm
-	 * changes what the page did next and the reader has to be able
-	 * to see that it happened.
-	 */
-	private async listenForDialogs(): Promise<void> {
-		this.cdp.on("Page.javascriptDialogOpening", (event) => {
-			const kind = event.type as DialogKind;
-			const reply = answerFor(kind, this.dialogPolicy);
-			this.dialogLog.push({
-				kind,
-				message: event.message,
-				accepted: reply.accept,
-				...(event.defaultPrompt === undefined || event.defaultPrompt === ""
-					? {}
-					: { defaultPrompt: event.defaultPrompt }),
-				...(reply.promptText === undefined ? {} : { reply: reply.promptText }),
-				...(event.url === undefined ? {} : { url: event.url }),
-			});
-			this.cdp
-				.send("Page.handleJavaScriptDialog", reply)
-				// A dialog the page closed itself is already gone, and
-				// failing to answer it is not news.
-				.catch(() => {});
-		});
-		await this.cdp.send("Page.enable");
-	}
-
 	/** Decide how dialogs will be answered from here on. */
 	setDialogPolicy(policy: DialogPolicy): void {
-		this.dialogPolicy = policy;
+		this.telemetry.setDialogPolicy(policy);
 	}
 
 	/** How dialogs are currently answered. */
@@ -728,12 +517,12 @@ export class BrowserSession {
 		readonly policy: DialogPolicy;
 		readonly seen: readonly DialogEvent[];
 	} {
-		return { policy: this.dialogPolicy, seen: this.dialogLog };
+		return this.telemetry.dialogs;
 	}
 
 	/** Every request the page has made. */
 	requests(): readonly NetworkRequest[] {
-		return this.requestLog.all();
+		return this.telemetry.requests();
 	}
 
 	/**
@@ -750,14 +539,13 @@ export class BrowserSession {
 			if (fetched && fetched.body.length > 0) bodies.set(request.id, fetched);
 		}
 
-		if (!this.bundle) this.bundle = diskSink();
-		this.archives += 1;
-		const path = this.bundle.writeText(
-			`capture-${String(this.archives).padStart(2, "0")}.har`,
-			JSON.stringify(toHar(requests, { bodies }), null, 2),
-		);
-		this.written.push(path);
-		return path;
+		const path = this.artifacts
+			.sink()
+			.writeText(
+				`capture-${this.artifacts.nextArchive()}.har`,
+				JSON.stringify(toHar(requests, { bodies }), null, 2),
+			);
+		return this.artifacts.keep(path);
 	}
 
 	/**
@@ -771,13 +559,7 @@ export class BrowserSession {
 	async bodyOf(
 		requestId: string,
 	): Promise<{ body: string; base64Encoded: boolean } | undefined> {
-		try {
-			return await this.cdp.send("Network.getResponseBody", { requestId });
-		} catch {
-			// Chrome discards bodies on navigation, and never had one
-			// for a request that failed. Neither is an error here.
-			return undefined;
-		}
+		return this.telemetry.bodyOf(requestId);
 	}
 
 	/**
@@ -791,14 +573,7 @@ export class BrowserSession {
 		readonly dropped: number;
 		readonly cursor: number;
 	} {
-		return {
-			entries:
-				since === undefined
-					? this.logBuffer.all()
-					: this.logBuffer.since(since),
-			dropped: this.logBuffer.dropped,
-			cursor: this.logBuffer.cursor,
-		};
+		return this.telemetry.logs(since);
 	}
 
 	/** Navigate the tab to a URL and wait for the network to settle. */
@@ -819,7 +594,7 @@ export class BrowserSession {
 		} catch (error) {
 			return { failure: failureText(error) };
 		}
-		await this.reassertEmulation();
+		await this.emulation.reassert();
 		// Chrome's idle heuristics fire before a client-rendered app
 		// has anything on screen, so this waits for the DOM as well.
 		// Without it, navigating to a real application answered with an
@@ -855,7 +630,7 @@ export class BrowserSession {
 			// thing a tester does deliberately.
 			return { failure: failureText(error) };
 		}
-		await this.reassertEmulation();
+		await this.emulation.reassert();
 		await this.settlePage();
 		return {};
 	}
@@ -870,51 +645,12 @@ export class BrowserSession {
 	 * final.
 	 */
 	async settlePage(): Promise<Settled> {
-		const started = Date.now();
-		let mutations = 0;
-		let quiet = false;
-		// The DOM and the network each miss a case the other catches.
-		//
-		// A client-side navigation waiting on a fetch touches nothing
-		// for as long as the request takes, so the DOM goes quiet and
-		// the page then changes completely a moment later: pressing
-		// Enter on a search box answered with the pre-search page for
-		// exactly this reason. Meanwhile Chrome's network idle fires
-		// before an app that already has its data has rendered any of
-		// it.
-		//
-		// So both have to hold at once, and since satisfying one can
-		// disturb the other, they are rechecked together until they
-		// agree or the budget runs out.
-		while (Date.now() - started < SETTLE_BUDGET_MS) {
-			const left = SETTLE_BUDGET_MS - (Date.now() - started);
-			const outcome = await this.page
-				.evaluate(settleSource(SETTLE_QUIET_MS, left))
-				.catch(() => undefined);
-			if (isSettled(outcome)) {
-				mutations += outcome.mutations;
-				quiet = outcome.quiet;
-			} else {
-				// A navigation landed mid-evaluate, which is itself the
-				// change we are waiting out. Go round again.
-				quiet = false;
-			}
-			if (!quiet) continue;
-			if (inFlight(this.requests()).length === 0) break;
-			// Something is outstanding that may yet rewrite the page.
-			quiet = false;
-		}
-		this.lastSettle = {
-			quiet,
-			waitedMs: Date.now() - started,
-			mutations,
-		};
-		return this.lastSettle;
+		return this.settler.settle();
 	}
 
 	/** What the last settle saw, for a reader that wants to say so. */
 	get settledLast(): Settled | undefined {
-		return this.lastSettle;
+		return this.settler.lastSeen;
 	}
 
 	/**
@@ -946,7 +682,7 @@ export class BrowserSession {
 			} else {
 				await this.page.goForward({ waitUntil: "networkidle2" });
 			}
-			await this.reassertEmulation();
+			await this.emulation.reassert();
 			await this.settlePage();
 		} catch (error) {
 			// Not every failure here is an empty history. Stepping back
@@ -1058,104 +794,6 @@ export class BrowserSession {
 	}
 
 	/**
-	 * Start hearing what the page says. The binding is installed
-	 * once and survives navigation; the observer is registered
-	 * for every document, so announcements made during load are
-	 * caught too.
-	 *
-	 * Candidates arrive faster than they can be ruled on, so they
-	 * are resolved one at a time along a chain. Resolving them
-	 * concurrently would let a slow lookup overtake a fast one and
-	 * record two announcements out of the order they were said.
-	 */
-	/**
-	 * Watch where the page goes, and notice if it dies.
-	 *
-	 * The crash half is not optional. After the tab crashes every
-	 * call against it hangs rather than failing, measured against
-	 * a deliberately crashed tab, so a session that waited to find
-	 * out lazily would simply stop responding. Recovery therefore
-	 * happens the moment the crash is announced.
-	 */
-	/**
-	 * Note which map belongs to which script and stylesheet.
-	 *
-	 * Chrome reports the map's URL and stops there. It does no
-	 * resolving of its own, because in a browser that is the
-	 * devtools front end's job, so a session that wants authored
-	 * positions has to keep the note itself.
-	 *
-	 * The map is not fetched here. Most sessions never throw, and
-	 * fetching every map a page mentions would cost a request per
-	 * bundle to answer a question nobody asked.
-	 */
-	private async listenForSourceMaps(): Promise<void> {
-		this.cdp.on("Debugger.scriptParsed", (event) => {
-			if (!event.sourceMapURL || !event.url) return;
-			this.mapUrls.set(event.url, event.sourceMapURL);
-		});
-		this.cdp.on("CSS.styleSheetAdded", (event) => {
-			const { sourceURL, sourceMapURL, styleSheetId } = event.header;
-			if (!sourceMapURL || !sourceURL) return;
-			this.mapUrls.set(sourceURL, sourceMapURL);
-			// The cascade names a stylesheet by id, not by URL, so the
-			// two have to be joined here while both are in hand.
-			this.sheetUrls.set(styleSheetId, sourceURL);
-		});
-		await this.cdp.send("Debugger.enable");
-	}
-
-	/**
-	 * Fetch and decode the map for a file, once.
-	 *
-	 * The fetch goes through the page rather than through node,
-	 * because the page is already on the right origin with the
-	 * right cookies. A map behind a login is unreachable any
-	 * other way.
-	 *
-	 * A failure is cached as firmly as a success. A map that 404s
-	 * will still 404 on the next frame of the same stack, and
-	 * asking again once per frame is how one bad path turns into
-	 * a dozen requests.
-	 */
-	private async mapFor(fileUrl: string): Promise<SourceMap | undefined> {
-		const cached = this.maps.get(fileUrl);
-		if (cached !== undefined) return cached ?? undefined;
-
-		const declared = this.mapUrls.get(fileUrl);
-		if (!declared) return undefined;
-		const located = resolveMapUrl(fileUrl, declared);
-		if (!located) {
-			this.maps.set(fileUrl, null);
-			return undefined;
-		}
-
-		let json: string | undefined;
-		if (located.kind === "inline") {
-			json = located.json;
-		} else {
-			try {
-				const response = await this.cdp.send("Runtime.evaluate", {
-					expression: `fetch(${JSON.stringify(located.url)})
-						.then((r) => (r.ok ? r.text() : null))
-						.catch(() => null)`,
-					awaitPromise: true,
-					returnByValue: true,
-				});
-				const body = response.result.value;
-				if (typeof body === "string") json = body;
-			} catch {
-				// A page that navigated away mid-fetch is not a reason
-				// to lose the stack we were annotating.
-			}
-		}
-
-		const parsed = json === undefined ? undefined : parseSourceMap(json);
-		this.maps.set(fileUrl, parsed ?? null);
-		return parsed;
-	}
-
-	/**
 	 * Tell each frame of a stack where it was written.
 	 *
 	 * A frame with no map keeps its generated position rather than
@@ -1164,57 +802,7 @@ export class BrowserSession {
 	async resolveFrames(
 		frames: readonly EvalFrame[],
 	): Promise<readonly EvalFrame[]> {
-		return Promise.all(
-			frames.map(async (frame) => {
-				if (!frame.url) return frame;
-				const map = await this.mapFor(frame.url);
-				if (!map) return frame;
-				const authored = authoredPosition(map, {
-					line: frame.lineNumber,
-					column: frame.columnNumber,
-				});
-				return authored === undefined ? frame : { ...frame, authored };
-			}),
-		);
-	}
-
-	private async listenForLifecycle(): Promise<void> {
-		const { frameTree } = await this.cdp.send("Page.getFrameTree");
-		const log = createLifecycleRecorder(frameTree.frame.id);
-		this.lifecycleLog = log;
-		this.attachLifecycle(log);
-	}
-
-	/** Point the lifecycle handlers at the current protocol channel. */
-	private attachLifecycle(log: LifecycleRecorder): void {
-		this.cdp.on("Page.frameRequestedNavigation", (event) => {
-			log.apply({
-				kind: "requested",
-				frameId: event.frameId,
-				reason: event.reason,
-			});
-		});
-		this.cdp.on("Page.frameNavigated", (event) => {
-			log.apply({
-				kind: "navigated",
-				frameId: event.frame.id,
-				url: event.frame.url,
-			});
-		});
-		this.cdp.on("Page.navigatedWithinDocument", (event) => {
-			log.apply({
-				kind: "within",
-				frameId: event.frameId,
-				url: event.url,
-				...(event.navigationType === undefined
-					? {}
-					: { navigationType: event.navigationType }),
-			});
-		});
-		this.cdp.on("Inspector.targetCrashed", () => {
-			log.apply({ kind: "crashed" });
-			this.recovery = this.recover();
-		});
+		return this.sourceMaps.resolveFrames(frames);
 	}
 
 	/**
@@ -1239,26 +827,18 @@ export class BrowserSession {
 		await cdp.send("Accessibility.enable");
 		await cdp.send("DOM.enable");
 		await cdp.send("CSS.enable");
-		await this.listenForAnnouncements();
-		await this.listenForLogs();
-		await this.listenForRequests();
-		await this.listenForDialogs();
+		await this.telemetry.listenForAnnouncements();
+		await this.telemetry.listenForLogs();
+		await this.telemetry.listenForRequests();
+		await this.telemetry.listenForDialogs();
 
 		// A fresh tab knows nothing of what the old one was
 		// pretending, so the standing intent is put back before
 		// anything reads from it.
-		await this.applyEmulation();
+		await this.emulation.apply();
 
 		const { frameTree } = await cdp.send("Page.getFrameTree");
-		const log = this.lifecycleLog;
-		if (log) {
-			// A new tab is a new main frame, and a recorder still
-			// watching the old id would ignore every navigation from
-			// here on while looking perfectly healthy.
-			log.adoptFrame(frameTree.frame.id);
-			this.attachLifecycle(log);
-			log.apply({ kind: "recovered" });
-		}
+		this.telemetry.readoptLifecycle(frameTree.frame.id);
 	}
 
 	/**
@@ -1284,63 +864,14 @@ export class BrowserSession {
 		return this.usedAt;
 	}
 
-	/**
-	 * Catch files the page hands back.
-	 *
-	 * The behaviour has to be set against this session's browser
-	 * context, not merely the connection. Set without the context
-	 * id, Chrome cancels every download in a non-default context
-	 * and writes nothing, which looks exactly like a page that
-	 * never offered a file.
-	 */
-	private async listenForDownloads(): Promise<void> {
-		if (!this.bundle) this.bundle = diskSink();
-		this.cdp.on("Browser.downloadWillBegin", (event) => {
-			this.downloadLog.apply({
-				kind: "begin",
-				guid: event.guid,
-				url: event.url,
-				suggestedFilename: event.suggestedFilename,
-			});
-		});
-		this.cdp.on("Browser.downloadProgress", (event) => {
-			this.downloadLog.apply({
-				kind: "progress",
-				guid: event.guid,
-				state: event.state as DownloadState,
-				...(event.totalBytes === undefined
-					? {}
-					: { totalBytes: event.totalBytes }),
-				...(event.receivedBytes === undefined
-					? {}
-					: { receivedBytes: event.receivedBytes }),
-				...("filePath" in event && typeof event.filePath === "string"
-					? { filePath: event.filePath }
-					: {}),
-			});
-			if (event.state === "completed") {
-				const landed = this.downloadLog
-					.all()
-					.find((record) => record.guid === event.guid);
-				if (landed?.filePath) this.written.push(landed.filePath);
-			}
-		});
-		await this.cdp.send("Browser.setDownloadBehavior", {
-			behavior: "allow",
-			downloadPath: this.bundle.dir,
-			eventsEnabled: true,
-			browserContextId: this.context.id,
-		});
-	}
-
 	/** Files the page has handed back. */
 	downloads(): readonly DownloadRecord[] {
-		return this.downloadLog.all();
+		return this.telemetry.downloads();
 	}
 
 	/** Where the page has been. */
 	get history(): readonly LifecycleEvent[] {
-		return this.lifecycleLog?.all() ?? [];
+		return this.telemetry.history;
 	}
 
 	/**
@@ -1353,9 +884,7 @@ export class BrowserSession {
 	 * replaces the state wholesale.
 	 */
 	async restoreEmulation(state: EmulationState): Promise<void> {
-		await this.ready();
-		this.emulation = state;
-		await this.applyEmulation();
+		await this.emulation.restore(state);
 	}
 
 	/**
@@ -1376,213 +905,12 @@ export class BrowserSession {
 		observed: ObservedEnvironment;
 		gaps: readonly Divergence[];
 	}> {
-		await this.ready();
-		// Anything this cannot emulate is named before it is dropped.
-		// Silently ignoring a field meant a call asking for a 1024px
-		// viewport did nothing, said nothing, and reported no gaps.
-		const ignored = unsupportedFields(
-			change as Readonly<Record<string, unknown>>,
-		);
-		this.emulation = mergeEmulation(this.emulation, change, clear);
-		// A device this catalogue has never heard of is reported the
-		// same way as a field with nothing behind it, rather than
-		// echoed back as though it had been honoured.
-		const device = this.emulation.device;
-		const unknown =
-			device !== undefined && !deviceEmulation(device, KnownDevices)
-				? [
-						{
-							what: "device",
-							asked: device,
-							observed: "ignored, no device by that name",
-							note: noSuchDevice(device, KnownDevices),
-						},
-					]
-				: [];
-		await this.applyEmulation();
-		// A viewport change reflows the page and a real application
-		// re-renders for it, so the same wait a navigation gets applies
-		// here: without it the next read describes the old layout.
-		await this.settlePage();
-		const observed = await this.observeEnvironment();
-		// Emulating before navigating is the order this tool asks for,
-		// and it used to be punished for it. There is nothing laid out
-		// on a blank page, so the width comes back as the desktop
-		// default and ontouchstart has no document to be installed on:
-		// two alarming gaps that both come right the moment a real page
-		// loads. Reporting them as divergences sent me measuring the
-		// wrong thing twice. What the page cannot answer yet is not a
-		// discrepancy, so it is held back and said plainly instead.
-		const blank = this.page.url() === "about:blank";
-		const measured = blank
-			? [
-					{
-						what: "the page",
-						asked: "nothing loaded yet",
-						observed: "about:blank",
-						note:
-							"layout and touch cannot be checked until a document " +
-							"is loaded; navigate, then read status to confirm",
-					},
-				]
-			: divergences(this.effectiveEmulation, observed);
-		return {
-			asked: this.emulation,
-			observed,
-			// Compared against the effective state, since a device is
-			// the reason a viewport is what it is.
-			gaps: [...ignored, ...unknown, ...measured],
-		};
-	}
-
-	/**
-	 * Put the standing intent to the browser again, after arriving.
-	 *
-	 * Some overrides do not survive the first navigation after they
-	 * are set. Touch is the one that bit: emulating a phone and then
-	 * navigating, which is the order this tool asks for and the guide
-	 * recommends, left maxTouchPoints at zero about as often as not,
-	 * while the width and the user agent came through and the report
-	 * happily said "pretending: iPhone 15 Pro". A phone that a page
-	 * cannot detect the touch screen of is not a phone, and a coin
-	 * flip is worse than a consistent failure.
-	 *
-	 * Re-asserting is cheap and idempotent, and there is precedent:
-	 * crash recovery already does exactly this, for the same reason.
-	 * Skipped when nothing is being emulated, so the ordinary
-	 * navigation pays nothing.
-	 */
-	private async reassertEmulation(): Promise<void> {
-		// Kept, though the driver now carries emulation across a
-		// navigation itself, because this same path restores a session
-		// after a crash and because it costs nothing when nothing is
-		// being emulated.
-		//
-		// What is gone is what used to sit under here: a second
-		// application on the document-arrival event, and a loop that
-		// asked the page whether the first two had worked. Both were
-		// workarounds for sending emulation on a protocol session of our
-		// own, and neither made it certain. Removing the cause removed
-		// the need for either, measured twelve times out of twelve
-		// through the shape that used to fail one time in three.
-		if (Object.keys(this.emulation).length === 0) return;
-		await this.applyEmulation();
-	}
-
-	/**
-	 * The standing intent with any named device resolved.
-	 *
-	 * A device is shorthand for a viewport and a touch screen, and
-	 * anything the caller said explicitly outranks it: asking for a
-	 * phone and a width means the phone with that width.
-	 */
-	private get effectiveEmulation(): EmulationState {
-		const asked = this.emulation;
-		if (asked.device === undefined) return asked;
-		const fromDevice = deviceEmulation(asked.device, KnownDevices);
-		if (!fromDevice) return asked;
-		return { ...fromDevice, ...asked };
-	}
-
-	/** Put the whole standing intent to the browser. */
-	private async applyEmulation(): Promise<void> {
-		const state = this.effectiveEmulation;
-
-		// Every one of these goes through the driver rather than the
-		// protocol, and that is the whole fix for emulation not
-		// surviving a navigation.
-		//
-		// A cross-process navigation swaps the target's protocol
-		// session. The driver listens for that swap and puts its whole
-		// emulation state to the new session; commands sent on a session
-		// of our own just went to the renderer being replaced. Device
-		// metrics are held browser-side and came through regardless,
-		// which is why this looked like a touch-only fault: touch is a
-		// flag in the renderer, so the page quietly stopped being a
-		// phone while the report still said it was one.
-		//
-		// I had worked around it twice, by applying again when the call
-		// returned and again when the document arrived, and neither made
-		// it certain. Both are gone. This also picks up screen
-		// orientation, which the hand-rolled version never sent.
-		await this.page.emulateMediaType(state.media);
-		await this.page.emulateMediaFeatures([...mediaFeaturesOf(state)]);
-		await this.page.emulateVisionDeficiency(state.vision ?? "none");
-
-		// Screen, touch and user agent go through the driver rather
-		// than the protocol, which is the whole reason they now survive
-		// a navigation.
-		//
-		// A cross-process navigation swaps the target's protocol
-		// session, and puppeteer listens for that swap to put its
-		// emulation state to the new one. Device metrics are held
-		// browser-side and came through regardless; touch is a flag in
-		// the renderer, so a new renderer started without it and the
-		// page stopped being a phone while the report still said it was.
-		// Sending these two commands myself meant opting out of the one
-		// piece of machinery that handles it.
-		await this.page.setViewport(
-			state.viewport
-				? {
-						width: state.viewport.width,
-						height: state.viewport.height,
-						deviceScaleFactor: state.viewport.deviceScaleFactor ?? 1,
-						isMobile: state.viewport.mobile ?? false,
-						hasTouch: state.touch ?? false,
-					}
-				: // Null is how the driver spells "stop overriding", and
-					// touch has to be asked for separately when there is no
-					// viewport to carry it.
-					null,
-		);
-		// The driver asks for a touch screen without saying how many
-		// fingers, which Chrome reads as one; a real phone reports five,
-		// so that is asked for on top.
-		//
-		// Sent every time, including to turn it off. Sending it only
-		// when touch was wanted left a phone that could not stop being
-		// one: this override rides on our own protocol session, the
-		// driver's disable rides on its own, and one session cannot
-		// clear the other's. So the viewport and the user agent went
-		// back to the desktop while the touch screen stayed.
-		await this.cdp.send("Emulation.setTouchEmulationEnabled", {
-			enabled: state.touch ?? false,
-			...(state.touch ? { maxTouchPoints: TOUCH_POINTS } : {}),
-		});
-		// An empty string is how this one is taken off again.
-		await this.page.setUserAgent(state.userAgent ?? "");
-		await this.page.emulateCPUThrottling(state.cpuThrottle ?? null);
-
-		// Passed undefined rather than skipped, because an override
-		// with no arguments is how one gets taken off again. Guarding
-		// these on being defined meant nothing could ever be cleared: a
-		// session that emulated Tokyo once stayed in Tokyo for its life,
-		// quietly recolouring every later reading.
-		await this.page.emulateTimezone(state.timezone);
-		await this.page.emulateLocale(state.locale);
-		if (state.geolocation === undefined) {
-			await this.cdp.send("Emulation.clearGeolocationOverride");
-		} else {
-			await this.cdp.send("Emulation.setGeolocationOverride", {
-				latitude: state.geolocation.latitude,
-				longitude: state.geolocation.longitude,
-				accuracy: state.geolocation.accuracy ?? GEOLOCATION_ACCURACY,
-			});
-		}
-	}
-
-	/** What the page says it is experiencing. */
-	private async observeEnvironment(): Promise<ObservedEnvironment> {
-		const { result } = await this.cdp.send("Runtime.evaluate", {
-			expression: ENVIRONMENT_PROBE,
-			returnByValue: true,
-		});
-		return result.value as ObservedEnvironment;
+		return this.emulation.change(change, clear);
 	}
 
 	/** What this session has asked the browser to pretend. */
 	get emulated(): EmulationState {
-		return this.emulation;
+		return this.emulation.asked;
 	}
 
 	/**
@@ -1782,87 +1110,7 @@ export class BrowserSession {
 		rules: readonly NetworkRule[];
 		throttle: ThrottleConditions | undefined;
 	}> {
-		await this.ready();
-
-		if (change.clear) {
-			this.rules = [];
-			this.throttle = undefined;
-		} else {
-			if (change.rules) this.rules = [...this.rules, ...change.rules];
-			// Resolved here so a profile name is as good as the conditions
-			// it stands for. Passed a name, this used to read the fields
-			// it wanted off a string, find none, and shape nothing at all.
-			if (change.throttle) this.throttle = resolveThrottle(change.throttle);
-		}
-
-		await this.cdp.send("Network.emulateNetworkConditions", {
-			offline: this.throttle?.offline ?? false,
-			latency: this.throttle?.latency ?? 0,
-			// The protocol reads -1 as no limit, which is not the same
-			// as zero, and zero would mean nothing may pass at all.
-			downloadThroughput: this.throttle?.download || -1,
-			uploadThroughput: this.throttle?.upload || -1,
-		});
-
-		if (this.rules.length === 0) {
-			if (this.intercepting) {
-				await this.cdp.send("Fetch.disable");
-				this.intercepting = false;
-			}
-		} else if (!this.intercepting) {
-			this.cdp.on("Fetch.requestPaused", (event) => {
-				void this.answerPaused(event);
-			});
-			await this.cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
-			this.intercepting = true;
-		}
-
-		return { rules: this.rules, throttle: this.throttle };
-	}
-
-	/**
-	 * Decide what a paused request gets.
-	 *
-	 * Whatever happens, it is answered. A handler that throws and
-	 * says nothing leaves the page waiting forever on a request
-	 * the browser has already stopped for us.
-	 */
-	private async answerPaused(event: {
-		requestId: string;
-		request: { url: string };
-	}): Promise<void> {
-		const rule = ruleFor(this.rules, event.request.url);
-		try {
-			if (rule?.action === "block") {
-				await this.cdp.send("Fetch.failRequest", {
-					requestId: event.requestId,
-					errorReason: (rule.reason ??
-						"BlockedByClient") as Protocol.Network.ErrorReason,
-				});
-				return;
-			}
-			if (rule?.action === "mock") {
-				await this.cdp.send("Fetch.fulfillRequest", {
-					requestId: event.requestId,
-					responseCode: rule.status ?? 200,
-					responseHeaders: [
-						{
-							name: "content-type",
-							value: rule.contentType ?? "text/plain",
-						},
-					],
-					body: Buffer.from(rule.body ?? "").toString("base64"),
-				});
-				return;
-			}
-			await this.cdp.send("Fetch.continueRequest", {
-				requestId: event.requestId,
-			});
-		} catch {
-			// The request may already be resolved, or the page may have
-			// navigated out from under it. Either way there is nothing
-			// left to answer and nothing worth reporting.
-		}
+		return this.shaper.shape(change);
 	}
 
 	/**
@@ -2329,7 +1577,7 @@ export class BrowserSession {
 
 	/** Whether the page believes it is being touched. */
 	get touchEmulated(): boolean {
-		return this.emulation.touch === true;
+		return this.emulation.touch;
 	}
 
 	/**
@@ -2359,7 +1607,7 @@ export class BrowserSession {
 		// and reported its old status. That is a green wait in the
 		// log hiding a race, which is the most expensive shape of
 		// test defect to chase.
-		const since = this.protocolNow();
+		const since = this.telemetry.protocolNow();
 
 		while (waited() < timeoutMs) {
 			const reached = await this.check(condition, since);
@@ -2381,18 +1629,6 @@ export class BrowserSession {
 			condition,
 			...(missed.saw === undefined ? {} : { saw: missed.saw }),
 		};
-	}
-
-	/**
-	 * Now, on the protocol's clock, so it can be compared with
-	 * what requests carry.
-	 *
-	 * Before any request has been seen there is no offset to
-	 * apply, but there are also no requests to compare against,
-	 * so the figure cannot mislead anyone.
-	 */
-	private protocolNow(): number {
-		return Date.now() / MS_PER_SECOND - (this.clockOffset ?? 0);
 	}
 
 	/** Look once: is the condition true right now? */
@@ -2451,7 +1687,11 @@ export class BrowserSession {
 			}
 			case "idle": {
 				const requests = this.requests();
-				const met = isIdle(requests, condition.quietMs, this.protocolNow());
+				const met = isIdle(
+					requests,
+					condition.quietMs,
+					this.telemetry.protocolNow(),
+				);
 				const busy = inFlight(requests);
 				return {
 					met,
@@ -2544,25 +1784,19 @@ export class BrowserSession {
 		const logs = this.logs();
 		const heard = await this.heard(0);
 		const requests = this.requests();
-		// Checked rather than recited. What is being emulated is what
-		// this session asked for, and a navigation can quietly drop part
-		// of it, so the page is asked whether it agrees before status
-		// says it is pretending to be a phone.
-		const blank = this.page.url() === "about:blank";
-		const gaps =
-			blank || Object.keys(this.emulation).length === 0
-				? []
-				: divergences(this.effectiveEmulation, await this.observeEnvironment());
+		const gaps = await this.emulation.currentGaps();
 		return {
 			name: this.name,
 			url: this.page.url(),
 			title: await this.page.title().catch(() => ""),
-			emulation: this.emulation,
+			emulation: this.emulation.asked,
 			...(gaps.length === 0 ? {} : { gaps }),
-			rules: this.rules,
-			...(this.throttle === undefined ? {} : { throttle: this.throttle }),
-			dialogPolicy: this.dialogPolicy,
-			dialogsSeen: this.dialogLog.length,
+			rules: this.shaper.current.rules,
+			...(this.shaper.current.throttle === undefined
+				? {}
+				: { throttle: this.shaper.current.throttle }),
+			dialogPolicy: this.telemetry.dialogs.policy,
+			dialogsSeen: this.telemetry.dialogs.seen.length,
 			logs: { count: logs.entries.length, cursor: logs.cursor },
 			announcements: { count: heard.entries.length, cursor: heard.cursor },
 			requests: {
@@ -2570,7 +1804,7 @@ export class BrowserSession {
 				failed: requests.filter((request) => request.state === "failed").length,
 			},
 			history: this.history,
-			artifacts: this.written,
+			artifacts: this.artifacts.written,
 		};
 	}
 
@@ -2579,90 +1813,7 @@ export class BrowserSession {
 		rules: readonly NetworkRule[];
 		throttle: ThrottleConditions | undefined;
 	} {
-		return { rules: this.rules, throttle: this.throttle };
-	}
-
-	private async listenForAnnouncements(): Promise<void> {
-		await this.page.exposeFunction(
-			ANNOUNCE_BINDING,
-			(candidate: AnnouncementCandidate) => {
-				this.pending = this.pending.then(() => this.recordIfLive(candidate));
-			},
-		);
-		await this.page.evaluateOnNewDocument(ANNOUNCEMENT_OBSERVER);
-	}
-
-	/**
-	 * Record a nominated change only if the browser calls its
-	 * region live, at the politeness the browser computed.
-	 */
-	private async recordIfLive(candidate: AnnouncementCandidate): Promise<void> {
-		const politeness = await this.politenessOf(candidate);
-		if (!politeness) return;
-		this.announcements.push({
-			politeness,
-			text: candidate.text,
-			at: candidate.at,
-		});
-	}
-
-	/**
-	 * Ask the browser what it computed for a nominated region.
-	 *
-	 * The answer is cached per document: liveness is a property of
-	 * the markup, and a navigation starts a new registry with a
-	 * new epoch, so a stale entry can never be read back.
-	 */
-	private async politenessOf(
-		candidate: AnnouncementCandidate,
-	): Promise<Announcement["politeness"] | undefined> {
-		const key = `${candidate.epoch}:${candidate.index}`;
-		const known = this.livenessByRegion.get(key);
-		if (known !== undefined) return known ?? undefined;
-
-		const computed = await this.readLiveness(candidate.index);
-		this.livenessByRegion.set(key, computed ?? null);
-		return computed;
-	}
-
-	/** Read a region's computed live politeness from the AX tree. */
-	private async readLiveness(
-		index: number,
-	): Promise<Announcement["politeness"] | undefined> {
-		let objectId: string | undefined;
-		try {
-			const { result } = await this.cdp.send("Runtime.evaluate", {
-				expression: `globalThis[${JSON.stringify(CANDIDATE_REGISTRY)}][${index}]`,
-			});
-			objectId = result.objectId;
-			if (!objectId) return undefined;
-
-			const { node } = await this.cdp.send("DOM.describeNode", { objectId });
-			const { nodes } = await this.cdp.send("Accessibility.getPartialAXTree", {
-				backendNodeId: node.backendNodeId,
-				fetchRelatives: false,
-			});
-			// The nominated node is last; anything before it is the
-			// ancestry the protocol threw in.
-			const target = nodes.at(-1);
-			const live = target?.properties?.find((p) => p.name === "live")?.value
-				.value;
-			if (live === "polite" || live === "assertive") return live;
-			return undefined;
-		} catch {
-			// The page can navigate or drop the node between the
-			// nomination and the lookup. A change nobody can point at
-			// any more is not worth reporting as an announcement.
-			return undefined;
-		} finally {
-			if (objectId) {
-				await this.cdp
-					.send("Runtime.releaseObject", { objectId })
-					// Releasing a handle the page already discarded is
-					// not a failure worth surfacing.
-					.catch(() => {});
-			}
-		}
+		return this.shaper.current;
 	}
 
 	/**
@@ -2674,15 +1825,7 @@ export class BrowserSession {
 		cursor: number;
 		dropped: number;
 	}> {
-		// A candidate raised a moment ago is still being ruled on.
-		// Answering before the browser has spoken would report
-		// silence for something the page just said.
-		await this.pending;
-		return {
-			entries: this.announcements.since(since),
-			cursor: this.announcements.cursor,
-			dropped: this.announcements.dropped,
-		};
+		return this.telemetry.heard(since);
 	}
 
 	/** Close the tab and the context holding its state. */
@@ -2901,15 +2044,10 @@ export class BrowserSession {
 		backendNodeId: number | undefined,
 		options: ShotOptions,
 	): Promise<Shot> {
-		if (!this.bundle) this.bundle = diskSink();
-		const sink = this.bundle;
-		this.shots += 1;
-		const stamp = String(this.shots).padStart(2, "0");
+		const sink = this.artifacts.sink();
+		const stamp = this.artifacts.nextShot();
 
-		const keep = (path: string): string => {
-			this.written.push(path);
-			return path;
-		};
+		const keep = (path: string): string => this.artifacts.keep(path);
 
 		if (backendNodeId !== undefined) {
 			const box = await this.boxOf(backendNodeId);
@@ -3005,7 +2143,7 @@ export class BrowserSession {
 			writeFileSync(sidecarFor(baselinePath), stringify(takenUnder), {
 				mode: FILE_MODE,
 			});
-			this.written.push(baselinePath);
+			this.artifacts.keep(baselinePath);
 			return { comparison: undefined, recorded: baselinePath, artifacts: [] };
 		}
 
@@ -3050,7 +2188,7 @@ export class BrowserSession {
 				...(options.threshold === undefined
 					? {}
 					: { threshold: options.threshold }),
-				scale: this.emulation.viewport?.deviceScaleFactor ?? 1,
+				scale: this.emulation.asked.viewport?.deviceScaleFactor ?? 1,
 			},
 		);
 
@@ -3058,9 +2196,8 @@ export class BrowserSession {
 
 		// The three together, because a diff on its own shows where
 		// something changed and never what it changed from.
-		if (!this.bundle) this.bundle = diskSink();
-		const sink = this.bundle;
-		const stamp = String(++this.shots).padStart(2, "0");
+		const sink = this.artifacts.sink();
+		const stamp = this.artifacts.nextShot();
 		const artifacts = [
 			sink.writeBinary(
 				`${safe}-${stamp}-baseline.png`,
@@ -3069,7 +2206,7 @@ export class BrowserSession {
 			sink.writeBinary(`${safe}-${stamp}-current.png`, shot.toString("base64")),
 			sink.writeBinary(`${safe}-${stamp}-diff.png`, image.toString("base64")),
 		];
-		this.written.push(...artifacts);
+		for (const artifact of artifacts) this.artifacts.keep(artifact);
 		return { comparison, artifacts };
 	}
 
@@ -3111,7 +2248,7 @@ export class BrowserSession {
 	 * because two pages at one viewport are the same size.
 	 */
 	private provenance(): BaselineProvenance {
-		const viewport = this.emulation.viewport;
+		const viewport = this.emulation.asked.viewport;
 		return {
 			url: this.url,
 			...(viewport?.width === undefined ? {} : { width: viewport.width }),
@@ -3509,14 +2646,10 @@ export class BrowserSession {
 				if (source?.styleSheet === undefined || source.line === undefined) {
 					return declaration;
 				}
-				const url = this.sheetUrls.get(source.styleSheet);
-				if (url === undefined) return declaration;
-				const map = await this.mapFor(url);
-				if (!map) return declaration;
-				const authored = authoredPosition(map, {
-					line: source.line,
-					column: source.column ?? 0,
-				});
+				const authored = await this.sourceMaps.authoredForSheet(
+					source.styleSheet,
+					{ line: source.line, column: source.column ?? 0 },
+				);
 				if (authored === undefined) return declaration;
 				return { ...declaration, source: { ...source, authored } };
 			}),
