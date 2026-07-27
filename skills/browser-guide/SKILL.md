@@ -406,6 +406,15 @@ the name was never used. That distinction matters: it means your
 navigation, storage and emulation are gone and need setting up
 again, not that you mistyped.
 
+A tab can also crash, which is not the same as lapsing. The
+session replaces the tab and keeps its name, its cookies and
+everything it has recorded, so the logs, requests and downloads
+from before the crash are still there and the next call lands on
+the replacement. What is gone is the page: whatever it held in
+memory, and wherever it had got to. `see status` shows `crashed`
+followed by `recovered` in its history, which is the only place
+that says why the page you were on is now blank.
+
 Artifacts (screenshots, HAR archives, downloads, baselines) stay
 on disk and are listed by `see status`. Baselines deliberately
 survive between sessions, since a baseline that vanished would
