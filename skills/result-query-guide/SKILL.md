@@ -99,6 +99,23 @@ reports that it is no longer available rather than returning an
 empty answer, so an expired handle is never mistaken for missing
 data. If you need a payload again after that, re-run the tool.
 
+Expiry is not the only way a read fails, and the difference
+matters. A payload that is on disk but unreadable says so and
+names the reason. Re-running the tool will not help there, since
+nothing about the payload was lost.
+
+## A Short Answer Can Still Be Incomplete
+
+A citation does not only mean the answer was too long for its
+budget. A renderer may print a few examples and count the rest,
+which fits any budget and still leaves almost everything unshown:
+an accessibility audit lists five elements per rule and stores
+every one it found. Read the citation, not the length of what is
+above it. If it cites a handle, there is more.
+
+This is also why a number read off the visible examples is not a
+number you can report. Query for it.
+
 ## What Each Family Stores
 
 | Family | Payload |

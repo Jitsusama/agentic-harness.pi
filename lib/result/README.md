@@ -18,6 +18,11 @@ reaches everything that was not shown.
 | `digest.ts` | What a payload is shaped like, in a few hundred bytes |
 | `query.ts` | What a caller asked of it, in JSONPath |
 | `cite.ts` | Whether a handle is worth citing at all |
+| `listing.ts` | Bounding a rendered list, and what must survive the cut |
+| `details.ts` | The same bargain for a family that answers with a record set |
+| `view.ts` | Cutting text to a budget by whole lines |
+| `counts.ts` | Writing a number the same way on every machine |
+| `follow.ts` | Whether anything in this process can read a handle back |
 | `location.ts` | Which directory this session owns, and when it is reaped |
 
 ## The One Rule
@@ -32,6 +37,31 @@ enormous, which is what they called to find out.
 tool that decided for itself would drift: one citing at a
 kilobyte, another at a megabyte, a third forgetting, and the
 caller learning each one's habits instead of the rule.
+
+"More than the inline view shows" is not the same question as
+"did the budget cut this", and keying on the second is a bug this
+library shipped once. An audit report prints five example
+elements per rule and counts the rest: nothing was cut, every
+line it meant to write got written, and eight thousand elements
+were still missing. A family that elides on its own account says
+so with `elided`, and the citation is raised on either ground.
+
+## A Handle Nobody Can Read Is Worse Than No Handle
+
+The tools that mint handles and the tool that reads them are
+separate extensions, each loadable alone. A citation therefore
+names its reader only when one has been offered, through
+`offerQueryTool`, and otherwise says plainly that the handle
+cannot be followed and which extension would follow it. The
+digest is printed either way, since the shape is what tells a
+reader whether loading that extension is worth the trouble.
+
+The offer lives on a `globalThis` slot rather than in a module
+variable. Pi loads each extension separately, so a module
+variable is not process-global here: the copy the store extension
+wrote to was not the copy the browser extension read from, and
+every citation claimed no reader existed in sessions where one
+did.
 
 ## The Store Is Its Directory
 
@@ -56,7 +86,18 @@ it exists to allow.
 Ownership is the stricter question and is asked separately. Only
 names matching the shape this library mints are counted against
 the quota or chosen for eviction, because a quota enforced by
-deleting other people's files is not a quota.
+deleting other people's files is not a quota. For the same
+reason a store has no `clear()`: emptying a shared directory
+would take handles other extensions had just given out and are
+about to be asked to read. Tearing a session down belongs to
+`cleanupSessionResults`, which owns the directory rather than one
+name inside it.
+
+A payload that is present but unreadable is not an expiry. Only a
+missing file expires a handle; a permission error or a full disk
+is reported as itself, since telling a caller their handle
+expired sends them to re-run the work that produced it, which
+will fail the same way.
 
 ## What This Library Does Not Do
 
