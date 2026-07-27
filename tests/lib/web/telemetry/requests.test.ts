@@ -6,7 +6,10 @@
 
 import { describe, expect, it } from "vitest";
 import type { NetworkRequest } from "../../../../lib/web/telemetry/network.js";
-import { renderRequests } from "../../../../lib/web/telemetry/requests.js";
+import {
+	renderRequests,
+	requestStatus,
+} from "../../../../lib/web/telemetry/requests.js";
 
 const request = (over: Partial<NetworkRequest> = {}): NetworkRequest => ({
 	id: "REQ1",
@@ -21,6 +24,36 @@ const request = (over: Partial<NetworkRequest> = {}): NetworkRequest => ({
 	durationMs: 12,
 	transferredBytes: 387,
 	...over,
+});
+
+describe("requestStatus", () => {
+	it("names the state when a cancelled request carries no reason", () => {
+		// Chrome usually cancels without saying why, and every reader
+		// of the failure field has to survive that.
+		const cancelled = request({
+			state: "cancelled",
+			status: undefined,
+			failure: undefined,
+		});
+
+		expect(requestStatus(cancelled)).toBe("cancelled");
+	});
+
+	it("prefers the reason when there is one", () => {
+		const failed = request({
+			state: "failed",
+			status: undefined,
+			failure: "net::ERR_NAME_NOT_RESOLVED",
+		});
+
+		expect(requestStatus(failed)).toBe("net::ERR_NAME_NOT_RESOLVED");
+	});
+
+	it("says a request still in flight is pending", () => {
+		const inFlight = request({ state: "pending", status: undefined });
+
+		expect(requestStatus(inFlight)).toBe("pending");
+	});
 });
 
 describe("renderRequests", () => {

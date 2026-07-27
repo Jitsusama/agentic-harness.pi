@@ -73,5 +73,9 @@ export {
 	type ResourceTiming,
 	type ResponseReceived,
 } from "./network.js";
-export { type RequestQuery, renderRequests } from "./requests.js";
+export {
+	type RequestQuery,
+	renderRequests,
+	requestStatus,
+} from "./requests.js";
 export { type Captured, renderLogs } from "./view.js";

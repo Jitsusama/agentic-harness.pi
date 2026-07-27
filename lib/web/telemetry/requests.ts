@@ -58,7 +58,7 @@ export function renderRequests(
 		lines.push(
 			`${`#${index + 1}`.padStart(4)}  ` +
 				`${request.method.padEnd(METHOD_WIDTH)}` +
-				`${statusOf(request).padEnd(STATUS_WIDTH)}` +
+				`${requestStatus(request).padEnd(STATUS_WIDTH)}` +
 				`${timingOf(request).padStart(7)}  ${request.url}`,
 		);
 		for (const hop of request.redirects) {
@@ -101,8 +101,15 @@ function summarize(requests: readonly NetworkRequest[]): string {
 	return `${notes.join(", ")}.`;
 }
 
-/** The status, or the reason there is not one. */
-function statusOf(request: NetworkRequest): string {
+/**
+ * The status, or the reason there is not one.
+ *
+ * A cancelled request often carries no failure text, and a
+ * request still in flight has no status, so every reader of
+ * either field needs this rule; printing the raw field puts the
+ * word undefined in front of someone debugging a network fault.
+ */
+export function requestStatus(request: NetworkRequest): string {
 	if (request.state === "failed" || request.state === "cancelled") {
 		return request.failure ?? request.state;
 	}

@@ -238,6 +238,7 @@ import {
 	type LogEntry,
 	type NetworkRequest,
 	type Recorded,
+	requestStatus,
 	toHar,
 } from "./telemetry/index.js";
 
@@ -1792,10 +1793,13 @@ export class BrowserSession {
 				}
 				return {
 					met: true,
+					// A cancelled request usually carries no failure text,
+					// and printing the field raw said "cancelled: undefined"
+					// to someone waiting on a request that never arrived.
 					detail:
 						last.state === "complete"
-							? `${last.method} ${last.url} answered ${last.status}.`
-							: `${last.method} ${last.url} ${last.state}: ${last.failure}.`,
+							? `${last.method} ${last.url} answered ${requestStatus(last)}.`
+							: `${last.method} ${last.url} ${requestStatus(last)}.`,
 				};
 			}
 			case "animations": {

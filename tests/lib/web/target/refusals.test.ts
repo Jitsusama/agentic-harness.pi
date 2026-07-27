@@ -3,6 +3,7 @@ import type { AxNode } from "../../../../lib/web/a11y/index.js";
 import {
 	ambiguityRefusal,
 	describeRefusal,
+	describeTarget,
 	notFoundRefusal,
 } from "../../../../lib/web/target/refusals.js";
 import { resolveTarget } from "../../../../lib/web/target/target.js";
@@ -293,6 +294,18 @@ describe("describeRefusal", () => {
 
 		expect(text).toContain("2000");
 		expect(text).toContain("Cookies");
+	});
+
+	it("writes a target the way a caller would pass it back", () => {
+		// The refusals a tool writes for itself need the same rule,
+		// or they print name "undefined" for a control that has none.
+		expect(describeTarget({ role: "button" })).toBe("role button");
+		expect(describeTarget({ role: "button", name: "Save" })).toBe(
+			'role button name "Save"',
+		);
+		expect(describeTarget({ role: "link", name: "Help", ordinal: 2 })).toBe(
+			'role link name "Help" ordinal 2',
+		);
 	});
 
 	it("suggests same-role controls when no name was asked for", () => {

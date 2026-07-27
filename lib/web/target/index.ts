@@ -7,6 +7,7 @@
 export {
 	ambiguityRefusal,
 	describeRefusal,
+	describeTarget,
 	notFoundRefusal,
 	type TargetCandidate,
 	type TargetRefusal,
