@@ -59,6 +59,37 @@ it judged is how the wrong page gets fixed. A name you pass is
 never second-guessed, so a typo is reported rather than quietly
 redirected.
 
+## If You Are Looking for Something Specific
+
+Four reviewers were once asked what these tools could not do, and
+two of the eight things they reported as missing were already
+there. Both were findable only if you already knew the word to
+look for. So before concluding something is not supported, check
+here.
+
+| You want to | Ask for |
+|---|---|
+| Photograph one component, not the whole page | `see kind:"shot" within:"button Save"` |
+| See how a page prints | `go kind:"emulate" media:"print"`, then read or shoot |
+| Attach a file to a form | `do action:"upload" role:"button" name:"..." files:[...]` |
+| Know why a click did nothing | `see kind:"element" behaviour:true`, which reports handlers on ancestors too |
+| Know why an element is the colour it is | `see kind:"element" why:"color"` |
+| See a focus ring or a hover style | `see kind:"element" states:["focus-visible","hover"]` |
+| Check a phone layout | `check widths:[375,768,1280]`, which works with every kind |
+| Test with the network off or slow | `go kind:"network" throttle:"offline"` |
+| Answer a request yourself | `go kind:"network" mock:"*/api/*" body:...` |
+| See the page as a colour-blind or low-vision visitor | `go kind:"emulate" vision:"deuteranopia"` |
+| Read what a screen reader would say | `see kind:"reading"` |
+| Know what the page announced | `see kind:"announcements"` |
+| Find a node the outline does not show | `see kind:"query"`, which crosses frames and shadow roots |
+| See what changed since last time | `check kind:"compare"` |
+| Get the whole of an answer that was bounded | `result_query` with the cited handle |
+
+If what you want is not here and not in the verb summaries below,
+say so plainly rather than building a workaround out of
+screenshots. A missing capability is worth reporting; a
+hand-rolled substitute for one that exists is not.
+
 ## Four Jobs, Four Entry Points
 
 Most questions about a page belong to one of four jobs, and
@@ -86,8 +117,9 @@ traces one CSS property through every rule that had a say, which
 answers "why is this red" from the cascade rather than from
 guesswork. With `behaviour`, the listeners include the ones bound
 further up that events from this element still reach, so a
-control bound by delegation does not read as a dead one. `browser_see kind:"logs"` and `kind:"requests"` are
-what the page said and what it asked the network for.
+control bound by delegation does not read as a dead one.
+`browser_see kind:"logs"` and `kind:"requests"` are what the page
+said and what it asked the network for.
 `browser_see kind:"query"` finds nodes across frames and shadow
 roots, including the ones the browser did not draw, which is how
 you learn why something is missing. `browser_do kind:"eval"`
