@@ -60,6 +60,10 @@ What it reports, and what each means:
   there. Usually a `div` with a click handler and no tabindex
 - **No visible focus indicator**: nothing changes when focus
   arrives, so a sighted keyboard user cannot tell where they are
+- **Focus indicator too faint**: something does change, and it
+  cannot be made out. Reported with the ratio it reached, against
+  the 3:1 that 2.4.11 asks. A different repair from the one
+  above: the rule exists and its colour is wrong
 - **Focused off screen**: focus moves somewhere invisible and
   the page appears not to react
 - **Positive tabindex**: reorders the whole page, not just the
@@ -176,10 +180,14 @@ and a colour pair that passes in light mode can fail in dark.
 Each of these is a deliberate silence. Do not fill it with a
 guess.
 
-**Whether a focus indicator is bright enough.** The keyboard
-walk reports whether an indicator exists by comparing resting
-and focused styles. It does not judge its contrast, because that
-is contrast arithmetic against the specific colours behind it.
+**Whether a focus indicator drawn as a shadow is bright
+enough.** An outline over a known background is measured and
+reported with its ratio. A box shadow is not: it can be any
+number of layers offset in any direction, and which pixels it
+changed cannot be read from the computed value. Nor is a ring
+over a see-through background, where the colour behind belongs
+to some ancestor. Those come back undecided rather than guessed,
+so if a page styles focus with a shadow, look at it yourself.
 
 **Whether alternative text is any good.** Rules catch a missing
 `alt`. Nothing detects an `alt` reading "image" or a decorative
