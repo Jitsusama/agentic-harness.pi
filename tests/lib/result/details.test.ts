@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { boundedByDetails } from "../../../lib/result/details.js";
+import { citeListing } from "../../../lib/result/listing.js";
 import { queryStored } from "../../../lib/result/query.js";
 import {
 	createResultStore,
@@ -162,5 +163,121 @@ describe("when the store cannot be written to", () => {
 		// than left to assume the view was everything.
 		expect(text).toContain("blocked row 0");
 		expect(text).toContain("could not be stored");
+	});
+});
+
+describe("a listing with a long view and no records", () => {
+	let dir: string;
+	let store: ResultStore;
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "empty-"));
+		store = createResultStore({ dir });
+	});
+
+	afterEach(() => {
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("keeps the rendering rather than citing an empty collection", () => {
+		const view = longView("rendered");
+
+		const text = citeListing(store, {
+			view,
+			records: [],
+			unit: "findings",
+			narrowing: "Ask for fewer.",
+		});
+
+		// A view can be rendered from more than the collection handed
+		// over: the findings view draws stack findings too. Citing the
+		// empty list said "All 0 findings are stored", which invites a
+		// query that can only come back empty and reads as though the
+		// answer were empty rather than the payload being wrong.
+		expect(text).not.toContain("All 0 findings");
+		const handle = handleIn(text);
+		expect(handle).toBeDefined();
+		const followed = queryStored(store, handle as string, "$");
+		expect(followed.json).toContain("rendered row 399");
+	});
+});
+
+describe("a listing whose tail the caller needs", () => {
+	let dir: string;
+	let store: ResultStore;
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "trailer-"));
+		store = createResultStore({ dir });
+	});
+
+	afterEach(() => {
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("keeps the trailer when the view is cut out from under it", () => {
+		const text = citeListing(store, {
+			view: longView("announcement"),
+			records: Array.from({ length: 400 }, (_, i) => ({ i })),
+			unit: "announcements",
+			narrowing: "Read from the cursor.",
+			trailer: "cursor: 400",
+		});
+
+		// The cursor is how the next call continues. Written into the
+		// view it sat on the last line, and a leading-lines budget takes
+		// the last line first, so the one page noisy enough to need
+		// bounding is the page you cannot keep reading.
+		expect(text).toContain("cursor: 400");
+	});
+
+	it("adds nothing but the trailer when the view already fits", () => {
+		const text = citeListing(store, {
+			view: "polite: one thing was said",
+			records: [{ i: 0 }],
+			unit: "announcements",
+			narrowing: "Read from the cursor.",
+			trailer: "cursor: 1",
+		});
+
+		expect(text).toBe("polite: one thing was said\n\ncursor: 1");
+	});
+});
+
+describe("a view that elides without being cut", () => {
+	let dir: string;
+	let store: ResultStore;
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "elided-"));
+		store = createResultStore({ dir });
+	});
+
+	afterEach(() => {
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("cites the records a short view left out", () => {
+		// An audit report: four rules, five example elements each, and a
+		// count of the thousands it did not print. It fits any budget
+		// comfortably, so nothing is cut, and keying the citation on the
+		// cut alone left the answer with the most missing as the one
+		// answer offering no way to reach it.
+		const records = Array.from({ length: 8_001 }, (_, i) => ({
+			selector: `#el-${i}`,
+		}));
+
+		const text = citeListing(store, {
+			view: "region: 8,001 elements\n  #el-0\n  ... and 7,996 more",
+			records,
+			unit: "findings",
+			narrowing: "Query the findings by rule.",
+			elided: true,
+		});
+
+		const handle = handleIn(text);
+		expect(handle).toBeDefined();
+		const followed = queryStored(store, handle as string, "$[*].selector");
+		expect(followed.matches).toBe(8_001);
 	});
 });

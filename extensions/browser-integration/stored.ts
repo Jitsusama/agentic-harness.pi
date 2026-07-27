@@ -96,6 +96,10 @@ export function bodyAnswer(url: string, body: string, budget: number): string {
 /** A rendered listing, bounded, with its records kept. */
 export function listAnswer<T>(args: {
 	view: string;
+	/** Lines the caller needs whatever the budget does: see Listing. */
+	trailer?: string;
+	/** Whether the view leaves records out on its own: see Listing. */
+	elided?: boolean;
 	records: readonly T[];
 	unit: string;
 	narrowing: string;

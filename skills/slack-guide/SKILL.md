@@ -448,6 +448,16 @@ pass `limit: 0`** with appropriate `oldest`/`latest` params.
 The default limit of 20 is useless for these queries. Drawing
 conclusions from partial data is worse than fetching too much.
 
+Fetching everything no longer means reading everything. An
+answer larger than it can show cites a handle holding every
+message fetched, and `result_query` answers questions over the
+whole set: count with a filter, project just the fields you
+need, group by author. That is the workflow for a comprehensive
+question. Fetch wide with `limit: 0`, then query the handle.
+Asking for a narrower window in order to fit the answer trades
+the accuracy the user asked for against a limit that no longer
+binds.
+
 For search results, when the total exceeds what was fetched,
 the output says so. Relay this to the user and offer to fetch
 the rest with a higher limit.

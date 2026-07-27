@@ -63,4 +63,35 @@ describe("spillText", () => {
 		const mode = fs.statSync(written.path).mode & 0o777;
 		expect(mode & 0o077).toBe(0);
 	});
+
+	it("replaces a payload an interrupted write left half-finished", () => {
+		const text = JSON.stringify({
+			rows: Array.from({ length: 200 }, (_, i) => i),
+		});
+		const first = spillText(text, dir);
+
+		// What a crash or a full disk leaves behind: the right name, the
+		// wrong bytes. The name is derived from the content, so the old
+		// code took the name existing as proof the content matched and
+		// handed back a handle to a truncated payload, for the rest of
+		// the session and for every later answer with the same content.
+		fs.writeFileSync(first.path, text.slice(0, 40));
+
+		const second = spillText(text, dir);
+
+		expect(second.path).toBe(first.path);
+		expect(fs.readFileSync(second.path, "utf-8")).toBe(text);
+	});
+
+	it("leaves nothing behind but the payload itself", () => {
+		spillText("written through a temporary name", dir);
+
+		// An atomic write needs somewhere to put the bytes before it
+		// commits to the name. Whatever it uses must not survive, or the
+		// directory fills with debris the quota counts and the reaper
+		// does not recognize.
+		expect(fs.readdirSync(dir).every((name) => name.endsWith(".json"))).toBe(
+			true,
+		);
+	});
 });

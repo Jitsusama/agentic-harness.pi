@@ -100,6 +100,7 @@ import {
 	DIR_MODE,
 	diskSink,
 	FILE_MODE,
+	pathComponent,
 } from "./envelope/index.js";
 import { deviceEmulation, noSuchDevice } from "./environment/devices.js";
 import {
@@ -2978,7 +2979,7 @@ export class BrowserSession {
 		readonly artifacts: readonly string[];
 	}> {
 		await this.ready();
-		const safe = label.replace(/[^a-zA-Z0-9._-]+/g, "-");
+		const safe = pathComponent(label);
 		const baselinePath = path.join(this.baselineDir(), `${safe}.png`);
 
 		const shot = Buffer.from(
@@ -3081,7 +3082,15 @@ export class BrowserSession {
 	 * want to look at, which is what dataDir is for.
 	 */
 	private baselineDir(): string {
-		return path.join(dataDir("browser-integration"), "baselines", this.name);
+		// The session name is chosen by whoever is driving. Joined raw,
+		// a name of "../../../../tmp/evil" put the baseline write at
+		// /Users/tmp/evil: the label beside it was being cleaned and
+		// this was not, which is why both now go through one rule.
+		return path.join(
+			dataDir("browser-integration"),
+			"baselines",
+			pathComponent(this.name),
+		);
 	}
 
 	/**

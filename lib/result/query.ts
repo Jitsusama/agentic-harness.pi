@@ -30,6 +30,7 @@
 
 import { JSONPath } from "jsonpath-plus";
 import { cite } from "./cite.js";
+import { count } from "./counts.js";
 import { LISTING_BUDGET_BYTES } from "./listing.js";
 import { HandleExpiredError, type ResultStore } from "./store.js";
 import { withinLineBudget } from "./view.js";
@@ -169,9 +170,9 @@ function answerWithin(
 		payload: matches,
 		view:
 			`${bounded.text}\n\n` +
-			`Cut ${bounded.cut.toLocaleString()} of ` +
-			`${bounded.total.toLocaleString()} lines to fit the ` +
-			`${budget.toLocaleString()} byte budget. Project fewer fields, ` +
+			`Cut ${count(bounded.cut)} of ` +
+			`${count(bounded.total)} lines to fit the ` +
+			`${count(budget)} byte budget. Project fewer fields, ` +
 			"or filter before selecting.",
 		shown: bounded.shown,
 		total: bounded.total,

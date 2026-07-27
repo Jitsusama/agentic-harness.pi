@@ -4,6 +4,10 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cite } from "../../../lib/result/cite.js";
 import {
+	offerQueryTool,
+	withdrawQueryTool,
+} from "../../../lib/result/follow.js";
+import {
 	createResultStore,
 	type ResultStore,
 } from "../../../lib/result/store.js";
@@ -18,6 +22,7 @@ describe("cite", () => {
 	});
 
 	afterEach(() => {
+		withdrawQueryTool();
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
@@ -74,7 +79,11 @@ describe("cite", () => {
 		expect(cited.text).toContain("status");
 	});
 
-	it("names result_query, since a handle with no verb is a dead end", () => {
+	it("names the query tool, since a handle with no verb is a dead end", () => {
+		// A session with the store extension loaded, which is the only
+		// session in which naming the tool is true. See follow.test.ts
+		// for what a citation says when nothing can read a handle.
+		offerQueryTool("result_query");
 		const cited = cite(store, {
 			payload: [1, 2, 3],
 			view: "one",
@@ -95,7 +104,6 @@ describe("cite", () => {
 				throw new Error("not reached");
 			},
 			has: () => false,
-			clear: () => {},
 		};
 
 		const cited = cite(broken, {

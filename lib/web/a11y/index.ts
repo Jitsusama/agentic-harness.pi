@@ -18,7 +18,9 @@ export {
 export {
 	ACTION_VIEW_BUDGET_BYTES,
 	type BudgetedOutline,
+	MAX_OUTLINE_BUDGET_BYTES,
 	OUTLINE_BUDGET_BYTES,
+	outlineBudget,
 	withinOutlineBudget,
 } from "./budget.js";
 export { isWeakName, type NameSource, nameSource } from "./naming.js";

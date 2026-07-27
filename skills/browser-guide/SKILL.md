@@ -169,6 +169,32 @@ Prefer the narrowest reading that answers the question. `see
 element` on one element beats `see query` over the page; `see
 query` beats `do eval` returning a large structure.
 
+### When an Answer Cites a Handle
+
+An answer that holds more than it shows ends with a handle and
+the shape of what is behind it. The handle is the rest of that
+answer, already captured. Query it rather than running the tool
+again with different arguments: a second run is a second page
+load against a page that may have moved on, and it costs what
+the first one cost.
+
+Two cases are easy to miss.
+
+- A citation does not only mean the answer was too long. An
+  audit prints a few example elements per rule and stores every
+  one it found, so `check accessibility` on a page with eight
+  thousand matching elements shows five and cites the rest. The
+  answer is short and still incomplete
+- `see announcements` and `see requests` end with a cursor or a
+  path that survives the cut. Read those from the bottom of the
+  answer, not from the middle of the list
+
+Raising `budget` is not how you see more. Whatever is cut is
+stored either way, so a larger budget spends a context window
+reaching data that a query already reaches, and it is clamped in
+any case. Narrow with `only`, `depth`, `within` or `filter`, or
+follow the handle.
+
 ## What Each Verb Covers
 
 ### `browser_go`

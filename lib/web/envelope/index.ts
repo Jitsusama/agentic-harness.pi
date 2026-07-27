@@ -5,6 +5,7 @@
  */
 
 export { type ArtifactOptions, withArtifact } from "./artifacts.js";
+export { pathComponent } from "./naming.js";
 export {
 	DEFAULT_BUDGET_BYTES,
 	DEFAULT_LIMIT,
@@ -19,5 +20,6 @@ export {
 	DIR_MODE,
 	diskSink,
 	FILE_MODE,
+	LEGACY_BUNDLE_ROOTS,
 	sessionDir,
 } from "./sink.js";

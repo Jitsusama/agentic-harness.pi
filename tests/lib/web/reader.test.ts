@@ -176,7 +176,7 @@ describe("reapBundles", () => {
 		fs.mkdirSync(live);
 		reapBundles({
 			root,
-			legacyRoot,
+			legacyRoots: [legacyRoot],
 			isPidAlive: (pid) => pid === 777,
 			now: Date.now(),
 			legacyMaxAgeMs: 5_000,
@@ -192,7 +192,7 @@ describe("reapBundles", () => {
 		fs.utimesSync(stray, new Date(now - 10_000), new Date(now - 10_000));
 		reapBundles({
 			root,
-			legacyRoot,
+			legacyRoots: [legacyRoot],
 			isPidAlive: () => true,
 			now,
 			legacyMaxAgeMs: 5_000,
@@ -210,7 +210,7 @@ describe("reapBundles", () => {
 		fs.utimesSync(fresh, new Date(now - 1_000), new Date(now - 1_000));
 		reapBundles({
 			root,
-			legacyRoot,
+			legacyRoots: [legacyRoot],
 			isPidAlive: () => true,
 			now,
 			legacyMaxAgeMs: 5_000,
@@ -219,11 +219,42 @@ describe("reapBundles", () => {
 		expect(fs.existsSync(fresh)).toBe(true);
 	});
 
+	it("sweeps every legacy root, not just the first", () => {
+		// The directory has been renamed twice: once out of /tmp into
+		// the real temp dir, and once off the web_read name it had
+		// outgrown. Sweeping only one of them leaves the other to
+		// accumulate screenshots nobody will ever look at again.
+		const now = 1_000_000_000_000;
+		const second = fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-older-"));
+		const inFirst = path.join(legacyRoot, "r-one");
+		const inSecond = path.join(second, "r-two");
+		fs.mkdirSync(inFirst);
+		fs.mkdirSync(inSecond);
+		for (const dir of [inFirst, inSecond]) {
+			fs.utimesSync(dir, new Date(now - 10_000), new Date(now - 10_000));
+		}
+
+		try {
+			reapBundles({
+				root,
+				legacyRoots: [legacyRoot, second],
+				isPidAlive: () => true,
+				now,
+				legacyMaxAgeMs: 5_000,
+			});
+
+			expect(fs.existsSync(inFirst)).toBe(false);
+			expect(fs.existsSync(inSecond)).toBe(false);
+		} finally {
+			fs.rmSync(second, { recursive: true, force: true });
+		}
+	});
+
 	it("does nothing when the roots do not exist", () => {
 		expect(() =>
 			reapBundles({
 				root: path.join(root, "missing"),
-				legacyRoot: path.join(legacyRoot, "missing"),
+				legacyRoots: [path.join(legacyRoot, "missing")],
 				isPidAlive: () => false,
 				now: Date.now(),
 				legacyMaxAgeMs: 5_000,

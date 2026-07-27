@@ -396,20 +396,26 @@ the linter rather than suppressing rules.
 
 ## Typecheck
 
-A narrow `tsc --noEmit` runs in CI against
-`extensions/pr-workflow/**` and `lib/internal/github/**`
-(see `tsconfig.typecheck.json`):
+`tsc --noEmit` runs in CI over the whole project: every
+extension, every library, every test, the scripts and the
+root config files.
 
 ```sh
-pnpm typecheck       # narrow scope, CI-enforced
-pnpm typecheck:full  # full repo, informational only
+pnpm typecheck
 ```
 
-New code in `extensions/pr-workflow/` MUST pass
-`pnpm typecheck`. Older extensions accumulated type debt
-before tsc was wired in; cleaning that up is a separate
-effort. When touching one of those extensions, treat its
-eventual inclusion in the typecheck scope as the goal.
+This used to cover a handful of directories, because the
+older extensions carried type debt that predated tsc being
+wired in at all. That debt is gone: the project reports
+nothing, so the scope is everything and the narrow config
+has been deleted.
+
+Keep it that way. A single failing file is worth fixing on
+the spot; the alternative is a second exclusion list, and
+that is how the first one started. Note that the scope
+includes root files such as `vitest.config.ts`, which sat
+outside it and held a real error while the project called
+itself clean.
 
 ## Testing
 

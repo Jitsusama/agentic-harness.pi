@@ -23,6 +23,7 @@ import {
 	BUNDLE_ROOT,
 	type BundleSink,
 	diskSink,
+	LEGACY_BUNDLE_ROOTS,
 	sessionDir,
 } from "./envelope/sink.js";
 import { captureTiles, preparePage, type TiledCapture } from "./screenshot.js";
@@ -130,9 +131,6 @@ const MAX_TITLE_LENGTH = 300;
  * ending silently.
  */
 const MAX_ARTIFACT_CHARS = 5_000_000;
-
-/** Where earlier versions wrote bundles, swept by age so they don't linger. */
-const LEGACY_BUNDLE_ROOT = "/tmp/pi-web-read";
 
 /** Age past which a legacy bundle directory is reaped. */
 const LEGACY_MAX_AGE_MS = 6 * 60 * 60 * 1_000;
@@ -335,7 +333,7 @@ function reapDir(
  */
 export function reapBundles(opts: {
 	root: string;
-	legacyRoot: string;
+	legacyRoots: readonly string[];
 	isPidAlive: (pid: number) => boolean;
 	now: number;
 	legacyMaxAgeMs: number;
@@ -348,9 +346,13 @@ export function reapBundles(opts: {
 			? !opts.isPidAlive(pid)
 			: olderThan(dir, opts.now, opts.legacyMaxAgeMs);
 	});
-	reapDir(opts.legacyRoot, (dir) =>
-		olderThan(dir, opts.now, opts.legacyMaxAgeMs),
-	);
+	for (const legacy of opts.legacyRoots) {
+		// By age rather than by pid, even where the old layout named its
+		// directories after one: nothing writes here any more, so an
+		// entry whose pid happens to be alive again belongs to an
+		// unrelated process that reused the number.
+		reapDir(legacy, (dir) => olderThan(dir, opts.now, opts.legacyMaxAgeMs));
+	}
 }
 
 /**
@@ -361,7 +363,7 @@ export function reapBundles(opts: {
 export function reapAbandonedBundles(): void {
 	reapBundles({
 		root: BUNDLE_ROOT,
-		legacyRoot: LEGACY_BUNDLE_ROOT,
+		legacyRoots: LEGACY_BUNDLE_ROOTS,
 		isPidAlive,
 		now: Date.now(),
 		legacyMaxAgeMs: LEGACY_MAX_AGE_MS,

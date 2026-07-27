@@ -62,26 +62,38 @@ describe("createResultStore", () => {
 		expect(second.has(old.handle)).toBe(false);
 	});
 
-	it("refuses a handle that is not one, rather than reading a path", () => {
+	it("cannot be talked into reading a file outside its directory", () => {
 		// A handle comes from a language model, so it can be anything,
-		// including a route out of the store.
+		// including a route out of the store. The shape check is the only
+		// thing standing between that string and the filesystem: deleting
+		// it from pathFor makes has("../escape") return true and read()
+		// hand back the planted file, which is how this was confirmed to
+		// be protection rather than decoration.
 		const store = createResultStore({ dir });
 		const outside = path.join(dir, "..", "escape.json");
 		fs.writeFileSync(outside, "not yours");
 
 		try {
-			for (const attempt of [
-				"../escape",
-				"..%2Fescape",
-				"/etc/passwd",
-				"result-nothex000000000",
-			]) {
+			for (const attempt of ["../escape", "..%2Fescape", "/etc/passwd"]) {
 				expect(store.has(attempt)).toBe(false);
 				expect(() => store.read(attempt)).toThrow(HandleExpiredError);
 			}
+			expect(fs.readFileSync(outside, "utf-8")).toBe("not yours");
 		} finally {
 			fs.rmSync(outside, { force: true });
 		}
+	});
+
+	it("treats a well-formed handle it never minted as expired", () => {
+		// Distinct from the traversal case above, which the shape check
+		// refuses outright. This one is shaped exactly like a handle and
+		// simply is not here, which is what a caller sees after eviction.
+		const store = createResultStore({ dir });
+
+		expect(store.has("result-0123456789abcdef")).toBe(false);
+		expect(() => store.read("result-0123456789abcdef")).toThrow(
+			HandleExpiredError,
+		);
 	});
 
 	it("ignores files in the directory that it did not mint", () => {
@@ -95,5 +107,38 @@ describe("createResultStore", () => {
 
 		expect(fs.existsSync(foreign)).toBe(true);
 		expect(store.read(stored.handle)).toBe("mine");
+	});
+});
+
+describe("a payload that is present but unreadable", () => {
+	let dir: string;
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "unreadable-"));
+	});
+
+	afterEach(() => {
+		fs.chmodSync(dir, 0o700);
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("says what went wrong instead of claiming it expired", () => {
+		const store = createResultStore({ dir });
+		const { handle } = store.put("still here");
+		fs.chmodSync(path.join(dir, `${handle}.json`), 0o000);
+
+		// Calling this an expiry sends the caller back to re-run the
+		// work that produced the payload, which will fail identically,
+		// and drops the only detail that explains why.
+		let thrown: unknown;
+		try {
+			store.read(handle);
+		} catch (err) {
+			thrown = err;
+		}
+
+		expect(thrown).toBeInstanceOf(Error);
+		expect(thrown).not.toBeInstanceOf(HandleExpiredError);
+		expect((thrown as Error).message).toContain("could not be read");
 	});
 });

@@ -11,7 +11,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
 	ACTION_VIEW_BUDGET_BYTES,
+	MAX_OUTLINE_BUDGET_BYTES,
 	OUTLINE_BUDGET_BYTES,
+	outlineBudget,
 	renderAnnouncements,
 	type Skeleton,
 	type TreeScope,
@@ -446,11 +448,14 @@ const parameters = Type.Object({
 	),
 	budget: Type.Optional(
 		Type.Number({
+			minimum: 1,
+			maximum: MAX_OUTLINE_BUDGET_BYTES,
 			description:
 				"For page and reading: how many bytes of outline to return " +
-				`before storing the rest. Defaults to ${OUTLINE_BUDGET_BYTES}. ` +
-				"Whatever is cut stays queryable by handle, so narrowing with " +
-				"'only', 'depth' or 'within' is usually better than raising this.",
+				`before storing the rest. Defaults to ${OUTLINE_BUDGET_BYTES}, ` +
+				`and will not go above ${MAX_OUTLINE_BUDGET_BYTES}. Whatever ` +
+				"is cut stays queryable by handle, so narrowing with 'only', " +
+				"'depth' or 'within' is the way to see more, not raising this.",
 		}),
 	),
 });
@@ -577,14 +582,29 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 					...(filter === undefined ? {} : { filter }),
 					recorded: all.length,
 				});
+				// Both of the paths below bound the same listing the plain
+				// one does. They used to hand it back whole, so asking for
+				// an archive or a body was a way to opt out of the bounding
+				// by asking for more.
 				if (params.har) {
 					const path = await session.exportHar(wanted);
 					return answer(
 						name,
 						kind,
-						`${listing}\n\nWrote ${wanted.length} of these to an ` +
-							`HTTP Archive, bodies included where Chrome still had ` +
-							`them:\n  ${path}`,
+						listAnswer({
+							view: listing,
+							// Where the archive went is the whole point of the
+							// call, so it cannot be what the budget removes.
+							trailer:
+								`Wrote ${wanted.length} of these to an HTTP Archive, ` +
+								`bodies included where Chrome still had them:\n  ${path}`,
+							records: wanted,
+							unit: "requests",
+							narrowing:
+								"Narrow with 'filter' by type, state, status or url " +
+								"fragment. The archive on disk holds them all either " +
+								"way.",
+						}),
 					);
 				}
 				if (!params.body)
@@ -614,7 +634,18 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return answer(
 					name,
 					kind,
-					`${listing}\n\n${renderBody(target, fetched)}`,
+					listAnswer({
+						view: listing,
+						// The body is what was asked for by name, so it survives
+						// the cut to the listing around it. It bounds itself,
+						// and cites its own handle when it has to.
+						trailer: renderBody(target, fetched),
+						records: wanted,
+						unit: "requests",
+						narrowing:
+							"Narrow with 'filter' by type, state, status or url " +
+							"fragment.",
+					}),
 				);
 			}
 
@@ -650,7 +681,12 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 					name,
 					kind,
 					listAnswer({
-						view: `${renderAnnouncements(entries, dropped)}\n\ncursor: ${cursor}`,
+						view: renderAnnouncements(entries, dropped),
+						// The cursor is how the next call continues, so it has
+						// to outlive the cut. Written into the view, it sat on
+						// the last line and went first: a page noisy enough to
+						// need bounding is exactly the page somebody is polling.
+						trailer: `cursor: ${cursor}`,
 						records: entries.map(({ item }) => item),
 						unit: "announcements",
 						narrowing:
@@ -715,7 +751,11 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 			// A caller who asked to see the page gets the generous budget;
 			// the tighter one is for the view that follows an action nobody
 			// asked a page read of.
-			const budget = params.budget ?? OUTLINE_BUDGET_BYTES;
+			// Clamped, not obeyed. Raising this is never how you see
+			// more of a page: whatever is cut stays queryable, so a
+			// hundred-megabyte budget buys nothing the handle does not
+			// already offer, and spends a context window doing it.
+			const budget = outlineBudget(params.budget);
 			const form = kind === "reading" ? "reading" : "outline";
 			if (params.within === undefined) {
 				return answer(

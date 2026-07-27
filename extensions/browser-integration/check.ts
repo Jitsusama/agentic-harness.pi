@@ -18,6 +18,7 @@ import {
 	type Condition,
 	conditionFrom,
 	headlineOf,
+	MAX_LISTED_NODES,
 	mergeFindings,
 	type Part,
 	renderAudit,
@@ -55,9 +56,19 @@ import { listAnswer } from "./stored.js";
  * can be filtered by impact, rule or criterion without another
  * audit run.
  */
-function auditAnswer(view: string, findings: readonly A11yFinding[]): string {
+function auditAnswer(
+	view: string,
+	findings: readonly A11yFinding[],
+	keep: Keeping = "keep",
+): string {
+	if (keep === "discard") return view;
 	return listAnswer({
 		view,
+		// The report lists a handful of elements per rule and counts the
+		// rest. That fits any budget, so nothing was cut and nothing was
+		// cited, and the answer with eight thousand elements behind it
+		// was the one answer with no way to reach them.
+		elided: findings.some((finding) => finding.nodes.length > MAX_LISTED_NODES),
 		records: findings,
 		unit: "findings",
 		narrowing:
@@ -239,11 +250,13 @@ export function registerCheck(
 				return answer(
 					name,
 					kind,
-					await sweep(session, params.widths, params.at, (at) =>
-						runOnce(session, kind, {
-							...params,
-							baseline: baselineAt(params, at),
-						}),
+					await sweep(session, params.widths, params.at, (at, keep) =>
+						runOnce(
+							session,
+							kind,
+							{ ...params, baseline: baselineAt(params, at) },
+							keep,
+						),
 					),
 				);
 			}
@@ -257,6 +270,15 @@ export function registerCheck(
 type CheckParams = Static<typeof parameters>;
 
 /**
+ * Whether this report will be shown, and so whether the records
+ * behind it are worth keeping.
+ *
+ * Named rather than a bare boolean because the call sites read as
+ * a claim about the answer, not a flag.
+ */
+type Keeping = "keep" | "discard";
+
+/**
  * Run one kind of check once and render it.
  *
  * Separate from the tool body so a sweep can call it repeatedly
@@ -267,6 +289,12 @@ async function runOnce(
 	session: BrowserSession,
 	kind: string,
 	params: CheckParams,
+	// A sweep asks for a report per width and then renders one row
+	// per condition, so all but the named one are thrown away. Storing
+	// those spends the session's quota on payloads nobody can reach,
+	// and the eviction it causes surfaces to the caller as a handle
+	// they do hold having expired.
+	keep: Keeping = "keep",
 ): Promise<string> {
 	if (kind === "health") {
 		return digest(session, params);
@@ -306,6 +334,7 @@ async function runOnce(
 				measured,
 			}),
 			findings,
+			keep,
 		);
 	}
 
@@ -335,10 +364,12 @@ async function runOnce(
 	if (kind === "design") {
 		const samples = await session.styleSamples();
 		const inventory = takeInventory(samples);
+		const view = renderInventory(inventory, {
+			...(params.rule === undefined ? {} : { property: params.rule }),
+		});
+		if (keep === "discard") return view;
 		return listAnswer({
-			view: renderInventory(inventory, {
-				...(params.rule === undefined ? {} : { property: params.rule }),
-			}),
+			view,
 			// The samples rather than the inventory: a caller asking which
 			// elements use a colour wants the elements, and the inventory
 			// is the tally that hid them.
@@ -361,6 +392,7 @@ async function runOnce(
 					`${viewport.width} by ${viewport.height} viewport.`,
 			}),
 			findings,
+			keep,
 		);
 	}
 
@@ -394,7 +426,7 @@ async function sweep(
 	session: BrowserSession,
 	widths: readonly number[],
 	only: string | undefined,
-	run: (label: string) => Promise<string>,
+	run: (label: string, keep: Keeping) => Promise<string>,
 ): Promise<string> {
 	// Restoring means the size the page was actually at, not the
 	// absence of an override. Clearing the override hands the page
@@ -422,7 +454,14 @@ async function sweep(
 					height,
 				},
 			});
-			conditions.push(conditionFrom(label, await run(label)));
+			// Only the condition the caller asked to see in full keeps
+			// its records: every other report is reduced to a row.
+			conditions.push(
+				conditionFrom(
+					label,
+					await run(label, label === only ? "keep" : "discard"),
+				),
+			);
 		}
 	} finally {
 		await session.restoreEmulation({
@@ -463,10 +502,17 @@ async function digest(
 	const parts: Part[] = [];
 	for (const kind of HEALTH_KINDS) {
 		try {
-			const report = await runOnce(session, kind, {
-				...params,
-				rule: undefined,
-			});
+			// The digest keeps a standing and a headline from each report
+			// and discards the rest, so there is nothing for a handle to
+			// point at. Storing them anyway spent the session's quota on
+			// payloads no caller is ever given, and evicting to make room
+			// told whoever held the evicted handle that it had expired.
+			const report = await runOnce(
+				session,
+				kind,
+				{ ...params, rule: undefined },
+				"discard",
+			);
 			parts.push({
 				kind,
 				standing: standingOf(report),

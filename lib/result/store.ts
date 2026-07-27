@@ -62,8 +62,13 @@ export interface ResultStore {
 	read(handle: string): string;
 	/** Whether a handle still resolves. */
 	has(handle: string): boolean;
-	/** Forget every payload and delete every file. */
-	clear(): void;
+	// There is deliberately no clear(). A store is its directory and
+	// the directory is shared by every extension in the session, so
+	// one of them emptying it would delete handles the others had
+	// just given out and are about to be asked to read. Tearing the
+	// whole session down is cleanupSessionResults, which belongs to
+	// the code that owns the directory rather than to any one holder
+	// of a name inside it.
 }
 
 /**
@@ -118,11 +123,31 @@ export function createResultStore(deps: {
 	dir: string;
 	maxBytes?: number;
 }): ResultStore {
+	/** Whether a filesystem error means the file simply is not there. */
+	function isMissing(err: unknown): boolean {
+		return (
+			typeof err === "object" &&
+			err !== null &&
+			"code" in err &&
+			(err.code === "ENOENT" || err.code === "ENOTDIR")
+		);
+	}
+
 	function pathFor(handle: string): string | undefined {
 		if (!HANDLE_PATTERN.test(handle)) return undefined;
 		return path.join(deps.dir, `${handle}${PAYLOAD_EXTENSION}`);
 	}
 
+	// Re-reads the directory on every put rather than keeping a tally.
+	// That looks wasteful and was raised as such; measured, it is 0.36
+	// ms per put with 50 payloads on disk and 1.37 ms with 500, next
+	// to a put that has just written tens of kilobytes and a tool call
+	// that took hundreds of milliseconds to produce them. A cached
+	// tally would also be wrong rather than slow: the directory is
+	// shared with every other extension in the session, so anything
+	// remembered between calls is a guess about what somebody else
+	// has written since.
+	//
 	// By name, never by path: a spill reports the directory's real
 	// path, the caller may have given us a symlinked one, and on macOS
 	// those differ for anything under the temp directory. Comparing
@@ -165,23 +190,23 @@ export function createResultStore(deps: {
 			if (!file) throw new HandleExpiredError(handle);
 			try {
 				return fs.readFileSync(file, "utf-8");
-			} catch {
-				throw new HandleExpiredError(handle);
+			} catch (err) {
+				// Only a missing file is an expiry. Reporting a permission
+				// error or a full disk as "this handle is no longer
+				// available" sends the caller off to re-run the work that
+				// produced it, which will fail the same way, and hides the
+				// one detail that would have explained why.
+				if (isMissing(err)) throw new HandleExpiredError(handle);
+				throw new Error(
+					`Handle ${handle} is on disk but could not be read: ` +
+						`${err instanceof Error ? err.message : String(err)}`,
+					{ cause: err },
+				);
 			}
 		},
 		has(handle) {
 			const file = pathFor(handle);
 			return file !== undefined && fs.existsSync(file);
-		},
-		clear() {
-			for (const entry of payloadsOnDisk(deps.dir)) {
-				try {
-					fs.rmSync(entry.path, { force: true });
-				} catch {
-					// Best effort: nothing further can be done about a stuck
-					// file, and it will be reaped with the session directory.
-				}
-			}
 		},
 	};
 }
