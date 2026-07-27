@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	bodyAnswer,
 	listAnswer,
 	pageAnswer,
 } from "../../../extensions/browser-integration/stored.js";
@@ -199,5 +200,30 @@ describe("listAnswer", () => {
 			expect(payload).toContain("checked");
 			expect(payload).toContain("required");
 		});
+	});
+});
+
+describe("a response body", () => {
+	it("keeps the bytes it could not show", () => {
+		const body = "x".repeat(40_000);
+
+		const text = bodyAnswer("https://example.test/app.js", body, 1_024);
+		const handle = handleIn(text);
+
+		// The old form cut the body, said how many bytes it had thrown
+		// away, and offered no way to ask for them: a cut announced is
+		// still a cut. Counted in bytes because a minified body is one
+		// line as long as the file.
+		expect(handle).toBeDefined();
+		expect(text).toContain("40,000 bytes are stored");
+		const stored = createResultStore({ dir: sessionResultDir() });
+		expect(JSON.parse(stored.read(handle as string))).toHaveLength(40_000);
+	});
+
+	it("says nothing extra about a body that fits", () => {
+		const text = bodyAnswer("https://example.test/small", "hello", 1_024);
+
+		expect(text).toContain("hello");
+		expect(text).not.toContain("handle result-");
 	});
 });

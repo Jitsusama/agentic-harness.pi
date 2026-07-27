@@ -58,7 +58,7 @@ import {
 	refusal,
 	sessionInPlay,
 } from "./result.js";
-import { listAnswer, pageAnswer } from "./stored.js";
+import { bodyAnswer, listAnswer, pageAnswer } from "./stored.js";
 
 /**
  * Lay an observation out for reading: where you are, then what is
@@ -139,12 +139,16 @@ function renderBody(
 		const bytes = Buffer.from(fetched.body, "base64").length;
 		return `Body of ${url}: ${bytes} bytes of binary, not shown.`;
 	}
-	const capped =
-		fetched.body.length > MAX_INLINE_BODY
-			? `${fetched.body.slice(0, MAX_INLINE_BODY)}\n\n[cut after ` +
-				`${MAX_INLINE_BODY} of ${fetched.body.length} bytes]`
-			: fetched.body;
-	return `Body of ${url}:\n${capped}`;
+	if (fetched.body.length <= MAX_INLINE_BODY) {
+		return `Body of ${url}:\n${fetched.body}`;
+	}
+	// Cut and kept, rather than cut and announced. This said how many
+	// bytes it had thrown away and gave no way to ask for them, which
+	// is the thing the rest of this change exists to stop doing.
+	// Bytes, not lines: a response body is content rather than a
+	// rendering, and a minified one is a single line the length of
+	// the file.
+	return bodyAnswer(url, fetched.body, MAX_INLINE_BODY);
 }
 
 /**

@@ -75,6 +75,24 @@ function heading(observed: Observation, bounded: BudgetedOutline): string {
 	return `${observed.title}\n${observed.url}\n\n${bounded.text}`;
 }
 
+/**
+ * A response body, bounded for reading and kept whole for asking.
+ *
+ * Counted in bytes rather than lines, unlike everything else here.
+ * A body is content, not a rendering of records, and a minified
+ * one is a single line as long as the file: whole-lines-only would
+ * either return all of it or none.
+ */
+export function bodyAnswer(url: string, body: string, budget: number): string {
+	return cite(openSessionStore(), {
+		payload: body,
+		view: `Body of ${url}:\n${body.slice(0, budget)}`,
+		shown: budget,
+		total: body.length,
+		unit: "bytes",
+	}).text;
+}
+
 /** A rendered listing, bounded, with its records kept. */
 export function listAnswer<T>(args: {
 	view: string;
