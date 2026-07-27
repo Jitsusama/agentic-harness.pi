@@ -289,7 +289,9 @@ const parameters = Type.Object({
 					"what the page " +
 					"said out loud through its live regions. element: " +
 					"everything about one element, named with 'within'. " +
-					"shot: a picture, written to disk and reported by path.",
+					"shot: a picture, written to disk and reported by path, " +
+					"of the viewport, or of the whole page with 'fullPage', " +
+					"or of one element with 'within'.",
 			},
 		),
 	),
@@ -301,7 +303,9 @@ const parameters = Type.Object({
 			description:
 				"Read only the branch under this element, named as " +
 				"'role name', e.g. 'navigation Main' or 'form Checkout'. " +
-				"For kind 'element', the element to inspect.",
+				"For kind 'element', the element to inspect. For kind " +
+				"'shot', the element to photograph, cropped to its box " +
+				"rather than the whole page.",
 		}),
 	),
 	styles: Type.Optional(
@@ -322,7 +326,9 @@ const parameters = Type.Object({
 		Type.Boolean({
 			description:
 				"For shot: capture the whole scrollable page rather than " +
-				"what is on screen. Long pages come back as several tiles.",
+				"what is on screen. Long pages come back as several " +
+				"tiles. Ignored when 'within' names one element, since " +
+				"that crops to the element instead.",
 		}),
 	),
 	state: Type.Optional(
