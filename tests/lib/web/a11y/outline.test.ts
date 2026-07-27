@@ -21,6 +21,21 @@ function node(
 }
 
 describe("renderAxOutline", () => {
+	it("says nothing about a name a node does not have", () => {
+		// A third of the nodes on a real article page are nameless
+		// structure, and empty quotes against every one of them cost
+		// more than a whole action-view budget while saying nothing:
+		// a reader learns that a paragraph is a paragraph either way.
+		const tree = node("document", "", [
+			node("banner", "", [node("link", "Home")]),
+			node("paragraph", ""),
+		]);
+
+		expect(renderAxOutline(tree)).toBe(
+			["banner", '  link "Home"', "paragraph"].join("\n"),
+		);
+	});
+
 	it("renders roles and names nested by containment", () => {
 		const tree = node("document", "", [
 			node("navigation", "Primary", [
