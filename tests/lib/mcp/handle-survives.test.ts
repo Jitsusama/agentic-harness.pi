@@ -75,46 +75,41 @@ describe("a handle in a capped notice", () => {
 		}
 	});
 
-	// The companion case, a citation an earlier layer wrote into the
-	// head rather than into the notice, is guarded by
-	// `tests/lib/mcp/surface/manager.test.ts`, which is where CI caught
-	// it and where reverting `headWithin` fails immediately under a
-	// short TMPDIR. I tried to reproduce it here synthetically and
-	// could not: sweeping every byte from 180 to 560 never landed a cut
-	// inside the handle, so what I had written passed with the fault
-	// present. A test that cannot be shown to fail is not protection,
-	// it only looks like it, so it is not here.
-	it.skip("survives in a block an earlier layer already wrote", () => {
+	it("survives in a block an earlier layer already wrote", () => {
 		// This is the shape CI actually failed on. An upstream layer had
 		// already stashed a payload and said so in its own text, which
 		// arrives here as ordinary head text rather than as the notice.
 		// Slicing the head cut that citation in half.
 		//
-		// It passed on my machine and failed on CI for a reason that has
-		// nothing to do with either: the notice quotes a filesystem path,
-		// a temp directory is longer on macOS than on a runner, and the
-		// cut landed in a different place. Reproduced locally only by
-		// pointing TMPDIR somewhere short.
+		// This spent a while committed as a skipped test, because the
+		// version I first wrote put the citation in a 186-byte head and
+		// swept limits from 180 to 560. With the guard removed it still
+		// passed: a head that small is either kept or dropped whole, so
+		// no cut ever landed inside the handle and the sweep proved
+		// nothing. The fixture was the problem, not the idea.
+		//
+		// The head has to be large enough to be sliced, with the
+		// citation buried far enough in that a cut can fall through it.
+		// With the guard removed, this fixture fails at twenty-two
+		// consecutive budgets, which is the width of a handle.
 		const store = createResultStore({ dir });
 		const payload = JSON.stringify({
 			deep: Array.from({ length: 50 }, () => 1),
 		});
 		const stored = store.put(payload);
-		const content: McpContent[] = [
-			{ type: "text", text: "summary of something" },
-			{
-				type: "text",
-				text: `[Full JSON stashed under handle ${stored.handle} (${stored.path}); query it.]`,
-			},
-		];
+		const pad = "prose that fills the head so a cut can land in it. ".repeat(
+			40,
+		);
+		const head = `${pad}[stashed under handle ${stored.handle}] ${pad}`;
+		const content: McpContent[] = [{ type: "text", text: head }];
 
-		// Every byte across a wide range, not a handful of round
-		// numbers. The window where the cut lands inside the handle is
-		// only as wide as the handle, and its position depends on the
-		// length of a temp path, which is exactly why this failed on a
-		// runner and not on my machine. Stepping by twenty stepped over
-		// it and looked like proof.
-		for (let limitBytes = 180; limitBytes <= 560; limitBytes += 1) {
+		// Every byte, over a range derived from the fixture rather than
+		// chosen. The window where a cut lands inside the handle is only
+		// as wide as the handle, and where it sits depends on the length
+		// of the notice, which quotes a temp path and so differs between
+		// a laptop and a runner. That is what made the original failure
+		// invisible locally, and it is why nothing here is hardcoded.
+		for (let limitBytes = 40; limitBytes <= head.length + 600; limitBytes++) {
 			const out = enforceResultCeiling(
 				content,
 				{ content },
@@ -123,7 +118,8 @@ describe("a handle in a capped notice", () => {
 
 			for (const cited of textOf(out).matchAll(/handle ([\w-]+)/g)) {
 				// Every handle named anywhere in the answer must resolve. A
-				// prefix that merely looks like one is the whole defect.
+				// prefix that merely looks like one is the whole defect: the
+				// caller queries it and is told it has expired.
 				expect(
 					() => store.read(cited[1] as string),
 					`handle ${cited[1]} cut at ${limitBytes} bytes`,

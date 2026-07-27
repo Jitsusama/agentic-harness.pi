@@ -15,11 +15,31 @@
  * without a thought for size shows up here as an absence, and a
  * family that had it and lost it in a refactor shows up as a
  * regression.
+ *
+ * That claim turned out to be weaker than it sounded. Reaching the
+ * machinery is not using it: the quest verbs called the seam with
+ * a details shape it could not read, and a document read cited the
+ * one array it could find rather than the body it had just cut.
+ * Both were green here, because both were, in the only sense this
+ * file could see, wired.
+ *
+ * So the scan is now half of it. The other half runs the shared
+ * seam against the details shapes the families actually produce,
+ * which is the half that would have caught them.
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import {
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { boundedByDetails } from "../../lib/result/details.js";
+import { createResultStore } from "../../lib/result/store.js";
 
 /**
  * Extensions whose tools can answer with a payload larger than a
@@ -98,6 +118,59 @@ describe("tools that can answer big must bound their answers", () => {
 					/\b(resultPath|runDir|bundle|manifest)\b/.test(source),
 			);
 			expect(pointsSomewhere).toBe(true);
+		});
+	}
+
+	// The shapes the families put in a result's details, taken from
+	// the handlers that build them. If one of these drifts, the entry
+	// here is wrong and the seam is not; the fix is to follow the
+	// handler, not to relax the assertion.
+	const REAL_DETAIL_SHAPES: Record<string, unknown> = {
+		"slack: a message list": {
+			messages: Array.from({ length: 400 }, (_, i) => ({ ts: `${i}` })),
+		},
+		"quest: a listing under its own key": {
+			listing: {
+				rows: Array.from({ length: 400 }, (_, i) => ({ id: `Q-${i}` })),
+				total: 400,
+			},
+		},
+		"google: a document with comments": {
+			file: { name: "Design Notes" },
+			content: "the body, which is what the view renders",
+			comments: [{ id: "c1" }],
+		},
+		"google: a document with none": {
+			file: { name: "Design Notes" },
+			content: "the body, which is what the view renders",
+			comments: [],
+		},
+		"a family that carries nothing structured": undefined,
+	};
+
+	for (const [label, details] of Object.entries(REAL_DETAIL_SHAPES)) {
+		it(`bounds and cites ${label}`, () => {
+			const dir = mkdtempSync(join(tmpdir(), "gate-"));
+			try {
+				const store = createResultStore({ dir });
+				const view = Array.from(
+					{ length: 400 },
+					(_, i) => `row ${i}: a rendered line with text on it`,
+				).join("\n");
+
+				const bounded = boundedByDetails(store, {
+					text: view,
+					details,
+					narrowing: "Ask for fewer.",
+				});
+
+				expect(Buffer.byteLength(bounded, "utf-8")).toBeLessThan(
+					Buffer.byteLength(view, "utf-8"),
+				);
+				expect(bounded).toMatch(/handle result-[0-9a-f]{16}/);
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
 		});
 	}
 
