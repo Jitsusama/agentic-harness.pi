@@ -27,6 +27,7 @@
  */
 
 import { cite } from "./cite.js";
+import { count } from "./counts.js";
 import { citeListing, LISTING_BUDGET_BYTES } from "./listing.js";
 import type { ResultStore } from "./store.js";
 import { withinLineBudget } from "./view.js";
@@ -128,9 +129,9 @@ function citeWhole(
 		payload: hasDetails ? answer.details : answer.text,
 		view:
 			`${bounded.text}\n\n` +
-			`Cut ${bounded.cut.toLocaleString()} of ` +
-			`${bounded.total.toLocaleString()} lines to fit the ` +
-			`${LISTING_BUDGET_BYTES.toLocaleString()} byte budget. ` +
+			`Cut ${count(bounded.cut)} of ` +
+			`${count(bounded.total)} lines to fit the ` +
+			`${count(LISTING_BUDGET_BYTES)} byte budget. ` +
 			answer.narrowing,
 		shown: bounded.shown,
 		total: bounded.total,

@@ -16,6 +16,7 @@
  */
 
 import { cite } from "./cite.js";
+import { count } from "./counts.js";
 import type { ResultStore } from "./store.js";
 import { withinLineBudget } from "./view.js";
 
@@ -54,9 +55,9 @@ export function citeListing<T>(
 		payload: listing.records,
 		view:
 			`${bounded.text}\n\n` +
-			`Cut ${bounded.cut.toLocaleString()} of ` +
-			`${bounded.total.toLocaleString()} lines to fit the ` +
-			`${budget.toLocaleString()} byte budget. ${listing.narrowing}`,
+			`Cut ${count(bounded.cut)} of ` +
+			`${count(bounded.total)} lines to fit the ` +
+			`${count(budget)} byte budget. ${listing.narrowing}`,
 		shown: bounded.shown,
 		total: bounded.total,
 		unit: "lines",

@@ -35,7 +35,8 @@
 		"typecheck:full": "tsc --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"test:coverage": "vitest run --coverage"
+		"test:coverage": "vitest run --coverage",
+		"test:browser": "PI_RACE_TESTS=1 vitest run tests/browser"
 	},
 	"packageManager": "pnpm@9.15.0",
 	"engines": {

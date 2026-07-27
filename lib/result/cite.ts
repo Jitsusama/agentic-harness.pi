@@ -17,6 +17,7 @@
  * would have to learn each one's habits instead of the rule.
  */
 
+import { count } from "./counts.js";
 import { summarizeJson } from "./digest.js";
 import type { ResultStore } from "./store.js";
 
@@ -96,8 +97,8 @@ function citation<T>(
 	handle: string,
 	digest: string,
 ): string {
-	const held = answer.total.toLocaleString();
-	const seen = answer.shown.toLocaleString();
+	const held = count(answer.total);
+	const seen = count(answer.shown);
 	const rest =
 		`Query it with result_query, projecting the fields you want ` +
 		`rather than whole records. Shape: ${digest}`;
@@ -114,7 +115,7 @@ function citation<T>(
 				`${held} ${answer.unit}. ${rest}`
 			);
 		}
-		const kept = answer.stored.count.toLocaleString();
+		const kept = count(answer.stored.count);
 		return (
 			`All ${kept} ${answer.stored.unit} are stored under handle ` +
 			`${handle}, of which this answer renders ${seen} of ` +
@@ -137,8 +138,8 @@ function citation<T>(
 function unstorable<T>(answer: Citable<T>, err: unknown): string {
 	const why = err instanceof Error ? err.message : String(err);
 	return (
-		`This answer shows ${answer.shown.toLocaleString()} of ` +
-		`${answer.total.toLocaleString()} ${answer.unit}. The remainder ` +
+		`This answer shows ${count(answer.shown)} of ` +
+		`${count(answer.total)} ${answer.unit}. The remainder ` +
 		`could not be stored (${why}), so it is not retrievable: narrow the ` +
 		`call to see the rest.`
 	);
