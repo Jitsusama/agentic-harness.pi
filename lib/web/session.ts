@@ -2384,6 +2384,7 @@ export class BrowserSession {
 	> {
 		const started = Date.now();
 		let previous: Rect | undefined;
+		let scrolled = false;
 		let last: Actionability = {
 			ready: false,
 			blocker: "it is not in the page",
@@ -2399,6 +2400,23 @@ export class BrowserSession {
 					waitedMs: Date.now() - started,
 					backendDomId: look.backendDomId,
 				};
+			}
+			// Waiting cannot bring an element into the viewport, so
+			// polling one that is merely below the fold spends the whole
+			// budget to reach the verdict it already had. Scrolling is
+			// what the caller means by acting on it, and what a person
+			// does. Once only: if it is still out of view after being
+			// scrolled to, something else is moving it and the blocker
+			// is the honest answer.
+			if (!scrolled && look.facts.visibility?.state === "off screen") {
+				scrolled = true;
+				const found = await this.resolve(target);
+				if (found.ok) {
+					await found.element.scrollIntoView();
+					await found.element.dispose();
+					previous = undefined;
+					continue;
+				}
 			}
 			await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
 		}

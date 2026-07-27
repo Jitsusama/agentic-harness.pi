@@ -42,7 +42,7 @@ const FORM = page(
   </div>
   <nav><button type="button" id="icon" onclick="document.getElementById('log').textContent = 'icon'"><svg width="20" height="20" aria-hidden="true"></svg></button></nav>
   <div id="scroller" style="height:2000px"></div>
-  <button type="button" id="far">Far below</button>
+  <button type="button" id="far" onclick="document.getElementById('log').textContent = 'far'">Far below</button>
 </main>`,
 );
 
@@ -202,6 +202,21 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 		expect(await logged()).toBe("nothing yet");
 		const active = await session.evaluate("document.activeElement.id");
 		expect(active.ok && active.result.value).toBe("plain");
+	});
+
+	it("scrolls to a control below the fold and presses it", async () => {
+		// Waiting cannot bring an element into the viewport, so the
+		// old refusal spent its whole budget on a verdict it already
+		// had. Every other driver scrolls, and so does a person.
+		const started = Date.now();
+		const result = await session.act({
+			kind: "click",
+			target: { role: "button", name: "Far below" },
+		});
+
+		expect(result.ok).toBe(true);
+		expect(await logged()).toBe("far");
+		expect(Date.now() - started).toBeLessThan(2000);
 	});
 
 	it("scrolls something into view without pressing it", async () => {
