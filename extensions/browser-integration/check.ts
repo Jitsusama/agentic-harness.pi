@@ -64,6 +64,7 @@ function auditAnswer(
 	view: string,
 	findings: readonly A11yFinding[],
 	keep: Keeping = "keep",
+	named?: string,
 ): string {
 	if (keep === "discard") return view;
 	return listAnswer({
@@ -75,9 +76,15 @@ function auditAnswer(
 		elided: findings.some((finding) => finding.nodes.length > MAX_LISTED_NODES),
 		records: findings,
 		unit: "findings",
+		// Advice for the step after this one, not the step just
+		// taken. Having named a rule and been shown five of its
+		// fifty-two elements, a caller was told to name a rule.
 		narrowing:
-			"Name one rule in 'rule' to see the elements it hit, or query " +
-			"the findings by impact, rule or criterion.",
+			named === undefined
+				? "Name one rule in 'rule' to see the elements it hit, or " +
+					"query the findings by impact, rule or criterion."
+				: `Query the stored findings for every element '${named}' ` +
+					"hit, or name a different rule.",
 	});
 }
 
@@ -342,6 +349,7 @@ async function runOnce(
 			}),
 			findings,
 			keep,
+			params.rule,
 		);
 	}
 
@@ -400,6 +408,7 @@ async function runOnce(
 			}),
 			findings,
 			keep,
+			params.rule,
 		);
 	}
 

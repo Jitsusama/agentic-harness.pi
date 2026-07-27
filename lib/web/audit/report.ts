@@ -115,6 +115,34 @@ export function renderSummary(tally: AxeTally): string {
 	return parts.join(" ");
 }
 
+/**
+ * Reported rules whose name shares a word with the one asked for.
+ *
+ * Rule names are hyphenated words, and the ways people get one
+ * wrong nearly always keep a word: target-size for
+ * target-is-big-enough, contrast for color-contrast. Matching on
+ * whole words rather than on edit distance keeps an unrelated
+ * rule out of a suggestion that is meant to be a short list.
+ */
+function nearestRules(
+	asked: string,
+	reported: readonly string[],
+): readonly string[] {
+	const words = new Set(asked.toLowerCase().split(/[^a-z0-9]+/i));
+	words.delete("");
+	return reported
+		.filter((rule) =>
+			rule
+				.toLowerCase()
+				.split(/[^a-z0-9]+/i)
+				.some((word) => words.has(word)),
+		)
+		.slice(0, MAX_SUGGESTED_RULES);
+}
+
+/** How many near misses are a help rather than a second list. */
+const MAX_SUGGESTED_RULES = 3;
+
 /** One line per rule: enough to choose what to read. */
 export function renderIndex(findings: readonly A11yFinding[]): string {
 	if (findings.length === 0) return "";
@@ -201,18 +229,39 @@ export function renderAudit(
 		// a swept rule query reported PASS at every width while the
 		// rule was failing at all of them.
 		if (found.length === 0) {
-			const names = [...new Set(findings.map((finding) => finding.rule))]
-				.slice(0, MAX_LISTED_NODES)
-				.join(", ");
+			const reported = [...new Set(findings.map((finding) => finding.rule))];
+			const names = reported.slice(0, MAX_LISTED_NODES).join(", ");
+			// A clean page is a clean page, whatever was asked for.
+			if (names === "") {
+				return renderVerdict(
+					{
+						standing: "pass",
+						headline:
+							`Nothing was reported for '${options.rule}', and ` +
+							"nothing failed.",
+					},
+					"",
+				);
+			}
+			// On a page that did report, a name matching none of it is
+			// two different answers wearing one face: the rule ran and
+			// was clean, or the name is wrong. Nothing here can tell
+			// them apart, and PASS picks the flattering one. Asked for
+			// 'target-size', which is what axe calls this rule elsewhere
+			// and what WCAG calls the criterion, a page failing ten
+			// rules answered PASS with the failures a line below.
+			const close = nearestRules(options.rule, reported);
 			return renderVerdict(
 				{
-					standing: "pass",
+					standing: "warn",
 					headline:
-						names === ""
-							? `Nothing was reported for '${options.rule}', and ` +
-								"nothing failed."
-							: `Nothing was reported for '${options.rule}'.`,
-					...(names === "" ? {} : { measured: `Reported: ${names}.` }),
+						`Nothing was reported for '${options.rule}'. It may ` +
+						"have passed, or it may not be a rule name.",
+					measured:
+						(close.length === 0
+							? ""
+							: `Closest reported: ${close.join(", ")}. `) +
+						`Reported: ${names}.`,
 				},
 				"",
 			);

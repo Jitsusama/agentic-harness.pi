@@ -309,6 +309,34 @@ describe("mergeFindings", () => {
 		expect(out.indexOf("a-critical")).toBeLessThan(out.indexOf("z-moderate"));
 	});
 
+	it("does not pass a rule name it never heard of", () => {
+		// Asked for 'target-size', which is axe's own name for this
+		// rule elsewhere and the name of the WCAG criterion, a page
+		// failing ten rules answered PASS. A mistyped filter must not
+		// read as a clean bill: nothing here can tell a rule that
+		// passed from a rule that does not exist, and undecided is
+		// what WARN is for.
+		const real = readAxeRun({
+			violations: [
+				{ id: "target-is-big-enough", impact: "serious", nodes: [{}] },
+			],
+		});
+
+		const out = renderAudit(real, tallyFindings(real), {
+			rule: "target-size",
+		});
+
+		expect(out).toMatch(/^WARN/);
+		expect(out).toContain("target-is-big-enough");
+	});
+
+	it("still passes a rule name when the page reported nothing at all", () => {
+		// A clean page is a clean page, whatever was asked for.
+		const out = renderAudit([], tallyFindings([]), { rule: "target-size" });
+
+		expect(out).toMatch(/^PASS/);
+	});
+
 	it("spends FAIL on a criterion, not on advice", () => {
 		// A page with two level-one headings is not a standards
 		// failure, and opening with FAIL over it spends the word that
