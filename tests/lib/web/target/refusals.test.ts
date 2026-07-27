@@ -294,4 +294,42 @@ describe("describeRefusal", () => {
 		expect(text).toContain("2000");
 		expect(text).toContain("Cookies");
 	});
+
+	it("suggests same-role controls when no name was asked for", () => {
+		// Every name contains the empty string, so a nameless target
+		// used to make near misses of the whole page. What is useful
+		// is the controls that share the role and do have a name.
+		const root = node("RootWebArea", "Shop", [
+			node("button", "Save"),
+			node("link", "Help"),
+		]);
+
+		const refusal = notFoundRefusal(root, { role: "button" });
+		const text = describeRefusal({ role: "button" }, refusal);
+
+		expect(text).toContain('role button name "Save"');
+		expect(text).not.toContain("Help");
+	});
+
+	it("describes a nameless target by role alone", () => {
+		// What a refusal prints is what the caller passes back, and
+		// plenty of real controls (an icon button, a bare input) have
+		// no accessible name to pass.
+		const text = describeRefusal(
+			{ role: "button", name: "" },
+			{ reason: "notFound", candidates: [] },
+		);
+
+		expect(text).toContain("role button");
+		expect(text).not.toContain('name ""');
+	});
+
+	it("still says which name it could not find", () => {
+		const text = describeRefusal(
+			{ role: "button", name: "Buy" },
+			{ reason: "notFound", candidates: [] },
+		);
+
+		expect(text).toContain('role button name "Buy"');
+	});
 });

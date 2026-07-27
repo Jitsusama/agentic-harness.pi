@@ -117,6 +117,20 @@ screen reader user addresses the page, so a target that cannot
 be named this way is usually a real accessibility problem rather
 than an inconvenience.
 
+Some controls have no accessible name at all, an icon button or
+a bare input being the common ones, and the outline shows them
+as a role on its own. Address them the same way, by giving the
+role and no name. That a control needs this is itself worth
+reporting: it is what a screen reader user would meet as an
+unlabelled button.
+
+```
+browser_do role:"button" action:"click"
+```
+
+If more than one matches, the refusal lists them with an
+`ordinal` you can pass back.
+
 When a target does not resolve, the refusal lists candidates
 that do. Read them rather than guessing again: they come from
 the live page.

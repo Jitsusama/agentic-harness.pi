@@ -2812,8 +2812,12 @@ export class BrowserSession {
 		// candidate that matches is chosen by the identity the resolution
 		// already settled rather than by position in a second list.
 		// Choosing by index here is how a click lands on the wrong row.
+		// A target with no name is written with none, not with the
+		// word "undefined": interpolating a missing name produced
+		// aria/undefined[role="button"], which matches nothing, so an
+		// element the outline had just offered refused every act.
 		const handles = await this.page.$$(
-			`aria/${target.name}[role="${target.role}"]`,
+			`aria/${target.name ?? ""}[role="${target.role}"]`,
 		);
 		let element: ElementHandle | undefined;
 		for (const handle of handles) {
