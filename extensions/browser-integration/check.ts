@@ -160,7 +160,10 @@ const parameters = Type.Object({
 		Type.Number({
 			description:
 				"How many times to press Tab. Defaults to twice the number of " +
-				"focusable things, which is enough to show a cycle.",
+				"focusable things, which is enough to show a cycle, or 400 " +
+				"where that is fewer. A page with more controls than that " +
+				"reports what it did not reach; pass a larger number to " +
+				"walk it to the end.",
 		}),
 	),
 });

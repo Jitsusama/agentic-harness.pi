@@ -135,7 +135,12 @@ const SNAPSHOT_STYLES: readonly string[] = [
 /** Extra stops beyond two full passes, to show a cycle clearly. */
 const WALK_SLACK = 4;
 
-/** The hard ceiling on a walk, however large the page. */
+/**
+ * How far the walk goes when nobody said, however large the page.
+ *
+ * A ceiling on the default rather than on the caller: asked for
+ * more stops than this, the walk takes them.
+ */
 const MAX_WALK_STOPS = 400;
 
 /** How many trailing stops to inspect for being stuck. */
@@ -1316,10 +1321,15 @@ export class BrowserSession {
 			unreachable: Unreachable[];
 		}>(WALK_COLLECT);
 
-		const cap = Math.min(
-			maxStops ?? collected.candidates.length * 2 + WALK_SLACK,
-			MAX_WALK_STOPS,
-		);
+		// The ceiling belongs to the default, not to the caller. It
+		// used to apply to both, so a page with more controls than
+		// the ceiling could not be walked to the end by any argument,
+		// while the report that ran out of budget told the caller to
+		// raise maxStops and walk the rest. Every larger number gave
+		// the same four hundred stops and the same advice again.
+		const cap =
+			maxStops ??
+			Math.min(collected.candidates.length * 2 + WALK_SLACK, MAX_WALK_STOPS);
 
 		const stops: WalkStop[] = [];
 		for (let step = 0; step < cap; step += 1) {
