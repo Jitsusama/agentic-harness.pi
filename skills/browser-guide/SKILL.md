@@ -76,6 +76,7 @@ here.
 | Know why an element is the colour it is | `see kind:"element" why:"color"` |
 | See a focus ring or a hover style | `see kind:"element" states:["focus-visible","hover"]` |
 | Check a phone layout | `check widths:[375,768,1280]`, which works with every kind |
+| Test a page behind a login without signing in each time | `go kind:"storage" save:"/tmp/signed-in.json"` once, then `load:` it |
 | Test with the network off or slow | `go kind:"network" throttle:"offline"` |
 | Answer a request yourself | `go kind:"network" mock:"*/api/*" body:...` |
 | See the page as a colour-blind or low-vision visitor | `go kind:"emulate" vision:"deuteranopia"` |
@@ -319,7 +320,14 @@ request log under `filter: failed`.
   refused rather than quietly ignored, because a test that
   believes it is offline and is not will report the wrong thing
 - `storage`: read, write or clear cookies, local and session
-  storage, and the clipboard
+  storage, and the clipboard. `save` writes everything that keeps
+  a session signed in to a file, and `load` puts it back in a
+  session that never signed in, which is how you test behind a
+  login without repeating the login. Cookies apply anywhere; the
+  DOM stores belong to an origin, so navigate there first and
+  reload after. When you are not on that origin it restores the
+  cookies, writes nothing else, and says so, rather than
+  reporting a success that leaves you signed out
 - `dialogs`: decide how alerts and confirms are answered. The
   default is dismiss, and every dialog seen is recorded
 

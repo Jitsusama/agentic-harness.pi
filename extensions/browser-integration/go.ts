@@ -7,9 +7,11 @@
  * common path costs a single call.
  */
 
+import { readFile, writeFile } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { KnownDevices } from "puppeteer-core";
+import { count } from "../../lib/web/audit/verdict.js";
 import {
 	deviceEmulation,
 	noSuchDevice,
@@ -17,6 +19,7 @@ import {
 import {
 	type EmulationState,
 	type NetworkRule,
+	readState,
 	renderEnvironment,
 	renderShaping,
 	type ThrottleConditions,
@@ -60,7 +63,9 @@ const parameters = Type.Object({
 					"read back the ones already seen. " +
 					"emulate: be a different visitor, by device, viewport, media " +
 					"preference, sight, locale or clock. " +
-					"storage: read, write or clear what the page has kept. " +
+					"storage: read, write or clear what the page has kept, or " +
+					"save the signed-in state to a file and load it back in " +
+					"another session. " +
 					"network: mock, block, throttle or go offline, and " +
 					"clear to undo all of it. " +
 					"Defaults to navigate with a url, open without one.",
@@ -128,6 +133,22 @@ const parameters = Type.Object({
 			description:
 				"For storage: the value to write under key, or the text to " +
 				"put on the clipboard.",
+		}),
+	),
+	save: Type.Optional(
+		Type.String({
+			description:
+				"For storage: write everything keeping this session signed " +
+				"in, cookies and both DOM stores, to this file path. Sign " +
+				"in once and every later session can wear it.",
+		}),
+	),
+	load: Type.Optional(
+		Type.String({
+			description:
+				"For storage: put back a state saved earlier, from this " +
+				"file path. Navigate to the origin first, since the DOM " +
+				"stores belong to one, then reload so the page reads them.",
 		}),
 	),
 	clear: Type.Optional(
@@ -410,8 +431,15 @@ async function runStorage(
 		key?: string;
 		value?: string;
 		clear?: boolean;
+		save?: string;
+		load?: string;
 	},
 ): Promise<string> {
+	if (params.save !== undefined)
+		return await saveSignedIn(session, params.save);
+	if (params.load !== undefined)
+		return await loadSignedIn(session, params.load);
+
 	const store = params.store ?? "all";
 	const wanted = {
 		local: store === "local" || store === "all",
@@ -441,6 +469,65 @@ async function runStorage(
 	}
 
 	return storageAnswer(await session.storage(wanted));
+}
+
+/**
+ * Keep everything that makes this session signed in, in a file.
+ *
+ * Written where the caller asked rather than into the session
+ * bundle, because the whole point is to outlive this session, and
+ * a path a caller chose is one they can find again.
+ */
+async function saveSignedIn(
+	session: BrowserSession,
+	path: string,
+): Promise<string> {
+	const state = await session.saveState();
+	try {
+		await writeFile(path, JSON.stringify(state, null, 1), "utf8");
+	} catch (err) {
+		return `Could not write the state to ${path}: ${String(err)}`;
+	}
+	return (
+		`Saved ${count(state.cookies.length, "cookie")}, ` +
+		`${count(state.local.length, "local entry")} and ` +
+		`${count(state.session.length, "session entry")} for ` +
+		`${state.origin} to ${path}. Load it in another session after ` +
+		"navigating to that origin, then reload so the page reads it."
+	);
+}
+
+/** Wear a state saved earlier, saying exactly what landed. */
+async function loadSignedIn(
+	session: BrowserSession,
+	path: string,
+): Promise<string> {
+	let text: string;
+	try {
+		text = await readFile(path, "utf8");
+	} catch (err) {
+		return `Could not read a state from ${path}: ${String(err)}`;
+	}
+	const state = readState(text);
+	if ("problem" in state) {
+		return `${path} is not a saved state: ${state.problem}`;
+	}
+
+	const landed = await session.loadState(state);
+	if (landed.wrongOrigin !== undefined) {
+		return (
+			`Restored ${count(landed.cookies, "cookie")}, which apply ` +
+			`everywhere. The stored entries belong to ${state.origin} and ` +
+			`this session is on ${landed.wrongOrigin}, so none were ` +
+			"written. Navigate to that origin and load it again."
+		);
+	}
+	return (
+		`Restored ${count(landed.cookies, "cookie")}, ` +
+		`${count(landed.local, "local entry")} and ` +
+		`${count(landed.session, "session entry")} for ${state.origin}. ` +
+		"Reload for the page to read them."
+	);
 }
 
 /** Register the navigation half of the browser family. */

@@ -93,11 +93,13 @@ import {
 import { DIR_MODE, FILE_MODE, pathComponent } from "./envelope/index.js";
 import {
 	type CookieRecord,
+	captureState,
 	type Divergence,
 	type EmulationState,
 	matchesPattern,
 	type NetworkRule,
 	type ObservedEnvironment,
+	type SavedState,
 	type SessionStatus,
 	type StorageSnapshot,
 	type ThrottleConditions,
@@ -1119,6 +1121,82 @@ export class BrowserSession {
 			key,
 			value,
 		});
+	}
+
+	/**
+	 * Keep everything that makes this session signed in.
+	 *
+	 * Cookies and the two DOM stores together, because being logged
+	 * in is rarely all in one of them: a session cookie and a token
+	 * in local storage is the ordinary arrangement, and saving half
+	 * of it produces a state that restores without signing anyone
+	 * in.
+	 */
+	async saveState(): Promise<SavedState> {
+		await this.ready();
+		const snapshot = await this.storage({
+			local: true,
+			session: true,
+			cookies: true,
+		});
+		return captureState(await this.origin(), snapshot);
+	}
+
+	/**
+	 * Wear a state saved earlier, and report exactly what landed.
+	 *
+	 * Cookies go to the browser, so they apply whatever page is
+	 * open. The DOM stores are scoped to an origin, so they can only
+	 * be written while the session is on the origin they came from,
+	 * and the answer says when they were not rather than counting
+	 * them as restored. A caller who is told they are signed in and
+	 * is not will blame the site.
+	 */
+	async loadState(state: SavedState): Promise<{
+		cookies: number;
+		local: number;
+		session: number;
+		wrongOrigin?: string;
+	}> {
+		await this.ready();
+		if (state.cookies.length > 0) {
+			await this.cdp.send("Network.setCookies", {
+				cookies: state.cookies.map(({ sameSite, ...rest }) => ({
+					...rest,
+					// A saved file can hold any string here, and the protocol
+					// takes three. An unrecognised one is dropped rather than
+					// passed on: without the attribute the browser applies its
+					// own default, which is what a cookie with a nonsense
+					// value would have got anyway, and sending it refuses the
+					// whole batch and signs nobody in.
+					...(sameSite === "Strict" || sameSite === "Lax" || sameSite === "None"
+						? { sameSite }
+						: {}),
+				})),
+			});
+		}
+
+		const here = await this.origin();
+		if (here !== state.origin) {
+			return {
+				cookies: state.cookies.length,
+				local: 0,
+				session: 0,
+				wrongOrigin: here,
+			};
+		}
+
+		for (const [key, value] of state.local) {
+			await this.setStored(true, key, value);
+		}
+		for (const [key, value] of state.session) {
+			await this.setStored(false, key, value);
+		}
+		return {
+			cookies: state.cookies.length,
+			local: state.local.length,
+			session: state.session.length,
+		};
 	}
 
 	/** Empty the stores named, and only those. */
