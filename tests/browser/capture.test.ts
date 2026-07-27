@@ -163,6 +163,17 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 		}
 	});
 
+	it("walks as far as it is asked to, past its own default ceiling", async () => {
+		// The report tells a caller who ran out of budget to "raise
+		// maxStops to walk the rest". A ceiling of 400 was applied to
+		// the caller's number as well as to the default, so on a page
+		// with more controls than that the advice could not be taken:
+		// every larger number produced the same 400 stops.
+		const walk = await session.keyboardWalk(420);
+
+		expect(walk.stops.length).toBe(420);
+	});
+
 	it("puts focus back where it found it", async () => {
 		// A walk moves focus as its whole method. Leaving it somewhere
 		// else changes the page for whatever the caller does next.

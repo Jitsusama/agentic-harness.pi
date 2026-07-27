@@ -360,6 +360,29 @@ export function analyseWalk(capture: WalkCapture): WalkFindings {
 /** How many stops are worth listing before summarising. */
 const MAX_LISTED_STOPS = 40;
 
+/**
+ * How many of anything else is worth naming before counting.
+ *
+ * The tab order has always stopped at forty and said how many
+ * more there were. The finding lists beside it printed every
+ * entry, so one article answered with two hundred and fifty
+ * unvisited control names, longer than the rest of the report
+ * together and mostly repetitions of the same word.
+ */
+export const MAX_LISTED_FINDINGS = 12;
+
+/** Name a few, count the rest, in one place for every list. */
+function listSome(
+	lines: string[],
+	entries: readonly string[],
+	cap = MAX_LISTED_FINDINGS,
+): void {
+	for (const entry of entries.slice(0, cap)) lines.push(`  ${entry}`);
+	if (entries.length > cap) {
+		lines.push(`  ... and ${entries.length - cap} more.`);
+	}
+}
+
 /** The walk, as a person would report it. */
 export function renderWalk(findings: WalkFindings): string {
 	const lines: string[] = [];
@@ -398,20 +421,25 @@ export function renderWalk(findings: WalkFindings): string {
 
 	if (findings.noIndicator.length > 0) {
 		lines.push("No visible focus indicator, so focus cannot be followed:");
-		for (const stop of findings.noIndicator) {
-			lines.push(`  ${stop.name || stop.tag} (${stop.tag.toLowerCase()})`);
-		}
+		listSome(
+			lines,
+			findings.noIndicator.map(
+				(stop) => `${stop.name || stop.tag} (${stop.tag.toLowerCase()})`,
+			),
+		);
 		lines.push("");
 	}
 
 	if (findings.unreachable.length > 0) {
 		lines.push("Behaves interactively but tab never reaches it:");
-		for (const item of findings.unreachable) {
-			lines.push(
-				`  ${item.name || item.tag} (${item.tag.toLowerCase()}) ` +
+		listSome(
+			lines,
+			findings.unreachable.map(
+				(item) =>
+					`${item.name || item.tag} (${item.tag.toLowerCase()}) ` +
 					`- ${item.because}`,
-			);
-		}
+			),
+		);
 		lines.push("");
 	}
 
@@ -420,12 +448,14 @@ export function renderWalk(findings: WalkFindings): string {
 			"Positive tabindex, which pulls these ahead of everything else " +
 				"on the page:",
 		);
-		for (const candidate of findings.positiveTabindex) {
-			lines.push(
-				`  ${candidate.name || candidate.tag} (tabindex ` +
+		listSome(
+			lines,
+			findings.positiveTabindex.map(
+				(candidate) =>
+					`${candidate.name || candidate.tag} (tabindex ` +
 					`${candidate.tabindex})`,
-			);
-		}
+			),
+		);
 		lines.push("");
 	} else if (findings.reordered) {
 		lines.push("The tab order does not follow the document order.", "");
@@ -433,9 +463,10 @@ export function renderWalk(findings: WalkFindings): string {
 
 	if (findings.offscreen.length > 0) {
 		lines.push("Focused while off screen, so the page appears not to react:");
-		for (const stop of findings.offscreen) {
-			lines.push(`  ${stop.name || stop.tag}`);
-		}
+		listSome(
+			lines,
+			findings.offscreen.map((stop) => stop.name || stop.tag),
+		);
 		lines.push("");
 	}
 
@@ -451,9 +482,10 @@ export function renderWalk(findings: WalkFindings): string {
 						`before the walk hit its ${findings.cappedAt}-stop budget. ` +
 						"Raise maxStops to walk the rest:",
 		);
-		for (const candidate of findings.missed) {
-			lines.push(`  ${candidate.name || candidate.tag}`);
-		}
+		listSome(
+			lines,
+			findings.missed.map((candidate) => candidate.name || candidate.tag),
+		);
 		lines.push("");
 	}
 

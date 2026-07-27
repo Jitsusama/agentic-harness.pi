@@ -52,6 +52,7 @@ export {
 	type FocusStyle,
 	type Indicator,
 	indicatorOf,
+	MAX_LISTED_FINDINGS,
 	renderWalk,
 	type Trap,
 	type Unreachable,

@@ -10,7 +10,11 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
-import { analyseWalk, renderWalk } from "../../lib/web/a11y/index.js";
+import {
+	analyseWalk,
+	MAX_LISTED_FINDINGS,
+	renderWalk,
+} from "../../lib/web/a11y/index.js";
 import {
 	type A11yFinding,
 	analyseStructure,
@@ -156,7 +160,10 @@ const parameters = Type.Object({
 		Type.Number({
 			description:
 				"How many times to press Tab. Defaults to twice the number of " +
-				"focusable things, which is enough to show a cycle.",
+				"focusable things, which is enough to show a cycle, or 400 " +
+				"where that is fewer. A page with more controls than that " +
+				"reports what it did not reach; pass a larger number to " +
+				"walk it to the end.",
 		}),
 	),
 });
@@ -413,7 +420,39 @@ async function runOnce(
 		);
 	}
 
-	return renderWalk(analyseWalk(capture));
+	const walked = analyseWalk(capture);
+	if (keep === "discard") return renderWalk(walked);
+	// Each list names a few and counts the rest, so on a large page
+	// most of what the walk found is not in the view. The stops and
+	// the findings are the same capture, so a caller can ask which
+	// control was the fortieth or what the unvisited ones were
+	// called without walking the page a second time and getting a
+	// different answer.
+	return listAnswer({
+		view: renderWalk(walked),
+		elided: [
+			walked.missed,
+			walked.offscreen,
+			walked.noIndicator,
+			walked.unreachable,
+			walked.positiveTabindex,
+			walked.stops,
+		].some((list) => list.length > MAX_LISTED_FINDINGS),
+		records: [
+			{
+				stops: walked.stops,
+				missed: walked.missed,
+				offscreen: walked.offscreen,
+				noIndicator: walked.noIndicator,
+				unreachable: walked.unreachable,
+				positiveTabindex: walked.positiveTabindex,
+			},
+		],
+		unit: "walks",
+		narrowing:
+			"Query the walk by list: stops, missed, offscreen, " +
+			"noIndicator, unreachable or positiveTabindex.",
+	});
 }
 
 /**
