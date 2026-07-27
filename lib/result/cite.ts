@@ -19,6 +19,7 @@
 
 import { count } from "./counts.js";
 import { summarizeJson } from "./digest.js";
+import { queryTool } from "./follow.js";
 import type { ResultStore } from "./store.js";
 
 /** What a family knows about the answer it is about to give. */
@@ -114,9 +115,18 @@ function citation<T>(
 ): string {
 	const held = count(answer.total);
 	const seen = count(answer.shown);
+	const tool = queryTool();
 	const rest =
-		`Query it with result_query, projecting the fields you want ` +
-		`rather than whole records. Shape: ${digest}`;
+		tool === undefined
+			? // Naming a tool that is not loaded is worse than saying
+				// nothing: it promises the rest of the data is one call
+				// away. The shape still helps a reader decide whether it
+				// is worth loading the tool that can read it.
+				`No tool in this session can read a handle, so this one ` +
+				`cannot be followed; load the result-store-workflow ` +
+				`extension to query it. Shape: ${digest}`
+			: `Query it with ${tool}, projecting the fields you want ` +
+				`rather than whole records. Shape: ${digest}`;
 	if (answer.elided && answer.shown >= answer.total) {
 		// Nothing was cut, so there is no shortfall in lines to report.
 		// Saying "renders 12 of 12 lines" next to a handle would invite

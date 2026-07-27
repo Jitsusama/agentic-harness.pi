@@ -20,6 +20,7 @@ import {
 	cleanupSessionResults,
 	DEFAULT_MAX_MATCHES,
 	isPidAlive,
+	offerQueryTool,
 	openSessionStore,
 	queryStored,
 	RESULT_ROOT,
@@ -35,9 +36,18 @@ export interface QueryDetails {
 	readonly matches?: number;
 }
 
+/** The tool this extension contributes, named once. */
+const QUERY_TOOL = "result_query";
+
 export default function resultStore(pi: ExtensionAPI) {
+	// Citations are written by other extensions, which mint handles
+	// whether or not anything can read them. This is how they find
+	// out that something can: without it they name a tool that may
+	// not be loaded, and promise a call that does not exist.
+	offerQueryTool(QUERY_TOOL);
+
 	pi.registerTool({
-		name: "result_query",
+		name: QUERY_TOOL,
 		label: "Query Result",
 		description:
 			"Query a stored tool output with a JSONPath expression. Tools that " +

@@ -7,7 +7,9 @@ import {
 import {
 	cleanupSessionResults,
 	createResultStore,
+	offerQueryTool,
 	sessionResultDir,
+	withdrawQueryTool,
 } from "../../../lib/result/index.js";
 import type { AxNode } from "../../../lib/web/a11y/index.js";
 import { renderAxOutline } from "../../../lib/web/a11y/index.js";
@@ -61,6 +63,7 @@ function handleIn(text: string): string | undefined {
 
 describe("pageAnswer", () => {
 	afterEach(() => {
+		withdrawQueryTool();
 		cleanupSessionResults();
 	});
 
@@ -96,6 +99,9 @@ describe("pageAnswer", () => {
 	});
 
 	it("says how to narrow, in the vocabulary the tool accepts", () => {
+		// The query tool comes from a different extension, so a citation
+		// only names it when that extension is loaded. Here it is.
+		offerQueryTool("result_query");
 		const text = pageAnswer(hugePage(4_000), 4_096);
 
 		expect(text).toContain("'only'");

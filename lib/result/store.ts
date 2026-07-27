@@ -118,6 +118,16 @@ export function createResultStore(deps: {
 	dir: string;
 	maxBytes?: number;
 }): ResultStore {
+	/** Whether a filesystem error means the file simply is not there. */
+	function isMissing(err: unknown): boolean {
+		return (
+			typeof err === "object" &&
+			err !== null &&
+			"code" in err &&
+			(err.code === "ENOENT" || err.code === "ENOTDIR")
+		);
+	}
+
 	function pathFor(handle: string): string | undefined {
 		if (!HANDLE_PATTERN.test(handle)) return undefined;
 		return path.join(deps.dir, `${handle}${PAYLOAD_EXTENSION}`);
@@ -165,8 +175,18 @@ export function createResultStore(deps: {
 			if (!file) throw new HandleExpiredError(handle);
 			try {
 				return fs.readFileSync(file, "utf-8");
-			} catch {
-				throw new HandleExpiredError(handle);
+			} catch (err) {
+				// Only a missing file is an expiry. Reporting a permission
+				// error or a full disk as "this handle is no longer
+				// available" sends the caller off to re-run the work that
+				// produced it, which will fail the same way, and hides the
+				// one detail that would have explained why.
+				if (isMissing(err)) throw new HandleExpiredError(handle);
+				throw new Error(
+					`Handle ${handle} is on disk but could not be read: ` +
+						`${err instanceof Error ? err.message : String(err)}`,
+					{ cause: err },
+				);
 			}
 		},
 		has(handle) {

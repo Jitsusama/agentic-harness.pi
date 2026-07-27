@@ -190,6 +190,14 @@ Give the criterion when there is one, and only then. "WCAG 1.4.3
 Contrast (Minimum)" is checkable; an invented reference is
 worse than none.
 
+Do not read a count off the examples. `check accessibility`
+prints a handful of elements per rule and cites a handle holding
+every one it found, so the list you can see is not the extent of
+the problem. Query the handle when the number matters, which it
+does as soon as you say how much of the page a rule affects.
+Counting the printed ones understates it by orders of magnitude
+on the pages where it matters most.
+
 ## A Worked Shape
 
 ```

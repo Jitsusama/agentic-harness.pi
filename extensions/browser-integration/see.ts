@@ -11,7 +11,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
 	ACTION_VIEW_BUDGET_BYTES,
+	MAX_OUTLINE_BUDGET_BYTES,
 	OUTLINE_BUDGET_BYTES,
+	outlineBudget,
 	renderAnnouncements,
 	type Skeleton,
 	type TreeScope,
@@ -446,11 +448,14 @@ const parameters = Type.Object({
 	),
 	budget: Type.Optional(
 		Type.Number({
+			minimum: 1,
+			maximum: MAX_OUTLINE_BUDGET_BYTES,
 			description:
 				"For page and reading: how many bytes of outline to return " +
-				`before storing the rest. Defaults to ${OUTLINE_BUDGET_BYTES}. ` +
-				"Whatever is cut stays queryable by handle, so narrowing with " +
-				"'only', 'depth' or 'within' is usually better than raising this.",
+				`before storing the rest. Defaults to ${OUTLINE_BUDGET_BYTES}, ` +
+				`and will not go above ${MAX_OUTLINE_BUDGET_BYTES}. Whatever ` +
+				"is cut stays queryable by handle, so narrowing with 'only', " +
+				"'depth' or 'within' is the way to see more, not raising this.",
 		}),
 	),
 });
@@ -746,7 +751,11 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 			// A caller who asked to see the page gets the generous budget;
 			// the tighter one is for the view that follows an action nobody
 			// asked a page read of.
-			const budget = params.budget ?? OUTLINE_BUDGET_BYTES;
+			// Clamped, not obeyed. Raising this is never how you see
+			// more of a page: whatever is cut stays queryable, so a
+			// hundred-megabyte budget buys nothing the handle does not
+			// already offer, and spends a context window doing it.
+			const budget = outlineBudget(params.budget);
 			const form = kind === "reading" ? "reading" : "outline";
 			if (params.within === undefined) {
 				return answer(

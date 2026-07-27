@@ -40,6 +40,35 @@ export const OUTLINE_BUDGET_BYTES = 16_384;
  */
 export const ACTION_VIEW_BUDGET_BYTES = 4_096;
 
+/**
+ * The most an outline will spend, however large a budget is asked
+ * for.
+ *
+ * Every other limit here is a presentation default that a caller
+ * can raise, because nothing should cap what this package can
+ * find out. A budget is different: it is not a limit on the
+ * finding, it is a limit on what gets pasted into a context
+ * window, and the whole point of storing the remainder is that
+ * raising it is never the way to see more. Left open, one call
+ * asking for a hundred megabytes undoes the entire mechanism, and
+ * the model choosing the number is the one party with no idea
+ * what it costs. Four times the generous default, which no real
+ * page reaches.
+ */
+export const MAX_OUTLINE_BUDGET_BYTES = OUTLINE_BUDGET_BYTES * 4;
+
+/**
+ * The budget to actually spend, given what was asked for.
+ *
+ * Refuses nothing: a caller who asks for more than the ceiling
+ * gets the ceiling, and the citation then tells them the rest is
+ * queryable, which is what they wanted in the first place.
+ */
+export function outlineBudget(asked: number | undefined): number {
+	if (asked === undefined) return OUTLINE_BUDGET_BYTES;
+	return Math.max(1, Math.min(asked, MAX_OUTLINE_BUDGET_BYTES));
+}
+
 /** An outline cut to fit, and what fitting it cost. */
 export interface BudgetedOutline extends BudgetedView {
 	/** What was cut and how to read it, when anything was. */

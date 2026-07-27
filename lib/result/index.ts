@@ -21,6 +21,7 @@ export {
 	recordsIn,
 } from "./details.js";
 export { type JsonSummaryOptions, summarizeJson } from "./digest.js";
+export { offerQueryTool, queryTool, withdrawQueryTool } from "./follow.js";
 export {
 	citeListing,
 	LISTING_BUDGET_BYTES,
