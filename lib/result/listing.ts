@@ -51,6 +51,25 @@ export function citeListing<T>(
 	const bounded = withinLineBudget(listing.view, budget);
 	if (bounded.cut === 0) return bounded.text;
 
+	if (listing.records.length === 0) {
+		// A caller whose view was cut needs the rest of it, and an empty
+		// array is not the rest of it. "All 0 findings are stored under
+		// handle X" invites a query that can only come back empty, and
+		// reads as though the answer were empty rather than the payload
+		// being the wrong thing to have kept.
+		return cite(store, {
+			payload: listing.view,
+			view:
+				`${bounded.text}\n\n` +
+				`Cut ${count(bounded.cut)} of ${count(bounded.total)} lines ` +
+				`to fit the ${count(budget)} byte budget. ${listing.narrowing}`,
+			shown: bounded.shown,
+			total: bounded.total,
+			unit: "lines",
+			stored: { unit: "rendered answer" },
+		}).text;
+	}
+
 	const cited = cite(store, {
 		payload: listing.records,
 		view:

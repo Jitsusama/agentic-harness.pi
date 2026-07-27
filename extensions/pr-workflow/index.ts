@@ -1481,9 +1481,19 @@ ${reviewValidationDirective()}`,
 					// context window on unread. Storing the findings means they
 					// can be filtered by label, severity or file without
 					// reading all of them first.
+					// Both sets, because the view renders both. Storing only
+					// the judge's consolidated list meant a caller who saw a
+					// stack finding in front of them and went looking for it
+					// in the payload found nothing, and a run with stack
+					// findings but no per-PR ones cited a handle over an
+					// empty array while claiming to hold the answer.
+					const records = [
+						...(state.council.lastJudge?.consolidatedFindings ?? []),
+						...(state.stackFindingRun?.findings ?? []),
+					];
 					const text = citeListing(openSessionStore(), {
 						view: rendered,
-						records: state.council.lastJudge?.consolidatedFindings ?? [],
+						records,
 						unit: "findings",
 						narrowing:
 							"Use the compact view without 'verbose', or query the " +

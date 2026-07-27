@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { boundedByDetails } from "../../../lib/result/details.js";
+import { citeListing } from "../../../lib/result/listing.js";
 import { queryStored } from "../../../lib/result/query.js";
 import {
 	createResultStore,
@@ -162,5 +163,41 @@ describe("when the store cannot be written to", () => {
 		// than left to assume the view was everything.
 		expect(text).toContain("blocked row 0");
 		expect(text).toContain("could not be stored");
+	});
+});
+
+describe("a listing with a long view and no records", () => {
+	let dir: string;
+	let store: ResultStore;
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "empty-"));
+		store = createResultStore({ dir });
+	});
+
+	afterEach(() => {
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("keeps the rendering rather than citing an empty collection", () => {
+		const view = longView("rendered");
+
+		const text = citeListing(store, {
+			view,
+			records: [],
+			unit: "findings",
+			narrowing: "Ask for fewer.",
+		});
+
+		// A view can be rendered from more than the collection handed
+		// over: the findings view draws stack findings too. Citing the
+		// empty list said "All 0 findings are stored", which invites a
+		// query that can only come back empty and reads as though the
+		// answer were empty rather than the payload being wrong.
+		expect(text).not.toContain("All 0 findings");
+		const handle = handleIn(text);
+		expect(handle).toBeDefined();
+		const followed = queryStored(store, handle as string, "$");
+		expect(followed.json).toContain("rendered row 399");
 	});
 });
