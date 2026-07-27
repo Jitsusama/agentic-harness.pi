@@ -20,6 +20,7 @@ import {
 	vi,
 } from "vitest";
 import { BrowserSession } from "../../lib/web/session.js";
+import { describeRefusal } from "../../lib/web/target/index.js";
 import { type Fixture, haveChrome, page, serve } from "./_harness.js";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
@@ -41,6 +42,7 @@ const FORM = page(
     <div id="cover" style="position:absolute;inset:0;background:rgba(0,0,0,0.01)"></div>
   </div>
   <nav><button type="button" id="icon" onclick="document.getElementById('log').textContent = 'icon'"><svg width="20" height="20" aria-hidden="true"></svg></button></nav>
+  <div id="faux" style="padding:4px;border:1px solid #999">Publish</div>
   <div id="scroller" style="height:2000px"></div>
   <button type="button" id="far" onclick="document.getElementById('log').textContent = 'far'">Far below</button>
 </main>`,
@@ -237,6 +239,23 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 		});
 
 		expect(result.ok).toBe(false);
+	});
+
+	it("blames the missing role when the page has the name as text", async () => {
+		// A div dressed as a button is the commonest reason a target
+		// misses, and the refusal used to answer that nothing on the
+		// page was close to it, which sends the caller hunting for a
+		// typo while the word sits on the screen.
+		const target = { role: "button", name: "Publish" };
+		const result = await session.act({ kind: "click", target });
+
+		expect(result.ok).toBe(false);
+		// A name that matches nothing is refused before readiness is
+		// ever consulted, so this is the refusal branch, not blocked.
+		if (result.ok || !("refusal" in result)) throw new Error("no refusal");
+		const said = describeRefusal(target, result.refusal);
+		expect(said).not.toContain("nothing on the page is close to it");
+		expect(said).toContain("Publish");
 	});
 
 	it("will not click a button the page has disabled", async () => {
