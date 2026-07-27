@@ -219,6 +219,11 @@ the answer arrives.
 - Screenshots never come back inline. They are written to the
   session bundle and the answer carries the path. `see status`
   lists everything written
+- A shot takes the viewport by default, the whole scrollable page
+  with `fullPage`, and one element cropped to its own box with
+  `within:"button Save"`. Reach for the element form when the
+  answer is about one component: a page of tiles to look at a
+  button wastes both of you
 - `see query` with no query returns the shape of the page rather
   than every node. Narrow with `tag`, `attribute`, `className`,
   `text`, `rendered` or `inShadow`

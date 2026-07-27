@@ -107,11 +107,26 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 	});
 
 	it("photographs one element when told which", async () => {
-		const shot = await session.shoot({
-			target: { role: "button", name: "Second control" },
-		});
+		// Asserting only that it succeeded would pass just as well if
+		// the crop were dropped and the whole viewport returned, which
+		// is the regression worth catching: the picture would still
+		// arrive, still open, and still show the button somewhere in
+		// it. So the size is checked against the element's own box.
+		const target = { role: "button", name: "Second control" };
+		const found = await session.inspect(target);
+		expect(found.ok).toBe(true);
+		if (!found.ok) return;
+		const box = found.inspection.box?.border;
+		expect(box).toBeDefined();
+		if (!box) return;
+
+		const shot = await session.shoot({ target });
 
 		expect(shot.ok).toBe(true);
+		if (!shot.ok) return;
+		expect(shot.shot.paths.length).toBe(1);
+		expect(shot.shot.width).toBe(Math.round(box.width));
+		expect(shot.shot.height).toBe(Math.round(box.height));
 	});
 
 	it("refuses to photograph an element that is not there", async () => {
