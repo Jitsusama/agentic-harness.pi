@@ -92,13 +92,7 @@ import {
 	sameBox,
 	type VisibilityVerdict,
 } from "./element/index.js";
-import {
-	type BundleSink,
-	DIR_MODE,
-	diskSink,
-	FILE_MODE,
-	pathComponent,
-} from "./envelope/index.js";
+import { DIR_MODE, FILE_MODE, pathComponent } from "./envelope/index.js";
 import {
 	type CookieRecord,
 	type Divergence,
@@ -212,6 +206,7 @@ import {
 	type Vitals,
 } from "./perf/index.js";
 import { captureTiles } from "./screenshot.js";
+import { ArtifactLedger } from "./session/artifacts.js";
 import { EmulationController } from "./session/emulation.js";
 import { NetworkShaper } from "./session/shaping.js";
 import { SourceMapStore } from "./session/sourcemaps.js";
@@ -479,9 +474,6 @@ export class BrowserSession {
 	/** What every property computes to untouched, read once. */
 	private initialStyles?: ComputedStyles;
 
-	/** Where this session's images are written, made on demand. */
-	private bundle?: BundleSink;
-
 	/** Everything the page has said since it opened. */
 	private readonly logBuffer = createRingBuffer<LogEntry>();
 
@@ -512,15 +504,6 @@ export class BrowserSession {
 	/** How dialogs get answered while nobody is watching. */
 	private dialogPolicy: DialogPolicy = DEFAULT_DIALOG_POLICY;
 
-	/** How many pictures have been taken, so none overwrites another. */
-	private shots = 0;
-
-	/** How many archives have been written, for the same reason. */
-	private archives = 0;
-
-	/** Everything this session has put on disk, in order. */
-	private readonly written: string[] = [];
-
 	/** The live view collaborators drive the browser through. */
 	private readonly wires: SessionWires = {
 		page: () => this.page,
@@ -539,6 +522,9 @@ export class BrowserSession {
 
 	/** The rules and throttle this session's network answers to. */
 	private readonly shaper = new NetworkShaper(this.wires);
+
+	/** The disk side of this session: sink, stamps and ledger. */
+	private readonly artifacts = new ArtifactLedger();
 
 	/** Files the page has handed back. */
 	private readonly downloadLog = createDownloadRecorder();
@@ -720,14 +706,13 @@ export class BrowserSession {
 			if (fetched && fetched.body.length > 0) bodies.set(request.id, fetched);
 		}
 
-		if (!this.bundle) this.bundle = diskSink();
-		this.archives += 1;
-		const path = this.bundle.writeText(
-			`capture-${String(this.archives).padStart(2, "0")}.har`,
-			JSON.stringify(toHar(requests, { bodies }), null, 2),
-		);
-		this.written.push(path);
-		return path;
+		const path = this.artifacts
+			.sink()
+			.writeText(
+				`capture-${this.artifacts.nextArchive()}.har`,
+				JSON.stringify(toHar(requests, { bodies }), null, 2),
+			);
+		return this.artifacts.keep(path);
 	}
 
 	/**
@@ -1175,7 +1160,6 @@ export class BrowserSession {
 	 * never offered a file.
 	 */
 	private async listenForDownloads(): Promise<void> {
-		if (!this.bundle) this.bundle = diskSink();
 		this.cdp.on("Browser.downloadWillBegin", (event) => {
 			this.downloadLog.apply({
 				kind: "begin",
@@ -1203,12 +1187,12 @@ export class BrowserSession {
 				const landed = this.downloadLog
 					.all()
 					.find((record) => record.guid === event.guid);
-				if (landed?.filePath) this.written.push(landed.filePath);
+				if (landed?.filePath) this.artifacts.keep(landed.filePath);
 			}
 		});
 		await this.cdp.send("Browser.setDownloadBehavior", {
 			behavior: "allow",
-			downloadPath: this.bundle.dir,
+			downloadPath: this.artifacts.sink().dir,
 			eventsEnabled: true,
 			browserContextId: this.context.id,
 		});
@@ -2162,7 +2146,7 @@ export class BrowserSession {
 				failed: requests.filter((request) => request.state === "failed").length,
 			},
 			history: this.history,
-			artifacts: this.written,
+			artifacts: this.artifacts.written,
 		};
 	}
 
@@ -2493,15 +2477,10 @@ export class BrowserSession {
 		backendNodeId: number | undefined,
 		options: ShotOptions,
 	): Promise<Shot> {
-		if (!this.bundle) this.bundle = diskSink();
-		const sink = this.bundle;
-		this.shots += 1;
-		const stamp = String(this.shots).padStart(2, "0");
+		const sink = this.artifacts.sink();
+		const stamp = this.artifacts.nextShot();
 
-		const keep = (path: string): string => {
-			this.written.push(path);
-			return path;
-		};
+		const keep = (path: string): string => this.artifacts.keep(path);
 
 		if (backendNodeId !== undefined) {
 			const box = await this.boxOf(backendNodeId);
@@ -2597,7 +2576,7 @@ export class BrowserSession {
 			writeFileSync(sidecarFor(baselinePath), stringify(takenUnder), {
 				mode: FILE_MODE,
 			});
-			this.written.push(baselinePath);
+			this.artifacts.keep(baselinePath);
 			return { comparison: undefined, recorded: baselinePath, artifacts: [] };
 		}
 
@@ -2650,9 +2629,8 @@ export class BrowserSession {
 
 		// The three together, because a diff on its own shows where
 		// something changed and never what it changed from.
-		if (!this.bundle) this.bundle = diskSink();
-		const sink = this.bundle;
-		const stamp = String(++this.shots).padStart(2, "0");
+		const sink = this.artifacts.sink();
+		const stamp = this.artifacts.nextShot();
 		const artifacts = [
 			sink.writeBinary(
 				`${safe}-${stamp}-baseline.png`,
@@ -2661,7 +2639,7 @@ export class BrowserSession {
 			sink.writeBinary(`${safe}-${stamp}-current.png`, shot.toString("base64")),
 			sink.writeBinary(`${safe}-${stamp}-diff.png`, image.toString("base64")),
 		];
-		this.written.push(...artifacts);
+		for (const artifact of artifacts) this.artifacts.keep(artifact);
 		return { comparison, artifacts };
 	}
 
