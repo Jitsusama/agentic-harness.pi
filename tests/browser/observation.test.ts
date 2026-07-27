@@ -33,6 +33,7 @@ const MAIN = page(
     <h2>Shipping</h2>
     <button type="button">Save</button>
   </section>
+  <button type="button" aria-label="Submit">Save changes</button>
   <p hidden>Hidden by the hidden attribute.</p>
   <p style="display:none">Hidden by display none.</p>
   <p style="visibility:hidden">Hidden by visibility.</p>
@@ -244,5 +245,24 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		// problems worth relying on, so the assertion is about the
 		// shape of an answer rather than a specific rule firing.
 		expect(Array.isArray(findings)).toBe(true);
+	});
+
+	it("catches a label that does not contain its own visible text", async () => {
+		// The fixture carries a button reading "Save changes" whose
+		// accessible name is "Submit". Someone driving by voice says
+		// "click Save changes" and nothing happens, which is WCAG
+		// 2.5.3. axe can test it and ships the rule switched off, so
+		// until it was switched on this page passed.
+		const findings = await session.audit();
+		const mismatch = findings.find(
+			(finding) => finding.rule === "label-content-name-mismatch",
+		);
+
+		expect(mismatch).toBeDefined();
+		expect(mismatch?.criteria).toContain("2.5.3");
+		// Reported as undecided, because axe calls the rule
+		// experimental and this package does not overrule it.
+		expect(mismatch?.kind).toBe("needs-review");
+		expect(mismatch?.authority).toBe("wcag");
 	});
 });
