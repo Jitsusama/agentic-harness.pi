@@ -474,13 +474,35 @@ async function sweep(
 	});
 }
 
-/** Every check the digest runs, in the order it reports them. */
+/** Every check the digest reports, in the order it reports them. */
 const HEALTH_KINDS = [
 	"accessibility",
 	"keyboard",
 	"visual",
 	"perf",
 	"design",
+] as const;
+
+/**
+ * The order they are actually run in, which is not the order
+ * they are read in.
+ *
+ * Performance goes first because every other check is heavy work
+ * on the page's own main thread, and the page's own observers
+ * are watching. Running the accessibility audit first meant axe
+ * injecting and executing, the keyboard walk pressing tab four
+ * hundred times, and perf then reporting six hundred
+ * milliseconds of blocking as the page's cost. A live page that
+ * scored a clean zero on its own answered FAIL inside the
+ * digest, and the long tasks stayed in the page's buffer
+ * afterwards, so every later reading inherited them.
+ *
+ * Measuring first cannot make the instrument free, but it does
+ * keep it from being charged to the page.
+ */
+export const HEALTH_RUN_ORDER = [
+	"perf",
+	...HEALTH_KINDS.filter((kind) => kind !== "perf"),
 ] as const;
 
 /**
@@ -500,7 +522,7 @@ async function digest(
 	params: CheckParams,
 ): Promise<string> {
 	const parts: Part[] = [];
-	for (const kind of HEALTH_KINDS) {
+	for (const kind of HEALTH_RUN_ORDER) {
 		try {
 			// The digest keeps a standing and a headline from each report
 			// and discards the rest, so there is nothing for a handle to
@@ -528,6 +550,12 @@ async function digest(
 			});
 		}
 	}
+	// Back into reading order, which the run order departed from.
+	parts.sort(
+		(one, other) =>
+			HEALTH_KINDS.indexOf(one.kind as (typeof HEALTH_KINDS)[number]) -
+			HEALTH_KINDS.indexOf(other.kind as (typeof HEALTH_KINDS)[number]),
+	);
 	return renderHealth(parts);
 }
 
