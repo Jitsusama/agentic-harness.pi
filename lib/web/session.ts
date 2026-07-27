@@ -23,10 +23,6 @@ import type {
 	Page,
 	Protocol,
 } from "puppeteer-core";
-// Chrome's own device table. It lives behind the driver, which is
-// why resolving a device name is this file's job and not the pure
-// side of the library's.
-import { KnownDevices } from "puppeteer-core";
 // The key table is reached through the driver's declared
 // internal subpath rather than its barrel, which marks the
 // table private and strips it from the public types. Copying
@@ -104,16 +100,11 @@ import {
 	FILE_MODE,
 	pathComponent,
 } from "./envelope/index.js";
-import { deviceEmulation, noSuchDevice } from "./environment/devices.js";
 import {
 	type CookieRecord,
 	type Divergence,
-	divergences,
 	type EmulationState,
-	ENVIRONMENT_PROBE,
 	matchesPattern,
-	mediaFeaturesOf,
-	mergeEmulation,
 	type NetworkRule,
 	type ObservedEnvironment,
 	resolveThrottle,
@@ -121,7 +112,6 @@ import {
 	type SessionStatus,
 	type StorageSnapshot,
 	type ThrottleConditions,
-	unsupportedFields,
 } from "./environment/index.js";
 import {
 	type ChordRefusal,
@@ -225,6 +215,7 @@ import {
 	type Vitals,
 } from "./perf/index.js";
 import { captureTiles } from "./screenshot.js";
+import { EmulationController } from "./session/emulation.js";
 import { SourceMapStore } from "./session/sourcemaps.js";
 import type { SessionWires } from "./session/wires.js";
 import {
@@ -387,19 +378,6 @@ const READY_BUDGET_MS = 2000;
 const READY_POLL_MS = 100;
 
 /**
- * Touch points a touch device is given, matching a common phone.
- *
- * Layered over the driver's own request, which asks only for touch
- * to exist. If a navigation ever costs us this command again, the
- * driver restores touch with one point rather than none, so the
- * page stays a touch device and only the count degrades.
- */
-const TOUCH_POINTS = 5;
-
-/** Metres of accuracy claimed for an overridden position. */
-const GEOLOCATION_ACCURACY = 10;
-
-/**
  * Whether an action arrives by pointer.
  *
  * A pointer has to reach the element's centre unobstructed and
@@ -521,9 +499,6 @@ export class BrowserSession {
 	/** The recovery in flight, so nothing reads a tab mid-replacement. */
 	private recovery?: Promise<void>;
 
-	/** What this session is pretending to be. */
-	private emulation: EmulationState = {};
-
 	/** Requests being mocked or blocked, first match winning. */
 	private rules: readonly NetworkRule[] = [];
 
@@ -567,6 +542,11 @@ export class BrowserSession {
 
 	/** The maps the page has declared, for authored positions. */
 	private readonly sourceMaps = new SourceMapStore(this.wires);
+
+	/** What this session pretends to be, and its keeper. */
+	private readonly emulation = new EmulationController(this.wires, {
+		settle: () => this.settlePage(),
+	});
 
 	/** Files the page has handed back. */
 	private readonly downloadLog = createDownloadRecorder();
@@ -817,7 +797,7 @@ export class BrowserSession {
 		} catch (error) {
 			return { failure: failureText(error) };
 		}
-		await this.reassertEmulation();
+		await this.emulation.reassert();
 		// Chrome's idle heuristics fire before a client-rendered app
 		// has anything on screen, so this waits for the DOM as well.
 		// Without it, navigating to a real application answered with an
@@ -853,7 +833,7 @@ export class BrowserSession {
 			// thing a tester does deliberately.
 			return { failure: failureText(error) };
 		}
-		await this.reassertEmulation();
+		await this.emulation.reassert();
 		await this.settlePage();
 		return {};
 	}
@@ -944,7 +924,7 @@ export class BrowserSession {
 			} else {
 				await this.page.goForward({ waitUntil: "networkidle2" });
 			}
-			await this.reassertEmulation();
+			await this.emulation.reassert();
 			await this.settlePage();
 		} catch (error) {
 			// Not every failure here is an empty history. Stepping back
@@ -1156,7 +1136,7 @@ export class BrowserSession {
 		// A fresh tab knows nothing of what the old one was
 		// pretending, so the standing intent is put back before
 		// anything reads from it.
-		await this.applyEmulation();
+		await this.emulation.apply();
 
 		const { frameTree } = await cdp.send("Page.getFrameTree");
 		const log = this.lifecycleLog;
@@ -1262,9 +1242,7 @@ export class BrowserSession {
 	 * replaces the state wholesale.
 	 */
 	async restoreEmulation(state: EmulationState): Promise<void> {
-		await this.ready();
-		this.emulation = state;
-		await this.applyEmulation();
+		await this.emulation.restore(state);
 	}
 
 	/**
@@ -1285,213 +1263,12 @@ export class BrowserSession {
 		observed: ObservedEnvironment;
 		gaps: readonly Divergence[];
 	}> {
-		await this.ready();
-		// Anything this cannot emulate is named before it is dropped.
-		// Silently ignoring a field meant a call asking for a 1024px
-		// viewport did nothing, said nothing, and reported no gaps.
-		const ignored = unsupportedFields(
-			change as Readonly<Record<string, unknown>>,
-		);
-		this.emulation = mergeEmulation(this.emulation, change, clear);
-		// A device this catalogue has never heard of is reported the
-		// same way as a field with nothing behind it, rather than
-		// echoed back as though it had been honoured.
-		const device = this.emulation.device;
-		const unknown =
-			device !== undefined && !deviceEmulation(device, KnownDevices)
-				? [
-						{
-							what: "device",
-							asked: device,
-							observed: "ignored, no device by that name",
-							note: noSuchDevice(device, KnownDevices),
-						},
-					]
-				: [];
-		await this.applyEmulation();
-		// A viewport change reflows the page and a real application
-		// re-renders for it, so the same wait a navigation gets applies
-		// here: without it the next read describes the old layout.
-		await this.settlePage();
-		const observed = await this.observeEnvironment();
-		// Emulating before navigating is the order this tool asks for,
-		// and it used to be punished for it. There is nothing laid out
-		// on a blank page, so the width comes back as the desktop
-		// default and ontouchstart has no document to be installed on:
-		// two alarming gaps that both come right the moment a real page
-		// loads. Reporting them as divergences sent me measuring the
-		// wrong thing twice. What the page cannot answer yet is not a
-		// discrepancy, so it is held back and said plainly instead.
-		const blank = this.page.url() === "about:blank";
-		const measured = blank
-			? [
-					{
-						what: "the page",
-						asked: "nothing loaded yet",
-						observed: "about:blank",
-						note:
-							"layout and touch cannot be checked until a document " +
-							"is loaded; navigate, then read status to confirm",
-					},
-				]
-			: divergences(this.effectiveEmulation, observed);
-		return {
-			asked: this.emulation,
-			observed,
-			// Compared against the effective state, since a device is
-			// the reason a viewport is what it is.
-			gaps: [...ignored, ...unknown, ...measured],
-		};
-	}
-
-	/**
-	 * Put the standing intent to the browser again, after arriving.
-	 *
-	 * Some overrides do not survive the first navigation after they
-	 * are set. Touch is the one that bit: emulating a phone and then
-	 * navigating, which is the order this tool asks for and the guide
-	 * recommends, left maxTouchPoints at zero about as often as not,
-	 * while the width and the user agent came through and the report
-	 * happily said "pretending: iPhone 15 Pro". A phone that a page
-	 * cannot detect the touch screen of is not a phone, and a coin
-	 * flip is worse than a consistent failure.
-	 *
-	 * Re-asserting is cheap and idempotent, and there is precedent:
-	 * crash recovery already does exactly this, for the same reason.
-	 * Skipped when nothing is being emulated, so the ordinary
-	 * navigation pays nothing.
-	 */
-	private async reassertEmulation(): Promise<void> {
-		// Kept, though the driver now carries emulation across a
-		// navigation itself, because this same path restores a session
-		// after a crash and because it costs nothing when nothing is
-		// being emulated.
-		//
-		// What is gone is what used to sit under here: a second
-		// application on the document-arrival event, and a loop that
-		// asked the page whether the first two had worked. Both were
-		// workarounds for sending emulation on a protocol session of our
-		// own, and neither made it certain. Removing the cause removed
-		// the need for either, measured twelve times out of twelve
-		// through the shape that used to fail one time in three.
-		if (Object.keys(this.emulation).length === 0) return;
-		await this.applyEmulation();
-	}
-
-	/**
-	 * The standing intent with any named device resolved.
-	 *
-	 * A device is shorthand for a viewport and a touch screen, and
-	 * anything the caller said explicitly outranks it: asking for a
-	 * phone and a width means the phone with that width.
-	 */
-	private get effectiveEmulation(): EmulationState {
-		const asked = this.emulation;
-		if (asked.device === undefined) return asked;
-		const fromDevice = deviceEmulation(asked.device, KnownDevices);
-		if (!fromDevice) return asked;
-		return { ...fromDevice, ...asked };
-	}
-
-	/** Put the whole standing intent to the browser. */
-	private async applyEmulation(): Promise<void> {
-		const state = this.effectiveEmulation;
-
-		// Every one of these goes through the driver rather than the
-		// protocol, and that is the whole fix for emulation not
-		// surviving a navigation.
-		//
-		// A cross-process navigation swaps the target's protocol
-		// session. The driver listens for that swap and puts its whole
-		// emulation state to the new session; commands sent on a session
-		// of our own just went to the renderer being replaced. Device
-		// metrics are held browser-side and came through regardless,
-		// which is why this looked like a touch-only fault: touch is a
-		// flag in the renderer, so the page quietly stopped being a
-		// phone while the report still said it was one.
-		//
-		// I had worked around it twice, by applying again when the call
-		// returned and again when the document arrived, and neither made
-		// it certain. Both are gone. This also picks up screen
-		// orientation, which the hand-rolled version never sent.
-		await this.page.emulateMediaType(state.media);
-		await this.page.emulateMediaFeatures([...mediaFeaturesOf(state)]);
-		await this.page.emulateVisionDeficiency(state.vision ?? "none");
-
-		// Screen, touch and user agent go through the driver rather
-		// than the protocol, which is the whole reason they now survive
-		// a navigation.
-		//
-		// A cross-process navigation swaps the target's protocol
-		// session, and puppeteer listens for that swap to put its
-		// emulation state to the new one. Device metrics are held
-		// browser-side and came through regardless; touch is a flag in
-		// the renderer, so a new renderer started without it and the
-		// page stopped being a phone while the report still said it was.
-		// Sending these two commands myself meant opting out of the one
-		// piece of machinery that handles it.
-		await this.page.setViewport(
-			state.viewport
-				? {
-						width: state.viewport.width,
-						height: state.viewport.height,
-						deviceScaleFactor: state.viewport.deviceScaleFactor ?? 1,
-						isMobile: state.viewport.mobile ?? false,
-						hasTouch: state.touch ?? false,
-					}
-				: // Null is how the driver spells "stop overriding", and
-					// touch has to be asked for separately when there is no
-					// viewport to carry it.
-					null,
-		);
-		// The driver asks for a touch screen without saying how many
-		// fingers, which Chrome reads as one; a real phone reports five,
-		// so that is asked for on top.
-		//
-		// Sent every time, including to turn it off. Sending it only
-		// when touch was wanted left a phone that could not stop being
-		// one: this override rides on our own protocol session, the
-		// driver's disable rides on its own, and one session cannot
-		// clear the other's. So the viewport and the user agent went
-		// back to the desktop while the touch screen stayed.
-		await this.cdp.send("Emulation.setTouchEmulationEnabled", {
-			enabled: state.touch ?? false,
-			...(state.touch ? { maxTouchPoints: TOUCH_POINTS } : {}),
-		});
-		// An empty string is how this one is taken off again.
-		await this.page.setUserAgent(state.userAgent ?? "");
-		await this.page.emulateCPUThrottling(state.cpuThrottle ?? null);
-
-		// Passed undefined rather than skipped, because an override
-		// with no arguments is how one gets taken off again. Guarding
-		// these on being defined meant nothing could ever be cleared: a
-		// session that emulated Tokyo once stayed in Tokyo for its life,
-		// quietly recolouring every later reading.
-		await this.page.emulateTimezone(state.timezone);
-		await this.page.emulateLocale(state.locale);
-		if (state.geolocation === undefined) {
-			await this.cdp.send("Emulation.clearGeolocationOverride");
-		} else {
-			await this.cdp.send("Emulation.setGeolocationOverride", {
-				latitude: state.geolocation.latitude,
-				longitude: state.geolocation.longitude,
-				accuracy: state.geolocation.accuracy ?? GEOLOCATION_ACCURACY,
-			});
-		}
-	}
-
-	/** What the page says it is experiencing. */
-	private async observeEnvironment(): Promise<ObservedEnvironment> {
-		const { result } = await this.cdp.send("Runtime.evaluate", {
-			expression: ENVIRONMENT_PROBE,
-			returnByValue: true,
-		});
-		return result.value as ObservedEnvironment;
+		return this.emulation.change(change, clear);
 	}
 
 	/** What this session has asked the browser to pretend. */
 	get emulated(): EmulationState {
-		return this.emulation;
+		return this.emulation.asked;
 	}
 
 	/**
@@ -2238,7 +2015,7 @@ export class BrowserSession {
 
 	/** Whether the page believes it is being touched. */
 	get touchEmulated(): boolean {
-		return this.emulation.touch === true;
+		return this.emulation.touch;
 	}
 
 	/**
@@ -2453,20 +2230,12 @@ export class BrowserSession {
 		const logs = this.logs();
 		const heard = await this.heard(0);
 		const requests = this.requests();
-		// Checked rather than recited. What is being emulated is what
-		// this session asked for, and a navigation can quietly drop part
-		// of it, so the page is asked whether it agrees before status
-		// says it is pretending to be a phone.
-		const blank = this.page.url() === "about:blank";
-		const gaps =
-			blank || Object.keys(this.emulation).length === 0
-				? []
-				: divergences(this.effectiveEmulation, await this.observeEnvironment());
+		const gaps = await this.emulation.currentGaps();
 		return {
 			name: this.name,
 			url: this.page.url(),
 			title: await this.page.title().catch(() => ""),
-			emulation: this.emulation,
+			emulation: this.emulation.asked,
 			...(gaps.length === 0 ? {} : { gaps }),
 			rules: this.rules,
 			...(this.throttle === undefined ? {} : { throttle: this.throttle }),
@@ -2959,7 +2728,7 @@ export class BrowserSession {
 				...(options.threshold === undefined
 					? {}
 					: { threshold: options.threshold }),
-				scale: this.emulation.viewport?.deviceScaleFactor ?? 1,
+				scale: this.emulation.asked.viewport?.deviceScaleFactor ?? 1,
 			},
 		);
 
@@ -3020,7 +2789,7 @@ export class BrowserSession {
 	 * because two pages at one viewport are the same size.
 	 */
 	private provenance(): BaselineProvenance {
-		const viewport = this.emulation.viewport;
+		const viewport = this.emulation.asked.viewport;
 		return {
 			url: this.url,
 			...(viewport?.width === undefined ? {} : { width: viewport.width }),
