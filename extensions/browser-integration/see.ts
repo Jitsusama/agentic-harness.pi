@@ -51,6 +51,7 @@ import {
 	renderDownloads,
 	renderLogs,
 	renderRequests,
+	strandedByCrash,
 } from "../../lib/web/telemetry/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { renderBrowserCall, renderBrowserResult } from "./render.js";
@@ -210,7 +211,21 @@ export async function pageView(
 	session: BrowserSession,
 	budget: number = ACTION_VIEW_BUDGET_BYTES,
 ): Promise<string> {
-	return render(await session.observe(), budget);
+	const view = render(await session.observe(), budget);
+	// A crash replaces the tab with a blank one and nothing sends
+	// it back where it was, so every read after it describes
+	// about:blank. Measured: crashing a tab on example.com and
+	// asking for the page returned the url and nothing else, which
+	// reads as a page with nothing on it rather than a page that
+	// is gone. Said here because this is what every tool that
+	// shows an outline goes through.
+	if (!strandedByCrash(session.history)) return view;
+	return (
+		`${view}\n\nThe tab crashed and was replaced, and the fresh ` +
+		"one has not been sent anywhere, so this is a blank page " +
+		"rather than an empty one. Navigate again to get back to " +
+		"where you were."
+	);
 }
 
 /**

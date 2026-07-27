@@ -321,12 +321,21 @@ function emulationFrom(params: {
  * Being offline on purpose is a normal thing to be, so this reads
  * as a report rather than a scolding, and points at the log that
  * holds the detail.
+ *
+ * It used to promise the session had not moved. Measured against
+ * a tab crashed on purpose: the navigation aborts in one
+ * millisecond and Chrome announces the crash about a second and
+ * a half later, so the promise was written before anything could
+ * know, and by the time it was read the session had been moved
+ * to a blank replacement tab. A failed navigation cannot speak
+ * for where the session ends up, so it no longer tries; the page
+ * read that follows says when a crash has stranded it.
  */
 function arrivalFailed(failure: string): string {
 	return (
-		`The page did not arrive: ${failure}. Nothing was loaded, and ` +
-		"the session is still where it was. The attempt is in the " +
-		"request log: read requests with filter failed."
+		`The page did not arrive: ${failure}. Nothing was loaded. ` +
+		"The attempt is in the request log: read requests with " +
+		"filter failed."
 	);
 }
 

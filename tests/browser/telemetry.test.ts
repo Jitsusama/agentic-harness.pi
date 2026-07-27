@@ -15,6 +15,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BrowserSession } from "../../lib/web/session.js";
+import { strandedByCrash } from "../../lib/web/telemetry/index.js";
 import { type Fixture, haveChrome, page, serve } from "./_harness.js";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
@@ -355,6 +356,30 @@ describe.skipIf(!haveChrome)("a session whose tab crashed", () => {
 			// it was asked to go.
 			expect(after.failure).toBeUndefined();
 			expect((await session.status()).url).toBe(fixture.url("/offers"));
+		} finally {
+			await session.close();
+		}
+	});
+
+	it("tells a blank replacement tab from a page with nothing on it", async () => {
+		const session = await BrowserSession.open("crash-stranded");
+		try {
+			await session.navigate(fixture.url("/offers"));
+			expect(strandedByCrash(session.history)).toBe(false);
+
+			await session.navigate("chrome://crash");
+			// The abort comes back in about a millisecond and Chrome
+			// announces the crash a second or so later, so the reading
+			// has to wait for the announcement rather than assume it.
+			await until(
+				() => strandedByCrash(session.history),
+				"the crash to be announced and the tab replaced",
+			);
+
+			// Going somewhere is what ends it. A session parked on a
+			// blank page it chose is not stranded on one.
+			await session.navigate(fixture.url("/offers"));
+			expect(strandedByCrash(session.history)).toBe(false);
 		} finally {
 			await session.close();
 		}
