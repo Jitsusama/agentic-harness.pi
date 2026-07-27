@@ -231,15 +231,25 @@ export function measure(vitals: Vitals): readonly Measure[] {
 		(sum, task) => sum + Math.max(0, task.duration - THRESHOLDS.longTask.good),
 		0,
 	);
-	if (vitals.longTasks.length > 0) {
+	// Watched for, not found, is the same rule layout shift follows
+	// and the exact mirror of the bug that rule was written for. A
+	// page that blocked nobody is good news; reporting nothing at
+	// all made it indistinguishable from a page nobody watched, and
+	// two reads of one page could answer four measures and PASS or
+	// five and FAIL with no way to tell which had happened.
+	if (watching(vitals, "longtask")) {
 		measures.push({
 			name: "total blocking time",
 			value: Math.round(blocking),
 			unit: "ms",
 			rating: rate(blocking, THRESHOLDS.tbt),
-			detail: `${vitals.longTasks.length} long task${
-				vitals.longTasks.length === 1 ? "" : "s"
-			}`,
+			...(vitals.longTasks.length === 0
+				? {}
+				: {
+						detail: `${vitals.longTasks.length} long task${
+							vitals.longTasks.length === 1 ? "" : "s"
+						}`,
+					}),
 		});
 	}
 
