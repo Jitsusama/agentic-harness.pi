@@ -94,6 +94,74 @@ describe("normalizeAxTree", () => {
 		expect(button?.children).toEqual([]);
 	});
 
+	it("drops line boxes that only re-wrap text already announced", () => {
+		// Chrome emits one InlineTextBox per rendered line, so their
+		// names are wrap fragments of the parent's text and never
+		// equal it. On a real article that is 657 of 4,228 nodes
+		// saying nothing the StaticText above them has not said.
+		const prose = "A sentence long enough that the browser wrapped it.";
+		const split = prose.indexOf("the browser");
+		const tree = normalizeAxTree([
+			raw({ nodeId: "1", role: { value: "RootWebArea" }, childIds: ["2"] }),
+			raw({
+				nodeId: "2",
+				parentId: "1",
+				role: { value: "paragraph" },
+				childIds: ["3"],
+			}),
+			raw({
+				nodeId: "3",
+				parentId: "2",
+				role: { value: "StaticText" },
+				name: { value: prose },
+				childIds: ["4", "5"],
+			}),
+			raw({
+				nodeId: "4",
+				parentId: "3",
+				role: { value: "InlineTextBox" },
+				name: { value: prose.slice(0, split) },
+			}),
+			raw({
+				nodeId: "5",
+				parentId: "3",
+				role: { value: "InlineTextBox" },
+				name: { value: prose.slice(split) },
+			}),
+		]);
+
+		const paragraph = tree.children[0];
+		const text = paragraph?.children[0];
+		expect(text?.name).toBe(prose);
+		// The sentence survives once, not three times.
+		expect(text?.children).toEqual([]);
+	});
+
+	it("keeps a line box carrying text no ancestor announced", () => {
+		// An ignored StaticText has its children promoted, and then
+		// the line box holds the only copy of the words. Dropping
+		// every line box on sight would delete the page's content.
+		const tree = normalizeAxTree([
+			raw({ nodeId: "1", role: { value: "RootWebArea" }, childIds: ["2"] }),
+			raw({
+				nodeId: "2",
+				parentId: "1",
+				role: { value: "paragraph" },
+				childIds: ["3"],
+			}),
+			raw({
+				nodeId: "3",
+				parentId: "2",
+				role: { value: "InlineTextBox" },
+				name: { value: "Orphaned but real content." },
+			}),
+		]);
+
+		expect(tree.children[0]?.children[0]?.name).toBe(
+			"Orphaned but real content.",
+		);
+	});
+
 	it("keeps text that is content rather than a repeat of a label", () => {
 		const tree = normalizeAxTree([
 			raw({ nodeId: "1", role: { value: "RootWebArea" }, childIds: ["2"] }),

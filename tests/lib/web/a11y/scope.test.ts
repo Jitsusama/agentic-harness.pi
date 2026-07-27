@@ -49,14 +49,14 @@ describe("scopeTree", () => {
 		const outline = renderAxOutline(scopeTree(page, { depth: 2 }));
 		expect(outline).toBe(
 			[
-				'banner ""',
+				"banner",
 				'  navigation "Main"',
-				'main ""',
+				"main",
 				'  heading "Pricing"',
-				'  paragraph ""',
+				"  paragraph",
 				'  heading "Plans"',
 				'  button "Buy"',
-				'contentinfo ""',
+				"contentinfo",
 				'  StaticText "Footer"',
 			].join("\n"),
 		);
@@ -65,9 +65,7 @@ describe("scopeTree", () => {
 	it("keeps only the landmarks when asked for the skeleton", () => {
 		const outline = renderAxOutline(scopeTree(page, { only: "landmarks" }));
 		expect(outline).toBe(
-			['banner ""', '  navigation "Main"', 'main ""', 'contentinfo ""'].join(
-				"\n",
-			),
+			["banner", '  navigation "Main"', "main", "contentinfo"].join("\n"),
 		);
 	});
 
@@ -85,7 +83,7 @@ describe("scopeTree", () => {
 		const outline = renderAxOutline(
 			scopeTree(page, { only: "landmarks", depth: 1 }),
 		);
-		expect(outline).toBe(['banner ""', 'main ""', 'contentinfo ""'].join("\n"));
+		expect(outline).toBe(["banner", "main", "contentinfo"].join("\n"));
 	});
 });
 

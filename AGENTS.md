@@ -443,6 +443,17 @@ live via `/reload` in a running pi session, or with
 `pi -e ./extensions/some-ext` to load a single extension in
 isolation.
 
+**A session runs the extension it loaded at startup.** Editing
+a file here does not change the tools in the session you are
+editing from, even though this package is installed by path.
+So driving a tool is evidence about whatever was loaded, not
+about the working tree, and the gap is invisible: the tool
+answers normally and answers the old way. This has already
+produced a confident bug report against behaviour that had
+been fixed hours earlier. Before treating a live tool run as
+evidence, `/reload`, or check the claim against the test
+suite, which always runs the tree.
+
 CI runs `pnpm lint` and `pnpm test` on every push and pull
 request via `.github/workflows/ci.yml`.
 

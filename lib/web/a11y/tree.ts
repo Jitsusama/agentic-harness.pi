@@ -116,6 +116,22 @@ export function normalizeAxTree(nodes: readonly RawAxNode[]): AxNode {
 		if (TEXT_CARRIER_ROLES.has(role) && namedAncestors.includes(name)) {
 			return [];
 		}
+		// A line box is one rendered line of the text above it, so it
+		// repeats a fragment rather than the whole and never matches
+		// exactly. Containment is the test that catches it, and it is
+		// applied only to this role: a short StaticText can sit inside
+		// a longer name legitimately, whereas a line box never carries
+		// anything its parent's text does not already contain.
+		//
+		// When no ancestor announced the words, the line box is the
+		// only copy there is, which happens once its StaticText parent
+		// is ignored and its children rise. Then it stays.
+		if (
+			role === "InlineTextBox" &&
+			namedAncestors.some((announced) => announced.includes(name))
+		) {
+			return [];
+		}
 
 		if (PRESENTATIONAL_ROLES.has(role)) return [];
 

@@ -294,3 +294,103 @@ describe.skipIf(!haveChrome)("telemetry, in a real browser", () => {
 		expect(session.downloads()).toEqual([]);
 	});
 });
+
+const OFFERS_FILE = page(
+	"Offers a file",
+	'<main><a id="get" href="/file.txt" download>Get the file</a></main>',
+);
+
+/** Poll until the browser has caught up, or give up saying so. */
+async function until(
+	condition: () => boolean,
+	what: string,
+	budgetMs = 10_000,
+): Promise<void> {
+	const deadline = Date.now() + budgetMs;
+	while (Date.now() < deadline) {
+		if (condition()) return;
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+	throw new Error(`timed out waiting for ${what}`);
+}
+
+/**
+ * What a session can still hear after its tab has been replaced.
+ *
+ * Every watcher is bound to a protocol channel that dies with the
+ * tab, so recovery has to reinstall all of them. Two were missed,
+ * and the failure is silent in the worst way: the session answers
+ * normally while no longer noticing a whole class of event, so a
+ * caller reads an empty download list and concludes the page
+ * offered nothing.
+ */
+describe.skipIf(!haveChrome)("a session whose tab crashed", () => {
+	let fixture: Fixture;
+
+	beforeAll(async () => {
+		fixture = await serve([
+			{ path: "/offers", body: OFFERS_FILE },
+			{
+				path: "/file.txt",
+				body: "the bytes the page handed back",
+				type: "text/plain",
+				headers: { "content-disposition": "attachment; filename=file.txt" },
+			},
+		]);
+	});
+
+	afterAll(async () => {
+		await fixture?.close();
+	});
+
+	it("can still be navigated after the tab is replaced", async () => {
+		const session = await BrowserSession.open("crash-navigate");
+		try {
+			await session.navigate(fixture.url("/offers"));
+			await session.navigate("chrome://crash");
+			const after = await session.navigate(fixture.url("/offers"));
+
+			// The navigation lands rather than being delivered to the
+			// corpse, so it reports no failure and the session is where
+			// it was asked to go.
+			expect(after.failure).toBeUndefined();
+			expect((await session.status()).url).toBe(fixture.url("/offers"));
+		} finally {
+			await session.close();
+		}
+	});
+
+	it("still notices a download after the tab is replaced", async () => {
+		const session = await BrowserSession.open("telemetry-crash");
+		try {
+			const fetchOnce = async (): Promise<void> => {
+				await session.navigate(fixture.url("/offers"));
+				await session.act({
+					kind: "click",
+					target: { role: "link", name: "Get the file" },
+				});
+			};
+
+			// Prove the listener works before the crash, so a failure
+			// afterwards is about recovery and not about the fixture.
+			await fetchOnce();
+			await until(
+				() => session.downloads().length > 0,
+				"the first download to be recorded",
+			);
+			const before = session.downloads().length;
+
+			// Killing the renderer is the whole point. The navigation
+			// that does it answers with the abort rather than throwing.
+			await session.navigate("chrome://crash");
+
+			await fetchOnce();
+			await until(
+				() => session.downloads().length > before,
+				"a download recorded after the tab was replaced",
+			);
+		} finally {
+			await session.close();
+		}
+	});
+});

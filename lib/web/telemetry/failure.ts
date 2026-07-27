@@ -25,6 +25,35 @@ const DRIVER_NOISE: readonly RegExp[] = [
 ];
 
 /**
+ * What the driver says when the thing it was driving died.
+ *
+ * These are about the tab going away underneath a call, which is
+ * a different event from the network refusing to answer. A
+ * navigation that provokes a crash is aborted rather than
+ * detached, and it must not match: retrying it would kill the
+ * replacement tab as reliably as it killed the first one.
+ */
+const DIED_WITH_THE_TAB: readonly RegExp[] = [
+	/frame was detached/i,
+	/session closed/i,
+	/target closed/i,
+	/target crashed/i,
+];
+
+/**
+ * Whether a failure means the tab died under the operation.
+ *
+ * Chrome reports the death to whoever was driving the tab before
+ * it announces the crash that caused it, so a caller that reads
+ * only "is a recovery under way" concludes no and hands its next
+ * call to the corpse. Recognising the failure is what lets the
+ * call wait for the replacement instead of being lost.
+ */
+export function diedWithTheTab(failure: string): boolean {
+	return DIED_WITH_THE_TAB.some((pattern) => pattern.test(failure));
+}
+
+/**
  * The one line worth showing for a thrown navigation failure.
  *
  * Chrome's error code wins when there is one, since it is the
