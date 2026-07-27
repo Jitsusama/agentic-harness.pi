@@ -59,6 +59,48 @@ it judged is how the wrong page gets fixed. A name you pass is
 never second-guessed, so a typo is reported rather than quietly
 redirected.
 
+## Four Jobs, Four Entry Points
+
+Most questions about a page belong to one of four jobs, and
+entering by the right door saves the round trips.
+
+**Judging design and layout.** `browser_check kind:"design"`
+inventories the colours, type, spacing and shadows the page
+actually uses, and flags values close enough to have been meant
+as one. `browser_check kind:"visual"` reports what the layout
+did wrong. `browser_see kind:"shot"` photographs it, and
+`browser_go kind:"emulate"` puts the page on a phone, in dark
+mode or under a colour-vision condition first, so the shot shows
+what that visitor sees. `browser_check kind:"compare"` holds a
+baseline still and says which regions changed.
+
+**Reviewing accessibility.** Read the browser-accessibility-guide
+skill before reporting anything; it owns the order of work: the
+keyboard walk first, then the rule sets, then the reading order
+and announcements, then contrast under the conditions that break
+it.
+
+**Engineering a fix.** `browser_see kind:"element"` reports one
+element's box, visibility, listeners and animations, and `why`
+traces one CSS property through every rule that had a say, which
+answers "why is this red" from the cascade rather than from
+guesswork. `browser_see kind:"logs"` and `kind:"requests"` are
+what the page said and what it asked the network for.
+`browser_see kind:"query"` finds nodes across frames and shadow
+roots, including the ones the browser did not draw, which is how
+you learn why something is missing. `browser_do kind:"eval"`
+interrogates the page directly.
+
+**Validating behaviour.** `browser_do` acts, presses and waits;
+read the page again after each act rather than assuming the
+action worked. `browser_go kind:"network"` mocks, blocks,
+throttles or goes offline, so failure paths can be exercised
+without breaking anything real. `browser_go kind:"emulate"`
+changes the visitor. `browser_check kind:"health"` runs every
+verdict at once, and `widths` on any check repeats it at several
+viewports, because most layout and contrast faults are
+conditional on width.
+
 ## Address Elements by Role and Name
 
 The page is read as an accessibility outline, and elements are
