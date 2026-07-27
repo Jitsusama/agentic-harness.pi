@@ -84,7 +84,9 @@ it.
 element's box, visibility, listeners and animations, and `why`
 traces one CSS property through every rule that had a say, which
 answers "why is this red" from the cascade rather than from
-guesswork. `browser_see kind:"logs"` and `kind:"requests"` are
+guesswork. With `behaviour`, the listeners include the ones bound
+further up that events from this element still reach, so a
+control bound by delegation does not read as a dead one. `browser_see kind:"logs"` and `kind:"requests"` are
 what the page said and what it asked the network for.
 `browser_see kind:"query"` finds nodes across frames and shadow
 roots, including the ones the browser did not draw, which is how

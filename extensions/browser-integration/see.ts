@@ -195,7 +195,8 @@ function renderInspection(found: Inspection): string {
 	if (found.box) sections.push("", renderBox(found.box));
 	if (found.styles) sections.push("", renderStyles(found.styles));
 	if (found.variants) sections.push("", renderVariants(found.variants));
-	if (found.listeners) sections.push("", renderListeners(found.listeners));
+	if (found.listeners)
+		sections.push("", renderListeners(found.listeners, found.delegated));
 	if (found.animations) sections.push("", renderAnimations(found.animations));
 	if (found.trace) sections.push("", renderTrace(found.trace));
 	return sections.join("\n");
@@ -327,7 +328,8 @@ const parameters = Type.Object({
 	behaviour: Type.Optional(
 		Type.Boolean({
 			description:
-				"For element: also report what is listening on it and " +
+				"For element: also report what is listening on it, what " +
+				"is listening further up that its events still reach, and " +
 				"what is animating, which answers why a click did nothing.",
 		}),
 	),

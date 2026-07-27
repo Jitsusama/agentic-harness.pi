@@ -64,11 +64,13 @@ import { injectCookies, isSetUp } from "./cookies/index.js";
 import {
 	type Actionability,
 	type ActionabilityFacts,
+	ANCESTORS_PROBE,
 	ANIMATIONS_PROBE,
 	type Animation,
 	type BoxModel,
 	centreOf,
 	cornersOf,
+	type DelegatedListeners,
 	diffStyles,
 	judgeActionability,
 	judgeVisibility,
@@ -276,6 +278,12 @@ export interface Inspection {
 	readonly styles?: readonly StyleGroup[];
 	readonly trace?: PropertyTrace;
 	readonly listeners?: readonly Listener[];
+	/**
+	 * Handlers on ancestors, which events from here still reach.
+	 * Delegation is how most frameworks bind, so without these an
+	 * element that is listened to reads as one that is not.
+	 */
+	readonly delegated?: readonly DelegatedListeners[];
 	readonly animations?: readonly Animation[];
 	readonly variants?: readonly PseudoVariant[];
 }
@@ -2035,6 +2043,7 @@ export class BrowserSession {
 			...(wantsBehaviour && objectId
 				? {
 						listeners: await this.listenersOf(objectId),
+						delegated: await this.delegatedTo(objectId),
 						animations: await this.animationsOf(objectId),
 					}
 				: {}),
@@ -2526,6 +2535,73 @@ export class BrowserSession {
 			// the rest of the inspection still stands.
 			return [];
 		}
+	}
+
+	/**
+	 * What is listening further up, which events from here reach.
+	 *
+	 * The protocol reads listeners off one object at a time and can
+	 * walk down into children but not up, so the ancestors are
+	 * collected in the page and each one asked separately. A live
+	 * button whose click was handled on the body reported nothing
+	 * listening, which is the answer that most invites the wrong
+	 * conclusion from an inspection meant to explain a dead click.
+	 */
+	private async delegatedTo(
+		objectId: string,
+	): Promise<readonly DelegatedListeners[]> {
+		try {
+			const { result } = (await this.cdp.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: ANCESTORS_PROBE,
+				returnByValue: false,
+			})) as { result: { objectId?: string } };
+			if (!result.objectId) return [];
+			try {
+				return await this.listenersUp(result.objectId);
+			} finally {
+				await this.release(result.objectId);
+			}
+		} catch {
+			// The element's own handlers are the answer more often than
+			// not, and they are already in hand. Losing the ancestors
+			// costs a section, not the inspection.
+			return [];
+		}
+	}
+
+	/** Ask each ancestor in the array what is listening on it. */
+	private async listenersUp(
+		arrayId: string,
+	): Promise<readonly DelegatedListeners[]> {
+		const { result } = (await this.cdp.send("Runtime.getProperties", {
+			objectId: arrayId,
+			ownProperties: true,
+		})) as {
+			result: readonly {
+				name: string;
+				value?: { objectId?: string; description?: string };
+			}[];
+		};
+		const found: DelegatedListeners[] = [];
+		for (const property of result) {
+			// getProperties hands back 'length' and the indices together.
+			if (!/^\d+$/.test(property.name)) continue;
+			const ancestor = property.value?.objectId;
+			if (!ancestor) continue;
+			try {
+				const listeners = await this.listenersOf(ancestor);
+				if (listeners.length > 0) {
+					found.push({
+						element: property.value?.description ?? "an ancestor",
+						listeners,
+					});
+				}
+			} finally {
+				await this.release(ancestor);
+			}
+		}
+		return found;
 	}
 
 	/** What is moving on the element. */

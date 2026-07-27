@@ -29,6 +29,8 @@ export {
 	type Rect,
 } from "./box.js";
 export {
+	ANCESTORS_PROBE,
+	type DelegatedListeners,
 	type Listener,
 	normalizeListeners,
 	type RawListener,
