@@ -61,7 +61,8 @@ const parameters = Type.Object({
 					"emulate: be a different visitor, by device, viewport, media " +
 					"preference, sight, locale or clock. " +
 					"storage: read, write or clear what the page has kept. " +
-					"network: mock, block, throttle or go offline. " +
+					"network: mock, block, throttle or go offline, and " +
+					"clear to undo all of it. " +
 					"Defaults to navigate with a url, open without one.",
 			},
 		),
@@ -131,7 +132,10 @@ const parameters = Type.Object({
 	),
 	clear: Type.Optional(
 		Type.Boolean({
-			description: "For storage: empty the named store instead of reading.",
+			description:
+				"For storage: empty the named store instead of reading. " +
+				"For network: drop every rule and the throttle, since " +
+				"rules otherwise accumulate for the session's life.",
 		}),
 	),
 	device: Type.Optional(
