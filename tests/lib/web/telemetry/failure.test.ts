@@ -3,7 +3,28 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { failureText } from "../../../../lib/web/telemetry/failure.js";
+import {
+	diedWithTheTab,
+	failureText,
+} from "../../../../lib/web/telemetry/failure.js";
+
+describe("recognizing a tab that died under the operation", () => {
+	it("knows the failures a dead tab produces", () => {
+		// Chrome reports the death of the frame to whoever was driving
+		// it, and only afterwards announces the crash that caused it.
+		expect(diedWithTheTab("Navigating frame was detached")).toBe(true);
+		expect(diedWithTheTab("Session closed")).toBe(true);
+		expect(diedWithTheTab("Target closed")).toBe(true);
+	});
+
+	it("does not mistake an ordinary network failure for a death", () => {
+		// The navigation that provokes a crash is aborted rather than
+		// detached, and retrying it would crash the replacement too.
+		expect(diedWithTheTab("net::ERR_ABORTED")).toBe(false);
+		expect(diedWithTheTab("net::ERR_INTERNET_DISCONNECTED")).toBe(false);
+		expect(diedWithTheTab("the navigation failed")).toBe(false);
+	});
+});
 
 describe("saying what the network said", () => {
 	it("keeps Chrome's code and drops the rest", () => {

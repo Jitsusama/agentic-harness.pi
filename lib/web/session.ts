@@ -232,6 +232,7 @@ import {
 	type DialogEvent,
 	type DialogPolicy,
 	type DownloadRecord,
+	diedWithTheTab,
 	failureText,
 	type LifecycleEvent,
 	type LogEntry,
@@ -346,6 +347,18 @@ export type TargetedAction =
  */
 const READY_BUDGET_MS = 2000;
 const READY_POLL_MS = 100;
+
+/**
+ * How long to give Chrome to announce a crash that has already
+ * broken a call, and how often to look for the announcement.
+ *
+ * Only spent on a call that has just failed with the tab dying
+ * underneath it, so the wait is never on the healthy path. The
+ * announcement arrives in milliseconds; the budget is generous
+ * because the alternative to waiting is losing the call.
+ */
+const CRASH_NOTICE_BUDGET_MS = 2000;
+const CRASH_NOTICE_POLL_MS = 25;
 
 /**
  * Whether an action arrives by pointer.
@@ -592,7 +605,22 @@ export class BrowserSession {
 		try {
 			response = await this.page.goto(url, { waitUntil: "networkidle2" });
 		} catch (error) {
-			return { failure: failureText(error) };
+			const failure = failureText(error);
+			// The tab can die under this very call, and Chrome tells the
+			// driver the frame is detached before it announces the crash
+			// that detached it. Returning here would hand the caller a
+			// driver error for a session that is about to be perfectly
+			// healthy, and leave it parked on the replacement's blank
+			// page: measured, a crash made a session permanently
+			// unnavigable while every later call reported success.
+			if (!diedWithTheTab(failure) || !(await this.awaitReplacement())) {
+				return { failure };
+			}
+			try {
+				response = await this.page.goto(url, { waitUntil: "networkidle2" });
+			} catch (afterRecovery) {
+				return { failure: failureText(afterRecovery) };
+			}
 		}
 		await this.emulation.reassert();
 		// Chrome's idle heuristics fire before a client-rendered app
@@ -831,6 +859,14 @@ export class BrowserSession {
 		await this.telemetry.listenForLogs();
 		await this.telemetry.listenForRequests();
 		await this.telemetry.listenForDialogs();
+		// Every listener open() installs has to come back, or the
+		// session goes on answering while quietly deaf to part of
+		// what the page does. Downloads and source maps were the two
+		// that did not, so after a crash a file the page handed back
+		// went unrecorded and a cascade trace lost its authored
+		// positions, with nothing anywhere saying why.
+		await this.telemetry.listenForDownloads();
+		await this.sourceMaps.listen();
 
 		// A fresh tab knows nothing of what the old one was
 		// pretending, so the standing intent is put back before
@@ -848,6 +884,27 @@ export class BrowserSession {
 	 * arrives during a crash waits for the replacement instead of
 	 * hanging on a renderer that is never coming back.
 	 */
+	/**
+	 * Wait for the replacement tab, when one is coming.
+	 *
+	 * The crash announcement that starts a recovery can arrive
+	 * after the failure it caused, so asking whether a recovery is
+	 * under way immediately gets the wrong answer. This gives the
+	 * announcement its moment and then waits the recovery out,
+	 * reporting whether there was one, so a caller that died for
+	 * some other reason is not left waiting on a tab nobody is
+	 * replacing.
+	 */
+	private async awaitReplacement(): Promise<boolean> {
+		const deadline = Date.now() + CRASH_NOTICE_BUDGET_MS;
+		while (!this.recovery && Date.now() < deadline) {
+			await new Promise((wake) => setTimeout(wake, CRASH_NOTICE_POLL_MS));
+		}
+		if (!this.recovery) return false;
+		await this.recovery;
+		return true;
+	}
+
 	private async ready(): Promise<void> {
 		// Every operation passes through here, which makes it the one
 		// honest place to record that the session is being used. The
