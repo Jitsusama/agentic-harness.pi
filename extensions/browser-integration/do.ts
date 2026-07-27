@@ -204,14 +204,16 @@ const parameters = Type.Object({
 				Type.Literal("focus"),
 				Type.Literal("clear"),
 				Type.Literal("select"),
+				Type.Literal("upload"),
 				Type.Literal("scrollTo"),
 			],
 			{
 				description:
 					"For act: click or type into the element; hover or focus " +
 					"it to reveal state-dependent behaviour; clear empties a " +
-					"field; select chooses an option by its text; scrollTo " +
-					"brings it into view.",
+					"field; select chooses an option by its text; upload puts " +
+					"files on a file input, named in 'files'; scrollTo brings " +
+					"it into view.",
 			},
 		),
 	),
@@ -226,6 +228,15 @@ const parameters = Type.Object({
 			description:
 				"For action 'type': the text to enter. For 'select': the " +
 				"option to choose.",
+		}),
+	),
+	files: Type.Optional(
+		Type.Array(Type.String(), {
+			description:
+				"For action 'upload': absolute paths to put on the file " +
+				"input. Target the input itself, which is usually hidden " +
+				"behind a styled label and reads as a button in the " +
+				"outline; it does not have to be visible.",
 		}),
 	),
 	container: Type.Optional(
@@ -374,7 +385,9 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				const needs =
 					params.action === "select"
 						? "the option to choose in"
-						: "the text to enter into";
+						: params.action === "upload"
+							? "the paths to put on"
+							: "the text to enter into";
 				return refusal(
 					name,
 					kind,
@@ -635,10 +648,12 @@ function buildAction(params: {
 		| "focus"
 		| "clear"
 		| "select"
+		| "upload"
 		| "scrollTo";
 	role: string;
 	name?: string;
 	text?: string;
+	files?: readonly string[];
 	container?: string;
 	ordinal?: number;
 }): TargetedAction | null {
@@ -653,6 +668,12 @@ function buildAction(params: {
 	if (params.action === "type" || params.action === "select") {
 		if (params.text === undefined) return null;
 		return { kind: params.action, target, text: params.text };
+	}
+	// An upload with no files is the same empty gesture as a type
+	// with no text, and refusing it says so in the same words.
+	if (params.action === "upload") {
+		if (params.files === undefined || params.files.length === 0) return null;
+		return { kind: "upload", target, files: params.files };
 	}
 	return { kind: params.action, target };
 }
