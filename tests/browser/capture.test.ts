@@ -41,6 +41,21 @@ const TRAP = page(
 </main>`,
 );
 
+/**
+ * A link whose own box collapses around its content.
+ *
+ * The shape is Wikipedia's section edit links: an anchor whose
+ * only child is floated, so the anchor measures 35 by 0 while
+ * the text inside it is plainly painted. The walk called every
+ * one of them focused off screen.
+ */
+const COLLAPSED = page(
+	"Collapsed",
+	`<main><h1>Collapsed</h1>
+<a href="#x" id="collapsed"><span style="float:left">edit</span></a>
+</main>`,
+);
+
 let fixture: Fixture;
 let session: BrowserSession;
 
@@ -50,6 +65,7 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 			{ path: "/subject", body: SUBJECT },
 			{ path: "/other", body: OTHER },
 			{ path: "/trap", body: TRAP },
+			{ path: "/collapsed", body: COLLAPSED },
 		]);
 		session = await BrowserSession.open("capture-contract");
 		await session.navigate(fixture.url("/subject"));
@@ -128,6 +144,23 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 
 		expect(walk.candidates.length).toBeGreaterThan(0);
 		expect(walk.stops.length).toBeGreaterThan(0);
+	});
+
+	it("does not call a painted link off screen when its box collapsed", async () => {
+		await session.navigate(fixture.url("/collapsed"));
+		try {
+			const walk = await session.keyboardWalk();
+			const stop = walk.stops.find((one) => one.id === "collapsed");
+
+			// The link sits at the top of a 600px viewport with text a
+			// reader can see. Judging it by its own width and height
+			// reported it as focused off screen, which on a real article
+			// produced twenty-seven identical findings, every one wrong.
+			expect(stop).toBeDefined();
+			expect(stop?.inViewport).toBe(true);
+		} finally {
+			await session.navigate(fixture.url("/subject"));
+		}
 	});
 
 	it("puts focus back where it found it", async () => {

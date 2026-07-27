@@ -247,6 +247,13 @@ export const WALK_READ = `(() => {
 		return { index: -1, tag: el ? el.tagName : "NONE", name: "",
 			inViewport: false, focused: null };
 	}
+	const visibleNow = (node) =>
+		typeof node.checkVisibility === "function"
+			? node.checkVisibility({
+					visibilityProperty: true,
+					contentVisibilityAuto: true,
+				})
+			: node.getClientRects().length > 0;
 	const c = getComputedStyle(el);
 	const box = el.getBoundingClientRect();
 	return {
@@ -255,9 +262,17 @@ export const WALK_READ = `(() => {
 		...(el.id ? { id: el.id } : {}),
 		name: (el.getAttribute("aria-label") || el.innerText || el.value ||
 			el.getAttribute("title") || "").trim().slice(0, 60),
-		inViewport: box.bottom > 0 && box.right > 0 &&
-			box.top < innerHeight && box.left < innerWidth &&
-			box.width > 0 && box.height > 0,
+		// Where it is, and whether the browser paints it: two
+		// questions, asked separately. Requiring the element's own
+		// box to have width and height conflated them, and an anchor
+		// whose only child is floated measures 35 by 0 while the text
+		// inside it is plainly on the page. Twenty-seven of those on
+		// one article were each reported as focus landing off screen.
+		// The census already trusts checkVisibility for exactly this
+		// question; the stop reader was the one place that did not.
+		inViewport: box.bottom >= 0 && box.right >= 0 &&
+			box.top <= innerHeight && box.left <= innerWidth &&
+			visibleNow(el),
 		...(el.closest(modalSelector) !== null ? { inModal: true } : {}),
 		focused: {
 			outlineStyle: c.outlineStyle, outlineWidth: c.outlineWidth,
@@ -274,9 +289,11 @@ export const WALK_READ = `(() => {
  * The walk is one of the two reads that deliberately change the
  * page, so it owes the caller the page it was handed back. Tab
  * scrolls each stop into view, and the health digest runs the
- * keyboard check before the visual, performance and design ones,
- * so a walk that leaves the page scrolled moves the ground under
- * every measurement that follows it in the same run.
+ * keyboard check before the visual and design ones, so a walk
+ * that leaves the page scrolled moves the ground under every
+ * measurement that follows it in the same run. Performance now
+ * runs ahead of the walk rather than behind it, for a related
+ * reason: the walk's own work was being measured as the page's.
  *
  * Paired with WALK_RESTORE below, which puts both back.
  */
