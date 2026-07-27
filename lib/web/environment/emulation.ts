@@ -268,6 +268,12 @@ export function divergences(
 			observed: observed.timezone,
 		});
 	}
+	// Two signals, and a page can be given one without the other.
+	// A script may ask either: ontouchstart is the old sniff, and
+	// navigator.maxTouchPoints is what current guidance recommends,
+	// so touch is only really there when both agree. Checking the
+	// sniff alone let a half-applied phone pass as a whole one,
+	// which is the reverse of this function's whole purpose.
 	if (asked.touch === true && !observed.touchEvents) {
 		found.push({
 			what: "touch",
@@ -276,6 +282,15 @@ export function divergences(
 			note:
 				"a script sniffing for ontouchstart will still decide this " +
 				"is not a touch device",
+		});
+	} else if (asked.touch === true && observed.maxTouchPoints === 0) {
+		found.push({
+			what: "touch",
+			asked: "a touch screen the page can count",
+			observed: "maxTouchPoints 0, ontouchstart present",
+			note:
+				"a script asking navigator.maxTouchPoints, which is the " +
+				"usual way to ask, will decide this is not a touch device",
 		});
 	}
 	if (asked.viewport !== undefined && observed.width !== asked.viewport.width) {
