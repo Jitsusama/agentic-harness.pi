@@ -12,6 +12,7 @@
 
 import fs from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { analyseWalk, renderWalk } from "../../lib/web/a11y/walk.js";
 import { BrowserSession } from "../../lib/web/session.js";
 import { type Fixture, haveChrome, page, serve } from "./_harness.js";
 
@@ -32,6 +33,28 @@ const SUBJECT = page(
 );
 
 const OTHER = page("Other", "<main><h1>A different page entirely</h1></main>");
+
+/**
+ * A page whose focus ring is there and cannot be seen.
+ *
+ * The shape a design system produces when someone dislikes the
+ * default ring and replaces it with something tasteful: a real
+ * outline, in a colour a shade off the page. Every existence
+ * check passes and nobody can tell where they are.
+ */
+const FAINT = page(
+	"Faint",
+	`<style>
+  body { background: #fff }
+  button { background: #fff; border: 1px solid #767676 }
+  #pale:focus { outline: 3px solid #e9e9e9 }
+  #bright:focus { outline: 3px solid #0066cc }
+</style>
+<main><h1>Faint</h1>
+<button type="button" id="pale">Pale ring</button>
+<button type="button" id="bright">Bright ring</button>
+</main>`,
+);
 
 /** A page whose only control cannot be reached by keyboard. */
 const TRAP = page(
@@ -85,6 +108,7 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 			{ path: "/trap", body: TRAP },
 			{ path: "/collapsed", body: COLLAPSED },
 			{ path: "/delegated", body: DELEGATED },
+			{ path: "/faint", body: FAINT },
 		]);
 		session = await BrowserSession.open("capture-contract");
 		await session.navigate(fixture.url("/subject"));
@@ -178,6 +202,25 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 
 		expect(walk.candidates.length).toBeGreaterThan(0);
 		expect(walk.stops.length).toBeGreaterThan(0);
+	});
+
+	it("names a focus ring that is present and too faint to see", async () => {
+		// Chrome is the authority on what these two buttons compute to,
+		// so the ratio is measured from what it reports rather than
+		// worked out here and asserted from memory.
+		await session.navigate(fixture.url("/faint"));
+		try {
+			const findings = analyseWalk(await session.keyboardWalk());
+			const faint = findings.faintIndicator.map((one) => one.stop.id);
+
+			expect(faint).toContain("pale");
+			expect(faint).not.toContain("bright");
+			// The pale button has a ring, so it is not the other finding.
+			expect(findings.noIndicator.map((stop) => stop.id)).not.toContain("pale");
+			expect(renderWalk(findings)).toContain("too faint");
+		} finally {
+			await session.navigate(fixture.url("/subject"));
+		}
 	});
 
 	it("does not call a painted link off screen when its box collapsed", async () => {

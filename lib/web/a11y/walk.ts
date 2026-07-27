@@ -19,6 +19,8 @@
  * judge it.
  */
 
+import { isOpaque, parseRgb } from "../audit/colour.js";
+import { judgeNonText, NON_TEXT_MINIMUM } from "../audit/contrast.js";
 import {
 	count,
 	renderVerdict,
@@ -93,6 +95,13 @@ export type Indicator =
 	| "colour"
 	| "none";
 
+/** A focus ring that is there and cannot be seen. */
+export interface FaintIndicator {
+	readonly stop: WalkStop;
+	/** Against what it is drawn on, where 2.4.11 asks for 3. */
+	readonly ratio: number;
+}
+
 /** A group of stops focus could not get out of. */
 export interface Trap {
 	readonly members: readonly WalkStop[];
@@ -115,6 +124,13 @@ export interface WalkFindings {
 	readonly missed: readonly WalkCandidate[];
 	/** Stops whose appearance does not change when focused. */
 	readonly noIndicator: readonly WalkStop[];
+	/**
+	 * Stops whose indicator exists but is too faint to make out.
+	 *
+	 * Kept apart from `noIndicator` because the repair differs: one
+	 * needs a rule written, the other needs a colour changed.
+	 */
+	readonly faintIndicator: readonly FaintIndicator[];
 	/** Where the indicator lives, for those that have one. */
 	readonly indicators: ReadonlyMap<number, Indicator>;
 	/** Stops that were focused while off screen. */
@@ -200,6 +216,84 @@ export function indicatorOf(
 	return "none";
 }
 
+/** What judging a focus indicator's visibility concluded. */
+export interface IndicatorVerdict {
+	readonly standing: "pass" | "fail" | "undecided";
+	readonly ratio?: number;
+	readonly reason: string;
+}
+
+/**
+ * Whether a focus indicator can actually be seen.
+ *
+ * The walk decides an indicator exists by seeing the computed
+ * style change. That is a weaker claim than it sounds, and the
+ * gap between the two is where the real defect lives: a ring in
+ * a colour a shade off the background satisfies every existence
+ * check ever written and still leaves someone unable to tell
+ * where they are. WCAG 2.4.11 puts the bar at 3:1 against what
+ * the indicator is drawn against, which is the same bar 1.4.11
+ * sets for any control's own colours.
+ *
+ * Only an outline is judged. A box shadow can be any number of
+ * layers offset in any direction, a background or colour change
+ * moves the very surface the comparison would use, and in
+ * neither case does the computed value say which pixels changed.
+ * Those come back undecided, which is this package's word for a
+ * question it will not answer by guessing. A transparent surface
+ * is undecided for the same reason: the colour behind the ring
+ * belongs to some ancestor the computed style does not name, and
+ * compositing against a guess is how a page gets accused of a
+ * failure it does not have.
+ */
+export function judgeIndicator(input: {
+	readonly indicator: Indicator;
+	readonly resting: FocusStyle;
+	readonly focused: FocusStyle;
+}): IndicatorVerdict {
+	if (input.indicator !== "outline") {
+		return {
+			standing: "undecided",
+			reason:
+				`the indicator is a ${input.indicator} change, and which ` +
+				"pixels it alters cannot be read from the computed style",
+		};
+	}
+
+	const ring = parseRgb(input.focused.outlineColor);
+	const surface = parseRgb(input.resting.backgroundColor);
+	if (!ring || !surface) {
+		return {
+			standing: "undecided",
+			reason: "the ring or the surface behind it is not a plain colour",
+		};
+	}
+	if (!isOpaque(surface)) {
+		return {
+			standing: "undecided",
+			reason:
+				"the surface behind the ring is see-through, so its " +
+				"colour belongs to an ancestor this cannot name",
+		};
+	}
+
+	const verdict = judgeNonText({ foreground: ring, background: surface });
+	// The contrast layer has its own reasons for declining, and they
+	// are better than any this one could invent, so they travel out
+	// rather than being flattened into a generic shrug.
+	if (verdict.kind === "undecidable") {
+		return { standing: "undecided", reason: verdict.because };
+	}
+	return {
+		standing: verdict.passes ? "pass" : "fail",
+		ratio: verdict.ratio,
+		reason: verdict.passes
+			? `the ring reaches ${verdict.ratio}:1 against what it sits on`
+			: `the ring reaches only ${verdict.ratio}:1 against what it ` +
+				`sits on, short of the ${NON_TEXT_MINIMUM}:1 that 2.4.11 asks`,
+	};
+}
+
 /**
  * The shortest cycle the walk ended in, if it ended in one.
  *
@@ -223,6 +317,7 @@ export function analyseWalk(capture: WalkCapture): WalkFindings {
 
 	const indicators = new Map<number, Indicator>();
 	const noIndicator: WalkStop[] = [];
+	const faintIndicator: FaintIndicator[] = [];
 	const restingByIndex = new Map(
 		candidates.map((candidate) => [candidate.index, candidate.resting]),
 	);
@@ -237,6 +332,19 @@ export function analyseWalk(capture: WalkCapture): WalkFindings {
 			!noIndicator.some((s) => s.index === stop.index)
 		) {
 			noIndicator.push(stop);
+			continue;
+		}
+		// An indicator that exists still has to be visible. Only a
+		// decided failure is collected: undecided is left alone rather
+		// than reported as a maybe, because the walk's verdict is read
+		// as a list of things to fix.
+		const seen = judgeIndicator({ indicator, resting, focused: stop.focused });
+		if (
+			seen.standing === "fail" &&
+			seen.ratio !== undefined &&
+			!faintIndicator.some((faint) => faint.stop.index === stop.index)
+		) {
+			faintIndicator.push({ stop, ratio: seen.ratio });
 		}
 	}
 
@@ -338,6 +446,7 @@ export function analyseWalk(capture: WalkCapture): WalkFindings {
 		...(trap ? { trap } : {}),
 		missed,
 		noIndicator,
+		faintIndicator,
 		indicators,
 		// The walk laps the page, so an offscreen stop is met once
 		// per lap. It is one problem, not one per visit.
@@ -425,6 +534,22 @@ export function renderWalk(findings: WalkFindings): string {
 			lines,
 			findings.noIndicator.map(
 				(stop) => `${stop.name || stop.tag} (${stop.tag.toLowerCase()})`,
+			),
+		);
+		lines.push("");
+	}
+
+	if (findings.faintIndicator.length > 0) {
+		lines.push(
+			"Focus indicator too faint to make out, which 2.4.11 holds " +
+				`to ${NON_TEXT_MINIMUM}:1:`,
+		);
+		listSome(
+			lines,
+			findings.faintIndicator.map(
+				(faint) =>
+					`${faint.stop.name || faint.stop.tag} ` +
+					`(${faint.stop.tag.toLowerCase()}) at ${faint.ratio}:1`,
 			),
 		);
 		lines.push("");
@@ -521,6 +646,7 @@ export function renderWalk(findings: WalkFindings): string {
 		(excused ? 0 : findings.missed.length);
 	const warnings =
 		findings.noIndicator.length +
+		findings.faintIndicator.length +
 		findings.offscreen.length +
 		findings.positiveTabindex.length +
 		(findings.reordered ? 1 : 0) +
@@ -599,5 +725,15 @@ function headlineFor(findings: WalkFindings, warnings: number): string {
 	// document order, so this cannot claim the visual order matches
 	// or that the controls operate. Saying "in order, with focus
 	// visible" asserted both.
-	return "Tab reached every control, each with a visible focus ring.";
+	//
+	// Nor can it say the rings are visible. It once did, on the
+	// strength of the style changing on focus, which is a different
+	// claim wearing the same word: a ring one shade off its
+	// background changes the style and cannot be seen. Contrast is
+	// measured now, but only for outlines over a known surface, so
+	// "visible" would still be speaking for the shadows and
+	// see-through backgrounds this declines to judge. What is true
+	// of every control here is that focus does something visible to
+	// it, and the faint ones are listed above by name.
+	return "Tab reached every control, each with a focus indicator.";
 }

@@ -9,6 +9,7 @@ import {
 	analyseWalk,
 	type FocusStyle,
 	indicatorOf,
+	judgeIndicator,
 	renderWalk,
 	type WalkCandidate,
 	type WalkCapture,
@@ -31,6 +32,75 @@ const RINGED: FocusStyle = {
 	outlineStyle: "solid",
 	outlineColor: "rgb(0, 102, 204)",
 };
+
+describe("judgeIndicator", () => {
+	it("fails a ring too faint to see against its surface", () => {
+		// The existence check passes here: the outline really does
+		// appear on focus, so the walk records an indicator and says
+		// nothing. But 2.4.11 asks whether it can be seen, and a pale
+		// grey ring on white cannot. An indicator that exists and is
+		// invisible is worse than none, because it satisfies every
+		// check and still leaves someone unable to tell where they
+		// are on the page.
+		const verdict = judgeIndicator({
+			indicator: "outline",
+			resting: { ...AT_REST, backgroundColor: "rgb(255, 255, 255)" },
+			focused: {
+				...AT_REST,
+				backgroundColor: "rgb(255, 255, 255)",
+				outlineStyle: "solid",
+				outlineColor: "rgb(233, 233, 233)",
+			},
+		});
+
+		expect(verdict.standing).toBe("fail");
+		expect(verdict.ratio).toBeLessThan(3);
+	});
+
+	it("passes a ring with enough contrast", () => {
+		const verdict = judgeIndicator({
+			indicator: "outline",
+			resting: { ...AT_REST, backgroundColor: "rgb(255, 255, 255)" },
+			focused: {
+				...RINGED,
+				backgroundColor: "rgb(255, 255, 255)",
+			},
+		});
+
+		expect(verdict.standing).toBe("pass");
+		expect(verdict.ratio).toBeGreaterThanOrEqual(3);
+	});
+
+	it("declines to judge a ring drawn as a shadow", () => {
+		// A box shadow can be any number of layers, offset in any
+		// direction, over whatever happens to be behind the element.
+		// Which pixels changed is not answerable from the computed
+		// value, and guessing would produce exactly the confident
+		// wrong accessibility finding this package refuses to make.
+		const verdict = judgeIndicator({
+			indicator: "boxShadow",
+			resting: AT_REST,
+			focused: { ...AT_REST, boxShadow: "rgb(0, 90, 200) 0px 0px 0px 3px" },
+		});
+
+		expect(verdict.standing).toBe("undecided");
+		expect(verdict.ratio).toBeUndefined();
+	});
+
+	it("declines when the surface behind the ring is see-through", () => {
+		// A transparent background means the colour behind the ring
+		// belongs to some ancestor, and the computed style does not
+		// say which. Compositing against a guess is how a page gets
+		// accused of a contrast failure it does not have.
+		const verdict = judgeIndicator({
+			indicator: "outline",
+			resting: AT_REST,
+			focused: RINGED,
+		});
+
+		expect(verdict.standing).toBe("undecided");
+	});
+});
 
 const candidate = (
 	index: number,
@@ -133,6 +203,47 @@ describe("analyseWalk", () => {
 			}),
 		);
 		expect(found.noIndicator.map((s) => s.name)).toEqual(["Bare"]);
+	});
+
+	it("separates a ring too faint to see from no ring at all", () => {
+		// Two different repairs. A control with no indicator needs one
+		// written; a control with a pale one needs its colour changed.
+		// Reporting them together would send someone looking for a
+		// missing rule that is already there.
+		const onWhite = { ...AT_REST, backgroundColor: "rgb(255, 255, 255)" };
+		const found = analyseWalk(
+			capture({
+				candidates: [
+					candidate(0, "Pale", { resting: onWhite }),
+					candidate(1, "Bare", { resting: onWhite }),
+					candidate(2, "Bright", { resting: onWhite }),
+				],
+				stops: [
+					stop(0, "Pale", {
+						focused: {
+							...onWhite,
+							outlineStyle: "solid",
+							outlineColor: "rgb(233, 233, 233)",
+						},
+					}),
+					stop(1, "Bare", { focused: onWhite }),
+					stop(2, "Bright", {
+						focused: {
+							...RINGED,
+							...onWhite,
+							outlineStyle: "solid",
+							outlineColor: "rgb(0, 102, 204)",
+						},
+					}),
+				],
+			}),
+		);
+
+		expect(found.faintIndicator.map((faint) => faint.stop.name)).toEqual([
+			"Pale",
+		]);
+		expect(found.noIndicator.map((s) => s.name)).toEqual(["Bare"]);
+		expect(found.faintIndicator[0]?.ratio).toBeLessThan(3);
 	});
 
 	it("does not call a whole-page loop a trap", () => {
