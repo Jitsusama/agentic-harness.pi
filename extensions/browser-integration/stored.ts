@@ -21,6 +21,11 @@ import {
 	describeStates,
 	withinOutlineBudget,
 } from "../../lib/web/a11y/index.js";
+import {
+	type CookieRecord,
+	renderStorage,
+	type StorageSnapshot,
+} from "../../lib/web/environment/index.js";
 import type { Observation } from "../../lib/web/session.js";
 
 /** A node as a caller queries it: their vocabulary, not the protocol's. */
@@ -32,6 +37,21 @@ interface StoredNode {
 	/** The states the outline reports, in the outline's own words. */
 	readonly states?: readonly string[];
 	readonly children?: readonly StoredNode[];
+}
+
+/** One thing the page kept, as a caller would query it. */
+interface StoredEntry {
+	readonly key: string;
+	readonly value: string;
+}
+
+/** Everything the page kept, with nothing shortened. */
+interface StoredStorage {
+	readonly local: readonly StoredEntry[];
+	readonly session: readonly StoredEntry[];
+	readonly cookies: readonly CookieRecord[];
+	readonly clipboard?: string;
+	readonly unavailable?: Readonly<Record<string, string>>;
 }
 
 /** What a page read stores: where it was, and everything on it. */
@@ -91,6 +111,62 @@ export function bodyAnswer(url: string, body: string, budget: number): string {
 		total: body.length,
 		unit: "bytes",
 	}).text;
+}
+
+/**
+ * What the page has kept, bounded for reading and kept whole.
+ *
+ * The view previews a long value and says how many characters it
+ * held, which on a real page meant a megabyte of cached modules
+ * summarized as its first two hundred characters. Announcing a
+ * cut is not the same as surviving one, and storage has no
+ * argument that fetches a single key, so there was no second
+ * call that could have returned the rest.
+ *
+ * Counted in characters because that is what the view cuts. The
+ * entries are all listed however long they are; it is only their
+ * values that shorten.
+ */
+export function storageAnswer(snapshot: StorageSnapshot): string {
+	const view = renderStorage(snapshot);
+	const payload = storedStorage(snapshot);
+	const total = storedCharacters(payload);
+	return cite(openSessionStore(), {
+		payload,
+		view,
+		shown: Math.min(view.length, total),
+		total,
+		unit: "characters of stored values",
+	}).text;
+}
+
+/** Key and value as fields, so a query can name them. */
+function storedStorage(snapshot: StorageSnapshot): StoredStorage {
+	const entries = (pairs: readonly (readonly [string, string])[] | undefined) =>
+		(pairs ?? []).map(([key, value]) => ({ key, value }));
+	return {
+		local: entries(snapshot.local),
+		session: entries(snapshot.session),
+		cookies: snapshot.cookies ?? [],
+		...(snapshot.clipboard === undefined
+			? {}
+			: { clipboard: snapshot.clipboard }),
+		...(snapshot.unavailable === undefined
+			? {}
+			: { unavailable: snapshot.unavailable }),
+	};
+}
+
+/** How much value text the page is holding, all told. */
+function storedCharacters(stored: StoredStorage): number {
+	const sum = (entries: readonly { readonly value: string }[]) =>
+		entries.reduce((total, entry) => total + entry.value.length, 0);
+	return (
+		sum(stored.local) +
+		sum(stored.session) +
+		sum(stored.cookies) +
+		(stored.clipboard?.length ?? 0)
+	);
 }
 
 /** A rendered listing, bounded, with its records kept. */

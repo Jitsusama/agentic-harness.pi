@@ -3,6 +3,7 @@ import {
 	bodyAnswer,
 	listAnswer,
 	pageAnswer,
+	storageAnswer,
 } from "../../../extensions/browser-integration/stored.js";
 import {
 	cleanupSessionResults,
@@ -206,6 +207,47 @@ describe("listAnswer", () => {
 			expect(payload).toContain("checked");
 			expect(payload).toContain("required");
 		});
+	});
+});
+
+describe("a storage read", () => {
+	afterEach(() => {
+		withdrawQueryTool();
+		cleanupSessionResults();
+	});
+
+	it("keeps the value it could not show", () => {
+		// A real page put a megabyte of cached modules under one
+		// local storage key. The view cut it to a preview, said how
+		// many characters it had, and offered no way to ask for the
+		// rest: there is no argument that fetches one key.
+		const hoard = JSON.stringify({ items: "m".repeat(60_000) });
+
+		const text = storageAnswer({
+			local: [
+				["MediaWikiModuleStore:enwiki", hoard],
+				["sessionTickCount", "2"],
+			],
+			cookies: [{ name: "GeoIP", value: "CA:ON" }],
+		});
+		const handle = handleIn(text);
+
+		expect(text).toContain("MediaWikiModuleStore:enwiki");
+		expect(handle).toBeDefined();
+		const stored = createResultStore({ dir: sessionResultDir() });
+		const payload = JSON.parse(stored.read(handle as string));
+		expect(payload.local[0].value).toBe(hoard);
+		expect(payload.cookies[0].name).toBe("GeoIP");
+	});
+
+	it("says nothing extra when every value fits", () => {
+		const text = storageAnswer({
+			local: [["theme", "dark"]],
+			session: [],
+		});
+
+		expect(text).toContain("dark");
+		expect(text).not.toContain("handle result-");
 	});
 });
 
