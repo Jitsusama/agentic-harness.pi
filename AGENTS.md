@@ -78,7 +78,7 @@ it does:
   task-scoped orchestration (PR review and reply).
   `quest-workflow`, `tdd-workflow`, `pr-workflow`,
   `ask-workflow`, `git-bypass-workflow`,
-  `guardian-status-workflow`
+  `guardian-status-workflow`, `result-store-workflow`
 
 - **Integrations** (`*-integration`): bridge to external
   services via registered tools.

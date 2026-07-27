@@ -62,6 +62,29 @@ const PI_PEER_FOR = new Map([
 	["@sinclair/typebox", "typebox"],
 ]);
 
+/**
+ * The import and export statements in a source file, each as one
+ * string however many lines it was written across.
+ *
+ * Read as statements rather than as lines because the formatter
+ * wraps a long import over several, leaving the specifier on a
+ * closing `} from "x"` line that starts with no keyword. Scanning
+ * line by line skipped every one of those, which is most of them
+ * in this repository, so packages were invisible to a gate whose
+ * whole job is noticing an undeclared dependency.
+ */
+function importStatements(source: string): string[] {
+	const fromClause =
+		/(?:^|\n)[ \t]*(?:import|export)(?:[^;"'`]|"[^"]*"|'[^']*')*?from[ \t]*["'][^"']+["']/g;
+	const bareImport = /(?:^|\n)[ \t]*import[ \t]*["'][^"']+["']/g;
+	const required = /\brequire\([ \t]*["'][^"']+["'][ \t]*\)/g;
+	return [
+		...(source.match(fromClause) ?? []),
+		...(source.match(bareImport) ?? []),
+		...(source.match(required) ?? []),
+	].map((statement) => statement.replace(/\s+/g, " ").trim());
+}
+
 /** Files that ship and run, as opposed to files that test them. */
 function sourceFiles(dir: string): string[] {
 	const found: string[] = [];
@@ -121,8 +144,8 @@ describe("what ships can load", () => {
 	const imported = new Map<string, string[]>();
 	for (const dir of ["lib", "extensions"]) {
 		for (const file of sourceFiles(join(root, dir))) {
-			for (const line of readFileSync(file, "utf8").split("\n")) {
-				const pkg = runtimeImport(line);
+			for (const statement of importStatements(readFileSync(file, "utf8"))) {
+				const pkg = runtimeImport(statement);
 				if (!pkg || PROVIDED_BY_PI.test(pkg)) continue;
 				imported.set(pkg, [
 					...(imported.get(pkg) ?? []),
@@ -165,8 +188,8 @@ describe("what ships can load", () => {
 		const needed = new Set<string>();
 		for (const dir of ["lib", "extensions"]) {
 			for (const file of sourceFiles(join(root, dir))) {
-				for (const line of readFileSync(file, "utf8").split("\n")) {
-					const pkg = runtimeImport(line);
+				for (const statement of importStatements(readFileSync(file, "utf8"))) {
+					const pkg = runtimeImport(statement);
 					const peer = pkg ? PI_PEER_FOR.get(pkg) : undefined;
 					if (peer) needed.add(peer);
 				}

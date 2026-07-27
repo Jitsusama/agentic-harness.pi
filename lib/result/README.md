@@ -46,9 +46,17 @@ The quota counts what is on disk for the same reason. A quota each
 instance enforced privately would be the quota multiplied by
 however many instances there happened to be.
 
-A handle arrives from a language model, so it is validated against
-the shape this library mints before it reaches the filesystem.
-Anything else is not a handle and is refused.
+A handle arrives from a language model, so it is validated before
+it reaches the filesystem. The check is that the name cannot
+escape the directory, not that this library minted it: the
+directory may hold another tool's payloads, and refusing to read
+anything unfamiliar would make the store useless for the sharing
+it exists to allow.
+
+Ownership is the stricter question and is asked separately. Only
+names matching the shape this library mints are counted against
+the quota or chosen for eviction, because a quota enforced by
+deleting other people's files is not a quota.
 
 ## What This Library Does Not Do
 

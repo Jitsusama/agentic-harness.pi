@@ -27,6 +27,18 @@ describe("telling the model who it is on Slack", () => {
 		expect(identityContext({ userId: "U-ONLY-AN-ID" })).toBeUndefined();
 	});
 
+	it("omits an id it does not have, rather than saying undefined", () => {
+		const context = identityContext({ userHandle: "joel.gerber" });
+
+		// The message exists to tell the model who it is. A literal
+		// "undefined" sitting in the parentheses where an id belongs is
+		// an id-shaped thing that is not an id, in exactly the sentence
+		// the model trusts for identity.
+		expect(context?.message.content).toContain("@joel.gerber");
+		expect(context?.message.content).not.toContain("undefined");
+		expect(context?.message.content).not.toContain("()");
+	});
+
 	it("marks the message as context rather than something to read", () => {
 		const context = identityContext({ userHandle: "someone", userId: "U1" });
 

@@ -18,9 +18,9 @@ payload on disk and cite it:
 
 ```
 All 18,004 nodes are stored under handle result-1a2b3c4d5e6f7a8b,
-of which this answer renders 96 of 18,004 lines. Query it with
-result_query, projecting the fields you want rather than whole
-records. Shape: {url:string(52), title:string(31),
+of which this answer renders 96 of 7,412 outline lines. Query it
+with result_query, projecting the fields you want rather than
+whole records. Shape: {url:string(52), title:string(31),
 nodes:array(18004, first={role:string, name:string, states:array})}
 ```
 
@@ -107,10 +107,14 @@ data. If you need a payload again after that, re-run the tool.
 | `browser_see kind=requests` and telemetry | Request, log, download and announcement records |
 | `browser_check` | Findings with their rule, impact, criterion and elements |
 | `slack` | Message records with `user`, `text`, `ts`, `thread_ts` |
-| `google` | Message and document records |
+| `google` | Message records, or a document's `file`, `content` and `comments` |
 | `lsp` | Locations with `path`, `line`, `character` |
-| `pr_workflow` | Findings and review threads |
-| `subagent` | Per-subagent results |
+| `pr_workflow` | The consolidated findings of the most recent judge run |
+| `quest` | The verb's own details, with rows under `listing` |
+| `subagent` | Per-subagent results, alongside the files each one wrote |
 
 Reading the cited shape is always more reliable than this table:
-the shape came from the payload in front of you.
+the shape came from the payload in front of you. Where a family
+could not name its records, the payload is the result's whole
+details and the citation says so, which is why an expression may
+need to start a level higher than a bare collection.
