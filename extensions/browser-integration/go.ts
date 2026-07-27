@@ -19,7 +19,6 @@ import {
 	type NetworkRule,
 	renderEnvironment,
 	renderShaping,
-	renderStorage,
 	type ThrottleConditions,
 	throttleNames,
 	throttleProfile,
@@ -33,6 +32,7 @@ import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { renderBrowserCall, renderBrowserResult } from "./render.js";
 import { answer, refusal } from "./result.js";
 import { pageView } from "./see.js";
+import { storageAnswer } from "./stored.js";
 
 const parameters = Type.Object({
 	kind: Type.Optional(
@@ -427,7 +427,7 @@ async function runStorage(
 		return `Set ${params.key} in ${store} storage.`;
 	}
 
-	return renderStorage(await session.storage(wanted));
+	return storageAnswer(await session.storage(wanted));
 }
 
 /** Register the navigation half of the browser family. */

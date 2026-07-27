@@ -47,6 +47,14 @@ import { createResultStore } from "../../lib/result/store.js";
  *
  * Each entry is a promise about behaviour, so removing one is a
  * decision to be argued for rather than a way to make this pass.
+ *
+ * The check is per extension, not per answer: it proves the
+ * extension reaches the store, not that every path through it
+ * does. A storage read shipped for months previewing a megabyte
+ * value with no handle while this passed, because its
+ * neighbours in the same extension cited properly. Treat a pass
+ * as evidence the machinery is wired, and drive a new answer
+ * yourself to find out whether it uses it.
  */
 const MUST_BOUND = [
 	"browser-integration",
