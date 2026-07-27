@@ -74,6 +74,7 @@ export {
 	type ResponseReceived,
 } from "./network.js";
 export {
+	anyUrlShortened,
 	type RequestQuery,
 	renderRequests,
 	requestStatus,
