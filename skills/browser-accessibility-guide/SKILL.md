@@ -109,6 +109,14 @@ context.
 validates without announcing, or a status region that announces
 every keystroke, both show here and in no rule set.
 
+Be honest about what these are: the browser's accessibility
+tree, narrated. That tree is the input every screen reader and
+braille display works from, so a fault here reaches all of them,
+but no tool in this set runs NVDA, JAWS or VoiceOver, and the
+differences between real readers are not modelled. A clean
+reading is grounds for confidence, not a claim that any
+particular reader behaves.
+
 ### 4. Contrast and target size
 
 `check accessibility` covers both. Contrast comes from axe.
