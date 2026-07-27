@@ -14,7 +14,26 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 /** Where every session's bundle directory is rooted. */
-export const BUNDLE_ROOT = path.join(os.tmpdir(), "pi-web-read");
+export const BUNDLE_ROOT = path.join(os.tmpdir(), "pi-web");
+
+/**
+ * Where bundles used to be written, still swept so nothing is
+ * orphaned.
+ *
+ * The directory was named after web_read because that was the only
+ * thing writing to it. It now holds screenshots, HAR archives, DOM
+ * captures and visual baselines from four browser tools, and a
+ * person looking at their temp directory to find out what wrote
+ * two hundred megabytes there was told the wrong answer.
+ *
+ * Two of them: the original was hard-coded under /tmp, and the
+ * next version moved it under the real temp directory without
+ * renaming it.
+ */
+export const LEGACY_BUNDLE_ROOTS: readonly string[] = [
+	"/tmp/pi-web-read",
+	path.join(os.tmpdir(), "pi-web-read"),
+];
 
 /** Bundle directories are private to the user who made them. */
 export const DIR_MODE = 0o700;

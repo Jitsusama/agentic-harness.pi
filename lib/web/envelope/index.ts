@@ -20,5 +20,6 @@ export {
 	DIR_MODE,
 	diskSink,
 	FILE_MODE,
+	LEGACY_BUNDLE_ROOTS,
 	sessionDir,
 } from "./sink.js";
