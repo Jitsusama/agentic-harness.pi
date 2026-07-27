@@ -21,7 +21,6 @@ import type {
 	ElementHandle,
 	KeyInput,
 	Page,
-	Protocol,
 } from "puppeteer-core";
 // The key table is reached through the driver's declared
 // internal subpath rather than its barrel, which marks the
@@ -107,8 +106,6 @@ import {
 	matchesPattern,
 	type NetworkRule,
 	type ObservedEnvironment,
-	resolveThrottle,
-	ruleFor,
 	type SessionStatus,
 	type StorageSnapshot,
 	type ThrottleConditions,
@@ -216,6 +213,7 @@ import {
 } from "./perf/index.js";
 import { captureTiles } from "./screenshot.js";
 import { EmulationController } from "./session/emulation.js";
+import { NetworkShaper } from "./session/shaping.js";
 import { SourceMapStore } from "./session/sourcemaps.js";
 import type { SessionWires } from "./session/wires.js";
 import {
@@ -499,15 +497,6 @@ export class BrowserSession {
 	/** The recovery in flight, so nothing reads a tab mid-replacement. */
 	private recovery?: Promise<void>;
 
-	/** Requests being mocked or blocked, first match winning. */
-	private rules: readonly NetworkRule[] = [];
-
-	/** How slow the network is being made, if at all. */
-	private throttle?: ThrottleConditions;
-
-	/** Whether the interceptor is currently attached. */
-	private intercepting = false;
-
 	/**
 	 * Wall seconds minus the protocol's monotonic seconds.
 	 *
@@ -547,6 +536,9 @@ export class BrowserSession {
 	private readonly emulation = new EmulationController(this.wires, {
 		settle: () => this.settlePage(),
 	});
+
+	/** The rules and throttle this session's network answers to. */
+	private readonly shaper = new NetworkShaper(this.wires);
 
 	/** Files the page has handed back. */
 	private readonly downloadLog = createDownloadRecorder();
@@ -1468,87 +1460,7 @@ export class BrowserSession {
 		rules: readonly NetworkRule[];
 		throttle: ThrottleConditions | undefined;
 	}> {
-		await this.ready();
-
-		if (change.clear) {
-			this.rules = [];
-			this.throttle = undefined;
-		} else {
-			if (change.rules) this.rules = [...this.rules, ...change.rules];
-			// Resolved here so a profile name is as good as the conditions
-			// it stands for. Passed a name, this used to read the fields
-			// it wanted off a string, find none, and shape nothing at all.
-			if (change.throttle) this.throttle = resolveThrottle(change.throttle);
-		}
-
-		await this.cdp.send("Network.emulateNetworkConditions", {
-			offline: this.throttle?.offline ?? false,
-			latency: this.throttle?.latency ?? 0,
-			// The protocol reads -1 as no limit, which is not the same
-			// as zero, and zero would mean nothing may pass at all.
-			downloadThroughput: this.throttle?.download || -1,
-			uploadThroughput: this.throttle?.upload || -1,
-		});
-
-		if (this.rules.length === 0) {
-			if (this.intercepting) {
-				await this.cdp.send("Fetch.disable");
-				this.intercepting = false;
-			}
-		} else if (!this.intercepting) {
-			this.cdp.on("Fetch.requestPaused", (event) => {
-				void this.answerPaused(event);
-			});
-			await this.cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
-			this.intercepting = true;
-		}
-
-		return { rules: this.rules, throttle: this.throttle };
-	}
-
-	/**
-	 * Decide what a paused request gets.
-	 *
-	 * Whatever happens, it is answered. A handler that throws and
-	 * says nothing leaves the page waiting forever on a request
-	 * the browser has already stopped for us.
-	 */
-	private async answerPaused(event: {
-		requestId: string;
-		request: { url: string };
-	}): Promise<void> {
-		const rule = ruleFor(this.rules, event.request.url);
-		try {
-			if (rule?.action === "block") {
-				await this.cdp.send("Fetch.failRequest", {
-					requestId: event.requestId,
-					errorReason: (rule.reason ??
-						"BlockedByClient") as Protocol.Network.ErrorReason,
-				});
-				return;
-			}
-			if (rule?.action === "mock") {
-				await this.cdp.send("Fetch.fulfillRequest", {
-					requestId: event.requestId,
-					responseCode: rule.status ?? 200,
-					responseHeaders: [
-						{
-							name: "content-type",
-							value: rule.contentType ?? "text/plain",
-						},
-					],
-					body: Buffer.from(rule.body ?? "").toString("base64"),
-				});
-				return;
-			}
-			await this.cdp.send("Fetch.continueRequest", {
-				requestId: event.requestId,
-			});
-		} catch {
-			// The request may already be resolved, or the page may have
-			// navigated out from under it. Either way there is nothing
-			// left to answer and nothing worth reporting.
-		}
+		return this.shaper.shape(change);
 	}
 
 	/**
@@ -2237,8 +2149,10 @@ export class BrowserSession {
 			title: await this.page.title().catch(() => ""),
 			emulation: this.emulation.asked,
 			...(gaps.length === 0 ? {} : { gaps }),
-			rules: this.rules,
-			...(this.throttle === undefined ? {} : { throttle: this.throttle }),
+			rules: this.shaper.current.rules,
+			...(this.shaper.current.throttle === undefined
+				? {}
+				: { throttle: this.shaper.current.throttle }),
 			dialogPolicy: this.dialogPolicy,
 			dialogsSeen: this.dialogLog.length,
 			logs: { count: logs.entries.length, cursor: logs.cursor },
@@ -2257,7 +2171,7 @@ export class BrowserSession {
 		rules: readonly NetworkRule[];
 		throttle: ThrottleConditions | undefined;
 	} {
-		return { rules: this.rules, throttle: this.throttle };
+		return this.shaper.current;
 	}
 
 	private async listenForAnnouncements(): Promise<void> {
