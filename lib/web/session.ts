@@ -351,6 +351,7 @@ export type TargetedAction =
 	| { kind: "focus"; target: Target }
 	| { kind: "clear"; target: Target }
 	| { kind: "select"; target: Target; text: string }
+	| { kind: "upload"; target: Target; files: readonly string[] }
 	| { kind: "scrollTo"; target: Target };
 
 /**
@@ -383,6 +384,43 @@ const CRASH_NOTICE_POLL_MS = 25;
  */
 function usesPointer(action: TargetedAction): boolean {
 	return action.kind === "click" || action.kind === "hover";
+}
+
+/** What has to be true of an element before an action can happen. */
+interface ActionNeeds {
+	/** Where a pointer would land, which only a pointer cares about. */
+	readonly pointer: boolean;
+	/** That the element is rendered where a person could see it. */
+	readonly sight: boolean;
+	/**
+	 * A handle from the driver's own aria selector, which brings
+	 * the scrolling and hit testing a raw protocol call does not.
+	 */
+	readonly handle: boolean;
+}
+
+/**
+ * What this action needs, which for one action is unusually
+ * little.
+ *
+ * Choosing a file happens in the operating system's dialog, and
+ * the input that receives it is nearly always hidden with a
+ * styled label over it, which is the recommended way to build
+ * one. So an upload asks neither to be seen nor to be reachable
+ * by a pointer: it asks that the input exists and takes files.
+ *
+ * It also does without the driver's handle. The aria selector
+ * that produces one does not offer a node it considers hidden,
+ * so for the ordinary hidden input the two matchers disagree,
+ * our own outline finds it and the selector does not, and the
+ * act refuses something it had just listed. The file is set
+ * through the protocol against the node the outline resolved.
+ */
+function needsOf(action: TargetedAction): ActionNeeds {
+	if (action.kind === "upload") {
+		return { pointer: false, sight: false, handle: false };
+	}
+	return { pointer: usesPointer(action), sight: true, handle: true };
 }
 
 /** An action to perform against the page. */
@@ -815,7 +853,12 @@ export class BrowserSession {
 		// Readiness is established before targeting, because an
 		// element that has not appeared yet is the commonest reason
 		// an action is early rather than wrong.
-		const ready = await this.awaitReady(action.target, usesPointer(action));
+		const needs = needsOf(action);
+		const ready = await this.awaitReady(
+			action.target,
+			needs.pointer,
+			needs.sight,
+		);
 		if (!ready.ready) {
 			// Never showing up and never existing look the same from
 			// here, and only one of them has a spelling suggestion
@@ -824,6 +867,12 @@ export class BrowserSession {
 			if (!missing.ok) return missing;
 			await missing.element.dispose();
 			return { ok: false, blocked: ready };
+		}
+
+		if (!needs.handle) {
+			await this.perform(action, undefined, ready.backendDomId);
+			if (ready.waitedMs > 0) return { ok: true, waitedMs: ready.waitedMs };
+			return { ok: true };
 		}
 
 		const handle = await this.resolve(action.target);
@@ -2340,9 +2389,28 @@ export class BrowserSession {
 	/** Carry out an action against an element judged ready. */
 	private async perform(
 		action: TargetedAction,
-		element: ElementHandle,
+		element: ElementHandle | undefined,
 		backendNodeId: number,
 	): Promise<void> {
+		if (action.kind === "upload") {
+			// Set through our own protocol channel against the node the
+			// outline resolved. The driver's aria selector does not
+			// offer a node it considers hidden, and a hidden input is
+			// the ordinary shape of an upload, so there is no handle to
+			// hold here and none is needed.
+			const objectId = await this.objectFor(backendNodeId);
+			if (!objectId) return;
+			try {
+				await this.cdp.send("DOM.setFileInputFiles", {
+					objectId,
+					files: [...action.files],
+				});
+			} finally {
+				await this.release(objectId);
+			}
+			return;
+		}
+		if (!element) return;
 		switch (action.kind) {
 			case "click":
 				await element.click();
@@ -2402,6 +2470,7 @@ export class BrowserSession {
 	private async awaitReady(
 		target: Target,
 		pointer: boolean,
+		sight = true,
 	): Promise<
 		{ ready: true; waitedMs: number; backendDomId: number } | Blocked
 	> {
@@ -2414,7 +2483,7 @@ export class BrowserSession {
 		};
 
 		while (Date.now() - started < READY_BUDGET_MS) {
-			const look = await this.readinessOf(target, previous, pointer);
+			const look = await this.readinessOf(target, previous, pointer, sight);
 			previous = look.box;
 			last = judgeActionability(look.facts);
 			if (last.ready && look.backendDomId !== undefined) {
@@ -2455,6 +2524,7 @@ export class BrowserSession {
 		target: Target,
 		previous: Rect | undefined,
 		pointer: boolean,
+		sight = true,
 	): Promise<{
 		facts: ActionabilityFacts;
 		box: Rect | undefined;
@@ -2483,16 +2553,18 @@ export class BrowserSession {
 			pointer && box
 				? await this.coveredAtCentre(resolution.backendDomId, box)
 				: undefined;
-		const visibility = judgeVisibility({
-			rendered: box !== undefined,
-			...(box === undefined ? {} : { border: box.border }),
-			...(viewport === undefined ? {} : { viewport }),
-			...(coveredBy === undefined ? {} : { coveredBy }),
-		});
+		const visibility = sight
+			? judgeVisibility({
+					rendered: box !== undefined,
+					...(box === undefined ? {} : { border: box.border }),
+					...(viewport === undefined ? {} : { viewport }),
+					...(coveredBy === undefined ? {} : { coveredBy }),
+				})
+			: undefined;
 		return {
 			facts: {
 				present: true,
-				visibility,
+				...(visibility === undefined ? {} : { visibility }),
 				// The tree reports what the browser exposes to assistive
 				// technology, which is the same disabled a person meets.
 				enabled: node?.properties.disabled !== true,

@@ -10,6 +10,9 @@
  * a page that never changed.
  */
 
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	afterAll,
 	beforeAll,
@@ -43,6 +46,9 @@ const FORM = page(
   </div>
   <nav><button type="button" id="icon" onclick="document.getElementById('log').textContent = 'icon'"><svg width="20" height="20" aria-hidden="true"></svg></button></nav>
   <div id="faux" style="padding:4px;border:1px solid #999">Publish</div>
+  <label for="attach">Attach a file</label>
+  <input type="file" id="attach" style="position:absolute;opacity:0;width:1px;height:1px" onchange="document.getElementById('picked').textContent = Array.from(this.files).map(f => f.name).join(',')">
+  <p id="picked">none</p>
   <div id="scroller" style="height:2000px"></div>
   <button type="button" id="far" onclick="document.getElementById('log').textContent = 'far'">Far below</button>
 </main>`,
@@ -239,6 +245,34 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 		});
 
 		expect(result.ok).toBe(false);
+	});
+
+	it("puts a file on an input the page keeps out of sight", async () => {
+		// Nearly every real upload hides the input and styles a label
+		// over it, so demanding the input be visible would refuse the
+		// ordinary case. An upload is not a pointer landing on
+		// something: it needs the input to exist and take files.
+		//
+		// Hidden by clipping rather than display:none, which is the
+		// recommended technique and the one that keeps the input in
+		// the accessibility tree. Measured: a display:none input is
+		// absent from the tree altogether, leaving only its label, so
+		// role and name cannot reach it and no amount of relaxing
+		// readiness would help.
+		const file = join(tmpdir(), "upload-fixture.txt");
+		writeFileSync(file, "the bytes a person picked");
+
+		const result = await session.act({
+			kind: "upload",
+			target: { role: "button", name: "Attach a file" },
+			files: [file],
+		});
+
+		expect(result.ok).toBe(true);
+		const picked = await session.evaluate(
+			"document.getElementById('picked').textContent",
+		);
+		expect(JSON.stringify(picked)).toContain("upload-fixture.txt");
 	});
 
 	it("blames the missing role when the page has the name as text", async () => {
