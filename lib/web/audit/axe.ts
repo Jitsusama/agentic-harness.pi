@@ -56,6 +56,33 @@ export type Impact = "critical" | "serious" | "moderate" | "minor";
 /** Whether a finding is a standard failing or an opinion. */
 export type Authority = "wcag" | "best-practice";
 
+/**
+ * The experimental axe rules that test a real WCAG criterion.
+ *
+ * axe ships these switched off because it does not trust them to
+ * be right, which is its call to make about its own rules. But
+ * off means never asked, and for 2.5.3 there is no other rule to
+ * ask: leaving the default alone means that criterion is not
+ * covered at all, while the report says the page passed the
+ * standard. Silence read as a pass is the failure this package
+ * cares most about.
+ *
+ * They are switched on and their findings come back as needing a
+ * person, so axe's doubt travels with them rather than being
+ * dropped on the floor.
+ *
+ * The list is checked against the installed axe by a test, so an
+ * upgrade that adds or retires one is a failure to read rather
+ * than a silent change in what gets audited.
+ */
+export const EXPERIMENTAL_WCAG_RULES: readonly string[] = [
+	"css-orientation-lock",
+	"label-content-name-mismatch",
+	"p-as-heading",
+	"table-fake-caption",
+	"td-has-header",
+];
+
 /** Whether axe decided, or declined to. */
 export type FindingKind = "violation" | "needs-review";
 
@@ -175,7 +202,34 @@ function clip(html: string | undefined): string {
 		: `${flat.slice(0, MAX_NODE_HTML)}...`;
 }
 
-/** Turn one raw axe result into a finding. */
+/**
+ * The rule switches to hand axe, turning on the experimental
+ * rules that carry a WCAG criterion and touching nothing else.
+ *
+ * Enabling by name rather than by tag on purpose: a runOnly tag
+ * list replaces the default set instead of adding to it, so any
+ * rule whose tags fell outside the list would quietly stop
+ * running. Widening an audit must not narrow it.
+ */
+export function enabledRules(): Record<string, { enabled: true }> {
+	const switches: Record<string, { enabled: true }> = {};
+	for (const rule of EXPERIMENTAL_WCAG_RULES) {
+		switches[rule] = { enabled: true };
+	}
+	return switches;
+}
+
+/**
+ * Turn one raw axe result into a finding.
+ *
+ * A rule axe tags experimental never comes back decided. Five of
+ * those rules carry real WCAG criteria and are switched off by
+ * default, so running them is the only way some criteria get
+ * checked at all, 2.5.3 among them. But axe declines to trust
+ * their judgement, and repeating what they say as a settled
+ * failure would be claiming an authority its author did not.
+ * They are reported as needing a person, which is what they are.
+ */
 export function readResult(
 	result: RawAxeResult,
 	kind: FindingKind,
@@ -183,7 +237,7 @@ export function readResult(
 	const tags = result.tags ?? [];
 	return {
 		rule: result.id,
-		kind,
+		kind: tags.includes("experimental") ? "needs-review" : kind,
 		impact: impactOf(result.impact),
 		authority: authorityOf(tags),
 		criteria: criteriaOf(tags),

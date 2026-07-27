@@ -90,6 +90,22 @@ difference between a useful finding and a misleading one:
   judge some things, most commonly text over a gradient or an
   image. Those are reported apart and must be relayed apart
 
+The undecided bucket has a second population worth knowing
+about. axe ships five rules switched off, tagged experimental,
+that nonetheless test real WCAG criteria. Leaving them off means
+2.5.3, label in name, is never checked by anything, so a page
+with a button reading "Save changes" whose accessible name is
+"Submit" passes an audit while being unusable by voice. They are
+switched on here, and their findings arrive as needing a person
+rather than as failures, because axe's own doubt about them is
+real and not ours to overrule.
+
+So a finding in that bucket means one of two things: axe could
+not see enough to decide, or axe does not fully trust the rule.
+Either way the answer is to look, and neither is a pass. Say
+which criterion it touches and what to check, and do not soften
+it into a note.
+
 Name a rule to see the elements and how to fix each.
 
 ### 3. What a screen reader would get

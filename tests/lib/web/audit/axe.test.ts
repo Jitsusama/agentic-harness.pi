@@ -10,6 +10,8 @@ import { describe, expect, it } from "vitest";
 import {
 	authorityOf,
 	criteriaOf,
+	EXPERIMENTAL_WCAG_RULES,
+	enabledRules,
 	levelsOf,
 	MAX_NODE_HTML,
 	mergeFindings,
@@ -150,6 +152,42 @@ describe("authorityOf", () => {
 	});
 });
 
+describe("the experimental rules we switch on", () => {
+	it("is exactly those the installed axe hides behind a WCAG tag", async () => {
+		// Written down by name, so an axe upgrade that adds a rule
+		// testing a criterion, or promotes one out of experimental,
+		// is something to read rather than a silent change in what
+		// this package audits. That has a cost either way: a new
+		// hidden rule would go unasked, and a promoted one would be
+		// reported as undecided long after axe made up its mind.
+		const axe = await import("axe-core");
+		const hidden = axe.default
+			.getRules()
+			.filter(
+				(rule) =>
+					rule.tags.includes("experimental") &&
+					rule.tags.some((tag) => /^wcag\d/.test(tag)),
+			)
+			.map((rule) => rule.ruleId)
+			.sort();
+
+		expect([...EXPERIMENTAL_WCAG_RULES].sort()).toEqual(hidden);
+	});
+
+	it("asks axe to add them rather than to run only them", () => {
+		// A runOnly tag list replaces the default set. Widening an
+		// audit by narrowing it is the shape of a very quiet bug.
+		const switches = enabledRules();
+
+		expect(Object.keys(switches).sort()).toEqual(
+			[...EXPERIMENTAL_WCAG_RULES].sort(),
+		);
+		for (const rule of EXPERIMENTAL_WCAG_RULES) {
+			expect(switches[rule]).toEqual({ enabled: true });
+		}
+	});
+});
+
 describe("readResult", () => {
 	const first = RUN.violations?.[0];
 
@@ -164,6 +202,40 @@ describe("readResult", () => {
 	it("takes the selector from the target", () => {
 		if (!first) throw new Error("fixture lost its first violation");
 		expect(readResult(first, "violation").nodes[0]?.selector).toBe("img");
+	});
+
+	it("will not let an experimental rule decide against a page", () => {
+		// axe ships five rules carrying real WCAG criteria switched
+		// off, because it does not trust them to be right. Running
+		// them is how 2.5.3 gets checked at all, but reporting what
+		// they say as a decided failure would be borrowing an
+		// authority axe itself declined to claim. This is the same
+		// bargain the rest of the package makes: undecided is a
+		// verdict, and a wrong accessibility finding costs more than
+		// a missing one.
+		const finding = readResult(
+			{
+				id: "label-content-name-mismatch",
+				tags: ["wcag21a", "wcag253", "experimental"],
+				nodes: [{ target: ["button"] }],
+			},
+			"violation",
+		);
+
+		expect(finding.kind).toBe("needs-review");
+		// Still a WCAG rule with its criterion intact: the doubt is
+		// about this rule's judgement, not about what it is testing.
+		expect(finding.authority).toBe("wcag");
+		expect(finding.criteria).toEqual(["2.5.3"]);
+	});
+
+	it("leaves a settled rule decided", () => {
+		const finding = readResult(
+			{ id: "image-alt", tags: ["wcag2a", "wcag111"], nodes: [] },
+			"violation",
+		);
+
+		expect(finding.kind).toBe("violation");
 	});
 
 	it("joins a frame path rather than dropping it", () => {

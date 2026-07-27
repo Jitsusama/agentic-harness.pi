@@ -13,6 +13,8 @@ export {
 	type AxeTally,
 	authorityOf,
 	criteriaOf,
+	EXPERIMENTAL_WCAG_RULES,
+	enabledRules,
 	type FindingKind,
 	type FindingNode,
 	type Impact,

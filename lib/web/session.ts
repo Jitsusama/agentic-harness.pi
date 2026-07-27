@@ -181,6 +181,7 @@ import {
 	type AxFacts,
 	buildStructure,
 	type CapturedTarget,
+	enabledRules,
 	type PageBox,
 	type RawAxeRun,
 	readAxeRun,
@@ -1527,6 +1528,15 @@ export class BrowserSession {
 	 * Only violations and incomplete results are asked for. Passes
 	 * and inapplicable rules together outweigh them by an order of
 	 * magnitude and answer a question nobody asks.
+	 *
+	 * The experimental rules are switched on. axe leaves them off,
+	 * and five of them carry real WCAG criteria, so leaving them
+	 * off means 2.5.3 (label in name) is never checked and 1.3.1
+	 * is checked less thoroughly than it looks. An accessibility
+	 * reviewer reported label in name as missing, and it was, in
+	 * the sense that matters: the rule sat in the bundle unused.
+	 * Their findings are reported as needing a person rather than
+	 * as failures, since axe's own doubt travels with them.
 	 */
 	async audit(): Promise<readonly A11yFinding[]> {
 		await this.ready();
@@ -1534,7 +1544,9 @@ export class BrowserSession {
 		await this.cdp.send("Runtime.evaluate", { expression: source });
 		const response = await this.cdp.send("Runtime.evaluate", {
 			expression:
-				'axe.run(document, { resultTypes: ["violations", "incomplete"] })',
+				"axe.run(document, { " +
+				'resultTypes: ["violations", "incomplete"], ' +
+				`rules: ${JSON.stringify(enabledRules())} })`,
 			awaitPromise: true,
 			returnByValue: true,
 		});
