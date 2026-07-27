@@ -60,3 +60,40 @@ describe("what a citation tells the reader to do next", () => {
 		expect(cut()).toContain("Shape:");
 	});
 });
+
+type FollowModule = typeof import("../../../lib/result/follow.js");
+
+/**
+ * One more instance of the module, the way pi's loader produces
+ * them. The specifier is built at runtime so TypeScript resolves
+ * the module for its types without trying to resolve the query
+ * string that makes each import a separate instance.
+ */
+async function separateCopy(tag: string): Promise<FollowModule> {
+	const spec = `../../../lib/result/follow.js?copy=${tag}`;
+	return (await import(spec)) as FollowModule;
+}
+
+describe("two extensions that each loaded their own copy", () => {
+	afterEach(() => {
+		withdrawQueryTool();
+	});
+
+	it("share one answer about what can follow a handle", async () => {
+		// Pi loads each extension separately, so the store extension
+		// and the browser extension do not share a module instance. A
+		// plain module variable meant the copy that was written to was
+		// not the copy that was read from, and every citation said no
+		// tool could follow the handle in a session where result_query
+		// read them all. The query strings here are how one process
+		// gets two instances of one module, which is what pi's loader
+		// does by other means.
+		const store = await separateCopy("store");
+		const browser = await separateCopy("browser");
+		expect(store).not.toBe(browser);
+
+		store.offerQueryTool("result_query");
+
+		expect(browser.queryTool()).toBe("result_query");
+	});
+});
