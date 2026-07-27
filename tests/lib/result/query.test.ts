@@ -2,7 +2,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { queryStored } from "../../../lib/result/query.js";
+import {
+	DEFAULT_ANSWER_BYTES,
+	queryStored,
+} from "../../../lib/result/query.js";
 import {
 	createResultStore,
 	type ResultStore,
@@ -105,5 +108,93 @@ describe("queryStored", () => {
 		const answer = queryStored(store, handle, "$..*");
 
 		expect(textOf(answer)).toContain("not valid JSON");
+	});
+
+	describe("the size of an answer", () => {
+		/** A payload far larger than any answer should be. */
+		function bulk(): string {
+			return JSON.stringify({
+				rows: Array.from({ length: 400 }, (_, i) => ({
+					id: i,
+					name: `record number ${i}`,
+					note: "a field long enough that four hundred of them matter",
+				})),
+			});
+		}
+
+		it("refuses to hand back the whole payload it was asked to hold", () => {
+			const payload = bulk();
+			const { handle } = store.put(payload);
+
+			// The expression a caller reaches for first, and the one that
+			// undoes the storing if nothing bounds the answer: select every
+			// record. maxMatches alone does not save this, because four
+			// hundred whole records is under the hundred-match cap only if
+			// you count matches rather than bytes.
+			const answer = queryStored(store, handle, "$.rows[*]", {
+				maxMatches: 400,
+			});
+
+			// Measured against the payload rather than against the default,
+			// so the claim holds whatever the default is set to. A default
+			// larger than the payloads anyone stores is not a bound at all,
+			// and an assertion phrased against it would pass while saying
+			// nothing.
+			expect(Buffer.byteLength(textOf(answer), "utf-8")).toBeLessThan(
+				Buffer.byteLength(payload, "utf-8") / 2,
+			);
+			expect(DEFAULT_ANSWER_BYTES).toBeLessThan(
+				Buffer.byteLength(payload, "utf-8"),
+			);
+		});
+
+		it("cites a handle for the part of the answer it did not show", () => {
+			const { handle } = store.put(bulk());
+
+			const answer = queryStored(store, handle, "$.rows[*]", {
+				maxMatches: 400,
+				limitBytes: 512,
+			});
+			const text = textOf(answer);
+
+			// A cut answer has to be followable, or the caller is worse off
+			// than before they asked: they have neither the records nor a
+			// way to reach them.
+			const handleInText = /handle (result-[0-9a-f]{16})/.exec(text);
+			expect(handleInText).not.toBeNull();
+
+			const followed = queryStored(
+				store,
+				(handleInText as RegExpExecArray)[1],
+				"$[0].name",
+			);
+			expect(textOf(followed)).toContain("record number 0");
+		});
+
+		it("still reports the true match count when it cut the answer", () => {
+			const { handle } = store.put(bulk());
+
+			const answer = queryStored(store, handle, "$.rows[*]", {
+				maxMatches: 400,
+				limitBytes: 512,
+			});
+
+			// Counting is the cheapest thing a broad expression is for, and
+			// it must survive the cut that the same expression provokes.
+			expect(textOf(answer)).toContain("400 matches");
+			expect(answer.matches).toBe(400);
+		});
+
+		it("leaves an answer that fits completely alone", () => {
+			const { handle } = store.put(
+				JSON.stringify({ rows: [{ name: "only one" }] }),
+			);
+
+			const answer = queryStored(store, handle, "$.rows[*].name");
+			const text = textOf(answer);
+
+			expect(text).toContain("only one");
+			expect(text).not.toContain("handle result-");
+		});
 	});
 });

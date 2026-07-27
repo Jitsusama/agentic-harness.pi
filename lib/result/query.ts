@@ -17,6 +17,11 @@
  * broad expression is the cheapest way to answer "how many"
  * without pulling a single whole record.
  *
+ * The second of those bounds was documented here and never
+ * written, which is the worst of both: `$.rows[*]` over a stored
+ * listing came back larger than the payload the store had just
+ * taken out of context, and the sentence above said it could not.
+ *
  * Nothing here throws. A handle that has expired, a payload that
  * no longer parses and an expression with a typo are all ordinary
  * events in a conversation, and each comes back as a note that
@@ -24,7 +29,10 @@
  */
 
 import { JSONPath } from "jsonpath-plus";
+import { cite } from "./cite.js";
+import { LISTING_BUDGET_BYTES } from "./listing.js";
 import { HandleExpiredError, type ResultStore } from "./store.js";
+import { withinLineBudget } from "./view.js";
 
 /** A block of text an answer is made of. */
 export interface TextBlock {
@@ -43,8 +51,17 @@ export interface QueryOptions {
 /** How many matches an answer carries when the caller says nothing. */
 export const DEFAULT_MAX_MATCHES = 100;
 
-/** How many bytes an answer spends before it is stored instead. */
-export const DEFAULT_ANSWER_BYTES = 256 * 1024;
+/**
+ * How many bytes an answer spends before it is stored instead.
+ *
+ * The same figure a rendered listing spends, because it is the
+ * same question: how much of a collection goes in front of the
+ * model before the rest is put where it can be asked about. This
+ * was 256 KB while nothing enforced it, which is roughly sixty
+ * thousand tokens and so not a bound anybody would have wanted;
+ * no behaviour depended on the old number, since no code read it.
+ */
+export const DEFAULT_ANSWER_BYTES = LISTING_BUDGET_BYTES;
 
 /** How much of a caller's own string is echoed back in a note. */
 const MAX_EXPRESSION_ECHO = 200;
@@ -123,11 +140,44 @@ export function queryStored(
 	return {
 		blocks: [
 			{ type: "text", text: header },
-			{ type: "text", text: json },
+			{ type: "text", text: answerWithin(store, limited, json, opts) },
 		],
 		matches: matches.length,
 		json,
 	};
+}
+
+/**
+ * The serialized matches, cut to a budget and citable beyond it.
+ *
+ * The cut answer is stored under its own handle rather than
+ * pointing back at the original, because what the caller wants
+ * next is a narrower question about these matches, not about the
+ * payload they came from. Following a handle should move forward.
+ */
+function answerWithin(
+	store: ResultStore,
+	matches: readonly unknown[],
+	json: string,
+	opts: QueryOptions,
+): string {
+	const budget = opts.limitBytes ?? DEFAULT_ANSWER_BYTES;
+	const bounded = withinLineBudget(json, budget);
+	if (bounded.cut === 0) return bounded.text;
+
+	return cite(store, {
+		payload: matches,
+		view:
+			`${bounded.text}\n\n` +
+			`Cut ${bounded.cut.toLocaleString()} of ` +
+			`${bounded.total.toLocaleString()} lines to fit the ` +
+			`${budget.toLocaleString()} byte budget. Project fewer fields, ` +
+			"or filter before selecting.",
+		shown: bounded.shown,
+		total: bounded.total,
+		unit: "lines",
+		stored: { count: matches.length, unit: "matches" },
+	}).text;
 }
 
 /** A note about a query that could not run, itself bounded. */

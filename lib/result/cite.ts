@@ -48,7 +48,7 @@ export interface Citable<T> {
 	 * stored and then said the payload was not lines, one after the
 	 * other.
 	 */
-	readonly stored?: { readonly count: number; readonly unit: string };
+	readonly stored?: { readonly count?: number; readonly unit: string };
 }
 
 /** An answer, with a handle when there is more to be had. */
@@ -104,6 +104,16 @@ function citation<T>(
 	if (answer.stored !== undefined) {
 		// Two different counts, said once each: what is on disk, and how
 		// much of the rendering the reader is looking at.
+		if (answer.stored.count === undefined) {
+			// Nothing countable was identified, so the payload is described
+			// rather than counted. Inventing a count of one would read as a
+			// single record and send a caller looking for it.
+			return (
+				`The whole ${answer.stored.unit} is stored under handle ` +
+				`${handle}, of which this answer renders ${seen} of ` +
+				`${held} ${answer.unit}. ${rest}`
+			);
+		}
 		const kept = answer.stored.count.toLocaleString();
 		return (
 			`All ${kept} ${answer.stored.unit} are stored under handle ` +
