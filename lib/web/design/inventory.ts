@@ -153,24 +153,30 @@ export function clusterUsage(
 	return clusters;
 }
 
-/** Read a colour the browser serialized, for comparison. */
-function readColour(css: string): Rgba | undefined {
-	const found = /rgba?\(([^)]+)\)/.exec(css);
-	if (!found?.[1]) return undefined;
-	const parts = found[1]
-		.split(/[\s,/]+/)
-		.filter(Boolean)
-		.map(Number);
-	const [r, g, b, a] = parts;
-	if (r === undefined || g === undefined || b === undefined) return undefined;
-	return { r, g, b, a: a ?? 1 };
+/**
+ * Read every colour a value names, for comparison.
+ *
+ * A colour property can be a shorthand: border-color names one
+ * side or four, and the browser serializes them space
+ * separated. Reading only the first turned a one-sided value
+ * and a three-sided one into the same colour.
+ */
+function readColours(css: string): readonly Rgba[] {
+	const found: Rgba[] = [];
+	for (const match of css.matchAll(/rgba?\(([^)]+)\)/g)) {
+		const parts = (match[1] ?? "")
+			.split(/[\s,/]+/)
+			.filter(Boolean)
+			.map(Number);
+		const [r, g, b, a] = parts;
+		if (r === undefined || g === undefined || b === undefined) continue;
+		found.push({ r, g, b, a: a ?? 1 });
+	}
+	return found;
 }
 
 /** Two colours nobody could tell apart side by side. */
-export const coloursAreNear: Nearness = (one, other) => {
-	const a = readColour(one);
-	const b = readColour(other);
-	if (!a || !b) return false;
+function oneColourIsNear(a: Rgba, b: Rgba): boolean {
 	// Fully transparent is its own thing, not a near-black.
 	if (a.a === 0 || b.a === 0) return a.a === b.a;
 	// Two colours at the same opacity, or near enough. A solid and
@@ -178,6 +184,20 @@ export const coloursAreNear: Nearness = (one, other) => {
 	// pair, not a drift.
 	if (Math.abs((a.a ?? 1) - (b.a ?? 1)) > ALPHA_SAMENESS) return false;
 	return deltaE(a, b) < COLOUR_SAMENESS;
+}
+
+/** Two colour values nobody could tell apart side by side. */
+export const coloursAreNear: Nearness = (one, other) => {
+	const a = readColours(one);
+	const b = readColours(other);
+	if (a.length === 0 || b.length === 0) return false;
+	// A different number of sides is a different kind of value,
+	// which is the rule lengths have always followed.
+	if (a.length !== b.length) return false;
+	return a.every((colour, at) => {
+		const against = b[at];
+		return against !== undefined && oneColourIsNear(colour, against);
+	});
 };
 
 /**
