@@ -46,6 +46,7 @@ import {
 } from "../../lib/web/snapshot/index.js";
 import { describeRefusal, parseTarget } from "../../lib/web/target/index.js";
 import {
+	anyUrlShortened,
 	type NetworkRequest,
 	renderDownloads,
 	renderLogs,
@@ -593,6 +594,7 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 						kind,
 						listAnswer({
 							view: listing,
+							elided: anyUrlShortened(wanted),
 							// Where the archive went is the whole point of the
 							// call, so it cannot be what the budget removes.
 							trailer:
@@ -613,6 +615,11 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 						kind,
 						listAnswer({
 							view: listing,
+							// A url too long to scan is shortened in the middle,
+							// which is a cut the line budget cannot see. Without
+							// this, a page of three requests and one enormous url
+							// fitted, cited nothing, and lost the middle of it.
+							elided: anyUrlShortened(wanted),
 							records: wanted,
 							unit: "requests",
 							narrowing:
@@ -636,6 +643,7 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 					kind,
 					listAnswer({
 						view: listing,
+						elided: anyUrlShortened(wanted),
 						// The body is what was asked for by name, so it survives
 						// the cut to the listing around it. It bounds itself,
 						// and cites its own handle when it has to.

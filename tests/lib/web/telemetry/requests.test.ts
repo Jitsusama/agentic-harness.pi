@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { NetworkRequest } from "../../../../lib/web/telemetry/network.js";
 import {
+	anyUrlShortened,
 	renderRequests,
 	requestStatus,
 } from "../../../../lib/web/telemetry/requests.js";
@@ -57,6 +58,48 @@ describe("requestStatus", () => {
 });
 
 describe("renderRequests", () => {
+	it("shortens a url that is mostly query string", () => {
+		// A real bundler request was twelve hundred characters, all
+		// but sixty of them a module list. Three of those filled an
+		// eighth of the budget each and pushed whole requests out of
+		// the answer, to preserve query strings nobody reads in a
+		// listing and which the stored records still hold in full.
+		const long = `https://en.wikipedia.org/w/load.php?lang=en&modules=${"a.b%2C".repeat(200)}&skin=vector`;
+
+		const out = renderRequests([request({ url: long })]);
+
+		expect(out).toContain("https://en.wikipedia.org/w/load.php");
+		expect(out.length).toBeLessThan(long.length);
+	});
+
+	it("owns up when it shortened something", () => {
+		// The listing cites its records when lines were cut. Cutting
+		// the inside of a line is the same loss and did not count, so
+		// a page with three requests and one enormous url fitted the
+		// budget, cited nothing, and dropped the middle of that url
+		// with no way to read it back.
+		const long = `https://example.test/x?${"q=1&".repeat(80)}`;
+
+		expect(anyUrlShortened([request({ url: long })])).toBe(true);
+		expect(anyUrlShortened([request()])).toBe(false);
+	});
+
+	it("counts a redirect hop it had to shorten", () => {
+		const long = `https://example.test/y?${"q=1&".repeat(80)}`;
+
+		expect(
+			anyUrlShortened([request({ redirects: [{ status: 302, url: long }] })]),
+		).toBe(true);
+	});
+
+	it("leaves an ordinary url exactly as it was", () => {
+		const out = renderRequests([
+			request({ url: "https://example.test/a/b?c=1" }),
+		]);
+
+		expect(out).toContain("https://example.test/a/b?c=1");
+	});
+
 	it("tells an unmatched filter apart from a silent page", () => {
 		// Asked for failures on a page that made eighty requests and
 		// had none, the answer used to be "the page has not requested

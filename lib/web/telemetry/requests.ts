@@ -59,13 +59,52 @@ export function renderRequests(
 			`${`#${index + 1}`.padStart(4)}  ` +
 				`${request.method.padEnd(METHOD_WIDTH)}` +
 				`${requestStatus(request).padEnd(STATUS_WIDTH)}` +
-				`${timingOf(request).padStart(7)}  ${request.url}`,
+				`${timingOf(request).padStart(7)}  ${scannable(request.url)}`,
 		);
 		for (const hop of request.redirects) {
-			lines.push(`          ${hop.status} from ${hop.url}`);
+			lines.push(`          ${hop.status} from ${scannable(hop.url)}`);
 		}
 	}
 	return lines.join("\n");
+}
+
+/** Past this, a url is a payload rather than a label. */
+const MAX_URL = 160;
+
+/** How much of an over-long url still identifies it. */
+const URL_TAIL = 24;
+
+/**
+ * A url short enough to scan, with the middle taken out.
+ *
+ * One bundler request on a real page was twelve hundred
+ * characters, nearly all of it a module list. Three of those
+ * filled an eighth of the answer's budget each, and the budget
+ * pays for them by dropping whole requests, so a reader lost
+ * entire rows to preserve query strings nobody reads in a
+ * listing. The stored records keep every url whole, which is
+ * where a caller who wants the module list should be reading it.
+ *
+ * The front is kept because that is the origin and path, and the
+ * tail because that is where a cache key or a version usually
+ * sits, and those are the two ends that tell requests apart.
+ */
+function scannable(url: string): string {
+	if (url.length <= MAX_URL) return url;
+	const cut = url.length - (MAX_URL - URL_TAIL) - URL_TAIL;
+	return (
+		`${url.slice(0, MAX_URL - URL_TAIL)}` +
+		`[...${cut} chars]${url.slice(-URL_TAIL)}`
+	);
+}
+
+/** Whether the listing had to take the middle out of any url. */
+export function anyUrlShortened(requests: readonly NetworkRequest[]): boolean {
+	return requests.some(
+		(request) =>
+			request.url.length > MAX_URL ||
+			request.redirects.some((hop) => hop.url.length > MAX_URL),
+	);
 }
 
 /** What happened, before the detail of what each one was. */
