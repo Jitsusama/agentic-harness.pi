@@ -128,3 +128,39 @@ describe("bounding an answer by the details behind it", () => {
 		expect(handleIn(text)).toBeDefined();
 	});
 });
+
+describe("when the store cannot be written to", () => {
+	let base: string;
+
+	beforeEach(() => {
+		base = fs.mkdtempSync(path.join(os.tmpdir(), "unwritable-"));
+	});
+
+	afterEach(() => {
+		fs.rmSync(base, { recursive: true, force: true });
+	});
+
+	it("answers anyway, and says the rest is unreachable", () => {
+		// A directory that cannot be created, because a file is sitting
+		// where it would go. This is the shape of the real fault: a
+		// temp directory that is unwritable, full, or owned by someone
+		// else.
+		const blocked = path.join(base, "in-the-way");
+		fs.writeFileSync(blocked, "not a directory");
+		const store = createResultStore({ dir: path.join(blocked, "results") });
+		const view = longView("blocked");
+
+		const text = boundedByDetails(store, {
+			text: view,
+			details: { rows: Array.from({ length: 400 }, (_, i) => ({ i })) },
+			narrowing: NARROWING,
+		});
+
+		// The answer is what the caller asked for; the handle was a
+		// convenience. Losing the convenience must not cost them the
+		// answer, and they have to be told the remainder is gone rather
+		// than left to assume the view was everything.
+		expect(text).toContain("blocked row 0");
+		expect(text).toContain("could not be stored");
+	});
+});

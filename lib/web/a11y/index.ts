@@ -30,6 +30,10 @@ export {
 	subtreeAt,
 	type TreeScope,
 } from "./scope.js";
+// Exported because a stored page has to carry the same states the
+// rendered outline shows. Two vocabularies for one set of facts
+// would make a payload that disagrees with the view it came from.
+export { describeStates, type StateOptions } from "./states.js";
 export {
 	type AxNode,
 	type AxProperties,

@@ -152,4 +152,52 @@ describe("listAnswer", () => {
 		const stored = createResultStore({ dir: sessionResultDir() });
 		expect(JSON.parse(stored.read(handle as string))).toHaveLength(600);
 	});
+
+	describe("what a page read says it stored", () => {
+		it("names nodes as the payload, not the lines it rendered", () => {
+			const text = pageAnswer(hugePage(2_000), 4_096);
+
+			// The same two-count rule the listings follow. A page citation
+			// counting only lines sends the first expression at a shape the
+			// payload does not have, which is the defect driving Slack
+			// surfaced and which this path never got.
+			expect(text).toMatch(/All [\d,]+ nodes are stored under handle/);
+			expect(text).toMatch(/renders [\d,]+ of [\d,]+ outline lines/);
+			expect(text).not.toMatch(/All [\d,]+ outline lines are stored/);
+		});
+
+		it("keeps the states the outline showed", () => {
+			const tree: AxNode = {
+				role: "RootWebArea",
+				name: "form",
+				properties: {},
+				children: Array.from({ length: 400 }, (_, i) => ({
+					role: "checkbox",
+					name: `Option ${i}`,
+					properties: { checked: "true", required: true },
+					children: [],
+				})),
+			};
+			const observed: Observation = {
+				url: "https://example.test/form",
+				title: "form",
+				outline: renderAxOutline(tree),
+				tree,
+			};
+
+			const text = pageAnswer(observed, 512);
+			const handle = handleIn(text);
+			expect(handle).toBeDefined();
+
+			// The visible outline reports these, and the shipped skill tells
+			// the model the stored nodes carry them. A payload that drops
+			// them is lossier than the view it was meant to make queryable,
+			// and the query that goes looking returns nothing with no clue
+			// why.
+			const stored = createResultStore({ dir: sessionResultDir() });
+			const payload = stored.read(handle as string);
+			expect(payload).toContain("checked");
+			expect(payload).toContain("required");
+		});
+	});
 });

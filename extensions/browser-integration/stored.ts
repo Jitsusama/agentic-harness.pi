@@ -18,6 +18,7 @@ import { cite, citeListing, openSessionStore } from "../../lib/result/index.js";
 import {
 	type AxNode,
 	type BudgetedOutline,
+	describeStates,
 	withinOutlineBudget,
 } from "../../lib/web/a11y/index.js";
 import type { Observation } from "../../lib/web/session.js";
@@ -28,6 +29,8 @@ interface StoredNode {
 	readonly name: string;
 	readonly value?: string | number;
 	readonly description?: string;
+	/** The states the outline reports, in the outline's own words. */
+	readonly states?: readonly string[];
 	readonly children?: readonly StoredNode[];
 }
 
@@ -44,19 +47,25 @@ interface StoredPage {
  * The counts in the citation are outline lines rather than nodes,
  * because lines are what the view is measured in and a citation
  * that counted one thing while the view showed another would be
- * arithmetic the caller cannot check.
+ * arithmetic the caller cannot check. What the payload holds is
+ * named alongside, since a caller writing their first expression
+ * against lines when the payload holds a node tree gets nothing
+ * back and no clue why. The listings learned this from driving
+ * Slack; this path was written before that and never got it.
  */
 export function pageAnswer(observed: Observation, budget: number): string {
 	const bounded = withinOutlineBudget(observed.outline, budget);
 	const view = heading(observed, bounded);
 	if (bounded.elided === undefined) return view;
 
+	const payload = storedPage(observed);
 	const cited = cite(openSessionStore(), {
-		payload: storedPage(observed),
+		payload,
 		view: `${view}\n\n${bounded.elided}`,
 		shown: bounded.shown,
 		total: bounded.total,
 		unit: "outline lines",
+		stored: { count: countNodes(payload.nodes), unit: "nodes" },
 	});
 	return cited.text;
 }
@@ -87,6 +96,13 @@ function storedPage(observed: Observation): StoredPage {
 }
 
 function asStoredNode(node: AxNode): StoredNode {
+	// The same states the outline prints, in the same words. The
+	// payload used to carry role, name and children only, so a page
+	// stored for querying was lossier than the page shown for
+	// reading: the outline said "checked" and "required" on a line
+	// the caller could see, and the query that went looking for them
+	// returned nothing.
+	const states = describeStates(node);
 	return {
 		role: node.role,
 		name: node.name,
@@ -94,8 +110,17 @@ function asStoredNode(node: AxNode): StoredNode {
 		...(node.description === undefined
 			? {}
 			: { description: node.description }),
+		...(states.length === 0 ? {} : { states }),
 		...(node.children.length === 0
 			? {}
 			: { children: node.children.map(asStoredNode) }),
 	};
+}
+
+/** How many nodes a stored tree holds, itself included. */
+function countNodes(nodes: readonly StoredNode[]): number {
+	return nodes.reduce(
+		(total, node) => total + 1 + countNodes(node.children ?? []),
+		0,
+	);
 }

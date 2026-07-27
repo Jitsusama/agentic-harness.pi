@@ -4,7 +4,9 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	isPidAlive,
+	openSessionStore,
 	reapAbandonedResults,
+	sessionResultDir,
 } from "../../../lib/result/location.js";
 
 describe("reapAbandonedResults", () => {
@@ -70,5 +72,21 @@ describe("isPidAlive", () => {
 		// Above the platform maximum, so it is not a pid that could be
 		// recycled between the check and the assertion.
 		expect(isPidAlive(0x7fffffff)).toBe(false);
+	});
+});
+
+describe("opening the session store", () => {
+	it("names a directory without creating one", () => {
+		const dir = sessionResultDir();
+		const existedBefore = fs.existsSync(dir);
+
+		openSessionStore();
+
+		// Opening a store used to create its directory, which made
+		// every seam's first act a disk write, performed outside the
+		// one place that knows how to answer when a write fails. An
+		// unwritable temp directory threw past all of it and cost the
+		// caller an answer that had nothing to do with storage.
+		if (!existedBefore) expect(fs.existsSync(dir)).toBe(false);
 	});
 });

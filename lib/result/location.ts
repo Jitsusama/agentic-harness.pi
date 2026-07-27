@@ -23,8 +23,8 @@ import { createResultStore, type ResultStore } from "./store.js";
 /** Where every session's stored payloads are rooted. */
 export const RESULT_ROOT = path.join(os.tmpdir(), "pi-tool-results");
 
-/** Stored payloads are private to the user who made them. */
-const DIR_MODE = 0o700;
+// The directory's mode lives with the code that creates it, in
+// spill.ts. Nothing here makes a directory any more.
 
 /**
  * How much disk one session's payloads may hold.
@@ -41,13 +41,6 @@ export function sessionResultDir(): string {
 	return path.join(RESULT_ROOT, String(process.pid));
 }
 
-/** Create this session's payload directory if it is not there. */
-export function ensureSessionResultDir(): string {
-	const dir = sessionResultDir();
-	fs.mkdirSync(dir, { recursive: true, mode: DIR_MODE });
-	return dir;
-}
-
 /**
  * A store over this session's directory.
  *
@@ -61,10 +54,18 @@ export function ensureSessionResultDir(): string {
  * Not memoized here on purpose. Session lifetime belongs to the
  * extension, and an instance holds nothing worth reusing beyond
  * the directory it names.
+ *
+ * Names the directory without creating it. Creating it here made
+ * opening a store a disk operation, and every family opens one
+ * before handing it to the code that knows how to survive a
+ * failed write: an unwritable temp directory threw straight out
+ * of nine call sites and took the whole tool call with it, past
+ * the one place that catches exactly this and answers anyway.
+ * The write itself still creates what it needs.
  */
 export function openSessionStore(): ResultStore {
 	return createResultStore({
-		dir: ensureSessionResultDir(),
+		dir: sessionResultDir(),
 		maxBytes: SESSION_QUOTA_BYTES,
 	});
 }

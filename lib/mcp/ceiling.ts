@@ -1,3 +1,4 @@
+import { MINTED_HANDLE_SHAPE } from "../result/store.js";
 import { joinTextContent, spillToFile } from "./content.js";
 import type { McpContent, McpToolResult } from "./types.js";
 
@@ -143,8 +144,19 @@ function headWithin(content: McpContent[], budget: number): string {
 	return kept.join("\n");
 }
 
-/** A block that names a handle somebody is meant to be able to use. */
-const CITES_A_HANDLE = /handle [A-Za-z0-9][A-Za-z0-9_-]*/;
+/**
+ * A block that names a handle somebody is meant to be able to use.
+ *
+ * Matched against the shape the store actually mints, not against
+ * the word and whatever follows it. The loose form treated "handle
+ * errors gracefully" as a citation, and because such a block is
+ * kept whole or dropped, an ordinary sentence about error handling
+ * cost the caller their entire preview. Tied to the store's own
+ * constant so the two cannot drift apart silently: a handle shape
+ * that changed here without changing there would quietly stop
+ * being protected.
+ */
+const CITES_A_HANDLE = new RegExp(`handle ${MINTED_HANDLE_SHAPE}`);
 
 /** The model-facing text of each block, in order. */
 function textParts(content: McpContent[]): string[] {

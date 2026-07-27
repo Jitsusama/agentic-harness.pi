@@ -28,7 +28,6 @@ export {
 } from "./listing.js";
 export {
 	cleanupSessionResults,
-	ensureSessionResultDir,
 	isPidAlive,
 	openSessionStore,
 	RESULT_ROOT,

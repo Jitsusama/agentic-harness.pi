@@ -192,3 +192,48 @@ describe("enforceResultCeiling", () => {
 		expect(DEFAULT_RESULT_CEILING_BYTES).toBeGreaterThanOrEqual(200 * 1024);
 	});
 });
+
+describe("what counts as citing a handle", () => {
+	/** A block long enough that the ceiling has to do something. */
+	function bulky(prefix: string): string {
+		return `${prefix} ${"padding text that makes this block large. ".repeat(60)}`;
+	}
+
+	it("slices a block that merely talks about handling things", () => {
+		// The guard exists so half a handle never reaches a caller. It
+		// was written as the word "handle" followed by anything, which
+		// is ordinary English: a block explaining how a function
+		// handles errors was treated as a citation and dropped whole,
+		// costing the caller their entire preview to protect a handle
+		// that was never there.
+		const content: McpContent[] = [
+			{ type: "text", text: bulky("This function must handle errors when") },
+		];
+
+		const out = enforceResultCeiling(content, result(content), {
+			limitBytes: 400,
+			storageDir: dir,
+		});
+
+		expect(textOf(out)).toContain("This function must handle errors");
+	});
+
+	it("keeps a block naming a real handle whole, or not at all", () => {
+		const handle = "result-0123456789abcdef";
+		const content: McpContent[] = [
+			{ type: "text", text: bulky(`Stored under handle ${handle} for`) },
+		];
+
+		const out = enforceResultCeiling(content, result(content), {
+			limitBytes: 400,
+			storageDir: dir,
+		});
+
+		// Either the whole citation survives or none of it does. What
+		// must never happen is a prefix that still reads like a handle,
+		// because looking it up reports an expiry that never occurred.
+		const shown = textOf(out);
+		const partial = shown.includes("handle result-") && !shown.includes(handle);
+		expect(partial).toBe(false);
+	});
+});

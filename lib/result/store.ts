@@ -87,13 +87,21 @@ const HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 /**
  * What this store minted, as opposed to what it will look up.
  *
+ * Published unanchored as well, because one other place has to
+ * recognize a handle in running text: the layer that cuts an
+ * oversized answer must not cut through one. Written out there by
+ * hand it became the word "handle" followed by anything, which is
+ * also a sentence about handling errors.
+ *
  * Deciding which files to count against the quota and delete is a
  * different question from deciding which names are safe to resolve,
  * and it needs the stricter answer. The directory may hold
  * somebody else's files, and evicting one of those to make room for
  * ours would be a quota enforced with other people's data.
  */
-const MINTED_PATTERN = /^result-[0-9a-f]{16}$/;
+export const MINTED_HANDLE_SHAPE = "result-[0-9a-f]{16}";
+
+const MINTED_PATTERN = new RegExp(`^${MINTED_HANDLE_SHAPE}$`);
 
 /** The extension every stored payload is written under. */
 const PAYLOAD_EXTENSION = ".json";
