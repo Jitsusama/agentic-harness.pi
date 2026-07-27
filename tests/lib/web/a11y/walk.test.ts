@@ -293,6 +293,31 @@ describe("renderWalk", () => {
 		}),
 	);
 
+	it("bounds a finding list the way it bounds the tab order", () => {
+		// A live article produced two hundred and fifty unvisited
+		// controls and printed every one, while the tab order beside
+		// them stopped at forty and said how many more there were.
+		// One report, two rules, and the unbounded one was longer
+		// than everything else in the answer put together.
+		const many = analyseWalk(
+			capture({
+				candidates: Array.from({ length: 90 }, (_, at) =>
+					candidate(at, `Control ${at}`),
+				),
+				stops: [stop(0, "Control 0")],
+				cappedAt: 1,
+			}),
+		);
+
+		const out = renderWalk(many);
+		const listed = out
+			.split("\n")
+			.filter((line) => /^ {2}Control \d+$/.test(line));
+
+		expect(listed.length).toBeLessThan(89);
+		expect(out).toMatch(/\.\.\. and \d+ more/);
+	});
+
 	it("leads with the trap, which is the worst thing it can find", () => {
 		expect(renderWalk(trapped).split("\n").slice(0, 4).join("\n")).toContain(
 			"FOCUS TRAP",
