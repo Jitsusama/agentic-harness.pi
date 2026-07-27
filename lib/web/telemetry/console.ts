@@ -268,18 +268,27 @@ function originOf(
 		: undefined;
 }
 
-/** The rest of the stack, when there is more than one frame. */
+/**
+ * The rest of the stack, when there is more than one frame.
+ *
+ * A frame is worth a line when it can say where it was or what
+ * it was called. Code the page ran through the debugger has
+ * neither, and those frames used to print as "at (anonymous)
+ * undefined": three lines of that under every console.error,
+ * saying less than nothing, since "undefined" reads as a value
+ * the page produced. A stack of nothing but those is no stack.
+ */
 function stackOf(frames: readonly CallFrame[] | undefined): { stack?: string } {
 	if (!frames || frames.length < 2) return {};
-	return {
-		stack: frames
-			.map(
-				(frame) =>
-					`    at ${frame.functionName || "(anonymous)"} ` +
-					`${locationOf(frame.url, frame.lineNumber, frame.columnNumber)}`,
-			)
-			.join("\n"),
-	};
+	const lines = frames
+		.map((frame) => {
+			const where = locationOf(frame.url, frame.lineNumber, frame.columnNumber);
+			if (!frame.functionName && !where) return undefined;
+			if (!where) return `    at ${frame.functionName}`;
+			return `    at ${frame.functionName || "(anonymous)"} ${where}`;
+		})
+		.filter((line) => line !== undefined);
+	return lines.length > 0 ? { stack: lines.join("\n") } : {};
 }
 
 /**

@@ -251,6 +251,47 @@ describe("consoleEntry", () => {
 		expect(entry.origin).toBe("file:///noisy.html:18:9");
 	});
 
+	it("says nothing about a frame with nowhere to point", () => {
+		// Code run through the debugger has frames with no name and
+		// no url. Printing them gave three lines of
+		// "at (anonymous) undefined" under every console.error.
+		const entry = consoleEntry({
+			type: "error",
+			timestamp: 1000,
+			args: [{ type: "string", value: "boom" }],
+			stackTrace: {
+				callFrames: [
+					{ functionName: "", url: "", lineNumber: 0, columnNumber: 0 },
+					{ functionName: "", url: "", lineNumber: 0, columnNumber: 0 },
+				],
+			},
+		});
+
+		expect(entry.stack).toBeUndefined();
+	});
+
+	it("keeps a named frame that has no url", () => {
+		const entry = consoleEntry({
+			type: "error",
+			timestamp: 1000,
+			args: [{ type: "string", value: "boom" }],
+			stackTrace: {
+				callFrames: [
+					{ functionName: "onSubmit", url: "", lineNumber: 0, columnNumber: 0 },
+					{
+						functionName: "handler",
+						url: "file:///a.js",
+						lineNumber: 4,
+						columnNumber: 2,
+					},
+				],
+			},
+		});
+
+		expect(entry.stack).toContain("onSubmit");
+		expect(entry.stack).not.toContain("undefined");
+	});
+
 	it("counts lines and columns from one, as an editor does", () => {
 		const entry = consoleEntry({
 			type: "log",
