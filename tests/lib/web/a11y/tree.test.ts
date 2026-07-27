@@ -16,6 +16,42 @@ function raw(node: Partial<RawAxNode> & { nodeId: string }): RawAxNode {
 }
 
 describe("normalizeAxTree", () => {
+	it("keeps text a labelled container did not get its name from", () => {
+		// Wikipedia labels the article body with the article title,
+		// and the article opens with that same word in bold. Folding
+		// it away as a repeat deleted the subject of the first
+		// sentence, which then began " is the design of products".
+		const tree = normalizeAxTree([
+			raw({ nodeId: "1", role: { value: "RootWebArea" }, childIds: ["2"] }),
+			raw({
+				nodeId: "2",
+				parentId: "1",
+				name: { value: "Accessibility" },
+				childIds: ["3"],
+			}),
+			raw({
+				nodeId: "3",
+				parentId: "2",
+				role: { value: "paragraph" },
+				childIds: ["4", "5"],
+			}),
+			raw({
+				nodeId: "4",
+				parentId: "3",
+				role: { value: "StaticText" },
+				name: { value: "Accessibility" },
+			}),
+			raw({
+				nodeId: "5",
+				parentId: "3",
+				role: { value: "StaticText" },
+				name: { value: " is the design of products." },
+			}),
+		]);
+
+		expect(renderAxOutline(tree)).toContain('StaticText "Accessibility"');
+	});
+
 	it("keeps the states that say what a control is doing", () => {
 		const tree = normalizeAxTree([
 			raw({ nodeId: "1", role: { value: "RootWebArea" }, childIds: ["2"] }),

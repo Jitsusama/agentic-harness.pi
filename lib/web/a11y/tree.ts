@@ -82,6 +82,41 @@ const TEXT_CARRIER_ROLES = new Set([
 const PRESENTATIONAL_ROLES = new Set(["ListMarker"]);
 
 /**
+ * Roles that are named by the text inside them.
+ *
+ * Only these can make a repeat of a text node below them, and
+ * the distinction is not pedantry. A container labelled from
+ * somewhere else, by aria-label or aria-labelledby, can be
+ * named the same as words it happens to contain: Wikipedia
+ * labels an article's body with the article's title, and the
+ * article opens with that title in bold. Folding on any named
+ * ancestor deleted the subject of the first sentence, which
+ * then read " is the design of products".
+ */
+const NAMED_FROM_CONTENT_ROLES = new Set([
+	"button",
+	"caption",
+	"cell",
+	"checkbox",
+	"columnheader",
+	"gridcell",
+	"heading",
+	"legend",
+	"link",
+	"menuitem",
+	"menuitemcheckbox",
+	"menuitemradio",
+	"option",
+	"radio",
+	"row",
+	"rowheader",
+	"switch",
+	"tab",
+	"tooltip",
+	"treeitem",
+]);
+
+/**
  * Normalize a raw CDP accessibility capture into a tree.
  *
  * A node the page does not expose is folded, not pruned: a real
@@ -138,7 +173,12 @@ export function normalizeAxTree(nodes: readonly RawAxNode[]): AxNode {
 		const value = rawNode.value?.value;
 		// The value is shown against the control itself, so text
 		// beneath it saying the same thing is a second copy.
-		const spoken = [...namedAncestors, ...(name ? [name] : [])];
+		// A carrier's name is its own text, so it announces too: that
+		// is what lets its line boxes fold into it.
+		const announces =
+			name &&
+			(NAMED_FROM_CONTENT_ROLES.has(role) || TEXT_CARRIER_ROLES.has(role));
+		const spoken = announces ? [...namedAncestors, name] : namedAncestors;
 		const inherited = value === undefined ? spoken : [...spoken, String(value)];
 		const children = dropRepeatedText(
 			(rawNode.childIds ?? []).flatMap((childId) => build(childId, inherited)),
