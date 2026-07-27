@@ -344,10 +344,21 @@ is followed by judgment, not by a regex.
   two, or listed as small. The rule came from a browser action
   that returned 2.54 MB of accessibility outline: every list in
   that family had been budgeted for months, and the one path that
-  had not was the one every action ended with. The gate cannot
-  prove an answer is bounded, but it does fail when a family that
-  reached the shared machinery stops reaching it, and when a new
-  tool arrives with the question unanswered.
+  had not was the one every action ended with. It fails when a
+  family that reached the shared machinery stops reaching it, and
+  when a new tool arrives with the question unanswered.
+  That was once the whole of it, and a source scan reports a
+  family as wired, which is a different claim from working. The
+  same file now also runs the shared seam against five real
+  family shapes and asserts each answer is bounded and cites;
+  reverting the fix it guards fails three of the five. What the
+  gate still cannot do is prove an answer no test has a shape
+  for, which is why the families are also driven against real
+  pages and real accounts rather than fixtures alone. Two of the
+  worst defects in this area were found that way and by nothing
+  else: an answer that cited a handle only when the budget cut it,
+  so an audit eliding eight thousand elements cited nothing, and
+  a citation naming a reader that the session had not loaded.
 - **Audit methodology**: `browser-accessibility-guide`. Its
   rules are about how to conduct and report an audit, and the
   claims most worth enforcing are enforced at the source rather
