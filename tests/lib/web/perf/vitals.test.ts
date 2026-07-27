@@ -208,7 +208,44 @@ describe("measure", () => {
 
 	it("leaves out what the browser never reported", () => {
 		const bare = measure({ shifts: [], longTasks: [], paints: {} });
-		expect(bare.map((one) => one.name)).toEqual(["cumulative layout shift"]);
+		// No paint, no largest paint, no navigation timing, so none of
+		// those. The two that remain are the ones a capture this old
+		// is assumed to have been watching for, and they now agree
+		// with each other: both report the zero they saw.
+		expect(bare.map((one) => one.name)).toEqual([
+			"cumulative layout shift",
+			"total blocking time",
+		]);
+	});
+});
+
+describe("total blocking time", () => {
+	const named = (vitals: Vitals) => measure(vitals).map((one) => one.name);
+
+	it("reports a zero it was actually watching for", () => {
+		// A page that blocked nobody is good news, and the measure
+		// vanished instead of saying so. Reading the same page twice
+		// then gave four measures and a PASS, or five and a FAIL,
+		// with nothing to say which had happened.
+		const calm: Vitals = {
+			...CAPTURE,
+			longTasks: [],
+			installed: ["longtask", "paint"],
+		};
+
+		expect(named(calm)).toContain("total blocking time");
+	});
+
+	it("stays silent when nothing was watching for one", () => {
+		// The other half of the same rule: a zero from an observer
+		// that never installed is not a zero.
+		const unwatched: Vitals = {
+			...CAPTURE,
+			longTasks: [],
+			installed: ["paint"],
+		};
+
+		expect(named(unwatched)).not.toContain("total blocking time");
 	});
 });
 
