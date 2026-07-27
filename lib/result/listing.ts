@@ -33,6 +33,29 @@ export interface Listing<T> {
 	readonly unit: string;
 	/** How to ask for less, in this kind's own vocabulary. */
 	readonly narrowing: string;
+	/**
+	 * A line or two that must survive the cut.
+	 *
+	 * Some views end with the thing the caller needs in order to
+	 * carry on: a cursor to read from next, a note that entries were
+	 * dropped. Those sit at the end, which is exactly what a
+	 * leading-lines budget removes, so the announcement stream lost
+	 * its cursor and its overflow warning together and said nothing
+	 * about either. Kept apart from the records because it is not a
+	 * record, and appended after the cut rather than counted into it.
+	 */
+	readonly trailer?: string;
+	/**
+	 * Whether the view leaves records out on its own account.
+	 *
+	 * The budget is not the only thing that elides. An audit report
+	 * lists five elements per rule and says "and 7,995 more", which
+	 * fits any budget comfortably and is missing almost everything.
+	 * Keying the citation on the cut alone meant the answer with the
+	 * most left out was the one answer that offered no way to reach
+	 * it.
+	 */
+	readonly elided?: boolean;
 	readonly budget?: number;
 }
 
@@ -49,7 +72,10 @@ export function citeListing<T>(
 ): string {
 	const budget = listing.budget ?? LISTING_BUDGET_BYTES;
 	const bounded = withinLineBudget(listing.view, budget);
-	if (bounded.cut === 0) return bounded.text;
+	const trailer = listing.trailer ? `\n\n${listing.trailer}` : "";
+	if (bounded.cut === 0 && !listing.elided) {
+		return `${bounded.text}${trailer}`;
+	}
 
 	if (listing.records.length === 0) {
 		// A caller whose view was cut needs the rest of it, and an empty
@@ -60,7 +86,7 @@ export function citeListing<T>(
 		return cite(store, {
 			payload: listing.view,
 			view:
-				`${bounded.text}\n\n` +
+				`${bounded.text}${trailer}\n\n` +
 				`Cut ${count(bounded.cut)} of ${count(bounded.total)} lines ` +
 				`to fit the ${count(budget)} byte budget. ${listing.narrowing}`,
 			shown: bounded.shown,
@@ -73,13 +99,16 @@ export function citeListing<T>(
 	const cited = cite(store, {
 		payload: listing.records,
 		view:
-			`${bounded.text}\n\n` +
-			`Cut ${count(bounded.cut)} of ` +
-			`${count(bounded.total)} lines to fit the ` +
-			`${count(budget)} byte budget. ${listing.narrowing}`,
+			`${bounded.text}${trailer}\n\n` +
+			(bounded.cut === 0
+				? `This view lists only some of what was found. ${listing.narrowing}`
+				: `Cut ${count(bounded.cut)} of ` +
+					`${count(bounded.total)} lines to fit the ` +
+					`${count(budget)} byte budget. ${listing.narrowing}`),
 		shown: bounded.shown,
 		total: bounded.total,
 		unit: "lines",
+		...(listing.elided ? { elided: true } : {}),
 		// Lines are what the reader can count; records are what is on
 		// disk. Naming both in one sentence replaced a correction
 		// appended after the fact, which contradicted the sentence above

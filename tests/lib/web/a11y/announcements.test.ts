@@ -32,8 +32,13 @@ describe("renderAnnouncements", () => {
 
 	it("admits when it had to drop older announcements", () => {
 		const rendered = renderAnnouncements(heard(["polite", "Latest"]), 3);
+		// The notice goes first, where the missing ones would have been:
+		// the buffer drops the oldest. Last put it at the end of the
+		// longest view the tool produces, which is where a budget cuts,
+		// so on exactly the noisy page that drops announcements the
+		// reader was told nothing about the gap.
 		expect(rendered).toBe(
-			["polite: Latest", "", "3 earlier announcements were dropped."].join(
+			["3 earlier announcements were dropped.", "", "polite: Latest"].join(
 				"\n",
 			),
 		);

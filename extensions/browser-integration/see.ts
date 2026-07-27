@@ -577,14 +577,29 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 					...(filter === undefined ? {} : { filter }),
 					recorded: all.length,
 				});
+				// Both of the paths below bound the same listing the plain
+				// one does. They used to hand it back whole, so asking for
+				// an archive or a body was a way to opt out of the bounding
+				// by asking for more.
 				if (params.har) {
 					const path = await session.exportHar(wanted);
 					return answer(
 						name,
 						kind,
-						`${listing}\n\nWrote ${wanted.length} of these to an ` +
-							`HTTP Archive, bodies included where Chrome still had ` +
-							`them:\n  ${path}`,
+						listAnswer({
+							view: listing,
+							// Where the archive went is the whole point of the
+							// call, so it cannot be what the budget removes.
+							trailer:
+								`Wrote ${wanted.length} of these to an HTTP Archive, ` +
+								`bodies included where Chrome still had them:\n  ${path}`,
+							records: wanted,
+							unit: "requests",
+							narrowing:
+								"Narrow with 'filter' by type, state, status or url " +
+								"fragment. The archive on disk holds them all either " +
+								"way.",
+						}),
 					);
 				}
 				if (!params.body)
@@ -614,7 +629,18 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return answer(
 					name,
 					kind,
-					`${listing}\n\n${renderBody(target, fetched)}`,
+					listAnswer({
+						view: listing,
+						// The body is what was asked for by name, so it survives
+						// the cut to the listing around it. It bounds itself,
+						// and cites its own handle when it has to.
+						trailer: renderBody(target, fetched),
+						records: wanted,
+						unit: "requests",
+						narrowing:
+							"Narrow with 'filter' by type, state, status or url " +
+							"fragment.",
+					}),
 				);
 			}
 
@@ -650,7 +676,12 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 					name,
 					kind,
 					listAnswer({
-						view: `${renderAnnouncements(entries, dropped)}\n\ncursor: ${cursor}`,
+						view: renderAnnouncements(entries, dropped),
+						// The cursor is how the next call continues, so it has
+						// to outlive the cut. Written into the view, it sat on
+						// the last line and went first: a page noisy enough to
+						// need bounding is exactly the page somebody is polling.
+						trailer: `cursor: ${cursor}`,
 						records: entries.map(({ item }) => item),
 						unit: "announcements",
 						narrowing:

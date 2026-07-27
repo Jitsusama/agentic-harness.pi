@@ -50,6 +50,19 @@ export interface Citable<T> {
 	 * other.
 	 */
 	readonly stored?: { readonly count?: number; readonly unit: string };
+	/**
+	 * Whether the view omits part of the payload for reasons of its
+	 * own, with the counts agreeing.
+	 *
+	 * The counts answer "did the budget cut this", which is not the
+	 * same question as "is this all of it". An audit prints five
+	 * elements per rule and a count of the rest: every line it
+	 * intended to write got written, so shown equals total, and
+	 * without this the handle nobody needs more is the only one
+	 * offered while the answer hiding eight thousand elements offers
+	 * none.
+	 */
+	readonly elided?: boolean;
 }
 
 /** An answer, with a handle when there is more to be had. */
@@ -72,7 +85,9 @@ export interface Cited {
  * worth losing a page read over.
  */
 export function cite<T>(store: ResultStore, answer: Citable<T>): Cited {
-	if (answer.shown >= answer.total) return { text: answer.view };
+	if (answer.shown >= answer.total && !answer.elided) {
+		return { text: answer.view };
+	}
 
 	let stored: { handle: string; path: string };
 	try {
@@ -102,6 +117,19 @@ function citation<T>(
 	const rest =
 		`Query it with result_query, projecting the fields you want ` +
 		`rather than whole records. Shape: ${digest}`;
+	if (answer.elided && answer.shown >= answer.total) {
+		// Nothing was cut, so there is no shortfall in lines to report.
+		// Saying "renders 12 of 12 lines" next to a handle would invite
+		// the reader to conclude they had already seen everything.
+		const what =
+			answer.stored?.count === undefined
+				? `The whole ${answer.stored?.unit ?? "payload"}`
+				: `All ${count(answer.stored.count)} ${answer.stored.unit}`;
+		return (
+			`${what} are stored under handle ${handle}; this view lists ` +
+			`only some of them. ${rest}`
+		);
+	}
 	if (answer.stored !== undefined) {
 		// Two different counts, said once each: what is on disk, and how
 		// much of the rendering the reader is looking at.

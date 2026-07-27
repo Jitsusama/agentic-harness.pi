@@ -29,7 +29,13 @@ export function renderAnnouncements(
 		({ item }) => `${item.politeness}: ${flatten(item.text)}`,
 	);
 	if (dropped > 0) {
-		lines.push("", `${dropped} earlier announcements were dropped.`);
+		// First, where the missing ones would have been: the buffer
+		// drops the oldest, so the gap is at the top. It used to go last,
+		// which put the one line saying announcements were lost at the
+		// end of the longest possible view, where a budget removes it. A
+		// reader was then told nothing at all about the gap, which is
+		// worse than a long answer.
+		lines.unshift(`${dropped} earlier announcements were dropped.`, "");
 	}
 	return lines.join("\n");
 }
