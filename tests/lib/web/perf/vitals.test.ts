@@ -220,6 +220,16 @@ describe("renderVitals", () => {
 		expect(out).toContain("Every measure is within its threshold");
 	});
 
+	it("names the published vital it does not measure", () => {
+		// "Measured 4 of the published web vitals" invites the
+		// question of which one is missing, and interaction to next
+		// paint has been a core vital since 2024. A reader who is
+		// not told assumes it passed.
+		const out = renderVitals(CAPTURE, measure(CAPTURE));
+
+		expect(out).toMatch(/interaction to next paint/i);
+	});
+
 	it("warns about a page that paints fast and then misbehaves", () => {
 		const out = renderVitals(CAPTURE, measure(CAPTURE));
 		expect(out.startsWith("WARN")).toBe(true);
