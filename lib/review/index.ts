@@ -40,6 +40,11 @@ export type {
 } from "./change.js";
 export type { Check, CheckState, ChecksRollup } from "./checks.js";
 export type {
+	ReferenceMapping,
+	RepoMapping,
+	ReviewConfig,
+} from "./config.js";
+export type {
 	AnchoredComment,
 	Message,
 	Posted,
@@ -73,4 +78,18 @@ export type {
 	ReviewProvider,
 	StackingFacet,
 } from "./provider.js";
+export {
+	clearReviewProviders,
+	getReviewProvider,
+	listReviewProviders,
+	registerReviewProvider,
+	unregisterReviewProvider,
+} from "./register.js";
+export type {
+	Resolution,
+	ResolutionRefusal,
+	ResolveContext,
+	ResolvedVia,
+} from "./resolve.js";
+export { resolveReference } from "./resolve.js";
 export type { Stack, StackNode, StackProvenance } from "./stack.js";
