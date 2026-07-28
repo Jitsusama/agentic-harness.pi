@@ -382,4 +382,29 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		if (!field.ok) return;
 		expect(field.inspection.value).toBe("user@example.com");
 	});
+
+	it("names the font that was painted, not the one asked for", async () => {
+		// A computed style reports the stack. "Nonexistent Face,
+		// serif" reads the same whether the first loaded or the page
+		// fell back, which is most of the answer to why a screenshot
+		// from one machine does not match another.
+		await session.navigate(fixture.url("/stateful"));
+		await session.evaluate(
+			"document.getElementById('count').style.fontFamily = " +
+				"'\"Nonexistent Face\", serif'; 'set'",
+		);
+
+		const found = await session.inspect({
+			role: "status",
+			name: "Save result",
+		});
+
+		expect(found.ok).toBe(true);
+		if (!found.ok) return;
+		expect(found.inspection.fonts?.length).toBeGreaterThan(0);
+		// The stack named a face that does not exist, so whatever came
+		// back is the fallback and cannot be the name that was asked
+		// for. That is the whole distinction being drawn.
+		expect(found.inspection.fonts?.[0]?.family).not.toBe("Nonexistent Face");
+	});
 });

@@ -79,6 +79,7 @@ here.
 | Wait for a spinner to finish, not for a guessed delay | `do kind:"wait" selector:"#save" attribute:"aria-busy" value:"false"` |
 | Wait until a list has loaded all its rows | `do kind:"wait" selector:"li.row" count:20` |
 | Assert the save actually succeeded, not just returned | `do kind:"wait" pattern:"*/api/save" status:200` |
+| Did that font load, or did it fall back | `see kind:"element"` lists the fonts actually painted |
 | Read a counter, a status message or a filled field | `see kind:"element"` reports text, value and data attributes |
 | The tab gets slower the longer it is open | `see kind:"heap"`, do the thing, `see kind:"heap"` again |
 | A live feature updates by itself and I cannot see why | `see kind:"sockets"` for the websocket conversation |
@@ -367,7 +368,10 @@ request log under `filter: failed`.
   question from the text: a counter reading "42" has a name that
   mentions no number, and a field's name never says what was
   typed into it. Data attributes come back too, since teams hang
-  test state on them and the accessibility tree cannot see them
+  test state on them and the accessibility tree cannot see them.
+  It also names the fonts the browser actually painted with,
+  which a computed style cannot: a stack reads the same whether
+  the first family loaded or the page fell back to the last one
 - `vitals` reports what the load cost. Running the other tools
   here does not change it: script injected over the protocol is
   invisible to the browser's long task observer, so an audit

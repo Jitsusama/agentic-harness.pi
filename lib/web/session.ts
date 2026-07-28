@@ -299,6 +299,12 @@ export type MeasureResult =
 	  }
 	| { readonly ok: false; readonly problem: string };
 
+/** A font the browser really used, and how much of it. */
+export interface RenderedFont {
+	readonly family: string;
+	readonly glyphs: number;
+}
+
 export interface Inspection {
 	readonly node: AxNode;
 	readonly visibility: VisibilityVerdict;
@@ -312,6 +318,8 @@ export interface Inspection {
 	readonly value?: string;
 	/** Data and state attributes, which the a11y tree cannot see. */
 	readonly attributes?: Readonly<Record<string, string>>;
+	/** The fonts actually painted, as opposed to the stack asked for. */
+	readonly fonts?: readonly RenderedFont[];
 	readonly box?: BoxModel;
 	readonly styles?: readonly StyleGroup[];
 	readonly trace?: PropertyTrace;
@@ -2372,6 +2380,36 @@ export class BrowserSession {
 	}
 
 	/**
+	 * Which fonts the browser actually painted with.
+	 *
+	 * A computed style reports the stack that was asked for, not
+	 * what was used. "SF Pro, Helvetica, sans-serif" reads the same
+	 * whether the first one loaded or the page quietly fell back to
+	 * the third, which is most of the answer to why a screenshot
+	 * from one machine does not match another.
+	 */
+	private async fontsOf(
+		backendNodeId: number,
+	): Promise<readonly RenderedFont[] | undefined> {
+		const nodeId = await this.frontendNodeFor(backendNodeId);
+		if (nodeId === undefined) return undefined;
+		try {
+			const { fonts } = await this.cdp.send("CSS.getPlatformFontsForNode", {
+				nodeId,
+			});
+			if (fonts.length === 0) return undefined;
+			return fonts.map((font) => ({
+				family: font.familyName,
+				glyphs: font.glyphCount,
+			}));
+		} catch {
+			// An element with no text has no fonts, and a detached one
+			// cannot be asked. Neither is worth failing an inspection.
+			return undefined;
+		}
+	}
+
+	/**
 	 * The element's own words, and the attributes it carries.
 	 *
 	 * The accessible name answers what a control is called, which
@@ -2493,11 +2531,13 @@ export class BrowserSession {
 				: undefined;
 
 		const content = objectId ? await this.contentOf(objectId) : undefined;
+		const fonts = await this.fontsOf(backendNodeId);
 
 		return {
 			node,
 			visibility,
 			...(content ?? {}),
+			...(fonts === undefined ? {} : { fonts }),
 			...(box === undefined ? {} : { box }),
 			...(curated === undefined ? {} : { styles: curated }),
 			...(wantsBehaviour && objectId

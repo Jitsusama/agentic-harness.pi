@@ -210,6 +210,13 @@ function renderInspection(found: Inspection): string {
 			),
 		);
 	}
+	if (found.fonts) {
+		sections.push(
+			"",
+			"Painted with:",
+			...found.fonts.map((font) => `  ${font.family} (${font.glyphs} glyphs)`),
+		);
+	}
 	if (found.box) sections.push("", renderBox(found.box));
 	if (found.styles) sections.push("", renderStyles(found.styles));
 	if (found.variants) sections.push("", renderVariants(found.variants));
