@@ -26,10 +26,12 @@ import {
 	forgetReviewEngine,
 	registerBuiltinReviewProviders,
 } from "./engine.js";
-import { registerDraftTool } from "./tools/draft.js";
-import { registerReviewTool } from "./tools/read.js";
-import { registerStackTool } from "./tools/stack.js";
-import { registerThreadTool } from "./tools/thread.js";
+import {
+	registerDraftTool,
+	registerReviewTool,
+	registerStackTool,
+	registerThreadTool,
+} from "./tools.js";
 
 /**
  * Whether a bus payload is a usable provider. The bus is
