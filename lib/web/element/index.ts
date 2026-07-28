@@ -42,7 +42,11 @@ export {
 	measureBetween,
 	renderMeasurement,
 } from "./measure.js";
-export { OCCLUDER_PROBE, SELECT_TEXT_PROBE } from "./probes.js";
+export {
+	CONTENT_PROBE,
+	OCCLUDER_PROBE,
+	SELECT_TEXT_PROBE,
+} from "./probes.js";
 export {
 	diffStyles,
 	type PseudoState,

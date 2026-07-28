@@ -90,6 +90,8 @@ const parameters = Type.Object({
 				Type.Literal("selector"),
 				Type.Literal("gone"),
 				Type.Literal("text"),
+				Type.Literal("attribute"),
+				Type.Literal("count"),
 				Type.Literal("idle"),
 				Type.Literal("request"),
 				Type.Literal("animations"),
@@ -100,14 +102,42 @@ const parameters = Type.Object({
 					"For wait: selector or gone for an element appearing or " +
 					"leaving, text for words on the page, idle for the " +
 					"network going quiet, request for one matching a pattern " +
-					"finishing, animations for motion settling, duration to " +
+					"finishing, attribute for an element's attribute reaching " +
+					"a value (aria-busy going false, aria-expanded going " +
+					"true), count for a number of matching elements being " +
+					"there, animations for motion settling, duration to " +
 					"simply pass time.",
 			},
 		),
 	),
 	selector: Type.Optional(
 		Type.String({
-			description: "For wait selector and gone: the CSS selector.",
+			description:
+				"For wait selector, gone, attribute and count: the CSS " + "selector.",
+		}),
+	),
+	attribute: Type.Optional(
+		Type.String({
+			description:
+				"For wait attribute: which attribute to watch, e.g. " +
+				"'aria-busy'. Pair with 'value' for the value to wait for, " +
+				"or omit it to wait for the attribute to be removed.",
+		}),
+	),
+	value: Type.Optional(
+		Type.String({
+			description:
+				"For wait attribute: the value that ends the wait. Omit to " +
+				"wait for the attribute to go away entirely.",
+		}),
+	),
+	count: Type.Optional(
+		Type.Number({
+			description:
+				"For wait count: how many elements must match the " +
+				"selector. Exact, not a minimum, so a list that overshoots " +
+				"is a finding rather than a pass. For input click: 2 " +
+				"double-clicks.",
 		}),
 	),
 	pattern: Type.Optional(
@@ -115,6 +145,15 @@ const parameters = Type.Object({
 			description:
 				"For wait request: a url pattern, e.g. '*/api/save'. The " +
 				"answer reports the status it got.",
+		}),
+	),
+	status: Type.Optional(
+		Type.Number({
+			description:
+				"For wait request: the status that counts as arrival. " +
+				"Without it a request answering 500 ends the wait as " +
+				"happily as one answering 200, so a check that the save " +
+				"worked passes on a save that failed.",
 		}),
 	),
 	quietMs: Type.Optional(
@@ -177,9 +216,7 @@ const parameters = Type.Object({
 			description: "For pinch: how far apart they end. Larger zooms in.",
 		}),
 	),
-	count: Type.Optional(
-		Type.Number({ description: "For input click: 2 double-clicks." }),
-	),
+
 	button: Type.Optional(
 		Type.String({
 			description: "For input click and drag: left, middle or right.",
@@ -441,6 +478,10 @@ function buildCondition(params: {
 	pattern?: string;
 	quietMs?: number;
 	ms?: number;
+	attribute?: string;
+	value?: string;
+	count?: number;
+	status?: number;
 }): { condition: WaitCondition } | { error: string } {
 	// Zero ceremony, the same rule the rest of this family follows:
 	// when the arguments already say what is meant, naming the kind
@@ -449,17 +490,21 @@ function buildCondition(params: {
 	// to repeat themselves.
 	const inferred =
 		params.for ??
-		(params.selector !== undefined
-			? "selector"
-			: params.text !== undefined
-				? "text"
-				: params.pattern !== undefined
-					? "request"
-					: params.quietMs !== undefined
-						? "idle"
-						: params.ms !== undefined
-							? "duration"
-							: undefined);
+		(params.attribute !== undefined
+			? "attribute"
+			: params.count !== undefined
+				? "count"
+				: params.selector !== undefined
+					? "selector"
+					: params.text !== undefined
+						? "text"
+						: params.pattern !== undefined
+							? "request"
+							: params.quietMs !== undefined
+								? "idle"
+								: params.ms !== undefined
+									? "duration"
+									: undefined);
 
 	switch (inferred) {
 		case "selector":
@@ -484,7 +529,38 @@ function buildCondition(params: {
 			if (!params.pattern) {
 				return { error: "wait 'request' needs a pattern, e.g. '*/api/*'." };
 			}
-			return { condition: { kind: "request", pattern: params.pattern } };
+			return {
+				condition: {
+					kind: "request",
+					pattern: params.pattern,
+					...(params.status === undefined ? {} : { status: params.status }),
+				},
+			};
+		case "attribute":
+			if (!params.selector || !params.attribute) {
+				return {
+					error: "wait 'attribute' needs a selector and an attribute.",
+				};
+			}
+			return {
+				condition: {
+					kind: "attribute",
+					selector: params.selector,
+					attribute: params.attribute,
+					...(params.value === undefined ? {} : { value: params.value }),
+				},
+			};
+		case "count":
+			if (!params.selector || params.count === undefined) {
+				return { error: "wait 'count' needs a selector and a count." };
+			}
+			return {
+				condition: {
+					kind: "count",
+					selector: params.selector,
+					count: params.count,
+				},
+			};
 		case "animations":
 			return { condition: { kind: "animations" } };
 		case "duration":
@@ -495,8 +571,8 @@ function buildCondition(params: {
 		default:
 			return {
 				error:
-					"wait needs a 'for': selector, gone, text, idle, request, " +
-					"animations or duration.",
+					"wait needs a 'for': selector, gone, text, attribute, " +
+					"count, idle, request, animations or duration.",
 			};
 	}
 }

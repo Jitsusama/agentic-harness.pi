@@ -68,6 +68,7 @@ import {
 	ANIMATIONS_PROBE,
 	type Animation,
 	type BoxModel,
+	CONTENT_PROBE,
 	centreOf,
 	cornersOf,
 	type DelegatedListeners,
@@ -301,6 +302,16 @@ export type MeasureResult =
 export interface Inspection {
 	readonly node: AxNode;
 	readonly visibility: VisibilityVerdict;
+	/**
+	 * What the element actually says, as opposed to what it is
+	 * called. A counter reading "42" has an accessible name that
+	 * mentions no number.
+	 */
+	readonly text?: string;
+	/** What a field is holding, which its name never says. */
+	readonly value?: string;
+	/** Data and state attributes, which the a11y tree cannot see. */
+	readonly attributes?: Readonly<Record<string, string>>;
 	readonly box?: BoxModel;
 	readonly styles?: readonly StyleGroup[];
 	readonly trace?: PropertyTrace;
@@ -2134,6 +2145,19 @@ export class BrowserSession {
 								: "Nothing has requested it.",
 					};
 				}
+				if (
+					condition.status !== undefined &&
+					last.status !== condition.status
+				) {
+					// Keep waiting rather than declaring the condition met.
+					// A retry may still answer with the status asked for, and
+					// if none does, the timeout reports the status that kept
+					// arriving, which is the finding.
+					return {
+						met: false,
+						saw: `${last.method} ${last.url} answered ${requestStatus(last)}.`,
+					};
+				}
 				return {
 					met: true,
 					// A cancelled request usually carries no failure text,
@@ -2143,6 +2167,71 @@ export class BrowserSession {
 						last.state === "complete"
 							? `${last.method} ${last.url} answered ${requestStatus(last)}.`
 							: `${last.method} ${last.url} ${requestStatus(last)}.`,
+				};
+			}
+			case "attribute": {
+				// Read through one evaluate rather than a handle, so an
+				// element replaced between finding it and reading it is
+				// simply absent on the next poll instead of throwing on a
+				// stale handle.
+				let held: string | null | undefined;
+				try {
+					held = await this.page.evaluate(
+						(selector: string, attribute: string) => {
+							const found = document.querySelector(selector);
+							if (found === null) return undefined;
+							return found.getAttribute(attribute);
+						},
+						condition.selector,
+						condition.attribute,
+					);
+				} catch (error) {
+					return {
+						met: false,
+						saw: `The page could not be asked: ${String(error)}`,
+					};
+				}
+
+				if (held === undefined) {
+					// Absent element and absent attribute are different
+					// answers. Treating the first as "attribute is gone"
+					// would satisfy a wait for a control that never rendered.
+					return { met: false, saw: "Nothing matches that selector." };
+				}
+
+				const met =
+					condition.value === undefined
+						? held === null
+						: held === condition.value;
+				return {
+					met,
+					...(met
+						? {}
+						: {
+								saw:
+									held === null
+										? `It has no ${condition.attribute}.`
+										: `Its ${condition.attribute} is "${held}".`,
+							}),
+				};
+			}
+			case "count": {
+				let seen: number;
+				try {
+					seen = await this.page.evaluate(
+						(selector: string) => document.querySelectorAll(selector).length,
+						condition.selector,
+					);
+				} catch (error) {
+					return {
+						met: false,
+						saw: `The page could not be asked: ${String(error)}`,
+					};
+				}
+				const met = seen === condition.count;
+				return {
+					met,
+					...(met ? {} : { saw: `There are ${seen}.` }),
 				};
 			}
 			case "animations": {
@@ -2283,6 +2372,49 @@ export class BrowserSession {
 	}
 
 	/**
+	 * The element's own words, and the attributes it carries.
+	 *
+	 * The accessible name answers what a control is called, which
+	 * is a different question from what it says. A counter reading
+	 * "42", a status reading "3 items updated" and an input holding
+	 * a typed email all have names that say none of that, so
+	 * asserting on them meant dropping to a raw evaluate. Data
+	 * attributes are here for the same reason: teams hang test
+	 * state on them, and the accessibility tree cannot see them.
+	 */
+	private async contentOf(objectId: string): Promise<
+		| {
+				text?: string;
+				value?: string;
+				attributes?: Readonly<Record<string, string>>;
+		  }
+		| undefined
+	> {
+		try {
+			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
+				objectId,
+				returnByValue: true,
+				functionDeclaration: CONTENT_PROBE,
+			});
+			const read = result.value as
+				| { text: string; value?: string; attributes: [string, string][] }
+				| undefined;
+			if (read === undefined) return undefined;
+			return {
+				...(read.text === "" ? {} : { text: read.text }),
+				...(read.value === undefined ? {} : { value: read.value }),
+				...(read.attributes.length === 0
+					? {}
+					: { attributes: Object.fromEntries(read.attributes) }),
+			};
+		} catch {
+			// A detached node cannot be read, and an inspection that
+			// reports everything else is worth more than a refusal.
+			return undefined;
+		}
+	}
+
+	/**
 	 * A handle on the element inside this session.
 	 *
 	 * Object identifiers belong to the protocol session that
@@ -2360,9 +2492,12 @@ export class BrowserSession {
 					)
 				: undefined;
 
+		const content = objectId ? await this.contentOf(objectId) : undefined;
+
 		return {
 			node,
 			visibility,
+			...(content ?? {}),
 			...(box === undefined ? {} : { box }),
 			...(curated === undefined ? {} : { styles: curated }),
 			...(wantsBehaviour && objectId

@@ -225,6 +225,94 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 		expect("refusal" in switched).toBe(true);
 	});
 
+	it("waits for an attribute to reach a value", async () => {
+		// The shape of every async interaction: a control marks itself
+		// busy, then clears it. Waiting on a duration instead is the
+		// flake this replaces.
+		await session.navigate(fixture.url("/first"));
+		await session.evaluate(
+			"const b = document.createElement('button');" +
+				"b.id = 'save'; b.setAttribute('aria-busy', 'true');" +
+				"document.body.append(b);" +
+				"setTimeout(() => b.setAttribute('aria-busy', 'false'), 300); 'go'",
+		);
+
+		const outcome = await session.waitFor(
+			{
+				kind: "attribute",
+				selector: "#save",
+				attribute: "aria-busy",
+				value: "false",
+			},
+			5_000,
+		);
+
+		expect(outcome.met).toBe(true);
+	});
+
+	it("will not call a missing element an absent attribute", async () => {
+		// Waiting for an attribute to go away must not be satisfied by
+		// a control that never rendered, or the wait passes hardest
+		// exactly when the page is broken.
+		await session.navigate(fixture.url("/first"));
+
+		const outcome = await session.waitFor(
+			{ kind: "attribute", selector: "#nothing", attribute: "aria-busy" },
+			300,
+		);
+
+		expect(outcome.met).toBe(false);
+		expect(outcome.saw).toContain("Nothing matches");
+	});
+
+	it("waits for a number of elements to arrive", async () => {
+		await session.navigate(fixture.url("/first"));
+		await session.evaluate(
+			"let n = 0; const add = () => {" +
+				"const li = document.createElement('li');" +
+				"li.className = 'row'; document.body.append(li);" +
+				"if (++n < 4) setTimeout(add, 60); };" +
+				"setTimeout(add, 60); 'go'",
+		);
+
+		const outcome = await session.waitFor(
+			{ kind: "count", selector: "li.row", count: 4 },
+			5_000,
+		);
+
+		expect(outcome.met).toBe(true);
+	});
+
+	it("keeps waiting when a request answers the wrong status", async () => {
+		// Without the status, a save that returned 500 ends the wait as
+		// happily as one that worked.
+		await session.navigate(fixture.url("/first"));
+		await session.evaluate(
+			`fetch(${JSON.stringify(fixture.url("/missing-thing"))}); 'sent'`,
+		);
+
+		const outcome = await session.waitFor(
+			{ kind: "request", pattern: "*/missing-thing", status: 200 },
+			1_000,
+		);
+
+		expect(outcome.met).toBe(false);
+		expect(outcome.saw).toContain("404");
+
+		// The control, with a fresh request because a wait only counts
+		// what started after it did: without a status, the same 404
+		// satisfies it. Otherwise this test would pass on a wait that
+		// never succeeds at all.
+		const loose = session.waitFor(
+			{ kind: "request", pattern: "*/missing-thing" },
+			5_000,
+		);
+		await session.evaluate(
+			`fetch(${JSON.stringify(fixture.url("/missing-thing"))}); 'again'`,
+		);
+		expect((await loose).met).toBe(true);
+	});
+
 	it("waits out a plain duration", async () => {
 		const outcome = await session.waitFor({ kind: "duration", ms: 250 }, 5_000);
 

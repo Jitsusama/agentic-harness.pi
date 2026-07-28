@@ -50,6 +50,17 @@ const OUTER = page(
 
 const INNER = page("Inner", "<main><h1>Inner heading</h1></main>");
 
+/** A counter, a filled field, and state hung on data attributes. */
+const STATEFUL = page(
+	"Stateful",
+	`<main>
+		<p role="status" aria-label="Save result" id="count"
+			data-test-state="complete">3 items updated</p>
+		<label for="who">Email</label>
+		<input id="who" name="who" type="email" value="user@example.com">
+	</main>`,
+);
+
 /** A video with no text track, and audio that starts by itself. */
 const MEDIA = page(
 	"Media",
@@ -95,6 +106,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			{ path: "/inner", body: INNER },
 			{ path: "/spaced", body: SPACED },
 			{ path: "/media", body: MEDIA },
+			{ path: "/stateful", body: STATEFUL },
 			{ path: "/shadow", body: SHADOW },
 		]);
 		session = await BrowserSession.open("observation-contract");
@@ -344,5 +356,30 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		);
 		expect(captions).toBeDefined();
 		expect(captions?.criteria).toContain("1.2.2");
+	});
+
+	it("reports what an element says, holds and is tagged with", async () => {
+		// The accessible name answers what a control is called, which
+		// is a different question from what it says. Asserting on a
+		// counter or a filled field used to mean dropping to a raw
+		// evaluate, which is the escape hatch this tool exists to
+		// replace.
+		await session.navigate(fixture.url("/stateful"));
+
+		// Named "Save result" and reading "3 items updated": the two
+		// questions have different answers, which is the whole point.
+		const status = await session.inspect({
+			role: "status",
+			name: "Save result",
+		});
+		expect(status.ok).toBe(true);
+		if (!status.ok) return;
+		expect(status.inspection.text).toBe("3 items updated");
+		expect(status.inspection.attributes?.["data-test-state"]).toBe("complete");
+
+		const field = await session.inspect({ role: "textbox", name: "Email" });
+		expect(field.ok).toBe(true);
+		if (!field.ok) return;
+		expect(field.inspection.value).toBe("user@example.com");
 	});
 });

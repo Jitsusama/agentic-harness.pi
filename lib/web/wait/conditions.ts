@@ -17,7 +17,30 @@ export type WaitCondition =
 	| { readonly kind: "gone"; readonly selector: string }
 	| { readonly kind: "text"; readonly text: string }
 	| { readonly kind: "idle"; readonly quietMs: number }
-	| { readonly kind: "request"; readonly pattern: string }
+	| {
+			readonly kind: "request";
+			readonly pattern: string;
+			/**
+			 * The status that counts as arrival.
+			 *
+			 * Without it a request that answered 500 ends the wait as
+			 * happily as one that answered 200, so a test for a save
+			 * that worked passes on a save that failed.
+			 */
+			readonly status?: number;
+	  }
+	| {
+			readonly kind: "attribute";
+			readonly selector: string;
+			readonly attribute: string;
+			/** The value to wait for; omit to wait for the attribute to go. */
+			readonly value?: string;
+	  }
+	| {
+			readonly kind: "count";
+			readonly selector: string;
+			readonly count: number;
+	  }
 	| { readonly kind: "animations" }
 	| { readonly kind: "duration"; readonly ms: number };
 
@@ -121,7 +144,15 @@ function describe(condition: WaitCondition): string {
 		case "idle":
 			return `the network to go quiet for ${condition.quietMs}ms`;
 		case "request":
-			return `a request matching '${condition.pattern}' to finish`;
+			return condition.status === undefined
+				? `a request matching '${condition.pattern}' to finish`
+				: `a request matching '${condition.pattern}' to answer ${condition.status}`;
+		case "attribute":
+			return condition.value === undefined
+				? `'${condition.selector}' to lose its ${condition.attribute}`
+				: `'${condition.selector}' to have ${condition.attribute}="${condition.value}"`;
+		case "count":
+			return `${condition.count} of '${condition.selector}' to be there`;
 		case "animations":
 			return "animations to settle";
 		case "duration":

@@ -76,6 +76,10 @@ here.
 | Know why an element is the colour it is | `see kind:"element" why:"color"` |
 | See a focus ring or a hover style | `see kind:"element" states:["focus-visible","hover"]` |
 | Check a phone layout | `check widths:[375,768,1280]`, which works with every kind |
+| Wait for a spinner to finish, not for a guessed delay | `do kind:"wait" selector:"#save" attribute:"aria-busy" value:"false"` |
+| Wait until a list has loaded all its rows | `do kind:"wait" selector:"li.row" count:20` |
+| Assert the save actually succeeded, not just returned | `do kind:"wait" pattern:"*/api/save" status:200` |
+| Read a counter, a status message or a filled field | `see kind:"element"` reports text, value and data attributes |
 | The tab gets slower the longer it is open | `see kind:"heap"`, do the thing, `see kind:"heap"` again |
 | A live feature updates by itself and I cannot see why | `see kind:"sockets"` for the websocket conversation |
 | Is that gap 16px or 12px | `see kind:"measure" within:"button Save" and:"button Cancel"` |
@@ -358,6 +362,12 @@ request log under `filter: failed`.
 - `element` takes `why:"<property>"` to trace one CSS property
   through every rule that had a say, with authored source
   positions when a source map exists
+- `element` reports what the element says and holds as well as
+  what it is called. The accessible name answers a different
+  question from the text: a counter reading "42" has a name that
+  mentions no number, and a field's name never says what was
+  typed into it. Data attributes come back too, since teams hang
+  test state on them and the accessibility tree cannot see them
 - `vitals` reports what the load cost. Running the other tools
   here does not change it: script injected over the protocol is
   invisible to the browser's long task observer, so an audit
@@ -394,8 +404,14 @@ request log under `filter: failed`.
 - `press`: key chords such as `Control+Shift+K`
 - `input`: raw pointer and touch, including drag, swipe and
   pinch, for what semantics cannot reach
-- `wait`: for a selector, text, network quiet, a request
-  pattern, animations settling, or a duration
+- `wait`: for a selector, text, an attribute reaching a value, a
+  number of matching elements, network quiet, a request pattern,
+  animations settling, or a duration. Waiting on an attribute or
+  a count is how you avoid guessing at a delay: `aria-busy`
+  going false is the thing you meant, and 300ms is a hope. A
+  request wait takes an optional `status`, without which a save
+  that answered 500 ends the wait as happily as one that worked.
+  A wait only counts requests that started after it did
 - `eval`: run an expression. DOM nodes, functions and circular
   structures are described rather than serialized, and an
   exception comes back as a result with its stack mapped to

@@ -195,6 +195,21 @@ function renderInspection(found: Inspection): string {
 		"",
 		renderVisibility(found.visibility),
 	];
+	// What it says and holds comes before where it is, because a
+	// caller checking a counter or a filled field is asking about
+	// the words, and having to scroll past a box model to reach
+	// them is the wrong order.
+	if (found.text) sections.push("", `Text: ${found.text}`);
+	if (found.value !== undefined) sections.push(`Value: ${found.value}`);
+	if (found.attributes) {
+		sections.push(
+			"",
+			"Attributes:",
+			...Object.entries(found.attributes).map(
+				([named, held]) => `  ${named}="${held}"`,
+			),
+		);
+	}
 	if (found.box) sections.push("", renderBox(found.box));
 	if (found.styles) sections.push("", renderStyles(found.styles));
 	if (found.variants) sections.push("", renderVariants(found.variants));
