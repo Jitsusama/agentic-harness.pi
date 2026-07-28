@@ -120,6 +120,7 @@ export type {
 	StackingFacet,
 } from "./provider.js";
 export type { Exec, ExecResult, ProviderDeps } from "./providers/exec.js";
+export { createGitProvider } from "./providers/git/index.js";
 export { createGitHubProvider } from "./providers/github/index.js";
 export {
 	clearReviewProviders,

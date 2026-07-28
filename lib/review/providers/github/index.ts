@@ -21,6 +21,7 @@ import {
 } from "./claims.js";
 import { githubConversation } from "./conversation.js";
 import { githubProposals } from "./proposals.js";
+import { githubStacking } from "./stacking.js";
 
 /**
  * Claim priority. A generalist: any backend that specializes
@@ -74,5 +75,6 @@ export function createGitHubProvider(deps: ProviderDeps): ReviewProvider {
 		capabilities: githubCapabilities,
 		proposals: githubProposals(deps.exec),
 		conversation: githubConversation(deps.exec),
+		stacking: githubStacking(deps.exec),
 	};
 }
