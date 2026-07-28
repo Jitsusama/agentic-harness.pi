@@ -121,9 +121,38 @@ describe("parseRgb", () => {
 		expect(parseRgb("rgb(1 2 3 / 50%)")).toEqual({ r: 1, g: 2, b: 3, a: 0.5 });
 	});
 
-	it("refuses modern syntax rather than guessing at it", () => {
+	it("reads color(srgb ...) on the nought-to-one scale it uses", () => {
+		// The channels are fractions here, not 0-255. Reading them as
+		// bytes would turn white into near-black and pass any audit.
+		expect(parseRgb("color(srgb 1 1 1)")).toEqual({
+			r: 255,
+			g: 255,
+			b: 255,
+			a: 1,
+		});
+		expect(parseRgb("color(srgb 0.4 0.2 0.6)")).toEqual({
+			r: 102,
+			g: 51,
+			b: 153,
+			a: 1,
+		});
+	});
+
+	it("carries the alpha color(srgb ...) puts after a slash", () => {
+		expect(parseRgb("color(srgb 0 0 0 / 0.5)")).toEqual({
+			r: 0,
+			g: 0,
+			b: 0,
+			a: 0.5,
+		});
+		expect(parseRgb("color(srgb 0 0 0 / 50%)")?.a).toBe(0.5);
+	});
+
+	it("refuses colour spaces it cannot convert rather than guessing", () => {
 		// Chrome returns these from getComputedStyle unconverted, and
-		// a wrong guess here would be a confidently wrong audit.
+		// a wrong guess here would be a confidently wrong audit. p3 in
+		// particular looks exactly like srgb and is a wider gamut, so
+		// reading its numbers as srgb would be silently wrong.
 		expect(parseRgb("oklch(0.7 0.1 200)")).toBeUndefined();
 		expect(parseRgb("color(display-p3 1 0 0)")).toBeUndefined();
 		expect(parseRgb("lab(50 40 59.5)")).toBeUndefined();

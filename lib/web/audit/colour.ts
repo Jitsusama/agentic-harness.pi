@@ -109,19 +109,42 @@ const RGB_PATTERN =
 	/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/;
 
 /**
- * Read the one colour syntax the browser reliably produces.
+ * The srgb arm of color(), whose channels are fractions of full.
+ *
+ * Only srgb is matched. display-p3 and the rest are written the
+ * same way but describe a wider gamut, so reading their numbers
+ * on this scale would be wrong without a conversion nobody here
+ * is doing.
+ */
+const SRGB_PATTERN =
+	/^color\(\s*srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)$/;
+
+/** Full scale for a channel color(srgb ...) states as a fraction. */
+const FULL_CHANNEL = 255;
+
+/**
+ * Read the colour syntaxes the browser reliably produces.
  *
  * getComputedStyle serializes most colours as rgb() or rgba(),
- * and returns anything else, oklch and color() among them, as
- * written. Those are not guessed at here: an unrecognised
- * syntax returns nothing so the caller can ask the browser to
- * resolve it rather than get a confidently wrong answer.
+ * and a stylesheet written in modern colour syntax comes back as
+ * color(srgb ...) instead, unconverted. Both are read here.
+ * Anything else, oklch and the wider color() spaces among them,
+ * returns nothing rather than being guessed at, so the caller can
+ * ask the browser to resolve it instead of getting a confidently
+ * wrong answer.
  */
 export function parseRgb(css: string): Rgba | undefined {
-	const found = RGB_PATTERN.exec(css.trim());
-	if (!found) return undefined;
-	const [, red, green, blue, alpha] = found;
-	const channel = (text: string | undefined) => Number(text ?? "0");
+	const text = css.trim();
+	const found = RGB_PATTERN.exec(text);
+	const fractions = found ? undefined : SRGB_PATTERN.exec(text);
+	const matched = found ?? fractions;
+	if (!matched) return undefined;
+	const [, red, green, blue, alpha] = matched;
+	// color(srgb ...) states each channel as a fraction of full, so it
+	// needs the scale rgb() already speaks in. The rgb() path is left
+	// exactly as it was, fractional channels included.
+	const channel = (t: string | undefined) =>
+		fractions ? Math.round(Number(t ?? "0") * FULL_CHANNEL) : Number(t ?? "0");
 	const opacity =
 		alpha === undefined
 			? 1
