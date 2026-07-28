@@ -65,6 +65,36 @@ export interface DiffModel {
 }
 
 /**
+ * The `@@` line for this hunk, as git would write it.
+ *
+ * Reconstructed from the parts rather than kept as text,
+ * because a provider that built a hunk itself never had the
+ * line, and storing both invites them to disagree. Git omits
+ * the count when a range covers exactly one line, so this does
+ * too: the header is fed back to tools that expect git's own
+ * spelling.
+ */
+export function hunkHeader(hunk: DiffHunk): string {
+	const side = (start: number, count: number) =>
+		count === 1 ? `${start}` : `${start},${count}`;
+	const range = `@@ -${side(hunk.oldStart, hunk.oldCount)} +${side(hunk.newStart, hunk.newCount)} @@`;
+	return hunk.section ? `${range} ${hunk.section}` : range;
+}
+
+/**
+ * The one path this file is known by, for matching and lookup.
+ *
+ * The new side wins, falling back to the old for a file that
+ * was deleted. Distinct from `displayPath` on purpose: a label
+ * can say a file moved, but anything comparing paths needs a
+ * single real one, and a rename shown as a journey would match
+ * nothing.
+ */
+export function filePath(file: DiffFile): string {
+	return file.newPath ?? file.oldPath ?? "";
+}
+
+/**
  * The path to put in front of a person.
  *
  * The new side by default, since that is where the code now
@@ -76,8 +106,7 @@ export function displayPath(file: DiffFile): string {
 	if (file.status === "renamed" && file.oldPath && file.newPath) {
 		return `${file.oldPath} -> ${file.newPath}`;
 	}
-	// A deleted file has only an old side to name.
-	return file.newPath ?? file.oldPath ?? "";
+	return filePath(file);
 }
 
 /**

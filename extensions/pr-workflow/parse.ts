@@ -22,7 +22,7 @@
  */
 
 import { Value } from "@sinclair/typebox/value";
-import type { DiffFile } from "../../lib/internal/github/diff.js";
+import type { DiffFile } from "../../lib/review/index.js";
 import type { Finding } from "./findings.js";
 import { hasValidInlineAnchor } from "./post.js";
 import { CouncilFinding } from "./schemas.js";

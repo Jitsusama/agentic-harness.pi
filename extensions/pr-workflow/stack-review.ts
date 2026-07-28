@@ -10,7 +10,12 @@
  */
 
 import { Value } from "@sinclair/typebox/value";
-import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
+import {
+	type DiffFile,
+	type DiffLine,
+	displayPath,
+	hunkHeader,
+} from "../../lib/review/index.js";
 import type { ReviewerVerification } from "../../lib/subagent/subagent.js";
 import type { Finding, FindingLocation } from "./findings.js";
 import { extractJson } from "./parse.js";
@@ -606,21 +611,21 @@ function renderStackFindingForPrompt(finding: StackFinding): string {
 }
 
 function renderFile(file: DiffFile): string {
-	const header = `##### ${file.path} (${file.status})`;
+	const header = `##### ${displayPath(file)} (${file.status})`;
 	if (file.hunks.length === 0) return `${header}\n(no hunks)`;
 	return `${header}\n${file.hunks
-		.map((h) => `${h.header}\n${h.lines.map(renderLine).join("\n")}`)
+		.map((h) => `${hunkHeader(h)}\n${h.lines.map(renderLine).join("\n")}`)
 		.join("\n")}`;
 }
 
 function renderLine(line: DiffLine): string {
-	switch (line.type) {
+	switch (line.kind) {
 		case "added":
-			return `+${line.content}`;
+			return `+${line.text}`;
 		case "removed":
-			return `-${line.content}`;
+			return `-${line.text}`;
 		default:
-			return ` ${line.content}`;
+			return ` ${line.text}`;
 	}
 }
 

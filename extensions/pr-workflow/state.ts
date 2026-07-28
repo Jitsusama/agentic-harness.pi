@@ -15,8 +15,8 @@
  * cheap to re-run after a reload.
  */
 
-import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
+import type { DiffFile } from "../../lib/review/index.js";
 import type { RecoverySummary } from "../../lib/subagent/recovery.js";
 import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import type { PrWorkflowReviewerEntry } from "./config.js";

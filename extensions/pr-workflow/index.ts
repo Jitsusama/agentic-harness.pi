@@ -24,7 +24,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { createMutex } from "../../lib/internal/async-mutex.js";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
-import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
+import { fetchDiff } from "../../lib/internal/github/diff.js";
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
 import { getCurrentRepo } from "../../lib/internal/github/repo-discovery.js";
 import { postReview } from "../../lib/internal/github/review-post.js";
@@ -32,6 +32,12 @@ import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { findOrCreateSidequestForPr } from "../../lib/internal/quest/pr-sidequest.js";
 import { getQuestPrBridge } from "../../lib/quest/pr-bridge.js";
 import { citeListing, openSessionStore } from "../../lib/result/index.js";
+import {
+	changeCounts,
+	displayPath,
+	filePath,
+	parseUnifiedDiff,
+} from "../../lib/review/index.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
 import { getParentPiInstall } from "../../lib/subagent/install.js";
 import { recoverReviewerRuns } from "../../lib/subagent/recovery.js";
@@ -1338,7 +1344,7 @@ ${reviewValidationDirective()}`,
 									metadata: (reference) => fetchPrMetadata(pi, reference),
 									diff: async (reference) => {
 										const raw = await fetchDiff(pi, reference);
-										return parseDiff(raw);
+										return parseUnifiedDiff(raw).files;
 									},
 								},
 							}),
@@ -2735,7 +2741,7 @@ ${reviewValidationDirective()}`,
 				let diffError: string | null = null;
 				try {
 					const raw = await fetchDiff(pi, loaded.reference);
-					loaded.files = parseDiff(raw);
+					loaded.files = parseUnifiedDiff(raw).files;
 				} catch (error) {
 					diffError = error instanceof Error ? error.message : String(error);
 				}
@@ -2806,7 +2812,10 @@ ${reviewValidationDirective()}`,
 									: f.status === "renamed"
 										? "→"
 										: "~";
-						lines.push(`  ${tag} ${f.path}  (+${f.additions} −${f.deletions})`);
+						const counts = changeCounts(f);
+						lines.push(
+							`  ${tag} ${displayPath(f)}  (+${counts.additions} −${counts.deletions})`,
+						);
 					}
 					if (sha) {
 						const sample = loaded.files[0];
@@ -2816,7 +2825,7 @@ ${reviewValidationDirective()}`,
 								repo: loaded.reference.repo,
 								number: loaded.reference.number,
 								sha,
-								path: sample.path,
+								path: filePath(sample),
 							});
 							lines.push("");
 							lines.push(

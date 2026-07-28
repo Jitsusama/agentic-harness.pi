@@ -11,23 +11,21 @@ import {
 	type PrWorkflowState,
 } from "../../../extensions/pr-workflow/state.js";
 import { decideFinding } from "../../../extensions/pr-workflow/synthesis.js";
-import type { DiffFile } from "../../../lib/internal/github/diff.js";
+import type { DiffFile } from "../../../lib/review/index.js";
 
 function diffFile(path: string, newStart: number, newEnd: number): DiffFile {
 	const lines = Array.from({ length: newEnd - newStart + 1 }, (_, offset) => ({
-		type: "context" as const,
-		content: "x",
-		oldLineNumber: newStart + offset,
-		newLineNumber: newStart + offset,
+		kind: "context" as const,
+		text: "x",
+		oldLine: newStart + offset,
+		newLine: newStart + offset,
 	}));
 	return {
-		path,
+		oldPath: path,
+		newPath: path,
 		status: "modified",
-		additions: 1,
-		deletions: 0,
 		hunks: [
 			{
-				header: `@@ -${newStart},${lines.length} +${newStart},${lines.length} @@`,
 				oldStart: newStart,
 				oldCount: lines.length,
 				newStart,

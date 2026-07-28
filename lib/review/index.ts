@@ -71,6 +71,8 @@ export type {
 export {
 	changeCounts,
 	displayPath,
+	filePath,
+	hunkHeader,
 	lineNumberOn,
 	parseUnifiedDiff,
 } from "./diff.js";

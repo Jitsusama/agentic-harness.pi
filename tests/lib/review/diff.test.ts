@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	changeCounts,
 	displayPath,
+	filePath,
+	hunkHeader,
 	lineNumberOn,
 	parseUnifiedDiff,
 } from "../../../lib/review";
@@ -237,6 +239,31 @@ deleted file mode 100644
 		expect(changeCounts(file)).toEqual({ additions: 2, deletions: 1 });
 	});
 
+	it("names a renamed file by where it now lives, not both", () => {
+		// The label a person reads says the file moved; the path
+		// used to match a finding has to be a single real path.
+		const diff = `diff --git a/old/name.ts b/new/name.ts
+similarity index 95%
+rename from old/name.ts
+rename to new/name.ts
+`;
+		const [file] = parseUnifiedDiff(diff).files;
+		expect(filePath(file)).toBe("new/name.ts");
+		expect(displayPath(file)).toBe("old/name.ts -> new/name.ts");
+	});
+
+	it("names a deleted file by the path it used to have", () => {
+		const diff = `diff --git a/gone.ts b/gone.ts
+deleted file mode 100644
+--- a/gone.ts
++++ /dev/null
+@@ -1 +0,0 @@
+-one
+`;
+		const [file] = parseUnifiedDiff(diff).files;
+		expect(filePath(file)).toBe("gone.ts");
+	});
+
 	it("counts a binary file as no lines either way", () => {
 		const diff = `diff --git a/logo.png b/logo.png
 index 1111111..2222222 100644
@@ -244,6 +271,81 @@ Binary files a/logo.png and b/logo.png differ
 `;
 		const [file] = parseUnifiedDiff(diff).files;
 		expect(changeCounts(file)).toEqual({ additions: 0, deletions: 0 });
+	});
+});
+
+describe("a hunk that only removes lines", () => {
+	// Carried over from the GitHub diff module this replaced.
+	// A hunk whose new side covers zero lines has nothing on
+	// the new side to anchor a remark to, which is the case
+	// that used to break anchoring.
+	const deletionOnly = `diff --git a/foo.txt b/foo.txt
+index abc1234..def5678 100644
+--- a/foo.txt
++++ b/foo.txt
+@@ -10,5 +9,0 @@ surrounding context
+-old line 1
+-old line 2
+-old line 3
+-old line 4
+-old line 5
+`;
+
+	it("reads a new side covering no lines at all", () => {
+		const [file] = parseUnifiedDiff(deletionOnly).files;
+		expect(file.hunks[0].newCount).toBe(0);
+		expect(file.hunks[0].newStart).toBe(9);
+	});
+
+	it("numbers every line on the old side only", () => {
+		const [file] = parseUnifiedDiff(deletionOnly).files;
+		const lines = file.hunks[0].lines;
+		expect(lines).toHaveLength(5);
+		expect(lines.map((line) => lineNumberOn(line, "old"))).toEqual([
+			10, 11, 12, 13, 14,
+		]);
+		expect(lines.every((line) => lineNumberOn(line, "new") === undefined)).toBe(
+			true,
+		);
+	});
+
+	it("counts the removals and no additions", () => {
+		const [file] = parseUnifiedDiff(deletionOnly).files;
+		expect(changeCounts(file)).toEqual({ additions: 0, deletions: 5 });
+	});
+});
+
+describe("writing a hunk's header back out", () => {
+	it("round-trips the header it was parsed from", () => {
+		const [file] = parseUnifiedDiff(modified).files;
+		expect(hunkHeader(file.hunks[0])).toBe("@@ -1,4 +1,5 @@");
+	});
+
+	it("keeps the section heading git guessed", () => {
+		const diff = `diff --git a/a.ts b/a.ts
+--- a/a.ts
++++ b/a.ts
+@@ -10,3 +10,3 @@ function outer() {
+ context
+-old
++new
+`;
+		const [file] = parseUnifiedDiff(diff).files;
+		expect(hunkHeader(file.hunks[0])).toBe(
+			"@@ -10,3 +10,3 @@ function outer() {",
+		);
+	});
+
+	it("omits a count of one, the way git does", () => {
+		const diff = `diff --git a/a.ts b/a.ts
+--- a/a.ts
++++ b/a.ts
+@@ -1 +1 @@
+-old
++new
+`;
+		const [file] = parseUnifiedDiff(diff).files;
+		expect(hunkHeader(file.hunks[0])).toBe("@@ -1 +1 @@");
 	});
 });
 

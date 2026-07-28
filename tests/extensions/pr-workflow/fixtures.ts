@@ -17,7 +17,7 @@
 
 import { expect } from "vitest";
 import type { PrMetadata } from "../../../extensions/pr-workflow/fetch.js";
-import type { DiffHunk, DiffLine } from "../../../lib/internal/github/diff.js";
+import type { DiffHunk, DiffLine } from "../../../lib/review/index.js";
 import type { ReviewerUsage } from "../../../lib/subagent/subagent.js";
 
 /** Build a complete `PrMetadata` from partial overrides. */
@@ -68,7 +68,6 @@ export function reviewerUsage(
 /** Build a complete `DiffHunk` from partial overrides. */
 export function diffHunk(overrides: Partial<DiffHunk> = {}): DiffHunk {
 	return {
-		header: "@@ -1,0 +1,1 @@",
 		oldStart: 1,
 		oldCount: 0,
 		newStart: 1,
@@ -81,10 +80,9 @@ export function diffHunk(overrides: Partial<DiffHunk> = {}): DiffHunk {
 /** Build a complete `DiffLine` from partial overrides. */
 export function diffLine(overrides: Partial<DiffLine> = {}): DiffLine {
 	return {
-		type: "added",
-		content: "x",
-		oldLineNumber: null,
-		newLineNumber: 1,
+		kind: "added",
+		text: "x",
+		newLine: 1,
 		...overrides,
 	};
 }

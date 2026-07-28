@@ -688,18 +688,15 @@ describe("runOneCouncilReviewer", () => {
 				...TARGET,
 				files: [
 					{
-						path: "areas/core/foo.rb",
+						oldPath: "areas/core/foo.rb",
+						newPath: "areas/core/foo.rb",
 						status: "modified",
 						hunks: [],
-						additions: 1,
-						deletions: 0,
 					},
 					{
-						path: "system/gitstream/bar.go",
+						newPath: "system/gitstream/bar.go",
 						status: "added",
 						hunks: [],
-						additions: 2,
-						deletions: 0,
 					},
 				],
 			},

@@ -19,9 +19,14 @@
  * need a real `gh` binary.
  */
 
-import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import type { ReviewComment } from "../../lib/internal/github/review-post.js";
+import {
+	type DiffFile,
+	type DiffLine,
+	filePath,
+	lineNumberOn,
+} from "../../lib/review/index.js";
 import type { Finding, FindingAgreement, FindingLocation } from "./findings.js";
 import type { PostGateOutcome } from "./post-gate-outcome.js";
 import type {
@@ -622,7 +627,7 @@ export function hasValidInlineAnchor(
 ): boolean {
 	if (location.kind !== "line") return false;
 	if (location.start < 1 || location.end < location.start) return false;
-	const file = files.find((candidate) => candidate.path === location.file);
+	const file = files.find((candidate) => filePath(candidate) === location.file);
 	if (file === undefined) return false;
 	const side = location.side === "old" ? "old" : "new";
 	return file.hunks.some((hunk) =>
@@ -638,8 +643,8 @@ function hunkContainsLineRange(
 ): boolean {
 	const lineNumbers = new Set<number>();
 	for (const line of lines) {
-		const lineNumber = side === "old" ? line.oldLineNumber : line.newLineNumber;
-		if (lineNumber !== null) lineNumbers.add(lineNumber);
+		const lineNumber = lineNumberOn(line, side);
+		if (lineNumber !== undefined) lineNumbers.add(lineNumber);
 	}
 	for (let lineNumber = start; lineNumber <= end; lineNumber++) {
 		if (!lineNumbers.has(lineNumber)) return false;
