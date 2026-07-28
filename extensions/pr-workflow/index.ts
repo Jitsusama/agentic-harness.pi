@@ -139,6 +139,7 @@ import {
 import { formatStack, nextInStack, prevInStack } from "./stack-view.js";
 import { createPrWorkflowState, resetPrWorkflowSession } from "./state.js";
 import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
+import { attachSubstrate, threadsFromSubstrate } from "./substrate.js";
 import { formatPrSummary } from "./summary.js";
 import {
 	type DecideFindingInput,
@@ -156,7 +157,7 @@ import {
 	confirmResolveManyGate,
 } from "./thread-gate.js";
 import { describeReplyOutcome } from "./thread-reply-outcome.js";
-import { fetchReviewThreads, replyToThread, resolveThread } from "./threads.js";
+import { replyToThread, resolveThread } from "./threads.js";
 import {
 	captureThreadExpectation,
 	formatThreadsView,
@@ -285,6 +286,10 @@ function requirePersonaWrite(params: {
 
 export default function prWorkflow(pi: ExtensionAPI) {
 	const state = createPrWorkflowState();
+	// The thread reads come from the review substrate, which another
+	// extension hosts. Attach early and in both directions, since
+	// nothing says which of the two loaded first.
+	attachSubstrate(pi);
 	const prWorkflowStateDir = () => packageStateDir("pr-workflow");
 	const reviewerArtifacts = () =>
 		new ReviewerArtifactsStore(prWorkflowStateDir());
@@ -1089,7 +1094,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								registry,
 								dispatch,
 								reviewContexts: reviewContextProviders,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								resolveCharter: charters.resolve,
 								...(params.intent ? { intent: params.intent } : {}),
 								progress,
@@ -1160,7 +1165,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								registry,
 								dispatch,
 								reviewContexts: reviewContextProviders,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								resolveCharter: charters.resolve,
 								...(params.intent ? { intent: params.intent } : {}),
 								reviewerId,
@@ -1264,7 +1269,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								registry,
 								dispatch,
 								reviewContexts: reviewContextProviders,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								judgeCharter,
 								...(personaExhibits.length > 0 ? { personaExhibits } : {}),
 								...(params.intent ? { intent: params.intent } : {}),
@@ -1338,7 +1343,7 @@ ${reviewValidationDirective()}`,
 								registry,
 								dispatch,
 								reviewContexts: reviewContextProviders,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								progress,
 								judgeCharter: stackJudgeCharter,
 								fetchers: {
@@ -1392,7 +1397,7 @@ ${reviewValidationDirective()}`,
 								registry,
 								dispatch,
 								reviewContexts: reviewContextProviders,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								resolveCharter: critiqueCharters.resolve,
 								...(params.intent ? { intent: params.intent } : {}),
 								progress,
@@ -1450,7 +1455,7 @@ ${reviewValidationDirective()}`,
 								registry,
 								dispatch,
 								reviewContexts: reviewContextProviders,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								resolveCharter: critiqueCharters.resolve,
 								...(params.intent ? { intent: params.intent } : {}),
 								reviewerId,
@@ -1814,7 +1819,7 @@ ${reviewValidationDirective()}`,
 				if (params.action === "threads") {
 					const result = await loadThreadsAction({
 						state,
-						fetcher: (ref) => fetchReviewThreads(pi, ref),
+						fetcher: threadsFromSubstrate,
 					});
 					if (!result.ok) {
 						return {
@@ -2522,7 +2527,7 @@ ${reviewValidationDirective()}`,
 								registry,
 								dispatch,
 								auditor,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								progress,
 							}),
 						progress,
