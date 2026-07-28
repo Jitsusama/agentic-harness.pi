@@ -566,7 +566,10 @@ describe("resolveThreadAction", () => {
 		const resolver = vi.fn(async () => true);
 		const result = await resolveThreadAction({ state, index: 1, resolver });
 		expect(result.ok).toBe(true);
-		expect(resolver).toHaveBeenCalledWith("TA");
+		expect(resolver).toHaveBeenCalledWith(
+			state.pr?.reference,
+			expect.objectContaining({ id: "TA" }),
+		);
 	});
 
 	it("rejects an out-of-range index", async () => {

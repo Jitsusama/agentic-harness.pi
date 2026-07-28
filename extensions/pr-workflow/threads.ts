@@ -1,22 +1,18 @@
 /**
- * The view of a pull request's conversation, and the two writes
- * that act on it.
+ * The view of a change's conversation that this workflow speaks.
  *
- * Reading is the substrate's job now: `readConversation` asks a
- * provider's conversation facet for the anchored threads and the
- * change's top-level comments, and `threadViewFrom` maps them
- * onto the shape below. What arrives is two collections, which is
- * the distinction that matters. An anchored thread can be replied
- * to and resolved; a comment on the change as a whole can be
- * neither, and is listed for context.
+ * No GitHub in here, and no network. The substrate does the reading
+ * and the writing; this maps what it reports onto the shape the
+ * actions already consume. `readConversation` asks a provider's
+ * conversation facet for the anchored threads and the change's
+ * top-level comments, and `threadViewFrom` projects them.
  *
- * Reply and resolve still go out through this extension's own
- * GraphQL. They are mutations rather than reads, and moving them
- * onto the facet is a separate step.
+ * They arrive as two collections, and that is the distinction that
+ * matters. An anchored thread can be replied to and resolved; a
+ * comment on the change as a whole can be neither, and is listed
+ * for context.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { runGraphQL } from "../../lib/internal/github/graphql.js";
 import type {
 	ChangeRef,
 	ConversationFacet,
@@ -60,102 +56,6 @@ export interface ReviewThread {
 	 * session that predates this field.
 	 */
 	readonly source?: Thread;
-}
-
-const REPLY_MUTATION = `mutation AddThreadReply($threadId: ID!, $body: String!) {
-  addPullRequestReviewThreadReply(input: {
-    pullRequestReviewThreadId: $threadId
-    body: $body
-  }) {
-    comment { id url }
-  }
-}`;
-
-const RESOLVE_MUTATION = `mutation ResolveThread($threadId: ID!) {
-  resolveReviewThread(input: { threadId: $threadId }) {
-    thread { id isResolved }
-  }
-}`;
-
-/** Reply to an existing thread. Returns the new comment URL. */
-export async function replyToThread(
-	pi: ExtensionAPI,
-	threadId: string,
-	body: string,
-): Promise<string> {
-	const raw = await runGraphQL<unknown>(pi, REPLY_MUTATION, {
-		threadId,
-		body,
-	});
-	const comment = extractReplyComment(raw);
-	return comment.url;
-}
-
-/** Resolve a thread. Returns the new resolved state. */
-export async function resolveThread(
-	pi: ExtensionAPI,
-	threadId: string,
-): Promise<boolean> {
-	const raw = await runGraphQL<unknown>(pi, RESOLVE_MUTATION, { threadId });
-	return extractResolvedState(raw);
-}
-
-function extractReplyComment(raw: unknown): { url: string } {
-	if (!isRecord(raw)) {
-		throw new Error("Reply response was not an object");
-	}
-	const data = raw.data;
-	if (!isRecord(data)) {
-		throw new Error("Reply response missing `data`");
-	}
-	const payload = data.addPullRequestReviewThreadReply;
-	if (!isRecord(payload)) {
-		throw new Error("Reply response missing payload");
-	}
-	const comment = payload.comment;
-	if (!isRecord(comment)) {
-		throw new Error("Reply response missing comment");
-	}
-	return { url: expectString(comment, "url") };
-}
-
-function extractResolvedState(raw: unknown): boolean {
-	if (!isRecord(raw)) {
-		throw new Error("Resolve response was not an object");
-	}
-	const data = raw.data;
-	if (!isRecord(data)) {
-		throw new Error("Resolve response missing `data`");
-	}
-	const payload = data.resolveReviewThread;
-	if (!isRecord(payload)) {
-		throw new Error("Resolve response missing payload");
-	}
-	const thread = payload.thread;
-	if (!isRecord(thread)) {
-		throw new Error("Resolve response missing thread");
-	}
-	return expectBoolean(thread, "isResolved");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function expectString(record: Record<string, unknown>, key: string): string {
-	const value = record[key];
-	if (typeof value !== "string") {
-		throw new Error(`Review threads: \`${key}\` is not a string`);
-	}
-	return value;
-}
-
-function expectBoolean(record: Record<string, unknown>, key: string): boolean {
-	const value = record[key];
-	if (typeof value !== "boolean") {
-		throw new Error(`Review threads: \`${key}\` is not a boolean`);
-	}
-	return value;
 }
 
 /**

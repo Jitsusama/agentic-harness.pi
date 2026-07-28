@@ -36,8 +36,16 @@ export type ThreadReplySender = (
 	body: string,
 ) => Promise<string | undefined>;
 
-/** Resolver: resolve a thread. Returns the new resolved state. */
-export type ThreadResolver = (threadId: string) => Promise<boolean>;
+/**
+ * Resolver: resolve a thread. Returns the new resolved state.
+ *
+ * Keyed by the whole record for the same reason a reply is: the
+ * provider decides what addresses a thread.
+ */
+export type ThreadResolver = (
+	reference: PRReference,
+	thread: ReviewThread,
+) => Promise<boolean>;
 
 /** Fetch the PR's review threads and store them on state. */
 export async function loadThreadsAction(input: {
@@ -280,6 +288,9 @@ export async function resolveThreadAction(input: {
 	expect?: ThreadActionExpectation;
 }): Promise<Result<{ isResolved: boolean }>> {
 	const { state, index, resolver } = input;
+	if (state.pr === null) {
+		return { ok: false, error: "Load a PR before resolving a thread." };
+	}
 	const lookup = lookupThread(state, index);
 	if (!lookup.ok) {
 		return lookup;
@@ -296,7 +307,7 @@ export async function resolveThreadAction(input: {
 	}
 	let isResolved: boolean;
 	try {
-		isResolved = await resolver(lookup.thread.id);
+		isResolved = await resolver(state.pr.reference, lookup.thread);
 	} catch (err) {
 		return {
 			ok: false,

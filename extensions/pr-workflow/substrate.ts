@@ -82,6 +82,24 @@ export async function replyThroughSubstrate(
 }
 
 /**
+ * Resolve a thread through the substrate. Answers with the state
+ * the thread is now in.
+ *
+ * The facet reports success by completing rather than by returning
+ * a state, so a return here means the provider considers it
+ * resolved. Reading the state back would be a second round trip to
+ * learn what the absence of an error already said.
+ */
+export async function resolveThroughSubstrate(
+	reference: PRReference,
+	thread: ReviewThread,
+): Promise<boolean> {
+	const { conversation, change } = await conversationFor(reference);
+	await conversation.resolve(change, sourceOf(thread));
+	return true;
+}
+
+/**
  * The record a write has to be keyed by.
  *
  * Refuses rather than reconstructing one from the id. A rebuilt

@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	forgetSubstrate,
 	replyThroughSubstrate,
+	resolveThroughSubstrate,
 	setSubstrateApi,
 	threadsFromSubstrate,
 } from "../../../extensions/pr-workflow/substrate.js";
@@ -125,6 +126,60 @@ describe("replyThroughSubstrate", () => {
 				},
 				"seems fine",
 			),
+		).rejects.toThrow(/refresh|action=threads/i);
+	});
+});
+
+describe("resolveThroughSubstrate", () => {
+	const thread: Thread = {
+		id: "PRRT_1",
+		resolved: false,
+		comments: [{ id: "c1", author: { id: "octocat" }, body: "hi" }],
+	};
+
+	function resolving(): {
+		conversation: ConversationFacet;
+		closed: Thread[];
+	} {
+		const closed: Thread[] = [];
+		const conversation = {
+			threads: async () => [thread],
+			messages: async () => [],
+			async resolve(_ref: unknown, target: Thread) {
+				closed.push(target);
+			},
+		} as unknown as ConversationFacet;
+		return { conversation, closed };
+	}
+
+	it("hands the provider the whole record and reports it resolved", async () => {
+		// The facet answers by completing rather than by returning a
+		// state, and completing is the provider saying it is done.
+		const { conversation, closed } = resolving();
+		const { api } = substrate(conversation);
+		setSubstrateApi(api);
+		const [view] = await threadsFromSubstrate(reference);
+
+		const isResolved = await resolveThroughSubstrate(reference, view);
+
+		expect(closed).toEqual([thread]);
+		expect(isResolved).toBe(true);
+	});
+
+	it("refuses a view that carries no record", async () => {
+		const { api } = substrate(resolving().conversation);
+		setSubstrateApi(api);
+
+		await expect(
+			resolveThroughSubstrate(reference, {
+				id: "PRRT_1",
+				kind: "review-thread",
+				isResolved: false,
+				isOutdated: false,
+				path: null,
+				line: null,
+				comments: [],
+			}),
 		).rejects.toThrow(/refresh|action=threads/i);
 	});
 });

@@ -142,6 +142,7 @@ import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
 import {
 	attachSubstrate,
 	replyThroughSubstrate,
+	resolveThroughSubstrate,
 	threadsFromSubstrate,
 } from "./substrate.js";
 import { formatPrSummary } from "./summary.js";
@@ -161,7 +162,7 @@ import {
 	confirmResolveManyGate,
 } from "./thread-gate.js";
 import { describeReplyOutcome } from "./thread-reply-outcome.js";
-import { resolveThread } from "./threads.js";
+
 import {
 	captureThreadExpectation,
 	formatThreadsView,
@@ -1927,7 +1928,7 @@ ${reviewValidationDirective()}`,
 					const resolved = await resolveThreadAction({
 						state,
 						index: params.threadIndex,
-						resolver: (threadId) => resolveThread(pi, threadId),
+						resolver: resolveThroughSubstrate,
 					});
 					const outcome = describeReplyOutcome(
 						reply,
@@ -1963,7 +1964,7 @@ ${reviewValidationDirective()}`,
 						const batch = await resolveThreadsAction({
 							state,
 							indices,
-							resolver: (threadId) => resolveThread(pi, threadId),
+							resolver: resolveThroughSubstrate,
 							expectFor: (i) => expectFor.get(i) ?? undefined,
 						});
 						const summaryParts = [
@@ -2022,7 +2023,7 @@ ${reviewValidationDirective()}`,
 					const result = await resolveThreadAction({
 						state,
 						index: params.threadIndex,
-						resolver: (threadId) => resolveThread(pi, threadId),
+						resolver: resolveThroughSubstrate,
 						...(resolveExpectation ? { expect: resolveExpectation } : {}),
 					});
 					if (!result.ok) {
