@@ -46,4 +46,5 @@ export {
 	type SavedState,
 	type StorageSnapshot,
 } from "./storage.js";
+export { chooseTab, renderTabs, type TabRecord } from "./tabs.js";
 export { renderEnvironment } from "./view.js";

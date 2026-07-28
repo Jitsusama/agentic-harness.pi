@@ -22,6 +22,7 @@ import {
 	readState,
 	renderEnvironment,
 	renderShaping,
+	renderTabs,
 	type ThrottleConditions,
 	throttleNames,
 	throttleProfile,
@@ -50,6 +51,7 @@ const parameters = Type.Object({
 				Type.Literal("dialogs"),
 				Type.Literal("emulate"),
 				Type.Literal("storage"),
+				Type.Literal("tabs"),
 				Type.Literal("network"),
 			],
 			{
@@ -63,6 +65,7 @@ const parameters = Type.Object({
 					"read back the ones already seen. " +
 					"emulate: be a different visitor, by device, viewport, media " +
 					"preference, sight, locale or clock. " +
+					"tabs: list the tabs open, or switch to one. " +
 					"storage: read, write or clear what the page has kept, or " +
 					"save the signed-in state to a file and load it back in " +
 					"another session. " +
@@ -133,6 +136,15 @@ const parameters = Type.Object({
 			description:
 				"For storage: the value to write under key, or the text to " +
 				"put on the clipboard.",
+		}),
+	),
+	tab: Type.Optional(
+		Type.Number({
+			description:
+				"For tabs: switch to this tab, numbered as the listing " +
+				"shows. Omit to just list what is open. Every read and act " +
+				"goes to the tab being driven, so a page that opened " +
+				"another one is only reachable by switching to it.",
 		}),
 	),
 	save: Type.Optional(
@@ -549,7 +561,8 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			"browser_go puts a browser session somewhere and sets the " +
 			"conditions it runs under: navigate, open, close, reload, " +
 			"back, forward, emulate a device, shape the network, read " +
-			"storage, answer dialogs. Read the browser-guide skill.",
+			"storage, reach a tab the page opened, answer dialogs. Read " +
+			"the browser-guide skill.",
 		parameters,
 		renderCall: (args, theme) => renderBrowserCall("go", args, theme),
 		renderResult: (result, options, theme) =>
@@ -627,6 +640,20 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 
 			if (kind === "storage") {
 				return answer(name, kind, await runStorage(session, params));
+			}
+
+			if (kind === "tabs") {
+				if (params.tab === undefined) {
+					return answer(name, kind, renderTabs(await session.tabs()));
+				}
+				const switched = await session.switchTab(params.tab);
+				if ("refusal" in switched) return answer(name, kind, switched.refusal);
+				return answer(
+					name,
+					kind,
+					`Now driving tab ${switched.index}, ${switched.url}. The tab ` +
+						"you left is still open and can be switched back to.",
+				);
 			}
 
 			if (kind === "emulate") {

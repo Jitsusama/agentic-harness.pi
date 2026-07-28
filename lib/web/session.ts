@@ -94,6 +94,7 @@ import { DIR_MODE, FILE_MODE, pathComponent } from "./envelope/index.js";
 import {
 	type CookieRecord,
 	captureState,
+	chooseTab,
 	type Divergence,
 	type EmulationState,
 	matchesPattern,
@@ -102,6 +103,7 @@ import {
 	type SavedState,
 	type SessionStatus,
 	type StorageSnapshot,
+	type TabRecord,
 	type ThrottleConditions,
 } from "./environment/index.js";
 import {
@@ -913,7 +915,21 @@ export class BrowserSession {
 		// and leaving it would leak a renderer for the session's life.
 		await this.page.close().catch(() => {});
 
-		const page = await this.context.newPage();
+		await this.bindTo(await this.context.newPage());
+	}
+
+	/**
+	 * Point the session at a tab and make it whole again.
+	 *
+	 * Every watcher is bound to one tab's protocol channel, so a
+	 * session that changes tabs without reinstalling them goes on
+	 * answering while quietly deaf to everything the new tab does.
+	 * That is the same wound a crash leaves, which is why recovering
+	 * from a crash and switching tabs are one piece of code: two
+	 * copies would drift, and the half that drifted would fail
+	 * silently in exactly this way.
+	 */
+	private async bindTo(page: Page): Promise<void> {
 		const cdp = await page.createCDPSession();
 		this.page = page;
 		this.cdp = cdp;
@@ -1121,6 +1137,57 @@ export class BrowserSession {
 			key,
 			value,
 		});
+	}
+
+	/**
+	 * Every tab this session's context is holding open.
+	 *
+	 * A page that opens another one is doing something ordinary: a
+	 * target of _blank, a sign-in or a payment handed to a second
+	 * window. Until this existed the new tab was real, live and
+	 * entirely invisible, and the click that made it looked like a
+	 * click that did nothing.
+	 */
+	async tabs(): Promise<readonly TabRecord[]> {
+		await this.ready();
+		const pages = await this.context.pages();
+		return await Promise.all(
+			pages.map(async (page, at) => ({
+				index: at + 1,
+				url: page.url(),
+				// A tab still loading has no title yet, and asking a closing
+				// one throws. Either way the url still identifies it, which
+				// is what the caller picks by.
+				title: await page.title().catch(() => ""),
+				current: page === this.page,
+			})),
+		);
+	}
+
+	/**
+	 * Drive a different tab from now on.
+	 *
+	 * The tab left behind is not closed. A sign-in that opened a
+	 * second window usually wants the first one back afterwards, and
+	 * closing it would make switching a one-way trip.
+	 */
+	async switchTab(index: number): Promise<TabRecord | { refusal: string }> {
+		const open = await this.tabs();
+		const chosen = chooseTab(open, index);
+		if ("refusal" in chosen) return chosen;
+
+		const pages = await this.context.pages();
+		const page = pages[chosen.index - 1];
+		if (page === undefined) {
+			return {
+				refusal: `Tab ${index} closed between being listed and being chosen.`,
+			};
+		}
+		if (page === this.page) return { ...chosen, current: true };
+
+		await page.bringToFront();
+		await this.bindTo(page);
+		return { ...chosen, current: true };
 	}
 
 	/**

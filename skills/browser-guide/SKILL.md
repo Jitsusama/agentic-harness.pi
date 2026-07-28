@@ -76,6 +76,7 @@ here.
 | Know why an element is the colour it is | `see kind:"element" why:"color"` |
 | See a focus ring or a hover style | `see kind:"element" states:["focus-visible","hover"]` |
 | Check a phone layout | `check widths:[375,768,1280]`, which works with every kind |
+| A click opened a new tab, or seemed to do nothing | `go kind:"tabs"` to list, then `tab: N` to switch |
 | Test a page behind a login without signing in each time | `go kind:"storage" save:"/tmp/signed-in.json"` once, then `load:` it |
 | Test with the network off or slow | `go kind:"network" throttle:"offline"` |
 | Answer a request yourself | `go kind:"network" mock:"*/api/*" body:...` |
@@ -328,6 +329,13 @@ request log under `filter: failed`.
   reload after. When you are not on that origin it restores the
   cookies, writes nothing else, and says so, rather than
   reporting a success that leaves you signed out
+- `tabs`: list the tabs open, or pass `tab` to switch to one. A
+  session drives one tab, so a page that opened another with
+  `target=_blank` or `window.open`, as sign-in and payment flows
+  do, is live and unreachable until you switch. The tab you leave
+  stays open. The browser makes a new tab on its own schedule, so
+  a list taken the instant after the click can miss it; list
+  again rather than concluding nothing opened
 - `dialogs`: decide how alerts and confirms are answered. The
   default is dismiss, and every dialog seen is recorded
 
