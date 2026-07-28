@@ -40,7 +40,10 @@ export {
 export { renderStatus, type SessionStatus } from "./status.js";
 export {
 	type CookieRecord,
+	captureState,
+	readState,
 	renderStorage,
+	type SavedState,
 	type StorageSnapshot,
 } from "./storage.js";
 export { renderEnvironment } from "./view.js";

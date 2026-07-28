@@ -3,7 +3,67 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { renderStorage } from "../../../../lib/web/environment/storage.js";
+import {
+	captureState,
+	readState,
+	renderStorage,
+} from "../../../../lib/web/environment/storage.js";
+
+describe("saving and reading back a signed-in state", () => {
+	it("keeps the cookies and the origin they belong to", () => {
+		const state = captureState("https://shop.example", {
+			cookies: [{ name: "sid", value: "abc", domain: ".shop.example" }],
+			local: [["cart", "two things"]],
+		});
+
+		expect(state.origin).toBe("https://shop.example");
+		expect(state.cookies).toHaveLength(1);
+		expect(state.local).toEqual([["cart", "two things"]]);
+	});
+
+	it("reads back what it wrote", () => {
+		// The pair has to survive a round trip through a file, which is
+		// the only reason either exists.
+		const state = captureState("https://shop.example", {
+			cookies: [{ name: "sid", value: "abc" }],
+		});
+
+		const read = readState(JSON.stringify(state));
+
+		expect("problem" in read).toBe(false);
+		if ("problem" in read) return;
+		expect(read.cookies[0]?.name).toBe("sid");
+		expect(read.origin).toBe("https://shop.example");
+	});
+
+	it("refuses something that is not JSON at all", () => {
+		// This reads a path a caller typed. Pointing it at the wrong
+		// file has to say so, rather than restoring nothing and
+		// reporting success, which would look exactly like a site that
+		// signed you out.
+		const read = readState("<html>not a state</html>");
+
+		expect("problem" in read).toBe(true);
+	});
+
+	it("refuses JSON that is not a saved state", () => {
+		const read = readState(JSON.stringify({ hello: "world" }));
+
+		expect("problem" in read).toBe(true);
+		if (!("problem" in read)) return;
+		expect(read.problem).toContain("origin");
+	});
+
+	it("refuses a state whose cookies are not cookies", () => {
+		// Half-restoring from a malformed file is the worst outcome:
+		// the session looks signed in and is not.
+		const read = readState(
+			JSON.stringify({ origin: "https://x.example", cookies: ["sid=abc"] }),
+		);
+
+		expect("problem" in read).toBe(true);
+	});
+});
 
 describe("renderStorage", () => {
 	it("says nothing was asked for rather than printing blank sections", () => {

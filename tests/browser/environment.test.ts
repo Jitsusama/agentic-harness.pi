@@ -99,6 +99,48 @@ describe.skipIf(!haveChrome)(
 			expect(survivor.ok && survivor.result.value).toBe("session value");
 		});
 
+		it("carries a signed-in state into a session that never signed in", async () => {
+			// The whole point, and the only test that proves it: a second
+			// browser session, with its own cookie jar, wearing the first
+			// one's identity. Asserting a round trip within one session
+			// would pass even if nothing were ever applied.
+			await session.navigate(fixture.url("/store"));
+			await session.setStored(true, "token", "secret-token");
+			const saved = await session.saveState();
+
+			const fresh = await BrowserSession.open("environment-restored");
+			try {
+				await fresh.navigate(fixture.url("/plain"));
+				const landed = await fresh.loadState(saved);
+
+				expect(landed.wrongOrigin).toBeUndefined();
+				expect(landed.cookies).toBeGreaterThan(0);
+				const token = await fresh.evaluate("localStorage.getItem('token')");
+				expect(token.ok && token.result.value).toBe("secret-token");
+				const baked = await fresh.evaluate("document.cookie");
+				expect(JSON.stringify(baked)).toContain("baked=yes");
+			} finally {
+				await fresh.close();
+			}
+		});
+
+		it("will not pretend local storage landed on the wrong origin", async () => {
+			// Local storage belongs to an origin. Writing it somewhere
+			// else is impossible, and counting it as restored anyway is
+			// how someone concludes a site signed them out.
+			await session.navigate(fixture.url("/store"));
+			const saved = await session.saveState();
+
+			const landed = await session.loadState({
+				...saved,
+				origin: "https://somewhere.else.example",
+				local: [["token", "secret-token"]],
+			});
+
+			expect(landed.wrongOrigin).toBeDefined();
+			expect(landed.local).toBe(0);
+		});
+
 		it("reports the shaping in force, having been given a profile by name", async () => {
 			await session.shape({ throttle: "slow-3g" });
 			try {
