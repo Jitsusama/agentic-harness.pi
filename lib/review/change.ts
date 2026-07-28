@@ -101,6 +101,18 @@ export interface Proposal {
 	/** Web location for humans. */
 	url?: string;
 	/**
+	 * How big the change is, when the provider says.
+	 *
+	 * Carried rather than derived because a consumer that only
+	 * wants to state the size should not have to fetch and count a
+	 * whole diff, and every backend reports this alongside the rest
+	 * of the change. Absent means unreported, which is not the same
+	 * as zero.
+	 */
+	additions?: number;
+	deletions?: number;
+	changedFiles?: number;
+	/**
 	 * Anything the provider knows that the neutral model
 	 * does not name. Consumers may read it opportunistically;
 	 * nothing in the substrate depends on it.

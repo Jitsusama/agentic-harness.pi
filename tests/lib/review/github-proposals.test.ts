@@ -30,6 +30,43 @@ function provider(replies: Reply[]) {
 	return { provider: createGitHubProvider({ exec }), calls };
 }
 
+describe("how big the change is", () => {
+	// Reported so a consumer can say "120 files, +13841 -11215"
+	// without fetching and counting a whole diff to find out.
+	it("reads the size from REST, which spells it changed_files", async () => {
+		const { provider: gh } = provider([
+			{
+				when: ["repos/Shopify/world/pulls/123"],
+				stdout: JSON.stringify({
+					...JSON.parse(pullJson),
+					additions: 13841,
+					deletions: 11215,
+					changed_files: 120,
+				}),
+			},
+		]);
+
+		const proposal = await gh.proposals?.fetch(ref);
+
+		expect(proposal?.additions).toBe(13841);
+		expect(proposal?.deletions).toBe(11215);
+		expect(proposal?.changedFiles).toBe(120);
+	});
+
+	it("says nothing about size when the answer carries none", async () => {
+		// A count of zero and an unreported count are different
+		// things, and one of them must not be printed as the other.
+		const { provider: gh } = provider([
+			{ when: ["repos/Shopify/world/pulls/123"], stdout: pullJson },
+		]);
+
+		const proposal = await gh.proposals?.fetch(ref);
+
+		expect(proposal?.additions).toBeUndefined();
+		expect(proposal?.changedFiles).toBeUndefined();
+	});
+});
+
 describe("reading a pull request", () => {
 	it("asks gh for the pull request and maps it to a proposal", async () => {
 		const { provider: gh, calls } = provider([

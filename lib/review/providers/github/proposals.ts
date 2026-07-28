@@ -47,6 +47,34 @@ function nested(value: unknown, key: string): Record<string, unknown> {
 		: {};
 }
 
+function num(value: unknown): number | undefined {
+	return typeof value === "number" ? value : undefined;
+}
+
+/**
+ * How big the change is, from whichever of GitHub's spellings
+ * answered: REST says `changed_files`, GraphQL and the CLI say
+ * `changedFiles`.
+ *
+ * Each field is carried only when it is actually there. An
+ * unreported count and a count of zero are different facts, and a
+ * reader shown "0 files changed" would believe the wrong one.
+ */
+function sizeOf(raw: Record<string, unknown>): {
+	additions?: number;
+	deletions?: number;
+	changedFiles?: number;
+} {
+	const additions = num(raw.additions);
+	const deletions = num(raw.deletions);
+	const changedFiles = num(raw.changedFiles) ?? num(raw.changed_files);
+	return {
+		...(additions !== undefined ? { additions } : {}),
+		...(deletions !== undefined ? { deletions } : {}),
+		...(changedFiles !== undefined ? { changedFiles } : {}),
+	};
+}
+
 /**
  * GitHub's state plus its merge timestamp, as one state. A
  * closed pull request that merged is merged; one that did not
@@ -80,6 +108,7 @@ function proposalFromRest(
 		...(str(raw.created_at) ? { createdAt: str(raw.created_at) } : {}),
 		...(str(raw.updated_at) ? { updatedAt: str(raw.updated_at) } : {}),
 		...(str(raw.html_url) ? { url: str(raw.html_url) } : {}),
+		...sizeOf(raw),
 	};
 }
 
@@ -104,6 +133,7 @@ function proposalFromListing(
 		base: str(raw.baseRefName) ?? "",
 		head: str(raw.headRefName) ?? "",
 		...(str(raw.url) ? { url: str(raw.url) } : {}),
+		...sizeOf(raw),
 	};
 }
 
@@ -189,7 +219,10 @@ export function githubProposals(exec: Exec): ProposalsFacet {
 		async list(repo: RepoLocator, filter: ChangeFilter) {
 			const args = ["pr", "list", "--repo", slugOf(repo), "--json"];
 			args.push(
-				"number,title,body,state,isDraft,author,baseRefName,headRefName,url",
+				"number,title,body,state,isDraft,author,baseRefName,headRefName,url," +
+					// Free in the same call, and a listing is exactly where
+					// knowing which change is the big one earns its keep.
+					"additions,deletions,changedFiles",
 			);
 			if (filter.state) args.push("--state", filter.state);
 			if (filter.author) args.push("--author", filter.author);
