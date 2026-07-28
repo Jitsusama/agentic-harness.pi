@@ -70,6 +70,7 @@ export {
 } from "./report.js";
 export {
 	analyseStructure,
+	autocompleteTokens,
 	brokenReferences,
 	formLabelling,
 	headingOutline,

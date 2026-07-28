@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	analyseStructure,
+	autocompleteTokens,
 	brokenReferences,
 	formLabelling,
 	headingOutline,
@@ -492,5 +493,76 @@ describe("a rule has to be able to see its own subject", () => {
 
 		expect(found).toHaveLength(1);
 		expect(found[0]?.nodes[0]?.selector).toBe("#reachable");
+	});
+});
+
+describe("a field the browser could have filled in", () => {
+	const field = (over: Record<string, string>): StructureNode =>
+		node({
+			id: "f",
+			tag: "input",
+			role: "textbox",
+			focusable: true,
+			attributes: over,
+		});
+
+	it("reports a field asking for the user's own email", () => {
+		// WCAG 1.3.5. Without a token the browser will not fill it,
+		// so someone who finds typing hard types it again, every
+		// time. axe has no rule for this at all.
+		const found = autocompleteTokens([field({ type: "email", name: "email" })]);
+
+		expect(found).toHaveLength(1);
+		expect(found[0]?.criteria).toContain("1.3.5");
+		expect(found[0]?.levels).toContain("AA");
+	});
+
+	it("says nothing about a field that already has a token", () => {
+		expect(
+			autocompleteTokens([
+				field({ type: "email", name: "email", autocomplete: "email" }),
+			]),
+		).toEqual([]);
+	});
+
+	it("accepts a token that names a section or a billing address", () => {
+		// The specification allows prefixes, and a checkout form is
+		// the ordinary place they appear. Reading only the bare token
+		// would fail every well-built payment page.
+		expect(
+			autocompleteTokens([
+				field({
+					type: "text",
+					name: "address",
+					autocomplete: "section-delivery billing street-address",
+				}),
+			]),
+		).toEqual([]);
+	});
+
+	it("respects a field switched off with autocomplete=off", () => {
+		// A one-time passcode is the case: the author has said the
+		// browser must not remember it, and they are right.
+		expect(
+			autocompleteTokens([
+				field({ type: "text", name: "otp", autocomplete: "off" }),
+			]),
+		).toEqual([]);
+	});
+
+	it("leaves alone a field that asks for nothing about the user", () => {
+		// A search box or a quantity is not personal information, and
+		// 1.3.5 only covers input collecting data about the user.
+		expect(autocompleteTokens([field({ type: "search", name: "q" })])).toEqual(
+			[],
+		);
+	});
+
+	it("reports an unknown token, which does nothing at all", () => {
+		expect(
+			autocompleteTokens([
+				field({ type: "email", name: "email", autocomplete: "your-email" }),
+			]),
+		).toHaveLength(1);
 	});
 });

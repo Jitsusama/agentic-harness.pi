@@ -13,6 +13,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { analyseStructure } from "../../lib/web/audit/index.js";
 import { BrowserSession } from "../../lib/web/session.js";
 import { type Fixture, haveChrome, page, serve } from "./_harness.js";
 
@@ -58,6 +59,10 @@ const STATEFUL = page(
 			data-test-state="complete">3 items updated</p>
 		<label for="who">Email</label>
 		<input id="who" name="who" type="email" value="user@example.com">
+		<label for="town">City</label>
+		<input id="town" name="city" type="text" autocomplete="shipping address-level2">
+		<label for="find">Search</label>
+		<input id="find" name="q" type="search">
 	</main>`,
 );
 
@@ -406,5 +411,22 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		// back is the fallback and cannot be the name that was asked
 		// for. That is the whole distinction being drawn.
 		expect(found.inspection.fonts?.[0]?.family).not.toBe("Nonexistent Face");
+	});
+
+	it("catches a personal field the browser cannot fill", async () => {
+		// WCAG 1.3.5, which axe has no rule for, so this page passed in
+		// silence. The email field has no token; the city field has a
+		// prefixed one and must not be reported; the search box asks
+		// nothing about the user and must not be either.
+		await session.navigate(fixture.url("/stateful"));
+		// Through the structural path, which is where these rules run:
+		// session.audit() is axe alone.
+		const tokens = analyseStructure(await session.structure()).find(
+			(finding) => finding.rule === "field-has-autocomplete",
+		);
+		expect(tokens).toBeDefined();
+		expect(tokens?.criteria).toContain("1.3.5");
+		expect(tokens?.nodes).toHaveLength(1);
+		expect(tokens?.nodes[0]?.html).toContain("who");
 	});
 });

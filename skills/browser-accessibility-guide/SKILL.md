@@ -79,6 +79,17 @@ This runs axe's WCAG rule set together with structural rules of
 our own, merged into one report so you do not have to know which
 found what.
 
+Among our own is autocomplete tokens, WCAG 1.3.5, which axe has
+no rule for. A field asking for the user's own name, email,
+phone or address without a token cannot be filled by the browser
+or a password manager, so somebody who finds typing hard types
+it again on every site that asks. The rule reads the input type
+before the field's name, because a type is the browser's own
+declaration and a name is a guess, and it leaves
+`autocomplete="off"` alone: an author who wrote it on a one-time
+passcode is right, and overruling them would be this tool
+claiming to know better about a decision only they can make.
+
 **Keep two distinctions the report makes.** They are the
 difference between a useful finding and a misleading one:
 
