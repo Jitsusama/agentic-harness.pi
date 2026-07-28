@@ -102,6 +102,13 @@ export {
 } from "./draft/state.js";
 export type { DraftStore, DraftSummary } from "./draft/store.js";
 export { createDraftStore } from "./draft/store.js";
+export type {
+	BoundTarget,
+	LocalSpec,
+	ReviewEngine,
+	ReviewEngineDeps,
+} from "./engine.js";
+export { createReviewEngine } from "./engine.js";
 export type { ReviewSubstrateApi } from "./events.js";
 export { REVIEW_READY, REVIEW_REGISTER_PROVIDER } from "./events.js";
 export { changeKey, repoKey, targetKey } from "./keys.js";

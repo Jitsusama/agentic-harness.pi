@@ -84,16 +84,26 @@ function changeFromMapping(
 	return { provider: mapping.provider, repo: { key: repoKey }, id };
 }
 
-/** Ask a list of providers, in order, to claim the reference. */
+/**
+ * Ask a list of providers, in order, to claim the reference.
+ *
+ * Each provider is first asked what it makes of the checkout,
+ * and that answer is handed to it along with the reference. A
+ * bare number means "in this repo", and only the provider can
+ * say whether this repo is one of its own, so a number typed in
+ * a gitstream checkout does not become a GitHub pull request.
+ */
 function firstClaim(
 	providers: ReviewProvider[],
 	input: string,
 	via: ResolvedVia,
 	tried: string[],
+	probe: RepoProbe | undefined,
 ): Resolution | undefined {
 	for (const provider of providers) {
 		tried.push(provider.id);
-		const change = provider.claimReference(input);
+		const repo = probe ? (provider.claimRepo(probe) ?? undefined) : undefined;
+		const change = provider.claimReference(input, repo);
 		if (change) return { resolved: true, change, provider, via };
 	}
 	return undefined;
@@ -141,12 +151,19 @@ export function resolveReference(
 	}
 
 	const tried: string[] = [];
+	const probe = context?.probe;
 	const mapped = mappedProviders(context);
-	const byConfig = firstClaim(mapped.present, input, "config-repo", tried);
+	const byConfig = firstClaim(
+		mapped.present,
+		input,
+		"config-repo",
+		tried,
+		probe,
+	);
 	if (byConfig) return byConfig;
 
 	const remaining = providers.filter((p) => !tried.includes(p.id));
-	const byClaim = firstClaim(remaining, input, "claim", tried);
+	const byClaim = firstClaim(remaining, input, "claim", tried, probe);
 	if (byClaim) return byClaim;
 
 	for (const mapping of context?.config?.references ?? []) {

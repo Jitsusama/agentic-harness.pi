@@ -43,6 +43,45 @@ describe("resolveReference", () => {
 		expect(result.resolved && result.provider.id).toBe("meteorite");
 	});
 
+	it("tells each provider what it makes of the checkout", () => {
+		// A bare number means "in this repo", so a provider needs
+		// its own reading of the checkout to interpret one.
+		const seen: (string | undefined)[] = [];
+		registerReviewProvider(
+			stubProvider({
+				id: "forge",
+				priority: 100,
+				claimRepo: () => mirror,
+				claimReference: (input, repo) => {
+					seen.push(repo?.key);
+					return repo ? { provider: "forge", repo, id: input } : null;
+				},
+			}),
+		);
+		const result = resolveReference("123", { probe: inWorld });
+		expect(seen).toEqual(["github:Shopify/world"]);
+		expect(result.resolved && result.change.repo.key).toBe(
+			"github:Shopify/world",
+		);
+	});
+
+	it("passes no repo when the question came from nowhere", () => {
+		const seen: (string | undefined)[] = [];
+		registerReviewProvider(
+			stubProvider({
+				id: "forge",
+				priority: 100,
+				claimRepo: () => mirror,
+				claimReference: (_input, repo) => {
+					seen.push(repo?.key);
+					return null;
+				},
+			}),
+		);
+		resolveReference("123");
+		expect(seen).toEqual([undefined]);
+	});
+
 	it("skips a provider that does not recognize the reference", () => {
 		registerReviewProvider(stubProvider({ id: "blind", priority: 10 }));
 		registerReviewProvider(claimingProvider("github", 100, mirror));
