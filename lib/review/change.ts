@@ -1,0 +1,98 @@
+/**
+ * What a review looks at: repos, hosted changes and the
+ * targets a review session can be pointed at.
+ *
+ * The vocabulary is git's wherever git has a word for the
+ * thing. A repo is named by a locator rather than an
+ * owner/name pair, because not every backend has owners. A
+ * hosted change carries an opaque, provider-scoped id,
+ * because the backends disagree on whether that is a
+ * number, a UUID, a branch or a range. A review target is
+ * deliberately wider than a hosted change: a range of
+ * commits or a stack of branches is reviewable whether or
+ * not anyone has proposed it anywhere.
+ */
+
+/**
+ * Where a repo lives. Providers claim locators; the `key`
+ * is the stable identity everything else is scoped by.
+ */
+export interface RepoLocator {
+	/** Stable identity, e.g. `github:Shopify/world`. */
+	key: string;
+	/** Remote URL, when the repo has one. */
+	remoteUrl?: string;
+	/** Absolute path to a local checkout, when there is one. */
+	localPath?: string;
+}
+
+/**
+ * A change hosted by a provider: a GitHub pull request, a
+ * gitstream pull, a GitLab merge request. The `id` is
+ * opaque and only meaningful to the provider that minted
+ * it; nothing outside the provider may parse it.
+ */
+export interface ChangeRef {
+	/** Id of the provider that owns this change. */
+	provider: string;
+	/** Repo the change belongs to. */
+	repo: RepoLocator;
+	/** Provider-scoped identity. Never parsed by consumers. */
+	id: string;
+}
+
+/**
+ * What a review session is looking at.
+ *
+ * `proposal` is a change someone is hosting. `range` is any
+ * two endpoints in a repo, which is how an unposted branch
+ * gets reviewed. `stack` is an ordered set of refs reviewed
+ * as one body of work, whether or not proposals exist for
+ * its members.
+ */
+export type ReviewTarget =
+	| { kind: "proposal"; change: ChangeRef }
+	| { kind: "range"; repo: RepoLocator; base: string; head: string }
+	| { kind: "stack"; repo: RepoLocator; refs: string[] };
+
+/**
+ * Where a hosted change stands. Deliberately three values:
+ * draft-ness and locked-ness are flags, not states, because
+ * the backends disagree about whether they are states and
+ * agree that these three are.
+ */
+export type ChangeState = "open" | "merged" | "closed";
+
+/** Someone who acted. Identity is provider-scoped. */
+export interface Actor {
+	/** How the provider names them: login, email, or id. */
+	id: string;
+	/** Display name, when the provider offers one. */
+	name?: string;
+}
+
+/** A hosted change, read back. */
+export interface Proposal {
+	ref: ChangeRef;
+	title: string;
+	body: string;
+	state: ChangeState;
+	draft: boolean;
+	author: Actor;
+	/** Ref the change would merge into. */
+	base: string;
+	/** Ref holding the proposed work. */
+	head: string;
+	/** Tip commit of `head`, when the provider reports it. */
+	headCommit?: string;
+	createdAt?: string;
+	updatedAt?: string;
+	/** Web location for humans. */
+	url?: string;
+	/**
+	 * Anything the provider knows that the neutral model
+	 * does not name. Consumers may read it opportunistically;
+	 * nothing in the substrate depends on it.
+	 */
+	extensions?: Record<string, unknown>;
+}
