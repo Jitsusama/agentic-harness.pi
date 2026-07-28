@@ -23,6 +23,12 @@ export type {
 	LineAnchor,
 } from "./anchor.js";
 export { anchorable } from "./anchor.js";
+export type { TargetResolution } from "./bind.js";
+export {
+	bindTarget,
+	clearTargetBindings,
+	resolveTarget,
+} from "./bind.js";
 export type {
 	Capabilities,
 	ConversationCapabilities,
@@ -63,6 +69,33 @@ export type {
 	DiffStatus,
 } from "./diff.js";
 export { parseUnifiedDiff } from "./diff.js";
+export type {
+	Degradation,
+	PlanContext,
+	PlannedOp,
+	PlanRefusal,
+	PublishPlan,
+} from "./draft/plan.js";
+export { compilePlan } from "./draft/plan.js";
+export type {
+	DraftItem,
+	DraftState,
+	FindingItem,
+	ReactionItem,
+	ReplyItem,
+	ResolutionItem,
+} from "./draft/state.js";
+export {
+	addFinding,
+	addReaction,
+	addReply,
+	addResolution,
+	emptyDraft,
+	removeItem,
+	setVerdict,
+} from "./draft/state.js";
+export type { ReviewSubstrateApi } from "./events.js";
+export { REVIEW_READY, REVIEW_REGISTER_PROVIDER } from "./events.js";
 export { changeKey, repoKey, targetKey } from "./keys.js";
 export type {
 	AuthoringFacet,
