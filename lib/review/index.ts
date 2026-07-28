@@ -119,6 +119,8 @@ export type {
 	ReviewProvider,
 	StackingFacet,
 } from "./provider.js";
+export type { Exec, ExecResult, ProviderDeps } from "./providers/exec.js";
+export { createGitHubProvider } from "./providers/github/index.js";
 export {
 	clearReviewProviders,
 	getReviewProvider,
