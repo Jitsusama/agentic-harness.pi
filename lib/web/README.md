@@ -28,7 +28,7 @@ a browser to get it.
 | [`environment/`](./environment) | Emulation, storage, network shaping, session status |
 | [`evaluate/`](./evaluate) | Running an expression and surviving the result |
 | [`input/`](./input) | Key chords, pointer paths, touch gestures |
-| [`perf/`](./perf) | Web vitals, heap, sampling profiles and traces |
+| [`perf/`](./perf) | Web vitals, heap, sampling profiles, traces and compositing layers |
 | [`session/`](./session) | The session's own keepers: telemetry buffers, emulation, shaping, settling, artifacts, source maps. Impure by design, since each drives the live tab |
 | [`snapshot/`](./snapshot) | The whole page flattened, frames and shadow content included, and queries over it |
 | [`sourcemap/`](./sourcemap) | Where generated code was authored |

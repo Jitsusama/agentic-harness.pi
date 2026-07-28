@@ -34,6 +34,7 @@ import {
 	measure,
 	renderHeap,
 	renderHotspots,
+	renderLayers,
 	renderVitals,
 } from "../../lib/web/perf/index.js";
 import type {
@@ -303,6 +304,7 @@ const parameters = Type.Object({
 				Type.Literal("sockets"),
 				Type.Literal("heap"),
 				Type.Literal("profile"),
+				Type.Literal("layers"),
 				Type.Literal("shot"),
 			],
 			{
@@ -331,7 +333,10 @@ const parameters = Type.Object({
 					"how a leak is found. profile: record the page's " +
 					"JavaScript for a while and report which functions spent " +
 					"the time, which is what a long task cannot tell you. " +
-					"shot: a picture, written to disk and reported by path, " +
+					"layers: what the page asked the compositor to keep, how " +
+					"much texture memory that costs, and the reason Chrome " +
+					"gives for each one, which is how a layer explosion is " +
+					"found. shot: a picture, written to disk and reported by path, " +
 					"of the viewport, or of the whole page with 'fullPage', " +
 					"or of one element with 'within'.",
 			},
@@ -670,6 +675,10 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 					kind,
 					renderHotspots(await session.profile(params.ms ?? 3_000)),
 				);
+			}
+
+			if (kind === "layers") {
+				return answer(name, kind, renderLayers(await session.layers()));
 			}
 
 			if (kind === "heap") {

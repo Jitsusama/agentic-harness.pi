@@ -209,12 +209,17 @@ import {
 import {
 	categoriesFor,
 	compareHeap,
+	foldLayers,
 	foldProfile,
 	foldTrace,
 	type HeapComparison,
 	type HeapReading,
 	type Hotspots,
+	LAYER_SETTLE_MS,
+	type LayerReport,
+	nameNode,
 	observerBootstrap,
+	type RawLayer,
 	type RawProfile,
 	type RawTraceEvent,
 	readVitalsSource,
@@ -1254,6 +1259,92 @@ export class BrowserSession {
 
 	/** The previous heap reading, for the next comparison. */
 	private lastHeap?: HeapReading;
+
+	/**
+	 * What the compositor is holding for this page, and why.
+	 *
+	 * LayerTree pushes nothing when it is enabled: the tree arrives
+	 * only on layerTreeDidChange, and a page that has finished
+	 * settling has no change left to report. Measured across seven
+	 * candidates, a throwaway screenshot is the cheapest way to make
+	 * Chrome recompose and hand the tree over, and the only one that
+	 * alters nothing about the page. Scrolling moves the page,
+	 * overriding device metrics disturbs an emulation the caller may
+	 * have set, and toggling a style writes to the DOM.
+	 *
+	 * The domain goes off again afterwards, so a read leaves no
+	 * instrumentation running behind it.
+	 */
+	async layers(): Promise<LayerReport> {
+		await this.ready();
+
+		let latest: readonly RawLayer[] = [];
+		const onChange = (payload: { layers?: RawLayer[] }): void => {
+			if (payload.layers) latest = payload.layers;
+		};
+		this.cdp.on("LayerTree.layerTreeDidChange", onChange);
+		try {
+			await this.cdp.send("LayerTree.enable");
+			await this.cdp.send("Page.captureScreenshot", { format: "png" });
+			await this.settleLayers();
+		} finally {
+			this.cdp.off("LayerTree.layerTreeDidChange", onChange);
+			// Best effort: a disable that fails leaves the domain on, which
+			// costs a little work per frame but breaks nothing, and is not
+			// worth failing the read over.
+			await this.cdp.send("LayerTree.disable").catch(() => undefined);
+		}
+
+		// Snapshotted before anything is asked about it. Every await
+		// below lets another change land, and a loop reading the live
+		// array attributes one layer's reasons to another's id.
+		const layers = [...latest];
+		const reasons: Record<string, readonly string[]> = {};
+		const elements: Record<string, string> = {};
+		for (const layer of layers) {
+			reasons[layer.layerId] = await this.reasonsFor(layer.layerId);
+			const named = await this.nameOfNode(layer.backendNodeId);
+			if (named !== undefined) elements[layer.layerId] = named;
+		}
+
+		return foldLayers({ layers, reasons, elements });
+	}
+
+	/** Why Chrome composited one layer, or nothing if it will not say. */
+	private async reasonsFor(layerId: string): Promise<readonly string[]> {
+		try {
+			const answer = await this.cdp.send("LayerTree.compositingReasons", {
+				layerId,
+			});
+			return answer.compositingReasons ?? [];
+		} catch {
+			// The layer went away between the snapshot and the question,
+			// which is silence about it rather than a reason to fail.
+			return [];
+		}
+	}
+
+	/** A short name for the element behind a layer. */
+	private async nameOfNode(
+		backendNodeId: number | undefined,
+	): Promise<string | undefined> {
+		if (backendNodeId === undefined) return undefined;
+		try {
+			const { node } = await this.cdp.send("DOM.describeNode", {
+				backendNodeId,
+			});
+			return nameNode(node.nodeName, node.attributes);
+		} catch {
+			// A node that has left the document cannot be named, and a
+			// layer without a name is still worth reporting by id.
+			return undefined;
+		}
+	}
+
+	/** Give the compositor a moment to finish reporting. */
+	private settleLayers(): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, LAYER_SETTLE_MS));
+	}
 
 	/** Socket events dropped to stay within the buffer's budget. */
 	get socketFramesDropped(): number {

@@ -12,6 +12,18 @@ export {
 	type HeapReading,
 	renderHeap,
 } from "./heap.js";
+export {
+	BYTES_PER_PIXEL,
+	type CompositedLayer,
+	foldLayers,
+	LAYER_SETTLE_MS,
+	type LayerFacts,
+	type LayerReport,
+	nameNode,
+	type RawLayer,
+	type ReasonTally,
+	renderLayers,
+} from "./layers.js";
 export { observerBootstrap, readVitalsSource } from "./probe.js";
 export {
 	foldProfile,

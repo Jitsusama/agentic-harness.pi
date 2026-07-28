@@ -87,6 +87,8 @@ here.
 | Did my timer fire when it promised | `do ... trace:"async"` pairs each install with its fire |
 | Scrolling or animation stutters | `do kind:"wait" for:"duration" ms:2000 trace:"frames"` while it stutters |
 | The tab gets slower the longer it is open | `see kind:"heap"`, do the thing, `see kind:"heap"` again |
+| Scrolling or animating this page stutters | `see kind:"layers"` for what the compositor is holding |
+| Why is this element on its own layer | `see kind:"layers"` and read the reason beside it |
 | A live feature updates by itself and I cannot see why | `see kind:"sockets"` for the websocket conversation |
 | Is that gap 16px or 12px | `see kind:"measure" within:"button Save" and:"button Cancel"` |
 | A click opened a new tab, or seemed to do nothing | `go kind:"tabs"` to list, then `tab: N` to switch |
@@ -356,7 +358,7 @@ request log under `filter: failed`.
 
 `page`, `reading`, `announcements`, `element`, `measure`,
 `query`, `logs`, `requests`, `sockets`, `downloads`, `shot`,
-`vitals`, `heap`, `profile`, `status`.
+`vitals`, `heap`, `profile`, `layers`, `status`.
 
 - `measure` names two elements, one in `within` and one in `and`,
   and reports the space between them: the gap on each axis, the
@@ -398,6 +400,22 @@ request log under `filter: failed`.
   an ArrayBuffer or a typed array's backing store does not appear
   there. A first reading reports no direction, because one number
   is not a trend
+- `layers` reports what the page asked the compositor to keep: how
+  many layers exist, how much texture memory the ones that paint
+  are holding, the element behind each, and the reason Chrome
+  gives for it. Read it in both directions. Too little promotion
+  and an element that animates repaints every frame; too much and
+  the page holds tens of megabytes it never needed, which is a
+  layer explosion. The reason worth looking for is "Overlaps
+  other composited content", because those layers are usually
+  nobody's decision: one promoted element forces its neighbours
+  up with it. Two honesty notes. Chrome sometimes returns no
+  reason at all for a layer that is genuinely promoted, measured
+  on a plain `translateZ(0)`, and the report says so rather than
+  guessing or implying the layer is absent. And the heaviest layer
+  on a normal page is usually the document's own scrolling
+  contents rather than anything an author promoted, so read past
+  it to the authored ones
 - `sockets` reports every websocket the page opened and both
   sides of what was said over it, with each frame's time measured
   from when the socket opened. A request is a question with an
