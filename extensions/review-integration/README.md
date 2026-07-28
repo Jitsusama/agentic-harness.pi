@@ -94,6 +94,40 @@ pi.events.emit(REVIEW_REGISTER_PROVIDER, myProvider);
 A provider that specializes in one repo should claim at a lower
 priority number than the generalist it needs to beat.
 
+## Using the Substrate From Another Extension
+
+A consumer needs the same two directions, for the opposite
+reason. The bus does not replay, so an extension that loaded
+after this one missed the announcement and cannot tell that it
+happened. Asking is how it catches up:
+
+```ts
+import {
+  REVIEW_READY,
+  REVIEW_REQUEST_SUBSTRATE,
+  type ReviewSubstrateApi,
+} from "agentic-harness.pi/lib/review";
+
+let substrate: ReviewSubstrateApi | undefined;
+
+pi.events.on(REVIEW_READY, (api) => {
+  substrate = api as ReviewSubstrateApi;
+});
+// In case the host was already up when we loaded.
+pi.events.emit(REVIEW_REQUEST_SUBSTRATE, undefined);
+```
+
+Take the engine from the api rather than building one. A private
+engine sees only the providers it registered itself, so a
+provider that arrived over the bus would be invisible to it, and
+that provider is usually the whole reason the consumer cares.
+
+```ts
+const engine = await substrate.engine();
+const bound = await engine.resolve("Shopify/world#2000970");
+const threads = await bound.conversation?.threads(bound.target.change);
+```
+
 ## Joy
 
 The renderings use one glyph per concept, always the same one,

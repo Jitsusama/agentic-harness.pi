@@ -16,6 +16,7 @@ import {
 	listReviewProviders,
 	REVIEW_READY,
 	REVIEW_REGISTER_PROVIDER,
+	REVIEW_REQUEST_SUBSTRATE,
 	type ReviewSubstrateApi,
 } from "../../lib/review/index.js";
 
@@ -78,6 +79,38 @@ describe("the review integration", () => {
 		expect(ready).toBeTruthy();
 		const api = ready?.data as ReviewSubstrateApi;
 		expect(api.listProviders()).toContain("github");
+	});
+
+	it("announces itself again when a latecomer asks", () => {
+		// The bus does not replay, so a consumer that activated
+		// after the host missed the first announcement entirely.
+		// Without a way to ask, load order decides whether the
+		// substrate is reachable at all.
+		const { handlers, emitted } = activate();
+		const before = emitted.filter(
+			(entry) => entry.event === REVIEW_READY,
+		).length;
+
+		handlers.get(REVIEW_REQUEST_SUBSTRATE)?.(undefined);
+
+		const after = emitted.filter((entry) => entry.event === REVIEW_READY);
+		expect(after).toHaveLength(before + 1);
+		const answered = after.at(-1)?.data as ReviewSubstrateApi | undefined;
+		expect(answered?.listProviders()).toContain("github");
+	});
+
+	it("hands over an engine, so a consumer resolves through this registry", async () => {
+		// A consumer that built its own engine would see only the
+		// built-in providers, and a downstream provider that
+		// registered over the bus would be invisible to it.
+		const { emitted } = activate();
+		const api = emitted.find((entry) => entry.event === REVIEW_READY)
+			?.data as ReviewSubstrateApi;
+
+		expect(typeof api.engine).toBe("function");
+		const engine = await api.engine();
+		expect(typeof engine.resolve).toBe("function");
+		expect(typeof engine.probe).toBe("function");
 	});
 
 	it("accepts a provider that arrives over the bus", () => {

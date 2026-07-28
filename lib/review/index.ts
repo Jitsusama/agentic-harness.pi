@@ -117,7 +117,11 @@ export type {
 } from "./engine.js";
 export { createReviewEngine } from "./engine.js";
 export type { ReviewSubstrateApi } from "./events.js";
-export { REVIEW_READY, REVIEW_REGISTER_PROVIDER } from "./events.js";
+export {
+	REVIEW_READY,
+	REVIEW_REGISTER_PROVIDER,
+	REVIEW_REQUEST_SUBSTRATE,
+} from "./events.js";
 export { changeKey, repoKey, targetKey } from "./keys.js";
 export type {
 	AuthoringFacet,

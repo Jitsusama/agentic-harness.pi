@@ -18,6 +18,7 @@ import {
 	listReviewProviders,
 	REVIEW_READY,
 	REVIEW_REGISTER_PROVIDER,
+	REVIEW_REQUEST_SUBSTRATE,
 	type ReviewProvider,
 	type ReviewSubstrateApi,
 	registerReviewProvider,
@@ -25,6 +26,7 @@ import {
 import {
 	forgetReviewEngine,
 	registerBuiltinReviewProviders,
+	reviewEngine,
 } from "./engine.js";
 import {
 	registerDraftTool,
@@ -65,10 +67,19 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 		listProviders() {
 			return listReviewProviders().map((provider) => provider.id);
 		},
+		async engine() {
+			return (await reviewEngine(pi)).engine;
+		},
 	};
 
 	pi.events.on(REVIEW_REGISTER_PROVIDER, (data: unknown) => {
 		if (isProvider(data)) registerReviewProvider(data);
+	});
+	// A consumer that loaded after this extension missed the
+	// announcement, and the bus does not replay. Asking is how it
+	// catches up, so load order decides nothing.
+	pi.events.on(REVIEW_REQUEST_SUBSTRATE, () => {
+		pi.events.emit(REVIEW_READY, api);
 	});
 	pi.events.emit(REVIEW_READY, api);
 
