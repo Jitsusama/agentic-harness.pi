@@ -203,6 +203,22 @@ be one.
 This judges one element on demand rather than sweeping the page,
 because each measurement costs two screenshots. Run the audit
 first, then bring this to the elements it could not decide.
+
+## Reflow, and the Criterion Next to It
+
+Reflow (1.4.10) asks that content not require scrolling in two
+directions at a width of 320 pixels. That is what
+`check kind:"visual" widths:[320]` asks: the sideways-scroll rule
+is the criterion, and the width is the one the criterion names.
+Report it as reflow when you run it that way.
+
+Text resize (1.4.4) is a different criterion and is not checked.
+Do not report reflow as though it covers it, and do not infer it
+from a width sweep. The honest reason is that the available
+mechanism only moves text that inherits a default size, so a page
+setting its text in fixed pixels would pass a check it deserves
+to fail, and a false pass on an accessibility criterion is worth
+less than no check at all.
 Either way the answer is to look, and neither is a pass. Say
 which criterion it touches and what to check, and do not soften
 it into a note.
