@@ -18,6 +18,50 @@
  * description of the obstruction, or null when there is none.
  */
 /**
+ * Stop an element's own text from painting, and put it back.
+ *
+ * Runs with the element as its receiver. Only colour and shadow are
+ * touched, because neither affects layout: the glyphs still occupy
+ * the same pixels and simply leave no mark, which is what lets two
+ * shots of the same region be subtracted from one another.
+ *
+ * The element's own inline values are remembered on the node itself
+ * rather than in the caller, so a restore still works if the caller
+ * lost track of what it changed. An element with no inline colour of
+ * its own is restored by removing the property, not by writing an
+ * empty string over it, since those differ once a stylesheet has an
+ * opinion.
+ */
+export const HIDE_TEXT = `function (hidden) {
+  var KEY = "__piHiddenText";
+  if (hidden) {
+    if (!this[KEY]) {
+      this[KEY] = {
+        color: this.style.getPropertyValue("color"),
+        colorPriority: this.style.getPropertyPriority("color"),
+        shadow: this.style.getPropertyValue("text-shadow"),
+        shadowPriority: this.style.getPropertyPriority("text-shadow")
+      };
+    }
+    this.style.setProperty("color", "transparent", "important");
+    this.style.setProperty("text-shadow", "none", "important");
+    return true;
+  }
+  var had = this[KEY];
+  if (!had) return false;
+  this.style.removeProperty("color");
+  this.style.removeProperty("text-shadow");
+  if (had.color) {
+    this.style.setProperty("color", had.color, had.colorPriority);
+  }
+  if (had.shadow) {
+    this.style.setProperty("text-shadow", had.shadow, had.shadowPriority);
+  }
+  delete this[KEY];
+  return true;
+}`;
+
+/**
  * Select everything in a text field, the way the field itself
  * offers to.
  *
