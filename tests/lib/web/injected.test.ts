@@ -16,6 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 import { ANNOUNCEMENT_OBSERVER } from "../../../lib/web/a11y/announcements.js";
+import { FOCUS_PROBE } from "../../../lib/web/a11y/focus.js";
 import {
 	WALK_COLLECT,
 	WALK_READ,
@@ -57,6 +58,7 @@ const EXPRESSIONS: ReadonlyArray<readonly [string, string]> = [
 	["WALK_REMEMBER", WALK_REMEMBER],
 	["WALK_RESTORE", WALK_RESTORE],
 	["ENVIRONMENT_PROBE", ENVIRONMENT_PROBE],
+	["FOCUS_PROBE", FOCUS_PROBE],
 	["evaluationSource(1 + 1)", evaluationSource("1 + 1")],
 ];
 

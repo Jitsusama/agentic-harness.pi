@@ -23,6 +23,11 @@ export {
 	outlineBudget,
 	withinOutlineBudget,
 } from "./budget.js";
+export {
+	FOCUS_PROBE,
+	type FocusHolder,
+	renderFocus,
+} from "./focus.js";
 export { isWeakName, type NameSource, nameSource } from "./naming.js";
 export { renderAxOutline } from "./outline.js";
 export { renderReading } from "./reading.js";

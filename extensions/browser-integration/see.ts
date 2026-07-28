@@ -15,6 +15,7 @@ import {
 	OUTLINE_BUDGET_BYTES,
 	outlineBudget,
 	renderAnnouncements,
+	renderFocus,
 	type Skeleton,
 	type TreeScope,
 } from "../../lib/web/a11y/index.js";
@@ -308,6 +309,7 @@ const parameters = Type.Object({
 				Type.Literal("profile"),
 				Type.Literal("layers"),
 				Type.Literal("hover"),
+				Type.Literal("focus"),
 				Type.Literal("shot"),
 			],
 			{
@@ -325,7 +327,10 @@ const parameters = Type.Object({
 					"back. status: where this session stands, " +
 					"including what it is pretending to be. announcements: " +
 					"what the page " +
-					"said out loud through its live regions. element: " +
+					"said out loud through its live regions. focus: which " +
+					"element holds focus right now, which is how to check " +
+					"where a click, a key or a navigation left it, and it " +
+					"moves nothing. element: " +
 					"everything about one element, named with 'within'. " +
 					"measure: the space between two elements, named with " +
 					"'within' and 'and': the gap, what lines up, and " +
@@ -845,6 +850,11 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 							"what arrived after a cursor.",
 					}),
 				);
+			}
+
+			if (kind === "focus") {
+				// Small enough to answer whole, so nothing is stored.
+				return answer(name, kind, renderFocus(await session.focusHolder()));
 			}
 
 			if (kind === "announcements") {

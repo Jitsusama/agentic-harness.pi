@@ -32,6 +32,8 @@ import { dataDir } from "../internal/paths.js";
 import {
 	type Announcement,
 	type AxNode,
+	FOCUS_PROBE,
+	type FocusHolder,
 	type FrameAxTree,
 	normalizeAxTree,
 	type RawAxNode,
@@ -2343,6 +2345,23 @@ export class BrowserSession {
 	 * accessibility tree for roles and names. Neither carries
 	 * both, and every structural rule needs both.
 	 */
+	/**
+	 * What holds focus at this moment, moving nothing.
+	 *
+	 * The keyboard walk answers what a whole page does; this answers
+	 * where focus is right now, which is the question between
+	 * actions. It reads rather than presses, so it can be asked after
+	 * a click or a navigation without disturbing what it reports.
+	 */
+	async focusHolder(): Promise<FocusHolder | undefined> {
+		await this.ready();
+		const { result } = await this.cdp.send("Runtime.evaluate", {
+			expression: FOCUS_PROBE,
+			returnByValue: true,
+		});
+		return result.value as FocusHolder | undefined;
+	}
+
 	async structure(): Promise<readonly StructureNode[]> {
 		// Every sibling read waits out a crash recovery first, and
 		// this one did not. Promise.all evaluates this.cdp.send when
