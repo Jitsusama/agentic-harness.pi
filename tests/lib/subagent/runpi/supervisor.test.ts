@@ -1,5 +1,12 @@
 import { type ChildProcess, spawn as nodeSpawn } from "node:child_process";
-import { mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -994,5 +1001,51 @@ describe("a supervisor that never reports", () => {
 		expect(Date.now() - started).toBeLessThan(10_000);
 		expect(result.exitCode).not.toBe(0);
 		expect((result.warnings ?? []).join(" ")).toContain("never reported");
+	});
+
+	it("says how stale its last word was, not just what it said", async () => {
+		// The datum that separates the two ways this fails in CI, where
+		// it has never been reproducible. A supervisor starved of CPU
+		// writes progress right up to the deadline, so its last word is
+		// seconds old. One that wedged early wrote once and stopped, so
+		// its last word is as old as the whole wait. Reporting the state
+		// alone cannot tell them apart, and both read as "running".
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(childPath, "");
+
+		// A supervisor that reports once and then wedges, which is the
+		// shape CI shows: progress on disk saying "running", and nothing
+		// after it. The real one cannot be asked to do this, so its
+		// first write is staged here and the process then sleeps.
+		const paths = new ReviewerArtifactsStore(stateDir).paths("run", "wedged");
+		await mkdir(paths.reviewerDir, { recursive: true });
+		await writeFile(paths.progressPath, JSON.stringify({ state: "running" }));
+
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 500,
+			timeoutMs: 500,
+			supervisorGraceMs: 500,
+			spawn: ((_bin: string, _args: readonly string[]) =>
+				nodeSpawn(process.execPath, [
+					"-e",
+					"setTimeout(() => {}, 120000)",
+				])) as never,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "wedged",
+		});
+
+		const said = (result.warnings ?? []).join(" ");
+		expect(said).toContain("progress says");
+		// The age is the point. Without it both failure modes read as
+		// "running" and the CI log cannot say which one happened.
+		expect(said).toMatch(/progress says [^;]*, last written \d+ms ago/);
 	});
 });
