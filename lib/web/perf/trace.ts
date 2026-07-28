@@ -110,15 +110,28 @@ export interface RequestSpan {
 /**
  * What the compositor did.
  *
- * These figures are the renderer process's, not one page's: the
- * frame pipeline names a layer tree rather than a frame, so a
- * second page sharing the process is counted here too.
+ * These figures belong to a renderer process rather than to one
+ * page, and that cannot be narrowed from a trace. The frame
+ * pipeline names a layer tree host, never a frame, and measured
+ * against this Chrome no event carries both: `SetLayerTreeId`, which
+ * used to join them, is gone, and a search across a two page
+ * capture found nothing else linking the two.
+ *
+ * So instead of repeating a blanket disclaimer, `layerTrees` says
+ * how many hosts actually contributed. One means the figures came
+ * from a single layer tree and are this page's for any practical
+ * purpose; more than one means another page or another tree in the
+ * same process is in the numbers. Zero means the begin events
+ * carried no host id, so the question went unanswered, which is not
+ * the same as the answer being one.
  */
 export interface FrameStory {
 	readonly counted: number;
 	readonly longestMs: number;
 	/** Every frame that missed the sixty-a-second budget. */
 	readonly slowMs: readonly number[];
+	/** Distinct compositor layer tree hosts behind these figures. */
+	readonly layerTrees: number;
 }
 
 /** What a finished recording says. */
@@ -434,27 +447,79 @@ function foldRequests(
 	return { requests, overlapping, resolvedOutOfOrder };
 }
 
-/** Time each frame from its paired begin and end. */
+/** Which layer tree host a pipeline event names, if any. */
+function layerTreeHostOf(event: RawTraceEvent): number | undefined {
+	const reporter = event.args?.frame_reporter;
+	if (typeof reporter !== "object" || reporter === null) return undefined;
+	const host = (reporter as Record<string, unknown>).layer_tree_host_id;
+	return typeof host === "number" ? host : undefined;
+}
+
+/**
+ * Time each frame from its paired begin and end.
+ *
+ * Only the begin event carries the layer tree host, the end event
+ * having empty args, so the host is banked on the way in and read
+ * back when the pair closes. Measured across 414 pairs, a begin is
+ * always closed by the next end for its id, so no pair is lost to
+ * an id being reused for a different tree.
+ */
 function foldFrames(events: readonly RawTraceEvent[]): FrameStory {
-	const opened = new Map<string, number>();
+	const opened = new Map<string, { at: number; host?: number }>();
 	const durations: number[] = [];
+	const hosts = new Set<number>();
 	for (const event of events) {
 		if (event.name !== "PipelineReporter") continue;
 		const id = event.id2?.local;
 		if (id === undefined) continue;
-		if (event.ph === "b") opened.set(id, event.ts);
-		else if (event.ph === "e") {
+		if (event.ph === "b") {
+			const host = layerTreeHostOf(event);
+			opened.set(id, { at: event.ts, ...(host === undefined ? {} : { host }) });
+		} else if (event.ph === "e") {
 			const began = opened.get(id);
 			if (began === undefined) continue;
 			opened.delete(id);
-			durations.push(ms(event.ts - began));
+			durations.push(ms(event.ts - began.at));
+			// Counted only for a frame that closed, so the tally covers
+			// exactly the frames the figures are built from.
+			if (began.host !== undefined) hosts.add(began.host);
 		}
 	}
 	return {
 		counted: durations.length,
 		longestMs: durations.length === 0 ? 0 : Math.max(...durations),
 		slowMs: durations.filter((each) => each > FRAME_BUDGET_MS),
+		layerTrees: hosts.size,
 	};
+}
+
+/**
+ * Whose frames these are, said as precisely as the trace allows.
+ *
+ * A trace cannot tie a layer tree to a frame, so this cannot always
+ * be narrowed to one page. What it can do is stop hedging when
+ * there is nothing to hedge about: a single contributing layer tree
+ * means nothing else was in the numbers.
+ */
+function whoseFrames(frames: FrameStory): readonly string[] {
+	if (frames.layerTrees === 1) {
+		return [
+			"  One compositor layer tree produced all of them, so these are",
+			"  this page's frames.",
+		];
+	}
+	if (frames.layerTrees > 1) {
+		return [
+			`  ${frames.layerTrees} compositor layer trees produced them, so`,
+			"  another page or tree in this renderer process is counted here",
+			"  too. Nothing in a trace ties a layer tree to a frame, so they",
+			"  cannot be told apart.",
+		];
+	}
+	return [
+		"  The pipeline events named no layer tree, so whether another",
+		"  page in this renderer process is counted here is unknown.",
+	];
 }
 
 /** Say what the recording found, in the order a reader needs it. */
@@ -528,9 +593,7 @@ export function renderTrace(capture: TraceCapture): string {
 			"",
 			`${frames.counted} frames, longest ${frames.longestMs}ms, ` +
 				`${frames.slowMs.length} over the 16ms budget.`,
-			"  These are the renderer process's frames, not this page's",
-			"  alone: the frame pipeline names a layer tree rather than a",
-			"  frame, so another page sharing the process is counted too.",
+			...whoseFrames(frames),
 		);
 	}
 

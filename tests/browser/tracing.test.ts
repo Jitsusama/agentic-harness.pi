@@ -127,9 +127,20 @@ describe.skipIf(!haveChrome)("recording a trace, in a real browser", () => {
 
 		expect(trace.frames).toBeDefined();
 		expect(trace.frames?.counted).toBeGreaterThan(0);
-		// The honesty the fold owes a reader: these are the renderer's
-		// frames, because the pipeline names a layer tree not a frame.
-		expect(renderTrace(trace)).toMatch(/renderer process/i);
+		// Measured: one page alone reports exactly one contributing
+		// layer tree, so the report can say the frames are this page's
+		// instead of hedging. It used to hedge unconditionally.
+		expect(trace.frames?.layerTrees).toBe(1);
+		expect(renderTrace(trace)).toContain("this page's frames");
+		expect(renderTrace(trace)).not.toMatch(/another page/i);
+
+		// The other branch, where several layer trees contribute, is
+		// covered by unit tests against real-shaped events rather than
+		// here. Driving it live was tried and abandoned: opening a second
+		// page focuses it, which throttles this page's animation frames
+		// away, so the recording came back with three events and proved
+		// nothing. Chrome also gave the second page its own renderer, so
+		// the shared-process case was not even reproduced.
 	});
 
 	it("refuses a second recording and names the session holding it", async () => {

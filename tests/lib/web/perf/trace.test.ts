@@ -360,19 +360,127 @@ describe("foldTrace tasks", () => {
 });
 
 describe("foldTrace frames", () => {
+	/**
+	 * Shaped like the real thing: a begin event carries the layer tree
+	 * host inside frame_reporter and an end event carries no args at
+	 * all, which is why the host has to be read on the way in.
+	 */
 	const pipeline = (
 		phase: string,
 		atUs: number,
 		id: string,
+		layerTreeHost = 1,
 	): RawTraceEvent => ({
 		name: "PipelineReporter",
-		cat: "disabled-by-default-devtools.timeline.frame",
+		cat: "cc,benchmark,disabled-by-default-devtools.timeline.frame",
 		ph: phase,
 		ts: atUs,
 		pid: MY_PID,
 		tid: 2,
 		id2: { local: id },
-		args: {},
+		args:
+			phase === "b"
+				? {
+						frame_reporter: {
+							layer_tree_host_id: layerTreeHost,
+							state: "STATE_PRESENTED_ALL",
+						},
+					}
+				: {},
+	});
+
+	it("counts the layer trees its figures came from", () => {
+		// Measured against Chrome: one renderer process can host several
+		// layer trees, and nothing in the trace ties one to a frame id.
+		// So the honest thing is to say how many contributed rather than
+		// to claim the figures are one page's.
+		const capture = foldTrace(
+			[
+				complete("FunctionCall", 999_000, 500),
+				pipeline("b", 1_000_000, "0x1", 1),
+				pipeline("e", 1_008_000, "0x1"),
+				pipeline("b", 1_020_000, "0x3", 5),
+				pipeline("e", 1_070_000, "0x3"),
+			],
+			{ frames: new Set([MINE]), profiles: ["frames"] },
+		);
+
+		expect(capture.frames?.layerTrees).toBe(2);
+	});
+
+	it("says one when a single layer tree produced every frame", () => {
+		const capture = foldTrace(
+			[
+				complete("FunctionCall", 999_000, 500),
+				pipeline("b", 1_000_000, "0x1", 1),
+				pipeline("e", 1_008_000, "0x1"),
+				pipeline("b", 1_020_000, "0x1", 1),
+				pipeline("e", 1_030_000, "0x1"),
+			],
+			{ frames: new Set([MINE]), profiles: ["frames"] },
+		);
+
+		expect(capture.frames?.layerTrees).toBe(1);
+	});
+
+	it("stops hedging when one layer tree produced every frame", () => {
+		const capture = foldTrace(
+			[
+				complete("FunctionCall", 999_000, 500),
+				pipeline("b", 1_000_000, "0x1", 1),
+				pipeline("e", 1_008_000, "0x1"),
+			],
+			{ frames: new Set([MINE]), profiles: ["frames"] },
+		);
+
+		const text = renderTrace(capture);
+
+		expect(text).toContain("this page's frames");
+		expect(text).not.toContain("another page");
+	});
+
+	it("admits the sharing when several layer trees produced them", () => {
+		const capture = foldTrace(
+			[
+				complete("FunctionCall", 999_000, 500),
+				pipeline("b", 1_000_000, "0x1", 1),
+				pipeline("e", 1_008_000, "0x1"),
+				pipeline("b", 1_020_000, "0x3", 5),
+				pipeline("e", 1_030_000, "0x3"),
+			],
+			{ frames: new Set([MINE]), profiles: ["frames"] },
+		);
+
+		const text = renderTrace(capture);
+
+		expect(text).toContain("2 compositor layer trees");
+		expect(text).toContain("another page");
+	});
+
+	it("counts no layer tree when the begin events name none", () => {
+		// An older or differently configured Chrome may not carry the
+		// host id. Reporting zero says the question went unanswered,
+		// which is not the same as reporting one.
+		const capture = foldTrace(
+			[
+				complete("FunctionCall", 999_000, 500),
+				{
+					name: "PipelineReporter",
+					cat: "disabled-by-default-devtools.timeline.frame",
+					ph: "b",
+					ts: 1_000_000,
+					pid: MY_PID,
+					tid: 2,
+					id2: { local: "0x1" },
+					args: {},
+				},
+				pipeline("e", 1_008_000, "0x1"),
+			],
+			{ frames: new Set([MINE]), profiles: ["frames"] },
+		);
+
+		expect(capture.frames?.counted).toBe(1);
+		expect(capture.frames?.layerTrees).toBe(0);
 	});
 
 	it("times each frame from its paired begin and end", () => {
