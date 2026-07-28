@@ -42,6 +42,26 @@ const OTHER = page("Other", "<main><h1>A different page entirely</h1></main>");
  * outline, in a colour a shade off the page. Every existence
  * check passes and nobody can tell where they are.
  */
+/**
+ * A toolbar laid out backwards. Visually Back sits left of Next;
+ * row-reverse means the DOM, and so the tab order, has them the
+ * other way round.
+ */
+const REVERSED = page(
+	"Reversed",
+	`<style>
+  .bar { display: flex; flex-direction: row-reverse;
+    justify-content: flex-end }
+  .bar button { width: 90px }
+</style>
+<main><h1>Reversed</h1>
+<div class="bar">
+  <button type="button" id="next">Next</button>
+  <button type="button" id="back">Back</button>
+</div>
+</main>`,
+);
+
 const FAINT = page(
 	"Faint",
 	`<style>
@@ -109,6 +129,7 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 			{ path: "/collapsed", body: COLLAPSED },
 			{ path: "/delegated", body: DELEGATED },
 			{ path: "/faint", body: FAINT },
+			{ path: "/reversed", body: REVERSED },
 		]);
 		session = await BrowserSession.open("capture-contract");
 		await session.navigate(fixture.url("/subject"));
@@ -278,6 +299,40 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 		} finally {
 			await session.navigate(fixture.url("/subject"));
 		}
+	});
+
+	it("catches a toolbar tabbed against the way it reads", async () => {
+		// row-reverse puts Back on the left and Next on the right, and
+		// leaves the tab order following the DOM: Next first. Document
+		// order says this page is fine, which is exactly the blind
+		// spot the walk used to admit to in a comment.
+		try {
+			await session.navigate(fixture.url("/reversed"));
+			const findings = analyseWalk(await session.keyboardWalk());
+
+			const names = findings.outOfOrder.map(
+				(jump) => `${jump.before.name}->${jump.after.name}`,
+			);
+			expect(names).toContain("Next->Back");
+			expect(renderWalk(findings)).toContain("opposite order");
+		} finally {
+			await session.navigate(fixture.url("/subject"));
+		}
+	});
+
+	it("leaves an ordinary page's tab order alone", async () => {
+		// The control. Without it, a check that reported nothing ever
+		// would pass the test above by accident.
+		const findings = analyseWalk(await session.keyboardWalk());
+
+		// Named rather than counted, so a failure says which pair it
+		// objected to. The first run objected to the walk's own wrap
+		// from the last control back to the first.
+		expect(
+			findings.outOfOrder.map(
+				(jump) => `${jump.before.name}->${jump.after.name}`,
+			),
+		).toEqual([]);
 	});
 
 	it("measures what the load cost", async () => {

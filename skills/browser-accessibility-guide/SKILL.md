@@ -60,6 +60,15 @@ What it reports, and what each means:
   there. Usually a `div` with a click handler and no tabindex
 - **No visible focus indicator**: nothing changes when focus
   arrives, so a sighted keyboard user cannot tell where they are
+- **Tabbed against the way they read**: two controls side by
+  side, and tab reaches the right one first in a left-to-right
+  page. This is what `flex-direction: row-reverse` and hand-set
+  `order` values do, and document order calls the page fine.
+  Reported as worth a look rather than a failure. It only judges
+  pairs on the same line: whether tab order should follow rows or
+  columns across a whole layout is not a question geometry can
+  settle, and a two-column form that tabs down one column and
+  then the other is both common and correct
 - **Focus indicator too faint**: something does change, and it
   cannot be made out. Reported with the ratio it reached, against
   the 3:1 that 2.4.11 asks. A different repair from the one

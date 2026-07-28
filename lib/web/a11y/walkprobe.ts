@@ -273,6 +273,10 @@ export const WALK_READ = `(() => {
 		inViewport: box.bottom >= 0 && box.right >= 0 &&
 			box.top <= innerHeight && box.left <= innerWidth &&
 			visibleNow(el),
+		// Kept so tab order can be compared against the order things
+		// are read in, which document order cannot answer.
+		rect: { x: box.left, y: box.top, width: box.width,
+			height: box.height },
 		...(el.closest(modalSelector) !== null ? { inModal: true } : {}),
 		focused: {
 			outlineStyle: c.outlineStyle, outlineWidth: c.outlineWidth,

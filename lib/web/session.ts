@@ -1755,7 +1755,27 @@ export class BrowserSession {
 			unreachable: collected.unreachable,
 			...(escapeFreed === undefined ? {} : { escapeFreed }),
 			...(exhausted ? { cappedAt: cap } : {}),
+			// Which way the page reads has to come from the page. The
+			// side-by-side order that is wrong in English is correct in
+			// Arabic, and guessing left-to-right would report every
+			// right-to-left toolbar as backwards.
+			direction: await this.readingDirection(),
 		};
+	}
+
+	/** Which way the document says it reads. */
+	private async readingDirection(): Promise<"ltr" | "rtl"> {
+		try {
+			const reads = await this.page.evaluate(
+				() => getComputedStyle(document.documentElement).direction,
+			);
+			return reads === "rtl" ? "rtl" : "ltr";
+		} catch {
+			// Left-to-right is the safe default: it is what most pages
+			// are, and being wrong here only costs a finding nobody
+			// asked for rather than a missed barrier.
+			return "ltr";
+		}
 	}
 
 	/**

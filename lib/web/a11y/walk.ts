@@ -64,6 +64,96 @@ export interface WalkStop {
 	/** Inside an open dialog that is holding focus on purpose. */
 	readonly inModal?: boolean;
 	readonly focused: FocusStyle;
+	/** Where it sits, when the browser gave it a box. */
+	readonly rect?: {
+		readonly x: number;
+		readonly y: number;
+		readonly width: number;
+		readonly height: number;
+	};
+}
+
+/** Two controls on one line that tab against the way they read. */
+export interface VisualJump {
+	readonly before: WalkStop;
+	readonly after: WalkStop;
+}
+
+/**
+ * How much two boxes must share vertically to count as one line.
+ *
+ * Buttons of different heights in a toolbar do not share a top
+ * edge to the pixel, and demanding that they do would miss every
+ * real case. Half the shorter one is enough to mean "beside",
+ * and little enough to keep stacked rows apart.
+ */
+const SAME_LINE = 0.5;
+
+/** Whether two boxes sit on the same line as a reader sees it. */
+function beside(
+	one: NonNullable<WalkStop["rect"]>,
+	other: NonNullable<WalkStop["rect"]>,
+): boolean {
+	const overlap =
+		Math.min(one.y + one.height, other.y + other.height) -
+		Math.max(one.y, other.y);
+	if (overlap <= 0) return false;
+	return overlap >= Math.min(one.height, other.height) * SAME_LINE;
+}
+
+/**
+ * Tab order that contradicts the order things are read in.
+ *
+ * Only same-line inversions, and deliberately so. The general
+ * question, whether tab order follows the visual flow of the
+ * page, cannot be answered without deciding whether a layout is
+ * meant to be read in rows or in columns, and a two-column form
+ * that tabs down one column and then the other is both extremely
+ * common and perfectly correct. A check that flagged it would be
+ * wrong far more often than right, and a false accessibility
+ * finding costs more than a missing one.
+ *
+ * Two controls side by side, tabbed in the opposite order to the
+ * one they are read in, has no such excuse. It is what
+ * row-reverse and hand-set order values do, and the keyboard
+ * order it produces contradicts the page for everybody.
+ */
+export function outOfVisualOrder(
+	stops: readonly WalkStop[],
+	direction: "ltr" | "rtl",
+): readonly VisualJump[] {
+	const jumps: VisualJump[] = [];
+
+	for (let at = 1; at < stops.length; at += 1) {
+		const before = stops[at - 1];
+		const after = stops[at];
+		if (before === undefined || after === undefined) continue;
+		// A stop focus never reached, or one the browser gave no box,
+		// says nothing about order.
+		if (before.index === -1 || after.index === -1) continue;
+		// The walk laps the page, so the step from the last control
+		// back to the first is a cycle rather than a jump. Measured:
+		// on an ordinary page that wrap is a right-to-left move
+		// between two elements that happen to share a line, and it was
+		// the check's first false positive.
+		//
+		// Within one lap, tab follows document order, which is the
+		// order candidates are numbered in, so an ascending index is
+		// what distinguishes a real step from the wrap. A page using
+		// positive tabindex breaks that, and is reported separately
+		// for doing so; missing a reversal there is the right way to
+		// be wrong.
+		if (after.index <= before.index) continue;
+		const here = before.rect;
+		const next = after.rect;
+		if (here === undefined || next === undefined) continue;
+		if (!beside(here, next)) continue;
+
+		const backwards = direction === "rtl" ? next.x > here.x : next.x < here.x;
+		if (backwards) jumps.push({ before, after });
+	}
+
+	return jumps;
 }
 
 /** Something that behaves interactively but cannot be reached. */
@@ -84,6 +174,8 @@ export interface WalkCapture {
 	readonly escapeFreed?: boolean;
 	/** True when the walk stopped at its cap rather than cycling. */
 	readonly cappedAt?: number;
+	/** Which way the page reads, from the document itself. */
+	readonly direction?: "ltr" | "rtl";
 }
 
 /** Where a focus indicator lives, if anywhere. */
@@ -131,6 +223,13 @@ export interface WalkFindings {
 	 * needs a rule written, the other needs a colour changed.
 	 */
 	readonly faintIndicator: readonly FaintIndicator[];
+	/**
+	 * Pairs on one line that tab against the way they read.
+	 *
+	 * Undecided rather than failed: the geometry is certain, but
+	 * whether it confuses anyone is a judgement about the page.
+	 */
+	readonly outOfOrder: readonly VisualJump[];
 	/** Where the indicator lives, for those that have one. */
 	readonly indicators: ReadonlyMap<number, Indicator>;
 	/** Stops that were focused while off screen. */
@@ -447,6 +546,10 @@ export function analyseWalk(capture: WalkCapture): WalkFindings {
 		missed,
 		noIndicator,
 		faintIndicator,
+		// The page's own direction, when the capture reported it. A
+		// right-to-left page reads the other way, and the geometry
+		// that is wrong in English is correct in Arabic.
+		outOfOrder: outOfVisualOrder(stops, capture.direction ?? "ltr"),
 		indicators,
 		// The walk laps the page, so an offscreen stop is met once
 		// per lap. It is one problem, not one per visit.
@@ -550,6 +653,22 @@ export function renderWalk(findings: WalkFindings): string {
 				(faint) =>
 					`${faint.stop.name || faint.stop.tag} ` +
 					`(${faint.stop.tag.toLowerCase()}) at ${faint.ratio}:1`,
+			),
+		);
+		lines.push("");
+	}
+
+	if (findings.outOfOrder.length > 0) {
+		lines.push(
+			"Side by side, but tabbed in the opposite order to the one " +
+				"they read in (2.4.3, worth a look rather than a failure):",
+		);
+		listSome(
+			lines,
+			findings.outOfOrder.map(
+				(jump) =>
+					`${jump.before.name || jump.before.tag} is reached before ` +
+					`${jump.after.name || jump.after.tag}, which sits to its left`,
 			),
 		);
 		lines.push("");
@@ -721,10 +840,13 @@ function headlineFor(findings: WalkFindings, warnings: number): string {
 			? "Every control was reached, but 1 stop is hard to follow."
 			: `Every control was reached, but ${warnings} stops are hard to follow.`;
 	}
-	// Only Tab was pressed, and the order was compared against
-	// document order, so this cannot claim the visual order matches
-	// or that the controls operate. Saying "in order, with focus
-	// visible" asserted both.
+	// Only Tab was pressed, so this cannot claim the controls
+	// operate. Nor can it claim the visual order matches: the check
+	// that exists catches two controls side by side tabbed against
+	// the way they read, and deliberately declines the general
+	// question, because deciding whether a layout is meant to be
+	// read in rows or columns is not something geometry settles.
+	// Saying "in order, with focus visible" asserted both.
 	//
 	// Nor can it say the rings are visible. It once did, on the
 	// strength of the style changing on focus, which is a different
