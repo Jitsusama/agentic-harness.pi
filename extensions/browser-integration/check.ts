@@ -141,7 +141,8 @@ const parameters = Type.Object({
 	widths: Type.Optional(
 		Type.Array(Type.Number(), {
 			description:
-				"Run the same check at each of these viewport widths and " +
+				"For every kind: run the same check at each of these " +
+				"viewport widths and " +
 				"report a table. Most layout and contrast faults are " +
 				"conditional, so a single width can pass a page that is " +
 				"unusable on a phone. Works with every kind. Note that " +
@@ -152,7 +153,8 @@ const parameters = Type.Object({
 	at: Type.Optional(
 		Type.String({
 			description:
-				"After a sweep, name one condition from the table, e.g. " +
+				"For every kind, after a sweep: name one condition from " +
+				"the table, e.g. " +
 				"'375px', to see its report in full.",
 		}),
 	),
@@ -166,7 +168,8 @@ const parameters = Type.Object({
 	maxStops: Type.Optional(
 		Type.Number({
 			description:
-				"How many times to press Tab. Defaults to twice the number of " +
+				"For keyboard: how many times to press Tab. Defaults to " +
+				"twice the number of " +
 				"focusable things, which is enough to show a cycle, or 400 " +
 				"where that is fewer. A page with more controls than that " +
 				"reports what it did not reach; pass a larger number to " +

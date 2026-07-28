@@ -241,12 +241,17 @@ const parameters = Type.Object({
 	),
 	container: Type.Optional(
 		Type.String({
-			description: "Restrict the search to a container with this name.",
+			description:
+				"For act: restrict the search to a container with this " +
+				"name, which is how you tell two identically named " +
+				"controls apart by where they live.",
 		}),
 	),
 	ordinal: Type.Optional(
 		Type.Number({
-			description: "1-based position among same-named matches.",
+			description:
+				"For act: 1-based position among same-named matches, for " +
+				"when no container distinguishes them either.",
 		}),
 	),
 });

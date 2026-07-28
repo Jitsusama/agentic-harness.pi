@@ -402,7 +402,9 @@ const parameters = Type.Object({
 	depth: Type.Optional(
 		Type.Integer({
 			minimum: 1,
-			description: "Keep this many levels of the outline. Omit for all of it.",
+			description:
+				"For page and reading: keep this many levels of the " +
+				"outline. Omit for all of it.",
 		}),
 	),
 	har: Type.Optional(
@@ -453,7 +455,8 @@ const parameters = Type.Object({
 			],
 			{
 				description:
-					"Reduce the page to one kind of thing: 'landmarks' for " +
+					"For page and reading: reduce the page to one kind of " +
+					"thing: 'landmarks' for " +
 					"how it is laid out, 'headings' for its outline, " +
 					"'interactive' for what you can operate.",
 			},
