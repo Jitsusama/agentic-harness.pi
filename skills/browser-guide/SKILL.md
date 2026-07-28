@@ -503,11 +503,17 @@ runs, every session's `see kind:"status"` says so and names who
 started it, because every page in the browser is being
 instrumented and paying for it.
 
-**Frame figures are the renderer's, not one page's.** The frame
-pipeline names a layer tree rather than a frame, so a second page
-sharing the process is counted too. The report says this itself;
-do not quote frame counts as though they belonged to the page
-alone.
+**Frame figures belong to a layer tree, and the report says how
+many contributed.** The frame pipeline names a compositor layer
+tree host, never a frame, and nothing in a trace ties the two
+together: the event that used to, `SetLayerTreeId`, no longer
+exists. So the figures cannot be narrowed to one page by asking
+the trace. What the report does instead is count the layer trees
+behind its numbers. One means they are this page's and you can
+quote them as such, which is the ordinary case for a single page.
+More than one means another page or tree in the same renderer
+process is included and they cannot be separated. Read that line
+before quoting a frame count, rather than assuming either way.
 
 ### `browser_check`
 
