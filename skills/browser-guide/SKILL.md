@@ -75,6 +75,10 @@ here.
 | Know why a click did nothing | `see kind:"element" behaviour:true`, which reports handlers on ancestors too |
 | Know why an element is the colour it is | `see kind:"element" why:"color"` |
 | See a focus ring or a hover style | `see kind:"element" states:["focus-visible","hover"]` |
+| Where did focus end up after that click or key | `see kind:"focus"`, which reads without moving it |
+| Read one CSS property across the whole page | `see kind:"query" styles:["z-index"]`, which reports it for every match |
+| Is this icon or border visible enough against that surface | `check kind:"contrast" within:"button Save" and:"region Card"` |
+| Judge text axe handed back as needing a person | `check kind:"contrast" within:"heading ..."` |
 | Check a phone layout | `check widths:[375,768,1280]`, which works with every kind |
 | Wait for a spinner to finish, not for a guessed delay | `do kind:"wait" selector:"#save" attribute:"aria-busy" value:"false"` |
 | Wait until a list has loaded all its rows | `do kind:"wait" selector:"li.row" count:20` |
@@ -201,7 +205,12 @@ read the page again after each act rather than assuming the
 action worked. `browser_go kind:"network"` mocks, blocks,
 throttles or goes offline, so failure paths can be exercised
 without breaking anything real. `browser_go kind:"emulate"`
-changes the visitor. `browser_check kind:"health"` runs every
+changes the visitor; if the browser refuses a media feature it
+was asked for, that feature is dropped rather than retried on
+every later navigation, and the refusal is reported in the same
+list as a setting this build cannot emulate, so check that list
+rather than assuming the condition took.
+`browser_check kind:"health"` runs every
 verdict at once, and `widths` on any check repeats it at several
 viewports, because most layout and contrast faults are
 conditional on width.
