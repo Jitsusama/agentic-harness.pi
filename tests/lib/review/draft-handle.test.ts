@@ -18,7 +18,12 @@ import { stubProvider } from "./support/stub-provider.js";
 
 const target: ReviewTarget = {
 	kind: "proposal",
-	change: { provider: "forge", repo: { key: "forge:o/r" }, id: "7" },
+	change: {
+		provider: "forge",
+		repo: { key: "forge:o/r" },
+		id: "7",
+		label: "o/r#7",
+	},
 };
 
 const anchor: LineAnchor = {

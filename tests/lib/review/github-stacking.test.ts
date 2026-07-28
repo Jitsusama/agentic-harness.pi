@@ -3,7 +3,12 @@ import { type ChangeRef, createGitHubProvider } from "../../../lib/review";
 import { fakeExec, type Reply } from "./support/fake-exec.js";
 
 const repo = { key: "github:Shopify/world" };
-const ref: ChangeRef = { provider: "github", repo, id: "2" };
+const ref: ChangeRef = {
+	provider: "github",
+	repo,
+	id: "2",
+	label: "Shopify/world#2",
+};
 
 /** One pull request as `gh pr list --json` spells it. */
 function pull(number: number, head: string, base: string) {

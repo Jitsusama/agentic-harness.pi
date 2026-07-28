@@ -22,6 +22,7 @@ const target: ReviewTarget = {
 		provider: "meteorite",
 		repo: { key: "gitstream:shop/world" },
 		id: "2000970",
+		label: "shop/world#2000970",
 	},
 };
 

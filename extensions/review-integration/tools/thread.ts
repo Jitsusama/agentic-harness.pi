@@ -164,7 +164,7 @@ export function registerThreadTool(pi: ExtensionAPI): void {
 					const approved = await confirmWrite(
 						ctx,
 						"Post a comment?",
-						`${GLYPH.target} ${change.repo.key} ${change.id}\n\n${params.body}`,
+						`${GLYPH.target} ${change.label}\n\n${params.body}`,
 					);
 					if (!approved) return say("Left unposted.");
 					const posted = await conversation.comment(change, params.body);

@@ -51,10 +51,22 @@ export function ownerRepoFromKey(
 }
 
 function change(owner: string, repo: string, number: string): ChangeRef {
+	return githubChange({ key: githubRepoKey(owner, repo) }, number);
+}
+
+/**
+ * A reference to a pull request in a repo this provider
+ * already identified. Every GitHub reference is built here, so
+ * one place decides how a pull request is spelled: the way a
+ * person writes it, which is also what `gh` accepts back.
+ */
+export function githubChange(repo: RepoLocator, id: string): ChangeRef {
+	const owned = ownerRepoFromKey(repo.key);
 	return {
 		provider: GITHUB_PROVIDER_ID,
-		repo: { key: githubRepoKey(owner, repo) },
-		id: number,
+		repo,
+		id,
+		label: owned ? `${owned.owner}/${owned.repo}#${id}` : `${repo.key}#${id}`,
 	};
 }
 

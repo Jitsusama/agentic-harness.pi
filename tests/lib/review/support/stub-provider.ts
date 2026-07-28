@@ -49,7 +49,12 @@ export function claimingProvider(
 	return stubProvider({
 		id,
 		priority,
-		claimReference: (input) => ({ provider: id, repo, id: input }),
+		claimReference: (input) => ({
+			provider: id,
+			repo,
+			id: input,
+			label: `${repo.key}#${input}`,
+		}),
 		claimRepo: () => repo,
 	});
 }

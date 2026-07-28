@@ -58,7 +58,7 @@ function count(n: number, singular: string, plural = `${singular}s`): string {
 /** A change, in one line. */
 export function proposalLine(proposal: Proposal): string {
 	const draft = proposal.draft ? " (draft)" : "";
-	return `${GLYPH.target} ${proposal.title}${draft}\n   ${proposal.state} · ${proposal.author.id} · ${proposal.head} → ${proposal.base}`;
+	return `${GLYPH.target} ${proposal.ref.label} ${proposal.title}${draft}\n   ${proposal.state} · ${proposal.author.id} · ${proposal.head} → ${proposal.base}`;
 }
 
 /** CI, with unreported kept apart from failed. */

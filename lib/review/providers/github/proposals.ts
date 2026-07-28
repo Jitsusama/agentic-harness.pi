@@ -14,7 +14,7 @@ import type { Check, CheckState, ChecksRollup } from "../../checks.js";
 import type { ChangeFilter, ProposalsFacet } from "../../provider.js";
 import type { Exec } from "../exec.js";
 import { run } from "../exec.js";
-import { GITHUB_PROVIDER_ID, ownerRepoFromKey } from "./claims.js";
+import { githubChange, ownerRepoFromKey } from "./claims.js";
 
 /** Where a materialized change lands, so it is easy to spot. */
 const LOCAL_REF_PREFIX = "refs/pi-review/github";
@@ -66,7 +66,7 @@ function proposalFromRest(
 ): Proposal {
 	const id = String(raw.number ?? "");
 	return {
-		ref: { provider: GITHUB_PROVIDER_ID, repo, id },
+		ref: githubChange(repo, id),
 		title: str(raw.title) ?? "",
 		body: str(raw.body) ?? "",
 		state: stateOf(raw),
@@ -94,7 +94,7 @@ function proposalFromListing(
 	const id = String(raw.number ?? "");
 	const state = (str(raw.state) ?? "OPEN").toLowerCase();
 	return {
-		ref: { provider: GITHUB_PROVIDER_ID, repo, id },
+		ref: githubChange(repo, id),
 		title: str(raw.title) ?? "",
 		body: str(raw.body) ?? "",
 		state:

@@ -23,7 +23,22 @@ describe("claiming a reference", () => {
 			provider: "github",
 			repo: { key: "github:Shopify/world" },
 			id: "123",
+			label: "Shopify/world#123",
 		});
+	});
+
+	it("labels the change the way a person would write it", () => {
+		// The label rides on the reference so a consumer can
+		// name a change after reloading it from disk, without
+		// a live provider or a request.
+		const fromUrl = provider.claimReference(
+			"https://github.com/Shopify/world/pull/123",
+		);
+		const fromShortForm = provider.claimReference("Shopify/world#123");
+		const fromNumber = provider.claimReference("123", repo);
+		expect(fromUrl?.label).toBe("Shopify/world#123");
+		expect(fromShortForm?.label).toBe("Shopify/world#123");
+		expect(fromNumber?.label).toBe("Shopify/world#123");
 	});
 
 	it("reads a URL with a trailing path or query", () => {

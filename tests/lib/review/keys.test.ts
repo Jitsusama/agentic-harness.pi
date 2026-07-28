@@ -15,7 +15,12 @@ const world: RepoLocator = {
 
 const proposal: ReviewTarget = {
 	kind: "proposal",
-	change: { provider: "meteorite", repo: world, id: "2000970" },
+	change: {
+		provider: "meteorite",
+		repo: world,
+		id: "2000970",
+		label: "shop/world#2000970",
+	},
 };
 
 describe("repoKey", () => {
@@ -30,6 +35,7 @@ describe("changeKey", () => {
 			provider: "meteorite",
 			repo: world,
 			id: "2000970",
+			label: "shop/world#2000970",
 		};
 		expect(changeKey(ref)).toBe("meteorite/gitstream:shop~world/2000970");
 	});
@@ -39,11 +45,13 @@ describe("changeKey", () => {
 			provider: "github",
 			repo: { key: "github:Shopify/world" },
 			id: "2000970",
+			label: "Shopify/world#2000970",
 		};
 		const meteorite: ChangeRef = {
 			provider: "meteorite",
 			repo: world,
 			id: "2000970",
+			label: "shop/world#2000970",
 		};
 		expect(changeKey(github)).not.toBe(changeKey(meteorite));
 	});

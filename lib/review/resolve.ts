@@ -81,7 +81,15 @@ function changeFromMapping(
 	const repoKey = match.groups?.repo ?? mapping.repo;
 	const id = match.groups?.id ?? match[1];
 	if (!repoKey || !id) return undefined;
-	return { provider: mapping.provider, repo: { key: repoKey }, id };
+	// A user-supplied mapping has no provider to ask for a
+	// label, and what the person typed is what they will
+	// recognize back.
+	return {
+		provider: mapping.provider,
+		repo: { key: repoKey },
+		id,
+		label: input,
+	};
 }
 
 /**

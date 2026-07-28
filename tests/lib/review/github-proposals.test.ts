@@ -3,7 +3,12 @@ import { type ChangeRef, createGitHubProvider } from "../../../lib/review";
 import { callMatching, fakeExec, type Reply } from "./support/fake-exec.js";
 
 const repo = { key: "github:Shopify/world" };
-const ref: ChangeRef = { provider: "github", repo, id: "123" };
+const ref: ChangeRef = {
+	provider: "github",
+	repo,
+	id: "123",
+	label: "Shopify/world#123",
+};
 
 const pullJson = JSON.stringify({
 	number: 123,

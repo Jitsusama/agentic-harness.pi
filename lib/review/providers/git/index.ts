@@ -234,7 +234,13 @@ export function createGitProvider(deps: ProviderDeps): ReviewProvider {
 			if (!repo) return null;
 			const trimmed = input.trim();
 			if (!trimmed) return null;
-			return { provider: GIT_PROVIDER_ID, repo, id: trimmed };
+			// A plain ref names itself; there is no number to add.
+			return {
+				provider: GIT_PROVIDER_ID,
+				repo,
+				id: trimmed,
+				label: trimmed,
+			};
 		},
 
 		claimRepo(probe: RepoProbe): RepoLocator | null {

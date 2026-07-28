@@ -39,6 +39,17 @@ export interface ChangeRef {
 	repo: RepoLocator;
 	/** Provider-scoped identity. Never parsed by consumers. */
 	id: string;
+	/**
+	 * Short human name for this change, in whatever form its
+	 * own system uses: `Shopify/world#123` for a GitHub pull
+	 * request, and whatever Meteorite or GitLab call theirs.
+	 *
+	 * Carried on the reference rather than asked of the
+	 * provider, because a consumer that reloaded a reference
+	 * from disk still has to be able to name it, and should
+	 * not need a live provider or a request to do so.
+	 */
+	label: string;
 }
 
 /**

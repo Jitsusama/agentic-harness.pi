@@ -54,7 +54,9 @@ describe("resolveReference", () => {
 				claimRepo: () => mirror,
 				claimReference: (input, repo) => {
 					seen.push(repo?.key);
-					return repo ? { provider: "forge", repo, id: input } : null;
+					return repo
+						? { provider: "forge", repo, id: input, label: input }
+						: null;
 				},
 			}),
 		);
@@ -174,6 +176,9 @@ describe("resolveReference", () => {
 				provider: "meteorite",
 				repo: { key: "world" },
 				id: "2000970",
+				// A user-supplied mapping has no provider to ask for a
+				// label, so the reference keeps what was typed.
+				label: "cr/world/2000970",
 			});
 		});
 
@@ -193,6 +198,7 @@ describe("resolveReference", () => {
 				provider: "meteorite",
 				repo: { key: "gitstream:shop/world" },
 				id: "42",
+				label: "pull-42",
 			});
 		});
 

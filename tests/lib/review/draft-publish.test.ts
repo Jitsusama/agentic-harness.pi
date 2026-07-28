@@ -24,6 +24,7 @@ const target: ReviewTarget = {
 		provider: "forge",
 		repo: { key: "forge:o/r" },
 		id: "7",
+		label: "o/r#7",
 	},
 };
 

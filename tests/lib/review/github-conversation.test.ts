@@ -7,7 +7,12 @@ import {
 import { callMatching, fakeExec, type Reply } from "./support/fake-exec.js";
 
 const repo = { key: "github:Shopify/world" };
-const ref: ChangeRef = { provider: "github", repo, id: "123" };
+const ref: ChangeRef = {
+	provider: "github",
+	repo,
+	id: "123",
+	label: "Shopify/world#123",
+};
 
 function provider(replies: Reply[]) {
 	const { exec, calls } = fakeExec(replies);

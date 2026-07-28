@@ -16,7 +16,12 @@ const mirror = { key: "github:Shopify/world" };
 
 const hosted: ReviewTarget = {
 	kind: "proposal",
-	change: { provider: "meteorite", repo: world, id: "2000970" },
+	change: {
+		provider: "meteorite",
+		repo: world,
+		id: "2000970",
+		label: "shop/world#2000970",
+	},
 };
 
 const localRange: ReviewTarget = {
