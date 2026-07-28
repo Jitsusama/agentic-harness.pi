@@ -16,6 +16,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { runGraphQL } from "../../lib/internal/github/graphql.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
+import type {
+	ChangeRef,
+	ConversationFacet,
+	Message,
+	Thread,
+} from "../../lib/review/index.js";
 
 /** Single comment inside a review thread. */
 export interface ReviewThreadComment {
@@ -313,4 +319,89 @@ function expectBoolean(record: Record<string, unknown>, key: string): boolean {
 		throw new Error(`Review threads: \`${key}\` is not a boolean`);
 	}
 	return value;
+}
+
+/**
+ * The view of a change's conversation that this workflow's
+ * actions speak, built from what the substrate reports.
+ *
+ * Two things arrive separately and are shown as one numbered
+ * list. Anchored threads hang off a place in the diff and can be
+ * replied to and resolved. The change's top-level comments hang
+ * off the change itself and can be neither, which is why they
+ * are tagged rather than merged: the actions refuse both
+ * operations on sight instead of letting a person discover it
+ * from a rejected request.
+ *
+ * Anchored threads come first, because the numbered list is what
+ * a person names when they reply.
+ */
+export function threadViewFrom(
+	threads: readonly Thread[],
+	messages: readonly Message[],
+): ReviewThread[] {
+	return [...threads.map(anchoredThreadView), ...messages.map(changeWideView)];
+}
+
+/**
+ * Read a change's whole conversation through the substrate.
+ *
+ * The two halves arrive from different reads and neither depends
+ * on the other, so they are asked for together. Reading only the
+ * threads is the tempting mistake: it loses every top-level
+ * comment and still looks like a working read.
+ */
+export async function readConversation(
+	conversation: ConversationFacet,
+	change: ChangeRef,
+): Promise<ReviewThread[]> {
+	const [threads, messages] = await Promise.all([
+		conversation.threads(change),
+		conversation.messages(change),
+	]);
+	return threadViewFrom(threads, messages);
+}
+
+function anchoredThreadView(thread: Thread): ReviewThread {
+	const anchor = thread.anchor;
+	return {
+		id: thread.id,
+		// Even a thread whose anchor is gone entirely stays a
+		// review thread. It can still be replied to and resolved,
+		// so calling it change-wide would refuse both.
+		kind: "review-thread",
+		isResolved: thread.resolved,
+		// The substrate leaves staleness absent when the provider
+		// cannot tell. The view has only a boolean, and claiming a
+		// thread is outdated on no evidence is the worse error.
+		isOutdated: thread.stale === true,
+		path: anchor?.path ?? null,
+		line: anchor?.subject === "line" ? anchor.line : null,
+		comments: thread.comments.map(commentView),
+	};
+}
+
+function changeWideView(message: Message): ReviewThread {
+	return {
+		id: message.id,
+		kind: "review-level",
+		isResolved: false,
+		isOutdated: false,
+		path: null,
+		line: null,
+		comments: [commentView(message)],
+	};
+}
+
+function commentView(message: Message): ReviewThreadComment {
+	return {
+		id: message.id,
+		author: message.author.id,
+		body: message.body,
+		// Both are optional upstream and required here. A renderer
+		// would rather lay out an empty string than the word
+		// undefined.
+		createdAt: message.createdAt ?? "",
+		url: message.url ?? "",
+	};
 }
