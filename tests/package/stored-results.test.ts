@@ -64,6 +64,7 @@ const MUST_BOUND = [
 	"memory-integration",
 	"quest-workflow",
 	"pr-workflow",
+	"review-integration",
 	"result-store-workflow",
 ] as const;
 

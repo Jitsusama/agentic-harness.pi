@@ -1,0 +1,311 @@
+/**
+ * The `review_draft` tool: composing a review, then landing it.
+ *
+ * This is the tool that makes a review one act instead of a
+ * dozen errands. Findings, replies into other people's threads,
+ * resolutions, reactions and a verdict accumulate in a draft
+ * that survives the session; `plan` says exactly what
+ * publishing would do; `publish` does it behind a gate; and
+ * `render` covers the case where nothing hosts the target at
+ * all.
+ */
+
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
+import {
+	type Anchor,
+	type BoundTarget,
+	createDraftStore,
+	type DiffSide,
+	type Reaction,
+	type ReviewDraft,
+	resumeDraft,
+	type Verdict,
+} from "../../../lib/review/index.js";
+import { draftDir, reviewEngine } from "../engine.js";
+import { confirmWrite } from "../gate.js";
+import {
+	anchorLabel,
+	GLYPH,
+	outcomeNarration,
+	planNarration,
+} from "../render.js";
+import {
+	type Answer,
+	boundFor,
+	messageOf,
+	refuse,
+	renderAnswer,
+	renderInvocation,
+	say,
+	threadsOf,
+} from "./shared.js";
+
+/** The draft's contents, listed for a person. */
+function draftLines(draft: ReviewDraft): string {
+	const verdict = draft.state.verdict
+		? `${GLYPH.verdict} ${draft.state.verdict}${draft.state.summary ? `: ${draft.state.summary}` : ""}`
+		: "no verdict yet";
+	const items = draft.state.items.map((item) => {
+		if (item.kind === "finding") {
+			return `${GLYPH.finding} #${item.id} ${anchorLabel(item.anchor)}\n     ${item.body}`;
+		}
+		if (item.kind === "reply") {
+			return `${GLYPH.thread} #${item.id} reply into ${item.thread.id}\n     ${item.body}`;
+		}
+		if (item.kind === "resolution") {
+			return `${GLYPH.resolved} #${item.id} resolve ${item.thread.id}`;
+		}
+		return `${GLYPH.reaction} #${item.id} ${item.reaction} on ${item.subject.id}`;
+	});
+	return `${GLYPH.document} draft ${draft.id}\n${verdict}\n${items.join("\n") || "nothing in it yet"}`;
+}
+
+/** Register the `review_draft` tool. */
+export function registerDraftTool(pi: ExtensionAPI): void {
+	pi.registerTool({
+		name: "review_draft",
+		label: "Review Draft",
+		description:
+			"Compose a review and land it in one go: add anchored findings, replies into existing threads, resolutions, reactions and a verdict; see exactly what publishing will do, including what degrades and why; then publish, or render the review as a document when nothing hosts the target.",
+		promptSnippet:
+			"Compose a review as a draft, see what publishing would do, then publish or render it.",
+		promptGuidelines: [
+			"Always plan before publishing, and tell the user what will degrade and why rather than letting them discover it afterwards.",
+			"A draft persists, so a review can be built up across a session and picked back up by id.",
+			"When the target has nowhere to post, render the draft as a document instead of reporting failure.",
+			"Publishing keeps whatever did not land, so a retry sends only the remainder. Say so if something fails.",
+		],
+		parameters: Type.Object({
+			action: Type.Union(
+				[
+					Type.Literal("open"),
+					Type.Literal("show"),
+					Type.Literal("finding"),
+					Type.Literal("reply"),
+					Type.Literal("resolve"),
+					Type.Literal("react"),
+					Type.Literal("verdict"),
+					Type.Literal("drop"),
+					Type.Literal("plan"),
+					Type.Literal("publish"),
+					Type.Literal("render"),
+				],
+				{ description: "What to do with the draft." },
+			),
+			change: Type.Optional(
+				Type.String({ description: "The hosted change under review." }),
+			),
+			repo: Type.Optional(Type.String({ description: "Checkout path." })),
+			base: Type.Optional(Type.String({ description: "Base of a range." })),
+			head: Type.Optional(Type.String({ description: "Head of a range." })),
+			refs: Type.Optional(
+				Type.Array(Type.String(), { description: "Refs of a local stack." }),
+			),
+			draft: Type.Optional(
+				Type.String({ description: "Draft id, to resume a specific one." }),
+			),
+			path: Type.Optional(
+				Type.String({ description: "File a finding is about." }),
+			),
+			line: Type.Optional(
+				Type.Number({
+					description: "Line for a finding; omit for a whole-file remark.",
+				}),
+			),
+			startLine: Type.Optional(
+				Type.Number({ description: "First line of a range." }),
+			),
+			side: Type.Optional(
+				Type.Union([Type.Literal("old"), Type.Literal("new")], {
+					description: "Which side of the diff. Defaults to new.",
+				}),
+			),
+			body: Type.Optional(
+				Type.String({
+					description: "Finding text, reply text, or verdict summary.",
+				}),
+			),
+			thread: Type.Optional(
+				Type.Number({ description: "1-based [T#] index of a thread." }),
+			),
+			reaction: Type.Optional(Type.String({ description: "Reaction name." })),
+			comment: Type.Optional(
+				Type.String({ description: "Comment id to react to." }),
+			),
+			verdict: Type.Optional(
+				Type.Union([
+					Type.Literal("approve"),
+					Type.Literal("request-changes"),
+					Type.Literal("comment"),
+				]),
+			),
+			item: Type.Optional(
+				Type.String({ description: "Item id to drop from the draft." }),
+			),
+		}),
+
+		renderCall(args, theme) {
+			const params = args as { action?: string; change?: string };
+			return renderInvocation(
+				theme,
+				"review_draft",
+				params.action,
+				params.change,
+			);
+		},
+
+		renderResult(result, _state, theme) {
+			return renderAnswer(result, theme);
+		},
+
+		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
+			try {
+				const store = createDraftStore(draftDir());
+				let bound: BoundTarget | undefined;
+				let draft: ReviewDraft;
+
+				if (params.draft) {
+					const resumed = await resumeDraft(params.draft, { store });
+					if (!resumed) {
+						return refuse(`There is no draft called ${params.draft}.`);
+					}
+					draft = resumed;
+				} else {
+					bound = await boundFor(pi, params, process.cwd());
+					const { engine } = await reviewEngine(pi);
+					draft = await engine.openDraft(bound.target);
+				}
+
+				if (params.action === "open" || params.action === "show") {
+					return say(draftLines(draft), {
+						ok: true,
+						id: draft.id,
+						items: draft.state.items.length,
+					});
+				}
+
+				if (params.action === "finding") {
+					if (!params.path || !params.body) {
+						return refuse("A finding needs a path and a body.");
+					}
+					const anchor: Anchor =
+						params.line === undefined
+							? { subject: "file", path: params.path }
+							: {
+									subject: "line",
+									path: params.path,
+									blob: (params.side ?? "new") as DiffSide,
+									line: params.line,
+									...(params.startLine !== undefined
+										? { startLine: params.startLine }
+										: {}),
+								};
+					const id = await draft.addFinding({ anchor, body: params.body });
+					return say(
+						`${GLYPH.finding} #${id} noted at ${anchorLabel(anchor)}`,
+						{
+							ok: true,
+							item: id,
+						},
+					);
+				}
+
+				if (params.action === "verdict") {
+					if (!params.verdict) return refuse("Name the verdict.");
+					await draft.setVerdict(params.verdict as Verdict, params.body);
+					return say(
+						`${GLYPH.verdict} ${params.verdict} recorded in the draft. Nothing has been sent yet.`,
+					);
+				}
+
+				if (params.action === "drop") {
+					if (!params.item) return refuse("Name the item to drop.");
+					await draft.remove(params.item);
+					return say(`dropped #${params.item}.`);
+				}
+
+				if (params.action === "react") {
+					if (!params.reaction || !params.comment) {
+						return refuse("Reacting needs a reaction and a comment id.");
+					}
+					const id = await draft.react(
+						{ id: params.comment, author: { id: "" }, body: "" },
+						params.reaction as Reaction,
+					);
+					return say(`${GLYPH.reaction} #${id} queued in the draft.`);
+				}
+
+				if (params.action === "render") {
+					const document = draft.render();
+					return say(`${GLYPH.document} ${document.markdown}`);
+				}
+
+				if (params.action === "reply" || params.action === "resolve") {
+					if (!bound) {
+						return refuse(
+							"Replying or resolving needs the change itself, so its threads can be read. Name the change rather than a draft id.",
+						);
+					}
+					const threads = await threadsOf(bound);
+					const thread = threads[(params.thread ?? 0) - 1];
+					if (!thread) {
+						return refuse(
+							`There is no [T${params.thread ?? "?"}]. Read the threads first.`,
+						);
+					}
+					if (params.action === "resolve") {
+						const id = await draft.resolveThread(thread);
+						return say(`${GLYPH.resolved} #${id} queued in the draft.`);
+					}
+					if (!params.body) return refuse("A reply needs a body.");
+					const id = await draft.replyTo(thread, params.body);
+					return say(`${GLYPH.thread} #${id} queued in the draft.`);
+				}
+
+				// Planning and publishing both need the provider's
+				// capabilities, and the diff to judge anchors against.
+				if (!bound) {
+					return refuse(
+						"Planning needs the target, so its provider's capabilities can be read. Name the change rather than a draft id.",
+					);
+				}
+				const diff = await bound.diffModel().catch(() => undefined);
+				const plan = draft.plan({
+					capabilities: bound.capabilities,
+					...(diff ? { diff } : {}),
+				});
+
+				if (params.action === "plan") {
+					return say(planNarration(plan), {
+						ok: true,
+						ops: plan.ops.length,
+						degraded: plan.degraded.length,
+						refused: plan.refused.length,
+					});
+				}
+
+				if (plan.ops.length === 0) {
+					return refuse(
+						"There is nothing in this draft that can be published. Plan it to see why.",
+					);
+				}
+				const approved = await confirmWrite(
+					ctx,
+					"Publish this review?",
+					planNarration(plan),
+				);
+				if (!approved) {
+					return say("Left in the draft. Nothing was sent.");
+				}
+				const outcome = await draft.publish(plan, bound.provider);
+				return say(outcomeNarration(outcome), {
+					ok: outcome.ok,
+					landed: outcome.outcomes.filter((entry) => entry.ok).length,
+				});
+			} catch (error) {
+				return refuse(messageOf(error));
+			}
+		},
+	});
+}

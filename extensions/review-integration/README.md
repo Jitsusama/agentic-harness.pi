@@ -1,0 +1,106 @@
+# Review Integration
+
+Hosts the [review substrate](../../lib/review/) for a session:
+owns the provider registry, registers the providers this package
+ships, and exposes reviewing as tools rather than as shell
+commands.
+
+## The Tools
+
+| Tool | For |
+|---|---|
+| `review` | Reading a change: resolve, view, diff, checks, list, capabilities |
+| `review_stack` | The stack a change or branch sits in, with provenance marked |
+| `review_thread` | Working a conversation: reviews, threads, messages, reply, resolve, react, comment |
+| `review_draft` | Composing a review, seeing what publishing would do, then publishing or rendering it |
+
+One tool per concern rather than one per verb. Twenty-five tools
+would crowd out everything else in a session; one tool with
+twenty-five actions is unreadable in a registry listing.
+
+`review_author` joins them when the authoring facet is
+implemented.
+
+## Every Write Asks First
+
+Anything that changes someone else's change opens a confirmation
+gate showing what is about to happen. This is what lets the
+authoring flows eventually stop leaning on the shell guardians:
+the gate lives where the action is, instead of downstream of a
+command line that has to be parsed back into intent.
+
+Without a UI the gate approves, matching the pr-workflow gates.
+A tool running inside a subagent has nobody to ask.
+
+## Publishing Is Planned Out Loud
+
+`review_draft plan` narrates what will happen before anything is
+sent: which requests will run, which items will land somewhere
+other than where they were aimed and why, and which cannot land
+at all. Degradation announced up front is a decision;
+degradation discovered from a rejected request is a surprise.
+
+`publish` keeps whatever failed in the draft, so a retry sends
+the remainder rather than duplicating what already landed.
+
+## Configuration
+
+The `review` section of
+`~/.config/pi/agentic-harness.pi/config.json`:
+
+```json
+{
+  "sections": {
+    "review": {
+      "repos": [
+        { "match": "shop/world", "providers": ["meteorite", "github"] }
+      ],
+      "references": [
+        {
+          "pattern": "^cr/(?<repo>[^/]+)/(?<id>\\d+)$",
+          "provider": "meteorite"
+        }
+      ]
+    }
+  }
+}
+```
+
+`repos` pins a repo to providers in preference order, skipping
+any that are not registered, which makes a mapping safe to write
+before the provider ships. `references` teaches the substrate a
+URL or short form no provider recognizes. Neither is required,
+and nothing defaults: an unrecognized reference comes back as a
+refusal naming the knob that would fix it.
+
+## Registering a Provider
+
+A provider registers over the event bus, so it can live in
+another package entirely:
+
+```ts
+import {
+  REVIEW_READY,
+  REVIEW_REGISTER_PROVIDER,
+} from "agentic-harness.pi/lib/review";
+
+// Both directions, so load order does not matter.
+pi.events.on(REVIEW_READY, () => {
+  pi.events.emit(REVIEW_REGISTER_PROVIDER, myProvider);
+});
+pi.events.emit(REVIEW_REGISTER_PROVIDER, myProvider);
+```
+
+A provider that specializes in one repo should claim at a lower
+priority number than the generalist it needs to beat.
+
+## Joy
+
+The renderings use one glyph per concept, always the same one,
+so the eye learns a vocabulary rather than decoding a new rebus
+each time: 🌐 target, 🪜 stack, 🧵 thread, 📌 finding, 🎭
+verdict, ✨ lands, 🌥 lands differently, 🚧 will not land, 📜
+document.
+
+None of them reach a forge. What gets posted is someone else's
+surface.
