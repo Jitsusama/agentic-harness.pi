@@ -38,7 +38,16 @@ import type { FindingDecision } from "./synthesis.js";
  * is currently discussing.
  */
 export interface ActivePr {
-	/** The PR loaded into the session. */
+	/**
+	 * The PR loaded into the session.
+	 *
+	 * Still GitHub's shape, because everything downstream of it
+	 * still is: the metadata fetch, the thread reads and the
+	 * buffer URIs all speak owner, repo and number. Use
+	 * `changeOf` in `./reference.js` to get the substrate's
+	 * neutral reference, which is what to display and what to
+	 * hand to a provider.
+	 */
 	reference: PRReference;
 	/** ISO 8601 timestamp of when the PR was loaded. */
 	loadedAt: string;

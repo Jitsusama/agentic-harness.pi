@@ -27,6 +27,7 @@ import { getQuestPrBridge } from "../../lib/quest/pr-bridge.js";
 import type { CritiqueRun } from "./critique.js";
 import type { Finding } from "./findings.js";
 import type { JudgeRun } from "./judge.js";
+import { changeFromGitHubView } from "./reference.js";
 
 /**
  * Locate the sidequest for a PR via the alias index.
@@ -41,7 +42,7 @@ function findSidequest(
 ): { sidequestId: string; sidequestDir: string } | undefined {
 	const bridge = getQuestPrBridge();
 	if (!bridge) return undefined;
-	const aliasValue = `${reference.owner}/${reference.repo}#${reference.number}`;
+	const aliasValue = changeFromGitHubView(reference).label;
 	const { index } = discoverQuests(bridge.questsRoot());
 	const aliasIdx = buildAliasIndex(index);
 	const lookup = lookupAliasDetail(aliasIdx, {
@@ -137,7 +138,7 @@ export function recordReviewRound(
 	const result = appendPrReviewRound({
 		sidequestDir: sidequest.sidequestDir,
 		sidequestId: sidequest.sidequestId,
-		prSlug: `${reference.owner}/${reference.repo}#${reference.number}`,
+		prSlug: changeFromGitHubView(reference).label,
 		date: "",
 		councilReviewerIds: input.councilReviewerIds,
 		rawFindingsCount: input.rawFindingsCount,

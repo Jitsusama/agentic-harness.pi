@@ -16,6 +16,7 @@
  */
 
 import { summarizeFixQueue } from "./fix.js";
+import { changeFromGitHubView } from "./reference.js";
 import type { PrWorkflowState } from "./state.js";
 
 /** A reviewer roster + judge selection at a glance. */
@@ -228,7 +229,7 @@ export function formatPrSummary(state: PrWorkflowState): string {
 	const ref = state.pr.reference;
 	const metaTitle = state.pr.metadata?.title ?? "(metadata not fetched)";
 	const lines: string[] = [];
-	lines.push(`PR ${ref.owner}/${ref.repo}#${ref.number}: ${metaTitle}`);
+	lines.push(`PR ${changeFromGitHubView(ref).label}: ${metaTitle}`);
 	if (state.pr.metadata !== null) {
 		const meta = state.pr.metadata;
 		const stateLabel = meta.isDraft ? "draft" : meta.state.toLowerCase();

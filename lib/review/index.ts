@@ -135,6 +135,17 @@ export type {
 } from "./provider.js";
 export type { Exec, ExecResult, ProviderDeps } from "./providers/exec.js";
 export { createGitProvider } from "./providers/git/index.js";
+/**
+ * The GitHub provider's pure helpers, for consumers still
+ * bridging GitHub-shaped code onto the substrate. Neither
+ * touches the network, and both are safe to call before any
+ * provider is registered.
+ */
+export {
+	claimGitHubReference,
+	githubChange,
+	ownerRepoFromKey,
+} from "./providers/github/claims.js";
 export { createGitHubProvider } from "./providers/github/index.js";
 export {
 	clearReviewProviders,

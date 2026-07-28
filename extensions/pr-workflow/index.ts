@@ -122,6 +122,7 @@ import {
 import { confirmPostGate } from "./post-gate.js";
 import { buildReviewProseGate } from "./prose-gate.js";
 import { logQuestJourneyForPr, recordReviewRound } from "./quest-bridge.js";
+import { changeFromGitHubView, changeOf } from "./reference.js";
 import { ResultsStore } from "./results-store.js";
 import {
 	isReviewContextProvider,
@@ -1796,7 +1797,7 @@ ${reviewValidationDirective()}`,
 							details: { ok: false, error: `no ${direction}` },
 						};
 					}
-					const ref = `${pick.reference.owner}/${pick.reference.repo}#${pick.reference.number}`;
+					const ref = changeFromGitHubView(pick.reference).label;
 					const directionLabel =
 						params.action === "stack-next" ? "Downstream PR" : "Upstream PR";
 					return {
@@ -2181,7 +2182,7 @@ ${reviewValidationDirective()}`,
 						"",
 					];
 					for (const entry of entries) {
-						const ref = `${entry.owner}/${entry.repo}#${entry.number}`;
+						const ref = changeFromGitHubView(entry).label;
 						const when =
 							entry.mtimeMs === null
 								? "mtime unknown"
@@ -2562,9 +2563,7 @@ ${reviewValidationDirective()}`,
 				}
 
 				if (params.action === "reset") {
-					const previous = state.pr
-						? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
-						: "none";
+					const previous = state.pr ? changeOf(state.pr).label : "none";
 					resetPrWorkflowSession(state);
 					clearPrStatusLine(ctx);
 					// The previous PR is no longer the active resource,
@@ -2601,9 +2600,7 @@ ${reviewValidationDirective()}`,
 				}
 
 				if (params.action === "status") {
-					const ref = state.pr
-						? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
-						: "none";
+					const ref = state.pr ? changeOf(state.pr).label : "none";
 					const breakdown = summarizeUsage({
 						council: state.council.lastRun,
 						judge: state.council.lastJudge,
@@ -2728,7 +2725,7 @@ ${reviewValidationDirective()}`,
 						content: [
 							{
 								type: "text",
-								text: `Loaded ${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number} but could not fetch metadata: ${message}`,
+								text: `Loaded ${changeFromGitHubView(loaded.reference).label} but could not fetch metadata: ${message}`,
 							},
 						],
 						details: { ok: false, pr: loaded, error: message },
@@ -2771,7 +2768,7 @@ ${reviewValidationDirective()}`,
 				const lines: string[] = [];
 				if (m) {
 					lines.push(
-						`Loaded ${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number}: ${m.title}`,
+						`Loaded ${changeFromGitHubView(loaded.reference).label}: ${m.title}`,
 						`author: ${m.author} · state: ${m.state}${m.isDraft ? " (draft)" : ""}`,
 						`base: ${m.base.ref} ← head: ${m.head.ref}`,
 						`${m.changedFiles} files changed, +${m.additions} −${m.deletions}`,
@@ -2787,7 +2784,7 @@ ${reviewValidationDirective()}`,
 					stack.entries.forEach((e, i) => {
 						const marker = i === stack.cursorIndex ? "▶" : " ";
 						lines.push(
-							`  ${marker} ${e.reference.owner}/${e.reference.repo}#${e.reference.number}: ${e.title}`,
+							`  ${marker} ${changeFromGitHubView(e.reference).label}: ${e.title}`,
 						);
 					});
 					if (stack.cursorChildren.length > 0) {
@@ -2874,7 +2871,7 @@ ${reviewValidationDirective()}`,
 						if (!sidequest.isNew) {
 							questBridge.logJourney(
 								sidequest.sidequestDir,
-								`Reloaded for review (${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number}).`,
+								`Reloaded for review (${changeFromGitHubView(loaded.reference).label}).`,
 							);
 						}
 						lines.push("");

@@ -26,6 +26,7 @@
  */
 
 import * as path from "node:path";
+import { changeFromGitHubView } from "./reference.js";
 import { defaultGitExec, type GitExec } from "./worktree-git.js";
 
 /** Event name for registering fix-worktree providers. */
@@ -213,11 +214,12 @@ function rewriteWorktreeCollision(
 	if (!/already used by worktree|already checked out/i.test(message)) {
 		return error instanceof Error ? error : new Error(message);
 	}
+	const label = changeFromGitHubView({ owner, repo, number }).label;
 	return new Error(
-		`Could not provision a fix worktree for ${owner}/${repo}#${number}: ` +
+		`Could not provision a fix worktree for ${label}: ` +
 			"the branch is already checked out elsewhere. " +
 			"Options: (1) call pr_workflow action=fix-worktree-cleanup pr=" +
-			`${owner}/${repo}#${number} to remove a stale worktree, ` +
+			`${label} to remove a stale worktree, ` +
 			"(2) switch the primary checkout to a different branch, or " +
 			"(3) apply the fix in the existing checkout and use " +
 			"fix-skip to record the outcome. " +
