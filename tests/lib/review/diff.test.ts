@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseUnifiedDiff } from "../../../lib/review";
+import {
+	changeCounts,
+	displayPath,
+	lineNumberOn,
+	parseUnifiedDiff,
+} from "../../../lib/review";
 
 const modified = `diff --git a/lib/app.ts b/lib/app.ts
 index 83db48f..bf269f4 100644
@@ -195,5 +200,75 @@ index 1111111..2222222 100644
 `;
 		const [file] = parseUnifiedDiff(diff).files;
 		expect(file.newPath).toBe("some dir/my file.ts");
+	});
+});
+
+describe("reading a diff file a person is looking at", () => {
+	it("shows the new path, because that is where the code now is", () => {
+		const [file] = parseUnifiedDiff(modified).files;
+		expect(displayPath(file)).toBe("lib/app.ts");
+	});
+
+	it("shows a rename as the journey it was", () => {
+		const diff = `diff --git a/old/name.ts b/new/name.ts
+similarity index 95%
+rename from old/name.ts
+rename to new/name.ts
+`;
+		const [file] = parseUnifiedDiff(diff).files;
+		expect(displayPath(file)).toBe("old/name.ts -> new/name.ts");
+	});
+
+	it("falls back to the old path for a file that is gone", () => {
+		const diff = `diff --git a/gone.ts b/gone.ts
+deleted file mode 100644
+--- a/gone.ts
++++ /dev/null
+@@ -1,2 +0,0 @@
+-one
+-two
+`;
+		const [file] = parseUnifiedDiff(diff).files;
+		expect(displayPath(file)).toBe("gone.ts");
+	});
+
+	it("counts the lines it added and removed, ignoring context", () => {
+		const [file] = parseUnifiedDiff(modified).files;
+		expect(changeCounts(file)).toEqual({ additions: 2, deletions: 1 });
+	});
+
+	it("counts a binary file as no lines either way", () => {
+		const diff = `diff --git a/logo.png b/logo.png
+index 1111111..2222222 100644
+Binary files a/logo.png and b/logo.png differ
+`;
+		const [file] = parseUnifiedDiff(diff).files;
+		expect(changeCounts(file)).toEqual({ additions: 0, deletions: 0 });
+	});
+});
+
+describe("reading a diff line's number on one side", () => {
+	it("reports an added line only on the new side", () => {
+		const [file] = parseUnifiedDiff(modified).files;
+		const added = file.hunks[0].lines.find((line) => line.kind === "added");
+		if (!added) throw new Error("the fixture should hold an added line");
+		expect(lineNumberOn(added, "new")).toBe(2);
+		expect(lineNumberOn(added, "old")).toBeUndefined();
+	});
+
+	it("reports a removed line only on the old side", () => {
+		const [file] = parseUnifiedDiff(modified).files;
+		const removed = file.hunks[0].lines.find((line) => line.kind === "removed");
+		if (!removed) throw new Error("the fixture should hold a removed line");
+		expect(lineNumberOn(removed, "old")).toBe(2);
+		expect(lineNumberOn(removed, "new")).toBeUndefined();
+	});
+
+	it("reports a context line on both sides", () => {
+		const [file] = parseUnifiedDiff(modified).files;
+		const context = file.hunks[0].lines.find((line) => line.kind === "context");
+		if (!context) throw new Error("the fixture should hold a context line");
+		expect(lineNumberOn(context, "old")).toBe(1);
+		expect(lineNumberOn(context, "new")).toBe(1);
 	});
 });

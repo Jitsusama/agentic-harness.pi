@@ -18,7 +18,6 @@ export type {
 	Anchor,
 	AnchorCheck,
 	AnchorRefusal,
-	DiffSide,
 	FileAnchor,
 	LineAnchor,
 } from "./anchor.js";
@@ -66,9 +65,15 @@ export type {
 	DiffHunk,
 	DiffLine,
 	DiffModel,
+	DiffSide,
 	DiffStatus,
 } from "./diff.js";
-export { parseUnifiedDiff } from "./diff.js";
+export {
+	changeCounts,
+	displayPath,
+	lineNumberOn,
+	parseUnifiedDiff,
+} from "./diff.js";
 export type { DraftDeps, ReviewDraft } from "./draft/handle.js";
 export { openDraft, resumeDraft } from "./draft/handle.js";
 export type {

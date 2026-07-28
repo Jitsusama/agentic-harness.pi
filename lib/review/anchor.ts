@@ -11,10 +11,9 @@
  * which of those happened instead of guessing.
  */
 
-import type { DiffFile, DiffHunk, DiffModel } from "./diff.js";
+import type { DiffFile, DiffHunk, DiffModel, DiffSide } from "./diff.js";
 
-/** Which side of the diff an anchor names. */
-export type DiffSide = "old" | "new";
+export type { DiffSide };
 
 /** A remark about one line or a run of lines. */
 export interface LineAnchor {

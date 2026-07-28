@@ -12,6 +12,13 @@
 /** How a file changed between the two sides. */
 export type DiffStatus = "added" | "deleted" | "modified" | "renamed";
 
+/**
+ * Which side of the diff something sits on. Git's own words:
+ * the forge convention of "left" and "right" stays inside the
+ * providers that invented it.
+ */
+export type DiffSide = "old" | "new";
+
 /** One line of a hunk, numbered on whichever sides hold it. */
 export interface DiffLine {
 	kind: "context" | "added" | "removed";
@@ -55,6 +62,58 @@ export interface DiffFile {
 /** A parsed unified diff. */
 export interface DiffModel {
 	files: DiffFile[];
+}
+
+/**
+ * The path to put in front of a person.
+ *
+ * The new side by default, since that is where the code now
+ * lives, but a rename says both halves: a reader who knows the
+ * old name needs to find it, and one who knows neither needs
+ * to see that the move happened at all.
+ */
+export function displayPath(file: DiffFile): string {
+	if (file.status === "renamed" && file.oldPath && file.newPath) {
+		return `${file.oldPath} -> ${file.newPath}`;
+	}
+	// A deleted file has only an old side to name.
+	return file.newPath ?? file.oldPath ?? "";
+}
+
+/**
+ * How many lines this file added and removed.
+ *
+ * Counted from the hunks rather than carried as a field,
+ * because a diff that arrived as text has no other source and
+ * a second source would be a second thing to get wrong. A
+ * binary file has no hunks and so counts as neither.
+ */
+export function changeCounts(file: DiffFile): {
+	additions: number;
+	deletions: number;
+} {
+	let additions = 0;
+	let deletions = 0;
+	for (const hunk of file.hunks) {
+		for (const line of hunk.lines) {
+			if (line.kind === "added") additions += 1;
+			else if (line.kind === "removed") deletions += 1;
+		}
+	}
+	return { additions, deletions };
+}
+
+/**
+ * This line's number on one side, when it exists there.
+ *
+ * An added line has no old number and a removed line has no
+ * new one, so the answer is honestly absent rather than zero.
+ */
+export function lineNumberOn(
+	line: DiffLine,
+	side: DiffSide,
+): number | undefined {
+	return side === "old" ? line.oldLine : line.newLine;
 }
 
 const FILE_HEADER = /^diff --git /;
