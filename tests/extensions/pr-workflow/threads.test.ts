@@ -20,25 +20,22 @@ describe("threadViewFrom", () => {
 	});
 
 	it("carries a line anchor onto the view's path and line", () => {
-		const [view] = threadViewFrom(
-			[
-				{
-					id: "PRRT_1",
-					resolved: false,
-					stale: false,
-					anchor: {
-						subject: "line",
-						path: "lib/widget.ts",
-						blob: "new",
-						line: 42,
-					},
-					comments: [comment("c1")],
-				},
-			],
-			[],
-		);
+		const source: Thread = {
+			id: "PRRT_1",
+			resolved: false,
+			stale: false,
+			anchor: {
+				subject: "line",
+				path: "lib/widget.ts",
+				blob: "new",
+				line: 42,
+			},
+			comments: [comment("c1")],
+		};
+		const [view] = threadViewFrom([source], []);
 
 		expect(view).toEqual({
+			source,
 			id: "PRRT_1",
 			kind: "review-thread",
 			isResolved: false,

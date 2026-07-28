@@ -139,7 +139,11 @@ import {
 import { formatStack, nextInStack, prevInStack } from "./stack-view.js";
 import { createPrWorkflowState, resetPrWorkflowSession } from "./state.js";
 import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
-import { attachSubstrate, threadsFromSubstrate } from "./substrate.js";
+import {
+	attachSubstrate,
+	replyThroughSubstrate,
+	threadsFromSubstrate,
+} from "./substrate.js";
 import { formatPrSummary } from "./summary.js";
 import {
 	type DecideFindingInput,
@@ -157,7 +161,7 @@ import {
 	confirmResolveManyGate,
 } from "./thread-gate.js";
 import { describeReplyOutcome } from "./thread-reply-outcome.js";
-import { replyToThread, resolveThread } from "./threads.js";
+import { resolveThread } from "./threads.js";
 import {
 	captureThreadExpectation,
 	formatThreadsView,
@@ -1896,7 +1900,7 @@ ${reviewValidationDirective()}`,
 						state,
 						index: params.threadIndex,
 						body: replyBodyToPost,
-						sender: (threadId, body) => replyToThread(pi, threadId, body),
+						sender: replyThroughSubstrate,
 						...(replyExpectation ? { expect: replyExpectation } : {}),
 					});
 					if (!result.ok) {

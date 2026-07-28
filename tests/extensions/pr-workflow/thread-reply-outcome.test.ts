@@ -54,4 +54,17 @@ describe("describeReplyOutcome", () => {
 		}).text;
 		expect(new Set([replyOnly, both, partial]).size).toBe(3);
 	});
+
+	it("admits it when the provider reports no link", () => {
+		// Not every backend returns a url for what it just created.
+		// Interpolating the gap would read as a bug in us, and
+		// calling the reply a failure would be a lie: it posted.
+		const out = describeReplyOutcome(
+			{ threadIndex: 2, body: "Done." },
+			undefined,
+		);
+
+		expect(out.text).toContain("did not say where");
+		expect(out.text).not.toMatch(/:\s*$/);
+	});
 });

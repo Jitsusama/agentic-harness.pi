@@ -128,7 +128,13 @@ describe("drift guard", () => {
 			expect: { threadId: "TA", version: state.threads?.version ?? 0 },
 		});
 		expect(result.ok).toBe(true);
-		expect(sender).toHaveBeenCalledWith("TA", "thanks");
+		// The whole record goes to the sender, since the provider
+		// decides what addresses a reply.
+		expect(sender).toHaveBeenCalledWith(
+			state.pr?.reference,
+			expect.objectContaining({ id: "TA" }),
+			"thanks",
+		);
 	});
 
 	it("resolve refuses when the snapshot version moved since targeting", async () => {
@@ -440,7 +446,11 @@ describe("replyToThreadAction", () => {
 			sender,
 		});
 		expect(result.ok).toBe(true);
-		expect(sender).toHaveBeenCalledWith("TB", "thanks");
+		expect(sender).toHaveBeenCalledWith(
+			state.pr?.reference,
+			expect.objectContaining({ id: "TB" }),
+			"thanks",
+		);
 	});
 
 	it("rejects an out-of-range index", async () => {

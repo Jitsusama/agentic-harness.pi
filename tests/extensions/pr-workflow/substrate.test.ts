@@ -10,6 +10,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	forgetSubstrate,
+	replyThroughSubstrate,
 	setSubstrateApi,
 	threadsFromSubstrate,
 } from "../../../extensions/pr-workflow/substrate.js";
@@ -65,6 +66,69 @@ function facet(threads: Thread[], messages: Message[]): ConversationFacet {
 
 afterEach(() => forgetSubstrate());
 
+describe("replyThroughSubstrate", () => {
+	const thread: Thread = {
+		id: "PRRT_1",
+		resolved: false,
+		comments: [{ id: "c1", author: { id: "octocat" }, body: "hi" }],
+	};
+
+	/** A facet that records what it was asked to reply to. */
+	function replying(): {
+		conversation: ConversationFacet;
+		sent: { thread: Thread; body: string }[];
+	} {
+		const sent: { thread: Thread; body: string }[] = [];
+		const conversation = {
+			threads: async () => [thread],
+			messages: async () => [],
+			async reply(_ref: unknown, target: Thread, body: string) {
+				sent.push({ thread: target, body });
+				return { url: "https://github.com/o/r/pull/7#c9" };
+			},
+		} as unknown as ConversationFacet;
+		return { conversation, sent };
+	}
+
+	it("hands the provider the whole record and returns the new comment's url", async () => {
+		const { conversation, sent } = replying();
+		const { api } = substrate(conversation);
+		setSubstrateApi(api);
+		const [view] = await threadsFromSubstrate(reference);
+
+		const url = await replyThroughSubstrate(reference, view, "seems fine");
+
+		expect(sent).toEqual([{ thread, body: "seems fine" }]);
+		expect(url).toBe("https://github.com/o/r/pull/7#c9");
+	});
+
+	it("refuses a view that carries no record rather than guessing one", async () => {
+		// A snapshot restored from an older session predates the
+		// record being kept. Inventing a Thread from the id would
+		// work on GitHub and silently address the wrong comment
+		// somewhere else.
+		const { conversation } = replying();
+		const { api } = substrate(conversation);
+		setSubstrateApi(api);
+
+		await expect(
+			replyThroughSubstrate(
+				reference,
+				{
+					id: "PRRT_1",
+					kind: "review-thread",
+					isResolved: false,
+					isOutdated: false,
+					path: null,
+					line: null,
+					comments: [],
+				},
+				"seems fine",
+			),
+		).rejects.toThrow(/refresh|action=threads/i);
+	});
+});
+
 describe("threadsFromSubstrate", () => {
 	it("reads the conversation of whichever provider claimed the change", async () => {
 		const conversation = facet(
@@ -90,6 +154,24 @@ describe("threadsFromSubstrate", () => {
 		await expect(threadsFromSubstrate(reference)).rejects.toThrow(
 			/review-integration/i,
 		);
+	});
+
+	it("keeps the record each view was projected from", async () => {
+		// A write is keyed by the whole record, because one backend
+		// keys a reply by the thread and another by the comment that
+		// started it. Projecting the record away would strand the
+		// write with only the half GitHub happens to use.
+		const thread: Thread = {
+			id: "PRRT_1",
+			resolved: false,
+			comments: [{ id: "c1", author: { id: "octocat" }, body: "hi" }],
+		};
+		const { api } = substrate(facet([thread], []));
+		setSubstrateApi(api);
+
+		const [view] = await threadsFromSubstrate(reference);
+
+		expect(view.source).toEqual(thread);
 	});
 
 	it("names the change when nothing hosts a conversation for it", async () => {

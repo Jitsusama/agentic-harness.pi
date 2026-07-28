@@ -23,11 +23,18 @@ export type ThreadsFetcher = (
 	reference: PRReference,
 ) => Promise<ReviewThread[]>;
 
-/** Sender: post a reply to a thread. Returns the new comment URL. */
+/**
+ * Sender: post a reply to a thread. Returns the new comment URL.
+ *
+ * Keyed by the whole record rather than its id, because the
+ * provider decides what addresses a reply and for some of them it
+ * is the comment that opened the thread.
+ */
 export type ThreadReplySender = (
-	threadId: string,
+	reference: PRReference,
+	thread: ReviewThread,
 	body: string,
-) => Promise<string>;
+) => Promise<string | undefined>;
 
 /** Resolver: resolve a thread. Returns the new resolved state. */
 export type ThreadResolver = (threadId: string) => Promise<boolean>;
@@ -168,8 +175,11 @@ export async function replyToThreadAction(input: {
 	author?: string;
 	/** Drift guard captured when the user targeted the thread. */
 	expect?: ThreadActionExpectation;
-}): Promise<Result<{ url: string }>> {
+}): Promise<Result<{ url?: string }>> {
 	const { state, index, body, sender } = input;
+	if (state.pr === null) {
+		return { ok: false, error: "Load a PR before replying to a thread." };
+	}
 	const lookup = lookupThread(state, index);
 	if (!lookup.ok) {
 		return lookup;
@@ -189,9 +199,11 @@ export async function replyToThreadAction(input: {
 	if (body.trim().length === 0) {
 		return { ok: false, error: "Reply body is empty." };
 	}
-	let url: string;
+	// Absent when the provider reports no link for the comment it
+	// just made. The reply landed either way.
+	let url: string | undefined;
 	try {
-		url = await sender(lookup.thread.id, body);
+		url = await sender(state.pr.reference, lookup.thread, body);
 	} catch (err) {
 		return {
 			ok: false,
@@ -228,7 +240,7 @@ function applyReplyLocally(
 	state: PrWorkflowState,
 	threadId: string,
 	body: string,
-	url: string,
+	url: string | undefined,
 	author: string | undefined,
 	now: (() => string) | undefined,
 ): void {
@@ -243,11 +255,13 @@ function applyReplyLocally(
 		comments: [
 			...target.comments,
 			{
-				id: `local-${at}-${url}`,
+				// The local id only has to be unique within the snapshot,
+				// so a missing url costs nothing here.
+				id: `local-${at}-${url ?? "unlinked"}`,
 				author: author ?? "viewer",
 				body,
 				createdAt: at,
-				url,
+				url: url ?? "",
 			},
 		],
 	};

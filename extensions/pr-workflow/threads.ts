@@ -45,6 +45,21 @@ export interface ReviewThread {
 	/** Null for PR-level threads or threads whose anchor was lost. */
 	readonly line: number | null;
 	readonly comments: ReviewThreadComment[];
+	/**
+	 * The substrate record this view was projected from, kept so a
+	 * write can be keyed the way its own provider keys it.
+	 *
+	 * One backend addresses a reply by the thread, another by the
+	 * comment that started it, and the contract deliberately does
+	 * not say which field matters. Rebuilding a record from the id
+	 * alone would work against GitHub and quietly address the
+	 * wrong comment elsewhere.
+	 *
+	 * Absent on a change-wide comment, which can be neither
+	 * replied to nor resolved, and on a snapshot restored from a
+	 * session that predates this field.
+	 */
+	readonly source?: Thread;
 }
 
 const REPLY_MUTATION = `mutation AddThreadReply($threadId: ID!, $body: String!) {
@@ -200,6 +215,7 @@ function anchoredThreadView(thread: Thread): ReviewThread {
 		path: anchor?.path ?? null,
 		line: anchor?.subject === "line" ? anchor.line : null,
 		comments: thread.comments.map(commentView),
+		source: thread,
 	};
 }
 

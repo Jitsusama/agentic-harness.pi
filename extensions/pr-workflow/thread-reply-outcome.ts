@@ -14,8 +14,24 @@
 /** The reply that landed: where it posted and what it said. */
 export interface ReplyLanded {
 	readonly threadIndex: number;
-	readonly url: string;
+	/**
+	 * Where it landed, when the provider says. Not every backend
+	 * reports a link for what it just created, and a reply that
+	 * posted without one still posted.
+	 */
+	readonly url?: string;
 	readonly body: string;
+}
+
+/**
+ * Where the reply landed, or an admission that we were not told.
+ *
+ * Interpolating an absent url would render "posted to [T1]: " and
+ * read like a bug in us rather than a gap in what the provider
+ * returned.
+ */
+function whereItLanded(url: string | undefined): string {
+	return url ?? "(the provider did not say where)";
 }
 
 /** The resolve attempt's outcome, when one was made. */
@@ -46,20 +62,21 @@ export function describeReplyOutcome(
 		threadIndex: reply.threadIndex,
 		body: reply.body,
 	};
+	const where = whereItLanded(reply.url);
 	if (resolve === undefined) {
 		return {
-			text: `Reply posted to ${tag}: ${reply.url}`,
+			text: `Reply posted to ${tag}: ${where}`,
 			details: common,
 		};
 	}
 	if (!resolve.ok) {
 		return {
-			text: `Reply posted to ${tag}: ${reply.url}, but resolving failed: ${resolve.error}`,
+			text: `Reply posted to ${tag}: ${where}, but resolving failed: ${resolve.error}`,
 			details: { ...common, resolved: false, resolveError: resolve.error },
 		};
 	}
 	return {
-		text: `Replied to and resolved ${tag}: ${reply.url}`,
+		text: `Replied to and resolved ${tag}: ${where}`,
 		details: { ...common, resolved: resolve.isResolved },
 	};
 }
