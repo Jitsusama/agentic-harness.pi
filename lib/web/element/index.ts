@@ -36,6 +36,12 @@ export {
 	type RawListener,
 	renderListeners,
 } from "./listeners.js";
+export {
+	type AxisRelation,
+	type Measurement,
+	measureBetween,
+	renderMeasurement,
+} from "./measure.js";
 export { OCCLUDER_PROBE, SELECT_TEXT_PROBE } from "./probes.js";
 export {
 	diffStyles,

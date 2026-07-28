@@ -76,6 +76,7 @@ here.
 | Know why an element is the colour it is | `see kind:"element" why:"color"` |
 | See a focus ring or a hover style | `see kind:"element" states:["focus-visible","hover"]` |
 | Check a phone layout | `check widths:[375,768,1280]`, which works with every kind |
+| Is that gap 16px or 12px | `see kind:"measure" within:"button Save" and:"button Cancel"` |
 | A click opened a new tab, or seemed to do nothing | `go kind:"tabs"` to list, then `tab: N` to switch |
 | Test a page behind a login without signing in each time | `go kind:"storage" save:"/tmp/signed-in.json"` once, then `load:` it |
 | Test with the network off or slow | `go kind:"network" throttle:"offline"` |
@@ -341,9 +342,17 @@ request log under `filter: failed`.
 
 ### `browser_see`
 
-`page`, `reading`, `announcements`, `element`, `query`, `logs`,
-`requests`, `downloads`, `shot`, `vitals`, `status`.
+`page`, `reading`, `announcements`, `element`, `measure`,
+`query`, `logs`, `requests`, `downloads`, `shot`, `vitals`,
+`status`.
 
+- `measure` names two elements, one in `within` and one in `and`,
+  and reports the space between them: the gap on each axis, the
+  edges or centres that line up, and whether they are the same
+  size. It measures border boxes, which is the edge you see. An
+  overlap is reported as an overlap rather than a negative gap,
+  and two elements side by side are said to span each other
+  vertically rather than to have a zero gap there
 - `element` takes `why:"<property>"` to trace one CSS property
   through every rule that had a say, with authored source
   positions when a source map exists

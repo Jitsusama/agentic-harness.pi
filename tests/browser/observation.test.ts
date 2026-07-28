@@ -50,6 +50,21 @@ const OUTER = page(
 
 const INNER = page("Inner", "<main><h1>Inner heading</h1></main>");
 
+/**
+ * Two buttons a known distance apart, laid out absolutely so the
+ * expected numbers come from the stylesheet rather than from
+ * whatever the default font happens to measure.
+ */
+const SPACED = page(
+	"Spaced",
+	`<main>
+		<button id="save" style="position:absolute;left:20px;top:40px;
+			width:100px;height:32px;margin:0;border:0;padding:0">Save</button>
+		<button id="cancel" style="position:absolute;left:136px;top:40px;
+			width:100px;height:32px;margin:0;border:0;padding:0">Cancel</button>
+	</main>`,
+);
+
 /** A page whose button is inside a shadow root. */
 const SHADOW = page(
 	"Shadow",
@@ -69,6 +84,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			{ path: "/main", body: MAIN },
 			{ path: "/outer", body: OUTER },
 			{ path: "/inner", body: INNER },
+			{ path: "/spaced", body: SPACED },
 			{ path: "/shadow", body: SHADOW },
 		]);
 		session = await BrowserSession.open("observation-contract");
@@ -264,5 +280,43 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		// experimental and this package does not overrule it.
 		expect(mismatch?.kind).toBe("needs-review");
 		expect(mismatch?.authority).toBe("wcag");
+	});
+
+	it("measures the real gap between two elements", async () => {
+		// The stylesheet puts Cancel at 136 and Save at 20 with a width
+		// of 100, so the gap is 16. Derived from the fixture, not
+		// remembered from a run.
+		await session.navigate(fixture.url("/spaced"));
+
+		const measured = await session.measure(
+			{ role: "button", name: "Save" },
+			{ role: "button", name: "Cancel" },
+		);
+
+		expect(measured.ok).toBe(true);
+		if (!measured.ok) return;
+		expect(measured.measurement.horizontal).toEqual({
+			kind: "gap",
+			pixels: 16,
+		});
+		// Same top and same height, so both edges line up and they are
+		// the same size.
+		expect(measured.measurement.aligned).toContain("top");
+		expect(measured.measurement.sameSize).toBe(true);
+	});
+
+	it("says which of the two elements it could not find", async () => {
+		await session.navigate(fixture.url("/spaced"));
+
+		const measured = await session.measure(
+			{ role: "button", name: "Save" },
+			{ role: "button", name: "Nowhere" },
+		);
+
+		expect(measured.ok).toBe(false);
+		if (measured.ok) return;
+		// Naming the target back is the whole point: the caller gave
+		// two and needs to know which one was wrong.
+		expect("target" in measured && measured.target.name).toBe("Nowhere");
 	});
 });
