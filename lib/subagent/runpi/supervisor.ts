@@ -79,6 +79,18 @@ const SUPERVISOR_GRACE_MS = 10_000;
 const DEFAULT_TIMEOUT_MS = 45 * 60 * 1000;
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_KILL_GRACE_MS = 5 * 1000;
+
+/**
+ * What the supervisor's own shutdown needs after its last watchdog
+ * fires, beyond signalling and pipe draining: several atomic writes,
+ * a session-directory discovery and an out-of-band verification read.
+ *
+ * Generous on purpose. This is the margin that decides whether the
+ * supervisor reports its own verdict or gets killed mid-sentence, and
+ * the machines where it matters are the loaded ones where every one of
+ * those writes is slow.
+ */
+const FINISH_WRITE_MARGIN_MS = 15 * 1000;
 const DEFAULT_MAX_EVENT_BYTES = 10 * 1024 * 1024;
 const DEFAULT_MAX_EVENT_ROTATIONS = 3;
 const DEFAULT_MAX_STDERR_BYTES = 1024 * 1024;
@@ -226,7 +238,10 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 			// would have stopped its own child and reported by then.
 			const effectiveTimeoutMs =
 				timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-			const graceMs = config.supervisorGraceMs ?? SUPERVISOR_GRACE_MS;
+			const graceMs = parentGraceMs(
+				config.killGraceMs ?? DEFAULT_KILL_GRACE_MS,
+				config.supervisorGraceMs,
+			);
 			const deadline = setTimeout(() => {
 				void settle(async () => {
 					supervisor.kill("SIGKILL");
@@ -425,6 +440,40 @@ async function ageOf(path: string): Promise<number> {
 		// cleanup rather than a real answer. Nothing is claimed.
 		return 0;
 	}
+}
+
+/**
+ * How long the parent waits past the supervisor's own budget.
+ *
+ * The ladder only works if every rung below this one has room: the
+ * supervisor is supposed to give up first and say which watchdog
+ * fired, and the parent's backstop is for a supervisor that cannot
+ * speak at all. A flat grace breaks that quietly, because the
+ * supervisor's shutdown is not instant. After its watchdog fires it
+ * still signals the child, waits out the kill grace, escalates,
+ * drains the pipes, and only then writes its result.
+ *
+ * Measured against a real failure: with a five second kill grace and
+ * a two second stdio grace, a ten second parent grace left three
+ * seconds for all of that writing. It held on an idle machine and
+ * lost about one CI run in five, which is the shape of a margin that
+ * is technically ordered and practically absent.
+ *
+ * An explicit value is honoured exactly, including a very short one.
+ * The tests that exercise the backstop itself need it to fire
+ * promptly, and a caller naming a number has said what they want.
+ * The derivation is for the default, which is what production runs
+ * on and what the failure above happened under.
+ */
+export function parentGraceMs(
+	killGraceMs: number,
+	configured?: number,
+): number {
+	if (configured !== undefined) return configured;
+	return Math.max(
+		SUPERVISOR_GRACE_MS,
+		killGraceMs + STDIO_GRACE_MS + FINISH_WRITE_MARGIN_MS,
+	);
 }
 
 async function supervisorPostMortem(

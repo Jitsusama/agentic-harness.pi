@@ -13,7 +13,10 @@ import type { Readable, Writable } from "node:stream";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.js";
-import { createSupervisorRunPi } from "../../../../lib/subagent/runpi/supervisor.js";
+import {
+	createSupervisorRunPi,
+	parentGraceMs,
+} from "../../../../lib/subagent/runpi/supervisor.js";
 import type { RunPiResult } from "../../../../lib/subagent/subagent.js";
 
 // Every test here spawns the real node supervisor, sometimes two
@@ -954,6 +957,94 @@ describe("a reviewer that leaves something running behind it", () => {
 		// Well inside the 30s the supervisor was told it could take,
 		// so this proves the grace path rather than a timeout.
 		expect(Date.now() - started).toBeLessThan(15_000);
+	});
+});
+
+describe("the parent's grace over the supervisor's own budget", () => {
+	// The rung that decides whether the supervisor reports its own
+	// verdict or is killed mid-sentence. After its last watchdog fires
+	// it still signals the child, waits out the kill grace, escalates,
+	// drains pipes and then writes its result, and all of that has to
+	// fit inside the parent's grace.
+	const STDIO_GRACE_MS = 2_000;
+
+	it("leaves room for the shutdown the supervisor actually does", () => {
+		// A five second kill grace plus two seconds of pipe draining left
+		// three seconds for every atomic write in finish under the old
+		// flat ten. That held on an idle machine and lost about one CI
+		// run in five.
+		const grace = parentGraceMs(5_000);
+
+		expect(grace).toBeGreaterThan(5_000 + STDIO_GRACE_MS);
+		// Not merely greater: the surplus is the whole point, and a
+		// margin of seconds is what was already there and failing.
+		expect(grace - (5_000 + STDIO_GRACE_MS)).toBeGreaterThanOrEqual(10_000);
+	});
+
+	it("grows with a kill grace it is given", () => {
+		// A caller who gives the child longer to die has not thereby
+		// given the supervisor less time to speak.
+		expect(parentGraceMs(30_000)).toBeGreaterThan(parentGraceMs(5_000));
+		expect(parentGraceMs(30_000) - 30_000).toBeGreaterThanOrEqual(10_000);
+	});
+
+	it("honours a grace it was handed, however short", () => {
+		// The backstop's own tests need it to fire promptly, and a caller
+		// naming a number has said what they want.
+		expect(parentGraceMs(5_000, 500)).toBe(500);
+	});
+});
+
+describe("a child that never reports a close", () => {
+	it("still gets an answer out of the supervisor itself", async () => {
+		// The shape CI fails in, and the one the timeout ladder is
+		// supposed to make impossible. The supervisor is meant to give
+		// up first and name the watchdog that fired; only if it cannot
+		// does the parent's backstop kill it and report a bare duration.
+		//
+		// A child that ignores every signal and never closes its pipes
+		// reaches that state deliberately. The supervisor has to stop
+		// waiting on the child's cooperation and answer on its own.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		// Ignores SIGTERM, writes nothing, and holds the loop open, so
+		// nothing the supervisor does will produce a close event short
+		// of SIGKILL.
+		await writeFile(
+			childPath,
+			`process.on("SIGTERM", () => {});\nsetInterval(() => {}, 1000);`,
+		);
+
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			// The supervisor's own budget, kept small so its watchdog is
+			// the thing under test rather than the wait for it.
+			idleTimeoutMs: 1_000,
+			timeoutMs: 1_000,
+			killGraceMs: 500,
+			// Far enough out that reaching it means the supervisor never
+			// answered, which is the failure this test exists to catch.
+			supervisorGraceMs: 30_000,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "deaf",
+		});
+
+		const said = (result.warnings ?? []).join(" ");
+		// The supervisor's own voice, not the parent's post-mortem. This
+		// passed the first time it ran, so it pins behaviour that already
+		// worked rather than describing a repair: escalating to SIGKILL
+		// does produce the close that lets the supervisor report. It is
+		// here because that was the first hypothesis for the CI hang and
+		// it deserves a guard now that it has been ruled out.
+		expect(said).not.toContain("never reported within");
+		expect(said).toMatch(/timed out|idle/i);
+		expect(result.exitCode).not.toBe(0);
 	});
 });
 
