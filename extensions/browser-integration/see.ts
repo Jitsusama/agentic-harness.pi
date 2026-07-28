@@ -52,6 +52,7 @@ import {
 	renderDownloads,
 	renderLogs,
 	renderRequests,
+	renderSockets,
 	strandedByCrash,
 } from "../../lib/web/telemetry/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
@@ -272,6 +273,7 @@ const parameters = Type.Object({
 				Type.Literal("vitals"),
 				Type.Literal("element"),
 				Type.Literal("measure"),
+				Type.Literal("sockets"),
 				Type.Literal("shot"),
 			],
 			{
@@ -291,6 +293,11 @@ const parameters = Type.Object({
 					"what the page " +
 					"said out loud through its live regions. element: " +
 					"everything about one element, named with 'within'. " +
+					"measure: the space between two elements, named with " +
+					"'within' and 'and': the gap, what lines up, and " +
+					"whether they are the same size. sockets: every " +
+					"websocket the page opened and both sides of what was " +
+					"said over it. " +
 					"shot: a picture, written to disk and reported by path, " +
 					"of the viewport, or of the whole page with 'fullPage', " +
 					"or of one element with 'within'.",
@@ -512,9 +519,10 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 		promptSnippet:
 			"browser_see reads a page and changes nothing: its " +
 			"accessibility outline, reading order, one element in " +
-			"depth, a query across frames and shadow roots, console " +
-			"and network telemetry, screenshots, vitals, status. Read " +
-			"the browser-guide skill.",
+			"depth, the space between two elements, a query across " +
+			"frames and shadow roots, console, network and websocket " +
+			"telemetry, screenshots, vitals, status. Read the " +
+			"browser-guide skill.",
 		parameters,
 		renderCall: (args, theme) => renderBrowserCall("see", args, theme),
 		renderResult: (result, options, theme) =>
@@ -599,6 +607,30 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 						records: files,
 						unit: "downloads",
 						narrowing: "Every file is on disk at the path shown.",
+					}),
+				);
+			}
+
+			if (kind === "sockets") {
+				const open = session.sockets();
+				const dropped = session.socketFramesDropped;
+				return answer(
+					name,
+					kind,
+					listAnswer({
+						view:
+							renderSockets(open) +
+							// A chatty socket outruns any buffer, and a reader
+							// drawing conclusions from frame one needs to know
+							// frame zero is missing.
+							(dropped > 0
+								? `\n\n${dropped} earlier socket events were dropped to stay within the buffer.`
+								: ""),
+						records: open,
+						unit: "sockets",
+						narrowing:
+							"Query the handle for whole frames, e.g. " +
+							"$.sockets[0].frames[*].payload.",
 					}),
 				);
 			}

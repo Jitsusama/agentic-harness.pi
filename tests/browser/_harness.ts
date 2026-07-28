@@ -15,6 +15,7 @@
 
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { WebSocketServer } from "ws";
 import { resolveChromePath } from "../../lib/web/browser.js";
 
 /**
@@ -55,6 +56,20 @@ export interface Fixture {
 	close(): Promise<void>;
 }
 
+/**
+ * A websocket endpoint the fixture will also answer on.
+ *
+ * Off unless asked for, so the suites that do not want one do not
+ * pay for a second listener.
+ */
+export interface SocketRoute {
+	readonly path: string;
+	/** What to say to a client the moment it connects. */
+	readonly greet?: string;
+	/** How to answer whatever the client sends. */
+	readonly reply?: (said: string) => string | undefined;
+}
+
 const HTML = "text/html; charset=utf-8";
 
 /**
@@ -63,7 +78,10 @@ const HTML = "text/html; charset=utf-8";
  * Port zero, so suites running in parallel cannot collide on a
  * number somebody picked.
  */
-export async function serve(routes: readonly Route[]): Promise<Fixture> {
+export async function serve(
+	routes: readonly Route[],
+	sockets: readonly SocketRoute[] = [],
+): Promise<Fixture> {
 	const byPath = new Map(routes.map((route) => [route.path, route]));
 	const server: Server = createServer((request, response) => {
 		const path = (request.url ?? "/").split("?")[0] ?? "/";
@@ -84,16 +102,35 @@ export async function serve(routes: readonly Route[]): Promise<Fixture> {
 		else answer();
 	});
 
+	const wsServers = sockets.map((route) => {
+		const ws = new WebSocketServer({ server, path: route.path });
+		ws.on("connection", (socket) => {
+			if (route.greet !== undefined) socket.send(route.greet);
+			socket.on("message", (data) => {
+				const answer = route.reply?.(String(data));
+				if (answer !== undefined) socket.send(answer);
+			});
+		});
+		return ws;
+	});
+
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 	const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
 	return {
 		origin,
 		url: (path) => `${origin}${path}`,
-		close: () =>
-			new Promise<void>((resolve) => {
+		close: async () => {
+			// A websocket server holds the http server open, so closing
+			// the http server alone hangs until every client times out.
+			for (const ws of wsServers) {
+				for (const client of ws.clients) client.terminate();
+				await new Promise<void>((resolve) => ws.close(() => resolve()));
+			}
+			await new Promise<void>((resolve) => {
 				server.close(() => resolve());
-			}),
+			});
+		},
 	};
 }
 

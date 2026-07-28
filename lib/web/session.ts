@@ -253,6 +253,7 @@ import {
 	type NetworkRequest,
 	type Recorded,
 	requestStatus,
+	type SocketRecord,
 	toHar,
 } from "./telemetry/index.js";
 
@@ -1024,6 +1025,16 @@ export class BrowserSession {
 	/** Files the page has handed back. */
 	downloads(): readonly DownloadRecord[] {
 		return this.telemetry.downloads();
+	}
+
+	/** Every websocket conversation the page has held. */
+	sockets(): readonly SocketRecord[] {
+		return this.telemetry.sockets();
+	}
+
+	/** Socket events dropped to stay within the buffer's budget. */
+	get socketFramesDropped(): number {
+		return this.telemetry.socketFramesDropped;
 	}
 
 	/** Where the page has been. */
