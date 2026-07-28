@@ -64,7 +64,7 @@ import {
 	refusal,
 	sessionInPlay,
 } from "./result.js";
-import { bodyAnswer, listAnswer, pageAnswer } from "./stored.js";
+import { bodyAnswer, elementAnswer, listAnswer, pageAnswer } from "./stored.js";
 
 /**
  * Lay an observation out for reading: where you are, then what is
@@ -867,7 +867,11 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				if (!found.ok) {
 					return refusal(name, kind, describeRefusal(target, found.refusal));
 				}
-				return answer(name, kind, renderInspection(found.inspection));
+				return answer(
+					name,
+					kind,
+					elementAnswer(found.inspection, renderInspection(found.inspection)),
+				);
 			}
 
 			const scope: TreeScope = {
