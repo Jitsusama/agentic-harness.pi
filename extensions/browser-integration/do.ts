@@ -14,7 +14,10 @@
  * eval answer with what they were asked for.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { renderEvaluation } from "../../lib/web/evaluate/index.js";
 import {
@@ -27,6 +30,11 @@ import {
 	LONG_PRESS_MS,
 	type MouseButton,
 } from "../../lib/web/input/index.js";
+import {
+	renderTrace,
+	type TraceCapture,
+	type TraceProfile,
+} from "../../lib/web/perf/index.js";
 import type { BrowserSession, TargetedAction } from "../../lib/web/session.js";
 import {
 	describeRefusal,
@@ -40,6 +48,7 @@ import {
 } from "../../lib/web/wait/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { renderBrowserCall, renderBrowserResult } from "./render.js";
+import type { BrowserDetails } from "./result.js";
 import {
 	answer,
 	chooseSession,
@@ -291,6 +300,28 @@ const parameters = Type.Object({
 				"when no container distinguishes them either.",
 		}),
 	),
+	trace: Type.Optional(
+		Type.Union(
+			[
+				Type.Literal("async"),
+				Type.Literal("frames"),
+				Type.Array(Type.Union([Type.Literal("async"), Type.Literal("frames")])),
+			],
+			{
+				description:
+					"For every kind: record a trace of the browser's own work " +
+					"while this runs, and report what caused what. 'async' " +
+					"pairs each timer with the fire it caused and each request " +
+					"with the response that settled it, so you can see what " +
+					"was in flight at once and what answered out of order. " +
+					"'frames' reports what the compositor did, for a page that " +
+					"scrolls or animates badly. Pass both for both. Tracing " +
+					"is browser-wide and only one can run at a time, so a " +
+					"second session asking is refused, and every page pays " +
+					"while it runs.",
+			},
+		),
+	),
 });
 
 /** Register the acting half of the browser family. */
@@ -319,6 +350,10 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			renderBrowserResult(result, options, theme),
 		async execute(_id, params) {
 			const kind = params.kind ?? "act";
+			const profiles = wantedProfiles(params.trace);
+			if ("error" in profiles) {
+				return refusal(DEFAULT_SESSION, kind, profiles.error);
+			}
 			const chosen = sessionInPlay(
 				params.session,
 				DEFAULT_SESSION,
@@ -340,134 +375,202 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				);
 			}
 
-			if (kind === "eval") {
-				if (!params.expression) {
+			// Every kind is traceable, because every kind is a way of
+			// making the page do something. Bracketing here rather than
+			// in each branch keeps one recording per call and means the
+			// permit cannot be left behind on a path that returns early.
+			if (profiles.profiles.length > 0) {
+				const session = await registry.acquire(name);
+				const recorded = await session.recordWhile(profiles.profiles, () =>
+					act(),
+				);
+				return withTrace(recorded.result, recorded.trace, recorded.refusal);
+			}
+			return act();
+
+			async function act(): Promise<AgentToolResult<BrowserDetails>> {
+				if (kind === "eval") {
+					if (!params.expression) {
+						return refusal(
+							name,
+							kind,
+							"eval needs an expression, e.g. 'document.title'.",
+						);
+					}
+					const session = await registry.acquire(name);
+					const outcome = await session.evaluate(params.expression);
+					return answer(name, kind, renderEvaluation(outcome));
+				}
+
+				if (kind === "wait") {
+					const built = buildCondition(params);
+					if ("error" in built) return refusal(name, kind, built.error);
+					const session = await registry.acquire(name);
+					const outcome = await session.waitFor(
+						built.condition,
+						params.timeoutMs,
+					);
+					return answer(
+						name,
+						kind,
+						`${renderWait(outcome)}\n\n${await settledPageView(session)}`,
+					);
+				}
+
+				if (kind === "press") {
+					if (!params.keys) {
+						return refusal(name, kind, "press needs keys, e.g. 'Ctrl+Enter'.");
+					}
+					const session = await registry.acquire(name);
+					const result = await session.press(params.keys);
+					if ("refusal" in result) {
+						const { message, candidates } = result.refusal;
+						return refusal(
+							name,
+							kind,
+							candidates.length > 0
+								? `${message} Did you mean ${candidates.join(", ")}?`
+								: message,
+						);
+					}
+					return answer(
+						name,
+						kind,
+						`Pressed ${result.pressed.join(", then ")}.\n\n` +
+							`${await settledPageView(session)}`,
+					);
+				}
+
+				if (kind === "input") {
+					const session = await registry.acquire(name);
+					const done = await runGesture(session, params);
+					if ("error" in done) return refusal(name, kind, done.error);
+					return answer(
+						name,
+						kind,
+						`${done.did}\n\n${await settledPageView(session)}`,
+					);
+				}
+
+				// A name is not required. The outline writes a control that
+				// has no accessible name as its role alone, and demanding a
+				// name here made every one of them unreachable except by
+				// coordinates, which is the escape hatch and not the way in.
+				if (!params.action || !params.role) {
 					return refusal(
 						name,
 						kind,
-						"eval needs an expression, e.g. 'document.title'.",
+						"act needs an action and a role, plus the accessible " +
+							"name when the element has one. To send keys without " +
+							"naming an element, use kind 'press'.",
 					);
 				}
-				const session = await registry.acquire(name);
-				const outcome = await session.evaluate(params.expression);
-				return answer(name, kind, renderEvaluation(outcome));
-			}
 
-			if (kind === "wait") {
-				const built = buildCondition(params);
-				if ("error" in built) return refusal(name, kind, built.error);
-				const session = await registry.acquire(name);
-				const outcome = await session.waitFor(
-					built.condition,
-					params.timeoutMs,
-				);
-				return answer(
-					name,
-					kind,
-					`${renderWait(outcome)}\n\n${await settledPageView(session)}`,
-				);
-			}
-
-			if (kind === "press") {
-				if (!params.keys) {
-					return refusal(name, kind, "press needs keys, e.g. 'Ctrl+Enter'.");
-				}
-				const session = await registry.acquire(name);
-				const result = await session.press(params.keys);
-				if ("refusal" in result) {
-					const { message, candidates } = result.refusal;
+				const action = buildAction({
+					...params,
+					action: params.action,
+					role: params.role,
+					name: params.name,
+				});
+				if (!action) {
+					const needs =
+						params.action === "select"
+							? "the option to choose in"
+							: params.action === "upload"
+								? "the paths to put on"
+								: "the text to enter into";
 					return refusal(
 						name,
 						kind,
-						candidates.length > 0
-							? `${message} Did you mean ${candidates.join(", ")}?`
-							: message,
+						`action '${params.action}' needs ${needs} ` +
+							`${describeTarget({ role: params.role, name: params.name })}.`,
 					);
 				}
-				return answer(
-					name,
-					kind,
-					`Pressed ${result.pressed.join(", then ")}.\n\n` +
-						`${await settledPageView(session)}`,
-				);
-			}
 
-			if (kind === "input") {
 				const session = await registry.acquire(name);
-				const done = await runGesture(session, params);
-				if ("error" in done) return refusal(name, kind, done.error);
-				return answer(
-					name,
-					kind,
-					`${done.did}\n\n${await settledPageView(session)}`,
-				);
-			}
-
-			// A name is not required. The outline writes a control that
-			// has no accessible name as its role alone, and demanding a
-			// name here made every one of them unreachable except by
-			// coordinates, which is the escape hatch and not the way in.
-			if (!params.action || !params.role) {
-				return refusal(
-					name,
-					kind,
-					"act needs an action and a role, plus the accessible " +
-						"name when the element has one. To send keys without " +
-						"naming an element, use kind 'press'.",
-				);
-			}
-
-			const action = buildAction({
-				...params,
-				action: params.action,
-				role: params.role,
-				name: params.name,
-			});
-			if (!action) {
-				const needs =
-					params.action === "select"
-						? "the option to choose in"
-						: params.action === "upload"
-							? "the paths to put on"
-							: "the text to enter into";
-				return refusal(
-					name,
-					kind,
-					`action '${params.action}' needs ${needs} ` +
-						`${describeTarget({ role: params.role, name: params.name })}.`,
-				);
-			}
-
-			const session = await registry.acquire(name);
-			const result = await session.act(action);
-			if (!result.ok) {
-				if ("blocked" in result) {
+				const result = await session.act(action);
+				if (!result.ok) {
+					if ("blocked" in result) {
+						return refusal(
+							name,
+							kind,
+							`Waited ${result.blocked.waitedMs}ms but ` +
+								`${describeTarget({ role: params.role, name: params.name })} ` +
+								`never became ready: ${result.blocked.blocker}.`,
+						);
+					}
 					return refusal(
 						name,
 						kind,
-						`Waited ${result.blocked.waitedMs}ms but ` +
-							`${describeTarget({ role: params.role, name: params.name })} ` +
-							`never became ready: ${result.blocked.blocker}.`,
+						describeRefusal(action.target, result.refusal),
 					);
 				}
-				return refusal(
+				const view = await settledPageView(session);
+				// Say when the page kept the caller waiting, so a slow
+				// interaction is visible rather than merely felt.
+				return answer(
 					name,
 					kind,
-					describeRefusal(action.target, result.refusal),
+					result.waitedMs
+						? `Waited ${result.waitedMs}ms for it to be ready.\n\n${view}`
+						: view,
 				);
 			}
-			const view = await settledPageView(session);
-			// Say when the page kept the caller waiting, so a slow
-			// interaction is visible rather than merely felt.
-			return answer(
-				name,
-				kind,
-				result.waitedMs
-					? `Waited ${result.waitedMs}ms for it to be ready.\n\n${view}`
-					: view,
-			);
 		},
 	});
+}
+
+/**
+ * Which profiles the caller asked to record, if any.
+ *
+ * An unknown profile is refused rather than ignored: silently
+ * recording nothing would answer the action and quietly drop the
+ * question the caller actually asked.
+ */
+function wantedProfiles(
+	trace: unknown,
+): { profiles: readonly TraceProfile[] } | { error: string } {
+	if (trace === undefined) return { profiles: [] };
+	const asked = Array.isArray(trace) ? trace : [trace];
+	const known: TraceProfile[] = [];
+	for (const one of asked) {
+		if (one === "async" || one === "frames") known.push(one);
+		else {
+			return {
+				error:
+					`There is no '${String(one)}' trace profile. Ask for ` +
+					"'async' for timers, requests and script, or 'frames' for " +
+					"what the compositor did, or both.",
+			};
+		}
+	}
+	return { profiles: known };
+}
+
+/**
+ * Put the recording under the action's own answer.
+ *
+ * The action's result leads, because the caller asked for the
+ * action and the trace is why they asked for it that way. A trace
+ * that could not be taken is said plainly rather than left as
+ * silence that reads like a page doing nothing.
+ */
+function withTrace(
+	result: AgentToolResult<BrowserDetails>,
+	trace: TraceCapture | undefined,
+	traceRefusal: string | undefined,
+): AgentToolResult<BrowserDetails> {
+	const note =
+		trace !== undefined
+			? renderTrace(trace)
+			: (traceRefusal ?? "The trace could not be recorded.");
+	const existing = result.content
+		.map((part) => (part.type === "text" ? part.text : ""))
+		.join("");
+	return {
+		...result,
+		content: [{ type: "text", text: `${existing}\n\n${note}` }],
+	};
 }
 
 /** Turn the tool's flat parameters into a wait condition. */

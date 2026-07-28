@@ -30,6 +30,15 @@ export interface SessionStatus {
 	readonly requests: { readonly count: number; readonly failed: number };
 	readonly history: readonly LifecycleEvent[];
 	readonly artifacts: readonly string[];
+	/**
+	 * A trace being recorded anywhere in the browser.
+	 *
+	 * Reported by every session rather than only the one that
+	 * started it, because tracing instruments every page and a
+	 * reader wondering why theirs is slow should find the reason
+	 * here instead of hunting for it.
+	 */
+	readonly recording?: string;
 }
 
 /** How many recent navigations are worth recalling. */
@@ -72,6 +81,7 @@ export function renderStatus(status: SessionStatus): string {
 	} else if (status.throttle && status.throttle.latency > 0) {
 		lines.push(`  network: throttled, ${status.throttle.latency}ms latency`);
 	}
+	if (status.recording) lines.push(`  ${status.recording}`);
 	if (status.rules.length > 0) {
 		lines.push(
 			`  intercepting: ${status.rules

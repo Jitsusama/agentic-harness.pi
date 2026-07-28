@@ -21,6 +21,19 @@ export {
 	type RawProfileNode,
 	renderHotspots,
 } from "./profile.js";
+export {
+	categoriesFor,
+	type FrameStory,
+	foldTrace,
+	type RawTraceEvent,
+	type RequestSpan,
+	renderTrace,
+	type TaskCost,
+	type TimerStory,
+	TRACE_CATEGORIES,
+	type TraceCapture,
+	type TraceProfile,
+} from "./trace.js";
 export { renderVitals } from "./view.js";
 export {
 	cumulativeShift,

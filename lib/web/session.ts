@@ -206,19 +206,31 @@ import {
 	evaluationSource,
 } from "./evaluate/index.js";
 import {
+	categoriesFor,
 	compareHeap,
 	foldProfile,
+	foldTrace,
 	type HeapComparison,
 	type HeapReading,
 	type Hotspots,
 	observerBootstrap,
 	type RawProfile,
+	type RawTraceEvent,
 	readVitalsSource,
+	type TraceCapture,
+	type TraceProfile,
 	type Vitals,
 } from "./perf/index.js";
 import { captureTiles } from "./screenshot.js";
 import { ArtifactLedger } from "./session/artifacts.js";
 import { EmulationController } from "./session/emulation.js";
+import {
+	claimRecording,
+	describeRecording,
+	type RecordingRefused,
+	recordingInProgress,
+	releaseRecording,
+} from "./session/recording.js";
 import { PageSettler } from "./session/settling.js";
 import { NetworkShaper } from "./session/shaping.js";
 import { SourceMapStore } from "./session/sourcemaps.js";
@@ -431,6 +443,11 @@ const CRASH_NOTICE_POLL_MS = 25;
  * on screen. Everything else addresses the element directly and
  * would succeed where a click could not.
  */
+/** Whether claiming the recording permit came back as a refusal. */
+function isRecordingRefused(value: unknown): value is RecordingRefused {
+	return typeof value === "object" && value !== null && "refusal" in value;
+}
+
 function usesPointer(action: TargetedAction): boolean {
 	return action.kind === "click" || action.kind === "hover";
 }
@@ -1076,6 +1093,107 @@ export class BrowserSession {
 		const { profile } = await this.cdp.send("Profiler.stop");
 		await this.cdp.send("Profiler.disable");
 		return foldProfile(profile as RawProfile);
+	}
+
+	/**
+	 * Record a trace around some work, and say what it cost.
+	 *
+	 * The work runs inside the recording rather than before it,
+	 * because a trace only holds what happened while it was on.
+	 * Measured: a timer installed before the recording starts has
+	 * no install event, so its lateness cannot be explained and a
+	 * fetch begun earlier has no url. Tracing after the fact is
+	 * not a weaker answer, it is no answer.
+	 *
+	 * The work's own result is handed back whatever the recording
+	 * did, so a refused permit or a protocol failure costs the
+	 * caller the trace and never the action.
+	 */
+	async recordWhile<T>(
+		profiles: readonly TraceProfile[],
+		work: () => Promise<T>,
+	): Promise<{
+		readonly result: T;
+		readonly trace?: TraceCapture;
+		readonly refusal?: string;
+	}> {
+		await this.ready();
+		const permit = claimRecording(this.name, profiles);
+		if (isRecordingRefused(permit)) {
+			return { result: await work(), refusal: permit.refusal };
+		}
+
+		const events: RawTraceEvent[] = [];
+		const collect = (batch: { value?: RawTraceEvent[] }): void => {
+			if (batch.value) events.push(...batch.value);
+		};
+		this.cdp.on("Tracing.dataCollected", collect);
+
+		let started = false;
+		try {
+			await this.cdp.send("Tracing.start", {
+				transferMode: "ReportEvents",
+				traceConfig: {
+					recordMode: "recordContinuously",
+					includedCategories: [...categoriesFor(profiles)],
+				},
+			});
+			started = true;
+		} catch (error) {
+			this.cdp.off("Tracing.dataCollected", collect);
+			releaseRecording();
+			return {
+				result: await work(),
+				refusal: `The browser refused to start tracing: ${String(error)}`,
+			};
+		}
+
+		// The action runs whatever the recording does next, and the
+		// permit is given back on every path out of here.
+		try {
+			const result = await work();
+			const delivered = new Promise<void>((resolve) => {
+				this.cdp.once("Tracing.tracingComplete", () => resolve());
+			});
+			await this.cdp.send("Tracing.end");
+			await delivered;
+			return {
+				result,
+				trace: foldTrace(events, {
+					frames: await this.ownFrameIds(),
+					profiles,
+				}),
+			};
+		} finally {
+			this.cdp.off("Tracing.dataCollected", collect);
+			if (started) releaseRecording();
+		}
+	}
+
+	/**
+	 * Every frame id this session owns, its own and its children's.
+	 *
+	 * This is what separates our work from another session's in a
+	 * recording that necessarily contains both.
+	 */
+	private async ownFrameIds(): Promise<ReadonlySet<string>> {
+		const ids = new Set<string>();
+		try {
+			const { frameTree } = (await this.cdp.send("Page.getFrameTree")) as {
+				frameTree: FrameTreeNode;
+			};
+			const queue: FrameTreeNode[] = [frameTree];
+			while (queue.length > 0) {
+				const node = queue.shift();
+				if (node === undefined) continue;
+				ids.add(node.frame.id);
+				queue.push(...(node.childFrames ?? []));
+			}
+		} catch {
+			// Without a frame tree nothing can be attributed, which the
+			// fold reports as unattributed rather than guessing.
+		}
+		return ids;
 	}
 
 	/** Every websocket conversation the page has held. */
@@ -2355,6 +2473,7 @@ export class BrowserSession {
 			},
 			history: this.history,
 			artifacts: this.artifacts.written,
+			recording: describeRecording(recordingInProgress(), this.name),
 		};
 	}
 

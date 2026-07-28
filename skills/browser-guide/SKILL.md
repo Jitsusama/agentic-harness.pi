@@ -82,6 +82,10 @@ here.
 | Did that font load, or did it fall back | `see kind:"element"` lists the fonts actually painted |
 | Read a counter, a status message or a filled field | `see kind:"element"` reports text, value and data attributes |
 | Something takes 3 seconds and I do not know what | `see kind:"profile" ms:3000` while the slow thing runs |
+| Why did this click take so long, and what did it set off | `do kind:"act" ... trace:"async"` |
+| Which fetch was waiting on which, and what answered first | `do ... trace:"async"` reports overlap and out-of-order settling |
+| Did my timer fire when it promised | `do ... trace:"async"` pairs each install with its fire |
+| Scrolling or animation stutters | `do kind:"wait" for:"duration" ms:2000 trace:"frames"` while it stutters |
 | The tab gets slower the longer it is open | `see kind:"heap"`, do the thing, `see kind:"heap"` again |
 | A live feature updates by itself and I cannot see why | `see kind:"sockets"` for the websocket conversation |
 | Is that gap 16px or 12px | `see kind:"measure" within:"button Save" and:"button Cancel"` |
@@ -428,6 +432,47 @@ request log under `filter: failed`.
   structures are described rather than serialized, and an
   exception comes back as a result with its stack mapped to
   authored source
+
+Every one of those takes an optional `trace`, which is the way to
+ask what the browser itself was doing while the action ran. See
+below.
+
+### Tracing What an Action Set Off
+
+`trace:"async"` records the browser's own trace stream around the
+operation and reports what caused what: each timer paired with
+the fire it produced and how late that was, each request joined
+to the response that settled it, how many were in flight at once,
+and whether any settled out of the order they were sent.
+`trace:"frames"` reports what the compositor did instead, for a
+page that scrolls or animates badly. Pass both for both.
+
+Four things about it are worth knowing before you reach for it.
+
+**It is a modifier, not a mode.** There is no start and no stop.
+The recording brackets one operation, which is why it cannot be
+left running by accident.
+
+**A trace only holds what happened while it ran.** This is the
+whole reason the work goes inside the recording. A timer installed
+before the recording began has no install event, so its lateness
+cannot be explained, and a fetch begun earlier has no url. You
+cannot ask why something was slow after it has already happened;
+bracket the action that causes it instead.
+
+**Tracing is browser-wide and only one can run at a time.** A
+second session asking while another records is refused, and told
+which session is holding it. The action still runs: losing the
+trace never costs you the thing you asked for. While a recording
+runs, every session's `see kind:"status"` says so and names who
+started it, because every page in the browser is being
+instrumented and paying for it.
+
+**Frame figures are the renderer's, not one page's.** The frame
+pipeline names a layer tree rather than a frame, so a second page
+sharing the process is counted too. The report says this itself;
+do not quote frame counts as though they belonged to the page
+alone.
 
 ### `browser_check`
 
