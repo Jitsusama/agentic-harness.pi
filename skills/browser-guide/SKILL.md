@@ -109,6 +109,43 @@ say so plainly rather than building a workaround out of
 screenshots. A missing capability is worth reporting; a
 hand-rolled substitute for one that exists is not.
 
+## Every Kind, In One Place
+
+The table above is the shortest route for a handful of common
+intents. This is the whole surface, so nothing has to be guessed
+at or rebuilt. A gate keeps it complete: a kind that ships without
+appearing here fails the suite.
+
+**`browser_go`**, which puts a session somewhere and sets its
+conditions: `kind:"open"`, `kind:"navigate"`, `kind:"close"`,
+`kind:"reload"`, `kind:"back"`, `kind:"forward"`,
+`kind:"dialogs"`, `kind:"emulate"`, `kind:"storage"`,
+`kind:"network"`, `kind:"tabs"`.
+
+**`browser_see`**, which reads and changes nothing:
+`kind:"page"`, `kind:"reading"`, `kind:"announcements"`,
+`kind:"logs"`, `kind:"requests"`, `kind:"status"`,
+`kind:"downloads"`, `kind:"query"`, `kind:"vitals"`,
+`kind:"element"`, `kind:"measure"`, `kind:"sockets"`,
+`kind:"heap"`, `kind:"profile"`, `kind:"layers"`,
+`kind:"hover"`, `kind:"focus"`, `kind:"shot"`.
+
+**`browser_do`**, which changes the page: `kind:"act"`,
+`kind:"press"`, `kind:"input"`, `kind:"wait"`, `kind:"eval"`.
+
+**`browser_check`**, which forms a verdict: `kind:"keyboard"`,
+`kind:"accessibility"`, `kind:"visual"`, `kind:"design"`,
+`kind:"contrast"`, `kind:"compare"`, `kind:"perf"`,
+`kind:"health"`.
+
+Two answers live in stored results rather than in a kind of their
+own, and both were rebuilt by hand once for want of being written
+down. `check kind:"keyboard"` stores `stops`, the order focus
+actually visited, and `missed`, the controls it never reached:
+query the cited handle instead of enumerating focusables yourself.
+`see kind:"query"` with `styles` reports named properties for
+every match, which is the page-wide computed-style sweep.
+
 ## Four Jobs, Four Entry Points
 
 Most questions about a page belong to one of four jobs, and
