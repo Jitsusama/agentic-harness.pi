@@ -204,6 +204,43 @@ This judges one element on demand rather than sweeping the page,
 because each measurement costs two screenshots. Run the audit
 first, then bring this to the elements it could not decide.
 
+It also reports `WARN` when the text's own colour cannot be read,
+which a stylesheet using a colour syntax this build does not parse
+will cause. That is a refusal, not a pass, and it never assumes a
+colour in order to produce a number.
+
+## A Boundary You Chose, Which Is 1.4.11
+
+Add `and` to name a second element, and the question changes from
+text against its own background to the boundary between the two:
+`check kind:"contrast" within:"button Save" and:"region Card"`.
+This is criterion 1.4.11, contrast of things that are not text,
+and axe does not answer it. Icons, borders, focus states against
+their resting state, a chart series against its neighbour: all of
+them live here, and all of them need 3:1.
+
+The two elements are not interchangeable, and the report says what
+it took from each:
+
+- **The first is the subject**, the thing being judged. If it has
+  text of its own, its `color` is used and the criterion becomes
+  1.4.3, whose bar depends on the text size. Otherwise its
+  `background-color`, or its `border-color` when it paints no
+  background, which is how most outlined controls are drawn
+- **The second is the surface** it sits against. Only what that
+  element paints counts. Its own text colour is irrelevant to the
+  question and is ignored
+
+Always relay which properties were compared, because the choice is
+the part worth arguing with. If it picked the wrong boundary, name
+different elements rather than reinterpreting the number.
+
+It declines with `WARN` when a side paints nothing of its own, a
+fully transparent background being the usual reason. What sits
+behind a see-through element belongs to an ancestor this cannot
+name, so it refuses instead of guessing. Point at the element that
+actually paints the surface.
+
 ## Reflow, and the Criterion Next to It
 
 Reflow (1.4.10) asks that content not require scrolling in two

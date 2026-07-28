@@ -32,6 +32,23 @@
  * empty string over it, since those differ once a stylesheet has an
  * opinion.
  */
+/**
+ * Whether an element paints text of its own.
+ *
+ * Its own text nodes only, not its descendants'. A card wrapping a
+ * paragraph is a surface being looked at; the paragraph is the thing
+ * being read. Judging the card as text would compare its colour,
+ * which nothing there paints, against the wrong criterion.
+ */
+export const OWN_TEXT_PROBE = `function () {
+  var kids = this.childNodes || [];
+  for (var i = 0; i < kids.length; i++) {
+    var node = kids[i];
+    if (node.nodeType === 3 && (node.textContent || "").trim()) return true;
+  }
+  return false;
+}`;
+
 export const HIDE_TEXT = `function (hidden) {
   var KEY = "__piHiddenText";
   if (hidden) {

@@ -91,6 +91,7 @@ import {
 	normalizeBoxModel,
 	normalizeListeners,
 	OCCLUDER_PROBE,
+	OWN_TEXT_PROBE,
 	type PseudoState,
 	type PseudoVariant,
 	type RawAnimation,
@@ -203,7 +204,10 @@ import {
 	type ContrastLevel,
 	enabledRules,
 	foldBehind,
+	foldPair,
 	type PageBox,
+	type PaintedSide,
+	type PairReport,
 	parseRgb,
 	type RawAxeRun,
 	readAxeRun,
@@ -1360,6 +1364,75 @@ export class BrowserSession {
 		} finally {
 			await this.release(objectId);
 		}
+	}
+
+	/**
+	 * Judge the contrast between two elements the caller named.
+	 *
+	 * Distinct from contrastBehind, which subtracts pixels to read the
+	 * background under one element's glyphs. This compares two
+	 * elements' stated colours, which is the only way to ask about a
+	 * boundary: an icon against its card, a border against the page.
+	 * Both sides are read from the computed style rather than the
+	 * screen, so nothing is captured and nothing moves.
+	 */
+	async contrastPair(
+		one: Target,
+		other: Target,
+		bar: ContrastLevel = "AA",
+	): Promise<
+		{ ok: true; report: PairReport } | { ok: false; refusal: TargetRefusal }
+	> {
+		await this.ready();
+		const tree = await this.axTree();
+		const sides: PaintedSide[] = [];
+		for (const target of [one, other]) {
+			const resolution = resolveTarget(tree, target);
+			if (resolution.kind === "notFound") {
+				return { ok: false, refusal: notFoundRefusal(tree, target) };
+			}
+			if (resolution.kind === "ambiguous") {
+				return { ok: false, refusal: ambiguityRefusal(tree, target) };
+			}
+			const objectId = await this.objectFor(resolution.backendDomId);
+			if (!objectId) {
+				return { ok: false, refusal: notFoundRefusal(tree, target) };
+			}
+			try {
+				sides.push(await this.paintedSide(objectId));
+			} finally {
+				await this.release(objectId);
+			}
+		}
+		const [first, second] = sides;
+		if (!first || !second) {
+			return { ok: false, refusal: notFoundRefusal(tree, other) };
+		}
+		return { ok: true, report: foldPair({ one: first, other: second, bar }) };
+	}
+
+	/** What one side of a contrast pairing paints. */
+	private async paintedSide(objectId: string): Promise<PaintedSide> {
+		const styles = await this.stylesOf(objectId);
+		const { result } = await this.cdp.send("Runtime.callFunctionOn", {
+			objectId,
+			functionDeclaration: OWN_TEXT_PROBE,
+			returnByValue: true,
+		});
+		return {
+			hasText: result.value === true,
+			...(styles?.color === undefined ? {} : { color: styles.color }),
+			...(styles?.["background-color"] === undefined
+				? {}
+				: { backgroundColor: styles["background-color"] }),
+			...(styles?.["border-color"] === undefined
+				? {}
+				: { borderColor: styles["border-color"] }),
+			sizing: {
+				fontSizePx: Number.parseFloat(styles?.["font-size"] ?? "16") || 16,
+				fontWeight: Number.parseFloat(styles?.["font-weight"] ?? "400") || 400,
+			},
+		};
 	}
 
 	/**
