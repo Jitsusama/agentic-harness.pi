@@ -110,3 +110,12 @@ export function claimGitHubRepo(probe: RepoProbe): RepoLocator | null {
 	}
 	return null;
 }
+
+/**
+ * Who GitHub attributes content to once its author is gone.
+ *
+ * A deleted account comes back as a null author, and GitHub itself
+ * reassigns that content to the ghost user, so this is reporting
+ * what the forge says rather than filling a hole with a guess.
+ */
+export const GHOST = "ghost";

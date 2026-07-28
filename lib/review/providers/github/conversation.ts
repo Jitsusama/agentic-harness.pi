@@ -31,7 +31,7 @@ import type {
 import type { ConversationFacet } from "../../provider.js";
 import type { Exec } from "../exec.js";
 import { run } from "../exec.js";
-import { ownerRepoFromKey } from "./claims.js";
+import { GHOST, ownerRepoFromKey } from "./claims.js";
 
 /** Message id prefixes, naming which REST route owns the id. */
 const REVIEW_COMMENT = "rc:";
@@ -154,7 +154,7 @@ function messageFromIssueComment(raw: Record<string, unknown>): Message {
 	const reactions = reactionsOf(raw.reactions);
 	return {
 		id: `${ISSUE_COMMENT}${String(raw.id ?? "")}`,
-		author: { id: str(record(raw.user).login) ?? "unknown" },
+		author: { id: str(record(raw.user).login) ?? GHOST },
 		body: str(raw.body) ?? "",
 		...(str(raw.created_at) ? { createdAt: str(raw.created_at) } : {}),
 		...(str(raw.html_url) ? { url: str(raw.html_url) } : {}),
@@ -171,7 +171,7 @@ function messageFromThreadComment(raw: Record<string, unknown>): Message {
 			: (str(raw.id) ?? "");
 	return {
 		id,
-		author: { id: str(record(raw.author).login) ?? "ghost" },
+		author: { id: str(record(raw.author).login) ?? GHOST },
 		body: str(raw.body) ?? "",
 		...(str(raw.createdAt) ? { createdAt: str(raw.createdAt) } : {}),
 		...(str(raw.url) ? { url: str(raw.url) } : {}),
@@ -320,7 +320,7 @@ export function githubConversation(exec: Exec): ConversationFacet {
 				const state = str(review.state) ?? "COMMENTED";
 				return {
 					id: String(review.id ?? ""),
-					author: { id: str(record(review.user).login) ?? "unknown" },
+					author: { id: str(record(review.user).login) ?? GHOST },
 					verdict: verdictOf(state),
 					nativeVerdict: state,
 					body: str(review.body) ?? "",

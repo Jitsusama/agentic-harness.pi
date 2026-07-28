@@ -12,6 +12,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { runGraphQL } from "../../lib/internal/github/graphql.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
+import type { Proposal } from "../../lib/review/index.js";
 
 /** PR lifecycle states GitHub returns over GraphQL. */
 export type PrState = "OPEN" | "CLOSED" | "MERGED";
@@ -32,104 +33,6 @@ export interface PrMetadata {
 	readonly changedFiles: number;
 	readonly createdAt: string;
 	readonly updatedAt: string;
-}
-
-const PR_QUERY = `query PrMetadata($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) {
-      title
-      author { login }
-      state
-      isDraft
-      url
-      body
-      baseRefName
-      baseRefOid
-      headRefName
-      headRefOid
-      additions
-      deletions
-      changedFiles
-      createdAt
-      updatedAt
-    }
-  }
-}`;
-
-const VALID_STATES: ReadonlySet<string> = new Set(["OPEN", "CLOSED", "MERGED"]);
-
-/**
- * Parse a raw GraphQL response into typed metadata.
- *
- * Throws if the response shape is unexpected. The caller is
- * responsible for catching and surfacing a useful message.
- */
-export function parsePrMetadata(raw: unknown): PrMetadata {
-	if (!isRecord(raw)) {
-		throw new Error("PR metadata response was not an object");
-	}
-	const data = raw.data;
-	if (!isRecord(data)) {
-		throw new Error("PR metadata response is missing `data`");
-	}
-	const repository = data.repository;
-	if (!isRecord(repository)) {
-		throw new Error("PR metadata response: pull request not found");
-	}
-	const pr = repository.pullRequest;
-	if (!isRecord(pr)) {
-		throw new Error("PR metadata response: pull request not found");
-	}
-
-	const state = expectString(pr, "state");
-	if (!VALID_STATES.has(state)) {
-		throw new Error(`PR metadata: unexpected state "${state}"`);
-	}
-
-	const author = pr.author;
-	const authorLogin =
-		author === null || author === undefined
-			? "ghost"
-			: isRecord(author)
-				? expectString(author, "login")
-				: (() => {
-						throw new Error("PR metadata: `author` has unexpected shape");
-					})();
-
-	return {
-		title: expectString(pr, "title"),
-		author: authorLogin,
-		state: state as PrState,
-		isDraft: expectBoolean(pr, "isDraft"),
-		url: expectString(pr, "url"),
-		body: expectString(pr, "body"),
-		base: {
-			ref: expectString(pr, "baseRefName"),
-			sha: expectString(pr, "baseRefOid"),
-		},
-		head: {
-			ref: expectString(pr, "headRefName"),
-			sha: expectString(pr, "headRefOid"),
-		},
-		additions: expectNumber(pr, "additions"),
-		deletions: expectNumber(pr, "deletions"),
-		changedFiles: expectNumber(pr, "changedFiles"),
-		createdAt: expectString(pr, "createdAt"),
-		updatedAt: expectString(pr, "updatedAt"),
-	};
-}
-
-/** Round-trip a PR metadata request through `gh api graphql`. */
-export async function fetchPrMetadata(
-	pi: ExtensionAPI,
-	reference: PRReference,
-): Promise<PrMetadata> {
-	const raw = await runGraphQL<unknown>(pi, PR_QUERY, {
-		owner: reference.owner,
-		repo: reference.repo,
-		number: reference.number,
-	});
-	return parsePrMetadata(raw);
 }
 
 const HEAD_SHA_QUERY = `query PrHeadSha($owner: String!, $repo: String!, $number: Int!) {
@@ -205,26 +108,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function expectString(record: Record<string, unknown>, key: string): string {
-	const value = record[key];
-	if (typeof value !== "string") {
-		throw new Error(`PR metadata: \`${key}\` is not a string`);
-	}
-	return value;
+/**
+ * A neutral proposal as the metadata this workflow's views speak.
+ *
+ * Every difference between the two shapes is a decision, and they
+ * all fall the same way: the view has nowhere to put an absence,
+ * so an absence becomes the empty value rather than the word
+ * undefined on someone's screen. That is a lossy direction, which
+ * is why the proposal stays the thing of record.
+ *
+ * The base commit is always empty. GitHub reports one, but nothing
+ * in this workflow has ever read it, so the substrate was not
+ * taught to carry a fact with no reader.
+ */
+export function metadataFromProposal(proposal: Proposal): PrMetadata {
+	return {
+		title: proposal.title,
+		author: proposal.author.id,
+		state: shoutedState(proposal.state),
+		isDraft: proposal.draft,
+		url: proposal.url ?? "",
+		body: proposal.body,
+		base: { ref: proposal.base, sha: "" },
+		head: { ref: proposal.head, sha: proposal.headCommit ?? "" },
+		// An unreported count has to render as something, and a change
+		// nobody measured is closer to zero than to a blank.
+		additions: proposal.additions ?? 0,
+		deletions: proposal.deletions ?? 0,
+		changedFiles: proposal.changedFiles ?? 0,
+		createdAt: proposal.createdAt ?? "",
+		updatedAt: proposal.updatedAt ?? "",
+	};
 }
 
-function expectNumber(record: Record<string, unknown>, key: string): number {
-	const value = record[key];
-	if (typeof value !== "number") {
-		throw new Error(`PR metadata: \`${key}\` is not a number`);
-	}
-	return value;
-}
-
-function expectBoolean(record: Record<string, unknown>, key: string): boolean {
-	const value = record[key];
-	if (typeof value !== "boolean") {
-		throw new Error(`PR metadata: \`${key}\` is not a boolean`);
-	}
-	return value;
+/** The substrate's lower-case state in the view's own register. */
+function shoutedState(state: Proposal["state"]): PrState {
+	if (state === "merged") return "MERGED";
+	return state === "closed" ? "CLOSED" : "OPEN";
 }

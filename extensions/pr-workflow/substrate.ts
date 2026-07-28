@@ -17,6 +17,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import {
+	type BoundTarget,
 	type ChangeRef,
 	type ConversationFacet,
 	REVIEW_READY,
@@ -24,6 +25,7 @@ import {
 	type ReviewSubstrateApi,
 	type Thread,
 } from "../../lib/review/index.js";
+import { metadataFromProposal, type PrMetadata } from "./fetch.js";
 import { changeFromGitHubView } from "./reference.js";
 import { type ReviewThread, readConversation } from "./threads.js";
 
@@ -58,6 +60,29 @@ export function setSubstrateApi(api: ReviewSubstrateApi): void {
 /** Drop the borrowed substrate. For tests and reloads. */
 export function forgetSubstrate(): void {
 	substrate = undefined;
+}
+
+/**
+ * The loaded change's metadata, read through the substrate.
+ *
+ * Refuses when the target has no hosted change behind it, which a
+ * local range or an unposted stack does not, since there is then
+ * no proposal to describe.
+ */
+export async function metadataFromSubstrate(
+	reference: PRReference,
+): Promise<PrMetadata> {
+	const named = changeFromGitHubView(reference);
+	const bound = await boundFor(named.label);
+	const proposal = await bound.proposal();
+	if (!proposal) {
+		throw new Error(
+			`Nothing hosts ${named.label}, so there is no pull request to ` +
+				"describe. A local range or an unposted stack reviews fine " +
+				"but has no proposal behind it.",
+		);
+	}
+	return metadataFromProposal(proposal);
 }
 
 /**
@@ -136,23 +161,26 @@ export async function threadsFromSubstrate(
  * The conversation for a reference, and the change to address it
  * by. Refuses with guidance rather than returning nothing.
  */
-async function conversationFor(
-	reference: PRReference,
-): Promise<{ conversation: ConversationFacet; change: ChangeRef }> {
+async function boundFor(label: string): Promise<BoundTarget> {
 	if (!substrate) {
 		throw new Error(
 			"The review substrate never announced itself, so this pull " +
-				"request's conversation cannot be reached. The " +
-				"review-integration extension is what provides it: check " +
-				"that it is installed and enabled.",
+				"request cannot be reached. The review-integration extension " +
+				"is what provides it: check that it is installed and enabled.",
 		);
 	}
-	const named = changeFromGitHubView(reference);
 	const engine = await substrate.engine();
 	// Resolved by the name a person writes, rather than bound
 	// directly, so the provider that claims it is chosen the same
 	// way it would be anywhere else.
-	const bound = await engine.resolve(named.label);
+	return engine.resolve(label);
+}
+
+async function conversationFor(
+	reference: PRReference,
+): Promise<{ conversation: ConversationFacet; change: ChangeRef }> {
+	const named = changeFromGitHubView(reference);
+	const bound = await boundFor(named.label);
 	if (!bound.conversation) {
 		throw new Error(
 			`Nothing hosts a conversation for ${named.label}, so there ` +

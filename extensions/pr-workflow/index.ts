@@ -73,7 +73,7 @@ import {
 	runCritiqueAction,
 } from "./critique-action.js";
 import { decideBatchAction } from "./decide-action.js";
-import { fetchFileContent, fetchPrHeadSha, fetchPrMetadata } from "./fetch.js";
+import { fetchFileContent, fetchPrHeadSha } from "./fetch.js";
 import type { ConventionalLabel } from "./findings.js";
 import { formatCompactFindingsView } from "./findings-view.js";
 import {
@@ -141,6 +141,7 @@ import { createPrWorkflowState, resetPrWorkflowSession } from "./state.js";
 import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
 import {
 	attachSubstrate,
+	metadataFromSubstrate,
 	replyThroughSubstrate,
 	resolveThroughSubstrate,
 	threadsFromSubstrate,
@@ -1352,7 +1353,7 @@ ${reviewValidationDirective()}`,
 								progress,
 								judgeCharter: stackJudgeCharter,
 								fetchers: {
-									metadata: (reference) => fetchPrMetadata(pi, reference),
+									metadata: metadataFromSubstrate,
 									diff: async (reference) => {
 										const raw = await fetchDiff(pi, reference);
 										return parseUnifiedDiff(raw).files;
@@ -2727,7 +2728,7 @@ ${reviewValidationDirective()}`,
 				}
 
 				try {
-					loaded.metadata = await fetchPrMetadata(pi, loaded.reference);
+					loaded.metadata = await metadataFromSubstrate(loaded.reference);
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);

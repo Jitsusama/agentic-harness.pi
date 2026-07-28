@@ -53,6 +53,22 @@ describe("how big the change is", () => {
 		expect(proposal?.changedFiles).toBe(120);
 	});
 
+	it("attributes a deleted author to GitHub's ghost", async () => {
+		// GitHub nulls the author once the account is gone and
+		// reassigns the content to the ghost user, so reporting ghost
+		// is repeating the forge rather than inventing a placeholder.
+		const { provider: gh } = provider([
+			{
+				when: ["repos/Shopify/world/pulls/123"],
+				stdout: JSON.stringify({ ...JSON.parse(pullJson), user: null }),
+			},
+		]);
+
+		const proposal = await gh.proposals?.fetch(ref);
+
+		expect(proposal?.author.id).toBe("ghost");
+	});
+
 	it("says nothing about size when the answer carries none", async () => {
 		// A count of zero and an unreported count are different
 		// things, and one of them must not be printed as the other.

@@ -14,7 +14,7 @@ import type { Check, CheckState, ChecksRollup } from "../../checks.js";
 import type { ChangeFilter, ProposalsFacet } from "../../provider.js";
 import type { Exec } from "../exec.js";
 import { run } from "../exec.js";
-import { githubChange, ownerRepoFromKey } from "./claims.js";
+import { GHOST, githubChange, ownerRepoFromKey } from "./claims.js";
 
 /** Where a materialized change lands, so it is easy to spot. */
 const LOCAL_REF_PREFIX = "refs/pi-review/github";
@@ -49,6 +49,11 @@ function nested(value: unknown, key: string): Record<string, unknown> {
 
 function num(value: unknown): number | undefined {
 	return typeof value === "number" ? value : undefined;
+}
+
+/** Who acted, or the ghost GitHub attributes orphaned work to. */
+function actorFrom(login: unknown): { id: string } {
+	return { id: str(login) ?? GHOST };
 }
 
 /**
@@ -99,7 +104,7 @@ function proposalFromRest(
 		body: str(raw.body) ?? "",
 		state: stateOf(raw),
 		draft: raw.draft === true,
-		author: { id: str(nested(raw, "user").login) ?? "unknown" },
+		author: actorFrom(nested(raw, "user").login),
 		base: str(nested(raw, "base").ref) ?? "",
 		head: str(nested(raw, "head").ref) ?? "",
 		...(str(nested(raw, "head").sha)
@@ -129,7 +134,7 @@ function proposalFromListing(
 		state:
 			state === "merged" ? "merged" : state === "closed" ? "closed" : "open",
 		draft: raw.isDraft === true,
-		author: { id: str(nested(raw, "author").login) ?? "unknown" },
+		author: actorFrom(nested(raw, "author").login),
 		base: str(raw.baseRefName) ?? "",
 		head: str(raw.headRefName) ?? "",
 		...(str(raw.url) ? { url: str(raw.url) } : {}),
