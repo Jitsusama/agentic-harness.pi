@@ -286,6 +286,37 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 		expect(measured).toBeDefined();
 	});
 
+	it("does not bill the page for the instrument's own work", async () => {
+		// Every probe here runs script in the page, and the heaviest of
+		// them take longer than the fifty milliseconds that defines a
+		// long task. If that work were counted, an audit would make the
+		// page it audited look slow, and the reader would go hunting
+		// for a stall this tool caused.
+		//
+		// Measured: it is not counted. Script injected over the
+		// protocol is invisible to the long task observer, while the
+		// same block scheduled as an ordinary page task is seen. So the
+		// property holds by construction rather than by care, and this
+		// is here to catch the day that stops being true.
+		await session.evaluate(
+			"const end = performance.now() + 300; " +
+				"while (performance.now() < end); 'blocked'",
+		);
+		const ours = await session.vitals();
+		expect(ours.longTasks).toHaveLength(0);
+
+		// The control. Without it, a broken observer would pass the
+		// assertion above by never recording anything at all.
+		await session.evaluate(
+			"setTimeout(() => { const e = performance.now() + 300; " +
+				"while (performance.now() < e); }, 0); 'scheduled'",
+		);
+		await session.waitFor({ kind: "duration", ms: 800 }, 2_000);
+		const theirs = await session.vitals();
+
+		expect(theirs.longTasks.length).toBeGreaterThan(0);
+	});
+
 	it("inspects one element and reports its box", async () => {
 		const found = await session.inspect({
 			role: "button",

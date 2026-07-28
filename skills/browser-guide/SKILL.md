@@ -358,6 +358,11 @@ request log under `filter: failed`.
 - `element` takes `why:"<property>"` to trace one CSS property
   through every rule that had a say, with authored source
   positions when a source map exists
+- `vitals` reports what the load cost. Running the other tools
+  here does not change it: script injected over the protocol is
+  invisible to the browser's long task observer, so an audit
+  cannot make the page it audited look slow. That is measured and
+  pinned, not assumed
 - `heap` reports how much memory the page is holding and how that
   compares to the last reading, which is how a leak is found:
   read, do the thing you suspect, read again. A collection is
