@@ -207,9 +207,12 @@ import {
 } from "./evaluate/index.js";
 import {
 	compareHeap,
+	foldProfile,
 	type HeapComparison,
 	type HeapReading,
+	type Hotspots,
 	observerBootstrap,
+	type RawProfile,
 	readVitalsSource,
 	type Vitals,
 } from "./perf/index.js";
@@ -1047,6 +1050,32 @@ export class BrowserSession {
 	/** Files the page has handed back. */
 	downloads(): readonly DownloadRecord[] {
 		return this.telemetry.downloads();
+	}
+
+	/**
+	 * Record what the page's JavaScript is doing, for a while.
+	 *
+	 * A long task says three seconds went somewhere. This says
+	 * where. The profiler is started, the page is left alone for
+	 * the window asked for, and the samples are folded into time
+	 * per function.
+	 *
+	 * Nothing is done to the page in between on purpose: whatever
+	 * is being profiled has to be the page's own work, and a probe
+	 * running during the window would appear in its own results.
+	 */
+	async profile(forMs: number): Promise<Hotspots> {
+		await this.ready();
+		await this.cdp.send("Profiler.enable");
+		// A thousand microseconds is Chrome's own default. Sampling
+		// faster buys precision the reader cannot use and costs the
+		// page time that then shows up in its own profile.
+		await this.cdp.send("Profiler.setSamplingInterval", { interval: 1000 });
+		await this.cdp.send("Profiler.start");
+		await new Promise((wake) => setTimeout(wake, forMs));
+		const { profile } = await this.cdp.send("Profiler.stop");
+		await this.cdp.send("Profiler.disable");
+		return foldProfile(profile as RawProfile);
 	}
 
 	/** Every websocket conversation the page has held. */

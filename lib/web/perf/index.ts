@@ -13,6 +13,14 @@ export {
 	renderHeap,
 } from "./heap.js";
 export { observerBootstrap, readVitalsSource } from "./probe.js";
+export {
+	foldProfile,
+	type Hotspot,
+	type Hotspots,
+	type RawProfile,
+	type RawProfileNode,
+	renderHotspots,
+} from "./profile.js";
 export { renderVitals } from "./view.js";
 export {
 	cumulativeShift,

@@ -30,7 +30,12 @@ import {
 	renderVisibility,
 } from "../../lib/web/element/index.js";
 import { renderStatus } from "../../lib/web/environment/index.js";
-import { measure, renderHeap, renderVitals } from "../../lib/web/perf/index.js";
+import {
+	measure,
+	renderHeap,
+	renderHotspots,
+	renderVitals,
+} from "../../lib/web/perf/index.js";
 import type {
 	BrowserSession,
 	Inspection,
@@ -297,6 +302,7 @@ const parameters = Type.Object({
 				Type.Literal("measure"),
 				Type.Literal("sockets"),
 				Type.Literal("heap"),
+				Type.Literal("profile"),
 				Type.Literal("shot"),
 			],
 			{
@@ -322,7 +328,9 @@ const parameters = Type.Object({
 					"websocket the page opened and both sides of what was " +
 					"said over it. heap: how much memory the page is " +
 					"holding, compared against the last reading, which is " +
-					"how a leak is found. " +
+					"how a leak is found. profile: record the page's " +
+					"JavaScript for a while and report which functions spent " +
+					"the time, which is what a long task cannot tell you. " +
 					"shot: a picture, written to disk and reported by path, " +
 					"of the viewport, or of the whole page with 'fullPage', " +
 					"or of one element with 'within'.",
@@ -525,6 +533,14 @@ const parameters = Type.Object({
 				"reported, however many are shown.",
 		}),
 	),
+	ms: Type.Optional(
+		Type.Number({
+			description:
+				"For profile: how long to record, in milliseconds. " +
+				"Defaults to 3000. Do the slow thing while it runs, or " +
+				"the profile catches an idle page.",
+		}),
+	),
 	budget: Type.Optional(
 		Type.Number({
 			minimum: 1,
@@ -645,6 +661,14 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 						unit: "downloads",
 						narrowing: "Every file is on disk at the path shown.",
 					}),
+				);
+			}
+
+			if (kind === "profile") {
+				return answer(
+					name,
+					kind,
+					renderHotspots(await session.profile(params.ms ?? 3_000)),
 				);
 			}
 

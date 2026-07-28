@@ -367,6 +367,29 @@ describe.skipIf(!haveChrome)("telemetry, in a real browser", () => {
 		expect(second.grewBy ?? 0).toBeGreaterThan(20 * 1024 * 1024);
 	});
 
+	it("says which function spent the time", async () => {
+		// The whole point: a long task reports three seconds and names
+		// nothing. This has to come back with the function.
+		await session.navigate(fixture.url("/noisy"));
+		await session.evaluate(
+			"function grindNumbers() { let n = 0; " +
+				"for (let i = 0; i < 3e6; i++) n += Math.sqrt(i); return n; }" +
+				"window.__grinder = setInterval(grindNumbers, 20); 'started'",
+		);
+
+		try {
+			const found = await session.profile(1_500);
+
+			expect(found.sampledMs).toBeGreaterThan(0);
+			const names = found.hotspots.map((spot) => spot.function);
+			expect(names).toContain("grindNumbers");
+		} finally {
+			// Left running, this burns a core for the rest of the suite
+			// and shows up in every measurement after it.
+			await session.evaluate("clearInterval(window.__grinder); 'stopped'");
+		}
+	});
+
 	it("lets go of memory nothing is holding", async () => {
 		// The other half: without this, a reading that only ever grows
 		// would pass the test above while measuring nothing real.

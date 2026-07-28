@@ -81,6 +81,7 @@ here.
 | Assert the save actually succeeded, not just returned | `do kind:"wait" pattern:"*/api/save" status:200` |
 | Did that font load, or did it fall back | `see kind:"element"` lists the fonts actually painted |
 | Read a counter, a status message or a filled field | `see kind:"element"` reports text, value and data attributes |
+| Something takes 3 seconds and I do not know what | `see kind:"profile" ms:3000` while the slow thing runs |
 | The tab gets slower the longer it is open | `see kind:"heap"`, do the thing, `see kind:"heap"` again |
 | A live feature updates by itself and I cannot see why | `see kind:"sockets"` for the websocket conversation |
 | Is that gap 16px or 12px | `see kind:"measure" within:"button Save" and:"button Cancel"` |
@@ -351,7 +352,7 @@ request log under `filter: failed`.
 
 `page`, `reading`, `announcements`, `element`, `measure`,
 `query`, `logs`, `requests`, `sockets`, `downloads`, `shot`,
-`vitals`, `heap`, `status`.
+`vitals`, `heap`, `profile`, `status`.
 
 - `measure` names two elements, one in `within` and one in `and`,
   and reports the space between them: the gap on each axis, the
@@ -377,6 +378,13 @@ request log under `filter: failed`.
   invisible to the browser's long task observer, so an audit
   cannot make the page it audited look slow. That is measured and
   pinned, not assumed
+- `profile` records the page's JavaScript for a while and reports
+  which functions spent the time, which is the question a long
+  task cannot answer. Start it and do the slow thing while it
+  runs, or it profiles an idle page. The figures are sampled, so
+  they are estimates: a function never caught mid-run does not
+  appear at all, and idle time is reported rather than hidden so
+  a window spent doing nothing is obvious
 - `heap` reports how much memory the page is holding and how that
   compares to the last reading, which is how a leak is found:
   read, do the thing you suspect, read again. A collection is
