@@ -50,6 +50,15 @@ const OUTER = page(
 
 const INNER = page("Inner", "<main><h1>Inner heading</h1></main>");
 
+/** A video with no text track, and audio that starts by itself. */
+const MEDIA = page(
+	"Media",
+	`<main>
+		<video id="clip" src="/clip.mp4" controls></video>
+		<audio id="tune" src="/tune.mp3" autoplay loop></audio>
+	</main>`,
+);
+
 /**
  * Two buttons a known distance apart, laid out absolutely so the
  * expected numbers come from the stylesheet rather than from
@@ -85,6 +94,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			{ path: "/outer", body: OUTER },
 			{ path: "/inner", body: INNER },
 			{ path: "/spaced", body: SPACED },
+			{ path: "/media", body: MEDIA },
 			{ path: "/shadow", body: SHADOW },
 		]);
 		session = await BrowserSession.open("observation-contract");
@@ -318,5 +328,21 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		// Naming the target back is the whole point: the caller gave
 		// two and needs to know which one was wrong.
 		expect("target" in measured && measured.target.name).toBe("Nowhere");
+	});
+
+	it("catches a video with no captions and audio that starts itself", async () => {
+		// Pinning existing behaviour rather than adding any: axe ships
+		// video-caption and no-autoplay-audio switched on, so this
+		// should already work. It is worth a test because the gap sweep
+		// reported captions as missing, and the way to settle that is
+		// to drive it rather than to read the rule list.
+		await session.navigate(fixture.url("/media"));
+		const findings = await session.audit();
+
+		const captions = findings.find(
+			(finding) => finding.rule === "video-caption",
+		);
+		expect(captions).toBeDefined();
+		expect(captions?.criteria).toContain("1.2.2");
 	});
 });

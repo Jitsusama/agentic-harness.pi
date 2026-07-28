@@ -76,6 +76,7 @@ here.
 | Know why an element is the colour it is | `see kind:"element" why:"color"` |
 | See a focus ring or a hover style | `see kind:"element" states:["focus-visible","hover"]` |
 | Check a phone layout | `check widths:[375,768,1280]`, which works with every kind |
+| The tab gets slower the longer it is open | `see kind:"heap"`, do the thing, `see kind:"heap"` again |
 | A live feature updates by itself and I cannot see why | `see kind:"sockets"` for the websocket conversation |
 | Is that gap 16px or 12px | `see kind:"measure" within:"button Save" and:"button Cancel"` |
 | A click opened a new tab, or seemed to do nothing | `go kind:"tabs"` to list, then `tab: N` to switch |
@@ -345,7 +346,7 @@ request log under `filter: failed`.
 
 `page`, `reading`, `announcements`, `element`, `measure`,
 `query`, `logs`, `requests`, `sockets`, `downloads`, `shot`,
-`vitals`, `status`.
+`vitals`, `heap`, `status`.
 
 - `measure` names two elements, one in `within` and one in `and`,
   and reports the space between them: the gap on each axis, the
@@ -357,6 +358,15 @@ request log under `filter: failed`.
 - `element` takes `why:"<property>"` to trace one CSS property
   through every rule that had a say, with authored source
   positions when a source map exists
+- `heap` reports how much memory the page is holding and how that
+  compares to the last reading, which is how a leak is found:
+  read, do the thing you suspect, read again. A collection is
+  forced first unless you pass `collect: false`, and you almost
+  never want to, because uncollected garbage is indistinguishable
+  from a leak. It measures the JavaScript heap, so memory held in
+  an ArrayBuffer or a typed array's backing store does not appear
+  there. A first reading reports no direction, because one number
+  is not a trend
 - `sockets` reports every websocket the page opened and both
   sides of what was said over it, with each frame's time measured
   from when the socket opened. A request is a question with an

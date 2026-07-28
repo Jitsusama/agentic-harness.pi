@@ -30,7 +30,7 @@ import {
 	renderVisibility,
 } from "../../lib/web/element/index.js";
 import { renderStatus } from "../../lib/web/environment/index.js";
-import { measure, renderVitals } from "../../lib/web/perf/index.js";
+import { measure, renderHeap, renderVitals } from "../../lib/web/perf/index.js";
 import type {
 	BrowserSession,
 	Inspection,
@@ -274,6 +274,7 @@ const parameters = Type.Object({
 				Type.Literal("element"),
 				Type.Literal("measure"),
 				Type.Literal("sockets"),
+				Type.Literal("heap"),
 				Type.Literal("shot"),
 			],
 			{
@@ -297,7 +298,9 @@ const parameters = Type.Object({
 					"'within' and 'and': the gap, what lines up, and " +
 					"whether they are the same size. sockets: every " +
 					"websocket the page opened and both sides of what was " +
-					"said over it. " +
+					"said over it. heap: how much memory the page is " +
+					"holding, compared against the last reading, which is " +
+					"how a leak is found. " +
 					"shot: a picture, written to disk and reported by path, " +
 					"of the viewport, or of the whole page with 'fullPage', " +
 					"or of one element with 'within'.",
@@ -316,6 +319,15 @@ const parameters = Type.Object({
 				"'shot', the element to photograph, cropped to its box " +
 				"rather than the whole page. For kind 'measure', the first " +
 				"of the two elements to measure between.",
+		}),
+	),
+	collect: Type.Optional(
+		Type.Boolean({
+			description:
+				"For heap: force a garbage collection before measuring. " +
+				"Defaults to true, and you almost never want false: " +
+				"without it, garbage nobody has swept yet counts the same " +
+				"as memory nobody can free, so growth proves nothing.",
 		}),
 	),
 	and: Type.Optional(
@@ -608,6 +620,14 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 						unit: "downloads",
 						narrowing: "Every file is on disk at the path shown.",
 					}),
+				);
+			}
+
+			if (kind === "heap") {
+				return answer(
+					name,
+					kind,
+					renderHeap(await session.heap(params.collect ?? true)),
 				);
 			}
 

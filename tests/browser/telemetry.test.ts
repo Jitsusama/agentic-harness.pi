@@ -336,6 +336,53 @@ describe.skipIf(!haveChrome)("telemetry, in a real browser", () => {
 		expect(sockets[0]?.closedAt).toBeUndefined();
 	});
 
+	it("sees memory the page will not let go of", async () => {
+		// A leak is the one fault none of the other instruments here
+		// can see, so this holds a big array from a global that a
+		// collection cannot reclaim, and asks whether the growth shows
+		// through a forced collection.
+		await session.navigate(fixture.url("/noisy"));
+		const first = await session.heap();
+		expect(first.direction).toBe("unknown");
+		expect(first.now.collected).toBe(true);
+		// A zero here is the failure this instrument is most likely to
+		// have: the metrics domain answers every value as zero until it
+		// is enabled, which reads as a page holding no memory and never
+		// changing, so every leak check passes.
+		expect(first.now.usedBytes).toBeGreaterThan(0);
+
+		// Objects rather than a typed array: a Uint8Array's backing
+		// store is external memory and does not show in the JS heap, so
+		// the obvious fixture measures nothing.
+		await session.evaluate(
+			"window.__held = Array.from({length: 400000}, (_, i) => " +
+				"({ i, s: 'x'.repeat(40) })); 'held'",
+		);
+
+		const second = await session.heap();
+		expect(second.trustworthy).toBe(true);
+		expect(second.direction).toBe("grew");
+		// Measured at about 41MB, so twenty is a floor that proves the
+		// reading follows the page rather than reporting a constant.
+		expect(second.grewBy ?? 0).toBeGreaterThan(20 * 1024 * 1024);
+	});
+
+	it("lets go of memory nothing is holding", async () => {
+		// The other half: without this, a reading that only ever grows
+		// would pass the test above while measuring nothing real.
+		await session.navigate(fixture.url("/noisy"));
+		await session.evaluate(
+			"window.__held = Array.from({length: 400000}, (_, i) => " +
+				"({ i, s: 'x'.repeat(40) })); 'held'",
+		);
+		await session.heap();
+
+		await session.evaluate("delete window.__held; 'dropped'");
+		const after = await session.heap();
+
+		expect(after.direction).toBe("fell");
+	});
+
 	it("has nothing to report about downloads on a page that offered none", async () => {
 		await session.navigate(fixture.url("/live"));
 

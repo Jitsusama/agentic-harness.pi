@@ -205,6 +205,9 @@ import {
 	evaluationSource,
 } from "./evaluate/index.js";
 import {
+	compareHeap,
+	type HeapComparison,
+	type HeapReading,
 	observerBootstrap,
 	readVitalsSource,
 	type Vitals,
@@ -1031,6 +1034,59 @@ export class BrowserSession {
 	sockets(): readonly SocketRecord[] {
 		return this.telemetry.sockets();
 	}
+
+	/**
+	 * Measure what the page is holding, against the last measurement.
+	 *
+	 * A collection is forced first unless refused, because a heap
+	 * that grew means nothing while uncollected garbage is still in
+	 * it. The previous reading is kept on the session so a caller
+	 * can measure, do the thing they suspect, and measure again
+	 * without having to carry a number between calls.
+	 */
+	async heap(collect = true): Promise<HeapComparison> {
+		await this.ready();
+
+		if (collect) {
+			// Chrome exposes this on two domains and neither is
+			// guaranteed enabled. Failing to collect is not worth
+			// failing the read over, but it does change what the
+			// reading means, which is what `collected` carries.
+			try {
+				await this.cdp.send("HeapProfiler.collectGarbage");
+			} catch {
+				collect = false;
+			}
+		}
+
+		// The domain answers with an empty list until it is enabled,
+		// which reads as a heap of zero that never changes: a leak
+		// check that always says everything is fine. Enabling is
+		// idempotent, so it costs nothing to do it on every read.
+		// Measured: without this the domain answers with every metric
+		// at zero rather than refusing, which reads as a page holding
+		// no memory that never changes. A leak check that always says
+		// everything is fine is worse than no leak check. Enabling is
+		// idempotent, so it costs nothing to do on every read.
+		await this.cdp.send("Performance.enable");
+		const { metrics } = await this.cdp.send("Performance.getMetrics");
+		const read = (named: string): number =>
+			metrics.find((metric) => metric.name === named)?.value ?? 0;
+
+		const reading: HeapReading = {
+			usedBytes: read("JSHeapUsedSize"),
+			totalBytes: read("JSHeapTotalSize"),
+			collected: collect,
+			at: Date.now(),
+		};
+
+		const compared = compareHeap(reading, this.lastHeap);
+		this.lastHeap = reading;
+		return compared;
+	}
+
+	/** The previous heap reading, for the next comparison. */
+	private lastHeap?: HeapReading;
 
 	/** Socket events dropped to stay within the buffer's budget. */
 	get socketFramesDropped(): number {

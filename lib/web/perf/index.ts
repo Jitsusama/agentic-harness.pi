@@ -6,6 +6,12 @@
  * capture, live or stored.
  */
 
+export {
+	compareHeap,
+	type HeapComparison,
+	type HeapReading,
+	renderHeap,
+} from "./heap.js";
 export { observerBootstrap, readVitalsSource } from "./probe.js";
 export { renderVitals } from "./view.js";
 export {
