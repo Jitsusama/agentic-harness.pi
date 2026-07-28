@@ -26,6 +26,7 @@ import {
 	mergeFindings,
 	type Part,
 	renderAudit,
+	renderBehind,
 	renderHealth,
 	renderSweep,
 	renderVerdict,
@@ -40,6 +41,7 @@ import { renderComparison } from "../../lib/web/compare/index.js";
 import { renderInventory, takeInventory } from "../../lib/web/design/index.js";
 import { measure, renderVitals } from "../../lib/web/perf/index.js";
 import type { BrowserSession } from "../../lib/web/session.js";
+import { describeRefusal, parseTarget } from "../../lib/web/target/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { renderBrowserCall, renderBrowserResult } from "./render.js";
 import {
@@ -97,6 +99,7 @@ const parameters = Type.Object({
 				Type.Literal("accessibility"),
 				Type.Literal("visual"),
 				Type.Literal("design"),
+				Type.Literal("contrast"),
 				Type.Literal("compare"),
 				Type.Literal("perf"),
 				Type.Literal("health"),
@@ -111,7 +114,11 @@ const parameters = Type.Object({
 					"and clipped text to images that did not load. design: " +
 					"inventory what the page is built from, colours, type, " +
 					"spacing and shadows, and point out values close enough " +
-					"to have been meant as one. compare: photograph the page " +
+					"to have been meant as one. contrast: judge one element's " +
+					"text against the background actually behind its glyphs, " +
+					"for the gradients and photographs the accessibility " +
+					"check hands back as needing a person. compare: " +
+					"photograph the page " +
 					"and diff it against a stored baseline of itself, " +
 					"recording one on the first run. perf: what the page " +
 					"cost to show, against the published web vitals " +
@@ -123,14 +130,17 @@ const parameters = Type.Object({
 	level: Type.Optional(
 		Type.Union([Type.Literal("A"), Type.Literal("AA"), Type.Literal("AAA")], {
 			description:
-				"For accessibility and health: which WCAG conformance level " +
+				"For accessibility, health and contrast: which WCAG " +
+				"conformance level " +
 				"to hold the page to. Defaults to AAA, the enhanced level, " +
 				"which switches on the three AAA rules axe ships disabled " +
 				"and raises our own thresholds (pointer targets to 44px " +
 				"under 2.5.5 rather than 24px under 2.5.8). Pass 'AA' or " +
 				"'A' for a page that targets those instead. The report " +
 				"always names the level it judged against, and says when " +
-				"every failure was a AAA one so the page still meets AA.",
+				"every failure was a AAA one so the page still meets AA. " +
+				"contrast is the exception and defaults to AA, since it " +
+				"reports one measured ratio beside the one required.",
 		}),
 	),
 	rule: Type.Optional(
@@ -170,6 +180,15 @@ const parameters = Type.Object({
 				"For every kind, after a sweep: name one condition from " +
 				"the table, e.g. " +
 				"'375px', to see its report in full.",
+		}),
+	),
+	within: Type.Optional(
+		Type.String({
+			description:
+				"For contrast: the element whose text to judge, named as " +
+				"'role name' the way the page outline reads it, e.g. " +
+				"'heading Our Pricing'. Required for that kind, since the " +
+				"measurement is of one element's glyphs and not the page.",
 		}),
 	),
 	update: Type.Optional(
@@ -400,6 +419,36 @@ async function runOnce(
 			);
 		}
 		return renderComparison(comparison, artifacts);
+	}
+
+	if (kind === "contrast") {
+		if (!params.within) {
+			return (
+				"WARN nothing named to measure\n\n" +
+				"This check judges one element's text against what is behind " +
+				"its glyphs, so it needs that element. Name it in 'within' " +
+				"as 'role name', e.g. 'heading Our Pricing'. Run " +
+				"kind 'accessibility' first to see which elements were " +
+				"handed back as needing a person."
+			);
+		}
+		const target = parseTarget(params.within);
+		if (target === undefined) {
+			return (
+				"WARN could not read that as an element\n\n" +
+				`Nothing was named in '${params.within}'. Give it as ` +
+				"'role name', e.g. 'heading Our Pricing'."
+			);
+		}
+		// AA rather than the AAA the audit defaults to: this reports a
+		// single measured ratio next to the number required, so the
+		// stricter bar is a caller's choice rather than a safe default.
+		const judged = await session.contrastBehind(
+			target,
+			params.level === "AAA" ? "AAA" : "AA",
+		);
+		if (!judged.ok) return describeRefusal(target, judged.refusal);
+		return renderBehind(judged.report);
 	}
 
 	if (kind === "design") {
