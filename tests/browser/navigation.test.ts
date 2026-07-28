@@ -187,6 +187,44 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 		expect(outcome.met).toBe(true);
 	});
 
+	it("reaches a tab the page opened, and reads it", async () => {
+		// A click that opens a tab currently looks like a click that did
+		// nothing. This is the whole reason the capability exists, so it
+		// is tested through a real window.open rather than by making a
+		// second page ourselves.
+		await session.navigate(fixture.url("/first"));
+		await session.evaluate(
+			`window.open(${JSON.stringify(fixture.url("/second"))}, "_blank")`,
+		);
+
+		// The browser makes the tab on its own schedule, so this polls
+		// rather than sleeping on a number that would be a guess here
+		// and a flake on a loaded machine.
+		let tabs = await session.tabs();
+		for (let tries = 0; tries < 40 && tabs.length < 2; tries += 1) {
+			await new Promise((wake) => setTimeout(wake, 50));
+			tabs = await session.tabs();
+		}
+
+		expect(tabs.length).toBeGreaterThan(1);
+		const opened = tabs.find((tab) => tab.url.includes("/second"));
+		expect(opened).toBeDefined();
+		expect(opened?.current).toBe(false);
+
+		const switched = await session.switchTab(opened?.index ?? 0);
+		expect("refusal" in switched).toBe(false);
+
+		// The point is not that the list changed but that reads follow.
+		const here = await session.evaluate("document.title");
+		expect(here.ok && here.result.value).toBe("Second");
+	});
+
+	it("refuses a tab that is not open rather than going quiet", async () => {
+		const switched = await session.switchTab(99);
+
+		expect("refusal" in switched).toBe(true);
+	});
+
 	it("waits out a plain duration", async () => {
 		const outcome = await session.waitFor({ kind: "duration", ms: 250 }, 5_000);
 
