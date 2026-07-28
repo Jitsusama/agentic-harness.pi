@@ -153,7 +153,9 @@ difference between a useful finding and a misleading one:
   and still not be failing anything
 - **Failures against what needs a person.** axe declines to
   judge some things, most commonly text over a gradient or an
-  image. Those are reported apart and must be relayed apart
+  image. Those are reported apart and must be relayed apart.
+  For that particular case there is now something better than
+  relaying it: see "Text Over a Gradient or a Photograph" below
 
 The undecided bucket has a second population worth knowing
 about. axe ships five rules switched off, tagged experimental,
@@ -167,6 +169,56 @@ real and not ours to overrule.
 
 So a finding in that bucket means one of two things: axe could
 not see enough to decide, or axe does not fully trust the rule.
+
+## Text Over a Gradient or a Photograph
+
+When axe hands back an element because it cannot find a single
+background colour, `check kind:"contrast" within:"heading Our
+Pricing"` will judge it anyway. It reports the worst ratio the
+text meets anywhere its glyphs land, against the ratio the
+criterion asks of text that size.
+
+It works by subtraction. The element is shot twice, the second
+time with its text made transparent, which is a paint-only
+change that moves nothing. The pixels that differ are exactly
+where the glyphs are, antialiased edges included, and the second
+shot shows what lies underneath them.
+
+Two things follow from that, and both matter when reporting:
+
+- **The number describes the glyphs, not the box.** A heading
+  sitting on a black-to-white gradient can pass honestly if its
+  text stops before the pale end. Judging the whole box would
+  report 1:1 for any content at all, which is why the report
+  says how many pixels it measured over
+- **A worst case is not an average.** One pixel of unreadable
+  text fails, because a reader meets the worst part of a word
+  and not its mean. Do not soften this into "mostly fine"
+
+It reports `WARN` and declines when hiding the text changes
+nothing, which means either there is no text there or it was
+already invisible. Neither is a pass, and it does not claim to
+be one.
+
+This judges one element on demand rather than sweeping the page,
+because each measurement costs two screenshots. Run the audit
+first, then bring this to the elements it could not decide.
+
+## Reflow, and the Criterion Next to It
+
+Reflow (1.4.10) asks that content not require scrolling in two
+directions at a width of 320 pixels. That is what
+`check kind:"visual" widths:[320]` asks: the sideways-scroll rule
+is the criterion, and the width is the one the criterion names.
+Report it as reflow when you run it that way.
+
+Text resize (1.4.4) is a different criterion and is not checked.
+Do not report reflow as though it covers it, and do not infer it
+from a width sweep. The honest reason is that the available
+mechanism only moves text that inherits a default size, so a page
+setting its text in fixed pixels would pass a check it deserves
+to fail, and a false pass on an accessibility criterion is worth
+less than no check at all.
 Either way the answer is to look, and neither is a pass. Say
 which criterion it touches and what to check, and do not soften
 it into a note.

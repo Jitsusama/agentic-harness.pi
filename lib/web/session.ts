@@ -74,6 +74,7 @@ import {
 	type DelegatedListeners,
 	diffStyles,
 	foldHover,
+	HIDE_TEXT,
 	HOVER_SCAN,
 	type HoverMeasurement,
 	type HoverReport,
@@ -193,11 +194,15 @@ import { createRequire } from "node:module";
 import {
 	type A11yFinding,
 	type AxFacts,
+	type BehindReport,
 	buildStructure,
 	type CapturedTarget,
 	type ConformanceBar,
+	type ContrastLevel,
 	enabledRules,
+	foldBehind,
 	type PageBox,
+	parseRgb,
 	type RawAxeRun,
 	readAxeRun,
 	type StructureNode,
@@ -1282,6 +1287,99 @@ export class BrowserSession {
 	 * The domain goes off again afterwards, so a read leaves no
 	 * instrumentation running behind it.
 	 */
+	/**
+	 * Judge text against the background actually behind its glyphs.
+	 *
+	 * For the case axe hands back as needing a person: text over a
+	 * gradient, a photograph, or anything else with no single
+	 * background colour. Two shots of the same region, the second with
+	 * the text hidden, give both the glyph mask and what lies under it.
+	 *
+	 * Hiding the text is a paint-only change, so nothing moves between
+	 * the shots and the subtraction stays aligned. The inline style is
+	 * put back in a finally, including the case where it had one of its
+	 * own to begin with.
+	 */
+	async contrastBehind(
+		target: Target,
+		bar: ContrastLevel = "AA",
+	): Promise<
+		{ ok: true; report: BehindReport } | { ok: false; refusal: TargetRefusal }
+	> {
+		await this.ready();
+		const tree = await this.axTree();
+		const resolution = resolveTarget(tree, target);
+		if (resolution.kind === "notFound") {
+			return { ok: false, refusal: notFoundRefusal(tree, target) };
+		}
+		if (resolution.kind === "ambiguous") {
+			return { ok: false, refusal: ambiguityRefusal(tree, target) };
+		}
+		const backendNodeId = resolution.backendDomId;
+
+		const objectId = await this.objectFor(backendNodeId);
+		if (!objectId) {
+			return { ok: false, refusal: notFoundRefusal(tree, target) };
+		}
+
+		try {
+			const styles = await this.stylesOf(objectId);
+			const colour = parseRgb(styles?.color ?? "") ?? {
+				r: 0,
+				g: 0,
+				b: 0,
+				a: 1,
+			};
+			const sizing = {
+				fontSizePx: Number.parseFloat(styles?.["font-size"] ?? "16") || 16,
+				fontWeight: Number.parseFloat(styles?.["font-weight"] ?? "400") || 400,
+			};
+
+			const first = await this.capture(backendNodeId, {});
+			await this.hideText(objectId, true);
+			try {
+				const second = await this.capture(backendNodeId, {});
+				const withText = readPng(readFileSync(first.paths[0] ?? ""));
+				const bare = readPng(readFileSync(second.paths[0] ?? ""));
+				return {
+					ok: true,
+					report: foldBehind({
+						withText,
+						bare,
+						textColour: { r: colour.r, g: colour.g, b: colour.b },
+						sizing,
+						bar,
+					}),
+				};
+			} finally {
+				await this.hideText(objectId, false);
+			}
+		} finally {
+			await this.release(objectId);
+		}
+	}
+
+	/**
+	 * Make an element's own text stop painting, and put it back.
+	 *
+	 * Only colour and shadow are touched, because neither affects
+	 * layout: the glyphs still occupy the same pixels, they simply
+	 * leave no mark on them.
+	 */
+	private async hideText(objectId: string, hidden: boolean): Promise<void> {
+		try {
+			await this.cdp.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: HIDE_TEXT,
+				arguments: [{ value: hidden }],
+				returnByValue: true,
+			});
+		} catch {
+			// A page that navigated mid-measurement has already discarded
+			// the element, so there is no style left to restore.
+		}
+	}
+
 	async layers(): Promise<LayerReport> {
 		await this.ready();
 

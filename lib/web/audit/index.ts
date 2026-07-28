@@ -33,6 +33,13 @@ export {
 	withinBar,
 } from "./axe.js";
 export {
+	type BehindReport,
+	foldBehind,
+	type Pixels,
+	type Rgb,
+	renderBehind,
+} from "./behind.js";
+export {
 	type AxFacts,
 	buildStructure,
 	selectorFor,
