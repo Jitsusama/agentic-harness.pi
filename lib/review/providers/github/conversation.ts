@@ -253,6 +253,21 @@ export function githubConversation(exec: Exec): ConversationFacet {
 		return (stdout.trim() ? JSON.parse(stdout) : {}) as T;
 	}
 
+	/**
+	 * Read a REST list in full.
+	 *
+	 * GitHub answers a list request with thirty records and says
+	 * nothing about the rest, so a plain read of a busy pull
+	 * request quietly loses its tail, which is where the recent
+	 * argument is. `--paginate` walks every page and merges them
+	 * into one array; asking for a hundred at a time is what
+	 * keeps that from being a dozen round trips.
+	 */
+	async function apiList<T>(route: string, what: string): Promise<T> {
+		const joiner = route.includes("?") ? "&" : "?";
+		return api<T>(["--paginate", `${route}${joiner}per_page=100`], what);
+	}
+
 	async function graphql<T>(
 		query: string,
 		variables: Record<string, string | number>,
@@ -296,8 +311,8 @@ export function githubConversation(exec: Exec): ConversationFacet {
 
 	return {
 		async reviews(ref): Promise<Review[]> {
-			const raw = await api<unknown>(
-				[`repos/${slugOf(ref.repo)}/pulls/${ref.id}/reviews`],
+			const raw = await apiList<unknown>(
+				`repos/${slugOf(ref.repo)}/pulls/${ref.id}/reviews`,
 				`reading reviews on pull request ${ref.id}`,
 			);
 			return list(raw).map((entry) => {
@@ -352,8 +367,8 @@ export function githubConversation(exec: Exec): ConversationFacet {
 		},
 
 		async messages(ref): Promise<Message[]> {
-			const raw = await api<unknown>(
-				[`repos/${slugOf(ref.repo)}/issues/${ref.id}/comments`],
+			const raw = await apiList<unknown>(
+				`repos/${slugOf(ref.repo)}/issues/${ref.id}/comments`,
 				`reading comments on pull request ${ref.id}`,
 			);
 			return list(raw).map((entry) => messageFromIssueComment(record(entry)));

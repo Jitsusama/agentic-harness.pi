@@ -179,6 +179,44 @@ describe("reading messages", () => {
 	});
 });
 
+describe("reading a list that runs past one page", () => {
+	// GitHub answers a REST list with thirty records and says
+	// nothing about the rest. A long review is exactly where the
+	// tail matters, so every list read has to ask for all of it.
+	it("asks for every comment, not just the first page", async () => {
+		const { gh, calls } = provider([
+			{ when: ["issues/123/comments"], stdout: "[]" },
+		]);
+
+		await gh.conversation?.messages(ref);
+
+		const call = callMatching(calls, "issues/123/comments");
+		expect(call?.args).toContain("--paginate");
+	});
+
+	it("asks for every review, not just the first page", async () => {
+		const { gh, calls } = provider([
+			{ when: ["pulls/123/reviews"], stdout: "[]" },
+		]);
+
+		await gh.conversation?.reviews(ref);
+
+		const call = callMatching(calls, "pulls/123/reviews");
+		expect(call?.args).toContain("--paginate");
+	});
+
+	it("fills each page so a long list costs fewer round trips", async () => {
+		const { gh, calls } = provider([
+			{ when: ["issues/123/comments"], stdout: "[]" },
+		]);
+
+		await gh.conversation?.messages(ref);
+
+		const call = callMatching(calls, "issues/123/comments");
+		expect(call?.args.join(" ")).toContain("per_page=100");
+	});
+});
+
 describe("posting a review", () => {
 	it("sends the verdict and anchored comments through a payload file", async () => {
 		const { gh, calls } = provider([
