@@ -22,6 +22,7 @@ import {
 	type PseudoState,
 	renderAnimations,
 	renderBox,
+	renderHover,
 	renderListeners,
 	renderMeasurement,
 	renderStyles,
@@ -305,6 +306,7 @@ const parameters = Type.Object({
 				Type.Literal("heap"),
 				Type.Literal("profile"),
 				Type.Literal("layers"),
+				Type.Literal("hover"),
 				Type.Literal("shot"),
 			],
 			{
@@ -336,7 +338,10 @@ const parameters = Type.Object({
 					"layers: what the page asked the compositor to keep, how " +
 					"much texture memory that costs, and the reason Chrome " +
 					"gives for each one, which is how a layer explosion is " +
-					"found. shot: a picture, written to disk and reported by path, " +
+					"found. hover: what the page does on hover across every " +
+					"element that has a hover rule, and whether focus does the " +
+					"same, which is how a cue only a mouse can reach is found. " +
+					"shot: a picture, written to disk and reported by path, " +
 					"of the viewport, or of the whole page with 'fullPage', " +
 					"or of one element with 'within'.",
 			},
@@ -535,7 +540,9 @@ const parameters = Type.Object({
 		Type.Number({
 			description:
 				"For query: how many matches to list. The total is always " +
-				"reported, however many are shown.",
+				"reported, however many are shown. For hover: how many " +
+				"elements to hold and read, since each costs a round trip. " +
+				"Defaults to 60, which is about half a second.",
 		}),
 	),
 	ms: Type.Optional(
@@ -679,6 +686,14 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 
 			if (kind === "layers") {
 				return answer(name, kind, renderLayers(await session.layers()));
+			}
+
+			if (kind === "hover") {
+				return answer(
+					name,
+					kind,
+					renderHover(await session.hovers(params.limit)),
+				);
 			}
 
 			if (kind === "heap") {

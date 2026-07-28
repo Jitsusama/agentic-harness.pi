@@ -73,9 +73,15 @@ import {
 	cornersOf,
 	type DelegatedListeners,
 	diffStyles,
+	foldHover,
+	HOVER_SCAN,
+	type HoverMeasurement,
+	type HoverReport,
+	type HoverScan,
 	judgeActionability,
 	judgeVisibility,
 	type Listener,
+	MAX_HOVER_CANDIDATES,
 	type Measurement,
 	measureBetween,
 	normalizeAnimations,
@@ -90,6 +96,7 @@ import {
 	type Rect,
 	SELECT_TEXT_PROBE,
 	SETTLE_PROBE,
+	type StyleChange,
 	sameBox,
 	type VisibilityVerdict,
 } from "./element/index.js";
@@ -1308,6 +1315,136 @@ export class BrowserSession {
 		}
 
 		return foldLayers({ layers, reasons, elements });
+	}
+
+	/**
+	 * What the page does on hover, and whether focus does it too.
+	 *
+	 * Two halves, because either alone lies. The stylesheets say
+	 * which elements might hover, cheaply and in one round trip, but
+	 * a declared rule the cascade beat changes nothing a person can
+	 * see. So the scan only proposes candidates, and each one is then
+	 * held in hover and in focus and read, which is the only account
+	 * of what actually happens.
+	 *
+	 * Bounded because there is a round trip per candidate, measured
+	 * at roughly 9ms for the pair of states.
+	 */
+	async hovers(limit = MAX_HOVER_CANDIDATES): Promise<HoverReport> {
+		await this.ready();
+
+		const scan = await this.scanForHover();
+		const measurements: HoverMeasurement[] = [];
+		const seen = new Set<number>();
+
+		for (const selector of scan.selectors) {
+			if (measurements.length >= limit) break;
+			for (const found of await this.nodesMatching(selector)) {
+				if (measurements.length >= limit) break;
+				// One element can match two hover selectors. Measuring it
+				// twice would report one treatment as two.
+				if (seen.has(found)) continue;
+				seen.add(found);
+				const measured = await this.measureHover(found);
+				if (measured) measurements.push(measured);
+			}
+		}
+
+		return foldHover(measurements, scan.unreadableSheets);
+	}
+
+	/** Which selectors carry a hover, as the page's own sheets say. */
+	private async scanForHover(): Promise<HoverScan> {
+		try {
+			const { result } = await this.cdp.send("Runtime.evaluate", {
+				expression: HOVER_SCAN,
+				returnByValue: true,
+			});
+			const parsed: unknown = JSON.parse(String(result.value));
+			if (
+				typeof parsed === "object" &&
+				parsed !== null &&
+				"selectors" in parsed &&
+				Array.isArray(parsed.selectors)
+			) {
+				const sheets =
+					"unreadableSheets" in parsed &&
+					typeof parsed.unreadableSheets === "number"
+						? parsed.unreadableSheets
+						: 0;
+				return {
+					selectors: parsed.selectors.filter(
+						(one): one is string => typeof one === "string",
+					),
+					unreadableSheets: sheets,
+				};
+			}
+			return { selectors: [], unreadableSheets: 0 };
+		} catch {
+			// A page that navigated mid-scan has no stylesheets to report.
+			return { selectors: [], unreadableSheets: 0 };
+		}
+	}
+
+	/** Backend ids matching a selector, or none if it will not parse. */
+	private async nodesMatching(selector: string): Promise<readonly number[]> {
+		try {
+			const { root } = await this.cdp.send("DOM.getDocument", { depth: 0 });
+			const { nodeIds } = await this.cdp.send("DOM.querySelectorAll", {
+				nodeId: root.nodeId,
+				selector,
+			});
+			const backend: number[] = [];
+			for (const nodeId of nodeIds) {
+				const { node } = await this.cdp.send("DOM.describeNode", { nodeId });
+				if (node.backendNodeId !== undefined) backend.push(node.backendNodeId);
+			}
+			return backend;
+		} catch {
+			// A selector Chrome will not parse, which a stylesheet can
+			// legally contain once its hover part is stripped off.
+			return [];
+		}
+	}
+
+	/** Hold hover, then focus, and read what each changed. */
+	private async measureHover(
+		backendNodeId: number,
+	): Promise<HoverMeasurement | undefined> {
+		const nodeId = await this.frontendNodeFor(backendNodeId);
+		if (nodeId === undefined) return undefined;
+		const objectId = await this.objectFor(backendNodeId);
+		if (objectId === undefined) return undefined;
+
+		const named = await this.nameOfNode(backendNodeId);
+		const atRest = await this.stylesOf(objectId);
+		if (!atRest) return undefined;
+		const resting = curateStyles(atRest, {});
+
+		const read = async (
+			state: PseudoState,
+		): Promise<readonly StyleChange[]> => {
+			await this.cdp.send("CSS.forcePseudoState", {
+				nodeId,
+				forcedPseudoClasses: [state],
+			});
+			await this.settleForcedState(objectId);
+			const held = await this.stylesOf(objectId);
+			return held ? diffStyles(resting, curateStyles(held, {})) : [];
+		};
+
+		try {
+			const hover = await read("hover");
+			const focus = await read("focus");
+			return { element: named ?? `node ${backendNodeId}`, hover, focus };
+		} finally {
+			// Always released. A page left stuck in a forced hover would
+			// corrupt every later reading of it, and a restoration written
+			// after the reads would not run when one of them throws.
+			await this.cdp
+				.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] })
+				.catch(() => undefined);
+		}
 	}
 
 	/** Why Chrome composited one layer, or nothing if it will not say. */

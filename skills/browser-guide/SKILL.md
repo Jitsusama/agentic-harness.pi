@@ -88,6 +88,8 @@ here.
 | Scrolling or animation stutters | `do kind:"wait" for:"duration" ms:2000 trace:"frames"` while it stutters |
 | The tab gets slower the longer it is open | `see kind:"heap"`, do the thing, `see kind:"heap"` again |
 | Scrolling or animating this page stutters | `see kind:"layers"` for what the compositor is holding |
+| Does anything here only respond to a mouse | `see kind:"hover"` for hover treatments with no focus match |
+| What does this page do on hover | `see kind:"hover"` |
 | Why is this element on its own layer | `see kind:"layers"` and read the reason beside it |
 | A live feature updates by itself and I cannot see why | `see kind:"sockets"` for the websocket conversation |
 | Is that gap 16px or 12px | `see kind:"measure" within:"button Save" and:"button Cancel"` |
@@ -358,7 +360,7 @@ request log under `filter: failed`.
 
 `page`, `reading`, `announcements`, `element`, `measure`,
 `query`, `logs`, `requests`, `sockets`, `downloads`, `shot`,
-`vitals`, `heap`, `profile`, `layers`, `status`.
+`vitals`, `heap`, `profile`, `layers`, `hover`, `status`.
 
 - `measure` names two elements, one in `within` and one in `and`,
   and reports the space between them: the gap on each axis, the
@@ -400,6 +402,21 @@ request log under `filter: failed`.
   an ArrayBuffer or a typed array's backing store does not appear
   there. A first reading reports no direction, because one number
   is not a trend
+- `hover` reports what the page does on hover across every element
+  that has a hover rule, and whether focus does the same thing. It
+  works in two halves and both matter. The stylesheets say which
+  elements might hover, which is cheap; holding the state and
+  reading the computed style says what actually happens, because a
+  hover rule the cascade beat changes nothing anybody can see, and
+  those are reported separately as declared and dead. The finding
+  worth acting on is a treatment hover realizes and focus does
+  not, because a person using a keyboard then gets no equivalent
+  cue. Read it as a prompt rather than a verdict: a page may put
+  its focus ring on an ancestor or lean on the browser's own, so
+  check before calling it a fault. Cross-origin stylesheets throw
+  on their own rules, so any hover in them is invisible here and
+  the count of unreadable sheets is reported rather than hidden.
+  Bounded with `limit`, because each candidate costs a round trip
 - `layers` reports what the page asked the compositor to keep: how
   many layers exist, how much texture memory the ones that paint
   are holding, the element behind each, and the reason Chrome

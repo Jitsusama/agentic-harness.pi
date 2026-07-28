@@ -103,6 +103,22 @@ What it reports, and what each means:
 - **Positive tabindex**: reorders the whole page, not just the
   element it sits on
 
+The keyboard walk answers what happens when focus lands. The
+complement is what happens on hover, which no walk can reach:
+
+```
+browser_see kind:"hover"
+```
+
+This holds hover and focus on every element carrying a hover rule
+and reports what each realizes. What you are looking for is a
+treatment hover produces and focus does not, because that cue is
+reachable only with a pointer. It is a prompt, not a verdict: the
+focus ring may sit on an ancestor, or the page may rely on the
+browser's own, so look before writing it up. It also separates out
+hover rules the cascade beat, which are declared and dead, and
+says how many stylesheets it could not read.
+
 ### 2. The rule sets
 
 ```
