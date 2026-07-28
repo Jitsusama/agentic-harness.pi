@@ -83,6 +83,72 @@ export const EXPERIMENTAL_WCAG_RULES: readonly string[] = [
 	"td-has-header",
 ];
 
+/**
+ * Which conformance level an audit is being held to.
+ *
+ * The levels nest: everything A demands, AA demands too, and AAA
+ * demands all of it. So a bar is a ceiling on what gets asked,
+ * not a slice.
+ */
+export type ConformanceBar = "A" | "AA" | "AAA";
+
+/** How far each bar reaches, for comparing one against another. */
+const BAR_REACH: Record<ConformanceBar, number> = { A: 1, AA: 2, AAA: 3 };
+
+/**
+ * The AAA rules axe ships switched off.
+ *
+ * Measured against axe 4.12.1: exactly three rules carry a AAA
+ * tag and every one of them is disabled by default, so a run that
+ * does not name them checks no AAA criterion at all. Judging at
+ * AAA without switching these on would report a page as meeting
+ * the enhanced bar on the strength of never having tested it.
+ *
+ * Checked against the installed axe by a test, like the
+ * experimental list, so an upgrade that adds or retires one is a
+ * failure to read rather than a silent gap.
+ */
+export const ENHANCED_WCAG_RULES: readonly string[] = [
+	"color-contrast-enhanced",
+	"identical-links-same-purpose",
+	"meta-refresh-no-exceptions",
+];
+
+/**
+ * Whether a finding is something the chosen bar actually asks for.
+ *
+ * A finding carrying no level is a best-practice rule rather than
+ * a conformance claim, and those are always reported: they were
+ * never the standard's to demand, so a bar cannot excuse them.
+ */
+export function withinBar(
+	levels: readonly string[],
+	bar: ConformanceBar,
+): boolean {
+	if (levels.length === 0) return true;
+	return levels.some((level) => {
+		const reach = BAR_REACH[level as ConformanceBar];
+		return reach !== undefined && reach <= BAR_REACH[bar];
+	});
+}
+
+/** The strictest level any of these findings failed. */
+export function hardestLevel(
+	findings: readonly { readonly levels: readonly string[] }[],
+): ConformanceBar | undefined {
+	let hardest: ConformanceBar | undefined;
+	for (const finding of findings) {
+		for (const level of finding.levels) {
+			const bar = level as ConformanceBar;
+			if (BAR_REACH[bar] === undefined) continue;
+			if (hardest === undefined || BAR_REACH[bar] < BAR_REACH[hardest]) {
+				hardest = bar;
+			}
+		}
+	}
+	return hardest;
+}
+
 /** Whether axe decided, or declined to. */
 export type FindingKind = "violation" | "needs-review";
 
@@ -211,10 +277,20 @@ function clip(html: string | undefined): string {
  * rule whose tags fell outside the list would quietly stop
  * running. Widening an audit must not narrow it.
  */
-export function enabledRules(): Record<string, { enabled: true }> {
+export function enabledRules(
+	bar: ConformanceBar = "AAA",
+): Record<string, { enabled: true }> {
 	const switches: Record<string, { enabled: true }> = {};
 	for (const rule of EXPERIMENTAL_WCAG_RULES) {
 		switches[rule] = { enabled: true };
+	}
+	// The enhanced rules are only asked for when the enhanced bar is,
+	// because switching them on always would report AAA failures
+	// against a page that never claimed to reach for AAA.
+	if (bar === "AAA") {
+		for (const rule of ENHANCED_WCAG_RULES) {
+			switches[rule] = { enabled: true };
+		}
 	}
 	return switches;
 }

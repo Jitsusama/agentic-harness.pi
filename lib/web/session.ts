@@ -188,6 +188,7 @@ import {
 	type AxFacts,
 	buildStructure,
 	type CapturedTarget,
+	type ConformanceBar,
 	enabledRules,
 	type PageBox,
 	type RawAxeRun,
@@ -1988,7 +1989,7 @@ export class BrowserSession {
 	 * Their findings are reported as needing a person rather than
 	 * as failures, since axe's own doubt travels with them.
 	 */
-	async audit(): Promise<readonly A11yFinding[]> {
+	async audit(bar: ConformanceBar = "AAA"): Promise<readonly A11yFinding[]> {
 		await this.ready();
 		const source = await readFile(axeSource(), "utf8");
 		await this.cdp.send("Runtime.evaluate", { expression: source });
@@ -1996,7 +1997,7 @@ export class BrowserSession {
 			expression:
 				"axe.run(document, { " +
 				'resultTypes: ["violations", "incomplete"], ' +
-				`rules: ${JSON.stringify(enabledRules())} })`,
+				`rules: ${JSON.stringify(enabledRules(bar))} })`,
 			awaitPromise: true,
 			returnByValue: true,
 		});

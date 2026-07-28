@@ -34,6 +34,31 @@ Never write "this page is accessible" or "WCAG compliant" on the
 strength of a clean run. Write what was checked and what came
 back.
 
+## Which Bar You Are Judging Against
+
+`check kind:"accessibility"` holds a page to **AAA** by default,
+the enhanced level. Pass `level:"AA"` or `level:"A"` for a page
+that targets one of those instead.
+
+This matters more than it sounds, because AAA is not merely
+stricter, it changes what runs and what counts. axe ships exactly
+three AAA rules and all three are disabled by default, so an audit
+that does not ask for them checks no AAA criterion at all. Our own
+thresholds move too: a pointer target is 24 by 24 pixels at AA
+under 2.5.8 and 44 by 44 at AAA under 2.5.5.
+
+When you report, **say which bar you judged against**, because
+otherwise a failure is ambiguous between a standard being broken
+and an enhanced target not being reached. The report names the bar
+itself, and when every failure is a AAA one it says the page still
+meets AA. Quote that. The difference between "non-conformant" and
+"conformant, short of enhanced" is the difference between an
+emergency and a backlog item, and flattening it is how a team
+learns to ignore accessibility reports.
+
+If someone asks whether a page "passes WCAG", ask which level they
+mean before answering, or answer at both and label each.
+
 ## The Order to Work In
 
 ### 1. Keyboard first
