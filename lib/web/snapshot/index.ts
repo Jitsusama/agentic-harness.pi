@@ -21,6 +21,7 @@ export {
 export { HIDDEN_BOX_PX, PRESENTED } from "./presented.js";
 export {
 	describeNode,
+	describeStyles,
 	find,
 	matches,
 	type Query,

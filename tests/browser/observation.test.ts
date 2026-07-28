@@ -255,6 +255,24 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		expect(nodes.some((node) => node.bounds !== undefined)).toBe(true);
 	});
 
+	it("computes whichever properties the caller names", async () => {
+		// Passed on its first run: the capability was already here and
+		// simply unreachable from the tool, which is the whole finding
+		// behind the query parameter. This pins the behaviour that
+		// parameter now leans on. z-index is outside the curated set, so
+		// its presence proves the request reached the browser.
+		const nodes = await session.snapshot(["z-index"]);
+
+		const withValue = nodes.filter(
+			(node) => node.styles["z-index"] !== undefined,
+		);
+		expect(withValue.length).toBeGreaterThan(0);
+		// And the curated set is genuinely displaced, not merged with.
+		expect(withValue.some((node) => node.styles.color !== undefined)).toBe(
+			false,
+		);
+	});
+
 	it("describes the page's structure for the structural rules", async () => {
 		const structure = await session.structure();
 

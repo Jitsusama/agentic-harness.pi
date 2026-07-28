@@ -46,6 +46,7 @@ import type {
 } from "../../lib/web/session.js";
 import {
 	describeNode,
+	describeStyles,
 	find,
 	type IndexedNode,
 	isElement,
@@ -382,7 +383,9 @@ const parameters = Type.Object({
 		Type.Array(Type.String(), {
 			description:
 				"For element: report exactly these CSS properties instead " +
-				"of the curated set.",
+				"of the curated set. For query: report them for every " +
+				"match, which is how to sweep a whole page for a computed " +
+				"value rather than reading one element at a time.",
 		}),
 	),
 	why: Type.Optional(
@@ -622,7 +625,10 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 			}
 
 			if (kind === "query") {
-				const nodes = await session.snapshot();
+				// Naming properties is what makes this a sweep: the snapshot
+				// computes whichever ones it is given, and the caller was
+				// otherwise stuck with the curated set.
+				const nodes = await session.snapshot(params.styles);
 				const queried = runQuery(
 					nodes,
 					{
@@ -643,6 +649,7 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 							: { inShadow: params.inShadow }),
 					},
 					params.limit,
+					params.styles,
 				);
 				// The matches themselves go to the store, so the ones past
 				// the cap are a query away rather than a re-run away.
@@ -1009,6 +1016,7 @@ function runQuery(
 	nodes: readonly IndexedNode[],
 	query: Query,
 	limit?: number,
+	styles?: readonly string[],
 ): QueryReport {
 	const asked = Object.keys(query).length > 0;
 	if (!asked) {
@@ -1050,7 +1058,11 @@ function runQuery(
 	const lines = [
 		`${found.length} match${found.length === 1 ? "" : "es"}.`,
 		"",
-		...shown.map((node) => `  ${describeNode(node)}`),
+		...shown.flatMap((node) => {
+			const line = `  ${describeNode(node)}`;
+			const said = styles === undefined ? "" : describeStyles(node, styles);
+			return said ? [line, `      ${said}`] : [line];
+		}),
 	];
 	if (found.length > shown.length) {
 		lines.push("", `Showing ${shown.length}. Raise limit to see the rest.`);

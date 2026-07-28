@@ -141,8 +141,23 @@ control bound by delegation does not read as a dead one.
 said and what it asked the network for.
 `browser_see kind:"query"` finds nodes across frames and shadow
 roots, including the ones the browser did not draw, which is how
-you learn why something is missing. `browser_do kind:"eval"`
+you learn why something is missing. Give it `styles` to report
+named CSS properties for every match, which is the way to sweep a
+whole page for a computed value: colours across every heading,
+`z-index` on everything that stacks, `overflow` wherever text
+might clip. Each match already carries its box, so target sizes
+and overlaps are there without asking. A property the browser
+did not answer is named as not reported rather than dropped, so
+silence and a value never look alike. `browser_do kind:"eval"`
 interrogates the page directly.
+
+Reach for `eval` last. A session that spends most of its
+`browser_do` calls on `eval` is reporting a gap in these tools:
+the expressions say which surface is missing, and rebuilding
+something this package already ships is the common case. One real
+audit hand-wrote WCAG contrast maths twelve times and a
+focusable-element selector six, and evaluated `innerWidth` by hand
+while `see kind:"status"` sat there answering exactly that.
 
 **Validating behaviour.** `browser_do` acts, presses and waits;
 read the page again after each act rather than assuming the
