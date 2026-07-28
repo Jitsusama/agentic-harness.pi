@@ -34,6 +34,35 @@ export const SELECT_TEXT_PROBE = `function () {
   return false;
 }`;
 
+/**
+ * What an element says, holds, and is tagged with.
+ *
+ * Runs with the element as its receiver. Text is trimmed and
+ * capped, because a container's textContent can be the whole
+ * page and the question being asked is almost always about a
+ * short piece of it. Only data attributes and a handful of
+ * state attributes are returned: the rest are either already in
+ * the accessibility tree or noise.
+ */
+export const CONTENT_PROBE = `function () {
+  var text = (this.textContent || "").replace(/\\s+/g, " ").trim();
+  if (text.length > 400) text = text.slice(0, 400) + "...";
+  var attributes = [];
+  var names = this.getAttributeNames ? this.getAttributeNames() : [];
+  for (var at = 0; at < names.length; at++) {
+    var name = names[at];
+    if (name.indexOf("data-") === 0 || name === "disabled" ||
+        name === "readonly" || name === "open" || name === "hidden" ||
+        name === "contenteditable" || name === "autocomplete" ||
+        name === "inputmode" || name === "type" || name === "name") {
+      attributes.push([name, this.getAttribute(name)]);
+    }
+  }
+  var held;
+  if (typeof this.value === "string") held = this.value;
+  return { text: text, value: held, attributes: attributes };
+}`;
+
 export const OCCLUDER_PROBE = `function (hit) {
   if (!hit || hit === this || this.contains(hit)) return null;
   var described = hit.nodeName.toLowerCase();

@@ -22,6 +22,7 @@ import {
 	type PseudoState,
 	renderAnimations,
 	renderBox,
+	renderHover,
 	renderListeners,
 	renderMeasurement,
 	renderStyles,
@@ -30,7 +31,13 @@ import {
 	renderVisibility,
 } from "../../lib/web/element/index.js";
 import { renderStatus } from "../../lib/web/environment/index.js";
-import { measure, renderVitals } from "../../lib/web/perf/index.js";
+import {
+	measure,
+	renderHeap,
+	renderHotspots,
+	renderLayers,
+	renderVitals,
+} from "../../lib/web/perf/index.js";
 import type {
 	BrowserSession,
 	Inspection,
@@ -52,6 +59,7 @@ import {
 	renderDownloads,
 	renderLogs,
 	renderRequests,
+	renderSockets,
 	strandedByCrash,
 } from "../../lib/web/telemetry/index.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
@@ -63,7 +71,7 @@ import {
 	refusal,
 	sessionInPlay,
 } from "./result.js";
-import { bodyAnswer, listAnswer, pageAnswer } from "./stored.js";
+import { bodyAnswer, elementAnswer, listAnswer, pageAnswer } from "./stored.js";
 
 /**
  * Lay an observation out for reading: where you are, then what is
@@ -194,6 +202,28 @@ function renderInspection(found: Inspection): string {
 		"",
 		renderVisibility(found.visibility),
 	];
+	// What it says and holds comes before where it is, because a
+	// caller checking a counter or a filled field is asking about
+	// the words, and having to scroll past a box model to reach
+	// them is the wrong order.
+	if (found.text) sections.push("", `Text: ${found.text}`);
+	if (found.value !== undefined) sections.push(`Value: ${found.value}`);
+	if (found.attributes) {
+		sections.push(
+			"",
+			"Attributes:",
+			...Object.entries(found.attributes).map(
+				([named, held]) => `  ${named}="${held}"`,
+			),
+		);
+	}
+	if (found.fonts) {
+		sections.push(
+			"",
+			"Painted with:",
+			...found.fonts.map((font) => `  ${font.family} (${font.glyphs} glyphs)`),
+		);
+	}
 	if (found.box) sections.push("", renderBox(found.box));
 	if (found.styles) sections.push("", renderStyles(found.styles));
 	if (found.variants) sections.push("", renderVariants(found.variants));
@@ -272,6 +302,11 @@ const parameters = Type.Object({
 				Type.Literal("vitals"),
 				Type.Literal("element"),
 				Type.Literal("measure"),
+				Type.Literal("sockets"),
+				Type.Literal("heap"),
+				Type.Literal("profile"),
+				Type.Literal("layers"),
+				Type.Literal("hover"),
 				Type.Literal("shot"),
 			],
 			{
@@ -291,6 +326,21 @@ const parameters = Type.Object({
 					"what the page " +
 					"said out loud through its live regions. element: " +
 					"everything about one element, named with 'within'. " +
+					"measure: the space between two elements, named with " +
+					"'within' and 'and': the gap, what lines up, and " +
+					"whether they are the same size. sockets: every " +
+					"websocket the page opened and both sides of what was " +
+					"said over it. heap: how much memory the page is " +
+					"holding, compared against the last reading, which is " +
+					"how a leak is found. profile: record the page's " +
+					"JavaScript for a while and report which functions spent " +
+					"the time, which is what a long task cannot tell you. " +
+					"layers: what the page asked the compositor to keep, how " +
+					"much texture memory that costs, and the reason Chrome " +
+					"gives for each one, which is how a layer explosion is " +
+					"found. hover: what the page does on hover across every " +
+					"element that has a hover rule, and whether focus does the " +
+					"same, which is how a cue only a mouse can reach is found. " +
 					"shot: a picture, written to disk and reported by path, " +
 					"of the viewport, or of the whole page with 'fullPage', " +
 					"or of one element with 'within'.",
@@ -309,6 +359,15 @@ const parameters = Type.Object({
 				"'shot', the element to photograph, cropped to its box " +
 				"rather than the whole page. For kind 'measure', the first " +
 				"of the two elements to measure between.",
+		}),
+	),
+	collect: Type.Optional(
+		Type.Boolean({
+			description:
+				"For heap: force a garbage collection before measuring. " +
+				"Defaults to true, and you almost never want false: " +
+				"without it, garbage nobody has swept yet counts the same " +
+				"as memory nobody can free, so growth proves nothing.",
 		}),
 	),
 	and: Type.Optional(
@@ -383,7 +442,9 @@ const parameters = Type.Object({
 	depth: Type.Optional(
 		Type.Integer({
 			minimum: 1,
-			description: "Keep this many levels of the outline. Omit for all of it.",
+			description:
+				"For page and reading: keep this many levels of the " +
+				"outline. Omit for all of it.",
 		}),
 	),
 	har: Type.Optional(
@@ -434,7 +495,8 @@ const parameters = Type.Object({
 			],
 			{
 				description:
-					"Reduce the page to one kind of thing: 'landmarks' for " +
+					"For page and reading: reduce the page to one kind of " +
+					"thing: 'landmarks' for " +
 					"how it is laid out, 'headings' for its outline, " +
 					"'interactive' for what you can operate.",
 			},
@@ -478,7 +540,17 @@ const parameters = Type.Object({
 		Type.Number({
 			description:
 				"For query: how many matches to list. The total is always " +
-				"reported, however many are shown.",
+				"reported, however many are shown. For hover: how many " +
+				"elements to hold and read, since each costs a round trip. " +
+				"Defaults to 60, which is about half a second.",
+		}),
+	),
+	ms: Type.Optional(
+		Type.Number({
+			description:
+				"For profile: how long to record, in milliseconds. " +
+				"Defaults to 3000. Do the slow thing while it runs, or " +
+				"the profile catches an idle page.",
 		}),
 	),
 	budget: Type.Optional(
@@ -512,9 +584,10 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 		promptSnippet:
 			"browser_see reads a page and changes nothing: its " +
 			"accessibility outline, reading order, one element in " +
-			"depth, a query across frames and shadow roots, console " +
-			"and network telemetry, screenshots, vitals, status. Read " +
-			"the browser-guide skill.",
+			"depth, the space between two elements, a query across " +
+			"frames and shadow roots, console, network and websocket " +
+			"telemetry, screenshots, vitals, status. Read the " +
+			"browser-guide skill.",
 		parameters,
 		renderCall: (args, theme) => renderBrowserCall("see", args, theme),
 		renderResult: (result, options, theme) =>
@@ -599,6 +672,58 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 						records: files,
 						unit: "downloads",
 						narrowing: "Every file is on disk at the path shown.",
+					}),
+				);
+			}
+
+			if (kind === "profile") {
+				return answer(
+					name,
+					kind,
+					renderHotspots(await session.profile(params.ms ?? 3_000)),
+				);
+			}
+
+			if (kind === "layers") {
+				return answer(name, kind, renderLayers(await session.layers()));
+			}
+
+			if (kind === "hover") {
+				return answer(
+					name,
+					kind,
+					renderHover(await session.hovers(params.limit)),
+				);
+			}
+
+			if (kind === "heap") {
+				return answer(
+					name,
+					kind,
+					renderHeap(await session.heap(params.collect ?? true)),
+				);
+			}
+
+			if (kind === "sockets") {
+				const open = session.sockets();
+				const dropped = session.socketFramesDropped;
+				return answer(
+					name,
+					kind,
+					listAnswer({
+						view:
+							renderSockets(open) +
+							// A chatty socket outruns any buffer, and a reader
+							// drawing conclusions from frame one needs to know
+							// frame zero is missing.
+							(dropped > 0
+								? `\n\n${dropped} earlier socket events were dropped to stay within the buffer.`
+								: ""),
+						records: open,
+						unit: "sockets",
+						narrowing:
+							"Query the handle for whole frames, e.g. " +
+							"$.sockets[0].frames[*].payload.",
 					}),
 				);
 			}
@@ -815,7 +940,11 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 				if (!found.ok) {
 					return refusal(name, kind, describeRefusal(target, found.refusal));
 				}
-				return answer(name, kind, renderInspection(found.inspection));
+				return answer(
+					name,
+					kind,
+					elementAnswer(found.inspection, renderInspection(found.inspection)),
+				);
 			}
 
 			const scope: TreeScope = {

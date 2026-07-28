@@ -68,13 +68,20 @@ import {
 	ANIMATIONS_PROBE,
 	type Animation,
 	type BoxModel,
+	CONTENT_PROBE,
 	centreOf,
 	cornersOf,
 	type DelegatedListeners,
 	diffStyles,
+	foldHover,
+	HOVER_SCAN,
+	type HoverMeasurement,
+	type HoverReport,
+	type HoverScan,
 	judgeActionability,
 	judgeVisibility,
 	type Listener,
+	MAX_HOVER_CANDIDATES,
 	type Measurement,
 	measureBetween,
 	normalizeAnimations,
@@ -89,6 +96,7 @@ import {
 	type Rect,
 	SELECT_TEXT_PROBE,
 	SETTLE_PROBE,
+	type StyleChange,
 	sameBox,
 	type VisibilityVerdict,
 } from "./element/index.js";
@@ -187,6 +195,7 @@ import {
 	type AxFacts,
 	buildStructure,
 	type CapturedTarget,
+	type ConformanceBar,
 	enabledRules,
 	type PageBox,
 	type RawAxeRun,
@@ -205,13 +214,36 @@ import {
 	evaluationSource,
 } from "./evaluate/index.js";
 import {
+	categoriesFor,
+	compareHeap,
+	foldLayers,
+	foldProfile,
+	foldTrace,
+	type HeapComparison,
+	type HeapReading,
+	type Hotspots,
+	LAYER_SETTLE_MS,
+	type LayerReport,
+	nameNode,
 	observerBootstrap,
+	type RawLayer,
+	type RawProfile,
+	type RawTraceEvent,
 	readVitalsSource,
+	type TraceCapture,
+	type TraceProfile,
 	type Vitals,
 } from "./perf/index.js";
 import { captureTiles } from "./screenshot.js";
 import { ArtifactLedger } from "./session/artifacts.js";
 import { EmulationController } from "./session/emulation.js";
+import {
+	claimRecording,
+	describeRecording,
+	type RecordingRefused,
+	recordingInProgress,
+	releaseRecording,
+} from "./session/recording.js";
 import { PageSettler } from "./session/settling.js";
 import { NetworkShaper } from "./session/shaping.js";
 import { SourceMapStore } from "./session/sourcemaps.js";
@@ -253,6 +285,7 @@ import {
 	type NetworkRequest,
 	type Recorded,
 	requestStatus,
+	type SocketRecord,
 	toHar,
 } from "./telemetry/index.js";
 
@@ -294,9 +327,27 @@ export type MeasureResult =
 	  }
 	| { readonly ok: false; readonly problem: string };
 
+/** A font the browser really used, and how much of it. */
+export interface RenderedFont {
+	readonly family: string;
+	readonly glyphs: number;
+}
+
 export interface Inspection {
 	readonly node: AxNode;
 	readonly visibility: VisibilityVerdict;
+	/**
+	 * What the element actually says, as opposed to what it is
+	 * called. A counter reading "42" has an accessible name that
+	 * mentions no number.
+	 */
+	readonly text?: string;
+	/** What a field is holding, which its name never says. */
+	readonly value?: string;
+	/** Data and state attributes, which the a11y tree cannot see. */
+	readonly attributes?: Readonly<Record<string, string>>;
+	/** The fonts actually painted, as opposed to the stack asked for. */
+	readonly fonts?: readonly RenderedFont[];
 	readonly box?: BoxModel;
 	readonly styles?: readonly StyleGroup[];
 	readonly trace?: PropertyTrace;
@@ -405,6 +456,11 @@ const CRASH_NOTICE_POLL_MS = 25;
  * on screen. Everything else addresses the element directly and
  * would succeed where a click could not.
  */
+/** Whether claiming the recording permit came back as a refusal. */
+function isRecordingRefused(value: unknown): value is RecordingRefused {
+	return typeof value === "object" && value !== null && "refusal" in value;
+}
+
 function usesPointer(action: TargetedAction): boolean {
 	return action.kind === "click" || action.kind === "hover";
 }
@@ -1026,6 +1082,412 @@ export class BrowserSession {
 		return this.telemetry.downloads();
 	}
 
+	/**
+	 * Record what the page's JavaScript is doing, for a while.
+	 *
+	 * A long task says three seconds went somewhere. This says
+	 * where. The profiler is started, the page is left alone for
+	 * the window asked for, and the samples are folded into time
+	 * per function.
+	 *
+	 * Nothing is done to the page in between on purpose: whatever
+	 * is being profiled has to be the page's own work, and a probe
+	 * running during the window would appear in its own results.
+	 */
+	async profile(forMs: number): Promise<Hotspots> {
+		await this.ready();
+		await this.cdp.send("Profiler.enable");
+		// A thousand microseconds is Chrome's own default. Sampling
+		// faster buys precision the reader cannot use and costs the
+		// page time that then shows up in its own profile.
+		await this.cdp.send("Profiler.setSamplingInterval", { interval: 1000 });
+		await this.cdp.send("Profiler.start");
+		await new Promise((wake) => setTimeout(wake, forMs));
+		const { profile } = await this.cdp.send("Profiler.stop");
+		await this.cdp.send("Profiler.disable");
+		return foldProfile(profile as RawProfile);
+	}
+
+	/**
+	 * Record a trace around some work, and say what it cost.
+	 *
+	 * The work runs inside the recording rather than before it,
+	 * because a trace only holds what happened while it was on.
+	 * Measured: a timer installed before the recording starts has
+	 * no install event, so its lateness cannot be explained and a
+	 * fetch begun earlier has no url. Tracing after the fact is
+	 * not a weaker answer, it is no answer.
+	 *
+	 * The work's own result is handed back whatever the recording
+	 * did, so a refused permit or a protocol failure costs the
+	 * caller the trace and never the action.
+	 */
+	async recordWhile<T>(
+		profiles: readonly TraceProfile[],
+		work: () => Promise<T>,
+	): Promise<{
+		readonly result: T;
+		readonly trace?: TraceCapture;
+		readonly refusal?: string;
+	}> {
+		await this.ready();
+		const permit = claimRecording(this.name, profiles);
+		if (isRecordingRefused(permit)) {
+			return { result: await work(), refusal: permit.refusal };
+		}
+
+		const events: RawTraceEvent[] = [];
+		const collect = (batch: { value?: RawTraceEvent[] }): void => {
+			if (batch.value) events.push(...batch.value);
+		};
+		this.cdp.on("Tracing.dataCollected", collect);
+
+		let started = false;
+		try {
+			await this.cdp.send("Tracing.start", {
+				transferMode: "ReportEvents",
+				traceConfig: {
+					recordMode: "recordContinuously",
+					includedCategories: [...categoriesFor(profiles)],
+				},
+			});
+			started = true;
+		} catch (error) {
+			this.cdp.off("Tracing.dataCollected", collect);
+			releaseRecording();
+			return {
+				result: await work(),
+				refusal: `The browser refused to start tracing: ${String(error)}`,
+			};
+		}
+
+		// The action runs whatever the recording does next, and the
+		// permit is given back on every path out of here.
+		try {
+			const result = await work();
+			const delivered = new Promise<void>((resolve) => {
+				this.cdp.once("Tracing.tracingComplete", () => resolve());
+			});
+			await this.cdp.send("Tracing.end");
+			await delivered;
+			return {
+				result,
+				trace: foldTrace(events, {
+					frames: await this.ownFrameIds(),
+					profiles,
+				}),
+			};
+		} finally {
+			this.cdp.off("Tracing.dataCollected", collect);
+			if (started) releaseRecording();
+		}
+	}
+
+	/**
+	 * Every frame id this session owns, its own and its children's.
+	 *
+	 * This is what separates our work from another session's in a
+	 * recording that necessarily contains both.
+	 */
+	private async ownFrameIds(): Promise<ReadonlySet<string>> {
+		const ids = new Set<string>();
+		try {
+			const { frameTree } = (await this.cdp.send("Page.getFrameTree")) as {
+				frameTree: FrameTreeNode;
+			};
+			const queue: FrameTreeNode[] = [frameTree];
+			while (queue.length > 0) {
+				const node = queue.shift();
+				if (node === undefined) continue;
+				ids.add(node.frame.id);
+				queue.push(...(node.childFrames ?? []));
+			}
+		} catch {
+			// Without a frame tree nothing can be attributed, which the
+			// fold reports as unattributed rather than guessing.
+		}
+		return ids;
+	}
+
+	/** Every websocket conversation the page has held. */
+	sockets(): readonly SocketRecord[] {
+		return this.telemetry.sockets();
+	}
+
+	/**
+	 * Measure what the page is holding, against the last measurement.
+	 *
+	 * A collection is forced first unless refused, because a heap
+	 * that grew means nothing while uncollected garbage is still in
+	 * it. The previous reading is kept on the session so a caller
+	 * can measure, do the thing they suspect, and measure again
+	 * without having to carry a number between calls.
+	 */
+	async heap(collect = true): Promise<HeapComparison> {
+		await this.ready();
+
+		if (collect) {
+			// Chrome exposes this on two domains and neither is
+			// guaranteed enabled. Failing to collect is not worth
+			// failing the read over, but it does change what the
+			// reading means, which is what `collected` carries.
+			try {
+				await this.cdp.send("HeapProfiler.collectGarbage");
+			} catch {
+				collect = false;
+			}
+		}
+
+		// The domain answers with an empty list until it is enabled,
+		// which reads as a heap of zero that never changes: a leak
+		// check that always says everything is fine. Enabling is
+		// idempotent, so it costs nothing to do it on every read.
+		// Measured: without this the domain answers with every metric
+		// at zero rather than refusing, which reads as a page holding
+		// no memory that never changes. A leak check that always says
+		// everything is fine is worse than no leak check. Enabling is
+		// idempotent, so it costs nothing to do on every read.
+		await this.cdp.send("Performance.enable");
+		const { metrics } = await this.cdp.send("Performance.getMetrics");
+		const read = (named: string): number =>
+			metrics.find((metric) => metric.name === named)?.value ?? 0;
+
+		const reading: HeapReading = {
+			usedBytes: read("JSHeapUsedSize"),
+			totalBytes: read("JSHeapTotalSize"),
+			collected: collect,
+			at: Date.now(),
+		};
+
+		const compared = compareHeap(reading, this.lastHeap);
+		this.lastHeap = reading;
+		return compared;
+	}
+
+	/** The previous heap reading, for the next comparison. */
+	private lastHeap?: HeapReading;
+
+	/**
+	 * What the compositor is holding for this page, and why.
+	 *
+	 * LayerTree pushes nothing when it is enabled: the tree arrives
+	 * only on layerTreeDidChange, and a page that has finished
+	 * settling has no change left to report. Measured across seven
+	 * candidates, a throwaway screenshot is the cheapest way to make
+	 * Chrome recompose and hand the tree over, and the only one that
+	 * alters nothing about the page. Scrolling moves the page,
+	 * overriding device metrics disturbs an emulation the caller may
+	 * have set, and toggling a style writes to the DOM.
+	 *
+	 * The domain goes off again afterwards, so a read leaves no
+	 * instrumentation running behind it.
+	 */
+	async layers(): Promise<LayerReport> {
+		await this.ready();
+
+		let latest: readonly RawLayer[] = [];
+		const onChange = (payload: { layers?: RawLayer[] }): void => {
+			if (payload.layers) latest = payload.layers;
+		};
+		this.cdp.on("LayerTree.layerTreeDidChange", onChange);
+		try {
+			await this.cdp.send("LayerTree.enable");
+			await this.cdp.send("Page.captureScreenshot", { format: "png" });
+			await this.settleLayers();
+		} finally {
+			this.cdp.off("LayerTree.layerTreeDidChange", onChange);
+			// Best effort: a disable that fails leaves the domain on, which
+			// costs a little work per frame but breaks nothing, and is not
+			// worth failing the read over.
+			await this.cdp.send("LayerTree.disable").catch(() => undefined);
+		}
+
+		// Snapshotted before anything is asked about it. Every await
+		// below lets another change land, and a loop reading the live
+		// array attributes one layer's reasons to another's id.
+		const layers = [...latest];
+		const reasons: Record<string, readonly string[]> = {};
+		const elements: Record<string, string> = {};
+		for (const layer of layers) {
+			reasons[layer.layerId] = await this.reasonsFor(layer.layerId);
+			const named = await this.nameOfNode(layer.backendNodeId);
+			if (named !== undefined) elements[layer.layerId] = named;
+		}
+
+		return foldLayers({ layers, reasons, elements });
+	}
+
+	/**
+	 * What the page does on hover, and whether focus does it too.
+	 *
+	 * Two halves, because either alone lies. The stylesheets say
+	 * which elements might hover, cheaply and in one round trip, but
+	 * a declared rule the cascade beat changes nothing a person can
+	 * see. So the scan only proposes candidates, and each one is then
+	 * held in hover and in focus and read, which is the only account
+	 * of what actually happens.
+	 *
+	 * Bounded because there is a round trip per candidate, measured
+	 * at roughly 9ms for the pair of states.
+	 */
+	async hovers(limit = MAX_HOVER_CANDIDATES): Promise<HoverReport> {
+		await this.ready();
+
+		const scan = await this.scanForHover();
+		const measurements: HoverMeasurement[] = [];
+		const seen = new Set<number>();
+
+		for (const selector of scan.selectors) {
+			if (measurements.length >= limit) break;
+			for (const found of await this.nodesMatching(selector)) {
+				if (measurements.length >= limit) break;
+				// One element can match two hover selectors. Measuring it
+				// twice would report one treatment as two.
+				if (seen.has(found)) continue;
+				seen.add(found);
+				const measured = await this.measureHover(found);
+				if (measured) measurements.push(measured);
+			}
+		}
+
+		return foldHover(measurements, scan.unreadableSheets);
+	}
+
+	/** Which selectors carry a hover, as the page's own sheets say. */
+	private async scanForHover(): Promise<HoverScan> {
+		try {
+			const { result } = await this.cdp.send("Runtime.evaluate", {
+				expression: HOVER_SCAN,
+				returnByValue: true,
+			});
+			const parsed: unknown = JSON.parse(String(result.value));
+			if (
+				typeof parsed === "object" &&
+				parsed !== null &&
+				"selectors" in parsed &&
+				Array.isArray(parsed.selectors)
+			) {
+				const sheets =
+					"unreadableSheets" in parsed &&
+					typeof parsed.unreadableSheets === "number"
+						? parsed.unreadableSheets
+						: 0;
+				return {
+					selectors: parsed.selectors.filter(
+						(one): one is string => typeof one === "string",
+					),
+					unreadableSheets: sheets,
+				};
+			}
+			return { selectors: [], unreadableSheets: 0 };
+		} catch {
+			// A page that navigated mid-scan has no stylesheets to report.
+			return { selectors: [], unreadableSheets: 0 };
+		}
+	}
+
+	/** Backend ids matching a selector, or none if it will not parse. */
+	private async nodesMatching(selector: string): Promise<readonly number[]> {
+		try {
+			const { root } = await this.cdp.send("DOM.getDocument", { depth: 0 });
+			const { nodeIds } = await this.cdp.send("DOM.querySelectorAll", {
+				nodeId: root.nodeId,
+				selector,
+			});
+			const backend: number[] = [];
+			for (const nodeId of nodeIds) {
+				const { node } = await this.cdp.send("DOM.describeNode", { nodeId });
+				if (node.backendNodeId !== undefined) backend.push(node.backendNodeId);
+			}
+			return backend;
+		} catch {
+			// A selector Chrome will not parse, which a stylesheet can
+			// legally contain once its hover part is stripped off.
+			return [];
+		}
+	}
+
+	/** Hold hover, then focus, and read what each changed. */
+	private async measureHover(
+		backendNodeId: number,
+	): Promise<HoverMeasurement | undefined> {
+		const nodeId = await this.frontendNodeFor(backendNodeId);
+		if (nodeId === undefined) return undefined;
+		const objectId = await this.objectFor(backendNodeId);
+		if (objectId === undefined) return undefined;
+
+		const named = await this.nameOfNode(backendNodeId);
+		const atRest = await this.stylesOf(objectId);
+		if (!atRest) return undefined;
+		const resting = curateStyles(atRest, {});
+
+		const read = async (
+			state: PseudoState,
+		): Promise<readonly StyleChange[]> => {
+			await this.cdp.send("CSS.forcePseudoState", {
+				nodeId,
+				forcedPseudoClasses: [state],
+			});
+			await this.settleForcedState(objectId);
+			const held = await this.stylesOf(objectId);
+			return held ? diffStyles(resting, curateStyles(held, {})) : [];
+		};
+
+		try {
+			const hover = await read("hover");
+			const focus = await read("focus");
+			return { element: named ?? `node ${backendNodeId}`, hover, focus };
+		} finally {
+			// Always released. A page left stuck in a forced hover would
+			// corrupt every later reading of it, and a restoration written
+			// after the reads would not run when one of them throws.
+			await this.cdp
+				.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] })
+				.catch(() => undefined);
+		}
+	}
+
+	/** Why Chrome composited one layer, or nothing if it will not say. */
+	private async reasonsFor(layerId: string): Promise<readonly string[]> {
+		try {
+			const answer = await this.cdp.send("LayerTree.compositingReasons", {
+				layerId,
+			});
+			return answer.compositingReasons ?? [];
+		} catch {
+			// The layer went away between the snapshot and the question,
+			// which is silence about it rather than a reason to fail.
+			return [];
+		}
+	}
+
+	/** A short name for the element behind a layer. */
+	private async nameOfNode(
+		backendNodeId: number | undefined,
+	): Promise<string | undefined> {
+		if (backendNodeId === undefined) return undefined;
+		try {
+			const { node } = await this.cdp.send("DOM.describeNode", {
+				backendNodeId,
+			});
+			return nameNode(node.nodeName, node.attributes);
+		} catch {
+			// A node that has left the document cannot be named, and a
+			// layer without a name is still worth reporting by id.
+			return undefined;
+		}
+	}
+
+	/** Give the compositor a moment to finish reporting. */
+	private settleLayers(): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, LAYER_SETTLE_MS));
+	}
+
+	/** Socket events dropped to stay within the buffer's budget. */
+	get socketFramesDropped(): number {
+		return this.telemetry.socketFramesDropped;
+	}
+
 	/** Where the page has been. */
 	get history(): readonly LifecycleEvent[] {
 		return this.telemetry.history;
@@ -1640,7 +2102,27 @@ export class BrowserSession {
 			unreachable: collected.unreachable,
 			...(escapeFreed === undefined ? {} : { escapeFreed }),
 			...(exhausted ? { cappedAt: cap } : {}),
+			// Which way the page reads has to come from the page. The
+			// side-by-side order that is wrong in English is correct in
+			// Arabic, and guessing left-to-right would report every
+			// right-to-left toolbar as backwards.
+			direction: await this.readingDirection(),
 		};
+	}
+
+	/** Which way the document says it reads. */
+	private async readingDirection(): Promise<"ltr" | "rtl"> {
+		try {
+			const reads = await this.page.evaluate(
+				() => getComputedStyle(document.documentElement).direction,
+			);
+			return reads === "rtl" ? "rtl" : "ltr";
+		} catch {
+			// Left-to-right is the safe default: it is what most pages
+			// are, and being wrong here only costs a finding nobody
+			// asked for rather than a missed barrier.
+			return "ltr";
+		}
 	}
 
 	/**
@@ -1735,7 +2217,7 @@ export class BrowserSession {
 	 * Their findings are reported as needing a person rather than
 	 * as failures, since axe's own doubt travels with them.
 	 */
-	async audit(): Promise<readonly A11yFinding[]> {
+	async audit(bar: ConformanceBar = "AAA"): Promise<readonly A11yFinding[]> {
 		await this.ready();
 		const source = await readFile(axeSource(), "utf8");
 		await this.cdp.send("Runtime.evaluate", { expression: source });
@@ -1743,7 +2225,7 @@ export class BrowserSession {
 			expression:
 				"axe.run(document, { " +
 				'resultTypes: ["violations", "incomplete"], ' +
-				`rules: ${JSON.stringify(enabledRules())} })`,
+				`rules: ${JSON.stringify(enabledRules(bar))} })`,
 			awaitPromise: true,
 			returnByValue: true,
 		});
@@ -2067,6 +2549,19 @@ export class BrowserSession {
 								: "Nothing has requested it.",
 					};
 				}
+				if (
+					condition.status !== undefined &&
+					last.status !== condition.status
+				) {
+					// Keep waiting rather than declaring the condition met.
+					// A retry may still answer with the status asked for, and
+					// if none does, the timeout reports the status that kept
+					// arriving, which is the finding.
+					return {
+						met: false,
+						saw: `${last.method} ${last.url} answered ${requestStatus(last)}.`,
+					};
+				}
 				return {
 					met: true,
 					// A cancelled request usually carries no failure text,
@@ -2076,6 +2571,71 @@ export class BrowserSession {
 						last.state === "complete"
 							? `${last.method} ${last.url} answered ${requestStatus(last)}.`
 							: `${last.method} ${last.url} ${requestStatus(last)}.`,
+				};
+			}
+			case "attribute": {
+				// Read through one evaluate rather than a handle, so an
+				// element replaced between finding it and reading it is
+				// simply absent on the next poll instead of throwing on a
+				// stale handle.
+				let held: string | null | undefined;
+				try {
+					held = await this.page.evaluate(
+						(selector: string, attribute: string) => {
+							const found = document.querySelector(selector);
+							if (found === null) return undefined;
+							return found.getAttribute(attribute);
+						},
+						condition.selector,
+						condition.attribute,
+					);
+				} catch (error) {
+					return {
+						met: false,
+						saw: `The page could not be asked: ${String(error)}`,
+					};
+				}
+
+				if (held === undefined) {
+					// Absent element and absent attribute are different
+					// answers. Treating the first as "attribute is gone"
+					// would satisfy a wait for a control that never rendered.
+					return { met: false, saw: "Nothing matches that selector." };
+				}
+
+				const met =
+					condition.value === undefined
+						? held === null
+						: held === condition.value;
+				return {
+					met,
+					...(met
+						? {}
+						: {
+								saw:
+									held === null
+										? `It has no ${condition.attribute}.`
+										: `Its ${condition.attribute} is "${held}".`,
+							}),
+				};
+			}
+			case "count": {
+				let seen: number;
+				try {
+					seen = await this.page.evaluate(
+						(selector: string) => document.querySelectorAll(selector).length,
+						condition.selector,
+					);
+				} catch (error) {
+					return {
+						met: false,
+						saw: `The page could not be asked: ${String(error)}`,
+					};
+				}
+				const met = seen === condition.count;
+				return {
+					met,
+					...(met ? {} : { saw: `There are ${seen}.` }),
 				};
 			}
 			case "animations": {
@@ -2142,6 +2702,7 @@ export class BrowserSession {
 			},
 			history: this.history,
 			artifacts: this.artifacts.written,
+			recording: describeRecording(recordingInProgress(), this.name),
 		};
 	}
 
@@ -2212,6 +2773,79 @@ export class BrowserSession {
 			};
 		} finally {
 			await this.release(objectId);
+		}
+	}
+
+	/**
+	 * Which fonts the browser actually painted with.
+	 *
+	 * A computed style reports the stack that was asked for, not
+	 * what was used. "SF Pro, Helvetica, sans-serif" reads the same
+	 * whether the first one loaded or the page quietly fell back to
+	 * the third, which is most of the answer to why a screenshot
+	 * from one machine does not match another.
+	 */
+	private async fontsOf(
+		backendNodeId: number,
+	): Promise<readonly RenderedFont[] | undefined> {
+		const nodeId = await this.frontendNodeFor(backendNodeId);
+		if (nodeId === undefined) return undefined;
+		try {
+			const { fonts } = await this.cdp.send("CSS.getPlatformFontsForNode", {
+				nodeId,
+			});
+			if (fonts.length === 0) return undefined;
+			return fonts.map((font) => ({
+				family: font.familyName,
+				glyphs: font.glyphCount,
+			}));
+		} catch {
+			// An element with no text has no fonts, and a detached one
+			// cannot be asked. Neither is worth failing an inspection.
+			return undefined;
+		}
+	}
+
+	/**
+	 * The element's own words, and the attributes it carries.
+	 *
+	 * The accessible name answers what a control is called, which
+	 * is a different question from what it says. A counter reading
+	 * "42", a status reading "3 items updated" and an input holding
+	 * a typed email all have names that say none of that, so
+	 * asserting on them meant dropping to a raw evaluate. Data
+	 * attributes are here for the same reason: teams hang test
+	 * state on them, and the accessibility tree cannot see them.
+	 */
+	private async contentOf(objectId: string): Promise<
+		| {
+				text?: string;
+				value?: string;
+				attributes?: Readonly<Record<string, string>>;
+		  }
+		| undefined
+	> {
+		try {
+			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
+				objectId,
+				returnByValue: true,
+				functionDeclaration: CONTENT_PROBE,
+			});
+			const read = result.value as
+				| { text: string; value?: string; attributes: [string, string][] }
+				| undefined;
+			if (read === undefined) return undefined;
+			return {
+				...(read.text === "" ? {} : { text: read.text }),
+				...(read.value === undefined ? {} : { value: read.value }),
+				...(read.attributes.length === 0
+					? {}
+					: { attributes: Object.fromEntries(read.attributes) }),
+			};
+		} catch {
+			// A detached node cannot be read, and an inspection that
+			// reports everything else is worth more than a refusal.
+			return undefined;
 		}
 	}
 
@@ -2293,9 +2927,14 @@ export class BrowserSession {
 					)
 				: undefined;
 
+		const content = objectId ? await this.contentOf(objectId) : undefined;
+		const fonts = await this.fontsOf(backendNodeId);
+
 		return {
 			node,
 			visibility,
+			...(content ?? {}),
+			...(fonts === undefined ? {} : { fonts }),
 			...(box === undefined ? {} : { box }),
 			...(curated === undefined ? {} : { styles: curated }),
 			...(wantsBehaviour && objectId

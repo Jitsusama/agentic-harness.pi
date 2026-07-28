@@ -6,7 +6,46 @@
  * capture, live or stored.
  */
 
+export {
+	compareHeap,
+	type HeapComparison,
+	type HeapReading,
+	renderHeap,
+} from "./heap.js";
+export {
+	BYTES_PER_PIXEL,
+	type CompositedLayer,
+	foldLayers,
+	LAYER_SETTLE_MS,
+	type LayerFacts,
+	type LayerReport,
+	nameNode,
+	type RawLayer,
+	type ReasonTally,
+	renderLayers,
+} from "./layers.js";
 export { observerBootstrap, readVitalsSource } from "./probe.js";
+export {
+	foldProfile,
+	type Hotspot,
+	type Hotspots,
+	type RawProfile,
+	type RawProfileNode,
+	renderHotspots,
+} from "./profile.js";
+export {
+	categoriesFor,
+	type FrameStory,
+	foldTrace,
+	type RawTraceEvent,
+	type RequestSpan,
+	renderTrace,
+	type TaskCost,
+	type TimerStory,
+	TRACE_CATEGORIES,
+	type TraceCapture,
+	type TraceProfile,
+} from "./trace.js";
 export { renderVitals } from "./view.js";
 export {
 	cumulativeShift,

@@ -9,6 +9,8 @@
 import {
 	type A11yFinding,
 	type AxeTally,
+	type ConformanceBar,
+	hardestLevel,
 	type Impact,
 	orderFindings,
 	tallyFindings,
@@ -58,6 +60,32 @@ function standardsPosition(tally: AxeTally): {
 		failures: tally.wcag,
 		warnings: tally.needsReview + tally.bestPractice,
 	};
+}
+
+/**
+ * Which bar this was judged against, and whether a lower one
+ * would have been met.
+ *
+ * The bar has to be named or the report is unreadable: a page
+ * built to AA, judged at AAA, reads as broken rather than as not
+ * reaching for the enhanced level. And naming it is not enough on
+ * its own. A reader whose only failures are AAA ones needs to be
+ * told the page still meets AA, because the difference between
+ * "non-conformant" and "conformant, short of enhanced" is the
+ * difference between an emergency and a backlog item.
+ */
+function againstBar(
+	findings: readonly A11yFinding[],
+	bar: ConformanceBar | undefined,
+): string {
+	if (bar === undefined) return "";
+	const failed = findings.filter((finding) => finding.kind === "violation");
+	if (failed.length === 0) return ` Judged against ${bar}.`;
+	const hardest = hardestLevel(failed);
+	if (bar === "AAA" && hardest === "AAA") {
+		return " Judged against AAA; every failure is a AAA one, so the page still meets AA.";
+	}
+	return ` Judged against ${bar}.`;
 }
 
 export function renderSummary(tally: AxeTally): string {
@@ -209,7 +237,12 @@ export function renderFinding(finding: A11yFinding): string {
 export function renderAudit(
 	unordered: readonly A11yFinding[],
 	tally: AxeTally,
-	options: { readonly rule?: string; readonly measured?: string } = {},
+	options: {
+		readonly rule?: string;
+		readonly measured?: string;
+		/** The bar the audit was held to, when it was not the default. */
+		readonly bar?: ConformanceBar;
+	} = {},
 ): string {
 	// Ordered here rather than trusted from the caller. A report
 	// that claims to lead with the worst thing found has to do so
@@ -282,7 +315,7 @@ export function renderAudit(
 	const index = renderIndex(findings);
 	const verdict: Verdict = {
 		standing: standingFor(standardsPosition(tally)),
-		headline: renderSummary(tally),
+		headline: `${renderSummary(tally)}${againstBar(findings, options.bar)}`,
 		...(options.measured === undefined ? {} : { measured: options.measured }),
 	};
 	return renderVerdict(

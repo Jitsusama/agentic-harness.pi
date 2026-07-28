@@ -46,6 +46,22 @@ window.askText = () => {
 </script></main>`,
 );
 
+/**
+ * A page that opens a socket, says something and waits to be
+ * answered, which is the shape of every live feature.
+ */
+const SOCKET_PAGE = page(
+	"Socket",
+	`<main><p id="heard">nothing yet</p></main>
+	<script>
+		const socket = new WebSocket("ws://" + location.host + "/feed");
+		socket.addEventListener("open", () => socket.send("subscribe"));
+		socket.addEventListener("message", (event) => {
+			document.getElementById("heard").textContent = event.data;
+		});
+	</script>`,
+);
+
 const LIVE = page(
 	"Live",
 	`<main><h1>Live</h1>
@@ -59,12 +75,21 @@ let session: BrowserSession;
 
 describe.skipIf(!haveChrome)("telemetry, in a real browser", () => {
 	beforeAll(async () => {
-		fixture = await serve([
-			{ path: "/noisy", body: NOISY },
-			{ path: "/data.json", body: '{"ok":true}', type: "application/json" },
-			{ path: "/dialogs", body: DIALOGS },
-			{ path: "/live", body: LIVE },
-		]);
+		fixture = await serve(
+			[
+				{ path: "/noisy", body: NOISY },
+				{ path: "/data.json", body: '{"ok":true}', type: "application/json" },
+				{ path: "/dialogs", body: DIALOGS },
+				{ path: "/live", body: LIVE },
+				{ path: "/socket", body: SOCKET_PAGE },
+			],
+			[
+				{
+					path: "/feed",
+					reply: (said) => (said === "subscribe" ? "welcome" : undefined),
+				},
+			],
+		);
 		session = await BrowserSession.open("telemetry-contract");
 	});
 
@@ -287,6 +312,98 @@ describe.skipIf(!haveChrome)("telemetry, in a real browser", () => {
 
 		expect(first.entries.length).toBeGreaterThan(0);
 		expect(second.entries).toHaveLength(0);
+	});
+
+	it("records both sides of a websocket conversation", async () => {
+		// The page subscribes on open and the fixture answers, so a
+		// working record has to show a frame going each way. Until
+		// sockets were recorded, all of this was invisible: the page
+		// issued one request that never finished and nothing else.
+		await session.navigate(fixture.url("/socket"));
+		await session.waitFor({ kind: "text", text: "welcome" }, 5_000);
+
+		const sockets = session.sockets();
+		expect(sockets).toHaveLength(1);
+		expect(sockets[0]?.url).toContain("/feed");
+		expect(sockets[0]?.frames.map((frame) => frame.direction)).toEqual([
+			"sent",
+			"received",
+		]);
+		expect(sockets[0]?.frames[0]?.payload).toBe("subscribe");
+		expect(sockets[0]?.frames[1]?.payload).toBe("welcome");
+		// Still open, which is the normal state of a live feature and
+		// the one a closed-only report would get wrong.
+		expect(sockets[0]?.closedAt).toBeUndefined();
+	});
+
+	it("sees memory the page will not let go of", async () => {
+		// A leak is the one fault none of the other instruments here
+		// can see, so this holds a big array from a global that a
+		// collection cannot reclaim, and asks whether the growth shows
+		// through a forced collection.
+		await session.navigate(fixture.url("/noisy"));
+		const first = await session.heap();
+		expect(first.direction).toBe("unknown");
+		expect(first.now.collected).toBe(true);
+		// A zero here is the failure this instrument is most likely to
+		// have: the metrics domain answers every value as zero until it
+		// is enabled, which reads as a page holding no memory and never
+		// changing, so every leak check passes.
+		expect(first.now.usedBytes).toBeGreaterThan(0);
+
+		// Objects rather than a typed array: a Uint8Array's backing
+		// store is external memory and does not show in the JS heap, so
+		// the obvious fixture measures nothing.
+		await session.evaluate(
+			"window.__held = Array.from({length: 400000}, (_, i) => " +
+				"({ i, s: 'x'.repeat(40) })); 'held'",
+		);
+
+		const second = await session.heap();
+		expect(second.trustworthy).toBe(true);
+		expect(second.direction).toBe("grew");
+		// Measured at about 41MB, so twenty is a floor that proves the
+		// reading follows the page rather than reporting a constant.
+		expect(second.grewBy ?? 0).toBeGreaterThan(20 * 1024 * 1024);
+	});
+
+	it("says which function spent the time", async () => {
+		// The whole point: a long task reports three seconds and names
+		// nothing. This has to come back with the function.
+		await session.navigate(fixture.url("/noisy"));
+		await session.evaluate(
+			"function grindNumbers() { let n = 0; " +
+				"for (let i = 0; i < 3e6; i++) n += Math.sqrt(i); return n; }" +
+				"window.__grinder = setInterval(grindNumbers, 20); 'started'",
+		);
+
+		try {
+			const found = await session.profile(1_500);
+
+			expect(found.sampledMs).toBeGreaterThan(0);
+			const names = found.hotspots.map((spot) => spot.function);
+			expect(names).toContain("grindNumbers");
+		} finally {
+			// Left running, this burns a core for the rest of the suite
+			// and shows up in every measurement after it.
+			await session.evaluate("clearInterval(window.__grinder); 'stopped'");
+		}
+	});
+
+	it("lets go of memory nothing is holding", async () => {
+		// The other half: without this, a reading that only ever grows
+		// would pass the test above while measuring nothing real.
+		await session.navigate(fixture.url("/noisy"));
+		await session.evaluate(
+			"window.__held = Array.from({length: 400000}, (_, i) => " +
+				"({ i, s: 'x'.repeat(40) })); 'held'",
+		);
+		await session.heap();
+
+		await session.evaluate("delete window.__held; 'dropped'");
+		const after = await session.heap();
+
+		expect(after.direction).toBe("fell");
 	});
 
 	it("has nothing to report about downloads on a page that offered none", async () => {

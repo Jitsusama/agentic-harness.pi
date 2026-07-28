@@ -80,4 +80,11 @@ export {
 	renderRequests,
 	requestStatus,
 } from "./requests.js";
+export {
+	foldSockets,
+	renderSockets,
+	type SocketEvent,
+	type SocketFrame,
+	type SocketRecord,
+} from "./sockets.js";
 export { type Captured, renderLogs } from "./view.js";

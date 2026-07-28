@@ -34,6 +34,7 @@ import {
 	tallyFindings,
 	targetFindings,
 	widthsToSweep,
+	withinBar,
 } from "../../lib/web/audit/index.js";
 import { renderComparison } from "../../lib/web/compare/index.js";
 import { renderInventory, takeInventory } from "../../lib/web/design/index.js";
@@ -119,6 +120,19 @@ const parameters = Type.Object({
 			},
 		),
 	),
+	level: Type.Optional(
+		Type.Union([Type.Literal("A"), Type.Literal("AA"), Type.Literal("AAA")], {
+			description:
+				"For accessibility and health: which WCAG conformance level " +
+				"to hold the page to. Defaults to AAA, the enhanced level, " +
+				"which switches on the three AAA rules axe ships disabled " +
+				"and raises our own thresholds (pointer targets to 44px " +
+				"under 2.5.5 rather than 24px under 2.5.8). Pass 'AA' or " +
+				"'A' for a page that targets those instead. The report " +
+				"always names the level it judged against, and says when " +
+				"every failure was a AAA one so the page still meets AA.",
+		}),
+	),
 	rule: Type.Optional(
 		Type.String({
 			description:
@@ -141,7 +155,8 @@ const parameters = Type.Object({
 	widths: Type.Optional(
 		Type.Array(Type.Number(), {
 			description:
-				"Run the same check at each of these viewport widths and " +
+				"For every kind: run the same check at each of these " +
+				"viewport widths and " +
 				"report a table. Most layout and contrast faults are " +
 				"conditional, so a single width can pass a page that is " +
 				"unusable on a phone. Works with every kind. Note that " +
@@ -152,7 +167,8 @@ const parameters = Type.Object({
 	at: Type.Optional(
 		Type.String({
 			description:
-				"After a sweep, name one condition from the table, e.g. " +
+				"For every kind, after a sweep: name one condition from " +
+				"the table, e.g. " +
 				"'375px', to see its report in full.",
 		}),
 	),
@@ -166,7 +182,8 @@ const parameters = Type.Object({
 	maxStops: Type.Optional(
 		Type.Number({
 			description:
-				"How many times to press Tab. Defaults to twice the number of " +
+				"For keyboard: how many times to press Tab. Defaults to " +
+				"twice the number of " +
 				"focusable things, which is enough to show a cycle, or 400 " +
 				"where that is fewer. A page with more controls than that " +
 				"reports what it did not reach; pass a larger number to " +
@@ -328,24 +345,33 @@ async function runOnce(
 		// disabled by default and we do not turn it on, so WCAG 2.5.8
 		// was measured by nothing at all while the arithmetic for it
 		// sat exported, tested and unreachable from any tool.
+		// The bar reaches for the enhanced level unless the caller
+		// lowers it. Our own thresholds have to move with it: target
+		// size is 24px at AA under 2.5.8 and 44px at AAA under 2.5.5,
+		// so judging at AAA while measuring 24px would report an
+		// enhanced pass the page had not earned.
+		const bar = params.level ?? "AAA";
+		const targetLevel = bar === "AAA" ? "AAA" : "AA";
 		const [fromAxe, structure, targets] = await Promise.all([
-			session.audit(),
+			session.audit(bar),
 			session.structure(),
 			session.targets(),
 		]);
 		const findings = mergeFindings(
 			fromAxe,
-			[...analyseStructure(structure), ...targetFindings(targets)],
+			[...analyseStructure(structure), ...targetFindings(targets, targetLevel)],
 			SUPERSEDED_BY,
-		);
+		).filter((finding) => withinBar(finding.levels, bar));
 		const measured =
 			`Checked ${structure.length} elements against the axe rule ` +
 			`set and our structural rules, and ${targets.length} pointer ` +
-			`${targets.length === 1 ? "target" : "targets"} against WCAG 2.5.8.`;
+			`${targets.length === 1 ? "target" : "targets"} against WCAG ` +
+			`${targetLevel === "AAA" ? "2.5.5" : "2.5.8"}.`;
 		return auditAnswer(
 			renderAudit(findings, tallyFindings(findings), {
 				...(params.rule === undefined ? {} : { rule: params.rule }),
 				measured,
+				bar,
 			}),
 			findings,
 			keep,

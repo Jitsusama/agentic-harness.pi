@@ -34,11 +34,14 @@ import {
 	type DownloadRecord,
 	type DownloadState,
 	exceptionEntry,
+	foldSockets,
 	type LifecycleEvent,
 	type LifecycleRecorder,
 	type LogEntry,
 	type NetworkRequest,
 	type Recorded,
+	type SocketEvent,
+	type SocketRecord,
 } from "../telemetry/index.js";
 import type { SessionWires } from "./wires.js";
 
@@ -75,6 +78,15 @@ export class SessionTelemetry {
 
 	/** Every request the page has made since it opened. */
 	private readonly requestLog = createNetworkRecorder();
+
+	/**
+	 * Every websocket event, bounded like everything else here.
+	 *
+	 * A chatty socket can push frames faster than anything reads
+	 * them, so this is the same ring buffer the logs use: the most
+	 * recent within a budget, and a count of what it had to drop.
+	 */
+	private readonly socketLog = createRingBuffer<SocketEvent>();
 
 	/** Every dialog the page has raised, and how it was answered. */
 	private readonly dialogLog: DialogEvent[] = [];
@@ -167,6 +179,49 @@ export class SessionTelemetry {
 		cdp.on("Network.loadingFailed", (event) => {
 			this.requestLog.apply({ kind: "failed", event });
 		});
+
+		// Sockets ride on the same domain, so they cost no extra
+		// enable and are recorded whenever requests are.
+		cdp.on("Network.webSocketCreated", (event) => {
+			this.socketLog.push({
+				kind: "opened",
+				id: event.requestId,
+				at: Date.now(),
+				url: event.url,
+			});
+		});
+		cdp.on("Network.webSocketFrameSent", (event) => {
+			this.socketLog.push({
+				kind: "sent",
+				id: event.requestId,
+				at: Date.now(),
+				payload: event.response.payloadData,
+			});
+		});
+		cdp.on("Network.webSocketFrameReceived", (event) => {
+			this.socketLog.push({
+				kind: "received",
+				id: event.requestId,
+				at: Date.now(),
+				payload: event.response.payloadData,
+			});
+		});
+		cdp.on("Network.webSocketClosed", (event) => {
+			this.socketLog.push({
+				kind: "closed",
+				id: event.requestId,
+				at: Date.now(),
+			});
+		});
+		cdp.on("Network.webSocketFrameError", (event) => {
+			this.socketLog.push({
+				kind: "failed",
+				id: event.requestId,
+				at: Date.now(),
+				error: event.errorMessage,
+			});
+		});
+
 		await cdp.send("Network.enable");
 	}
 
@@ -380,6 +435,16 @@ export class SessionTelemetry {
 	/** Files the page has handed back. */
 	downloads(): readonly DownloadRecord[] {
 		return this.downloadLog.all();
+	}
+
+	/** Every websocket conversation, folded from its events. */
+	sockets(): readonly SocketRecord[] {
+		return foldSockets(this.socketLog.all().map((held) => held.item));
+	}
+
+	/** Socket events dropped to stay within the buffer's budget. */
+	get socketFramesDropped(): number {
+		return this.socketLog.dropped;
 	}
 
 	/** Where the page has been. */

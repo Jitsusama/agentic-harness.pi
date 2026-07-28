@@ -76,6 +76,22 @@ here.
 | Know why an element is the colour it is | `see kind:"element" why:"color"` |
 | See a focus ring or a hover style | `see kind:"element" states:["focus-visible","hover"]` |
 | Check a phone layout | `check widths:[375,768,1280]`, which works with every kind |
+| Wait for a spinner to finish, not for a guessed delay | `do kind:"wait" selector:"#save" attribute:"aria-busy" value:"false"` |
+| Wait until a list has loaded all its rows | `do kind:"wait" selector:"li.row" count:20` |
+| Assert the save actually succeeded, not just returned | `do kind:"wait" pattern:"*/api/save" status:200` |
+| Did that font load, or did it fall back | `see kind:"element"` lists the fonts actually painted |
+| Read a counter, a status message or a filled field | `see kind:"element"` reports text, value and data attributes |
+| Something takes 3 seconds and I do not know what | `see kind:"profile" ms:3000` while the slow thing runs |
+| Why did this click take so long, and what did it set off | `do kind:"act" ... trace:"async"` |
+| Which fetch was waiting on which, and what answered first | `do ... trace:"async"` reports overlap and out-of-order settling |
+| Did my timer fire when it promised | `do ... trace:"async"` pairs each install with its fire |
+| Scrolling or animation stutters | `do kind:"wait" for:"duration" ms:2000 trace:"frames"` while it stutters |
+| The tab gets slower the longer it is open | `see kind:"heap"`, do the thing, `see kind:"heap"` again |
+| Scrolling or animating this page stutters | `see kind:"layers"` for what the compositor is holding |
+| Does anything here only respond to a mouse | `see kind:"hover"` for hover treatments with no focus match |
+| What does this page do on hover | `see kind:"hover"` |
+| Why is this element on its own layer | `see kind:"layers"` and read the reason beside it |
+| A live feature updates by itself and I cannot see why | `see kind:"sockets"` for the websocket conversation |
 | Is that gap 16px or 12px | `see kind:"measure" within:"button Save" and:"button Cancel"` |
 | A click opened a new tab, or seemed to do nothing | `go kind:"tabs"` to list, then `tab: N` to switch |
 | Test a page behind a login without signing in each time | `go kind:"storage" save:"/tmp/signed-in.json"` once, then `load:` it |
@@ -343,8 +359,8 @@ request log under `filter: failed`.
 ### `browser_see`
 
 `page`, `reading`, `announcements`, `element`, `measure`,
-`query`, `logs`, `requests`, `downloads`, `shot`, `vitals`,
-`status`.
+`query`, `logs`, `requests`, `sockets`, `downloads`, `shot`,
+`vitals`, `heap`, `profile`, `layers`, `hover`, `status`.
 
 - `measure` names two elements, one in `within` and one in `and`,
   and reports the space between them: the gap on each axis, the
@@ -356,6 +372,74 @@ request log under `filter: failed`.
 - `element` takes `why:"<property>"` to trace one CSS property
   through every rule that had a say, with authored source
   positions when a source map exists
+- `element` reports what the element says and holds as well as
+  what it is called. The accessible name answers a different
+  question from the text: a counter reading "42" has a name that
+  mentions no number, and a field's name never says what was
+  typed into it. Data attributes come back too, since teams hang
+  test state on them and the accessibility tree cannot see them.
+  It also names the fonts the browser actually painted with,
+  which a computed style cannot: a stack reads the same whether
+  the first family loaded or the page fell back to the last one
+- `vitals` reports what the load cost. Running the other tools
+  here does not change it: script injected over the protocol is
+  invisible to the browser's long task observer, so an audit
+  cannot make the page it audited look slow. That is measured and
+  pinned, not assumed
+- `profile` records the page's JavaScript for a while and reports
+  which functions spent the time, which is the question a long
+  task cannot answer. Start it and do the slow thing while it
+  runs, or it profiles an idle page. The figures are sampled, so
+  they are estimates: a function never caught mid-run does not
+  appear at all, and idle time is reported rather than hidden so
+  a window spent doing nothing is obvious
+- `heap` reports how much memory the page is holding and how that
+  compares to the last reading, which is how a leak is found:
+  read, do the thing you suspect, read again. A collection is
+  forced first unless you pass `collect: false`, and you almost
+  never want to, because uncollected garbage is indistinguishable
+  from a leak. It measures the JavaScript heap, so memory held in
+  an ArrayBuffer or a typed array's backing store does not appear
+  there. A first reading reports no direction, because one number
+  is not a trend
+- `hover` reports what the page does on hover across every element
+  that has a hover rule, and whether focus does the same thing. It
+  works in two halves and both matter. The stylesheets say which
+  elements might hover, which is cheap; holding the state and
+  reading the computed style says what actually happens, because a
+  hover rule the cascade beat changes nothing anybody can see, and
+  those are reported separately as declared and dead. The finding
+  worth acting on is a treatment hover realizes and focus does
+  not, because a person using a keyboard then gets no equivalent
+  cue. Read it as a prompt rather than a verdict: a page may put
+  its focus ring on an ancestor or lean on the browser's own, so
+  check before calling it a fault. Cross-origin stylesheets throw
+  on their own rules, so any hover in them is invisible here and
+  the count of unreadable sheets is reported rather than hidden.
+  Bounded with `limit`, because each candidate costs a round trip
+- `layers` reports what the page asked the compositor to keep: how
+  many layers exist, how much texture memory the ones that paint
+  are holding, the element behind each, and the reason Chrome
+  gives for it. Read it in both directions. Too little promotion
+  and an element that animates repaints every frame; too much and
+  the page holds tens of megabytes it never needed, which is a
+  layer explosion. The reason worth looking for is "Overlaps
+  other composited content", because those layers are usually
+  nobody's decision: one promoted element forces its neighbours
+  up with it. Two honesty notes. Chrome sometimes returns no
+  reason at all for a layer that is genuinely promoted, measured
+  on a plain `translateZ(0)`, and the report says so rather than
+  guessing or implying the layer is absent. And the heaviest layer
+  on a normal page is usually the document's own scrolling
+  contents rather than anything an author promoted, so read past
+  it to the authored ones
+- `sockets` reports every websocket the page opened and both
+  sides of what was said over it, with each frame's time measured
+  from when the socket opened. A request is a question with an
+  answer attached and fits the request record; a socket is a
+  conversation that outlives any one message, so it does not.
+  Frames are bounded like every other buffer here, and the count
+  dropped is reported rather than left to be inferred
 - `requests` takes `body` to fetch one response body on demand,
   and `har` to export the whole conversation
 - `status` is the one to reach for when behaviour makes no
@@ -371,12 +455,59 @@ request log under `filter: failed`.
 - `press`: key chords such as `Control+Shift+K`
 - `input`: raw pointer and touch, including drag, swipe and
   pinch, for what semantics cannot reach
-- `wait`: for a selector, text, network quiet, a request
-  pattern, animations settling, or a duration
+- `wait`: for a selector, text, an attribute reaching a value, a
+  number of matching elements, network quiet, a request pattern,
+  animations settling, or a duration. Waiting on an attribute or
+  a count is how you avoid guessing at a delay: `aria-busy`
+  going false is the thing you meant, and 300ms is a hope. A
+  request wait takes an optional `status`, without which a save
+  that answered 500 ends the wait as happily as one that worked.
+  A wait only counts requests that started after it did
 - `eval`: run an expression. DOM nodes, functions and circular
   structures are described rather than serialized, and an
   exception comes back as a result with its stack mapped to
   authored source
+
+Every one of those takes an optional `trace`, which is the way to
+ask what the browser itself was doing while the action ran. See
+below.
+
+### Tracing What an Action Set Off
+
+`trace:"async"` records the browser's own trace stream around the
+operation and reports what caused what: each timer paired with
+the fire it produced and how late that was, each request joined
+to the response that settled it, how many were in flight at once,
+and whether any settled out of the order they were sent.
+`trace:"frames"` reports what the compositor did instead, for a
+page that scrolls or animates badly. Pass both for both.
+
+Four things about it are worth knowing before you reach for it.
+
+**It is a modifier, not a mode.** There is no start and no stop.
+The recording brackets one operation, which is why it cannot be
+left running by accident.
+
+**A trace only holds what happened while it ran.** This is the
+whole reason the work goes inside the recording. A timer installed
+before the recording began has no install event, so its lateness
+cannot be explained, and a fetch begun earlier has no url. You
+cannot ask why something was slow after it has already happened;
+bracket the action that causes it instead.
+
+**Tracing is browser-wide and only one can run at a time.** A
+second session asking while another records is refused, and told
+which session is holding it. The action still runs: losing the
+trace never costs you the thing you asked for. While a recording
+runs, every session's `see kind:"status"` says so and names who
+started it, because every page in the browser is being
+instrumented and paying for it.
+
+**Frame figures are the renderer's, not one page's.** The frame
+pipeline names a layer tree rather than a frame, so a second page
+sharing the process is counted too. The report says this itself;
+do not quote frame counts as though they belonged to the page
+alone.
 
 ### `browser_check`
 

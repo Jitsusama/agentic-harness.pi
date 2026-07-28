@@ -136,6 +136,37 @@ describe("browser tool parameter descriptions", () => {
 		});
 	}
 
+	/**
+	 * Parameters that genuinely apply everywhere, so saying which
+	 * mode reads them would be noise rather than help.
+	 */
+	const UNIVERSAL = new Set(["kind", "session", "url", "cookies"]);
+
+	for (const tool of TOOLS) {
+		it(`says when each ${tool} parameter applies`, () => {
+			// The gate above catches a description that has fallen behind
+			// a branch it gained. This catches the description that never
+			// said when it applied at all, which reads to a caller as a
+			// parameter they can pass to anything. Five of them shipped
+			// that way, among them 'depth' and 'only', which do nothing
+			// on most of the kinds that accept them.
+			const source = readFileSync(
+				join("extensions", "browser-integration", `${tool}.ts`),
+				"utf8",
+			);
+
+			const vague: string[] = [];
+			for (const [param, description] of describedParams(source)) {
+				if (UNIVERSAL.has(param)) continue;
+				if (!/\bFor [a-z]/.test(description)) {
+					vague.push(`${param} never says which kinds read it`);
+				}
+			}
+
+			expect(vague).toEqual([]);
+		});
+	}
+
 	it("can tell when a description has fallen behind its code", () => {
 		// The gate is worth no more than its ability to fail, and its
 		// matching is regex over source, so prove it against the shape

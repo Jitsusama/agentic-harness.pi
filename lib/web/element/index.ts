@@ -29,6 +29,16 @@ export {
 	type Rect,
 } from "./box.js";
 export {
+	foldHover,
+	HOVER_SCAN,
+	type HoverGroup,
+	type HoverMeasurement,
+	type HoverReport,
+	type HoverScan,
+	MAX_HOVER_CANDIDATES,
+	renderHover,
+} from "./hover.js";
+export {
 	ANCESTORS_PROBE,
 	type DelegatedListeners,
 	type Listener,
@@ -42,7 +52,11 @@ export {
 	measureBetween,
 	renderMeasurement,
 } from "./measure.js";
-export { OCCLUDER_PROBE, SELECT_TEXT_PROBE } from "./probes.js";
+export {
+	CONTENT_PROBE,
+	OCCLUDER_PROBE,
+	SELECT_TEXT_PROBE,
+} from "./probes.js";
 export {
 	diffStyles,
 	type PseudoState,

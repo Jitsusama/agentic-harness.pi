@@ -12,11 +12,14 @@ export {
 	type Authority,
 	type AxeTally,
 	authorityOf,
+	type ConformanceBar,
 	criteriaOf,
+	ENHANCED_WCAG_RULES,
 	EXPERIMENTAL_WCAG_RULES,
 	enabledRules,
 	type FindingKind,
 	type FindingNode,
+	hardestLevel,
 	type Impact,
 	levelsOf,
 	MAX_NODE_HTML,
@@ -27,6 +30,7 @@ export {
 	readAxeRun,
 	readResult,
 	tallyFindings,
+	withinBar,
 } from "./axe.js";
 export {
 	type AxFacts,
@@ -70,6 +74,7 @@ export {
 } from "./report.js";
 export {
 	analyseStructure,
+	autocompleteTokens,
 	brokenReferences,
 	formLabelling,
 	headingOutline,

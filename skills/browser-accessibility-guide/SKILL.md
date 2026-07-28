@@ -34,6 +34,31 @@ Never write "this page is accessible" or "WCAG compliant" on the
 strength of a clean run. Write what was checked and what came
 back.
 
+## Which Bar You Are Judging Against
+
+`check kind:"accessibility"` holds a page to **AAA** by default,
+the enhanced level. Pass `level:"AA"` or `level:"A"` for a page
+that targets one of those instead.
+
+This matters more than it sounds, because AAA is not merely
+stricter, it changes what runs and what counts. axe ships exactly
+three AAA rules and all three are disabled by default, so an audit
+that does not ask for them checks no AAA criterion at all. Our own
+thresholds move too: a pointer target is 24 by 24 pixels at AA
+under 2.5.8 and 44 by 44 at AAA under 2.5.5.
+
+When you report, **say which bar you judged against**, because
+otherwise a failure is ambiguous between a standard being broken
+and an enhanced target not being reached. The report names the bar
+itself, and when every failure is a AAA one it says the page still
+meets AA. Quote that. The difference between "non-conformant" and
+"conformant, short of enhanced" is the difference between an
+emergency and a backlog item, and flattening it is how a team
+learns to ignore accessibility reports.
+
+If someone asks whether a page "passes WCAG", ask which level they
+mean before answering, or answer at both and label each.
+
 ## The Order to Work In
 
 ### 1. Keyboard first
@@ -60,6 +85,15 @@ What it reports, and what each means:
   there. Usually a `div` with a click handler and no tabindex
 - **No visible focus indicator**: nothing changes when focus
   arrives, so a sighted keyboard user cannot tell where they are
+- **Tabbed against the way they read**: two controls side by
+  side, and tab reaches the right one first in a left-to-right
+  page. This is what `flex-direction: row-reverse` and hand-set
+  `order` values do, and document order calls the page fine.
+  Reported as worth a look rather than a failure. It only judges
+  pairs on the same line: whether tab order should follow rows or
+  columns across a whole layout is not a question geometry can
+  settle, and a two-column form that tabs down one column and
+  then the other is both common and correct
 - **Focus indicator too faint**: something does change, and it
   cannot be made out. Reported with the ratio it reached, against
   the 3:1 that 2.4.11 asks. A different repair from the one
@@ -68,6 +102,22 @@ What it reports, and what each means:
   the page appears not to react
 - **Positive tabindex**: reorders the whole page, not just the
   element it sits on
+
+The keyboard walk answers what happens when focus lands. The
+complement is what happens on hover, which no walk can reach:
+
+```
+browser_see kind:"hover"
+```
+
+This holds hover and focus on every element carrying a hover rule
+and reports what each realizes. What you are looking for is a
+treatment hover produces and focus does not, because that cue is
+reachable only with a pointer. It is a prompt, not a verdict: the
+focus ring may sit on an ancestor, or the page may rely on the
+browser's own, so look before writing it up. It also separates out
+hover rules the cascade beat, which are declared and dead, and
+says how many stylesheets it could not read.
 
 ### 2. The rule sets
 
@@ -78,6 +128,17 @@ browser_check kind:"accessibility"
 This runs axe's WCAG rule set together with structural rules of
 our own, merged into one report so you do not have to know which
 found what.
+
+Among our own is autocomplete tokens, WCAG 1.3.5, which axe has
+no rule for. A field asking for the user's own name, email,
+phone or address without a token cannot be filled by the browser
+or a password manager, so somebody who finds typing hard types
+it again on every site that asks. The rule reads the input type
+before the field's name, because a type is the browser's own
+declaration and a name is a guess, and it leaves
+`autocomplete="off"` alone: an author who wrote it on a one-time
+passcode is right, and overruling them would be this tool
+claiming to know better about a decision only they can make.
 
 **Keep two distinctions the report makes.** They are the
 difference between a useful finding and a misleading one:

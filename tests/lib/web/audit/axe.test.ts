@@ -10,8 +10,10 @@ import { describe, expect, it } from "vitest";
 import {
 	authorityOf,
 	criteriaOf,
+	ENHANCED_WCAG_RULES,
 	EXPERIMENTAL_WCAG_RULES,
 	enabledRules,
+	hardestLevel,
 	levelsOf,
 	MAX_NODE_HTML,
 	mergeFindings,
@@ -19,6 +21,7 @@ import {
 	readAxeRun,
 	readResult,
 	tallyFindings,
+	withinBar,
 } from "../../../../lib/web/audit/axe.js";
 import {
 	renderAudit,
@@ -174,10 +177,83 @@ describe("the experimental rules we switch on", () => {
 		expect([...EXPERIMENTAL_WCAG_RULES].sort()).toEqual(hidden);
 	});
 
+	it("knows every AAA rule the installed axe ships switched off", async () => {
+		// Measured against axe 4.12.1: all three AAA-tagged rules are
+		// disabled by default, so a run that does not name them checks
+		// no AAA criterion at all. Pinned against the installed copy
+		// because judging at AAA on the strength of rules that never
+		// ran would report an untested page as an enhanced one.
+		const axe = await import("axe-core");
+		const enhanced = axe.default
+			.getRules()
+			.filter((rule) => rule.tags.some((tag) => /^wcag\d+a{3}$/.test(tag)))
+			.map((rule) => rule.ruleId)
+			.sort();
+
+		expect([...ENHANCED_WCAG_RULES].sort()).toEqual(enhanced);
+	});
+
+	it("only asks for the enhanced rules at the enhanced bar", () => {
+		const atAAA = Object.keys(enabledRules("AAA"));
+		const atAA = Object.keys(enabledRules("AA"));
+
+		for (const rule of ENHANCED_WCAG_RULES) {
+			expect(atAAA).toContain(rule);
+			expect(atAA).not.toContain(rule);
+		}
+		// The experimental rules carry A and AA criteria, so they are
+		// asked for at every bar.
+		for (const rule of EXPERIMENTAL_WCAG_RULES) {
+			expect(atAA).toContain(rule);
+		}
+	});
+
+	it("defaults to the enhanced bar", () => {
+		expect(Object.keys(enabledRules())).toContain("color-contrast-enhanced");
+	});
+});
+
+describe("withinBar", () => {
+	it("asks for a level at or below the bar", () => {
+		expect(withinBar(["A"], "AA")).toBe(true);
+		expect(withinBar(["AA"], "AA")).toBe(true);
+		expect(withinBar(["AAA"], "AA")).toBe(false);
+		expect(withinBar(["AAA"], "AAA")).toBe(true);
+		expect(withinBar(["AA"], "A")).toBe(false);
+	});
+
+	it("keeps a finding that carries no level at all", () => {
+		// A best-practice rule was never the standard's to demand, so
+		// no bar can excuse it.
+		expect(withinBar([], "A")).toBe(true);
+	});
+
+	it("keeps a rule spanning levels when the lower one is asked for", () => {
+		expect(withinBar(["AA", "AAA"], "AA")).toBe(true);
+	});
+});
+
+describe("hardestLevel", () => {
+	it("names the least demanding level anything failed", () => {
+		// A page failing both AA and AAA is an AA failure: fixing the
+		// AAA one leaves it non-conformant either way.
+		expect(hardestLevel([{ levels: ["AAA"] }, { levels: ["AA"] }])).toBe("AA");
+	});
+
+	it("says nothing when only AAA failed", () => {
+		expect(hardestLevel([{ levels: ["AAA"] }])).toBe("AAA");
+	});
+
+	it("has no answer when nothing carries a level", () => {
+		expect(hardestLevel([{ levels: [] }])).toBeUndefined();
+	});
+});
+
+describe("the rule switches handed to axe", () => {
 	it("asks axe to add them rather than to run only them", () => {
 		// A runOnly tag list replaces the default set. Widening an
 		// audit by narrowing it is the shape of a very quiet bug.
-		const switches = enabledRules();
+		const switches = enabledRules("AA");
 
 		expect(Object.keys(switches).sort()).toEqual(
 			[...EXPERIMENTAL_WCAG_RULES].sort(),
@@ -185,6 +261,14 @@ describe("the experimental rules we switch on", () => {
 		for (const rule of EXPERIMENTAL_WCAG_RULES) {
 			expect(switches[rule]).toEqual({ enabled: true });
 		}
+	});
+
+	it("adds the enhanced rules on top rather than replacing them", () => {
+		const switches = enabledRules("AAA");
+
+		expect(Object.keys(switches).sort()).toEqual(
+			[...EXPERIMENTAL_WCAG_RULES, ...ENHANCED_WCAG_RULES].sort(),
+		);
 	});
 });
 
@@ -630,6 +714,68 @@ describe("renderAudit", () => {
 	it("opens with a verdict every check shares", () => {
 		expect(renderAudit(findings, tally).startsWith("FAIL")).toBe(true);
 		expect(renderAudit([], tallyFindings([])).startsWith("PASS")).toBe(true);
+	});
+
+	it("names the bar it judged against", () => {
+		// Without this a reader cannot tell whether a failure is a
+		// standard being broken or an enhanced target not being met.
+		expect(renderAudit(findings, tally, { bar: "AA" })).toContain(
+			"Judged against AA",
+		);
+	});
+
+	it("says the page still meets AA when every failure is a AAA one", () => {
+		// The whole reason AAA can be the default. A page built to AA
+		// and judged at AAA would otherwise read as broken rather than
+		// as conformant and short of enhanced, which is the difference
+		// between an emergency and a backlog item.
+		const enhancedOnly = readAxeRun({
+			violations: [
+				{
+					id: "color-contrast-enhanced",
+					impact: "serious",
+					tags: ["wcag2aaa", "wcag146"],
+					nodes: [{}],
+				},
+			],
+		});
+
+		const text = renderAudit(enhancedOnly, tallyFindings(enhancedOnly), {
+			bar: "AAA",
+		});
+
+		expect(text).toContain("still meets AA");
+	});
+
+	it("does not claim AA is met when an AA rule failed too", () => {
+		// The control. A page failing both is an AA failure, and saying
+		// it still meets AA would be the most damaging thing this
+		// report could get wrong.
+		const both = readAxeRun({
+			violations: [
+				{
+					id: "color-contrast-enhanced",
+					impact: "serious",
+					tags: ["wcag2aaa", "wcag146"],
+					nodes: [{}],
+				},
+				{
+					id: "color-contrast",
+					impact: "serious",
+					tags: ["wcag2aa", "wcag143"],
+					nodes: [{}],
+				},
+			],
+		});
+
+		const text = renderAudit(both, tallyFindings(both), { bar: "AAA" });
+
+		expect(text).not.toContain("still meets AA");
+		expect(text).toContain("Judged against AAA");
+	});
+
+	it("says nothing about a bar when none was given", () => {
+		expect(renderAudit(findings, tally)).not.toContain("Judged against");
 	});
 
 	it("warns rather than passes when only undecided results remain", () => {

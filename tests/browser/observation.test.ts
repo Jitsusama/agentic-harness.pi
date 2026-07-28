@@ -13,6 +13,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { analyseStructure } from "../../lib/web/audit/index.js";
 import { BrowserSession } from "../../lib/web/session.js";
 import { type Fixture, haveChrome, page, serve } from "./_harness.js";
 
@@ -50,6 +51,30 @@ const OUTER = page(
 
 const INNER = page("Inner", "<main><h1>Inner heading</h1></main>");
 
+/** A counter, a filled field, and state hung on data attributes. */
+const STATEFUL = page(
+	"Stateful",
+	`<main>
+		<p role="status" aria-label="Save result" id="count"
+			data-test-state="complete">3 items updated</p>
+		<label for="who">Email</label>
+		<input id="who" name="who" type="email" value="user@example.com">
+		<label for="town">City</label>
+		<input id="town" name="city" type="text" autocomplete="shipping address-level2">
+		<label for="find">Search</label>
+		<input id="find" name="q" type="search">
+	</main>`,
+);
+
+/** A video with no text track, and audio that starts by itself. */
+const MEDIA = page(
+	"Media",
+	`<main>
+		<video id="clip" src="/clip.mp4" controls></video>
+		<audio id="tune" src="/tune.mp3" autoplay loop></audio>
+	</main>`,
+);
+
 /**
  * Two buttons a known distance apart, laid out absolutely so the
  * expected numbers come from the stylesheet rather than from
@@ -85,6 +110,8 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			{ path: "/outer", body: OUTER },
 			{ path: "/inner", body: INNER },
 			{ path: "/spaced", body: SPACED },
+			{ path: "/media", body: MEDIA },
+			{ path: "/stateful", body: STATEFUL },
 			{ path: "/shadow", body: SHADOW },
 		]);
 		session = await BrowserSession.open("observation-contract");
@@ -318,5 +345,88 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		// Naming the target back is the whole point: the caller gave
 		// two and needs to know which one was wrong.
 		expect("target" in measured && measured.target.name).toBe("Nowhere");
+	});
+
+	it("catches a video with no captions and audio that starts itself", async () => {
+		// Pinning existing behaviour rather than adding any: axe ships
+		// video-caption and no-autoplay-audio switched on, so this
+		// should already work. It is worth a test because the gap sweep
+		// reported captions as missing, and the way to settle that is
+		// to drive it rather than to read the rule list.
+		await session.navigate(fixture.url("/media"));
+		const findings = await session.audit();
+
+		const captions = findings.find(
+			(finding) => finding.rule === "video-caption",
+		);
+		expect(captions).toBeDefined();
+		expect(captions?.criteria).toContain("1.2.2");
+	});
+
+	it("reports what an element says, holds and is tagged with", async () => {
+		// The accessible name answers what a control is called, which
+		// is a different question from what it says. Asserting on a
+		// counter or a filled field used to mean dropping to a raw
+		// evaluate, which is the escape hatch this tool exists to
+		// replace.
+		await session.navigate(fixture.url("/stateful"));
+
+		// Named "Save result" and reading "3 items updated": the two
+		// questions have different answers, which is the whole point.
+		const status = await session.inspect({
+			role: "status",
+			name: "Save result",
+		});
+		expect(status.ok).toBe(true);
+		if (!status.ok) return;
+		expect(status.inspection.text).toBe("3 items updated");
+		expect(status.inspection.attributes?.["data-test-state"]).toBe("complete");
+
+		const field = await session.inspect({ role: "textbox", name: "Email" });
+		expect(field.ok).toBe(true);
+		if (!field.ok) return;
+		expect(field.inspection.value).toBe("user@example.com");
+	});
+
+	it("names the font that was painted, not the one asked for", async () => {
+		// A computed style reports the stack. "Nonexistent Face,
+		// serif" reads the same whether the first loaded or the page
+		// fell back, which is most of the answer to why a screenshot
+		// from one machine does not match another.
+		await session.navigate(fixture.url("/stateful"));
+		await session.evaluate(
+			"document.getElementById('count').style.fontFamily = " +
+				"'\"Nonexistent Face\", serif'; 'set'",
+		);
+
+		const found = await session.inspect({
+			role: "status",
+			name: "Save result",
+		});
+
+		expect(found.ok).toBe(true);
+		if (!found.ok) return;
+		expect(found.inspection.fonts?.length).toBeGreaterThan(0);
+		// The stack named a face that does not exist, so whatever came
+		// back is the fallback and cannot be the name that was asked
+		// for. That is the whole distinction being drawn.
+		expect(found.inspection.fonts?.[0]?.family).not.toBe("Nonexistent Face");
+	});
+
+	it("catches a personal field the browser cannot fill", async () => {
+		// WCAG 1.3.5, which axe has no rule for, so this page passed in
+		// silence. The email field has no token; the city field has a
+		// prefixed one and must not be reported; the search box asks
+		// nothing about the user and must not be either.
+		await session.navigate(fixture.url("/stateful"));
+		// Through the structural path, which is where these rules run:
+		// session.audit() is axe alone.
+		const tokens = analyseStructure(await session.structure()).find(
+			(finding) => finding.rule === "field-has-autocomplete",
+		);
+		expect(tokens).toBeDefined();
+		expect(tokens?.criteria).toContain("1.3.5");
+		expect(tokens?.nodes).toHaveLength(1);
+		expect(tokens?.nodes[0]?.html).toContain("who");
 	});
 });

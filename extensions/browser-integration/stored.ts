@@ -26,7 +26,7 @@ import {
 	renderStorage,
 	type StorageSnapshot,
 } from "../../lib/web/environment/index.js";
-import type { Observation } from "../../lib/web/session.js";
+import type { Inspection, Observation } from "../../lib/web/session.js";
 
 /** A node as a caller queries it: their vocabulary, not the protocol's. */
 interface StoredNode {
@@ -191,6 +191,40 @@ export function listAnswer<T>(args: {
 	budget?: number;
 }): string {
 	return citeListing(openSessionStore(), args);
+}
+
+/**
+ * How many lines of one element's report to show before storing.
+ *
+ * An inspection of a trivial element is a dozen lines. One that
+ * asks for every curated style, a cascade trace, delegated
+ * listeners and four pseudo-state variants runs to hundreds, and
+ * the interesting line is as likely to be at the end as the
+ * start.
+ */
+const ELEMENT_LINES = 120;
+
+/**
+ * One element's report, bounded for reading and kept for asking.
+ *
+ * This was the last read in the family that could answer with an
+ * unbounded payload and cite nothing. Every other branch either
+ * fits in its own view or hands back a handle; this one grew
+ * section by section until it was the largest answer here and
+ * still the only one a caller could not query.
+ */
+export function elementAnswer(inspection: Inspection, view: string): string {
+	const lines = view.split("\n");
+	if (lines.length <= ELEMENT_LINES) return view;
+
+	const cited = cite(openSessionStore(), {
+		payload: inspection,
+		view: lines.slice(0, ELEMENT_LINES).join("\n"),
+		shown: ELEMENT_LINES,
+		total: lines.length,
+		unit: "report lines",
+	});
+	return cited.text;
 }
 
 /** The tree as a payload: named fields, no protocol ids. */

@@ -10,6 +10,7 @@ import {
 	type FocusStyle,
 	indicatorOf,
 	judgeIndicator,
+	outOfVisualOrder,
 	renderWalk,
 	type WalkCandidate,
 	type WalkCapture,
@@ -693,5 +694,98 @@ describe("the verdict claims only what a tab walk tested", () => {
 
 		expect(report).toMatch(/^PASS/);
 		expect(report).toContain("Tab reached every control");
+	});
+});
+
+describe("tab order against the order things are read in", () => {
+	const at = (
+		name: string,
+		index: number,
+		left: number,
+		top: number,
+	): WalkStop => ({
+		index,
+		tag: "button",
+		name,
+		inViewport: true,
+		focused: AT_REST,
+		rect: { x: left, y: top, width: 80, height: 30 },
+	});
+
+	it("catches two controls on one line that tab right to left", () => {
+		// flex-direction: row-reverse, or order: juggling. Visually
+		// Back then Next; by keyboard Next then Back. Nothing else
+		// explains it, which is what makes it worth reporting.
+		const jumps = outOfVisualOrder(
+			[at("Next", 0, 200, 100), at("Back", 1, 100, 100)],
+			"ltr",
+		);
+
+		expect(jumps).toHaveLength(1);
+		expect(jumps[0]?.before.name).toBe("Next");
+		expect(jumps[0]?.after.name).toBe("Back");
+	});
+
+	it("says nothing about a row that tabs the way it reads", () => {
+		expect(
+			outOfVisualOrder(
+				[at("Back", 0, 100, 100), at("Next", 1, 200, 100)],
+				"ltr",
+			),
+		).toEqual([]);
+	});
+
+	it("does not accuse a column layout", () => {
+		// Down the left column, then down the right: every pair is on
+		// a different line, so none of them is a same-line inversion.
+		// This is the false positive the check exists to avoid.
+		expect(
+			outOfVisualOrder(
+				[
+					at("One", 0, 100, 100),
+					at("Two", 1, 100, 200),
+					at("Three", 2, 300, 100),
+					at("Four", 3, 300, 200),
+				],
+				"ltr",
+			),
+		).toEqual([]);
+	});
+
+	it("reads a right-to-left page right to left", () => {
+		// The same geometry that is wrong in English is correct in
+		// Arabic, so the direction has to come from the page.
+		expect(
+			outOfVisualOrder(
+				[at("Next", 0, 200, 100), at("Back", 1, 100, 100)],
+				"rtl",
+			),
+		).toEqual([]);
+	});
+
+	it("ignores a stop with no box", () => {
+		const bodiless: WalkStop = {
+			index: 0,
+			tag: "button",
+			name: "Ghost",
+			inViewport: false,
+			focused: AT_REST,
+		};
+
+		expect(
+			outOfVisualOrder([bodiless, at("Back", 1, 100, 100)], "ltr"),
+		).toEqual([]);
+	});
+
+	it("treats slightly offset controls as sharing a line", () => {
+		// Buttons of different heights in a toolbar do not share a
+		// top edge to the pixel, and demanding they do would miss
+		// every real case.
+		const jumps = outOfVisualOrder(
+			[at("Next", 0, 200, 104), at("Back", 1, 100, 100)],
+			"ltr",
+		);
+
+		expect(jumps).toHaveLength(1);
 	});
 });

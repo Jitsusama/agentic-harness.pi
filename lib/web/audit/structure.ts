@@ -523,6 +523,185 @@ export function formLabelling(
 }
 
 /**
+ * The autocomplete tokens the specification defines.
+ *
+ * Only the ones describing the person filling the form in, since
+ * 1.3.5 is about input collecting information about the user.
+ * Taken from the HTML specification's list rather than invented.
+ */
+const KNOWN_TOKENS = new Set([
+	"name",
+	"honorific-prefix",
+	"given-name",
+	"additional-name",
+	"family-name",
+	"honorific-suffix",
+	"nickname",
+	"username",
+	"new-password",
+	"current-password",
+	"one-time-code",
+	"organization-title",
+	"organization",
+	"street-address",
+	"address-line1",
+	"address-line2",
+	"address-line3",
+	"address-level4",
+	"address-level3",
+	"address-level2",
+	"address-level1",
+	"country",
+	"country-name",
+	"postal-code",
+	"cc-name",
+	"cc-given-name",
+	"cc-additional-name",
+	"cc-family-name",
+	"cc-number",
+	"cc-exp",
+	"cc-exp-month",
+	"cc-exp-year",
+	"cc-csc",
+	"cc-type",
+	"transaction-currency",
+	"transaction-amount",
+	"language",
+	"bday",
+	"bday-day",
+	"bday-month",
+	"bday-year",
+	"sex",
+	"url",
+	"photo",
+	"tel",
+	"tel-country-code",
+	"tel-national",
+	"tel-area-code",
+	"tel-local",
+	"tel-extension",
+	"email",
+	"impp",
+]);
+
+/**
+ * Words in a field's own name or id that say it wants something
+ * about the person filling it in.
+ *
+ * Deliberately narrow. A false finding here sends someone adding
+ * a token to a field that never wanted one, and the cost of
+ * missing a field is that it stays as it is today.
+ */
+const PERSONAL_HINTS: readonly (readonly [RegExp, string])[] = [
+	[/^(e-?mail)$|(^|[^a-z])e-?mail([^a-z]|$)/i, "email"],
+	[/(^|[^a-z])(first-?name|given-?name)([^a-z]|$)/i, "given-name"],
+	[/(^|[^a-z])(last-?name|surname|family-?name)([^a-z]|$)/i, "family-name"],
+	[/(^|[^a-z])(full-?name)([^a-z]|$)/i, "name"],
+	[/(^|[^a-z])(phone|tel|mobile)([^a-z]|$)/i, "tel"],
+	[/(^|[^a-z])(street|address-?1|addr1)([^a-z]|$)/i, "street-address"],
+	[/(^|[^a-z])(zip|postal-?code|postcode)([^a-z]|$)/i, "postal-code"],
+	[/(^|[^a-z])(country)([^a-z]|$)/i, "country-name"],
+	[/(^|[^a-z])(city|town)([^a-z]|$)/i, "address-level2"],
+	[/(^|[^a-z])(organization|company)([^a-z]|$)/i, "organization"],
+];
+
+/** Input types that are about the person by their nature. */
+const PERSONAL_TYPES: Readonly<Record<string, string>> = {
+	email: "email",
+	tel: "tel",
+};
+
+/**
+ * What a field appears to be asking the user for, if anything.
+ *
+ * The type is trusted before the name, because type="email" is
+ * the browser's own declaration and a name is a guess.
+ */
+function wants(node: StructureNode): string | undefined {
+	const type = (node.attributes.type ?? "text").toLowerCase();
+	const byType = PERSONAL_TYPES[type];
+	if (byType !== undefined) return byType;
+	// Only plain text fields are guessed at from their name. A
+	// search, a number or a checkbox named "city" is not an address.
+	if (type !== "text") return undefined;
+
+	const described = `${node.attributes.name ?? ""} ${node.attributes.id ?? ""}`;
+	for (const [pattern, token] of PERSONAL_HINTS) {
+		if (pattern.test(described)) return token;
+	}
+	return undefined;
+}
+
+/**
+ * Fields the browser could fill, if it were told what they are.
+ *
+ * WCAG 1.3.5. Without a token the browser will not fill the
+ * field and a password manager cannot either, so somebody who
+ * finds typing hard retypes their own address on every site that
+ * asks. axe has no rule for this, so it has been passing in
+ * silence.
+ */
+export function autocompleteTokens(
+	nodes: readonly StructureNode[],
+): readonly A11yFinding[] {
+	const missing: FindingNode[] = [];
+
+	for (const node of nodes) {
+		if (!node.rendered || node.tag !== "input") continue;
+		const wanted = wants(node);
+		if (wanted === undefined) continue;
+
+		const declared = node.attributes.autocomplete?.trim().toLowerCase();
+		// An author who wrote "off" has said the browser must not
+		// remember this, and for a one-time passcode they are right.
+		// Overruling them would be this tool claiming to know better
+		// about a decision only they can make.
+		if (declared === "off" || declared === "on") continue;
+
+		if (declared === undefined || declared === "") {
+			missing.push(
+				nodeOf(
+					node,
+					`Asks for the user's own details but carries no ` +
+						`autocomplete token. autocomplete="${wanted}" would let ` +
+						"the browser fill it.",
+				),
+			);
+			continue;
+		}
+
+		// The specification allows prefixes: a section name, then
+		// shipping or billing, then the token itself. Reading only the
+		// bare attribute would fail every well-built checkout.
+		const last = declared.split(/\s+/).at(-1);
+		if (last === undefined || !KNOWN_TOKENS.has(last)) {
+			missing.push(
+				nodeOf(
+					node,
+					`autocomplete="${declared}" is not a token the ` +
+						`specification defines, so it does nothing. ` +
+						`"${wanted}" is the one that fits.`,
+				),
+			);
+		}
+	}
+
+	return finding(
+		{
+			rule: "field-has-autocomplete",
+			impact: "serious",
+			criteria: ["1.3.5"],
+			levels: ["AA"],
+			help:
+				"A field collecting the user's own information needs an " +
+				"autocomplete token, or the browser cannot fill it and " +
+				"they type it again on every site.",
+		},
+		missing,
+	);
+}
+
+/**
  * Tab order set by hand.
  *
  * A positive tabindex pulls an element to the front of the tab
@@ -594,6 +773,7 @@ export function analyseStructure(
 		...headingOutline(nodes),
 		...landmarkNaming(nodes),
 		...formLabelling(nodes),
+		...autocompleteTokens(nodes),
 		...manualTabOrder(nodes),
 	];
 }

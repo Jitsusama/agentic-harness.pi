@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	bodyAnswer,
+	elementAnswer,
 	listAnswer,
 	pageAnswer,
 	storageAnswer,
@@ -273,5 +274,41 @@ describe("a response body", () => {
 
 		expect(text).toContain("hello");
 		expect(text).not.toContain("handle result-");
+	});
+});
+
+describe("an element report", () => {
+	afterEach(() => {
+		withdrawQueryTool();
+		cleanupSessionResults();
+	});
+
+	/** An inspection whose rendering runs long. */
+	const inspection = {
+		node: { role: "button", name: "Save", properties: {}, children: [] },
+		visibility: { visible: true, because: "painted" },
+	} as unknown as Parameters<typeof elementAnswer>[0];
+
+	it("keeps the whole report askable when the view is cut", () => {
+		// This was the last read in the family that could answer with
+		// an unbounded payload and cite nothing.
+		const long = Array.from({ length: 400 }, (_, at) => `line ${at}`).join(
+			"\n",
+		);
+
+		const text = elementAnswer(inspection, long);
+		const handle = handleIn(text);
+
+		expect(handle).toBeDefined();
+		expect(text).toContain("line 0");
+		expect(text).not.toContain("line 399");
+		const stored = createResultStore({ dir: sessionResultDir() });
+		expect(JSON.parse(stored.read(handle as string)).node.name).toBe("Save");
+	});
+
+	it("says nothing extra about a report that fits", () => {
+		const text = elementAnswer(inspection, "button Save\nvisible");
+
+		expect(text).toBe("button Save\nvisible");
 	});
 });
