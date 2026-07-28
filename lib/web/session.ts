@@ -32,6 +32,8 @@ import { dataDir } from "../internal/paths.js";
 import {
 	type Announcement,
 	type AxNode,
+	FOCUS_PROBE,
+	type FocusHolder,
 	type FrameAxTree,
 	normalizeAxTree,
 	type RawAxNode,
@@ -89,6 +91,7 @@ import {
 	normalizeBoxModel,
 	normalizeListeners,
 	OCCLUDER_PROBE,
+	OWN_TEXT_PROBE,
 	type PseudoState,
 	type PseudoVariant,
 	type RawAnimation,
@@ -201,7 +204,10 @@ import {
 	type ContrastLevel,
 	enabledRules,
 	foldBehind,
+	foldPair,
 	type PageBox,
+	type PaintedSide,
+	type PairReport,
 	parseRgb,
 	type RawAxeRun,
 	readAxeRun,
@@ -1324,12 +1330,11 @@ export class BrowserSession {
 
 		try {
 			const styles = await this.stylesOf(objectId);
-			const colour = parseRgb(styles?.color ?? "") ?? {
-				r: 0,
-				g: 0,
-				b: 0,
-				a: 1,
-			};
+			// No fallback here on purpose. parseRgb returns undefined for a
+			// colour it cannot read, and the fold treats that as undecidable;
+			// substituting black would answer confidently about a colour
+			// nobody read.
+			const colour = parseRgb(styles?.color ?? "");
 			const sizing = {
 				fontSizePx: Number.parseFloat(styles?.["font-size"] ?? "16") || 16,
 				fontWeight: Number.parseFloat(styles?.["font-weight"] ?? "400") || 400,
@@ -1346,7 +1351,9 @@ export class BrowserSession {
 					report: foldBehind({
 						withText,
 						bare,
-						textColour: { r: colour.r, g: colour.g, b: colour.b },
+						textColour: colour
+							? { r: colour.r, g: colour.g, b: colour.b }
+							: undefined,
 						sizing,
 						bar,
 					}),
@@ -1357,6 +1364,75 @@ export class BrowserSession {
 		} finally {
 			await this.release(objectId);
 		}
+	}
+
+	/**
+	 * Judge the contrast between two elements the caller named.
+	 *
+	 * Distinct from contrastBehind, which subtracts pixels to read the
+	 * background under one element's glyphs. This compares two
+	 * elements' stated colours, which is the only way to ask about a
+	 * boundary: an icon against its card, a border against the page.
+	 * Both sides are read from the computed style rather than the
+	 * screen, so nothing is captured and nothing moves.
+	 */
+	async contrastPair(
+		one: Target,
+		other: Target,
+		bar: ContrastLevel = "AA",
+	): Promise<
+		{ ok: true; report: PairReport } | { ok: false; refusal: TargetRefusal }
+	> {
+		await this.ready();
+		const tree = await this.axTree();
+		const sides: PaintedSide[] = [];
+		for (const target of [one, other]) {
+			const resolution = resolveTarget(tree, target);
+			if (resolution.kind === "notFound") {
+				return { ok: false, refusal: notFoundRefusal(tree, target) };
+			}
+			if (resolution.kind === "ambiguous") {
+				return { ok: false, refusal: ambiguityRefusal(tree, target) };
+			}
+			const objectId = await this.objectFor(resolution.backendDomId);
+			if (!objectId) {
+				return { ok: false, refusal: notFoundRefusal(tree, target) };
+			}
+			try {
+				sides.push(await this.paintedSide(objectId));
+			} finally {
+				await this.release(objectId);
+			}
+		}
+		const [first, second] = sides;
+		if (!first || !second) {
+			return { ok: false, refusal: notFoundRefusal(tree, other) };
+		}
+		return { ok: true, report: foldPair({ one: first, other: second, bar }) };
+	}
+
+	/** What one side of a contrast pairing paints. */
+	private async paintedSide(objectId: string): Promise<PaintedSide> {
+		const styles = await this.stylesOf(objectId);
+		const { result } = await this.cdp.send("Runtime.callFunctionOn", {
+			objectId,
+			functionDeclaration: OWN_TEXT_PROBE,
+			returnByValue: true,
+		});
+		return {
+			hasText: result.value === true,
+			...(styles?.color === undefined ? {} : { color: styles.color }),
+			...(styles?.["background-color"] === undefined
+				? {}
+				: { backgroundColor: styles["background-color"] }),
+			...(styles?.["border-color"] === undefined
+				? {}
+				: { borderColor: styles["border-color"] }),
+			sizing: {
+				fontSizePx: Number.parseFloat(styles?.["font-size"] ?? "16") || 16,
+				fontWeight: Number.parseFloat(styles?.["font-weight"] ?? "400") || 400,
+			},
+		};
 	}
 
 	/**
@@ -2342,6 +2418,23 @@ export class BrowserSession {
 	 * accessibility tree for roles and names. Neither carries
 	 * both, and every structural rule needs both.
 	 */
+	/**
+	 * What holds focus at this moment, moving nothing.
+	 *
+	 * The keyboard walk answers what a whole page does; this answers
+	 * where focus is right now, which is the question between
+	 * actions. It reads rather than presses, so it can be asked after
+	 * a click or a navigation without disturbing what it reports.
+	 */
+	async focusHolder(): Promise<FocusHolder | undefined> {
+		await this.ready();
+		const { result } = await this.cdp.send("Runtime.evaluate", {
+			expression: FOCUS_PROBE,
+			returnByValue: true,
+		});
+		return result.value as FocusHolder | undefined;
+	}
+
 	async structure(): Promise<readonly StructureNode[]> {
 		// Every sibling read waits out a crash recovery first, and
 		// this one did not. Promise.all evaluates this.cdp.send when

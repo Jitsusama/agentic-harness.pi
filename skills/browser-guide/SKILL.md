@@ -75,6 +75,10 @@ here.
 | Know why a click did nothing | `see kind:"element" behaviour:true`, which reports handlers on ancestors too |
 | Know why an element is the colour it is | `see kind:"element" why:"color"` |
 | See a focus ring or a hover style | `see kind:"element" states:["focus-visible","hover"]` |
+| Where did focus end up after that click or key | `see kind:"focus"`, which reads without moving it |
+| Read one CSS property across the whole page | `see kind:"query" styles:["z-index"]`, which reports it for every match |
+| Is this icon or border visible enough against that surface | `check kind:"contrast" within:"button Save" and:"region Card"` |
+| Judge text axe handed back as needing a person | `check kind:"contrast" within:"heading ..."` |
 | Check a phone layout | `check widths:[375,768,1280]`, which works with every kind |
 | Wait for a spinner to finish, not for a guessed delay | `do kind:"wait" selector:"#save" attribute:"aria-busy" value:"false"` |
 | Wait until a list has loaded all its rows | `do kind:"wait" selector:"li.row" count:20` |
@@ -109,6 +113,43 @@ say so plainly rather than building a workaround out of
 screenshots. A missing capability is worth reporting; a
 hand-rolled substitute for one that exists is not.
 
+## Every Kind, In One Place
+
+The table above is the shortest route for a handful of common
+intents. This is the whole surface, so nothing has to be guessed
+at or rebuilt. A gate keeps it complete: a kind that ships without
+appearing here fails the suite.
+
+**`browser_go`**, which puts a session somewhere and sets its
+conditions: `kind:"open"`, `kind:"navigate"`, `kind:"close"`,
+`kind:"reload"`, `kind:"back"`, `kind:"forward"`,
+`kind:"dialogs"`, `kind:"emulate"`, `kind:"storage"`,
+`kind:"network"`, `kind:"tabs"`.
+
+**`browser_see`**, which reads and changes nothing:
+`kind:"page"`, `kind:"reading"`, `kind:"announcements"`,
+`kind:"logs"`, `kind:"requests"`, `kind:"status"`,
+`kind:"downloads"`, `kind:"query"`, `kind:"vitals"`,
+`kind:"element"`, `kind:"measure"`, `kind:"sockets"`,
+`kind:"heap"`, `kind:"profile"`, `kind:"layers"`,
+`kind:"hover"`, `kind:"focus"`, `kind:"shot"`.
+
+**`browser_do`**, which changes the page: `kind:"act"`,
+`kind:"press"`, `kind:"input"`, `kind:"wait"`, `kind:"eval"`.
+
+**`browser_check`**, which forms a verdict: `kind:"keyboard"`,
+`kind:"accessibility"`, `kind:"visual"`, `kind:"design"`,
+`kind:"contrast"`, `kind:"compare"`, `kind:"perf"`,
+`kind:"health"`.
+
+Two answers live in stored results rather than in a kind of their
+own, and both were rebuilt by hand once for want of being written
+down. `check kind:"keyboard"` stores `stops`, the order focus
+actually visited, and `missed`, the controls it never reached:
+query the cited handle instead of enumerating focusables yourself.
+`see kind:"query"` with `styles` reports named properties for
+every match, which is the page-wide computed-style sweep.
+
 ## Four Jobs, Four Entry Points
 
 Most questions about a page belong to one of four jobs, and
@@ -141,15 +182,35 @@ control bound by delegation does not read as a dead one.
 said and what it asked the network for.
 `browser_see kind:"query"` finds nodes across frames and shadow
 roots, including the ones the browser did not draw, which is how
-you learn why something is missing. `browser_do kind:"eval"`
+you learn why something is missing. Give it `styles` to report
+named CSS properties for every match, which is the way to sweep a
+whole page for a computed value: colours across every heading,
+`z-index` on everything that stacks, `overflow` wherever text
+might clip. Each match already carries its box, so target sizes
+and overlaps are there without asking. A property the browser
+did not answer is named as not reported rather than dropped, so
+silence and a value never look alike. `browser_do kind:"eval"`
 interrogates the page directly.
+
+Reach for `eval` last. A session that spends most of its
+`browser_do` calls on `eval` is reporting a gap in these tools:
+the expressions say which surface is missing, and rebuilding
+something this package already ships is the common case. One real
+audit hand-wrote WCAG contrast maths twelve times and a
+focusable-element selector six, and evaluated `innerWidth` by hand
+while `see kind:"status"` sat there answering exactly that.
 
 **Validating behaviour.** `browser_do` acts, presses and waits;
 read the page again after each act rather than assuming the
 action worked. `browser_go kind:"network"` mocks, blocks,
 throttles or goes offline, so failure paths can be exercised
 without breaking anything real. `browser_go kind:"emulate"`
-changes the visitor. `browser_check kind:"health"` runs every
+changes the visitor; if the browser refuses a media feature it
+was asked for, that feature is dropped rather than retried on
+every later navigation, and the refusal is reported in the same
+list as a setting this build cannot emulate, so check that list
+rather than assuming the condition took.
+`browser_check kind:"health"` runs every
 verdict at once, and `widths` on any check repeats it at several
 viewports, because most layout and contrast faults are
 conditional on width.

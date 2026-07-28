@@ -28,6 +28,7 @@ import {
 	renderAudit,
 	renderBehind,
 	renderHealth,
+	renderPair,
 	renderSweep,
 	renderVerdict,
 	SUPERSEDED_BY,
@@ -189,6 +190,17 @@ const parameters = Type.Object({
 				"'role name' the way the page outline reads it, e.g. " +
 				"'heading Our Pricing'. Required for that kind, since the " +
 				"measurement is of one element's glyphs and not the page.",
+		}),
+	),
+	and: Type.Optional(
+		Type.String({
+			description:
+				"For contrast: a second element, named the same way, which " +
+				"changes the question to the boundary between the two. That " +
+				"is how to judge an icon against its card or a border " +
+				"against the page, which is criterion 1.4.11 and the one " +
+				"axe does not answer. Without it, the check measures text " +
+				"against the pixels behind its own glyphs.",
 		}),
 	),
 	update: Type.Optional(
@@ -443,10 +455,28 @@ async function runOnce(
 		// AA rather than the AAA the audit defaults to: this reports a
 		// single measured ratio next to the number required, so the
 		// stricter bar is a caller's choice rather than a safe default.
-		const judged = await session.contrastBehind(
-			target,
-			params.level === "AAA" ? "AAA" : "AA",
-		);
+		const bar = params.level === "AAA" ? "AAA" : "AA";
+
+		// Naming a second element asks a different question. One element
+		// means text against the pixels behind its glyphs, measured by
+		// subtraction. Two means the boundary between them, which is
+		// where 1.4.11 lives and where no amount of pixel reading helps,
+		// because the answer is about two stated colours.
+		if (params.and !== undefined) {
+			const second = parseTarget(params.and);
+			if (second === undefined) {
+				return (
+					"WARN could not read that as an element\n\n" +
+					`Nothing was named in '${params.and}'. Give it as ` +
+					"'role name', e.g. 'button Save changes'."
+				);
+			}
+			const paired = await session.contrastPair(target, second, bar);
+			if (!paired.ok) return describeRefusal(target, paired.refusal);
+			return renderPair(paired.report);
+		}
+
+		const judged = await session.contrastBehind(target, bar);
 		if (!judged.ok) return describeRefusal(target, judged.refusal);
 		return renderBehind(judged.report);
 	}

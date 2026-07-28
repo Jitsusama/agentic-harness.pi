@@ -18,7 +18,9 @@ import {
 	mediaFeaturesOf,
 	mergeEmulation,
 	type ObservedEnvironment,
+	refusedFeature,
 	unsupportedFields,
+	withoutFeature,
 } from "../environment/index.js";
 import type { SessionWires } from "./wires.js";
 
@@ -45,6 +47,14 @@ interface EmulationHooks {
 export class EmulationController {
 	/** What this session is pretending to be. */
 	private state: EmulationState = {};
+	/**
+	 * Media features this browser turned down.
+	 *
+	 * Kept so the refusal can be reported once, rather than lost
+	 * silently or, worse, left in the intent to fail again on every
+	 * navigation that replays it.
+	 */
+	private refused: string[] = [];
 
 	constructor(
 		private readonly wires: SessionWires,
@@ -118,6 +128,17 @@ export class EmulationController {
 					]
 				: [];
 		await this.apply();
+		// A feature the browser turned down is reported beside the
+		// fields this build never had, since to the caller they are the
+		// same disappointment.
+		const turnedDown = this.refused.map((feature) => ({
+			what: feature,
+			asked: "emulated",
+			observed: "refused by this browser",
+			note:
+				`this Chrome does not know ${feature}, so it has been ` +
+				"dropped rather than retried on every navigation",
+		}));
 		// A viewport change reflows the page and a real application
 		// re-renders for it, so the same wait a navigation gets applies
 		// here: without it the next read describes the old layout.
@@ -149,7 +170,7 @@ export class EmulationController {
 			observed,
 			// Compared against the effective state, since a device is
 			// the reason a viewport is what it is.
-			gaps: [...ignored, ...unknown, ...measured],
+			gaps: [...ignored, ...unknown, ...turnedDown, ...measured],
 		};
 	}
 
@@ -204,6 +225,47 @@ export class EmulationController {
 		return { ...fromDevice, ...asked };
 	}
 
+	/**
+	 * Put the media features to the browser, dropping any it refuses.
+	 *
+	 * The set goes over in one call and Chrome rejects the whole set on
+	 * the first feature it does not recognise, so a feature this build
+	 * of Chrome has never heard of would otherwise take every working
+	 * feature with it. Worse, the intent is replayed on navigation, so
+	 * a single refusal became an error on later calls that asked for
+	 * nothing at all: one real session failed a plain navigate with
+	 * "Unsupported media feature: prefers-contrast" long after the
+	 * emulate call that set it.
+	 *
+	 * Dropping is per feature and one at a time, because the message
+	 * names only the first offender.
+	 */
+	private async applyMediaFeatures(
+		page: ReturnType<SessionWires["page"]>,
+		state: EmulationState,
+	): Promise<void> {
+		let wanted = state;
+		for (;;) {
+			try {
+				await page.emulateMediaFeatures([...mediaFeaturesOf(wanted)]);
+				return;
+			} catch (failure) {
+				const feature = refusedFeature(
+					failure instanceof Error ? failure.message : String(failure),
+				);
+				const left = feature ? withoutFeature(wanted, feature) : wanted;
+				// Nothing to drop means the failure was not a refusal, or
+				// names something this cannot map, and retrying would spin.
+				if (!feature || left === wanted) throw failure;
+				if (!this.refused.includes(feature)) this.refused.push(feature);
+				// The intent itself gives the feature up, so no later
+				// navigation replays it.
+				this.state = withoutFeature(this.state, feature);
+				wanted = left;
+			}
+		}
+	}
+
 	/** Put the whole standing intent to the browser. */
 	async apply(): Promise<void> {
 		const state = this.effective;
@@ -222,7 +284,7 @@ export class EmulationController {
 		// flag in the renderer, so the page quietly stopped being a
 		// phone while the report still said it was one.
 		await page.emulateMediaType(state.media);
-		await page.emulateMediaFeatures([...mediaFeaturesOf(state)]);
+		await this.applyMediaFeatures(page, state);
 		await page.emulateVisionDeficiency(state.vision ?? "none");
 
 		// Screen, touch and user agent go through the driver rather

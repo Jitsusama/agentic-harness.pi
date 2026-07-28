@@ -71,6 +71,12 @@ export {
 	undecidable,
 } from "./contrast.js";
 export { overallOf, type Part, renderHealth } from "./health.js";
+export {
+	foldPair,
+	type PaintedSide,
+	type PairReport,
+	renderPair,
+} from "./pair.js";
 export { TARGET_CAPTURE, visualCaptureSource } from "./probe.js";
 export {
 	MAX_LISTED_NODES,

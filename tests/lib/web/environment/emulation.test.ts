@@ -12,7 +12,9 @@ import {
 	mediaFeaturesOf,
 	mergeEmulation,
 	type ObservedEnvironment,
+	refusedFeature,
 	unsupportedFields,
+	withoutFeature,
 } from "../../../../lib/web/environment/emulation.js";
 
 const observed = (
@@ -239,5 +241,68 @@ describe("divergences", () => {
 
 	it("says nothing about settings that were never asked for", () => {
 		expect(divergences({}, observed({ language: "fr-CA" }))).toEqual([]);
+	});
+});
+
+describe("refusedFeature", () => {
+	it("names the feature Chrome would not emulate", () => {
+		// Verbatim from a real session: this is the whole message.
+		expect(refusedFeature("Unsupported media feature: forced-colors")).toBe(
+			"forced-colors",
+		);
+		expect(refusedFeature("Unsupported media feature: prefers-contrast")).toBe(
+			"prefers-contrast",
+		);
+	});
+
+	it("stays quiet about a failure that is not a refused feature", () => {
+		// Dropping state on any error at all would quietly discard an
+		// intent that a disconnect, not the feature, defeated.
+		expect(refusedFeature("Target closed")).toBeUndefined();
+		expect(refusedFeature("")).toBeUndefined();
+	});
+});
+
+describe("withoutFeature", () => {
+	it("drops the refused feature and keeps every other intent", () => {
+		// The whole set goes to Chrome together, so one refusal takes the
+		// working features with it unless the refused one is dropped.
+		const asked: EmulationState = {
+			colorScheme: "dark",
+			reducedMotion: true,
+			forcedColors: true,
+		};
+
+		const left = withoutFeature(asked, "forced-colors");
+
+		expect(left.forcedColors).toBeUndefined();
+		expect(left.colorScheme).toBe("dark");
+		expect(left.reducedMotion).toBe(true);
+		// And the survivor is what would now go to the browser.
+		expect(mediaFeaturesOf(left).map((f) => f.name)).not.toContain(
+			"forced-colors",
+		);
+	});
+
+	it("maps every media feature it sends back to the field that set it", () => {
+		// A feature this cannot map would be dropped from the report and
+		// kept in the state, which is the sticky refusal all over again.
+		const asked: EmulationState = {
+			colorScheme: "dark",
+			reducedMotion: true,
+			contrast: "more",
+			forcedColors: true,
+		};
+		for (const { name } of mediaFeaturesOf(asked)) {
+			const left = withoutFeature(asked, name);
+			expect(mediaFeaturesOf(left).map((f) => f.name)).not.toContain(name);
+		}
+	});
+
+	it("leaves the intent alone when the name means nothing to it", () => {
+		const asked: EmulationState = { colorScheme: "dark" };
+		expect(withoutFeature(asked, "prefers-reduced-transparency")).toEqual(
+			asked,
+		);
 	});
 });

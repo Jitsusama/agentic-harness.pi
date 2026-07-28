@@ -137,6 +137,54 @@ export function mediaFeaturesOf(
 	return features;
 }
 
+/**
+ * Which state field each media feature is spoken for by.
+ *
+ * The pairing has to be total in one direction: every feature
+ * mediaFeaturesOf can send must map back, or a refusal would be
+ * reported and then kept, which is the sticky refusal it exists to
+ * prevent.
+ */
+const FEATURE_FIELDS: Readonly<Record<string, keyof EmulationState>> = {
+	"prefers-color-scheme": "colorScheme",
+	"prefers-reduced-motion": "reducedMotion",
+	"prefers-contrast": "contrast",
+	"forced-colors": "forcedColors",
+};
+
+const REFUSED_PATTERN = /Unsupported media feature:\s*(\S+)/;
+
+/**
+ * Name the media feature a failed emulation call refused.
+ *
+ * Only this one shape counts. A dropped connection or a closed
+ * target says nothing about the feature, and treating any failure as
+ * a refusal would quietly discard an intent the browser never
+ * objected to.
+ */
+export function refusedFeature(message: string): string | undefined {
+	return REFUSED_PATTERN.exec(message)?.[1];
+}
+
+/**
+ * Drop one media feature from a standing intent.
+ *
+ * Chrome is given the whole set at once and rejects the set on the
+ * first feature it does not know, so a refusal that stays in the
+ * intent takes every working feature down with it, on this call and
+ * on every navigation that replays it.
+ */
+export function withoutFeature(
+	state: EmulationState,
+	feature: string,
+): EmulationState {
+	const field = FEATURE_FIELDS[feature];
+	if (!field || state[field] === undefined) return state;
+	const left = { ...state };
+	delete left[field];
+	return left;
+}
+
 /** One place where the page disagrees with what was asked. */
 export interface Divergence {
 	readonly what: string;

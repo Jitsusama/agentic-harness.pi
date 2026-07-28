@@ -359,6 +359,24 @@ is followed by judgment, not by a regex.
   else: an answer that cited a handle only when the budget cut it,
   so an audit eliding eight thousand elements cited nothing, and
   a citation naming a reader that the session had not loaded.
+  A third AGENTS-level rule is gated in the same family:
+  🟢 a capability these tools offer is written down where an
+  agent will look for it.
+  `tests/extensions/browser-integration/findable.test.ts`
+  requires a parameter's description to name every kind that
+  reads it, and
+  `tests/extensions/browser-integration/indexed.test.ts`
+  requires every kind in a tool's schema to appear in one of the
+  browser guides as the literal an agent would search for.
+  Both came from measurement rather than principle. The first
+  from four reviewers reporting eight gaps, two of which were
+  features that existed and could not be found. The second from
+  an accessibility audit that spent forty of its sixty-three
+  actions on raw eval and rebuilt four shipping capabilities by
+  hand, among them the WCAG contrast maths, reimplemented twelve
+  times. Removing one kind from the index fails the gate by
+  name. Neither can judge whether the prose is any good, which
+  is the right way for a gate like this to be wrong.
 - **Audit methodology**: `browser-accessibility-guide`. Its
   rules are about how to conduct and report an audit, and the
   claims most worth enforcing are enforced at the source rather

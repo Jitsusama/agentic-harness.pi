@@ -87,6 +87,51 @@ describe("foldBehind", () => {
 
 		expect(report.glyphPixels).toBe(0);
 		expect(report.verdict).toBe("undecidable");
+		expect(report.undecided).toBe("no-text-pixels");
+	});
+
+	it("declines to judge text whose own colour could not be read", () => {
+		// The glyphs are plainly there: two pixels changed. What is
+		// missing is the text colour, which a modern colour syntax can
+		// defeat. Assuming one would produce a confident ratio for a
+		// colour nobody read, so the only honest answer is no answer.
+		const bare = region(10, 1, () => BLACK);
+		const withText = region(10, 1, (x) => (x === 1 || x === 2 ? WHITE : BLACK));
+
+		const report = foldBehind({
+			withText,
+			bare,
+			textColour: undefined,
+			sizing: { fontSizePx: 16, fontWeight: 400 },
+			bar: "AA",
+		});
+
+		expect(report.verdict).toBe("undecidable");
+		expect(report.undecided).toBe("unreadable-text-colour");
+		// The mask still ran, so the pixel count is a measurement rather
+		// than a stand-in for one. Reporting zero here would claim
+		// something the fold never tested.
+		expect(report.glyphPixels).toBe(2);
+	});
+
+	it("says which of the two undecidables it hit when rendering", () => {
+		const bare = region(4, 1, () => BLACK);
+		const withText = region(4, 1, (x) => (x === 1 ? WHITE : BLACK));
+		const unreadable = renderBehind(
+			foldBehind({
+				withText,
+				bare,
+				textColour: undefined,
+				sizing: { fontSizePx: 16, fontWeight: 400 },
+				bar: "AA",
+			}),
+		);
+
+		expect(unreadable).toContain("WARN");
+		expect(unreadable).toMatch(/colour/i);
+		// The other reason's wording must not be reused here: "changed no
+		// pixels" would be a false statement about this region.
+		expect(unreadable).not.toMatch(/changed no pixels/i);
 	});
 
 	it("holds large text to the lower bar the criterion gives it", () => {

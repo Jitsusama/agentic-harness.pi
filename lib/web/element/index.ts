@@ -56,6 +56,7 @@ export {
 	CONTENT_PROBE,
 	HIDE_TEXT,
 	OCCLUDER_PROBE,
+	OWN_TEXT_PROBE,
 	SELECT_TEXT_PROBE,
 } from "./probes.js";
 export {

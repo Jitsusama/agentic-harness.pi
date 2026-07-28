@@ -170,7 +170,7 @@ real and not ours to overrule.
 So a finding in that bucket means one of two things: axe could
 not see enough to decide, or axe does not fully trust the rule.
 
-## Text Over a Gradient or a Photograph
+#### Text Over a Gradient or a Photograph
 
 When axe hands back an element because it cannot find a single
 background colour, `check kind:"contrast" within:"heading Our
@@ -204,7 +204,44 @@ This judges one element on demand rather than sweeping the page,
 because each measurement costs two screenshots. Run the audit
 first, then bring this to the elements it could not decide.
 
-## Reflow, and the Criterion Next to It
+It also reports `WARN` when the text's own colour cannot be read,
+which a stylesheet using a colour syntax this build does not parse
+will cause. That is a refusal, not a pass, and it never assumes a
+colour in order to produce a number.
+
+#### A Boundary You Chose, Which Is 1.4.11
+
+Add `and` to name a second element, and the question changes from
+text against its own background to the boundary between the two:
+`check kind:"contrast" within:"button Save" and:"region Card"`.
+This is criterion 1.4.11, contrast of things that are not text,
+and axe does not answer it. Icons, borders, focus states against
+their resting state, a chart series against its neighbour: all of
+them live here, and all of them need 3:1.
+
+The two elements are not interchangeable, and the report says what
+it took from each:
+
+- **The first is the subject**, the thing being judged. If it has
+  text of its own, its `color` is used and the criterion becomes
+  1.4.3, whose bar depends on the text size. Otherwise its
+  `background-color`, or its `border-color` when it paints no
+  background, which is how most outlined controls are drawn
+- **The second is the surface** it sits against. Only what that
+  element paints counts. Its own text colour is irrelevant to the
+  question and is ignored
+
+Always relay which properties were compared, because the choice is
+the part worth arguing with. If it picked the wrong boundary, name
+different elements rather than reinterpreting the number.
+
+It declines with `WARN` when a side paints nothing of its own, a
+fully transparent background being the usual reason. What sits
+behind a see-through element belongs to an ancestor this cannot
+name, so it refuses instead of guessing. Point at the element that
+actually paints the surface.
+
+#### Reflow, and the Criterion Next to It
 
 Reflow (1.4.10) asks that content not require scrolling in two
 directions at a width of 320 pixels. That is what
@@ -257,10 +294,22 @@ Target size is measured here, because axe ships its target-size
 rule disabled, so nothing else in the report would answer WCAG
 2.5.8. Look for the rule `target-is-big-enough`.
 
-Colours are converted by the browser, never guessed, because
-`getComputedStyle` returns `oklch` and `color(display-p3 ...)`
-unconverted and a parser that assumed `rgb()` would be
-confidently wrong on modern pages.
+Colours are read, never guessed. `getComputedStyle` returns
+`rgb()`, `rgba()` and `color(srgb ...)`, and all three are
+parsed, the last on its nought-to-one scale. `oklch`, `lab` and
+the wider `color()` gamuts come back unconverted and are refused
+rather than read as though they were sRGB, because a wider gamut
+wearing the same syntax would be confidently wrong. A refusal
+surfaces as an undecided result and never as a pass.
+
+Two contrast questions live outside `check accessibility`, and
+both are things axe declines rather than things it missed. Text on
+a gradient or a photograph has no single background colour: see
+"Text Over a Gradient or a Photograph" above. A boundary between
+two elements you chose, which is criterion 1.4.11, is not text at
+all: see "A Boundary You Chose, Which Is 1.4.11" above. Neither
+is reached by the audit, so if the report is meant to cover
+1.4.11 you have to ask for it per boundary.
 
 Target size has an exception that decides most real cases: a
 small target with open space around it passes, and the same

@@ -134,6 +134,27 @@ export function describeNode(node: IndexedNode): string {
 	return `${tag}${id}${classes}${where}${tail}${words}`;
 }
 
+/**
+ * Say what a node's named properties compute to.
+ *
+ * A property the snapshot carries no value for is named rather than
+ * dropped. Leaving it out would read exactly like a property nobody
+ * asked about, and a caller would take the silence for a value.
+ */
+export function describeStyles(
+	node: IndexedNode,
+	wanted: readonly string[],
+): string {
+	return wanted
+		.map((property) => {
+			const value = node.styles[property];
+			// An empty string is what the snapshot gives for a property
+			// the browser did not answer, so it is the same absence.
+			return `${property}: ${value ? value : "not reported"}`;
+		})
+		.join("; ");
+}
+
 /** How much of a text run is worth showing in a listing. */
 const MAX_TEXT = 40;
 

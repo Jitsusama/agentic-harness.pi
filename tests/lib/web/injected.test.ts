@@ -16,6 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 import { ANNOUNCEMENT_OBSERVER } from "../../../lib/web/a11y/announcements.js";
+import { FOCUS_PROBE } from "../../../lib/web/a11y/focus.js";
 import {
 	WALK_COLLECT,
 	WALK_READ,
@@ -30,6 +31,7 @@ import { inventorySource } from "../../../lib/web/design/probe.js";
 import { ANIMATIONS_PROBE } from "../../../lib/web/element/animations.js";
 import {
 	OCCLUDER_PROBE,
+	OWN_TEXT_PROBE,
 	SELECT_TEXT_PROBE,
 } from "../../../lib/web/element/probes.js";
 import { SETTLE_PROBE } from "../../../lib/web/element/pseudo.js";
@@ -57,6 +59,7 @@ const EXPRESSIONS: ReadonlyArray<readonly [string, string]> = [
 	["WALK_REMEMBER", WALK_REMEMBER],
 	["WALK_RESTORE", WALK_RESTORE],
 	["ENVIRONMENT_PROBE", ENVIRONMENT_PROBE],
+	["FOCUS_PROBE", FOCUS_PROBE],
 	["evaluationSource(1 + 1)", evaluationSource("1 + 1")],
 ];
 
@@ -68,6 +71,7 @@ const EXPRESSIONS: ReadonlyArray<readonly [string, string]> = [
 const DECLARATIONS: ReadonlyArray<readonly [string, string]> = [
 	["SELECT_TEXT_PROBE", SELECT_TEXT_PROBE],
 	["OCCLUDER_PROBE", OCCLUDER_PROBE],
+	["OWN_TEXT_PROBE", OWN_TEXT_PROBE],
 	["SETTLE_PROBE", SETTLE_PROBE],
 	["ANIMATIONS_PROBE", ANIMATIONS_PROBE],
 	["COMPUTED_STYLE_PROBE", COMPUTED_STYLE_PROBE],

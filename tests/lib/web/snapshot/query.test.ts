@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { IndexedNode } from "../../../../lib/web/snapshot/flatten.js";
 import {
 	describeNode,
+	describeStyles,
 	find,
 	matches,
 	tally,
@@ -171,5 +172,50 @@ describe("describeNode", () => {
 		expect(describeNode(node({ text: "two\n\n   words" }))).toContain(
 			'"two words"',
 		);
+	});
+});
+
+describe("describeStyles", () => {
+	it("says what each property asked for computes to", () => {
+		const styled = node({
+			styles: { color: "rgb(0, 0, 0)", "font-size": "16px" },
+		});
+
+		const said = describeStyles(styled, ["color", "font-size"]);
+
+		expect(said).toContain("color: rgb(0, 0, 0)");
+		expect(said).toContain("font-size: 16px");
+	});
+
+	it("keeps the order the caller asked in", () => {
+		const styled = node({
+			styles: { color: "red", "z-index": "4" },
+		});
+
+		expect(describeStyles(styled, ["z-index", "color"])).toMatch(
+			/z-index.*color/,
+		);
+	});
+
+	it("names a property the snapshot never reported", () => {
+		// Dropping it would read as though it had not been asked for,
+		// and the caller would take silence for a value.
+		const styled = node({ styles: { color: "red" } });
+
+		const said = describeStyles(styled, ["color", "backdrop-filter"]);
+
+		expect(said).toContain("color: red");
+		expect(said).toContain("backdrop-filter");
+		expect(said).toMatch(/backdrop-filter: not reported/);
+	});
+
+	it("treats an empty value as not reported, which is what it is", () => {
+		const styled = node({ styles: { color: "" } });
+
+		expect(describeStyles(styled, ["color"])).toMatch(/not reported/);
+	});
+
+	it("says nothing at all when no property was asked for", () => {
+		expect(describeStyles(node(), [])).toBe("");
 	});
 });
