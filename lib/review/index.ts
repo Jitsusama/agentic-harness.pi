@@ -24,6 +24,13 @@ export type {
 } from "./anchor.js";
 export { anchorable } from "./anchor.js";
 export type {
+	Capabilities,
+	ConversationCapabilities,
+	ProposalCapabilities,
+	StackingCapabilities,
+	StalenessModel,
+} from "./capabilities.js";
+export type {
 	Actor,
 	ChangeRef,
 	ChangeState,
@@ -31,6 +38,18 @@ export type {
 	RepoLocator,
 	ReviewTarget,
 } from "./change.js";
+export type { Check, CheckState, ChecksRollup } from "./checks.js";
+export type {
+	AnchoredComment,
+	Message,
+	Posted,
+	Reaction,
+	ReactionCount,
+	Review,
+	Thread,
+	Verdict,
+	WireReview,
+} from "./conversation.js";
 export type {
 	DiffFile,
 	DiffHunk,
@@ -40,3 +59,18 @@ export type {
 } from "./diff.js";
 export { parseUnifiedDiff } from "./diff.js";
 export { changeKey, repoKey, targetKey } from "./keys.js";
+export type {
+	AuthoringFacet,
+	ChangeFilter,
+	ConversationFacet,
+	FieldEdit,
+	LocalBranch,
+	MergeRequest,
+	ProposalDraft,
+	ProposalEdit,
+	ProposalsFacet,
+	RepoProbe,
+	ReviewProvider,
+	StackingFacet,
+} from "./provider.js";
+export type { Stack, StackNode, StackProvenance } from "./stack.js";
