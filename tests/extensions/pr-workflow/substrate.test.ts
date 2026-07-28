@@ -10,6 +10,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	forgetSubstrate,
+	headCommitFromSubstrate,
 	replyThroughSubstrate,
 	resolveThroughSubstrate,
 	setSubstrateApi,
@@ -19,6 +20,7 @@ import type {
 	BoundTarget,
 	ConversationFacet,
 	Message,
+	Proposal,
 	ReviewEngine,
 	ReviewSubstrateApi,
 	Thread,
@@ -27,7 +29,10 @@ import type {
 const reference = { owner: "o", repo: "r", number: 7 };
 
 /** A substrate whose engine resolves to the conversation given. */
-function substrate(conversation: ConversationFacet | null): {
+function substrate(
+	conversation: ConversationFacet | null,
+	proposal: Partial<Proposal> | null = null,
+): {
 	api: ReviewSubstrateApi;
 	resolved: string[];
 } {
@@ -46,6 +51,7 @@ function substrate(conversation: ConversationFacet | null): {
 					},
 				},
 				conversation,
+				proposal: async () => proposal,
 			} as unknown as BoundTarget;
 		},
 	} as unknown as ReviewEngine;
@@ -127,6 +133,33 @@ describe("replyThroughSubstrate", () => {
 				"seems fine",
 			),
 		).rejects.toThrow(/refresh|action=threads/i);
+	});
+});
+
+describe("headCommitFromSubstrate", () => {
+	it("reads the tip the proposal already reports", async () => {
+		const { api } = substrate(null, { headCommit: "abc1234" });
+		setSubstrateApi(api);
+
+		expect(await headCommitFromSubstrate(reference)).toBe("abc1234");
+	});
+
+	it("answers nothing when the provider withholds the tip", async () => {
+		// The drift check compares against what it last saw, and an
+		// absent answer has to read as unknown rather than as moved.
+		const { api } = substrate(null, { headCommit: undefined });
+		setSubstrateApi(api);
+
+		expect(await headCommitFromSubstrate(reference)).toBeUndefined();
+	});
+
+	it("answers nothing when nothing hosts the change", async () => {
+		// A local range has no proposal behind it, and that is not a
+		// failure worth throwing at a drift check.
+		const { api } = substrate(null, null);
+		setSubstrateApi(api);
+
+		expect(await headCommitFromSubstrate(reference)).toBeUndefined();
 	});
 });
 

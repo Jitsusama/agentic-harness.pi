@@ -73,7 +73,7 @@ import {
 	runCritiqueAction,
 } from "./critique-action.js";
 import { decideBatchAction } from "./decide-action.js";
-import { fetchFileContent, fetchPrHeadSha } from "./fetch.js";
+import { fetchFileContent } from "./fetch.js";
 import type { ConventionalLabel } from "./findings.js";
 import { formatCompactFindingsView } from "./findings-view.js";
 import {
@@ -141,6 +141,7 @@ import { createPrWorkflowState, resetPrWorkflowSession } from "./state.js";
 import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
 import {
 	attachSubstrate,
+	headCommitFromSubstrate,
 	metadataFromSubstrate,
 	replyThroughSubstrate,
 	resolveThroughSubstrate,
@@ -1718,7 +1719,7 @@ ${reviewValidationDirective()}`,
 						exec,
 						gate,
 						proseGate: buildReviewProseGate(sessionGateDeps(ctx, pi)),
-						currentHead: (ref) => fetchPrHeadSha(pi, ref),
+						currentHead: headCommitFromSubstrate,
 					});
 					if (!result.ok) {
 						return {

@@ -86,6 +86,25 @@ export async function metadataFromSubstrate(
 }
 
 /**
+ * The tip of the branch a change proposes, when anyone knows it.
+ *
+ * Used to notice that a change moved under a review in progress.
+ * Every absence answers undefined rather than throwing: a target
+ * with no proposal behind it, or a provider that does not report a
+ * tip, both mean the same thing to a drift check, which is that it
+ * has nothing to compare against. Throwing would turn "cannot
+ * tell" into "has moved".
+ */
+export async function headCommitFromSubstrate(
+	reference: PRReference,
+): Promise<string | undefined> {
+	const named = changeFromGitHubView(reference);
+	const bound = await boundFor(named.label);
+	const proposal = await bound.proposal();
+	return proposal?.headCommit;
+}
+
+/**
  * Reply into a thread through the substrate. Returns the new
  * comment's url, when the provider reports one.
  *

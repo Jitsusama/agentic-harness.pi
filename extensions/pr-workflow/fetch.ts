@@ -1,17 +1,14 @@
 /**
- * Fetch and parse pull request metadata from GitHub.
+ * The metadata shape this workflow's views speak, and the
+ * projection onto it from what the substrate reports.
  *
- * The wire boundary lives in two halves: `parsePrMetadata`
- * turns a raw GraphQL response into the typed shape the rest
- * of the workflow consumes, and `fetchPrMetadata` orchestrates
- * the round trip via the shared `runGraphQL` runner. Splitting
- * them this way keeps the parser pure and testable without
- * stubbing out a process boundary.
+ * The reads themselves live in `substrate.ts` now. What is left
+ * here is the shape, the projection, and one genuinely
+ * GitHub-shaped read: fetching a file's contents at a ref, which
+ * the buffer viewer needs and no facet offers.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { runGraphQL } from "../../lib/internal/github/graphql.js";
-import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import type { Proposal } from "../../lib/review/index.js";
 
 /** PR lifecycle states GitHub returns over GraphQL. */
@@ -33,42 +30,6 @@ export interface PrMetadata {
 	readonly changedFiles: number;
 	readonly createdAt: string;
 	readonly updatedAt: string;
-}
-
-const HEAD_SHA_QUERY = `query PrHeadSha($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) { headRefOid }
-  }
-}`;
-
-/**
- * Fetch just the PR's current head sha.
- *
- * A narrow companion to `fetchPrMetadata` for the post-time
- * drift check, where the full metadata round trip would be
- * wasteful. Returns `undefined` rather than throwing when the
- * response shape is unexpected, so an advisory check never
- * breaks a post the user is ready to send.
- */
-export async function fetchPrHeadSha(
-	pi: ExtensionAPI,
-	reference: PRReference,
-): Promise<string | undefined> {
-	const raw = await runGraphQL<unknown>(pi, HEAD_SHA_QUERY, {
-		owner: reference.owner,
-		repo: reference.repo,
-		number: reference.number,
-	});
-	if (!isRecord(raw)) return undefined;
-	const data = isRecord(raw.data) ? raw.data : undefined;
-	const repository =
-		data && isRecord(data.repository) ? data.repository : undefined;
-	const pr =
-		repository && isRecord(repository.pullRequest)
-			? repository.pullRequest
-			: undefined;
-	const sha = pr?.headRefOid;
-	return typeof sha === "string" ? sha : undefined;
 }
 
 /**
@@ -102,10 +63,6 @@ export async function fetchFileContent(
 		throw new Error(`No content returned for ${path} at ${ref}`);
 	}
 	return Buffer.from(base64, "base64").toString("utf-8");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
