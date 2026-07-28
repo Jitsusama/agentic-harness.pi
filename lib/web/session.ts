@@ -1324,12 +1324,11 @@ export class BrowserSession {
 
 		try {
 			const styles = await this.stylesOf(objectId);
-			const colour = parseRgb(styles?.color ?? "") ?? {
-				r: 0,
-				g: 0,
-				b: 0,
-				a: 1,
-			};
+			// No fallback here on purpose. parseRgb returns undefined for a
+			// colour it cannot read, and the fold treats that as undecidable;
+			// substituting black would answer confidently about a colour
+			// nobody read.
+			const colour = parseRgb(styles?.color ?? "");
 			const sizing = {
 				fontSizePx: Number.parseFloat(styles?.["font-size"] ?? "16") || 16,
 				fontWeight: Number.parseFloat(styles?.["font-weight"] ?? "400") || 400,
@@ -1346,7 +1345,9 @@ export class BrowserSession {
 					report: foldBehind({
 						withText,
 						bare,
-						textColour: { r: colour.r, g: colour.g, b: colour.b },
+						textColour: colour
+							? { r: colour.r, g: colour.g, b: colour.b }
+							: undefined,
 						sizing,
 						bar,
 					}),

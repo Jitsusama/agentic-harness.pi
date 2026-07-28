@@ -45,6 +45,8 @@ export interface BehindReport {
 	/** The ratio the criterion asks of text this size at this bar. */
 	readonly required: number;
 	readonly verdict: "pass" | "fail" | "undecidable";
+	/** Which undecidable this was, when it was one. */
+	readonly undecided: "no-text-pixels" | "unreadable-text-colour" | undefined;
 	/** Where the worst pixel sat, relative to the region. */
 	readonly worstAt: { readonly x: number; readonly y: number } | undefined;
 }
@@ -74,7 +76,7 @@ function ratio(one: number, other: number): number {
 export function foldBehind(input: {
 	readonly withText: Pixels;
 	readonly bare: Pixels;
-	readonly textColour: Rgb;
+	readonly textColour: Rgb | undefined;
 	readonly sizing: TextSizing;
 	readonly bar: ContrastLevel;
 }): BehindReport {
@@ -85,7 +87,9 @@ export function foldBehind(input: {
 
 	const width = Math.min(withText.width, bare.width);
 	const height = Math.min(withText.height, bare.height);
-	const textLum = luminance(textColour.r, textColour.g, textColour.b);
+	const textLum = textColour
+		? luminance(textColour.r, textColour.g, textColour.b)
+		: undefined;
 
 	let glyphPixels = 0;
 	let worstRatio = Number.POSITIVE_INFINITY;
@@ -105,6 +109,10 @@ export function foldBehind(input: {
 			if (!touched) continue;
 
 			glyphPixels++;
+			// The mask is worth building even with no colour to judge
+			// against: the count is then a measurement rather than a
+			// stand-in for one.
+			if (textLum === undefined) continue;
 			const behind = ratio(
 				textLum,
 				luminance(
@@ -126,6 +134,21 @@ export function foldBehind(input: {
 			worstRatio: 0,
 			required,
 			verdict: "undecidable",
+			undecided: "no-text-pixels",
+			worstAt: undefined,
+		};
+	}
+	if (textLum === undefined) {
+		// The glyphs are there and the background is readable; what is
+		// missing is the one colour the ratio needs. Substituting a
+		// plausible one would answer confidently about a colour nobody
+		// read, which is the failure this whole module exists to avoid.
+		return {
+			glyphPixels,
+			worstRatio: 0,
+			required,
+			verdict: "undecidable",
+			undecided: "unreadable-text-colour",
 			worstAt: undefined,
 		};
 	}
@@ -134,19 +157,31 @@ export function foldBehind(input: {
 		worstRatio,
 		required,
 		verdict: worstRatio >= required ? "pass" : "fail",
+		undecided: undefined,
 		worstAt,
 	};
+}
+
+/** How much of the region the glyphs actually covered. */
+function glyphArea(pixels: number): string {
+	return pixels === 1 ? "1 pixel" : `${pixels} pixels`;
 }
 
 /** Render a subtraction as a verdict a reader can act on. */
 export function renderBehind(report: BehindReport): string {
 	if (report.verdict === "undecidable") {
-		return [
-			"WARN contrast behind the text could not be judged",
-			"",
-			"Hiding the text changed no pixels, so there is no text here " +
-				"to measure, or it was already invisible.",
-		].join("\n");
+		const many = glyphArea(report.glyphPixels);
+		const why =
+			report.undecided === "unreadable-text-colour"
+				? `The glyphs are here, covering ${many}, but the text's own ` +
+					"colour could not be read, so there is nothing to compare " +
+					"the background against. A stylesheet using a colour " +
+					"syntax this build cannot parse will do that."
+				: "Hiding the text changed no pixels, so there is no text here " +
+					"to measure, or it was already invisible.";
+		return ["WARN contrast behind the text could not be judged", "", why].join(
+			"\n",
+		);
 	}
 
 	const mark = report.verdict === "pass" ? "PASS" : "FAIL";
@@ -156,8 +191,7 @@ export function renderBehind(report: BehindReport): string {
 		: "";
 	// The pixel count is what keeps the ratio honest: it says the
 	// number describes the glyphs rather than the whole box.
-	const many =
-		report.glyphPixels === 1 ? "1 pixel" : `${report.glyphPixels} pixels`;
+	const many = glyphArea(report.glyphPixels);
 	return [
 		`${mark} worst contrast behind the text is ${ratioText}` +
 			`, against ${report.required}:1 required`,
