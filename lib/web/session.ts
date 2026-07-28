@@ -75,6 +75,8 @@ import {
 	judgeActionability,
 	judgeVisibility,
 	type Listener,
+	type Measurement,
+	measureBetween,
 	normalizeAnimations,
 	normalizeBoxModel,
 	normalizeListeners,
@@ -276,6 +278,22 @@ export interface InspectOptions {
 }
 
 /** Everything the browser will say about one element. */
+/**
+ * What came of measuring between two elements.
+ *
+ * A target refusal is passed through with the target that earned
+ * it, so the caller can say which of the two they named was the
+ * problem rather than making them inspect both to find out.
+ */
+export type MeasureResult =
+	| { readonly ok: true; readonly measurement: Measurement }
+	| {
+			readonly ok: false;
+			readonly target: Target;
+			readonly refusal: TargetRefusal;
+	  }
+	| { readonly ok: false; readonly problem: string };
+
 export interface Inspection {
 	readonly node: AxNode;
 	readonly visibility: VisibilityVerdict;
@@ -1137,6 +1155,40 @@ export class BrowserSession {
 			key,
 			value,
 		});
+	}
+
+	/**
+	 * Measure the space between two elements.
+	 *
+	 * The border box is the one measured, because that is the edge
+	 * a designer sees and points at. Margins are the space itself,
+	 * so measuring between margin boxes would report the gap that
+	 * remains after the gap, which is nearly always zero.
+	 */
+	async measure(a: Target, b: Target): Promise<MeasureResult> {
+		// Which target failed matters: the caller named two, and a
+		// refusal that does not say which one leaves them guessing.
+		const first = await this.inspect(a);
+		if (!first.ok) return { ok: false, target: a, refusal: first.refusal };
+		const second = await this.inspect(b);
+		if (!second.ok) return { ok: false, target: b, refusal: second.refusal };
+
+		const boxA = first.inspection.box;
+		const boxB = second.inspection.box;
+		if (boxA === undefined || boxB === undefined) {
+			// An element with no box is not laid out, so there is no
+			// space between it and anything. Saying which one it was
+			// saves the caller inspecting both to find out.
+			const missing = boxA === undefined ? a : b;
+			return {
+				ok: false,
+				problem:
+					`${missing.role} ${missing.name} has no box, so it is not ` +
+					"laid out and there is no space between it and anything.",
+			};
+		}
+
+		return { ok: true, measurement: measureBetween(boxA.border, boxB.border) };
 	}
 
 	/**

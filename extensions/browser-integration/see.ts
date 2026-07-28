@@ -23,6 +23,7 @@ import {
 	renderAnimations,
 	renderBox,
 	renderListeners,
+	renderMeasurement,
 	renderStyles,
 	renderTrace,
 	renderVariants,
@@ -270,6 +271,7 @@ const parameters = Type.Object({
 				Type.Literal("query"),
 				Type.Literal("vitals"),
 				Type.Literal("element"),
+				Type.Literal("measure"),
 				Type.Literal("shot"),
 			],
 			{
@@ -305,7 +307,16 @@ const parameters = Type.Object({
 				"'role name', e.g. 'navigation Main' or 'form Checkout'. " +
 				"For kind 'element', the element to inspect. For kind " +
 				"'shot', the element to photograph, cropped to its box " +
-				"rather than the whole page.",
+				"rather than the whole page. For kind 'measure', the first " +
+				"of the two elements to measure between.",
+		}),
+	),
+	and: Type.Optional(
+		Type.String({
+			description:
+				"For measure: the second element, named as 'role name'. " +
+				"The gap is measured between border boxes, which is the " +
+				"edge you see.",
 		}),
 	),
 	styles: Type.Optional(
@@ -745,6 +756,39 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 					);
 				}
 				return answer(name, kind, renderShot(taken.shot));
+			}
+
+			if (kind === "measure") {
+				const first = parseTarget(params.within ?? "");
+				const second = parseTarget(params.and ?? "");
+				if (!first || !second) {
+					return refusal(
+						name,
+						kind,
+						"Name both elements, as 'role name': the first in " +
+							"'within' and the second in 'and', e.g. within " +
+							"'button Save' and 'button Cancel'.",
+					);
+				}
+				const measured = await session.measure(first, second);
+				if (!measured.ok) {
+					return refusal(
+						name,
+						kind,
+						"problem" in measured
+							? measured.problem
+							: describeRefusal(measured.target, measured.refusal),
+					);
+				}
+				return answer(
+					name,
+					kind,
+					renderMeasurement(
+						measured.measurement,
+						`${first.role} ${first.name}`,
+						`${second.role} ${second.name}`,
+					),
+				);
 			}
 
 			if (kind === "element") {
