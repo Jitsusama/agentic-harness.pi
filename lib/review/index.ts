@@ -69,6 +69,8 @@ export type {
 	DiffStatus,
 } from "./diff.js";
 export { parseUnifiedDiff } from "./diff.js";
+export type { DraftDeps, ReviewDraft } from "./draft/handle.js";
+export { openDraft, resumeDraft } from "./draft/handle.js";
 export type {
 	Degradation,
 	PlanContext,
@@ -77,6 +79,10 @@ export type {
 	PublishPlan,
 } from "./draft/plan.js";
 export { compilePlan } from "./draft/plan.js";
+export type { OpOutcome, PublishOutcome } from "./draft/publish.js";
+export { publishPlan } from "./draft/publish.js";
+export type { RenderOptions, ReviewDocument } from "./draft/render.js";
+export { renderDraft } from "./draft/render.js";
 export type {
 	DraftItem,
 	DraftState,
@@ -94,6 +100,8 @@ export {
 	removeItem,
 	setVerdict,
 } from "./draft/state.js";
+export type { DraftStore, DraftSummary } from "./draft/store.js";
+export { createDraftStore } from "./draft/store.js";
 export type { ReviewSubstrateApi } from "./events.js";
 export { REVIEW_READY, REVIEW_REGISTER_PROVIDER } from "./events.js";
 export { changeKey, repoKey, targetKey } from "./keys.js";
