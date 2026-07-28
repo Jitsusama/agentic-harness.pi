@@ -3,7 +3,7 @@ import {
 	spawn as nodeSpawn,
 	type SpawnOptions,
 } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { ReviewerArtifactsStore, type ReviewerRunPaths } from "../artifacts.js";
 import type { PiInstall } from "../install.js";
@@ -409,6 +409,24 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
  * died, and both look like silence from here. The supervisor keeps
  * a lease and a progress file precisely so its state outlives it.
  */
+/**
+ * How long ago a file was last written, in milliseconds.
+ *
+ * Clamped at zero because a clock that moved between the write and
+ * the read should not report a negative age, which reads as a file
+ * written in the future and sends the reader after the wrong thing.
+ */
+async function ageOf(path: string): Promise<number> {
+	try {
+		const { mtimeMs } = await stat(path);
+		return Math.max(0, Math.round(Date.now() - mtimeMs));
+	} catch {
+		// The file was readable a moment ago, so this is a race with
+		// cleanup rather than a real answer. Nothing is claimed.
+		return 0;
+	}
+}
+
 async function supervisorPostMortem(
 	supervisor: ChildProcess,
 	paths: ReviewerRunPaths,
@@ -431,7 +449,17 @@ async function supervisorPostMortem(
 			const raw = JSON.parse(await readFile(path, "utf-8")) as {
 				state?: unknown;
 			};
-			said.push(`${what} says ${JSON.stringify(raw.state ?? raw)}`);
+			// The age matters as much as the state, and for a while only
+			// the state was reported. Both ways this fails say "running":
+			// a supervisor starved of CPU is still writing, so its last
+			// word is seconds old, while one that wedged early wrote once
+			// and stopped, so its last word is as old as the whole wait.
+			// Without the age a CI log cannot say which happened, which
+			// is exactly the question an unreproducible hang turns on.
+			said.push(
+				`${what} says ${JSON.stringify(raw.state ?? raw)}, ` +
+					`last written ${await ageOf(path)}ms ago`,
+			);
 		} catch {
 			// Absent is the interesting answer here: no lease means the
 			// supervisor never got as far as its first write.
