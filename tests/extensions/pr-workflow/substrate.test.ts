@@ -9,13 +9,12 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import {
-	claimedByAnotherSystem,
+	changeFor,
 	diffFromSubstrate,
 	forgetSubstrate,
 	headCommitFromSubstrate,
 	postReviewThroughSubstrate,
 	replyThroughSubstrate,
-	repoForBareChange,
 	resolveThroughSubstrate,
 	setSubstrateApi,
 	threadsFromSubstrate,
@@ -140,47 +139,6 @@ describe("replyThroughSubstrate", () => {
 				"seems fine",
 			),
 		).rejects.toThrow(/refresh|action=threads/i);
-	});
-});
-
-describe("repoForBareChange", () => {
-	it("asks the substrate which repo a bare number means here", async () => {
-		// The resolver knows about config mappings and provider
-		// claims. Reading the origin remote directly would ignore
-		// both and be wrong in exactly the repos that configured one.
-		const { api, resolved } = substrate(null);
-		setSubstrateApi(api);
-
-		expect(await repoForBareChange("123")).toEqual({
-			owner: "o",
-			repo: "r",
-		});
-		expect(resolved).toEqual(["123"]);
-	});
-
-	it("answers nothing when there is no substrate to ask", async () => {
-		// Load has its own message for an unresolvable reference, and
-		// it reads better than a substrate error the user cannot act
-		// on while typing a PR number.
-		forgetSubstrate();
-
-		expect(await repoForBareChange("123")).toBeNull();
-	});
-
-	it("answers nothing when the reference resolves nowhere", async () => {
-		const api = {
-			registerProvider() {},
-			listProviders: () => ["github"],
-			engine: async () =>
-				({
-					async resolve() {
-						throw new Error("nothing claims this");
-					},
-				}) as unknown as ReviewEngine,
-		} satisfies ReviewSubstrateApi;
-		setSubstrateApi(api);
-
-		expect(await repoForBareChange("123")).toBeNull();
 	});
 });
 
@@ -444,7 +402,7 @@ describe("threadsFromSubstrate", () => {
 	});
 });
 
-describe("claimedByAnotherSystem", () => {
+describe("changeFor", () => {
 	/** A substrate whose engine resolves to the provider given. */
 	function claiming(provider: string, label: string): ReviewSubstrateApi {
 		const engine = {
@@ -469,38 +427,49 @@ describe("claimedByAnotherSystem", () => {
 		};
 	}
 
-	it("names the system that claimed the reference", async () => {
-		// Reporting this as unparseable would be a lie. The reference
-		// was understood perfectly; it just belongs to a system this
-		// workflow cannot drive yet.
+	it("hands back the change whichever system owns it", async () => {
+		// The point of the whole exercise: a reference this module
+		// cannot parse still loads, because the substrate resolved it
+		// and said who owns it.
 		setSubstrateApi(claiming("meteorite", "shop/world#2000970"));
 
-		expect(await claimedByAnotherSystem("2000970")).toEqual({
-			provider: "meteorite",
-			label: "shop/world#2000970",
-		});
+		const change = await changeFor("2000970");
+
+		expect(change?.provider).toBe("meteorite");
+		expect(change?.label).toBe("shop/world#2000970");
 	});
 
-	it("says nothing about a reference GitHub claimed", async () => {
-		// This workflow serves GitHub, so there is nothing to warn
-		// about and nothing to get in the way.
+	it("hands back a GitHub change the same way", async () => {
+		// No special case for the system this module grew up with.
 		const { api } = substrate(null);
 		setSubstrateApi(api);
 
-		expect(await claimedByAnotherSystem("7")).toBeNull();
+		expect((await changeFor("7"))?.provider).toBe("github");
 	});
 
-	it("says nothing when there is no substrate to ask", async () => {
-		// Without the host extension there is no second opinion to
-		// offer, and the ordinary parse message is the right one.
+	it("asks about the reference it was given", async () => {
+		// The resolver is what knows about configured mappings and
+		// provider claims, so the reference has to reach it rather
+		// than being interpreted here first.
+		const { api, resolved } = substrate(null);
+		setSubstrateApi(api);
+
+		await changeFor("123");
+
+		expect(resolved).toEqual(["123"]);
+	});
+
+	it("answers nothing when there is no substrate to ask", async () => {
+		// The caller falls back to parsing a GitHub reference itself,
+		// which is what happened before any of this existed.
 		forgetSubstrate();
 
-		expect(await claimedByAnotherSystem("2000970")).toBeNull();
+		expect(await changeFor("2000970")).toBeNull();
 	});
 
-	it("says nothing when the reference resolves nowhere", async () => {
-		// An unresolvable reference is what the parse message already
-		// covers, and guessing a system for it would mislead.
+	it("answers nothing when the reference resolves nowhere", async () => {
+		// Not knowing is ordinary here. The load path has its own
+		// message for a reference nothing claimed.
 		setSubstrateApi({
 			registerProvider() {},
 			listProviders: () => ["github"],
@@ -512,6 +481,25 @@ describe("claimedByAnotherSystem", () => {
 				}) as unknown as ReviewEngine,
 		});
 
-		expect(await claimedByAnotherSystem("2000970")).toBeNull();
+		expect(await changeFor("2000970")).toBeNull();
+	});
+
+	it("answers nothing for a target that is not a hosted change", async () => {
+		// A local range resolves perfectly well and is not something
+		// this workflow can load as a pull request.
+		setSubstrateApi({
+			registerProvider() {},
+			listProviders: () => ["git"],
+			engine: async () =>
+				({
+					async resolve() {
+						return {
+							target: { kind: "range", base: "main", head: "HEAD" },
+						} as unknown as BoundTarget;
+					},
+				}) as unknown as ReviewEngine,
+		});
+
+		expect(await changeFor("main..HEAD")).toBeNull();
 	});
 });

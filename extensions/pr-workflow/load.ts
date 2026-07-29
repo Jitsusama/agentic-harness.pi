@@ -8,6 +8,8 @@
  */
 
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
+import type { ChangeRef } from "../../lib/review/index.js";
+import { changeFromGitHubView, viewOf } from "./reference.js";
 import type { CouncilState, PrRunSnapshot, PrWorkflowState } from "./state.js";
 
 /**
@@ -19,6 +21,15 @@ export interface LoadPrInput {
 	input: string;
 	/** Owner / repo to fall back to when input is a bare number. */
 	defaultRepo?: { owner: string; repo: string };
+	/**
+	 * The change, already resolved by the substrate.
+	 *
+	 * Supplied whenever the caller could reach a provider, which
+	 * is how a change on a system this module cannot parse gets
+	 * loaded at all. Without it the input is parsed as a GitHub
+	 * reference, which is the only shape this module knows.
+	 */
+	change?: ChangeRef;
 	/** Clock for the load timestamp. Defaults to `() => new Date()`. */
 	now?: () => Date;
 }
@@ -34,11 +45,16 @@ export function loadPr(
 	state: PrWorkflowState,
 	input: LoadPrInput,
 ): LoadPrResult {
-	const reference = parsePRReference(
-		input.input,
-		input.defaultRepo?.owner,
-		input.defaultRepo?.repo,
-	);
+	// A change the substrate already resolved needs no parsing: it
+	// arrives knowing its own system, which is the only way one
+	// this module cannot spell gets loaded at all.
+	const reference = input.change
+		? viewOf(input.change)
+		: parsePRReference(
+				input.input,
+				input.defaultRepo?.owner,
+				input.defaultRepo?.repo,
+			);
 
 	if (reference === null) {
 		return {
@@ -79,6 +95,9 @@ export function loadPr(
 	const clock = input.now ?? (() => new Date());
 	state.active = true;
 	state.pr = {
+		// The resolved change when there is one, and otherwise the
+		// GitHub change the parse just recognized. Never a guess.
+		change: input.change ?? changeFromGitHubView(reference),
 		reference,
 		loadedAt: clock().toISOString(),
 		metadata: null,

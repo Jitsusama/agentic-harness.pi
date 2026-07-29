@@ -27,6 +27,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import { getLastEntry } from "../../lib/internal/state.js";
+import type { ChangeRef } from "../../lib/review/index.js";
 import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import type { CritiqueRun } from "./critique.js";
 import type { CouncilRun } from "./findings.js";
@@ -103,6 +104,13 @@ interface PersistedState {
 	readonly roster: readonly CouncilReviewer[];
 	readonly judge: CouncilReviewer | null;
 	readonly prReference: PRReference | null;
+	/**
+	 * Which system owns the loaded change.
+	 *
+	 * Added after v4. Absent on older entries, where the answer is
+	 * GitHub because nothing else could be loaded then.
+	 */
+	readonly prChange?: ChangeRef | null;
 	readonly prLoadedAt: string | null;
 	// Phase 2 fields, v5 form: run id pointers, not bodies.
 	readonly lastRunId: string | null;
@@ -131,6 +139,7 @@ interface PersistedStateWire {
 	readonly roster?: readonly CouncilReviewer[];
 	readonly judge?: CouncilReviewer | null;
 	readonly prReference?: PRReference | null;
+	readonly prChange?: ChangeRef | null;
 	readonly prLoadedAt?: string | null;
 	// v4 inline bodies:
 	readonly lastRun?: CouncilRun | null;
@@ -303,6 +312,10 @@ function snapshot(state: PrWorkflowState): PersistedState {
 		roster: state.council.roster,
 		judge: state.council.judge,
 		prReference: state.pr?.reference ?? null,
+		// Recorded beside the projection, so a restored session still
+		// knows which system to address rather than falling back to
+		// the assumption that it is GitHub.
+		prChange: state.pr?.change ?? null,
 		prLoadedAt: state.pr?.loadedAt ?? null,
 		lastRunId: state.council.lastRun?.id ?? null,
 		lastJudgeId: state.council.lastJudge?.id ?? null,
@@ -451,6 +464,10 @@ export function restore(
 	if (saved.prReference && saved.prLoadedAt) {
 		state.pr = {
 			reference: saved.prReference,
+			// Absent on entries written before this was recorded.
+			// `changeOf` reconstructs a GitHub change for those, which
+			// is what they were.
+			...(saved.prChange ? { change: saved.prChange } : {}),
 			loadedAt: saved.prLoadedAt,
 			metadata: null,
 			files: null,

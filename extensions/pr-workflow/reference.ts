@@ -49,7 +49,35 @@ export function changeFromGitHubView(reference: PRReference): ChangeRef {
  * every caller from formatting `owner/repo#number` again.
  */
 export function changeOf(pr: ActivePr): ChangeRef {
-	return changeFromGitHubView(pr.reference);
+	// Absent only on a session recorded before a loaded change
+	// carried the system that owns it. Everything loadable then was
+	// a GitHub pull request, so reconstructing one is a statement
+	// of fact about those entries rather than a default applied to
+	// a change whose system is unknown.
+	return pr.change ?? changeFromGitHubView(pr.reference);
+}
+
+/**
+ * A change as owner, repo and number, whoever hosts it.
+ *
+ * Every provider so far keys a repo as `system:owner/repo`,
+ * because that is how the systems themselves name repositories,
+ * so this projection is available for all of them. It is what
+ * lets the workflow's existing readers go on reading three
+ * fields while the identity beside them says which system to
+ * address.
+ *
+ * Null when a key does not carry an owner and repo, or when the
+ * change id is not a number. Both are real possibilities for a
+ * provider that names things differently, and inventing values
+ * for them would be worse than declining.
+ */
+export function viewOf(change: ChangeRef): PRReference | null {
+	const [, slug] = change.repo.key.split(":");
+	const [owner, repo] = (slug ?? "").split("/");
+	const number = Number(change.id);
+	if (!owner || !repo || !Number.isInteger(number)) return null;
+	return { owner, repo, number };
 }
 
 /**

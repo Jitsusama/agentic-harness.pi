@@ -65,6 +65,19 @@ export interface ProposalsFacet {
 	 * knowing which backend hosts it.
 	 */
 	fetchAsRef?(ref: ChangeRef, repoRoot: string): Promise<string>;
+	/**
+	 * One file's contents at a commit.
+	 *
+	 * For showing a person a whole file when the diff only carries
+	 * the lines that changed. It belongs to the provider because
+	 * the answer has to come from the system hosting the change: a
+	 * repository can be mirrored, and reading the mirror returns
+	 * content that is plausible and stale.
+	 *
+	 * Absent where a provider has no way to serve a file it does
+	 * not have locally.
+	 */
+	fileAt?(ref: ChangeRef, path: string, at: string): Promise<string>;
 }
 
 /** A local ref, for providers that read stacks off disk. */
