@@ -15,8 +15,20 @@
 
 export type { HeldTree, TreeBroker, TreeProvider } from "./broker.js";
 export { createTreeBroker } from "./broker.js";
+export type { WorkApi } from "./events.js";
+export {
+	WORK_READY,
+	WORK_REGISTER_TREE_PROVIDER,
+	WORK_REQUEST,
+} from "./events.js";
 export type { TreeProviderChoice, TreeProviderInfo } from "./provider.js";
 export { chooseTreeProvider } from "./provider.js";
 export { createGitTreeProvider } from "./providers/git.js";
+export {
+	clearTreeProviders,
+	listTreeProviders,
+	registerTreeProvider,
+	unregisterTreeProvider,
+} from "./register.js";
 export type { TreeIdentity, TreeRequest, TreeSource } from "./tree.js";
 export { satisfies, treeIdentity, treeSource } from "./tree.js";
