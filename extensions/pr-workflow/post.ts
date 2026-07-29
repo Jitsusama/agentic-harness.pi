@@ -21,10 +21,10 @@
 
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import {
+	type Anchor,
+	type AnchorRefusal,
+	anchorable,
 	type DiffFile,
-	type DiffLine,
-	filePath,
-	lineNumberOn,
 } from "../../lib/review/index.js";
 import type { Finding, FindingAgreement, FindingLocation } from "./findings.js";
 import type { PostGateOutcome } from "./post-gate-outcome.js";
@@ -637,35 +637,57 @@ function renderDecorations(decorations: readonly string[] | undefined): string {
  * and decide time (to warn the user about findings that
  * would silently degrade to body).
  */
+/**
+ * Why a finding will not anchor where it says it does, or null
+ * when it will.
+ *
+ * The judgment is the substrate's, so this workflow and the
+ * provider that has to accept the comment agree about what lands.
+ * What is added here is the wording, since the refusals are
+ * vocabulary and a person needs a sentence.
+ *
+ * Naming the actual refusal matters more than it sounds. The
+ * older answer was a bare yes or no, so every warning blamed the
+ * line range, including when the file was not in the diff at all,
+ * which sent people to correct the one part that was right.
+ */
+export function whyAnchorFails(
+	location: FindingLocation,
+	files: readonly DiffFile[],
+): string | null {
+	if (location.kind !== "line") {
+		return "it is not a line-anchored finding, so it has no place in the diff to attach to";
+	}
+	const check = anchorable({ files: [...files] }, anchorFor(location));
+	if (check.anchored) return null;
+	return ANCHOR_REFUSALS[check.reason];
+}
+
+/** How each refusal reads to someone who has to act on it. */
+const ANCHOR_REFUSALS: Record<AnchorRefusal, string> = {
+	"file-absent": "that file is not in the diff",
+	"line-absent": "those lines are not in the diff",
+	"range-inverted": "the range ends before it starts",
+	"range-crosses-hunks":
+		"the range crosses two hunks, and a remark spanning a gap in the diff is not one remark",
+};
+
+/** A finding's line location as the anchor the substrate judges. */
+function anchorFor(location: FindingLocation & { kind: "line" }): Anchor {
+	return {
+		subject: "line",
+		path: location.file,
+		blob: location.side === "old" ? "old" : "new",
+		line: location.end,
+		...(location.start === location.end ? {} : { startLine: location.start }),
+	};
+}
+
 export function hasValidInlineAnchor(
 	location: FindingLocation,
 	files: readonly DiffFile[],
 ): boolean {
-	if (location.kind !== "line") return false;
-	if (location.start < 1 || location.end < location.start) return false;
-	const file = files.find((candidate) => filePath(candidate) === location.file);
-	if (file === undefined) return false;
-	const side = location.side === "old" ? "old" : "new";
-	return file.hunks.some((hunk) =>
-		hunkContainsLineRange(hunk.lines, location.start, location.end, side),
-	);
-}
-
-function hunkContainsLineRange(
-	lines: readonly DiffLine[],
-	start: number,
-	end: number,
-	side: "old" | "new",
-): boolean {
-	const lineNumbers = new Set<number>();
-	for (const line of lines) {
-		const lineNumber = lineNumberOn(line, side);
-		if (lineNumber !== undefined) lineNumbers.add(lineNumber);
-	}
-	for (let lineNumber = start; lineNumber <= end; lineNumber++) {
-		if (!lineNumbers.has(lineNumber)) return false;
-	}
-	return true;
+	return whyAnchorFails(location, files) === null;
 }
 
 /**

@@ -36,7 +36,7 @@ import {
 } from "./council-progress.js";
 import type { CouncilRun, Finding, FindingLocation } from "./findings.js";
 import { extractJson } from "./parse.js";
-import { hasValidInlineAnchor } from "./post.js";
+import { whyAnchorFails } from "./post.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import { JudgeFinding, JudgeSelfSignal } from "./schemas.js";
 import {
@@ -508,12 +508,13 @@ function judgeLineAnchorWarning(
 	diffFiles: readonly DiffFile[],
 ): string | null {
 	if (finding.location.kind !== "line") return null;
-	if (hasValidInlineAnchor(finding.location, diffFiles)) return null;
+	const why = whyAnchorFails(finding.location, diffFiles);
+	if (why === null) return null;
 	const { file, start, end } = finding.location;
 	return (
 		`Judge finding ${finding.id} anchors at ${file}:${start}-${end} ` +
-		"but those lines are not in the PR diff hunks; it will degrade to a " +
-		"body comment. Use `verdict=edit` with the correct line range to fix."
+		`but ${why}; it will degrade to a body comment. Use ` +
+		"`verdict=edit` with the correct location to fix."
 	);
 }
 

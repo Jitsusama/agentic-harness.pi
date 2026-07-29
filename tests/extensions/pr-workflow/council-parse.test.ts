@@ -412,6 +412,36 @@ describe("parseReviewerOutput", () => {
 		).toBe(true);
 	});
 
+	it("blames the file, not the lines, when the file is not in the diff", () => {
+		// Telling someone to correct a line range when the file is
+		// what is wrong sends them to fix the part that was right.
+		const text = JSON.stringify({
+			findings: [
+				{
+					location: {
+						kind: "line",
+						file: "never-touched.go",
+						start: 20,
+						end: 20,
+						side: "new",
+					},
+					label: "issue",
+					subject: "wrong file",
+					discussion: "This finding names a file the diff never had.",
+				},
+			],
+		});
+		const result = parseReviewerOutput(text, {
+			reviewerId: "r1",
+			runId: "run-1",
+			startId: 1,
+			diffFiles: [diffFile("serve.go", 10, 50)],
+		});
+
+		const warning = result.warnings.find((w) => w.includes("never-touched.go"));
+		expect(warning).toMatch(/that file is not in the diff/);
+	});
+
 	it("does not warn when a line-kind finding anchors inside the diff hunks", () => {
 		const text = JSON.stringify({
 			findings: [
