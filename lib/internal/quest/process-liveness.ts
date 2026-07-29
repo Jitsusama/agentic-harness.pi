@@ -11,6 +11,7 @@
 
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 
 /** Stable identity of a recorded pi process. */
@@ -24,6 +25,14 @@ export interface ProcessIdentity {
 	 * Distinguishes the original process from a later pid reuse.
 	 */
 	startToken: string;
+	/**
+	 * Identifier of the boot the process was recorded under. A reboot
+	 * invalidates every pid on the host at once, so a record from an
+	 * earlier boot is dead whatever the pid now holds. Optional: a
+	 * record written before this was captured, or on a host with no
+	 * readable token, falls through to the pid inspection.
+	 */
+	bootToken?: string;
 }
 
 /** What an OS inspection of a pid found. */
@@ -41,6 +50,11 @@ export interface ProbeProcessDeps {
 	localHostId: string;
 	/** Inspect a live pid on the local host. */
 	inspect: (pid: number) => ProcessInspection;
+	/**
+	 * The boot the reader is running under. Optional, because a host
+	 * with no readable token must not declare anything dead.
+	 */
+	localBootToken?: string;
 }
 
 /**
@@ -154,16 +168,100 @@ export function identityFromInspection(
  * token that a later probe would read as a dead mismatch.
  */
 export function currentProcessIdentity(): ProcessIdentity | undefined {
-	return identityFromInspection(
+	const identity = identityFromInspection(
 		hostname(),
 		process.pid,
 		readStartToken(process.pid),
 	);
+	if (!identity) return undefined;
+	// Stamp the boot alongside the pid, so a later reader can retire
+	// this record wholesale after a reboot instead of asking the OS
+	// about a pid that means nothing any more.
+	const bootToken = currentBootToken();
+	return bootToken ? { ...identity, bootToken } : identity;
+}
+
+/**
+ * Whether the record is known to come from a different boot than the
+ * reader's. Both tokens have to be present to say so: a record
+ * written before boot tokens were captured, or a host with no
+ * readable token, is not evidence of death.
+ */
+function fromAnotherBoot(id: ProcessIdentity, deps: ProbeProcessDeps): boolean {
+	return (
+		id.bootToken !== undefined &&
+		deps.localBootToken !== undefined &&
+		id.bootToken !== deps.localBootToken
+	);
+}
+
+/**
+ * Where Linux publishes a random identifier regenerated on each boot.
+ */
+const LINUX_BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id";
+
+/**
+ * Read an identifier for the running boot, or undefined when the host
+ * offers none.
+ *
+ * Both platforms expose a uuid minted at boot rather than a
+ * timestamp: Linux in procfs, macOS as `kern.bootsessionuuid`. The
+ * neighbouring `kern.boottime` looks like the obvious source and is
+ * not one, because it is derived from the clock and shifts when NTP
+ * adjusts it. A token that drifts mid-boot would read every live
+ * session as dead, which is the one answer this module must never
+ * invent.
+ */
+function readBootToken(): string | undefined {
+	if (process.platform === "linux") {
+		try {
+			return nonEmpty(readFileSync(LINUX_BOOT_ID_PATH, "utf8"));
+		} catch {
+			// No procfs (a container, an unusual mount): no token, so the
+			// probe falls through to inspecting the pid.
+			return undefined;
+		}
+	}
+	try {
+		return nonEmpty(
+			execFileSync("sysctl", ["-n", "kern.bootsessionuuid"], {
+				encoding: "utf8",
+			}),
+		);
+	} catch {
+		// No sysctl, or the key is absent on this platform: same again,
+		// no token rather than a guess.
+		return undefined;
+	}
+}
+
+/** Trim a reading, treating blank output as no reading at all. */
+function nonEmpty(raw: string): string | undefined {
+	const trimmed = raw.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Memoized boot token; a boot identifier cannot change under us. */
+let bootTokenCache: { token: string | undefined } | undefined;
+
+/**
+ * The identifier of the boot this process is running under, read once
+ * and remembered. Undefined on a host that publishes none, in which
+ * case no session is ever judged by boot.
+ */
+export function currentBootToken(): string | undefined {
+	bootTokenCache ??= { token: readBootToken() };
+	return bootTokenCache.token;
 }
 
 /** The always-on local floor: this host plus the OS start-token reader. */
 export function localProcessDeps(): ProbeProcessDeps {
-	return { localHostId: hostname(), inspect: readStartToken };
+	const localBootToken = currentBootToken();
+	return {
+		localHostId: hostname(),
+		inspect: readStartToken,
+		...(localBootToken ? { localBootToken } : {}),
+	};
 }
 
 /** Id minted once per pi process, identifying which process holds a session lease. */
@@ -183,6 +281,10 @@ export function probeProcess(
 	deps: ProbeProcessDeps,
 ): ProcessProbe {
 	if (id.hostId !== deps.localHostId) return "unknown";
+	// A pid outlives nothing across a reboot, so a record from an
+	// earlier boot is dead without asking the OS: whatever holds that
+	// pid now is a reuse, even when its start token happens to match.
+	if (fromAnotherBoot(id, deps)) return "gone";
 	const found = deps.inspect(id.pid);
 	switch (found.kind) {
 		case "gone":
