@@ -16,6 +16,7 @@ to the work rather than to one tool that does it.
 | `treeSource` | Where a tree for a change gets cut from |
 | `treeIdentity` | What tree a request is asking for |
 | `satisfies` | Whether a tree already held answers a request |
+| `chooseTreeProvider` | Which provider serves a repo |
 
 These are here before the council moves across, because the
 council cannot become provider-agnostic while it is asking a
@@ -81,6 +82,40 @@ set.
 `shareable` rides on the identity rather than being a caller's
 judgement call, because whether handing one tree to two callers is
 safe follows from the intent and nothing else.
+
+## Specificity, Not Priority
+
+Providers declare how *specific* they are, and more specific wins.
+That wording is doing real work. The two brokers this replaces
+sorted in opposite directions:
+
+| Broker | Order | Built-in at | Downstream declared |
+|---|---|---|---|
+| `lib/tree` | smallest first | 100 | `PROVIDER_PRIORITY = 50` |
+| pr-workflow worktrees | largest first | 0 | `PROVIDER_PRIORITY = 100` |
+
+Both downstream World providers were correct under their own
+broker, holding the same constant name at two values that meant
+opposite things. Unifying on either direction would have silently
+inverted one, and silently is the operative word: losing raises
+nothing, because the general provider still produces a tree. It
+would just be a plain git worktree where a `dev tree` was wanted,
+which works well enough to go unnoticed.
+
+"Priority" reads both ways in English, since priority 1 can mean
+first or last. "Specificity" does not: a provider for one repo is
+plainly narrower than one for any repo. A provider serving
+everything declares 0.
+
+## A Tie Is Reported, Not Resolved
+
+Two providers claiming one repo at the same specificity is a
+configuration mistake. Settling it by registration order hides the
+mistake behind a tree that looks fine, so the choice comes back as
+`ambiguous` with both contenders named, in a stable order so the
+same mistake reads the same way every time.
+
+A tie *below* the winner is not a tie at all and is ignored.
 
 ## Companion Extensions
 
