@@ -14,6 +14,7 @@ import {
 	headCommitFromSubstrate,
 	postReviewThroughSubstrate,
 	replyThroughSubstrate,
+	repoForBareChange,
 	resolveThroughSubstrate,
 	setSubstrateApi,
 	threadsFromSubstrate,
@@ -138,6 +139,47 @@ describe("replyThroughSubstrate", () => {
 				"seems fine",
 			),
 		).rejects.toThrow(/refresh|action=threads/i);
+	});
+});
+
+describe("repoForBareChange", () => {
+	it("asks the substrate which repo a bare number means here", async () => {
+		// The resolver knows about config mappings and provider
+		// claims. Reading the origin remote directly would ignore
+		// both and be wrong in exactly the repos that configured one.
+		const { api, resolved } = substrate(null);
+		setSubstrateApi(api);
+
+		expect(await repoForBareChange("123")).toEqual({
+			owner: "o",
+			repo: "r",
+		});
+		expect(resolved).toEqual(["123"]);
+	});
+
+	it("answers nothing when there is no substrate to ask", async () => {
+		// Load has its own message for an unresolvable reference, and
+		// it reads better than a substrate error the user cannot act
+		// on while typing a PR number.
+		forgetSubstrate();
+
+		expect(await repoForBareChange("123")).toBeNull();
+	});
+
+	it("answers nothing when the reference resolves nowhere", async () => {
+		const api = {
+			registerProvider() {},
+			listProviders: () => ["github"],
+			engine: async () =>
+				({
+					async resolve() {
+						throw new Error("nothing claims this");
+					},
+				}) as unknown as ReviewEngine,
+		} satisfies ReviewSubstrateApi;
+		setSubstrateApi(api);
+
+		expect(await repoForBareChange("123")).toBeNull();
 	});
 });
 

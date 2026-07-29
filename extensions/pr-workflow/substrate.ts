@@ -29,7 +29,7 @@ import {
 } from "../../lib/review/index.js";
 import { metadataFromProposal, type PrMetadata } from "./fetch.js";
 import type { ReviewComment } from "./post.js";
-import { changeFromGitHubView } from "./reference.js";
+import { changeFromGitHubView, githubViewOf } from "./reference.js";
 import { type Stack, stackViewFrom } from "./stack.js";
 import { type ReviewThread, readConversation } from "./threads.js";
 
@@ -87,6 +87,38 @@ export async function metadataFromSubstrate(
 		);
 	}
 	return metadataFromProposal(proposal);
+}
+
+/**
+ * Which repo a bare change number means in this directory.
+ *
+ * Asked of the substrate rather than read off the origin remote,
+ * because the resolver is what knows about configured mappings
+ * and provider claims. Reading the remote directly would be wrong
+ * in exactly the repos that bothered to configure something.
+ *
+ * Answers null for every kind of not-knowing. The load path has
+ * its own message for a reference it cannot place, and it reads
+ * better than a resolver error to someone who just typed a
+ * number.
+ */
+export async function repoForBareChange(
+	input: string,
+): Promise<{ owner: string; repo: string } | null> {
+	if (!substrate) return null;
+	try {
+		const engine = await substrate.engine();
+		const bound = await engine.resolve(input, process.cwd());
+		const change =
+			bound.target.kind === "proposal" ? bound.target.change : null;
+		const view = change ? githubViewOf(change) : null;
+		return view ? { owner: view.owner, repo: view.repo } : null;
+	} catch {
+		// Not knowing which repo a number means is an ordinary
+		// outcome here, not a fault: the caller falls back to asking
+		// the user to spell it out.
+		return null;
+	}
 }
 
 /**

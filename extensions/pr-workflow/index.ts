@@ -26,7 +26,6 @@ import { createMutex } from "../../lib/internal/async-mutex.js";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
 
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
-import { getCurrentRepo } from "../../lib/internal/github/repo-discovery.js";
 
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { findOrCreateSidequestForPr } from "../../lib/internal/quest/pr-sidequest.js";
@@ -145,6 +144,7 @@ import {
 	metadataFromSubstrate,
 	postReviewThroughSubstrate,
 	replyThroughSubstrate,
+	repoForBareChange,
 	resolveThroughSubstrate,
 	stackFromSubstrate,
 	threadsFromSubstrate,
@@ -2664,12 +2664,13 @@ ${reviewValidationDirective()}`,
 
 				const previousRef = state.pr?.reference ?? null;
 				// A bare PR number needs an owner/repo to resolve
-				// against. Derive it from the checkout's origin
-				// remote so `load pr:123` works in a repo without
-				// spelling out owner/repo. Only consulted for a
-				// bare number, so a full ref never pays the git cost.
+				// against. The substrate is asked which repo this
+				// directory is, so a configured mapping is honoured
+				// rather than whatever origin happens to point at.
+				// Only consulted for a bare number, so a full ref
+				// never pays the cost.
 				const defaultRepo = /^\d+$/.test(params.pr.trim())
-					? await getCurrentRepo(pi)
+					? await repoForBareChange(params.pr.trim())
 					: null;
 				const outcome = loadPr(state, {
 					input: params.pr,
