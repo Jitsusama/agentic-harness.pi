@@ -185,7 +185,11 @@ function parseSessionProcess(
 	const startToken = asString(obj.startToken);
 	const pid = typeof obj.pid === "number" ? obj.pid : undefined;
 	if (!hostId || pid === undefined || !startToken) return undefined;
-	return { hostId, pid, startToken };
+	// The boot token is optional on both sides: a record written before
+	// it was captured stays valid, and reading it back is what lets a
+	// pre-reboot session be retired without probing a meaningless pid.
+	const bootToken = asString(obj.bootToken);
+	return { hostId, pid, startToken, ...(bootToken ? { bootToken } : {}) };
 }
 
 function parseSessionTerminal(

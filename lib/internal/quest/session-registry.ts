@@ -8,8 +8,23 @@
  * wiring.
  */
 
-import type { TerminalSessionHandle } from "../../terminal/types.js";
 import type { ProcessIdentity } from "./process-liveness.js";
+
+/**
+ * The terminal surface a session ran in, as recorded.
+ *
+ * Leaner than a full `TerminalSessionHandle`, and deliberately the
+ * same shape the quest frontmatter already persists. The handle's
+ * `kind` is descriptive rather than probeable, and a reader
+ * reconstitutes it from the driver id, so storing it would only give
+ * two copies of one fact the chance to disagree.
+ */
+export interface RecordedTerminal {
+	driverId: string;
+	value: string;
+	scope?: string;
+	hostId?: string;
+}
 
 /** One pi session, as recorded by the process that owns it. */
 export interface SessionRecord {
@@ -27,7 +42,7 @@ export interface SessionRecord {
 	 */
 	previousQuests?: Record<string, string>;
 	process?: ProcessIdentity;
-	terminal?: TerminalSessionHandle;
+	terminal?: RecordedTerminal;
 	openedAt: string;
 	closedAt?: string;
 	/** Why the session ended; absent while it is still running. */
@@ -51,7 +66,7 @@ export interface OpenInput {
 	cwd: string;
 	questId?: string;
 	process?: ProcessIdentity;
-	terminal?: TerminalSessionHandle;
+	terminal?: RecordedTerminal;
 	now: Date;
 }
 

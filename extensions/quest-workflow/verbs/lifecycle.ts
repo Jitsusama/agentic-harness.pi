@@ -52,6 +52,7 @@ import {
 	unloadQuest,
 } from "../lifecycle.js";
 import { buildRowExpansion, showLoaded, showQuestById } from "../lookup.js";
+import { recordSessionOnQuest } from "../session-registry.js";
 import { recordCurrentWorkspace } from "../workspace-snapshot.js";
 
 /**
@@ -411,6 +412,12 @@ export async function load(
 			questId: state.questId,
 			sessionId: sid,
 			cwd: ctx.cwd,
+		});
+		recordSessionOnQuest({
+			sessionId: sid,
+			cwd: ctx.cwd,
+			questId: state.questId,
+			...captureSessionIdentity(),
 		});
 	}
 

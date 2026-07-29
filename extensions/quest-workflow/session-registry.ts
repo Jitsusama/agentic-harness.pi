@@ -30,9 +30,11 @@ import {
 } from "../../lib/internal/quest/process-liveness.js";
 import {
 	closeRecord,
+	openRecord,
 	parseSessionRecord,
 	type SessionEndReason,
 	type SessionRecord,
+	switchQuest,
 } from "../../lib/internal/quest/session-registry.js";
 
 /** Where the per-session records live. */
@@ -187,4 +189,64 @@ export function recordSessionEnd(
 	const record = readRecord(sessionId);
 	if (!record) return;
 	saveRecord(closeRecord(record, reason, now));
+}
+
+/** What the caller knows about the session loading a quest. */
+export interface OnQuestInput {
+	sessionId: string;
+	cwd: string;
+	questId: string;
+	instanceId: string;
+	process?: SessionRecord["process"];
+	terminal?: SessionRecord["terminal"];
+}
+
+/**
+ * Note that a session is now on a quest, opening its record the first
+ * time and moving it thereafter.
+ *
+ * Registration is triggered by loading a quest rather than by
+ * starting a session, so a tab that never loads one is never
+ * recorded. A session that later unloads keeps its record: once a tab
+ * is known it stays tracked until it ends, since dropping it would
+ * make an open tab disappear from the open set.
+ */
+export function recordSessionOnQuest(
+	input: OnQuestInput,
+	now = new Date(),
+): void {
+	const existing = readRecord(input.sessionId);
+	if (existing) {
+		saveRecord(switchQuest(existing, input.questId, now));
+		return;
+	}
+	saveRecord(
+		openRecord({
+			sessionId: input.sessionId,
+			instanceId: input.instanceId,
+			cwd: input.cwd,
+			questId: input.questId,
+			...(input.process ? { process: input.process } : {}),
+			...(input.terminal ? { terminal: input.terminal } : {}),
+			now,
+		}),
+	);
+}
+
+/**
+ * How a pi shutdown reason translates to the end of a session record,
+ * or undefined when the record should be left alone.
+ *
+ * Only `quit` takes the tab with it. A `reload` keeps the same
+ * session running in the same process, so nothing has ended at all.
+ * The rest replace the conversation inside a tab that is still on
+ * screen, which ends the session but not the tab, and the successor
+ * opens its own record carrying the same instance id.
+ */
+export function endReasonForShutdown(
+	reason: string | undefined,
+): SessionEndReason | undefined {
+	if (reason === "reload") return undefined;
+	if (reason === "quit") return "quit";
+	return "swapped";
 }

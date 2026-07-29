@@ -3,10 +3,12 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	endReasonForShutdown,
 	forgetRecord,
 	loadRecords,
 	readRecord,
 	recordSessionEnd,
+	recordSessionOnQuest,
 	repairCrashedRecords,
 	saveRecord,
 	sessionRegistryDir,
@@ -113,6 +115,59 @@ describe("the heartbeat", () => {
 
 	it("says nothing when there is no record to touch", () => {
 		expect(() => touchHeartbeat("sess-missing")).not.toThrow();
+	});
+});
+
+describe("following a session onto its quests", () => {
+	const onQuest = (questId: string, now: Date) =>
+		recordSessionOnQuest(
+			{
+				sessionId: "sess-1",
+				cwd: "/work",
+				questId,
+				instanceId: "inst-1",
+			},
+			now,
+		);
+
+	it("opens a record the first time a session loads a quest", () => {
+		onQuest("QEST-1", NOW);
+		expect(readRecord("sess-1")).toMatchObject({
+			quest: "QEST-1",
+			cwd: "/work",
+			instanceId: "inst-1",
+			openedAt: NOW.toISOString(),
+		});
+	});
+
+	it("moves an existing record rather than opening a second one", () => {
+		onQuest("QEST-1", NOW);
+		const later = new Date("2026-07-28T19:00:00.000Z");
+		onQuest("QEST-2", later);
+		expect(loadRecords()).toHaveLength(1);
+		expect(readRecord("sess-1")).toMatchObject({
+			quest: "QEST-2",
+			openedAt: NOW.toISOString(),
+			previousQuests: { "QEST-1": later.toISOString() },
+		});
+	});
+});
+
+describe("endReasonForShutdown", () => {
+	it("ends the record when the process quits", () => {
+		expect(endReasonForShutdown("quit")).toBe("quit");
+	});
+
+	it("leaves the record alone on a reload", () => {
+		// A reload rebuilds the extensions around the same session in the
+		// same process. Nothing ended, so nothing should be stamped.
+		expect(endReasonForShutdown("reload")).toBeUndefined();
+	});
+
+	it("ends the session but not the tab when the conversation is replaced", () => {
+		for (const reason of ["new", "resume", "fork"]) {
+			expect(endReasonForShutdown(reason)).toBe("swapped");
+		}
 	});
 });
 

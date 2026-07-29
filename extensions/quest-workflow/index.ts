@@ -72,6 +72,11 @@ import {
 	isListingDetails,
 	renderListingExpanded,
 } from "./render-rows.js";
+import {
+	endReasonForShutdown,
+	recordSessionEnd,
+	recordSessionOnQuest,
+} from "./session-registry.js";
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
 import { currentSessionId, isPersistedSession } from "./verbs/shared.js";
@@ -605,6 +610,12 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 					sessionId: sid,
 					cwd: ctx.cwd,
 				});
+				recordSessionOnQuest({
+					sessionId: sid,
+					cwd: ctx.cwd,
+					questId: state.questId,
+					...captureSessionIdentity(),
+				});
 			}
 		}
 		updateScoreboard(state, ctx);
@@ -621,11 +632,17 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	// Pass our own bridge so an out-of-order shutdown
 	// can only clear its own registration, never a
 	// fresher instance's.
-	pi.on("session_shutdown", async (_event, ctx) => {
+	pi.on("session_shutdown", async (event, ctx) => {
+		const sid = currentSessionId(ctx, undefined);
+		// End the session's registry record, but only for the reasons
+		// that actually end something. A reload keeps the same session
+		// running in the same process, so stamping it would date a tab
+		// as closed while it is still on screen.
+		const ended = endReasonForShutdown(event.reason);
+		if (sid && ended) recordSessionEnd(sid, ended);
 		// Mark this session detached on the loaded quest so its
 		// liveness reads correctly after the process exits.
 		if (state.questId && state.questDir) {
-			const sid = currentSessionId(ctx, undefined);
 			// Lease-guarded: only release the session when this process
 			// still owns it, so a process that resumed the session is not
 			// detached by our late shutdown.
