@@ -43,6 +43,14 @@ export interface SessionRecord {
 	previousQuests?: Record<string, string>;
 	process?: ProcessIdentity;
 	terminal?: RecordedTerminal;
+	/**
+	 * True when the registry adopted this session rather than opening
+	 * it: a tab that was already running before the registry existed.
+	 * Its own process has no shutdown hook, so nothing it does can
+	 * stamp the record, and its disappearance is not evidence of a
+	 * crash.
+	 */
+	adopted?: true;
 	openedAt: string;
 	closedAt?: string;
 	/** Why the session ended; absent while it is still running. */
@@ -57,7 +65,18 @@ export interface SessionRecord {
  * an ending at all and a later reader found it gone, which is what a
  * crash looks like from the outside.
  */
-export type SessionEndReason = "quit" | "swapped" | "died";
+/**
+ * Why a session's record stopped being open.
+ *
+ * `quit` and `swapped` are stamped by the session itself. `died` and
+ * `vanished` are written by a later reader that found the process
+ * gone, and the difference between them is whether anyone was ever in
+ * a position to see it close: a session that opened its own record
+ * had a shutdown hook and failing to use it means it was taken away,
+ * while a session the registry merely adopted never had one, so its
+ * disappearance says nothing about how it ended.
+ */
+export type SessionEndReason = "quit" | "swapped" | "died" | "vanished";
 
 /** What a caller knows when a session first loads a quest. */
 export interface OpenInput {
@@ -67,6 +86,8 @@ export interface OpenInput {
 	questId?: string;
 	process?: ProcessIdentity;
 	terminal?: RecordedTerminal;
+	/** True when adopting a tab that was running before the registry. */
+	adopted?: true;
 	now: Date;
 }
 
@@ -84,12 +105,13 @@ export function openRecord(input: OpenInput): SessionRecord {
 		...(input.questId ? { quest: input.questId } : {}),
 		...(input.process ? { process: input.process } : {}),
 		...(input.terminal ? { terminal: input.terminal } : {}),
+		...(input.adopted ? { adopted: input.adopted } : {}),
 		openedAt: input.now.toISOString(),
 	};
 }
 
 /** The end reasons a reader is willing to act on. */
-const END_REASONS: readonly string[] = ["quit", "swapped", "died"];
+const END_REASONS: readonly string[] = ["quit", "swapped", "died", "vanished"];
 
 /**
  * Read a stored value back as a record, or refuse it.
@@ -120,6 +142,7 @@ export function parseSessionRecord(value: unknown): SessionRecord | undefined {
 	// record, and one check at the door beats remembering to quote at
 	// every use. The same shape keeps the id usable as a file name.
 	if (!SAFE_SESSION_ID.test(v.sessionId as string)) return undefined;
+	if (v.adopted !== undefined && v.adopted !== true) return undefined;
 	if (v.quest !== undefined && typeof v.quest !== "string") return undefined;
 	if (v.closedAt !== undefined && typeof v.closedAt !== "string") {
 		return undefined;
@@ -348,7 +371,10 @@ export function reopenRecord(
 		terminal?: RecordedTerminal;
 	},
 ): SessionRecord {
-	const { closedAt, endReason, process, terminal, ...rest } = record;
+	// `adopted` goes with the rest: a session being resumed is running
+	// a process that keeps this registry, so from here it has a
+	// shutdown hook and owns its own ending.
+	const { closedAt, endReason, process, terminal, adopted, ...rest } = record;
 	return {
 		...rest,
 		instanceId: input.instanceId,

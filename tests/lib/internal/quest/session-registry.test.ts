@@ -133,6 +133,19 @@ describe("restorable", () => {
 		expect(restorable([quit])).toEqual([]);
 	});
 
+	it("never offers a session it only adopted", () => {
+		// A tab that predates the registry has no shutdown hook, so its
+		// clean exit stamps nothing and a reader finds only that the
+		// process is gone. Calling that a crash offers back tabs the
+		// user closed on purpose, which is the failure this replaces.
+		const vanished = closeRecord(
+			opened({ sessionId: "sess-adopted" }),
+			"vanished",
+			LATER,
+		);
+		expect(restorable([vanished])).toEqual([]);
+	});
+
 	it("never offers a session whose tab outlived it", () => {
 		// A swap replaced the conversation in a tab that is still on
 		// screen, so there is nothing to bring back.
@@ -255,7 +268,7 @@ describe("parseSessionRecord", () => {
 		const record = {
 			...opened(),
 			closedAt: LATER.toISOString(),
-			endReason: "vanished",
+			endReason: "evaporated",
 		};
 		expect(parseSessionRecord(record)).toBeUndefined();
 	});
