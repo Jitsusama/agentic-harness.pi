@@ -13,7 +13,22 @@ import { defineConfig } from "vitest/config";
 // parallelism.
 const MAX_WORKERS = Math.max(1, Math.min(4, Math.floor(cpus().length / 2)));
 
-/** Everything that drives a real browser. */
+/**
+ * Everything that drives a real browser.
+ *
+ * These live in their own project because they cannot share the
+ * unit lane's parallelism, and `pnpm test` runs only the unit
+ * project rather than both. That is not a way of skipping them: CI
+ * has a dedicated browser job which runs this same lane with
+ * `PI_RACE_TESTS=1`, so it is a strict superset of what including
+ * them here would do.
+ *
+ * The duplication was expensive and invisible. The browser lane runs
+ * one file at a time by necessity, and measured 223s of a 302s
+ * suite, so every change in the repo paid for a serial Chrome lane
+ * twice over: once in the vitest job and again in the browser job
+ * beside it. The unit lane alone is 4698 tests in 26 seconds.
+ */
 const BROWSER_TESTS = "tests/browser/**/*.test.ts";
 
 // Pi's loader rewrites the @sinclair/typebox imports onto its
