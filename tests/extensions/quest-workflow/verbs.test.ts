@@ -348,7 +348,7 @@ describe("spawn verbs", () => {
 		const calls: {
 			layout: string;
 			cwd?: string;
-			command: string;
+			command: string | undefined;
 			env?: Readonly<Record<string, string>>;
 		}[] = [];
 		registerTerminalDriver({

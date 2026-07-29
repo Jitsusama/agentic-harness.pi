@@ -19,6 +19,7 @@ import type {
 	QuestPriority,
 	QuestStatus,
 } from "../../lib/quest/types.js";
+import { DEFAULT_SESSION_RETENTION_DAYS } from "./config.js";
 import type { Stage } from "./machine.js";
 
 /** Runtime state for the loaded quest and focused document. */
@@ -39,6 +40,12 @@ export interface QuestState {
 	 * defaults to true to preserve the cd-and-attach flow.
 	 */
 	autoloadFromCwd: boolean;
+
+	/**
+	 * How many days a closed session record is kept before being
+	 * forgotten. Settled at startup from config.
+	 */
+	sessionRetentionDays: number;
 
 	/** Absolute path to the loaded quest's directory. */
 	questDir: string | null;
@@ -116,10 +123,13 @@ export interface QuestState {
 export function createQuestState(opts: {
 	questsRoot: string;
 	autoloadFromCwd?: boolean;
+	sessionRetentionDays?: number;
 }): QuestState {
 	return {
 		questsRoot: opts.questsRoot,
 		autoloadFromCwd: opts.autoloadFromCwd ?? true,
+		sessionRetentionDays:
+			opts.sessionRetentionDays ?? DEFAULT_SESSION_RETENTION_DAYS,
 		questDir: null,
 		questId: null,
 		questTitle: null,

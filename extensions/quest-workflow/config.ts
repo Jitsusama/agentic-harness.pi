@@ -24,7 +24,25 @@ export interface QuestWorkflowConfig {
 	 * restore and spawn hints still work.
 	 */
 	autoloadFromCwd?: boolean;
+	/**
+	 * How many days a closed session record is kept before being
+	 * forgotten. Defaults to {@link DEFAULT_SESSION_RETENTION_DAYS}.
+	 * A record still open is never forgotten whatever this says,
+	 * since a tab that outlives the window is still a tab.
+	 */
+	sessionRetentionDays?: number;
 }
+
+/**
+ * How long a closed session record is kept by default.
+ *
+ * Long enough to cover coming back from a week away and still find
+ * what was open, with room for the weekend either side. The records
+ * are small and one per session, so the cost of the window is
+ * negligible next to the cost of having pruned something the user
+ * still wanted.
+ */
+export const DEFAULT_SESSION_RETENTION_DAYS = 30;
 
 /** Parse the quest-workflow section, defaulting an absent section to empty. */
 export const parseQuestWorkflowConfig: SectionParse<QuestWorkflowConfig> = (
@@ -43,9 +61,22 @@ export const parseQuestWorkflowConfig: SectionParse<QuestWorkflowConfig> = (
 	if (autoloadFromCwd !== undefined && typeof autoloadFromCwd !== "boolean") {
 		return { ok: false, error: "autoloadFromCwd must be a boolean" };
 	}
+	const retention = record.sessionRetentionDays;
+	if (
+		retention !== undefined &&
+		(typeof retention !== "number" ||
+			!Number.isFinite(retention) ||
+			retention <= 0)
+	) {
+		return {
+			ok: false,
+			error: "sessionRetentionDays must be a positive number of days",
+		};
+	}
 	const parsed: QuestWorkflowConfig = {};
 	if (questsRoot !== undefined) parsed.questsRoot = questsRoot;
 	if (autoloadFromCwd !== undefined) parsed.autoloadFromCwd = autoloadFromCwd;
+	if (retention !== undefined) parsed.sessionRetentionDays = retention;
 	return { ok: true, value: parsed };
 };
 
@@ -67,6 +98,8 @@ export interface QuestConfigSummary {
 	questsRootSource: "config" | "default";
 	autoloadFromCwd: boolean;
 	autoloadFromCwdSource: "config" | "default";
+	sessionRetentionDays: number;
+	sessionRetentionDaysSource: "config" | "default";
 }
 
 /**
@@ -88,5 +121,9 @@ export function summarizeQuestConfig(opts: {
 		autoloadFromCwd: opts.config.autoloadFromCwd ?? true,
 		autoloadFromCwdSource:
 			opts.config.autoloadFromCwd !== undefined ? "config" : "default",
+		sessionRetentionDays:
+			opts.config.sessionRetentionDays ?? DEFAULT_SESSION_RETENTION_DAYS,
+		sessionRetentionDaysSource:
+			opts.config.sessionRetentionDays !== undefined ? "config" : "default",
 	};
 }

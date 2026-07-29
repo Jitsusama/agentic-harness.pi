@@ -26,6 +26,10 @@ import {
 } from "../../lib/internal/quest/session-liveness.js";
 import { authoritativeQuestFromLog } from "../../lib/internal/quest/session-ownership.js";
 import {
+	lastOpenAt,
+	type SessionRecord,
+} from "../../lib/internal/quest/session-registry.js";
+import {
 	getResolutionFallback,
 	type Identity,
 	resolveIdentity,
@@ -41,6 +45,11 @@ import {
 import { parseRef, urlForRef } from "../../lib/refs/index.js";
 import { buildSessionSnapshot } from "./liveness.js";
 import type { RowCast, RowDocument, RowJourney } from "./render-rows.js";
+import {
+	loadRecords,
+	observeRecords,
+	seedLiveSessions,
+} from "./session-registry.js";
 import type { QuestState } from "./state.js";
 
 export interface FindParams {
@@ -520,48 +529,74 @@ export function recentSessionHints(
 		.slice(0, limit);
 }
 
+/** A page of recent sessions, and how many there were in total. */
+export interface RecentSessionPage {
+	rows: RecentSession[];
+	/** How many sessions the registry knows, before the cap. */
+	total: number;
+}
+
 export async function recentSessions(
 	state: QuestState,
 	limit = RECENT_SESSION_LIMIT,
-): Promise<RecentSession[]> {
+): Promise<RecentSessionPage> {
 	const { index } = discoverQuests(state.questsRoot);
-	const logIndex = indexSessionFiles(sessionsDir());
-	const claims = [...index.quests.values()].flatMap((entry) =>
-		entry.doc.frontMatter.sessions.map((session) => ({ entry, session })),
+	// Seed first, so a tab open since before the registry is listed as
+	// the open tab it is rather than missing entirely.
+	seedLiveSessions(
+		[...index.quests.values()].flatMap((entry) =>
+			entry.doc.frontMatter.sessions.map((session) => ({
+				questId: entry.doc.frontMatter.id,
+				session,
+			})),
+		),
 	);
-	const snapshot = await buildSessionSnapshot(claims.map((c) => c.session));
-	// A session claimed by several quests collapses to one row on the
-	// quest its own log names as owner; when the log is silent, the
-	// first claim seen stands so the session is never dropped entirely.
-	const bySession = new Map<string, RecentSession>();
-	for (const { entry, session } of claims) {
-		const fm = entry.doc.frontMatter;
-		const view = deriveLiveness(session, snapshot);
-		const row: RecentSession = {
-			questId: fm.id,
-			title: entry.doc.title ?? null,
-			sessionId: session.id,
-			status: session.status ?? "active",
-			liveness: view.liveness,
-			...(view.cwd ? { cwd: view.cwd } : {}),
-			...(view.lastActivity ? { lastActivity: view.lastActivity } : {}),
-		};
-		const existing = bySession.get(session.id);
-		if (!existing) {
-			bySession.set(session.id, row);
-			continue;
-		}
-		const logPath = logIndex.get(session.id);
-		const owner = logPath ? authoritativeQuestFromLog(logPath) : undefined;
-		if (owner === fm.id) bySession.set(session.id, row);
-	}
-	return [...bySession.values()]
-		.sort((a, b) => {
-			const at = a.lastActivity ? Date.parse(a.lastActivity) : 0;
-			const bt = b.lastActivity ? Date.parse(b.lastActivity) : 0;
-			return bt - at;
+	const stored = loadRecords();
+	const { refreshed } = observeRecords(stored);
+	const live = new Set(refreshed);
+	const now = new Date();
+	const titles = new Map(
+		[...index.quests.values()].map((entry) => [
+			entry.doc.frontMatter.id,
+			entry.doc.title ?? null,
+		]),
+	);
+	// One row per record, so a session cannot appear twice. The old
+	// listing had to resolve a session claimed by several quests by
+	// reading its log; a record names one quest, so the divergence it
+	// was resolving cannot be written down in the first place.
+	const rows = stored
+		.map(({ record, heartbeatAt }) => {
+			const isLive = live.has(record.sessionId);
+			const when = lastOpenAt(record, { live: isLive, heartbeatAt }, now);
+			return {
+				questId: record.quest ?? "",
+				title: record.quest ? (titles.get(record.quest) ?? null) : null,
+				sessionId: record.sessionId,
+				status: record.closedAt ? "detached" : "active",
+				liveness: livenessOf(record, isLive),
+				...(record.cwd ? { cwd: record.cwd } : {}),
+				lastActivity: when.at,
+			} satisfies RecentSession;
 		})
-		.slice(0, limit);
+		.sort((a, b) =>
+			byRow(a.liveness, a.lastActivity, b.liveness, b.lastActivity),
+		);
+	return { rows: rows.slice(0, limit), total: rows.length };
+}
+
+/**
+ * How a record reads to someone looking for a tab to go back to.
+ *
+ * A session still open but not confirmed alive is idle rather than
+ * live: either nothing probeable was captured, or the probe could not
+ * say. Neither is evidence of death, and calling it dead is what sent
+ * people chasing tabs that were on screen the whole time.
+ */
+function livenessOf(record: SessionRecord, isLive: boolean): SessionLiveness {
+	if (isLive) return "live";
+	if (!record.closedAt) return "idle";
+	return record.endReason === "died" ? "dead" : "detached";
 }
 
 /** Order rows live-first, then idle, then the rest, newest activity first. */

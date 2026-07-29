@@ -18,7 +18,9 @@ function formatRequest(request: TerminalRequest): string {
 	if (request.env) {
 		for (const [k, v] of Object.entries(request.env)) parts.push(`${k}=${v}`);
 	}
-	parts.push(request.command);
+	// No command means the caller wanted a bare login shell. Say so,
+	// rather than printing an empty line where a command would be.
+	parts.push(request.command ?? "# (a login shell, no command)");
 	return parts.join("\n");
 }
 

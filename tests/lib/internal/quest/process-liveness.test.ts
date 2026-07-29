@@ -13,8 +13,15 @@ function id(overrides: Partial<ProcessIdentity> = {}): ProcessIdentity {
 	return { hostId: LOCAL, pid: 4321, startToken: "tok-1", ...overrides };
 }
 
-function deps(inspect: (pid: number) => ProcessInspection) {
-	return { localHostId: LOCAL, inspect };
+function deps(
+	inspect: (pid: number) => ProcessInspection,
+	localBootToken?: string,
+) {
+	return {
+		localHostId: LOCAL,
+		inspect,
+		...(localBootToken ? { localBootToken } : {}),
+	};
 }
 
 describe("probeProcess", () => {
@@ -45,6 +52,37 @@ describe("probeProcess", () => {
 	it("returns matching when a live process holds the pid with the recorded start token", () => {
 		const probe = probeProcess(
 			id(),
+			deps(() => ({ kind: "alive", startToken: "tok-1" })),
+		);
+		expect(probe).toBe("matching");
+	});
+
+	it("returns gone when the recorded boot token is not the current boot", () => {
+		// A reboot invalidates every pid, so a live process holding the
+		// recorded pid with a matching start token is a coincidence of
+		// reuse, not the process that was recorded.
+		const probe = probeProcess(
+			id({ bootToken: "boot-1" }),
+			deps(() => ({ kind: "alive", startToken: "tok-1" }), "boot-2"),
+		);
+		expect(probe).toBe("gone");
+	});
+
+	it("still probes the pid when the record predates boot tokens", () => {
+		// A record written before boot tokens were captured is not
+		// evidence of a reboot, so it must not read dead on that basis.
+		const probe = probeProcess(
+			id(),
+			deps(() => ({ kind: "alive", startToken: "tok-1" }), "boot-2"),
+		);
+		expect(probe).toBe("matching");
+	});
+
+	it("still probes the pid when the host has no readable boot token", () => {
+		// An unreadable local token means we cannot know which boot we are
+		// on, and an inability to observe is never death.
+		const probe = probeProcess(
+			id({ bootToken: "boot-1" }),
 			deps(() => ({ kind: "alive", startToken: "tok-1" })),
 		);
 		expect(probe).toBe("matching");

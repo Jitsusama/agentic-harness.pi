@@ -45,7 +45,12 @@ const SESSION_WITH_IDENTITY: QuestFrontMatter = {
 			id: "live-session",
 			status: "active",
 			instanceId: "inst-42",
-			process: { hostId: "host-a", pid: 4321, startToken: "Sat Jul 12" },
+			process: {
+				hostId: "host-a",
+				pid: 4321,
+				startToken: "Sat Jul 12",
+				bootToken: "3152D2B4-B508-4118-BDE5-7804CA87C255",
+			},
 			terminal: {
 				driverId: "wezterm",
 				value: "7",

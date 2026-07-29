@@ -72,10 +72,16 @@ import {
 	isListingDetails,
 	renderListingExpanded,
 } from "./render-rows.js";
+import {
+	endReasonForShutdown,
+	recordSessionEnd,
+	recordSessionOnQuest,
+	startHeartbeat,
+	stopHeartbeat,
+} from "./session-registry.js";
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
 import { currentSessionId, isPersistedSession } from "./verbs/shared.js";
-import { recordCurrentWorkspace } from "./workspace-snapshot.js";
 
 const DEFAULT_WIDTH = 80;
 const CALL_PREFIX_WIDTH = 14;
@@ -105,6 +111,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	const state = createQuestState({
 		questsRoot,
 		autoloadFromCwd: section.value.autoloadFromCwd,
+		sessionRetentionDays: section.value.sessionRetentionDays,
 	});
 
 	// Expose the PR-workflow bridge so pr-workflow can
@@ -287,7 +294,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			force: Type.Optional(
 				Type.Boolean({
 					description:
-						"tree-prune: override safety refusals (dirty working tree, unmerged branch, attached session). Destructive: passing true is consent to lose uncommitted work, so the agent should confirm with the user first.",
+						"tree-prune: override safety refusals (dirty working tree, unmerged branch, attached session). Destructive: passing true is consent to lose uncommitted work, so the agent should confirm with the user first. restore: actually reopen the lost sessions rather than listing them, spawning a terminal per session, which the agent should likewise confirm first.",
 				}),
 			),
 			dryRun: Type.Optional(
@@ -600,11 +607,15 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			// persisted session is resumable, so an ephemeral fan-out
 			// session is never snapshotted. Best-effort.
 			if (sid && isPersistedSession(ctx) && state.questId) {
-				recordCurrentWorkspace({
-					questId: state.questId,
+				recordSessionOnQuest({
 					sessionId: sid,
 					cwd: ctx.cwd,
+					questId: state.questId,
+					...captureSessionIdentity(),
 				});
+				// Keep the record dated for as long as this tab lives, so a
+				// crash can be placed in time even if nobody types again.
+				startHeartbeat(sid);
 			}
 		}
 		updateScoreboard(state, ctx);
@@ -621,11 +632,21 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	// Pass our own bridge so an out-of-order shutdown
 	// can only clear its own registration, never a
 	// fresher instance's.
-	pi.on("session_shutdown", async (_event, ctx) => {
+	pi.on("session_shutdown", async (event, ctx) => {
+		const sid = currentSessionId(ctx, undefined);
+		// Stop beating before stamping: a tick that landed afterwards
+		// would touch the file again and re-date a session that has
+		// already ended.
+		stopHeartbeat();
+		// End the session's registry record, but only for the reasons
+		// that actually end something. A reload keeps the same session
+		// running in the same process, so stamping it would date a tab
+		// as closed while it is still on screen.
+		const ended = endReasonForShutdown(event.reason);
+		if (sid && ended) recordSessionEnd(sid, ended);
 		// Mark this session detached on the loaded quest so its
 		// liveness reads correctly after the process exits.
 		if (state.questId && state.questDir) {
-			const sid = currentSessionId(ctx, undefined);
 			// Lease-guarded: only release the session when this process
 			// still owns it, so a process that resumed the session is not
 			// detached by our late shutdown.

@@ -42,6 +42,7 @@ function stateFixture(overrides: Partial<QuestState> = {}): QuestState {
 		// what a spread into a literal hides: nothing was checking that
 		// the fixture resembled the state the code under test receives.
 		autoloadFromCwd: true,
+		sessionRetentionDays: 30,
 		questVerify: null,
 		scratchDir: null,
 		questsRoot: "/tmp/quests",

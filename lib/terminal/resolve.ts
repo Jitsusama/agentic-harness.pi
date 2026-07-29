@@ -18,6 +18,7 @@ import type {
 	TerminalLivenessCapability,
 	TerminalRequest,
 	TerminalSessionHandle,
+	TerminalTypeCapability,
 } from "./types.js";
 
 /** Look up a driver by id, or `undefined`. */
@@ -40,6 +41,29 @@ function hasLivenessCapability(
 		typeof (driver as Partial<TerminalLivenessCapability>).identifyCurrent ===
 			"function"
 	);
+}
+
+function hasTypeCapability(
+	driver: TerminalDriver,
+): driver is TerminalDriver & TerminalTypeCapability {
+	return (
+		typeof (driver as Partial<TerminalTypeCapability>).typeInto === "function"
+	);
+}
+
+/**
+ * Resolve the driver that can type into an existing surface, for a
+ * recorded driver id. Undefined when that driver cannot, which a
+ * caller must treat as a refusal rather than a reason to fall back:
+ * the fallback is running the command without a login shell, and that
+ * is the failure the capability exists to avoid.
+ */
+export function getTypeProvider(
+	driverId: string,
+): (TerminalDriver & TerminalTypeCapability) | undefined {
+	const driver = get(driverId);
+	if (!driver || !hasTypeCapability(driver)) return undefined;
+	return driver;
 }
 
 /**
@@ -107,4 +131,26 @@ export async function spawnTerminal(
 	}
 	await driver.spawn(request);
 	return driver;
+}
+
+/**
+ * Spawn a surface and return both the driver and the handle it
+ * named, for a caller that means to type into what it just made.
+ * The handle is undefined when the driver cannot say what it
+ * created.
+ */
+export async function spawnTerminalSurface(
+	request: TerminalRequest,
+	preferred?: string,
+): Promise<{
+	driver: TerminalDriver;
+	handle: TerminalSessionHandle | undefined;
+}> {
+	const driver = await resolveDriver(preferred);
+	if (!driver) {
+		throw new Error(
+			"No terminal driver available. Register one or seed the built-ins with `registerBuiltinTerminalDrivers`.",
+		);
+	}
+	return { driver, handle: await driver.spawn(request) };
 }

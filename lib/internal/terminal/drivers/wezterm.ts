@@ -9,7 +9,7 @@
  * running somewhere reachable.
  */
 
-import { execFile, spawn as nodeSpawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { hostname } from "node:os";
 import { promisify } from "node:util";
 import {
@@ -18,6 +18,7 @@ import {
 	type TerminalProbe,
 	type TerminalRequest,
 	type TerminalSessionHandle,
+	type TerminalTypeCapability,
 	terminalHandleKey,
 } from "../../../terminal/types.js";
 import { wrapCommandWithEnv } from "./shared.js";
@@ -90,6 +91,11 @@ function buildArgs(request: TerminalRequest): string[] {
 			break;
 	}
 	if (request.cwd) args.push("--cwd", request.cwd);
+	// No command means the caller wants the surface itself: let
+	// wezterm start the user's own login shell, which is the only way
+	// the shell's startup files run. Handing even a trivial command to
+	// `-c` skips them.
+	if (request.command === undefined) return args;
 	// `wezterm cli` hands the command to the mux daemon,
 	// which runs it in the daemon's own environment. The
 	// Node-side env on `nodeSpawn` reaches only the cli
@@ -100,24 +106,58 @@ function buildArgs(request: TerminalRequest): string[] {
 	return args;
 }
 
-export const wezterm: TerminalDriver & TerminalLivenessCapability = {
+/**
+ * The pane id `wezterm cli spawn` prints, or undefined when the
+ * output is not one. The cli prints the new pane id on stdout,
+ * which is the only reliable way to name what was just created.
+ */
+export function paneIdFromSpawn(stdout: string): string | undefined {
+	const trimmed = stdout.trim();
+	return /^\d+$/.test(trimmed) ? trimmed : undefined;
+}
+
+export const wezterm: TerminalDriver &
+	TerminalLivenessCapability &
+	TerminalTypeCapability = {
 	id: "wezterm",
 	async available() {
 		return isOnPath("wezterm");
 	},
 	async spawn(request) {
 		const args = buildArgs(request);
-		await new Promise<void>((resolve, reject) => {
-			const child = nodeSpawn("wezterm", args, {
-				detached: true,
-				stdio: "ignore",
-			});
-			child.on("error", reject);
-			child.on("spawn", () => {
-				child.unref();
-				resolve();
-			});
-		});
+		// Wait for the cli to finish rather than detaching, so its
+		// stdout can be read: it prints the new pane id, and without
+		// that the caller has no way to name what it just created. The
+		// cli returns as soon as the mux has spawned the pane, so this
+		// does not wait on the pane's own lifetime.
+		try {
+			const { stdout } = await execFileAsync("wezterm", args);
+			const pane = paneIdFromSpawn(stdout);
+			if (!pane) return undefined;
+			return {
+				driverId: "wezterm",
+				kind: "wezterm-pane",
+				hostId: hostname(),
+				value: pane,
+				...(process.env.WEZTERM_UNIX_SOCKET
+					? { scope: process.env.WEZTERM_UNIX_SOCKET }
+					: {}),
+			};
+		} catch (error) {
+			// A spawn that failed is worth reporting: the caller asked for
+			// a surface and has not got one.
+			throw error instanceof Error ? error : new Error(String(error));
+		}
+	},
+	async typeInto(handle, text) {
+		// --no-paste sends the text as individual keystrokes rather than
+		// a bracketed paste, so the shell treats it as typed input and
+		// runs it on the newline.
+		await execFileAsync(
+			"wezterm",
+			["cli", "send-text", "--pane-id", handle.value, "--no-paste", text],
+			{ env: process.env },
+		);
 	},
 	identifyCurrent() {
 		const pane = process.env.WEZTERM_PANE;

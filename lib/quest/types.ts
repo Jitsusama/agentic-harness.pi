@@ -129,6 +129,13 @@ export interface QuestSession {
 		hostId: string;
 		pid: number;
 		startToken: string;
+		/**
+		 * The boot the process was observed under. A reboot invalidates
+		 * every pid at once, so a session recorded under an earlier boot
+		 * is dead whatever now holds its pid. Absent on records written
+		 * before this was captured, and on hosts that publish no token.
+		 */
+		bootToken?: string;
 	};
 	/**
 	 * The terminal surface the session ran in, as a probeable handle.

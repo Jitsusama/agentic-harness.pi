@@ -11,6 +11,7 @@ import {
 	discoverQuests,
 	type QuestIndex,
 } from "../../../lib/internal/quest/discovery.js";
+import { restoreRecipe } from "../../../lib/internal/quest/session-registry.js";
 import {
 	ancestorsOf,
 	buildRowExpansion,
@@ -33,8 +34,13 @@ import {
 	renderListing,
 	renderRowBrief,
 } from "../render-rows.js";
+import {
+	pruneClosedRecords,
+	reopenLostSessions,
+	restorableSessions,
+	seedLiveSessions,
+} from "../session-registry.js";
 import type { QuestState } from "../state.js";
-import { planCurrentWorkspaceRestore } from "../workspace-snapshot.js";
 import {
 	ok,
 	type QuestResult,
@@ -210,41 +216,69 @@ export async function workspace(state: QuestState): Promise<QuestResult> {
 	return ok(lines.join("\n"), { workspace: entries });
 }
 
-export async function restore(): Promise<QuestResult> {
-	const view = await planCurrentWorkspaceRestore();
-	if ("reason" in view) return ok(view.reason, { restore: null });
-	const { plan, recipe } = view;
-	if (plan.toRestore.length === 0) {
-		return ok(
-			`All ${plan.alreadyLive.length} recorded session(s) are already live; nothing to restore.`,
-			{ restore: { toRestore: [], alreadyLive: plan.alreadyLive } },
+/** Every session any quest claims, paired with the quest claiming it. */
+function claimedSessions(state: QuestState) {
+	const { index } = discoverQuests(state.questsRoot);
+	return [...index.quests.values()].flatMap((entry) =>
+		entry.doc.frontMatter.sessions.map((session) => ({
+			questId: entry.doc.frontMatter.id,
+			session,
+		})),
+	);
+}
+
+export async function restore(
+	state: QuestState,
+	opts: { act?: boolean } = {},
+): Promise<QuestResult> {
+	// Seed before asking, so tabs that were already open when the
+	// registry arrived are known to be open rather than absent, and
+	// prune after, so a window that has passed is not carried by every
+	// later read.
+	seedLiveSessions(claimedSessions(state));
+	const lost = restorableSessions();
+	pruneClosedRecords(state.sessionRetentionDays);
+	if (lost.length === 0) {
+		return ok("No sessions were lost; nothing to restore.", {
+			restore: { toRestore: [], recipe: [] },
+		});
+	}
+	const recipe = restoreRecipe(lost);
+	const rows = lost.map(
+		(record) =>
+			`- ${record.quest ?? "(no quest)"} ${record.cwd} (session ${record.sessionId}, lost ${record.closedAt})`,
+	);
+	if (!opts.act) {
+		const body = [
+			`${lost.length} session(s) to restore:`,
+			...rows,
+			"",
+			"Run to reopen them, or pass force to have restore do it:",
+			...recipe,
+		].join("\n");
+		return ok(body, { restore: { toRestore: lost, recipe } });
+	}
+	const outcome = await reopenLostSessions(lost);
+	const lines = [
+		`Reopened ${outcome.reopened.length} of ${lost.length} session(s).`,
+	];
+	if (outcome.failed.length > 0) {
+		lines.push(
+			"",
+			"Could not reopen these; run the lines by hand:",
+			...outcome.failed.map((f) => `- ${f.sessionId}: ${f.reason}`),
+			...restoreRecipe(
+				lost.filter((r) =>
+					outcome.failed.some((f) => f.sessionId === r.sessionId),
+				),
+			),
 		);
 	}
-	const rows = plan.toRestore.map(
-		(e) => `- ${e.questId} ${e.cwd} (session ${e.sessionId})`,
-	);
-	const liveNote =
-		plan.alreadyLive.length > 0
-			? `\n${plan.alreadyLive.length} recorded session(s) already live, excluded.`
-			: "";
-	const body = [
-		`${plan.toRestore.length} session(s) to restore:`,
-		...rows,
-		"",
-		"Run to reopen them:",
-		...recipe,
-	].join("\n");
-	return ok(`${body}${liveNote}`, {
-		restore: {
-			toRestore: plan.toRestore,
-			alreadyLive: plan.alreadyLive,
-			recipe,
-		},
-	});
+	return ok(lines.join("\n"), { restore: { ...outcome, recipe } });
 }
 
 export async function recent(state: QuestState): Promise<QuestResult> {
-	const rows = await recentSessions(state);
+	const { rows, total } = await recentSessions(state);
 	if (rows.length === 0) {
 		return ok("No recent pi sessions on any quest.", { recent: [] });
 	}
@@ -253,7 +287,14 @@ export async function recent(state: QuestState): Promise<QuestResult> {
 		const resume = r.cwd ? `  → pi --session ${r.sessionId}` : "";
 		return `${workspaceMark(r.liveness)} ${r.questId} ${r.title ?? ""} [${r.liveness}]${where}${resume}`.trimEnd();
 	});
-	return ok(lines.join("\n"), { recent: rows });
+	// Say what was cut. The cap used to trim silently, so a listing
+	// that was missing the session you wanted looked exactly like a
+	// listing that had everything.
+	const capped =
+		total > rows.length
+			? ["", `Showing ${rows.length} of ${total} sessions.`]
+			: [];
+	return ok([...lines, ...capped].join("\n"), { recent: rows, total });
 }
 
 /** Glyph for a workspace row's liveness. */

@@ -58,6 +58,10 @@ function buildArgs(request: TerminalRequest): string[] {
 	// the target is portable across tmux versions and
 	// avoids relying on `-e KEY=value`, which was added
 	// in tmux 3.0 and not always present.
+	// No command means the caller wants the surface itself, so let
+	// tmux start the user's own login shell: that is the only way the
+	// shell's startup files run.
+	if (request.command === undefined) return args;
 	args.push(wrapCommandWithEnv(request.command, request.env));
 	return args;
 }

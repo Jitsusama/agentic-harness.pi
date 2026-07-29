@@ -78,7 +78,30 @@ describe("summarizeQuestConfig", () => {
 			questsRootSource: "config",
 			autoloadFromCwd: true,
 			autoloadFromCwdSource: "default",
+			sessionRetentionDays: 30,
+			sessionRetentionDaysSource: "default",
 		});
+	});
+
+	it("marks a configured sessionRetentionDays as sourced from config", () => {
+		const summary = summarizeQuestConfig({
+			config: { sessionRetentionDays: 7 },
+			configPath: "/cfg/config.json",
+			dataDir: "/data",
+		});
+		expect(summary.sessionRetentionDays).toBe(7);
+		expect(summary.sessionRetentionDaysSource).toBe("config");
+	});
+
+	it("refuses a retention window that would forget everything at once", () => {
+		// Zero or negative days would put the cutoff at or after now, so
+		// every closed record would be dropped the moment it closed.
+		for (const days of [0, -1]) {
+			expect(parseQuestWorkflowConfig({ sessionRetentionDays: days })).toEqual({
+				ok: false,
+				error: "sessionRetentionDays must be a positive number of days",
+			});
+		}
 	});
 
 	it("marks a configured autoloadFromCwd as sourced from config", () => {

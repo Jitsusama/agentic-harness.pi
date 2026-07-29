@@ -178,7 +178,10 @@ export async function handle(
 		case "recent":
 			return recent(state);
 		case "restore":
-			return restore();
+			// Listing is the default and acting needs force: reopening a
+			// dozen tabs is too large a side effect to fire from a verb
+			// the user may have run to look.
+			return restore(state, { act: params.force === true });
 		default: {
 			const suggestion = suggestAction(params.action ?? "");
 			const hint = suggestion
