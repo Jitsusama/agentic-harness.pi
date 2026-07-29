@@ -71,8 +71,6 @@ import {
 	type Animation,
 	type BoxModel,
 	CONTENT_PROBE,
-	centreOf,
-	cornersOf,
 	type DelegatedListeners,
 	diffStyles,
 	foldHover,
@@ -3081,7 +3079,7 @@ export class BrowserSession {
 		const styles = objectId ? await this.stylesOf(objectId) : undefined;
 		const viewport = await this.viewport();
 		const coveredBy =
-			box && objectId ? await this.occluderOf(objectId, box) : undefined;
+			box && objectId ? await this.occluderOf(objectId) : undefined;
 
 		const visibility = judgeVisibility({
 			rendered: box !== undefined,
@@ -3590,7 +3588,7 @@ export class BrowserSession {
 		const viewport = pointer ? await this.viewport() : undefined;
 		const coveredBy =
 			pointer && box
-				? await this.coveredAtCentre(resolution.backendDomId, box)
+				? await this.coveredAtCentre(resolution.backendDomId)
 				: undefined;
 		const visibility = sight
 			? judgeVisibility({
@@ -3622,12 +3620,11 @@ export class BrowserSession {
 	 */
 	private async coveredAtCentre(
 		backendNodeId: number,
-		box: BoxModel,
 	): Promise<string | undefined> {
 		const objectId = await this.objectFor(backendNodeId);
 		if (!objectId) return undefined;
 		try {
-			return await this.hitTest(objectId, centreOf(box.border));
+			return await this.hitTest(objectId, false);
 		} finally {
 			await this.release(objectId);
 		}
@@ -3963,50 +3960,42 @@ export class BrowserSession {
 	/**
 	 * What is painted over the element, if anything.
 	 *
-	 * The browser is asked what it would hit at the element's own
-	 * centre and corners. Anything the element contains counts as
-	 * itself, since a click there still reaches it.
+	 * The centre and the corners, since a full inspection should
+	 * report an element clipped at one edge. Anything the element
+	 * contains counts as itself, since a click there still reaches
+	 * it.
 	 */
-	private async occluderOf(
-		objectId: string,
-		box: BoxModel,
-	): Promise<string | undefined> {
-		const points = [centreOf(box.border), ...cornersOf(box.border, 2)];
-		for (const point of points) {
-			const hit = await this.hitTest(objectId, point);
-			if (hit) return hit;
-		}
-		return undefined;
+	private async occluderOf(objectId: string): Promise<string | undefined> {
+		return await this.hitTest(objectId, true);
 	}
 
-	/** Who receives a click at one point, when it is not us. */
+	/**
+	 * Who receives a click, when it is not us.
+	 *
+	 * The point is chosen inside the page rather than out here. Both
+	 * halves of the question used to be asked separately, the box
+	 * from the box model and the hit from `DOM.getNodeForLocation`,
+	 * and they disagree by the scroll offset, so anything the driver
+	 * had to scroll to was reported as covered by whatever sat at
+	 * the wrong point.
+	 */
 	private async hitTest(
 		objectId: string,
-		point: { x: number; y: number },
+		alsoCorners: boolean,
 	): Promise<string | undefined> {
-		let hitObjectId: string | undefined;
 		try {
-			const { backendNodeId } = await this.cdp.send("DOM.getNodeForLocation", {
-				x: Math.round(point.x),
-				y: Math.round(point.y),
-			});
-			hitObjectId = await this.objectFor(backendNodeId);
-			if (!hitObjectId) return undefined;
-
 			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
 				objectId,
 				functionDeclaration: OCCLUDER_PROBE,
-				arguments: [{ objectId: hitObjectId }],
+				arguments: [{ value: alsoCorners }],
 				returnByValue: true,
 			});
 			return (result.value as string | null) ?? undefined;
 		} catch {
-			// A point outside the viewport cannot be hit tested. The
-			// verdict already reports that as being off screen, so
-			// there is nothing further to say here.
+			// An element that has gone from the page between resolving
+			// and asking cannot be occluded by anything, and the next
+			// poll reports it as absent.
 			return undefined;
-		} finally {
-			await this.release(hitObjectId);
 		}
 	}
 
