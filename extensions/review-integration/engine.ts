@@ -27,6 +27,11 @@ export function draftDir(): string {
 	return join(stateDir("review"), "drafts");
 }
 
+/** Where the changes a session is attached to live. */
+export function attachmentDir(): string {
+	return join(stateDir("review"), "attached");
+}
+
 /** Adapt pi's exec to the library's seam. */
 function execFor(pi: ExtensionAPI): Exec {
 	return async (command, args) => {

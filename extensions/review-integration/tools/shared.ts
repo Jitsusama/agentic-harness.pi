@@ -11,12 +11,15 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import type {
-	BoundTarget,
-	ChangeRef,
-	Thread,
+import {
+	type BoundTarget,
+	type ChangeRef,
+	changeInPlay,
+	chooseChange,
+	createAttachmentStore,
+	type Thread,
 } from "../../../lib/review/index.js";
-import { reviewEngine } from "../engine.js";
+import { attachmentDir, reviewEngine } from "../engine.js";
 import { GLYPH } from "../render.js";
 
 /** What a tool answers with. */
@@ -87,7 +90,14 @@ export interface TargetParams {
 	refs?: string[];
 }
 
-/** Resolve whatever the caller named into a bound target. */
+/**
+ * Resolve whatever the caller named into a bound target.
+ *
+ * A caller who named nothing is not making a mistake. They are
+ * working on something, and this is where that gets honoured:
+ * the attached change stands in, and which one was used is said
+ * out loud by whatever renders the answer.
+ */
 export async function boundFor(
 	pi: ExtensionAPI,
 	params: TargetParams,
@@ -103,12 +113,25 @@ export async function boundFor(
 			head: params.head,
 		});
 	}
-	if (!params.change) {
+	const attached = await createAttachmentStore(attachmentDir()).list();
+	const chosen = changeInPlay(
+		params.change,
+		undefined,
+		attached.map((a) => a.change.label),
+	);
+	if ("candidates" in chosen) {
 		throw new Error(
-			"Name a change, or a base and head, or a list of refs to review.",
+			attached.length === 0
+				? "Name a change, or a base and head, or a list of refs to review. Or attach a change, and every call after it can leave this out."
+				: chooseChange(chosen.candidates),
 		);
 	}
-	return engine.resolve(params.change, cwd);
+	// An attached change was already resolved once, so bind the
+	// reference we kept rather than parsing its label back into a
+	// provider guess. A label is for people to read.
+	const held = attached.find((a) => a.change.label === chosen.label);
+	if (held && params.change === undefined) return engine.bound(held.change);
+	return engine.resolve(chosen.label, cwd);
 }
 
 /** The hosted change behind a bound target, when there is one. */

@@ -9,16 +9,23 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { citeListing, openSessionStore } from "../../../lib/result/index.js";
-import { reviewEngine } from "../engine.js";
+import {
+	changeInPlay,
+	chooseChange,
+	createAttachmentStore,
+} from "../../../lib/review/index.js";
+import { attachmentDir, reviewEngine } from "../engine.js";
 import { checksLines, GLYPH, proposalLine } from "../render.js";
 import {
 	type Answer,
 	boundFor,
+	hostedChange,
 	messageOf,
 	refuse,
 	renderAnswer,
 	renderInvocation,
 	say,
+	type TargetParams,
 } from "./shared.js";
 
 /** Register the `review` tool. */
@@ -37,16 +44,23 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 			"When a stack or a capability is missing, say which provider was asked rather than reporting a generic failure.",
 		],
 		parameters: Type.Object({
-			action: Type.Union(
-				[
-					Type.Literal("resolve"),
-					Type.Literal("view"),
-					Type.Literal("diff"),
-					Type.Literal("checks"),
-					Type.Literal("list"),
-					Type.Literal("capabilities"),
-				],
-				{ description: "What to read." },
+			action: Type.Optional(
+				Type.Union(
+					[
+						Type.Literal("attach"),
+						Type.Literal("detach"),
+						Type.Literal("resolve"),
+						Type.Literal("view"),
+						Type.Literal("diff"),
+						Type.Literal("checks"),
+						Type.Literal("list"),
+						Type.Literal("capabilities"),
+					],
+					{
+						description:
+							"What to do. attach: work on this change, so later calls can leave it out. detach: stop working on it. Omit entirely to report what is attached.",
+					},
+				),
 			),
 			change: Type.Optional(
 				Type.String({
@@ -96,6 +110,9 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 
 		async execute(_id, params): Promise<Answer> {
 			try {
+				if (params.action === undefined) return reportAttached();
+				if (params.action === "attach") return attachChange(pi, params);
+				if (params.action === "detach") return detachChange(params);
 				if (params.action === "list") return listChanges(pi, params);
 
 				const bound = await boundFor(pi, params, process.cwd());
@@ -154,6 +171,71 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 				return refuse(messageOf(error));
 			}
 		},
+	});
+}
+
+/**
+ * Attach a change, so later calls need not name it.
+ *
+ * Creating the attachment resolves the reference first, which
+ * means an unreachable or misspelled change is refused here
+ * rather than silently becoming the thing every later call
+ * fails on.
+ */
+async function attachChange(
+	pi: ExtensionAPI,
+	params: TargetParams,
+): Promise<Answer> {
+	const bound = await boundFor(pi, params, process.cwd());
+	const change = hostedChange(bound);
+	if (!change) {
+		return refuse(
+			`A ${bound.target.kind} in ${bound.repo.key} is not something to attach, since nothing hosts it. Pass its base and head on each call instead.`,
+		);
+	}
+	await createAttachmentStore(attachmentDir()).attach(change);
+	return say(
+		`${GLYPH.target} attached ${change.label}, handled by ${bound.provider.id}.\n   Later calls can leave the change out.`,
+		{ ok: true, attached: change.label },
+	);
+}
+
+/** Stop working on a change. */
+async function detachChange(params: TargetParams): Promise<Answer> {
+	const store = createAttachmentStore(attachmentDir());
+	const attached = await store.list();
+	const chosen = changeInPlay(
+		params.change,
+		undefined,
+		attached.map((a) => a.change.label),
+	);
+	if ("candidates" in chosen) return refuse(chooseChange(chosen.candidates));
+	if (!(await store.detach(chosen.label))) {
+		return refuse(
+			`${chosen.label} was not attached, so there was nothing to detach.`,
+		);
+	}
+	return say(`${GLYPH.target} detached ${chosen.label}.`, {
+		ok: true,
+		detached: chosen.label,
+	});
+}
+
+/** What this session is working on. */
+async function reportAttached(): Promise<Answer> {
+	const attached = await createAttachmentStore(attachmentDir()).list();
+	if (attached.length === 0) {
+		return say(
+			`${GLYPH.target} nothing attached. Attach a change and every call after it can leave the change out.`,
+			{ ok: true, count: 0 },
+		);
+	}
+	const lines = attached.map(
+		(a) => `   ${a.change.label}  ${a.change.provider}`,
+	);
+	return say(`${GLYPH.target} attached, newest first\n${lines.join("\n")}`, {
+		ok: true,
+		count: attached.length,
 	});
 }
 
