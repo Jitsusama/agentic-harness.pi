@@ -17,6 +17,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import {
+	type AnchoredComment,
 	type BoundTarget,
 	type ChangeRef,
 	type ConversationFacet,
@@ -24,8 +25,10 @@ import {
 	REVIEW_REQUEST_SUBSTRATE,
 	type ReviewSubstrateApi,
 	type Thread,
+	type Verdict,
 } from "../../lib/review/index.js";
 import { metadataFromProposal, type PrMetadata } from "./fetch.js";
+import type { ReviewComment } from "./post.js";
 import { changeFromGitHubView } from "./reference.js";
 import { type Stack, stackViewFrom } from "./stack.js";
 import { type ReviewThread, readConversation } from "./threads.js";
@@ -84,6 +87,56 @@ export async function metadataFromSubstrate(
 		);
 	}
 	return metadataFromProposal(proposal);
+}
+
+/**
+ * Submit a review through the substrate.
+ *
+ * Unlike the reads around it, this refuses rather than degrades.
+ * A review that silently went nowhere is worse than one that
+ * failed loudly, because the person who wrote it walks away
+ * believing it landed.
+ */
+export async function postReviewThroughSubstrate(input: {
+	ref: PRReference;
+	event: string;
+	body: string;
+	comments: readonly ReviewComment[];
+}): Promise<void> {
+	const { conversation, change } = await conversationFor(input.ref);
+	await conversation.postReview(change, {
+		verdict: verdictOf(input.event),
+		body: input.body,
+		comments: input.comments.map(anchoredFrom),
+	});
+}
+
+/** A GitHub review event as the position the contract knows. */
+function verdictOf(event: string): Verdict {
+	if (event === "APPROVE") return "approve";
+	return event === "REQUEST_CHANGES" ? "request-changes" : "comment";
+}
+
+/**
+ * A review comment as an anchored one.
+ *
+ * The side matters more than it looks: a remark on a deleted line
+ * belongs on the old blob, and posting it against the new one
+ * would attach it to whatever code now occupies that number.
+ */
+function anchoredFrom(comment: ReviewComment): AnchoredComment {
+	return {
+		anchor: {
+			subject: "line",
+			path: comment.path,
+			blob: comment.side === "LEFT" ? "old" : "new",
+			line: comment.line,
+			...(comment.startLine === undefined
+				? {}
+				: { startLine: comment.startLine }),
+		},
+		body: comment.body,
+	};
 }
 
 /**

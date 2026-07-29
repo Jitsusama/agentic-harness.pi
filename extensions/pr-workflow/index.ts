@@ -27,7 +27,7 @@ import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
 import { fetchDiff } from "../../lib/internal/github/diff.js";
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
 import { getCurrentRepo } from "../../lib/internal/github/repo-discovery.js";
-import { postReview } from "../../lib/internal/github/review-post.js";
+
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { findOrCreateSidequestForPr } from "../../lib/internal/quest/pr-sidequest.js";
 import { getQuestPrBridge } from "../../lib/quest/pr-bridge.js";
@@ -142,6 +142,7 @@ import {
 	attachSubstrate,
 	headCommitFromSubstrate,
 	metadataFromSubstrate,
+	postReviewThroughSubstrate,
 	replyThroughSubstrate,
 	resolveThroughSubstrate,
 	stackFromSubstrate,
@@ -1702,14 +1703,7 @@ ${reviewValidationDirective()}`,
 
 				if (params.action === "post") {
 					const event: ReviewEvent = params.event ?? "COMMENT";
-					const exec: PostReviewExec = async ({
-						ref,
-						event: ev,
-						body,
-						comments,
-					}) => {
-						await postReview(pi, ref, ev, body, comments);
-					};
+					const exec: PostReviewExec = postReviewThroughSubstrate;
 					const gate: PostReviewGate = (summary) =>
 						confirmPostGate(ctx, summary);
 					const result = await postReviewAction({

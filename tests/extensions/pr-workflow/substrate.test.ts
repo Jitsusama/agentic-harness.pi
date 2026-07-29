@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	forgetSubstrate,
 	headCommitFromSubstrate,
+	postReviewThroughSubstrate,
 	replyThroughSubstrate,
 	resolveThroughSubstrate,
 	setSubstrateApi,
@@ -24,6 +25,7 @@ import type {
 	ReviewEngine,
 	ReviewSubstrateApi,
 	Thread,
+	WireReview,
 } from "../../../lib/review/index.js";
 
 const reference = { owner: "o", repo: "r", number: 7 };
@@ -133,6 +135,110 @@ describe("replyThroughSubstrate", () => {
 				"seems fine",
 			),
 		).rejects.toThrow(/refresh|action=threads/i);
+	});
+});
+
+describe("postReviewThroughSubstrate", () => {
+	/** A facet that records the review it was handed. */
+	function posting(): { conversation: ConversationFacet; sent: WireReview[] } {
+		const sent: WireReview[] = [];
+		const conversation = {
+			async postReview(_ref: unknown, review: WireReview) {
+				sent.push(review);
+				return { url: "https://example.test/r/1" };
+			},
+		} as unknown as ConversationFacet;
+		return { conversation, sent };
+	}
+
+	it("says each GitHub event as the verdict the contract knows", async () => {
+		const { conversation, sent } = posting();
+		setSubstrateApi(substrate(conversation).api);
+
+		for (const event of ["APPROVE", "REQUEST_CHANGES", "COMMENT"] as const) {
+			await postReviewThroughSubstrate({
+				ref: reference,
+				event,
+				body: "looks good",
+				comments: [],
+			});
+		}
+
+		expect(sent.map((r) => r.verdict)).toEqual([
+			"approve",
+			"request-changes",
+			"comment",
+		]);
+	});
+
+	it("anchors a single-line comment on the side it was written against", async () => {
+		const { conversation, sent } = posting();
+		setSubstrateApi(substrate(conversation).api);
+
+		await postReviewThroughSubstrate({
+			ref: reference,
+			event: "COMMENT",
+			body: "",
+			comments: [{ path: "a.ts", line: 12, body: "here" }],
+		});
+
+		expect(sent[0].comments).toEqual([
+			{
+				anchor: { subject: "line", path: "a.ts", blob: "new", line: 12 },
+				body: "here",
+			},
+		]);
+	});
+
+	it("keeps a multi-line range together", async () => {
+		const { conversation, sent } = posting();
+		setSubstrateApi(substrate(conversation).api);
+
+		await postReviewThroughSubstrate({
+			ref: reference,
+			event: "COMMENT",
+			body: "",
+			comments: [{ path: "a.ts", line: 20, startLine: 15, body: "span" }],
+		});
+
+		expect(sent[0].comments[0].anchor).toEqual({
+			subject: "line",
+			path: "a.ts",
+			blob: "new",
+			line: 20,
+			startLine: 15,
+		});
+	});
+
+	it("carries a comment written against the old side", async () => {
+		// A remark on a deleted line belongs on the left, and posting
+		// it against the right would attach it to unrelated code.
+		const { conversation, sent } = posting();
+		setSubstrateApi(substrate(conversation).api);
+
+		await postReviewThroughSubstrate({
+			ref: reference,
+			event: "COMMENT",
+			body: "",
+			comments: [{ path: "a.ts", line: 4, side: "LEFT", body: "gone" }],
+		});
+
+		expect(sent[0].comments[0].anchor).toMatchObject({ blob: "old" });
+	});
+
+	it("refuses when nothing hosts the change", async () => {
+		// Posting is not best-effort. A review that silently went
+		// nowhere is worse than one that failed loudly.
+		setSubstrateApi(substrate(null).api);
+
+		await expect(
+			postReviewThroughSubstrate({
+				ref: reference,
+				event: "COMMENT",
+				body: "x",
+				comments: [],
+			}),
+		).rejects.toThrow(/o\/r#7/);
 	});
 });
 

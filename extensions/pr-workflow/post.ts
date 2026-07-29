@@ -20,7 +20,6 @@
  */
 
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
-import type { ReviewComment } from "../../lib/internal/github/review-post.js";
 import {
 	type DiffFile,
 	type DiffLine,
@@ -64,6 +63,23 @@ interface ConventionalCommentHeaderInput {
 	readonly label: Finding["label"];
 	readonly decorations?: readonly string[];
 	readonly subject: string;
+}
+
+/**
+ * An anchored remark on its way out.
+ *
+ * Still spelled the way GitHub spells it, sides and all, because
+ * this is what the rendering here produces and what the anchoring
+ * checks read. The translation into the contract's vocabulary
+ * happens once, at the submission seam.
+ */
+export interface ReviewComment {
+	readonly path: string;
+	readonly line: number;
+	readonly startLine?: number;
+	/** Diff side: defaults to "RIGHT" when omitted. */
+	readonly side?: string;
+	readonly body: string;
 }
 
 /** Why a finding didn't post. */
