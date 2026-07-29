@@ -23,6 +23,17 @@ export type {
 	LineAnchor,
 } from "./anchor.js";
 export { anchorable, anchorPath, describeAnchor } from "./anchor.js";
+export type {
+	Attachment,
+	AttachmentStore,
+	ChangeAmbiguous,
+	ChangeInPlay,
+} from "./attach.js";
+export {
+	changeInPlay,
+	chooseChange,
+	createAttachmentStore,
+} from "./attach.js";
 export type { TargetResolution } from "./bind.js";
 export {
 	bindTarget,
