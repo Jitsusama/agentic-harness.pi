@@ -22,7 +22,6 @@ import {
 	type ChangeRef,
 	type ConversationFacet,
 	type DraftState,
-	GITHUB_PROVIDER_ID,
 	type PublishOutcome,
 	type PublishPlan,
 	REVIEW_READY,
@@ -34,7 +33,7 @@ import {
 } from "../../lib/review/index.js";
 import { metadataFromProposal, type PrMetadata } from "./fetch.js";
 import type { ReviewComment } from "./post.js";
-import { changeFromGitHubView, githubViewOf } from "./reference.js";
+import { changeFromGitHubView } from "./reference.js";
 import { type Stack, stackViewFrom } from "./stack.js";
 import { type ReviewThread, readConversation } from "./threads.js";
 
@@ -95,72 +94,34 @@ export async function metadataFromSubstrate(
 }
 
 /**
- * Which repo a bare change number means in this directory.
+ * The change a reference names, whichever system owns it.
  *
- * Asked of the substrate rather than read off the origin remote,
- * because the resolver is what knows about configured mappings
- * and provider claims. Reading the remote directly would be wrong
- * in exactly the repos that bothered to configure something.
+ * This is how the workflow stopped being a GitHub workflow. It
+ * used to parse a reference itself, which meant it could only
+ * recognize the shapes GitHub uses and could only ever conclude
+ * that a change was GitHub's. The substrate knows every provider
+ * registered in the session, including ones that live in another
+ * package entirely, so asking it first is what lets a Meteorite
+ * change, or anything added later, load at all.
  *
- * Answers null for every kind of not-knowing. The load path has
- * its own message for a reference it cannot place, and it reads
- * better than a resolver error to someone who just typed a
- * number.
+ * Answers null for every kind of not-knowing: no substrate to
+ * ask, nothing claimed the reference, or a target that resolved
+ * to something other than a hosted change, which a local range
+ * legitimately does. The caller falls back to parsing a GitHub
+ * reference itself, which is what happened before any of this
+ * existed.
  */
-/**
- * Whether some other review system owns this reference.
- *
- * This workflow speaks GitHub throughout: what it stores, what
- * it fetches, what its buffer URIs name. The substrate speaks to
- * anything, so it will happily resolve a reference this workflow
- * cannot then act on.
- *
- * The failure that matters is not the refusal, it is the reason
- * given for it. Without this, a Meteorite change in a World
- * checkout falls through to the parse message and the user is
- * told their reference could not be understood, when in fact it
- * was understood exactly and belongs somewhere else. Naming the
- * system that claimed it turns a misleading complaint into a
- * signpost.
- *
- * Answers null for every kind of not-knowing, including no
- * substrate at all, because the existing message is the right
- * one whenever there is nothing better to say.
- */
-export async function claimedByAnotherSystem(
-	input: string,
-): Promise<{ provider: string; label: string } | null> {
+export async function changeFor(input: string): Promise<ChangeRef | null> {
 	if (!substrate) return null;
 	try {
 		const engine = await substrate.engine();
 		const bound = await engine.resolve(input, process.cwd());
-		if (bound.target.kind !== "proposal") return null;
-		const change = bound.target.change;
-		if (change.provider === GITHUB_PROVIDER_ID) return null;
-		return { provider: change.provider, label: change.label };
+		return bound.target.kind === "proposal" ? bound.target.change : null;
 	} catch {
-		// An unresolvable reference is exactly what the parse
-		// message already covers, and naming a system for it would
-		// invent one.
-		return null;
-	}
-}
-
-export async function repoForBareChange(
-	input: string,
-): Promise<{ owner: string; repo: string } | null> {
-	if (!substrate) return null;
-	try {
-		const engine = await substrate.engine();
-		const bound = await engine.resolve(input, process.cwd());
-		const change =
-			bound.target.kind === "proposal" ? bound.target.change : null;
-		const view = change ? githubViewOf(change) : null;
-		return view ? { owner: view.owner, repo: view.repo } : null;
-	} catch {
-		// Not knowing which repo a number means is an ordinary
-		// outcome here, not a fault: the caller falls back to asking
-		// the user to spell it out.
+		// Not knowing which change a reference names is an ordinary
+		// outcome, not a fault. The load path has its own message for
+		// it, and it reads better than a resolver error to somebody
+		// who just typed a number.
 		return null;
 	}
 }

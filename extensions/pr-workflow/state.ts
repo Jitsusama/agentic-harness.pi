@@ -16,7 +16,7 @@
  */
 
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
-import type { DiffFile } from "../../lib/review/index.js";
+import type { ChangeRef, DiffFile } from "../../lib/review/index.js";
 import type { RecoverySummary } from "../../lib/subagent/recovery.js";
 import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import type { PrWorkflowReviewerEntry } from "./config.js";
@@ -39,14 +39,32 @@ import type { FindingDecision } from "./synthesis.js";
  */
 export interface ActivePr {
 	/**
-	 * The PR loaded into the session.
+	 * Which change is loaded, and which system owns it.
 	 *
-	 * Still GitHub's shape, because everything downstream of it
-	 * still is: the metadata fetch, the thread reads and the
-	 * buffer URIs all speak owner, repo and number. Use
-	 * `changeOf` in `./reference.js` to get the substrate's
-	 * neutral reference, which is what to display and what to
-	 * hand to a provider.
+	 * This is the identity: what to display, and what to hand to a
+	 * provider. Read it through `changeOf` in `./reference.js`
+	 * rather than directly.
+	 *
+	 * Optional only for history. A session recorded before changes
+	 * carried their system has no value here, and every change
+	 * loadable then was a GitHub one, so `changeOf` reconstructs
+	 * that and says so. Anything loaded now sets this.
+	 */
+	change?: ChangeRef;
+	/**
+	 * The same change as owner, repo and number.
+	 *
+	 * A projection of `change`, not a second identity. Everything
+	 * downstream still reads these three fields, and they are just
+	 * as meaningful for a change hosted somewhere other than
+	 * GitHub, so the view is worth keeping.
+	 *
+	 * The direction matters and is the whole reason this is safe.
+	 * These two cannot disagree because exactly one place writes
+	 * them, from one resolved `change`. The arrangement that did
+	 * not work was the inverse: deriving the neutral reference
+	 * from owner, repo and number on demand, which had to guess a
+	 * provider and always guessed GitHub.
 	 */
 	reference: PRReference;
 	/** ISO 8601 timestamp of when the PR was loaded. */

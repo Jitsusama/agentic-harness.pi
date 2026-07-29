@@ -7,7 +7,78 @@ import {
 	changeOf,
 	githubViewOf,
 } from "../../../extensions/pr-workflow/reference.js";
+import type { ActivePr } from "../../../extensions/pr-workflow/state.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
+
+describe("which system owns a loaded change", () => {
+	it("remembers GitHub when a GitHub reference was parsed", () => {
+		const state = createPrWorkflowState();
+		loadPr(state, { input: "https://github.com/o/r/pull/7" });
+
+		expect(state.pr?.change?.provider).toBe("github");
+		expect(changeOf(state.pr as ActivePr).label).toBe("o/r#7");
+	});
+
+	it("takes the system from a reference the substrate resolved", () => {
+		// The workflow cannot parse a Meteorite reference itself and
+		// should not try. The substrate resolves it, and what comes
+		// back says who owns it.
+		const state = createPrWorkflowState();
+		const result = loadPr(state, {
+			input: "2000970",
+			change: {
+				provider: "meteorite",
+				repo: { key: "meteorite:shop/world" },
+				id: "2000970",
+				label: "shop/world#2000970",
+			},
+		});
+
+		expect(result.ok).toBe(true);
+		expect(state.pr?.change?.provider).toBe("meteorite");
+		expect(changeOf(state.pr as ActivePr).label).toBe("shop/world#2000970");
+	});
+
+	it("projects owner, repo and number for whatever system it is", () => {
+		// Everything downstream still reads these three, and they are
+		// just as meaningful on a change hosted elsewhere.
+		const state = createPrWorkflowState();
+		loadPr(state, {
+			input: "2000970",
+			change: {
+				provider: "meteorite",
+				repo: { key: "meteorite:shop/world" },
+				id: "2000970",
+				label: "shop/world#2000970",
+			},
+		});
+
+		expect(state.pr?.reference).toEqual({
+			owner: "shop",
+			repo: "world",
+			number: 2000970,
+		});
+	});
+
+	it("does not claim GitHub owns a change it was handed", () => {
+		// The bug this replaces: the neutral reference was rebuilt
+		// from owner, repo and number as a GitHub change every time,
+		// so a Meteorite change would have been addressed to the
+		// read-only mirror.
+		const state = createPrWorkflowState();
+		loadPr(state, {
+			input: "2000970",
+			change: {
+				provider: "meteorite",
+				repo: { key: "meteorite:shop/world" },
+				id: "2000970",
+				label: "shop/world#2000970",
+			},
+		});
+
+		expect(githubViewOf(changeOf(state.pr as ActivePr))).toBeNull();
+	});
+});
 
 describe("loadPr", () => {
 	it("attaches a PR parsed from a full GitHub URL", () => {

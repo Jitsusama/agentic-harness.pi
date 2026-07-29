@@ -146,13 +146,12 @@ import {
 import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
 import {
 	attachSubstrate,
-	claimedByAnotherSystem,
+	changeFor,
 	diffFromSubstrate,
 	headCommitFromSubstrate,
 	metadataFromSubstrate,
 	prepareDraftThroughSubstrate,
 	replyThroughSubstrate,
-	repoForBareChange,
 	resolveThroughSubstrate,
 	stackFromSubstrate,
 	threadsFromSubstrate,
@@ -2681,37 +2680,23 @@ ${reviewValidationDirective()}`,
 				}
 
 				const previousRef = state.pr?.reference ?? null;
-				// A bare PR number needs an owner/repo to resolve
-				// against. The substrate is asked which repo this
-				// directory is, so a configured mapping is honoured
-				// rather than whatever origin happens to point at.
-				// Only consulted for a bare number, so a full ref
-				// never pays the cost.
-				const defaultRepo = /^\d+$/.test(params.pr.trim())
-					? await repoForBareChange(params.pr.trim())
-					: null;
+				// Ask the substrate what this reference is before trying
+				// to parse it. It knows every provider registered in the
+				// session, including ones from another package, so this
+				// is what lets a change on any review system load rather
+				// than only the shapes GitHub happens to use. It also
+				// settles which repo a bare number means, honouring a
+				// configured mapping rather than whatever origin points
+				// at.
+				const resolved = await changeFor(params.pr.trim());
 				const outcome = loadPr(state, {
 					input: params.pr,
-					...(defaultRepo ? { defaultRepo } : {}),
+					...(resolved ? { change: resolved } : {}),
 				});
 				if (!outcome.ok) {
-					// Before reporting the reference as unparseable, ask
-					// whether some other review system understood it
-					// perfectly. That is the ordinary case in a checkout
-					// whose changes do not live on GitHub, and blaming the
-					// input there sends the reader hunting for a typo that
-					// is not present.
-					const elsewhere = await claimedByAnotherSystem(params.pr.trim());
-					const error = elsewhere
-						? `${elsewhere.label} is a ${elsewhere.provider} change. This ` +
-							"workflow speaks GitHub throughout, so it cannot review one " +
-							"yet. The review tools can: `review view` to read it, " +
-							"`review_thread threads` for the conversation, and " +
-							"`review_draft` to compose a review of it."
-						: outcome.error;
 					return {
-						content: [{ type: "text", text: error }],
-						details: { ok: false, error },
+						content: [{ type: "text", text: outcome.error }],
+						details: { ok: false, error: outcome.error },
 						isError: true,
 					};
 				}
