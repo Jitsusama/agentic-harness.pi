@@ -17,6 +17,7 @@
 
 import { type Anchor, anchorPath } from "../anchor.js";
 import type { Actor, ReviewTarget } from "../change.js";
+import { bullet } from "./continuation.js";
 import type { DraftState, FindingItem } from "./state.js";
 
 /** Who is reviewing, and anything else the document needs. */
@@ -107,8 +108,8 @@ export function renderDraft(
 		(item): item is FindingItem => item.kind === "finding",
 	);
 	for (const [path, forFile] of groupByFile(findings)) {
-		const remarks = forFile.map(
-			(finding) => `- ${describeLocation(finding.anchor)}\n  ${finding.body}`,
+		const remarks = forFile.map((finding) =>
+			bullet(describeLocation(finding.anchor), finding.body),
 		);
 		sections.push(`## ${path}`, remarks.join("\n"));
 	}
@@ -117,7 +118,7 @@ export function renderDraft(
 	if (replies.length > 0) {
 		const lines = replies.map((item) =>
 			item.kind === "reply"
-				? `- in reply to ${item.thread.id}\n  ${item.body}`
+				? bullet(`in reply to ${item.thread.id}`, item.body)
 				: "",
 		);
 		sections.push("## Replies", lines.join("\n"));

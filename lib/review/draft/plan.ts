@@ -33,6 +33,7 @@ import type {
 	Verdict,
 } from "../conversation.js";
 import type { DiffModel } from "../diff.js";
+import { bullet } from "./continuation.js";
 import type { DraftState, FindingItem } from "./state.js";
 
 /** What the compiler needs to know beyond the draft itself. */
@@ -104,22 +105,9 @@ function describeAnchor(anchor: Anchor): string {
 	return `${sharedDescribeAnchor(anchor)} (${anchor.blob})`;
 }
 
-/**
- * A finding rendered into prose, for when it cannot anchor.
- *
- * Every line of the body is indented, not just the first. A
- * remark is a header, a blank line and then the reasoning, and
- * indenting only the opening line ends the list at that blank:
- * the reasoning detaches and reads as prose belonging to nobody.
- */
+/** A finding rendered into prose, for when it cannot anchor. */
 function inlineFinding(finding: FindingItem): string {
-	const body = finding.body
-		.split("\n")
-		// A blank line keeps its blankness. Padding it with spaces
-		// would leave trailing whitespace on every paragraph break.
-		.map((line) => (line.trim() === "" ? "" : `  ${line}`))
-		.join("\n");
-	return `- ${describeAnchor(finding.anchor)}\n${body}`;
+	return bullet(describeAnchor(finding.anchor), finding.body);
 }
 
 /**
