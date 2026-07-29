@@ -14,7 +14,7 @@ import type {
 	StackFindingRun,
 } from "../../../extensions/pr-workflow/stack-findings.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
-import type { DiffFile } from "../../../lib/review/index.js";
+import type { DiffFile, PublishPlan } from "../../../lib/review/index.js";
 import { expectFailure, prMetadata } from "./fixtures.js";
 
 function stackFinding(
@@ -115,6 +115,75 @@ function globalFinding(id: number, subject: string): Finding {
 		origin: { kind: "judge", runId: "j-1", judgeReviewerId: "j" },
 		state: "draft",
 	};
+}
+
+const stagedTarget = {
+	kind: "proposal",
+	change: {
+		provider: "github",
+		repo: { key: "github:o/r" },
+		id: "42",
+		label: "o/r#42",
+	},
+} as const;
+
+/**
+ * A staged post, and a record of what got published through it.
+ *
+ * The seam hands back a plan before anything is sent, so a stub
+ * has to answer with one. The summary now travels at publish
+ * time, because the gate can edit it, so that is where a test
+ * reads the review body it expects.
+ *
+ * `anchored` says how many remarks the plan will attach, since
+ * the body's placement sentence is drawn from the plan rather
+ * than guessed at.
+ */
+function staging(options: { anchored?: number; degraded?: number } = {}): {
+	exec: PostReviewExec;
+	published: string[];
+	planned: number;
+} {
+	const published: string[] = [];
+	const comments = Array.from({ length: options.anchored ?? 1 }, () => ({
+		anchor: {
+			subject: "line" as const,
+			path: "lib/x.ts",
+			blob: "new" as const,
+			line: 12,
+		},
+		body: "staged remark",
+	}));
+	const degraded = Array.from({ length: options.degraded ?? 0 }, (_, i) => ({
+		itemId: String(i + 1),
+		from: "an anchored comment",
+		to: "the review body",
+		reason: "staged",
+	}));
+	const plan: PublishPlan = {
+		target: stagedTarget,
+		ops: [
+			{ kind: "review", verdict: "comment", body: "", comments, itemIds: [] },
+		],
+		degraded,
+		refused: [],
+	};
+	return {
+		exec: vi.fn<PostReviewExec>(async () => ({
+			plan: () => plan,
+			publish: async (summary: string) => {
+				published.push(summary);
+				return { ok: true, outcomes: [] };
+			},
+		})),
+		published,
+		planned: comments.length,
+	};
+}
+
+/** A staged post that never gets as far as publishing. */
+function stagedUnused(): PostReviewExec {
+	return vi.fn<PostReviewExec>();
 }
 
 function judge(findings: Finding[]): JudgeRun {
@@ -695,7 +764,7 @@ describe("postReviewAction", () => {
 		// go out silently: the gate sees a drift line and
 		// the result carries a warning.
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec } = staging();
 		let gateSawDrift: string | undefined;
 		const gate: PostReviewGate = vi.fn(async (summary) => {
 			gateSawDrift = summary.headDriftWarning;
@@ -717,7 +786,7 @@ describe("postReviewAction", () => {
 
 	it("does not warn when the head is unchanged since review", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec } = staging();
 		const result = await postReviewAction({
 			state,
 			event: "COMMENT",
@@ -732,7 +801,7 @@ describe("postReviewAction", () => {
 
 	it("posts normally when the current head cannot be determined", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec } = staging();
 		const result = await postReviewAction({
 			state,
 			event: "COMMENT",
@@ -743,9 +812,9 @@ describe("postReviewAction", () => {
 		expect(exec).toHaveBeenCalledTimes(1);
 	});
 
-	it("calls the exec boundary with the ref, event, body and comments", async () => {
+	it("stages the post against the reviewed ref, carrying the composed draft", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec } = staging();
 		const result = await postReviewAction({
 			state,
 			event: "COMMENT",
@@ -755,13 +824,15 @@ describe("postReviewAction", () => {
 		expect(exec).toHaveBeenCalledTimes(1);
 		const call = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
 		expect(call.ref).toEqual({ owner: "o", repo: "r", number: 42 });
-		expect(call.event).toBe("COMMENT");
-		expect(call.comments).toHaveLength(1);
+		// The draft carries the remark and the position, so the
+		// provider needs nothing else to know what to say.
+		expect(call.draft.items).toHaveLength(1);
+		expect(call.draft.verdict).toBe("comment");
 	});
 
 	it("posts to the PR captured before the gate, even if state.pr is swapped during the gate await", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec } = staging();
 		// Simulate a concurrent action=load landing while the
 		// post gate is open: the gate yields, another PR is
 		// swapped in, then the user approves. The post must
@@ -791,7 +862,7 @@ describe("postReviewAction", () => {
 			verdict: "endorse",
 			decidedAt: "x",
 		});
-		const exec: PostReviewExec = vi.fn();
+		const exec = stagedUnused();
 		const result = await postReviewAction({
 			state,
 			event: "COMMENT",
@@ -805,7 +876,7 @@ describe("postReviewAction", () => {
 		const state = withJudgeAndDecision();
 		if (state.pr === null) throw new Error("expected loaded PR");
 		state.pr.files = null;
-		const exec: PostReviewExec = vi.fn();
+		const exec = stagedUnused();
 		const result = await postReviewAction({
 			state,
 			event: "COMMENT",
@@ -819,7 +890,7 @@ describe("postReviewAction", () => {
 	it("refuses to post when no findings are eligible — empty reviews are spam", async () => {
 		const state = withJudgeAndDecision();
 		state.council.decisions.clear();
-		const exec: PostReviewExec = vi.fn();
+		const exec = stagedUnused();
 		const result = await postReviewAction({ state, event: "COMMENT", exec });
 		expect(expectFailure(result).error).toMatch(/no findings|empty|nothing/i);
 		expect(exec).not.toHaveBeenCalled();
@@ -827,7 +898,7 @@ describe("postReviewAction", () => {
 
 	it("rejects unknown event values", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn();
+		const exec = stagedUnused();
 		const result = await postReviewAction({
 			state,
 			event: "BIKESHED" as never,
@@ -839,7 +910,9 @@ describe("postReviewAction", () => {
 
 	it("refuses to post when the prose gate flags the review text", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn();
+		// The prose check runs before the provider is contacted, so a
+		// review that will not be allowed never opens a draft.
+		const exec = stagedUnused();
 		const proseGate = vi.fn(
 			(_texts: string[]) => "prose-standard: never use emdashes.",
 		);
@@ -858,7 +931,7 @@ describe("postReviewAction", () => {
 
 	it("posts when the prose gate passes the review text", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec } = staging();
 		const proseGate = vi.fn((_texts: string[]) => undefined);
 		const result = await postReviewAction({
 			state,
@@ -872,20 +945,19 @@ describe("postReviewAction", () => {
 
 	it("uses the caller's custom body prefix when supplied, otherwise generates a default summary", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec, published } = staging();
 		await postReviewAction({
 			state,
 			event: "COMMENT",
 			body: "Custom summary up top",
 			exec,
 		});
-		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(arg.body).toContain("Custom summary up top");
+		expect(published[0]).toContain("Custom summary up top");
 	});
 
 	it("calls the gate with a structured summary derived from the payload", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec } = staging();
 		const gate: PostReviewGate = vi.fn(async (summary) => ({
 			approved: true as const,
 			body: summary.body,
@@ -915,17 +987,16 @@ describe("postReviewAction", () => {
 
 	it("generates a verdict-style top-level review body", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec, published } = staging();
 
 		await postReviewAction({ state, event: "COMMENT", exec });
 
-		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(arg.body).toBe(
+		expect(published[0]).toBe(
 			"**GO WITH FIXES:** I'm posting 1 finding (1 inline). Prioritize Null deref.",
 		);
-		expect(arg.body).not.toContain("Council review");
-		expect(arg.body).not.toContain("Judge self-signal");
-		expect(arg.body).not.toContain("skipped");
+		expect(published[0]).not.toContain("Council review");
+		expect(published[0]).not.toContain("Judge self-signal");
+		expect(published[0]).not.toContain("skipped");
 	});
 
 	it("applies edited labels to the review-body verdict and priority sentence", async () => {
@@ -941,45 +1012,41 @@ describe("postReviewAction", () => {
 			subject: "Style polish",
 			decidedAt: "x",
 		});
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec, published } = staging();
 
 		await postReviewAction({ state, event: "COMMENT", exec });
 
-		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(arg.body).toContain("**PASS:**");
-		expect(arg.body).not.toContain("GO WITH FIXES");
+		expect(published[0]).toContain("**PASS:**");
+		expect(published[0]).not.toContain("GO WITH FIXES");
 		// Priority sentence reflects the edited subject,
 		// not the original.
-		expect(arg.body).not.toContain("Prioritize Null deref");
+		expect(published[0]).not.toContain("Prioritize Null deref");
 	});
 
 	it("keeps the summary verdict aligned with the GitHub review event", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec, published } = staging();
 
 		await postReviewAction({ state, event: "APPROVE", exec });
 
-		let arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(arg.body).toContain("**PASS:**");
-		expect(arg.body).not.toContain("GO WITH FIXES");
+		expect(published[0]).toContain("**PASS:**");
+		expect(published[0]).not.toContain("GO WITH FIXES");
 
 		await postReviewAction({ state, event: "REQUEST_CHANGES", exec });
 
-		arg = (exec as ReturnType<typeof vi.fn>).mock.calls[1][0];
-		expect(arg.body).toContain("**NEEDS REVIEW:**");
+		expect(published[1]).toContain("**NEEDS REVIEW:**");
 	});
 
 	it("surfaces thread context fetch warnings in the review body", async () => {
 		const state = withJudgeAndDecision();
 		state.threadContextWarning =
 			"Existing review threads could not be fetched.";
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec, published } = staging();
 
 		await postReviewAction({ state, event: "COMMENT", exec });
 
-		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(arg.body).toContain("Thread context warning");
-		expect(arg.body).toContain("could not be fetched");
+		expect(published[0]).toContain("Thread context warning");
+		expect(published[0]).toContain("could not be fetched");
 	});
 
 	it("puts unanchored fallback findings below a short explanation", async () => {
@@ -993,21 +1060,22 @@ describe("postReviewAction", () => {
 			verdict: "endorse",
 			decidedAt: "x",
 		});
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		// The plan is what decided one of these cannot anchor, so the
+		// stub says so and the summary reports it. The spilled remark's
+		// own text is written by the substrate, and is checked there.
+		const { exec, published } = staging({ anchored: 1, degraded: 1 });
 
 		await postReviewAction({ state, event: "COMMENT", exec });
 
-		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(arg.body).toContain(
+		expect(published[0]).toContain(
 			"**GO WITH FIXES:** I'm posting 2 findings (1 inline, 1 in the review body).",
 		);
-		expect(arg.body).toContain("suggestion: 💡 File-wide");
-		expect(arg.body).not.toContain("Council review");
+		expect(published[0]).not.toContain("Council review");
 	});
 
-	it("skips exec when the gate rejects and surfaces the gate reason", async () => {
+	it("publishes nothing when the gate rejects, and surfaces the reason", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec, published } = staging();
 		const gate: PostReviewGate = vi.fn(async () => ({
 			approved: false as const,
 			reason: "User rejected the review post.",
@@ -1021,26 +1089,68 @@ describe("postReviewAction", () => {
 		});
 
 		expect(expectFailure(result).error).toMatch(/rejected/);
-		expect(exec).not.toHaveBeenCalled();
+		// Staging happens first, because the gate has to show what the
+		// plan will actually do. What matters is that nothing was sent.
+		expect(published).toEqual([]);
 	});
 
 	it("posts the body the gate returned when the user edited it inline", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		const { exec, published } = staging();
 		const gate: PostReviewGate = vi.fn(async () => ({
 			approved: true as const,
-			body: "Hand-crafted review body.",
+			body: "Hand-crafted review body." as string,
 		}));
 
 		await postReviewAction({ state, event: "COMMENT", exec, gate });
 
-		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(arg.body).toBe("Hand-crafted review body.");
+		// The summary travels at publish time precisely so an edit in
+		// the gate is what gets sent.
+		expect(published[0]).toBe("Hand-crafted review body.");
+	});
+
+	it("says a review only partly landed, and that the draft kept the rest", async () => {
+		// The reason for publishing through a draft at all. Reporting
+		// success here would leave someone believing remarks are live
+		// that never arrived.
+		const state = withJudgeAndDecision();
+		const exec: PostReviewExec = vi.fn<PostReviewExec>(async () => ({
+			plan: () => ({
+				target: stagedTarget,
+				ops: [],
+				degraded: [],
+				refused: [],
+			}),
+			publish: async () => ({
+				ok: false,
+				outcomes: [
+					{
+						op: {
+							kind: "review" as const,
+							verdict: "comment" as const,
+							body: "",
+							comments: [],
+							itemIds: [],
+						},
+						ok: false,
+						itemIds: ["1"],
+						error: "gh api 422",
+					},
+				],
+			}),
+		}));
+
+		const result = await postReviewAction({ state, event: "COMMENT", exec });
+
+		const error = expectFailure(result).error;
+		expect(error).toContain("Only part of the review landed");
+		expect(error).toContain("gh api 422");
+		expect(error).toContain("published again");
 	});
 
 	it("surfaces exec failures as action errors", async () => {
 		const state = withJudgeAndDecision();
-		const exec: PostReviewExec = vi.fn(async () => {
+		const exec: PostReviewExec = vi.fn<PostReviewExec>(async () => {
 			throw new Error("gh api 422");
 		});
 		const result = await postReviewAction({
@@ -1173,7 +1283,9 @@ describe("buildReviewPayload with stack findings", () => {
 			decidedAt: "x",
 		});
 
-		const exec: PostReviewExec = vi.fn(async () => undefined);
+		// A cross-PR remark is about the change as a whole, so it
+		// cannot anchor and the plan spills it.
+		const { exec, published } = staging({ anchored: 0, degraded: 1 });
 		const result = await postReviewAction({
 			state,
 			event: "COMMENT",
@@ -1181,10 +1293,11 @@ describe("buildReviewPayload with stack findings", () => {
 		});
 		expect(result.ok).toBe(true);
 		expect(exec).toHaveBeenCalled();
-		const arg = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(arg.body).toContain("Cross-PR pattern");
-		expect(arg.body).toContain("**GO WITH FIXES:** I'm posting 1 finding");
-		expect(arg.body).not.toContain("cross-PR finding(s) included");
-		expect(arg.body).not.toContain("cross-PR finding(s) posted");
+		// The remark travels on the draft rather than in the summary.
+		const call = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(call.draft.items[0].body).toContain("Cross-PR pattern");
+		expect(published[0]).toContain("**GO WITH FIXES:** I'm posting 1 finding");
+		expect(published[0]).not.toContain("cross-PR finding(s) included");
+		expect(published[0]).not.toContain("cross-PR finding(s) posted");
 	});
 });

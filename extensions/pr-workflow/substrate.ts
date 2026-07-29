@@ -21,8 +21,12 @@ import {
 	type BoundTarget,
 	type ChangeRef,
 	type ConversationFacet,
+	type DraftState,
+	type PublishOutcome,
+	type PublishPlan,
 	REVIEW_READY,
 	REVIEW_REQUEST_SUBSTRATE,
+	type ReviewEngine,
 	type ReviewSubstrateApi,
 	type Thread,
 	type Verdict,
@@ -155,6 +159,85 @@ export async function postReviewThroughSubstrate(input: {
 		body: input.body,
 		comments: input.comments.map(anchoredFrom),
 	});
+}
+
+/**
+ * Publish a composed review through a draft the substrate keeps.
+ *
+ * Posting in one shot means a half a backend rejects is simply
+ * gone, and its author finds out by noticing remarks missing. A
+ * draft is persisted before anything is sent and keeps whatever
+ * did not land, so a partial publish can be finished rather than
+ * rewritten.
+ *
+ * The plan is compiled against the bound provider's own
+ * capabilities and diff, which is the only place the split
+ * between an anchored remark and one in the body is sound.
+ */
+export async function publishDraftThroughSubstrate(input: {
+	ref: PRReference;
+	draft: DraftState;
+}): Promise<PublishOutcome> {
+	const prepared = await prepareDraftThroughSubstrate(input);
+	return prepared.publish(input.draft.summary ?? "");
+}
+
+/**
+ * A composed review, staged against its provider and ready to go.
+ *
+ * The plan comes back before anything is sent, so the gate can
+ * show what will actually happen: which remarks anchor, which
+ * degrade to the body, and what the provider refused. Those are
+ * facts about a particular backend's diff and limits, so guessing
+ * them earlier is how a gate ends up promising one thing and
+ * posting another.
+ */
+export async function prepareDraftThroughSubstrate(input: {
+	ref: PRReference;
+	draft: DraftState;
+}): Promise<PreparedPublish> {
+	const engine = await engineOrThrow();
+	const bound = await engine.resolve(changeFromGitHubView(input.ref).label);
+	const draft = await engine.openDraft(bound.target);
+
+	for (const item of input.draft.items) {
+		if (item.kind !== "finding") continue;
+		await draft.addFinding({ anchor: item.anchor, body: item.body });
+	}
+
+	const verdict = input.draft.verdict ?? "comment";
+	const diff = await bound.diffModel();
+
+	return {
+		plan: () => draft.plan({ capabilities: bound.capabilities, diff }),
+		async publish(summary: string) {
+			// The summary is set last, because the gate can edit it and
+			// what the person approved is what should be sent.
+			await draft.setVerdict(verdict, summary);
+			return draft.publish(
+				draft.plan({ capabilities: bound.capabilities, diff }),
+				bound.provider,
+			);
+		},
+	};
+}
+
+/** A staged review: what it will do, and a way to do it. */
+export interface PreparedPublish {
+	plan(): PublishPlan;
+	publish(summary: string): Promise<PublishOutcome>;
+}
+
+/** The hosted engine, or the guidance for having no host. */
+async function engineOrThrow(): Promise<ReviewEngine> {
+	if (!substrate) {
+		throw new Error(
+			"The review substrate never announced itself, so this review " +
+				"cannot be published. The review-integration extension is " +
+				"what provides it: check that it is installed and enabled.",
+		);
+	}
+	return substrate.engine();
 }
 
 /** A GitHub review event as the position the contract knows. */

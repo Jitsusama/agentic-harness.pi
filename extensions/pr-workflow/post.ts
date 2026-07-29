@@ -21,10 +21,18 @@
 
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import {
+	type Anchor,
+	type AnchorRefusal,
+	addFinding,
+	anchorable,
 	type DiffFile,
-	type DiffLine,
-	filePath,
-	lineNumberOn,
+	type DraftState,
+	emptyDraft,
+	type PublishOutcome,
+	type PublishPlan,
+	type ReviewTarget,
+	setVerdict,
+	type Verdict,
 } from "../../lib/review/index.js";
 import type { Finding, FindingAgreement, FindingLocation } from "./findings.js";
 import type { PostGateOutcome } from "./post-gate-outcome.js";
@@ -33,6 +41,7 @@ import type {
 	PostGateSkippedLine,
 	PostGateSummary,
 } from "./post-gate-render.js";
+import { changeFromGitHubView } from "./reference.js";
 import type { StackFinding } from "./stack-findings.js";
 import type { PrWorkflowState } from "./state.js";
 import { effectiveFinding, type FindingDecision } from "./synthesis.js";
@@ -106,10 +115,21 @@ export interface ReviewPayload {
 /** Exec boundary: wraps `gh api` for testability. */
 export type PostReviewExec = (input: {
 	ref: PRReference;
-	event: ReviewEvent;
-	body: string;
-	comments: ReviewComment[];
-}) => Promise<void>;
+	draft: DraftState;
+}) => Promise<PreparedPost>;
+
+/**
+ * A staged review: what it will do, and a way to do it.
+ *
+ * The plan arrives before anything is sent, so the gate shows
+ * what will actually happen rather than what a guess about the
+ * backend suggested. The summary is passed at publish time
+ * because the gate can edit it.
+ */
+export interface PreparedPost {
+	plan(): PublishPlan;
+	publish(summary: string): Promise<PublishOutcome>;
+}
 
 /**
  * Confirmation gate boundary. Production wires this to
@@ -199,6 +219,104 @@ export function describeHeadDrift(
 		"reviewed head, so some comments may land on the wrong lines. Reload the PR " +
 		"to re-fetch the diff and re-review, or post knowing the anchors may be stale."
 	);
+}
+
+/**
+ * The decided review, composed as a draft the substrate can plan.
+ *
+ * A draft is what this review will say once the deliberating is
+ * over. The council runs, the critiques and the verdicts that
+ * produced it stay where they are: they are the record of
+ * deciding, and this is the thing decided.
+ *
+ * What lands inline and what spills into the body is not settled
+ * here. Every remark arrives with the anchor it claims, and the
+ * plan judges those against a particular provider's diff and
+ * limits, which is the only place that judgment is sound.
+ */
+export function composeDraft(
+	state: PrWorkflowState,
+	event: ReviewEvent,
+): DraftState {
+	const reference = state.pr?.reference;
+	let draft = emptyDraft(
+		`pr-workflow-${reference ? reference.number : "unloaded"}`,
+		targetFor(reference),
+	);
+
+	for (const finding of state.council.lastJudge?.consolidatedFindings ?? []) {
+		const decision = state.council.decisions.get(finding.id);
+		if (!decision || !willBeSaid(decision.verdict)) continue;
+		draft = addFinding(draft, {
+			anchor: anchorOf(effectiveFinding(finding, decision).location),
+			body: renderCommentBody(state, finding, decision),
+		});
+	}
+
+	// A stack review says things about the change in front of you as
+	// well as about its neighbours. One that homes elsewhere gets
+	// posted there, so saying it here as well would double it.
+	for (const finding of state.stackFindingRun?.findings ?? []) {
+		if (finding.homePrNumber !== reference?.number) continue;
+		const decision = state.stackDecisions.get(finding.id);
+		if (!decision || !willBeSaid(decision.verdict)) continue;
+		draft = addFinding(draft, {
+			// It spans several changes, so no one file in this one is
+			// where it belongs.
+			anchor: { subject: "change" },
+			body: renderStackBodyEntry(state, finding, decision),
+		});
+	}
+
+	return setVerdict(draft, verdictOf(event));
+}
+
+/**
+ * Whether a verdict means the remark gets said out loud.
+ *
+ * A dismissal will not be said, and neither will something queued
+ * for a fix, since the fix is the answer to it rather than a
+ * comment about it.
+ */
+function willBeSaid(verdict: FindingDecision["verdict"]): boolean {
+	return verdict !== "dismiss" && verdict !== "fix";
+}
+
+/** A GitHub review event as the position the contract knows. */
+function verdictOf(event: ReviewEvent): Verdict {
+	if (event === "APPROVE") return "approve";
+	return event === "REQUEST_CHANGES" ? "request-changes" : "comment";
+}
+
+/**
+ * Where a finding attaches.
+ *
+ * A remark about the title or the scope names no file, and says
+ * so, which is why the plan can spill it into the body for a
+ * reason rather than because a path it invented matched nothing.
+ */
+function anchorOf(location: FindingLocation): Anchor {
+	if (location.kind === "line") {
+		return {
+			subject: "line",
+			path: location.file,
+			blob: location.side === "old" ? "old" : "new",
+			line: location.end,
+			...(location.start === location.end ? {} : { startLine: location.start }),
+		};
+	}
+	if (location.kind === "file") {
+		return { subject: "file", path: location.file };
+	}
+	return { subject: "change" };
+}
+
+/** What the draft is about, when anything is loaded. */
+function targetFor(reference: PRReference | undefined): ReviewTarget {
+	if (!reference) {
+		return { kind: "range", repo: { key: "" }, base: "", head: "" };
+	}
+	return { kind: "proposal", change: changeFromGitHubView(reference) };
 }
 
 /**
@@ -407,29 +525,51 @@ export async function postReviewAction(
 	// the fetch.
 	const reviewedHeadSha = input.state.pr.metadata?.head.sha;
 
-	let summary = renderSummary(input.state, payload, input.body, input.event);
+	const composed = composeDraft(input.state, input.event);
 
-	// Enforce prose-standard on the review text before the user
-	// ever sees the confirmation gate, the same detect-and-block
-	// posture the PR, issue and commit guardians use. The summary
-	// carries the body-level findings; the comment bodies carry
-	// the inline ones, so both are scanned.
+	// Enforce prose-standard before anything leaves this machine,
+	// the same detect-and-block posture the PR, issue and commit
+	// guardians use. It runs on what a person actually wrote: the
+	// remarks and the caller's prefix. Checking it here rather than
+	// after staging means a rejected review never opens a draft, so
+	// nothing is persisted about a post that was never allowed.
 	if (input.proseGate) {
 		const block = input.proseGate([
-			summary,
-			...payload.comments.map((comment) => comment.body),
+			...(input.body === undefined ? [] : [input.body]),
+			...composed.items.map((item) =>
+				item.kind === "finding" ? item.body : "",
+			),
 		]);
 		if (block) return { ok: false, error: block };
 	}
 
+	// Stage the review against its provider. The plan is what says
+	// which remarks anchor and which end up in the body, and it is
+	// the provider's diff and limits that decide, so a gate built
+	// on anything else promises what the post will not do.
+	let prepared: PreparedPost;
+	let plan: PublishPlan;
+	try {
+		prepared = await input.exec({ ref: targetRef, draft: composed });
+		plan = prepared.plan();
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return { ok: false, error: `Post failed: ${message}` };
+	}
+
+	let summary = renderSummary(input.state, payload, input.body, input.event, {
+		anchored: anchoredCount(plan),
+		inBody: plan.degraded.length,
+	});
+
 	// Build the gate summary from the same pre-await state the
-	// payload and body were built from, then run the head-drift
+	// plan and body were built from, then run the head-drift
 	// check (its fetch is the only yield here) and fold the
 	// warning in. Doing the read before the await keeps the
-	// payload, body and gate summary mutually consistent even if
+	// plan, body and gate summary mutually consistent even if
 	// a concurrent load lands during the fetch.
 	const gateSummary = input.gate
-		? buildGateSummary(input.state, input.event, payload, summary)
+		? buildGateSummary(input.state, input.event, payload, summary, plan)
 		: null;
 	const headDriftWarning = await resolveHeadDrift(
 		input.currentHead,
@@ -446,13 +586,14 @@ export async function postReviewAction(
 		}
 		summary = outcome.body;
 	}
+
 	try {
-		await input.exec({
-			ref: targetRef,
-			event: input.event,
-			body: summary,
-			comments: payload.comments,
-		});
+		const outcome = await prepared.publish(summary);
+		if (!outcome.ok) {
+			// The draft holds whatever did not land, so this is
+			// recoverable rather than lost.
+			return { ok: false, error: describePartialPublish(outcome) };
+		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return { ok: false, error: `Post failed: ${message}` };
@@ -462,6 +603,36 @@ export async function postReviewAction(
 		payload: { ...payload, body: summary },
 		...(headDriftWarning ? { warnings: [headDriftWarning] } : {}),
 	};
+}
+
+/** How many remarks the plan will attach to a line or a file. */
+function anchoredCount(plan: PublishPlan): number {
+	let total = 0;
+	for (const op of plan.ops) {
+		if (op.kind === "review") total += op.comments.length;
+	}
+	return total;
+}
+
+/**
+ * What went wrong when only part of a review landed.
+ *
+ * Naming the operations that failed matters more than the count:
+ * the draft kept them, so the person can see what is still owed
+ * rather than guessing which half of their review is live.
+ */
+function describePartialPublish(outcome: PublishOutcome): string {
+	const failed = outcome.outcomes.filter((entry) => !entry.ok);
+	const reasons = failed
+		.map((entry) => entry.error)
+		.filter((reason): reason is string => reason !== undefined);
+	const detail = reasons.length > 0 ? `: ${reasons.join("; ")}` : "";
+	return (
+		`Only part of the review landed. ${failed.length} of ` +
+		`${outcome.outcomes.length} operations failed${detail}. The draft ` +
+		"kept what did not land, so it can be published again rather " +
+		"than rewritten."
+	);
 }
 
 /**
@@ -476,6 +647,7 @@ function buildGateSummary(
 	event: ReviewEvent,
 	payload: ReviewPayload,
 	body: string,
+	plan: PublishPlan,
 	extras: { headDriftWarning?: string } = {},
 ): PostGateSummary {
 	const judgeFindings = state.council.lastJudge?.consolidatedFindings ?? [];
@@ -525,11 +697,11 @@ function buildGateSummary(
 	return {
 		event,
 		body,
-		inlineCount: payload.comments.length,
-		bodyFindingCount:
-			payload.includedFindingIds.length +
-			payload.includedStackFindingIds.length -
-			payload.comments.length,
+		// From the plan, not from this side's guess. The gate is a
+		// promise about what pressing Enter does, and only the
+		// provider's own diff and limits settle where a remark lands.
+		inlineCount: anchoredCount(plan),
+		bodyFindingCount: plan.degraded.length,
 		stackFindingCount: payload.includedStackFindingIds.length,
 		skippedCount: payload.skipped.length,
 		findings: lines,
@@ -637,35 +809,58 @@ function renderDecorations(decorations: readonly string[] | undefined): string {
  * and decide time (to warn the user about findings that
  * would silently degrade to body).
  */
+/**
+ * Why a finding will not anchor where it says it does, or null
+ * when it will.
+ *
+ * The judgment is the substrate's, so this workflow and the
+ * provider that has to accept the comment agree about what lands.
+ * What is added here is the wording, since the refusals are
+ * vocabulary and a person needs a sentence.
+ *
+ * Naming the actual refusal matters more than it sounds. The
+ * older answer was a bare yes or no, so every warning blamed the
+ * line range, including when the file was not in the diff at all,
+ * which sent people to correct the one part that was right.
+ */
+export function whyAnchorFails(
+	location: FindingLocation,
+	files: readonly DiffFile[],
+): string | null {
+	if (location.kind !== "line") {
+		return "it is not a line-anchored finding, so it has no place in the diff to attach to";
+	}
+	const check = anchorable({ files: [...files] }, anchorFor(location));
+	if (check.anchored) return null;
+	return ANCHOR_REFUSALS[check.reason];
+}
+
+/** How each refusal reads to someone who has to act on it. */
+const ANCHOR_REFUSALS: Record<AnchorRefusal, string> = {
+	"file-absent": "that file is not in the diff",
+	"line-absent": "those lines are not in the diff",
+	"range-inverted": "the range ends before it starts",
+	"range-crosses-hunks":
+		"the range crosses two hunks, and a remark spanning a gap in the diff is not one remark",
+	"not-a-place": "it is about the change as a whole, not about a line",
+};
+
+/** A finding's line location as the anchor the substrate judges. */
+function anchorFor(location: FindingLocation & { kind: "line" }): Anchor {
+	return {
+		subject: "line",
+		path: location.file,
+		blob: location.side === "old" ? "old" : "new",
+		line: location.end,
+		...(location.start === location.end ? {} : { startLine: location.start }),
+	};
+}
+
 export function hasValidInlineAnchor(
 	location: FindingLocation,
 	files: readonly DiffFile[],
 ): boolean {
-	if (location.kind !== "line") return false;
-	if (location.start < 1 || location.end < location.start) return false;
-	const file = files.find((candidate) => filePath(candidate) === location.file);
-	if (file === undefined) return false;
-	const side = location.side === "old" ? "old" : "new";
-	return file.hunks.some((hunk) =>
-		hunkContainsLineRange(hunk.lines, location.start, location.end, side),
-	);
-}
-
-function hunkContainsLineRange(
-	lines: readonly DiffLine[],
-	start: number,
-	end: number,
-	side: "old" | "new",
-): boolean {
-	const lineNumbers = new Set<number>();
-	for (const line of lines) {
-		const lineNumber = lineNumberOn(line, side);
-		if (lineNumber !== undefined) lineNumbers.add(lineNumber);
-	}
-	for (let lineNumber = start; lineNumber <= end; lineNumber++) {
-		if (!lineNumbers.has(lineNumber)) return false;
-	}
-	return true;
+	return whyAnchorFails(location, files) === null;
 }
 
 /**
@@ -679,30 +874,38 @@ export function renderSummary(
 	payload: ReviewPayload,
 	prefix: string | undefined,
 	event: ReviewEvent,
+	placement?: Placement,
 ): string {
 	const lines: string[] = [];
 	if (prefix !== undefined && prefix.trim().length > 0) {
 		lines.push(prefix.trim());
 		lines.push("");
 	}
-	lines.push(renderReviewVerdictIntro(state, payload, event));
-	if (payload.body.length > 0) {
-		lines.push("");
-		lines.push(payload.body);
-	}
+	lines.push(renderReviewVerdictIntro(state, payload, event, placement));
+	// The remarks themselves are not appended here. Whatever could
+	// not anchor is written into the body by the plan, which is the
+	// only thing that knows what could not: doing it here as well
+	// would say each of those twice.
 	return lines.join("\n");
+}
+
+/** How many remarks landed where, once the plan decided. */
+export interface Placement {
+	anchored: number;
+	inBody: number;
 }
 
 function renderReviewVerdictIntro(
 	state: PrWorkflowState,
 	payload: ReviewPayload,
 	event: ReviewEvent,
+	placed?: Placement,
 ): string {
 	const findings = includedFindings(state, payload);
 	const verdict = reviewVerdict(findings, event);
 	const count = findings.length;
 	const noun = count === 1 ? "finding" : "findings";
-	const placement = renderCommentPlacement(payload);
+	const placement = renderCommentPlacement(payload, placed);
 	const priority = verdict === "PASS" ? "" : renderPrioritySentence(findings);
 	const threads = renderThreadContextSentence(state, findings);
 	return [
@@ -768,12 +971,20 @@ function reviewVerdict(
 	return findings.some(isActionableFinding) ? "GO WITH FIXES" : "PASS";
 }
 
-function renderCommentPlacement(payload: ReviewPayload): string {
-	const inline = payload.comments.length;
-	const body = countBodyFindings(payload);
+function renderCommentPlacement(
+	payload: ReviewPayload,
+	placement?: Placement,
+): string {
+	// Without a plan there is nothing trustworthy to say about
+	// where remarks will land, so the sentence says nothing rather
+	// than guessing from a split this side computed.
+	if (!placement) return "";
+	void payload;
 	const parts: string[] = [];
-	if (inline > 0) parts.push(`${inline} inline`);
-	if (body > 0) parts.push(`${body} in the review body`);
+	if (placement.anchored > 0) parts.push(`${placement.anchored} inline`);
+	if (placement.inBody > 0) {
+		parts.push(`${placement.inBody} in the review body`);
+	}
 	return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
 }
 
@@ -804,14 +1015,6 @@ function renderThreadContextSentence(
 
 function isActionableFinding(finding: Finding): boolean {
 	return ["issue", "todo", "suggestion", "question"].includes(finding.label);
-}
-
-function countBodyFindings(payload: ReviewPayload): number {
-	return (
-		payload.includedFindingIds.length +
-		payload.includedStackFindingIds.length -
-		payload.comments.length
-	);
 }
 
 function renderThreadRelationNote(

@@ -37,23 +37,65 @@ export interface FileAnchor {
 	witness?: string;
 }
 
+/**
+ * A remark about the change as a whole.
+ *
+ * Its shape, its scope, the commit it sits on, whether it should
+ * be one change or three: things a reviewer says about the work
+ * rather than about a line of it. There is no place in a diff for
+ * one, which is the point. Naming it lets a backend that has
+ * somewhere to put it do so, and lets the rest spill it into the
+ * review body knowing why.
+ */
+export interface ChangeAnchor {
+	subject: "change";
+	witness?: string;
+}
+
 /** Where a remark attaches. */
-export type Anchor = LineAnchor | FileAnchor;
+export type Anchor = LineAnchor | FileAnchor | ChangeAnchor;
+
+/** An anchor that names somewhere in the tree. */
+type PathAnchor = LineAnchor | FileAnchor;
 
 /** Why an anchor cannot land on a diff. */
 export type AnchorRefusal =
 	| "file-absent"
 	| "line-absent"
 	| "range-inverted"
-	| "range-crosses-hunks";
+	| "range-crosses-hunks"
+	/** The remark named no place, so there is none to find. */
+	| "not-a-place";
 
 /** Whether an anchor lands, and what it landed on. */
 export type AnchorCheck =
 	| { anchored: true; file: DiffFile; hunk?: DiffHunk }
 	| { anchored: false; reason: AnchorRefusal };
 
+/** The path an anchor names, when it names one. */
+export function anchorPath(anchor: Anchor): string | undefined {
+	return anchor.subject === "change" ? undefined : anchor.path;
+}
+
+/**
+ * Where a remark points, in a form a person can scan.
+ *
+ * One spelling, because an anchor read four different ways in
+ * four views is four chances to describe the same place
+ * differently.
+ */
+export function describeAnchor(anchor: Anchor): string {
+	if (anchor.subject === "change") return "the change as a whole";
+	if (anchor.subject === "file") return anchor.path;
+	const lines =
+		anchor.startLine && anchor.startLine !== anchor.line
+			? `${anchor.startLine}-${anchor.line}`
+			: `${anchor.line}`;
+	return `${anchor.path}:${lines}`;
+}
+
 /** The side an anchor names, defaulting to the new side. */
-function sideOf(anchor: Anchor): DiffSide {
+function sideOf(anchor: PathAnchor): DiffSide {
 	return anchor.blob ?? "new";
 }
 
@@ -89,6 +131,13 @@ function hunkHolding(
  * meaning to a reader and no backend accepts one.
  */
 export function anchorable(diff: DiffModel, anchor: Anchor): AnchorCheck {
+	// Asked of a remark that named no place, the honest answer is
+	// that there was nothing to look for. Falling through to the
+	// path lookup would blame a file the remark never mentioned.
+	if (anchor.subject === "change") {
+		return { anchored: false, reason: "not-a-place" };
+	}
+
 	const side = sideOf(anchor);
 	const file = diff.files.find((entry) => pathOn(entry, side) === anchor.path);
 	if (!file) return { anchored: false, reason: "file-absent" };

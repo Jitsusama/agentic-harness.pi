@@ -35,6 +35,7 @@ import {
 	changeCounts,
 	displayPath,
 	filePath,
+	type PublishPlan,
 	parseUnifiedDiff,
 } from "../../lib/review/index.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
@@ -111,6 +112,8 @@ import {
 import { loadPersonas, personasDir } from "./personas.js";
 import {
 	buildReviewPayload,
+	composeDraft,
+	type Placement,
 	type PostReviewExec,
 	type PostReviewGate,
 	postReviewAction,
@@ -135,14 +138,18 @@ import {
 	runStackReviewAction,
 } from "./stack-review-action.js";
 import { formatStack, nextInStack, prevInStack } from "./stack-view.js";
-import { createPrWorkflowState, resetPrWorkflowSession } from "./state.js";
+import {
+	createPrWorkflowState,
+	type PrWorkflowState,
+	resetPrWorkflowSession,
+} from "./state.js";
 import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
 import {
 	attachSubstrate,
 	diffFromSubstrate,
 	headCommitFromSubstrate,
 	metadataFromSubstrate,
-	postReviewThroughSubstrate,
+	prepareDraftThroughSubstrate,
 	replyThroughSubstrate,
 	repoForBareChange,
 	resolveThroughSubstrate,
@@ -1692,10 +1699,20 @@ ${reviewValidationDirective()}`,
 					const payload = buildReviewPayload(state);
 					const diffLoaded = (state.pr?.files?.length ?? 0) > 0;
 					const event: ReviewEvent = params.event ?? "COMMENT";
-					const wrappedBody = renderSummary(state, payload, params.body, event);
+					// Ask the provider what it would actually do, so the dry
+					// run and the post agree. When nothing answers, the
+					// preview says so rather than guessing a split.
+					const previewPlan = await planPreview(state, event);
+					const wrappedBody = renderSummary(
+						state,
+						payload,
+						params.body,
+						event,
+						placementOf(previewPlan),
+					);
 					const text = params.verbose
 						? formatPreviewPostVerbose(payload, diffLoaded, wrappedBody)
-						: formatPreviewPostSummary(payload, diffLoaded);
+						: formatPreviewPostSummary(payload, diffLoaded, previewPlan);
 					return {
 						content: [{ type: "text", text }],
 						details: { ok: true, payload, diffLoaded },
@@ -1704,7 +1721,7 @@ ${reviewValidationDirective()}`,
 
 				if (params.action === "post") {
 					const event: ReviewEvent = params.event ?? "COMMENT";
-					const exec: PostReviewExec = postReviewThroughSubstrate;
+					const exec: PostReviewExec = prepareDraftThroughSubstrate;
 					const gate: PostReviewGate = (summary) =>
 						confirmPostGate(ctx, summary);
 					const result = await postReviewAction({
@@ -3025,26 +3042,81 @@ function renderUsageLines(breakdown: UsageBreakdown): string[] {
  * tells the user to call `action=load` first if they
  * want a faithful preview.
  */
+/**
+ * Ask the provider what publishing this review would do.
+ *
+ * Answers nothing when there is no substrate to ask or the
+ * provider cannot be reached, because a preview that invents a
+ * split is worse than one that admits it does not know.
+ */
+async function planPreview(
+	state: PrWorkflowState,
+	event: ReviewEvent,
+): Promise<PublishPlan | null> {
+	if (state.pr === null) return null;
+	try {
+		const prepared = await prepareDraftThroughSubstrate({
+			ref: state.pr.reference,
+			draft: composeDraft(state, event),
+		});
+		return prepared.plan();
+	} catch {
+		// A preview is a courtesy. Failing to reach the provider is
+		// worth reporting as "not known", not worth refusing over.
+		return null;
+	}
+}
+
+/** Where the plan says remarks will land, when a plan exists. */
+function placementOf(plan: PublishPlan | null): Placement | undefined {
+	if (!plan) return undefined;
+	let anchored = 0;
+	for (const op of plan.ops) {
+		if (op.kind === "review") anchored += op.comments.length;
+	}
+	return { anchored, inBody: plan.degraded.length };
+}
+
 function formatPreviewPostSummary(
 	payload: ReviewPayload,
 	diffLoaded: boolean,
+	plan: PublishPlan | null = null,
 ): string {
-	const inline = payload.comments.length;
+	const placement = placementOf(plan);
 	const included = payload.includedFindingIds.length;
 	const stack = payload.includedStackFindingIds.length;
-	const bodyBound = included + stack - inline;
 	const lines: string[] = [];
 	lines.push(
 		`Preview: ${included} per-PR finding(s) + ${stack} stack finding(s) ready to post.`,
 	);
-	lines.push(
-		`  inline comments: ${inline}; body entries: ${bodyBound}; skipped: ${payload.skipped.length}.`,
-	);
+	// The split comes from the provider, which is what post will
+	// ask too, so the two now agree by construction.
+	if (placement) {
+		lines.push(
+			`  inline comments: ${placement.anchored}; body entries: ` +
+				`${placement.inBody}; skipped: ${payload.skipped.length}.`,
+		);
+	} else {
+		lines.push(`  skipped: ${payload.skipped.length}.`);
+		lines.push(
+			"  ! the provider could not be reached, so how many remarks " +
+				"anchor is not known yet. Only it can say.",
+		);
+	}
 	if (!diffLoaded) {
 		lines.push(
-			"  ! diff not loaded; the inline/body split is provisional. " +
-				"Call action=load to fetch the diff for a faithful preview.",
+			"  ! diff not loaded. Call action=load so the provider can " +
+				"judge the anchors against it.",
 		);
+	}
+	for (const degradation of plan?.degraded ?? []) {
+		lines.push(
+			`  ~ item ${degradation.itemId}: ${degradation.from} becomes ` +
+				`${degradation.to}, because ${degradation.reason}.`,
+		);
+	}
+	for (const refusal of plan?.refused ?? []) {
+		lines.push(`  ! ${refusal.subject} will not happen: ${refusal.reason}.`);
 	}
 	if (payload.skipped.length > 0) {
 		lines.push("");

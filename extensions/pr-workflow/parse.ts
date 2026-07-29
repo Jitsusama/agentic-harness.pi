@@ -24,7 +24,7 @@
 import { Value } from "@sinclair/typebox/value";
 import type { DiffFile } from "../../lib/review/index.js";
 import type { Finding } from "./findings.js";
-import { hasValidInlineAnchor } from "./post.js";
+import { whyAnchorFails } from "./post.js";
 import { CouncilFinding } from "./schemas.js";
 import {
 	normalizeFindingSeverities,
@@ -134,12 +134,13 @@ function checkLineAnchor(
 ): string | null {
 	if (finding.location.kind !== "line") return null;
 	if (diffFiles === undefined || diffFiles.length === 0) return null;
-	if (hasValidInlineAnchor(finding.location, diffFiles)) return null;
+	const why = whyAnchorFails(finding.location, diffFiles);
+	if (why === null) return null;
 	const { file, start, end } = finding.location;
 	return (
-		`Finding ${finding.id} anchors at ${file}:${start}-${end} but those ` +
-		"lines are not in the PR diff hunks; it will degrade to a body " +
-		"comment. Use `verdict=edit` with the correct line range to fix."
+		`Finding ${finding.id} anchors at ${file}:${start}-${end} but ${why}; ` +
+		"it will degrade to a body comment. Use `verdict=edit` with the " +
+		"correct location to fix."
 	);
 }
 

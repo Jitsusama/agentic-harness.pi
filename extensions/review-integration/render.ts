@@ -22,6 +22,7 @@ import type {
 	Stack,
 	Thread,
 } from "../../lib/review/index.js";
+import { describeAnchor } from "../../lib/review/index.js";
 
 /** The vocabulary. One glyph per concept, used everywhere. */
 export const GLYPH = {
@@ -42,12 +43,7 @@ export const GLYPH = {
 
 /** Where a remark points, in a form a person can scan. */
 export function anchorLabel(anchor: Anchor): string {
-	if (anchor.subject === "file") return anchor.path;
-	const lines =
-		anchor.startLine && anchor.startLine !== anchor.line
-			? `${anchor.startLine}-${anchor.line}`
-			: `${anchor.line}`;
-	return `${anchor.path}:${lines}`;
+	return describeAnchor(anchor);
 }
 
 /** Pluralize without the "1 items" tell. */

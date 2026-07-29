@@ -18,10 +18,11 @@ export type {
 	Anchor,
 	AnchorCheck,
 	AnchorRefusal,
+	ChangeAnchor,
 	FileAnchor,
 	LineAnchor,
 } from "./anchor.js";
-export { anchorable } from "./anchor.js";
+export { anchorable, anchorPath, describeAnchor } from "./anchor.js";
 export type { TargetResolution } from "./bind.js";
 export {
 	bindTarget,

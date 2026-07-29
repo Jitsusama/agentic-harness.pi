@@ -15,7 +15,7 @@
  * because that is what taking no position means.
  */
 
-import type { Anchor } from "../anchor.js";
+import { type Anchor, anchorPath } from "../anchor.js";
 import type { Actor, ReviewTarget } from "../change.js";
 import type { DraftState, FindingItem } from "./state.js";
 
@@ -46,6 +46,7 @@ function describeTarget(target: ReviewTarget): string {
 
 /** Where in a file a remark points. */
 function describeLocation(anchor: Anchor): string {
+	if (anchor.subject === "change") return "the change as a whole";
 	if (anchor.subject === "file") return "the file as a whole";
 	const lines =
 		anchor.startLine && anchor.startLine !== anchor.line
@@ -58,9 +59,12 @@ function describeLocation(anchor: Anchor): string {
 function groupByFile(findings: FindingItem[]): Map<string, FindingItem[]> {
 	const grouped = new Map<string, FindingItem[]>();
 	for (const finding of findings) {
-		const existing = grouped.get(finding.anchor.path);
+		// A remark about the change names no file, so it groups
+		// under a heading of its own rather than under one.
+		const path = anchorPath(finding.anchor) ?? "the change as a whole";
+		const existing = grouped.get(path);
 		if (existing) existing.push(finding);
-		else grouped.set(finding.anchor.path, [finding]);
+		else grouped.set(path, [finding]);
 	}
 	return grouped;
 }

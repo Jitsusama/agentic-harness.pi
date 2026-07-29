@@ -165,6 +165,27 @@ describe("compilePlan", () => {
 			expect(plan.degraded[0].reason).toMatch(/line-absent/);
 		});
 
+		it("keeps a spilled remark whole when its text runs to several lines", () => {
+			// Every remark worth making is more than one line: a header,
+			// a blank, then the reasoning. Indenting only the first line
+			// ends the list at the blank, and the rest reads as loose
+			// prose belonging to nobody.
+			const state = addFinding(draft(), {
+				anchor: offDiff,
+				body: "**issue:** it leaks\n\nThe handle is never closed.",
+			});
+
+			const plan = compilePlan(state, context({}, { diff }));
+			const [op] = plan.ops;
+			if (op.kind !== "review") throw new Error("expected a review op");
+
+			const tail = op.body
+				.split("\n")
+				.find((line) => line.includes("The handle is never closed"));
+			expect(tail).toBeDefined();
+			expect(tail?.startsWith(" ")).toBe(true);
+		});
+
 		it("trusts the anchor when no diff was supplied to check against", () => {
 			const state = addFinding(draft(), { anchor: offDiff, body: "x" });
 			const plan = compilePlan(state, context());
