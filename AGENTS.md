@@ -26,6 +26,12 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     `styles`, `target`, `telemetry`, `wait`. Every one but
     `session` is pure and capture-agnostic, enforced by
     `tests/lib/web/purity.test.ts`
+  - `lib/review/`: reviewing a change on whatever system hosts
+    it: the provider contract and its facets, the engine that
+    binds a reference to a provider, anchors, diffs, stacks,
+    conversations and the draft a review is composed in
+    (public). Providers register over the event bus, so one can
+    live in another package entirely
   - `lib/result/`: tool answers that are bounded without being
     lossy: the session result store, the bounded structural
     digest, the shared JSONPath query and the citation rule
