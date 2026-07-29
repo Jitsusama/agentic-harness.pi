@@ -126,4 +126,50 @@ describe("renderDraft", () => {
 		expect(markdown).toContain("because of the retry");
 		expect(markdown).toMatch(/repl/i);
 	});
+
+	it("keeps a multi-line remark attached to its own list item", () => {
+		// Every remark worth making runs past one line: a header, a
+		// blank, then the reasoning. Indenting only the first line
+		// ends the list at that blank, and the reasoning reads as
+		// loose prose belonging to nobody.
+		const state = addFinding(draft(), {
+			anchor,
+			body: "**issue:** it leaks\n\nThe handle is never closed.",
+		});
+
+		const tail = renderDraft(state)
+			.markdown.split("\n")
+			.find((line) => line.includes("The handle is never closed"));
+		expect(tail).toBeDefined();
+		expect(tail?.startsWith(" ")).toBe(true);
+	});
+
+	it("keeps a multi-line reply attached to its own list item", () => {
+		const thread: Thread = {
+			id: "t1",
+			resolved: false,
+			comments: [{ id: "c1", author: { id: "someone" }, body: "why?" }],
+		};
+		const state = addReply(
+			draft(),
+			thread,
+			"Fixed in the last push.\n\nThe retry now backs off.",
+		);
+
+		const tail = renderDraft(state)
+			.markdown.split("\n")
+			.find((line) => line.includes("The retry now backs off"));
+		expect(tail).toBeDefined();
+		expect(tail?.startsWith(" ")).toBe(true);
+	});
+
+	it("leaves a blank line inside a remark genuinely blank", () => {
+		// Padding the gap with indent spaces would leave trailing
+		// whitespace on every paragraph break in the document.
+		const state = addFinding(draft(), {
+			anchor,
+			body: "**issue:** it leaks\n\nThe handle is never closed.",
+		});
+		expect(renderDraft(state).markdown).not.toMatch(/[ \t]+\n/);
+	});
 });
