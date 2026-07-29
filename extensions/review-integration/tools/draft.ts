@@ -16,13 +16,14 @@ import {
 	type Anchor,
 	type BoundTarget,
 	createDraftStore,
+	createFindingStore,
 	type DiffSide,
 	type Reaction,
 	type ReviewDraft,
 	resumeDraft,
 	type Verdict,
 } from "../../../lib/review/index.js";
-import { draftDir, reviewEngine } from "../engine.js";
+import { draftDir, findingDir, reviewEngine } from "../engine.js";
 import { confirmWrite } from "../gate.js";
 import {
 	anchorLabel,
@@ -33,6 +34,7 @@ import {
 import {
 	type Answer,
 	boundFor,
+	hostedChange,
 	messageOf,
 	refuse,
 	renderAnswer,
@@ -82,6 +84,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					Type.Literal("open"),
 					Type.Literal("show"),
 					Type.Literal("finding"),
+					Type.Literal("decide"),
 					Type.Literal("reply"),
 					Type.Literal("resolve"),
 					Type.Literal("react"),
@@ -143,6 +146,18 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 			item: Type.Optional(
 				Type.String({ description: "Item id to drop from the draft." }),
 			),
+			finding: Type.Optional(
+				Type.Number({
+					description:
+						"For decide: the [F#] number of the finding to settle, as review_see findings lists it.",
+				}),
+			),
+			settle: Type.Optional(
+				Type.Union([Type.Literal("promote"), Type.Literal("dismiss")], {
+					description:
+						"For decide: promote puts the finding into this draft as a remark, dismiss drops it. Pass body with promote to say it in your own words.",
+				}),
+			),
 		}),
 
 		renderCall(args, theme) {
@@ -183,6 +198,10 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 						id: draft.id,
 						items: draft.state.items.length,
 					});
+				}
+
+				if (params.action === "decide") {
+					return decideFinding(bound, draft, params);
 				}
 
 				if (params.action === "finding") {
@@ -308,4 +327,67 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 			}
 		},
 	});
+}
+
+/**
+ * Settle one produced finding into the review, or drop it.
+ *
+ * This is the seam between what something raised and what you are
+ * willing to say. A finding is nobody's business until it is
+ * promoted, which is why promoting copies it into the draft as a
+ * remark rather than the conversation reading findings directly.
+ *
+ * Promoting takes the finding's own words unless you supply
+ * better ones, because the common case is agreeing with a finding
+ * and the uncommon case is agreeing with a qualification.
+ */
+async function decideFinding(
+	bound: BoundTarget | undefined,
+	draft: ReviewDraft,
+	params: {
+		finding?: number;
+		settle?: "promote" | "dismiss";
+		body?: string;
+	},
+): Promise<Answer> {
+	if (params.finding === undefined || params.settle === undefined) {
+		return refuse(
+			"Deciding needs the finding's number and what to do with it: promote it into the draft, or dismiss it.",
+		);
+	}
+	if (!bound) {
+		return refuse(
+			"A resumed draft does not know which change its findings were raised against. Name the change on this call.",
+		);
+	}
+	const change = hostedChange(bound);
+	if (!change) {
+		return refuse(
+			`A ${bound.target.kind} in ${bound.repo.key} holds no findings, since there is no change to hold them on.`,
+		);
+	}
+	const store = createFindingStore(findingDir());
+	const findings = await store.list(change);
+	const finding = findings.find((held) => held.id === params.finding);
+	if (!finding) {
+		return refuse(
+			findings.length === 0
+				? `Nothing has been raised on ${change.label}, so there is no F${params.finding} to decide.`
+				: `There is no F${params.finding} on ${change.label}. Read review_see findings; the listing numbers them.`,
+		);
+	}
+
+	if (params.settle === "dismiss") {
+		return say(
+			`${GLYPH.refused} F${finding.id} dismissed, and left out of the draft.\n   ${finding.subject}`,
+			{ ok: true, finding: finding.id, settled: "dismiss" },
+		);
+	}
+
+	const body = params.body ?? `${finding.subject}\n\n${finding.discussion}`;
+	const id = await draft.addFinding({ anchor: finding.anchor, body });
+	return say(
+		`${GLYPH.finding} F${finding.id} promoted into draft ${draft.id} as #${id}, at ${anchorLabel(finding.anchor)}${params.body ? "\n   in your words rather than its own" : ""}`,
+		{ ok: true, finding: finding.id, item: id, settled: "promote" },
+	);
 }

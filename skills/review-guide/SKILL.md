@@ -33,7 +33,7 @@ owned which question.
 | Tool | For |
 |---|---|
 | `review` | What you are working on: attach, detach, next, prev, capabilities |
-| `review_see` | Everything reading tells you: change, diff, checks, stack, changes, threads, reviews, messages |
+| `review_see` | Everything reading tells you: change, diff, checks, stack, changes, threads, reviews, messages, findings |
 | `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
 | `review_draft` | Composing a whole review, then planning and publishing it |
 
@@ -65,6 +65,29 @@ choosing, for the same reason.
 Note that stepping the attachment moves nothing on disk. It
 changes which change the tools talk about, not which branch
 is checked out anywhere.
+
+## A Finding Is Not Yet a Remark
+
+A finding is something a review pass raised. Nobody has seen it
+but you. A remark is something you have decided to say. Keeping
+those apart is the whole point of the findings surface:
+
+```
+review_see findings              what was raised, numbered [F#]
+review_draft decide finding:3 settle:"promote"
+review_draft decide finding:4 settle:"dismiss"
+review_draft plan                what publishing would do
+```
+
+Promoting copies the finding into the draft as a remark, taking
+its own words unless you supply better ones. Dismissing drops it
+and says so. Nothing reaches the change until the draft is
+published, so a finding you never decide is a finding nobody
+ever reads.
+
+Finding numbers climb and are never reused, even after the list
+is cleared, because people refer to findings by number out loud
+and a recycled number makes an earlier conversation wrong.
 
 ## Never Assume GitHub
 

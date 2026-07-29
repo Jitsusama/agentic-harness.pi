@@ -134,6 +134,14 @@ export {
 	REVIEW_REGISTER_PROVIDER,
 	REVIEW_REQUEST_SUBSTRATE,
 } from "./events.js";
+export type {
+	ConventionalLabel,
+	Finding,
+	FindingOrigin,
+	FindingSeverity,
+	FindingStore,
+} from "./finding.js";
+export { createFindingStore } from "./finding.js";
 export { changeKey, repoKey, targetKey } from "./keys.js";
 
 export type {
