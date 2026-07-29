@@ -32,12 +32,14 @@ import {
 	closeRecord,
 	openRecord,
 	parseSessionRecord,
+	pruneRecords,
 	reopenRecord,
 	restorable,
 	type SessionEndReason,
 	type SessionRecord,
 	switchQuest,
 } from "../../lib/internal/quest/session-registry.js";
+import type { QuestSession } from "../../lib/quest/index.js";
 
 /** Where the per-session records live. */
 export function sessionRegistryDir(): string {
@@ -190,6 +192,68 @@ export function stopHeartbeat(): void {
 	if (!heartbeat) return;
 	clearInterval(heartbeat);
 	heartbeat = undefined;
+}
+
+/**
+ * Forget the records of sessions that ended longer ago than the
+ * retention window, and report how many went.
+ *
+ * Only a record that can be proved to have ended is eligible.
+ * Pruning refuses to forget a session it cannot prove is over,
+ * because a tab that outlives the window is still a tab, and
+ * dropping its record would make an open session disappear from
+ * every view that asks.
+ */
+export function pruneClosedRecords(retentionDays: number): number {
+	const { dropped } = pruneRecords(
+		loadRecords().map((entry) => entry.record),
+		{ now: new Date(), retentionDays },
+	);
+	for (const record of dropped) forgetRecord(record.sessionId);
+	return dropped.length;
+}
+
+/**
+ * Give records to tabs that were already open when the registry
+ * arrived, so the first read is not blind to everything on screen.
+ *
+ * Only a session that probes alive is seeded. History is not evidence
+ * a tab exists, and a record invented for one that ended long ago
+ * would be offered back as lost, which is the failure this whole
+ * record set replaces. Unprobeable is not alive either: an inability
+ * to observe must never become a claim in either direction.
+ *
+ * A session the registry already knows is left alone. The record its
+ * owning process wrote is the better one, and overwriting it with a
+ * reconstruction would trade a real history for a guess.
+ */
+export function seedLiveSessions(
+	claims: readonly { questId: string; session: QuestSession }[],
+): SessionRecord[] {
+	const deps = localProcessDeps();
+	const seeded: SessionRecord[] = [];
+	const now = new Date();
+	for (const { questId, session } of claims) {
+		if (!session.process || readRecord(session.id)) continue;
+		if (probeProcess(session.process, deps) !== "matching") continue;
+		const record = openRecord({
+			sessionId: session.id,
+			// A pre-registry session may predate instance ids too. Its own
+			// id stands in: it identifies the tab uniquely, which is all
+			// the field is for, and cannot collide with a real one.
+			instanceId: session.instanceId ?? session.id,
+			cwd: session.cwd ?? "",
+			questId,
+			process: session.process,
+			...(session.terminal ? { terminal: session.terminal } : {}),
+			// Dated from when the session started rather than now, so a
+			// long-running tab is not made to look freshly opened.
+			now: session.started ? new Date(session.started) : now,
+		});
+		saveRecord(record);
+		seeded.push(record);
+	}
+	return seeded;
 }
 
 /** What one pass of {@link observeRecords} changed on disk. */

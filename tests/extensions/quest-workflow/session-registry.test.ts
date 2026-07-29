@@ -11,6 +11,7 @@ import {
 	recordSessionEnd,
 	recordSessionOnQuest,
 	saveRecord,
+	seedLiveSessions,
 	sessionRegistryDir,
 	startHeartbeat,
 	stopHeartbeat,
@@ -189,6 +190,69 @@ describe("endReasonForShutdown", () => {
 		for (const reason of ["new", "resume", "fork"]) {
 			expect(endReasonForShutdown(reason)).toBe("swapped");
 		}
+	});
+});
+
+describe("seeding tabs that predate the registry", () => {
+	const live = {
+		questId: "QEST-1",
+		session: {
+			id: "sess-old",
+			cwd: "/work",
+			instanceId: "inst-old",
+			process: currentProcessIdentity(),
+		},
+	};
+
+	it("records a tab that is open right now", () => {
+		expect(seedLiveSessions([live]).map((r) => r.sessionId)).toEqual([
+			"sess-old",
+		]);
+		expect(readRecord("sess-old")).toMatchObject({
+			quest: "QEST-1",
+			cwd: "/work",
+		});
+		expect(readRecord("sess-old")?.closedAt).toBeUndefined();
+	});
+
+	it("ignores a session it cannot prove is open", () => {
+		// History is not evidence a tab exists. Seeding one that ended
+		// before the registry did would offer back a tab nobody lost,
+		// which is the failure this whole record set replaces.
+		const ended = {
+			questId: "QEST-1",
+			session: {
+				id: "sess-gone",
+				cwd: "/work",
+				process: {
+					hostId: hostname(),
+					pid: process.pid,
+					startToken: "whatever",
+					bootToken: "a-boot-that-has-since-ended",
+				},
+			},
+		};
+		expect(seedLiveSessions([ended])).toEqual([]);
+		expect(readRecord("sess-gone")).toBeUndefined();
+	});
+
+	it("ignores a session with no identity to probe", () => {
+		// Unprobeable is not alive. An inability to observe must never
+		// become a claim either way.
+		const bare = { questId: "QEST-1", session: { id: "sess-bare" } };
+		expect(seedLiveSessions([bare])).toEqual([]);
+	});
+
+	it("never disturbs a session the registry already knows", () => {
+		// The record the owning process wrote is the better one: seeding
+		// again would overwrite a real history with a reconstruction.
+		saveRecord(liveSession("sess-old"));
+		expect(
+			seedLiveSessions([
+				{ ...live, session: { ...live.session, cwd: "/elsewhere" } },
+			]),
+		).toEqual([]);
+		expect(readRecord("sess-old")?.cwd).toBe("/work");
 	});
 });
 

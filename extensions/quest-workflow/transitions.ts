@@ -178,7 +178,7 @@ export async function handle(
 		case "recent":
 			return recent(state);
 		case "restore":
-			return restore();
+			return restore(state);
 		default: {
 			const suggestion = suggestAction(params.action ?? "");
 			const hint = suggestion

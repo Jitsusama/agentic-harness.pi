@@ -34,7 +34,11 @@ import {
 	renderListing,
 	renderRowBrief,
 } from "../render-rows.js";
-import { restorableSessions } from "../session-registry.js";
+import {
+	pruneClosedRecords,
+	restorableSessions,
+	seedLiveSessions,
+} from "../session-registry.js";
 import type { QuestState } from "../state.js";
 import {
 	ok,
@@ -211,8 +215,25 @@ export async function workspace(state: QuestState): Promise<QuestResult> {
 	return ok(lines.join("\n"), { workspace: entries });
 }
 
-export async function restore(): Promise<QuestResult> {
+/** Every session any quest claims, paired with the quest claiming it. */
+function claimedSessions(state: QuestState) {
+	const { index } = discoverQuests(state.questsRoot);
+	return [...index.quests.values()].flatMap((entry) =>
+		entry.doc.frontMatter.sessions.map((session) => ({
+			questId: entry.doc.frontMatter.id,
+			session,
+		})),
+	);
+}
+
+export async function restore(state: QuestState): Promise<QuestResult> {
+	// Seed before asking, so tabs that were already open when the
+	// registry arrived are known to be open rather than absent, and
+	// prune after, so a window that has passed is not carried by every
+	// later read.
+	seedLiveSessions(claimedSessions(state));
 	const lost = restorableSessions();
+	pruneClosedRecords(state.sessionRetentionDays);
 	if (lost.length === 0) {
 		return ok("No sessions were lost; nothing to restore.", {
 			restore: { toRestore: [], recipe: [] },

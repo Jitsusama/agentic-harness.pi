@@ -112,6 +112,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	const state = createQuestState({
 		questsRoot,
 		autoloadFromCwd: section.value.autoloadFromCwd,
+		sessionRetentionDays: section.value.sessionRetentionDays,
 	});
 
 	// Expose the PR-workflow bridge so pr-workflow can
