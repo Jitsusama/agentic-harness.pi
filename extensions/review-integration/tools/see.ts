@@ -14,8 +14,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { citeListing, openSessionStore } from "../../../lib/result/index.js";
-import type { BoundTarget } from "../../../lib/review/index.js";
-import { reviewEngine } from "../engine.js";
+import type { BoundTarget, Finding } from "../../../lib/review/index.js";
+import {
+	createFindingStore,
+	describeAnchor,
+} from "../../../lib/review/index.js";
+import { findingDir, reviewEngine } from "../engine.js";
 import {
 	checksLines,
 	GLYPH,
@@ -45,7 +49,8 @@ type SeeAction =
 	| "changes"
 	| "threads"
 	| "reviews"
-	| "messages";
+	| "messages"
+	| "findings";
 
 /** Register the `review_see` tool. */
 export function registerSeeTool(pi: ExtensionAPI): void {
@@ -75,10 +80,11 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 					Type.Literal("threads"),
 					Type.Literal("reviews"),
 					Type.Literal("messages"),
+					Type.Literal("findings"),
 				],
 				{
 					description:
-						"What to read. change: the proposal and its body. diff: the whole diff. checks: what CI says. stack: what it sits on, with provenance. changes: siblings in the repo. threads: anchored conversation, numbered. reviews: verdicts people left. messages: top-level remarks.",
+						"What to read. change: the proposal and its body. diff: the whole diff. checks: what CI says. stack: what it sits on, with provenance. changes: siblings in the repo. threads: anchored conversation, numbered. reviews: verdicts people left. messages: top-level remarks. findings: what a review pass raised, not yet said to anybody.",
 				},
 			),
 			change: Type.Optional(
@@ -157,6 +163,7 @@ async function readFrom(
 	if (action === "diff") return seeDiff(bound);
 	if (action === "checks") return seeChecks(bound);
 	if (action === "stack") return seeStack(bound);
+	if (action === "findings") return seeFindings(bound);
 	return seeConversation(bound, action);
 }
 
@@ -271,6 +278,63 @@ async function seeConversation(
 		}),
 		{ ok: true, count: messages.length },
 	);
+}
+
+/**
+ * What a review pass raised, before any of it is said out loud.
+ *
+ * Findings are not remarks. Nobody has seen these but you, which
+ * is why they are read here and curated in `review_draft` rather
+ * than appearing in the conversation.
+ */
+async function seeFindings(bound: BoundTarget): Promise<Answer> {
+	const change = hostedChange(bound);
+	if (!change) {
+		return refuse(
+			`A ${bound.target.kind} in ${bound.repo.key} is not something findings are held against, since there is no change to hold them on.`,
+		);
+	}
+	const findings = await createFindingStore(findingDir()).list(change);
+	if (findings.length === 0) {
+		return say(`${GLYPH.finding} nothing raised on ${change.label} yet.`, {
+			ok: true,
+			count: 0,
+		});
+	}
+	return say(
+		citeListing(openSessionStore(), {
+			view: findings.map(findingLine).join("\n"),
+			records: findings,
+			unit: "findings",
+			narrowing: "Query the stored result for a finding's full discussion.",
+		}),
+		{ ok: true, count: findings.length },
+	);
+}
+
+/**
+ * One finding, in a line somebody can scan.
+ *
+ * The number leads because that is how people refer to a finding
+ * out loud, and the origin is named because a claim from one
+ * reviewer and the same claim from three deserve different
+ * weight.
+ */
+function findingLine(finding: Finding): string {
+	const where =
+		finding.anchor.subject === "change"
+			? "on the change"
+			: describeAnchor(finding.anchor);
+	const agreed =
+		finding.raisedBy && finding.raisedBy.length > 1
+			? ` · raised by ${finding.raisedBy.join(", ")}`
+			: "";
+	const from =
+		finding.origin.kind === "hand"
+			? "by hand"
+			: `${finding.origin.kind} ${finding.origin.reviewerId}`;
+	const severity = finding.severity ? ` · ${finding.severity}` : "";
+	return `${GLYPH.finding} [F${finding.id}] ${finding.label}: ${finding.subject}\n     ${where} · ${from}${severity}${agreed}`;
 }
 
 /**

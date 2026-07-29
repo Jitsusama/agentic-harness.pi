@@ -32,6 +32,11 @@ export function attachmentDir(): string {
 	return join(stateDir("review"), "attached");
 }
 
+/** Where findings raised against a change live. */
+export function findingDir(): string {
+	return join(stateDir("review"), "findings");
+}
+
 /** Adapt pi's exec to the library's seam. */
 function execFor(pi: ExtensionAPI): Exec {
 	return async (command, args) => {
