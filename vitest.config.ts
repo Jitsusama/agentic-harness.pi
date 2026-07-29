@@ -50,7 +50,10 @@ export default defineConfig({
 					// Says which pi install this process belongs to before
 					// anything asks, so an upgrade of the pi running the
 					// session cannot fail tests that never spawn anything.
-					setupFiles: ["./tests/setup/pi-install.ts"],
+					setupFiles: [
+						"./tests/setup/pi-install.ts",
+						"./tests/setup/xdg-sandbox.ts",
+					],
 					maxWorkers: MAX_WORKERS,
 				},
 			},
