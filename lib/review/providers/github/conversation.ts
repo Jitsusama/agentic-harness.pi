@@ -216,6 +216,15 @@ function threadFrom(raw: Record<string, unknown>): Thread {
 
 /** GitHub's wire shape for one anchored comment. */
 function wireComment(anchor: Anchor, body: string): Record<string, unknown> {
+	// GitHub has nowhere to attach a remark about the change
+	// itself, so the plan spills those into the review body long
+	// before here. Reaching this with one is a bug in the plan,
+	// and saying so beats posting a comment against no path.
+	if (anchor.subject === "change") {
+		throw new Error(
+			"a remark about the whole change cannot be an anchored comment",
+		);
+	}
 	if (anchor.subject === "file") {
 		return { path: anchor.path, body, subject_type: "file" };
 	}

@@ -13,11 +13,12 @@
  * for context.
  */
 
-import type {
-	ChangeRef,
-	ConversationFacet,
-	Message,
-	Thread,
+import {
+	anchorPath,
+	type ChangeRef,
+	type ConversationFacet,
+	type Message,
+	type Thread,
 } from "../../lib/review/index.js";
 
 /** Single comment inside a review thread. */
@@ -112,7 +113,7 @@ function anchoredThreadView(thread: Thread): ReviewThread {
 		// cannot tell. The view has only a boolean, and claiming a
 		// thread is outdated on no evidence is the worse error.
 		isOutdated: thread.stale === true,
-		path: anchor?.path ?? null,
+		path: anchor ? (anchorPath(anchor) ?? null) : null,
 		line: anchor?.subject === "line" ? anchor.line : null,
 		comments: thread.comments.map(commentView),
 		source: thread,

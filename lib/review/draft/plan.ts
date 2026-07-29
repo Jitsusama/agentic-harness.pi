@@ -16,7 +16,10 @@
  */
 
 import type { Anchor } from "../anchor.js";
-import { anchorable } from "../anchor.js";
+import {
+	anchorable,
+	describeAnchor as sharedDescribeAnchor,
+} from "../anchor.js";
 import type {
 	Capabilities,
 	ConversationCapabilities,
@@ -97,12 +100,8 @@ const NEUTRAL_VERDICT: Verdict = "comment";
 
 /** Where a finding was aimed, for a reader of the plan. */
 function describeAnchor(anchor: Anchor): string {
-	if (anchor.subject === "file") return anchor.path;
-	const range =
-		anchor.startLine && anchor.startLine !== anchor.line
-			? `${anchor.startLine}-${anchor.line}`
-			: `${anchor.line}`;
-	return `${anchor.path}:${range} (${anchor.blob})`;
+	if (anchor.subject !== "line") return sharedDescribeAnchor(anchor);
+	return `${sharedDescribeAnchor(anchor)} (${anchor.blob})`;
 }
 
 /** A finding rendered into prose, for when it cannot anchor. */

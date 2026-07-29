@@ -137,15 +137,18 @@ describe("composeDraft", () => {
 		expect(item.anchor).toEqual({ subject: "file", path: "README.md" });
 	});
 
-	it("keeps a change-wide remark, anchored to nothing in particular", () => {
-		// A finding about the change as a whole still has to be said.
-		// Dropping it here would lose it silently.
+	it("says a change-wide remark is about the change, not about a file", () => {
+		// A finding about the title or the scope still has to be said,
+		// so dropping it would lose it silently. Naming a file it does
+		// not have would make the plan spill it for a made-up reason.
 		const state = stateWith([
 			lineFinding(10, { location: { kind: "global" } }),
 		]);
 		decide(state, 10, "endorse");
 
-		expect(composeDraft(state, "COMMENT").items).toHaveLength(1);
+		const item = composeDraft(state, "COMMENT").items[0];
+		if (item.kind !== "finding") throw new Error("expected a finding");
+		expect(item.anchor).toEqual({ subject: "change" });
 	});
 
 	it("hands every item a distinct id, so the plan can report on one", () => {

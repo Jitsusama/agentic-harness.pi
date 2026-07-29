@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	anchorPath,
 	type ChangeRef,
 	createGitHubProvider,
 	type Thread,
@@ -94,7 +95,7 @@ describe("reading threads", () => {
 		expect(thread.id).toBe("PRRT_kwDO");
 		expect(thread.resolved).toBe(false);
 		expect(thread.anchor?.subject).toBe("line");
-		expect(thread.anchor?.path).toBe("lib/app.ts");
+		expect(thread.anchor && anchorPath(thread.anchor)).toBe("lib/app.ts");
 		expect(thread.anchor?.subject === "line" && thread.anchor.blob).toBe("new");
 		expect(thread.comments[0].body).toBe("why?");
 	});

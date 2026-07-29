@@ -263,10 +263,9 @@ function verdictOf(event: ReviewEvent): Verdict {
 /**
  * Where a finding attaches.
  *
- * A change-wide remark has no place in the diff, and the contract
- * has no anchor for one, so it is named against the change itself
- * and the plan spills it into the body. Dropping it instead would
- * lose something a person chose to say.
+ * A remark about the title or the scope names no file, and says
+ * so, which is why the plan can spill it into the body for a
+ * reason rather than because a path it invented matched nothing.
  */
 function anchorOf(location: FindingLocation): Anchor {
 	if (location.kind === "line") {
@@ -278,17 +277,11 @@ function anchorOf(location: FindingLocation): Anchor {
 			...(location.start === location.end ? {} : { startLine: location.start }),
 		};
 	}
-	return {
-		subject: "file",
-		path: location.kind === "file" ? location.file : CHANGE_WIDE,
-	};
+	if (location.kind === "file") {
+		return { subject: "file", path: location.file };
+	}
+	return { subject: "change" };
 }
-
-/**
- * The path a change-wide remark carries. It names no real file,
- * so no diff can hold it and the plan always spills it.
- */
-const CHANGE_WIDE = "";
 
 /** What the draft is about, when anything is loaded. */
 function targetFor(reference: PRReference | undefined): ReviewTarget {
@@ -767,6 +760,7 @@ const ANCHOR_REFUSALS: Record<AnchorRefusal, string> = {
 	"range-inverted": "the range ends before it starts",
 	"range-crosses-hunks":
 		"the range crosses two hunks, and a remark spanning a gap in the diff is not one remark",
+	"not-a-place": "it is about the change as a whole, not about a line",
 };
 
 /** A finding's line location as the anchor the substrate judges. */
