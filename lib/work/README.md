@@ -19,6 +19,8 @@ to the work rather than to one tool that does it.
 | `chooseTreeProvider` | Which provider serves a repo |
 | `createTreeBroker` | Custody: hand trees out, take them back |
 | `createGitTreeProvider` | The general case, backed by `git worktree` |
+| `createGitHistory` | What a tree holds, and where it points |
+| `blocksRepoint` | Why a tree may not be moved, in words |
 | `registerTreeProvider` | Add a provider from any package |
 | `listTreeProviders` | The roster, most specific first |
 | `WORK_READY` and friends | The bus contract providers register over |
@@ -160,6 +162,31 @@ ten minutes on one is a surprising thing for a tool to do. Saying
 what is needed leaves the choice with whoever knows how big it is,
 and a downstream provider that knows a particular repo can serve it
 without asking.
+
+## An Untracked File Is Work
+
+`status` counts untracked files as work, and
+`--untracked-files=all` is passed deliberately. Stepping through a
+stack re-points a tree, which means checking a different commit out
+of a directory somebody may be sitting in. Overwriting a modified
+file is bad and recoverable; overwriting an untracked one is
+unrecoverable, so the case most easily dismissed as noise is the one
+with the worst outcome.
+
+`blocksRepoint` returns the sentence rather than a boolean:
+
+```
+This tree is holding uncommitted work (lib/thing.ts, scratch.ts), so
+re-pointing it would throw that away. Commit it, stash it, or ask for
+a different tree.
+```
+
+A refusal that does not say what is in the way leaves the person to
+go and look, which is the entire cost of refusing.
+
+A detached tree reports no `branch` at all rather than an empty one.
+A snapshot is detached by design, so inventing a name would make
+every snapshot look like a branch tree.
 
 ## A Broker Reads Its Roster Live
 

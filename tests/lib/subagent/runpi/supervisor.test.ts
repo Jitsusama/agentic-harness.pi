@@ -966,13 +966,16 @@ describe("the parent's grace over the supervisor's own budget", () => {
 	// it still signals the child, waits out the kill grace, escalates,
 	// drains pipes and then writes its result, and all of that has to
 	// fit inside the parent's grace.
-	const STDIO_GRACE_MS = 2_000;
+	// Mirrors the supervisor's own constant. Kept in step deliberately:
+	// the assertions below are one-sided, so a stale copy here would go
+	// on passing while quietly documenting the wrong number.
+	const STDIO_GRACE_MS = 5_000;
 
 	it("leaves room for the shutdown the supervisor actually does", () => {
-		// A five second kill grace plus two seconds of pipe draining left
-		// three seconds for every atomic write in finish under the old
-		// flat ten. That held on an idle machine and lost about one CI
-		// run in five.
+		// A five second kill grace plus the pipe draining left three
+		// seconds for every atomic write in finish under the old flat
+		// ten. That held on an idle machine and lost about one CI run in
+		// five.
 		const grace = parentGraceMs(5_000);
 
 		expect(grace).toBeGreaterThan(5_000 + STDIO_GRACE_MS);

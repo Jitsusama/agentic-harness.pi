@@ -64,8 +64,17 @@ interface SupervisorResultFile {
  * How long a departed supervisor's pipes may stay open before the
  * run is settled from disk anyway. Long enough for an ordinary
  * flush, short enough that nobody calls it a hang.
+ *
+ * Two seconds was measured to be too short. On a loaded runner the
+ * sequence still to happen after exit is a grandchild spawn, a
+ * stdout flush through inherited pipes and an atomic result write,
+ * and when that overran the grace the run settled from a file that
+ * was not there yet and reported an empty answer. An empty answer
+ * is the worst available failure, because it looks like a reviewer
+ * that said nothing rather than a deadline that was too tight.
+ * Five seconds is still nobody's idea of a hang.
  */
-const STDIO_GRACE_MS = 2_000;
+const STDIO_GRACE_MS = 5_000;
 
 /**
  * How long past its own deadline a supervisor gets before the

@@ -21,6 +21,13 @@ export {
 	WORK_REGISTER_TREE_PROVIDER,
 	WORK_REQUEST,
 } from "./events.js";
+export type {
+	ChangedPath,
+	TreeHead,
+	WorkHistory,
+	WorkingState,
+} from "./history.js";
+export { blocksRepoint, createGitHistory } from "./history.js";
 export type { TreeProviderChoice, TreeProviderInfo } from "./provider.js";
 export { chooseTreeProvider } from "./provider.js";
 export { createGitTreeProvider } from "./providers/git.js";
