@@ -11,6 +11,7 @@ import {
 	readRecord,
 	recordSessionEnd,
 	recordSessionOnQuest,
+	restorableSessions,
 	saveRecord,
 	seedLiveSessions,
 	sessionRegistryDir,
@@ -281,6 +282,22 @@ describe("seeding tabs that predate the registry", () => {
 		expect(seedLiveSessions([bare])).toEqual([]);
 	});
 
+	it("stops being merely adopted once the session registers itself", () => {
+		// The flag records that nothing could watch the session close.
+		// A session running code that keeps the registry can, so leaving
+		// the flag on would keep calling its ending unknowable long
+		// after it stopped being so.
+		seedLiveSessions([live]);
+		expect(readRecord("sess-old")?.adopted).toBe(true);
+		recordSessionOnQuest({
+			sessionId: "sess-old",
+			cwd: "/work",
+			questId: "QEST-1",
+			instanceId: "inst-now",
+		});
+		expect(readRecord("sess-old")?.adopted).toBeUndefined();
+	});
+
 	it("never disturbs a session the registry already knows", () => {
 		// The record the owning process wrote is the better one: seeding
 		// again would overwrite a real history with a reconstruction.
@@ -305,6 +322,24 @@ describe("observing the open records", () => {
 		expect(repaired[0]?.endReason).toBe("died");
 		expect(repaired[0]?.closedAt).toBe(stored[0]?.heartbeatAt);
 		expect(readRecord("sess-dead")?.closedAt).toBeDefined();
+	});
+
+	it("does not call an adopted session lost when it goes", () => {
+		// A tab that predates the registry has no shutdown hook, so even
+		// a clean quit stamps nothing and a reader sees only that the
+		// process is gone. Reading that as a crash offers back tabs the
+		// user closed deliberately, which is the whole failure being
+		// replaced. It ended; how it ended is not knowable.
+		saveRecord({ ...sessionFromPreviousBoot("sess-adopted"), adopted: true });
+		const { repaired } = observeRecords(loadRecords());
+		expect(repaired.map((r) => r.endReason)).toEqual(["vanished"]);
+		expect(restorableSessions()).toEqual([]);
+	});
+
+	it("still calls a session it opened itself lost, since it had a hook", () => {
+		saveRecord(sessionFromPreviousBoot("sess-own"));
+		const { repaired } = observeRecords(loadRecords());
+		expect(repaired.map((r) => r.endReason)).toEqual(["died"]);
 	});
 
 	it("leaves a session whose process is still running", () => {

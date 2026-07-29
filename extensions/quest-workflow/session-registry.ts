@@ -249,6 +249,7 @@ export function seedLiveSessions(
 			instanceId: session.instanceId ?? session.id,
 			cwd: session.cwd ?? "",
 			questId,
+			adopted: true,
 			process: session.process,
 			...(session.terminal ? { terminal: session.terminal } : {}),
 			// Dated from when the session started rather than now, so a
@@ -300,7 +301,15 @@ export function observeRecords(
 		if (record.closedAt || !record.process) continue;
 		const probe = probeProcess(record.process, deps);
 		if (probe === "gone") {
-			const closed = closeRecord(record, "died", new Date(heartbeatAt));
+			// Only a session that opened its own record had a shutdown hook
+			// to skip, so only its silence means it was taken away. An
+			// adopted one never had one, and reading its exit as a crash is
+			// how a deliberately closed tab ends up offered back.
+			const closed = closeRecord(
+				record,
+				record.adopted ? "vanished" : "died",
+				new Date(heartbeatAt),
+			);
 			saveRecord(closed);
 			repaired.push(closed);
 			continue;
@@ -457,7 +466,12 @@ export function recordSessionOnQuest(
 					...(input.terminal ? { terminal: input.terminal } : {}),
 				})
 			: existing;
-		saveRecord(switchQuest(live, input.questId, now));
+		// A session that reaches this code is running a process that
+		// keeps the registry, so it has a shutdown hook and is no longer
+		// merely adopted. Leaving the flag on would keep treating its
+		// eventual close as unknowable long after it stopped being so.
+		const { adopted: _hadNoHook, ...owned } = live;
+		saveRecord(switchQuest(owned, input.questId, now));
 		return;
 	}
 	saveRecord(
