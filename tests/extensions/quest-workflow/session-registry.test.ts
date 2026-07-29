@@ -6,12 +6,14 @@ import {
 	endReasonForShutdown,
 	forgetRecord,
 	loadRecords,
+	observeRecords,
 	readRecord,
 	recordSessionEnd,
 	recordSessionOnQuest,
-	repairCrashedRecords,
 	saveRecord,
 	sessionRegistryDir,
+	startHeartbeat,
+	stopHeartbeat,
 	touchHeartbeat,
 } from "../../../extensions/quest-workflow/session-registry";
 import { currentProcessIdentity } from "../../../lib/internal/quest/process-liveness";
@@ -116,6 +118,25 @@ describe("the heartbeat", () => {
 	it("says nothing when there is no record to touch", () => {
 		expect(() => touchHeartbeat("sess-missing")).not.toThrow();
 	});
+
+	it("keeps dating the record while the session runs", async () => {
+		saveRecord(liveSession());
+		const before = loadRecords()[0]?.heartbeatAt;
+		startHeartbeat("sess-live", 20);
+		await new Promise((resolve) => setTimeout(resolve, 1200));
+		stopHeartbeat();
+		expect(loadRecords()[0]?.heartbeatAt).not.toBe(before);
+	});
+
+	it("stops the moment it is told to, so a late tick cannot re-date a closed record", async () => {
+		saveRecord(liveSession());
+		startHeartbeat("sess-live", 20);
+		await new Promise((resolve) => setTimeout(resolve, 1200));
+		stopHeartbeat();
+		const settled = loadRecords()[0]?.heartbeatAt;
+		await new Promise((resolve) => setTimeout(resolve, 1200));
+		expect(loadRecords()[0]?.heartbeatAt).toBe(settled);
+	});
 });
 
 describe("following a session onto its quests", () => {
@@ -171,13 +192,13 @@ describe("endReasonForShutdown", () => {
 	});
 });
 
-describe("repairing a crashed record", () => {
+describe("observing the open records", () => {
 	it("closes a session whose process is gone, dated by its heartbeat", () => {
 		// A tab killed with its terminal never runs its own shutdown, so
 		// nothing but a reader will ever close this record.
 		saveRecord(sessionFromPreviousBoot());
 		const stored = loadRecords();
-		const { repaired } = repairCrashedRecords(stored);
+		const { repaired } = observeRecords(stored);
 		expect(repaired.map((r) => r.sessionId)).toEqual(["sess-dead"]);
 		expect(repaired[0]?.endReason).toBe("died");
 		expect(repaired[0]?.closedAt).toBe(stored[0]?.heartbeatAt);
@@ -186,8 +207,16 @@ describe("repairing a crashed record", () => {
 
 	it("leaves a session whose process is still running", () => {
 		saveRecord(liveSession());
-		expect(repairCrashedRecords(loadRecords()).repaired).toEqual([]);
+		expect(observeRecords(loadRecords()).repaired).toEqual([]);
 		expect(readRecord("sess-live")?.closedAt).toBeUndefined();
+	});
+
+	it("re-dates a live session, so an idle tab is kept current by whoever asks", async () => {
+		saveRecord(liveSession());
+		const before = loadRecords()[0]?.heartbeatAt;
+		await new Promise((resolve) => setTimeout(resolve, 1100));
+		expect(observeRecords(loadRecords()).refreshed).toEqual(["sess-live"]);
+		expect(loadRecords()[0]?.heartbeatAt).not.toBe(before);
 	});
 
 	it("leaves a session it cannot probe rather than calling it dead", () => {
@@ -201,13 +230,13 @@ describe("repairing a crashed record", () => {
 				now: NOW,
 			}),
 		);
-		expect(repairCrashedRecords(loadRecords()).repaired).toEqual([]);
+		expect(observeRecords(loadRecords()).repaired).toEqual([]);
 	});
 
 	it("leaves an already-closed record where it stands", () => {
 		saveRecord(sessionFromPreviousBoot());
 		recordSessionEnd("sess-dead", "quit", new Date("2026-07-28T19:00:00.000Z"));
-		expect(repairCrashedRecords(loadRecords()).repaired).toEqual([]);
+		expect(observeRecords(loadRecords()).repaired).toEqual([]);
 		expect(readRecord("sess-dead")?.endReason).toBe("quit");
 	});
 });

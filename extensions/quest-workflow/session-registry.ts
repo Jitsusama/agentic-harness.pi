@@ -150,34 +150,96 @@ export function touchHeartbeat(sessionId: string): void {
 }
 
 /**
- * Close the records of sessions whose process a probe reads gone.
+ * How often a running session re-dates its own record.
  *
- * This is the repair that a crash makes necessary: a process killed
- * with its terminal never runs its own shutdown, so its record would
- * otherwise claim to be open forever, and pruning deliberately never
- * forgets a session it cannot prove has ended.
- *
- * The stamp is the record's own heartbeat, the last moment anything
- * saw it alive, and the reason marks it approximate. Only a record
- * carrying a process identity is judged: without one there is nothing
- * to probe, and an inability to observe must never read as death.
- *
- * Writing to another session's record is safe precisely because the
- * owner is gone. Two readers repairing at once write the same answer.
+ * This only bounds how far out a crash death can be dated, since
+ * nothing consults the heartbeat to decide whether a session is
+ * alive. A minute is far finer than any ordering needs and cheap
+ * enough to disappear: the touch is metadata only.
  */
-export function repairCrashedRecords(stored: readonly StoredRecord[]): {
+const HEARTBEAT_INTERVAL_MS = 60_000;
+
+/** The running heartbeat, at most one per process. */
+let heartbeat: ReturnType<typeof setInterval> | undefined;
+
+/**
+ * Start re-dating this session's record on a timer.
+ *
+ * The timer is unref'd, so it never holds the process open on its
+ * own: a pi that is otherwise finished must still be allowed to
+ * exit. Starting twice replaces the first timer rather than running
+ * two.
+ */
+export function startHeartbeat(
+	sessionId: string,
+	intervalMs: number = HEARTBEAT_INTERVAL_MS,
+): void {
+	stopHeartbeat();
+	heartbeat = setInterval(() => touchHeartbeat(sessionId), intervalMs);
+	heartbeat.unref?.();
+}
+
+/**
+ * Stop re-dating. Call this before stamping a record closed: a tick
+ * that lands afterwards would touch the file again and re-date a
+ * session that has already ended.
+ */
+export function stopHeartbeat(): void {
+	if (!heartbeat) return;
+	clearInterval(heartbeat);
+	heartbeat = undefined;
+}
+
+/** What one pass of {@link observeRecords} changed on disk. */
+export interface ObservedRecords {
+	/** Records closed because their process was found gone. */
 	repaired: SessionRecord[];
-} {
+	/** Session ids found alive, and re-dated on the strength of it. */
+	refreshed: string[];
+}
+
+/**
+ * Probe every open record once and write back what was learned.
+ *
+ * Two things come out of the same probe. A record whose process is
+ * gone gets closed, which is the repair a crash makes necessary: a
+ * process killed with its terminal never runs its own shutdown, so
+ * its record would claim to be open forever, and pruning refuses to
+ * forget a session it cannot prove has ended. The stamp is the
+ * record's own heartbeat, the last moment anything saw it alive, and
+ * the reason marks it approximate.
+ *
+ * A record whose process is alive gets re-dated, so an idle tab is
+ * kept current by whoever asks rather than only by its own timer.
+ * That is what stops a long-lived tab looking staler than a busy one.
+ *
+ * Only a record carrying a process identity is judged either way:
+ * without one there is nothing to probe, and an inability to observe
+ * must never read as death. Writing to another session's record is
+ * safe when it is gone, and re-dating a live one races only with its
+ * own heartbeat, which writes the same kind of answer.
+ */
+export function observeRecords(
+	stored: readonly StoredRecord[],
+): ObservedRecords {
 	const deps = localProcessDeps();
 	const repaired: SessionRecord[] = [];
+	const refreshed: string[] = [];
 	for (const { record, heartbeatAt } of stored) {
 		if (record.closedAt || !record.process) continue;
-		if (probeProcess(record.process, deps) !== "gone") continue;
-		const closed = closeRecord(record, "died", new Date(heartbeatAt));
-		saveRecord(closed);
-		repaired.push(closed);
+		const probe = probeProcess(record.process, deps);
+		if (probe === "gone") {
+			const closed = closeRecord(record, "died", new Date(heartbeatAt));
+			saveRecord(closed);
+			repaired.push(closed);
+			continue;
+		}
+		if (probe === "matching") {
+			touchHeartbeat(record.sessionId);
+			refreshed.push(record.sessionId);
+		}
 	}
-	return { repaired };
+	return { repaired, refreshed };
 }
 
 /** Apply an end reason to a session's record, if it has one. */

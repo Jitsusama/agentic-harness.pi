@@ -76,6 +76,8 @@ import {
 	endReasonForShutdown,
 	recordSessionEnd,
 	recordSessionOnQuest,
+	startHeartbeat,
+	stopHeartbeat,
 } from "./session-registry.js";
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
@@ -616,6 +618,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 					questId: state.questId,
 					...captureSessionIdentity(),
 				});
+				// Keep the record dated for as long as this tab lives, so a
+				// crash can be placed in time even if nobody types again.
+				startHeartbeat(sid);
 			}
 		}
 		updateScoreboard(state, ctx);
@@ -634,6 +639,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	// fresher instance's.
 	pi.on("session_shutdown", async (event, ctx) => {
 		const sid = currentSessionId(ctx, undefined);
+		// Stop beating before stamping: a tick that landed afterwards
+		// would touch the file again and re-date a session that has
+		// already ended.
+		stopHeartbeat();
 		// End the session's registry record, but only for the reasons
 		// that actually end something. A reload keeps the same session
 		// running in the same process, so stamping it would date a tab
