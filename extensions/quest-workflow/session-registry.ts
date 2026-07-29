@@ -40,6 +40,10 @@ import {
 	switchQuest,
 } from "../../lib/internal/quest/session-registry.js";
 import type { QuestSession } from "../../lib/quest/index.js";
+import {
+	getTypeProvider,
+	spawnTerminalSurface,
+} from "../../lib/terminal/index.js";
 
 /** Where the per-session records live. */
 export function sessionRegistryDir(): string {
@@ -333,6 +337,64 @@ export function restorableSessions(): SessionRecord[] {
 	// the repairs to disk, and the reload is what makes the answer the
 	// same one a second reader would get.
 	return restorable(loadRecords().map((entry) => entry.record));
+}
+
+/** What happened when restore tried to reopen the lost sessions. */
+export interface ReopenOutcome {
+	reopened: string[];
+	failed: { sessionId: string; reason: string }[];
+}
+
+/**
+ * Reopen lost sessions by spawning a shell for each and typing the
+ * resume line into it.
+ *
+ * The two steps are the point. Handing the resume line to the spawn
+ * primitive runs it under a non-interactive shell, which skips the
+ * startup files that put the right pi on PATH, so the command that
+ * works when typed fails when spawned. That is exactly what made the
+ * manual recovery take an hour. Spawning a bare login shell and
+ * typing into it is what a person does, and it works for the same
+ * reason.
+ *
+ * A driver that cannot type is refused rather than worked around.
+ * The only fallback available is the broken one.
+ */
+export async function reopenLostSessions(
+	records: readonly SessionRecord[],
+): Promise<ReopenOutcome> {
+	const outcome: ReopenOutcome = { reopened: [], failed: [] };
+	for (const record of records) {
+		try {
+			const { driver, handle } = await spawnTerminalSurface({
+				layout: "tab",
+				cwd: record.cwd,
+			});
+			if (!handle) {
+				outcome.failed.push({
+					sessionId: record.sessionId,
+					reason: `the ${driver.id} driver cannot say which surface it opened`,
+				});
+				continue;
+			}
+			const typist = getTypeProvider(driver.id);
+			if (!typist) {
+				outcome.failed.push({
+					sessionId: record.sessionId,
+					reason: `the ${driver.id} driver cannot type into a surface`,
+				});
+				continue;
+			}
+			await typist.typeInto(handle, `pi --session ${record.sessionId}\n`);
+			outcome.reopened.push(record.sessionId);
+		} catch (error) {
+			outcome.failed.push({
+				sessionId: record.sessionId,
+				reason: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+	return outcome;
 }
 
 /** What the caller knows about the session loading a quest. */

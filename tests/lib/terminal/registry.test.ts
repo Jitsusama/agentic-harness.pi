@@ -96,7 +96,7 @@ describe("resolveDriver", () => {
 
 describe("spawnTerminal", () => {
 	it("dispatches through the chosen driver", async () => {
-		const fakeSpawn = vi.fn(async () => {});
+		const fakeSpawn = vi.fn(async () => undefined);
 		const fake: TerminalDriver = {
 			id: "fake",
 			available: () => true,

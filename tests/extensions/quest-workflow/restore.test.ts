@@ -9,7 +9,14 @@ import {
 	closeRecord,
 	openRecord,
 } from "../../../lib/internal/quest/session-registry";
-import { registerBuiltinTerminalDrivers } from "../../../lib/terminal/index";
+import {
+	clearTerminalDrivers,
+	registerBuiltinTerminalDrivers,
+	registerTerminalDriver,
+	type TerminalDriver,
+	type TerminalSessionHandle,
+	type TerminalTypeCapability,
+} from "../../../lib/terminal/index";
 import { createEnvGuard, succeeded } from "./_helpers";
 
 let tmpRoot: string;
@@ -125,6 +132,91 @@ describe("restore verb", () => {
 			}),
 		);
 		expect((await restoreNow()).message).toContain("nothing to restore");
+	});
+
+	it("reopens by typing into a shell, not by spawning the command", async () => {
+		// Handing the resume line to the spawn primitive runs it under a
+		// non-interactive shell, which skips the startup files that put
+		// the right pi on PATH. Typing into a login shell is what a
+		// person does, and is the only thing that works.
+		const typed: { pane: string; text: string }[] = [];
+		let spawnedCommand: string | undefined | "unset" = "unset";
+		clearTerminalDrivers();
+		const driver: TerminalDriver & TerminalTypeCapability = {
+			id: "faketerm",
+			available: () => true,
+			async spawn(request) {
+				spawnedCommand = request.command;
+				return {
+					driverId: "faketerm",
+					kind: "fake-pane",
+					hostId: "here",
+					value: "7",
+				};
+			},
+			async typeInto(handle: TerminalSessionHandle, text: string) {
+				typed.push({ pane: handle.value, text });
+			},
+		};
+		registerTerminalDriver(driver);
+		saveRecord(lostSession("sess-A", "QEST-1"));
+
+		const result = succeeded(
+			await handle(buildState(), fakePi(), fakeCtx(), {
+				action: "restore",
+				force: true,
+			}),
+		);
+		expect(spawnedCommand).toBeUndefined();
+		expect(typed).toEqual([{ pane: "7", text: "pi --session sess-A\n" }]);
+		expect(result.message).toContain("Reopened 1 of 1");
+	});
+
+	it("refuses to act through a driver that cannot type, and says so", async () => {
+		// The only fallback is running the command without a login
+		// shell, which is the failure the capability exists to avoid, so
+		// the honest answer is to hand back the recipe.
+		clearTerminalDrivers();
+		registerTerminalDriver({
+			id: "mute",
+			available: () => true,
+			async spawn() {
+				return {
+					driverId: "mute",
+					kind: "pane",
+					hostId: "here",
+					value: "1",
+				};
+			},
+		});
+		saveRecord(lostSession("sess-A", "QEST-1"));
+
+		const result = succeeded(
+			await handle(buildState(), fakePi(), fakeCtx(), {
+				action: "restore",
+				force: true,
+			}),
+		);
+		expect(result.message).toContain("cannot type into a surface");
+		expect(result.message).toContain("pi --session 'sess-A'");
+	});
+
+	it("lists rather than acts unless told to act", async () => {
+		// Reopening a dozen tabs is too large a side effect to fire from
+		// a verb the user may have run only to look.
+		let spawns = 0;
+		clearTerminalDrivers();
+		registerTerminalDriver({
+			id: "counting",
+			available: () => true,
+			async spawn() {
+				spawns++;
+				return undefined;
+			},
+		});
+		saveRecord(lostSession("sess-A", "QEST-1"));
+		await restoreNow();
+		expect(spawns).toBe(0);
 	});
 
 	it("stops offering a session once it has been brought back", async () => {

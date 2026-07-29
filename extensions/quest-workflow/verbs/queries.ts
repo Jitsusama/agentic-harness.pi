@@ -36,6 +36,7 @@ import {
 } from "../render-rows.js";
 import {
 	pruneClosedRecords,
+	reopenLostSessions,
 	restorableSessions,
 	seedLiveSessions,
 } from "../session-registry.js";
@@ -226,7 +227,10 @@ function claimedSessions(state: QuestState) {
 	);
 }
 
-export async function restore(state: QuestState): Promise<QuestResult> {
+export async function restore(
+	state: QuestState,
+	opts: { act?: boolean } = {},
+): Promise<QuestResult> {
 	// Seed before asking, so tabs that were already open when the
 	// registry arrived are known to be open rather than absent, and
 	// prune after, so a window that has passed is not carried by every
@@ -244,14 +248,33 @@ export async function restore(state: QuestState): Promise<QuestResult> {
 		(record) =>
 			`- ${record.quest ?? "(no quest)"} ${record.cwd} (session ${record.sessionId}, lost ${record.closedAt})`,
 	);
-	const body = [
-		`${lost.length} session(s) to restore:`,
-		...rows,
-		"",
-		"Run to reopen them:",
-		...recipe,
-	].join("\n");
-	return ok(body, { restore: { toRestore: lost, recipe } });
+	if (!opts.act) {
+		const body = [
+			`${lost.length} session(s) to restore:`,
+			...rows,
+			"",
+			"Run to reopen them, or pass force to have restore do it:",
+			...recipe,
+		].join("\n");
+		return ok(body, { restore: { toRestore: lost, recipe } });
+	}
+	const outcome = await reopenLostSessions(lost);
+	const lines = [
+		`Reopened ${outcome.reopened.length} of ${lost.length} session(s).`,
+	];
+	if (outcome.failed.length > 0) {
+		lines.push(
+			"",
+			"Could not reopen these; run the lines by hand:",
+			...outcome.failed.map((f) => `- ${f.sessionId}: ${f.reason}`),
+			...restoreRecipe(
+				lost.filter((r) =>
+					outcome.failed.some((f) => f.sessionId === r.sessionId),
+				),
+			),
+		);
+	}
+	return ok(lines.join("\n"), { restore: { ...outcome, recipe } });
 }
 
 export async function recent(state: QuestState): Promise<QuestResult> {

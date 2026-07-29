@@ -294,7 +294,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			force: Type.Optional(
 				Type.Boolean({
 					description:
-						"tree-prune: override safety refusals (dirty working tree, unmerged branch, attached session). Destructive: passing true is consent to lose uncommitted work, so the agent should confirm with the user first.",
+						"tree-prune: override safety refusals (dirty working tree, unmerged branch, attached session). Destructive: passing true is consent to lose uncommitted work, so the agent should confirm with the user first. restore: actually reopen the lost sessions rather than listing them, spawning a terminal per session, which the agent should likewise confirm first.",
 				}),
 			),
 			dryRun: Type.Optional(

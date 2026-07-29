@@ -20,8 +20,13 @@ export interface TerminalRequest {
 	 * Shell command to run. Drivers pass this through to
 	 * the underlying spawn primitive; quoting is the
 	 * driver's responsibility.
+	 *
+	 * Optional, because a caller may want the surface itself
+	 * rather than a command in it: spawning a plain login
+	 * shell and then typing into it is the only way to reach
+	 * a shell that has run the user's own startup files.
 	 */
-	command: string;
+	command?: string;
 	/** Working directory for the new shell. */
 	cwd?: string;
 	/** Tab or window title, when the driver supports it. */
@@ -96,6 +101,27 @@ export function terminalHandleKey(handle: TerminalSessionHandle): string {
 	return `${handle.driverId}\u0000${handle.hostId}\u0000${handle.scope ?? ""}\u0000${handle.value}`;
 }
 
+/**
+ * Optional capability for typing into a surface that already exists.
+ *
+ * Separate from spawning because it is the only way to reach a shell
+ * that has run the user's own startup files. Handing a command to the
+ * spawn primitive runs it under a non-interactive shell, which skips
+ * the hooks that set a project's environment up, so a command that
+ * works when typed fails when spawned. Recovering by hand after a
+ * crash meant spawning bare shells and typing the resume lines in,
+ * and a driver that can do that is a driver that can do the recovery
+ * itself.
+ */
+export interface TerminalTypeCapability {
+	/**
+	 * Type text into an existing surface, as though the user had. A
+	 * trailing newline submits it; without one the text is left on the
+	 * command line for the user to read and press enter on.
+	 */
+	typeInto(handle: TerminalSessionHandle, text: string): Promise<void>;
+}
+
 /** A pluggable terminal driver. */
 export interface TerminalDriver {
 	/** Identifier (e.g. "wezterm", "tmux"). */
@@ -110,6 +136,12 @@ export interface TerminalDriver {
 	 * Dispatch the spawn. Resolves when the spawn command
 	 * has been sent; the actual lifetime of the spawned
 	 * process is the driver's concern.
+	 *
+	 * Returns a handle to the new surface when the driver can name
+	 * one, so a caller that spawned a bare shell can then type into
+	 * it. A driver whose spawn primitive says nothing about what it
+	 * created returns undefined, which is honest rather than a
+	 * guess.
 	 */
-	spawn(request: TerminalRequest): Promise<void>;
+	spawn(request: TerminalRequest): Promise<TerminalSessionHandle | undefined>;
 }

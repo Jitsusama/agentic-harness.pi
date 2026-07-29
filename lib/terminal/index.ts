@@ -16,10 +16,12 @@ export {
 export {
 	getLivenessProvider,
 	getTerminalDriver,
+	getTypeProvider,
 	identifyCurrentTerminal,
 	listTerminalDrivers,
 	resolveDriver,
 	spawnTerminal,
+	spawnTerminalSurface,
 } from "./resolve.js";
 export type {
 	TerminalDriver,
@@ -28,5 +30,6 @@ export type {
 	TerminalProbe,
 	TerminalRequest,
 	TerminalSessionHandle,
+	TerminalTypeCapability,
 } from "./types.js";
 export { terminalHandleKey } from "./types.js";
