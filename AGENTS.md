@@ -436,7 +436,9 @@ Specs live under `tests/` mirroring the source layout (e.g.
 Run the suite with:
 
 ```sh
-pnpm test            # one shot
+pnpm test            # the unit lane, about 26s
+pnpm test:browser    # the Chrome lane, several minutes
+pnpm test:all        # both, rarely what you want
 pnpm test:watch      # re-run on save
 pnpm test:coverage   # v8 coverage report
 ```
@@ -465,8 +467,20 @@ been fixed hours earlier. Before treating a live tool run as
 evidence, `/reload`, or check the claim against the test
 suite, which always runs the tree.
 
-CI runs `pnpm lint` and `pnpm test` on every push and pull
-request via `.github/workflows/ci.yml`.
+`pnpm test` runs the unit project only, and that is deliberate.
+The browser tests drive a real Chrome, so they run one file at a
+time and measured 223 seconds of a 302 second suite. CI has a
+separate browser job which runs that lane with
+`PI_RACE_TESTS=1`, making it a strict superset, so including it in
+`pnpm test` meant every change paid for a serial Chrome lane twice.
+
+The consequence to remember: a change under `lib/web` or
+`extensions/browser-integration` is not covered by `pnpm test`.
+Run `pnpm test:browser` for those.
+
+CI runs `pnpm lint`, `pnpm test`, `pnpm typecheck` and
+`pnpm test:browser` on every push and pull request via
+`.github/workflows/ci.yml`, as four parallel jobs.
 
 ## What Not to Do
 

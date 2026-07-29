@@ -36,7 +36,8 @@
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"typecheck": "tsc --noEmit",
-		"test": "vitest run",
+		"test": "vitest run --project unit",
+		"test:all": "vitest run",
 		"test:watch": "vitest",
 		"test:coverage": "vitest run --coverage",
 		"test:browser": "PI_RACE_TESTS=1 vitest run tests/browser"
