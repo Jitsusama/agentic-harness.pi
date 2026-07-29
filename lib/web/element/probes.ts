@@ -40,6 +40,20 @@
  * being read. Judging the card as text would compare its colour,
  * which nothing there paints, against the wrong criterion.
  */
+/**
+ * The element that paints this node.
+ *
+ * A `StaticText` target resolves to a DOM text node, which is the
+ * honest answer to what was named but has no style, no class list
+ * and no `getBoundingClientRect`. Anything that wants to read or
+ * change how the text is painted has to work on the element holding
+ * it. Without this, hiding a paragraph's text quietly did nothing
+ * and the contrast measurement concluded there was no text there.
+ */
+export const PAINTING_ELEMENT_PROBE = `function () {
+  return this.nodeType === 3 ? this.parentElement : this;
+}`;
+
 export const OWN_TEXT_PROBE = `function () {
   var kids = this.childNodes || [];
   for (var i = 0; i < kids.length; i++) {

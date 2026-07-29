@@ -90,6 +90,7 @@ import {
 	normalizeListeners,
 	OCCLUDER_PROBE,
 	OWN_TEXT_PROBE,
+	PAINTING_ELEMENT_PROBE,
 	type PseudoState,
 	type PseudoVariant,
 	type RawAnimation,
@@ -1321,10 +1322,16 @@ export class BrowserSession {
 		}
 		const backendNodeId = resolution.backendDomId;
 
-		const objectId = await this.objectFor(backendNodeId);
-		if (!objectId) {
+		const named = await this.objectFor(backendNodeId);
+		if (!named) {
 			return { ok: false, refusal: notFoundRefusal(tree, target) };
 		}
+		// Naming a paragraph's text means naming its StaticText, since
+		// a paragraph has no accessible name, and that resolves to a
+		// text node. The colour and the hiding both belong to the
+		// element painting it; the capture below still uses the named
+		// node, whose box is the tighter one.
+		const objectId = await this.paintingElement(named);
 
 		try {
 			const styles = await this.stylesOf(objectId);
@@ -1361,6 +1368,9 @@ export class BrowserSession {
 			}
 		} finally {
 			await this.release(objectId);
+			// Promoting a text node makes a second handle, and the node
+			// that was named is still ours to let go of.
+			if (named !== objectId) await this.release(named);
 		}
 	}
 
@@ -1392,14 +1402,20 @@ export class BrowserSession {
 			if (resolution.kind === "ambiguous") {
 				return { ok: false, refusal: ambiguityRefusal(tree, target) };
 			}
-			const objectId = await this.objectFor(resolution.backendDomId);
-			if (!objectId) {
+			const named = await this.objectFor(resolution.backendDomId);
+			if (!named) {
 				return { ok: false, refusal: notFoundRefusal(tree, target) };
 			}
+			// Either side may be named as StaticText, which resolves to a
+			// text node: no computed style to read, and no child text
+			// nodes of its own, so it would also be judged as carrying no
+			// text and drawn against the wrong criterion.
+			const objectId = await this.paintingElement(named);
 			try {
 				sides.push(await this.paintedSide(objectId));
 			} finally {
 				await this.release(objectId);
+				if (named !== objectId) await this.release(named);
 			}
 		}
 		const [first, second] = sides;
@@ -3055,6 +3071,28 @@ export class BrowserSession {
 			// The node can go out of the document between being named
 			// and being looked at; the inspection reports what it can.
 			return undefined;
+		}
+	}
+
+	/**
+	 * Swap a text node for the element that paints it.
+	 *
+	 * A `StaticText` target resolves to a text node, which is right
+	 * for reading its box and wrong for everything that touches
+	 * style. Returns the original handle when it is already an
+	 * element, so callers can promote unconditionally.
+	 */
+	private async paintingElement(objectId: string): Promise<string> {
+		try {
+			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: PAINTING_ELEMENT_PROBE,
+			});
+			return result.objectId ?? objectId;
+		} catch {
+			// A detached node has no painting element either, and the
+			// caller's own reads will report what it could not find.
+			return objectId;
 		}
 	}
 
