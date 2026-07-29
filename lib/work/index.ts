@@ -6,12 +6,12 @@
  * one implementation of it, and on a stacked workflow the backend
  * that tracks the stack knows things plain git cannot be asked.
  *
- * Only the trees question is answered so far, and only its first
- * half: where a tree gets cut from. That half is here first
- * because the council cannot become provider-agnostic until it
- * stops asking a forge-shaped question, and this is the shape of
- * the answer.
+ * Only the trees question is answered so far: where a tree gets
+ * cut from, and whether one already on disk answers a fresh
+ * request. Both are here before the council moves across, because
+ * the council cannot become provider-agnostic while it is asking a
+ * forge-shaped question.
  */
 
-export type { TreeSource } from "./tree.js";
-export { treeSource } from "./tree.js";
+export type { TreeIdentity, TreeRequest, TreeSource } from "./tree.js";
+export { satisfies, treeIdentity, treeSource } from "./tree.js";

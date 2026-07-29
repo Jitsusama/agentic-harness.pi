@@ -14,9 +14,12 @@ to the work rather than to one tool that does it.
 | Export | Answers |
 |---|---|
 | `treeSource` | Where a tree for a change gets cut from |
+| `treeIdentity` | What tree a request is asking for |
+| `satisfies` | Whether a tree already held answers a request |
 
-That is the first half of the trees question, and it is here
-before the rest because of what it replaces.
+These are here before the council moves across, because the
+council cannot become provider-agnostic while it is asking a
+forge-shaped question.
 
 ## Why `treeSource` Exists
 
@@ -49,7 +52,37 @@ acts differently on each: use it, fetch it first, or say it cannot
 be found. Collapsing the last two loses the difference between
 work to do and a question to ask.
 
+## Two Lifecycles, Not Three
+
+There were three tree contracts: the review worktrees keyed by
+commit, the fix worktrees keyed by pull request, and the quest
+trees keyed by a name a person chose. Reading them side by side,
+the fix and quest cases differ only in what names them. Both are a
+durable branch you edit in.
+
+What actually varies is what the tree is pinned to, and that is
+what changes the reuse rule:
+
+| Intent | Pinned to | Edited in | Shared |
+|---|---|---|---|
+| `snapshot` | a commit | no | yes, between readers |
+| `worktree` | a branch | yes | no, one stream of work |
+
+A worktree's identity deliberately leaves the commit out. The
+branch moves under it every time you commit, so an identity that
+moved with `HEAD` would orphan the tree you are working in on your
+first commit.
+
+A snapshot's `paths` are left out too. Narrowing what gets
+materialized is a provider's optimisation, not part of what the
+tree is, and folding it in would fragment reuse per distinct file
+set.
+
+`shareable` rides on the identity rather than being a caller's
+judgement call, because whether handing one tree to two callers is
+safe follows from the intent and nothing else.
+
 ## Companion Extensions
 
 None yet. The `work` tool that will host this layer arrives with
-the rest of the trees facet.
+the provider contract and the broker.

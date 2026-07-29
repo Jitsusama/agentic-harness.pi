@@ -46,3 +46,94 @@ export function treeSource(repo: RepoLocator): TreeSource {
 	if (repo.remoteUrl) return { kind: "clone", remoteUrl: repo.remoteUrl };
 	return { kind: "unknown", repoKey: repo.key };
 }
+
+/**
+ * What a tree is wanted for.
+ *
+ * Two lifecycles, not three. The review worktrees, the fix
+ * worktrees and the quest trees looked like three contracts, but
+ * the fix and quest cases differ only in what names them: both are
+ * a durable branch you edit in. What actually varies is what the
+ * tree is pinned to, and that changes the reuse rule.
+ *
+ * A `snapshot` is pinned to a commit and read rather than edited,
+ * so readers can share one. A `worktree` is pinned to a branch and
+ * expects to be committed in, so it belongs to one stream of work.
+ */
+export type TreeRequest =
+	| {
+			intent: "snapshot";
+			repo: RepoLocator;
+			purpose: string;
+			commit: string;
+			paths?: readonly string[];
+	  }
+	| {
+			intent: "worktree";
+			repo: RepoLocator;
+			purpose: string;
+			branch: string;
+			baseBranch?: string;
+	  };
+
+/** What a tree is, for the purpose of reusing it. */
+export interface TreeIdentity {
+	/**
+	 * Stable, filesystem-safe name for this tree. Safe to use as
+	 * a directory component: repo keys carry colons and change
+	 * labels carry slashes and hashes, and a key holding those
+	 * either nests where nobody expected a directory or fails
+	 * outright.
+	 */
+	key: string;
+	/**
+	 * Whether two callers wanting this same tree may be handed
+	 * the same one. True for a snapshot, since reading does not
+	 * disturb a reader. False for a worktree, because somebody is
+	 * editing in it, and that is a property of the intent rather
+	 * than a caller's judgement call.
+	 */
+	shareable: boolean;
+}
+
+/** Characters that must not reach a directory name. */
+const UNSAFE_IN_PATH = /[^a-zA-Z0-9._-]+/g;
+
+function slug(value: string): string {
+	return value.replace(UNSAFE_IN_PATH, "-");
+}
+
+/**
+ * Work out what tree a request is asking for.
+ *
+ * A snapshot's identity carries its commit, so asking for another
+ * commit asks for another tree. A worktree's identity deliberately
+ * does not: the branch moves under it every time you commit, and
+ * an identity that moved with HEAD would orphan the tree you are
+ * working in on your first commit.
+ *
+ * Both are scoped to the repo, because a branch name and even a
+ * commit can appear in two repos and they are not the same tree.
+ *
+ * The `paths` a snapshot may narrow itself to are left out. Scoping
+ * is a provider's optimisation, not part of what the tree is;
+ * folding it in would fragment reuse per distinct file set.
+ */
+export function treeIdentity(request: TreeRequest): TreeIdentity {
+	const repo = slug(request.repo.key);
+	if (request.intent === "snapshot") {
+		return { key: `snapshot-${repo}-${slug(request.commit)}`, shareable: true };
+	}
+	return { key: `worktree-${repo}-${slug(request.branch)}`, shareable: false };
+}
+
+/**
+ * Whether a tree already held answers a fresh request.
+ *
+ * Compared by identity rather than field by field, so the reuse
+ * rule lives in one place and cannot drift between the caller that
+ * provisions and the caller that looks one up.
+ */
+export function satisfies(held: TreeIdentity, request: TreeRequest): boolean {
+	return held.key === treeIdentity(request).key;
+}
