@@ -11,7 +11,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Proposal } from "../../lib/review/index.js";
 
-/** PR lifecycle states GitHub returns over GraphQL. */
+/**
+ * How this workflow's views name a change's lifecycle.
+ *
+ * Shouted because GitHub shouts, and these strings reach the
+ * screen. The substrate speaks its own lower-case vocabulary and
+ * `metadataFromProposal` translates.
+ */
 export type PrState = "OPEN" | "CLOSED" | "MERGED";
 
 /** Subset of PR metadata the workflow consumes. */
