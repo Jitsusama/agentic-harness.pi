@@ -32,6 +32,8 @@ import {
 	closeRecord,
 	openRecord,
 	parseSessionRecord,
+	reopenRecord,
+	restorable,
 	type SessionEndReason,
 	type SessionRecord,
 	switchQuest,
@@ -253,6 +255,22 @@ export function recordSessionEnd(
 	saveRecord(closeRecord(record, reason, now));
 }
 
+/**
+ * The sessions worth offering back, newest loss first.
+ *
+ * Probes first, so a session lost to a crash is recognised as lost
+ * before the question is asked: the record it left behind still
+ * claims to be open, and only a probe can settle that.
+ */
+export function restorableSessions(): SessionRecord[] {
+	const stored = loadRecords();
+	observeRecords(stored);
+	// Re-read rather than patching the list in place: observing writes
+	// the repairs to disk, and the reload is what makes the answer the
+	// same one a second reader would get.
+	return restorable(loadRecords().map((entry) => entry.record));
+}
+
 /** What the caller knows about the session loading a quest. */
 export interface OnQuestInput {
 	sessionId: string;
@@ -279,7 +297,18 @@ export function recordSessionOnQuest(
 ): void {
 	const existing = readRecord(input.sessionId);
 	if (existing) {
-		saveRecord(switchQuest(existing, input.questId, now));
+		// A closed record here means the session was resumed: this
+		// process is running a conversation something else ended. Put it
+		// back in the open set under our identity, or restore would go on
+		// offering a tab the user has already brought back.
+		const live = existing.closedAt
+			? reopenRecord(existing, {
+					instanceId: input.instanceId,
+					...(input.process ? { process: input.process } : {}),
+					...(input.terminal ? { terminal: input.terminal } : {}),
+				})
+			: existing;
+		saveRecord(switchQuest(live, input.questId, now));
 		return;
 	}
 	saveRecord(

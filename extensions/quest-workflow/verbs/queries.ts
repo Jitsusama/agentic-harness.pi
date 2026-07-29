@@ -11,6 +11,7 @@ import {
 	discoverQuests,
 	type QuestIndex,
 } from "../../../lib/internal/quest/discovery.js";
+import { restoreRecipe } from "../../../lib/internal/quest/session-registry.js";
 import {
 	ancestorsOf,
 	buildRowExpansion,
@@ -33,8 +34,8 @@ import {
 	renderListing,
 	renderRowBrief,
 } from "../render-rows.js";
+import { restorableSessions } from "../session-registry.js";
 import type { QuestState } from "../state.js";
-import { planCurrentWorkspaceRestore } from "../workspace-snapshot.js";
 import {
 	ok,
 	type QuestResult,
@@ -211,36 +212,25 @@ export async function workspace(state: QuestState): Promise<QuestResult> {
 }
 
 export async function restore(): Promise<QuestResult> {
-	const view = await planCurrentWorkspaceRestore();
-	if ("reason" in view) return ok(view.reason, { restore: null });
-	const { plan, recipe } = view;
-	if (plan.toRestore.length === 0) {
-		return ok(
-			`All ${plan.alreadyLive.length} recorded session(s) are already live; nothing to restore.`,
-			{ restore: { toRestore: [], alreadyLive: plan.alreadyLive } },
-		);
+	const lost = restorableSessions();
+	if (lost.length === 0) {
+		return ok("No sessions were lost; nothing to restore.", {
+			restore: { toRestore: [], recipe: [] },
+		});
 	}
-	const rows = plan.toRestore.map(
-		(e) => `- ${e.questId} ${e.cwd} (session ${e.sessionId})`,
+	const recipe = restoreRecipe(lost);
+	const rows = lost.map(
+		(record) =>
+			`- ${record.quest ?? "(no quest)"} ${record.cwd} (session ${record.sessionId}, lost ${record.closedAt})`,
 	);
-	const liveNote =
-		plan.alreadyLive.length > 0
-			? `\n${plan.alreadyLive.length} recorded session(s) already live, excluded.`
-			: "";
 	const body = [
-		`${plan.toRestore.length} session(s) to restore:`,
+		`${lost.length} session(s) to restore:`,
 		...rows,
 		"",
 		"Run to reopen them:",
 		...recipe,
 	].join("\n");
-	return ok(`${body}${liveNote}`, {
-		restore: {
-			toRestore: plan.toRestore,
-			alreadyLive: plan.alreadyLive,
-			recipe,
-		},
-	});
+	return ok(body, { restore: { toRestore: lost, recipe } });
 }
 
 export async function recent(state: QuestState): Promise<QuestResult> {

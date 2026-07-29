@@ -6,6 +6,9 @@ import {
 	openRecord,
 	parseSessionRecord,
 	pruneRecords,
+	reopenRecord,
+	restorable,
+	restoreRecipe,
 	type SessionRecord,
 	switchQuest,
 } from "../../../../lib/internal/quest/session-registry";
@@ -86,6 +89,123 @@ describe("closeRecord", () => {
 		const again = closeRecord(first, "swapped", LATER_STILL);
 		expect(again.closedAt).toBe(LATER.toISOString());
 		expect(again.endReason).toBe("quit");
+	});
+});
+
+describe("restoreRecipe", () => {
+	it("gives a runnable line per session", () => {
+		expect(restoreRecipe([opened()])).toEqual([
+			"(cd '/work' && pi --session 'sess-1')  # QEST-1",
+		]);
+	});
+
+	it("quotes a path that would otherwise break out and run", () => {
+		// The recipe is pasted into a shell. A directory holding a quote
+		// must stay an argument rather than becoming a command.
+		const line = restoreRecipe([opened({ cwd: "/tmp/it's here'; rm -rf /" })]);
+		expect(line[0]).toBe(
+			"(cd '/tmp/it'\\''s here'\\''; rm -rf /' && pi --session 'sess-1')  # QEST-1",
+		);
+	});
+
+	it("keeps a newline out of the trailing comment", () => {
+		// A newline would end the comment and turn the rest of the line
+		// into a live command.
+		const line = restoreRecipe([opened({ questId: "QEST-1\nrm -rf /" })]);
+		expect(line[0]).not.toContain("\n");
+	});
+});
+
+describe("restorable", () => {
+	const died = (sessionId: string, at: Date) =>
+		closeRecord(opened({ sessionId }), "died", at);
+
+	it("offers back a session that ended without anyone asking", () => {
+		expect(restorable([died("sess-1", LATER)]).map((r) => r.sessionId)).toEqual(
+			["sess-1"],
+		);
+	});
+
+	it("never offers a session the user closed on purpose", () => {
+		// Quitting a tab is an instruction, not an accident. Offering it
+		// back is how restore came to propose tabs nobody wanted.
+		const quit = closeRecord(opened({ sessionId: "sess-quit" }), "quit", LATER);
+		expect(restorable([quit])).toEqual([]);
+	});
+
+	it("never offers a session whose tab outlived it", () => {
+		// A swap replaced the conversation in a tab that is still on
+		// screen, so there is nothing to bring back.
+		const swapped = closeRecord(
+			opened({ sessionId: "sess-swapped" }),
+			"swapped",
+			LATER,
+		);
+		expect(restorable([swapped])).toEqual([]);
+	});
+
+	it("never offers a session that is still open", () => {
+		expect(restorable([opened({ sessionId: "sess-open" })])).toEqual([]);
+	});
+
+	it("never offers a session already brought back", () => {
+		const back = reopenRecord(died("sess-1", LATER), { instanceId: "inst-2" });
+		expect(restorable([back])).toEqual([]);
+	});
+
+	it("puts the most recently lost first", () => {
+		const order = restorable([
+			died("older", LATER),
+			died("newer", LATER_STILL),
+		]);
+		expect(order.map((r) => r.sessionId)).toEqual(["newer", "older"]);
+	});
+});
+
+describe("reopenRecord", () => {
+	const resumed = {
+		instanceId: "inst-2",
+		process: { hostId: "host-a", pid: 222, startToken: "tok-2" },
+	};
+
+	it("puts a session that was resumed back in the open set", () => {
+		// Restore offers back the tabs that died. One the user has
+		// already brought back must stop being offered, and the only
+		// thing that says so is its record joining the open set again.
+		const died = closeRecord(opened(), "died", LATER);
+		const back = reopenRecord(died, resumed);
+		expect(back.closedAt).toBeUndefined();
+		expect(back.endReason).toBeUndefined();
+	});
+
+	it("takes on the identity of the process now running it", () => {
+		// The old pid belongs to a dead process, and after a reboot to
+		// whatever inherited the number. Probing it would answer about a
+		// stranger, so the resumed session's own identity replaces it.
+		const died = closeRecord(opened(), "died", LATER);
+		const back = reopenRecord(died, resumed);
+		expect(back.instanceId).toBe("inst-2");
+		expect(back.process).toEqual(resumed.process);
+	});
+
+	it("keeps the moment the session first opened", () => {
+		// Resuming continues a session rather than starting one, so its
+		// origin is still its origin.
+		const died = closeRecord(opened(), "died", LATER);
+		expect(reopenRecord(died, resumed).openedAt).toBe(NOW.toISOString());
+	});
+
+	it("forgets an identity the resuming process could not capture", () => {
+		// Carrying the old process forward would leave the record
+		// probeable against a pid that is not this session's.
+		const died = closeRecord(
+			opened({ process: resumed.process }),
+			"died",
+			LATER,
+		);
+		expect(
+			reopenRecord(died, { instanceId: "inst-3" }).process,
+		).toBeUndefined();
 	});
 });
 

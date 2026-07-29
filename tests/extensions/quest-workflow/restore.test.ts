@@ -2,10 +2,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { saveRecord } from "../../../extensions/quest-workflow/session-registry";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import {
+	closeRecord,
+	openRecord,
+} from "../../../lib/internal/quest/session-registry";
 import { registerBuiltinTerminalDrivers } from "../../../lib/terminal/index";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 
@@ -37,20 +42,24 @@ async function createQuest(
 
 const envGuard = createEnvGuard();
 let savedHome: string | undefined;
+let savedState: string | undefined;
 let savedPane: string | undefined;
 let savedSocket: string | undefined;
 beforeEach(() => {
 	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "restore-"));
 	savedHome = process.env.HOME;
+	savedState = process.env.XDG_STATE_HOME;
 	savedPane = process.env.WEZTERM_PANE;
 	savedSocket = process.env.WEZTERM_UNIX_SOCKET;
 	process.env.HOME = tmpRoot;
+	process.env.XDG_STATE_HOME = join(tmpRoot, "state");
 	registerBuiltinTerminalDrivers();
 });
 afterEach(() => {
 	for (const [key, val] of [
 		["HOME", savedHome],
+		["XDG_STATE_HOME", savedState],
 		["WEZTERM_PANE", savedPane],
 		["WEZTERM_UNIX_SOCKET", savedSocket],
 	] as const) {
@@ -61,40 +70,76 @@ afterEach(() => {
 	envGuard.leave();
 });
 
+/** A record for a session lost with the machine it ran on. */
+function lostSession(sessionId: string, questId: string) {
+	return closeRecord(
+		openRecord({
+			sessionId,
+			instanceId: "inst-gone",
+			cwd: tmpRoot,
+			questId,
+			now: new Date("2026-07-28T18:00:00.000Z"),
+		}),
+		"died",
+		new Date("2026-07-28T18:30:00.000Z"),
+	);
+}
+
+async function restoreNow() {
+	return succeeded(
+		await handle(buildState(), fakePi(), fakeCtx(), { action: "restore" }),
+	);
+}
+
 describe("restore verb", () => {
-	it("reports there is no workspace when no terminal is active", async () => {
+	it("works without a terminal that reports a workspace", async () => {
+		// The old restore keyed its snapshot by the mux socket, which
+		// carries the gui process id, so a relaunch always minted a key
+		// that matched nothing and the tabs from before were unreachable.
+		// Nothing about a lost session depends on the terminal asked.
 		delete process.env.WEZTERM_PANE;
 		delete process.env.WEZTERM_UNIX_SOCKET;
-		const state = buildState();
-		const result = await handle(state, fakePi(), fakeCtx(), {
-			action: "restore",
-		});
-		expect(result.ok).toBe(true);
-		if (!result.ok) throw new Error("unreachable");
-		expect(result.message.toLowerCase()).toContain("terminal");
+		saveRecord(lostSession("sess-A", "QEST-1"));
+		expect((await restoreNow()).message).toContain("pi --session 'sess-A'");
 	});
 
-	it("lists a session recorded on load once its pane is gone", async () => {
-		// A faked wezterm terminal so load records a workspace entry.
+	it("offers back a session lost with its terminal", async () => {
+		saveRecord(lostSession("sess-A", "QEST-1"));
+		const result = await restoreNow();
+		expect(result.message).toContain("QEST-1");
+		expect(result.message).toContain("pi --session 'sess-A'");
+	});
+
+	it("does not offer a session that is still running", async () => {
+		// The session a load records is this very process, which probes
+		// alive. Offering it back is how restore came to propose tabs
+		// that were on screen the whole time.
 		process.env.WEZTERM_PANE = "42";
 		process.env.WEZTERM_UNIX_SOCKET = "/tmp/wez-sock";
 		const state = buildState();
 		const quest = await createQuest(state, "Recorded Quest");
-		// Load records the current session into the workspace snapshot.
-		const loaded = await handle(state, fakePi(), fakeCtx("sess-A"), {
-			action: "load",
-			id: quest,
-		});
-		expect(loaded.ok).toBe(true);
+		succeeded(
+			await handle(state, fakePi(), fakeCtx("sess-A"), {
+				action: "load",
+				id: quest,
+			}),
+		);
+		expect((await restoreNow()).message).toContain("nothing to restore");
+	});
 
-		const result = await handle(state, fakePi(), fakeCtx("sess-A"), {
-			action: "restore",
-		});
-		expect(result.ok).toBe(true);
-		if (!result.ok) throw new Error("unreachable");
-		// The pane cannot be probed live (no wezterm binary), so the
-		// recorded session is offered for restore with a resume recipe.
-		expect(result.message).toContain(quest);
-		expect(result.message).toContain("pi --session 'sess-A'");
+	it("stops offering a session once it has been brought back", async () => {
+		const state = buildState();
+		const quest = await createQuest(state, "Recovered Quest");
+		saveRecord(lostSession("sess-A", quest));
+		expect((await restoreNow()).message).toContain("pi --session 'sess-A'");
+		// Resuming the session is what a user does with the recipe. The
+		// record rejoins the open set, and the offer has to stop.
+		succeeded(
+			await handle(state, fakePi(), fakeCtx("sess-A"), {
+				action: "load",
+				id: quest,
+			}),
+		);
+		expect((await restoreNow()).message).toContain("nothing to restore");
 	});
 });

@@ -255,6 +255,95 @@ export function lastOpenAt(
  * moment the session actually ended, which is the timestamp every
  * recency ordering is built on.
  */
+/**
+ * A runnable line per session, to be pasted into a shell.
+ *
+ * Everything interpolated is quoted, because all of it comes from
+ * disk: a working directory is whatever the filesystem allows, and a
+ * record can be hand-edited. A line the user is invited to paste is
+ * not the place to trust either.
+ */
+export function restoreRecipe(records: readonly SessionRecord[]): string[] {
+	return records.map((record) => {
+		const quest = record.quest ? `  # ${commentSafe(record.quest)}` : "";
+		return `(cd ${shellSingleQuote(record.cwd)} && pi --session ${shellSingleQuote(record.sessionId)})${quest}`;
+	});
+}
+
+/**
+ * Wrap a value in single quotes for safe shell interpolation. An
+ * embedded single quote is closed, escaped and reopened (`'\''`), the
+ * standard POSIX idiom, so the value cannot break out of the quoting.
+ */
+function shellSingleQuote(value: string): string {
+	return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * Flatten a value for a trailing shell comment. A newline would end
+ * the comment and turn the rest of the recipe into a live command, so
+ * control characters are collapsed to a space.
+ */
+function commentSafe(value: string): string {
+	return value.replace(/[\r\n]+/g, " ").trim();
+}
+
+/**
+ * The sessions worth offering back, most recently lost first.
+ *
+ * Only a session that ended without anyone asking qualifies. Quitting
+ * a tab is an instruction rather than an accident, and a swap
+ * replaced the conversation in a tab that is still on screen, so
+ * neither leaves anything to bring back. Offering those anyway is how
+ * restore came to propose tabs nobody had lost, which taught people
+ * to distrust the whole list.
+ *
+ * A session still in the open set is either running or waiting for a
+ * reader to notice it is not. Either way it is not yet known to be
+ * lost, and a reader that probes it settles the question before this
+ * is asked.
+ */
+export function restorable(records: readonly SessionRecord[]): SessionRecord[] {
+	return records
+		.filter((record) => record.endReason === "died" && record.closedAt)
+		.sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? ""));
+}
+
+/**
+ * Put a closed record back in the open set, under the identity of the
+ * process that has resumed it.
+ *
+ * Restore offers back the sessions that died. One the user has
+ * already brought back has to stop being offered, and the only thing
+ * that says so is its record rejoining the open set.
+ *
+ * The new identity replaces the old rather than merging with it. The
+ * recorded pid belongs to a process that is gone, and after a reboot
+ * to whatever inherited the number, so probing it would answer about
+ * a stranger. Where the resuming process could not capture an
+ * identity the field is dropped for the same reason: absent reads as
+ * cannot say, which is true, while a stale value reads as fact.
+ *
+ * The opening moment stays put. Resuming continues a session rather
+ * than starting one.
+ */
+export function reopenRecord(
+	record: SessionRecord,
+	input: {
+		instanceId: string;
+		process?: ProcessIdentity;
+		terminal?: RecordedTerminal;
+	},
+): SessionRecord {
+	const { closedAt, endReason, process, terminal, ...rest } = record;
+	return {
+		...rest,
+		instanceId: input.instanceId,
+		...(input.process ? { process: input.process } : {}),
+		...(input.terminal ? { terminal: input.terminal } : {}),
+	};
+}
+
 export function closeRecord(
 	record: SessionRecord,
 	reason: SessionEndReason,
