@@ -216,6 +216,15 @@ export async function workspace(state: QuestState): Promise<QuestResult> {
 	return ok(lines.join("\n"), { workspace: entries });
 }
 
+/**
+ * How many terminals restore will open in one go.
+ *
+ * Sized above a heavy but real working set, since the crash this
+ * exists for took twelve tabs, and well below the point where the
+ * screen fills with windows nobody asked for.
+ */
+const MAX_REOPEN_AT_ONCE = 16;
+
 /** Every session any quest claims, paired with the quest claiming it. */
 function claimedSessions(state: QuestState) {
 	const { index } = discoverQuests(state.questsRoot);
@@ -257,6 +266,21 @@ export async function restore(
 			...recipe,
 		].join("\n");
 		return ok(body, { restore: { toRestore: lost, recipe } });
+	}
+	if (lost.length > MAX_REOPEN_AT_ONCE) {
+		// Refuse whole rather than stopping halfway. A registry that has
+		// gone wrong, or a machine off for a month, should not be able
+		// to turn one verb into a screenful of windows, and a partial
+		// reopen would leave the user working out which half happened.
+		return ok(
+			[
+				`${lost.length} sessions were lost, more than the ${MAX_REOPEN_AT_ONCE} restore will open at once.`,
+				"Reopen the ones you want by hand:",
+				"",
+				...recipe,
+			].join("\n"),
+			{ restore: { toRestore: lost, recipe, refused: "too-many" } },
+		);
 	}
 	const outcome = await reopenLostSessions(lost);
 	const lines = [

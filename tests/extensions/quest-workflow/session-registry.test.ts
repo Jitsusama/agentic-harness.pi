@@ -6,6 +6,7 @@ import {
 	endReasonForShutdown,
 	forgetRecord,
 	loadRecords,
+	lostSessionCount,
 	observeRecords,
 	readRecord,
 	recordSessionEnd,
@@ -18,7 +19,10 @@ import {
 	touchHeartbeat,
 } from "../../../extensions/quest-workflow/session-registry";
 import { currentProcessIdentity } from "../../../lib/internal/quest/process-liveness";
-import { openRecord } from "../../../lib/internal/quest/session-registry";
+import {
+	closeRecord,
+	openRecord,
+} from "../../../lib/internal/quest/session-registry";
 
 let stateHome: string;
 let savedStateHome: string | undefined;
@@ -46,6 +50,17 @@ function liveSession(sessionId = "sess-live") {
  * answer. A record from an earlier boot is dead with no probe at all,
  * which is both deterministic here and the real crash case.
  */
+/** The minimum an openRecord call needs, for tests that vary one field. */
+function base(sessionId: string) {
+	return {
+		sessionId,
+		instanceId: `inst-${sessionId}`,
+		cwd: "/work",
+		questId: "QEST-1",
+		now: NOW,
+	};
+}
+
 function sessionFromPreviousBoot(sessionId = "sess-dead") {
 	return openRecord({
 		sessionId,
@@ -190,6 +205,29 @@ describe("endReasonForShutdown", () => {
 		for (const reason of ["new", "resume", "fork"]) {
 			expect(endReasonForShutdown(reason)).toBe("swapped");
 		}
+	});
+});
+
+describe("counting what was lost, for the start-up hint", () => {
+	it("counts the sessions that ended without anyone asking", () => {
+		saveRecord(closeRecord(openRecord(base("sess-a")), "died", NOW));
+		saveRecord(closeRecord(openRecord(base("sess-b")), "died", NOW));
+		expect(lostSessionCount()).toBe(2);
+	});
+
+	it("counts neither a deliberate close nor an open session", () => {
+		saveRecord(closeRecord(openRecord(base("sess-quit")), "quit", NOW));
+		saveRecord(openRecord(base("sess-open")));
+		expect(lostSessionCount()).toBe(0);
+	});
+
+	it("probes nothing, since a start-up hint must stay cheap", () => {
+		// The hard rule for the hint is that starting a session never
+		// shells out to inspect history. A record already closed says
+		// what it is without asking the operating system anything.
+		saveRecord(sessionFromPreviousBoot("sess-crashed"));
+		expect(lostSessionCount()).toBe(0);
+		expect(readRecord("sess-crashed")?.closedAt).toBeUndefined();
 	});
 });
 

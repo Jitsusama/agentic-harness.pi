@@ -100,6 +100,12 @@ const END_REASONS: readonly string[] = ["quit", "swapped", "died"];
  * forgotten session; trusting a malformed one can hide a recoverable
  * tab or resurrect a closed one.
  */
+/**
+ * What a session id may contain: the shape pi's own ids take, which
+ * is also the shape that is safe as a file name and as a shell word.
+ */
+const SAFE_SESSION_ID = /^[A-Za-z0-9._-]+$/;
+
 export function parseSessionRecord(value: unknown): SessionRecord | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
 	const v = value as Record<string, unknown>;
@@ -107,6 +113,13 @@ export function parseSessionRecord(value: unknown): SessionRecord | undefined {
 	if (!required.every((field) => typeof field === "string" && field !== "")) {
 		return undefined;
 	}
+	// Restore resumes a session by typing its id into a live shell, and
+	// a record is just a file, so anything that can write one could
+	// otherwise reach the terminal through it. Refuse here rather than
+	// escaping downstream: an id that is not an identifier is not a
+	// record, and one check at the door beats remembering to quote at
+	// every use. The same shape keeps the id usable as a file name.
+	if (!SAFE_SESSION_ID.test(v.sessionId as string)) return undefined;
 	if (v.quest !== undefined && typeof v.quest !== "string") return undefined;
 	if (v.closedAt !== undefined && typeof v.closedAt !== "string") {
 		return undefined;
@@ -275,7 +288,7 @@ export function restoreRecipe(records: readonly SessionRecord[]): string[] {
  * embedded single quote is closed, escaped and reopened (`'\''`), the
  * standard POSIX idiom, so the value cannot break out of the quoting.
  */
-function shellSingleQuote(value: string): string {
+export function shellSingleQuote(value: string): string {
 	return `'${value.replaceAll("'", "'\\''")}'`;
 }
 

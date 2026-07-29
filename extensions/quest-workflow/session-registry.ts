@@ -37,6 +37,7 @@ import {
 	restorable,
 	type SessionEndReason,
 	type SessionRecord,
+	shellSingleQuote,
 	switchQuest,
 } from "../../lib/internal/quest/session-registry.js";
 import type { QuestSession } from "../../lib/quest/index.js";
@@ -339,6 +340,21 @@ export function restorableSessions(): SessionRecord[] {
 	return restorable(loadRecords().map((entry) => entry.record));
 }
 
+/**
+ * How many sessions are recorded as lost, without probing anything.
+ *
+ * For the start-up hint, which must stay cheap: the hard rule is that
+ * starting a session never shells out to inspect history. A record
+ * already closed says what it is without asking the operating system,
+ * so a crash nobody has noticed yet is not counted here. It becomes
+ * visible the first time something reads the registry properly, which
+ * is what `quest restore` does.
+ */
+export function lostSessionCount(): number {
+	return loadRecords().filter(({ record }) => record.endReason === "died")
+		.length;
+}
+
 /** What happened when restore tried to reopen the lost sessions. */
 export interface ReopenOutcome {
 	reopened: string[];
@@ -385,7 +401,14 @@ export async function reopenLostSessions(
 				});
 				continue;
 			}
-			await typist.typeInto(handle, `pi --session ${record.sessionId}\n`);
+			// Quoted even though the parser already refuses an id that is
+			// not an identifier. This text is executed in the user's own
+			// shell, so it should not be one validation away from running
+			// whatever a file on disk says.
+			await typist.typeInto(
+				handle,
+				`pi --session ${shellSingleQuote(record.sessionId)}\n`,
+			);
 			outcome.reopened.push(record.sessionId);
 		} catch (error) {
 			outcome.failed.push({
