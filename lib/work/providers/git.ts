@@ -1,0 +1,79 @@
+/**
+ * Cutting trees with plain git.
+ *
+ * The general case, so that the broker works before anything
+ * downstream registers. A repo with a checkout on disk gets a git
+ * worktree beside the state directory, detached at a commit for a
+ * snapshot or on its branch for a worktree.
+ *
+ * It deliberately does not clone. A repo known only by a remote is
+ * refused with the remote named, because a clone of an unasked-for
+ * repo can be enormous and quietly spending ten minutes on one is a
+ * surprising thing for a tool to do on its own. Saying what is
+ * needed leaves the choice with whoever knows how big it is; a
+ * downstream provider that knows a particular repo can serve it
+ * without asking.
+ */
+
+import { join } from "node:path";
+import { type Exec, run } from "../../review/index.js";
+import type { TreeProvider } from "../broker.js";
+import { treeIdentity, treeSource } from "../tree.js";
+
+/** The built-in provider's id, and the general case's specificity. */
+const ID = "git-worktree";
+const GENERAL = 0;
+
+/**
+ * A tree provider backed by `git worktree`.
+ *
+ * Applies to every repo, since git is what the general case means.
+ * Anything more specific outranks it by declaring a higher
+ * specificity.
+ */
+export function createGitTreeProvider(deps: {
+	exec: Exec;
+	stateDir: string;
+}): TreeProvider {
+	return {
+		id: ID,
+		specificity: GENERAL,
+		appliesTo: () => true,
+
+		async ensure(request) {
+			const source = treeSource(request.repo);
+			if (source.kind === "unknown") {
+				throw new Error(
+					`Nothing is known about where ${request.repo.key} lives, locally or by remote, so there is nowhere to cut a tree from.`,
+				);
+			}
+			if (source.kind === "clone") {
+				throw new Error(
+					`${request.repo.key} is known only as ${source.remoteUrl}, and cloning a repo you did not ask for can take a very long time. Clone it yourself, or register a provider that knows this repo.`,
+				);
+			}
+
+			const path = join(deps.stateDir, treeIdentity(request).key);
+			const at =
+				request.intent === "snapshot"
+					? ["--detach", path, request.commit]
+					: [path, request.branch];
+			await run(
+				deps.exec,
+				"git",
+				["-C", source.path, "worktree", "add", ...at],
+				`Cutting a tree for ${request.purpose}`,
+			);
+			return { path };
+		},
+
+		async release(held) {
+			await run(
+				deps.exec,
+				"git",
+				["worktree", "remove", held.path],
+				`Releasing the tree at ${held.path}`,
+			);
+		},
+	};
+}

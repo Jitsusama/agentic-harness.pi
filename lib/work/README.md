@@ -18,6 +18,7 @@ to the work rather than to one tool that does it.
 | `satisfies` | Whether a tree already held answers a request |
 | `chooseTreeProvider` | Which provider serves a repo |
 | `createTreeBroker` | Custody: hand trees out, take them back |
+| `createGitTreeProvider` | The general case, backed by `git worktree` |
 
 These are here before the council moves across, because the
 council cannot become provider-agnostic while it is asking a
@@ -135,6 +136,27 @@ A held tree records who cut it. The chosen provider can change
 between cutting and releasing, since registration is dynamic, and a
 tree has to go back to whoever made it rather than to whoever would
 be chosen now.
+
+## The Built-In Provider Does Not Clone
+
+`createGitTreeProvider` serves any repo with a checkout on disk,
+detaching at a commit for a snapshot or checking out the branch for
+a worktree. It runs against the checkout the substrate already
+found, via `git -C`, never a path derived from the repo key.
+
+A repo known only by a remote is refused with the remote named:
+
+```
+github:Shopify/world is known only as https://github.com/Shopify/world.git,
+and cloning a repo you did not ask for can take a very long time.
+Clone it yourself, or register a provider that knows this repo.
+```
+
+Cloning an unasked-for repo can be enormous, and quietly spending
+ten minutes on one is a surprising thing for a tool to do. Saying
+what is needed leaves the choice with whoever knows how big it is,
+and a downstream provider that knows a particular repo can serve it
+without asking.
 
 ## Companion Extensions
 

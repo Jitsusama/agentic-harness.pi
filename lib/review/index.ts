@@ -159,6 +159,10 @@ export type {
 	StackingFacet,
 } from "./provider.js";
 export type { Exec, ExecResult, ProviderDeps } from "./providers/exec.js";
+// `run` goes out with the seam it belongs to. A consumer handed an
+// `Exec` needs a runner that keeps the CLI's own words on failure,
+// and writing that again per library produces worse diagnostics.
+export { run } from "./providers/exec.js";
 export { createGitProvider } from "./providers/git/index.js";
 /**
  * The GitHub provider's pure helpers, for consumers still
