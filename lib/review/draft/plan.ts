@@ -104,9 +104,22 @@ function describeAnchor(anchor: Anchor): string {
 	return `${sharedDescribeAnchor(anchor)} (${anchor.blob})`;
 }
 
-/** A finding rendered into prose, for when it cannot anchor. */
+/**
+ * A finding rendered into prose, for when it cannot anchor.
+ *
+ * Every line of the body is indented, not just the first. A
+ * remark is a header, a blank line and then the reasoning, and
+ * indenting only the opening line ends the list at that blank:
+ * the reasoning detaches and reads as prose belonging to nobody.
+ */
 function inlineFinding(finding: FindingItem): string {
-	return `- ${describeAnchor(finding.anchor)}\n  ${finding.body}`;
+	const body = finding.body
+		.split("\n")
+		// A blank line keeps its blankness. Padding it with spaces
+		// would leave trailing whitespace on every paragraph break.
+		.map((line) => (line.trim() === "" ? "" : `  ${line}`))
+		.join("\n");
+	return `- ${describeAnchor(finding.anchor)}\n${body}`;
 }
 
 /**
