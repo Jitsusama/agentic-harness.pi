@@ -288,8 +288,21 @@ is followed by judgment, not by a regex.
 
 - **Methodology guides**: `code-investigation-guide`,
   `code-tdd-guide`, `planning-guide`, `subagent-fleet-guide`,
-  `pr-workflow-guide`, `convention-recurrence-sensor-guide`,
-  `session-log-guide`.
+  `pr-workflow-guide`, `review-guide`,
+  `convention-recurrence-sensor-guide`, `session-log-guide`.
+
+  `review-guide` is worth a note, because it looks gateable and
+  is not. Its rules are about what to say rather than what to
+  write: plan before publishing, pass a stack's provenance on,
+  name the provider that answered, report what a read lost. The
+  substrate already enforces the mechanical halves in code, and
+  it enforces them where they belong. A batch too large for the
+  server is refused by the provider before a request is sent, a
+  missing facet is absent from the contract rather than
+  described in prose, and `plan` computes degradation instead of
+  asking the agent to predict it. What is left in the skill is
+  the judgment about how honestly to relay all that, which no
+  regex reaches.
 - **Style standards**: `code-style-standard`,
   `code-review-standard`. These describe how the agent should
   write and review code; the gates do not parse code semantics.

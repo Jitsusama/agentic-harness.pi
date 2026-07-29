@@ -72,12 +72,21 @@ Interceptors quietly enforce convention as the agent types:
 `git-commit-convention`, the `github-*` conventions and more)
 teach the rules the gates hold.
 
-**Review pull requests.** The `pr-workflow` extension runs a
-conversation-first, multi-model review: a council of reviewers
-fans out, a judge consolidates, an optional critique round
-pushes back, and you synthesize before anything posts.
-`pr-workflow-guide` teaches the tool, `code-review-standard`
-the evaluation criteria and `comment-format` the comment shape.
+**Review a change, wherever it lives.** The
+`review-integration` extension hosts a pluggable review
+substrate, so the same tools read a GitHub pull request, a
+Meteorite change, or a range of commits nobody has proposed at
+all. Providers register over the event bus, which means a
+provider for a private review system can live in a different
+package entirely. `review-guide` teaches the tools.
+
+**Review pull requests with a council.** The `pr-workflow`
+extension runs a conversation-first, multi-model review: a
+council of reviewers fans out, a judge consolidates, an optional
+critique round pushes back, and you synthesize before anything
+posts. `pr-workflow-guide` teaches the tool,
+`code-review-standard` the evaluation criteria and
+`comment-format` the comment shape.
 
 **Understand the code.** The `lsp-integration` extension gives
 the agent real semantic intelligence, definitions, references,
