@@ -472,7 +472,7 @@ async function runOnce(
 				);
 			}
 			const paired = await session.contrastPair(target, second, bar);
-			if (!paired.ok) return describeRefusal(target, paired.refusal);
+			if (!paired.ok) return describeRefusal(paired.target, paired.refusal);
 			return renderPair(paired.report);
 		}
 

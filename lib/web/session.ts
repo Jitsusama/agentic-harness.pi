@@ -1389,7 +1389,13 @@ export class BrowserSession {
 		other: Target,
 		bar: ContrastLevel = "AA",
 	): Promise<
-		{ ok: true; report: PairReport } | { ok: false; refusal: TargetRefusal }
+		| { ok: true; report: PairReport }
+		// The failing target travels with the refusal, as it does for a
+		// measurement between two elements. Without it the caller can
+		// only render the refusal against the target it happens to hold,
+		// which is the first one, and a caller told the subject was not
+		// found goes and corrects a subject that was fine.
+		| { ok: false; target: Target; refusal: TargetRefusal }
 	> {
 		await this.ready();
 		const tree = await this.axTree();
@@ -1397,14 +1403,14 @@ export class BrowserSession {
 		for (const target of [one, other]) {
 			const resolution = resolveTarget(tree, target);
 			if (resolution.kind === "notFound") {
-				return { ok: false, refusal: notFoundRefusal(tree, target) };
+				return { ok: false, target, refusal: notFoundRefusal(tree, target) };
 			}
 			if (resolution.kind === "ambiguous") {
-				return { ok: false, refusal: ambiguityRefusal(tree, target) };
+				return { ok: false, target, refusal: ambiguityRefusal(tree, target) };
 			}
 			const named = await this.objectFor(resolution.backendDomId);
 			if (!named) {
-				return { ok: false, refusal: notFoundRefusal(tree, target) };
+				return { ok: false, target, refusal: notFoundRefusal(tree, target) };
 			}
 			// Either side may be named as StaticText, which resolves to a
 			// text node: no computed style to read, and no child text
@@ -1420,7 +1426,14 @@ export class BrowserSession {
 		}
 		const [first, second] = sides;
 		if (!first || !second) {
-			return { ok: false, refusal: notFoundRefusal(tree, other) };
+			// Only reachable if a side went missing after resolving, and
+			// the loop above returns for anything it could name, so the
+			// one still unaccounted for is the second.
+			return {
+				ok: false,
+				target: other,
+				refusal: notFoundRefusal(tree, other),
+			};
 		}
 		return { ok: true, report: foldPair({ one: first, other: second, bar }) };
 	}
