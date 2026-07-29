@@ -32,6 +32,11 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     conversations and the draft a review is composed in
     (public). Providers register over the event bus, so one can
     live in another package entirely
+  - `lib/work/`: the working layer under a review: where a tree
+    is cut from, what pins it, which provider serves a repo, and
+    the broker holding the trees a session is using (public).
+    Tree providers register over the event bus, so one can live
+    in another package entirely
   - `lib/result/`: tool answers that are bounded without being
     lossy: the session result store, the bounded structural
     digest, the shared JSONPath query and the citation rule
