@@ -93,4 +93,37 @@ describe.skipIf(!haveChrome)("contrast between two elements", () => {
 
 		expect(judged.ok).toBe(false);
 	});
+
+	it("names the second element when the second is the missing one", async () => {
+		// Reporting the first target's name for the second target's
+		// failure sends the caller to correct an argument that was
+		// right. The two halves of the refusal disagreed: the words
+		// described the subject while the suggestions came from the
+		// surface.
+		const judged = await session.contrastPair(
+			{ role: "heading", name: "Readable heading" },
+			{ role: "region", name: "No such card" },
+		);
+
+		expect(judged.ok).toBe(false);
+		if (judged.ok) return;
+		expect("target" in judged && judged.target).toEqual({
+			role: "region",
+			name: "No such card",
+		});
+	});
+
+	it("names the first element when the first is the missing one", async () => {
+		const judged = await session.contrastPair(
+			{ role: "heading", name: "No such heading" },
+			{ role: "region", name: "Card" },
+		);
+
+		expect(judged.ok).toBe(false);
+		if (judged.ok) return;
+		expect("target" in judged && judged.target).toEqual({
+			role: "heading",
+			name: "No such heading",
+		});
+	});
 });

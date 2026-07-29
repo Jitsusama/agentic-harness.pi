@@ -36,6 +36,15 @@ font:700 20px/60px sans-serif;color:transparent;
 background:linear-gradient(to right,#000000,#ffffff)">Ghost heading</h1>
 </body></html>`;
 
+/**
+ * Body text in a paragraph, which has no accessible name of its own,
+ * so the only way to name it is the StaticText the outline offers.
+ */
+const BODY = `<!doctype html><html><body style="margin:0;background:#ffffff">
+<p id="body" style="margin:0;width:400px;font:16px/40px sans-serif;
+color:#bbbbbb">Faint body text</p>
+</body></html>`;
+
 let fixture: Fixture | undefined;
 let session: BrowserSession;
 
@@ -45,6 +54,7 @@ describe.skipIf(!haveChrome)("contrast behind text, in a real browser", () => {
 			{ path: "/gradient", body: GRADIENT },
 			{ path: "/safe", body: SAFE },
 			{ path: "/empty", body: EMPTY },
+			{ path: "/body", body: BODY },
 		]);
 		session = await BrowserSession.open("behind-contract");
 	});
@@ -69,6 +79,29 @@ describe.skipIf(!haveChrome)("contrast behind text, in a real browser", () => {
 		expect(result.report.verdict).toBe("fail");
 		expect(result.report.worstRatio).toBeLessThan(2);
 		expect(result.report.glyphPixels).toBeGreaterThan(100);
+	});
+
+	it("measures body text named as the StaticText the outline offers", async () => {
+		// A paragraph carries no accessible name, so StaticText is the
+		// only handle on its text, and the refusal for `paragraph` says
+		// so. That target resolves to a DOM text node, which has no
+		// style to hide, so the measurement used to come back saying
+		// there was no text here at all.
+		await session.navigate(fixture?.url("/body") ?? "");
+
+		const result = await session.contrastBehind({
+			role: "StaticText",
+			name: "Faint body text",
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.report.undecided).toBeUndefined();
+		expect(result.report.glyphPixels).toBeGreaterThan(100);
+		// #bbbbbb on white is about 1.9:1, nowhere near the 4.5 that
+		// text this size needs.
+		expect(result.report.verdict).toBe("fail");
+		expect(result.report.worstRatio).toBeLessThan(2.5);
 	});
 
 	it("passes the same text over a background that stays dark", async () => {

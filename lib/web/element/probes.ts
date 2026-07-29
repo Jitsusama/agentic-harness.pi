@@ -40,6 +40,20 @@
  * being read. Judging the card as text would compare its colour,
  * which nothing there paints, against the wrong criterion.
  */
+/**
+ * The element that paints this node.
+ *
+ * A `StaticText` target resolves to a DOM text node, which is the
+ * honest answer to what was named but has no style, no class list
+ * and no `getBoundingClientRect`. Anything that wants to read or
+ * change how the text is painted has to work on the element holding
+ * it. Without this, hiding a paragraph's text quietly did nothing
+ * and the contrast measurement concluded there was no text there.
+ */
+export const PAINTING_ELEMENT_PROBE = `function () {
+  return this.nodeType === 3 ? this.parentElement : this;
+}`;
+
 export const OWN_TEXT_PROBE = `function () {
   var kids = this.childNodes || [];
   for (var i = 0; i < kids.length; i++) {
@@ -124,12 +138,64 @@ export const CONTENT_PROBE = `function () {
   return { text: text, value: held, attributes: attributes };
 }`;
 
-export const OCCLUDER_PROBE = `function (hit) {
-  if (!hit || hit === this || this.contains(hit)) return null;
-  var described = hit.nodeName.toLowerCase();
-  if (hit.id) described += " id=" + hit.id;
-  else if (hit.classList && hit.classList.length) {
-    described += " class=" + hit.classList[0];
+/**
+ * What is painted over the element's own centre, if anything.
+ *
+ * The whole question is answered in the page, deliberately. It was
+ * once split: the centre came from the box model out here and the
+ * hit test from `DOM.getNodeForLocation` over there. Those two are
+ * not in the same coordinate space once the page has scrolled, and
+ * a scrolled page reported whatever happened to sit at the wrong
+ * point as an occluder. Every target the driver had to scroll to
+ * became unclickable, blamed on a paragraph elsewhere on the page.
+ * `getBoundingClientRect` and `elementFromPoint` are both viewport
+ * space by definition, so asking for both together is what makes
+ * the answer sound, not merely what makes it shorter.
+ *
+ * The hit is asked of the element's own root, not of the document.
+ * `document.elementFromPoint` retargets a hit inside a shadow tree
+ * to the host, so an element in a shadow root was reported as
+ * covered by the very host that contains it. A host that covers
+ * something else is still named as itself, which is the useful
+ * answer: the component is what is in the way.
+ *
+ * A point off the viewport reads as nothing here, where the
+ * protocol call answered with whatever node it found instead. That
+ * difference is the safety: an unanswerable question now returns no
+ * occluder rather than a confident wrong one.
+ *
+ * With `alsoCorners`, the corners are tried after the centre, which
+ * is what a full inspection wants: an element clipped at one edge
+ * is worth reporting even though a click at its middle would land.
+ * The readiness poll asks for the centre alone, since that is where
+ * a click is aimed and it runs on every pass.
+ */
+export const OCCLUDER_PROBE = `function (alsoCorners) {
+  var box = this.getBoundingClientRect();
+  if (!box.width || !box.height) return null;
+
+  var inset = 2;
+  var points = [[box.left + box.width / 2, box.top + box.height / 2]];
+  if (alsoCorners) {
+    points.push([box.left + inset, box.top + inset]);
+    points.push([box.right - inset, box.top + inset]);
+    points.push([box.left + inset, box.bottom - inset]);
+    points.push([box.right - inset, box.bottom - inset]);
   }
-  return described;
+
+  var root = this.getRootNode();
+  var from = root.elementFromPoint ? root : document;
+  for (var at = 0; at < points.length; at++) {
+    var x = points[at][0];
+    var y = points[at][1];
+    var hit = from.elementFromPoint(x, y);
+    if (!hit || hit === this || this.contains(hit)) continue;
+    var described = hit.nodeName.toLowerCase();
+    if (hit.id) described += " id=" + hit.id;
+    else if (hit.classList && hit.classList.length) {
+      described += " class=" + hit.classList[0];
+    }
+    return described;
+  }
+  return null;
 }`;

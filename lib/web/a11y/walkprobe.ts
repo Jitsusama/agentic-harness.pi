@@ -23,6 +23,49 @@ const MODAL_SELECTOR =
 import { DEEP_DOM } from "../snapshot/deep.js";
 
 /**
+ * What to call a focus stop, shared by both halves of the walk.
+ *
+ * A form control carries none of its name on itself: the name sits
+ * in a label pointing at it, a label wrapping it, or an element
+ * named through aria-labelledby. Reading attributes alone made
+ * every field in a form report as a bare INPUT, which is precisely
+ * the listing a reviewer uses to check that tab order follows the
+ * page. The browser already implements the label algorithm, so
+ * `el.labels` is asked rather than the association being worked out
+ * here.
+ *
+ * Interpolated into both probes rather than written twice. It was
+ * written twice, the two copies drifted, and fixing the one that
+ * collects candidates left the one that records stops still
+ * answering the old way.
+ */
+const NAMING = `
+	const labelled = (el) => {
+		const by = el.getAttribute && el.getAttribute("aria-labelledby");
+		if (by) {
+			const words = by.split(/\\s+/)
+				.map((id) => {
+					const source = document.getElementById(id);
+					return source ? source.innerText || source.textContent || "" : "";
+				})
+				.join(" ").trim();
+			if (words) return words;
+		}
+		const labels = el.labels;
+		if (labels && labels.length) {
+			return Array.prototype.map
+				.call(labels, (label) => label.innerText || label.textContent || "")
+				.join(" ").trim();
+		}
+		return "";
+	};
+	const nameOf = (el) =>
+		(el.getAttribute("aria-label") || labelled(el) || el.innerText ||
+			el.value || el.getAttribute("title") || el.getAttribute("alt") ||
+			"").trim().slice(0, 60);
+`;
+
+/**
  * Collect everything the browser will let focus land on, and
  * remember what each looks like at rest.
  *
@@ -106,9 +149,7 @@ export const WALK_COLLECT = `(() => {
 			color: c.color,
 		};
 	};
-	const nameOf = (el) =>
-		(el.getAttribute("aria-label") || el.innerText || el.value ||
-			el.getAttribute("title") || el.getAttribute("alt") || "").trim().slice(0, 60);
+${NAMING}
 	const inModal = (el) => el.closest(modalSelector) !== null;
 
 	// Resting styles are read now, while focus is still wherever the
@@ -230,6 +271,7 @@ export const WALK_COLLECT = `(() => {
  * selector that might match twice.
  */
 export const WALK_READ = `(() => {
+${NAMING}
 	// document.activeElement stops at a shadow host: focus inside a
 	// component reports as the custom element, not the control. So
 	// the walk collected four candidates in a design system and
@@ -260,8 +302,7 @@ export const WALK_READ = `(() => {
 		index: list.indexOf(el),
 		tag: el.tagName,
 		...(el.id ? { id: el.id } : {}),
-		name: (el.getAttribute("aria-label") || el.innerText || el.value ||
-			el.getAttribute("title") || "").trim().slice(0, 60),
+		name: nameOf(el),
 		// Where it is, and whether the browser paints it: two
 		// questions, asked separately. Requiring the element's own
 		// box to have width and height conflated them, and an anchor

@@ -71,8 +71,6 @@ import {
 	type Animation,
 	type BoxModel,
 	CONTENT_PROBE,
-	centreOf,
-	cornersOf,
 	type DelegatedListeners,
 	diffStyles,
 	foldHover,
@@ -92,6 +90,7 @@ import {
 	normalizeListeners,
 	OCCLUDER_PROBE,
 	OWN_TEXT_PROBE,
+	PAINTING_ELEMENT_PROBE,
 	type PseudoState,
 	type PseudoVariant,
 	type RawAnimation,
@@ -1323,10 +1322,16 @@ export class BrowserSession {
 		}
 		const backendNodeId = resolution.backendDomId;
 
-		const objectId = await this.objectFor(backendNodeId);
-		if (!objectId) {
+		const named = await this.objectFor(backendNodeId);
+		if (!named) {
 			return { ok: false, refusal: notFoundRefusal(tree, target) };
 		}
+		// Naming a paragraph's text means naming its StaticText, since
+		// a paragraph has no accessible name, and that resolves to a
+		// text node. The colour and the hiding both belong to the
+		// element painting it; the capture below still uses the named
+		// node, whose box is the tighter one.
+		const objectId = await this.paintingElement(named);
 
 		try {
 			const styles = await this.stylesOf(objectId);
@@ -1363,6 +1368,9 @@ export class BrowserSession {
 			}
 		} finally {
 			await this.release(objectId);
+			// Promoting a text node makes a second handle, and the node
+			// that was named is still ours to let go of.
+			if (named !== objectId) await this.release(named);
 		}
 	}
 
@@ -1381,7 +1389,13 @@ export class BrowserSession {
 		other: Target,
 		bar: ContrastLevel = "AA",
 	): Promise<
-		{ ok: true; report: PairReport } | { ok: false; refusal: TargetRefusal }
+		| { ok: true; report: PairReport }
+		// The failing target travels with the refusal, as it does for a
+		// measurement between two elements. Without it the caller can
+		// only render the refusal against the target it happens to hold,
+		// which is the first one, and a caller told the subject was not
+		// found goes and corrects a subject that was fine.
+		| { ok: false; target: Target; refusal: TargetRefusal }
 	> {
 		await this.ready();
 		const tree = await this.axTree();
@@ -1389,24 +1403,37 @@ export class BrowserSession {
 		for (const target of [one, other]) {
 			const resolution = resolveTarget(tree, target);
 			if (resolution.kind === "notFound") {
-				return { ok: false, refusal: notFoundRefusal(tree, target) };
+				return { ok: false, target, refusal: notFoundRefusal(tree, target) };
 			}
 			if (resolution.kind === "ambiguous") {
-				return { ok: false, refusal: ambiguityRefusal(tree, target) };
+				return { ok: false, target, refusal: ambiguityRefusal(tree, target) };
 			}
-			const objectId = await this.objectFor(resolution.backendDomId);
-			if (!objectId) {
-				return { ok: false, refusal: notFoundRefusal(tree, target) };
+			const named = await this.objectFor(resolution.backendDomId);
+			if (!named) {
+				return { ok: false, target, refusal: notFoundRefusal(tree, target) };
 			}
+			// Either side may be named as StaticText, which resolves to a
+			// text node: no computed style to read, and no child text
+			// nodes of its own, so it would also be judged as carrying no
+			// text and drawn against the wrong criterion.
+			const objectId = await this.paintingElement(named);
 			try {
 				sides.push(await this.paintedSide(objectId));
 			} finally {
 				await this.release(objectId);
+				if (named !== objectId) await this.release(named);
 			}
 		}
 		const [first, second] = sides;
 		if (!first || !second) {
-			return { ok: false, refusal: notFoundRefusal(tree, other) };
+			// Only reachable if a side went missing after resolving, and
+			// the loop above returns for anything it could name, so the
+			// one still unaccounted for is the second.
+			return {
+				ok: false,
+				target: other,
+				refusal: notFoundRefusal(tree, other),
+			};
 		}
 		return { ok: true, report: foldPair({ one: first, other: second, bar }) };
 	}
@@ -3060,6 +3087,28 @@ export class BrowserSession {
 		}
 	}
 
+	/**
+	 * Swap a text node for the element that paints it.
+	 *
+	 * A `StaticText` target resolves to a text node, which is right
+	 * for reading its box and wrong for everything that touches
+	 * style. Returns the original handle when it is already an
+	 * element, so callers can promote unconditionally.
+	 */
+	private async paintingElement(objectId: string): Promise<string> {
+		try {
+			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: PAINTING_ELEMENT_PROBE,
+			});
+			return result.objectId ?? objectId;
+		} catch {
+			// A detached node has no painting element either, and the
+			// caller's own reads will report what it could not find.
+			return objectId;
+		}
+	}
+
 	/** Let go of a handle, whether or not the page still has it. */
 	private async release(objectId: string | undefined): Promise<void> {
 		if (!objectId) return;
@@ -3081,7 +3130,7 @@ export class BrowserSession {
 		const styles = objectId ? await this.stylesOf(objectId) : undefined;
 		const viewport = await this.viewport();
 		const coveredBy =
-			box && objectId ? await this.occluderOf(objectId, box) : undefined;
+			box && objectId ? await this.occluderOf(objectId) : undefined;
 
 		const visibility = judgeVisibility({
 			rendered: box !== undefined,
@@ -3590,7 +3639,7 @@ export class BrowserSession {
 		const viewport = pointer ? await this.viewport() : undefined;
 		const coveredBy =
 			pointer && box
-				? await this.coveredAtCentre(resolution.backendDomId, box)
+				? await this.coveredAtCentre(resolution.backendDomId)
 				: undefined;
 		const visibility = sight
 			? judgeVisibility({
@@ -3622,12 +3671,11 @@ export class BrowserSession {
 	 */
 	private async coveredAtCentre(
 		backendNodeId: number,
-		box: BoxModel,
 	): Promise<string | undefined> {
 		const objectId = await this.objectFor(backendNodeId);
 		if (!objectId) return undefined;
 		try {
-			return await this.hitTest(objectId, centreOf(box.border));
+			return await this.hitTest(objectId, false);
 		} finally {
 			await this.release(objectId);
 		}
@@ -3963,50 +4011,42 @@ export class BrowserSession {
 	/**
 	 * What is painted over the element, if anything.
 	 *
-	 * The browser is asked what it would hit at the element's own
-	 * centre and corners. Anything the element contains counts as
-	 * itself, since a click there still reaches it.
+	 * The centre and the corners, since a full inspection should
+	 * report an element clipped at one edge. Anything the element
+	 * contains counts as itself, since a click there still reaches
+	 * it.
 	 */
-	private async occluderOf(
-		objectId: string,
-		box: BoxModel,
-	): Promise<string | undefined> {
-		const points = [centreOf(box.border), ...cornersOf(box.border, 2)];
-		for (const point of points) {
-			const hit = await this.hitTest(objectId, point);
-			if (hit) return hit;
-		}
-		return undefined;
+	private async occluderOf(objectId: string): Promise<string | undefined> {
+		return await this.hitTest(objectId, true);
 	}
 
-	/** Who receives a click at one point, when it is not us. */
+	/**
+	 * Who receives a click, when it is not us.
+	 *
+	 * The point is chosen inside the page rather than out here. Both
+	 * halves of the question used to be asked separately, the box
+	 * from the box model and the hit from `DOM.getNodeForLocation`,
+	 * and they disagree by the scroll offset, so anything the driver
+	 * had to scroll to was reported as covered by whatever sat at
+	 * the wrong point.
+	 */
 	private async hitTest(
 		objectId: string,
-		point: { x: number; y: number },
+		alsoCorners: boolean,
 	): Promise<string | undefined> {
-		let hitObjectId: string | undefined;
 		try {
-			const { backendNodeId } = await this.cdp.send("DOM.getNodeForLocation", {
-				x: Math.round(point.x),
-				y: Math.round(point.y),
-			});
-			hitObjectId = await this.objectFor(backendNodeId);
-			if (!hitObjectId) return undefined;
-
 			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
 				objectId,
 				functionDeclaration: OCCLUDER_PROBE,
-				arguments: [{ objectId: hitObjectId }],
+				arguments: [{ value: alsoCorners }],
 				returnByValue: true,
 			});
 			return (result.value as string | null) ?? undefined;
 		} catch {
-			// A point outside the viewport cannot be hit tested. The
-			// verdict already reports that as being off screen, so
-			// there is nothing further to say here.
+			// An element that has gone from the page between resolving
+			// and asking cannot be occluded by anything, and the next
+			// poll reports it as absent.
 			return undefined;
-		} finally {
-			await this.release(hitObjectId);
 		}
 	}
 
