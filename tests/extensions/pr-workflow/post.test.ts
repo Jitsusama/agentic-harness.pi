@@ -14,7 +14,7 @@ import type {
 	StackFindingRun,
 } from "../../../extensions/pr-workflow/stack-findings.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
-import type { DiffFile } from "../../../lib/internal/github/diff.js";
+import type { DiffFile } from "../../../lib/review/index.js";
 import { expectFailure, prMetadata } from "./fixtures.js";
 
 function stackFinding(
@@ -130,36 +130,19 @@ function judge(findings: Finding[]): JudgeRun {
 
 function diffFile(path = "lib/x.ts"): DiffFile {
 	return {
-		path,
+		oldPath: path,
+		newPath: path,
 		status: "modified",
-		additions: 3,
-		deletions: 0,
 		hunks: [
 			{
-				header: "@@ -8,3 +10,3 @@",
 				oldStart: 8,
 				oldCount: 3,
 				newStart: 10,
 				newCount: 3,
 				lines: [
-					{
-						type: "context",
-						content: "a",
-						oldLineNumber: 8,
-						newLineNumber: 10,
-					},
-					{
-						type: "added",
-						content: "b",
-						oldLineNumber: null,
-						newLineNumber: 11,
-					},
-					{
-						type: "context",
-						content: "c",
-						oldLineNumber: 9,
-						newLineNumber: 12,
-					},
+					{ kind: "context", text: "a", oldLine: 8, newLine: 10 },
+					{ kind: "added", text: "b", newLine: 11 },
+					{ kind: "context", text: "c", oldLine: 9, newLine: 12 },
 				],
 			},
 		],

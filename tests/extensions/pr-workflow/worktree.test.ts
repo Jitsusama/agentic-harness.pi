@@ -17,8 +17,8 @@ describe("worktreeRequestFor", () => {
 			sha: "abc123",
 			branch: "feature",
 			files: [
-				{ path: "areas/core/foo.rb" },
-				{ path: "system/gitstream/bar.go" },
+				{ newPath: "areas/core/foo.rb", status: "modified", hunks: [] },
+				{ newPath: "system/gitstream/bar.go", status: "modified", hunks: [] },
 			],
 		});
 		expect(request).toEqual({

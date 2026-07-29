@@ -3,6 +3,10 @@ import type { CritiqueRun } from "../../../extensions/pr-workflow/critique.js";
 import type { CouncilRun } from "../../../extensions/pr-workflow/findings.js";
 import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
 import { loadPr } from "../../../extensions/pr-workflow/load.js";
+import {
+	changeOf,
+	githubViewOf,
+} from "../../../extensions/pr-workflow/reference.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 
 describe("loadPr", () => {
@@ -25,6 +29,37 @@ describe("loadPr", () => {
 			number: 180,
 		});
 		expect(state.pr?.loadedAt).toBe("2026-05-18T01:00:00.000Z");
+	});
+
+	it("names the loaded change the way the substrate would", () => {
+		// The workflow has to be able to say which change is
+		// loaded without every display site formatting
+		// owner/repo#number for itself.
+		const state = createPrWorkflowState();
+		loadPr(state, {
+			input: "https://github.com/Jitsusama/agentic-harness.pi/pull/180",
+		});
+
+		const pr = state.pr;
+		if (!pr) throw new Error("the PR should have loaded");
+		expect(changeOf(pr)).toEqual({
+			provider: "github",
+			repo: { key: "github:Jitsusama/agentic-harness.pi" },
+			id: "180",
+			label: "Jitsusama/agentic-harness.pi#180",
+		});
+	});
+
+	it("round-trips a reference through the substrate's shape", () => {
+		// The two shapes coexist while the plumbing moves across,
+		// so converting either way has to land back where it
+		// started.
+		const state = createPrWorkflowState();
+		loadPr(state, { input: "Shopify/world#2000970" });
+
+		const pr = state.pr;
+		if (!pr) throw new Error("the PR should have loaded");
+		expect(githubViewOf(changeOf(pr))).toEqual(pr.reference);
 	});
 
 	it("attaches a PR parsed from owner/repo#number short form", () => {

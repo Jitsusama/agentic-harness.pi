@@ -24,14 +24,19 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { createMutex } from "../../lib/internal/async-mutex.js";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
-import { fetchDiff, parseDiff } from "../../lib/internal/github/diff.js";
+
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
-import { getCurrentRepo } from "../../lib/internal/github/repo-discovery.js";
-import { postReview } from "../../lib/internal/github/review-post.js";
+
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { findOrCreateSidequestForPr } from "../../lib/internal/quest/pr-sidequest.js";
 import { getQuestPrBridge } from "../../lib/quest/pr-bridge.js";
 import { citeListing, openSessionStore } from "../../lib/result/index.js";
+import {
+	changeCounts,
+	displayPath,
+	filePath,
+	parseUnifiedDiff,
+} from "../../lib/review/index.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
 import { getParentPiInstall } from "../../lib/subagent/install.js";
 import { recoverReviewerRuns } from "../../lib/subagent/recovery.js";
@@ -67,7 +72,7 @@ import {
 	runCritiqueAction,
 } from "./critique-action.js";
 import { decideBatchAction } from "./decide-action.js";
-import { fetchFileContent, fetchPrHeadSha, fetchPrMetadata } from "./fetch.js";
+import { fetchFileContent } from "./fetch.js";
 import type { ConventionalLabel } from "./findings.js";
 import { formatCompactFindingsView } from "./findings-view.js";
 import {
@@ -116,6 +121,7 @@ import {
 import { confirmPostGate } from "./post-gate.js";
 import { buildReviewProseGate } from "./prose-gate.js";
 import { logQuestJourneyForPr, recordReviewRound } from "./quest-bridge.js";
+import { changeFromGitHubView, changeOf } from "./reference.js";
 import { ResultsStore } from "./results-store.js";
 import {
 	isReviewContextProvider,
@@ -123,8 +129,7 @@ import {
 	ReviewContextProviderBroker,
 } from "./review-context.js";
 import { reviewValidationDirective } from "./review-directive.js";
-import { createGitHubPrSearch } from "./search.js";
-import { buildStack, type StackEntry } from "./stack.js";
+
 import {
 	formatStackReviewActionSummary,
 	runStackReviewAction,
@@ -132,6 +137,18 @@ import {
 import { formatStack, nextInStack, prevInStack } from "./stack-view.js";
 import { createPrWorkflowState, resetPrWorkflowSession } from "./state.js";
 import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
+import {
+	attachSubstrate,
+	diffFromSubstrate,
+	headCommitFromSubstrate,
+	metadataFromSubstrate,
+	postReviewThroughSubstrate,
+	replyThroughSubstrate,
+	repoForBareChange,
+	resolveThroughSubstrate,
+	stackFromSubstrate,
+	threadsFromSubstrate,
+} from "./substrate.js";
 import { formatPrSummary } from "./summary.js";
 import {
 	type DecideFindingInput,
@@ -149,7 +166,7 @@ import {
 	confirmResolveManyGate,
 } from "./thread-gate.js";
 import { describeReplyOutcome } from "./thread-reply-outcome.js";
-import { fetchReviewThreads, replyToThread, resolveThread } from "./threads.js";
+
 import {
 	captureThreadExpectation,
 	formatThreadsView,
@@ -278,6 +295,10 @@ function requirePersonaWrite(params: {
 
 export default function prWorkflow(pi: ExtensionAPI) {
 	const state = createPrWorkflowState();
+	// The thread reads come from the review substrate, which another
+	// extension hosts. Attach early and in both directions, since
+	// nothing says which of the two loaded first.
+	attachSubstrate(pi);
 	const prWorkflowStateDir = () => packageStateDir("pr-workflow");
 	const reviewerArtifacts = () =>
 		new ReviewerArtifactsStore(prWorkflowStateDir());
@@ -1082,7 +1103,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								registry,
 								dispatch,
 								reviewContexts: reviewContextProviders,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								resolveCharter: charters.resolve,
 								...(params.intent ? { intent: params.intent } : {}),
 								progress,
@@ -1153,7 +1174,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								registry,
 								dispatch,
 								reviewContexts: reviewContextProviders,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								resolveCharter: charters.resolve,
 								...(params.intent ? { intent: params.intent } : {}),
 								reviewerId,
@@ -1257,7 +1278,7 @@ export default function prWorkflow(pi: ExtensionAPI) {
 								registry,
 								dispatch,
 								reviewContexts: reviewContextProviders,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								judgeCharter,
 								...(personaExhibits.length > 0 ? { personaExhibits } : {}),
 								...(params.intent ? { intent: params.intent } : {}),
@@ -1331,14 +1352,14 @@ ${reviewValidationDirective()}`,
 								registry,
 								dispatch,
 								reviewContexts: reviewContextProviders,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								progress,
 								judgeCharter: stackJudgeCharter,
 								fetchers: {
-									metadata: (reference) => fetchPrMetadata(pi, reference),
+									metadata: metadataFromSubstrate,
 									diff: async (reference) => {
-										const raw = await fetchDiff(pi, reference);
-										return parseDiff(raw);
+										const raw = await diffFromSubstrate(reference);
+										return parseUnifiedDiff(raw).files;
 									},
 								},
 							}),
@@ -1385,7 +1406,7 @@ ${reviewValidationDirective()}`,
 								registry,
 								dispatch,
 								reviewContexts: reviewContextProviders,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								resolveCharter: critiqueCharters.resolve,
 								...(params.intent ? { intent: params.intent } : {}),
 								progress,
@@ -1443,7 +1464,7 @@ ${reviewValidationDirective()}`,
 								registry,
 								dispatch,
 								reviewContexts: reviewContextProviders,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								resolveCharter: critiqueCharters.resolve,
 								...(params.intent ? { intent: params.intent } : {}),
 								reviewerId,
@@ -1683,14 +1704,7 @@ ${reviewValidationDirective()}`,
 
 				if (params.action === "post") {
 					const event: ReviewEvent = params.event ?? "COMMENT";
-					const exec: PostReviewExec = async ({
-						ref,
-						event: ev,
-						body,
-						comments,
-					}) => {
-						await postReview(pi, ref, ev, body, comments);
-					};
+					const exec: PostReviewExec = postReviewThroughSubstrate;
 					const gate: PostReviewGate = (summary) =>
 						confirmPostGate(ctx, summary);
 					const result = await postReviewAction({
@@ -1700,7 +1714,7 @@ ${reviewValidationDirective()}`,
 						exec,
 						gate,
 						proseGate: buildReviewProseGate(sessionGateDeps(ctx, pi)),
-						currentHead: (ref) => fetchPrHeadSha(pi, ref),
+						currentHead: headCommitFromSubstrate,
 					});
 					if (!result.ok) {
 						return {
@@ -1790,7 +1804,7 @@ ${reviewValidationDirective()}`,
 							details: { ok: false, error: `no ${direction}` },
 						};
 					}
-					const ref = `${pick.reference.owner}/${pick.reference.repo}#${pick.reference.number}`;
+					const ref = changeFromGitHubView(pick.reference).label;
 					const directionLabel =
 						params.action === "stack-next" ? "Downstream PR" : "Upstream PR";
 					return {
@@ -1807,7 +1821,7 @@ ${reviewValidationDirective()}`,
 				if (params.action === "threads") {
 					const result = await loadThreadsAction({
 						state,
-						fetcher: (ref) => fetchReviewThreads(pi, ref),
+						fetcher: threadsFromSubstrate,
 					});
 					if (!result.ok) {
 						return {
@@ -1884,7 +1898,7 @@ ${reviewValidationDirective()}`,
 						state,
 						index: params.threadIndex,
 						body: replyBodyToPost,
-						sender: (threadId, body) => replyToThread(pi, threadId, body),
+						sender: replyThroughSubstrate,
 						...(replyExpectation ? { expect: replyExpectation } : {}),
 					});
 					if (!result.ok) {
@@ -1911,7 +1925,7 @@ ${reviewValidationDirective()}`,
 					const resolved = await resolveThreadAction({
 						state,
 						index: params.threadIndex,
-						resolver: (threadId) => resolveThread(pi, threadId),
+						resolver: resolveThroughSubstrate,
 					});
 					const outcome = describeReplyOutcome(
 						reply,
@@ -1947,7 +1961,7 @@ ${reviewValidationDirective()}`,
 						const batch = await resolveThreadsAction({
 							state,
 							indices,
-							resolver: (threadId) => resolveThread(pi, threadId),
+							resolver: resolveThroughSubstrate,
 							expectFor: (i) => expectFor.get(i) ?? undefined,
 						});
 						const summaryParts = [
@@ -2006,7 +2020,7 @@ ${reviewValidationDirective()}`,
 					const result = await resolveThreadAction({
 						state,
 						index: params.threadIndex,
-						resolver: (threadId) => resolveThread(pi, threadId),
+						resolver: resolveThroughSubstrate,
 						...(resolveExpectation ? { expect: resolveExpectation } : {}),
 					});
 					if (!result.ok) {
@@ -2175,7 +2189,7 @@ ${reviewValidationDirective()}`,
 						"",
 					];
 					for (const entry of entries) {
-						const ref = `${entry.owner}/${entry.repo}#${entry.number}`;
+						const ref = changeFromGitHubView(entry).label;
 						const when =
 							entry.mtimeMs === null
 								? "mtime unknown"
@@ -2515,7 +2529,7 @@ ${reviewValidationDirective()}`,
 								registry,
 								dispatch,
 								auditor,
-								fetchThreads: (ref) => fetchReviewThreads(pi, ref),
+								fetchThreads: threadsFromSubstrate,
 								progress,
 							}),
 						progress,
@@ -2556,9 +2570,7 @@ ${reviewValidationDirective()}`,
 				}
 
 				if (params.action === "reset") {
-					const previous = state.pr
-						? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
-						: "none";
+					const previous = state.pr ? changeOf(state.pr).label : "none";
 					resetPrWorkflowSession(state);
 					clearPrStatusLine(ctx);
 					// The previous PR is no longer the active resource,
@@ -2595,9 +2607,7 @@ ${reviewValidationDirective()}`,
 				}
 
 				if (params.action === "status") {
-					const ref = state.pr
-						? `${state.pr.reference.owner}/${state.pr.reference.repo}#${state.pr.reference.number}`
-						: "none";
+					const ref = state.pr ? changeOf(state.pr).label : "none";
 					const breakdown = summarizeUsage({
 						council: state.council.lastRun,
 						judge: state.council.lastJudge,
@@ -2654,12 +2664,13 @@ ${reviewValidationDirective()}`,
 
 				const previousRef = state.pr?.reference ?? null;
 				// A bare PR number needs an owner/repo to resolve
-				// against. Derive it from the checkout's origin
-				// remote so `load pr:123` works in a repo without
-				// spelling out owner/repo. Only consulted for a
-				// bare number, so a full ref never pays the git cost.
+				// against. The substrate is asked which repo this
+				// directory is, so a configured mapping is honoured
+				// rather than whatever origin happens to point at.
+				// Only consulted for a bare number, so a full ref
+				// never pays the cost.
 				const defaultRepo = /^\d+$/.test(params.pr.trim())
-					? await getCurrentRepo(pi)
+					? await repoForBareChange(params.pr.trim())
 					: null;
 				const outcome = loadPr(state, {
 					input: params.pr,
@@ -2714,7 +2725,7 @@ ${reviewValidationDirective()}`,
 				}
 
 				try {
-					loaded.metadata = await fetchPrMetadata(pi, loaded.reference);
+					loaded.metadata = await metadataFromSubstrate(loaded.reference);
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);
@@ -2722,7 +2733,7 @@ ${reviewValidationDirective()}`,
 						content: [
 							{
 								type: "text",
-								text: `Loaded ${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number} but could not fetch metadata: ${message}`,
+								text: `Loaded ${changeFromGitHubView(loaded.reference).label} but could not fetch metadata: ${message}`,
 							},
 						],
 						details: { ok: false, pr: loaded, error: message },
@@ -2734,29 +2745,18 @@ ${reviewValidationDirective()}`,
 				// loaded with metadata only and report the failure.
 				let diffError: string | null = null;
 				try {
-					const raw = await fetchDiff(pi, loaded.reference);
-					loaded.files = parseDiff(raw);
+					const raw = await diffFromSubstrate(loaded.reference);
+					loaded.files = parseUnifiedDiff(raw).files;
 				} catch (error) {
 					diffError = error instanceof Error ? error.message : String(error);
 				}
 
-				// Stack discovery is best-effort too. The walker needs
-				// metadata's base/head ref names, so we can only run it
-				// after the metadata fetch succeeded.
+				// Stack discovery is best-effort too. The provider walks it
+				// from the change itself now, so this no longer depends on
+				// the metadata fetch having succeeded first.
 				let stackError: string | null = null;
 				try {
-					const cursor: StackEntry = {
-						reference: loaded.reference,
-						title: loaded.metadata.title,
-						baseRefName: loaded.metadata.base.ref,
-						headRefName: loaded.metadata.head.ref,
-					};
-					const search = createGitHubPrSearch(
-						pi,
-						loaded.reference.owner,
-						loaded.reference.repo,
-					);
-					loaded.stack = await buildStack(cursor, search);
+					loaded.stack = await stackFromSubstrate(loaded.reference);
 				} catch (error) {
 					stackError = error instanceof Error ? error.message : String(error);
 				}
@@ -2765,7 +2765,7 @@ ${reviewValidationDirective()}`,
 				const lines: string[] = [];
 				if (m) {
 					lines.push(
-						`Loaded ${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number}: ${m.title}`,
+						`Loaded ${changeFromGitHubView(loaded.reference).label}: ${m.title}`,
 						`author: ${m.author} · state: ${m.state}${m.isDraft ? " (draft)" : ""}`,
 						`base: ${m.base.ref} ← head: ${m.head.ref}`,
 						`${m.changedFiles} files changed, +${m.additions} −${m.deletions}`,
@@ -2781,7 +2781,7 @@ ${reviewValidationDirective()}`,
 					stack.entries.forEach((e, i) => {
 						const marker = i === stack.cursorIndex ? "▶" : " ";
 						lines.push(
-							`  ${marker} ${e.reference.owner}/${e.reference.repo}#${e.reference.number}: ${e.title}`,
+							`  ${marker} ${changeFromGitHubView(e.reference).label}: ${e.title}`,
 						);
 					});
 					if (stack.cursorChildren.length > 0) {
@@ -2806,7 +2806,10 @@ ${reviewValidationDirective()}`,
 									: f.status === "renamed"
 										? "→"
 										: "~";
-						lines.push(`  ${tag} ${f.path}  (+${f.additions} −${f.deletions})`);
+						const counts = changeCounts(f);
+						lines.push(
+							`  ${tag} ${displayPath(f)}  (+${counts.additions} −${counts.deletions})`,
+						);
 					}
 					if (sha) {
 						const sample = loaded.files[0];
@@ -2816,7 +2819,7 @@ ${reviewValidationDirective()}`,
 								repo: loaded.reference.repo,
 								number: loaded.reference.number,
 								sha,
-								path: sample.path,
+								path: filePath(sample),
 							});
 							lines.push("");
 							lines.push(
@@ -2865,7 +2868,7 @@ ${reviewValidationDirective()}`,
 						if (!sidequest.isNew) {
 							questBridge.logJourney(
 								sidequest.sidequestDir,
-								`Reloaded for review (${loaded.reference.owner}/${loaded.reference.repo}#${loaded.reference.number}).`,
+								`Reloaded for review (${changeFromGitHubView(loaded.reference).label}).`,
 							);
 						}
 						lines.push("");

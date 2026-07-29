@@ -11,7 +11,14 @@
  * builders in follow-up commits. This module covers round 1.
  */
 
-import type { DiffFile, DiffLine } from "../../lib/internal/github/diff.js";
+import {
+	type DiffFile,
+	type DiffLine,
+	displayPath,
+	filePath,
+	hunkHeader,
+	lineNumberOn,
+} from "../../lib/review/index.js";
 import { isGeneratedPath } from "./generated-files.js";
 import { reviewerOperatingRules } from "./prompt-operating-rules.js";
 import {
@@ -48,8 +55,8 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 	// on hand-written code. Guard against blanking the diff:
 	// if every changed file is generated, show them all
 	// rather than hand the reviewer nothing.
-	const reviewable = input.files.filter((f) => !isGeneratedPath(f.path));
-	const omitted = input.files.filter((f) => isGeneratedPath(f.path));
+	const reviewable = input.files.filter((f) => !isGeneratedPath(filePath(f)));
+	const omitted = input.files.filter((f) => isGeneratedPath(filePath(f)));
 	const files = reviewable.length > 0 ? reviewable : input.files;
 	const omittedForNote = reviewable.length > 0 ? omitted : [];
 
@@ -108,7 +115,7 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
 			"These changed files are generated or vendored and are left out " +
 				"of the diff below. Read them with your tools if a finding " +
 				"depends on them, but do not review them for style: " +
-				omittedForNote.map((f) => f.path).join(", "),
+				omittedForNote.map((f) => filePath(f)).join(", "),
 		);
 	}
 
@@ -180,7 +187,7 @@ function renderAnchorableLineRanges(files: readonly DiffFile[]): string {
 			parts.push(`old ${oldRanges.join(", ")}`);
 		}
 		if (parts.length === 0) continue;
-		lines.push(`${file.path}: ${parts.join(" | ")}`);
+		lines.push(`${filePath(file)}: ${parts.join(" | ")}`);
 	}
 	return lines.length === 0 ? "(no anchorable lines)" : lines.join("\n");
 }
@@ -195,9 +202,8 @@ function anchorableRangesFor(file: DiffFile, side: "old" | "new"): string[] {
 	for (const hunk of file.hunks) {
 		const lineNumbers: number[] = [];
 		for (const line of hunk.lines) {
-			const lineNumber =
-				side === "old" ? line.oldLineNumber : line.newLineNumber;
-			if (lineNumber !== null) lineNumbers.push(lineNumber);
+			const lineNumber = lineNumberOn(line, side);
+			if (lineNumber !== undefined) lineNumbers.push(lineNumber);
 		}
 		if (lineNumbers.length === 0) continue;
 		rawRanges.push({
@@ -226,22 +232,22 @@ function renderFile(file: DiffFile): string {
 		return `${header}\n(no hunks)`;
 	}
 	const hunks = file.hunks
-		.map((h) => `${h.header}\n${h.lines.map(renderLine).join("\n")}`)
+		.map((h) => `${hunkHeader(h)}\n${h.lines.map(renderLine).join("\n")}`)
 		.join("\n");
 	return `${header}\n${hunks}`;
 }
 
 function renderHeader(file: DiffFile): string {
-	return `### ${file.path} (${file.status})`;
+	return `### ${displayPath(file)} (${file.status})`;
 }
 
 function renderLine(line: DiffLine): string {
-	switch (line.type) {
+	switch (line.kind) {
 		case "added":
-			return `+${line.content}`;
+			return `+${line.text}`;
 		case "removed":
-			return `-${line.content}`;
+			return `-${line.text}`;
 		default:
-			return ` ${line.content}`;
+			return ` ${line.text}`;
 	}
 }

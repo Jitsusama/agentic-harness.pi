@@ -24,6 +24,11 @@ from internal files.
   authentication and renderers.
 - **[`web/`](web/)** — Web search and page reading via
   headless Chrome.
+- **[`review/`](review/)** — Pluggable review providers: one
+  neutral model for changes, stacks, diffs, anchors and
+  conversation, with facet-based providers behind it, and
+  drafts that compose a review before compiling it into what a
+  given backend will accept.
 - **[`subagent/`](subagent/)** — Subagent engine for
   running pi as a child process: spec/job composition,
   fleet fan-out, durable supervisor runs, stream parsing,

@@ -1,10 +1,19 @@
 /**
- * PR reference parsing: extract owner/repo/number from URLs,
- * short forms, and bare numbers. Also extracts owner/repo from
- * git remote URLs.
+ * PR reference parsing, in the shape pr-workflow still wants.
  *
- * Used by the pr-workflow extension.
+ * The patterns themselves have moved to the GitHub review
+ * provider, which is their long-term home; this is the adapter
+ * that keeps pr-workflow compiling while it is re-pointed onto
+ * the review substrate. Delete it once nothing imports
+ * `PRReference` any more.
  */
+
+import {
+	claimGitHubReference,
+	githubRepoKey,
+	ownerRepoFromKey,
+	ownerRepoFromRemote,
+} from "../../review/providers/github/claims.js";
 
 /** Identifies a specific pull request on GitHub. */
 export interface PRReference {
@@ -13,22 +22,12 @@ export interface PRReference {
 	readonly number: number;
 }
 
-/** PR link patterns we recognize. */
-const GITHUB_URL_PATTERN =
-	/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/;
-const GRAPHITE_URL_PATTERN =
-	/^https?:\/\/app\.graphite\.com\/github\/pr\/([^/]+)\/([^/]+)\/(\d+)/;
-const SHORT_FORM_PATTERN = /^([^/]+)\/([^/#]+)#(\d+)$/;
-const NUMBER_ONLY_PATTERN = /^#?(\d+)$/;
-
 /**
  * Parse a PR reference from user input.
  *
- * Accepts:
- *   - Full URL: https://github.com/owner/repo/pull/123
- *   - Graphite URL: https://app.graphite.com/github/pr/owner/repo/123
- *   - Short form: owner/repo#123
- *   - Number: #123 or 123 (requires defaultOwner/defaultRepo)
+ * Accepts a pull request URL, a Graphite URL, the
+ * `owner/repo#123` short form, or a bare number when a default
+ * owner and repo are supplied.
  *
  * Returns null if input doesn't match any known pattern.
  */
@@ -37,74 +36,29 @@ export function parsePRReference(
 	defaultOwner?: string,
 	defaultRepo?: string,
 ): PRReference | null {
-	const trimmed = input.trim();
-
-	const urlMatch = trimmed.match(GITHUB_URL_PATTERN);
-	if (urlMatch) {
-		return {
-			owner: urlMatch[1],
-			repo: urlMatch[2],
-			number: Number.parseInt(urlMatch[3], 10),
-		};
-	}
-
-	const graphiteMatch = trimmed.match(GRAPHITE_URL_PATTERN);
-	if (graphiteMatch) {
-		return {
-			owner: graphiteMatch[1],
-			repo: graphiteMatch[2],
-			number: Number.parseInt(graphiteMatch[3], 10),
-		};
-	}
-
-	const shortMatch = trimmed.match(SHORT_FORM_PATTERN);
-	if (shortMatch) {
-		return {
-			owner: shortMatch[1],
-			repo: shortMatch[2],
-			number: Number.parseInt(shortMatch[3], 10),
-		};
-	}
-
-	const numberMatch = trimmed.match(NUMBER_ONLY_PATTERN);
-	if (numberMatch && defaultOwner && defaultRepo) {
-		return {
-			owner: defaultOwner,
-			repo: defaultRepo,
-			number: Number.parseInt(numberMatch[1], 10),
-		};
-	}
-
-	return null;
+	const fallback =
+		defaultOwner && defaultRepo
+			? { key: githubRepoKey(defaultOwner, defaultRepo) }
+			: undefined;
+	const change = claimGitHubReference(input, fallback);
+	if (!change) return null;
+	const owned = ownerRepoFromKey(change.repo.key);
+	if (!owned) return null;
+	return {
+		owner: owned.owner,
+		repo: owned.repo,
+		number: Number.parseInt(change.id, 10),
+	};
 }
 
 /**
- * Extract owner and repo from a git remote URL.
- *
- * Handles:
- *   - HTTPS: https://github.com/owner/repo.git
- *   - HTTPS with credentials: https://user:token@github.com/owner/repo.git
- *   - SSH: git@github.com:owner/repo.git
+ * Extract owner and repo from a git remote URL. Handles HTTPS
+ * with or without credentials, and SSH.
  *
  * Returns null if the URL doesn't match GitHub patterns.
  */
 export function extractOwnerRepo(
 	remoteUrl: string,
 ): { owner: string; repo: string } | null {
-	// HTTPS, with optional user:pass@ credentials (e.g. x-access-token:TOKEN@).
-	const httpsMatch = remoteUrl.match(
-		/^https?:\/\/(?:[^@]+@)?github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/,
-	);
-	if (httpsMatch) {
-		return { owner: httpsMatch[1], repo: httpsMatch[2] };
-	}
-
-	const sshMatch = remoteUrl.match(
-		/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/,
-	);
-	if (sshMatch) {
-		return { owner: sshMatch[1], repo: sshMatch[2] };
-	}
-
-	return null;
+	return ownerRepoFromRemote(remoteUrl);
 }

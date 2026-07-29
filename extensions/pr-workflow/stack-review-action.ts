@@ -9,8 +9,8 @@
  * by `scope=stack` decisions.
  */
 
-import type { DiffFile } from "../../lib/internal/github/diff.js";
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
+import type { DiffFile } from "../../lib/review/index.js";
 import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import { isReviewerCancelledError } from "./cancellation.js";
 import type { PrWorkflowConfigLoadResult } from "./config.js";

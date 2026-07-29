@@ -24,11 +24,11 @@
  * subsequent rounds will reuse it.
  */
 
-import type { DiffFile } from "../../lib/internal/github/diff.js";
 import {
 	recordRunEverywhere,
 	runRecordFrom,
 } from "../../lib/observability/index.js";
+import type { DiffFile } from "../../lib/review/index.js";
 import type {
 	CouncilReviewer,
 	RunPi,

@@ -52,13 +52,12 @@ describe("buildStackReviewPrompt", () => {
 					description: "First PR",
 					files: [
 						{
-							path: "parser.ts",
+							oldPath: "parser.ts",
+							newPath: "parser.ts",
 							status: "modified",
-							additions: 1,
-							deletions: 0,
 							hunks: [
 								diffHunk({
-									lines: [diffLine({ type: "added", content: "parse()" })],
+									lines: [diffLine({ kind: "added", text: "parse()" })],
 								}),
 							],
 						},

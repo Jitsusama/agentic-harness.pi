@@ -15,7 +15,7 @@
  * full text matters.
  */
 
-import type { DiffFile } from "../../lib/internal/github/diff.js";
+import type { DiffFile } from "../../lib/review/index.js";
 import type { CritiqueRun } from "./critique.js";
 import type { Finding } from "./findings.js";
 import { hasValidInlineAnchor } from "./post.js";

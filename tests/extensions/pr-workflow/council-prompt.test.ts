@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildReviewerPrompt } from "../../../extensions/pr-workflow/prompts.js";
-import type { DiffFile } from "../../../lib/internal/github/diff.js";
+import type { DiffFile } from "../../../lib/review/index.js";
 
 /**
  * The prompt drives every reviewer in round 1. Tests pin
@@ -10,30 +10,29 @@ import type { DiffFile } from "../../../lib/internal/github/diff.js";
  * the load-bearing pieces a reviewer needs to do its job.
  */
 
-function file(overrides: Partial<DiffFile> = {}): DiffFile {
+/**
+ * A diff file, defaulting to a one-line addition.
+ *
+ * `path` is a test-local convenience that sets both sides at
+ * once, since almost every case here is a file that kept its
+ * name and only the reviewer prompt's rendering is under test.
+ */
+function file(overrides: Partial<DiffFile> & { path?: string } = {}): DiffFile {
+	const { path, ...rest } = overrides;
 	return {
-		path: "src/foo.ts",
+		oldPath: path ?? "src/foo.ts",
+		newPath: path ?? "src/foo.ts",
 		status: "modified",
-		additions: 1,
-		deletions: 0,
 		hunks: [
 			{
 				oldStart: 1,
 				oldCount: 0,
 				newStart: 1,
 				newCount: 1,
-				header: "@@ -1,0 +1,1 @@",
-				lines: [
-					{
-						type: "added",
-						content: "console.log('hi');",
-						oldLineNumber: null,
-						newLineNumber: 1,
-					},
-				],
+				lines: [{ kind: "added", text: "console.log('hi');", newLine: 1 }],
 			},
 		],
-		...overrides,
+		...rest,
 	};
 }
 
@@ -81,20 +80,9 @@ describe("buildReviewerPrompt", () => {
 							oldCount: 1,
 							newStart: 1,
 							newCount: 1,
-							header: "@@ -1,1 +1,1 @@",
 							lines: [
-								{
-									type: "removed",
-									content: "old line",
-									oldLineNumber: 1,
-									newLineNumber: null,
-								},
-								{
-									type: "added",
-									content: "new line",
-									oldLineNumber: null,
-									newLineNumber: 1,
-								},
+								{ kind: "removed", text: "old line", oldLine: 1 },
+								{ kind: "added", text: "new line", newLine: 1 },
 							],
 						},
 					],
@@ -154,20 +142,9 @@ describe("buildReviewerPrompt", () => {
 							oldCount: 1,
 							newStart: 5,
 							newCount: 1,
-							header: "@@ -5,1 +5,1 @@",
 							lines: [
-								{
-									type: "removed",
-									content: "old",
-									oldLineNumber: 5,
-									newLineNumber: null,
-								},
-								{
-									type: "added",
-									content: "new",
-									oldLineNumber: null,
-									newLineNumber: 5,
-								},
+								{ kind: "removed", text: "old", oldLine: 5 },
+								{ kind: "added", text: "new", newLine: 5 },
 							],
 						},
 					],

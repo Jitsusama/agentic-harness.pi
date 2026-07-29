@@ -21,6 +21,8 @@
  * The native git provider lives in a separate module.
  */
 
+import { type DiffFile, filePath } from "../../lib/review/index.js";
+
 /** Event emitted by pr-workflow once its registration API is ready. */
 export const PR_WORKFLOW_READY = "pr-workflow:ready:v1";
 
@@ -51,7 +53,7 @@ export interface WorktreeRequestTarget {
 	readonly repo: string;
 	readonly sha: string;
 	readonly branch?: string;
-	readonly files?: readonly { readonly path: string }[];
+	readonly files?: readonly DiffFile[];
 }
 
 /**
@@ -64,7 +66,7 @@ export interface WorktreeRequestTarget {
 export function worktreeRequestFor(
 	target: WorktreeRequestTarget,
 ): WorktreeRequest {
-	const paths = target.files?.map((file) => file.path) ?? [];
+	const paths = target.files?.map((file) => filePath(file)) ?? [];
 	return {
 		owner: target.owner,
 		repo: target.repo,

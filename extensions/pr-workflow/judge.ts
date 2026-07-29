@@ -20,7 +20,7 @@
  */
 
 import { Value } from "@sinclair/typebox/value";
-import type { DiffFile } from "../../lib/internal/github/diff.js";
+import type { DiffFile } from "../../lib/review/index.js";
 import type {
 	CouncilReviewer,
 	ReviewerUsage,
