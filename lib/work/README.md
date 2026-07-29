@@ -19,6 +19,9 @@ to the work rather than to one tool that does it.
 | `chooseTreeProvider` | Which provider serves a repo |
 | `createTreeBroker` | Custody: hand trees out, take them back |
 | `createGitTreeProvider` | The general case, backed by `git worktree` |
+| `registerTreeProvider` | Add a provider from any package |
+| `listTreeProviders` | The roster, most specific first |
+| `WORK_READY` and friends | The bus contract providers register over |
 
 These are here before the council moves across, because the
 council cannot become provider-agnostic while it is asking a
@@ -157,6 +160,49 @@ ten minutes on one is a surprising thing for a tool to do. Saying
 what is needed leaves the choice with whoever knows how big it is,
 and a downstream provider that knows a particular repo can serve it
 without asking.
+
+## A Broker Reads Its Roster Live
+
+`createTreeBroker` takes either an array or a function returning
+one, and it should almost always be the function:
+
+```ts
+const broker = createTreeBroker(listTreeProviders);
+```
+
+Providers arrive over the bus from other packages, and load order
+between extensions is not something either one chooses. A broker
+that snapshotted its roster at construction would be permanently
+blind to whichever provider happened to load second, and the symptom
+would be a plain git worktree where a specialised one was wanted:
+working, wrong, and quiet.
+
+An array stays accepted for a caller that genuinely has a fixed set,
+such as a test.
+
+## Registration Is Over the Bus
+
+Providers register by emitting an event, not by importing the
+registry, so a provider can live in a different package without
+either side depending on the other's module graph.
+
+| Event | Direction |
+|---|---|
+| `work:ready:v1` | host announces its registry is live |
+| `work:tree-provider:register:v1` | provider registers itself |
+| `work:request:v1` | consumer asks the host to announce again |
+
+Both directions matter, because the bus does not replay. The host
+announces on activation and a provider registers on its own
+activation, so either load order works, and both are idempotent
+since registration replaces by id. A consumer that loaded second
+asks with `work:request:v1` rather than missing the announcement
+forever.
+
+The names belong to the domain, `work:`, never to whichever
+extension hosts it. An event named after an extension makes every
+other extension depend on that one's continued existence, which is
+the coupling the bus exists to avoid.
 
 ## Companion Extensions
 

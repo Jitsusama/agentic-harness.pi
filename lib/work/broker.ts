@@ -63,18 +63,28 @@ export interface TreeBroker {
  * clear. Cutting a tree from a provider nobody chose is the failure
  * this is built to avoid: it succeeds, so nothing draws attention
  * to it, and the tree is merely wrong rather than missing.
+ *
+ * The roster may be a function rather than an array, and usually
+ * should be. Providers arrive over the bus from other packages, and
+ * load order between extensions is not something either one
+ * chooses, so a broker that snapshotted its roster at construction
+ * would be permanently blind to whichever provider happened to load
+ * second. An array stays accepted for a caller that genuinely has a
+ * fixed set, such as a test.
  */
 export function createTreeBroker(
-	providers: readonly TreeProvider[],
+	providers: readonly TreeProvider[] | (() => readonly TreeProvider[]),
 ): TreeBroker {
 	const trees: HeldTree[] = [];
+	const roster = (): readonly TreeProvider[] =>
+		typeof providers === "function" ? providers() : providers;
 
 	return {
 		async ensure(request) {
 			const reusable = trees.find((tree) => satisfies(tree.identity, request));
 			if (reusable) return reusable;
 
-			const choice = chooseTreeProvider(providers, request.repo);
+			const choice = chooseTreeProvider(roster(), request.repo);
 			if (choice.kind === "none") {
 				throw new Error(
 					`No provider serves ${request.repo.key}, so there is nowhere to cut a tree from.`,
@@ -98,7 +108,7 @@ export function createTreeBroker(
 		},
 
 		async release(held) {
-			const owner = providers.find(
+			const owner = roster().find(
 				(provider) => provider.id === held.providerId,
 			);
 			const at = trees.findIndex((tree) => tree.path === held.path);
