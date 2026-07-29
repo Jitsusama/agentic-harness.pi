@@ -13,5 +13,7 @@
  * forge-shaped question.
  */
 
+export type { TreeProviderChoice, TreeProviderInfo } from "./provider.js";
+export { chooseTreeProvider } from "./provider.js";
 export type { TreeIdentity, TreeRequest, TreeSource } from "./tree.js";
 export { satisfies, treeIdentity, treeSource } from "./tree.js";
