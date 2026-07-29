@@ -17,6 +17,7 @@ to the work rather than to one tool that does it.
 | `treeIdentity` | What tree a request is asking for |
 | `satisfies` | Whether a tree already held answers a request |
 | `chooseTreeProvider` | Which provider serves a repo |
+| `createTreeBroker` | Custody: hand trees out, take them back |
 
 These are here before the council moves across, because the
 council cannot become provider-agnostic while it is asking a
@@ -116,6 +117,24 @@ mistake behind a tree that looks fine, so the choice comes back as
 same mistake reads the same way every time.
 
 A tie *below* the winner is not a tie at all and is ignored.
+
+## The Broker Is Only Custody
+
+The broker is what made three tree contracts look like three
+problems. Each held its own trees, keyed them its own way, and
+reimplemented the same two questions: does one of these already
+answer the request, and who serves this repo.
+
+Both questions now have one answer each, in `tree.ts` and
+`provider.ts`, so what is left is genuinely just custody. It
+refuses rather than guessing when the provider choice is unclear,
+because cutting a tree from a provider nobody chose *succeeds*, and
+the tree is merely wrong rather than missing.
+
+A held tree records who cut it. The chosen provider can change
+between cutting and releasing, since registration is dynamic, and a
+tree has to go back to whoever made it rather than to whoever would
+be chosen now.
 
 ## Companion Extensions
 

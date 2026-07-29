@@ -13,6 +13,8 @@
  * forge-shaped question.
  */
 
+export type { HeldTree, TreeBroker, TreeProvider } from "./broker.js";
+export { createTreeBroker } from "./broker.js";
 export type { TreeProviderChoice, TreeProviderInfo } from "./provider.js";
 export { chooseTreeProvider } from "./provider.js";
 export type { TreeIdentity, TreeRequest, TreeSource } from "./tree.js";
