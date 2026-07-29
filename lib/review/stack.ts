@@ -68,3 +68,63 @@ export interface Stack {
 	 */
 	cursor?: number;
 }
+
+/**
+ * Where one step through a stack lands.
+ *
+ * Four outcomes rather than a node or nothing, because each one
+ * needs saying differently. Standing at the tip is not a failure,
+ * a node that fans out has no single answer, and a stack that
+ * does not mention the ref at all is a partial answer from the
+ * provider rather than a wrong question.
+ */
+export type StackStep =
+	/** One place to go, so go there. */
+	| { kind: "move"; node: StackNode }
+	/** Several children, so the caller has to choose. */
+	| { kind: "choose"; candidates: StackNode[] }
+	/** Nothing that way: the tip going up, the trunk going down. */
+	| { kind: "edge"; at: "tip" | "root" }
+	/** This stack does not place the ref at all. */
+	| { kind: "unplaced" };
+
+/**
+ * Step through a stack from the ref you are standing on.
+ *
+ * Going up is the interesting direction, because a stack is a
+ * tree flattened rather than a chain, so a node can have several
+ * children. Picking one would land the reader on a sibling branch
+ * without saying so, which is the same mistake as guessing
+ * between attached changes, and it gets the same answer: report
+ * the candidates and let them choose.
+ *
+ * Going down is always unambiguous, since a node has one parent.
+ * A parent the stack does not contain means the parent is the
+ * trunk, and the trunk is deliberately not a node.
+ */
+export function stackStep(
+	stack: Stack,
+	fromRef: string,
+	direction: "next" | "prev",
+): StackStep {
+	const standing = stack.nodes.find((n) => n.ref === fromRef);
+	if (!standing) return { kind: "unplaced" };
+
+	if (direction === "next") {
+		const children = stack.nodes.filter((n) => n.parent === fromRef);
+		if (children.length === 0) return { kind: "edge", at: "tip" };
+		const only = children[0];
+		if (children.length === 1 && only !== undefined) {
+			return { kind: "move", node: only };
+		}
+		return { kind: "choose", candidates: children };
+	}
+
+	const parent =
+		standing.parent === undefined
+			? undefined
+			: stack.nodes.find((n) => n.ref === standing.parent);
+	return parent === undefined
+		? { kind: "edge", at: "root" }
+		: { kind: "move", node: parent };
+}
