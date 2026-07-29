@@ -23,6 +23,7 @@ import {
 	type ConversationFacet,
 	type DraftState,
 	type PublishOutcome,
+	type PublishPlan,
 	REVIEW_READY,
 	REVIEW_REQUEST_SUBSTRATE,
 	type ReviewEngine,
@@ -177,6 +178,24 @@ export async function publishDraftThroughSubstrate(input: {
 	ref: PRReference;
 	draft: DraftState;
 }): Promise<PublishOutcome> {
+	const prepared = await prepareDraftThroughSubstrate(input);
+	return prepared.publish(input.draft.summary ?? "");
+}
+
+/**
+ * A composed review, staged against its provider and ready to go.
+ *
+ * The plan comes back before anything is sent, so the gate can
+ * show what will actually happen: which remarks anchor, which
+ * degrade to the body, and what the provider refused. Those are
+ * facts about a particular backend's diff and limits, so guessing
+ * them earlier is how a gate ends up promising one thing and
+ * posting another.
+ */
+export async function prepareDraftThroughSubstrate(input: {
+	ref: PRReference;
+	draft: DraftState;
+}): Promise<PreparedPublish> {
 	const engine = await engineOrThrow();
 	const bound = await engine.resolve(changeFromGitHubView(input.ref).label);
 	const draft = await engine.openDraft(bound.target);
@@ -185,15 +204,29 @@ export async function publishDraftThroughSubstrate(input: {
 		if (item.kind !== "finding") continue;
 		await draft.addFinding({ anchor: item.anchor, body: item.body });
 	}
-	if (input.draft.verdict) {
-		await draft.setVerdict(input.draft.verdict, input.draft.summary);
-	}
 
-	const plan = draft.plan({
-		capabilities: bound.capabilities,
-		diff: await bound.diffModel(),
-	});
-	return draft.publish(plan, bound.provider);
+	const verdict = input.draft.verdict ?? "comment";
+	const diff = await bound.diffModel();
+
+	return {
+		plan: () =>
+			draft.plan({ capabilities: bound.capabilities, diff }),
+		async publish(summary: string) {
+			// The summary is set last, because the gate can edit it and
+			// what the person approved is what should be sent.
+			await draft.setVerdict(verdict, summary);
+			return draft.publish(
+				draft.plan({ capabilities: bound.capabilities, diff }),
+				bound.provider,
+			);
+		},
+	};
+}
+
+/** A staged review: what it will do, and a way to do it. */
+export interface PreparedPublish {
+	plan(): PublishPlan;
+	publish(summary: string): Promise<PublishOutcome>;
 }
 
 /** The hosted engine, or the guidance for having no host. */

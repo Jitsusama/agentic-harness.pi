@@ -15,6 +15,10 @@ import { describe, expect, it } from "vitest";
 import type { Finding } from "../../../extensions/pr-workflow/findings.js";
 import type { JudgeRun } from "../../../extensions/pr-workflow/judge.js";
 import { composeDraft } from "../../../extensions/pr-workflow/post.js";
+import type {
+	StackFinding,
+	StackFindingRun,
+} from "../../../extensions/pr-workflow/stack-findings.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import { prMetadata } from "./fixtures.js";
 
@@ -36,6 +40,32 @@ function lineFinding(id: number, overrides: Partial<Finding> = {}): Finding {
 		origin: { kind: "judge", runId: "j-1", judgeReviewerId: "j" },
 		state: "draft",
 		...overrides,
+	};
+}
+
+function stackFinding(id: number, homePrNumber: number): StackFinding {
+	return {
+		id,
+		location: { kind: "global" },
+		label: "issue",
+		decorations: [],
+		subject: `stack subject ${id}`,
+		discussion: `stack discussion ${id}`,
+		category: "scope",
+		origin: { kind: "cross-PR", runId: "sc-1", reviewerId: "sc" },
+		state: "draft",
+		homePrNumber,
+		spans: [homePrNumber],
+	};
+}
+
+function stackRun(findings: StackFinding[]): StackFindingRun {
+	return {
+		id: "sc-1",
+		startedAt: "x",
+		reviewerId: "sc",
+		findings,
+		warnings: [],
 	};
 }
 
@@ -145,6 +175,53 @@ describe("composeDraft", () => {
 			lineFinding(10, { location: { kind: "global" } }),
 		]);
 		decide(state, 10, "endorse");
+
+		const item = composeDraft(state, "COMMENT").items[0];
+		if (item.kind !== "finding") throw new Error("expected a finding");
+		expect(item.anchor).toEqual({ subject: "change" });
+	});
+
+	it("composes a cross-PR remark that homes to this change", () => {
+		// A stack review says things about the change in front of you
+		// as well as about its neighbours. Leaving those out would
+		// post half a review and call it whole.
+		const state = stateWith([]);
+		state.stackFindingRun = stackRun([stackFinding(20, 42)]);
+		state.stackDecisions.set(20, {
+			findingId: 20,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+
+		const items = composeDraft(state, "COMMENT").items;
+		expect(items).toHaveLength(1);
+		const item = items[0];
+		if (item.kind !== "finding") throw new Error("expected a finding");
+		expect(item.body).toContain("stack subject 20");
+	});
+
+	it("leaves out a cross-PR remark that belongs to another change", () => {
+		// It homes elsewhere, so it gets posted there. Saying it here
+		// too would double it.
+		const state = stateWith([]);
+		state.stackFindingRun = stackRun([stackFinding(20, 99)]);
+		state.stackDecisions.set(20, {
+			findingId: 20,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
+
+		expect(composeDraft(state, "COMMENT").items).toEqual([]);
+	});
+
+	it("anchors a cross-PR remark to the change, since it spans several", () => {
+		const state = stateWith([]);
+		state.stackFindingRun = stackRun([stackFinding(20, 42)]);
+		state.stackDecisions.set(20, {
+			findingId: 20,
+			verdict: "endorse",
+			decidedAt: "x",
+		});
 
 		const item = composeDraft(state, "COMMENT").items[0];
 		if (item.kind !== "finding") throw new Error("expected a finding");

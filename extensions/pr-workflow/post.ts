@@ -240,6 +240,21 @@ export function composeDraft(
 		});
 	}
 
+	// A stack review says things about the change in front of you as
+	// well as about its neighbours. One that homes elsewhere gets
+	// posted there, so saying it here as well would double it.
+	for (const finding of state.stackFindingRun?.findings ?? []) {
+		if (finding.homePrNumber !== reference?.number) continue;
+		const decision = state.stackDecisions.get(finding.id);
+		if (!decision || !willBeSaid(decision.verdict)) continue;
+		draft = addFinding(draft, {
+			// It spans several changes, so no one file in this one is
+			// where it belongs.
+			anchor: { subject: "change" },
+			body: renderStackBodyEntry(state, finding, decision),
+		});
+	}
+
 	return setVerdict(draft, verdictOf(event));
 }
 
