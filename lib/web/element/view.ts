@@ -28,11 +28,20 @@ export function renderVisibility(verdict: VisibilityVerdict): string {
  * The boxes, innermost outwards, with the offsets between them
  * stated only where they exist. Four zeroes for the margin of
  * an element with no margin is noise.
+ *
+ * The position says which space it is measured in. These numbers
+ * come from the box model, which measures from the viewport, while
+ * a page query reports the same element measured down the document.
+ * On a scrolled page the two differ by however far it has moved,
+ * and an unlabelled pair of numbers invites reading one as the
+ * other: that confusion hid a real defect for hours, because every
+ * reading was true in its own frame and none were comparable.
  */
 export function renderBox(box: BoxModel): string {
 	const lines = [
 		`content ${round(box.content.width)} by ${round(box.content.height)}` +
-			` at (${round(box.content.x)}, ${round(box.content.y)})`,
+			` at (${round(box.content.x)}, ${round(box.content.y)})` +
+			" in the viewport",
 	];
 	const padding = insetsBetween(box.content, box.padding);
 	if (padding) lines.push(`padding ${padding}`);

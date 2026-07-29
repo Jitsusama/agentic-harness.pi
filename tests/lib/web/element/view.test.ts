@@ -32,12 +32,28 @@ describe("renderBox", () => {
 		});
 		expect(renderBox(box)).toBe(
 			[
-				"content 66 by 19 at (30, 20)",
+				"content 66 by 19 at (30, 20) in the viewport",
 				"padding 10 20",
 				"border 2",
 				"margin 8",
 			].join("\n"),
 		);
+	});
+
+	it("says the position is measured from the viewport", () => {
+		// The box model measures from the viewport while a page query
+		// reports down the document, so the same element on a scrolled
+		// page reads 270 here and 1480 there. Saying which is what
+		// stops the two being compared as though they agreed.
+		const box = normalizeBoxModel({
+			content: [0, 270, 120, 270, 120, 330, 0, 330],
+			padding: [0, 270, 120, 270, 120, 330, 0, 330],
+			border: [0, 270, 120, 270, 120, 330, 0, 330],
+			margin: [0, 270, 120, 270, 120, 330, 0, 330],
+			width: 120,
+			height: 60,
+		});
+		expect(renderBox(box)).toContain("in the viewport");
 	});
 
 	it("says nothing about a margin an element does not have", () => {
@@ -49,7 +65,7 @@ describe("renderBox", () => {
 			width: 10,
 			height: 10,
 		});
-		expect(renderBox(box)).toBe("content 10 by 10 at (0, 0)");
+		expect(renderBox(box)).toBe("content 10 by 10 at (0, 0) in the viewport");
 	});
 });
 

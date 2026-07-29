@@ -116,14 +116,22 @@ export function tally(
 		.sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
 }
 
-/** How a node reads in a listing. */
+/**
+ * How a node reads in a listing.
+ *
+ * The position says which space it is measured in. A snapshot
+ * measures down the document, while an element inspection reports
+ * the box model, which measures from the viewport. The same element
+ * on a scrolled page reads differently in each, and saying so is
+ * what stops the two being compared as though they agreed.
+ */
 export function describeNode(node: IndexedNode): string {
 	const tag = node.nodeName.toLowerCase();
 	const id = node.attributes.id ? `#${node.attributes.id}` : "";
 	const classes = node.attributes.class
 		? `.${node.attributes.class.trim().split(/\s+/).join(".")}`
 		: "";
-	const where = node.bounds ? ` at ${place(node.bounds)}` : "";
+	const where = node.bounds ? ` at ${place(node.bounds)} on the page` : "";
 	const notes = [
 		node.rendered ? "" : "not rendered",
 		node.inShadow ? "in shadow" : "",
