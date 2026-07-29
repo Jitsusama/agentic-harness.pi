@@ -14,6 +14,7 @@ import {
 	chooseChange,
 	createAttachmentStore,
 } from "../../../lib/review/index.js";
+import { stackStep } from "../../../lib/review/stack.js";
 import { attachmentDir, reviewEngine } from "../engine.js";
 import { checksLines, GLYPH, proposalLine } from "../render.js";
 import {
@@ -49,6 +50,8 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 					[
 						Type.Literal("attach"),
 						Type.Literal("detach"),
+						Type.Literal("next"),
+						Type.Literal("prev"),
 						Type.Literal("resolve"),
 						Type.Literal("view"),
 						Type.Literal("diff"),
@@ -58,7 +61,7 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"What to do. attach: work on this change, so later calls can leave it out. detach: stop working on it. Omit entirely to report what is attached.",
+							"What to do. attach: work on this change, so later calls can leave it out. detach: stop working on it. next and prev: move the attachment up or down the stack it sits in. Omit entirely to report what is attached.",
 					},
 				),
 			),
@@ -113,6 +116,9 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 				if (params.action === undefined) return reportAttached();
 				if (params.action === "attach") return attachChange(pi, params);
 				if (params.action === "detach") return detachChange(params);
+				if (params.action === "next" || params.action === "prev") {
+					return stepAttachment(pi, params, params.action);
+				}
 				if (params.action === "list") return listChanges(pi, params);
 
 				const bound = await boundFor(pi, params, process.cwd());
@@ -219,6 +225,78 @@ async function detachChange(params: TargetParams): Promise<Answer> {
 		ok: true,
 		detached: chosen.label,
 	});
+}
+
+/**
+ * Move the attachment along the stack the change sits in.
+ *
+ * Walking a stack is reading four changes in turn, and naming
+ * each one is exactly the restatement attaching exists to remove.
+ * The step is honest about a stack that forks: a node with two
+ * children has no single answer, so both are offered rather than
+ * one being picked and the reader landing on a sibling branch
+ * without being told.
+ */
+async function stepAttachment(
+	pi: ExtensionAPI,
+	params: TargetParams,
+	direction: "next" | "prev",
+): Promise<Answer> {
+	const bound = await boundFor(pi, params, process.cwd());
+	const change = hostedChange(bound);
+	if (!change) {
+		return refuse(
+			`A ${bound.target.kind} in ${bound.repo.key} is not in a stack of changes, so there is nothing to step through.`,
+		);
+	}
+	const proposal = await bound.proposal();
+	const standing = proposal?.head;
+	if (standing === undefined) {
+		return refuse(
+			`${change.label} does not report the ref it is on, so ${direction} has nowhere to start.`,
+		);
+	}
+	const stack = await bound.stack();
+	if (!stack) {
+		return refuse(
+			`The ${bound.provider.id} provider does not report stacks, so there is nothing to step through.`,
+		);
+	}
+	const step = stackStep(stack, standing, direction);
+
+	if (step.kind === "unplaced") {
+		return refuse(
+			`${bound.provider.id} reports a stack that does not place ${standing}, so it cannot say what is ${direction === "next" ? "above" : "below"} it.`,
+		);
+	}
+	if (step.kind === "edge") {
+		return say(
+			step.at === "tip"
+				? `${GLYPH.stack} ${change.label} is the top of its stack, so there is nothing above it.`
+				: `${GLYPH.stack} ${change.label} sits on ${stack.trunk ?? "the trunk"}, so there is nothing below it.`,
+			{ ok: true, at: step.at },
+		);
+	}
+	if (step.kind === "choose") {
+		const names = step.candidates.map((c) => c.proposal?.ref.label ?? c.ref);
+		return refuse(
+			`${change.label} forks into ${names.join(" and ")}. Attach the one you mean, since picking for you would move you onto a sibling branch without saying so.`,
+		);
+	}
+
+	const landing = step.node.proposal?.ref;
+	if (!landing) {
+		return refuse(
+			`${step.node.ref} is ${direction === "next" ? "above" : "below"} ${change.label} but nothing hosts it yet, so there is no change to attach. Offer it for review first.`,
+		);
+	}
+	const store = createAttachmentStore(attachmentDir());
+	await store.attach(landing);
+	await store.detach(change.label);
+	return say(
+		`${GLYPH.stack} moved ${direction === "next" ? "up" : "down"} to ${landing.label}, and attached it.\n   Left ${change.label} behind.`,
+		{ ok: true, attached: landing.label },
+	);
 }
 
 /** What this session is working on. */

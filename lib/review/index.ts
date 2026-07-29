@@ -135,6 +135,7 @@ export {
 	REVIEW_REQUEST_SUBSTRATE,
 } from "./events.js";
 export { changeKey, repoKey, targetKey } from "./keys.js";
+
 export type {
 	AuthoringFacet,
 	ChangeFilter,
@@ -178,4 +179,10 @@ export type {
 	ResolvedVia,
 } from "./resolve.js";
 export { resolveReference } from "./resolve.js";
-export type { Stack, StackNode, StackProvenance } from "./stack.js";
+export type {
+	Stack,
+	StackNode,
+	StackProvenance,
+	StackStep,
+} from "./stack.js";
+export { stackStep } from "./stack.js";
