@@ -209,8 +209,7 @@ export async function prepareDraftThroughSubstrate(input: {
 	const diff = await bound.diffModel();
 
 	return {
-		plan: () =>
-			draft.plan({ capabilities: bound.capabilities, diff }),
+		plan: () => draft.plan({ capabilities: bound.capabilities, diff }),
 		async publish(summary: string) {
 			// The summary is set last, because the gate can edit it and
 			// what the person approved is what should be sent.
