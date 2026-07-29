@@ -4,6 +4,7 @@ import {
 	lastOpenAt,
 	lastOpenOnQuest,
 	openRecord,
+	parseSessionRecord,
 	pruneRecords,
 	type SessionRecord,
 	switchQuest,
@@ -85,6 +86,35 @@ describe("closeRecord", () => {
 		const again = closeRecord(first, "swapped", LATER_STILL);
 		expect(again.closedAt).toBe(LATER.toISOString());
 		expect(again.endReason).toBe("quit");
+	});
+});
+
+describe("parseSessionRecord", () => {
+	it("reads back a record it wrote", () => {
+		const record = closeRecord(
+			switchQuest(opened(), "QEST-2", LATER),
+			"quit",
+			LATER_STILL,
+		);
+		const round = parseSessionRecord(JSON.parse(JSON.stringify(record)));
+		expect(round).toEqual(record);
+	});
+
+	it("refuses a record missing the fields every reader depends on", () => {
+		expect(parseSessionRecord({ sessionId: "sess-1" })).toBeUndefined();
+		expect(parseSessionRecord(null)).toBeUndefined();
+		expect(parseSessionRecord("sess-1")).toBeUndefined();
+	});
+
+	it("refuses a record whose end reason is not one we understand", () => {
+		// A record we cannot interpret must not be treated as ended, since
+		// that decides whether a tab is offered back to the user.
+		const record = {
+			...opened(),
+			closedAt: LATER.toISOString(),
+			endReason: "vanished",
+		};
+		expect(parseSessionRecord(record)).toBeUndefined();
 	});
 });
 
@@ -221,6 +251,17 @@ describe("lastOpenAt", () => {
 	it("falls back to when it opened if it never even heartbeat", () => {
 		expect(lastOpenAt(opened(), { live: false }, LATER_STILL)).toEqual({
 			at: NOW.toISOString(),
+			exact: false,
+		});
+	});
+
+	it("dates a record closed by a reader that found it gone as approximate", () => {
+		// Nobody watched this one die; a reader stamped it with the last
+		// moment anything saw it alive, so the stamp is a best estimate
+		// even though it is recorded like any other close.
+		const record = closeRecord(opened(), "died", LATER);
+		expect(lastOpenAt(record, { live: false }, LATER_STILL)).toEqual({
+			at: LATER.toISOString(),
 			exact: false,
 		});
 	});

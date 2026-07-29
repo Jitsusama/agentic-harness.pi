@@ -38,9 +38,11 @@ export interface SessionRecord {
  * How a session ended. `quit` means the pi process exited and took
  * its tab with it. `swapped` means the conversation was replaced
  * inside a tab that is still on screen, which is what a reload, a
- * session switch and a fork all do.
+ * session switch and a fork all do. `died` means no process recorded
+ * an ending at all and a later reader found it gone, which is what a
+ * crash looks like from the outside.
  */
-export type SessionEndReason = "quit" | "swapped";
+export type SessionEndReason = "quit" | "swapped" | "died";
 
 /** What a caller knows when a session first loads a quest. */
 export interface OpenInput {
@@ -69,6 +71,49 @@ export function openRecord(input: OpenInput): SessionRecord {
 		...(input.terminal ? { terminal: input.terminal } : {}),
 		openedAt: input.now.toISOString(),
 	};
+}
+
+/** The end reasons a reader is willing to act on. */
+const END_REASONS: readonly string[] = ["quit", "swapped", "died"];
+
+/**
+ * Read a stored value back as a record, or refuse it.
+ *
+ * A record decides whether a tab is offered back to the user, so a
+ * file that has been hand-edited, half-written or produced by a newer
+ * version is skipped rather than half-believed. Refusing costs one
+ * forgotten session; trusting a malformed one can hide a recoverable
+ * tab or resurrect a closed one.
+ */
+export function parseSessionRecord(value: unknown): SessionRecord | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const v = value as Record<string, unknown>;
+	const required = [v.sessionId, v.instanceId, v.cwd, v.openedAt];
+	if (!required.every((field) => typeof field === "string" && field !== "")) {
+		return undefined;
+	}
+	if (v.quest !== undefined && typeof v.quest !== "string") return undefined;
+	if (v.closedAt !== undefined && typeof v.closedAt !== "string") {
+		return undefined;
+	}
+	if (
+		v.endReason !== undefined &&
+		!END_REASONS.includes(v.endReason as string)
+	) {
+		return undefined;
+	}
+	if (v.previousQuests !== undefined && !isStringMap(v.previousQuests)) {
+		return undefined;
+	}
+	return value as SessionRecord;
+}
+
+/** Whether a value is a flat object of string values. */
+function isStringMap(value: unknown): boolean {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return false;
+	}
+	return Object.values(value).every((entry) => typeof entry === "string");
 }
 
 /** Milliseconds in a day, for the retention window. */
@@ -169,6 +214,10 @@ export interface LastOpen {
  * else died without saying so, and the last time we saw it alive is
  * the best answer there is, flagged as approximate.
  *
+ * A close a reader wrote after finding the process gone carries the
+ * same shape but not the same authority, so it reports approximate
+ * too: nobody watched that session end.
+ *
  * Deliberately not a source: how recently the session's log was
  * written. That measures when someone last typed, which is the thing
  * this whole record exists to stop standing in for being open.
@@ -179,7 +228,9 @@ export function lastOpenAt(
 	now: Date,
 ): LastOpen {
 	if (observation.live) return { at: now.toISOString(), exact: true };
-	if (record.closedAt) return { at: record.closedAt, exact: true };
+	if (record.closedAt) {
+		return { at: record.closedAt, exact: record.endReason !== "died" };
+	}
 	return { at: observation.heartbeatAt ?? record.openedAt, exact: false };
 }
 
