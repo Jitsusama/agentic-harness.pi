@@ -23,8 +23,14 @@ import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import {
 	type Anchor,
 	type AnchorRefusal,
+	addFinding,
 	anchorable,
 	type DiffFile,
+	type DraftState,
+	emptyDraft,
+	type ReviewTarget,
+	setVerdict,
+	type Verdict,
 } from "../../lib/review/index.js";
 import type { Finding, FindingAgreement, FindingLocation } from "./findings.js";
 import type { PostGateOutcome } from "./post-gate-outcome.js";
@@ -33,6 +39,7 @@ import type {
 	PostGateSkippedLine,
 	PostGateSummary,
 } from "./post-gate-render.js";
+import { changeFromGitHubView } from "./reference.js";
 import type { StackFinding } from "./stack-findings.js";
 import type { PrWorkflowState } from "./state.js";
 import { effectiveFinding, type FindingDecision } from "./synthesis.js";
@@ -199,6 +206,96 @@ export function describeHeadDrift(
 		"reviewed head, so some comments may land on the wrong lines. Reload the PR " +
 		"to re-fetch the diff and re-review, or post knowing the anchors may be stale."
 	);
+}
+
+/**
+ * The decided review, composed as a draft the substrate can plan.
+ *
+ * A draft is what this review will say once the deliberating is
+ * over. The council runs, the critiques and the verdicts that
+ * produced it stay where they are: they are the record of
+ * deciding, and this is the thing decided.
+ *
+ * What lands inline and what spills into the body is not settled
+ * here. Every remark arrives with the anchor it claims, and the
+ * plan judges those against a particular provider's diff and
+ * limits, which is the only place that judgment is sound.
+ */
+export function composeDraft(
+	state: PrWorkflowState,
+	event: ReviewEvent,
+): DraftState {
+	const reference = state.pr?.reference;
+	let draft = emptyDraft(
+		`pr-workflow-${reference ? reference.number : "unloaded"}`,
+		targetFor(reference),
+	);
+
+	for (const finding of state.council.lastJudge?.consolidatedFindings ?? []) {
+		const decision = state.council.decisions.get(finding.id);
+		if (!decision || !willBeSaid(decision.verdict)) continue;
+		draft = addFinding(draft, {
+			anchor: anchorOf(effectiveFinding(finding, decision).location),
+			body: renderCommentBody(state, finding, decision),
+		});
+	}
+
+	return setVerdict(draft, verdictOf(event));
+}
+
+/**
+ * Whether a verdict means the remark gets said out loud.
+ *
+ * A dismissal will not be said, and neither will something queued
+ * for a fix, since the fix is the answer to it rather than a
+ * comment about it.
+ */
+function willBeSaid(verdict: FindingDecision["verdict"]): boolean {
+	return verdict !== "dismiss" && verdict !== "fix";
+}
+
+/** A GitHub review event as the position the contract knows. */
+function verdictOf(event: ReviewEvent): Verdict {
+	if (event === "APPROVE") return "approve";
+	return event === "REQUEST_CHANGES" ? "request-changes" : "comment";
+}
+
+/**
+ * Where a finding attaches.
+ *
+ * A change-wide remark has no place in the diff, and the contract
+ * has no anchor for one, so it is named against the change itself
+ * and the plan spills it into the body. Dropping it instead would
+ * lose something a person chose to say.
+ */
+function anchorOf(location: FindingLocation): Anchor {
+	if (location.kind === "line") {
+		return {
+			subject: "line",
+			path: location.file,
+			blob: location.side === "old" ? "old" : "new",
+			line: location.end,
+			...(location.start === location.end ? {} : { startLine: location.start }),
+		};
+	}
+	return {
+		subject: "file",
+		path: location.kind === "file" ? location.file : CHANGE_WIDE,
+	};
+}
+
+/**
+ * The path a change-wide remark carries. It names no real file,
+ * so no diff can hold it and the plan always spills it.
+ */
+const CHANGE_WIDE = "";
+
+/** What the draft is about, when anything is loaded. */
+function targetFor(reference: PRReference | undefined): ReviewTarget {
+	if (!reference) {
+		return { kind: "range", repo: { key: "" }, base: "", head: "" };
+	}
+	return { kind: "proposal", change: changeFromGitHubView(reference) };
 }
 
 /**
