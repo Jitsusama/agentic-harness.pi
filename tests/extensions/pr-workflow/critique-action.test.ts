@@ -16,7 +16,7 @@ import {
 	WorktreeRegistry,
 	type WorktreeRequest,
 } from "../../../extensions/pr-workflow/worktree.js";
-import { expectFailure, prMetadata } from "./fixtures.js";
+import { expectFailure, prMetadata, stackEntry } from "./fixtures.js";
 
 function fakeProvider(requests?: WorktreeRequest[]): WorktreeProvider {
 	return {
@@ -190,20 +190,7 @@ describe("runCritiqueAction", () => {
 			stack: {
 				cursorIndex: 1,
 				cursorChildren: [],
-				entries: [
-					{
-						reference: { owner: "o", repo: "r", number: 101 },
-						title: "PR 101",
-						baseRefName: "main",
-						headRefName: "f101",
-					},
-					{
-						reference: { owner: "o", repo: "r", number: 102 },
-						title: "PR 102",
-						baseRefName: "f101",
-						headRefName: "f102",
-					},
-				],
+				entries: [stackEntry(101), stackEntry(102, { baseRefName: "f101" })],
 			},
 		};
 		state.council.roster = [{ id: "fast", model: "m-fast" }];

@@ -1837,7 +1837,7 @@ ${reviewValidationDirective()}`,
 							details: { ok: false, error: `no ${direction}` },
 						};
 					}
-					const ref = changeFromGitHubView(pick.reference).label;
+					const ref = pick.change.label;
 					const directionLabel =
 						params.action === "stack-next" ? "Downstream PR" : "Upstream PR";
 					return {
@@ -2758,7 +2758,7 @@ ${reviewValidationDirective()}`,
 				}
 
 				try {
-					loaded.metadata = await metadataFromSubstrate(loaded.reference);
+					loaded.metadata = await metadataFromSubstrate(changeOf(loaded));
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);
@@ -2766,7 +2766,7 @@ ${reviewValidationDirective()}`,
 						content: [
 							{
 								type: "text",
-								text: `Loaded ${changeFromGitHubView(loaded.reference).label} but could not fetch metadata: ${message}`,
+								text: `Loaded ${changeOf(loaded).label} but could not fetch metadata: ${message}`,
 							},
 						],
 						details: { ok: false, pr: loaded, error: message },
@@ -2778,7 +2778,7 @@ ${reviewValidationDirective()}`,
 				// loaded with metadata only and report the failure.
 				let diffError: string | null = null;
 				try {
-					const raw = await diffFromSubstrate(loaded.reference);
+					const raw = await diffFromSubstrate(changeOf(loaded));
 					loaded.files = parseUnifiedDiff(raw).files;
 				} catch (error) {
 					diffError = error instanceof Error ? error.message : String(error);
@@ -2789,7 +2789,7 @@ ${reviewValidationDirective()}`,
 				// the metadata fetch having succeeded first.
 				let stackError: string | null = null;
 				try {
-					loaded.stack = await stackFromSubstrate(loaded.reference);
+					loaded.stack = await stackFromSubstrate(changeOf(loaded));
 				} catch (error) {
 					stackError = error instanceof Error ? error.message : String(error);
 				}
@@ -2798,7 +2798,7 @@ ${reviewValidationDirective()}`,
 				const lines: string[] = [];
 				if (m) {
 					lines.push(
-						`Loaded ${changeFromGitHubView(loaded.reference).label}: ${m.title}`,
+						`Loaded ${changeOf(loaded).label}: ${m.title}`,
 						`author: ${m.author} · state: ${m.state}${m.isDraft ? " (draft)" : ""}`,
 						`base: ${m.base.ref} ← head: ${m.head.ref}`,
 						`${m.changedFiles} files changed, +${m.additions} −${m.deletions}`,
@@ -2813,9 +2813,7 @@ ${reviewValidationDirective()}`,
 					lines.push(`Stack (${stack.entries.length} PRs):`);
 					stack.entries.forEach((e, i) => {
 						const marker = i === stack.cursorIndex ? "▶" : " ";
-						lines.push(
-							`  ${marker} ${changeFromGitHubView(e.reference).label}: ${e.title}`,
-						);
+						lines.push(`  ${marker} ${e.change.label}: ${e.title}`);
 					});
 					if (stack.cursorChildren.length > 0) {
 						lines.push(
@@ -2901,7 +2899,7 @@ ${reviewValidationDirective()}`,
 						if (!sidequest.isNew) {
 							questBridge.logJourney(
 								sidequest.sidequestDir,
-								`Reloaded for review (${changeFromGitHubView(loaded.reference).label}).`,
+								`Reloaded for review (${changeOf(loaded).label}).`,
 							);
 						}
 						lines.push("");
@@ -3072,7 +3070,7 @@ async function planPreview(
 	if (state.pr === null) return null;
 	try {
 		const prepared = await prepareDraftThroughSubstrate({
-			ref: state.pr.reference,
+			ref: changeOf(state.pr),
 			draft: composeDraft(state, event),
 		});
 		return prepared.plan();

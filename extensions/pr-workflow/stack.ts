@@ -16,11 +16,17 @@
  */
 
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
-import type { StackNode, Stack as Topology } from "../../lib/review/index.js";
-import { githubViewOf } from "./reference.js";
+import type {
+	ChangeRef,
+	StackNode,
+	Stack as Topology,
+} from "../../lib/review/index.js";
+import { viewOf } from "./reference.js";
 
 /** A PR participating in a stack. */
 export interface StackEntry {
+	/** Which change this is, and which system owns it. */
+	readonly change: ChangeRef;
 	readonly reference: PRReference;
 	readonly title: string;
 	readonly baseRefName: string;
@@ -142,9 +148,14 @@ function descendantsOf(
 function entryOf(node: StackNode): StackEntry | null {
 	const proposal = node.proposal;
 	if (!proposal) return null;
-	const reference = githubViewOf(proposal.ref);
+	// Projected for whoever hosts it, not only for GitHub. Reading
+	// this through the GitHub-only view dropped every entry of a
+	// stack on any other system, so a Meteorite stack came back
+	// empty rather than wrong, which is harder to notice.
+	const reference = viewOf(proposal.ref);
 	if (!reference) return null;
 	return {
+		change: proposal.ref,
 		reference,
 		title: proposal.title,
 		baseRefName: proposal.base,

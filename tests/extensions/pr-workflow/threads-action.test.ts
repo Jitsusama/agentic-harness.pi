@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
+import { changeOf } from "../../../extensions/pr-workflow/reference.js";
+import {
+	type ActivePr,
+	createPrWorkflowState,
+} from "../../../extensions/pr-workflow/state.js";
 import type { ReviewThread } from "../../../extensions/pr-workflow/threads.js";
 import {
 	captureThreadExpectation,
@@ -61,7 +65,9 @@ describe("loadThreadsAction", () => {
 		expect(state.threads).not.toBeNull();
 		expect(state.threads?.threads).toHaveLength(2);
 		expect(state.threads?.prNumber).toBe(7);
-		expect(fetcher).toHaveBeenCalledWith(state.pr?.reference);
+		// Addressed by the change, so the fetcher reaches whichever
+		// system owns it rather than assuming one.
+		expect(fetcher).toHaveBeenCalledWith(changeOf(state.pr as ActivePr));
 	});
 
 	it("surfaces fetch failures without poisoning state", async () => {
@@ -131,7 +137,7 @@ describe("drift guard", () => {
 		// The whole record goes to the sender, since the provider
 		// decides what addresses a reply.
 		expect(sender).toHaveBeenCalledWith(
-			state.pr?.reference,
+			changeOf(state.pr as ActivePr),
 			expect.objectContaining({ id: "TA" }),
 			"thanks",
 		);
@@ -447,7 +453,7 @@ describe("replyToThreadAction", () => {
 		});
 		expect(result.ok).toBe(true);
 		expect(sender).toHaveBeenCalledWith(
-			state.pr?.reference,
+			changeOf(state.pr as ActivePr),
 			expect.objectContaining({ id: "TB" }),
 			"thanks",
 		);
@@ -567,7 +573,7 @@ describe("resolveThreadAction", () => {
 		const result = await resolveThreadAction({ state, index: 1, resolver });
 		expect(result.ok).toBe(true);
 		expect(resolver).toHaveBeenCalledWith(
-			state.pr?.reference,
+			changeOf(state.pr as ActivePr),
 			expect.objectContaining({ id: "TA" }),
 		);
 	});

@@ -11,6 +11,7 @@ import {
 	createPrWorkflowState,
 	type PrWorkflowState,
 } from "../../../extensions/pr-workflow/state.js";
+import { stackEntry } from "./fixtures.js";
 
 function loadedState(): PrWorkflowState {
 	const state = createPrWorkflowState();
@@ -53,12 +54,9 @@ function judgeWith(findings: Finding[]): JudgeRun {
 
 function stackWith(count: number): Stack {
 	return {
-		entries: Array.from({ length: count }, (_, i) => ({
-			reference: { owner: "o", repo: "r", number: 1000 + i },
-			title: `PR ${i}`,
-			baseRefName: "main",
-			headRefName: `f${i}`,
-		})),
+		entries: Array.from({ length: count }, (_, i) =>
+			stackEntry(1000 + i, { title: `PR ${i}`, headRefName: `f${i}` }),
+		),
 		cursorIndex: 0,
 		cursorChildren: [],
 	};

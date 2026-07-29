@@ -12,7 +12,12 @@
 
 import { resolveTarget } from "./bind.js";
 import type { Capabilities } from "./capabilities.js";
-import type { Proposal, RepoLocator, ReviewTarget } from "./change.js";
+import type {
+	ChangeRef,
+	Proposal,
+	RepoLocator,
+	ReviewTarget,
+} from "./change.js";
 import type { ChecksRollup } from "./checks.js";
 import type { ReviewConfig } from "./config.js";
 import type { DiffModel } from "./diff.js";
@@ -27,6 +32,7 @@ import type {
 } from "./provider.js";
 import type { Exec } from "./providers/exec.js";
 import { run } from "./providers/exec.js";
+import { getReviewProvider } from "./register.js";
 import { resolveReference } from "./resolve.js";
 import type { Stack } from "./stack.js";
 
@@ -67,6 +73,17 @@ export interface ReviewEngine {
 	probe(cwd: string): Promise<RepoProbe>;
 	/** Resolve a reference, throwing the resolver's guidance. */
 	resolve(input: string, cwd?: string): Promise<BoundTarget>;
+	/**
+	 * Bind a change whose system is already known.
+	 *
+	 * For a caller that resolved once and kept the answer. Going
+	 * back through {@link resolve} would ask every provider to
+	 * claim the name again, and claiming depends on the directory
+	 * the question is asked from, so the same change can bind to a
+	 * different system on a later call. That is exactly how a
+	 * review reaches a mirror instead of the system of record.
+	 */
+	bound(change: ChangeRef): Promise<BoundTarget>;
 	/** Review refs in a checkout, hosted or not. */
 	fromLocal(repoRoot: string, spec: LocalSpec): Promise<BoundTarget>;
 	openDraft(target: ReviewTarget): Promise<ReviewDraft>;
@@ -86,6 +103,23 @@ function endpointsOf(target: ReviewTarget): { base: string; head: string } {
 		};
 	}
 	throw new Error("a hosted change has no local endpoints");
+}
+
+/**
+ * The provider a change names, or a refusal that names it back.
+ *
+ * A change carrying a system nobody registered almost always
+ * means an extension did not load, and saying which system is
+ * missing is what points at it.
+ */
+function providerFor(id: string): ReviewProvider {
+	const provider = getReviewProvider(id);
+	if (!provider) {
+		throw new Error(
+			`This change belongs to ${id}, and no ${id} provider is registered, so it cannot be reached. The extension that contributes it may not be loaded.`,
+		);
+	}
+	return provider;
 }
 
 /** Build the engine. */
@@ -221,6 +255,14 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 				change: resolution.change,
 			};
 			return bind(target, resolution.provider, resolution.change.repo);
+		},
+
+		async bound(change) {
+			return bind(
+				{ kind: "proposal", change },
+				providerFor(change.provider),
+				change.repo,
+			);
 		},
 
 		async fromLocal(repoRoot, spec) {

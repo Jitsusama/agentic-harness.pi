@@ -24,10 +24,11 @@ import type {
 import {
 	addFinding,
 	emptyDraft,
+	githubChange,
 	setVerdict,
 } from "../../../lib/review/index.js";
 
-const reference = { owner: "o", repo: "r", number: 7 };
+const reference = githubChange({ key: "github:o/r" }, "7");
 
 const target = {
 	kind: "proposal",
@@ -65,15 +66,22 @@ function substrate(outcome: { ok: boolean }): {
 	const opened: unknown[] = [];
 	const published: DraftState[] = [];
 
+	const bind = () =>
+		({
+			target,
+			capabilities: capable,
+			provider: { id: "github" },
+			diffModel: async () => ({ files: [] }),
+			conversation: {},
+		}) as unknown as BoundTarget;
 	const engine = {
 		async resolve() {
-			return {
-				target,
-				capabilities: capable,
-				provider: { id: "github" },
-				diffModel: async () => ({ files: [] }),
-				conversation: {},
-			} as unknown as BoundTarget;
+			return bind();
+		},
+		// Staging binds the change it was handed rather than looking
+		// its name up again.
+		async bound() {
+			return bind();
 		},
 		async openDraft(forTarget: unknown) {
 			opened.push(forTarget);

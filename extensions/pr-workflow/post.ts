@@ -19,12 +19,12 @@
  * need a real `gh` binary.
  */
 
-import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import {
 	type Anchor,
 	type AnchorRefusal,
 	addFinding,
 	anchorable,
+	type ChangeRef,
 	type DiffFile,
 	type DraftState,
 	emptyDraft,
@@ -41,7 +41,7 @@ import type {
 	PostGateSkippedLine,
 	PostGateSummary,
 } from "./post-gate-render.js";
-import { changeFromGitHubView } from "./reference.js";
+import { changeOf } from "./reference.js";
 import type { StackFinding } from "./stack-findings.js";
 import type { PrWorkflowState } from "./state.js";
 import { effectiveFinding, type FindingDecision } from "./synthesis.js";
@@ -112,9 +112,9 @@ export interface ReviewPayload {
 	readonly skipped: SkippedFinding[];
 }
 
-/** Exec boundary: wraps `gh api` for testability. */
+/** Exec boundary: stages the review with whichever provider hosts it. */
 export type PostReviewExec = (input: {
-	ref: PRReference;
+	ref: ChangeRef;
 	draft: DraftState;
 }) => Promise<PreparedPost>;
 
@@ -171,7 +171,7 @@ export interface PostReviewActionInput {
 	 * inline anchors are never posted silently. Returning
 	 * `undefined` (or throwing) skips the check.
 	 */
-	readonly currentHead?: (ref: PRReference) => Promise<string | undefined>;
+	readonly currentHead?: (ref: ChangeRef) => Promise<string | undefined>;
 }
 
 /** Result of `postReviewAction`. */
@@ -193,7 +193,7 @@ export type PostReviewActionResult =
  */
 async function resolveHeadDrift(
 	currentHead: PostReviewActionInput["currentHead"],
-	ref: PRReference,
+	ref: ChangeRef,
 	reviewedSha: string | undefined,
 ): Promise<string | null> {
 	if (!currentHead) return null;
@@ -238,10 +238,10 @@ export function composeDraft(
 	state: PrWorkflowState,
 	event: ReviewEvent,
 ): DraftState {
-	const reference = state.pr?.reference;
+	const pr = state.pr;
 	let draft = emptyDraft(
-		`pr-workflow-${reference ? reference.number : "unloaded"}`,
-		targetFor(reference),
+		`pr-workflow-${pr ? pr.reference.number : "unloaded"}`,
+		targetFor(pr ? changeOf(pr) : undefined),
 	);
 
 	for (const finding of state.council.lastJudge?.consolidatedFindings ?? []) {
@@ -257,7 +257,7 @@ export function composeDraft(
 	// well as about its neighbours. One that homes elsewhere gets
 	// posted there, so saying it here as well would double it.
 	for (const finding of state.stackFindingRun?.findings ?? []) {
-		if (finding.homePrNumber !== reference?.number) continue;
+		if (finding.homePrNumber !== pr?.reference.number) continue;
 		const decision = state.stackDecisions.get(finding.id);
 		if (!decision || !willBeSaid(decision.verdict)) continue;
 		draft = addFinding(draft, {
@@ -312,11 +312,11 @@ function anchorOf(location: FindingLocation): Anchor {
 }
 
 /** What the draft is about, when anything is loaded. */
-function targetFor(reference: PRReference | undefined): ReviewTarget {
-	if (!reference) {
+function targetFor(change: ChangeRef | undefined): ReviewTarget {
+	if (!change) {
 		return { kind: "range", repo: { key: "" }, base: "", head: "" };
 	}
-	return { kind: "proposal", change: changeFromGitHubView(reference) };
+	return { kind: "proposal", change };
 }
 
 /**
@@ -506,7 +506,7 @@ export async function postReviewAction(
 	// concurrent action=load can swap state.pr.reference while
 	// the gate is open; the post must land on the PR the user
 	// actually reviewed, not whatever the cursor moved to.
-	const targetRef = input.state.pr.reference;
+	const targetRef = changeOf(input.state.pr);
 	const payload = buildReviewPayload(input.state);
 	if (
 		payload.includedFindingIds.length === 0 &&

@@ -11,7 +11,8 @@
  * without a real GitHub round-trip.
  */
 
-import type { PRReference } from "../../lib/internal/github/pr-reference.js";
+import type { ChangeRef } from "../../lib/review/index.js";
+import { changeOf } from "./reference.js";
 import type { PrWorkflowState, ThreadsSnapshot } from "./state.js";
 import type { ReviewThread } from "./threads.js";
 
@@ -19,9 +20,7 @@ import type { ReviewThread } from "./threads.js";
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
 
 /** Fetcher: round-trip a thread list for a PR. */
-export type ThreadsFetcher = (
-	reference: PRReference,
-) => Promise<ReviewThread[]>;
+export type ThreadsFetcher = (change: ChangeRef) => Promise<ReviewThread[]>;
 
 /**
  * Sender: post a reply to a thread. Returns the new comment URL.
@@ -31,7 +30,7 @@ export type ThreadsFetcher = (
  * is the comment that opened the thread.
  */
 export type ThreadReplySender = (
-	reference: PRReference,
+	change: ChangeRef,
 	thread: ReviewThread,
 	body: string,
 ) => Promise<string | undefined>;
@@ -43,7 +42,7 @@ export type ThreadReplySender = (
  * provider decides what addresses a thread.
  */
 export type ThreadResolver = (
-	reference: PRReference,
+	change: ChangeRef,
 	thread: ReviewThread,
 ) => Promise<boolean>;
 
@@ -59,7 +58,7 @@ export async function loadThreadsAction(input: {
 	}
 	let threads: ReviewThread[];
 	try {
-		threads = await fetcher(state.pr.reference);
+		threads = await fetcher(changeOf(state.pr));
 	} catch (err) {
 		return {
 			ok: false,
@@ -211,7 +210,7 @@ export async function replyToThreadAction(input: {
 	// just made. The reply landed either way.
 	let url: string | undefined;
 	try {
-		url = await sender(state.pr.reference, lookup.thread, body);
+		url = await sender(changeOf(state.pr), lookup.thread, body);
 	} catch (err) {
 		return {
 			ok: false,
@@ -307,7 +306,7 @@ export async function resolveThreadAction(input: {
 	}
 	let isResolved: boolean;
 	try {
-		isResolved = await resolver(state.pr.reference, lookup.thread);
+		isResolved = await resolver(changeOf(state.pr), lookup.thread);
 	} catch (err) {
 		return {
 			ok: false,

@@ -15,6 +15,7 @@ import type {
 } from "../../../extensions/pr-workflow/stack-findings.js";
 import { createPrWorkflowState } from "../../../extensions/pr-workflow/state.js";
 import type { DiffFile, PublishPlan } from "../../../lib/review/index.js";
+import { githubChange } from "../../../lib/review/index.js";
 import { expectFailure, prMetadata } from "./fixtures.js";
 
 function stackFinding(
@@ -823,7 +824,9 @@ describe("postReviewAction", () => {
 		expect(result.ok).toBe(true);
 		expect(exec).toHaveBeenCalledTimes(1);
 		const call = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(call.ref).toEqual({ owner: "o", repo: "r", number: 42 });
+		// Staged against the change, which names the system to post
+		// to as well as the pull request.
+		expect(call.ref).toEqual(githubChange({ key: "github:o/r" }, "42"));
 		// The draft carries the remark and the position, so the
 		// provider needs nothing else to know what to say.
 		expect(call.draft.items).toHaveLength(1);
@@ -851,7 +854,7 @@ describe("postReviewAction", () => {
 		});
 		expect(result.ok).toBe(true);
 		const call = (exec as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(call.ref).toEqual({ owner: "o", repo: "r", number: 42 });
+		expect(call.ref).toEqual(githubChange({ key: "github:o/r" }, "42"));
 	});
 
 	it("refuses to post when no PR is loaded", async () => {

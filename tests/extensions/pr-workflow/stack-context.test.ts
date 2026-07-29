@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Stack } from "../../../extensions/pr-workflow/stack.js";
 import { formatReviewStackContext } from "../../../extensions/pr-workflow/stack-context.js";
+import { stackEntry } from "./fixtures.js";
 
 function entry(number: number, title: string) {
-	return {
-		reference: { owner: "o", repo: "r", number },
+	return stackEntry(number, {
 		title,
 		baseRefName: "b",
 		headRefName: "h",
-	};
+	});
 }
 
 describe("formatReviewStackContext", () => {

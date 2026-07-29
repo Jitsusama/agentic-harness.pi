@@ -15,7 +15,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { PRReference } from "../../lib/internal/github/pr-reference.js";
 import {
 	type AnchoredComment,
 	type BoundTarget,
@@ -33,7 +32,6 @@ import {
 } from "../../lib/review/index.js";
 import { metadataFromProposal, type PrMetadata } from "./fetch.js";
 import type { ReviewComment } from "./post.js";
-import { changeFromGitHubView } from "./reference.js";
 import { type Stack, stackViewFrom } from "./stack.js";
 import { type ReviewThread, readConversation } from "./threads.js";
 
@@ -78,10 +76,9 @@ export function forgetSubstrate(): void {
  * no proposal to describe.
  */
 export async function metadataFromSubstrate(
-	reference: PRReference,
+	named: ChangeRef,
 ): Promise<PrMetadata> {
-	const named = changeFromGitHubView(reference);
-	const bound = await boundFor(named.label);
+	const bound = await boundFor(named);
 	const proposal = await bound.proposal();
 	if (!proposal) {
 		throw new Error(
@@ -160,10 +157,8 @@ export async function changeFor(input: string): Promise<ChangeRef | null> {
  * this text, so a transformation here would surface as a parsing
  * bug somewhere far less obvious.
  */
-export async function diffFromSubstrate(
-	reference: PRReference,
-): Promise<string> {
-	const bound = await boundFor(changeFromGitHubView(reference).label);
+export async function diffFromSubstrate(change: ChangeRef): Promise<string> {
+	const bound = await boundFor(change);
 	return bound.diff();
 }
 
@@ -176,7 +171,7 @@ export async function diffFromSubstrate(
  * believing it landed.
  */
 export async function postReviewThroughSubstrate(input: {
-	ref: PRReference;
+	ref: ChangeRef;
 	event: string;
 	body: string;
 	comments: readonly ReviewComment[];
@@ -203,7 +198,7 @@ export async function postReviewThroughSubstrate(input: {
  * between an anchored remark and one in the body is sound.
  */
 export async function publishDraftThroughSubstrate(input: {
-	ref: PRReference;
+	ref: ChangeRef;
 	draft: DraftState;
 }): Promise<PublishOutcome> {
 	const prepared = await prepareDraftThroughSubstrate(input);
@@ -221,11 +216,11 @@ export async function publishDraftThroughSubstrate(input: {
  * posting another.
  */
 export async function prepareDraftThroughSubstrate(input: {
-	ref: PRReference;
+	ref: ChangeRef;
 	draft: DraftState;
 }): Promise<PreparedPublish> {
 	const engine = await engineOrThrow();
-	const bound = await engine.resolve(changeFromGitHubView(input.ref).label);
+	const bound = await engine.bound(input.ref);
 	const draft = await engine.openDraft(bound.target);
 
 	for (const item of input.draft.items) {
@@ -303,11 +298,8 @@ function anchoredFrom(comment: ReviewComment): AnchoredComment {
  * different from a change that stands alone: the first has no
  * answer, the second answers with a stack of one.
  */
-export async function stackFromSubstrate(
-	reference: PRReference,
-): Promise<Stack> {
-	const named = changeFromGitHubView(reference);
-	const bound = await boundFor(named.label);
+export async function stackFromSubstrate(named: ChangeRef): Promise<Stack> {
+	const bound = await boundFor(named);
 	const topology = await bound.stack();
 	if (!topology) {
 		throw new Error(
@@ -330,10 +322,9 @@ export async function stackFromSubstrate(
  * tell" into "has moved".
  */
 export async function headCommitFromSubstrate(
-	reference: PRReference,
+	named: ChangeRef,
 ): Promise<string | undefined> {
-	const named = changeFromGitHubView(reference);
-	const bound = await boundFor(named.label);
+	const bound = await boundFor(named);
 	const proposal = await bound.proposal();
 	return proposal?.headCommit;
 }
@@ -348,7 +339,7 @@ export async function headCommitFromSubstrate(
  * it.
  */
 export async function replyThroughSubstrate(
-	reference: PRReference,
+	reference: ChangeRef,
 	thread: ReviewThread,
 	body: string,
 ): Promise<string | undefined> {
@@ -369,7 +360,7 @@ export async function replyThroughSubstrate(
  * learn what the absence of an error already said.
  */
 export async function resolveThroughSubstrate(
-	reference: PRReference,
+	reference: ChangeRef,
 	thread: ReviewThread,
 ): Promise<boolean> {
 	const { conversation, change } = await conversationFor(reference);
@@ -404,7 +395,7 @@ function sourceOf(thread: ReviewThread): Thread {
  * across without every call site learning about providers.
  */
 export async function threadsFromSubstrate(
-	reference: PRReference,
+	reference: ChangeRef,
 ): Promise<ReviewThread[]> {
 	const { conversation, change } = await conversationFor(reference);
 	return readConversation(conversation, change);
@@ -414,7 +405,7 @@ export async function threadsFromSubstrate(
  * The conversation for a reference, and the change to address it
  * by. Refuses with guidance rather than returning nothing.
  */
-async function boundFor(label: string): Promise<BoundTarget> {
+async function boundFor(change: ChangeRef): Promise<BoundTarget> {
 	if (!substrate) {
 		throw new Error(
 			"The review substrate never announced itself, so this pull " +
@@ -423,17 +414,18 @@ async function boundFor(label: string): Promise<BoundTarget> {
 		);
 	}
 	const engine = await substrate.engine();
-	// Resolved by the name a person writes, rather than bound
-	// directly, so the provider that claims it is chosen the same
-	// way it would be anywhere else.
-	return engine.resolve(label);
+	// Bound to the system the change already names, not resolved
+	// again from its name. Claiming depends on the directory the
+	// question is asked from, so re-resolving can reach a different
+	// provider than the one the change was loaded from, and a
+	// repository with a mirror is exactly where that goes wrong.
+	return engine.bound(change);
 }
 
 async function conversationFor(
-	reference: PRReference,
+	named: ChangeRef,
 ): Promise<{ conversation: ConversationFacet; change: ChangeRef }> {
-	const named = changeFromGitHubView(reference);
-	const bound = await boundFor(named.label);
+	const bound = await boundFor(named);
 	if (!bound.conversation) {
 		throw new Error(
 			`Nothing hosts a conversation for ${named.label}, so there ` +

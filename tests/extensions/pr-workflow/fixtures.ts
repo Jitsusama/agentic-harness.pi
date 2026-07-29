@@ -17,7 +17,9 @@
 
 import { expect } from "vitest";
 import type { PrMetadata } from "../../../extensions/pr-workflow/fetch.js";
+import type { StackEntry } from "../../../extensions/pr-workflow/stack.js";
 import type { DiffHunk, DiffLine } from "../../../lib/review/index.js";
+import { githubChange } from "../../../lib/review/index.js";
 import type { ReviewerUsage } from "../../../lib/subagent/subagent.js";
 
 /** Build a complete `PrMetadata` from partial overrides. */
@@ -83,6 +85,32 @@ export function diffLine(overrides: Partial<DiffLine> = {}): DiffLine {
 		kind: "added",
 		text: "x",
 		newLine: 1,
+		...overrides,
+	};
+}
+
+/**
+ * A stack entry for a GitHub PR number.
+ *
+ * An entry carries both the change and its owner/repo/number
+ * projection, and the two must agree. Building them together here
+ * keeps a test from stating a change on one system and a number
+ * from another.
+ */
+export function stackEntry(
+	number: number,
+	overrides: Partial<Omit<StackEntry, "change" | "reference">> = {},
+	repo = { owner: "o", repo: "r" },
+): StackEntry {
+	return {
+		change: githubChange(
+			{ key: `github:${repo.owner}/${repo.repo}` },
+			String(number),
+		),
+		reference: { ...repo, number },
+		title: `PR ${number}`,
+		baseRefName: "main",
+		headRefName: `f${number}`,
 		...overrides,
 	};
 }

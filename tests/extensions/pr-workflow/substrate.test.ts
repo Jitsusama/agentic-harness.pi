@@ -21,6 +21,7 @@ import {
 } from "../../../extensions/pr-workflow/substrate.js";
 import type {
 	BoundTarget,
+	ChangeRef,
 	ConversationFacet,
 	Message,
 	Proposal,
@@ -30,7 +31,19 @@ import type {
 	WireReview,
 } from "../../../lib/review/index.js";
 
-const reference = { owner: "o", repo: "r", number: 7 };
+/**
+ * The change under test, as the substrate names it.
+ *
+ * These helpers take a change rather than owner/repo/number now,
+ * because the system that owns it is the part that must not be
+ * re-guessed on every call.
+ */
+const reference: ChangeRef = {
+	provider: "github",
+	repo: { key: "github:o/r" },
+	id: "7",
+	label: "o/r#7",
+};
 
 /** A substrate whose engine resolves to the conversation given. */
 function substrate(
@@ -42,23 +55,31 @@ function substrate(
 	resolved: string[];
 } {
 	const resolved: string[] = [];
+	const answer = () =>
+		({
+			target: {
+				kind: "proposal",
+				change: {
+					provider: "github",
+					repo: { key: "github:o/r" },
+					id: "7",
+					label: "o/r#7",
+				},
+			},
+			conversation,
+			proposal: async () => proposal,
+			diff: async () => diff,
+		}) as unknown as BoundTarget;
 	const engine = {
 		async resolve(input: string) {
 			resolved.push(input);
-			return {
-				target: {
-					kind: "proposal",
-					change: {
-						provider: "github",
-						repo: { key: "github:o/r" },
-						id: "7",
-						label: "o/r#7",
-					},
-				},
-				conversation,
-				proposal: async () => proposal,
-				diff: async () => diff,
-			} as unknown as BoundTarget;
+			return answer();
+		},
+		// The helpers bind a change they already hold rather than
+		// resolving its name again, so this is the path they take.
+		async bound(change: ChangeRef) {
+			resolved.push(change.label);
+			return answer();
 		},
 	} as unknown as ReviewEngine;
 	const api = {
