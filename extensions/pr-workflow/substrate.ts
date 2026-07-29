@@ -27,6 +27,7 @@ import {
 } from "../../lib/review/index.js";
 import { metadataFromProposal, type PrMetadata } from "./fetch.js";
 import { changeFromGitHubView } from "./reference.js";
+import { type Stack, stackViewFrom } from "./stack.js";
 import { type ReviewThread, readConversation } from "./threads.js";
 
 let substrate: ReviewSubstrateApi | undefined;
@@ -83,6 +84,29 @@ export async function metadataFromSubstrate(
 		);
 	}
 	return metadataFromProposal(proposal);
+}
+
+/**
+ * The stack a change belongs to, read through the substrate.
+ *
+ * Refuses when the provider does not stack at all, which is
+ * different from a change that stands alone: the first has no
+ * answer, the second answers with a stack of one.
+ */
+export async function stackFromSubstrate(
+	reference: PRReference,
+): Promise<Stack> {
+	const named = changeFromGitHubView(reference);
+	const bound = await boundFor(named.label);
+	const topology = await bound.stack();
+	if (!topology) {
+		throw new Error(
+			`Whoever hosts ${named.label} does not report stacks, so there ` +
+				"is no chain to walk. Reviewing the change on its own still " +
+				"works.",
+		);
+	}
+	return stackViewFrom(topology);
 }
 
 /**

@@ -1,24 +1,23 @@
 /**
- * PR stack discovery.
+ * The stack this workflow shows, and the narrowing that gets
+ * there from the topology a provider reports.
  *
- * Walks up and down the base/head branch chain starting from
- * a cursor PR to find the stack it belongs to. The walker is
- * pure: it consumes a `PrSearch` which production wires up to
- * GitHub GraphQL and tests wire up to an in-memory list.
+ * The walking itself moved to the provider, which knows how to
+ * ask its own backend and whether the parentage it hands back was
+ * recorded or inferred. What is left here is the shape this
+ * workflow's views speak and the projection onto it.
  *
- * The walker only follows linear chains. Upstream walks pick
- * the single PR whose head matches the cursor's base, and
- * stop at the first non-match. Downstream walks pick the
- * single PR whose base matches the cursor's head, and stop
- * if there are zero or multiple matches. Fan-out children at
- * the cursor itself are reported separately so the agent can
- * still talk about them.
- *
- * The walker is defensive against cycles: an entry whose PR
- * number has already been visited terminates that direction.
+ * That projection is lossy on purpose. Refs nobody has proposed
+ * are dropped, since entries are named by pull request. The tree
+ * is linearized along the cursor's lineage, since a chain cannot
+ * hold a fan-out, and the cursor's children are reported beside
+ * it instead. A cursor the provider will not place yields nothing
+ * at all, because every view here reads as "where you are".
  */
 
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
+import type { StackNode, Stack as Topology } from "../../lib/review/index.js";
+import { githubViewOf } from "./reference.js";
 
 /** A PR participating in a stack. */
 export interface StackEntry {
@@ -26,20 +25,6 @@ export interface StackEntry {
 	readonly title: string;
 	readonly baseRefName: string;
 	readonly headRefName: string;
-}
-
-/** Search interface the walker depends on. */
-export interface PrSearch {
-	/** Find one open PR whose head branch is `branch`, or null. */
-	findByHead(branch: string): Promise<StackEntry | null>;
-	/** Find every open PR whose base branch is `branch`. */
-	findByBase(branch: string): Promise<StackEntry[]>;
-}
-
-/** Options for `buildStack`. */
-export interface BuildStackOptions {
-	/** Maximum entries to walk in each direction. Default: 8. */
-	maxDepth?: number;
 }
 
 /** A discovered stack with cursor position. */
@@ -56,60 +41,117 @@ export interface Stack {
 	readonly cursorChildren: StackEntry[];
 }
 
-const DEFAULT_MAX_DEPTH = 8;
-
 /**
- * Walk parents (upstream) and children (downstream) of
- * `cursor` to construct an ordered stack with the cursor
- * positioned inside it.
+ * The substrate's topology as the stack this workflow shows.
+ *
+ * Three narrowings happen here, and each one is a decision:
+ *
+ * A ref nobody has proposed is dropped. The substrate reports it
+ * because a stack of unproposed branches is still a stack, but
+ * this view names its entries by pull request and has nothing to
+ * call one.
+ *
+ * The tree is linearized along the cursor's own lineage. A stack
+ * that fans out has no single chain, and picking a branch would
+ * assert a parentage nobody stated, so the cursor's children are
+ * reported beside the chain instead of inside it.
+ *
+ * An unplaced cursor yields nothing. Every view here reads as
+ * "where you are in this stack", and there is no honest answer to
+ * that when the provider will not say.
  */
-export async function buildStack(
-	cursor: StackEntry,
-	search: PrSearch,
-	options: BuildStackOptions = {},
-): Promise<Stack> {
-	const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
-	const seen = new Set<number>([cursor.reference.number]);
+export function stackViewFrom(topology: Topology): Stack {
+	const empty: Stack = { entries: [], cursorIndex: -1, cursorChildren: [] };
+	const cursor =
+		topology.cursor === undefined ? undefined : topology.nodes[topology.cursor];
+	if (!cursor) return empty;
 
-	const upstream: StackEntry[] = [];
-	let upBranch = cursor.baseRefName;
-	for (let i = 0; i < maxDepth; i++) {
-		const parent = await search.findByHead(upBranch);
-		if (parent === null) break;
-		if (seen.has(parent.reference.number)) break;
-		seen.add(parent.reference.number);
-		upstream.push(parent);
-		upBranch = parent.baseRefName;
-	}
-	upstream.reverse(); // walker collects child → parent; reverse to parent → child.
+	const byRef = new Map(topology.nodes.map((n) => [n.ref, n]));
+	// One set spans both directions. A provider that reports two
+	// refs parented on each other would otherwise be walked twice,
+	// once going up and once coming back down, and land the same
+	// change in the chain more than once.
+	const seen = new Set<string>([cursor.ref]);
+	const lineage = [...ancestorsOf(cursor, byRef, seen), cursor];
+	const children = childrenOf(cursor.ref, topology.nodes);
+	// One child continues the chain. Two is a fan-out, which the
+	// chain cannot express, so it is set aside rather than resolved.
+	const chain =
+		children.length === 1
+			? [...lineage, ...descendantsOf(children[0], topology.nodes, seen)]
+			: lineage;
 
-	const cursorChildrenRaw = await search.findByBase(cursor.headRefName);
-	const cursorChildren = cursorChildrenRaw.filter(
-		(c) => !seen.has(c.reference.number),
-	);
-	for (const c of cursorChildren) {
-		seen.add(c.reference.number);
-	}
-
-	const downstream: StackEntry[] = [];
-	if (cursorChildren.length === 1) {
-		// Linear chain downstream; keep walking.
-		let next: StackEntry | undefined = cursorChildren[0];
-		downstream.push(next);
-		for (let i = 1; i < maxDepth; i++) {
-			const children = await search.findByBase(next.headRefName);
-			const fresh = children.filter((c) => !seen.has(c.reference.number));
-			if (fresh.length !== 1) break;
-			next = fresh[0];
-			seen.add(next.reference.number);
-			downstream.push(next);
-		}
-	}
-
-	const entries = [...upstream, cursor, ...downstream];
+	const entries = chain.map(entryOf).filter(isEntry);
+	const cursorEntry = entryOf(cursor);
 	return {
 		entries,
-		cursorIndex: upstream.length,
-		cursorChildren: cursorChildren.length > 1 ? cursorChildren : [],
+		// Found by identity rather than by counting, since dropping
+		// unproposed refs moves everything after them.
+		cursorIndex: cursorEntry
+			? entries.findIndex(
+					(e) => e.reference.number === cursorEntry.reference.number,
+				)
+			: -1,
+		cursorChildren:
+			children.length > 1 ? children.map(entryOf).filter(isEntry) : [],
 	};
+}
+
+/** Every node between the trunk and this one, trunk first. */
+function ancestorsOf(
+	node: StackNode,
+	byRef: ReadonlyMap<string, StackNode>,
+	seen: Set<string>,
+): StackNode[] {
+	const line: StackNode[] = [];
+	let parent = node.parent ? byRef.get(node.parent) : undefined;
+	while (parent && !seen.has(parent.ref)) {
+		seen.add(parent.ref);
+		line.unshift(parent);
+		parent = parent.parent ? byRef.get(parent.parent) : undefined;
+	}
+	return line;
+}
+
+/** A node's direct children, in the order the provider gave them. */
+function childrenOf(
+	ref: string,
+	nodes: readonly StackNode[],
+): readonly StackNode[] {
+	return nodes.filter((n) => n.parent === ref);
+}
+
+/** A node and its single-child descent, stopping at any fan-out. */
+function descendantsOf(
+	from: StackNode,
+	nodes: readonly StackNode[],
+	seen: Set<string>,
+): StackNode[] {
+	const line: StackNode[] = [];
+	let node: StackNode | undefined = from;
+	while (node && !seen.has(node.ref)) {
+		seen.add(node.ref);
+		line.push(node);
+		const children = childrenOf(node.ref, nodes);
+		node = children.length === 1 ? children[0] : undefined;
+	}
+	return line;
+}
+
+/** A node as an entry, or nothing when no proposal names it. */
+function entryOf(node: StackNode): StackEntry | null {
+	const proposal = node.proposal;
+	if (!proposal) return null;
+	const reference = githubViewOf(proposal.ref);
+	if (!reference) return null;
+	return {
+		reference,
+		title: proposal.title,
+		baseRefName: proposal.base,
+		headRefName: proposal.head,
+	};
+}
+
+function isEntry(entry: StackEntry | null): entry is StackEntry {
+	return entry !== null;
 }

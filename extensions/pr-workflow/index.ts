@@ -130,8 +130,7 @@ import {
 	ReviewContextProviderBroker,
 } from "./review-context.js";
 import { reviewValidationDirective } from "./review-directive.js";
-import { createGitHubPrSearch } from "./search.js";
-import { buildStack, type StackEntry } from "./stack.js";
+
 import {
 	formatStackReviewActionSummary,
 	runStackReviewAction,
@@ -145,6 +144,7 @@ import {
 	metadataFromSubstrate,
 	replyThroughSubstrate,
 	resolveThroughSubstrate,
+	stackFromSubstrate,
 	threadsFromSubstrate,
 } from "./substrate.js";
 import { formatPrSummary } from "./summary.js";
@@ -2755,23 +2755,12 @@ ${reviewValidationDirective()}`,
 					diffError = error instanceof Error ? error.message : String(error);
 				}
 
-				// Stack discovery is best-effort too. The walker needs
-				// metadata's base/head ref names, so we can only run it
-				// after the metadata fetch succeeded.
+				// Stack discovery is best-effort too. The provider walks it
+				// from the change itself now, so this no longer depends on
+				// the metadata fetch having succeeded first.
 				let stackError: string | null = null;
 				try {
-					const cursor: StackEntry = {
-						reference: loaded.reference,
-						title: loaded.metadata.title,
-						baseRefName: loaded.metadata.base.ref,
-						headRefName: loaded.metadata.head.ref,
-					};
-					const search = createGitHubPrSearch(
-						pi,
-						loaded.reference.owner,
-						loaded.reference.repo,
-					);
-					loaded.stack = await buildStack(cursor, search);
+					loaded.stack = await stackFromSubstrate(loaded.reference);
 				} catch (error) {
 					stackError = error instanceof Error ? error.message : String(error);
 				}
