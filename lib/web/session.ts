@@ -3269,14 +3269,21 @@ export class BrowserSession {
 		if (backendNodeId !== undefined) {
 			const box = await this.boxOf(backendNodeId);
 			const clip = box?.border;
+			// The box model measures from the viewport and a screenshot
+			// clip is measured from the document, so the two agree only
+			// while the page sits at the top. Scrolled, a clip taken
+			// straight from the box lands wherever the page has moved
+			// from: a picture of the right size, of real content, of the
+			// wrong element, with nothing about it to say so.
+			const scroll = clip ? await this.scrollOffset() : undefined;
 			const data = await this.page.screenshot({
 				type: "png",
 				encoding: "base64",
 				...(clip
 					? {
 							clip: {
-								x: clip.x,
-								y: clip.y,
+								x: clip.x + (scroll?.x ?? 0),
+								y: clip.y + (scroll?.y ?? 0),
 								width: clip.width,
 								height: clip.height,
 							},
@@ -4005,6 +4012,31 @@ export class BrowserSession {
 			// Without the viewport an element is judged on everything
 			// else known about it rather than not at all.
 			return undefined;
+		}
+	}
+
+	/**
+	 * How far the page has been scrolled, in CSS pixels.
+	 *
+	 * Read from the browser's own layout metrics rather than from the
+	 * page, so a capture does not have to run script to be correct.
+	 * Answers zero when the metrics are unavailable, which is what the
+	 * offset was assumed to be before it was asked for at all.
+	 */
+	private async scrollOffset(): Promise<{ x: number; y: number }> {
+		try {
+			const metrics = (await this.cdp.send("Page.getLayoutMetrics")) as {
+				cssVisualViewport?: { pageX?: number; pageY?: number };
+			};
+			const seen = metrics.cssVisualViewport;
+			return { x: seen?.pageX ?? 0, y: seen?.pageY ?? 0 };
+		} catch {
+			// A page that went away mid-capture has no offset to report,
+			// and the capture around this will fail on its own terms.
+			// Zero is what the clip assumed before the offset was asked
+			// for at all, so it is the honest fallback rather than a new
+			// guess.
+			return { x: 0, y: 0 };
 		}
 	}
 
