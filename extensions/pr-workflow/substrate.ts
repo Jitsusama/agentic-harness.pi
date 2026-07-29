@@ -21,8 +21,11 @@ import {
 	type BoundTarget,
 	type ChangeRef,
 	type ConversationFacet,
+	type DraftState,
+	type PublishOutcome,
 	REVIEW_READY,
 	REVIEW_REQUEST_SUBSTRATE,
+	type ReviewEngine,
 	type ReviewSubstrateApi,
 	type Thread,
 	type Verdict,
@@ -155,6 +158,54 @@ export async function postReviewThroughSubstrate(input: {
 		body: input.body,
 		comments: input.comments.map(anchoredFrom),
 	});
+}
+
+/**
+ * Publish a composed review through a draft the substrate keeps.
+ *
+ * Posting in one shot means a half a backend rejects is simply
+ * gone, and its author finds out by noticing remarks missing. A
+ * draft is persisted before anything is sent and keeps whatever
+ * did not land, so a partial publish can be finished rather than
+ * rewritten.
+ *
+ * The plan is compiled against the bound provider's own
+ * capabilities and diff, which is the only place the split
+ * between an anchored remark and one in the body is sound.
+ */
+export async function publishDraftThroughSubstrate(input: {
+	ref: PRReference;
+	draft: DraftState;
+}): Promise<PublishOutcome> {
+	const engine = await engineOrThrow();
+	const bound = await engine.resolve(changeFromGitHubView(input.ref).label);
+	const draft = await engine.openDraft(bound.target);
+
+	for (const item of input.draft.items) {
+		if (item.kind !== "finding") continue;
+		await draft.addFinding({ anchor: item.anchor, body: item.body });
+	}
+	if (input.draft.verdict) {
+		await draft.setVerdict(input.draft.verdict, input.draft.summary);
+	}
+
+	const plan = draft.plan({
+		capabilities: bound.capabilities,
+		diff: await bound.diffModel(),
+	});
+	return draft.publish(plan, bound.provider);
+}
+
+/** The hosted engine, or the guidance for having no host. */
+async function engineOrThrow(): Promise<ReviewEngine> {
+	if (!substrate) {
+		throw new Error(
+			"The review substrate never announced itself, so this review " +
+				"cannot be published. The review-integration extension is " +
+				"what provides it: check that it is installed and enabled.",
+		);
+	}
+	return substrate.engine();
 }
 
 /** A GitHub review event as the position the contract knows. */
