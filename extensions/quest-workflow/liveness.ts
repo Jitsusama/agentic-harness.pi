@@ -53,30 +53,6 @@ export function buildSessionSnapshot(
 }
 
 /**
- * The subset of pane values currently live in one terminal, probed
- * through the driver that issued the template handle. Builds a handle
- * per pane from the template (same driver, host and scope) and keeps
- * only those the probe reports present, so an unknown or absent pane
- * is never treated as live. Used by restore to exclude panes still on
- * screen.
- */
-export async function probeLivePaneValues(
-	template: TerminalSessionHandle,
-	paneValues: readonly string[],
-): Promise<Set<string>> {
-	if (paneValues.length === 0) return new Set();
-	const handles = paneValues.map((value) => ({ ...template, value }));
-	const probes = await probeTerminalsByDriver(handles);
-	const live = new Set<string>();
-	for (const handle of handles) {
-		if (probes.get(terminalHandleKey(handle)) === "present") {
-			live.add(handle.value);
-		}
-	}
-	return live;
-}
-
-/**
  * Probe terminal handles grouped by their recorded driver, routing
  * each group through that driver's liveness capability. A driver with
  * no capability, or one whose probe fails or times out, yields

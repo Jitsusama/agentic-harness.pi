@@ -82,7 +82,6 @@ import {
 import { createQuestState, type QuestState } from "./state.js";
 import { handle, type QuestToolParams } from "./transitions.js";
 import { currentSessionId, isPersistedSession } from "./verbs/shared.js";
-import { recordCurrentWorkspace } from "./workspace-snapshot.js";
 
 const DEFAULT_WIDTH = 80;
 const CALL_PREFIX_WIDTH = 14;
@@ -608,11 +607,6 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			// persisted session is resumable, so an ephemeral fan-out
 			// session is never snapshotted. Best-effort.
 			if (sid && isPersistedSession(ctx) && state.questId) {
-				recordCurrentWorkspace({
-					questId: state.questId,
-					sessionId: sid,
-					cwd: ctx.cwd,
-				});
 				recordSessionOnQuest({
 					sessionId: sid,
 					cwd: ctx.cwd,

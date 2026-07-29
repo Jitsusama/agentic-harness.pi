@@ -255,7 +255,7 @@ export async function restore(state: QuestState): Promise<QuestResult> {
 }
 
 export async function recent(state: QuestState): Promise<QuestResult> {
-	const rows = await recentSessions(state);
+	const { rows, total } = await recentSessions(state);
 	if (rows.length === 0) {
 		return ok("No recent pi sessions on any quest.", { recent: [] });
 	}
@@ -264,7 +264,14 @@ export async function recent(state: QuestState): Promise<QuestResult> {
 		const resume = r.cwd ? `  → pi --session ${r.sessionId}` : "";
 		return `${workspaceMark(r.liveness)} ${r.questId} ${r.title ?? ""} [${r.liveness}]${where}${resume}`.trimEnd();
 	});
-	return ok(lines.join("\n"), { recent: rows });
+	// Say what was cut. The cap used to trim silently, so a listing
+	// that was missing the session you wanted looked exactly like a
+	// listing that had everything.
+	const capped =
+		total > rows.length
+			? ["", `Showing ${rows.length} of ${total} sessions.`]
+			: [];
+	return ok([...lines, ...capped].join("\n"), { recent: rows, total });
 }
 
 /** Glyph for a workspace row's liveness. */

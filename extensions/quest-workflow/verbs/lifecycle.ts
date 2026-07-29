@@ -53,7 +53,6 @@ import {
 } from "../lifecycle.js";
 import { buildRowExpansion, showLoaded, showQuestById } from "../lookup.js";
 import { recordSessionOnQuest } from "../session-registry.js";
-import { recordCurrentWorkspace } from "../workspace-snapshot.js";
 
 /**
  * Priority ladder for sorting list output. Lower numbers
@@ -408,11 +407,6 @@ export async function load(
 	// session is resumable, so an ephemeral fan-out session is never
 	// snapshotted. A best-effort side write; it never blocks the load.
 	if (sid && isPersistedSession(ctx) && state.questId) {
-		recordCurrentWorkspace({
-			questId: state.questId,
-			sessionId: sid,
-			cwd: ctx.cwd,
-		});
 		recordSessionOnQuest({
 			sessionId: sid,
 			cwd: ctx.cwd,
