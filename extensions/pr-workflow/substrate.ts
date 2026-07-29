@@ -90,6 +90,20 @@ export async function metadataFromSubstrate(
 }
 
 /**
+ * A change's unified diff, exactly as the provider produced it.
+ *
+ * Handed back untouched on purpose. Everything downstream parses
+ * this text, so a transformation here would surface as a parsing
+ * bug somewhere far less obvious.
+ */
+export async function diffFromSubstrate(
+	reference: PRReference,
+): Promise<string> {
+	const bound = await boundFor(changeFromGitHubView(reference).label);
+	return bound.diff();
+}
+
+/**
  * Submit a review through the substrate.
  *
  * Unlike the reads around it, this refuses rather than degrades.

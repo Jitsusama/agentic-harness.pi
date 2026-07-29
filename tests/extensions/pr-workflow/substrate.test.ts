@@ -9,6 +9,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	diffFromSubstrate,
 	forgetSubstrate,
 	headCommitFromSubstrate,
 	postReviewThroughSubstrate,
@@ -34,6 +35,7 @@ const reference = { owner: "o", repo: "r", number: 7 };
 function substrate(
 	conversation: ConversationFacet | null,
 	proposal: Partial<Proposal> | null = null,
+	diff = "",
 ): {
 	api: ReviewSubstrateApi;
 	resolved: string[];
@@ -54,6 +56,7 @@ function substrate(
 				},
 				conversation,
 				proposal: async () => proposal,
+				diff: async () => diff,
 			} as unknown as BoundTarget;
 		},
 	} as unknown as ReviewEngine;
@@ -135,6 +138,26 @@ describe("replyThroughSubstrate", () => {
 				"seems fine",
 			),
 		).rejects.toThrow(/refresh|action=threads/i);
+	});
+});
+
+describe("diffFromSubstrate", () => {
+	it("hands back the diff the provider produced, unchanged", async () => {
+		// Whoever reads this parses it, so a stray transformation here
+		// would move a bug somewhere much harder to see.
+		const patch = "diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n-old\n+new\n";
+		setSubstrateApi(substrate(null, null, patch).api);
+
+		expect(await diffFromSubstrate(reference)).toBe(patch);
+	});
+
+	it("resolves the change by the name a person would write", async () => {
+		const { api, resolved } = substrate(null, null, "");
+		setSubstrateApi(api);
+
+		await diffFromSubstrate(reference);
+
+		expect(resolved).toEqual(["o/r#7"]);
 	});
 });
 

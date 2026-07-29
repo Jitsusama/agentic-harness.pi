@@ -24,7 +24,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { createMutex } from "../../lib/internal/async-mutex.js";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
-import { fetchDiff } from "../../lib/internal/github/diff.js";
+
 import { parsePRReference } from "../../lib/internal/github/pr-reference.js";
 import { getCurrentRepo } from "../../lib/internal/github/repo-discovery.js";
 
@@ -140,6 +140,7 @@ import { createPrWorkflowState, resetPrWorkflowSession } from "./state.js";
 import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
 import {
 	attachSubstrate,
+	diffFromSubstrate,
 	headCommitFromSubstrate,
 	metadataFromSubstrate,
 	postReviewThroughSubstrate,
@@ -1357,7 +1358,7 @@ ${reviewValidationDirective()}`,
 								fetchers: {
 									metadata: metadataFromSubstrate,
 									diff: async (reference) => {
-										const raw = await fetchDiff(pi, reference);
+										const raw = await diffFromSubstrate(reference);
 										return parseUnifiedDiff(raw).files;
 									},
 								},
@@ -2743,7 +2744,7 @@ ${reviewValidationDirective()}`,
 				// loaded with metadata only and report the failure.
 				let diffError: string | null = null;
 				try {
-					const raw = await fetchDiff(pi, loaded.reference);
+					const raw = await diffFromSubstrate(loaded.reference);
 					loaded.files = parseUnifiedDiff(raw).files;
 				} catch (error) {
 					diffError = error instanceof Error ? error.message : String(error);
