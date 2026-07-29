@@ -1,7 +1,7 @@
 /**
  * How the substrate talks to a person.
  *
- * Two rules hold this together. The first is that a glyph is a
+ * Three rules hold this together. The first is that a glyph is a
  * noun: one per concept, always the same one, never two in a
  * row, so the eye learns the vocabulary instead of decoding a
  * new rebus each time. The second is that degradation is
@@ -9,8 +9,24 @@
  * because "three remarks will land on lines, one becomes prose
  * because its anchor moved" is something a person can act on.
  *
- * None of these glyphs reach a forge. What gets posted is
- * someone else's surface, and decorating it would be rude.
+ * The third is that the interface is drawn in geometry, not
+ * emoji. That is the house style, and it is a legibility
+ * argument rather than a taste one: a geometric glyph is one
+ * column wide in every terminal, renders the same on every
+ * machine, and stays distinguishable in monochrome, none of
+ * which is true of emoji. Shape carries the meaning, so the
+ * vocabulary works without colour at all.
+ *
+ * Shapes are grouped by what kind of thing they name. Diamonds
+ * are the review and its parts, circles are what will happen to
+ * them, and the rest are containers and marks.
+ *
+ * Artifacts are a different surface and play by different
+ * rules: a pull request body, an issue body and a quest README
+ * all carry emoji section markers by convention, and none of
+ * this applies to them. Nor does any of it reach a forge. What
+ * gets posted is someone else's surface, and decorating it
+ * would be rude.
  */
 
 import type {
@@ -26,19 +42,27 @@ import { describeAnchor } from "../../lib/review/index.js";
 
 /** The vocabulary. One glyph per concept, used everywhere. */
 export const GLYPH = {
-	target: "🌐",
-	stack: "🪜",
-	thread: "🧵",
-	finding: "📌",
-	verdict: "🎭",
-	lands: "✨",
-	degrades: "🌥",
-	refused: "🚧",
-	document: "📜",
-	reaction: "🎉",
-	checks: "🔬",
-	resolved: "☑",
-	unresolved: "☐",
+	// Diamonds: the review and its parts. Filled is something
+	// said, hollow is a stance taken, nested is the thing itself.
+	target: "\u25c8",
+	finding: "\u25c6",
+	verdict: "\u25c7",
+
+	// Circles: what becomes of a remark. Fill reads as how much
+	// of it survives, so a half circle is a remark that landed
+	// somewhere less precise than it asked for.
+	lands: "\u25cf",
+	degrades: "\u25d0",
+	refused: "\u2298",
+	checks: "\u25c9",
+
+	// Containers and marks.
+	stack: "\u25a4",
+	document: "\u00b6",
+	thread: "\u276f",
+	reaction: "\u2726",
+	resolved: "\u2611",
+	unresolved: "\u2610",
 } as const;
 
 /** Where a remark points, in a form a person can scan. */
