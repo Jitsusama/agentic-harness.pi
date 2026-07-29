@@ -55,12 +55,12 @@ function activate() {
 afterEach(() => clearReviewProviders());
 
 describe("the review integration", () => {
-	it("registers one tool per concern", () => {
+	it("registers one tool per intent, not one per subject", () => {
 		const { tools } = activate();
 		expect(tools).toEqual([
 			"review",
-			"review_stack",
-			"review_thread",
+			"review_see",
+			"review_say",
 			"review_draft",
 		]);
 	});

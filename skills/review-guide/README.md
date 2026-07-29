@@ -1,12 +1,13 @@
 # Review Guide
 
 How to read and review a change through the `review`,
-`review_stack`, `review_thread` and `review_draft` tools,
-whatever system hosts it, including nothing at all.
+`review_see`, `review_say` and `review_draft` tools, whatever
+system hosts it, including nothing at all.
 
-Covers resolving a reference without assuming a forge, judging
-a stack by its provenance, composing a review as a draft,
-planning what publishing will do before it does it, and
+Covers attaching the change you are working on so no later call
+repeats it, resolving a reference without assuming a forge,
+judging a stack by its provenance, composing a review as a
+draft, planning what publishing will do before it does it, and
 reporting degradation honestly.
 
 ## Companion Extension

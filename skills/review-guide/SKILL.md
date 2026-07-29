@@ -2,13 +2,14 @@
 name: review-guide
 description: >
   How to read and review a change through the `review`,
-  `review_stack`, `review_thread` and `review_draft` tools,
+  `review_see`, `review_say` and `review_draft` tools,
   whatever system hosts it: GitHub, Meteorite, a GitLab
   merge request, or a range of commits nobody has proposed
-  at all. Covers resolving a reference, reading a diff and a
-  conversation, judging a stack by its provenance, composing
-  a review as a draft, planning what publishing will do, and
-  reporting degradation honestly. Use when asked to "review
+  at all. Covers attaching the change you are working on,
+  reading a diff and a conversation, judging a stack by its
+  provenance, composing a review as a draft, planning what
+  publishing will do, and reporting degradation honestly.
+  Use when asked to "review
   this change", "read this PR", "what did people say about
   it", "reply to that thread", "resolve those comments",
   "approve it", "review these commits", or any request to
@@ -24,12 +25,46 @@ regardless of what hosts the change, so the same phrasing
 works on a GitHub pull request, a Meteorite change and a
 stack of local branches.
 
+They are split by what you are trying to do, not by what you
+are doing it to. The subject is nearly always the change, so
+splitting by subject would only ask you to guess which tool
+owned which question.
+
 | Tool | For |
 |---|---|
-| `review` | Resolve, view, diff, checks, list, capabilities |
-| `review_stack` | The stack a change sits in |
-| `review_thread` | Reviews, threads, messages, reply, resolve, react, comment |
-| `review_draft` | Compose a review, plan it, publish or render it |
+| `review` | What you are working on: attach, detach, next, prev, capabilities |
+| `review_see` | Everything reading tells you: change, diff, checks, stack, changes, threads, reviews, messages |
+| `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
+| `review_draft` | Composing a whole review, then planning and publishing it |
+
+## Attach the Change, Then Stop Naming It
+
+`review attach` binds the change you are working on, and
+every later call can leave it out. This is the difference
+between reading a change and reciting its number six times,
+and the recitation is where the typos live.
+
+```
+review attach change:2000970
+review_see diff
+review_see threads
+review_say reply thread:3 body:"..."
+```
+
+The rule when a call names nothing is always the same: one
+attached change is used and said out loud, several are
+listed rather than guessed between, and a change you name
+explicitly is never second-guessed. Acting on the wrong
+change is worse than being asked which one.
+
+`review next` and `review prev` move the attachment along
+the stack, which is how to walk a stack without naming each
+member. A node that forks reports both children instead of
+choosing, for the same reason.
+
+Note that stepping the attachment moves nothing on disk. It
+changes which change the tools talk about, not which branch
+is checked out anywhere.
 
 ## Never Assume GitHub
 
@@ -46,9 +81,12 @@ is relevant, and never report a generic failure when you can
 name the provider that was asked.
 
 Ask `review capabilities` when you need to know what a
-provider can do before offering it. A facet that is absent
-is absent on purpose: it means the provider cannot do that
-thing, not that it forgot to say so.
+provider can do before offering it. It leads with which
+provider is holding the change, because "who handles this"
+and "what can be done to it" are the same question asked
+twice. A facet that is absent is absent on purpose: it means
+the provider cannot do that thing, not that it forgot to say
+so.
 
 ## A Change Nobody Has Proposed Is Still a Change
 

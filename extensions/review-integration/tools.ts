@@ -11,5 +11,5 @@
 
 export { registerDraftTool } from "./tools/draft.js";
 export { registerReviewTool } from "./tools/read.js";
-export { registerStackTool } from "./tools/stack.js";
-export { registerThreadTool } from "./tools/thread.js";
+export { registerSayTool } from "./tools/say.js";
+export { registerSeeTool } from "./tools/see.js";
