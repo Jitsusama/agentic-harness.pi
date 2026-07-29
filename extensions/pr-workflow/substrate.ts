@@ -94,6 +94,33 @@ export async function metadataFromSubstrate(
 }
 
 /**
+ * One file's contents at a commit, from whoever hosts the change.
+ *
+ * The diff only carries the lines that changed, so showing a
+ * person the whole file means fetching it, and where it is
+ * fetched from matters. A repository can be mirrored, and reading
+ * the mirror returns content that looks right and may be stale or
+ * absent.
+ *
+ * Answers null when the provider has no way to serve a file, or
+ * when there is no substrate to ask. The caller decides what to
+ * do about it, which for a GitHub change is to fall back to the
+ * CLI it already had.
+ */
+export async function fileFromSubstrate(
+	change: ChangeRef,
+	path: string,
+	at: string,
+): Promise<string | null> {
+	if (!substrate) return null;
+	const engine = await substrate.engine();
+	const bound = await engine.resolve(change.label);
+	const fileAt = bound.provider.proposals?.fileAt;
+	if (!fileAt) return null;
+	return fileAt.call(bound.provider.proposals, change, path, at);
+}
+
+/**
  * The change a reference names, whichever system owns it.
  *
  * This is how the workflow stopped being a GitHub workflow. It

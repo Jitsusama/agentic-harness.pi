@@ -242,6 +242,31 @@ export function githubProposals(exec: Exec): ProposalsFacet {
 			);
 		},
 
+		async fileAt(ref, path, at) {
+			const raw = await json<unknown>(
+				[
+					"api",
+					`repos/${slugOf(ref.repo)}/contents/${path}?ref=${encodeURIComponent(at)}`,
+				],
+				`reading ${path} at ${at}`,
+			);
+			const answer = asRecord(raw, `contents of ${path}`);
+			const encoded = answer.content;
+			if (typeof encoded !== "string" || encoded.trim() === "") {
+				// A directory answers with an array, and a file too large
+				// for this route answers with an empty content field.
+				// Returning "" for either would look like an empty file.
+				throw new Error(
+					`${path} at ${at} came back with no content, so it is not a file this route can serve.`,
+				);
+			}
+			// The encoding arrives wrapped at a fixed column, so the
+			// payload contains newlines that are not part of it.
+			return Buffer.from(encoded.replace(/\s+/g, ""), "base64").toString(
+				"utf8",
+			);
+		},
+
 		async fetchAsRef(ref, repoRoot) {
 			const local = `${LOCAL_REF_PREFIX}/${ref.id}`;
 			const remote = ref.repo.remoteUrl ?? "origin";
