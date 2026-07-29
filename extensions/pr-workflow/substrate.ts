@@ -22,6 +22,7 @@ import {
 	type ChangeRef,
 	type ConversationFacet,
 	type DraftState,
+	GITHUB_PROVIDER_ID,
 	type PublishOutcome,
 	type PublishPlan,
 	REVIEW_READY,
@@ -106,6 +107,45 @@ export async function metadataFromSubstrate(
  * better than a resolver error to someone who just typed a
  * number.
  */
+/**
+ * Whether some other review system owns this reference.
+ *
+ * This workflow speaks GitHub throughout: what it stores, what
+ * it fetches, what its buffer URIs name. The substrate speaks to
+ * anything, so it will happily resolve a reference this workflow
+ * cannot then act on.
+ *
+ * The failure that matters is not the refusal, it is the reason
+ * given for it. Without this, a Meteorite change in a World
+ * checkout falls through to the parse message and the user is
+ * told their reference could not be understood, when in fact it
+ * was understood exactly and belongs somewhere else. Naming the
+ * system that claimed it turns a misleading complaint into a
+ * signpost.
+ *
+ * Answers null for every kind of not-knowing, including no
+ * substrate at all, because the existing message is the right
+ * one whenever there is nothing better to say.
+ */
+export async function claimedByAnotherSystem(
+	input: string,
+): Promise<{ provider: string; label: string } | null> {
+	if (!substrate) return null;
+	try {
+		const engine = await substrate.engine();
+		const bound = await engine.resolve(input, process.cwd());
+		if (bound.target.kind !== "proposal") return null;
+		const change = bound.target.change;
+		if (change.provider === GITHUB_PROVIDER_ID) return null;
+		return { provider: change.provider, label: change.label };
+	} catch {
+		// An unresolvable reference is exactly what the parse
+		// message already covers, and naming a system for it would
+		// invent one.
+		return null;
+	}
+}
+
 export async function repoForBareChange(
 	input: string,
 ): Promise<{ owner: string; repo: string } | null> {
