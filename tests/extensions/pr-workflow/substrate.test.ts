@@ -9,6 +9,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	claimedByAnotherSystem,
 	diffFromSubstrate,
 	forgetSubstrate,
 	headCommitFromSubstrate,
@@ -440,5 +441,77 @@ describe("threadsFromSubstrate", () => {
 		setSubstrateApi(api);
 
 		await expect(threadsFromSubstrate(reference)).rejects.toThrow(/o\/r#7/);
+	});
+});
+
+describe("claimedByAnotherSystem", () => {
+	/** A substrate whose engine resolves to the provider given. */
+	function claiming(provider: string, label: string): ReviewSubstrateApi {
+		const engine = {
+			async resolve() {
+				return {
+					target: {
+						kind: "proposal",
+						change: {
+							provider,
+							repo: { key: `${provider}:shop/world` },
+							id: "2000970",
+							label,
+						},
+					},
+				} as unknown as BoundTarget;
+			},
+		} as unknown as ReviewEngine;
+		return {
+			registerProvider() {},
+			listProviders: () => [provider],
+			engine: async () => engine,
+		};
+	}
+
+	it("names the system that claimed the reference", async () => {
+		// Reporting this as unparseable would be a lie. The reference
+		// was understood perfectly; it just belongs to a system this
+		// workflow cannot drive yet.
+		setSubstrateApi(claiming("meteorite", "shop/world#2000970"));
+
+		expect(await claimedByAnotherSystem("2000970")).toEqual({
+			provider: "meteorite",
+			label: "shop/world#2000970",
+		});
+	});
+
+	it("says nothing about a reference GitHub claimed", async () => {
+		// This workflow serves GitHub, so there is nothing to warn
+		// about and nothing to get in the way.
+		const { api } = substrate(null);
+		setSubstrateApi(api);
+
+		expect(await claimedByAnotherSystem("7")).toBeNull();
+	});
+
+	it("says nothing when there is no substrate to ask", async () => {
+		// Without the host extension there is no second opinion to
+		// offer, and the ordinary parse message is the right one.
+		forgetSubstrate();
+
+		expect(await claimedByAnotherSystem("2000970")).toBeNull();
+	});
+
+	it("says nothing when the reference resolves nowhere", async () => {
+		// An unresolvable reference is what the parse message already
+		// covers, and guessing a system for it would mislead.
+		setSubstrateApi({
+			registerProvider() {},
+			listProviders: () => ["github"],
+			engine: async () =>
+				({
+					async resolve() {
+						throw new Error("nothing claimed it");
+					},
+				}) as unknown as ReviewEngine,
+		});
+
+		expect(await claimedByAnotherSystem("2000970")).toBeNull();
 	});
 });

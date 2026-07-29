@@ -9,6 +9,17 @@ description: >
 
 # GitHub CLI Conventions
 
+This is the companion to the GitHub review provider. `gh` talks
+to GitHub and nothing else, so none of it applies to a change
+hosted somewhere GitHub is not.
+
+Before reaching for `gh` against a repository, check which system
+owns it. A checkout can carry a GitHub remote that is a read-only
+mirror of the real thing, and a review posted to a mirror
+succeeds and is read by nobody. `review capabilities` says which
+provider answers for a change, and `review-guide` covers reading
+and reviewing without assuming a forge.
+
 ## Heredoc Syntax for Body Content
 
 Use `--body-file -` with a heredoc to pass multi-line bodies:

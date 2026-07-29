@@ -148,6 +148,7 @@ export { createGitProvider } from "./providers/git/index.js";
  */
 export {
 	claimGitHubReference,
+	GITHUB_PROVIDER_ID,
 	githubChange,
 	ownerRepoFromKey,
 } from "./providers/github/claims.js";

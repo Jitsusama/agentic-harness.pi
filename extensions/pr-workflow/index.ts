@@ -146,6 +146,7 @@ import {
 import { clearPrStatusLine, refreshPrStatusLine } from "./status-line.js";
 import {
 	attachSubstrate,
+	claimedByAnotherSystem,
 	diffFromSubstrate,
 	headCommitFromSubstrate,
 	metadataFromSubstrate,
@@ -2694,9 +2695,23 @@ ${reviewValidationDirective()}`,
 					...(defaultRepo ? { defaultRepo } : {}),
 				});
 				if (!outcome.ok) {
+					// Before reporting the reference as unparseable, ask
+					// whether some other review system understood it
+					// perfectly. That is the ordinary case in a checkout
+					// whose changes do not live on GitHub, and blaming the
+					// input there sends the reader hunting for a typo that
+					// is not present.
+					const elsewhere = await claimedByAnotherSystem(params.pr.trim());
+					const error = elsewhere
+						? `${elsewhere.label} is a ${elsewhere.provider} change. This ` +
+							"workflow speaks GitHub throughout, so it cannot review one " +
+							"yet. The review tools can: `review view` to read it, " +
+							"`review_thread threads` for the conversation, and " +
+							"`review_draft` to compose a review of it."
+						: outcome.error;
 					return {
-						content: [{ type: "text", text: outcome.error }],
-						details: { ok: false, error: outcome.error },
+						content: [{ type: "text", text: error }],
+						details: { ok: false, error },
 						isError: true,
 					};
 				}
