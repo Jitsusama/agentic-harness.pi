@@ -8,19 +8,55 @@
  * session's recorded intent rather than from a liveness probe.
  */
 
-import { readFileSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+
+/**
+ * How much of a log's end to read. Comfortably more than the last
+ * entries of any ordinary session, and small enough that reading it
+ * costs nothing next to the gigabyte the whole-file read could.
+ */
+const LOG_TAIL_BYTES = 1024 * 1024;
+
+/**
+ * The last {@link LOG_TAIL_BYTES} of a file, decoded as text.
+ *
+ * The first line is dropped when the file is longer than the window,
+ * since the window almost certainly lands mid-line and a half-entry
+ * would only fail to parse. Nothing else compensates for the cut: a
+ * caller that needs the whole log should not be using this.
+ */
+function readLogTail(path: string): string {
+	const fd = openSync(path, "r");
+	try {
+		const { size } = fstatSync(fd);
+		const length = Math.min(size, LOG_TAIL_BYTES);
+		const buffer = Buffer.allocUnsafe(length);
+		readSync(fd, buffer, 0, length, size - length);
+		const text = buffer.toString("utf8");
+		if (size <= LOG_TAIL_BYTES) return text;
+		const firstBreak = text.indexOf("\n");
+		return firstBreak === -1 ? "" : text.slice(firstBreak + 1);
+	} finally {
+		closeSync(fd);
+	}
+}
 
 /**
  * The quest a session is authoritatively on, from the last
  * quest-workflow entry in its log. Undefined when the log has no such
  * entry, the last one cleared the quest, or the log cannot be read.
- * Reads the whole log because the deciding entry can sit anywhere;
- * this is a reconcile/repair path, not a hot render path.
+ * Reads a bounded tail rather than the whole file. A real session log
+ * reached 1.2 GB, and V8 caps a string near 512 MB, so reading it
+ * whole allocated a gigabyte and then threw, leaving that session
+ * permanently unresolvable. The deciding entry is the last one, so
+ * the end of the log is where the answer lives; a quest named only
+ * further back than the window reads as no answer, which is what an
+ * unreadable log already returned.
  */
 export function authoritativeQuestFromLog(logPath: string): string | undefined {
 	let text: string;
 	try {
-		text = readFileSync(logPath, "utf8");
+		text = readLogTail(logPath);
 	} catch {
 		// Log missing or unreadable: no authoritative answer.
 		return undefined;

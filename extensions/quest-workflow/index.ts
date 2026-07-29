@@ -74,6 +74,7 @@ import {
 } from "./render-rows.js";
 import {
 	endReasonForShutdown,
+	lostSessionCount,
 	recordSessionEnd,
 	recordSessionOnQuest,
 	startHeartbeat,
@@ -761,6 +762,16 @@ function showSessionHint(
 	state: QuestState,
 	ctx: { ui: { notify(message: string, level: "info"): void } },
 ): void {
+	// Lead with what was lost. The moment restore is most needed is
+	// the moment nobody thinks to run it: after a crash you are busy
+	// reconstructing, not remembering which verb exists.
+	const lost = lostSessionCount();
+	if (lost > 0) {
+		ctx.ui.notify(
+			`${lost} quest session(s) ended without being closed. Run \`quest restore\` to see them, or \`quest restore force\` to reopen them.`,
+			"info",
+		);
+	}
 	const hints = recentSessionHints(state, SESSION_HINT_ROWS);
 	if (hints.length === 0) return;
 	const now = new Date();
