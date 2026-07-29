@@ -150,6 +150,17 @@ query the cited handle instead of enumerating focusables yourself.
 `see kind:"query"` with `styles` reports named properties for
 every match, which is the page-wide computed-style sweep.
 
+**Two surfaces measure position from different origins, and each
+says which.** `see kind:"query"` reports a box measured down the
+document, ending "on the page". `see kind:"element"` reports the box
+model, measured from the viewport, ending "in the viewport". On a
+scrolled page the same element reads differently in each, differing
+by exactly how far the page has moved. Do not compare one against
+the other, and do not conclude a layout is broken because two
+numbers for one element disagree: read the suffix. Use the page
+figure to say where something sits in the document, and the viewport
+figure to reason about what is on screen.
+
 ## Four Jobs, Four Entry Points
 
 Most questions about a page belong to one of four jobs, and

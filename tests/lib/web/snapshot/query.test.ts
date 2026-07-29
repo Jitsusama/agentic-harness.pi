@@ -153,6 +153,16 @@ describe("describeNode", () => {
 		).toContain("24,95 752x35");
 	});
 
+	it("says the position is measured down the page", () => {
+		// These bounds come from a document snapshot and an element
+		// inspection's come from the box model, which measures from the
+		// viewport. The same element on a scrolled page therefore reads
+		// 1480 here and 270 there, and neither said which it meant.
+		expect(
+			describeNode(node({ bounds: { x: 0, y: 1480, width: 120, height: 60 } })),
+		).toContain("on the page");
+	});
+
 	it("says plainly when a node was not rendered", () => {
 		expect(describeNode(node({ rendered: false }))).toContain("not rendered");
 	});
