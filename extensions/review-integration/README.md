@@ -9,12 +9,18 @@ commands.
 
 | Tool | For |
 |---|---|
-| `review` | Reading a change: resolve, view, diff, checks, list, capabilities |
-| `review_stack` | The stack a change or branch sits in, with provenance marked |
-| `review_thread` | Working a conversation: reviews, threads, messages, reply, resolve, react, comment |
+| `review` | What the session is working on: attach, detach, next, prev, capabilities |
+| `review_see` | Every read: change, diff, checks, stack, changes, threads, reviews, messages |
+| `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
 | `review_draft` | Composing a review, seeing what publishing would do, then publishing or rendering it |
 
-One tool per concern rather than one per verb. Twenty-five tools
+Split by intent rather than by subject. The subject is nearly
+always the change, so a subject-shaped split (`review_stack`,
+`review_thread`) only asked the caller to guess which noun owned
+which question. What actually varies is whether you are reading,
+saying something now, or composing something to say later.
+
+One tool per intent rather than one per verb. Twenty-five tools
 would crowd out everything else in a session; one tool with
 twenty-five actions is unreadable in a registry listing.
 

@@ -1,25 +1,28 @@
 /**
- * The `review_thread` tool: working someone's conversation.
+ * The `review_say` tool: saying something, now.
  *
  * This is the flow an author lives in on their own change, and
- * it is deliberately ceremony-free: read the threads, reply,
- * resolve, react. The ceremony belongs to `review_draft`, which
- * is for composing a whole review rather than answering one
- * remark.
+ * it is deliberately ceremony-free: reply, resolve, react. The
+ * ceremony belongs to `review_draft`, which composes a whole
+ * review rather than answering one remark, and the overlap
+ * between the two is kept on purpose: answering one comment and
+ * composing a review that happens to answer it are different
+ * acts, and forcing the first through a draft would be ceremony
+ * for its own sake.
  *
- * Every write asks first.
+ * Reading the conversation belongs to `review_see`. This tool
+ * only writes, so every action here asks first.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { citeListing, openSessionStore } from "../../../lib/result/index.js";
 import type {
 	ConversationFacet,
 	Reaction,
 	Thread,
 } from "../../../lib/review/index.js";
 import { confirmWrite } from "../gate.js";
-import { anchorLabel, GLYPH, threadLines } from "../render.js";
+import { anchorLabel, GLYPH } from "../render.js";
 import {
 	type Answer,
 	boundFor,
@@ -37,35 +40,41 @@ function threadWhere(thread: Thread): string {
 	return thread.anchor ? anchorLabel(thread.anchor) : "on the change itself";
 }
 
-/** Register the `review_thread` tool. */
-export function registerThreadTool(pi: ExtensionAPI): void {
+/** Register the `review_say` tool. */
+export function registerSayTool(pi: ExtensionAPI): void {
 	pi.registerTool({
-		name: "review_thread",
-		label: "Review Thread",
+		name: "review_say",
+		label: "Review Say",
 		description:
-			"Read and work the conversation on a change: list reviews, threads and messages, reply into a thread, resolve or reopen one, react to a comment, or post a top-level message.",
+			"Say something on a change, straight away: reply into a thread, resolve or reopen one, react to a comment, or post a top-level message. Reading the conversation is review_see.",
 		promptSnippet:
-			"Read and work a change's conversation: reviews, threads, messages, reply, resolve, react, comment.",
+			"Say something on a change now: reply, comment, resolve, unresolve, react.",
 		promptGuidelines: [
-			"Refer to a thread by the [T#] index the threads listing shows. Never invent or guess a thread id.",
-			"Use this for direct work on a change's conversation. To compose several remarks and a verdict together, use review_draft.",
-			"Every write here opens a confirmation gate, so describe what you are about to post before calling it.",
+			"Read the threads with review_see first, and refer to a thread by the [T#] index that listing shows. Never invent or guess a thread id.",
+			"Leave the change out to speak on whatever is attached.",
+			"Use this to answer one remark. To compose several remarks and a verdict together, use review_draft.",
+			"Every action here opens a confirmation gate, so describe what you are about to post before calling it.",
 		],
 		parameters: Type.Object({
 			action: Type.Union(
 				[
-					Type.Literal("reviews"),
-					Type.Literal("threads"),
-					Type.Literal("messages"),
 					Type.Literal("reply"),
+					Type.Literal("comment"),
 					Type.Literal("resolve"),
 					Type.Literal("unresolve"),
 					Type.Literal("react"),
-					Type.Literal("comment"),
 				],
-				{ description: "What to do." },
+				{
+					description:
+						"What to say. reply: answer one thread. comment: a top-level remark on the change. resolve and unresolve: close or reopen a thread. react: put a reaction on one comment.",
+				},
 			),
-			change: Type.String({ description: "The hosted change." }),
+			change: Type.Optional(
+				Type.String({
+					description:
+						"The hosted change. Omit to speak on the attached change.",
+				}),
+			),
 			thread: Type.Optional(
 				Type.Number({
 					description: "1-based [T#] index from the threads listing.",
@@ -86,7 +95,7 @@ export function registerThreadTool(pi: ExtensionAPI): void {
 			const params = args as { action?: string; change?: string };
 			return renderInvocation(
 				theme,
-				"review_thread",
+				"review_say",
 				params.action,
 				params.change,
 			);
@@ -104,58 +113,6 @@ export function registerThreadTool(pi: ExtensionAPI): void {
 				if (!conversation || !change) {
 					return refuse(
 						"Nothing hosts this target, so it has no conversation. Compose a review with review_draft and render it as a document.",
-					);
-				}
-
-				if (params.action === "reviews") {
-					const reviews = await conversation.reviews(change);
-					return say(
-						citeListing(openSessionStore(), {
-							view:
-								reviews
-									.map(
-										(review) =>
-											`${GLYPH.verdict} ${review.author.id} · ${review.verdict}\n   ${review.body.split("\n")[0] ?? ""}`,
-									)
-									.join("\n") || "No reviews yet.",
-							records: reviews,
-							unit: "reviews",
-							narrowing: "Query the stored result for a review's full body.",
-						}),
-						{ ok: true, count: reviews.length },
-					);
-				}
-
-				if (params.action === "threads") {
-					const threads = await threadsOf(bound);
-					return say(
-						citeListing(openSessionStore(), {
-							view:
-								threads
-									.map((thread, index) => threadLines(thread, index))
-									.join("\n") || "No threads yet.",
-							records: threads,
-							unit: "threads",
-							narrowing:
-								"Query the stored result for a thread's full exchange.",
-						}),
-						{ ok: true, count: threads.length },
-					);
-				}
-
-				if (params.action === "messages") {
-					const messages = await conversation.messages(change);
-					return say(
-						citeListing(openSessionStore(), {
-							view:
-								messages
-									.map((message) => `${message.author.id}: ${message.body}`)
-									.join("\n\n") || "No messages yet.",
-							records: messages,
-							unit: "messages",
-							narrowing: "Query the stored result for the rest.",
-						}),
-						{ ok: true, count: messages.length },
 					);
 				}
 

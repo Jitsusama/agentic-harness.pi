@@ -31,8 +31,8 @@ import {
 import {
 	registerDraftTool,
 	registerReviewTool,
-	registerStackTool,
-	registerThreadTool,
+	registerSayTool,
+	registerSeeTool,
 } from "./tools.js";
 
 /**
@@ -56,8 +56,8 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	registerBuiltinReviewProviders(pi);
 
 	registerReviewTool(pi);
-	registerStackTool(pi);
-	registerThreadTool(pi);
+	registerSeeTool(pi);
+	registerSayTool(pi);
 	registerDraftTool(pi);
 
 	const api: ReviewSubstrateApi = {

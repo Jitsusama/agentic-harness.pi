@@ -1,22 +1,25 @@
 /**
- * The `review` tool: reading a change, whatever hosts it.
+ * The `review` tool: what this session is working on.
  *
- * Read-only, so no gate. The one thing it must never do is
- * assume a backend: every answer here comes from whichever
- * provider claimed the reference.
+ * Not a reading tool. Reading is `review_see`; this is the one
+ * place the question "which change are we talking about" gets
+ * answered, so that every other tool can stop asking it.
+ *
+ * Capabilities lives here rather than with the reads because it
+ * is a question about the binding, not about the change: what
+ * can be done to this thing, given who is hosting it.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { citeListing, openSessionStore } from "../../../lib/result/index.js";
 import {
 	changeInPlay,
 	chooseChange,
 	createAttachmentStore,
 } from "../../../lib/review/index.js";
 import { stackStep } from "../../../lib/review/stack.js";
-import { attachmentDir, reviewEngine } from "../engine.js";
-import { checksLines, GLYPH, proposalLine } from "../render.js";
+import { attachmentDir } from "../engine.js";
+import { GLYPH } from "../render.js";
 import {
 	type Answer,
 	boundFor,
@@ -35,14 +38,14 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 		name: "review",
 		label: "Review",
 		description:
-			"Read a change under review: resolve a reference, view the change, its diff, its checks, sibling changes, or what its provider can do. Works for hosted changes and for local ranges and stacks that nothing hosts.",
+			"Say what you are working on, so no other call has to repeat it: attach a change, detach it, step up or down the stack it sits in, or ask what its provider can do. Call with no action to report what is attached.",
 		promptSnippet:
-			"Read a change under review, whatever hosts it: resolve, view, diff, checks, list, capabilities.",
+			"Say what you are working on: attach, detach, next, prev, capabilities.",
 		promptGuidelines: [
-			"Use review to read, review_thread to reply or resolve, review_draft to compose a whole review.",
-			"A change can be a URL, an owner/repo#number short form or a bare number; or omit it and pass base and head, or refs, to review something nobody has proposed.",
+			"Attach a change once and every later call can leave it out. Use review_see to read, review_say to answer a remark, review_draft to compose a whole review.",
+			"A change can be a URL, an owner/repo#number short form or a bare number.",
 			"Never assume GitHub. The provider is resolved from config, then provider claims, then the user's reference shapes.",
-			"When a stack or a capability is missing, say which provider was asked rather than reporting a generic failure.",
+			"When a capability is missing, say which provider was asked rather than reporting a generic failure.",
 		],
 		parameters: Type.Object({
 			action: Type.Optional(
@@ -52,16 +55,11 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 						Type.Literal("detach"),
 						Type.Literal("next"),
 						Type.Literal("prev"),
-						Type.Literal("resolve"),
-						Type.Literal("view"),
-						Type.Literal("diff"),
-						Type.Literal("checks"),
-						Type.Literal("list"),
 						Type.Literal("capabilities"),
 					],
 					{
 						description:
-							"What to do. attach: work on this change, so later calls can leave it out. detach: stop working on it. next and prev: move the attachment up or down the stack it sits in. Omit entirely to report what is attached.",
+							"What to do. attach: work on this change, so later calls can leave it out. detach: stop working on it. next and prev: move the attachment up or down the stack it sits in. capabilities: what this change's provider can do. Omit entirely to report what is attached.",
 					},
 				),
 			),
@@ -89,17 +87,6 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 					description: "Ordered refs to review as one stack.",
 				}),
 			),
-			state: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("open"),
-						Type.Literal("merged"),
-						Type.Literal("closed"),
-					],
-					{ description: "For list: which changes." },
-				),
-			),
-			limit: Type.Optional(Type.Number({ description: "For list: how many." })),
 		}),
 
 		renderCall(args, theme) {
@@ -119,60 +106,9 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 				if (params.action === "next" || params.action === "prev") {
 					return stepAttachment(pi, params, params.action);
 				}
-				if (params.action === "list") return listChanges(pi, params);
 
 				const bound = await boundFor(pi, params, process.cwd());
-
-				if (params.action === "resolve") {
-					const subject =
-						bound.target.kind === "proposal"
-							? bound.target.change.id
-							: bound.repo.key;
-					return say(
-						`${GLYPH.target} ${bound.provider.id} handles ${subject}\n   a ${bound.target.kind} target in ${bound.repo.key}`,
-						{ ok: true, provider: bound.provider.id },
-					);
-				}
-
-				if (params.action === "capabilities") {
-					return say(describeCapabilities(bound));
-				}
-
-				if (params.action === "view") {
-					const proposal = await bound.proposal();
-					if (!proposal) {
-						return say(
-							`${GLYPH.target} a ${bound.target.kind} in ${bound.repo.key}, which nothing hosts. Review it and render the result.`,
-						);
-					}
-					return say(`${proposalLine(proposal)}\n\n${proposal.body}`);
-				}
-
-				if (params.action === "checks") {
-					const checks = await bound.checks();
-					if (!checks) {
-						return say(
-							`${GLYPH.checks} the ${bound.provider.id} provider reports no checks for this target.`,
-						);
-					}
-					return say(checksLines(checks), {
-						ok: true,
-						state: checks.state,
-					});
-				}
-
-				const diff = await bound.diff();
-				const model = await bound.diffModel();
-				return say(
-					citeListing(openSessionStore(), {
-						view: diff,
-						records: model.files,
-						unit: "files",
-						narrowing:
-							"Query the stored result for the files or hunks you need.",
-					}),
-					{ ok: true, files: model.files.length },
-				);
+				return say(describeCapabilities(bound));
 			} catch (error) {
 				return refuse(messageOf(error));
 			}
@@ -317,13 +253,24 @@ async function reportAttached(): Promise<Answer> {
 	});
 }
 
-/** What a provider says it can do, in plain lines. */
+/**
+ * What a provider says it can do, in plain lines.
+ *
+ * The header names the provider and what it is holding, because
+ * "who handles this" and "what can be done to it" are the same
+ * question asked twice, and answering both here is what let the
+ * separate resolve action go.
+ */
 function describeCapabilities(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 ): string {
 	const caps = bound.capabilities;
+	const subject =
+		bound.target.kind === "proposal"
+			? bound.target.change.label
+			: `a ${bound.target.kind} in ${bound.repo.key}`;
 	const lines = [
-		`${GLYPH.target} what ${bound.provider.id} can do here`,
+		`${GLYPH.target} ${bound.provider.id} handles ${subject}`,
 		`   conversation: ${caps.conversation ? "yes" : "no"}`,
 		`   stacking: ${caps.stacking?.provenance ?? "none"}`,
 		`   proposals: ${caps.proposals ? "yes" : "no"}`,
@@ -339,43 +286,4 @@ function describeCapabilities(
 		);
 	}
 	return lines.join("\n");
-}
-
-/** Sibling changes in the same repo. */
-async function listChanges(
-	pi: ExtensionAPI,
-	params: {
-		change?: string;
-		repo?: string;
-		state?: "open" | "merged" | "closed";
-		limit?: number;
-	},
-): Promise<Answer> {
-	const { engine } = await reviewEngine(pi);
-	const cwd = params.repo ?? process.cwd();
-	const bound = params.change
-		? await engine.resolve(params.change, cwd)
-		: undefined;
-	const lister = bound?.provider.proposals?.list;
-	if (!bound || !lister) {
-		return refuse(
-			"Listing needs a provider that can list changes. Name any change in the repo you mean, so the provider can be resolved from it.",
-		);
-	}
-	const found = await lister(bound.repo, {
-		...(params.state ? { state: params.state } : {}),
-		...(params.limit !== undefined ? { limit: params.limit } : {}),
-	});
-	if (found.length === 0) {
-		return say(`${GLYPH.target} no changes match.`);
-	}
-	return say(
-		citeListing(openSessionStore(), {
-			view: found.map(proposalLine).join("\n\n"),
-			records: found,
-			unit: "changes",
-			narrowing: "Narrow with 'state', or lower 'limit'.",
-		}),
-		{ ok: true, count: found.length },
-	);
 }
