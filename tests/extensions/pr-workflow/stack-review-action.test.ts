@@ -19,6 +19,7 @@ import {
 	WorktreeRegistry,
 	type WorktreeRequest,
 } from "../../../extensions/pr-workflow/worktree.js";
+import { type ChangeRef, githubChange } from "../../../lib/review/index.js";
 import type {
 	CouncilReviewer,
 	RunReviewerResult,
@@ -53,12 +54,14 @@ function buildState(stackNumbers: number[] = [101, 102]): PrWorkflowState {
 	state.council.roster = [reviewer("fast"), reviewer("skeptic")];
 	state.council.judge = reviewer("judge");
 	const entries: Stack["entries"] = stackNumbers.map((number) => ({
+		change: githubChange({ key: "github:o/r" }, String(number)),
 		reference: { owner: "o", repo: "r", number },
 		title: `PR ${number}`,
 		baseRefName: "main",
 		headRefName: `f${number}`,
 	}));
 	state.pr = {
+		change: githubChange({ key: "github:o/r" }, String(cursor)),
 		reference: { owner: "o", repo: "r", number: cursor },
 		loadedAt: "2026-05-20T16:00:00Z",
 		metadata: prMetadata({
@@ -77,11 +80,11 @@ function buildState(stackNumbers: number[] = [101, 102]): PrWorkflowState {
 
 function fetchers() {
 	return {
-		metadata: async (ref: { number: number }) =>
+		metadata: async (change: ChangeRef) =>
 			prMetadata({
-				title: `PR ${ref.number}`,
-				body: `Body ${ref.number}`,
-				head: { ref: `f${ref.number}`, sha: `sha-${ref.number}` },
+				title: `PR ${change.id}`,
+				body: `Body ${change.id}`,
+				head: { ref: `f${change.id}`, sha: `sha-${change.id}` },
 			}),
 		diff: async () => [],
 	};
@@ -429,7 +432,7 @@ describe("runStackReviewAction", () => {
 				});
 			},
 			fetchers: fetchers(),
-			fetchThreads: async (ref) => [reviewThread(ref.number)],
+			fetchThreads: async (change) => [reviewThread(Number(change.id))],
 		});
 
 		expect(result.ok).toBe(true);

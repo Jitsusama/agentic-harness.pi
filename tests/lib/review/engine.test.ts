@@ -13,6 +13,7 @@ import {
 	registerReviewProvider,
 } from "../../../lib/review";
 import { fakeExec, type Reply } from "./support/fake-exec.js";
+import { stubProvider } from "./support/stub-provider.js";
 
 const pullJson = JSON.stringify({
 	number: 123,
@@ -156,6 +157,88 @@ index 1111111..2222222 100644
 			"https://github.com/Shopify/world/pull/123",
 		);
 		expect(bound.conversation).toBeTruthy();
+	});
+});
+
+describe("binding a change already known", () => {
+	it("binds to the system the change names", async () => {
+		// The caller resolved this once already. Re-resolving its name
+		// can reach a different provider, because claiming depends on
+		// which directory the question is asked from.
+		const { exec } = fakeExec([{ when: ["api"], stdout: pullJson }]);
+		registerReviewProvider(stubProvider({ id: "elsewhere", priority: 10 }));
+		registerReviewProvider(createGitHubProvider({ exec }));
+		const engine = createReviewEngine({ exec, store: createDraftStore(root) });
+
+		const bound = await engine.bound({
+			provider: "github",
+			repo: { key: "github:Shopify/world" },
+			id: "123",
+			label: "Shopify/world#123",
+		});
+
+		expect(bound.provider.id).toBe("github");
+	});
+
+	it("does not consult any other provider's claim", async () => {
+		// A provider registered at a keener priority would win a
+		// resolution by name. It must not win here.
+		const { exec } = fakeExec([{ when: ["api"], stdout: pullJson }]);
+		registerReviewProvider(
+			stubProvider({
+				id: "greedy",
+				priority: 1,
+				claimReference: () => ({
+					provider: "greedy",
+					repo: { key: "greedy:Shopify/world" },
+					id: "123",
+					label: "Shopify/world#123",
+				}),
+			}),
+		);
+		registerReviewProvider(createGitHubProvider({ exec }));
+		const engine = createReviewEngine({ exec, store: createDraftStore(root) });
+
+		const bound = await engine.bound({
+			provider: "github",
+			repo: { key: "github:Shopify/world" },
+			id: "123",
+			label: "Shopify/world#123",
+		});
+
+		expect(bound.provider.id).toBe("github");
+	});
+
+	it("says which system is missing when it is not registered", async () => {
+		// The likely cause is an extension that did not load, and
+		// naming the system is what points at it.
+		const { exec } = fakeExec([]);
+		registerReviewProvider(createGitHubProvider({ exec }));
+		const engine = createReviewEngine({ exec, store: createDraftStore(root) });
+
+		await expect(
+			engine.bound({
+				provider: "meteorite",
+				repo: { key: "meteorite:shop/world" },
+				id: "7",
+				label: "shop/world#7",
+			}),
+		).rejects.toThrow(/meteorite/);
+	});
+
+	it("reads the change through the provider it bound", async () => {
+		const { exec } = fakeExec([{ when: ["api"], stdout: pullJson }]);
+		registerReviewProvider(createGitHubProvider({ exec }));
+		const engine = createReviewEngine({ exec, store: createDraftStore(root) });
+
+		const bound = await engine.bound({
+			provider: "github",
+			repo: { key: "github:Shopify/world" },
+			id: "123",
+			label: "Shopify/world#123",
+		});
+
+		expect((await bound.proposal())?.title).toBe("A change");
 	});
 });
 

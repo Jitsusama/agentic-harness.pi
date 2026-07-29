@@ -8,7 +8,8 @@
  * thread no longer matches the code.
  */
 
-import type { PRReference } from "../../lib/internal/github/pr-reference.js";
+import type { ChangeRef } from "../../lib/review/index.js";
+import { changeOf } from "./reference.js";
 import type { ThreadRelation } from "./schemas.js";
 import type { PrWorkflowState, ThreadsSnapshot } from "./state.js";
 import type { ReviewThread, ReviewThreadComment } from "./threads.js";
@@ -19,7 +20,7 @@ const MAX_COMMENT_BODY_CHARS = 600;
 
 /** Boundary for fetching a PR's existing review threads. */
 export type ReviewThreadsFetcher = (
-	reference: PRReference,
+	change: ChangeRef,
 ) => Promise<ReviewThread[]>;
 
 /** Thread context included in reviewer prompts. */
@@ -40,30 +41,30 @@ export async function loadReviewThreadPromptContext(
 	state: PrWorkflowState,
 	fetcher?: ReviewThreadsFetcher,
 ): Promise<ReviewThreadPromptContext> {
-	const reference = state.pr?.reference;
-	if (reference === undefined) {
+	const pr = state.pr;
+	if (pr === null) {
 		return rememberThreadWarning(state, "No PR is loaded.");
 	}
-	if (state.threads?.prNumber === reference.number) {
+	if (state.threads?.prNumber === pr.reference.number) {
 		state.threadContextWarning = null;
 		return { threads: state.threads.threads };
 	}
 	const context = await loadReviewThreadPromptContextForReference(
-		reference,
+		changeOf(pr),
 		fetcher,
 	);
 	if (context.warning) {
 		state.threadContextWarning = context.warning;
 		return context;
 	}
-	state.threads = toSnapshot(state, reference.number, context.threads);
+	state.threads = toSnapshot(state, pr.reference.number, context.threads);
 	state.threadContextWarning = null;
 	return context;
 }
 
 /** Load existing thread context for a specific PR reference. */
 export async function loadReviewThreadPromptContextForReference(
-	reference: PRReference,
+	change: ChangeRef,
 	fetcher?: ReviewThreadsFetcher,
 ): Promise<ReviewThreadPromptContext> {
 	if (fetcher === undefined) {
@@ -75,7 +76,7 @@ export async function loadReviewThreadPromptContextForReference(
 		};
 	}
 	try {
-		return { threads: await fetcher(reference) };
+		return { threads: await fetcher(change) };
 	} catch (error) {
 		return {
 			threads: [],

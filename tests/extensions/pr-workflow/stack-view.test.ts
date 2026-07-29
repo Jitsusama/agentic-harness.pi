@@ -8,6 +8,7 @@ import {
 	nextInStack,
 	prevInStack,
 } from "../../../extensions/pr-workflow/stack-view.js";
+import { stackEntry } from "./fixtures.js";
 
 /**
  * Read-only navigation over a discovered stack.
@@ -21,12 +22,11 @@ import {
  */
 
 function entry(number: number, head: string, base: string): StackEntry {
-	return {
-		reference: { owner: "o", repo: "r", number },
+	return stackEntry(number, {
 		title: `PR #${number}`,
 		headRefName: head,
 		baseRefName: base,
-	};
+	});
 }
 
 describe("formatStack", () => {

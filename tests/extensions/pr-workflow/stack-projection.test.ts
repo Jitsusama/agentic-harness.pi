@@ -15,6 +15,7 @@ import type {
 	StackNode,
 	Stack as Topology,
 } from "../../../lib/review/index.js";
+import { githubChange } from "../../../lib/review/index.js";
 
 function proposalOn(number: number, base: string, head: string): Proposal {
 	return {
@@ -56,6 +57,10 @@ describe("stackViewFrom", () => {
 		expect(stack.entries.map((e) => e.reference.number)).toEqual([1, 2, 3]);
 		expect(stack.cursorIndex).toBe(1);
 		expect(stack.entries[1]).toEqual({
+			// The change comes through as well as its projection, so a
+			// sibling in the stack can be reached on the system that
+			// hosts it rather than a guessed one.
+			change: githubChange({ key: "github:o/r" }, "2"),
 			reference: { owner: "o", repo: "r", number: 2 },
 			title: "PR 2",
 			baseRefName: "one",

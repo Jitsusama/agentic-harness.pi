@@ -8,6 +8,7 @@ import {
 import { formatPrSummary } from "../../../extensions/pr-workflow/summary.js";
 import { decideFinding } from "../../../extensions/pr-workflow/synthesis.js";
 import type { ReviewThread } from "../../../extensions/pr-workflow/threads.js";
+import { stackEntry } from "./fixtures.js";
 
 function loadedState(): PrWorkflowState {
 	const state = createPrWorkflowState();
@@ -20,6 +21,20 @@ function loadedState(): PrWorkflowState {
 		stack: null,
 	};
 	return state;
+}
+
+/** A stack entry in shopify/world, which these tests use. */
+function worldEntry(
+	number: number,
+	title: string,
+	baseRefName: string,
+	headRefName: string,
+) {
+	return stackEntry(
+		number,
+		{ title, baseRefName, headRefName },
+		{ owner: "shopify", repo: "world" },
+	);
 }
 
 function loadedPr(state: PrWorkflowState) {
@@ -354,24 +369,9 @@ describe("formatPrSummary", () => {
 			...loadedPr(state),
 			stack: {
 				entries: [
-					{
-						reference: { owner: "shopify", repo: "world", number: 1230 },
-						title: "Base PR",
-						baseRefName: "main",
-						headRefName: "f1",
-					},
-					{
-						reference: { owner: "shopify", repo: "world", number: 1234 },
-						title: "Cursor PR",
-						baseRefName: "f1",
-						headRefName: "f2",
-					},
-					{
-						reference: { owner: "shopify", repo: "world", number: 1236 },
-						title: "Tip PR",
-						baseRefName: "f2",
-						headRefName: "f3",
-					},
+					worldEntry(1230, "Base PR", "main", "f1"),
+					worldEntry(1234, "Cursor PR", "f1", "f2"),
+					worldEntry(1236, "Tip PR", "f2", "f3"),
 				],
 				cursorIndex: 1,
 				cursorChildren: [],

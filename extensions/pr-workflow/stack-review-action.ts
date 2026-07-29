@@ -10,7 +10,7 @@
  */
 
 import type { PRReference } from "../../lib/internal/github/pr-reference.js";
-import type { DiffFile } from "../../lib/review/index.js";
+import type { ChangeRef, DiffFile } from "../../lib/review/index.js";
 import type { CouncilReviewer } from "../../lib/subagent/subagent.js";
 import { isReviewerCancelledError } from "./cancellation.js";
 import type { PrWorkflowConfigLoadResult } from "./config.js";
@@ -31,6 +31,7 @@ import {
 	rememberParticipantIdentities,
 	rememberParticipantIdentity,
 } from "./participant-identities.js";
+import { changeOf } from "./reference.js";
 import type { ReviewContextProviderBroker } from "./review-context.js";
 import { dispatchWithCache, reviewerCacheKey } from "./reviewer-cache.js";
 import { reviewerFailureBanner } from "./reviewer-outcome.js";
@@ -55,8 +56,8 @@ import { type WorktreeRegistry, worktreeRequestFor } from "./worktree.js";
 
 /** Helpers needed to resolve non-cursor PR context. */
 export interface StackReviewFetchers {
-	readonly metadata: (reference: PRReference) => Promise<PrMetadata>;
-	readonly diff: (reference: PRReference) => Promise<DiffFile[]>;
+	readonly metadata: (change: ChangeRef) => Promise<PrMetadata>;
+	readonly diff: (change: ChangeRef) => Promise<DiffFile[]>;
 }
 
 /** Inputs for `runStackReviewAction`. */
@@ -110,6 +111,8 @@ export type StackReviewActionResult =
 	| { ok: false; error: string };
 
 interface ResolvedPr {
+	/** Which change this is, and which system owns it. */
+	readonly change: ChangeRef;
 	readonly reference: PRReference;
 	readonly metadata: PrMetadata;
 	readonly files: readonly DiffFile[];
@@ -725,6 +728,7 @@ async function resolveStackPrs(
 	if (pr === null || pr.metadata === null) return [];
 	const entries = pr.stack?.entries ?? [
 		{
+			change: changeOf(pr),
 			reference: pr.reference,
 			title: pr.metadata.title,
 			baseRefName: pr.metadata.base.ref,
@@ -735,16 +739,22 @@ async function resolveStackPrs(
 		entries.map(async (entry): Promise<ResolvedPr> => {
 			if (entry.reference.number === pr.reference.number) {
 				return {
+					change: entry.change,
 					reference: entry.reference,
 					metadata: pr.metadata as PrMetadata,
 					files: pr.files ?? [],
 				};
 			}
 			const [metadata, files] = await Promise.all([
-				fetchers.metadata(entry.reference),
-				fetchers.diff(entry.reference),
+				fetchers.metadata(entry.change),
+				fetchers.diff(entry.change),
 			]);
-			return { reference: entry.reference, metadata, files };
+			return {
+				change: entry.change,
+				reference: entry.reference,
+				metadata,
+				files,
+			};
 		}),
 	);
 }
@@ -758,7 +768,7 @@ async function attachThreadContexts(
 		prs.map(async (pr) => ({
 			...pr,
 			threadContext: await loadReviewThreadPromptContextForReference(
-				pr.reference,
+				pr.change,
 				fetchThreads,
 			),
 		})),
