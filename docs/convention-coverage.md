@@ -409,6 +409,22 @@ is followed by judgment, not by a regex.
   times. Removing one kind from the index fails the gate by
   name. Neither can judge whether the prose is any good, which
   is the right way for a gate like this to be wrong.
+
+  The review tools now carry the same completeness gate:
+  `tests/extensions/review-indexed.test.ts` requires every
+  action in each of the six tools' schemas to appear in
+  `review-guide` as the incantation an agent would run. It was
+  written loose first, matching the bare action name, and passed
+  immediately, which was the tell: `next`, `diff` and `changes`
+  are ordinary English and appear in prose about something else.
+  Requiring `tool action` instead found eighteen actions that
+  were listed in the guide's summary table and never shown as
+  something you could call. Removing one incantation fails the
+  gate by name, checked rather than assumed.
+
+  There is no review equivalent of `findable.test.ts` yet, so
+  🟡 a parameter that serves only some of its tool's actions is
+  not required to say which.
 - **Audit methodology**: `browser-accessibility-guide`. Its
   rules are about how to conduct and report an audit, and the
   claims most worth enforcing are enforced at the source rather

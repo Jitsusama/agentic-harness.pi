@@ -55,14 +55,20 @@ Start here. Find the row, make the call.
 | You want to | Call |
 |---|---|
 | Work on a change and stop naming it | `review attach change:...` |
+| Stop working on it | `review detach` |
 | Know what this change is | `review_see change` |
 | Read the diff | `review_see diff` |
 | Know if CI is happy | `review_see checks` |
 | See what it sits on | `review_see stack` |
+| Find other changes in the repo | `review_see changes state:open` |
 | Read what people said | `review_see threads` |
+| Read the verdicts people left | `review_see reviews` |
+| Read top-level remarks | `review_see messages` |
 | Answer one remark | `review_say reply thread:N` |
 | Close a thread out | `review_say resolve thread:N` |
+| Reopen one you closed too early | `review_say unresolve thread:N` |
 | Say one thing on the change | `review_say comment` |
+| Put a reaction on a comment | `review_say react comment:... reaction:rocket` |
 | Get several models to review it | `review_ask council` |
 | Boil their findings down to one list | `review_ask judge` |
 | Have them argue with that list | `review_ask critique` |
@@ -77,6 +83,12 @@ Start here. Find the row, make the call.
 | Drop a queued fix | `review_draft fix-skip body:"why"` |
 | See the fix queue | `review_draft fixes` |
 | Add a remark of your own | `review_draft finding path:... line:N` |
+| Answer a thread as part of the review | `review_draft reply thread:N` |
+| Close a thread as part of the review | `review_draft resolve thread:N` |
+| React as part of the review | `review_draft react comment:...` |
+| Say approve, request changes or comment | `review_draft verdict verdict:approve` |
+| See what is in the draft so far | `review_draft show` |
+| Take something back out of it | `review_draft drop item:...` |
 | Know what publishing will do | `review_draft plan` |
 | Send the review | `review_draft publish` |
 | Send a review to every change in the stack | `review_draft publish-stack` |
@@ -84,7 +96,10 @@ Start here. Find the row, make the call.
 | Put a branch up for review | `review_offer propose draft:false` |
 | Fix a title or description | `review_offer edit` |
 | Move it out of draft | `review_offer ready` |
+| Put it back into draft | `review_offer draft` |
 | Ask people to look | `review_offer reviewers` |
+| Withdraw it | `review_offer close` |
+| Put a withdrawn one back | `review_offer reopen` |
 | Land it | `review_offer merge expectedHead:...` |
 
 ## Three Ways This Gets Used
