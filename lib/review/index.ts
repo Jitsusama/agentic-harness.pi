@@ -65,6 +65,8 @@ export {
 	runSummary,
 	substituteOutcome,
 } from "./ask/run.js";
+export type { RunStore } from "./ask/store.js";
+export { createRunStore } from "./ask/store.js";
 export type {
 	Attachment,
 	AttachmentStore,
