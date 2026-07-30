@@ -23,6 +23,7 @@ import type {
 	FindingOrigin,
 	FindingSeverity,
 } from "../finding.js";
+import { findJson, isRecord, wireText, wireWhole } from "./wire.js";
 
 /** What came out of one answer. */
 export interface Harvest {
@@ -98,44 +99,6 @@ export function harvestFindings(
 	return { findings, warnings };
 }
 
-/**
- * The JSON object in an answer, wherever it is.
- *
- * Tries the whole answer first, then a fenced block, then the
- * widest brace-delimited span. The widest rather than the first,
- * because a model that discusses its reasoning before answering
- * often writes a smaller object earlier in the prose.
- */
-function findJson(text: string): Record<string, unknown> | undefined {
-	const whole = parseObject(text);
-	if (whole !== undefined) return whole;
-
-	for (const match of text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)) {
-		const fenced = parseObject(match[1] ?? "");
-		if (fenced !== undefined) return fenced;
-	}
-
-	const first = text.indexOf("{");
-	const last = text.lastIndexOf("}");
-	if (first === -1 || last <= first) return undefined;
-	return parseObject(text.slice(first, last + 1));
-}
-
-/** One JSON object, or nothing. */
-function parseObject(text: string): Record<string, unknown> | undefined {
-	const trimmed = text.trim();
-	if (trimmed === "") return undefined;
-	try {
-		const held: unknown = JSON.parse(trimmed);
-		return isRecord(held) ? held : undefined;
-	} catch {
-		// Not JSON. Every caller here is guessing at where the JSON
-		// might be, so failing to find it is the expected outcome
-		// rather than an error worth reporting.
-		return undefined;
-	}
-}
-
 /** One finding, or nothing plus a warning saying why. */
 function readFinding(
 	entry: unknown,
@@ -150,13 +113,13 @@ function readFinding(
 		return undefined;
 	}
 
-	const subject = text(entry.subject);
+	const subject = wireText(entry.subject);
 	if (subject === undefined) {
 		warnings.push(`${at} has no subject, so it was dropped.`);
 		return undefined;
 	}
 
-	const label = text(entry.label);
+	const label = wireText(entry.label);
 	if (label === undefined || !LABELS.includes(label)) {
 		warnings.push(
 			`${at} is labelled "${label ?? "nothing"}", which is not one of ${LABELS.join(", ")}, so it was dropped. Guessing a label would put words in the reviewer's mouth.`,
@@ -171,7 +134,7 @@ function readFinding(
 		anchor,
 		label: label as ConventionalLabel,
 		subject,
-		discussion: text(entry.discussion) ?? "",
+		discussion: wireText(entry.discussion) ?? "",
 		origin,
 		...readSeverity(entry.severity, at, warnings),
 		...readConfidence(entry.confidence, at, warnings),
@@ -192,10 +155,10 @@ function readAnchor(
 		return undefined;
 	}
 
-	const kind = text(value.kind);
+	const kind = wireText(value.kind);
 	if (kind === "global") return { subject: "change", ...stamp };
 
-	const path = text(value.file);
+	const path = wireText(value.file);
 	if (kind === "file") {
 		if (path === undefined) {
 			warnings.push(`${at} is a file finding with no file, so it was dropped.`);
@@ -209,8 +172,8 @@ function readAnchor(
 			warnings.push(`${at} is a line finding with no file, so it was dropped.`);
 			return undefined;
 		}
-		const start = whole(value.start);
-		const end = whole(value.end) ?? start;
+		const start = wireWhole(value.start);
+		const end = wireWhole(value.end) ?? start;
 		if (start === undefined || end === undefined) {
 			warnings.push(`${at} is a line finding with no line, so it was dropped.`);
 			return undefined;
@@ -256,7 +219,7 @@ function readRaisedBy(
 		return {};
 	}
 	const raisedBy = value.flatMap((entry) => {
-		const name = text(entry);
+		const name = wireText(entry);
 		return name === undefined ? [] : [name];
 	});
 	return raisedBy.length === 0 ? {} : { raisedBy };
@@ -268,7 +231,7 @@ function readSeverity(
 	at: string,
 	warnings: string[],
 ): { severity?: FindingSeverity } {
-	const given = text(value);
+	const given = wireText(value);
 	if (given === undefined) return {};
 	const known = SEVERITIES[given.toLowerCase()];
 	if (known === undefined) {
@@ -300,24 +263,5 @@ function readConfidence(
 
 /** Which side of the diff, defaulting to the one a diff shows. */
 function side(value: unknown): DiffSide {
-	return text(value) === "old" ? "old" : "new";
-}
-
-/** A non-empty trimmed string, or nothing. */
-function text(value: unknown): string | undefined {
-	if (typeof value !== "string") return undefined;
-	const trimmed = value.trim();
-	return trimmed === "" ? undefined : trimmed;
-}
-
-/** A whole number, or nothing. */
-function whole(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isInteger(value)
-		? value
-		: undefined;
-}
-
-/** A plain object, as against an array or a primitive. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+	return wireText(value) === "old" ? "old" : "new";
 }

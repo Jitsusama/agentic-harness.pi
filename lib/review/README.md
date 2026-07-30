@@ -51,6 +51,7 @@ in the loop:
 | [`identity.ts`](ask/identity.ts) | What a participant id is allowed to mean |
 | [`anchorable.ts`](ask/anchorable.ts) | Where a finding may point |
 | [`prompt.ts`](ask/prompt.ts) | What a participant is told |
+| [`wire.ts`](ask/wire.ts) | Where the JSON is in what a model said |
 | [`harvest.ts`](ask/harvest.ts) | What its answer amounts to |
 | [`council.ts`](ask/council.ts) | Asking everybody at once |
 | [`judge.ts`](ask/judge.ts) | Consolidating what they said |

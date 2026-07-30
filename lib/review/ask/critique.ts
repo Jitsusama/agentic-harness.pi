@@ -17,6 +17,7 @@ import type { AskAnswer } from "./council.js";
 import { type Participant, participantIdentity } from "./identity.js";
 import type { Roster } from "./roster.js";
 import { type AskRun, newRunId, type ParticipantOutcome } from "./run.js";
+import { findJson, isRecord, wireText } from "./wire.js";
 
 /** Where a critic stands on a finding. */
 export type Position = "agree" | "disagree" | "qualify" | "unsure";
@@ -206,7 +207,7 @@ function readCritique(
 		return undefined;
 	}
 
-	const position = text(entry.position);
+	const position = wireText(entry.position);
 	if (position === undefined || !POSITIONS.includes(position)) {
 		warnings.push(
 			`${at} takes the position "${position ?? "nothing"}", which is not one of ${POSITIONS.join(", ")}, so it was dropped.`,
@@ -214,7 +215,7 @@ function readCritique(
 		return undefined;
 	}
 
-	const rationale = text(entry.rationale);
+	const rationale = wireText(entry.rationale);
 	if (rationale === undefined) {
 		// A position with no argument cannot be weighed against the
 		// finding it disputes, so it is worth less than silence.
@@ -230,45 +231,4 @@ function readCritique(
 		position: position as Position,
 		rationale,
 	};
-}
-
-/** The JSON object in an answer, wherever it is. */
-function findJson(text: string): Record<string, unknown> | undefined {
-	const whole = parseObject(text);
-	if (whole !== undefined) return whole;
-	for (const match of text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)) {
-		const fenced = parseObject(match[1] ?? "");
-		if (fenced !== undefined) return fenced;
-	}
-	const first = text.indexOf("{");
-	const last = text.lastIndexOf("}");
-	if (first === -1 || last <= first) return undefined;
-	return parseObject(text.slice(first, last + 1));
-}
-
-/** One JSON object, or nothing. */
-function parseObject(text: string): Record<string, unknown> | undefined {
-	const trimmed = text.trim();
-	if (trimmed === "") return undefined;
-	try {
-		const held: unknown = JSON.parse(trimmed);
-		return isRecord(held) ? held : undefined;
-	} catch {
-		// Not JSON. Every caller here is guessing at where the JSON
-		// might be, so failing is the expected outcome rather than an
-		// error worth reporting.
-		return undefined;
-	}
-}
-
-/** A non-empty trimmed string, or nothing. */
-function text(value: unknown): string | undefined {
-	if (typeof value !== "string") return undefined;
-	const trimmed = value.trim();
-	return trimmed === "" ? undefined : trimmed;
-}
-
-/** A plain object, as against an array or a primitive. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
