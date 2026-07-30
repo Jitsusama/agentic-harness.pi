@@ -813,8 +813,8 @@ export class BrowserSession {
 	 * worth reading, as long as the answer does not pretend it was
 	 * final.
 	 */
-	async settlePage(): Promise<Settled> {
-		return this.settler.settle();
+	async settlePage(budgetMs?: number): Promise<Settled> {
+		return this.settler.settle(budgetMs);
 	}
 
 	/** What the last settle saw, for a reader that wants to say so. */

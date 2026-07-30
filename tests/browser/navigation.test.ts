@@ -11,6 +11,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BrowserSession } from "../../lib/web/session.js";
+import { SETTLE_QUIET_MS } from "../../lib/web/wait/index.js";
 import { type Fixture, haveChrome, page, serve } from "./_harness.js";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
@@ -179,9 +180,14 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 	it("waits for the network to go quiet", async () => {
 		await session.navigate(fixture.url("/slow"));
 
+		// Same reasoning as the settle above: the assertion is that a
+		// quiet window is noticed, so the timeout has to be a multiple
+		// of that window rather than a round number that happened to
+		// pass on an idle machine.
+		const quietMs = 200;
 		const outcome = await session.waitFor(
-			{ kind: "idle", quietMs: 200 },
-			10_000,
+			{ kind: "idle", quietMs },
+			quietMs * 150,
 		);
 
 		expect(outcome.met).toBe(true);
@@ -341,7 +347,15 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 	it("settles a quiet page and says it was quiet", async () => {
 		await session.navigate(fixture.url("/first"));
 
-		const settled = await session.settlePage();
+		// Sized from the interval under test rather than from what
+		// looks safe. The property is that quiet gets detected, and
+		// detecting it needs a budget comfortably larger than the quiet
+		// window; both stretch together on a loaded machine, and the
+		// default is chosen for an interactive read rather than for a
+		// test sharing a machine with three other browsers. With the
+		// default this failed intermittently, which taught nothing
+		// except to distrust the suite.
+		const settled = await session.settlePage(SETTLE_QUIET_MS * 40);
 
 		expect(settled.quiet).toBe(true);
 		expect(session.settledLast?.quiet).toBe(true);
