@@ -71,6 +71,11 @@ Start here. Find the row, make the call.
 | See what a round raised | `review_see findings` |
 | Keep a finding, in your own words | `review_draft decide settle:promote` |
 | Drop a finding | `review_draft decide settle:dismiss` |
+| Keep a finding as work, not a remark | `review_draft decide settle:fix` |
+| Get the next thing to fix | `review_draft fix-next` |
+| Record a fix that landed | `review_draft fix-done commit:...` |
+| Drop a queued fix | `review_draft fix-skip body:"why"` |
+| See the fix queue | `review_draft fixes` |
 | Add a remark of your own | `review_draft finding path:... line:N` |
 | Know what publishing will do | `review_draft plan` |
 | Send the review | `review_draft publish` |
@@ -195,6 +200,26 @@ On merging: pass `expectedHead` when you have it. It is the only guard
 against merging work pushed since you last looked, and the gate says so
 plainly when you leave it out. Leave `method` alone unless you mean to
 override the repo's own policy.
+
+## Findings You Fix Rather Than Say
+
+A review produces two kinds of conclusion and only one is a remark. On
+your own change, a finding you agree with is not something to post, it
+is something to go and do. `review_draft decide settle:fix` puts it on
+a queue instead of into the draft.
+
+`fix-next` hands back one finding and stops. **Do the work in your own
+loop**, where the person watching can interrupt with a sentence, then
+`fix-done commit:...` records it. The commit is required: it is what
+makes the claim checkable later against the history.
+
+`fix-skip body:"why"` drops one, and the reason is required too. The
+queue keeps skips rather than deleting them, because deciding a finding
+was wrong is a judgement worth reading back, and a skip with no reason
+reads the same as forgetting.
+
+This is the shape of reviewing your own change before you ship: council,
+judge, then `fix` every finding that holds and never publish anything.
 
 ## Publishing Across a Stack
 

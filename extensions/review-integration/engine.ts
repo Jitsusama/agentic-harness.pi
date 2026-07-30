@@ -43,6 +43,11 @@ export function runDir(): string {
 	return join(stateDir("review"), "runs");
 }
 
+/** Where findings queued to fix rather than say live. */
+export function fixDir(): string {
+	return join(stateDir("review"), "fixes");
+}
+
 /**
  * Where persona charters are read from.
  *

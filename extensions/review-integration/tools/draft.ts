@@ -17,6 +17,7 @@ import {
 	type BoundTarget,
 	createDraftStore,
 	createFindingStore,
+	createFixQueue,
 	type DiffSide,
 	type DraftStore,
 	publishAcross,
@@ -27,7 +28,7 @@ import {
 	type StackPublishEntry,
 	type Verdict,
 } from "../../../lib/review/index.js";
-import { draftDir, findingDir, reviewEngine } from "../engine.js";
+import { draftDir, findingDir, fixDir, reviewEngine } from "../engine.js";
 import { confirmWrite } from "../gate.js";
 import {
 	anchorLabel,
@@ -98,6 +99,10 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					Type.Literal("publish"),
 					Type.Literal("publish-stack"),
 					Type.Literal("render"),
+					Type.Literal("fix-next"),
+					Type.Literal("fix-done"),
+					Type.Literal("fix-skip"),
+					Type.Literal("fixes"),
 				],
 				{ description: "What to do with the draft." },
 			),
@@ -158,10 +163,17 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 				}),
 			),
 			settle: Type.Optional(
-				Type.Union([Type.Literal("promote"), Type.Literal("dismiss")], {
-					description:
-						"For decide: promote puts the finding into this draft as a remark, dismiss drops it. Pass body with promote to say it in your own words.",
-				}),
+				Type.Union(
+					[
+						Type.Literal("promote"),
+						Type.Literal("dismiss"),
+						Type.Literal("fix"),
+					],
+					{
+						description:
+							"For decide: promote puts the finding into this draft as a remark, dismiss drops it, fix queues it as work to do rather than something to say. Pass body with promote to say it in your own words, or with fix to note how you mean to fix it.",
+					},
+				),
 			),
 		}),
 
@@ -207,6 +219,21 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 
 				if (params.action === "decide") {
 					return decideFinding(bound, draft, params);
+				}
+
+				if (
+					params.action === "fix-next" ||
+					params.action === "fix-done" ||
+					params.action === "fix-skip" ||
+					params.action === "fixes"
+				) {
+					const change = bound && hostedChange(bound);
+					if (!change) {
+						return refuse(
+							"The fix queue belongs to a change, so name the change rather than a draft id.",
+						);
+					}
+					return walkFixes(change, params);
 				}
 
 				if (params.action === "publish-stack") {
@@ -439,6 +466,124 @@ async function publishStack(
 }
 
 /**
+ * Walk the findings queued to fix rather than to say.
+ *
+ * The walk hands back one finding and stops. Editing, checking and
+ * committing happen in the caller's own loop, where a person can
+ * interrupt with a sentence at any point, and only then does the
+ * outcome get recorded. A queue that applied its own fixes would be a
+ * queue nobody could stop halfway, which is the opposite of what
+ * anybody wants from a list of changes to their own code.
+ */
+async function walkFixes(
+	change: NonNullable<ReturnType<typeof hostedChange>>,
+	params: {
+		action: string;
+		finding?: number;
+		body?: string;
+		commit?: string;
+	},
+): Promise<Answer> {
+	const queue = createFixQueue(fixDir());
+
+	if (params.action === "fixes") {
+		const held = await queue.list(change);
+		if (held.length === 0) {
+			return say(`Nothing is queued to fix on ${change.label}.`);
+		}
+		return say(
+			held
+				.map((one) => {
+					const mark =
+						one.outcome === undefined
+							? GLYPH.unresolved
+							: one.outcome.kind === "committed"
+								? GLYPH.resolved
+								: GLYPH.refused;
+					const tail =
+						one.outcome?.kind === "committed"
+							? ` (${one.outcome.commit})`
+							: one.outcome?.kind === "skipped"
+								? ` (skipped: ${one.outcome.reason})`
+								: "";
+					return `${mark} F${one.findingId} ${one.finding.subject}${tail}`;
+				})
+				.join("\n"),
+			{ ok: true, ...(await queue.tally(change)) },
+		);
+	}
+
+	if (params.action === "fix-next") {
+		const held = await queue.next(change);
+		if (held === undefined) {
+			const tally = await queue.tally(change);
+			return say(
+				tally.committed + tally.skipped === 0
+					? `Nothing is queued to fix on ${change.label}.`
+					: `Every queued fix on ${change.label} is settled: ${tally.committed} committed, ${tally.skipped} skipped.`,
+				{ ok: true, ...tally },
+			);
+		}
+		return say(
+			[
+				`${GLYPH.finding} F${held.findingId} ${held.finding.subject}`,
+				`   ${anchorLabel(held.finding.anchor)}`,
+				"",
+				held.finding.discussion,
+				...(held.note === undefined
+					? []
+					: ["", `How you meant to: ${held.note}`]),
+				"",
+				"Fix it in your own loop, then record it with fix-done and the commit, or drop it with fix-skip and a reason.",
+			].join("\n"),
+			{ ok: true, finding: held.findingId },
+		);
+	}
+
+	if (params.finding === undefined) {
+		return refuse(
+			"Recording against a fix needs the finding's number. review_draft fixes lists them.",
+		);
+	}
+
+	if (params.action === "fix-done") {
+		if (!params.commit) {
+			// The commit is the evidence. Recording a fix as done without
+			// one leaves a claim nobody can check against the history.
+			return refuse(
+				"Recording a fix as done needs the commit it landed in, which is what makes the claim checkable later.",
+			);
+		}
+		await queue.record(change, params.finding, {
+			kind: "committed",
+			commit: params.commit,
+		});
+		const tally = await queue.tally(change);
+		return say(
+			`${GLYPH.lands} F${params.finding} fixed in ${params.commit}. ${tally.pending} left.`,
+			{ ok: true, ...tally },
+		);
+	}
+
+	if (!params.body) {
+		// A skip with no reason is indistinguishable from forgetting,
+		// and the queue keeps skips precisely so they can be read back.
+		return refuse(
+			"Dropping a queued fix needs a reason, since the queue keeps it: a skip with no reason reads the same as forgetting.",
+		);
+	}
+	await queue.record(change, params.finding, {
+		kind: "skipped",
+		reason: params.body,
+	});
+	const tally = await queue.tally(change);
+	return say(
+		`${GLYPH.refused} F${params.finding} dropped: ${params.body}. ${tally.pending} left.`,
+		{ ok: true, ...tally },
+	);
+}
+
+/**
  * Settle one produced finding into the review, or drop it.
  *
  * This is the seam between what something raised and what you are
@@ -455,13 +600,13 @@ async function decideFinding(
 	draft: ReviewDraft,
 	params: {
 		finding?: number;
-		settle?: "promote" | "dismiss";
+		settle?: "promote" | "dismiss" | "fix";
 		body?: string;
 	},
 ): Promise<Answer> {
 	if (params.finding === undefined || params.settle === undefined) {
 		return refuse(
-			"Deciding needs the finding's number and what to do with it: promote it into the draft, or dismiss it.",
+			"Deciding needs the finding's number and what to do with it: promote it into the draft, dismiss it, or queue it to fix.",
 		);
 	}
 	if (!bound) {
@@ -490,6 +635,26 @@ async function decideFinding(
 		return say(
 			`${GLYPH.refused} F${finding.id} dismissed, and left out of the draft.\n   ${finding.subject}`,
 			{ ok: true, finding: finding.id, settled: "dismiss" },
+		);
+	}
+
+	if (params.settle === "fix") {
+		// Not into the draft. A finding you agree with on your own change
+		// is work rather than a remark, and posting it would be telling
+		// yourself something you already know.
+		await createFixQueue(fixDir()).queue(
+			change,
+			finding,
+			...(params.body === undefined ? [] : [params.body]),
+		);
+		const tally = await createFixQueue(fixDir()).tally(change);
+		return say(
+			[
+				`${GLYPH.finding} F${finding.id} queued to fix, not to say.`,
+				`   ${finding.subject}`,
+				`   ${tally.pending} waiting. review_draft fix-next takes the first.`,
+			].join("\n"),
+			{ ok: true, finding: finding.id, settled: "fix", pending: tally.pending },
 		);
 	}
 

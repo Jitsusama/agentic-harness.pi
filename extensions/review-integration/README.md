@@ -14,7 +14,7 @@ commands.
 | `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
 | `review_ask` | Putting the change to other models: council, judge, critique, audit, stack, runs, retry, release |
 | `review_offer` | Putting work up and moving it along: propose, edit, ready, draft, reviewers, close, reopen, merge |
-| `review_draft` | Composing a review, seeing what publishing would do, then publishing or rendering it |
+| `review_draft` | Composing a review, seeing what publishing would do, then publishing or rendering it, and holding the findings you decided to fix rather than say |
 
 Split by intent rather than by subject. The subject is nearly
 always the change, so a subject-shaped split (`review_stack`,
