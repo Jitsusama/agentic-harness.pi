@@ -25,6 +25,13 @@ export type {
 export { anchorable, anchorPath, describeAnchor } from "./anchor.js";
 export type { FileRanges, LineRange } from "./ask/anchorable.js";
 export { anchorableRanges, describeRanges } from "./ask/anchorable.js";
+export type {
+	AskAnswer,
+	CouncilDeps,
+	CouncilRequest,
+	CouncilResult,
+} from "./ask/council.js";
+export { runCouncil } from "./ask/council.js";
 export type { Harvest } from "./ask/harvest.js";
 export { harvestFindings } from "./ask/harvest.js";
 // Asking other models about a change: who is asked, and keeping
