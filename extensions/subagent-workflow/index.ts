@@ -123,19 +123,26 @@ export interface SubagentWorkflowApi {
 // recovery, so they age out on a bounded window and count.
 const FLEET_RUNS_RETAIN = 100;
 const FLEET_RUNS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+// A run killed before its reviewer wrote a result is not terminal, so
+// the terminal-only sweep could never reclaim it and it lived forever.
+// Four times the normal window, because an unfinished run is kept for
+// recovery and the question is whether anybody could still resume it.
+const FLEET_RUNS_ABANDONED_AFTER_MS = 4 * FLEET_RUNS_MAX_AGE_MS;
 
 export default function subagentWorkflow(pi: ExtensionAPI) {
 	const stateDir = () => packageStateDir("subagent-workflow");
 	const cancellations = new FleetCancellationRegistry();
 
-	// Prune old terminal fleet run directories at session start so
-	// the raw artifacts they hold do not accumulate unbounded.
-	// Only terminal runs are removed, so an in-flight run is safe.
+	// Prune old fleet run directories at session start so the raw
+	// artifacts they hold do not accumulate unbounded. A finished run
+	// goes on the normal window; an unfinished one is kept far longer,
+	// for recovery, but not forever.
 	pi.on("session_start", async () => {
 		try {
 			await new ReviewerArtifactsStore(stateDir()).cleanupTerminalRuns({
 				maxRuns: FLEET_RUNS_RETAIN,
 				maxAgeMs: FLEET_RUNS_MAX_AGE_MS,
+				abandonedAfterMs: FLEET_RUNS_ABANDONED_AFTER_MS,
 			});
 		} catch {
 			// Retention is advisory; a transient sweep failure is fine.

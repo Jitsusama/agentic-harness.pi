@@ -44,10 +44,23 @@ export interface AppendOutcome {
 	readonly limitExceeded: boolean;
 }
 
-/** Retention policy for terminal reviewer run directories. */
+/** Retention policy for reviewer run directories. */
 export interface RetentionPolicy {
 	readonly maxAgeMs: number;
 	readonly maxRuns: number;
+	/**
+	 * How long an unfinished run is kept before it is reclaimed anyway.
+	 *
+	 * A run whose reviewer never wrote a result is not terminal, and a
+	 * terminal-only sweep can never reclaim it, so a run killed hard
+	 * lives forever and the directory grows without bound. This window
+	 * is deliberately separate from {@link maxAgeMs} and much longer:
+	 * an unfinished run is kept for recovery, and the question is not
+	 * whether it finished but whether anybody could still plausibly
+	 * resume it. Omit to keep unfinished runs indefinitely, which is
+	 * what the policy did before this existed.
+	 */
+	readonly abandonedAfterMs?: number;
 	readonly now?: Date;
 }
 
@@ -183,9 +196,17 @@ export class ReviewerArtifactsStore {
 		for (let index = 0; index < sorted.length; index++) {
 			const run = sorted[index];
 			const terminal = await isTerminalRun(run.runDir);
-			const tooOld = now - run.mtimeMs > policy.maxAgeMs;
+			const age = now - run.mtimeMs;
+			const tooOld = age > policy.maxAgeMs;
 			const tooMany = index >= policy.maxRuns;
-			if (terminal && (tooOld || tooMany)) {
+			// An unfinished run is kept for recovery, but not forever: past
+			// this window nobody is going to resume it, and leaving it is
+			// how the directory grew unbounded.
+			const abandoned =
+				!terminal &&
+				policy.abandonedAfterMs !== undefined &&
+				age > policy.abandonedAfterMs;
+			if ((terminal && (tooOld || tooMany)) || abandoned) {
 				try {
 					await rm(run.runDir, { recursive: true, force: true });
 					removed++;
