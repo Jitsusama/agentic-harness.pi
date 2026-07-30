@@ -39,7 +39,7 @@ export async function ensureSetup(
 	ctx: ExtensionContext,
 	envConfig: OAuthApp,
 ): Promise<{ mode: "session" } | { mode: "oauth"; app: OAuthApp } | null> {
-	// Already have a working token — no setup needed.
+	// Already have a working token, so no setup is needed.
 	if (hasToken()) {
 		const token = getToken();
 		if (token) {
@@ -55,12 +55,12 @@ export async function ensureSetup(
 		}
 	}
 
-	// OAuth env vars present — use OAuth path.
+	// OAuth env vars present, so use the OAuth path.
 	if (envConfig.clientId && envConfig.clientSecret) {
 		return { mode: "oauth", app: envConfig };
 	}
 
-	// Stored OAuth app — use OAuth path.
+	// Stored OAuth app, so use the OAuth path.
 	if (hasOAuthApp()) {
 		const stored = getOAuthApp();
 		if (stored) return { mode: "oauth", app: stored };
@@ -153,7 +153,7 @@ async function setupViaBrowser(
 			" If you're not logged in, log in now.",
 			" This can take a few minutes with SSO/2FA.",
 			"",
-			` ${theme.fg("dim", "Waiting for credentials (up to 5 minutes)…")}`,
+			` ${theme.fg("dim", "Waiting for credentials (up to 5 minutes)...")}`,
 		],
 	});
 
@@ -186,7 +186,7 @@ async function setupViaCurl(
 			'    Right-click → "Copy as cURL"',
 			"",
 			` ${theme.fg("dim", "The curl command contains your token and cookie.")}`,
-			` ${theme.fg("dim", "They stay on your machine — never sent anywhere else.")}`,
+			` ${theme.fg("dim", "They stay on your machine, never sent anywhere else.")}`,
 		],
 		options: [
 			{ label: "I have the curl command", value: "continue" },
@@ -217,7 +217,7 @@ async function setupViaDirect(
 	ctx: ExtensionContext,
 ): Promise<{ mode: "session" } | null> {
 	const tokenInput = await ctx.ui.editor(
-		"Enter your Slack token (xoxc-… or xoxp-…):",
+		"Enter your Slack token (xoxc-... or xoxp-...):",
 		"",
 	);
 	if (!tokenInput) return null;
@@ -234,7 +234,7 @@ async function setupViaDirect(
 	}
 
 	const cookieInput = await ctx.ui.editor(
-		"Enter your Slack session cookie (xoxd-…):",
+		"Enter your Slack session cookie (xoxd-...):",
 		"",
 	);
 	if (!cookieInput) return null;

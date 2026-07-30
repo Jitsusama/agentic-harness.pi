@@ -593,7 +593,7 @@ function createTabbedController(
 
 		let contentLines: string[];
 		if (isLoading || !entry) {
-			contentLines = [` ${theme.fg("dim", "Loading…")}`];
+			contentLines = [` ${theme.fg("dim", "Loading...")}`];
 		} else {
 			contentLines = entry.lines;
 		}

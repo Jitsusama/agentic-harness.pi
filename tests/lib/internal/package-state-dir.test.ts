@@ -47,7 +47,7 @@ describe("packageStateDir", () => {
 		// $XDG_STATE_HOME is either not set or empty, a
 		// default equal to $HOME/.local/state should be
 		// used.\" An empty value must NOT yield a
-		// cwd-relative path — that would silently write
+		// cwd-relative path, since that would silently write
 		// state next to wherever the user happened to be
 		// standing.
 		process.env.XDG_STATE_HOME = "";

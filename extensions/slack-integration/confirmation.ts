@@ -2,7 +2,7 @@
  * Confirmation gates for Slack write operations.
  *
  * Each gate shows the user what will happen and lets them
- * approve, reject, annotate or redirect — matching the
+ * approve, reject, annotate or redirect, matching the
  * guardian pattern used elsewhere in the harness.
  */
 
@@ -40,7 +40,7 @@ const REJECT_ACTION: KeyAction[] = [{ key: "r", label: "Reject" }];
  * Pi's `ctx.ui.custom` supports one active component at a
  * time. When the agent fires several Slack write calls in
  * one turn, their handlers run concurrently and each tries
- * to mount its own gate — the first wins the UI and the
+ * to mount its own gate: the first wins the UI and the
  * rest either hang or silently bypass review. We funnel
  * every gate prompt through this Promise chain so gates
  * appear strictly one after another, in the order the

@@ -9,7 +9,7 @@
  *
  * Consumers call this after fetching messages and before
  * rendering. API functions (getMessage, getThread, etc.) do
- * free cache warming but no resolution — this function is
+ * free cache warming but no resolution, so this function is
  * the explicit resolution step.
  */
 
@@ -53,7 +53,7 @@ export async function resolveMessages(
 	messages: SlackMessage[],
 	signal?: AbortSignal,
 ): Promise<void> {
-	// Users first — DM display names depend on resolved user handles.
+	// Users first, since DM display names depend on resolved user handles.
 	await resolveUsersInMessages(client, messages, signal);
 	await resolveConversationsInMessages(client, messages, signal);
 
@@ -62,7 +62,7 @@ export async function resolveMessages(
 	// only resolves msg.conversation.id.
 	await resolveChannelMentionsInText(client, messages, signal);
 
-	// Refresh DM names last — user handles are now resolved.
+	// Refresh DM names last, now that user handles are resolved.
 	refreshDmNames(messages);
 }
 
@@ -108,7 +108,7 @@ async function resolveChannelMentionsInText(
 						cacheChannelName(conversation.name, conversation.id);
 					}
 				} catch {
-					// Channel not found or inaccessible. Skip —
+					// Channel not found or inaccessible, so skip:
 					// formatSlackText falls back to the raw ID.
 				}
 			}),

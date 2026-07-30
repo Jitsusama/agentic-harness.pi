@@ -89,7 +89,7 @@ export async function resolveUsersInMessages(
 					}
 				} catch {
 					// User not found, deleted, or rate limited.
-					// Silently skip — displayNameForId falls back to raw ID.
+					// Silently skip, since displayNameForId falls back to raw ID.
 				}
 			}),
 		);

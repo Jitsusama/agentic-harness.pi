@@ -109,6 +109,8 @@ function stripChrome(source: string): string {
 function truncateTrailer(source: string, limit: number): string {
 	const stripped = stripChrome(source).trim();
 	if (stripped.length <= limit) return stripped;
+	// One column, not three periods: the slice leaves room for exactly
+	// one character so the result is exactly `limit` wide.
 	return `${stripped.slice(0, limit - 1).trimEnd()}…`;
 }
 

@@ -4,7 +4,7 @@
  * The `subagent` tool fans N pi processes out concurrently;
  * without live feedback the user stares at dead air. This
  * observer mirrors pr-workflow's `CouncilProgress` shape
- * without the finding-specific fields — the fleet doesn't
+ * without the finding-specific fields, since the fleet doesn't
  * count findings, it just tracks subagent lifecycle, live
  * tool activity, and final usage.
  *
@@ -13,7 +13,7 @@
  * panel; tests use an array-backed fake to assert
  * observability without driving a TUI.
  *
- * Every observer method is best-effort — errors thrown
+ * Every observer method is best-effort: errors thrown
  * inside callbacks must never take down a live fleet run.
  */
 
@@ -41,7 +41,7 @@ export interface FleetProgressEntry {
 	/**
 	 * Short live-activity hint while `state` is
 	 * `running` (e.g. "reading task.go", "running
-	 * bash…"). Empty when no activity has been reported
+	 * bash..."). Empty when no activity has been reported
 	 * or after the subagent settles.
 	 */
 	readonly activity: string;
@@ -125,7 +125,7 @@ export const NULL_FLEET_PROGRESS: FleetProgress = {
  * (text deltas, message_end, etc.).
  *
  * The mapping is intentionally identical in spirit to
- * pr-workflow's council activity summarizer — the same
+ * pr-workflow's council activity summarizer, the same
  * tool palette, the same one-line hints. Kept independent
  * so the two extensions can evolve their UIs at their own
  * pace.

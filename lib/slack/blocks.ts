@@ -115,7 +115,7 @@ interface Token {
  * Parse an angle-bracket expression into a Block Kit element.
  *
  * Handles user mentions, broadcasts, channel links, and URL
- * links — all of which use Slack's `<...>` internal format.
+ * links, all of which use Slack's `<...>` internal format.
  */
 function parseAngleBracket(content: string): RichTextElement {
 	// User mention: <@U123> or <@U123|display.name>
@@ -167,7 +167,7 @@ export function parseMrkdwnToElements(text: string): RichTextElement[] {
 	// Collect all tokens from all pattern types.
 	const tokens: Token[] = [];
 
-	// 1. Angle-bracket patterns (highest priority — unambiguous
+	// 1. Angle-bracket patterns (highest priority, being unambiguous
 	//    Slack-internal syntax).
 	for (const match of text.matchAll(ANGLE_BRACKET)) {
 		tokens.push({
@@ -246,7 +246,7 @@ export function parseMrkdwnToElements(text: string): RichTextElement[] {
 		});
 	}
 
-	// 7. Hex-colour-lookalike shield (lowest priority — only
+	// 7. Hex-colour-lookalike shield (lowest priority, since it only
 	//    fires when no other pattern claims the range). Emits
 	//    two adjacent text elements so the rendered output is
 	//    identical but Slack's swatch detector sees two pieces
@@ -529,7 +529,7 @@ const QUOTE_LINE = /^>\s?(.*)$/;
 /**
  * Match a code-fence line: opening or closing triple
  * backticks. Anything after the fence (e.g. a language
- * hint) is ignored — Slack does not render it.
+ * hint) is ignored, since Slack does not render it.
  */
 const FENCE_LINE = /^```/;
 
@@ -537,7 +537,7 @@ const FENCE_LINE = /^```/;
  * Match a heading line: one to six leading `#` followed by
  * whitespace and content. Slack only has a single `header`
  * block style, so the level is captured for completeness
- * but not used — `#` and `######` render the same.
+ * but not used: `#` and `######` render the same.
  */
 const HEADING_LINE = /^(#{1,6})\s+(.+)$/;
 
@@ -552,7 +552,7 @@ const DIVIDER_LINE = /^(?:-{3,}|\*{3,}|_{3,})\s*$/;
 
 /**
  * Width of one indent level for nested lists, measured in
- * spaces. Two spaces or one tab counts as one level — the
+ * spaces. Two spaces or one tab counts as one level, and the
  * convention Slack's editor uses.
  */
 const INDENT_WIDTH = 2;
@@ -660,7 +660,7 @@ export function mrkdwnToBlocks(text: string): {
 	const flushSection = (): void => {
 		// Trim trailing blank lines so the section ends cleanly.
 		// Blank lines inside a section (between paragraphs) are
-		// preserved — Slack renders the embedded newlines as the
+		// preserved, since Slack renders the embedded newlines as the
 		// paragraph break the user wrote.
 		while (
 			sectionLines.length > 0 &&
@@ -743,7 +743,7 @@ export function mrkdwnToBlocks(text: string): {
 		outer.push({ type: "rich_text", elements: rtChildren });
 		rtChildren = [];
 		// Block-level boundaries (header, divider) carry their
-		// own visual separation — no rich_text spacer needed
+		// own visual separation, so no rich_text spacer is needed
 		// when we cross into one.
 		pendingSpacer = false;
 	};
@@ -850,7 +850,7 @@ export function mrkdwnToBlocks(text: string): {
 		sectionLines.push(line);
 	}
 
-	// End of input. An unterminated fence is still emitted —
+	// End of input. An unterminated fence is still emitted,
 	// dropping its content silently would be worse than
 	// rendering a slightly-imperfect code block.
 	if (inFence) flushFence();
@@ -878,7 +878,7 @@ export function tableToBlock(table: SlackTable): unknown {
 	const block: Record<string, unknown> = { type: "table", rows };
 
 	// Map column settings if present. Slack rejects null
-	// entries in column_settings — use empty objects to skip.
+	// entries in column_settings, so use empty objects to skip.
 	if (table.columnSettings?.length) {
 		const settings = table.columnSettings.map((s) => {
 			if (s == null) return {};

@@ -95,7 +95,7 @@ async function runOAuthFlow(
 			" If it doesn't, visit this URL:",
 			` ${theme.fg("accent", authUrl)}`,
 			"",
-			` ${theme.fg("dim", "Waiting for authorization…")}`,
+			` ${theme.fg("dim", "Waiting for authorization...")}`,
 		],
 	});
 

@@ -70,7 +70,7 @@ export async function ensureAuthenticated(
 		return client;
 	}
 
-	// No stored credentials — run the interactive auth flow.
+	// No stored credentials, so run the interactive auth flow.
 	if (!ctx.hasUI) {
 		throw new Error(
 			"Not authenticated and no UI available for interactive authentication.",

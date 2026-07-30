@@ -9,19 +9,19 @@
  *
  * Three workloads were considered when sizing the API:
  *
- * - **Persona sweeps** — same problem, several roles
+ * - **Persona sweeps**: same problem, several roles
  *   (security/perf/readability). Different
  *   `systemPrompt`, same `userPrompt`.
- * - **Multi-angle investigation** — same area, different
+ * - **Multi-angle investigation**: same area, different
  *   questions. Same `cwd`, different `userPrompt` per
  *   subagent.
- * - **Fleet brainstorming** — N copies of the same
+ * - **Fleet brainstorming**: N copies of the same
  *   prompt across N models, asking for divergent
  *   answers. Same `userPrompt`, different `model`.
  *
  * The tool's parameters cover all three with a flat
  * `jobs[]` array. No worktree provisioning, no session
- * state, no orchestration heroics — the host agent
+ * state, no orchestration heroics: the host agent
  * composes jobs and the tool runs them.
  *
  * The `subagent-fleet-guide` skill teaches the methodology
@@ -70,7 +70,7 @@ import {
  * miss the emit. They can still register defaults by
  * emitting {@link SUBAGENT_WORKFLOW_REGISTER_DEFAULT_EXTENSION}
  * or {@link SUBAGENT_WORKFLOW_REGISTER_DEFAULT_SKILL}
- * directly — the listeners stay subscribed for the
+ * directly, since the listeners stay subscribed for the
  * lifetime of the session. Mirrors the bidirectional
  * `pr-workflow:ready:v1` + `pr-workflow:*-provider:register:v1`
  * handshake used elsewhere in the package.
@@ -262,7 +262,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					isolated: Type.Optional(
 						Type.Boolean({
 							description:
-								"When true, strip ambient inheritance (--no-skills --no-context-files --no-extensions) so the subagent sees only what you attach here. Defaults to true for the fleet tool — opt out when you want the subagent to share your local pi setup.",
+								"When true, strip ambient inheritance (--no-skills --no-context-files --no-extensions) so the subagent sees only what you attach here. Defaults to true for the fleet tool, so opt out when you want the subagent to share your local pi setup.",
 						}),
 					),
 					extraExtensions: Type.Optional(
@@ -282,7 +282,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 							minimum: 1000,
 							maximum: 8 * 60 * 60 * 1000,
 							description:
-								"Hard wall-clock timeout in milliseconds for this subagent. Overrides the runner's configured default. Use for jobs that legitimately run longer than the runner's default — deep investigations, soak tests, multi-step deploys. Per-job override; siblings keep the default. Capped at eight hours.",
+								"Hard wall-clock timeout in milliseconds for this subagent. Overrides the runner's configured default. Use for jobs that legitimately run longer than the runner's default: deep investigations, soak tests, multi-step deploys. Per-job override; siblings keep the default. Capped at eight hours.",
 						}),
 					),
 					idleTimeoutMs: Type.Optional(

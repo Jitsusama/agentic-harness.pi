@@ -36,13 +36,13 @@ export function extractFromCurl(curlCommand: string): BrowserCredentials {
 
 	if (tokens.length === 0) {
 		throw new Error(
-			"No Slack token (xoxc-…) found in the curl command. " +
+			"No Slack token (xoxc-...) found in the curl command. " +
 				"Make sure you copied a request to api.slack.com or edgeapi.slack.com.",
 		);
 	}
 	if (cookies.length === 0) {
 		throw new Error(
-			"No Slack cookie (xoxd-…) found in the curl command. " +
+			"No Slack cookie (xoxd-...) found in the curl command. " +
 				"Make sure you copied the full curl command including headers.",
 		);
 	}

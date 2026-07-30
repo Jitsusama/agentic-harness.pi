@@ -245,21 +245,21 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		promptGuidelines: [
 			"All identifier formats (channel names, IDs, user IDs, permalink URLs) are resolved automatically. Use whatever you have from context.",
 			"Parse Slack search operators: from:user, in:#channel, after:YYYY-MM-DD, before:YYYY-MM-DD. The after/before operators are exclusive: after:2026-03-26 means March 27 onward. To include today, use yesterday's date.",
-			"Remember context from previous results — user may reference 'that message', 'the thread', etc.",
+			"Remember context from previous results, since the user may reference 'that message', 'the thread', etc.",
 			"For thread replies, use reply_to_thread and put the thread parent's timestamp in the ts parameter, never in thread_ts. reply_to_thread reads only ts; thread_ts is for get_message of a reply. Passing thread_ts without ts fails with 'Missing required parameter: channel + ts or target'.",
 			"Format lists with markdown markers only: '- ', '* ' or '+ ' for bullets and 'N. ' for ordered items. Never use the \u2022 glyph or any other manual bullet character; Slack renders those as literal text instead of a real list.",
 			"User handles work with or without the @ prefix.",
-			"To read DMs with a person, ALWAYS use list_messages with their user ID as the channel (resolves to the DM automatically). NEVER use search_messages with 'with:' for DM history — search mixes in shared channels and misses messages. Only use 'with:' when you need keyword filtering across all conversations.",
-			"search_messages cannot search DM conversations — the tool returns a clear error. Use list_messages for DMs.",
+			"To read DMs with a person, ALWAYS use list_messages with their user ID as the channel (resolves to the DM automatically). NEVER use search_messages with 'with:' for DM history, since search mixes in shared channels and misses messages. Only use 'with:' when you need keyword filtering across all conversations.",
+			"search_messages cannot search DM conversations; the tool returns a clear error. Use list_messages for DMs.",
 			"When the user asks about DM history over a time range, pass limit: 0 and the oldest/latest params to list_messages to get ALL messages in that window. The default limit (20) is far too small for comprehensive queries. Don't draw conclusions from partial data.",
-			"The query parameter is optional for search when structured params (from, with, channel, after, before) are provided — it defaults to *.",
+			"The query parameter is optional for search when structured params (from, with, channel, after, before) are provided, and defaults to *.",
 			"To start a group DM, pass comma-separated user IDs or @handles as the channel (e.g. 'W018HTJBU1H,U09HTCT9YLU' or '@katie.laliberte,@jonathan.feng'). The tool calls conversations.open to create or find the group DM.",
-			"Be concise in your responses — summarise the substance of results rather than restating what the tool output already shows.",
+			"Be concise in your responses: summarise the substance of results rather than restating what the tool output already shows.",
 			"To upload files, use upload_file with file_path (single) or file_paths (array) and a channel. Files can also be attached to send_message and reply_to_thread by adding file_path or file_paths.",
 			"To post an entire thread at once, use send_thread with channel and a messages array. The first message becomes the thread parent; the rest become replies in order. Each message has text and optional file_path/file_paths. A tabbed review gate lets the user approve each message before sending. The same `messages` array works on reply_to_thread to queue several replies on an existing thread.",
 			"Every message in results includes a (ts:...) value. For get_thread, reply_to_thread and other ts-based actions, always use these ts values from previous tool results. Never fabricate or guess a timestamp.",
 			"To get_message on a thread reply, set ts to the reply's ts and thread_ts to the thread parent's ts. Without thread_ts, get_message only finds top-level channel messages.",
-			"To edit a message you sent, use edit_message with the channel and ts (or a permalink as target) plus the new text and/or table. Slack only allows editing your own messages, and chat.update cannot add or remove file attachments — only the text and blocks change.",
+			"To edit a message you sent, use edit_message with the channel and ts (or a permalink as target) plus the new text and/or table. Slack only allows editing your own messages, and chat.update cannot add or remove file attachments, so only the text and blocks change.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(
@@ -635,7 +635,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			if (d?.user) {
 				const u = d.user as UserPreview;
 				const name = u.displayName || u.realName || u.name || "?";
-				const title = u.title ? theme.fg("dim", ` — ${u.title}`) : "";
+				const title = u.title ? theme.fg("dim", `: ${u.title}`) : "";
 				return new Text(
 					`${theme.fg("success", "✓")} @${u.name}${title} (${name})`,
 					0,

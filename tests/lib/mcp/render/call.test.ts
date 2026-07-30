@@ -48,7 +48,7 @@ describe("describeCall", () => {
 		const long = "x".repeat(60);
 		const view = describeCall(t, { query: long });
 		expect(view.primaryArg?.value).toHaveLength(40);
-		expect(view.primaryArg?.value.endsWith("…")).toBe(true);
+		expect(view.primaryArg?.value.endsWith("\u2026")).toBe(true);
 	});
 
 	it("counts the args beyond the primary", () => {

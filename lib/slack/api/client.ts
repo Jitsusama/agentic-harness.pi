@@ -150,7 +150,7 @@ export class SlackClient {
 				const retryAfter = Number(response.headers.get("Retry-After") || "1");
 				await sleep(retryAfter * 1000);
 				// Don't count rate limits against the error retry
-				// budget — the API is explicitly telling us to wait.
+				// budget, since the API is explicitly telling us to wait.
 				attempt--;
 				continue;
 			}

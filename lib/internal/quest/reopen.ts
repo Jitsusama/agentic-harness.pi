@@ -87,7 +87,7 @@ export function resolveSpawnCwd(opts: {
  * Choose the session to resume. A live session wins: one live
  * session resumes outright, several live ones are ambiguous
  * (genuinely concurrent work) so the caller can ask which. With
- * no live session, fall back to the most-recent idle one —
+ * no live session, fall back to the most-recent idle one, since
  * reopening yesterday's work is the common case, and staleness is
  * surfaced, not refused. Only dead (no log) and detached sessions
  * are excluded, so undefined means nothing is resumable.
@@ -104,7 +104,7 @@ export function pickResumeSession(
 
 	// No live session: resume the most-recent idle one. Idle is
 	// stale, not concurrent, so several idle sessions are never
-	// ambiguous — the newest is the one you left the work in.
+	// ambiguous, and the newest is the one you left the work in.
 	const idle = byLiveness("idle");
 	if (idle.length > 0) return { id: idle[0].id };
 	return undefined;
@@ -123,7 +123,7 @@ export interface SessionSummary {
 
 /**
  * Project a quest's attached sessions for the `show` view. Every
- * attached session is reported — show reflects the frontmatter
+ * attached session is reported, since show reflects the frontmatter
  * honestly, and removing no-log phantoms is the prune verb's job,
  * not this view's. Sessions are ordered newest-activity first, and
  * the single session a reopen would land on (per pickResumeSession)

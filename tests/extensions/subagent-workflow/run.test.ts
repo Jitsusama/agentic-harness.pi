@@ -133,7 +133,7 @@ describe("dispatchFleet", () => {
 
 	it("isolates per-subagent failures", async () => {
 		// One subagent's spawn failure must not abort
-		// siblings — the tool returns whatever did work
+		// siblings, since the tool returns whatever did work
 		// alongside the failure record.
 		const cancellations = new FleetCancellationRegistry();
 		const runPi: RunPi = async ({ reviewerId }) => {

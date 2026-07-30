@@ -82,7 +82,8 @@ export function renderDefaultResult(
 	theme: Theme,
 	context: ResultRenderContext,
 ): Component {
-	if (options.isPartial) return new Text(theme.fg("warning", "Running…"), 0, 0);
+	if (options.isPartial)
+		return new Text(theme.fg("warning", "Running..."), 0, 0);
 
 	const text = resultText(result);
 	const kind = classifyResult(text, context.isError);

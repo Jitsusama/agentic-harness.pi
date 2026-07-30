@@ -95,7 +95,7 @@ describe("createProgressiveHelpers", () => {
 				catalog,
 				hints: { slack: "Slack tools." },
 				describe: (name) =>
-					name === "slack_post" ? "slack_post — posts a message" : undefined,
+					name === "slack_post" ? "slack_post: posts a message" : undefined,
 				runTool,
 			}),
 		};

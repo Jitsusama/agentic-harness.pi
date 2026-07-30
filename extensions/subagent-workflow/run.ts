@@ -75,7 +75,7 @@ export interface ToolJobInput {
  * (rather than at the registerTool boundary) keeps the
  * mapping testable.
  *
- * Tool-side default for `isolated` is `true` — fleet use
+ * Tool-side default for `isolated` is `true`, since fleet use
  * cases want a clean slate; the library default stays
  * `false` to serve pr-workflow's full-inheritance
  * reviewers. Callers opt out when they want their ambient

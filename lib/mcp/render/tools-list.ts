@@ -64,10 +64,10 @@ export function renderToolDiscovery(sections: DiscoverySection[]): string {
 	return sections
 		.map((section) => {
 			const total = section.tools.length + section.overflow;
-			const header = `### ${section.backend} (${total} tools)${section.hint ? ` — ${section.hint}` : ""}`;
+			const header = `### ${section.backend} (${total} tools)${section.hint ? `: ${section.hint}` : ""}`;
 			const lines = section.tools.map((tool) => {
 				const badge = modeBadge(tool.mode);
-				const summary = tool.summary ? ` — ${tool.summary}` : "";
+				const summary = tool.summary ? `: ${tool.summary}` : "";
 				return `- ${tool.name}${badge ? ` ${badge}` : ""}${summary}`;
 			});
 			if (section.overflow > 0) lines.push(`- … +${section.overflow} more`);

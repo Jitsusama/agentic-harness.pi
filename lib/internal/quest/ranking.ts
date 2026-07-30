@@ -11,7 +11,7 @@
  * output, regardless of the input numbering. This means a
  * `bump` that succeeds shifts the rest of the bucket only
  * when ranks were already contiguous; otherwise it acts as
- * a renumber side-effect, which is what we want — the
+ * a renumber side-effect, which is what we want, since the
  * bucket stays clean.
  */
 

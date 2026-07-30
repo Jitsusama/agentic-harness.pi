@@ -8,8 +8,8 @@
  * running from a path that no longer exists on disk.
  * Subagents spawned with parent-derived extension paths
  * fail to load and crash with `ENOENT` on a path inside
- * `/.pi/pkg/pi-X.Y.Z/`. The condition is session-fatal
- * — no retry succeeds until the user restarts pi.
+ * `/.pi/pkg/pi-X.Y.Z/`. The condition is session-fatal:
+ * no retry succeeds until the user restarts pi.
  *
  * This module provides two complementary detectors so the
  * dispatcher can replace the misleading "retry" hint with
@@ -117,7 +117,7 @@ const STALE_PI_PKG_PATH =
  * Detect the stale-install signature in a subagent's
  * stderr and return an actionable message.
  *
- * Returns null when the stderr doesn't match — callers
+ * Returns null when the stderr doesn't match, so callers
  * fall back to the regular non-zero-exit warning shape.
  */
 export function detectStaleInstallInStderr(stderr: string): string | null {

@@ -96,7 +96,7 @@ describe("resolveParentPiInstall", () => {
 // The startup accessor is what production spawns and the health
 // check use. It must capture the install once, before a
 // mid-session upgrade can delete the versioned symlink, and hand
-// that same reading to every later caller — including after a
+// that same reading to every later caller, including after a
 // /reload, which pi runs with jiti's module cache off, so a
 // module-level constant would recompute against the mutated,
 // post-upgrade environment.
