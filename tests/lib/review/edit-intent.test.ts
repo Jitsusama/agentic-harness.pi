@@ -68,6 +68,54 @@ describe("the edit intent", () => {
 		).toBe(true);
 	});
 
+	it("warns rather than refusing when the queue could not be read", () => {
+		// The case that made this arm exist. Merge Garden holds the queue for
+		// the World monolith, and the change's own API does not carry it, so a
+		// provider can have a queue and be unable to see it. Refusing would
+		// make that backend read-only; permitting silently hands somebody an
+		// ejection with no warning.
+		const answer = offerable({ kind: "edit" }, STACKED, "meteorite");
+
+		expect(answer.ok).toBe(true);
+		expect(answer.ok && answer.caution).toContain("merge queue");
+	});
+
+	it("stays quiet when the backend has no queue to be unsure about", () => {
+		const answer = offerable(
+			{ kind: "edit" },
+			{ ...STACKED, refusesWhileEnqueued: false },
+			"github",
+		);
+
+		expect(answer.ok && answer.caution).toBeUndefined();
+	});
+
+	it("stays quiet once the queue has actually answered", () => {
+		const answer = offerable(
+			{ kind: "edit", queue: { posture: "unqueued" } },
+			STACKED,
+			"meteorite",
+		);
+
+		expect(answer.ok && answer.caution).toBeUndefined();
+	});
+
+	it("does not let an unknown queue talk over a refusal", () => {
+		// The regression this arm caused on its first attempt: returning the
+		// caution directly skipped every per-intent question, so a backend
+		// that had just said it cannot retarget was permitted to.
+		const answer = offerable({ kind: "retarget" }, STACKED, "meteorite");
+
+		expect(answer.ok).toBe(false);
+		expect(!answer.ok && answer.reason).toMatch(/stack/i);
+	});
+
+	it("does not let an unknown queue talk over a draft refusal either", () => {
+		expect(offerable({ kind: "set-draft" }, STACKED, "meteorite").ok).toBe(
+			false,
+		);
+	});
+
 	it("says nothing about stacks when refusing an edit", () => {
 		// A refusal that explains the wrong mechanism is worse than none:
 		// it sends the reader to fix something that was never the problem.

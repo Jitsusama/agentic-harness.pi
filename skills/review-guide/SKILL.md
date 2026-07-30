@@ -224,6 +224,14 @@ The refusals you will actually meet:
   is not the same as queued, and refusing on silence would make every
   queueless backend read-only.
 
+  But a backend that **has** a queue and could not say where the change
+  sits in it is a third case, and it warns. The World monolith is the
+  example: the queue lives in Merge Garden, and the change's own API does
+  not carry it, so the provider knows a queue exists and cannot read it.
+  That warning arrives on the confirmation gate, above the question, and
+  it is the one place a person can check. Pass it on rather than
+  approving through it.
+
 **Editing is not retargeting.** Changing a title, a body, labels or
 assignees is available wherever proposing is. Only moving the **base**
 asks the retarget question, so an edit that leaves the base alone is

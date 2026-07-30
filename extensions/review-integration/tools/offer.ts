@@ -301,6 +301,12 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 							: allowed.reason,
 					);
 				}
+
+				// Permitted, but with something the approver needs to know: a
+				// backend that has a merge queue and could not say where this
+				// change sits in it. Carried to the gate rather than logged,
+				// because the gate is the only place a person is looking.
+				const caution = allowed.caution;
 				if (!authoring) {
 					return refuse(
 						`The ${bound.provider.id} provider says it can author changes but exposes no way to, which is a bug in that provider rather than in what you asked.`,
@@ -329,14 +335,14 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 
 				switch (params.action) {
 					case "edit":
-						return edit(ctx, change, authoring, params);
+						return edit(ctx, change, authoring, params, caution);
 					case "ready":
 					case "unready": {
 						const wanted = params.action === "unready";
 						const approved = await confirmWrite(
 							ctx,
 							`Move ${change.label} to ${wanted ? "draft" : "ready"}?`,
-							`${GLYPH.target} ${change.label}`,
+							cautioned(`${GLYPH.target} ${change.label}`, caution),
 						);
 						if (!approved) return say("Left as it was.");
 						await authoring.setDraft?.(change, wanted);
@@ -542,12 +548,24 @@ function setEditFor(
 	return { action: mode === "set" ? "set" : "add", value: add };
 }
 
+/**
+ * A gate's detail, with a warning above it when there is one.
+ *
+ * The caution goes first and is marked, because a person skimming an
+ * approval reads the top line and the question. Putting it under the
+ * detail is the same as not saying it.
+ */
+function cautioned(detail: string, caution: string | undefined): string {
+	return caution ? `${GLYPH.refused} ${caution}\n\n${detail}` : detail;
+}
+
 /** Change a title, a body, a base, labels or assignees. */
 async function edit(
 	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
 	change: NonNullable<ReturnType<typeof hostedChange>>,
 	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
 	params: OfferParams,
+	caution?: string,
 ): Promise<Answer> {
 	const clearing = new Set(params.clear ?? []);
 	const set = <T>(
@@ -589,13 +607,18 @@ async function edit(
 	const approved = await confirmWrite(
 		ctx,
 		`Edit ${change.label}?`,
-		Object.entries(edits)
-			.map(([field, edit]) =>
-				edit?.action === "clear"
-					? `${field}: cleared`
-					: `${field}: ${String(edit?.value).slice(0, 200)}`,
-			)
-			.join("\n"),
+		cautioned(
+			Object.entries(edits)
+				.map(([field, edit]) =>
+					edit?.action === "clear"
+						? `${field}: cleared`
+						: // A set edit says which way it is going, since "labels:
+							// risky" reads as a replacement and usually is not one.
+							`${field}: ${edit?.action === "set" ? "" : `${edit?.action} `}${String(edit?.value).slice(0, 200)}`,
+				)
+				.join("\n"),
+			caution,
+		),
 	);
 	if (!approved) return say("Left as it was.");
 

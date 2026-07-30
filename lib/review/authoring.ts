@@ -52,9 +52,18 @@ export interface AuthoringIntent {
 	queue?: QueueState;
 }
 
-/** Whether it will work, and what to do instead when it will not. */
+/**
+ * Whether it will work, and what to do instead when it will not.
+ *
+ * The permitted arm carries an optional `caution`, for the case that is
+ * neither safe nor refusable: a backend that has a merge queue and could
+ * not tell us where this change stands in it. Refusing would make every
+ * unreachable queue a read-only backend, and permitting silently hands
+ * somebody an expensive mistake with no warning. So it is permitted, out
+ * loud, and the confirmation gate is where a person decides.
+ */
 export type Offerable =
-	| { ok: true }
+	| { ok: true; caution?: string }
 	| { ok: false; reason: string; instead?: string };
 
 /**
@@ -87,11 +96,34 @@ export function offerable(
 	// Asked before the per-intent questions, because a queue ejection is
 	// expensive whatever the intent was and the answer does not depend
 	// on whether the backend could otherwise do it.
-	if (capabilities.refusesWhileEnqueued && MUTATES.has(intent.kind)) {
+	const queued = capabilities.refusesWhileEnqueued && MUTATES.has(intent.kind);
+	if (queued) {
 		const refusal = queueRefusal(intent.queue, providerId);
 		if (refusal) return { ok: false, ...refusal };
 	}
 
+	// Having a queue and not knowing where the change sits in it is its own
+	// answer: on some backends the queue lives somewhere the change's own
+	// API cannot see, so silence there is ignorance rather than safety.
+	//
+	// It decorates the answer instead of being one. Returning it directly
+	// skipped every per-intent question below, which permitted a retarget
+	// on a backend that had just said it could not do one. Three tests
+	// caught that, which is the only reason this reads as it does.
+	const answer = decide(intent, capabilities, providerId);
+	if (!answer.ok || !queued || intent.queue !== undefined) return answer;
+	return {
+		...answer,
+		caution: `${providerId} has a merge queue and did not say where this change stands in it. If it is queued, this ejects it and everything batched with it. Check before approving.`,
+	};
+}
+
+/** What this provider says about this intent, queue aside. */
+function decide(
+	intent: AuthoringIntent,
+	capabilities: AuthoringCapabilities,
+	providerId: string,
+): Offerable {
 	switch (intent.kind) {
 		case "propose":
 			return proposable(intent, capabilities, providerId);
