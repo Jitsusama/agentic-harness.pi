@@ -23,6 +23,8 @@ export type {
 	LineAnchor,
 } from "./anchor.js";
 export { anchorable, anchorPath, describeAnchor } from "./anchor.js";
+export type { FileRanges, LineRange } from "./ask/anchorable.js";
+export { anchorableRanges, describeRanges } from "./ask/anchorable.js";
 export type { Harvest } from "./ask/harvest.js";
 export { harvestFindings } from "./ask/harvest.js";
 // Asking other models about a change: who is asked, and keeping
