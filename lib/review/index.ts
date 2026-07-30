@@ -50,6 +50,8 @@ export {
 } from "./ask/identity.js";
 export type { JudgeRequest, JudgeResult } from "./ask/judge.js";
 export { runJudge } from "./ask/judge.js";
+export type { JudgePromptInput, PromptInput } from "./ask/prompt.js";
+export { councilPrompt, judgePrompt } from "./ask/prompt.js";
 export type { ParticipantParse, Roster, RosterParse } from "./ask/roster.js";
 export { parseParticipant, parseRoster } from "./ask/roster.js";
 export type {
