@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { quietFor, until } from "../../support/until.js";
 import {
 	endReasonForShutdown,
 	forgetRecord,
@@ -121,12 +122,20 @@ describe("the record store", () => {
 	});
 });
 
+/** The heartbeat interval these tests drive, and size their waits from. */
+const TICK_MS = 20;
+
 describe("the heartbeat", () => {
 	it("moves the record's date without rewriting it", async () => {
 		saveRecord(liveSession());
 		const before = loadRecords()[0];
-		await new Promise((resolve) => setTimeout(resolve, 1100));
-		touchHeartbeat("sess-live");
+		// The date is the file's mtime, so touching twice inside one
+		// filesystem tick is a no-op. Retry until it moves rather than
+		// sleeping past the coarsest resolution we might ever meet.
+		await until("the heartbeat to move the record's date", () => {
+			touchHeartbeat("sess-live");
+			return loadRecords()[0]?.heartbeatAt !== before?.heartbeatAt;
+		});
 		const after = loadRecords()[0];
 		expect(after?.heartbeatAt).not.toBe(before?.heartbeatAt);
 		expect(after?.record).toEqual(before?.record);
@@ -139,19 +148,29 @@ describe("the heartbeat", () => {
 	it("keeps dating the record while the session runs", async () => {
 		saveRecord(liveSession());
 		const before = loadRecords()[0]?.heartbeatAt;
-		startHeartbeat("sess-live", 20);
-		await new Promise((resolve) => setTimeout(resolve, 1200));
+		startHeartbeat("sess-live", TICK_MS);
+		await until(
+			"the running heartbeat to re-date the record",
+			() => loadRecords()[0]?.heartbeatAt !== before,
+		);
 		stopHeartbeat();
 		expect(loadRecords()[0]?.heartbeatAt).not.toBe(before);
 	});
 
 	it("stops the moment it is told to, so a late tick cannot re-date a closed record", async () => {
 		saveRecord(liveSession());
-		startHeartbeat("sess-live", 20);
-		await new Promise((resolve) => setTimeout(resolve, 1200));
+		const before = loadRecords()[0]?.heartbeatAt;
+		startHeartbeat("sess-live", TICK_MS);
+		await until(
+			"the heartbeat to tick at least once before being stopped",
+			() => loadRecords()[0]?.heartbeatAt !== before,
+		);
 		stopHeartbeat();
 		const settled = loadRecords()[0]?.heartbeatAt;
-		await new Promise((resolve) => setTimeout(resolve, 1200));
+		// Proving a tick does not arrive is the one case with no event to
+		// wait for, so this stays a real wait, sized from the interval
+		// under test rather than from what looks safe.
+		await quietFor(TICK_MS);
 		expect(loadRecords()[0]?.heartbeatAt).toBe(settled);
 	});
 });
@@ -351,8 +370,12 @@ describe("observing the open records", () => {
 	it("re-dates a live session, so an idle tab is kept current by whoever asks", async () => {
 		saveRecord(liveSession());
 		const before = loadRecords()[0]?.heartbeatAt;
-		await new Promise((resolve) => setTimeout(resolve, 1100));
-		expect(observeRecords(loadRecords()).refreshed).toEqual(["sess-live"]);
+		let refreshed: string[] = [];
+		await until("a live session's date to be moved by an observer", () => {
+			refreshed = observeRecords(loadRecords()).refreshed;
+			return loadRecords()[0]?.heartbeatAt !== before;
+		});
+		expect(refreshed).toEqual(["sess-live"]);
 		expect(loadRecords()[0]?.heartbeatAt).not.toBe(before);
 	});
 
