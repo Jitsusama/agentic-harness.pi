@@ -582,7 +582,7 @@ async function buildTableBlock(
  * Block Kit blocks array (rich_text plus optional header
  * and divider blocks). `hasStructure` indicates whether the
  * blocks contain anything that would render differently as
- * blocks than as plain mrkdwn — callers use it to decide
+ * blocks than as plain mrkdwn, and callers use it to decide
  * whether to attach blocks when no table is present.
  *
  * Used by the send_message, reply_to_thread and send_thread
@@ -638,7 +638,7 @@ async function handleSendMessage(
 		if (error) return text(error);
 		const tableBlock = await buildTableBlock(client, tableParam);
 		// When blocks are present, Slack's text field is only a
-		// notification fallback — it doesn't render in the message.
+		// notification fallback, so it doesn't render in the message.
 		// Prepend the leading blocks so the message text is visible.
 		blocks = [];
 		if (msgText) {

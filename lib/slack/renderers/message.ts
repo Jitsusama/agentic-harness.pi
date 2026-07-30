@@ -189,7 +189,7 @@ export function renderMessageList(
 	if (total !== undefined) {
 		const truncated = total > messages.length;
 		const showing = truncated
-			? `, showing ${messages.length} (limit reached — pass a higher limit or 0 for all)`
+			? `, showing ${messages.length} (limit reached, so pass a higher limit or 0 for all)`
 			: `, showing ${messages.length}`;
 		lines.push(`Found ${total} message(s)${showing}:\n`);
 	}

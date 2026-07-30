@@ -71,7 +71,7 @@ function fakeRun(result: {
 	return { runPi, calls };
 }
 
-describe("runReviewer — reviewer error surfacing", () => {
+describe("runReviewer: reviewer error surfacing", () => {
 	it("carries a terminal model-stream error and names it in a warning", async () => {
 		// A reviewer can do a full investigation and then have
 		// its final synthesis turn die when the provider drops
@@ -134,7 +134,7 @@ const TRANSIENT: ReviewerError = {
 	message: "OpenAI Responses stream ended before a terminal response event",
 };
 
-describe("runReviewer — auto-resume", () => {
+describe("runReviewer: auto-resume", () => {
 	it("resumes once from the session after a transient error and returns the verified outcome", async () => {
 		const { runPi, calls } = scriptedRun([
 			{
@@ -395,7 +395,7 @@ describe("runReviewer — auto-resume", () => {
 	});
 });
 
-describe("runReviewer — argument composition", () => {
+describe("runReviewer: argument composition", () => {
 	it("passes the reviewer model via --model and tools via --tools (csv)", async () => {
 		// pi --mode json --no-session -p --model X --tools T1,T2 PROMPT
 		// is the established shape from the subagent
@@ -652,7 +652,7 @@ describe("runReviewer — argument composition", () => {
 	});
 });
 
-describe("runReviewer — usage extraction", () => {
+describe("runReviewer: usage extraction", () => {
 	it("returns the token + cost usage from the final assistant message", async () => {
 		// Pi emits a `usage` block on every assistant
 		// message_end event (cumulative). The terminal
@@ -867,7 +867,7 @@ describe("runReviewer — usage extraction", () => {
 	});
 });
 
-describe("runReviewer — result extraction", () => {
+describe("runReviewer: result extraction", () => {
 	it("captures verify_output from the raw stdout stream", async () => {
 		const args = {
 			stage: "council",
@@ -1400,7 +1400,7 @@ describe("runReviewer — result extraction", () => {
 	});
 });
 
-describe("runReviewer — stale runtime detection", () => {
+describe("runReviewer: stale runtime detection", () => {
 	it("refuses to spawn when the captured pi binary path is gone", async () => {
 		// Pi was updated (nix gc, brew upgrade) mid-session.
 		// The currently-running binary path no longer exists
@@ -1477,7 +1477,7 @@ describe("runReviewer — stale runtime detection", () => {
 	});
 });
 
-describe("runReviewer — timeout validation", () => {
+describe("runReviewer: timeout validation", () => {
 	// Per-call timeout overrides are public library input.
 	// The tool schema enforces `minimum: 1000` at the fleet
 	// boundary, but pr-workflow and any future library

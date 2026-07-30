@@ -72,7 +72,7 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 		// Surface the no-op through the warnings channel so
 		// the caller sees the contract mismatch without
 		// runtime surprise. Supervised callers (the fleet
-		// tool, pr-workflow) never land here — this guard
+		// tool, pr-workflow) never land here, so this guard
 		// catches non-supervising library consumers.
 		const preWarnings: string[] = [];
 		if (idleTimeoutMs !== undefined) {

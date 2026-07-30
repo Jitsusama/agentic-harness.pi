@@ -98,7 +98,7 @@ function validateTimeout(field: string, value: number | undefined): void {
  * Validate the timeout pair as a whole. `idleTimeoutMs`
  * higher than `timeoutMs` would let the wall-clock cap
  * fire first regardless of how patient the idle ceiling
- * is — a footgun for someone who only bumps one column
+ * is, a footgun for someone who only bumps one column
  * of the sizing table. Caught here so library callers
  * see the same error the tool schema would have raised.
  */
@@ -392,7 +392,7 @@ export interface RunReviewerOptions {
 	 * runner. The council orchestrator uses this to
 	 * translate the reviewer's per-line stream into
 	 * progress updates ("reading task.go", "running
-	 * bash…") so the user sees signal mid-flight instead
+	 * bash...") so the user sees signal mid-flight instead
 	 * of dead air.
 	 */
 	readonly onEvent?: (event: RunPiStreamEvent) => void;
@@ -494,7 +494,7 @@ export async function runReviewer(
 	validateTimeoutPair(options.timeoutMs, options.idleTimeoutMs);
 
 	// Refuse to spawn when pi was updated or removed
-	// mid-session — the parent's argv-derived extension
+	// mid-session, since the parent's argv-derived extension
 	// paths point at a directory that no longer exists and
 	// every subagent will crash with the same ENOENT.
 	// Short-circuit with a clear advisory so the
@@ -1292,7 +1292,7 @@ function synthesizeRejectedResult(
  * `ok: false`, end when `ok: true`. Returned as a single
  * paragraph so callers can drop it into a prompt body.
  * Pairs with whichever {@link VerifyPack} the caller
- * injects — the engine doesn't know which tool name is in
+ * injects, since the engine doesn't know which tool name is in
  * use beyond the convention that it's `verify_output`.
  */
 export function verifyProtocolInstruction(): string {

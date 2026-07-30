@@ -110,7 +110,7 @@ export function resolveParentPiInstall(
  * Symbol under which the startup install snapshot is stashed on
  * `globalThis`. Pi loads extensions with jiti's module cache
  * disabled, so a `/reload` re-evaluates this module and would
- * recompute a module-level constant — after a mid-session
+ * recompute a module-level constant, since after a mid-session
  * upgrade that could recapture a now-deleted symlink. A
  * `Symbol.for` key on `globalThis` outlives module
  * re-evaluation (same process, same realm), so the first

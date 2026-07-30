@@ -12,7 +12,7 @@
  * obviously non-Slack inputs (full names with spaces,
  * obvious emails). Slack `resolveUser` accepts unprefixed
  * handles so a bullet like `**owner**: Joel Gerber.` would
- * search Slack for "Joel Gerber" — that's network traffic
+ * search Slack for "Joel Gerber", since that's network traffic
  * we don't want by default. We require either a leading
  * `@` or a hint of `"handle"`.
  */

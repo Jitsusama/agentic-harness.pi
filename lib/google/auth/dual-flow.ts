@@ -45,7 +45,7 @@ export async function authenticateWithFallback(
 				" Enter this code:",
 				` ${theme.fg("accent", theme.bold(deviceFlow.user_code))}`,
 				"",
-				` ${theme.fg("dim", "Waiting for authorization…")}`,
+				` ${theme.fg("dim", "Waiting for authorization...")}`,
 			],
 		});
 
@@ -110,7 +110,7 @@ async function authenticateWithWebRedirect(
 			" If it doesn't, visit this URL:",
 			` ${theme.fg("accent", authUrl)}`,
 			"",
-			` ${theme.fg("dim", "Waiting for authorization…")}`,
+			` ${theme.fg("dim", "Waiting for authorization...")}`,
 		],
 	});
 

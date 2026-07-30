@@ -57,7 +57,7 @@ describe("subagent defaults registry", () => {
 	it("deduplicates repeated registrations", () => {
 		// The same extension path registered twice (e.g. two
 		// pi extensions both pointing at the same shared
-		// credentials helper) collapses to a single load —
+		// credentials helper) collapses to a single load,
 		// pi would otherwise be told to load it twice.
 		registerSubagentDefaultExtension("/abs/auth.ts");
 		registerSubagentDefaultExtension("/abs/auth.ts");
@@ -147,7 +147,7 @@ describe("runReviewer + defaults integration", () => {
 
 	it("emits no --extension / --skill flags when nothing is registered or passed", async () => {
 		// With an empty registry and no per-call extras pi
-		// should see a clean argv — no spurious flag pairs
+		// should see a clean argv, with no spurious flag pairs
 		// that would force pi to consume the next token as
 		// a path.
 		const { runPi, calls } = recordingRunPi();

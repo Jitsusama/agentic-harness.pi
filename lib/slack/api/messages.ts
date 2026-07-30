@@ -393,7 +393,7 @@ export async function sendMessage(
  *
  * Calls `chat.update`. Slack only allows editing messages
  * the authenticated user authored, and it cannot change
- * file attachments — only the message's text and blocks.
+ * file attachments, only the message's text and blocks.
  *
  * When `blocks` is provided, the previous blocks payload
  * is replaced wholesale. Pass `blocks: []` to clear blocks

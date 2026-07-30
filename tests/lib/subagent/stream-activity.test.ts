@@ -103,7 +103,7 @@ describe("summarizeStreamActivity", () => {
 			args: { path: longPath },
 		});
 		expect(out?.startsWith("reading ")).toBe(true);
-		expect(out?.endsWith("…")).toBe(true);
+		expect(out?.endsWith("\u2026")).toBe(true);
 		// 40 chars + the prefix; total below 60.
 		expect((out ?? "").length).toBeLessThanOrEqual(60);
 	});

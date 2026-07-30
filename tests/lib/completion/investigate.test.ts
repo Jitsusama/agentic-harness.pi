@@ -5,7 +5,7 @@ import type { CompletionRegistry } from "../../../lib/completion/types.js";
 const glm = { id: "glm-5.2", provider: "fireworks" };
 
 // The loop body dynamically imports the pi-ai compat module and would
-// drive a real model, so — like the runSideCompletion suite — these
+// drive a real model, so, like the runSideCompletion suite, these
 // cover the failure paths that resolve before the loop starts.
 const request = {
 	systemPrompt: "s",

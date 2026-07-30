@@ -6,7 +6,7 @@
  * paths here. {@link runReviewer} prepends the registered
  * defaults onto each call's `extraExtensions` and
  * `extraSkills` lists, so the defaults survive an
- * `isolated: true` flag — pi honours explicit
+ * `isolated: true` flag, since pi honours explicit
  * `--extension` / `--skill` injections even when ambient
  * inheritance is disabled.
  *

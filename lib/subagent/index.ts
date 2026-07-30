@@ -11,10 +11,10 @@
  *
  * Two runner implementations live under `./runpi`:
  *
- * - `createSpawnRunPi` — fire-and-forget; the child dies
+ * - `createSpawnRunPi`: fire-and-forget; the child dies
  *   with the parent. Cheapest path; suitable for council
  *   fan-outs inside an interactive session.
- * - `createSupervisorRunPi` — durable; each run lives
+ * - `createSupervisorRunPi`: durable; each run lives
  *   under a state directory so subsequent sessions can
  *   recover in-flight work via {@link recoverReviewerRuns}.
  *

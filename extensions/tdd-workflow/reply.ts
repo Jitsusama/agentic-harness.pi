@@ -4,11 +4,11 @@
  * A landed transition and a refused one must be impossible to
  * confuse, because the phase reminders and the refusal guidance
  * deliberately share vocabulary: the `red` reminder ("the failure
- * has to be a real assertion…") reads almost word-for-word like
- * the `green` refusal ("you haven't seen a real red yet…"). The
+ * has to be a real assertion...") reads almost word-for-word like
+ * the `green` refusal ("you haven't seen a real red yet..."). The
  * prose alone cannot disambiguate them, so the reply leads with an
- * explicit verdict marker — a tick that advances, a cross that
- * refuses — and names the phase either way. The marker, not the
+ * explicit verdict marker, a tick that advances or a cross that
+ * refuses, and names the phase either way. The marker, not the
  * prose, is the contract the agent reads first.
  */
 

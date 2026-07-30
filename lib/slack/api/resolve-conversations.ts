@@ -102,7 +102,7 @@ function looksLikeUserId(name: string): boolean {
  * already seen names for, but those entries won't have
  * accurate kind until conversations.info runs.
  *
- * Skips names that look like user IDs (DM channels) — those
+ * Skips names that look like user IDs (DM channels), since those
  * need conversations.info to resolve properly.
  */
 export function cacheConversationFromSearch(

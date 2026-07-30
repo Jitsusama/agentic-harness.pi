@@ -244,7 +244,7 @@ const COMMAND_DELIMITERS = new Set([";", "&", "|", "(", ")"]);
  *
  * Designed to run on the output of `stripHeredocBodies` so
  * that heredoc bodies are already removed. The result is a
- * command skeleton suitable for pattern matching — command
+ * command skeleton suitable for pattern matching: command
  * names, flags and operators survive; data does not.
  *
  * The scanner tracks single-quote, double-quote and escape

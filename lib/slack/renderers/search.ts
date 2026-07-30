@@ -20,7 +20,7 @@ export function renderFileList(
 	}
 	const truncated = total > files.length;
 	const showing = truncated
-		? `, showing ${files.length} (limit reached — pass a higher limit or 0 for all)`
+		? `, showing ${files.length} (limit reached, so pass a higher limit or 0 for all)`
 		: `, showing ${files.length}`;
 	lines.push(`Found ${total} file(s)${showing}:\n`);
 

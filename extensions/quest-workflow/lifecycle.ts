@@ -449,7 +449,7 @@ function snapshot(state: QuestState, cwd: string | null): PersistedState {
  * entries; the restore path only reads the latest one, so
  * everything past the first was dead weight. The skip
  * preserves restore semantics because `restore` still
- * reads the same data — it just doesn't have a fresh
+ * reads the same data; it just doesn't have a fresh
  * copy of it on every keystroke.
  *
  * Dedup uses an in-memory key on QuestState (O(1)) when

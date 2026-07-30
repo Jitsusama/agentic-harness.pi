@@ -4,7 +4,7 @@
  * Launches Chrome (non-headless, using the user's existing
  * install), navigates to Slack, and polls localStorage and
  * cookies for the xoxc- token and xoxd- cookie. Works with
- * any Slack workspace — the user just needs to be logged in
+ * any Slack workspace; the user just needs to be logged in
  * (or log in when the browser opens).
  *
  * Uses puppeteer-core (no bundled browser) for consistency
@@ -84,7 +84,7 @@ export async function extractFromBrowser(
 		const startTime = Date.now();
 
 		while (Date.now() - startTime < timeoutMs) {
-			// Grab the most recent page — Slack and SSO flows may open
+			// Grab the most recent page, since Slack and SSO flows may open
 			// new tabs or navigate, destroying the original context.
 			const pages = await browser.pages();
 			const activePage = pages[pages.length - 1] ?? page;
@@ -99,7 +99,7 @@ export async function extractFromBrowser(
 
 			// Try to read the token from localStorage. This fails during
 			// navigations (context destroyed) and on non-Slack pages
-			// (SSO provider). Both are expected — we just retry.
+			// (SSO provider). Both are expected, so we just retry.
 			const token = await extractTokenFromPage(activePage);
 
 			if (token?.startsWith("xoxc-") && cookie?.startsWith("xoxd-")) {
@@ -149,7 +149,7 @@ async function extractTokenFromPage(
 		});
 	} catch {
 		// Execution context destroyed (navigation), page closed, or
-		// cross-origin frame (SSO provider). All expected — retry.
+		// cross-origin frame (SSO provider). All expected, so retry.
 		return null;
 	}
 }
