@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -9,7 +8,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { restoreFromCwd } from "../../../extensions/quest-workflow/lifecycle";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
@@ -18,9 +16,8 @@ import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../lib/tree/index";
+import { freshRepo } from "../../support/git-fixture.js";
 import { createEnvGuard } from "./_helpers";
-
-const execFileAsync = promisify(execFile);
 
 let tmpRoot: string;
 let repoRoot: string;
@@ -40,10 +37,6 @@ function buildState() {
 	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
 
-async function git(cwd: string, ...args: string[]) {
-	await execFileAsync("git", args, { cwd });
-}
-
 // The tree path from a tree-add result, asserting success so the
 // discriminated QuestResult narrows to its ok branch.
 function treePathOf(result: Awaited<ReturnType<typeof handle>>): string {
@@ -51,16 +44,7 @@ function treePathOf(result: Awaited<ReturnType<typeof handle>>): string {
 	return (result.details as { tree: { path: string } }).tree.path;
 }
 
-async function makeRepo(): Promise<string> {
-	const dir = mkdtempSync(join(tmpdir(), "cwd-attach-repo-"));
-	await git(dir, "init", "-q", "-b", "main");
-	await git(dir, "config", "user.email", "test@example.com");
-	await git(dir, "config", "user.name", "Test");
-	writeFileSync(join(dir, "README.md"), "scratch\n");
-	await git(dir, "add", "README.md");
-	await git(dir, "commit", "-qm", "initial");
-	return dir;
-}
+const makeRepo = (): Promise<string> => freshRepo("cwd-attach-repo");
 
 const envGuard = createEnvGuard();
 

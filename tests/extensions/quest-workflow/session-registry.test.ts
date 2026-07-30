@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { quietFor, until } from "../../support/until.js";
 import {
 	endReasonForShutdown,
 	forgetRecord,
@@ -25,6 +24,7 @@ import {
 	closeRecord,
 	openRecord,
 } from "../../../lib/internal/quest/session-registry";
+import { quietFor, until } from "../../support/until.js";
 
 let stateHome: string;
 let savedStateHome: string | undefined;
