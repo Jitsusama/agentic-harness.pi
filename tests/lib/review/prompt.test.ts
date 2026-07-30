@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Proposal } from "../../../lib/review/index.js";
 import {
+	auditPrompt,
 	councilPrompt,
 	critiquePrompt,
 	judgePrompt,
@@ -212,6 +213,63 @@ describe("what a critic is told", () => {
 		expect(
 			critiquePrompt({ proposal: proposal(), diff, findings: " " }),
 		).toMatch(/nothing to challenge/i);
+	});
+});
+
+describe("what an auditor is told", () => {
+	it("carries the threads put to it", () => {
+		expect(
+			auditPrompt({
+				proposal: proposal(),
+				diff,
+				threads: "[T2] evan: this leaks",
+			}),
+		).toContain("[T2] evan: this leaks");
+	});
+
+	it("explains why elsewhere is its own answer", () => {
+		// Folding it into addressed would send somebody looking in the
+		// wrong diff, which is the specific harm worth naming.
+		expect(auditPrompt({ proposal: proposal(), diff, threads: "x" })).toMatch(
+			/stack|wrong diff/i,
+		);
+	});
+
+	it("says unclear beats a guess", () => {
+		expect(auditPrompt({ proposal: proposal(), diff, threads: "x" })).toMatch(
+			/better than a guess/i,
+		);
+	});
+
+	it("tells the auditor it is not replying to anybody", () => {
+		// The reply stays a human decision. An auditor that thought it
+		// was answering would write to the author rather than to us.
+		expect(auditPrompt({ proposal: proposal(), diff, threads: "x" })).toMatch(
+			/not replying/i,
+		);
+	});
+
+	it("carries the stack when the change sits in one", () => {
+		expect(
+			auditPrompt({
+				proposal: proposal(),
+				diff,
+				threads: "x",
+				stack: "world#41 then world#42",
+			}),
+		).toContain("world#41 then world#42");
+	});
+
+	it("leaves the stack section out when there is none", () => {
+		expect(
+			auditPrompt({ proposal: proposal(), diff, threads: "x" }),
+		).not.toMatch(/rest of the stack/i);
+	});
+
+	it("says plainly when there is nothing to weigh", () => {
+		expect(auditPrompt({ proposal: proposal(), diff, threads: " " })).toMatch(
+			/nothing to weigh/i,
+		);
 	});
 });
 

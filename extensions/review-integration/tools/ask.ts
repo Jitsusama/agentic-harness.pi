@@ -25,6 +25,7 @@ import { loadPackageConfig } from "../../../lib/internal/config/loader.js";
 import {
 	type AskAnswer,
 	type AskRun,
+	auditPrompt,
 	type ChangeRef,
 	type Critique,
 	councilPrompt,
@@ -32,17 +33,21 @@ import {
 	createIdentityLedger,
 	createRunStore,
 	critiquePrompt,
+	describeAnchor,
 	type Finding,
 	judgePrompt,
 	type Participant,
 	parseRoster,
 	type Roster,
 	type RunStore,
+	runAudit,
 	runCouncil,
 	runCritique,
 	runJudge,
 	runSummary,
 	substituteOutcome,
+	type Thread,
+	type ThreadAudit,
 } from "../../../lib/review/index.js";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.js";
 import {
@@ -70,6 +75,7 @@ type AskAction =
 	| "council"
 	| "judge"
 	| "critique"
+	| "audit"
 	| "runs"
 	| "retry"
 	| "release";
@@ -114,12 +120,13 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						Type.Literal("council"),
 						Type.Literal("judge"),
 						Type.Literal("critique"),
+						Type.Literal("audit"),
 						Type.Literal("runs"),
 						Type.Literal("retry"),
 					],
 					{
 						description:
-							"What to do. council: ask every reviewer on the roster, independently and at once. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. runs: what rounds have been asked about this change. retry: ask one participant again and substitute their outcome in place. Defaults to runs, which changes nothing.",
+							"What to do. council: ask every reviewer on the roster, independently and at once. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. runs: what rounds have been asked about this change. retry: ask one participant again and substitute their outcome in place. Defaults to runs, which changes nothing.",
 					},
 				),
 			),
@@ -186,6 +193,8 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						return await askJudge(bound, change, params);
 					case "critique":
 						return await askCritique(bound, change, params);
+					case "audit":
+						return await askAudit(bound, change, params);
 					case "retry":
 						return await retryOne(bound, change, params);
 					case "release":
@@ -357,6 +366,118 @@ async function askCritique(
 				: ["", ...describeCritiques(critiques)]),
 		].join("\n"),
 		{ run, critiques, warnings },
+	);
+}
+
+/**
+ * Judge the inbound threads against the change.
+ *
+ * Advisory by construction: it never posts and raises no findings.
+ * Answering a thread is a decision about how to talk to a person, and
+ * this only makes it a better informed one.
+ */
+async function askAudit(
+	bound: Awaited<ReturnType<typeof boundFor>>,
+	change: ChangeRef,
+	params: AskParams,
+): Promise<Answer> {
+	const roster = await rosterOrThrow();
+	// The judge audits, because weighing what exists against a change
+	// is the judging role and a roster should not need a fourth kind of
+	// participant to say so.
+	const auditor = roster.judge;
+	if (auditor === undefined) {
+		return refuse(
+			"This roster names no judge, and auditing is a judging job: it weighs what people asked for against what the change does. Add a judge to the config.",
+		);
+	}
+	await claimIdentities(change, "judge", [auditor]);
+
+	if (!bound.conversation) {
+		return refuse(
+			"Nothing hosts this target, so it carries no threads to audit.",
+		);
+	}
+	const threads = await bound.conversation.threads(change);
+	const open = threads.filter((thread) => !thread.resolved);
+	if (open.length === 0) {
+		return say(
+			`Every thread on ${change.label} is resolved, so there is nothing to audit.`,
+			{ audits: [] },
+		);
+	}
+
+	const { proposal, diff } = await material(bound);
+	const tree = await treeForRound(
+		bound.repo,
+		proposal.headCommit,
+		process.cwd(),
+	);
+
+	// Indices are the ones a person cites, meaning the position in the
+	// full thread listing rather than among the unresolved ones. An
+	// audit that renumbered them would send somebody to the wrong
+	// thread, which is the same harm the elsewhere standing exists to
+	// avoid.
+	const indexOf = new Map(threads.map((thread, at) => [thread.id, at + 1]));
+	const threadIndices = open.flatMap((thread) => {
+		const at = indexOf.get(thread.id);
+		return at === undefined ? [] : [at];
+	});
+
+	const { run, audits, warnings } = await runAudit(
+		{
+			auditor,
+			prompt: auditPrompt({
+				proposal,
+				diff,
+				threads: renderThreads(open, indexOf),
+				...(params.intent === undefined ? {} : { intent: params.intent }),
+			}),
+			seq: 1,
+			threadIndices,
+		},
+		{ ask: deps(change, tree.path).ask, now: () => new Date() },
+	);
+
+	await createRunStore(runDir()).record(change, run);
+	return say(
+		[
+			answerFor(run, warnings, tree.caveat),
+			...(audits.length === 0
+				? ["No thread was judged."]
+				: ["", ...describeAudits(audits)]),
+		].join("\n"),
+		{ run, audits, warnings },
+	);
+}
+
+/** Threads as an auditor reads them, by the index a person cites. */
+function renderThreads(
+	threads: readonly Thread[],
+	indexOf: ReadonlyMap<string, number>,
+): string {
+	return threads
+		.map((thread) => {
+			const at = indexOf.get(thread.id) ?? 0;
+			const where = thread.anchor
+				? describeAnchor(thread.anchor)
+				: "the change";
+			const said = thread.comments
+				.map((comment) => `  ${comment.author.name}: ${comment.body}`)
+				.join("\n");
+			return `[T${at}] ${where}${thread.stale ? " (anchor may be stale)" : ""}\n${said}`;
+		})
+		.join("\n\n");
+}
+
+/** Standings, in the order the threads were put up. */
+function describeAudits(audits: readonly ThreadAudit[]): string[] {
+	return audits.map((audit) =>
+		[
+			`[T${audit.threadIndex}] ${audit.standing}: ${audit.rationale}`,
+			...(audit.evidence === undefined ? [] : [`  seen at ${audit.evidence}`]),
+		].join("\n"),
 	);
 }
 

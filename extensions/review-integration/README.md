@@ -12,7 +12,7 @@ commands.
 | `review` | What the session is working on: attach, detach, next, prev, capabilities |
 | `review_see` | Every read: change, diff, checks, stack, changes, threads, reviews, messages |
 | `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
-| `review_ask` | Putting the change to other models: council, judge, critique, runs, retry, release |
+| `review_ask` | Putting the change to other models: council, judge, critique, audit, runs, retry, release |
 | `review_draft` | Composing a review, seeing what publishing would do, then publishing or rendering it |
 
 Split by intent rather than by subject. The subject is nearly

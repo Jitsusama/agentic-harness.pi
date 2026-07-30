@@ -39,7 +39,7 @@ owned which question.
 | `review` | What you are working on: attach, detach, next, prev, capabilities |
 | `review_see` | Everything reading tells you: change, diff, checks, stack, changes, threads, reviews, messages, findings |
 | `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
-| `review_ask` | Putting the change to other models: council, judge, critique, runs, retry, release |
+| `review_ask` | Putting the change to other models: council, judge, critique, audit, runs, retry, release |
 | `review_draft` | Composing a whole review, then planning and publishing it |
 
 ## One Question Per Tool, Which Settles Where Deciding Lives
@@ -77,6 +77,25 @@ survived scrutiny and which a reviewer thinks are wrong, and
 `disagree` from a model that went and read the code is worth more than
 the finding it disputes. Silence means no position, never agreement,
 so do not read an uncontested finding as a corroborated one.
+
+## Auditing What Other People Asked For
+
+`review_ask audit` is the one round that looks outward rather than at
+the diff. A change under review usually arrives with threads on it,
+some answered by later commits and never marked resolved, and working
+out which is slow and easy to get wrong in both directions: replying
+"fixed" to a thread nothing addressed reads as a brush-off, and
+re-fixing something already fixed wastes a round trip.
+
+It reports one of four standings per thread. `addressed`,
+`outstanding`, `unclear`, and `elsewhere` for a thread another change
+in the stack answers, which happens constantly and matters because
+calling it addressed sends somebody looking in the wrong diff.
+
+**It never posts and raises no findings.** These are other people's
+words; turning them into findings would put them in the review as
+yours. Use it to inform a `review_say reply`, and keep the reply your
+own decision.
 
 An id that has raised findings is held to the model, thinking level,
 tools and persona it meant. Reconfiguring one mid-session is refused,

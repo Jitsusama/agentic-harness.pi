@@ -94,6 +94,37 @@ export function critiquePrompt(input: CritiquePromptInput): string {
 		.join("\n\n");
 }
 
+/** What an auditor needs: the threads, and the change to weigh them against. */
+export interface AuditPromptInput extends PromptInput {
+	/** The threads put up, rendered with the indices they are cited by. */
+	threads: string;
+	/** The rest of the stack, when the change sits in one. */
+	stack?: string;
+}
+
+/** The prompt an auditor answers. */
+export function auditPrompt(input: AuditPromptInput): string {
+	return [
+		"People have left the review threads below on this change. Some of them were answered by later commits and never marked resolved. Your job is to work out which, and to say why for each one.",
+		"Report a standing of addressed, outstanding, elsewhere or unclear. Addressed means the change as it now stands does what the thread asked. Outstanding means it does not. Elsewhere means another change answers it, which happens constantly in a stack and matters because reporting it as addressed sends somebody looking in the wrong diff. Unclear means you cannot tell from what is here, which is a useful answer and much better than a guess.",
+		"Go and read the code before you call something addressed. A thread saying the handle leaks is addressed by a close on the error path, not by a comment saying it should be closed. Cite where you saw it.",
+		"You are not replying to anybody and not raising findings. These are other people's words, and what you produce informs a reply that somebody else will write.",
+		intentSection(input.intent),
+		changeSection(input.proposal),
+		input.stack?.trim()
+			? `## The rest of the stack\n\n${input.stack.trim()}`
+			: "",
+		"## The threads put to you",
+		input.threads.trim() === ""
+			? "(no unresolved threads, so there is nothing to weigh)"
+			: input.threads.trim(),
+		diffSection(input.diff),
+		"Answer in the JSON your output contract skill describes, citing each thread by the index it was given.",
+	]
+		.filter((part) => part !== "")
+		.join("\n\n");
+}
+
 /** Where anchors may land, so a finding does not degrade for nothing. */
 function anchorGuidance(diff: DiffModel): string {
 	return [

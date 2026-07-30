@@ -56,6 +56,7 @@ in the loop:
 | [`council.ts`](ask/council.ts) | Asking everybody at once |
 | [`judge.ts`](ask/judge.ts) | Consolidating what they said |
 | [`critique.ts`](ask/critique.ts) | Pushing back on what was consolidated |
+| [`audit.ts`](ask/audit.ts) | Whether the change answers what people asked for |
 | [`run.ts`](ask/run.ts) | What a round was, as a record |
 | [`store.ts`](ask/store.ts) | Finding a round somebody else ran |
 

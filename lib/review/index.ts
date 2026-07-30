@@ -26,6 +26,14 @@ export { anchorable, anchorPath, describeAnchor } from "./anchor.js";
 export type { FileRanges, LineRange } from "./ask/anchorable.js";
 export { anchorableRanges, describeRanges } from "./ask/anchorable.js";
 export type {
+	AuditHarvest,
+	AuditRequest,
+	AuditResult,
+	Standing,
+	ThreadAudit,
+} from "./ask/audit.js";
+export { harvestAudits, runAudit } from "./ask/audit.js";
+export type {
 	AskAnswer,
 	CouncilDeps,
 	CouncilRequest,
@@ -60,11 +68,13 @@ export {
 export type { JudgeRequest, JudgeResult } from "./ask/judge.js";
 export { runJudge } from "./ask/judge.js";
 export type {
+	AuditPromptInput,
 	CritiquePromptInput,
 	JudgePromptInput,
 	PromptInput,
 } from "./ask/prompt.js";
 export {
+	auditPrompt,
 	councilPrompt,
 	critiquePrompt,
 	judgePrompt,
