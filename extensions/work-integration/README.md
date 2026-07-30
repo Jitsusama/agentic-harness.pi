@@ -18,6 +18,8 @@ provider, and exposes one tool.
 | `trees` | List the trees this session holds |
 | `release` | Give a tree back |
 | `status` | What has changed inside a tree |
+| `record` | Stage and commit the work in a tree |
+| `branch` | Make a branch in a tree and check it out |
 
 A worktree is checked out at a branch and is yours alone. A
 snapshot is pinned to a commit and may be shared with another
@@ -59,8 +61,19 @@ that guards a repoint. An untracked file counts: overwriting a
 modified file is bad and recoverable, and overwriting an untracked
 one is neither.
 
+**It will not record nothing.** `record` reads the tree first and
+refuses when it is clean. Committing nothing succeeds at the git
+level and leaves the caller believing work was saved, which is the
+worst kind of success.
+
+**It will not accept a branch name git would take but nothing else
+should.** A branch called `-rf` is a valid ref and a flag to every
+command that later receives it, so names are checked before git is
+called rather than after, and they are refused rather than
+corrected. Quietly renaming somebody's branch is worse than
+declining to make it.
+
 ## What Is Not Here Yet
 
-Committing and branching. `lib/work` has no primitives for them,
-and an action that exists before the thing it calls is a promise
-the surface cannot keep.
+Stacks. `gs` tracks a stack in a way plain git cannot be asked
+about, so that is a facet rather than more actions on this one.

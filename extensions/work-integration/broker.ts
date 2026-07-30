@@ -31,8 +31,14 @@ export function treeDir(): string {
 	return join(stateDir("work"), "trees");
 }
 
-/** Adapt pi's exec to the library's seam. */
-function execFor(pi: ExtensionAPI): Exec {
+/**
+ * Adapt pi's exec to the library's seam.
+ *
+ * Exported because the tool builds a history and an author of its
+ * own, and three call sites reaching for the same six lines is
+ * what a shared helper is for.
+ */
+export function execFor(pi: ExtensionAPI): Exec {
 	return async (command, args) => {
 		const result = await pi.exec(command, args);
 		return {

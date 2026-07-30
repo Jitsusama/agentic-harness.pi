@@ -7,9 +7,9 @@
  * snapshot, list what is held, give one back, and read the state
  * of the work inside one.
  *
- * Committing and branching are deliberately absent. The library
- * has no primitives for them yet, and a tool action that exists
- * before the thing it calls is a promise the surface cannot keep.
+ * Committing and branching arrived once `lib/work` had primitives
+ * for them, which is the order that keeps a tool action from being
+ * a promise the surface cannot keep.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -17,11 +17,12 @@ import { Type } from "@sinclair/typebox";
 import { citeListing, openSessionStore } from "../../../lib/result/index.js";
 import {
 	blocksRepoint,
+	createGitAuthor,
 	createGitHistory,
 	type HeldTree,
 	treeRequestFrom,
 } from "../../../lib/work/index.js";
-import { treeBroker } from "../broker.js";
+import { execFor, treeBroker } from "../broker.js";
 import { GLYPH, treeLine } from "../render.js";
 import {
 	type Answer,
@@ -60,10 +61,12 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						Type.Literal("trees"),
 						Type.Literal("release"),
 						Type.Literal("status"),
+						Type.Literal("record"),
+						Type.Literal("branch"),
 					],
 					{
 						description:
-							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. Defaults to trees.",
+							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. record: stage and commit the work in a tree. branch: make a branch in a tree and check it out. Defaults to trees.",
 					},
 				),
 			),
@@ -104,13 +107,41 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			tree: Type.Optional(
 				Type.String({
 					description:
-						"Which held tree to act on, by its key or its path. For release and status.",
+						"Which held tree to act on, by its key or its path. For release, status, record and branch.",
+				}),
+			),
+			subject: Type.Optional(
+				Type.String({
+					description:
+						"Commit subject, for record. Conventional form: type(scope): subject.",
+				}),
+			),
+			body: Type.Optional(
+				Type.String({
+					description:
+						"Commit body, for record. Say why, not what: the diff already says what.",
+				}),
+			),
+			name: Type.Optional(
+				Type.String({ description: "Branch name, for branch." }),
+			),
+			from: Type.Optional(
+				Type.String({
+					description:
+						"Where a new branch starts, for branch. Defaults to where the tree already points.",
 				}),
 			),
 		}),
 		execute: async (rawArgs): Promise<Answer> => {
 			const args = rawArgs as {
-				action?: "tree" | "snapshot" | "trees" | "release" | "status";
+				action?:
+					| "tree"
+					| "snapshot"
+					| "trees"
+					| "release"
+					| "status"
+					| "record"
+					| "branch";
 				repo?: string;
 				checkout?: string;
 				remote?: string;
@@ -119,6 +150,10 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				commit?: string;
 				paths?: string[];
 				tree?: string;
+				subject?: string;
+				body?: string;
+				name?: string;
+				from?: string;
 			};
 			const action = args.action ?? "trees";
 			const broker = treeBroker();
@@ -191,16 +226,57 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					);
 				}
 
-				const history = createGitHistory({
-					exec: async (command, cmdArgs) => {
-						const result = await pi.exec(command, cmdArgs);
-						return {
-							code: result.code,
-							stdout: result.stdout,
-							stderr: result.stderr,
-						};
-					},
-				});
+				const history = createGitHistory({ exec: execFor(pi) });
+
+				if (action === "record") {
+					if (!args.subject) {
+						return refuse(
+							`${GLYPH.refused} Say what the commit is for, as a subject. Conventional form: type(scope): subject.`,
+						);
+					}
+					const author = createGitAuthor({ exec: execFor(pi) });
+					const before = await history.status(found.path);
+					if (before.changed.length === 0) {
+						// Committing nothing succeeds at the git level and
+						// leaves the caller believing work was recorded.
+						return refuse(
+							`${GLYPH.clean} Nothing to record in ${found.identity.key}: the tree is clean.`,
+						);
+					}
+					await author.stage(
+						found.path,
+						args.paths && args.paths.length > 0 ? args.paths : undefined,
+					);
+					await author.commit(found.path, {
+						subject: args.subject,
+						...(args.body ? { body: args.body } : {}),
+					});
+					const head = await history.head(found.path);
+					return say(
+						`${GLYPH.clean} Recorded ${before.changed.length} paths in ${found.identity.key} at ${head.commit.slice(0, 12)}.`,
+						{
+							ok: true,
+							commit: head.commit,
+							recorded: before.changed.length,
+						},
+					);
+				}
+
+				if (action === "branch") {
+					if (!args.name) {
+						return refuse(`${GLYPH.refused} Name the branch to make.`);
+					}
+					const author = createGitAuthor({ exec: execFor(pi) });
+					await author.branch(
+						found.path,
+						args.name,
+						args.from ? { from: args.from } : undefined,
+					);
+					return say(
+						`${GLYPH.tree} ${found.identity.key} is on ${args.name}.`,
+						{ ok: true, branch: args.name },
+					);
+				}
 
 				if (action === "status") {
 					const state = await history.status(found.path);
