@@ -8,14 +8,14 @@
  * deciding what to do about them is `review_draft decide`: this tool
  * only produces.
  *
- * One limit worth stating plainly, because it shows in use.
- * Participants run in the working directory this session sits in, not
- * in a tree cut for the round. `lib/work` can cut one, and the seam
- * to reach it across extensions exists, but wiring it is its own
- * increment and a half-tested cross-extension dependency is worse
- * than a documented limitation. So a reviewer inspects whatever the
- * caller's cwd holds, and a caller reviewing a change that is not
- * checked out there gets a reviewer reading the wrong tree.
+ * Participants read a snapshot pinned to the commit under review,
+ * cut through the working layer, so a change that is not checked out
+ * here is still reviewed against its own code. When no working layer
+ * is loaded, or the provider cannot say which commit is under review,
+ * the round still runs against the caller's own tree and says so:
+ * losing a council to a missing optional dependency would be worse
+ * than a caveat, and reviewing the wrong code silently would be worse
+ * than both.
  */
 
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
@@ -47,6 +47,7 @@ import {
 } from "../../../lib/subagent/index.js";
 import { findingDir, runDir } from "../engine.js";
 import { GLYPH } from "../render.js";
+import { treeForRound } from "../work.js";
 import {
 	type Answer,
 	boundFor,
@@ -199,6 +200,11 @@ async function askCouncil(
 		diff,
 		...(params.intent === undefined ? {} : { intent: params.intent }),
 	});
+	const tree = await treeForRound(
+		bound.repo,
+		proposal.headCommit,
+		process.cwd(),
+	);
 
 	const { run, warnings } = await runCouncil(
 		{
@@ -209,11 +215,11 @@ async function askCouncil(
 				? {}
 				: { witness: proposal.headCommit }),
 		},
-		deps(change),
+		deps(change, tree.path),
 	);
 
 	await createRunStore(runDir()).record(change, run);
-	return say(answerFor(run, warnings), { run, warnings });
+	return say(answerFor(run, warnings, tree.caveat), { run, warnings });
 }
 
 /** Ask the judge to consolidate the latest council. */
@@ -246,6 +252,11 @@ async function askJudge(
 		...(params.intent === undefined ? {} : { intent: params.intent }),
 	});
 
+	const tree = await treeForRound(
+		bound.repo,
+		proposal.headCommit,
+		process.cwd(),
+	);
 	const { run, warnings } = await runJudge(
 		{
 			judge: roster.judge,
@@ -255,11 +266,11 @@ async function askJudge(
 				? {}
 				: { witness: proposal.headCommit }),
 		},
-		deps(change),
+		deps(change, tree.path),
 	);
 
 	await store.record(change, run);
-	return say(answerFor(run, warnings), { run, warnings });
+	return say(answerFor(run, warnings, tree.caveat), { run, warnings });
 }
 
 /** Ask one participant again, in place. */
@@ -305,6 +316,11 @@ async function retryOne(
 	}
 
 	const { proposal, diff } = await material(bound);
+	const tree = await treeForRound(
+		bound.repo,
+		proposal.headCommit,
+		process.cwd(),
+	);
 	const single: Roster = { reviewers: [participant] };
 	const { run: fresh, warnings } = await runCouncil(
 		{
@@ -319,7 +335,7 @@ async function retryOne(
 				? {}
 				: { witness: proposal.headCommit }),
 		},
-		deps(change),
+		deps(change, tree.path),
 	);
 
 	const outcome = fresh.outcomes[0];
@@ -334,6 +350,7 @@ async function retryOne(
 			`${GLYPH.finding} Asked ${asked.id} again in ${held.id}.`,
 			describeRun(updated),
 			...warnings,
+			...(tree.caveat === undefined ? [] : [tree.caveat]),
 		].join("\n"),
 		{ run: updated, warnings },
 	);
@@ -390,7 +407,7 @@ async function material(bound: Awaited<ReturnType<typeof boundFor>>) {
  * whatever `pi` resolves to on PATH, so a reviewer runs the same
  * build as the session that asked it.
  */
-function deps(change: ChangeRef) {
+function deps(change: ChangeRef, cwd: string) {
 	const findings = createFindingStore(findingDir());
 	return {
 		async ask(participant: Participant, prompt: string): Promise<AskAnswer> {
@@ -411,7 +428,7 @@ function deps(change: ChangeRef) {
 						: { tools: participant.tools }),
 				},
 				prompt,
-				cwd: process.cwd(),
+				cwd,
 				runPi: createSpawnRunPi({ piInstall: getParentPiInstall() }),
 			});
 			if (result.exitCode !== 0 && result.finalAssistantText.trim() === "") {
@@ -478,9 +495,12 @@ function describeRun(run: AskRun): string {
 }
 
 /** What a round's answer says. */
-function answerFor(run: AskRun, warnings: string[]): string {
+function answerFor(run: AskRun, warnings: string[], caveat?: string): string {
 	const summary = runSummary(run);
 	const lines = [describeRun(run)];
+	// Before the findings, not after: a caveat about which tree was
+	// read changes how everything below it should be weighed.
+	if (caveat !== undefined) lines.push(`${GLYPH.refused} ${caveat}`);
 	if (summary.answered === 0) {
 		lines.push(
 			"Nobody answered, so nothing was recorded. The failures above are the whole story.",

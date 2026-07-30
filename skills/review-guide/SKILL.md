@@ -66,14 +66,15 @@ The roster lives in a `review.ask` section of the package config, not
 in the call, because who reviews is a standing choice. A malformed one
 is refused with the path inside it that is wrong.
 
-Two things worth knowing before you trust a result.
+Participants read a snapshot pinned to the commit under review, so a
+change that is not checked out where you are is still reviewed against
+its own code. When no working layer is loaded, or the provider cannot
+say which commit is under review, the round runs against your own tree
+and says so in its answer. **Pass that caveat on.** A round that read
+the wrong tree still returns plausible findings, and the caveat is the
+only thing that distinguishes them.
 
-Participants run in the session's working directory, not in a tree cut
-for the round, so a change that is not checked out where you are gets
-reviewed against the wrong tree. Check that before reporting what a
-council said.
-
-And a round survives its participants failing. `review_ask runs`
+A round also survives its participants failing. `review_ask runs`
 reports how many of them answered, so read that rather than assuming
 six reviewers means six opinions. `review_ask retry participant:"id"`
 asks one of them again and substitutes the outcome in place, keeping
