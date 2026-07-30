@@ -45,7 +45,7 @@ interface OfferParams {
 		| "propose"
 		| "edit"
 		| "ready"
-		| "draft"
+		| "unready"
 		| "close"
 		| "reopen"
 		| "merge"
@@ -69,7 +69,7 @@ const INTENT: Record<OfferParams["action"], AuthoringIntent["kind"]> = {
 	propose: "propose",
 	edit: "retarget",
 	ready: "set-draft",
-	draft: "set-draft",
+	unready: "set-draft",
 	close: "close",
 	reopen: "reopen",
 	merge: "merge",
@@ -98,7 +98,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					Type.Literal("propose"),
 					Type.Literal("edit"),
 					Type.Literal("ready"),
-					Type.Literal("draft"),
+					Type.Literal("unready"),
 					Type.Literal("close"),
 					Type.Literal("reopen"),
 					Type.Literal("merge"),
@@ -106,7 +106,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				],
 				{
 					description:
-						"What to do. propose: put a branch up as a change. edit: change its title, body or base. ready and draft: move it between the two. reviewers: ask people to look. close and reopen. merge: land it.",
+						"What to do. propose: put a branch up as a change. edit: change its title, body or base. ready: mark it ready for review; unready: put it back to a draft. reviewers: ask people to look. close and reopen. merge: land it.",
 				},
 			),
 			change: Type.Optional(
@@ -238,8 +238,8 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					case "edit":
 						return edit(ctx, change, authoring, params);
 					case "ready":
-					case "draft": {
-						const wanted = params.action === "draft";
+					case "unready": {
+						const wanted = params.action === "unready";
 						const approved = await confirmWrite(
 							ctx,
 							`Move ${change.label} to ${wanted ? "draft" : "ready"}?`,

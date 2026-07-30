@@ -96,7 +96,7 @@ Start here. Find the row, make the call.
 | Put a branch up for review | `review_offer propose draft:false` |
 | Fix a title or description | `review_offer edit` |
 | Move it out of draft | `review_offer ready` |
-| Put it back into draft | `review_offer draft` |
+| Put it back into draft | `review_offer unready` |
 | Ask people to look | `review_offer reviewers` |
 | Withdraw it | `review_offer close` |
 | Put a withdrawn one back | `review_offer reopen` |
