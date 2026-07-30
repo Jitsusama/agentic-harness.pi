@@ -80,7 +80,11 @@ export function registerSayTool(pi: ExtensionAPI): void {
 					description: "1-based [T#] index from the threads listing.",
 				}),
 			),
-			body: Type.Optional(Type.String({ description: "Text to post." })),
+			body: Type.Optional(
+				Type.String({
+					description: "For reply and comment: the text to post.",
+				}),
+			),
 			reaction: Type.Optional(
 				Type.String({ description: "Reaction name, e.g. rocket." }),
 			),

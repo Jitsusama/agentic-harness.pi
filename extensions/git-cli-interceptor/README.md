@@ -7,7 +7,7 @@ and retry with separate bash calls.
 
 ## What It Catches
 
-- `git commit --amend` — amends rewrite history and are
+- `git commit --amend`: amends rewrite history and are
   almost never the right choice. Make a new commit instead.
 - `git commit` with an unquoted heredoc delimiter
   (`<<EOF` instead of `<<'EOF'`), which allows shell

@@ -15,10 +15,10 @@ on its most recent invocation.
 
 Outcomes:
 
-- `allowed` — review returned ALLOW.
-- `blocked: <reason>` — review returned a block.
-- `rewritten` — review returned a rewrite.
-- `skipped (<why>)` — short-circuited before review:
+- `allowed`: review returned ALLOW.
+- `blocked: <reason>`: review returned a block.
+- `rewritten`: review returned a rewrite.
+- `skipped (<why>)`: short-circuited before review, being
   - `no-ui`: no terminal session attached.
   - `bypassed`: bypass toggle is enabled (see `/git-intercept`).
   - `detect-miss`: command didn't match this guardian's
@@ -28,7 +28,7 @@ Outcomes:
     Usually a parsing bug worth investigating.
 
 `never called` means the guardian registered but no `tool_call`
-event has reached it yet — typical right after `/reload`.
+event has reached it yet, which is typical right after `/reload`.
 
 ## How It Works
 

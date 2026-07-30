@@ -110,6 +110,43 @@ describe("every action is written down somewhere", () => {
 		expect(guide.includes("review_see frobnicate")).toBe(false);
 	});
 
+	it("has no action that repeats its own tool's name", () => {
+		// `review_see see` says the same thing twice, and the second
+		// word is where the information should be.
+		const repeats: string[] = [];
+		for (const [file, tool] of TOOLS) {
+			const stem = tool.replace("review_", "");
+			for (const action of actionsOf(
+				read(`extensions/review-integration/tools/${file}.ts`),
+			)) {
+				if (action === stem) repeats.push(`${tool} ${action}`);
+			}
+		}
+
+		expect(repeats).toEqual([]);
+	});
+
+	it("has no action that names a different tool", () => {
+		// An action called `draft` on the offering tool reads as though
+		// it belongs to `review_draft`, which sends a reader to the wrong
+		// place. That one existed: it is `unready` now, which also pairs
+		// with the `ready` beside it.
+		const tools = new Set(TOOLS.map(([, tool]) => tool));
+		const misdirecting: string[] = [];
+		for (const [file, tool] of TOOLS) {
+			const stem = tool.replace("review_", "");
+			for (const action of actionsOf(
+				read(`extensions/review-integration/tools/${file}.ts`),
+			)) {
+				if (action !== stem && tools.has(`review_${action}`)) {
+					misdirecting.push(`${tool} ${action} collides with review_${action}`);
+				}
+			}
+		}
+
+		expect(misdirecting).toEqual([]);
+	});
+
 	it("is not satisfied by the word appearing in unrelated prose", () => {
 		// The failure mode that let eighteen actions through. `diff` is a
 		// real action and the word is everywhere in the guide, so the

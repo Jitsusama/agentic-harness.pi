@@ -32,22 +32,22 @@ end-to-end.
 
 Three patterns earn the cost of N subprocesses:
 
-- **Persona sweep** — same artifact, several roles. A
+- **Persona sweep**: same artifact, several roles. A
   security reviewer, a performance reviewer and a
   readability reviewer looking at the same module surface
   different concerns; the synthesis is richer than any
   single role would produce.
-- **Multi-angle investigation** — same problem, several
+- **Multi-angle investigation**: same problem, several
   framings. "Walk the data flow", "trace the lifecycle"
   and "audit the configuration" applied to the same bug
   yield independent evidence; convergence is signal.
-- **Fleet brainstorming** — same prompt, several models.
+- **Fleet brainstorming**: same prompt, several models.
   When you want divergence (naming candidates, design
   alternatives, edge case enumeration), N models with the
   same instruction beat one model asked N times because
   each model brings its own priors.
 
-Anti-patterns — don't reach for the fleet when:
+Anti-patterns, so don't reach for the fleet when:
 
 - The work is sequential. Subagent B needs subagent A's
   output. Run them one at a time.
@@ -71,25 +71,25 @@ You are a {role}. Your job is to {one-sentence mission}.
 {One paragraph of taste: what you flag, what you ignore,
 how you express findings.}
 Return {output shape: bullet list, markdown report,
-JSON conforming to schema X, …}.
+JSON conforming to schema X, ...}.
 ```
 
 Common personas to keep on hand:
 
-- **Security reviewer** — "Surface auth, authz, input
+- **Security reviewer**: "Surface auth, authz, input
   handling, secrets and crypto issues. Cite file:line.
   Ignore style. Use Conventional Comments labels."
-- **Performance reviewer** — "Look for hot-path
+- **Performance reviewer**: "Look for hot-path
   allocations, N+1 calls, blocking I/O, sync code in async
   paths. Quantify when you can. Skip readability."
-- **Readability reviewer** — "Read like a new
+- **Readability reviewer**: "Read like a new
   contributor: naming, structure, where the surprises
   are. Don't critique correctness."
-- **Contrarian** — "Assume every claim in the prompt is
+- **Contrarian**: "Assume every claim in the prompt is
   wrong until proven. Counter-arguments first, agreement
   last."
-- **Specialist X** — domain-specific role (database
-  expert, accessibility reviewer, …). Persona prose
+- **Specialist X**: a domain-specific role (database
+  expert, accessibility reviewer, and so on). Persona prose
   carries the domain priors.
 
 Three rules for persona prose:
@@ -98,7 +98,7 @@ Three rules for persona prose:
    user's ambient AGENTS.md and personal skills don't
    leak in and water down the persona. Flip to `false`
    only when the persona explicitly wants the
-   inheritance — see the safety note below before doing
+   inheritance. See the safety note below before doing
    so.
 2. **Shape the output.** Tell each persona how to format.
    If you're going to synthesise three reports, pick a
@@ -116,7 +116,7 @@ Three rules for persona prose:
 subagent with `--no-skills --no-context-files
 --no-extensions`. The flag is convenient for clean-slate
 investigation, but it strips the user's installed pi
-extensions — including guardians and interceptors that
+extensions, including guardians and interceptors that
 gate commits, PRs and shell commands.
 
 Decide on isolation by what tools the subagent can call:
@@ -140,7 +140,7 @@ for speed.
 ## Always-load defaults
 
 Some extensions need to be present in *every* subagent
-regardless of isolation — credentials helpers, telemetry
+regardless of isolation: credentials helpers, telemetry
 hooks, organization-wide setup. Threading these into each
 job's `extraExtensions` array by hand defeats the point.
 The engine keeps a process-global registry that any pi
@@ -177,19 +177,19 @@ For package-internal callers, import the functions from
 Registered defaults survive `isolated: true`: pi honours
 explicit `--extension` and `--skill` flags even after
 `--no-extensions` / `--no-skills`. That's the whole
-premise of the hook — a clean-slate subagent that still
+premise of the hook, since a clean-slate subagent that still
 has the bits it actually needs.
 
 Symptom to recognise when the hook is missing: a fleet
 that all-fails on the first run with no obvious reason.
 From v2 onwards each failure surfaces a stderr tail in
-the summary (`✗ {id}: pi exited with code 1: …`); if
+the summary (`✗ {id}: pi exited with code 1: ...`); if
 you see a credentials or configuration error there,
 registering the relevant extension as a default fixes it.
 
 ## Cost and cancellation etiquette
 
-Fleet runs are expensive — N subprocesses, N context
+Fleet runs are expensive: N subprocesses, N context
 windows, N model calls. Three habits keep this honest:
 
 - **Estimate before dispatching 5+ jobs.** "Three
@@ -238,9 +238,9 @@ run: a 20-minute hard wall-clock cap (`timeoutMs`) and a
 5-minute idle ceiling (`idleTimeoutMs`) between supervisor
 progress events. The idle ceiling is the one that bites
 first in practice. A subagent that issues a single
-long-running bash command — a benchmark that paces work
+long-running bash command, such as a benchmark that paces work
 internally, a `gcloud` deploy that ssh-then-scps in
-silence, a `git push` against a large mirror — stays
+in silence or a `git push` against a large mirror, stays
 invisible to the supervisor for the whole duration and
 gets a SIGTERM at the 5-minute mark. The symptom looks
 like `✗ {id}: pi exited with code 143` with a half-
@@ -248,11 +248,11 @@ finished workflow on disk.
 
 Every job accepts optional per-call overrides:
 
-- **`timeoutMs`** — hard wall-clock cap in milliseconds.
+- **`timeoutMs`**: hard wall-clock cap in milliseconds.
   Bump this when the work legitimately runs longer than
   20 minutes (soak tests, recovery journeys, deep
   multi-step deploys).
-- **`idleTimeoutMs`** — gap between supervisor protocol
+- **`idleTimeoutMs`**: gap between supervisor protocol
   events before the child is declared stuck, in
   milliseconds. Bump this when the subagent will sit on
   one bash command that produces no intermediate output.
@@ -286,7 +286,7 @@ to narrate progress (`echo` between steps, `tee` per-
 iteration output) so the supervisor sees activity. The
 idle clock resets on every supervisor event.
 
-Example — a benchmark persona that paces 100 pushes over
+Example: a benchmark persona that paces 100 pushes over
 several minutes:
 
 ```ts
@@ -295,7 +295,7 @@ subagent({
     {
       id: "baseline-bench",
       cwd: "/tmp/run",
-      systemPrompt: "You are a perf engineer establishing a baseline …",
+      systemPrompt: "You are a perf engineer establishing a baseline ...",
       userPrompt: "Run gsperf against production, capture results.",
       tools: ["read", "write", "bash"],
       isolated: false,
@@ -306,7 +306,7 @@ subagent({
 });
 ```
 
-## Worked example 1 — three-persona project audit
+## Worked Example 1: Three-Persona Project Audit
 
 User asks: "Take a look at `src/auth/` from a few
 different angles."
@@ -367,7 +367,7 @@ shared concerns first, then per-persona signals. Hand
 the user a synthesis paragraph plus the three full
 reports.
 
-## Worked example 2 — multi-angle bug investigation
+## Worked Example 2: Multi-Angle Bug Investigation
 
 User reports: "Sessions are randomly logging out users in
 production. We don't see a pattern."
@@ -425,7 +425,7 @@ subagent({
 });
 ```
 
-Note `isolated: true` on every job — the bug
+Note `isolated: true` on every job, since the bug
 investigation is sensitive to context priors. Ambient
 AGENTS.md skills that mention session handling would bias
 all three subagents toward the same hypothesis. Cleaner
@@ -438,7 +438,7 @@ convergent findings plus the three full investigations.
 
 ## Quick reference
 
-| When you want…                            | Reach for…                |
+| When you want ...                         | Reach for ...             |
 |-------------------------------------------|---------------------------|
 | Several roles on the same artifact        | Persona sweep (this skill) |
 | Several framings of the same problem      | Multi-angle (this skill)   |

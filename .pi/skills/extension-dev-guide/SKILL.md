@@ -14,7 +14,7 @@ Before building any UI, follow this sequence:
 
 1. **Read Pi's TUI docs** for patterns and available
    components. The main Pi documentation is listed in the
-   system prompt under "Pi documentation" — read `docs/tui.md`
+   system prompt under "Pi documentation". Read `docs/tui.md`
    from there. Follow links to related docs as needed.
 
 2. **Read the type declarations** for the specific component

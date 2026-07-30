@@ -8,37 +8,37 @@ top of Pi's TUI primitives.
 
 ### Interactive prompts and views
 
-- **`promptSingle`** — show a single interactive prompt with
+- **`promptSingle`**: show a single interactive prompt with
   content, options and actions. Returns the user's decision.
-- **`promptTabbed`** — show a tabbed prompt where each tab is
+- **`promptTabbed`**: show a tabbed prompt where each tab is
   an independent decision.
-- **`workspace`** — show a stateful workspace with per-tab
+- **`workspace`**: show a stateful workspace with per-tab
   views and input handlers.
-- **`view`** — show read-only scrollable content.
+- **`view`**: show read-only scrollable content.
 
 ### Content rendering
 
-- **`renderMarkdown`**, **`renderDiff`**, **`renderCode`** —
+- **`renderMarkdown`**, **`renderDiff`**, **`renderCode`**:
   render content as themed, syntax-highlighted output.
-- **`renderNavigableList`** — render a cursor-navigable list
+- **`renderNavigableList`**: render a cursor-navigable list
   with labels and detail columns.
 
 ### Compact indicators
 
-- **`renderBadge`** — single-token indicator (themed dot,
+- **`renderBadge`**: single-token indicator (themed dot,
   fraction, label) for severity, status and progress.
-- **`renderBar`** — visual fraction as a filled/empty
+- **`renderBar`**: visual fraction as a filled/empty
   character bar. Composes inside summaries and status lines.
-- **`renderPipelineProgress`** — horizontal or vertical
+- **`renderPipelineProgress`**: horizontal or vertical
   multi-stage indicator for any pipeline that marches through
   named stages (council, TDD, quest-workflow, mastery).
-- **`renderNarrationLine`** — single-line transcript
+- **`renderNarrationLine`**: single-line transcript
   annotation (`※ <prefix>: <body>`) for side-effect actions
   and cross-surface coordination.
 
 ### Text layout
 
-- **`contentWrapWidth`**, **`wordWrap`** — text layout
+- **`contentWrapWidth`**, **`wordWrap`**: text layout
   utilities for panel content.
 
 Import from the barrel:

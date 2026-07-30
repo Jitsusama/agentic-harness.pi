@@ -29,8 +29,8 @@ const rendered = renderEventList(events);
 
 Each subdomain has its own barrel for fine-grained imports:
 
-- **`apis/`** — API functions for all six Google services.
-- **`auth/`** — `ensureAuthenticated` (one-call entry point),
+- **`apis/`**: API functions for all six Google services.
+- **`auth/`**: `ensureAuthenticated` (one-call entry point),
   credential state readers (`getCredentials`,
   `getDefaultAccount`, `listAccounts`).
-- **`renderers/`** — markdown formatting for Google entities.
+- **`renderers/`**: markdown formatting for Google entities.

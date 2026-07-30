@@ -35,5 +35,5 @@ export function formatTransitionReply(
 		return `${ADVANCE_MARKER} Advanced to ${phase}. Discipline: ${disciplineFor(phase)}`;
 	}
 	const held = refusedPhase ?? "the current phase";
-	return `${REFUSE_MARKER} Refused — still in ${held}, nothing changed. ${result.guidance}`;
+	return `${REFUSE_MARKER} Refused, still in ${held}, nothing changed. ${result.guidance}`;
 }

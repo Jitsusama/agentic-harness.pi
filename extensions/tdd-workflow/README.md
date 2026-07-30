@@ -26,12 +26,13 @@ new phase's discipline to the agent. On a refused transition it
 returns the guidance and leaves the loop untouched.
 
 Success and refusal must never be confused, because the phase
-reminders and the refusal guidance deliberately share vocabulary
-— the `red` reminder ("the failure has to be a real assertion…")
-reads almost word-for-word like the `green` refusal ("you
-haven't seen a real red yet…"). So every reply leads with a
-verdict marker the agent reads first: `✓ Advanced to <phase>` on
-a landed transition, `✗ Refused — still in <phase>, nothing
+reminders and the refusal guidance deliberately share
+vocabulary. The `red` reminder ("the failure has to be a real
+assertion ...") reads almost word-for-word like the `green`
+refusal ("you haven't seen a real red yet ..."). So every reply
+leads with a verdict marker the agent reads first:
+`✓ Advanced to <phase>` on
+a landed transition, `✗ Refused, still in <phase>, nothing
 changed` on a refusal. The marker, not the prose, carries the
 verdict; the shared discipline language can no longer mislead.
 
