@@ -21,7 +21,11 @@
 import { readdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	Theme,
+} from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
@@ -70,7 +74,11 @@ import {
 } from "../../../lib/subagent/index.js";
 import { REVIEW_SLUG } from "../config.js";
 import { findingDir, personaDir, reviewEngine, runDir } from "../engine.js";
-import { PARTICIPANT_TIMEOUT_MS, statusLineProgress } from "../progress.js";
+import {
+	PARTICIPANT_TIMEOUT_MS,
+	type RoundWatch,
+	watchRound,
+} from "../progress.js";
 import { GLYPH } from "../render.js";
 import { treeForRound } from "../work.js";
 import {
@@ -189,12 +197,19 @@ export function registerAskTool(pi: ExtensionAPI): void {
 			return renderAnswer(result, theme);
 		},
 
-		// The first argument is the tool call's id, not the arguments. Taking
-		// only one parameter here reads the id as the payload, which is a
-		// string, so every field comes back undefined and every call silently
-		// falls to its default. That shipped: no council could ever run,
-		// because every action arrived as `runs`.
-		async execute(_toolCallId: string, args: unknown): Promise<Answer> {
+		// Pi passes (toolCallId, params, signal, onUpdate, ctx). Reading the
+		// first as the payload was a real bug: the id is a string, so every
+		// field came back undefined and no council could ever run, because
+		// every action arrived as `runs`. The signal and the context were lost
+		// the same way, and three comments in this extension claimed pi
+		// provided neither.
+		async execute(
+			_toolCallId: string,
+			args: unknown,
+			signal: AbortSignal | undefined,
+			_onUpdate: unknown,
+			ctx: ExtensionContext,
+		): Promise<Answer> {
 			const params = args as AskParams;
 			const action = params.action ?? "runs";
 			try {
@@ -206,21 +221,26 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					);
 				}
 
+				// One watch per call rather than one per round helper, so the
+				// panel and the signal are the same objects everything sees.
+				const watch = (round: AskRound): RoundWatch =>
+					watchRound(round, ctx, signal);
+
 				switch (action) {
 					case "runs":
 						return await reportRuns(change);
 					case "council":
-						return await askCouncil(bound, change, params);
+						return await askCouncil(bound, change, params, watch("council"));
 					case "judge":
-						return await askJudge(bound, change, params);
+						return await askJudge(bound, change, params, watch("judge"));
 					case "critique":
-						return await askCritique(bound, change, params);
+						return await askCritique(bound, change, params, watch("critique"));
 					case "audit":
-						return await askAudit(bound, change, params);
+						return await askAudit(bound, change, params, watch("audit"));
 					case "stack":
-						return await askStack(pi, bound, params);
+						return await askStack(pi, bound, params, watch("stack"));
 					case "retry":
-						return await retryOne(bound, change, params);
+						return await retryOne(bound, change, params, watch("council"));
 					case "release":
 						return releaseIdentity(params);
 				}
@@ -252,6 +272,7 @@ async function askCouncil(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
+	watch: RoundWatch,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow();
 	const charters = await chartersFor(roster);
@@ -277,7 +298,7 @@ async function askCouncil(
 				? {}
 				: { witness: proposal.headCommit }),
 		},
-		deps(change, tree.path, charters, "council"),
+		deps(change, tree.path, watch, charters),
 	);
 
 	await createRunStore(runDir()).record(change, run);
@@ -289,6 +310,7 @@ async function askJudge(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
+	watch: RoundWatch,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow();
 	const charters = await chartersFor(roster);
@@ -330,7 +352,7 @@ async function askJudge(
 				? {}
 				: { witness: proposal.headCommit }),
 		},
-		deps(change, tree.path, charters, "judge"),
+		deps(change, tree.path, watch, charters),
 	);
 
 	await store.record(change, run);
@@ -348,6 +370,7 @@ async function askCritique(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
+	watch: RoundWatch,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow();
 	const charters = await chartersFor(roster);
@@ -382,9 +405,9 @@ async function askCritique(
 			findingIds: raised.map((finding) => finding.id),
 		},
 		{
-			ask: deps(change, tree.path, charters, "critique").ask,
+			ask: deps(change, tree.path, watch, charters).ask,
 			now: () => new Date(),
-			progress: statusLineProgress("critique"),
+			progress: watch.progress,
 		},
 	);
 
@@ -413,6 +436,7 @@ async function askStack(
 	pi: ExtensionAPI,
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	params: AskParams,
+	watch: RoundWatch,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow();
 	const charters = await chartersFor(roster);
@@ -490,7 +514,7 @@ async function askStack(
 			witnessFor: (ref) => witnesses.get(ref),
 		},
 		{
-			ask: deps(tip.change, tree.path, charters, "stack").ask,
+			ask: deps(tip.change, tree.path, watch, charters).ask,
 			async record(ref, raised) {
 				const change = changeFor.get(ref);
 				if (change === undefined) return [];
@@ -498,7 +522,7 @@ async function askStack(
 			},
 			now: () => new Date(),
 			// The longest round of all: it reads every change in the stack.
-			progress: statusLineProgress("stack"),
+			progress: watch.progress,
 		},
 	);
 
@@ -526,6 +550,7 @@ async function askAudit(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
+	watch: RoundWatch,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow();
 	const charters = await chartersFor(roster);
@@ -585,9 +610,9 @@ async function askAudit(
 			threadIndices,
 		},
 		{
-			ask: deps(change, tree.path, charters, "audit").ask,
+			ask: deps(change, tree.path, watch, charters).ask,
 			now: () => new Date(),
-			progress: statusLineProgress("audit"),
+			progress: watch.progress,
 		},
 	);
 
@@ -654,6 +679,7 @@ async function retryOne(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
+	watch: RoundWatch,
 ): Promise<Answer> {
 	if (params.participant === undefined) {
 		return refuse(
@@ -724,7 +750,7 @@ async function retryOne(
 						seq: 1,
 						...witness,
 					},
-					deps(change, tree.path, charters, "judge"),
+					deps(change, tree.path, watch, charters),
 				)
 			: await runCouncil(
 					{
@@ -733,7 +759,7 @@ async function retryOne(
 						seq: 1,
 						...witness,
 					},
-					deps(change, tree.path, charters, "council"),
+					deps(change, tree.path, watch, charters),
 				);
 
 	const outcome = fresh.outcomes[0];
@@ -948,11 +974,12 @@ async function material(bound: Awaited<ReturnType<typeof boundFor>>) {
 function deps(
 	change: ChangeRef,
 	cwd: string,
+	watch: RoundWatch,
 	charters: ReadonlyMap<string, string> = new Map(),
-	round: AskRound = "council",
 ) {
 	const findings = createFindingStore(findingDir());
-	const contract = contractSkill(round);
+	// The watch knows which round this is, so it is not passed twice.
+	const contract = contractSkill(watch.round);
 	return {
 		async ask(
 			participant: Participant,
@@ -991,9 +1018,15 @@ function deps(
 					? {}
 					: { systemPrompt: charters.get(participant.id) }),
 				runPi: createSpawnRunPi({ piInstall: getParentPiInstall() }),
-				// Bounded, because nothing else can stop it: pi hands a tool's
-				// execute no cancellation signal, so a wedged participant runs
-				// to the runner's ceiling, which is forty-five minutes.
+				// Cancellable, so Escape on the panel really stops the work
+				// rather than only hiding it. The runner kills the child on
+				// abort; all that was ever missing was passing the signal down.
+				// This participant's own, so cancelling one leaves the rest
+				// running. It is derived from the round's, so Escape still
+				// reaches every one of them.
+				signal: watch.signalFor(participant.id),
+				// Still bounded, for a participant that stops responding while
+				// nobody is watching the panel.
 				timeoutMs: PARTICIPANT_TIMEOUT_MS,
 				// The one place a subprocess becomes something a person can
 				// watch. The library cannot see a stream, so it is told.
@@ -1034,7 +1067,7 @@ function deps(
 		// Every round reports. A round that fans out and says nothing for
 		// minutes is indistinguishable from one that has hung, which is
 		// the whole reason this exists.
-		progress: statusLineProgress(round),
+		progress: watch.progress,
 	};
 }
 

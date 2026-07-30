@@ -11,6 +11,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import reviewIntegration from "../../extensions/review-integration/index.js";
+import { watchRound } from "../../extensions/review-integration/progress.js";
 import {
 	clearReviewProviders,
 	listReviewProviders,
@@ -62,21 +63,38 @@ function activate() {
 afterEach(() => clearReviewProviders());
 
 describe("the review integration", () => {
-	it("takes a session context for the progress reporter", () => {
-		const { lifecycle } = activate();
+	it("survives a session with no UI to draw on", () => {
+		// The reporter must never take a round down. A headless session has
+		// no terminal to draw in, and a round asked in one has to run
+		// exactly as it would with one.
+		//
+		// This used to reach for a session_start handler that stashed the
+		// context, and it asserted through an optional call, so when that
+		// handler went away the test kept passing while checking nothing.
+		// The context now arrives as an argument to the tool's execute, so
+		// the thing to exercise is the reporter itself.
+		const watch = watchRound("council", { hasUI: false } as never);
 
-		expect(lifecycle.has("session_start")).toBe(true);
+		expect(() => {
+			watch.progress.start([{ id: "one" }] as never);
+			watch.progress.started("one");
+			watch.progress.activity("one", "reading a file");
+			watch.progress.answered("one");
+			watch.progress.recorded("one", 2);
+			watch.progress.finish();
+		}).not.toThrow();
 	});
 
-	it("survives a session with no UI to draw on", () => {
-		// The reporter must never take a round down. A headless session
-		// hands over a context with hasUI false, and a round asked in one
-		// has to run exactly as it would with a terminal attached.
-		const { lifecycle } = activate();
+	it("still cancels with no UI, since the signal is not the panel", () => {
+		// Otherwise a headless caller would have no way to stop a round at
+		// all, which is the case that matters most: nobody is watching.
+		const outer = new AbortController();
+		const watch = watchRound("council", null, outer.signal);
+		const one = watch.signalFor("one");
 
-		expect(() =>
-			lifecycle.get("session_start")?.({}, { hasUI: false }),
-		).not.toThrow();
+		outer.abort();
+
+		expect(one.aborted).toBe(true);
 	});
 
 	it("registers one tool per intent, not one per subject", () => {

@@ -28,7 +28,6 @@ import {
 	registerBuiltinReviewProviders,
 	reviewEngine,
 } from "./engine.js";
-import { holdProgressContext } from "./progress.js";
 import {
 	registerAskTool,
 	registerDraftTool,
@@ -94,12 +93,6 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	// the commit under review. The dependency is optional, so a
 	// missing working layer costs a caveat rather than the round.
 	watchForWorkLayer(pi);
-
-	// A round draws from inside a tool's execute, which pi hands no
-	// context, so the reporter is given one here.
-	pi.on("session_start", (_event, ctx) => {
-		holdProgressContext(ctx);
-	});
 
 	pi.events.on("session_start", () => {
 		// A new session must not inherit the last one's bindings, or
