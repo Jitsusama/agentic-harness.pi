@@ -189,7 +189,12 @@ export function registerAskTool(pi: ExtensionAPI): void {
 			return renderAnswer(result, theme);
 		},
 
-		async execute(args: unknown): Promise<Answer> {
+		// The first argument is the tool call's id, not the arguments. Taking
+		// only one parameter here reads the id as the payload, which is a
+		// string, so every field comes back undefined and every call silently
+		// falls to its default. That shipped: no council could ever run,
+		// because every action arrived as `runs`.
+		async execute(_toolCallId: string, args: unknown): Promise<Answer> {
 			const params = args as AskParams;
 			const action = params.action ?? "runs";
 			try {

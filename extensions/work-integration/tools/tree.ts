@@ -132,7 +132,12 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				}),
 			),
 		}),
-		execute: async (rawArgs): Promise<Answer> => {
+		// The first argument is the tool call's id, not the arguments. Taking
+		// only one parameter here reads the id as the payload, which is a
+		// string, so every field comes back undefined and every call silently
+		// falls to its default. That shipped: `work` answered the tree listing
+		// whatever action it was given.
+		execute: async (_toolCallId, rawArgs): Promise<Answer> => {
 			const args = rawArgs as {
 				action?:
 					| "tree"
