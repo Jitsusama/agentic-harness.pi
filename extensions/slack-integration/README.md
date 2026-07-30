@@ -4,11 +4,11 @@ AI-friendly access to Slack through a single `slack` tool.
 
 ## Features
 
-- 🔍 **Search** — messages and files with full Slack query syntax
-- 💬 **Messages** — read, send, reply to threads
-- 📢 **Channels** — info, recent messages
-- 👤 **Users** — profile lookup
-- 😀 **Reactions** — add, remove, view
+- 🔍 **Search**: messages and files with full Slack query syntax
+- 💬 **Messages**: read, send, reply to threads
+- 📢 **Channels**: info, recent messages
+- 👤 **Users**: profile lookup
+- 😀 **Reactions**: add, remove, view
 
 ## Quick Start
 
@@ -79,8 +79,8 @@ slack-integration/
 
 ## Security
 
-- **OAuth2 flow** — user explicitly authorizes in their browser
-- **User tokens** — `xoxp-` tokens that act as the authenticated user
-- **Local storage** — tokens stored at `~/.pi/agent/slack.json`
-- **Confirmation gates** — write operations require approval
-- **CSRF protection** — OAuth state parameter prevents forgery
+- **OAuth2 flow**: user explicitly authorizes in their browser
+- **User tokens**: `xoxp-` tokens that act as the authenticated user
+- **Local storage**: tokens stored at `~/.pi/agent/slack.json`
+- **Confirmation gates**: write operations require approval
+- **CSRF protection**: OAuth state parameter prevents forgery

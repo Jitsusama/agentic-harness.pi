@@ -20,17 +20,17 @@ subagent({
       model: "anthropic/claude-haiku-4-7",
       thinkingLevel: "high",
       cwd: "/path/to/repo",
-      systemPrompt: "You are a security reviewer …",
+      systemPrompt: "You are a security reviewer ...",
       userPrompt: "Audit src/auth for missing checks.",
     },
     {
       id: "performance",
       model: "anthropic/claude-haiku-4-7",
       cwd: "/path/to/repo",
-      systemPrompt: "You are a performance reviewer …",
+      systemPrompt: "You are a performance reviewer ...",
       userPrompt: "Walk src/auth for hot-path allocations.",
     },
-    // …
+    // ...
   ],
 })
 ```
@@ -122,7 +122,7 @@ const EXTENSION_PATH = "/abs/path/to/creds.ts";
 
 // (1) If we activated AFTER subagent-workflow, the ready
 // event already fired. Emit the register event directly
-// — subagent-workflow's listener is still subscribed.
+// subagent-workflow's listener is still subscribed.
 pi.events.emit(
   "subagent-workflow:register-default-extension:v1",
   EXTENSION_PATH,
@@ -139,7 +139,7 @@ pi.events.on(
 );
 ```
 
-The registry dedupes by path so doing both is safe —
+The registry dedupes by path so doing both is safe;
 the path lands once regardless of which event delivers
 it. Same shape exists for skills:
 `subagent-workflow:register-default-skill:v1` carries an
@@ -153,7 +153,7 @@ package-internal callers and tests.
 Registered paths reach the subagent via pi's
 `--extension` / `--skill` flags, which are honoured even
 under `isolated: true` (i.e. alongside `--no-extensions`).
-That's the point of the hook — a clean-slate subagent
+That's the point of the hook: a clean-slate subagent
 that still has the bits it absolutely needs.
 
 ## Progress panel
@@ -178,22 +178,22 @@ panel and just return results.
 
 ## Files
 
-- `index.ts` — registration only: declares the tool,
+- `index.ts`: registration only. Declares the tool,
   wires the supervisor, the cancellation registry and
   the progress reporter.
-- `run.ts` — orchestrator: takes assignments, dispatches
+- `run.ts`: orchestrator. Takes assignments, dispatches
   via the library's `runSubagent`, threads progress and
   cancellation, aggregates usage.
-- `progress.ts` — observer interface plus the stream-
+- `progress.ts`: observer interface plus the stream-
   activity summarizer.
-- `progress-render.ts` — production status-line +
+- `progress-render.ts`: production status-line +
   focused-panel reporter.
-- `cancellation.ts` — fleet-shaped cancellation
+- `cancellation.ts`: fleet-shaped cancellation
   registry. A review-shaped sibling once lived beside it;
   the review substrate bounds a participant's run with a
   timeout instead, since a tool's execute is handed no
   cancellation signal to hang a keystroke off.
 
 The library at `lib/subagent/` is the substrate. The
-`subagent-fleet-guide` skill is the methodology — read it
+`subagent-fleet-guide` skill is the methodology. Read it
 when you're deciding whether to reach for this tool.

@@ -135,7 +135,12 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						"Title. For propose, defaults to the last commit's subject.",
 				}),
 			),
-			body: Type.Optional(Type.String({ description: "Description." })),
+			body: Type.Optional(
+				Type.String({
+					description:
+						"For propose and edit: the description. Held to the PR format and the prose standard, the same as the shell path is.",
+				}),
+			),
 			draft: Type.Optional(
 				Type.Boolean({
 					description:

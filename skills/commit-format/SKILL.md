@@ -54,7 +54,7 @@ See `git-cli-convention` for the heredoc command syntax
   concrete capability that exists after this commit.
 - **Don't reference future work.** The commit message is about
   this commit, not what comes next. No "subsequent cycles will
-  add…" or "a follow-up will wire this up."
+  add ..." or "a follow-up will wire this up."
 - Don't parrot the implementation. If the diff shows a method
   that calls `.to_date.iso8601.uniq.sort`, don't write "convert
   timestamps to dates, deduplicate and sort." Instead explain

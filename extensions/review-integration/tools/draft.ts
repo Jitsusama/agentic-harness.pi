@@ -135,31 +135,51 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 				}),
 			),
 			startLine: Type.Optional(
-				Type.Number({ description: "First line of a range." }),
+				Type.Number({
+					description: "For finding: the first line of a range.",
+				}),
 			),
 			side: Type.Optional(
 				Type.Union([Type.Literal("old"), Type.Literal("new")], {
-					description: "Which side of the diff. Defaults to new.",
+					description: "For finding: which side of the diff. Defaults to new.",
 				}),
 			),
 			body: Type.Optional(
 				Type.String({
-					description: "Finding text, reply text, or verdict summary.",
+					description:
+						"The text. For finding, the remark; for reply, the answer; for verdict, the summary; for decide, the finding in your own words.",
 				}),
 			),
 			thread: Type.Optional(
-				Type.Number({ description: "1-based [T#] index of a thread." }),
+				Type.Number({
+					description:
+						"For reply and resolve: the 1-based [T#] index of a thread.",
+				}),
 			),
-			reaction: Type.Optional(Type.String({ description: "Reaction name." })),
+			reaction: Type.Optional(
+				Type.String({ description: "For react: the reaction name." }),
+			),
 			comment: Type.Optional(
-				Type.String({ description: "Comment id to react to." }),
+				Type.String({ description: "For react: the comment id." }),
 			),
 			verdict: Type.Optional(
-				Type.Union([
-					Type.Literal("approve"),
-					Type.Literal("request-changes"),
-					Type.Literal("comment"),
-				]),
+				Type.Union(
+					[
+						Type.Literal("approve"),
+						Type.Literal("request-changes"),
+						Type.Literal("comment"),
+					],
+					{
+						description:
+							"For verdict: what to say about the change as a whole.",
+					},
+				),
+			),
+			commit: Type.Optional(
+				Type.String({
+					description:
+						"For fix-done: the commit that landed the fix. Required, since a fix recorded without one cannot be checked.",
+				}),
 			),
 			item: Type.Optional(
 				Type.String({ description: "Item id to drop from the draft." }),
@@ -167,7 +187,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 			finding: Type.Optional(
 				Type.Number({
 					description:
-						"For decide: the [F#] number of the finding to settle, as review_see findings lists it.",
+						"For decide, fix-done and fix-skip: the [F#] number of the finding, as review_see findings lists it.",
 				}),
 			),
 			settle: Type.Optional(

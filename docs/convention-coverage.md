@@ -202,7 +202,7 @@ Slack message authoring and content.
 | No markdown pipe tables; use the `table` parameter instead | Tables | 🟢 | `lib/slack/detect.ts` |
 | Well-formed lists (no orphan items, parallel shape) | Tables / Lists | 🟢 | `lib/slack/detect.ts`, conservative thresholds (runs of two, separator-or-adjacent-rows) |
 | No glyph bullets (`•`, `‣`, `◦`, `▪`, `·`); markdown markers (`- `, `* `, `+ `) only | Message Formatting | 🟢 | `lib/slack/detect.ts` flags a run of two glyph-led lines with a distinct instructive message; same run-of-two threshold as the markdown-marker scan |
-| Thread replies put the parent ts in `ts`, never `thread_ts` | Reply to that thread saying… | ⚪ | Parameter-usage methodology, not artifact shape. The `ts`/`thread_ts` schema descriptions and the `slack` tool guideline carry it; `thread_ts` without `ts` already fails loudly at the router. |
+| Thread replies put the parent ts in `ts`, never `thread_ts` | Reply to that thread saying ... | ⚪ | Parameter-usage methodology, not artifact shape. The `ts`/`thread_ts` schema descriptions and the `slack` tool guideline carry it; `thread_ts` without `ts` already fails loudly at the router. |
 | Slack mrkdwn dialect (`*bold*`, `_italic_`, `~strike~`) instead of markdown | Text Formatting | 🔇 | `lib/slack/blocks.ts` translates `**bold**` → `*bold*`, `*italic*` → `_italic_`, etc., at send time |
 | Slack link syntax (`<url|text>`) instead of markdown | Links and Mentions | 🔇 | `lib/slack/blocks.ts` translates `[text](url)` → `<url|text>` |
 | Colour swatch hex codes (`#DA35EA`) get a leading zero-width space to suppress the auto-detected swatch | Avoiding Auto-Detected Colour Swatches | 🔇 | `lib/slack/blocks.ts` inserts a ZWSP before the `#` |
@@ -422,9 +422,36 @@ is followed by judgment, not by a regex.
   something you could call. Removing one incantation fails the
   gate by name, checked rather than assumed.
 
-  There is no review equivalent of `findable.test.ts` yet, so
-  🟡 a parameter that serves only some of its tool's actions is
-  not required to say which.
+  `tests/extensions/review-findable.test.ts` is the review
+  equivalent of the browser's parameter gate, and it earned its
+  place twice on its first run. Its declaration half found
+  `commit`, which `fix-done` requires and the schema never
+  declared, so the one action needing it could never have
+  received it. Its description half found ten parameters naming
+  none of the actions that read them.
+
+  One more rule is gated because the surface grew past the point
+  of holding it in your head:
+  🟢 no action repeats its own tool's name, and none names a
+  different tool.
+  `review-indexed.test.ts` checks both. It found
+  `review_offer draft`, which read as though it belonged to
+  `review_draft`; it is `unready` now, which also pairs with the
+  `ready` beside it.
+
+  And the prose standard now applies to this package's own
+  markdown, which it did not:
+  🟢 no emdash, curly quote or Unicode ellipsis in any `.md`
+  file.
+  `tests/package/markdown-prose.test.ts`. The rule was stated
+  absolutely and violated 150 times across 20 files, in the repo
+  that ships the detector which finds them. It is scoped to the
+  three glyph rules deliberately: the detector also flags
+  emphasis and backticks in running prose, which documentation
+  showing syntax trips legitimately, and the prose standard's own
+  skill file scores 84 that way while holding five glyphs, every
+  one quoting the rule it teaches. A gate needing suppression
+  everywhere useful is a gate nobody reads.
 - **Audit methodology**: `browser-accessibility-guide`. Its
   rules are about how to conduct and report an audit, and the
   claims most worth enforcing are enforced at the source rather

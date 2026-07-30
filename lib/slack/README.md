@@ -28,9 +28,9 @@ const rendered = renderMessageList(results.messages);
 
 Each subdomain has its own barrel for fine-grained imports:
 
-- **`api/`** — `SlackClient` and all API functions (messages,
+- **`api/`**: `SlackClient` and all API functions (messages,
   channels, reactions, search, users).
-- **`auth/`** — `ensureAuthenticated` (one-call entry point),
+- **`auth/`**: `ensureAuthenticated` (one-call entry point),
   credential state readers (`hasToken`, `getToken`).
-- **`renderers/`** — markdown formatting for Slack entities.
-- **`resolvers/`** — channel, user and conversation resolution.
+- **`renderers/`**: markdown formatting for Slack entities.
+- **`resolvers/`**: channel, user and conversation resolution.

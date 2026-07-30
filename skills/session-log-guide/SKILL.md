@@ -12,7 +12,7 @@ description: >
 ## Format Reference
 
 Read `docs/session.md` from the pi docs directory (listed
-in the system prompt under "Pi documentation — Additional
+in the system prompt under "Pi documentation, Additional
 docs"). That file documents the JSONL format, entry types,
 message roles, content blocks, and tree structure.
 

@@ -187,24 +187,24 @@ updated: 2026-06-03
 Every quest README has four mandatory sections, in this
 order, with their canonical emoji glyphs:
 
-- `## 📜 Summary` — one paragraph: what this quest is and
+- `## 📜 Summary`: one paragraph, being what this quest is and
   why it exists.
-- `## 🧭 Purpose` — why now, what good looks like, scope.
-- `## 🎭 Cast` — the people involved, as role-prefix
+- `## 🧭 Purpose`: why now, what good looks like, scope.
+- `## 🎭 Cast`: the people involved, as role-prefix
   bullets (see below).
-- `## 🌄 Journey` — dated bullets logging progress over
+- `## 🌄 Journey`: dated bullets logging progress over
   time. Newest at the top.
 
 Four optional sections, added when there's something to
 say:
 
-- `## 🎯 Milestones` — GitHub task-list bullets that drive
+- `## 🎯 Milestones`: GitHub task-list bullets that drive
   the status bar's progress glyph.
-- `## 🔥 Spirit` — the stable north star that survives
+- `## 🔥 Spirit`: the stable north star that survives
   deviation.
-- `## 🏆 Outcomes` — what landed when this quest
+- `## 🏆 Outcomes`: what landed when this quest
   concluded.
-- `## 🏰 Context` — background that doesn't fit elsewhere.
+- `## 🏰 Context`: background that doesn't fit elsewhere.
 
 ## Cast Bullets
 

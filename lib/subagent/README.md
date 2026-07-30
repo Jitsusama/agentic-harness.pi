@@ -67,7 +67,7 @@ The registry is process-global because pi loads every
 extension into one Node process. Pi extensions can also
 listen for the `subagent-workflow:ready:v1` event and
 register via the `SubagentWorkflowApi` object the event
-carries — see the `subagent-workflow` extension.
+carries. See the `subagent-workflow` extension.
 
 ## Verify packs
 
@@ -85,21 +85,21 @@ companion skill.
 
 ## Files
 
-- `subagent.ts` — top-level entry: `runSubagent`,
+- `subagent.ts`: top-level entry, being `runSubagent`,
   `runFleet`, `runReviewer` (legacy), arg composition,
   result extraction and verify enforcement.
-- `stream.ts` — JSON-stream parser: collects the final
+- `stream.ts`: JSON-stream parser. Collects the final
   assistant turn, watches `verify_output` tool calls,
   enforces line and warning caps.
-- `artifacts.ts` — durable on-disk state for supervised
+- `artifacts.ts`: durable on-disk state for supervised
   runs (events, progress, lease, result).
-- `recovery.ts` — replay on-disk artifacts back into
+- `recovery.ts`: replay on-disk artifacts back into
   `RecoverySummary`/`RecoveredReviewerProgress` records for
   the parent to surface in-flight work.
-- `runpi/spawn.ts` — fire-and-forget runner. Cheapest path.
-- `runpi/supervisor.ts` — durable runner. Each call writes
+- `runpi/spawn.ts`: fire-and-forget runner. Cheapest path.
+- `runpi/supervisor.ts`: durable runner. Each call writes
   a request file, spawns `supervisor.mjs` detached and
   streams events back via the artifacts store.
-- `runpi/supervisor.mjs` — the supervisor process itself.
+- `runpi/supervisor.mjs`: the supervisor process itself.
   Stays as `.mjs` because pi spawns it directly without
   TypeScript on the path.

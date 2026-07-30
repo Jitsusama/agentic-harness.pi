@@ -33,7 +33,7 @@ the content. Always quote the delimiter: `<<'EOF'`.
 
 Because quoted heredocs are fully literal, never put
 `$variable` syntax in the body expecting it to resolve.
-It won't — the text arrives exactly as written. If you
+It won't; the text arrives exactly as written. If you
 need a dynamic value, write the actual value directly
 in the commit message.
 
